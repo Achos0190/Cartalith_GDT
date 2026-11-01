@@ -4,6 +4,12 @@
 starts from what ships, read at the symbols. It measures that against what nine regular Markdown editors do (with
 sources), and lays out the design, the Godot mapping, the Rust crate upgrade, milestones and owner questions.
 
+**The owner's answers.** Ruling DY (2026-11-01) answered VQ1–VQ7 (§8). Two answers depart from the defaults:
+- **VQ1** adds a session undo that reaches back to the note as it was first opened.
+- **VQ4** keeps **Write** as the view a note opens in.
+
+The design below carries both.
+
 **What it is not.** A build or a status record. How far any of it is built is `cartalith-native/docs/STATUS.md`'s
 answer. Routed from `OUTSTANDING_WORK.md` ("Phone and touch", the mobile shell row) and from `MARKDOWN_VAULT_SCOPE.md`,
 whose milestones this extends.
@@ -19,7 +25,7 @@ whose milestones this extends.
 > You can upgrade the rust crate for the markdown vault accordingly I suppose.
 
 **The mockup.** The vault is built into the mobile shell mockup (`design/mobile-shell-2026-10-31/`, live as the
-claude.ai Design canvas, version 7): MENU ▸ World ▸ Markdown vault…, the Vault pin, or ⌕ with `n`. Captures are in
+claude.ai Design canvas, version 7): MENU ▸ Records ▸ Markdown vault… (the World menu was renamed Records by Ruling DY), the Vault pin, or ⌕ with `n`. Captures are in
 `cartalith-native/docs/evidence/mobile-shell-2026-10-31/`: `phone-note-preview.png`,
 `phone-note-write-link-suggestions.png`, `tablet-vault-split.png`. The desktop form follows in the PC GUI refactor,
 which reuses the same component.
@@ -85,6 +91,14 @@ which reuses the same component.
 3. `broken_links` and `backlinks_to` resolve path links differently. A wrong path link is therefore neither reported
    broken nor counted as a backlink.
 4. The shell caps listing and backlinks at 2 000 notes, against the crate's 12 000 and a vault of 2 000–10 000 notes.
+   The caps sit at six places, each read at its symbol on 2026-11-01:
+   - four `vault_list_files(2000)` calls in `vault_window.gd`: the connection header's count
+     (`_build_connection_header`), the Browse list (`_build_browse`), the link picker (`_build_editor_pane`) and the
+     folder tree (`_refresh_browse_tree`);
+   - `vault_refresh_backlinks(2000)` in `_build_index`;
+   - the default argument of `engine_bridge.gd::vault_list_files`.
+
+   Ruling DY's VQ7 raises all six to the crate's `LIST_CAP`.
 5. Ruling AV's Android folder access (`vault_connect_saf`) is not wired. The in-app browser cannot see files another
    app wrote, so a vault written by Obsidian may show no notes on a phone. This is unverified on a device and is the
    first thing to check there.
@@ -144,10 +158,16 @@ github.com/gsantner/markor (CHANGELOG, NEWS). Forum reports are marked as such w
 
 ### 3.1 One note, three views
 
-- **Preview** is the default when a note opens from the map, a link or a search. It renders every construct in §3.4.
-  Links follow on a tap or click, peek on a hold (touch) or a 650 ms hover (pointer), and tasks tick in place.
-- **Write** is the source, coloured as you type: headings, dimmed markers, links, tags and code. The caret and the
-  colours line up.
+- **Write** is the view a note opens in, whether from the map, a link or a search (Ruling DY, VQ4). The default asked
+  was Preview, and the owner kept today's behaviour.
+  - Write is the source, coloured as you type: headings, dimmed markers, links, tags and code. The caret and the
+    colours line up.
+  - A link is followed with Ctrl/Cmd-click, or on touch with the `Open ›` chip shown when the caret sits in a link
+    (§3.2).
+  - On a phone, opening a note in Write does not raise the keyboard. The keyboard comes up only when the text is
+    tapped.
+- **Preview** renders every construct in §3.4. Links follow on a tap or click, peek on a hold (touch) or a 650 ms
+  hover (pointer), and tasks tick in place.
 - **Split** puts Write and Preview side by side when the note pane is at least 760 dp wide.
 - Ctrl/Cmd+E flips between Write and Preview, as shipped.
 
@@ -200,7 +220,7 @@ coloured source plus Split is the honest substitute, and it is also what iA Writ
   template), then bulleted and numbered lists, quote, code, table, divider, undo and redo.
 - **Desktop and tablet:** the toolbar sits under the header, and each button's tooltip names its shortcut.
 - **Phone:** the toolbar is a scrolling row **docked to the top of the soft keyboard**, as Ruling BE asks. It ends
-  with **Done** (back to Preview). Long-press variants: hold H for H1–H3, hold the table button for a 3×3.
+  with **Done**, which closes the keyboard and leaves the note in Write (VQ4). Long-press variants: hold H for H1–H3, hold the table button for a 3×3.
 - **Shortcuts:**
 
   | Shortcut | Action |
@@ -222,6 +242,18 @@ coloured source plus Split is the honest substitute, and it is also what iA Writ
 - **Conflicts.** If the file changed outside Cartalith, a banner says so and nothing is overwritten. Its choices are
   **Reload**, **Keep mine** and **Compare**. Compare is a two-column read of both versions; it does not merge.
 - **Undo** survives a window rebuild: the history is held by the vault session, not the `TextEdit`.
+- **The session undo** (Ruling DY, VQ1). The owner's words: *"keep an undo that reverts untill the opened state.
+  This should be session only."* The follow-up answer: "First open this session".
+  - **How far back.** Each note's history reaches back to the note as it was the first time it was opened since
+    Cartalith started.
+  - **What does not move that point.** Closing and reopening the note.
+  - **When it ends.** Quitting clears it. None of it is written to disk.
+  - **Autosave.** It saves the latest text and does not cut the history.
+- **Revert to opened…** replaces Cancel (Ruling DY, VQ6).
+  - It says what will be lost and asks first.
+  - The revert is one undo step, so Ctrl/Cmd+Z brings the edits back during the session.
+  - It is written through the same hash guard as any save, so a change made outside Cartalith raises the conflict
+    banner instead of being overwritten.
 - **Footer:** word count and the outgoing link count.
 
 ### 3.4 What Preview renders
@@ -256,7 +288,7 @@ coloured source plus Split is the honest substitute, and it is also what iA Writ
 | | Desktop | Tablet | Phone |
 |---|---|---|---|
 | Vault | one window: tree, note, side panel; pop-out as shipped | the same window; the side panel joins Preview below 900 dp | list, then note (push navigation) |
-| Default view | Preview | Preview | Preview |
+| Default view | Write (Ruling DY, VQ4) | Write | Write; the keyboard comes up only when the text is tapped |
 | Write | toolbar under the header; Split from 760 dp | the same | keyboard row; one view at a time |
 | Links, outline, properties | side panel | side panel or the end of Preview | sheet, and the end of Preview |
 | Peek | hover 650 ms (Ctrl in Write) | hold 480 ms | hold 480 ms |
@@ -276,6 +308,11 @@ coloured source plus Split is the honest substitute, and it is also what iA Writ
   `meta_hover_started` fires under touch emulation.
 - **Saving:** the autosave timer calls the existing `vault_write_file` path. The conflict banner replaces today's
   "Reload from disk" line.
+- **The session undo:** a per-note history held by the vault session.
+  - It is seeded with the text the note had the first time it was opened this session.
+  - It follows a rename.
+  - It is dropped when the app quits.
+  - Revert to opened… writes that first text through `vault_write_file`'s hash guard.
 - **Data:** everything the views need (link spans, link under the caret, suggestions, headings, tags, task toggling,
   frontmatter edits, unlinked mentions, rename plans) comes from the `cartalith-vault` crate through the bridge (§6).
   GDScript keeps no second parser.
@@ -311,27 +348,29 @@ a note.
 | VE-1 | Links work: `meta_clicked` follows, Back returns, the three link kinds look different, and peek works | every link in the four sample notes followed and returned from; unresolved and entity links never create silently |
 | VE-2 | `[[` suggestions with headings, aliases and entities, plus auto-pair | the picker is never unfiltered; Enter, Tab, Escape and arrows work; at least 44 dp rows on touch |
 | VE-3 | Write colouring, Split, smart keys, find and replace, word count | caret and colours align at 3 widths; Split appears exactly from 760 dp |
-| VE-4 | Autosave and the conflict banner | an edit outside Cartalith is never overwritten; "saved" is visible within 2 s |
+| VE-4 | Autosave, the conflict banner, the session undo and Revert to opened… (VQ1, VQ6) | an edit outside Cartalith is never overwritten, by a save or by a revert; "saved" is visible within 2 s. Undo reaches the first-opened text after the note is closed and reopened, and nothing of it is on disk after a quit. Revert asks first and is one undo step |
 | VE-5 | Backlinks pane, unlinked-mention Link button, outline jump, properties form, tags index | every listed mention opens its note at its line; a frontmatter edit leaves the other lines byte-identical |
 | VE-6 | Rename with link rewriting, and create-from-link with a template choice | links survive the rename in every note that had one, aliases and headings kept, and the `KnowledgeLink` follows |
 | VE-7 | Tables, images, embeds, task ticking, chronos rendering, callout colours | each renders in Preview; a chronos row moves the timeline |
 | VE-8 | Phone: keyboard-docked row, `Open ›` chip, sheet, Done | the row stays above the keyboard on the 6T at both orientations |
-| VE-9 | Map routes: landmark notes, a notes scope in ⌕, private badge, the 2 000-note caps raised to the crate's | a landmark reaches its note in one step; search finds a note by a word in its body |
+| VE-9 | Map routes: landmark notes, a notes scope in ⌕, private badge, the 2 000-note caps raised to the crate's (all six sites of §2, VQ7) | a landmark reaches its note in one step; search finds a note by a word in its body; `grep -n "2000" shell/vault_window.gd` finds no cap |
 
 Each closes with `cargo test --workspace` green and every touched `.gd` parse-checked, plus `shell/app.gd`
 (`MISTAKES.md`).
 
 ## 8. Owner questions, with defaults
 
-| # | Question | Default |
-|---|---|---|
-| VQ1 | Autosave (about 1 s after typing stops, and on leaving) instead of explicit Save; Ctrl/Cmd+S kept? | Yes |
-| VQ2 | Following an unresolved link offers to create the note with a template choice, reversing today's refusal? Never silently | Yes |
-| VQ3 | Rename rewrites links in other notes, after showing the count? | Yes |
-| VQ4 | Notes open in Preview, with one tap to Write? | Yes |
-| VQ5 | A link to a world entity with no note shows ⌖ and offers that kind's template? | Yes |
-| VQ6 | Cancel with unsaved edits asks first, like every other way out? | Yes |
-| VQ7 | Raise the shell's 2 000-note caps to the crate's 12 000? | Yes |
+**All answered by Ruling DY** (owner, 2026-11-01, `LARGE_ITEM_RULINGS.md`).
+
+| # | Question | Default | Answer |
+|---|---|---|---|
+| VQ1 | Autosave (about 1 s after typing stops, and on leaving) instead of explicit Save; Ctrl/Cmd+S kept? | Yes | **Yes, plus a session undo back to the note as first opened this session** (§3.3) |
+| VQ2 | Following an unresolved link offers to create the note with a template choice, reversing today's refusal? Never silently | Yes | **Yes** |
+| VQ3 | Rename rewrites links in other notes, after showing the count? | Yes | **Yes** |
+| VQ4 | Notes open in Preview, with one tap to Write? | Yes | **No: notes open in Write**, with Preview a toggle (§3.1) |
+| VQ5 | A link to a world entity with no note shows ⌖ and offers that kind's template? | Yes | **Yes** |
+| VQ6 | Cancel with unsaved edits asks first, like every other way out? | Yes | **Yes**, as **Revert to opened…**, which asks first and is one undo step (§3.3) |
+| VQ7 | Raise the shell's 2 000-note caps to the crate's 12 000? | Yes | **Yes**: all six sites of §2. The question's list was not exact: search is not one of them, and it missed the header's count, the folder tree and the bridge's default |
 
 ## 9. What the mockup does not settle
 

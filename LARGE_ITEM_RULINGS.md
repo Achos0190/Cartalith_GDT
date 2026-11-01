@@ -2257,6 +2257,8 @@ Owner, answering the coordinating session after R2-0/R2-1's vocabulary half land
 
 Owner, after seeing the mock (`design/story-menus-2026-10-17/mockup.html`) and `STORY_MENUS_PROPOSAL.md`: **approve Q1–Q7 at their recommended defaults.** Q1: add an eighth top-level menu, `Story`, against `DCC_SHELL_SPEC.md` §2's seven (with the rail section and the card verbs). Q2: on tablet, merge Data's rows into the existing tablet `World` menu below its pipeline rows. Q3: the renamed Data menu is called `World`. Q4: move export to `File ▸ Export ▸` (imports stay; a signpost row remains in World). Q5: Session mode is a toggle in `Window` that also seeds a layout. Q6: STORY is a node-list section of the rail, not a fourth domain (Ruling L item 4 forbids a standalone notes category). Q7: `Add event` stays limited to the four conflict kinds until a free-event store exists. Milestones SM-1 to SM-7 are scheduled in that order; probes that pin menu contents, rail nodes or card labels are updated in the same batches; `ROADMAP.md` Phase 6 is the home.
 
+*Reopened in part on 2026-11-01 by Ruling DY (PQ6): the World menu is renamed Records, which reopens Q3, and a touch tablet narrower than 1 180 dp shows separate World and Records menus, which reopens Q2.*
+
 ## 2026-10-18 — Ruling CL: EF-9 ships ON by default
 
 Owner, after the EF-9.4 continuous effective-level rebuild (`273bc220`; `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.5): **ship EF-9 (`LodBudget::ef9_refine`) ON by default in the app.** Measured on vs off: I4 seam 18/18 vs 17/18, pops 0 vs 13, D3 8/12 vs 8/12 (the failing runs are today's display path in both states), payoff 33/34 views, about +0.9 ms per frame and +2.4 ms per camera step (medians). Done as a tier default with the toggle still available (`viewport_host.gd::set_ef9_refine`); it is a deliberate app-side change (DECISIONS §7p): the viewport moves, so pinned LOD/viewport pins are re-baselined with disclosure, and `js_reference` and every grid digest stay byte-identical. The cheapest tier may keep it off if its frame-time budget needs it.
@@ -2624,7 +2626,7 @@ Owner, on `MOBILE_SHELL_PROPOSAL.md` section 7, Q5 to Q9, verbatim: *"Yes to Q5 
 
 1. **Q5. Two-finger tap undoes and three-finger tap redoes, on by default**, with a switch to turn them off in Touch & gestures (for a stylus that triggers them by accident).
 2. **Q6. The phone app bar's `⋮` overflow goes.** Its three rows already live elsewhere: Save project and Close project in MENU ▸ File, Theme in MENU ▸ Preferences. The app bar is the world pill (which opens MENU ▸ File), Undo (hold for history) and Search.
-3. **Q7. Below 1 180 dp the tablet keeps the shipped bar `☰ · File · World · Story`**, with ☰ holding the other menus as today. From 1 180 dp the tablet shows the eight menus whole.
+3. **Q7. Below 1 180 dp the tablet keeps the shipped bar `☰ · File · World · Story`**, with ☰ holding the other menus as today. From 1 180 dp the tablet shows the eight menus whole. *(Amended on 2026-11-01 by Ruling DY, PQ6: below 1 180 dp the bar is `☰ · File · World · Records · Story`.)*
 4. **Q8. A floating dock closes when the map is touched, unless it is pinned.** A docked one is not affected.
 5. **Q9. The sheet's peek detent is 76 dp instead of 66**, so the header holds the armed tool's line.
 
@@ -2680,5 +2682,170 @@ Owner, after the menu parity check, verbatim: *"Also add the PC menu implementat
    - **Why:** it keeps the phone row for row with the desktop, and gives every row a meaning there. `PC_SHELL_PROPOSAL.md` §3.11's "the phone gets the model, not the panel" stands: the rows reach the phone's sheet, not a panel.
 6. **The PC menu implementation is its own row in `OUTSTANDING_WORK.md`**, beside the mobile one.
 
-This answers PQ10 to PQ13 and Q13. PQ1 to PQ9 and Q10 to Q12 stay open.
+This answers PQ10 to PQ13 and Q13. PQ1 to PQ9 and Q10 to Q12 stay open. *(Ruling DY answered them later the same day.)*
 
+
+## Ruling DY: every remaining shell and editor question answered: a modular Context panel, the planner in its own window, World renamed Records, notes opening in Write (owner, 2026-11-01)
+
+The owner, on request (*"Prompt me the questions"*), answered every open question in four documents:
+`PC_SHELL_PROPOSAL.md` (PQ1–PQ9), `MOBILE_SHELL_PROPOSAL.md` (Q10–Q12), `MOBILE_SHELL_MS1_SPEC.md` (MQ-1–MQ-5) and
+`VAULT_EDITOR_PROPOSAL.md` (VQ1–VQ7). The answers raised follow-ups, and those were asked too.
+
+The questions were multiple choice. Below, a label in quotation marks is the option the owner picked, and *italics*
+mark the owner's own text, verbatim and with its spelling. A judgement taken to make an answer buildable is labelled
+as one; each is open to the owner.
+
+**PC shell (`PC_SHELL_PROPOSAL.md` §7)**
+
+1. **PQ1, the Context panel: *"1, but it should be modular. Make suggestions for modules."*** Option 1 was
+   "Desktop and tablet". The follow-up questions offered eleven modules. The owner answered "Tabs you arrange" and
+   chose ten: History; Economy; Military; Faith, culture & relations; Territory; City layout; Here; Routes &
+   journeys; Links; Recent & bookmarks. The eleventh, "Compare", was not chosen.
+   - **The right dock becomes the Context panel on the desktop and the tablet.**
+   - **What the owner chose:**
+     - Each module is a tab; Inspect · Note · Ask is the default set.
+     - `+` adds a module, and dragging reorders.
+     - Any tab can open in its own window.
+     - A module that does not fit the selected kind is hidden, not removed.
+     - The arrangement is saved with the user's settings, never in the world file.
+   - **Each module reuses a builder that already ships**, in the Place editor, the faction window, the right dock or
+     the vault crate. The panel and the window are two hosts for one implementation.
+   - **Judgements:**
+     - Inspect cannot be removed, because it anchors the panel.
+     - "Open in a window" is on the desktop only, because the tablet's windows are modal sheets (§3.11).
+     - Ctrl+1/2/3 stay on Inspect, Note and Ask whatever the order. Added modules have no default key.
+     - Window ▸ Context panel lists the modules as check rows, so each has a menu path and its key can be rebound.
+       These rows are not on the phone.
+   - **With Compare not chosen,** flow F8's pin and banner remain the way to compare two subjects.
+2. **PQ2: "Approve it".** The strip in every domain is the design for `GUI_GAP_REGISTER.md` CV-24. The wait the owner
+   set on 2026-09-03 is over: CV-24 can be built, as PC-3.
+3. **PQ3: "Yes, those five".**
+   - Five windows stop blocking the map and follow the selection until pinned: the faction roster, the Place editor,
+     the City viewer, Conflicts and Saved journeys.
+   - These stay modal: the Data manager, the Asset library, New world, Export, Open project and the file dialogs.
+4. **PQ4: *"Planner should open in a separate window that doesn't block the map (that way a user could put it on a
+   second screen for example)"*.** This replaces the default that was asked, which put the planner in a wide
+   workspace beside the map.
+   - **On the desktop the planner opens in its own non-blocking window**, one of §3.6's. The map stays visible and
+     takes clicks, and the selection still feeds Start here, Add as stop and End here.
+   - **This moves work earlier.** `POPOUT_WINDOWS_SCOPE.md` found that the planner is not a window today: it swaps
+     the main view, so popping it out was a re-hosting job. PC-8 now does that re-hosting.
+   - **The second screen comes through Ruling DK's per-window Pop out button**, which makes the window native (DK Q2).
+     An embedded window cannot leave the main window, so that use waits for PW's planner step. DK Q5 already keeps
+     the map live while the planner is native.
+   - **DK's order is unchanged:** the roster, then the other civilisation windows, then the planner. The first two
+     already pop out (PW-2, PW-3), so the planner's PW-4 is next. PC-8 and PW-4 re-host the same view and are best
+     done as one change.
+   - **The tablet and the phone are unchanged.**
+5. **PQ5: *"1, but the user should have the option to save it. Default off, prompted at first use."*** Option 1 was
+   "One per session". The follow-up's answer was "Inside the world file".
+   - **The conversation:** one per session, cleared only by New.
+   - **The preference:** "Save the assistant conversation with the world". It is off by default.
+   - **The first-use prompt:** the assistant's first use asks the question once. It says that the conversation then
+     travels inside the world file when the file is shared.
+   - **When on:** the conversation is saved in the world file, as a new optional slot in the project `.zip`, and
+     restored when the world opens.
+   - **Save format:** this changes it. `SAVEFILE_COMPAT.md` gains the slot when it is built, not before.
+   - **The assistant's security bars still hold:**
+     - the key is never in a save, a log or an export (`LLM_ASSISTANT_SCOPE.md`);
+     - private notes are never offered to Ask (Ruling DP).
+6. **PQ6: "Rename to 'Records'".** The default was to keep "World". The answer reopens Ruling CK Q3, which named the
+   renamed Data menu "World". The follow-ups' answers: "File, after New world…" for Generate world, and "File · World
+   · Records · Story" for the narrow tablet.
+   - **The World menu is now Records** on the desktop, and on a tablet 1 180 dp wide or more.
+   - **Generate world (Ctrl+R) moves to File, right after New world…,** on every form factor, the phone's MENU
+     included.
+   - **A touch tablet narrower than 1 180 dp shows four menus: File · World · Records · Story.**
+     - World keeps only the WORLD domain's rows: Generate world, Reset generation parameters, Reset one stage,
+       Pipeline / Sculpt, and Seed & size…. That is what "World" means in the domain tab.
+     - Records is the desktop's Records menu.
+     - This reopens Ruling CK Q2, which merged Data's rows into the tablet's World menu below its pipeline rows. It
+       also amends Ruling DU's Q7, which kept the shipped bar `☰ · File · World · Story` below 1 180 dp.
+     - The option said the fourth menu adds about 80 dp to a bar that can be 600 dp wide, and that this was not
+       measured. Measuring it is a bar for the build.
+   - **Judgement:** on that bar File leaves out Generate world, because World holds it. One row per command per bar.
+   - **Search keeps the old name:** `command_index.gd` `EXTRAS` gains "World" for the Records rows, beside Ruling DX's
+     "Run pipeline" alias.
+7. **PQ7: "Both, one shared state".** The simulator keeps both entry points: the Place editor's Timeline tab and
+   CIVIL ▸ Timeline's Simulate, over one state. Nothing is deleted.
+8. **PQ8: "Yes, all of them".** The new keys are taken:
+   - Ctrl+R; Ctrl+1/2/3; Ctrl+J; Ctrl+Shift+F; Ctrl+Shift+V;
+   - Alt+←/→, inert while typing (Ruling DX PQ12).
+9. **PQ9: "Quick fields only".** Inspect's edit mode holds name, class, faction and fortified. The Place editor keeps
+   its six tabs and follows the selection.
+
+**Mobile shell (`MOBILE_SHELL_PROPOSAL.md`)**
+
+10. **Q10: "Side drawer on a grip".** The phone's quick pins move from the MAP sheet's row to a drawer opened from a
+    grip. MENU keeps its Quick section.
+11. **Q11: "Away from the dominant hand".** The grip sits on the left by default and flips with Preferences ▸
+    Handedness.
+12. **Q12: "Yes, as shipped".** The tablet keeps three things as shipped:
+    - the quick bar's cluster;
+    - the cartwheel on a 500 ms hold;
+    - the cartwheel's dock of four.
+
+**MS-1 (`MOBILE_SHELL_MS1_SPEC.md` §8)**
+
+13. **MQ-1: "Width: under 600 dp = phone".** This is option (c), the recommendation:
+    - under 600 dp wide is a phone;
+    - under 500 dp tall in landscape is a phone landscape;
+    - everything else is a tablet.
+
+    It lands with MS-7's floating docks. MS-1 ships today's rule and moves no device.
+14. **MQ-2: "Accept DPI ÷ 160".** This applies only if S0 finds no way to read the platform density from GDScript.
+    The measured change is recorded in `DECISIONS.md`.
+15. **MQ-3: "Keep as today".** Until MS-2 to MS-6, phones narrower than 412 dp keep the 412-unit layout shrunk to
+    fit, and UI scale stays off on phones.
+16. **MQ-4: "No".** The PC gets no UI scale setting and keeps its own density sets. The question noted that its
+    original default had cited *"Leave the pc menu as is"*, and that the later PC refactor request overtook that
+    reason. The owner's answer stands on its own.
+17. **MQ-5: "Re-present in place".** The default was close and rebuild.
+    - When the layout changes class, every open window stays open and is re-presented in the new layout. Nothing is
+      freed.
+    - Each of the 28 files that call `phone_present()` gets a re-present path. This enlarges S4.
+    - The spec's quiescence rule is unchanged: a swap still waits for held input.
+
+**Vault editor (`VAULT_EDITOR_PROPOSAL.md` §8)**
+
+18. **VQ1: *"1, but keep an undo that reverts untill the opened state. This should be session only."*** Option 1 was
+    "Yes, autosave". The follow-up's answer was "First open this session".
+    - **Autosave:** about a second after typing stops, and on leaving the note. Ctrl/Cmd+S saves at once.
+    - **Outside edits:** a change made outside Cartalith raises the conflict banner and is never overwritten.
+    - **The undo:** each note keeps a session undo history. It reaches back to the note as it was **the first time it
+      was opened since Cartalith started**. Closing and reopening the note does not move that point, and quitting
+      clears it. None of it is written to disk.
+    - **A revert** goes through the same hash guard as a save.
+19. **VQ2: "Yes, offer to create".** Following an unresolved link offers to create the note with a template choice,
+    never silently.
+20. **VQ3: "Yes, after the count".** A rename rewrites links in other notes after saying how many will change.
+21. **VQ4: "Open in Write".** The default was Preview.
+    - **A note opens in Write**, with Preview a toggle (Ctrl/Cmd+E), as today.
+    - **Following a link in Write:** Ctrl/Cmd-click with a pointer; on touch, the `Open ›` chip, which shows when the
+      caret sits in a link.
+    - **Judgement:** the Context panel's Note tab is the same editor in a narrower frame (`PC_SHELL_PROPOSAL.md` §3.4),
+      so it opens in Write too.
+22. **VQ5: "Yes, ⌖ and its template".** A link to a world entity with no note shows ⌖ and, when followed, offers that
+    kind's template and Centre on map.
+23. **VQ6: "Revert, ask first".** Cancel becomes "Revert to opened…". It says what will be lost and asks, and the
+    revert is one undo step.
+24. **VQ7: "Yes, 12 000".** The question's list of capped lists was not exact. It named browse, the link picker, the
+    index and search. Search is not one of them, and three caps were missing. Read at the symbols in `vault_window.gd`,
+    the caps are:
+    - **four `vault_list_files(2000)` calls:**
+      - the connection header's note count (`_build_connection_header`);
+      - the Browse list (`_build_browse`);
+      - the link picker (`_build_editor_pane`);
+      - the folder tree (`_refresh_browse_tree`);
+    - **the index's own `vault_refresh_backlinks(2000)`** (`_build_index`);
+    - **the default of 2000** in `engine_bridge.gd::vault_list_files`.
+
+    All of them take the crate's `LIST_CAP` (12 000) instead of a number of their own. The corrected list does not
+    change the answer.
+
+**Consequences:**
+- Each document marks its questions answered and carries the changes above.
+- The mockup and the GDScript drafts follow the answers.
+- `OUTSTANDING_WORK.md` and `STATUS.md` are updated.
+
+Nothing is built by this ruling. No open question remains in those four documents.

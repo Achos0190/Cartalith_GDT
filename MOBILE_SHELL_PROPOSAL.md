@@ -82,7 +82,7 @@ landscape.
 | **MAP** | Quick pins; view (2D/3D, North up, Fit world, grid, scale bar); the view field, all 43 analysis fields in their six groups, with opacity; quick visibility for settlements, ways, landmarks, rivers, labels, political, hillshade; the six Measure modes | today's MAP (tool-options row only) and the Layers popover |
 | **Domain tab** — reads **GENERATE**, **CIVIL** or **CARTO** | **Tap** opens the domain sheet. **Hold** (380 ms) opens a fan of the three domains: slide and lift, or tap. **Swipe** the tab sideways to cycle. The sheet title carries a ▾ that opens the same fan, so the hold is never the only way. Three dots above the icon show which domain is current. Session mode hides WORLD, as it hides GENERATE today, so the fan and the swipe then offer CIVIL and CARTO only | GENERATE, MORE ▸ Civilization, and the Window ▸ Left dock door |
 | **STORY** | Segments TIME · JOURNEYS · CONFLICTS · NOTES, the desktop Story menu's bands. JOURNEYS is the planner (verdict card, stages, stage detail, Party, Season, Carriage, Route conditions, Results). TIME is the timeline: transport, year and day, the six simulation layers, recorded years, filters, collapse / recovery | PLAN, MORE ▸ Story, MORE ▸ Simulation |
-| **MENU** | The eight desktop menus, **row for row** in the same order and under the same names (File · Edit · Assets · World · Story · Preferences · Window · Help), plus Quick and Status. A submenu of only radio rows is drawn inline as chips, as today's phone does | MORE's bespoke root and its "Not on the MORE list" band |
+| **MENU** | The eight desktop menus, **row for row** in the same order and under the same names (File · Edit · Assets · Records · Story · Preferences · Window · Help; Ruling DY renamed World to Records and moved Generate world to File, after New world…), plus Quick and Status. A submenu of only radio rows is drawn inline as chips, as today's phone does | MORE's bespoke root and its "Not on the MORE list" band |
 
 **The domain sheet** is the desktop dock for the node, not a phone copy: the node's chips (WORLD: Generate · Sculpt;
 CIVIL: Landmarks · Factions · Routes & ways · Journeys; CARTO: Style · Layers · Labels · Icons), the domain's tool
@@ -111,8 +111,17 @@ generation parameter (a parameter opens its stage, expanded). The prefix keys st
 
 ### 2.2 Tablet: the desktop shell with touch sizing
 
-The PC menu bar is unchanged. From 1 180 dp it is shown whole (File · Edit · Assets · World · Story · Preferences ·
-Window · Help). Below that it is the shipped tablet bar `☰ · File · World · Story`, with ☰ holding the rest as today.
+The PC menu bar keeps its eight menus and their order. Ruling DY renamed World to Records. From 1 180 dp the bar is
+shown whole: File · Edit · Assets · Records · Story · Preferences · Window · Help.
+
+Below 1 180 dp the bar is **`☰ · File · World · Records · Story`** (Ruling DY, PQ6). That amends Ruling DU's Q7,
+which kept the shipped `☰ · File · World · Story`.
+- **World** keeps only the WORLD domain's rows: Generate world, Reset generation parameters, Reset one stage,
+  Pipeline / Sculpt and Seed & size….
+- **Records** is the desktop's menu.
+- **File** leaves out Generate world on this bar, because World holds it.
+- **☰** holds the rest, as today.
+- **At 600 dp** the bar's width is a build bar: nothing may overlap.
 Dropdowns drill in rather than cascade, with 48 dp rows and accelerators shown for a keyboard. The tool-options bar,
 the domain rail (with the active domain's nodes as 48 dp buttons), the left dock, the map, the inspector, the timeline
 and the status bar keep their desktop order.
@@ -241,7 +250,7 @@ line in `#ebc080`, never only greyed.
 | Hold Undo, 520 ms | edit history, roll back to any step, Redo | app bar |
 | System back | closes, in order: window, fan, quick drawer, cartwheel, history, search, menu, card, layers, armed tool, sheet level, sheet | Android |
 | Pen | draws and sculpts; with *Pen draws, finger pans* the finger only pans | tablet |
-| Keyboard | every desktop accelerator, plus the tablet's Ctrl+R Run pipeline (Help ▸ Keyboard shortcuts…) | tablet |
+| Keyboard | every desktop accelerator, Ctrl+R Generate world among them (one label since Ruling DX; on the PC's File menu since Ruling DY), listed in Help ▸ Keyboard reference… | tablet |
 | Haptic tick | on holds, fans and snaps (switchable) | all |
 
 ---
@@ -286,7 +295,15 @@ stages, numeric bars and its own owner questions, is `MOBILE_SHELL_MS1_SPEC.md`.
 
 ## 7. Owner questions, with defaults
 
-Q1 to Q9 are answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes to all four defaults"*) and Q5 to Q9 by **Ruling DU** (owner, 2026-10-31: *"Yes to Q5 through Q9 too"*), both in `LARGE_ITEM_RULINGS.md`. The defaults stood in every case. **Q10 to Q12 are open.** They were added the same day, after the owner asked whether the adaptable quick bar and the cartwheel were accounted for (§2.4). Q10 to Q12 are open. Q13, added on 2026-11-01 by the menu parity check, is answered by Ruling DX.
+**Every question is answered.** The rulings are in `LARGE_ITEM_RULINGS.md`:
+- **Q1 to Q4**, by Ruling DT (owner, 2026-10-31: *"Yes to all four defaults"*).
+- **Q5 to Q9**, by Ruling DU (owner, 2026-10-31: *"Yes to Q5 through Q9 too"*).
+- **Q13**, by Ruling DX (2026-11-01). It was added by that day's menu parity check.
+- **Q10 to Q12**, by Ruling DY (2026-11-01). They were added on 2026-10-31, after the owner asked whether the
+  adaptable quick bar and the cartwheel were accounted for (§2.4).
+
+Every default stood except Q13's. Ruling DY's PQ6 (`PC_SHELL_PROPOSAL.md`) later amended Q7's answer: below 1 180 dp the
+bar is `☰ · File · World · Records · Story` (§2.2).
 
 | # | Question | Default | Answer |
 |---|---|---|---|
@@ -296,12 +313,12 @@ Q1 to Q9 are answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes to al
 | Q4 | Auto-populate on by default in New World? | Yes, all four | **Yes, all four** (Ruling DT) |
 | Q5 | Two- and three-finger tap for undo and redo on by default? | Yes, with a switch | **Yes, with a switch** (Ruling DU) |
 | Q6 | Drop the app bar's `⋮` (Save · Theme · Close world now live in MENU ▸ File and Preferences)? | Yes | **Yes** (Ruling DU) |
-| Q7 | Below 1 180 dp, keep the shipped tablet bar `☰ · File · World · Story`? | Yes | **Yes** (Ruling DU) |
+| Q7 | Below 1 180 dp, keep the shipped tablet bar `☰ · File · World · Story`? | Yes | **Yes** (Ruling DU); amended by Ruling DY PQ6 to `☰ · File · World · Records · Story` |
 | Q8 | Floating docks close when the map is touched? | Yes, unless pinned | **Yes, unless pinned** (Ruling DU) |
 | Q9 | Peek detent 76 dp instead of 66? | Yes | **Yes** (Ruling DU) |
-| Q10 | On the phone, move the quick pins from the MAP sheet's row (CQ-6) to a side drawer on a grip, keeping MENU's Quick section? | Yes | open |
-| Q11 | Put the drawer's grip on the side away from the dominant hand, so the holding hand's thumb reaches it (left by default, following Preferences ▸ Handedness)? | Yes | open |
-| Q12 | On a tablet, keep the quick bar and the cartwheel exactly as shipped: the tool bar's cluster (as many pins as fit, the rest under `⋯`, so a wider tablet shows more), the cartwheel on a 500 ms hold, and its dock of four? | Yes | open |
+| Q10 | On the phone, move the quick pins from the MAP sheet's row (CQ-6) to a side drawer on a grip, keeping MENU's Quick section? | Yes | **Yes: a side drawer on a grip** (Ruling DY) |
+| Q11 | Put the drawer's grip on the side away from the dominant hand, so the holding hand's thumb reaches it (left by default, following Preferences ▸ Handedness)? | Yes | **Yes: away from the dominant hand** (Ruling DY) |
+| Q12 | On a tablet, keep the quick bar and the cartwheel exactly as shipped: the tool bar's cluster (as many pins as fit, the rest under `⋯`, so a wider tablet shows more), the cartwheel on a 500 ms hold, and its dock of four? | Yes | **Yes, as shipped** (Ruling DY) |
 | Q13 | **Asked by name: it reopens Ruling DT's answer to Q2.** DT took MENU as the desktop menus *"row for row, same order, same names"*, and the mockup does that. Draft `05_phone_menu_root.gd` instead opens the shipped phone screens for File, Assets, Preferences and Help. Those reorder rows, add some (recent worlds inline, the asset families, Runtime and Engine), and rename others (Interval; screen titles Project, Asset library, Help & about). World also gains an "On the phone" band. Found by the menu parity check of 2026-11-01 (64 rows; `cartalith-native/docs/evidence/menu-parity-2026-11-01/REPORT.md`, P1). Keep DT as written? | Yes, once every phone-only row has a home in a desktop menu; Simulation has none yet | **Follow the mockup** (Ruling DX): MENU repeats the desktop menus row for row; each phone-only row gets a home or a stated drop |
 
 ## 8. What the mockup does not settle

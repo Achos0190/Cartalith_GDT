@@ -27,8 +27,13 @@ asks the owner where the line should end up (MQ-1, §8).
   scale.
 - The first step is S0 on the OnePlus 6T. This tree carries three different figures for that phone's density (§2.4),
   and the unit depends on which one is true.
-- Acceptance bars B1–B10 are in §5. Owner questions MQ-1–MQ-5, each with a default, are in §8. None of them blocks
-  S0–S3.
+- Acceptance bars B1–B10 are in §5. Owner questions MQ-1–MQ-5 are in §8, **all answered by Ruling DY**
+  (2026-11-01).
+  - MQ-1: width, landing with MS-7.
+  - MQ-2: DPI ÷ 160 if needed.
+  - MQ-3: keep as today.
+  - MQ-4: no UI scale on the PC.
+  - MQ-5: **re-present open windows in place**. This is not the default, and it enlarges S4.
 
 ## 1. The milestone
 
@@ -316,10 +321,19 @@ do after the build. `_unmount_composition()` is its inverse. A swap is: unmount,
 - **Quiescence.** A swap waits while anything holds unconfirmed input: an armed tool's draft, a drag, a generation or
   bake behind the busy overlay, or a window with held changes. The status line says it is waiting, and the swap runs
   when the last of them ends. Nothing is discarded to make room for a layout change.
-- **Open windows:** MQ-5. By default, every open window that holds no unconfirmed input closes when the swap runs, and
-  every window built for the old class is freed, so its next open builds it for the new class. `phone_window()` decides
-  a window's layout once, in its `setup()`; `phone_present()` has 41 call lines and `phone_fit()` 58, in 28 files each.
-- **S4.0, before any S4 code: the inventory.** Each entry gets a stated action: rebuilt, survives, reset or freed.
+- **Open windows are re-presented in place** (Ruling DY, MQ-5: "Re-present in place"; the default was close and
+  rebuild).
+  - **When the swap runs,** every open window stays open and moves into the new class's layout. Nothing is freed.
+  - **Today a window decides its layout once:** `phone_window()` does it in the window's `setup()`. `phone_present()`
+    has 41 call lines and `phone_fit()` 58, in 28 files each.
+  - **So each of those windows gets a re-present path,** run by the swap after the mount:
+    - it re-applies the window's presentation for the new class;
+    - where its `setup()` built different content per class, it rebuilds that content inside the open window;
+    - it carries its state across: typed text, the selected tab, the scroll position, the follow or pin state.
+  - **The quiescence rule above is unchanged.** A swap still waits for held input. Re-presenting is what happens to
+    the windows when the swap does run.
+- **S4.0, before any S4 code: the inventory.** Each entry gets a stated action: rebuilt, survives, reset, freed or
+  (a window) re-presented.
   `MISTAKES.md`'s "Delete a surface" row applies, because a swap deletes one.
   - Every field the two builders and their callees assign. `dcc_shell.gd` alone declares at least 78 fields typed with
     a Node class, and 16 `Dictionary` fields, several of which map keys to nodes. The same for `app.gd`, whose
@@ -327,7 +341,7 @@ do after the build. `_unmount_composition()` is its inverse. A swap is: unmount,
   - Every connection made during the build: 14 `node_added`, `size_changed` and `phone_insets_changed` connections in
     9 files.
   - The static registries in `DccTheme` that hold nodes: `_portrait_watchers` and `_elide_labels`.
-  - Every window `setup()` that branched on the class.
+  - Every window `setup()` that branched on the class, with the state its re-present path must carry (MQ-5).
   - Every piece of code that relies on the class never changing, found by the prose that justifies it. Two are known:
     `DccTheme`'s `_elide_labels`, whose comment says labels are registered only `if is_tablet()` because it is
     *"decided once at boot and never revisited"*; and `radial_ring.gd`'s `_apply_touch_scale()` (*"so there is no
@@ -340,7 +354,7 @@ do after the build. `_unmount_composition()` is its inverse. A swap is: unmount,
 - `Preferences ▸ UI scale ▸ 100 % · 125 % · 150 % · 200 %`, a radio submenu built the way
   `menus.gd::_build_handedness_submenu()` builds Handedness. The proposal's Touch & gestures panel, where it ends up, is
   later work.
-- Touch builds only (MQ-4). On the phone, under MQ-3's default, the row is shown disabled with its reason: phones follow
+- Touch builds only (MQ-4: the PC gets no UI scale, Ruling DY). On the phone, under MQ-3's default, the row is shown disabled with its reason: phones follow
   Android's Display size until the phone layout reflows below 412 dp.
 - Changing it re-runs `classify()`, because a scale can cross a line (§2.2), and re-applies the unit.
 - Probes use a `--ui-scale S` user argument, which overrides the setting for the run without writing it.
@@ -387,7 +401,8 @@ Every result cell reads *not measured* until S0 fills it, so an empty cell can n
 | the baselines: every `--vp` probe's result and class, and windowed captures at 393 × 852 and 1 080 × 2 340 (phone), 800 × 1 280 and 2 560 × 1 600 (tablet), 1 920 × 1 080 and 1 366 × 768 (desktop) | the probe suite and `_shot.gd`, before S1 | not taken |
 
 S0 is done when the sheet is filled in here, or in a dated evidence file under `cartalith-native/docs/evidence/` linked
-from here. MQ-2 goes to the owner only if the platform density cannot be read.
+from here. MQ-2 was answered ahead of time (Ruling DY): if the platform density cannot be read, `screen_get_dpi() ÷ 160`
+is accepted, and the measured change is recorded in `DECISIONS.md`.
 
 ## 5. Acceptance bars
 
@@ -433,7 +448,11 @@ The bars:
     list is justified in this file;
   - the world is untouched: a hash the probe computes from the height field, read through the bridge, is equal before
     and after;
-  - the camera's zoom and centre are equal to 1e-6, and the domain and node are unchanged.
+  - the camera's zoom and centre are equal to 1e-6, and the domain and node are unchanged;
+  - **open windows are re-presented** (MQ-5). The probe opens three windows before the swap: the faction roster on a
+    chosen tab, the Place editor, and the vault with unsaved text. Each stays open across the swap, in both directions.
+    - Each one's layout dump equals a fresh open of the same window in the new class.
+    - Its state is kept: the tab, the text and the scroll position.
 
   Over ten round trips, the orphan node count (`Performance.OBJECT_ORPHAN_NODE_COUNT`) and the number of connections on
   `root.size_changed` and on `node_added` return to their values before the first swap. Captured stderr holds no
@@ -538,7 +557,7 @@ awk 'NR>815 && /^func /{print NR; exit}' shell/app.gd   # 1238: _ready() runs fr
 | R4 | the 3D view renders at dp resolution | `view3d.gd` | B3 |
 | R5 | canvas rects mixed with physical images or platform pixels | `_capture_preview_png()`, the 13 `DisplayServer` reads, native pop-out windows | S2's list; B3 |
 | R6 | stale references after a swap | at least 78 fields, 16 dictionaries, two registries | S4.0's inventory; B5's orphan and connection counts |
-| R7 | a window built for the old class reopens in the wrong layout | the 28 files that call `phone_present()` | MQ-5's default frees them |
+| R7 | an open window keeps the old class's layout, or loses its state when re-presented | the 28 files that call `phone_present()` | each window's re-present path (Ruling DY, MQ-5), probed in both directions (B5) |
 | R8 | a fitter that runs only once, at boot | `tablet_fit()`, `_run_dock_fit()` | both inside the mount path; B5's structural match |
 | R9 | code that assumes the class never changes | `_elide_labels`, `radial_ring.gd` | found by its prose (§3.5) and rebuilt by the swap |
 | R10 | the owner's 6T changes size | every phone surface | S0 first; MQ-2 if the platform density cannot be read; B7 |
@@ -548,7 +567,8 @@ awk 'NR>815 && /^func /{print NR; exit}' shell/app.gd   # 1238: _ready() runs fr
 
 ## 8. Owner questions, with defaults
 
-None of these blocks S0–S3. MQ-5 is needed before S4, MQ-4 before S5, and MQ-1 before MS-7.
+**All five are answered by Ruling DY** (owner, 2026-11-01, `LARGE_ITEM_RULINGS.md`). Each answer follows its question below.
+They were needed in this order: MQ-5 before S4, MQ-4 before S5, and MQ-1 before MS-7. None of them blocked S0–S3.
 
 **MQ-1. Where should the phone/tablet line end up?**
 
@@ -568,10 +588,17 @@ docking rule removes §2.3's premise, because a docked panel can then never leav
 mockup's medium and expanded classes were drawn for exactly the 600–1 199 dp range. If the owner wants §2.3 honoured
 before MS-7, (b) is one row and can land straight after S1.
 
+> **Answered (Ruling DY): (c), "Width: under 600 dp = phone", landing with MS-7.** MS-1 still ships (a) and moves no
+> device. This settles what the top of this file left open, where the line ends up, and supersedes §2.3's 900 dp
+> line as the target.
+
 **MQ-2. If the 6T's platform density cannot be read from GDScript, accept `screen_get_dpi() ÷ 160`, and with it the
 change S0 measures on the 6T?** By §2.4's figures that change lies between −4.1 % and +7.3 %. Default: yes, recorded in
 `DECISIONS.md` with the measured figure. The alternative is a small Android plugin that reads the true density. Asked
 only if S0 finds no route.
+
+> **Answered ahead of time (Ruling DY): accept DPI ÷ 160.** No plugin. It applies only if S0 finds no way to read the
+> platform density.
 
 **MQ-3. Phones narrower than 412 dp, until the phone surfaces are rebuilt (MS-2 to MS-6)?**
 
@@ -582,8 +609,14 @@ only if S0 finds no route.
 
 The owner's 6T is 411 dp wide, so under (a) it does not change.
 
+> **Answered (Ruling DY): (a), keep as today.**
+
 **MQ-4. UI scale on the PC too?** Default: no. The PC is left as it is (owner, 2026-10-31: *"Leave the pc menu as
 is"*), and its own density sets already cover narrow and wide windows.
+
+> **Answered (Ruling DY): no.** The default's reason had become stale: the owner had since asked for the PC shell
+> refactor (`PC_SHELL_PROPOSAL.md`). So the question was put again as a fresh choice, and the answer was still no. The
+> PC gets no UI scale and keeps its own density sets.
 
 **MQ-5. What happens to open windows when the layout changes class?**
 
@@ -592,6 +625,11 @@ is"*), and its own density sets already cover narrow and wide windows.
 - (b) Windows stay open and each is re-presented in the new layout. Every window then needs a re-present path, which
   touches 28 files.
 - (c) Ask first: a card says the window changed size class and offers to switch now.
+
+> **Answered (Ruling DY): (b), "Re-present in place".** The owner chose against the default. Every open window
+> stays open and is re-presented in the new layout, with its state kept. That gives each of the 28 files a re-present
+> path. §3.5 says what the path does, S4.0's inventory lists each window's state, and B5 probes three windows in
+> both directions. The quiescence rule is unchanged.
 
 ## 9. Not in MS-1
 
