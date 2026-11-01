@@ -1303,6 +1303,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <div class="dropdown mb-panel" id="fileMenu" aria-label="File">
       <div class="mb-cap dk-only">File</div>
       <button type="button" class="mb-row dk-only" data-cmd="generate">Generate world<span class="mb-k">Ctrl+R</span></button>
+      <!-- the design's "New world from selection…" is this file's Region export ▸ Extract as new world (v1.11): the
+           row opens it where it lives, beside the Select region it needs first -->
+      <button type="button" class="mb-row dk-only" data-cmd="regionWorld">New world from selection…</button>
       <div class="mb-sep dk-only"></div>
       <div class="menu-sec">Import</div>
       <button id="loadBtn">Load heightmap…</button>
@@ -2894,9 +2897,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
        v2.72 (desktop, PC_SHELL_PROPOSAL.md §3.3): the right dock is the CONTEXT PANEL. Its header names
        the subject — read by _dskCtxSync from exactly what _civRenderInspector() renders from
        (_civSelectedPlace, then _civSelectedLabel, then _iconSelected) — and the tab strip holds INSPECT
-       only, whose page is #inspector below, unchanged. Note and Ask are not drawn: this file has no vault
-       editor and no assistant. Back, forward and pin need a selection history (stage 3). Window ▸
-       Context panel and the header's chevron hide it; a phone keeps v2.71's dock in its drawer. -->
+       only, whose page is #inspector below, unchanged. Note and Ask are not drawn: this file has no note
+       editor (v2.11 shows a native-app save's vault links read-only, inside the place and faction
+       editors — _vaultLinksHtml) and no assistant. Back, forward and pin need a selection history
+       (stage 3). Window ▸ Context panel and the header's chevron hide it; a phone keeps v2.71's dock in
+       its drawer. -->
   <aside class="dock dock-right" id="dockRight">
     <div class="ctx-head dk-only" id="ctxHead">
       <div class="ctx-k" id="ctxKind">Context</div>
@@ -12010,7 +12015,8 @@ function sculptSyncFeatureSeg(){
   document.querySelectorAll('#sculptFeatureSeg button').forEach(b=>b.classList.toggle('on', b.dataset.sfeat===_sculptType));
   const hint=document.getElementById('sculptFeatHint'); if(hint) hint.textContent=SCULPT_FEATURES[_sculptType].hint;
   const title=document.getElementById('sculptFeatureControlsTitle'); if(title) title.textContent=SCULPT_FEATURES[_sculptType].label+' parameters';
-  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: the desktop bar reads "Sculpt · <feature>" */
+  /* v2.72: the desktop bar reads "Sculpt · <feature>" */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
 }
 function sculptBuildPresets(){
   const wrap=document.getElementById('sculptPresetSeg'); if(!wrap) return;
@@ -13858,7 +13864,8 @@ function applyFinalizedUI(){
   document.body.classList.toggle('phase-explore',on);
   if(typeof buildLayersPopover==='function') buildLayersPopover();   /* curated subset flips with the phase */
   if(typeof _sculptNavSync==='function') _sculptNavSync();   /* v1.19: finalizing forces read-only, which turns off _sculptEditorActive() too */
-  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: …which the desktop tool-options bar reports as "Sculpt · locked" */
+  /* v2.72: …which the desktop tool-options bar reports as "Sculpt · locked" */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
   if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync();
 }
 /* v2.24: stamp data-genlock over exactly the set applyFinalizedUI()'s old #genWorld query reached
@@ -18038,8 +18045,10 @@ function _applyDomainUI(){
   if(typeof _gpuApplyTabOverride==='function') _gpuApplyTabOverride();   /* v0.64: suspend condition keys off the armed tool, not the open domain */
   if(typeof _sculptNavSync==='function') _sculptNavSync();               /* v1.19/v1.22: joystick gate */
   if(typeof _toolRailSync==='function') _toolRailSync();                 /* v2.24: the conditional tool rail is domain-scoped */
-  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();           /* v2.72: the desktop tool-options bar names the domain and its armed tool */
-  if(typeof _dskDockHeadSync==='function') _dskDockHeadSync();           /* v2.72: and the left dock's header names where you are */
+  /* v2.72: the desktop tool-options bar names the domain and its armed tool */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
+  /* v2.72: and the left dock's header names where you are */
+  if(typeof _dskDockHeadSync==='function') _dskDockHeadSync();
   /* v1.96: render the Civilization page ON REVEAL — _civRefreshActiveSubPage() early-returns while
      #genCiv is hidden, so the reveal is what has to paint it (and this also fixes the pre-existing
      staleness where a background render of the PREVIOUS world's aggregates was what you saw). */
@@ -18542,7 +18551,8 @@ function _carDisarmOtherTools(except){
   if(_paintMode) _carDisarmOtherTools('paint');
   view.style.cursor=_paintMode?'crosshair':''; sculptClearOverlay();
   if(typeof _gpuApplyTabOverride==='function') _gpuApplyTabOverride();
-  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: "Carto · Paint" on the desktop bar */
+  /* v2.72: "Carto · Paint" on the desktop bar */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
   renderNow();
 }); }
 { const seg=document.getElementById('paintLayerSeg'); if(seg) seg.addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b)return; [...seg.children].forEach(c=>c.classList.toggle('on',c===b)); _paintLayer=b.dataset.paintlayer; const sel=document.getElementById('carPaintValue'); if(sel) _carPopulatePaintValueSelect(sel); }); }
@@ -18607,7 +18617,8 @@ function _carEnterAssetsMode(){
   document.body.classList.add('assets-mode');   /* v2.24: the library takes the whole stage — the docks and rail would otherwise cost it ~716px and collapse .al-grid to one column */
   if(cw&&al){ cw.style.display='none'; al.style.display='flex'; if(window.AssetLibrary&&window.AssetLibrary.opened) window.AssetLibrary.opened(); }
   if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
-  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: the desktop bar reads "Assets · Library" */
+  /* v2.72: the desktop bar reads "Assets · Library" */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
 }
 /* Reverse of the above — restore whichever phase (Generate/Explore) was active before Assets mode.
    Mirrors the tab-switch handler's restore branch, so a phase tab click and this button agree. */
@@ -18624,7 +18635,8 @@ function _carExitAssetsMode(){
   const cw=document.querySelector('.canvas-wrap'), al=document.getElementById('assetLibrary');
   if(cw&&al){ cw.style.display=''; al.style.display='none'; }
   document.body.classList.remove('assets-mode');
-  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72 */
+  /* v2.72 */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
 }
 { const ab=document.getElementById('assetsHeaderBtn'); if(ab) ab.addEventListener('click',()=>{ _assetsModeOn?_carExitAssetsMode():_carEnterAssetsMode(); }); }
 /* Explore map-filter funnel — toggle + close-on-outside-click/Escape (mirrors Cartalith V1.915's
@@ -18780,7 +18792,8 @@ function _setupOpen(mode){ if(!_obEl) return; _setupSkipped=false;
       [...archSeg.children].forEach(c=>c.classList.toggle('on',c.dataset.arc===cur)); } } }   /* v1.08: reflect current world_structure state if the gate is reopened */
   else if(mode==='calibrate'){ _suShowStep('obStepCalibrate'); _suCalSync(); }
   else _suShowStep('obStepIntro');
-  if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync();   /* v2.72: "no world" while the gate is up */
+  /* v2.72: "no world" while the gate is up */
+  if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync();
 }
 
 /* Both setup forms share ONE canonical working object (only one form is ever visible). width in km,
@@ -19267,7 +19280,8 @@ function _sbSyncChips(){
     a.textContent=(ck&&ck.checked)?('autosave '+((mn&&mn.value)||'?')+'m'):'autosave off'; }
   const g=document.getElementById('sbGpu'), gt=document.getElementById('gpuTag');
   if(g&&gt) g.textContent='GPU '+(gt.textContent||'—');
-  if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync();   /* v2.72: the menu bar's document readout rides the same refresh */
+  /* v2.72: the menu bar's document readout rides the same refresh */
+  if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync();
 }
 (function(){
   ['autosaveChk','autosaveMins'].forEach(id=>{ const el=document.getElementById(id); if(el) el.addEventListener('change',_sbSyncChips); });
@@ -19288,7 +19302,8 @@ function _sbSyncChips(){
    throws on a `let` still in its dead zone — v2.15's lesson). Until _dskReady is set at the end of
    _dskInit every sync function returns at once, which keeps early hooks (syncUI, the boot render)
    away from this block's own consts. */
-var _dskReady=false;   /* var, not let: hooks above this block read it before this line has run */
+/* var, not let: hooks above this block read it before this line has run */
+var _dskReady=false;
 function _dskV(f,d){ try{ const v=f(); return v===undefined?d:v; }catch(_){ return d; } }
 function _dskEl(id){ return document.getElementById(id); }
 function _dskDisabled(id){ const el=_dskEl(id); return !el||!!el.disabled; }
@@ -19304,31 +19319,41 @@ function _dskPress(sel){ const el=/[#\[ .]/.test(sel)?document.querySelector(sel
    ORDER, so within one slot the order here is the order drawn. Elements are only ever MOVED: one
    node, one id, one set of listeners (v1.57; MISTAKES.md "Delete a surface"). Never clone one. */
 const _DSK_SLOTS=[
-  ['fileWrap','slotMbFile'],                                    /* File: the first menu on the bar */
-  ['settlementsHeaderBtn','slotPins'], ['assetsHeaderBtn','slotPins'],   /* pins (Ruling DZ item 4) */
-  ['verTag','slotSbVer'],                                       /* the status bar's right end (D7) */
-  ['seedLab','slotRunSeed'], ['seedN','slotRunSeed'], ['genBtn','slotRunGen'],   /* WORLD › Generate › Run */
+  /* File: the first menu on the bar */
+  ['fileWrap','slotMbFile'],
+  /* the pins at the tool-options bar's right end (Ruling DZ item 4) */
+  ['settlementsHeaderBtn','slotPins'], ['assetsHeaderBtn','slotPins'],
+  /* the status bar's right end (D7) */
+  ['verTag','slotSbVer'],
+  /* WORLD › Generate › Run (Ruling DZ) */
+  ['seedLab','slotRunSeed'], ['seedN','slotRunSeed'], ['genBtn','slotRunGen'],
   ['reseedBtn','slotRunRow'], ['centerBtn','slotRunRow'],
-  ['modeSeg','slotLpMode'],                                     /* View, inside the Base map chip */
-  ['layersFab','slotMapTL'], ['explFilterFab','slotMapTL'],     /* the map's top-left */
-  ['viewDimSeg','slotMapBR'], ['zoomOverlay','slotMapBR'],      /* the map's bottom-right column */
-  ['sculptFeatureSeg','slotToolDesk'], ['sculptModeSeg','slotToolDesk'],   /* the sculpt tool's settings */
+  /* View, inside the Base map chip */
+  ['modeSeg','slotLpMode'],
+  /* the map's top-left, then its bottom-right column */
+  ['layersFab','slotMapTL'], ['explFilterFab','slotMapTL'],
+  ['viewDimSeg','slotMapBR'], ['zoomOverlay','slotMapBR'],
+  /* the sculpt tool's own settings, in the tool-options bar */
+  ['sculptFeatureSeg','slotToolDesk'], ['sculptModeSeg','slotToolDesk'],
   ['sBrushRow','slotToolDesk'], ['sBrushKm','slotToolDesk'], ['sHardRow','slotToolDesk'], ['sIntenRow','slotToolDesk'],
   ['sculptFeatHint','slotToolDesk'],
-  ['explTimelineSliderRow','slotTlRow'],                        /* the timeline strip */
+  /* the timeline strip */
+  ['explTimelineSliderRow','slotTlRow'],
   ['civTimelinePanel','slotTlYears'], ['civTlYear','slotTlYears'], ['civTlAddYearBtn','slotTlYears'],
   ['tlFilters','slotTlFilters'],
 ];
 /* The phone's own query, the one every v2.24-v2.71 phone rule uses; the desktop is its complement. */
 const _DSK_PHONE_QUERY='(max-width:860px)';
-var _dskDesktop=null;   /* null before the first placement; then whether the desktop layout is in force */
+/* null before the first placement; then whether the desktop layout is in force */
+var _dskDesktop=null;
 function _dskIsDesktop(){ return typeof window!=='undefined'&&typeof window.matchMedia==='function'&&!window.matchMedia(_DSK_PHONE_QUERY).matches; }
 function _dskPlace(){
   if(typeof window==='undefined'||typeof window.matchMedia!=='function'||typeof document.createComment!=='function') return;
   const desk=_dskIsDesktop();
   if(_dskDesktop===desk) return;
   _dskDesktop=desk;
-  _dskMenuClose();   /* an open menu must not survive the layout it was opened in */
+  /* an open menu must not survive the layout it was opened in */
+  _dskMenuClose();
   for(const [id,slotId] of _DSK_SLOTS){
     const el=_dskEl(id), slot=_dskEl(slotId);
     if(!el||!slot||!el.parentNode) continue;
@@ -19355,9 +19380,13 @@ function _dskReveal(id){ const el=_dskEl(id); _dskWinSet('ldock',true); if(el&&t
 function _dskTheme(){ return document.documentElement.getAttribute('data-theme')==='light'?'light':'dark'; }
 const _DSK_CMDS={
   /* File */
+  /* refused: on a finalized world, the same alert the button's own guard gives */
   generate:{ run:()=>_dskPress('genBtn'), enabled:()=>!_dskDisabled('genBtn'),
-             refused:()=>{ if(typeof confirmRegenerate==='function') confirmRegenerate(); } },   /* finalized: the same alert the button's own guard gives */
+             refused:()=>{ if(typeof confirmRegenerate==='function') confirmRegenerate(); } },
   openProject:{ run:()=>_dskPress('loadZipBtn') },
+  /* Region export ▸ Extract as new world needs a region selected first (Select region, right above it),
+     so the row takes you to both rather than pressing a button that is disabled until then */
+  regionWorld:{ run:()=>_dskReveal('regionNewWorldBtn') },
   save:{ run:()=>_dskPress('exportBtn'), enabled:()=>!_dskDisabled('exportBtn') },
   autosave:{ run:()=>_dskPress('autosaveChk'), checked:()=>!!(_dskEl('autosaveChk')||{}).checked },
   /* Edit */
@@ -19380,7 +19409,8 @@ const _DSK_CMDS={
   /* Story */
   timeline:{ run:()=>{ const on=!_dskTlExpanded(); _dskWinSet('tl',true); _dskTlExpand(on); }, checked:()=>_dskTlExpanded() },
   simulate:{ run:()=>_dskReveal('civSimulateBtn') },
-  planner:{ run:()=>{ if(typeof _civOpenRouteEditor==='function'&&_civOpenRouteEditor()) return; _dskReveal('civJourneyList'); } },   /* no journey selected: show where journeys are, never a silent no-op */
+  /* with no journey selected, show where journeys are — never a silent no-op */
+  planner:{ run:()=>{ if(typeof _civOpenRouteEditor==='function'&&_civOpenRouteEditor()) return; _dskReveal('civJourneyList'); } },
   journeys:{ run:()=>_dskReveal('civJourneyList') },
   /* Preferences */
   gpu:{ run:()=>_dskPress('gpuToggle'), enabled:()=>!_dskDisabled('gpuToggle'), checked:()=>!!(_dskEl('gpuToggle')||{}).checked },
@@ -19399,7 +19429,8 @@ const _DSK_CMDS={
   winTimeline:{ run:()=>_dskWinSet('tl',!_dskWin.tl), checked:()=>_dskWin.tl },
   winStatus:{ run:()=>_dskWinSet('sb',!_dskWin.sb), checked:()=>_dskWin.sb },
   winRail:{ run:()=>_dskWinSet('rail',!_dskWin.rail), checked:()=>_dskWin.rail },
-  diagnostics:{ run:()=>{ if(typeof toggleResOverlay==='function') toggleResOverlay(); }, checked:()=>!!_dskV(()=>_resOverlayOn,false) },   /* the Shift+D overlay's own toggle */
+  /* the Shift+D overlay's own toggle */
+  diagnostics:{ run:()=>{ if(typeof toggleResOverlay==='function') toggleResOverlay(); }, checked:()=>!!_dskV(()=>_resOverlayOn,false) },
   view3d:{ run:()=>_dskPress('#viewDimSeg button[data-dim="'+(_dskV(()=>_view3dOn,false)?'2d':'3d')+'"]'), checked:()=>!!_dskV(()=>_view3dOn,false) },
   domWorld:{ run:()=>_dskPress('#domainRail [data-domain="world"]'), checked:()=>_domain==='world' },
   domCiv:{ run:()=>_dskPress('#domainRail [data-domain="civ"]'), checked:()=>_domain==='civ' },
@@ -19431,7 +19462,8 @@ function _dskWinSet(key,on){
   if(key==='ldock') chev('dockLeftCollapse','‹','›','the left dock');
   if(key==='ctx') chev('ctxHideBtn','›','‹','the Context panel');
   if(typeof _syncChromeTop==='function') _syncChromeTop();
-  if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();   /* v2.24: any band that resizes the viewport */
+  /* v2.24: any band that resizes the viewport */
+  if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
 }
 function _dskWinReset(){ for(const k of Object.keys(_dskWin)) _dskWinSet(k,true); _dskTlExpand(false); }
 
@@ -19441,7 +19473,8 @@ function _dskTlExpand(on){
   const m=_dskEl('tlStripMore'), t=_dskEl('tlStripToggle'); if(!m||!t||!t.setAttribute) return;
   m.hidden=!on; t.setAttribute('aria-expanded',on?'true':'false');
   t.title=on?'Hide the recorded years and the filters':'Show the recorded years, Add year and the filters';
-  if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();   /* v2.24's rule */
+  /* v2.24's rule */
+  if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
 }
 /* Read from civTimeline, the same array _civBuildExploreTimelineUI gates the slider row on, so the
    note shows exactly while the row is hidden and says which of the two reasons applies. */
@@ -19492,6 +19525,12 @@ function _dskToolOptsSync(){
   ctx.textContent=c; hint.textContent=h; hint.hidden=!h;
   const was=tool.hidden; tool.hidden=!sculpt;
   if(was!==tool.hidden&&typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
+  /* the picker scrolls inside its share of the row, and arming Freehand narrows that share (its mode
+     strip joins the row, after this runs — hence the next frame) — so keep the ARMED feature in view.
+     scrollLeft, not scrollIntoView, which could also scroll an overflow:hidden ancestor. */
+  if(sculpt&&typeof requestAnimationFrame==='function') requestAnimationFrame(()=>{
+    const fs=_dskEl('sculptFeatureSeg'), on=fs&&fs.querySelector('button.on');
+    if(on&&fs.closest&&fs.closest('#toolOpts')) fs.scrollLeft=Math.max(0,fs.scrollLeft+on.getBoundingClientRect().left-fs.getBoundingClientRect().left-(fs.clientWidth-on.offsetWidth)/2); });
 }
 function _dskDockHeadSync(){
   if(!_dskReady) return;
@@ -19536,7 +19575,8 @@ function _dskDocReadoutSync(){
    v0.87's single-shot File rows close the menu; any other click inside the export form leaves it
    open, because that section is a form you fill in before pressing Export. */
 const _DSK_MENU_CLOSE_IDS=new Set(['loadBtn','inferTectBtn','loadZipBtn','packBtn','exportBtn']);
-var _dskMenuBtn=null;   /* the bar button whose menu is open, or null (var: _dskPlace may run first) */
+/* the bar button whose menu is open, or null (var: _dskPlace may run first) */
+var _dskMenuBtn=null;
 function _dskMenuButtons(){ return [...document.querySelectorAll('.mb-btn')].filter(b=>b.getClientRects().length); }
 function _dskMenuPanelOf(btn){ return btn?_dskEl(btn.getAttribute('aria-controls')):null; }
 /* a (sub)menu's own rows, in order: visible, enabled buttons whose nearest menu is this one */
@@ -19669,10 +19709,14 @@ function _dskAccelKey(e){
   const mod=e.ctrlKey||e.metaKey, k=(e.key||'').toLowerCase();
   const hit=_DSK_KEYS.find(r=>r[0]===mod&&r[1]===e.shiftKey&&r[2]===k); if(!hit) return;
   const t=e.target, tag=t&&t.tagName, typing=tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||!!(t&&t.isContentEditable);
-  if(!mod&&typing) return;   /* Shift+A in a text field is a capital A */
+  /* Shift+A in a text field is a capital A */
+  if(!mod&&typing) return;
   if(_dskModalOpen()) return;
   e.preventDefault();
-  if(e.repeat) return;       /* a held Ctrl+R must neither reload nor queue a stack of generates */
+  /* a key that runs a command closes an open menu first, as a click on one of its rows would */
+  _dskMenuClose();
+  /* a held Ctrl+R must neither reload nor queue a stack of generates */
+  if(e.repeat) return;
   _dskRun(hit[3]);
 }
 function _dskKeydown(e){
@@ -33869,7 +33913,8 @@ function _civBuildExploreTimelineUI(){
   const sec=document.getElementById('explTimelineSection'); if(!sec) return;
   const sliderRow=document.getElementById('explTimelineSliderRow');
   if(sliderRow) sliderRow.style.display=civTimeline.length>1?'':'none';
-  if(typeof _dskTlSync==='function') _dskTlSync();   /* v2.72: the desktop strip says why it has no slider while this row is hidden */
+  /* v2.72: the desktop strip says why it has no slider while this row is hidden */
+  if(typeof _dskTlSync==='function') _dskTlSync();
   _civWireYearSlider(document.getElementById('explTimelineSlider'),
     document.getElementById('explTlMinYear'), document.getElementById('explTlMaxYear'),
     document.getElementById('explTlActiveYear'), document.getElementById('explTimelineTicks'));
@@ -33931,7 +33976,11 @@ function _civOpenPlacePopup(){
     if(lx+w>vr.right-6) lx=cx-w-pad; if(lx<vr.left+6) lx=vr.left+6;
     if(ty<vr.top+6) ty=vr.top+6; if(ty+h>vr.bottom-6) ty=Math.max(vr.top+6,vr.bottom-h-6); }
   el.style.left=lx+'px'; el.style.top=ty+'px';
-  el.querySelector('.si-close').onclick=()=>{ _civSelectedPlace=null; _civClosePlacePopup(); drawCivLayerAuto(); };
+  /* v2.72: the × re-renders the inspector instead of only hiding the popup. It used to leave Inspect
+     reading "Editing in the popup on the map" with nothing selected — invisible while the right dock
+     was just Properties, and a contradiction once the Context panel's header beside it reads "Nothing
+     selected". _civRenderInspector() owns the empty state and closes the popup itself. */
+  el.querySelector('.si-close').onclick=()=>{ _civSelectedPlace=null; _civRenderInspector(); drawCivLayerAuto(); };
   if(typeof _dskCtxSync==='function') _dskCtxSync();
 }
 function _civRenderInspector(){
@@ -33984,7 +34033,8 @@ function _civSetTool(tool){
   const cursorTools=(tool==='place'||tool==='place_poi'||tool==='territory'||tool==='draw_way'||tool==='route'||tool==='label'||(tool==='icon'&&_carIconArmed));
   view.style.cursor=cursorTools?'crosshair':'';
   if(typeof _gpuApplyTabOverride==='function') _gpuApplyTabOverride();
-  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: the desktop tool-options bar names the armed tool */
+  /* v2.72: the desktop tool-options bar names the armed tool */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
   if(typeof renderNow==='function') renderNow();
 }
 

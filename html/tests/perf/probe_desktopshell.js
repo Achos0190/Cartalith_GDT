@@ -115,10 +115,10 @@ const row = async (p, btnSel, cmd, sub) => {
       if (!M.inside) allInside = false; if (M.tall.length) { oneLine = false; why += M.tall.join(',') + ' '; } if (M.off.length) keysRight = false;
     }
     A('each menu opens on a real click', allOpen, why);
-    A('...and draws inside the window', allInside);
-    A('one line per row', oneLine, why);
-    A('accelerators sit at the right edge of their row', keysRight);
-    await openMenu(p, '#fileMenuBtn'); await p.hover('#mbEditBtn'); await sleep(80);
+    A('...and draws inside the window', allOpen && allInside);
+    A('one line per row', allOpen && oneLine, why);
+    A('accelerators sit at the right edge of their row', allOpen && keysRight);
+    await openMenu(p, '#fileMenuBtn'); await p.hover('#mbEditBtn', { timeout: 3000 }); await sleep(80);
     const H = await p.evaluate(() => ({ edit: document.getElementById('mbEdit').classList.contains('open'), file: document.getElementById('fileMenu').classList.contains('open') }));
     A('while a menu is open, moving across the bar switches menus', H.edit && !H.file, JSON.stringify(H));
     await p.keyboard.press('Escape'); await sleep(60);
@@ -133,7 +133,7 @@ const row = async (p, btnSel, cmd, sub) => {
     A('ArrowRight moves to the next menu', await p.evaluate(() => document.getElementById('mbEdit').classList.contains('open') && !!document.activeElement.closest('#mbEdit')));
     await p.keyboard.press('Escape'); await sleep(40);
     A('Esc returns the focus to the menu\'s own button', await p.evaluate(() => document.activeElement && document.activeElement.id === 'mbEditBtn'));
-    await openMenu(p, '#fileMenuBtn'); await p.hover('#mbExportRow'); await sleep(120);
+    await openMenu(p, '#fileMenuBtn'); await p.hover('#mbExportRow', { timeout: 3000 }); await sleep(120);
     const S = await p.evaluate(() => { const m = document.getElementById('fileMenu').getBoundingClientRect(), r = document.getElementById('mbExportRow').getBoundingClientRect(), sp = document.getElementById('mbExportPanel'), q = sp && sp.getBoundingClientRect(), br = document.getElementById('bakeRes');
       return { open: !!(q && q.height > 0), beside: !!q && q.left >= m.right - 3, inside: !!q && q.top >= 0 && q.bottom <= innerHeight && q.right <= innerWidth, form: !!(br && sp.contains(br) && br.getBoundingClientRect().height > 0) }; });
     A('a submenu opens beside its row (File ▸ Export)', S.open && S.beside, JSON.stringify(S));
@@ -157,10 +157,11 @@ const row = async (p, btnSel, cmd, sub) => {
       A('Ctrl+R generates — in ' + dom.toUpperCase() + ', and the page did not reload', KR.g === g0 + 1 && KR.still, JSON.stringify(KR));
     }
     await tryClick(p, '#domainRail [data-domain="world"]');
+    const inDock = id => p.evaluate(id => !!document.getElementById(id).closest('.dock-left #runSec'), id);
     let g0 = await gens(); const clicked = await tryClick(p, '#genBtn'); await settle(p);
-    A('the dock\'s own GENERATE WORLD button generates (a real click)', clicked && (await gens()) === g0 + 1);
+    A('the dock\'s own GENERATE WORLD button generates (a real click, in Run)', clicked && (await inDock('genBtn')) && (await gens()) === g0 + 1);
     g0 = await gens(); const ng = await tryClick(p, '#reseedBtn'); await settle(p);
-    A('NEW SEED is clickable in the dock and generates', ng && (await gens()) === g0 + 1);
+    A('NEW SEED is clickable in the dock and generates', ng && (await inDock('reseedBtn')) && (await gens()) === g0 + 1);
 
     let chooser = p.waitForEvent('filechooser', { timeout: 3000 }).then(() => true, () => false);
     await openMenu(p, '#fileMenuBtn'); await tryClick(p, '#loadZipBtn');
@@ -168,7 +169,8 @@ const row = async (p, btnSel, cmd, sub) => {
     chooser = p.waitForEvent('filechooser', { timeout: 3000 }).then(() => true, () => false);
     await p.keyboard.press('Control+o');
     A('Ctrl+O opens the same picker', await chooser);
-    await p.evaluate(() => { window.__exports = 0; document.getElementById('exportBtn').onclick = () => { window.__exports++; }; });   /* spy: no 8K bake */
+    /* a spy on the export button, so pressing it does not bake an 8K map */
+    await p.evaluate(() => { window.__exports = 0; document.getElementById('exportBtn').onclick = () => { window.__exports++; }; });
     await row(p, '#fileMenuBtn', 'save'); await sleep(60);
     A('File ▸ Save project presses the project export (#exportBtn)', await p.evaluate(() => window.__exports === 1));
     await p.keyboard.press('Control+s'); await sleep(60);
@@ -179,13 +181,17 @@ const row = async (p, btnSel, cmd, sub) => {
     await row(p, '#fileMenuBtn', 'autosave'); await sleep(60);
     A('File ▸ Autosave toggles the real autosave box', await p.evaluate(a => document.getElementById('autosaveChk').checked === !a, as0));
     await row(p, '#fileMenuBtn', 'autosave');
+    await row(p, '#fileMenuBtn', 'regionWorld'); await sleep(300);
+    A('File ▸ New world from selection… opens Region export, where Select region and Extract as new world live', (await p.evaluate(() => document.getElementById('settingsModal').classList.contains('open') && document.querySelector('.set-page.on').dataset.setpage === 'storage' && document.getElementById('genRegionSec').open)) && (await vis(p, '#regionNewWorldBtn')) && (await vis(p, '#regionBtn')));
+    await tryClick(p, '#settingsClose'); await sleep(80);
 
     await p.evaluate(() => { pushUndo(); updateUndoUI(); });
     const u0 = await p.evaluate(() => undoStack.length);
     await row(p, '#mbEditBtn', 'undo'); await sleep(200);
     A('Edit ▸ Undo undoes (the stack shrinks)', await p.evaluate(u => undoStack.length === u - 1 && redoStack.length > 0, u0));
+    const st1 = await p.evaluate(() => [undoStack.length, redoStack.length]);
     await row(p, '#mbEditBtn', 'redo'); await sleep(200);
-    A('Edit ▸ Redo redoes', await p.evaluate(u => undoStack.length === u, u0));
+    A('Edit ▸ Redo redoes (a step moves back from redo to undo)', await p.evaluate(st => undoStack.length === st[0] + 1 && redoStack.length === st[1] - 1, st1), JSON.stringify(st1));
     await openMenu(p, '#mbEditBtn');
     A('Edit ▸ Delete selected place is disabled with nothing selected', await p.evaluate(() => document.querySelector('[data-cmd="deletePlace"]').disabled));
     await p.keyboard.press('Escape');
@@ -311,7 +317,8 @@ const row = async (p, btnSel, cmd, sub) => {
     A('no id appears twice in the document', D.length === 0, D.slice(0, 8).join(','));
     for (const [label, id] of [['Seed', 'seedN'], ['Brush size', 'sBrush'], ['Hardness', 'sHard'], ['Intensity', 'sInten'], ['Image size', 'bakeRes']]) {
       await p.evaluate(() => { if (typeof _dskMenuClose === 'function') _dskMenuClose(); });
-      await tryClick(p, '#domainRail [data-domain="civ"]');   /* start somewhere else, so the search has to navigate */
+      /* start somewhere else, so the search has to navigate */
+      await tryClick(p, '#domainRail [data-domain="civ"]');
       await p.fill('#findInput', label); await sleep(120);
       const listed = await p.evaluate(id => [...document.querySelectorAll('#findResults [data-find-i]')].some((r, i) => document.getElementById('findResults')._hits[i].el && document.getElementById('findResults')._hits[i].el.id === id), id);
       await p.keyboard.press('Enter'); await sleep(350);
@@ -331,7 +338,7 @@ const row = async (p, btnSel, cmd, sub) => {
     A('all four are in the WORLD dock\'s Run section', T.inRun.length === 4, T.inRun.join(','));
     A('with no tool armed the bar names the context (GENERATE · WORLD)', /Generate\s*·\s*World/i.test(T.ctx || ''), JSON.stringify(T.ctx));
     A('View moved into the Base map chip', T.view);
-    for (const s of ['#seedN', '#genBtn', '#reseedBtn', '#centerBtn']) A('...' + s + ' is on screen in the dock', await vis(p, s));
+    for (const s of ['#seedN', '#genBtn', '#reseedBtn', '#centerBtn']) A('...' + s + ' is on screen, in the dock', (await vis(p, s)) && (await p.evaluate(s => !!document.querySelector(s).closest('.dock-left'), s)));
     A('the pins are in the bar and reachable: Save, Settlements, Assets, Planner', await p.evaluate(() => ['pinSave', 'settlementsHeaderBtn', 'assetsHeaderBtn', 'pinPlanner'].every(i => { const e = document.getElementById(i); return e && e.closest('#toolOptsPins') && e.getBoundingClientRect().width > 0; })));
     A('...Settlements opens its screen on a real click', (await tryClick(p, '#settlementsHeaderBtn')) && await p.evaluate(() => document.getElementById('civFactionsModal').classList.contains('open')));
     await tryClick(p, '#cfmCloseBtn'); await sleep(80);
@@ -346,6 +353,7 @@ const row = async (p, btnSel, cmd, sub) => {
     await tryClick(p, '#sculptFeatureSeg [data-sfeat="freehand"]'); await sleep(120);
     A('Freehand\'s brush MODE joins them in the bar', await p.evaluate(() => { const m = document.getElementById('sculptModeSeg'); return !!m.closest('#toolOpts') && m.getBoundingClientRect().width > 0 && m.querySelectorAll('button').length >= 3; }));
     A('...and the bar says so', await p.evaluate(() => document.getElementById('toolOptsCtx').textContent === 'Sculpt · Freehand'));
+    A('...with the armed feature scrolled into view in the picker', await p.evaluate(() => { const fs = document.getElementById('sculptFeatureSeg'), on = fs.querySelector('button.on'); if (!on) return false; const a = fs.getBoundingClientRect(), r = on.getBoundingClientRect(); return r.left >= a.left - 1 && r.right <= a.right + 1; }));
     const br0 = await p.evaluate(() => _sculptGlobal.brushSize);
     await p.focus('#sBrush'); await p.keyboard.press('ArrowRight'); await p.keyboard.press('ArrowRight'); await sleep(60);
     A('the brush size slider in the bar still drives the brush', await p.evaluate(b => _sculptGlobal.brushSize === b + 2, br0));
@@ -371,7 +379,7 @@ const row = async (p, btnSel, cmd, sub) => {
        Add year (the territory paint itself is the setup) */
     for (const [yr, fid] of [[100, 1], [250, 2], [400, 3]]) {
       await p.evaluate(fid => { const t = getCivTerritory(); for (let i = 0; i < t.length; i += 7) t[i] = fid; _civTerrGen++; }, fid);
-      await p.fill('#civTlYear', String(yr)); await tryClick(p, '#civTlAddYearBtn'); await sleep(100);
+      await p.fill('#civTlYear', String(yr), { timeout: 3000 }); await tryClick(p, '#civTlAddYearBtn'); await sleep(100);
     }
     A('Add year in the strip records years', await p.evaluate(() => civTimeline.length === 3), await p.evaluate(() => civTimeline.length));
     const hashT = () => p.evaluate(() => { const t = getCivTerritory(); let h = 2166136261; for (let i = 0; i < t.length; i += 3) { h ^= t[i]; h = Math.imul(h, 16777619) >>> 0; } return h; });
@@ -395,7 +403,8 @@ const row = async (p, btnSel, cmd, sub) => {
 
   await section('the Context panel names what Inspect shows', async () => {
     await tryClick(p, '#domainRail [data-domain="civ"]'); await sleep(120);
-    const at = await p.evaluate(() => { /* SET UP: one named town on land, drawn */
+    /* SET UP: one named town on land, drawn */
+    const at = await p.evaluate(() => {
       let x = -1, y = -1; for (let j = 20; j < GH - 20 && x < 0; j += 3) for (let i = 20; i < GW - 20; i += 3) { const h = field[j * GW + i]; if (h > state.seaLevel + 0.04) { x = i; y = j; break; } }
       state.places.push({ x, y, name: 'Probe Greyhollow', kind: 'town', faction: 1, pop: 4200, traits: [] }); drawCivLayerAuto(); renderNow();
       const s = _civPlaceScreenPos(x, y); return { x: s[0], y: s[1] }; });
@@ -407,16 +416,16 @@ const row = async (p, btnSel, cmd, sub) => {
     A('clicking a settlement on the map names it in the header', C.name === 'Probe Greyhollow', JSON.stringify(C));
     A('...with its kind and facts (from the place itself)', /Settlement/.test(C.kind) && /4,200/.test(C.hint), C.kind + ' / ' + C.hint);
     A('...and Inspect fills (the place editor opens, as v0.90 has it, and Inspect says where)', /Editing in the popup/.test(C.body), C.body.slice(0, 80));
-    A('the tab strip holds Inspect only (no vault, no assistant in this file)', await p.evaluate(() => [...document.querySelectorAll('.ctx-tab')].map(t => t.textContent.trim()).join(',') === 'Inspect'));
-    await p.keyboard.press('Escape');
-    await p.evaluate(() => { _civSelectedPlace = null; _civClosePlacePopup(); drawCivLayerAuto(); });
-    A('deselecting empties it again', await p.evaluate(() => document.getElementById('ctxName').textContent === 'Nothing selected'));
+    A('the tab strip holds Inspect only (no note editor, no assistant in this file)', await p.evaluate(() => [...document.querySelectorAll('.ctx-tab')].map(t => t.textContent.trim()).join(',') === 'Inspect'));
+    await tryClick(p, '#placeEditPopup .si-close'); await sleep(150);
+    const E = await p.evaluate(() => ({ name: document.getElementById('ctxName').textContent, body: document.getElementById('inspectorBody').textContent }));
+    A('closing the popup with its × empties the header AND Inspect (no stale "Editing in the popup")', E.name === 'Nothing selected' && /Nothing selected/.test(E.body), JSON.stringify(E).slice(0, 160));
   });
   await p.close();
 
   /* ════════════════════════════ LAYOUT, four desktop sizes x two seeds ════════════════════════════ */
   console.log('\n--- nothing overflows (1366x768, 1600x900, 1920x1080, 2560x1440; seeds 12345 and 777) ---');
-  for (const [W, H] of [[1366, 768], [1600, 900], [1920, 1080], [2560, 1440]]) for (const seed of [12345, 777]) {
+  for (const [W, H] of [[1366, 768], [1600, 900], [1920, 1080], [2560, 1440]]) for (const seed of [12345, 777]) await section('layout ' + W + 'x' + H + ' seed ' + seed, async () => {
     const q = await boot(b, FILE, { width: W, height: H });
     await gen(q, seed);
     const tag = W + 'x' + H + ' seed ' + seed;
@@ -445,11 +454,11 @@ const row = async (p, btnSel, cmd, sub) => {
       if (!r || r[0] < 0 || r[2] > r[4] || r[3] > r[5]) { menusIn = false; why += s + ' '; }
     }
     await q.keyboard.press('Escape');
-    await openMenu(q, '#fileMenuBtn'); await q.hover('#mbExportRow'); await sleep(120);
+    await openMenu(q, '#fileMenuBtn'); await q.hover('#mbExportRow', { timeout: 3000 }); await sleep(120);
     const ex = await q.evaluate(() => { const x = document.getElementById('mbExportPanel').getBoundingClientRect(); return x.height > 0 && x.top >= 0 && x.bottom <= innerHeight && x.right <= innerWidth; });
     A(tag + ': every menu, and File ▸ Export, opens inside the window', menusIn && ex, why + (ex ? '' : 'export'));
     await q.close();
-  }
+  });
 
   /* ════════════════════════════ PHONE ════════════════════════════ */
   console.log('\n--- a phone keeps v2.71\'s layout (stage 2 changes it) ---');
@@ -474,7 +483,7 @@ const row = async (p, btnSel, cmd, sub) => {
     await q.close();
     return R;
   };
-  for (const [W, H] of [[390, 760], [412, 915]]) {
+  for (const [W, H] of [[390, 760], [412, 915]]) await section('phone ' + W + 'x' + H, async () => {
     const N = await phone(FILE, W, H), tag = W + 'x' + H;
     A(tag + ': none of the desktop shell draws on a phone', N.deskHidden.length === 0, N.deskHidden.join(','));
     A(tag + ': the header is v2.71\'s (☰ · Settlements · Assets · title · version · Find · Undo · Redo · File · cog)', /panelToggle,settlementsHeaderBtn,assetsHeaderBtn,h1,verTag,findWrap,undoBtn,redoBtn,fileWrap,cogBtn/.test(N.header), N.header);
@@ -488,7 +497,7 @@ const row = async (p, btnSel, cmd, sub) => {
       A(tag + ': the drawer and its rail are where v2.71 puts them', JSON.stringify(N.drawer) === JSON.stringify(O.drawer) && JSON.stringify(N.rail) === JSON.stringify(O.rail), JSON.stringify([N.drawer, O.drawer, N.rail, O.rail]));
       A(tag + ': the header holds what v2.71\'s holds, in its order', N.header === O.header, N.header + ' vs ' + O.header);
     }
-  }
+  });
   } catch (e) { A('the probe ran to the end', false, e && e.message ? e.message.split('\n')[0] : String(e)); }
 
   console.log('\n--- page errors ---');
