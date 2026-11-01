@@ -302,6 +302,7 @@ Q1 to Q9 are answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes to al
 | Q10 | On the phone, move the quick pins from the MAP sheet's row (CQ-6) to a side drawer on a grip, keeping MENU's Quick section? | Yes | open |
 | Q11 | Put the drawer's grip on the side away from the dominant hand, so the holding hand's thumb reaches it (left by default, following Preferences ▸ Handedness)? | Yes | open |
 | Q12 | On a tablet, keep the quick bar and the cartwheel exactly as shipped: the tool bar's cluster (as many pins as fit, the rest under `⋯`, so a wider tablet shows more), the cartwheel on a 500 ms hold, and its dock of four? | Yes | open |
+| Q13 | **Asked by name: it reopens Ruling DT's answer to Q2.** DT took MENU as the desktop menus *"row for row, same order, same names"*, and the mockup does that. Draft `05_phone_menu_root.gd` instead opens the shipped phone screens for File, Assets, Preferences and Help. Those reorder rows, add some (recent worlds inline, the asset families, Runtime and Engine), and rename others (Interval; screen titles Project, Asset library, Help & about). World also gains an "On the phone" band. Found by the menu parity check of 2026-11-01 (64 rows; `cartalith-native/docs/evidence/menu-parity-2026-11-01/REPORT.md`, P1). Keep DT as written? | Yes, once every phone-only row has a home in a desktop menu; Simulation has none yet | open |
 
 ## 8. What the mockup does not settle
 

@@ -476,6 +476,13 @@ Raised by the GDScript drafts (their K1–K3), 2026-11-01:
 - **PQ12.** Should Alt+← and Alt+→ move the selection while a text field has focus, as a browser does? *Default: yes.
   `_typed_into_field()` is the guard if PC-1 decides otherwise.*
 
+Raised by the menu parity check, 2026-11-01 (`cartalith-native/docs/evidence/menu-parity-2026-11-01/REPORT.md`, P2):
+
+- **PQ13.** What should the phone's Window menu show? The mockup's menus are one shared tree, so its phone shows
+  "Context panel" and its submenu, as the desktop does. The drafts keep the phone's shipped "Right dock", because §3.11
+  gives the phone the model, not the panel (9 rows). *Default: as drafted; the phone keeps "Right dock" until a phone
+  form of the panel is designed.*
+
 ## 8. Limits of this proposal
 
 - **The mockup's world is a stand-in.** The ownership periods are invented, but shaped like the engine's snapshots:

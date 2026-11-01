@@ -139,7 +139,7 @@ def diffs(m, g, phone, gated_parent=False):
         out.append("kind %s/%s" % (norm_kind(m), norm_kind(g)))
     if not phone and (m.get("accel") or "") != (g.get("accel") or ""):
         out.append("key %s/%s" % (m.get("accel") or "none", g.get("accel") or "none"))
-    md = norm_kind(m) in ("disabled (not built)", "disabled (DESKTOP ONLY)")
+    md = norm_kind(m) in ("disabled (not built)", "disabled (DESKTOP ONLY)") or bool(m.get("disabled_at_build"))
     gd = norm_kind(g) == "disabled (not built)" or bool(g.get("disabled_at_build"))
     if md != gd and same_kind(m, g):
         out.append("disabled %s/%s" % ("yes" if md else "no", "yes" if gd else "no"))
@@ -259,6 +259,14 @@ CLASSIFY = [
     {"id": "N1", "cls": "n", "path": r"(TOUCH · NEW|Touch & gestures…)$"},
     {"id": "N2", "cls": "n", "platform": r"^tablet", "path": r"Help ▸ Gesture reference…$"},
     {"id": "N3", "cls": "n", "platform": r"^tablet", "path": r"Open panels in their own window$"},
+    # m / s: Window ▸ Open windows. The Context panel's row exists once PC-4 lands; the window list is filled at run
+    # time, and the mockup's static tree shows it empty ("No windows open") where Godot's shows its pattern.
+    {"id": "PC-4", "cls": "m", "path": r"Open windows ▸ Context panel$", "status": r"^same after"},
+    {"id": "S3", "cls": "s", "path": r"Open windows ▸ (No windows open|\{w\.title\.strip_edges\(\)\})$", "status": r"^(mockup-only|Godot-only)$"},
+    # s, run-time labels: the static read of the Godot side sees a row's build-time text; the shell rewrites it when the
+    # menu opens. The mockup draws the run-time text (fixed 2026-11-01, A1 and A3), so the two are the same at run time.
+    {"id": "R1", "cls": "s", "path": r"Landmark types ▸ [^▸]+ ▸ [^▸]+   not buildable$", "status": r"^differs: label$"},
+    {"id": "R2", "cls": "s", "path": r"Atlas cache ▸ \d+ chunks · .* · to LOD \d+$", "status": r"^differs: label$"},
     # a: the mockup is wrong.
     {"id": "A1", "cls": "a", "path": r"Landmark types ▸ [^▸]+ ▸ [^▸]+$", "status": r"not-buildable kind"},
     {"id": "A2", "cls": "a", "path": r"Preferences ▸ Try the GPU again$", "status": r"disabled no/yes"},
@@ -517,7 +525,15 @@ python3 cartalith-native/docs/evidence/menu-parity-2026-11-01/compare.py       #
 """
 
 NOTES = [
-    ("(a) The mockup is wrong: the fixes", [
+    ("Run-time labels (same at run time)", [
+        ("R1", "Landmark types: a kind the engine cannot place.",
+         "The static read sees the build-time label (the kind's name); `menus.gd::_refresh_landmark_menu()` appends "
+         "`   not buildable` when the menu opens, which is what the mockup draws since A1's fix."),
+        ("R2", "Atlas cache: the store readout.",
+         "The static read sees the placeholder `… chunks · … · empty`; `_refresh_atlas_cache_menu()` writes the value "
+         "(`%d chunk%s · <size> · to LOD n`), which is what the mockup draws since A3's fix."),
+    ]),
+    ("(a) The mockup is wrong: the fixes (all eleven made in `Shell.dc.html` on 2026-11-01; the counts above are after them)", [
         ("A1", "Landmark types: the 18 kinds the engine cannot place.",
          "The two sides agree on which kinds can be placed: 49 kinds, 18 not buildable, the same set "
          "(the mockup's `LANDMARK_FAMILIES` `*` marks against `cartalith-civ`'s vocabulary, read by "

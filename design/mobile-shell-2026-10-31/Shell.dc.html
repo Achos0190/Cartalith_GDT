@@ -947,7 +947,7 @@ const ASSET_FAMILIES = [['Splat channels', 'texture', 4, 4], ['Biome textures', 
 
 function menuTree() {
   const lmFamilies = LANDMARK_FAMILIES.map(([fam, kinds]) => ({
-    t: 'sub', label: fam, sub: 'armed · placed · caps', items: kinds.map((k) => k.endsWith('*') ? { t: 'todo', label: k.slice(0, -1), reason: 'not buildable: the engine marks this type buildable: false' } : { t: 'live', label: k, act: 'lmType', arg: k }).concat([{ t: 'sep' }, { t: 'live', label: 'Open ' + fam + ' in the dock', act: 'node', arg: 'civil/landmarks' }, { t: 'sign', label: 'Rows here read state; they do not arm a type.' }])
+    t: 'sub', label: fam, sub: 'armed · placed · caps', items: kinds.map((k) => k.endsWith('*') ? { t: 'live', label: k.slice(0, -1) + '   not buildable', act: 'node', arg: 'civil/landmarks' } : { t: 'live', label: k, act: 'lmType', arg: k }).concat([{ t: 'sep' }, { t: 'live', label: 'Open ' + fam + ' in the dock', act: 'node', arg: 'civil/landmarks' }, { t: 'sign', label: 'Rows here read state; they do not arm a type.' }])
   }));
   const stages = STAGE_NAMES.map((n, i) => ({ t: 'live', label: String(i + 1).padStart(2, '0') + ' ' + n, act: 'resetStage', arg: i + 1, sm: true }));
   return [
@@ -1004,6 +1004,8 @@ function menuTree() {
       { t: 'live', label: 'Next selection', accel: 'Alt+→', act: 'selFwd' },
       { t: 'sep' },
       { t: 'live', label: 'Find on map…', accel: 'Ctrl+F', act: 'search' },
+      { t: 'live', label: 'Context card', accel: 'Shift+F10', act: 'ctxCard', notPhone: true },
+      { t: 'live', label: 'Cartwheel at the pointer', accel: 'Q', act: 'ringHere', notPhone: true },
       { t: 'sep' },
       { t: 'live', label: 'Reset generation parameters', act: 'resetParams', sm: true },
       { t: 'sub', label: 'Reset one stage', sm: true, items: stages }
@@ -1073,18 +1075,18 @@ function menuTree() {
       { t: 'sub', label: 'CPU worker threads', items: [{ t: 'radio', label: 'Automatic', key: 'prefs.thr', value: 'auto' }, { t: 'radio', label: '1 — 1 thread', key: 'prefs.thr', value: 1 }, { t: 'radio', label: '2 — quarter', key: 'prefs.thr', value: 2 }, { t: 'radio', label: '4 — half', key: 'prefs.thr', value: 4 }, { t: 'radio', label: '8 — all cores', key: 'prefs.thr', value: 8 }, { t: 'readout', label: 'Running', v: '8 workers now' }] },
       { t: 'sub', label: 'VRAM budget', items: ['No cap', '1 GB', '2 GB', '4 GB', '8 GB', '12 GB', '16 GB', '24 GB'].map((x) => ({ t: 'radio', label: x, key: 'prefs.vram', value: x })).concat([{ t: 'readout', label: 'Current grid 2048×2048 needs about', v: '412 MB' }]) },
       { t: 'sub', label: 'Fallback when VRAM full', items: [{ t: 'radio', label: 'CPU tile pass', key: 'prefs.fallback', value: 'cpu' }, { t: 'todo', label: 'Reduce working res', reason: 'Not built.' }, { t: 'radio', label: 'Fail with error', key: 'prefs.fallback', value: 'fail' }] },
-      { t: 'live', label: 'Try the GPU again', act: 'toast', arg: 'No GPU readback failure to clear' },
+      { t: 'live', label: 'Try the GPU again', act: 'toast', arg: 'GPU readback cleared · the next run tries the GPU', dyn: 'gpuRetry' },
       { t: 'band', label: 'GRAPHICS' },
       { t: 'sub', label: 'Render quality', items: ['performance', 'balanced', 'quality', 'ultra'].map((x) => ({ t: 'radio', label: x, key: 'prefs.quality', value: x })) },
       { t: 'todo', label: 'Anti-aliasing · anisotropy', reason: 'The 3D view draws no terrain yet, so there is nothing to anti-alias.' },
       { t: 'sign', label: 'Colour management — CARTO ▸ Colours ▸ Colour management' },
       { t: 'todo', label: '3D viewport defaults', reason: 'They arrive with the 3D view’s terrain.' },
-      { t: 'sub', label: 'Lighting rig defaults', items: [{ t: 'readout', label: 'Source', v: 'Following the engine' }, { t: 'sub', label: 'Azimuth', items: [0, 45, 90, 135, 180, 225, 270, 315].map((x) => ({ t: 'radio', label: x + ' deg', key: 'prefs.az', value: x })) }, { t: 'sub', label: 'Elevation', items: [15, 25, 35, 45, 55, 65, 75].map((x) => ({ t: 'radio', label: x + ' deg', key: 'prefs.alt', value: x })) }, { t: 'sub', label: 'Ambient', items: ['0.00', '0.15', '0.25', '0.35', '0.50', '0.70'].map((x) => ({ t: 'radio', label: x, key: 'prefs.amb', value: x })) }, { t: 'sub', label: 'Multidirectional', items: ['1 light (single sun)', '2 lights', '4 lights', '6 lights', '8 lights', '12 lights'].map((x) => ({ t: 'radio', label: x, key: 'prefs.lights', value: x })) }, { t: 'sep' }, { t: 'live', label: 'Use the engine’s own rig', act: 'toast', arg: 'Lighting follows the engine again' }] },
+      { t: 'sub', label: 'Lighting rig defaults', items: [{ t: 'readout', label: 'Following the engine', v: '' }, { t: 'sub', label: 'Azimuth', items: [0, 45, 90, 135, 180, 225, 270, 315].map((x) => ({ t: 'radio', label: x + ' deg', key: 'prefs.az', value: x })) }, { t: 'sub', label: 'Elevation', items: [15, 25, 35, 45, 55, 65, 75].map((x) => ({ t: 'radio', label: x + ' deg', key: 'prefs.alt', value: x })) }, { t: 'sub', label: 'Ambient', items: ['0.00', '0.15', '0.25', '0.35', '0.50', '0.70'].map((x) => ({ t: 'radio', label: x, key: 'prefs.amb', value: x })) }, { t: 'sub', label: 'Multidirectional', items: ['1 light (single sun)', '2 lights', '4 lights', '6 lights', '8 lights', '12 lights'].map((x) => ({ t: 'radio', label: x, key: 'prefs.lights', value: x })) }, { t: 'sep' }, { t: 'live', label: 'Use the engine’s own rig', act: 'toast', arg: 'Lighting follows the engine again' }] },
       { t: 'sub', label: 'Relief exaggeration', items: [{ t: 'radio', label: '1x', key: 'prefs.relief', value: '1x' }, { t: 'radio', label: '2x', key: 'prefs.relief', value: '2x' }, { t: 'radio', label: '4x', key: 'prefs.relief', value: '4x' }, { t: 'sep' }, { t: 'live', label: 'Use the engine’s own 3.4x', act: 'toast', arg: 'Relief exaggeration follows the engine (3.4x)' }] },
       { t: 'band', label: 'TILES & LOD' },
       { t: 'sub', label: 'Tiled LOD', items: [{ t: 'radio', label: 'Auto on zoom', key: 'prefs.lodMode', value: 'auto' }, { t: 'radio', label: 'Manual', key: 'prefs.lodMode', value: 'manual' }, { t: 'sep' }, { t: 'live', label: 'Enter deep detail now', act: 'toast', arg: 'Deep detail on' }, { t: 'live', label: 'Leave deep detail', act: 'toast', arg: 'Deep detail off' }] },
-      { t: 'sub', label: 'Tile size · LOD levels', items: [{ t: 'radio', label: '256 px', key: 'prefs.tile', value: 256 }, { t: 'radio', label: '512 px', key: 'prefs.tile', value: 512 }, { t: 'radio', label: '1024 px', key: 'prefs.tile', value: 1024 }, { t: 'sep' }, { t: 'sub', label: 'LOD levels', items: [['0–0', '1'], ['0–1', '5'], ['0–2', '21'], ['0–3', '85'], ['0–4', '341'], ['0–5', '1 365'], ['0–6', '5 461'], ['0–7', '21 845'], ['0–8', '87 381']].map((x) => ({ t: 'radio', label: 'LOD ' + x[0] + '   ' + x[1] + ' tiles', key: 'prefs.lod', value: x[0] })) }] },
-      { t: 'sub', label: 'Atlas cache', items: [{ t: 'readout', label: 'Store', v: '85 chunks · 1.2 GB' }, { t: 'sub', label: 'Size cap · GB', items: ['No cap', '0.5 GB', '1 GB', '2 GB', '4 GB', '8 GB', '16 GB'].map((x) => ({ t: 'radio', label: x, key: 'prefs.atlasCap', value: x })) }, { t: 'live', label: 'Refine detail for the current view', act: 'toast', arg: 'Refining 12 tiles in view' }, { t: 'live', label: 'Refine viewshed for the current view', act: 'toast', arg: 'Viewshed refined for the view' }, { t: 'readout', label: 'Viewshed', v: 'never refined' }, { t: 'sep' }, { t: 'live', label: 'Export atlas…', act: 'filePick', arg: 'atlas destination' }, { t: 'live', label: 'Import atlas…', act: 'filePick', arg: 'atlas file' }, { t: 'sep' }, { t: 'live', label: 'Clear atlas cache now…', act: 'confirm', arg: 'Delete this world’s baked chunks? Project data is untouched.' }] },
+      { t: 'sub', label: 'Tile size · LOD levels', items: [{ t: 'radio', label: '256 px', key: 'prefs.tile', value: 256 }, { t: 'radio', label: '512 px', key: 'prefs.tile', value: 512 }, { t: 'radio', label: '1024 px', key: 'prefs.tile', value: 1024 }, { t: 'sep' }, { t: 'sub', label: 'LOD levels', items: [['0–0', '1'], ['0–1', '5'], ['0–2', '21'], ['0–3', '85'], ['0–4', '341'], ['0–5', '1 365'], ['0–6', '5 461'], ['0–7', '21 845'], ['0–8', '87 381']].map((x) => ({ t: 'radio', label: 'LOD ' + x[0] + '   ' + x[1] + (x[1] === '1' ? ' tile' : ' tiles'), key: 'prefs.lod', value: x[0] })) }] },
+      { t: 'sub', label: 'Atlas cache', items: [{ t: 'readout', label: '85 chunks · 1.2 GB · to LOD 3', v: '' }, { t: 'sub', label: 'Size cap · GB', items: ['No cap', '0.5 GB', '1 GB', '2 GB', '4 GB', '8 GB', '16 GB'].map((x) => ({ t: 'radio', label: x, key: 'prefs.atlasCap', value: x })) }, { t: 'live', label: 'Refine detail for the current view', act: 'toast', arg: 'Refining 12 tiles in view' }, { t: 'live', label: 'Refine viewshed for the current view', act: 'toast', arg: 'Viewshed refined for the view' }, { t: 'readout', label: 'Viewshed', v: 'never refined' }, { t: 'sep' }, { t: 'live', label: 'Export atlas…', act: 'filePick', arg: 'atlas destination' }, { t: 'live', label: 'Import atlas…', act: 'filePick', arg: 'atlas file' }, { t: 'sep' }, { t: 'live', label: 'Clear atlas cache now…', act: 'confirm', arg: 'Delete this world’s baked chunks? Project data is untouched.' }] },
       { t: 'sub', label: 'Chunk debug overlay', items: [{ t: 'check', label: 'Grid', key: 'prefs.dbgGrid' }, { t: 'check', label: 'Colors', key: 'prefs.dbgCol' }, { t: 'check', label: 'Labels', key: 'prefs.dbgLab' }, { t: 'sep' }, { t: 'check', label: 'Show tile borders on the map', key: 'prefs.tileBorders' }] },
       { t: 'band', label: 'MEMORY' },
       { t: 'sub', label: 'Undo history', items: [64, 128, 256, 512, 1024].map((x) => ({ t: 'radio', label: x + ' MB', key: 'prefs.undoMB', value: x })).concat([{ t: 'sep' }, { t: 'live', label: 'Clear undo history now', act: 'clearUndo' }]) },
@@ -1111,8 +1113,8 @@ function menuTree() {
       { t: 'check', label: '3D view', key: 'dim3' },
       { t: 'sub', label: '3D capability', items: [{ t: 'readout', label: '3D tier', v: 'Basic' }, { t: 'live', label: 'Re-test 3D', act: 'toast', arg: '3D re-tested · Basic' }, { t: 'sub', label: 'Force tier', items: ['Automatic (as measured)', 'Off', 'Basic', 'Standard', 'Full'].map((x) => ({ t: 'radio', label: x, key: 'prefs.tier3d', value: x })) }] },
       { t: 'sep' },
-      { t: 'sub', label: 'Workspace', items: [{ t: 'radio', label: 'World', key: 'dom', value: 'world' }, { t: 'radio', label: 'Civilization', key: 'dom', value: 'civil' }, { t: 'radio', label: 'Cartography', key: 'dom', value: 'carto' }] },
-      { t: 'sub', label: 'Open windows', dyn: 'openWindows', items: [{ t: 'readout', label: 'No windows open', v: '' }] },
+      { t: 'sub', label: 'Workspace', items: [{ t: 'radio', label: 'World', key: 'dom', value: 'world', sm: true }, { t: 'radio', label: 'Civilization', key: 'dom', value: 'civil' }, { t: 'radio', label: 'Cartography', key: 'dom', value: 'carto' }] },
+      { t: 'sub', label: 'Open windows', dyn: 'openWindows', items: [{ t: 'readout', label: 'No windows open', v: '' }, { t: 'check', label: 'Context panel', key: 'win.right' }] },
       { t: 'sep' },
       { t: 'live', label: 'Reset layout', act: 'resetLayout' },
       { t: 'sub', label: 'Layouts', items: [{ t: 'live', label: 'Default (reset layout)', act: 'resetLayout' }, { t: 'live', label: 'Generate', act: 'layout', arg: 'world/pipeline' }, { t: 'live', label: 'Sculpt', act: 'layout', arg: 'world/sculpt' }, { t: 'live', label: 'Cartography', act: 'layout', arg: 'carto/style' }, { t: 'live', label: 'Journey', act: 'layout', arg: 'story/journeys' }, { t: 'sep' }, { t: 'live', label: 'Save layout as…', act: 'toast', arg: 'Layout saved as “Layout 1”' }, { t: 'live', label: 'Forget layout…', act: 'toast', arg: 'Pick a stored layout to forget' }] }
@@ -1129,14 +1131,23 @@ function menuTree() {
   ];
 }
 /* The tablet keeps its four-menu bar below 1 180 dp (☰ · File · World · Story, as shipped); the ☰ holds the rest. */
+/* ☰'s submenus are built with full=false (menus.gd::_overflow): a row ☰ promotes to its own top, and Edit's two Reset
+   rows (which the narrow World carries), appear once. Separators left leading, trailing or doubled are dropped too. */
+const PROMOTED = ['Undo', 'Redo', 'Undo history…', '⧉ Asset library', 'Landmark types', 'Units', 'Keyboard reference…', 'About', 'Reset generation parameters', 'Reset one stage'];   // Preferences keeps Theme and its editable Keyboard shortcuts… (_preferences(p, false, true))
+function notPromoted(items) {
+  const kept = items.filter((x) => x && !(x.t !== 'sep' && x.t !== 'band' && PROMOTED.includes(x.label)));
+  const out = []; for (const x of kept) { if (x.t === 'sep' && (!out.length || out[out.length - 1].t === 'sep')) continue; out.push(x); }
+  while (out.length && out[out.length - 1].t === 'sep') out.pop();
+  return out;
+}
 function tabletOverflow(menus) {
   const by = (id) => menus.find((m) => m.id === id);
   return { id: 'ham', label: '☰', sub: '', items: [
     { t: 'live', label: 'Undo', accel: 'Ctrl+Z', act: 'undo', dyn: 'undo' }, { t: 'live', label: 'Redo', accel: 'Ctrl+Shift+Z', act: 'redo', dyn: 'redo' }, { t: 'live', label: 'Undo history…', act: 'history' },
     { t: 'sep' }, { t: 'live', label: '⧉ Asset library', accel: 'Shift+A', act: 'win:assets' }, by('assets').items.find((x) => x.label === 'Landmark types'),
     { t: 'sep' }, { t: 'live', label: 'Toggle theme', act: 'theme' }, by('prefs').items.find((x) => x.label === 'Units'),
-    { t: 'sep' }, { t: 'live', label: 'Keyboard shortcuts…', act: 'win:shortcuts' }, { t: 'live', label: 'About', act: 'win:about' },
-    { t: 'sep' }, { t: 'sub', label: 'Edit', items: by('edit').items }, { t: 'sub', label: 'Assets', items: by('assets').items }, { t: 'sub', label: 'Preferences', items: by('prefs').items }, { t: 'sub', label: 'Window', items: by('window').items }, { t: 'sub', label: 'Help', items: by('help').items }
+    { t: 'sep' }, { t: 'live', label: 'Keyboard reference…', act: 'win:shortcuts', arg: 'ref' }, { t: 'live', label: 'About', act: 'win:about' },
+    { t: 'sep' }, { t: 'sub', label: 'Edit', items: notPromoted(by('edit').items) }, { t: 'sub', label: 'Assets', items: notPromoted(by('assets').items) }, { t: 'sub', label: 'Preferences', items: notPromoted(by('prefs').items) }, { t: 'sub', label: 'Window', items: by('window').items }, { t: 'sub', label: 'Help', items: notPromoted(by('help').items) }
   ] };
 }
 function tabletWorldMenu(menus) {
@@ -1144,9 +1155,9 @@ function tabletWorldMenu(menus) {
   return { id: 'world', label: 'World', sub: w.sub, items: [
     { t: 'live', label: 'Run pipeline', accel: 'Ctrl+R', act: 'run', sm: true }, { t: 'sep' },
     { t: 'live', label: 'Reset generation parameters', act: 'resetParams', sm: true }, menus.find((m) => m.id === 'edit').items.find((x) => x.label === 'Reset one stage'), { t: 'sep' },
-    { t: 'radio', label: 'Generation pipeline', key: 'worldnode', value: 'pipeline' }, { t: 'radio', label: 'Sculpt', key: 'worldnode', value: 'sculpt' }, { t: 'sep' },
+    { t: 'radio', label: 'Generation pipeline', key: 'worldnode', value: 'pipeline', sm: true }, { t: 'radio', label: 'Sculpt', key: 'worldnode', value: 'sculpt', sm: true }, { t: 'sep' },
     { t: 'live', label: 'Seed & size…', act: 'newWorld', sm: true }, { t: 'sep' }
-  ].concat(w.items) };
+  ].concat(w.items.filter((x) => x.label !== 'Generate world')) };   // Run pipeline above is the same command (id 710, Ctrl+R): one row
 }
 
 /* ======================================================================================================
@@ -1480,6 +1491,7 @@ function liveReason(c, it) {
   if (it.dyn === 'undo' && !s.undo.length) return 'Nothing to undo';
   if (it.dyn === 'redo' && !s.redo.length) return 'Nothing to redo';
   if (it.act === 'run' && s.running) return 'A generation is running';
+  if (it.dyn === 'gpuRetry' && !s.gpuFailed) return 'Nothing to clear: no GPU readback has failed this session';
   return '';
 }
 function liveLabel(c, it) {
@@ -1493,10 +1505,11 @@ function readoutV(c, it) { if (it.dyn === 'campaigns') return 'Campaigns in year
 /* Window ▸ Open windows, listed from what is open now (finding W5: the shipped list omits the pop-outs) */
 function openWindowItems(c) {
   const s = c.state; const out = [];
-  if (s.rdockOpen) { const e = entOf(c, subjectOf(c)); out.push({ t: 'live', label: 'Context panel · ' + (s.ctxTab || 'inspect') + (e ? ' · ' + e.name : ''), act: 'ctx', arg: s.ctxTab || 'inspect' }); }
   if (s.win) s.win.stack.slice().reverse().forEach((id, i) => out.push({ t: 'live', label: (i ? '↳ ' : '') + (winRows(c, id).title || id).toLowerCase().replace(/^./, (m) => m.toUpperCase()), act: 'toast', arg: 'Brought to the front' }));
   if (s.vt && s.vt.open) out.push({ t: 'live', label: 'Markdown vault', act: 'win:vault' });
-  return out.length ? out : [{ t: 'readout', label: 'No windows open', v: '' }];
+  if (!out.length) out.push({ t: 'readout', label: 'No windows open', v: '' });
+  out.push({ t: 'check', label: 'Context panel', key: 'win.right' });   // after the list, as drafts/pc-shell/05 builds it
+  return out;
 }
 /* desktop menu rows → touch rows. A submenu of only radio rows is drawn inline as chips (as the phone does today) */
 function menuRows(c, items, drill, tablet) {
@@ -1504,7 +1517,8 @@ function menuRows(c, items, drill, tablet) {
   for (const it of items) {
     if (!it) continue;
     if (it.mobile && tablet === 'desktop') continue;
-    if (it.desktopOnly) { rows.push({ k: 'todo', label: it.label, tag: 'DESKTOP ONLY', reason: 'Needs a second native window; phones and tablets have one window.' }); continue; }
+    if (it.desktopOnly) { if (!tablet) continue; rows.push({ k: 'todo', label: it.label, tag: 'DESKTOP ONLY', reason: 'Needs a second native window; phones and tablets have one window.' }); continue; }
+    if (it.notPhone && !tablet) continue;   // a key-binding row: no accelerator fires on the phone (PC_SHELL_PROPOSAL.md §3.9)
     if (it.t === 'band') rows.push(hd(it.label));
     else if (it.t === 'sep') rows.push(sep());
     else if (it.t === 'sign') rows.push(info(it.label));
@@ -1551,6 +1565,8 @@ function doAct(c, it) {
     case 'selectAll': c._toast(s.dom === 'civil' ? 'Select all is off in CIVIL' : (s.dom === 'world' ? 'Selected ' + s.stamps.length + ' draft stamps' : 'Selected ' + (s.userIcons.length + s.userLabels.length) + ' icons and labels')); break;
     case 'deselect': closeMenus(); if (c._deselect) c._deselect(); else c.setState({ sel: null }); break;
     case 'selBack': closeMenus(); c._selBack(); break;
+    case 'ctxCard': { closeMenus(); const { W: w0, H: h0 } = c._hostWH(); const sj = entOf(c, subjectOf(c)); const p = sj && sj.x != null ? c._w2s(sj.x, sj.y) : { x: w0 / 2, y: h0 / 2 }; c._longPress(p.x, p.y, true); break; }
+    case 'ringHere': { closeMenus(); const p = c._lastPtr || (() => { const { W: w0, H: h0 } = c._hostWH(); return { x: w0 / 2, y: h0 / 2 }; })(); c._longPress(p.x, p.y, true, true); break; }
     case 'selFwd': closeMenus(); c._selFwd(); break;
     case 'ctx': closeMenus(); c._ctxTab(arg || 'inspect', arg === 'ask'); break;
     case 'ctxPin': closeMenus(); { const sj = subjectOf(c); if (sj) c.setState({ ctxPin: Object.assign({}, sj), rdockOpen: true }); else c._toast('Nothing selected to pin to'); } break;

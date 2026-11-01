@@ -100,6 +100,29 @@ Owner questions AQ1…AQ6 are open.
 
 Ten places where the code and the proposal disagreed are corrected in the proposal (§3.8, §3.9, §3.6, PC-9), and they raised PQ10–PQ12. Implementing these menus, and the mobile ones, is now a row in `OUTSTANDING_WORK.md`.
 
+**The menus checked against the mockup, per platform and per row; nothing built (2026-11-01).** The owner asked to "check the godot version of all menu's against the mockups in the artifact. Per platform and option if they are actually the same". `cartalith-native/docs/evidence/menu-parity-2026-11-01/` compares every row: label, kind, accelerator, disabled state and its reason, Session-mode gate, and submenu contents. The Godot side is the shipped shell plus both sets of drafts, read statically, since no Godot binary was available. The mockup side is its own menu code, evaluated.
+
+**Re-run after the fixes** (`compare.py` exits 0; every row classified):
+
+| Platform | Rows | Same | Same once its milestone lands | Reworded only | For the owner | Not drafted yet |
+|---|---:|---:|---:|---:|---:|---:|
+| Desktop | 435 | 399 | 12 | 24 | 0 | 0 |
+| Tablet, 1 180 dp and wider | 438 | 398 | 12 | 24 | 0 | 4 |
+| Tablet, below 1 180 dp | 453 | 413 | 12 | 24 | 0 | 4 |
+| Phone MENU | 486 | 380 | 5 | 26 | 73 | 2 |
+
+"Reworded only" means reasons paraphrased, labels rewritten at run time, separators. The phone's 73 rows are P1 and P2, now `MOBILE_SHELL_PROPOSAL.md` Q13 and `PC_SHELL_PROPOSAL.md` PQ13.
+
+**What the check fixed:**
+- **The mockup:** eleven fixes, A1–A11 (landmark kinds the engine cannot place, the GPU retry row's state, readout texts, a singular, three Session-mode gates, the Open windows rows, PW-5's pop-out row on the phone, ☰'s Keyboard reference and its `full=false` submenus, the narrow World's duplicate Generate world). It also added the PQ10 default rows, Edit ▸ Context card and Cartwheel at the pointer.
+- **The drafts**, corrected by the checking agent; both `check_symbols.sh` pass:
+  - mobile 08: the whole bar's World is `_pc_world`;
+  - mobile 05: the Story section, a comment, and leading captioned separators;
+  - mobile 03: MENU ▸ Help's closing line;
+  - pc-shell 02: W1 is skipped when 08 is applied.
+
+The mockup's own checks still pass after the fixes.
+
 ### Consent card on Refresh and Send (2026-10-27)
 
 Shell only, Rust untouched. In `Preferences > Assistant`, Refresh and an entered address, and Send in the assistant panel, open the consent card at once when the only refusal is a missing consent for that endpoint; Allow then carries on (lists the models, or sends the request). Buttons read "Allow" and "Not now". Master switch off: no card, the line "Turn on Assistant enabled first" and a button that turns it on (it asks consent first if needed and sends nothing by itself). Checked with the in-test mock server (`_llmmodels_probe` leg 1b, `_llmpanel_probe` leg 5b) plus `_llmset_probe` and `_llmprofiles_probe`, at 1600x1000, 1280x800 and 393x852: all pass; the gate-reason literals were mutation-tested and both mutants failed. Not covered: real LM Studio, a real remote host (the remote leg stops at the card), a device run.
