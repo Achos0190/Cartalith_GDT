@@ -389,6 +389,50 @@ as they were asked.*
 5. **Map-width change with marks** — keep kilometres, notify (§5).
    **Answered (Ruling EA item 15): confirmed as shipped.** Paint keeps its
    kilometres when the map changes size. The notice half is not built.
+   - **The notice's design (2026-11-01, for the owner's approval; drawn in the
+     mobile mockup, `design/mobile-shell-2026-10-31/`, and nothing of it
+     built):**
+     - **When.** After a regenerate whose `map_width_km` differs from the one
+       the marks were painted at, while at least one mark exists. Never
+       otherwise: a regenerate at the same width moves no mark relative to the
+       plate.
+     - **The one line, at that moment:** a toast, for example *Map width 800 km
+       → 1,200 km · paint marks kept their real size*.
+     - **The one sentence that stays.** A warning row heads CARTO ▸ Style ▸
+       Colours, coloured `warn` (`dcc_theme.gd`: `#e0a840` dark, `#9a6a12`
+       light), until dismissed:
+
+       > Map width 800 km → 1,200 km: 17 paint marks kept their real size and
+       > position; 3 now on water are hidden, not deleted.
+
+       It is placed there because that is paint's home on every form: the
+       desktop and tablet dock, and the phone's CARTO sheet. It is not on the
+       tool bar, which holds tool settings only (Ruling DZ).
+     - **The words.**
+       - "Real size and position" says what §2 and §5 mean (kilometres from the
+         map's top-left edge, so the marks move relative to the plate), with no
+         unit in it.
+       - The widths are distances, so they follow `Preferences ▸ Units`, like
+         every distance in the shell (*497 mi → 746 mi*).
+       - The water count is the marks whose land-only coverage is now all
+         water. They are hidden by Land only and come back if land returns
+         (§5), so the notice says "not deleted".
+     - **Actions.**
+       - **Show marks** outlines every mark on the map once, so the user can
+         see where they now sit.
+       - **Dismiss** removes the row.
+
+       Neither moves or deletes a mark.
+     - **In the mockup:** CARTO ▸ Style ▸ Colours ▸ *Simulate a regenerate at
+       another width*. The test `ea.js` checks the sentence word for word, its
+       place at the head of the section, Dismiss, and the miles form on the
+       desktop. Captures: `ea-15-phone-paint-width.png` and
+       `ea-15-desktop-paint-width.png`.
+     - **Owner question, with its default:** should Show marks also offer to
+       scale the marks with the map (one undo step)? Default: no. A
+       regenerate at another width is a different world, so neither choice
+       keeps a mark on the feature it was painted on, and the ruling keeps
+       kilometres.
 6. **Long-press on phone** — button eyedropper until MAP_CONTEXT F1 is ruled (§14).
    **Dropped (Ruling EA item 15):** the long-press it waited on was settled
    by Ruling AX F1 on 2026-09-26, before this scope was written: a phone
