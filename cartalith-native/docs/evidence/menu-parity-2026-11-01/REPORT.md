@@ -11,7 +11,7 @@ Evidence only. It records what differs and why. It is not a status record: how f
 - **Mockup:** `mockup_menus.json`. `mockup_menus.js` evaluates the mockup's own `menuTree()`, `tabletOverflow()` and
   `tabletWorldMenu()` from `design/mobile-shell-2026-10-31/Shell.dc.html` (last changed in `fcc4b6f`). Re-run on
   2026-11-01, it reproduced the committed file exactly.
-- **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `6295e11`, with these
+- **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `c83ea3a`, with these
   drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs; `drafts/mobile-shell/` 05 and 08; and mobile 03's
   EDIT H1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
   is in its `CONDITIONS` and `RUNTIME` tables (a fresh install, 8 logical cores). The interpreter left **0** conditions
@@ -45,7 +45,7 @@ python3 cartalith-native/docs/evidence/menu-parity-2026-11-01/compare.py       #
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Desktop | 434 | 429 | 435 | 399 | 12 | 22 | 1 | 1 | 0 | 0 | 12 | 24 | 0 |
 | Tablet, 1 180 dp and wider | 437 | 428 | 438 | 398 | 12 | 22 | 5 | 1 | 0 | 0 | 12 | 24 | 4 |
-| Tablet, below 1 180 dp | 452 | 443 | 453 | 413 | 12 | 22 | 5 | 1 | 0 | 0 | 12 | 24 | 4 |
+| Tablet, below 1 180 dp | 452 | 443 | 453 | 412 | 12 | 23 | 5 | 1 | 0 | 0 | 12 | 24 | 4 |
 | Phone, MENU | 442 | 449 | 486 | 380 | 5 | 24 | 33 | 44 | 0 | 73 | 5 | 26 | 2 |
 
 Rows per rule, per platform:
@@ -66,6 +66,7 @@ Rows per rule, per platform:
 | PC-5 | 2 | 2 | 2 | 1 |
 | PC-6 | 2 | 2 | 2 | 1 |
 | S3 | 2 | 2 | 2 | 0 |
+| ? | 0 | 0 | 1 | 0 |
 
 ## Run-time labels (same at run time)
 
@@ -1500,7 +1501,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 
 | # | Mockup | Godot | Godot today | Status | Class |
 |---:|---|---|---|---|---|
-| 1 | Run pipeline · Ctrl+R · SM | Run pipeline · Ctrl+R · SM |  | same |  |
+| 1 | Generate world · Ctrl+R · SM | Run pipeline · Ctrl+R · SM |  | differs: label | ?  |
 | 2 | ——— | ——— |  | same |  |
 | 3 | Reset generation parameters · SM | Reset generation parameters · SM |  | same |  |
 | 4 | [submenu] Reset one stage · SM | [submenu] Reset one stage · SM |  | same |  |
