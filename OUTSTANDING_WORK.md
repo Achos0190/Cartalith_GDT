@@ -70,6 +70,11 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   did NOT reproduce in the probes; keep them open until the owner confirms on the handset.
 - **After a MORE window closes the tab stays lit.**
 - **Phone Close button is 29 px, under the 44 px floor.**
+- **The phone's gesture list overclaims one-finger panning.** `phone_menu.gd::GESTURES` says *"Drag — Pans the map.
+  Confirmed in this build."* But `viewport_host.gd` pans a one-finger drag only while ✋ is latched (`_pan_mode`).
+  Found 2026-11-01 by the DS-13 design pass. Two fixes: correct the string, or build DS13-Q2 (one finger pans with
+  tap-only tools, `MOBILE_SHELL_PROPOSAL.md` §2.5), after which the claim is true. If Q2 is taken, it lands in the same
+  change as hiding ✋.
 - **Search field lag of 10 to 40 s on the 24601 world over adb** (unexplained).
 - **DS-13** the phone viewport control column redesign (`GUI_GAP_REGISTER.md` s.57). **2026-11-01:** a design
   exists, `MOBILE_SHELL_PROPOSAL.md` §2.5, with the mockup in `design/mobile-shell-2026-10-31/`; it awaits the
