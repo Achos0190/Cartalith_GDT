@@ -2894,3 +2894,72 @@ Recorded:
 - The mockup follows.
 
 Nothing is built by this ruling.
+
+## Ruling EA: the backlog's open decisions, worked through: religion, geology, rock drafts, story extras (owner, 2026-11-01)
+
+The owner asked to work through the decisions `OUTSTANDING_WORK.md` §4 says are owed (*"Let's work trough the
+decisions, prompt me and think your questions trough"*).
+
+Before each question was put, its premise was re-checked at the symbols and against every ruling up to DZ. A label in
+quotation marks is the option the owner picked. The questions are numbered as §4 numbers them.
+
+**Not asked, because already answered.** Item 7's follow-up, *"the default age slider makes every arc/rift volcano
+young"*, was answered by Ruling CX item 2 (re-spread volcano ages, about 500 ka at the dormant boundary).
+- It is built: `cartalith_terrain::volcano_attr::respread_age_years`.
+- It was measured on the five census worlds (`STATUS.md`, 2026-10-24).
+- §4 had not been re-checked after Ruling CV, so it still listed the item.
+
+**Religion expansion (`FH_R2_PLAN.md` §9; item 1)**
+1. **Q5, belief determinism for S3b: "Your saved simulation".**
+   - **What is saved:** the belief state is saved with the project, as a new optional save slot.
+   - **What S3b reads:** when S3b (R2-5) is built, it reads that state. A world nobody simulated falls back to the
+     ruler's faith, as towns read it today (`urban_bridge.rs::town_faith`).
+   - **What does not change:** fresh worlds.
+   - **What it does not schedule:** this answer does not schedule S3b. R2-5 still needs the go-ahead that Ruling CY
+     withheld, and its deity-siting part needs S5.
+   - **Premise checked:** belief is not saved today (`project_bridge.rs` restores `belief: Vec::new()`), so a run
+     made in the simulator is lost on reload.
+2. **Q8, the fixed list: "Yes, and add an S7 row".**
+   - The built list is confirmed: `roster::CIV_RELIGIONS`, 15 entries, `none` included. A custom religion counts in
+     its base faith's share of the spread.
+   - World-instanced religions and schisms (S7) become their own unscheduled `OUTSTANDING_WORK.md` row.
+   - Until S7, two custom variants of the same base faith count as one faith in the spread.
+3. **The R2-1 seven's derived type words: "Confirm all".**
+   - **Organized:** The One God, The Revealed Law, The Middle Path and The Divine Throne.
+   - **Cult:** The Mysteries.
+   - **Folk:** Spirit Ways.
+   - **None, shown as a dash:** The Covenant.
+
+   These are display only (`religion_profile::RELIGION_PROFILES`, read by `civ_religion_vocabulary`).
+4. **M2's cost bar: "Accept; re-measure the bar".**
+   - **The breach:** 2.4× on the 1 024-wide world, 0.75 ms (0.72..0.79) against 0.30 ms (0.30..0.33) per 100 years
+     (`STATUS.md`, 2026-10-18), against a 2× bar. It is accepted.
+   - **Why it is acceptable:** the run happens only on demand, never during generation.
+   - **The new bar:** the cost is re-measured on today's tree, because the recorded figure predates R2-3 and R2-6.
+     The result is recorded as the new bar, disclosed as set after the result. The precedent is Ruling CA's GF-11
+     cost bar.
+
+**Geology (items 2 and 3)**
+5. **GF-9, when to switch the geology processes on: "Re-measure, switch on what passes".**
+   - **What is re-measured:** every switch-on bar, with frames, on today's app worlds. That is twice: for the
+     processes alone, and for the processes plus rock-aware construction.
+   - **What is switched on:** whatever passes, under Ruling BO. The rest is reported.
+   - **Why re-measure:** the readings on file are from 2026-10-12/13 worlds, re-baselined six times since (Rulings CM,
+     CO, CU/CV, CX, DB, DJ).
+   - **Ruling CP's route A** applies to what is switched on.
+6. **GF-8, unfinished Rock drafts: "Tie it to the switch-on".**
+   - Saving Rock drafts is built as part of the GF-9 switch-on, and dropped if the switch-on never comes.
+   - **Premise checked:** `WorldGen::rock_paint_gate` refuses while `geology_processes` is off. That is the app
+     default (`params::defaults()`), so no user can make a Rock draft today.
+
+**Story menus (item 4)**
+7. **`STORY_MENUS_PROPOSAL.md` §8's later rows: "None for now".** All four stay unscheduled:
+   - a per-item DM-only mark;
+   - free timeline events;
+   - print and VTT writers;
+   - a CIVIL ▸ Settlements rail node.
+
+   **Recorded with it:** the Player map export still includes a secret place whenever its layer is on, because
+   nothing marks a place DM-only. Free events can already be written as chronos lines in a place's note (Ruling AM).
+
+Items 5, 6, 8 to 10, and the pop-out dialog question, follow below as they are answered.
