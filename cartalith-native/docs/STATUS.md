@@ -63,6 +63,23 @@ The owner asked: *"Just copy it into the reference folder"*.
 - **The old blocker was wrong.** The re-freeze row had been blocked since 2026-10-10 on "the owner has no v2.71 file to
   supply". That check looked only in this repository; the file had been in `Cartalith_RC` since 2026-09-20.
 
+### Ruling EC: touch panning answered, and the HTML's next versions decided; nothing built by it (2026-11-01)
+
+**The owner answered eight questions, each with the recommended option** (`LARGE_ITEM_RULINGS.md`, Ruling EC).
+- **DS-13's panning** (it closes Ruling EB item 1):
+  - ✋ appears only with a drawing tool;
+  - one finger pans with a tap-only tool;
+  - after two fingers, a drawing tool ignores the rest of the touch;
+  - thumb zoom is off with a placing or drawing tool unless ✋ is on.
+- **For the HTML working copy:**
+  - port Export map image, Find runs commands, relations and political history, and the Measure tool;
+  - apply Godot's `> 0` toll fix to `_jpClaimedAt`, which changes the planner's results;
+  - give controls the design's rounded corners;
+  - show a half-resolution preview while a look slider is dragged.
+
+`MOBILE_SHELL_PROPOSAL.md` §2.5 and `OUTSTANDING_WORK.md` carry the answers. The Godot shell has none of them built,
+and the HTML gets them in versions after v2.73. The mockup still keeps thumb zoom off under ✋ (backlog row).
+
 ### The HTML's layout upgrade, stage 1 of 3: the desktop shell, as `html/Cartalith v2.72 DCC test.html` (2026-11-01)
 
 The owner asked: *"Can we upgrade the layout in the html with the new design?"*, then chose "A working copy in this

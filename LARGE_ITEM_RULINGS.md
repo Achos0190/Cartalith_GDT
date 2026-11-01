@@ -3073,8 +3073,8 @@ owner picked. *Italics* mark the owner's own words.
 1. **One-finger panning (DS13-Q1 and Q2): not yet decided.** The owner asked first: *"Research how other mapping apps
    have their interface for map interactions."* The research is done: `MAP_INTERACTION_RESEARCH.md` (2026-11-01). It
    supports both defaults and names two findings they do not cover: Krita's stray-stroke guard, and when thumb zoom
-   should be active with a placing or drawing tool. The questions went back to the owner with it. The answer will be
-   added here.
+   should be active with a placing or drawing tool. **Answered by Ruling EC items 1–4 (2026-11-01):** every default was
+   kept, with both findings adopted.
 2. **The zoom step (DS13-Q5): "Keep 1.35×".** The −|+ rocker keeps `viewport_host.gd::ZOOM_BUTTON_STEP` 1.35, the
    reference's step. The mockup's 1.6 goes.
    - *Corrected 2026-11-01:* the question said *"The mockup had drawn 1.6×"*. The mockup's touch rocker already
@@ -3110,3 +3110,56 @@ owner picked. *Italics* mark the owner's own words.
 
 **Consequences:** `MOBILE_SHELL_PROPOSAL.md` §2.5, `3D_VIEWPORT_SCOPE.md` and `COLOUR_PAINT_SCOPE.md` carry the answers,
 and the mockup follows. Nothing is built by this ruling.
+
+## Ruling EC: touch panning (DS13-Q1/Q2), and the HTML working copy's next versions: features, the toll fix, corners, slider preview (owner, 2026-11-01)
+
+The owner asked to be prompted for the open questions. Two sets were put, each premise checked at its symbol first. A
+label in quotation marks is the option the owner picked; every answer took the recommended option.
+
+**Touch panning** (`MOBILE_SHELL_PROPOSAL.md` §2.5; the research is `MAP_INTERACTION_RESEARCH.md`). This answers
+Ruling EB item 1. It binds the Godot shell and the HTML working copy alike.
+1. **DS13-Q1: "Only with drawing tools".** ✋ appears on the control row only while a drawing tool is armed (sculpt,
+   paint, territory, way and the like), and gives the finger back to panning.
+2. **DS13-Q2: "Yes, drag pans".** With a tap-only tool armed (Inspect, Measure, Settlement, Label, Icon, Route), a
+   one-finger drag past the touch slop pans the map. A tap still selects or places, and a hold still opens the card.
+   The shipped Godot build pans one finger only while ✋ is latched, so this is a build row, and
+   `phone_menu.gd::GESTURES`'s "Drag — Pans the map" claim becomes true when it lands.
+3. **Stray strokes: "Yes, ignore it".** Once two fingers have been down, nothing more of that touch reaches a drawing
+   tool (Krita's fix for the same defect, `MAP_INTERACTION_RESEARCH.md` §4).
+4. **Thumb zoom with a drawing or placing tool: "Off unless ✋ is on".** With such a tool armed, a tap acts at once,
+   and double-tap and thumb zoom work only while ✋ is on. ✋ has one meaning: the finger moves the map.
+
+**The HTML working copy** (`html/`; the owner's earlier request: *"can you check and improve the visuals and
+performance of the html? Maybe even upgrade some features based of the godot version"*). The premises come from the
+2026-11-01 audits of v2.72, re-checked against v2.73.
+
+5. **Features to port, all four offered:**
+   - Export map image: a standalone PNG. Today the rendered image goes only inside the project .zip
+     (`bakeSingle`'s one caller).
+   - Find runs commands: the search box also runs any menu command by name.
+   - Relations and history: fill "Diplomatic relations — not yet implemented", and add a settlement's holders by
+     recorded year.
+   - The Measure tool: distance, bearing, area, radius, cross-section and height difference. It comes after stage 2,
+     because it must work by touch.
+6. **The planner's toll bug: "Apply Godot's fix".** `_jpClaimedAt` tests `civTerritory[…] >= 0`, so every cell, the sea
+   included, reads as claimed. The per-frontier toll (`JP_COST_TOLL_PER_BORDER` 6) never fires. Godot's
+   `cartalith-civ::jp_claimed_at` uses `> 0`.
+   - **The fix changes planner results**, measured by the audit on two seeds: tolls appear, and the infrastructure
+     tier changes on 12 of 77 and 41 of 84 stages.
+   - **Two consequences come with it:** unclaimed land reads "Ruined Region", and stages over water lose the
+     claimed-land floor.
+   - **Unaffected:** world generation.
+   - **Disclosure:** the version's changelog states the change.
+7. **Corners: "Rounded, as the design".**
+   - Controls take the design's radii, about 10–16 px on buttons, inputs, chips and pins. Panels and bands stay square.
+   - This replaces v2.23's `*{border-radius:0 !important}`. The newer design wins, and the Godot theme already rounds
+     controls (`dcc_theme.gd`, `btn_radius`).
+8. **Slider drag: "Preview while dragging".**
+   - While a look slider is dragged, the map renders a half-resolution preview, and it renders exactly on release.
+   - The audit measured 0.7–1 s per step at the 1 024 grid and 2.6–4.3 s at 2 048, on a loaded shared machine.
+   - The preview is never cached, saved, exported or baked, so the exact render, and what `hash_gen1` hashes, stays
+     byte-identical.
+
+**Consequences:** `MOBILE_SHELL_PROPOSAL.md` §2.5 marks DS13-Q1 and Q2 answered. The HTML's next versions carry items
+5–8, with the audits' performance and visual fixes. The HTML's v2.73 already builds items 1–4 as its defaults. Nothing
+in `cartalith-native/` is built by this ruling.

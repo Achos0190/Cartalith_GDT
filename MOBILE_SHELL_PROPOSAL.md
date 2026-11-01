@@ -196,8 +196,8 @@ rather than clipping. The dock's chips are about 86 × 61 dp. The mockup draws a
 
 **What this is.** The design for `GUI_GAP_REGISTER.md` §57's DS-13, the row of map controls on a touch screen, written
 2026-11-01 for the owner's approval. The owner answered three of its five questions the same day (Ruling EB items 2
-to 4: DS13-Q3, Q4 and Q5, below). DS13-Q1 and Q2 await the owner; the research for them is done
-(`MAP_INTERACTION_RESEARCH.md`, Ruling EB item 1). It is drawn and working in the mockup (`Live.dc.html` at phone or
+to 4: DS13-Q3, Q4 and Q5, below), and the other two after the research (`MAP_INTERACTION_RESEARCH.md`): Ruling EC
+items 1 to 4 keep DS13-Q1's and Q2's defaults and adopt both of the research's findings. It is drawn and working in the mockup (`Live.dc.html` at phone or
 tablet size) and checked by the mockup test `ds13.js`. That test covers phone portrait, phone landscape and tablet,
 each right- and left-handed, then the desktop's zoom step and the double-tap and thumb zoom on fresh pages: 204 checks
 (`grep -c '^ok '` on its output, 2026-11-01). Captures are `ds13-*.png` in
@@ -267,18 +267,15 @@ zooms ×1.7) and thumb zoom with them (a double-tap held and slid zooms continuo
     tap before it still opens the card at the shipped hold (480 ms phone, 500 ms tablet; §4).
   - **Undo is untouched.** Thumb zoom is one finger. A second finger landing hands the view to pinch, and a
     two-finger tap stays undo (Ruling DU Q5), even straight after a tap.
-  - **With a drawing tool armed: not settled.** Ruling EB item 3 requires that thumb zoom collide neither with undo
-    nor with a drawing tool's strokes, and settles the drawing tool's case with item 1's answer (DS13-Q1 and Q2),
-    which awaits the owner. `MAP_INTERACTION_RESEARCH.md` §6 puts two findings to the owner; they are research, not
-    answers:
-    - Krita's guard: once two fingers have been down, a drawing tool ignores the rest of that touch;
-    - thumb zoom kept off while a placing or drawing tool is armed, except while ✋ is on.
-
-    §6 raises the same question for tools whose tap places something (Settlement, Label, Icon, Conflict, a Route
-    waypoint, a Measure point): a double-tap would place before it could zoom. Android's own answer is to hold the
-    tap back for up to 300 ms.
-  - **The mockup's placeholder, which decides nothing.** While a drawing tool is armed, both gestures are off and
-    labelled "pending DS13-Q1": in the map's accessible name, and in MENU ▸ Preferences ▸ Touch & gestures. A
+  - **With a drawing or placing tool armed: off unless ✋ is on** (Ruling EC item 4, *"Off unless ✋ is on"*). A tap
+    with such a tool acts at once, and double-tap and thumb zoom work only while ✋ is on, so ✋ has one meaning: the
+    finger moves the map. The placing tools are Settlement, Label, Icon, Conflict, a Route waypoint and a Measure
+    point; Android's alternative, holding every tap back 300 ms, was not chosen.
+  - **Stray strokes** (Ruling EC item 3, *"Yes, ignore it"*): once two fingers have been down, nothing more of that
+    touch reaches a drawing tool (`MAP_INTERACTION_RESEARCH.md` §4, Krita's fix).
+  - **The mockup** keeps both gestures off while a drawing tool is armed, labelled "pending DS13-Q1" in the map's
+    accessible name and in MENU ▸ Preferences ▸ Touch & gestures. It was drawn before Ruling EC: it does not yet turn
+    them on under ✋, and its label is stale (`OUTSTANDING_WORK.md`, the DS-13 row). A
     double-tap is then two taps for the tool, and a slide draws. With a tap-only tool, a tap waits 240 ms for a second
     tap before it acts (`06-phone.md` §7), so a double-tap never places.
   - **Where.** Every touch build: phone and tablet. The desktop with a mouse is unchanged, because the hold-slide is
@@ -350,7 +347,7 @@ DS-13 is one design for both.
      only one-finger pan.
 6. **The double-tap and thumb zoom** (§4's double-tap, approved and not built; thumb zoom, Ruling EB item 3) are new
    branches beside the magnify branch, built together.
-   - Their behaviour with a drawing tool armed lands with DS13-Q1's answer.
+   - With a drawing or placing tool armed they are off unless ✋ is on (Ruling EC item 4).
    - `phone_menu.gd`'s `GESTURES_ABSENT` double-tap row (*"No double-tap handler exists on the map"*) becomes a
      `GESTURES` row in the same change, with thumb zoom beside it.
 7. **The 3D camera** (Ruling EB item 4; DS13-Q4, *"Yes, same buttons"*).
@@ -386,9 +383,8 @@ DS-13 is one design for both.
 **Milestone fit.**
 - **MS-5** (the tool strip, the fan and the card). The latch follows the armed tool and the strip sits under the row,
   so items 1 to 6 land there.
-  - Items 3 and 5 land together, and wait on DS13-Q1 and Q2.
-  - Item 6, the double-tap and thumb zoom, lands there too. Its behaviour while a drawing tool is armed waits on
-    DS13-Q1.
+  - Items 3 and 5 land together (Ruling EC items 1 and 2), with the stray-stroke guard (item 3).
+  - Item 6, the double-tap and thumb zoom, lands there too, off with a drawing or placing tool unless ✋ is on (item 4).
 - **3D-2** (`3D_VIEWPORT_SCOPE.md`) builds item 7 with the 3D camera. It needs nothing from MS-5, because the row
   ships today.
 - **MS-7** checks the tablet's anchoring against the docking rule.
@@ -405,8 +401,8 @@ DS-13 is one design for both.
   - double-tap, hold, slide zooms continuously about the finger, down in and up out, and its held press opens no
     card;
   - a tap followed by a two-finger tap still undoes, and a pinch still zooms;
-  - with a drawing tool armed, thumb zoom's bar is set with DS13-Q1's answer. The mockup's placeholder bar: neither
-    gesture changes the zoom;
+  - with a drawing or placing tool armed, neither gesture changes the zoom, and with ✋ on both do (Ruling EC item 4);
+  - after a second finger lands, lifting one and moving the other draws nothing (Ruling EC item 3);
   - from 3D-2, − and + move the 3D camera and ⌖ frames the world.
 
   `ds13.js` holds all of these in the mockup today except the last, because the mockup draws no 3D camera (§8).
@@ -414,17 +410,17 @@ DS-13 is one design for both.
 **Owner questions, with defaults.**
 1. **DS13-Q1. Is ✋ drawn only while a drawing tool is armed?** This changes the 2026-09-05 board, which always draws
    it. Default: yes.
-   **Awaiting the owner; the research is done (Ruling EB item 1).** `MAP_INTERACTION_RESEARCH.md` §6 supports the
-   default. It adds two findings the default does not cover: Krita's guard, and how thumb zoom behaves with a placing
-   or drawing tool (see Behaviour).
+   **Answered (Ruling EC item 1): "Only with drawing tools"**, the default, after `MAP_INTERACTION_RESEARCH.md`. Its
+   two further findings were adopted too: the stray-stroke guard (item 3) and thumb zoom off with a placing or drawing
+   tool unless ✋ is on (item 4).
 2. **DS13-Q2. Does one finger pan with a tap-only tool?** This is §4's approved "Drag: pan". It is asked by name
    because the shipped `_input` deliberately does not do it. Default: yes, with a drawing tool keeping the finger.
-   **Awaiting the owner; the research is done (Ruling EB item 1).** `MAP_INTERACTION_RESEARCH.md` §6 supports the
-   default: every navigation map it read pans with one finger.
+   **Answered (Ruling EC item 2): "Yes, drag pans"**, the default. Every navigation map the research read pans with
+   one finger.
 3. **DS13-Q3. One-finger continuous zoom** (double-tap, then drag). Default: not in v1.
    **Answered (Ruling EB item 3), against the default: "Add it".** Double-tap, hold and slide, Google Maps style, so
-   sliding down zooms in. It is built together with the plain double-tap. How it behaves while a drawing tool is armed
-   is settled with DS13-Q1's answer (Behaviour, *Thumb zoom*).
+   sliding down zooms in. It is built together with the plain double-tap. With a drawing or placing tool armed it is
+   off unless ✋ is on (Ruling EC item 4; Behaviour, *Thumb zoom*).
 4. **DS13-Q4. Once 3D-2 draws terrain, does the row drive the 3D camera?** That would be − and + to zoom and ⌖ back
    to the top-down start. Default: yes, with the same row and meanings; 3D-2 sets the camera's steps.
    **Answered (Ruling EB item 4): "Yes, same buttons".** From 3D-2, − and + move the camera in and out and ⌖ frames
@@ -576,7 +572,8 @@ bar is `☰ · File · World · Records · Story` (§2.2).
   engine, and its New World preview stands in for `WorldGen.preview_land_mask`.
 - Windows show their frame and main sections, not every control inside them.
 - 3D is a toggle label, so the row's 3D meanings (Ruling EB item 4) are not drawn; the row still moves the 2D map.
-- Thumb zoom with a drawing tool armed is a placeholder, off and labelled "pending DS13-Q1" (§2.5).
+- Thumb zoom with a drawing tool armed is off even under ✋, labelled "pending DS13-Q1"; Ruling EC item 4 turns it on
+  under ✋ (§2.5).
 - The Assistant chip appears while Preferences ▸ Assistant is on. The shipped chip also needs a configured provider
   (CQ-7).
 - Measured in Chromium only (Playwright), at the sizes listed in §3. Glass is MS-10.
