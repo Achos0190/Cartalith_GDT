@@ -286,7 +286,7 @@ stages, numeric bars and its own owner questions, is `MOBILE_SHELL_MS1_SPEC.md`.
 
 ## 7. Owner questions, with defaults
 
-Q1 to Q9 are answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes to all four defaults"*) and Q5 to Q9 by **Ruling DU** (owner, 2026-10-31: *"Yes to Q5 through Q9 too"*), both in `LARGE_ITEM_RULINGS.md`. The defaults stood in every case. **Q10 to Q12 are open.** They were added the same day, after the owner asked whether the adaptable quick bar and the cartwheel were accounted for (§2.4).
+Q1 to Q9 are answered: Q1 to Q4 by **Ruling DT** (owner, 2026-10-31: *"Yes to all four defaults"*) and Q5 to Q9 by **Ruling DU** (owner, 2026-10-31: *"Yes to Q5 through Q9 too"*), both in `LARGE_ITEM_RULINGS.md`. The defaults stood in every case. **Q10 to Q12 are open.** They were added the same day, after the owner asked whether the adaptable quick bar and the cartwheel were accounted for (§2.4). Q10 to Q13 are open; Q13 was added on 2026-11-01 by the menu parity check.
 
 | # | Question | Default | Answer |
 |---|---|---|---|

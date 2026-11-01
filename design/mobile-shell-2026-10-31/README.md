@@ -92,7 +92,9 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
   until you press FOLLOW to pin it. Drag a window by its title. Story ▸ Conflicts… selects a conflict and moves the
   year to it.
 - **Menus** open as side-by-side columns, and hovering across the bar switches menus. Right-click the map for the
-  card; Q opens the cartwheel at the pointer.
+  card; Q opens the cartwheel at the pointer. Both keys also have Edit rows, Context card and Cartwheel at the pointer,
+  so they can be rebound (`PC_SHELL_PROPOSAL.md` PQ10). The menus are checked row by row against the Godot drafts in
+  `cartalith-native/docs/evidence/menu-parity-2026-11-01/`.
 
 ## Honest limits
 

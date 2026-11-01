@@ -65,7 +65,7 @@ Design only: nothing in the shell, the engine or `menus.gd` changed. `MOBILE_SHE
 - the year strip in every domain, as `GUI_GAP_REGISTER.md` CV-24's design;
 - menu and key changes.
 
-No shell code changed. Owner questions PQ1…PQ9 are open. Read at the symbols and re-run in `shell/` this session:
+No shell code changed. Owner questions PQ1…PQ9 are open (PQ10…PQ13 were added on 2026-11-01 by the drafts and the menu parity check). Read at the symbols and re-run in `shell/` this session:
 - 23 windows extend the exclusive `AcceptDialog`.
 - No window, dialog, assistant file, planner or right dock connects `timeline_changed`.
 - `civilization_workspace.gd::_tl_goto_year` moves the year without emitting it.
