@@ -9,7 +9,7 @@ Two pastes. Neither changes anything else in the file.
 that row stays as it is — the convention every older row follows), and **insert this row above it**:
 
 ```
-| `Cartalith v2.72 DCC test.html` | **The DCC shell line's current head, not a mainline version.** Owner: *"Can we upgrade the layout in the html with the new design?"*, then *"A working copy in this repo"* and *"Everything, staged"*. **STAGE 1 OF 3: THE DESKTOP SHELL ONLY** (wider than 860px; a phone keeps v2.71's layout until stage 2, the Context panel's modules and the planner window are stage 3), from Cartalith_GDT's `PC_SHELL_PROPOSAL.md` §2–§3.12 and Rulings DY/DZ. A **menu bar** — CARTALITH, then File · Edit · Assets · Records · Story · Preferences · Window · Help, then Undo, Redo, Find and a document readout of only what the file knows (`seed · grid · extent`, `no world` behind the start card) — where **every row presses an existing control or calls the function its handler calls** (`_DSK_CMDS`) and a design row with nothing behind it is left out, not drawn disabled. **Ctrl+R is File ▸ Generate world in every domain**; Ctrl+O, Ctrl+S, Ctrl+Shift+F and Shift+A too, each checked free and none a key browsers keep. **The tool-options bar holds the armed tool's settings only (Ruling DZ)**: the context name and one hint, Sculpt's picker, mode and brush when armed, and the pins (Save, Settlements, Assets — still the way in and out of the library — Planner); Seed, ⟳, Center landmasses and Generate moved to **WORLD › Generate › Run**, View into the Base map chip, and `_stampGenLock` still locks all four (it never used containment). The rail is leftmost with vertical labels; the right dock is the **Context panel** (Inspect only — no note editor, no assistant); a **timeline strip above the status bar in every domain** (CV-24) carries Explore's own slider, years and filters, and no reader of the year tests the domain. **ONE CONTROL, TWO HOMES**: the markup keeps every control where v2.71 put it (its phone home) and `_dskPlace()` MOVES 26 elements into 13 desktop slots across the 860px line, marking each home with a comment node — never a clone; a phone measures **to the pixel** as v2.71. Found and left: `#assetsPanel` has been unreachable in Assets mode since v2.24. `tests/run.sh` {{RUN}}, `run_um.sh` {{UM}}, `hash_gen1.js` vs v2.71 **{{HASH}}**. Verify with `tests/perf/probe_desktopshell.js` ({{PN}} assertions; pass v2.71 second for the phone comparison; {{P71}} fail on v2.71). |
+| `Cartalith v2.72 DCC test.html` | **The DCC shell line's current head, not a mainline version.** Owner: *"Can we upgrade the layout in the html with the new design?"*, then *"A working copy in this repo"* and *"Everything, staged"*. **STAGE 1 OF 3: THE DESKTOP SHELL ONLY** (wider than 860px; a phone keeps v2.71's layout until stage 2, the Context panel's modules and the planner window are stage 3), from Cartalith_GDT's `PC_SHELL_PROPOSAL.md` §2–§3.12 and Rulings DY/DZ. A **menu bar** — CARTALITH, then File · Edit · Assets · Records · Story · Preferences · Window · Help, then Undo, Redo, Find and a document readout of only what the file knows (`seed · grid · extent`, `no world` behind the start card) — where **every row presses an existing control or calls the function its handler calls** (`_DSK_CMDS`) and a design row with nothing behind it is left out, not drawn disabled. **Ctrl+R is File ▸ Generate world in every domain**; Ctrl+O, Ctrl+S, Ctrl+Shift+F and Shift+A too, each checked free and none a key browsers keep. **The tool-options bar holds the armed tool's settings only (Ruling DZ)**: the context name and one hint, Sculpt's picker, mode and brush when armed, and the pins (Save, Settlements, Assets — still the way in and out of the library — Planner); Seed, ⟳, Center landmasses and Generate moved to **WORLD › Generate › Run**, View into the Base map chip, and `_stampGenLock` still locks all four (it never used containment). The rail is leftmost with vertical labels; the right dock is the **Context panel** (Inspect only — no note editor, no assistant); a **timeline strip above the status bar in every domain** (CV-24) carries Explore's own slider, years and filters, and no reader of the year tests the domain. **ONE CONTROL, TWO HOMES**: the markup keeps every control where v2.71 put it (its phone home) and `_dskPlace()` MOVES 26 elements into 13 desktop slots across the 860px line, marking each home with a comment node — never a clone; a phone measures **to the pixel** as v2.71. Found and left: `#assetsPanel` has been unreachable in Assets mode since v2.24. `tests/run.sh` 1280/0, `run_um.sh` 882/0, `hash_gen1.js` vs v2.71 **ALL IDENTICAL**. Verify with `tests/perf/probe_desktopshell.js` (174 assertions; pass v2.71 second for the phone comparison; 63 fail on v2.71). |
 ```
 
 ## 2 · The section
@@ -23,10 +23,10 @@ that row stays as it is — the convention every older row follows), and **inser
 Owner: *"Can we upgrade the layout in the html with the new design?"*, then *"A working copy in this
 repo"* and *"Everything, staged"*. Stage 1 is the desktop (wider than 860px); a phone keeps v2.71's
 layout until stage 2; the Context panel's modules and the planner window are stage 3. Design:
-Cartalith_GDT `PC_SHELL_PROPOSAL.md` §2–§3.12 and Rulings DY/DZ. `tests/run.sh` **{{RUN}}**,
-`run_um.sh` **{{UM}}**, `hash_gen1.js` vs v2.71 **{{HASH}}**; verification is
-`tests/perf/probe_desktopshell.js` ({{PN}} assertions; pass v2.71 as a second argument and the phone half
-compares against its geometry; run alone on v2.71 it fails {{P71}}).
+Cartalith_GDT `PC_SHELL_PROPOSAL.md` §2–§3.12 and Rulings DY/DZ. `tests/run.sh` **1280/0**,
+`run_um.sh` **882/0**, `hash_gen1.js` vs v2.71 **ALL IDENTICAL**; verification is
+`tests/perf/probe_desktopshell.js` (174 assertions; pass v2.71 as a second argument and the phone half
+compares against its geometry; run alone on v2.71 it fails 63).
 
 - **ONE CONTROL, TWO HOMES — `_DSK_SLOTS` and `_dskPlace()`.** When a control sits in a different band on
   the desktop than on a phone, it is still ONE element. The markup keeps it where v2.71 put it (its phone
@@ -54,7 +54,10 @@ compares against its geometry; run alone on v2.71 it fails {{P71}}).
 - **Accelerators (`_DSK_KEYS`) were checked free against every key the file binds**, and against the keys a
   browser keeps (Ctrl+N, Ctrl+T, Ctrl+W, Ctrl+1–9 — nothing is drawn against those). Their
   `preventDefault` is what stops Ctrl+R reloading, so a held key is swallowed, not ignored. Under a modal or
-  the setup gate they do not fire and the browser keeps its default.
+  the setup gate they do not fire and the browser keeps its default. **While the busy overlay is up they
+  are swallowed** (`_busyDepth>0`): `withBusy` would chain the command behind the running one — the first
+  cut queued a second generate on Ctrl+R mid-generate. The overlay covers the map only; a click on the
+  dock's Generate can still queue one, as it always could.
 - **The tool-options bar holds the armed tool's settings only (Ruling DZ).** `_dskToolOptsSync()` writes the
   context name and hint and shows the sculpt group; it runs from `_applyDomainUI`, `_civSetTool`,
   `sculptSyncFeatureSeg`, `applyFinalizedUI`, Assets mode's enter/exit and the paint toggle. **Any new way
@@ -81,4 +84,10 @@ compares against its geometry; run alone on v2.71 it fails {{P71}}).
   pack metadata, stats and Validate output cannot be reached by a click. The Assets menu reaches Export,
   Open pack, Apply and Clear by opening the library and pressing their buttons; Validate and the metadata
   are open.
+- **Four older probe assertions fail on v2.72 by design, at 1400×900**: `probe_shellui`'s header order
+  (Find · Undo · Redo · File · cog), `probe_domainrail`'s rail between the dock and the map, and
+  `probe_assetsbtn`'s and `probe_settleparams`'s "in the header". Each pins a v2.27–v2.63 position the
+  design moved; the behaviour each protects (one visible click, never behind the cog; one rail) still
+  passes. Re-point them at the new homes rather than reading them as regressions — and keep
+  `probe_shellui`'s and `probe_domainrail`'s phone halves, which still hold.
 ```

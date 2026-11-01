@@ -156,6 +156,16 @@ const row = async (p, btnSel, cmd, sub) => {
       const KR = await p.evaluate(() => ({ g: window.__gens, still: window.__noReload === 1 }));
       A('Ctrl+R generates — in ' + dom.toUpperCase() + ', and the page did not reload', KR.g === g0 + 1 && KR.still, JSON.stringify(KR));
     }
+    {
+      /* SET UP: the busy overlay raised the way withBusy() raises it. A key pressed now must neither
+         reload the page nor queue a second run behind the one in progress */
+      const gb = await gens();
+      await p.evaluate(() => { showBusy('generating…'); window.__noReload = 1; });
+      await p.keyboard.press('Control+r'); await settle(p);
+      const KB = await p.evaluate(() => ({ g: window.__gens, still: window.__noReload === 1 }));
+      await p.evaluate(() => hideBusy());
+      A('Ctrl+R under the busy overlay does nothing — no reload, nothing queued', KB.g === gb && KB.still, JSON.stringify(KB) + ' from ' + gb);
+    }
     await tryClick(p, '#domainRail [data-domain="world"]');
     const inDock = id => p.evaluate(id => !!document.getElementById(id).closest('.dock-left #runSec'), id);
     let g0 = await gens(); const clicked = await tryClick(p, '#genBtn'); await settle(p);

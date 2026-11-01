@@ -17,7 +17,7 @@ same bytes are frozen in `reference/`), so `git diff aca222c -- html/` shows exa
 | `tests/perf/probe_desktopshell.js` | the Playwright probe for this version (usage in its header) | `tests/perf/probe_desktopshell.js` |
 | `CHANGELOG_v2.72.md` | the `## v2.72 (DCC line) — …` entry, in `CHANGELOG.md`'s own format | paste at the top of `CHANGELOG.md`, above `## v2.71 (DCC line) — …` |
 | `CLAUDE_v2.72.md` | two pastes for the root `CLAUDE.md`: the new file-table row (and the one phrase to change in v2.71's row), and the `### … (v2.72, DCC-line file only)` section | as that file says: the row above v2.71's, the section above v2.71's section |
-| `evidence/v2.72/*.png` | screenshots: v2.72 at 1366×768, 1600×900, 1920×1080 and 2560×1440 (dark), 1600×900 (light), File ▸ Export and the sculpt bar at 1600×900, the phone at 412×915, v2.71 at 1600×900, and the design board at 1600×900 | review only; Cartalith_RC needs none of them |
+| `evidence/v2.72/*.png` | screenshots: v2.72 at 1366×768, 1600×900, 1920×1080 and 2560×1440 (dark), 1600×900 (light), File ▸ Export and the sculpt bar at 1600×900, the phone at 412×915, v2.71 at 1600×900, and the design board's 1600×900 frame (shot in a 1600×1000 window, since the board draws its own toolbar above the frame) | review only; Cartalith_RC needs none of them |
 
 ## The stage plan
 
@@ -65,9 +65,13 @@ repeat them:
 ```bash
 for p in shellui domainrail cogmodal assetsbtn geninfo worldreset settleparams typepreview savetree civbusy \
          manpower trade landmass landsurface roadconnect foodshed placement water_gap; do
-  node tests/perf/probe_$p.js "Cartalith v2.72 DCC test.html"
+  NODE_OPTIONS=--max-old-space-size=8192 node tests/perf/probe_$p.js "Cartalith v2.72 DCC test.html"
 done
 ```
+
+Expected on v2.72: four assertions differ from v2.71, all intended (the CHANGELOG entry names each);
+`probe_savetree` needs the larger heap on v2.71 too (it ran out at node's default 2 GB here on both files);
+`probe_civbusy` opens its file under `/home/user/Cartalith_RC/`, so run it from a clone at that path.
 
 ## What still needs a person at a real browser
 

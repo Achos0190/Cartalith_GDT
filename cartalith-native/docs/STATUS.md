@@ -63,6 +63,50 @@ The owner asked: *"Just copy it into the reference folder"*.
 - **The old blocker was wrong.** The re-freeze row had been blocked since 2026-10-10 on "the owner has no v2.71 file to
   supply". That check looked only in this repository; the file had been in `Cartalith_RC` since 2026-09-20.
 
+### The HTML's layout upgrade, stage 1 of 3: the desktop shell, as `html/Cartalith v2.72 DCC test.html` (2026-11-01)
+
+The owner asked: *"Can we upgrade the layout in the html with the new design?"*, then chose "A working copy in this
+repo" and "Everything, staged". The stages are:
+1. the desktop shell;
+2. the phone and tablet;
+3. the Context modules and the planner window.
+
+**Stage 1 is built and verified. Stages 2 and 3 are not started.** The working copy lives in `html/`, not in
+`cartalith-native/`; nothing in the port changed.
+
+- **The file.** `html/Cartalith v2.72 DCC test.html` is the DCC line's v2.71 (byte copy `aca222c`) with its desktop
+  layout rebuilt to `PC_SHELL_PROPOSAL.md` and Rulings DY and DZ. It applies to windows wider than 860 px.
+  - **The menu bar:** eight menus. Each row presses the HTML's own control or calls what that control's handler
+    calls. A design row with nothing behind it in the HTML is left out, and the changelog lists each one with its
+    reason.
+  - **The tool-options bar** holds the armed tool's settings only: the sculpt brush and its feature picker. It ends
+    in four pins: Save, Settlements, Assets and Planner.
+  - **The WORLD dock** has a Run section holding Seed, Generate world, New seed and Center landmasses.
+  - **The rail** is the leftmost band.
+  - **The Context panel** has Inspect only, because the HTML has no notes vault and no assistant.
+  - **The timeline strip** is in every domain.
+  - **Also restyled:** the status bar and the map controls.
+  - **Explore** stays a fourth domain until stage 3.
+- **How it moves controls.** Each control is one element. `_dskPlace()` moves it between its v2.71 home and its
+  desktop slot when the window crosses 860 px: 26 elements into 13 slots, never a copy. At 860 px and below the page
+  is v2.71's, measured to the pixel at 390 × 760 and 412 × 915.
+- **Checked by the main loop on the final bytes** (md5 `57e6628a…`), with Cartalith_RC's own harness:
+  - `tests/run.sh` 1 280 passed, 0 failed;
+  - `tests/run_um.sh` 882 passed, 0 failed;
+  - `tests/perf/hash_gen1.js` against v2.71: ALL IDENTICAL (five render configurations);
+  - the new `html/tests/perf/probe_desktopshell.js`: 174 passed, 0 failed.
+- **The lane reports further:**
+  - the new probe fails 63 of its assertions on v2.71;
+  - in RC's 18 shell and UI probes, four assertions now differ, and all four are intended moves (header order, the
+    rail's place, the two header buttons now pins).
+- **For the owner:** `html/README.md` says how to move the file into Cartalith_RC, with a changelog entry and a
+  `CLAUDE.md` section in its format. Ctrl+R, Ctrl+S and Ctrl+O, real WebGL, touch above 860 px and a screen reader
+  need a real browser.
+- **Found, from before v2.72:**
+  - Assets mode has hidden `#assetsPanel`, which holds the pack metadata and Validate, since v2.24;
+  - at 1 366 × 768 the floating place editor can cover the expanded strip.
+- **What is left:** `OUTSTANDING_WORK.md`, under "The HTML working copy".
+
 ### Ruling EB in the documents and the mockup, and the map-interaction research; nothing built in the shell (2026-11-01)
 
 `MOBILE_SHELL_PROPOSAL.md` §2.5, `3D_VIEWPORT_SCOPE.md` and `COLOUR_PAINT_SCOPE.md` carry Ruling EB's answers, and the

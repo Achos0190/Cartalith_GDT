@@ -4,20 +4,22 @@ Owner: *"Can we upgrade the layout in the html with the new design?"* — then, 
 in this repo"* and *"Everything, staged"*. Stage 1 is the **desktop** shell (windows wider than 860px);
 stage 2 is the phone and tablet shells; stage 3 is the Context panel's modules and the journey planner in
 its own window. The design is Cartalith_GDT's `PC_SHELL_PROPOSAL.md` §2–§3.12 with Rulings DY and DZ, and
-its mockup `design/mobile-shell-2026-10-31/Desktop.dc.html`. `tests/run.sh` **{{RUN}}**, `run_um.sh`
-**{{UM}}**, `hash_gen1.js` vs v2.71 **{{HASH}}**. Verification is `tests/perf/probe_desktopshell.js`
-(**{{PN}} assertions**; give it v2.71 as a second argument and the phone half compares against v2.71's own
-geometry; run alone on v2.71 it fails **{{P71}}**).
+its mockup `design/mobile-shell-2026-10-31/Desktop.dc.html`. `tests/run.sh` **1280/0**, `run_um.sh`
+**882/0**, `hash_gen1.js` vs v2.71 **ALL IDENTICAL**. Verification is `tests/perf/probe_desktopshell.js`
+(**174 assertions**; give it v2.71 as a second argument and the phone half compares against v2.71's own
+geometry; run alone on v2.71 it fails **63** — a section that cannot run there fails once, by name — and
+passes 20: the start card, File ▾'s own picker, unique ids, Find's Seed, Settlements, the phone half, which
+v2.72 leaves as v2.71 has it, no page errors, and the busy-key check, which v2.71 meets by having no Ctrl+R).
 
 - **ONE CONTROL, TWO HOMES — and still one element.** Most of what moved on the desktop sits somewhere
   else on a phone, and a phone must keep v2.71's layout until stage 2. So the markup keeps every control
   where v2.71 put it (its phone home), each desktop home is an empty `display:contents` slot, and
   `_dskPlace()` MOVES the element between the two whenever the 860px line is crossed (`_DSK_SLOTS`: 26
-  elements into 13 slots). The first move writes an empty comment node right before the element, so going back to a phone
-  returns it to exactly that place whatever the order. Never a clone: one node, one id, one set of
-  listeners — v1.57's rule, carried one step past v2.31's `order` trick, which only works inside one flex
-  line. Measured: at 390×760 and 412×915 the map, the drawer and its rail sit **to the pixel** where v2.71
-  puts them, and the header and document bar draw the same controls in the same order.
+  elements into 13 slots). The first move writes an empty comment node right before the element, so
+  going back to a phone returns it to exactly that place whatever the order. Never a clone: one node, one
+  id, one set of listeners — v1.57's rule, carried one step past v2.31's `order` trick, which only works
+  inside one flex line. Measured: at 390×760 and 412×915 the map, the drawer and its rail sit **to the
+  pixel** where v2.71 puts them, and the header and document bar draw the same controls in the same order.
 - **The menu bar replaces the header band (PC §3.8).** CARTALITH in mono and the accent, then **File ·
   Edit · Assets · Records · Story · Preferences · Window · Help**, then Undo, Redo, Find (same ids, ⌃K
   kept) and a document readout that shows only what this file knows: `seed · grid · extent`, `no world`
@@ -28,7 +30,10 @@ geometry; run alone on v2.71 it fails **{{P71}}**).
   form does not. One line per row, accelerators right-aligned, submenus beside their row (lifted, never
   above the top, when they would run off the bottom), hover switches menus while one is open, Esc or an
   outside click closes, arrows walk rows and menus, and focus is outlined. Esc is taken at window
-  CAPTURE while a menu is open, so it cannot also commit a half-drawn route or way underneath.
+  CAPTURE while a menu is open, so it cannot also commit a half-drawn route or way underneath. In File ▸
+  Export the form's two checkbox labels that carry a `<code>` path (`atlas/`, `layers/`) now read as one
+  paragraph: as `label.chk`'s flex row every text run became a column of its own, and v2.71's 300px
+  dropdown clipped the last one. Desktop only; a phone's File ▾ measures as v2.71's.
 - **Every row presses what this file already has** (`_DSK_CMDS`): the real button, or the function that
   button's handler calls. `enabled`/`checked` are READ from the real control each time a menu opens; no
   row keeps a copy of a state. A design row with nothing behind it is left out, not drawn disabled —
@@ -44,7 +49,10 @@ geometry; run alone on v2.71 it fails **{{P71}}**).
   saves (the project .zip — "a project ZIP genuinely IS a full save", v0.88), **Ctrl+Shift+F** Factions,
   **Shift+A** the Asset Library (never while typing). Ctrl+N, Ctrl+T and Ctrl+W are kept by browsers, so
   nothing is drawn against them. Under a modal or the setup gate none of these fire and the browser keeps
-  its default: the menu bar is covered there, and its keys with it.
+  its default: the menu bar is covered there, and its keys with it. **While the busy overlay is up they
+  are swallowed**: the first cut let Ctrl+R through mid-operation, and `withBusy`'s chain queued a second
+  generate behind the running one (measured). Now nothing is queued and nothing reloads. The overlay
+  covers only the map, so a click on the dock's own Generate can still queue one, as in v2.71.
 - **The tool-options bar holds the armed tool's settings only (Ruling DZ).** Owner: *"The buttons in the
   top rail new seed, generate and bake can be removed. Please see to only keep the paint/sculpt brush
   settings here."* With no tool armed it carries the context name (GENERATE · WORLD, CIVIL · WAY …) and one
@@ -78,10 +86,11 @@ geometry; run alone on v2.71 it fails **{{P71}}**).
   icon — refreshed from `_civOpenPlacePopup`/`_civClosePlacePopup`, the two paths every selection change
   ends in. Absent facts are left out, never shown as zero. Note and Ask are not drawn: no note editor
   (v2.11 shows a native-app save's vault links read-only in the place and faction editors) and no
-  assistant. Collapses to a 30px strip, like the left dock. **One stale state this exposed is fixed**: the place popup's × hid the
-  popup and left Inspect reading "Editing in the popup on the map" with nothing selected — unseen while
-  the dock was plain Properties, a contradiction beside a header that says "Nothing selected". The × now
-  re-renders the inspector, which owns the empty state and closes the popup itself.
+  assistant. Collapses to a 30px strip, like the left dock. **One stale state this exposed is fixed**: the
+  place popup's × hid the popup and left Inspect reading "Editing in the popup on the map" with nothing
+  selected — unseen while the dock was plain Properties, a contradiction beside a header that says
+  "Nothing selected". The × now re-renders the inspector, which owns the empty state and closes the popup
+  itself.
 - **The timeline strip — the year in every domain** (`GUI_GAP_REGISTER.md` CV-24, approved as Ruling DY
   PQ2). Collapsed: TIMELINE · active year · ▶ Animate · the slider with a tick per recorded year · min/max;
   the chevron adds the recorded years (pills, Add year) and the three filters. Every control is Explore's
@@ -117,6 +126,30 @@ geometry; run alone on v2.71 it fails **{{P71}}**).
   (stage 3); the planner window (stage 3); Explore dissolving (stage 3); customisable pins; the paint brush
   and the CIVIL/CARTO/EXPLORE tools' settings in the bar (they stay in the dock's Tools block, and the bar's
   hint says so).
+- **Seen, not changed**: the floating place editor (v0.90's popup, `max-height: min(80vh, 660px)`, fixed to
+  the window) can reach over the timeline strip at 1366×768 when the strip is expanded — measured, its
+  bottom at 697px against the expanded strip's top at 664px (collapsed, the strip starts at 707px and
+  the popup clears it). It is placed against the window, not the map, and its × closes it; fitting it to
+  the map's own box would change v2.71's popup placement on every form factor, which is not stage 1's to
+  change.
+- **RC's shell and UI probes, run on both files** (18: `shellui`, `domainrail`, `cogmodal`, `assetsbtn`,
+  `geninfo`, `worldreset`, `settleparams`, `typepreview`, `savetree`, `civbusy`, `manpower`, `trade`,
+  `landmass`, `landsurface`, `roadconnect`, `foodshed`, `placement`, `water_gap`). **Four assertions change,
+  each the design moving a control a probe pinned where an earlier version put it, none a regression**:
+  `probe_shellui`'s "…in that left-to-right order" (v2.27's Find · Undo · Redo · File · cog — File is now
+  the bar's first menu, Undo · Redo · Find sit at its right end, the cog is not drawn on the desktop; at
+  390×720 all five measure where v2.71 puts them); `probe_domainrail`'s "…still between the tools dock and
+  the map" (the rail is the leftmost band, the DCC frame's order); and `probe_assetsbtn`'s and
+  `probe_settleparams`'s "it is in the header" (both toggles are pins at the tool-options bar's right end —
+  still one visible click, never behind the cog, as each probe's other assertions show). Every other
+  assertion matches v2.71's result, including four failures both files share and this version does not
+  touch: `settleparams`' "three panes" (written before v2.66 added Types), `civbusy`'s "the same world"
+  (a v2.38 pin), and `foodshed`'s and `placement`'s urbanisation band (21.21% on both). Two needed the
+  harness, not the file: `probe_civbusy` hard-codes Cartalith_RC's own folder, so it ran from a copy
+  pointed at the files' folder, and `probe_savetree` exhausts node's default 2 GB heap on BOTH files here
+  and ran with `--max-old-space-size=8192` (31/0 on each). One pass is weaker than it reads:
+  `probe_shellui`'s "…share one line" counts the cog, which the desktop does not draw, so its empty box
+  passes by sitting at the top.
 
 **What moved where** (desktop = wider than 860px; a phone keeps every v2.71 home)
 

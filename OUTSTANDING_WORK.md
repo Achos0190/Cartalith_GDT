@@ -124,6 +124,26 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   method (`FH_R2_PLAN.md` §6, *Cost*), and the result is recorded as the new bar, disclosed as set after the result.
   Ruling CA's GF-11 cost bar is the precedent.
 
+**The HTML working copy** (owner, 2026-11-01: *"Can we upgrade the layout in the html with the new design?"*, then "A
+working copy in this repo" and "Everything, staged"; `html/README.md`)
+- **Stage 2, the phone and tablet shells**, as the next DCC-line version.
+  - Design: `MOBILE_SHELL_PROPOSAL.md` §2.1–§2.5 and §3–§4.
+  - The line, from Ruling DY's MQ-1: under 600 px wide is a phone, and under 500 px tall in landscape is a phone
+    landscape. Everything else is a tablet: the desktop shell at touch size.
+  - It starts at v2.72's `_DSK_SLOTS` table, where each control's phone home is decided.
+- **Stage 3, the Context panel's modules and the journey planner in its own window** (`PC_SHELL_PROPOSAL.md` §3.3 and
+  §3.7), with the selection history (back, forward, pin). Explore's journeys and planner move there, so Explore stops
+  being a fourth domain.
+- **Moving each version into Cartalith_RC (owner).**
+  - Its README lists the files and the two pastes, into `CHANGELOG.md` and `CLAUDE.md`.
+  - Four assertions in RC's own probes need re-pointing; `html/CLAUDE_v2.72.md` says how.
+  - What headless Chromium cannot check needs a real browser: Ctrl+R, Ctrl+S and Ctrl+O; the 3D view on real WebGL;
+    a touch screen wider than 860 px; a screen reader over the menu bar.
+- **Found in the HTML by stage 1, both from before it:**
+  - Assets mode has hidden `#assetsPanel`, holding the pack's name, author and licence and its Validate button,
+    since v2.24: the stylesheet's `body.assets-mode .dock, …{display:none}` rule hides every dock in that mode.
+  - At 1 366 × 768 the floating place editor can cover the expanded timeline strip.
+
 **Housekeeping and gates**
 - **Gate:** the Rust workspace test is recorded in `STATUS.md` (2026-10-26); re-run it after any Rust change. GDScript probes are separate.
 - **Test hygiene list** (the probe and fixture rules in `MISTAKES_CANDIDATES_2026-10-26.md`).
