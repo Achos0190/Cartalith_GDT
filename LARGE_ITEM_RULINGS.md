@@ -2661,3 +2661,24 @@ Owner, on `ASSISTANT_ACTIONS_PROPOSAL.md`, verbatim, in two messages: *"Yes to a
 
 This does not answer `PC_SHELL_PROPOSAL.md`'s PQ1 to PQ9.
 
+## Ruling DX: the menu questions: the phone follows the mockup, one label, no Alt+arrows in text, the card rows off the phone (owner, 2026-11-01)
+
+Owner, after the menu parity check, verbatim: *"Also add the PC menu implementation to outstanding work. Q13 follow the new mock-up. Pq13 as you see fit. Pq10 on phone I suppose we can't have them?. Pq 11, just 1. Pq12, no."* Recorded:
+
+1. **Q13 (`MOBILE_SHELL_PROPOSAL.md`): the phone's MENU follows the mockup.** It repeats the desktop menus row for row, as Ruling DT Q2 says, instead of opening the shipped phone screens for File, Assets, Preferences and Help. A phone-only row those screens carry gets a home in the mockup's menus, marked phone and tablet only, or a stated drop (`MISTAKES.md`, "Delete a surface").
+2. **PQ10 (`PC_SHELL_PROPOSAL.md`): the two rows go in Edit, after Find on map…, on the desktop and the tablet: "Context card" (Shift+F10) and "Cartwheel at the pointer" (Q). They are not on the phone.** The owner's question, *"on phone I suppose we can't have them?"*, has the answer recorded here:
+   - no accelerator fires on the phone, so its menu bar is a hidden model;
+   - the phone has no cartwheel;
+   - its card opens with a long-press.
+
+   This is a stated exception to Q13's row for row.
+3. **PQ11: one label.** The regenerate command is **"Generate world"** on every form factor. The tablet's "Run pipeline" row is renamed, which departs from the tablet canvas's text (DS-03). An owner decision is newer than a canvas. `command_index.gd` `EXTRAS` keeps "Run pipeline" as an alias, so search still finds it.
+4. **PQ12: no.** Alt+← and Alt+→ do not move the selection while a text field has focus.
+5. **PQ13, delegated** ("as you see fit"). Decided under that delegation:
+   - **The phone's Window menu follows the mockup, as Q13 does:** the "Context panel" check and its submenu.
+   - **On the phone they open what the phone has:** the check shows or hides the selection sheet; Inspect opens it; Note opens the vault at the selection's note; Ask opens the assistant. No separate "Right dock" row remains on the phone.
+   - **Why:** it keeps the phone row for row with the desktop, and gives every row a meaning there. `PC_SHELL_PROPOSAL.md` §3.11's "the phone gets the model, not the panel" stands: the rows reach the phone's sheet, not a panel.
+6. **The PC menu implementation is its own row in `OUTSTANDING_WORK.md`**, beside the mobile one.
+
+This answers PQ10 to PQ13 and Q13. PQ1 to PQ9 and Q10 to Q12 stay open.
+

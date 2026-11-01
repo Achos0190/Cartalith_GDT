@@ -465,7 +465,14 @@ Each has a default; the mockup draws the default.
 - **PQ9.** Should Inspect's edit mode cover only name, class, faction and fortified, with everything else staying in
   the Place editor window, which follows the selection? *Default: yes.*
 
-Raised by the GDScript drafts (their K1–K3), 2026-11-01:
+Raised by the GDScript drafts (their K1–K3), 2026-11-01. **PQ10 to PQ13 are answered by Ruling DX** (owner,
+2026-11-01):
+- **PQ10:** the two rows go in Edit, on the desktop and the tablet, and not on the phone.
+- **PQ11:** one label, "Generate world", everywhere.
+- **PQ12:** no; Alt+arrows do nothing in a text field.
+- **PQ13:** decided under the owner's delegation: the phone follows the mockup.
+
+The questions are kept below as they were asked.
 
 - **PQ10.** Where do the card's and the cartwheel's rows live, now that their keys need rows to be rebindable?
   *Default: Edit, after Find on map…: "Context card" (Shift+F10) and "Cartwheel at the pointer" (Q), on the desktop

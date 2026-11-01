@@ -5566,7 +5566,7 @@
     "menu": "World",
     "rows": [
      {
-      "label": "Run pipeline",
+      "label": "Generate world",
       "kind": "command",
       "accel": "Ctrl+R",
       "session_mode_gated": true

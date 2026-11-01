@@ -123,6 +123,16 @@ Ten places where the code and the proposal disagreed are corrected in the propos
 
 The mockup's own checks still pass after the fixes.
 
+**Ruling DX applied to the mockup; the drafts follow (2026-11-01).** The owner answered the menu questions.
+- **Done in the mockup:**
+  - the narrow tablet's World row reads "Generate world" (PQ11, one label everywhere);
+  - Alt+←/→ do nothing while a text field has focus (PQ12);
+  - the card and cartwheel rows stay off the phone (PQ10);
+  - the phone keeps the mockup's Window ▸ Context panel rows (PQ13);
+  - MENU follows the desktop rows (Q13).
+- **Done in the backlog:** implementing the PC menus is its own `OUTSTANDING_WORK.md` row, beside the mobile one.
+- **Not built:** the GDScript drafts are being updated to match. Nothing is built in the shell.
+
 ### Consent card on Refresh and Send (2026-10-27)
 
 Shell only, Rust untouched. In `Preferences > Assistant`, Refresh and an entered address, and Send in the assistant panel, open the consent card at once when the only refusal is a missing consent for that endpoint; Allow then carries on (lists the models, or sends the request). Buttons read "Allow" and "Not now". Master switch off: no card, the line "Turn on Assistant enabled first" and a button that turns it on (it asks consent first if needed and sends nothing by itself). Checked with the in-test mock server (`_llmmodels_probe` leg 1b, `_llmpanel_probe` leg 5b) plus `_llmset_probe` and `_llmprofiles_probe`, at 1600x1000, 1280x800 and 393x852: all pass; the gate-reason literals were mutation-tested and both mutants failed. Not covered: real LM Studio, a real remote host (the remote leg stops at the card), a device run.

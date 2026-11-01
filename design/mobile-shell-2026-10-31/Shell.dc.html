@@ -1153,11 +1153,11 @@ function tabletOverflow(menus) {
 function tabletWorldMenu(menus) {
   const w = menus.find((m) => m.id === 'world');
   return { id: 'world', label: 'World', sub: w.sub, items: [
-    { t: 'live', label: 'Run pipeline', accel: 'Ctrl+R', act: 'run', sm: true }, { t: 'sep' },
+    { t: 'live', label: 'Generate world', accel: 'Ctrl+R', act: 'run', sm: true }, { t: 'sep' },   // one label on every form factor (Ruling DX, PQ11)
     { t: 'live', label: 'Reset generation parameters', act: 'resetParams', sm: true }, menus.find((m) => m.id === 'edit').items.find((x) => x.label === 'Reset one stage'), { t: 'sep' },
     { t: 'radio', label: 'Generation pipeline', key: 'worldnode', value: 'pipeline', sm: true }, { t: 'radio', label: 'Sculpt', key: 'worldnode', value: 'sculpt', sm: true }, { t: 'sep' },
     { t: 'live', label: 'Seed & size…', act: 'newWorld', sm: true }, { t: 'sep' }
-  ].concat(w.items.filter((x) => x.label !== 'Generate world')) };   // Run pipeline above is the same command (id 710, Ctrl+R): one row
+  ].concat(w.items.filter((x) => x.label !== 'Generate world')) };   // the row above is the same command (id 710, Ctrl+R): one row
 }
 
 /* ======================================================================================================
@@ -2986,11 +2986,11 @@ function deskKey(c, e) {
   if (s.running) { e.preventDefault(); return; }   // the busy overlay holds every key while the engine works
   const k = e.key; const ctl = e.ctrlKey || e.metaKey;
   if (k === 'Escape') { if (s.dd || s.tctx || s.ring || s.layersPop || s.srch) { c.setState({ dd: null, tctx: null, ring: null, layersPop: false, srch: false }); e.preventDefault(); return; } if (s.win) { c.setState({ win: null }); e.preventDefault(); return; } if (typing) { t.blur(); return; } if (s.ctxEdit) { c.setState({ ctxEdit: false, ctxDraft: null }); return; } if (s.sel || s.sample) { c._deselect(); e.preventDefault(); } return; }
-  if (e.altKey && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); if (k === 'ArrowLeft') c._selBack(); else c._selFwd(); return; }
   if (ctl && !e.shiftKey && ['1', '2', '3'].includes(k)) { e.preventDefault(); c._ctxTab(['inspect', 'note', 'ask'][+k - 1]); return; }
   if (ctl && !e.shiftKey && (k === 'j' || k === 'J')) { e.preventDefault(); c._ctxTab('ask', true); return; }
   if (ctl && !e.shiftKey && (k === 'f' || k === 'F' || k === 'k' || k === 'K')) { e.preventDefault(); c.setState({ srch: true, q: k.toLowerCase() === 'k' ? '. ' : '', scope: 'all', dd: null }); return; }
-  if (typing) return;
+  if (typing) return;   // below here, nothing acts while a text field has focus: Alt+arrows included (Ruling DX, PQ12)
+  if (e.altKey && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); if (k === 'ArrowLeft') c._selBack(); else c._selFwd(); return; }
   if (ctl && !e.shiftKey && (k === 'd' || k === 'D')) { e.preventDefault(); c._deselect(); return; }
   if (ctl && !e.shiftKey && (k === 'r' || k === 'R')) { e.preventDefault(); c._run(1); return; }
   if (ctl && (k === 'z' || k === 'Z')) { e.preventDefault(); if (e.shiftKey) c._redo(); else c._undo(); return; }
