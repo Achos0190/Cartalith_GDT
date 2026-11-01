@@ -2962,4 +2962,50 @@ young"*, was answered by Ruling CX item 2 (re-spread volcano ages, about 500 ka 
    **Recorded with it:** the Player map export still includes a secret place whenever its layer is on, because
    nothing marks a place DM-only. Free events can already be written as chronos lines in a place's note (Ruling AM).
 
-Items 5, 6, 8 to 10, and the pop-out dialog question, follow below as they are answered.
+**Planner and rivers (items 5 and 6)**
+8. **The credited-edge reading: "Keep it centred".**
+   - `road_edge_map_path` keeps the exact inverse, `round(cx/sc)`, of the router's `round(px*sc)`
+     (`routing_grid_scale`). The band `jp_road_cells` credits stays centred on the road.
+   - This is recorded as a deliberate divergence from the reference's `(cx+0.5)/sc`, and the §3.1 row closes.
+   - **Premise checked:** in v2.11 that reading belongs to `buildRoadsOp`.
+     - The reference retired that tool's only UI at v0.64, and its zip loader sets `roads=null`.
+     - The port's road edges come from its own road network (`CivData::road_edges`), which the reference never
+       stores.
+     - So adopting the reference reading would have copied a drawing offset that becomes a one-cell error once
+       rounded.
+9. **River navigability and the river-mouth delta gate: "Keep both".**
+   - **Navigability:** a river is navigable from Strahler order 3 (`river_class.rs::NAVIGABLE_ORDER`), with no
+     discharge gate (River Transport's question 4 at its default).
+   - **Delta fans:** they keep `river_delta.rs`'s order-and-discharge rule (`MIN_ORDER` 3 and `MIN_DISCHARGE_FRAC`).
+   - **The measurement behind it,** taken after fix F1 (`RIVER_GATE_MEASUREMENTS.md`):
+     - a discharge OR would take navigable cells from 73 737 to 159 641 at 512×328;
+     - only 271 cells of high-discharge river are still below order 3;
+     - discharge alone would add 1 200 to 2 000 small fans per world.
+   - **Rows to close:** the rivers-in-map row and the River Transport row stop reading "awaiting the owner".
+   - **Not measured:** `RIVER_GATE_MEASUREMENTS.md`'s "what would move" table misses a third reader of
+     `NAVIGABLE_ORDER`, `landmark.rs::pool_portage`. With no change made, nothing moves.
+10. **The `stage_overrides` re-chunk point: "Detect, drop and tell me".**
+    - **The problem:** a saved journey's per-leg overrides are keyed by stage number (`project_bridge.rs`,
+      `journey_planner_view.gd::_stage_overrides`). The port-only river legs are rebuilt from the current heights
+      (`story_bridge::jp_world_parts`), so after a regenerate, a sculpt or an engine change, an override can apply
+      to a different leg.
+    - **The fix:**
+      - each override saves a small fingerprint of the leg it was set on, as an optional additive save field;
+      - an override whose leg no longer matches is dropped, with a notice naming it;
+      - nothing is ever applied to a different leg.
+    - **What it costs:** small. `SAVEFILE_COMPAT.md` gains the field when it is built.
+
+**Pop-out windows (`POPOUT_WINDOWS_SCOPE.md` §11 finding 5; from the "Open after 2026-10-26" list)**
+11. **Dialogs a pop-out spawns: "Yes, same monitor".**
+    - **What changes:** a confirmation or picker opens on the screen of the window that asked. Where it would not fit
+      inside that window (finding 6: a native window's popups are embedded and clipped), it opens as its own window
+      on that screen, through the existing `opener_screen`/`centred_in` helpers.
+    - **The sites, found by grep:**
+      - five `DccWidgets.confirm(app` calls (the roster, the Place editor twice, the Vault twice);
+      - the Vault's compare and write-preview dialogs;
+      - the assistant's consent card (`LlmConsent.present(app`);
+      - the Vault's folder chooser.
+    - **Not affected:** the planner spawns none.
+    - **What it costs:** small. GDScript only, plus a probe.
+
+Items 8 to 10 of §4 (3D, colour paint, EF-9) follow below as they are answered.
