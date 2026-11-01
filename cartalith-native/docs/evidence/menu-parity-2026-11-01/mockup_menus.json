@@ -1,0 +1,7947 @@
+{
+ "source": "design/mobile-shell-2026-10-31/Shell.dc.html",
+ "platforms": {
+  "desktop": [
+   {
+    "menu": "File",
+    "rows": [
+     {
+      "label": "New world…",
+      "kind": "command",
+      "accel": "Ctrl+N",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Generate world",
+      "kind": "command",
+      "accel": "Ctrl+R",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Open project…",
+      "kind": "command",
+      "accel": "Ctrl+O"
+     },
+     {
+      "label": "Recent worlds",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "VHAREN REACH — 129384 · 5 d ago",
+        "kind": "command"
+       },
+       {
+        "label": "KESSA — 774201 · 3 w ago",
+        "kind": "command"
+       },
+       {
+        "label": "THORNWOOD — 908133 · 2 mo ago",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "New world from selection…",
+      "kind": "command",
+      "session_mode_gated": true
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Save project",
+      "kind": "command",
+      "accel": "Ctrl+S"
+     },
+     {
+      "label": "Save as…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+S"
+     },
+     {
+      "label": "Autosave",
+      "kind": "check"
+     },
+     {
+      "label": "Autosave interval",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Off",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 1 min",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 5 min",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 15 min",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Revert to last save",
+      "kind": "command"
+     },
+     {
+      "label": "Close project",
+      "kind": "command",
+      "accel": "Ctrl+W"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Export",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "FOR THE TABLE",
+        "kind": "caption"
+       },
+       {
+        "label": "Player map…",
+        "kind": "command",
+        "accel": "Ctrl+Shift+E"
+       },
+       {
+        "label": "DM / full map…",
+        "kind": "command"
+       },
+       {
+        "label": "SHARE",
+        "kind": "caption"
+       },
+       {
+        "label": "Export map image…",
+        "kind": "command"
+       },
+       {
+        "label": "Print sheet (PDF)…",
+        "kind": "disabled (not built)",
+        "reason": "No print or PDF writer exists in this build."
+       },
+       {
+        "label": "VTT battle map (grid + walls)…",
+        "kind": "disabled (not built)",
+        "reason": "No virtual-tabletop format exists in this build: no grid calibration, wall or light data is computed or written."
+       },
+       {
+        "label": "DATA",
+        "kind": "caption"
+       },
+       {
+        "label": "Maps   tiles",
+        "kind": "command"
+       },
+       {
+        "label": "GIS / GeoJSON   .geojson",
+        "kind": "command"
+       },
+       {
+        "label": "World Data   map + atlas",
+        "kind": "command"
+       },
+       {
+        "label": "Assets   .zip",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "STORAGE LOCATIONS",
+      "kind": "caption"
+     },
+     {
+      "label": "projects",
+      "kind": "readout"
+     },
+     {
+      "label": "tile atlas cache",
+      "kind": "readout"
+     },
+     {
+      "label": "asset packs",
+      "kind": "readout"
+     },
+     {
+      "label": "exports",
+      "kind": "readout"
+     },
+     {
+      "label": "Change locations…",
+      "kind": "command"
+     },
+     {
+      "label": "Show project on disk",
+      "kind": "command"
+     },
+     {
+      "label": "imports live under Records ▸ Import",
+      "kind": "signpost"
+     },
+     {
+      "label": "asset packs under Assets",
+      "kind": "signpost"
+     }
+    ]
+   },
+   {
+    "menu": "Edit",
+    "rows": [
+     {
+      "label": "Undo",
+      "kind": "command",
+      "accel": "Ctrl+Z"
+     },
+     {
+      "label": "Redo",
+      "kind": "command",
+      "accel": "Ctrl+Shift+Z"
+     },
+     {
+      "label": "Undo history…",
+      "kind": "command"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Cut",
+      "kind": "command",
+      "accel": "Ctrl+X"
+     },
+     {
+      "label": "Copy",
+      "kind": "command",
+      "accel": "Ctrl+C"
+     },
+     {
+      "label": "Paste",
+      "kind": "command",
+      "accel": "Ctrl+V"
+     },
+     {
+      "label": "Delete",
+      "kind": "command",
+      "accel": "Delete"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Select all",
+      "kind": "command",
+      "accel": "Ctrl+A"
+     },
+     {
+      "label": "Deselect",
+      "kind": "command",
+      "accel": "Ctrl+D"
+     },
+     {
+      "label": "Previous selection",
+      "kind": "command",
+      "accel": "Alt+←"
+     },
+     {
+      "label": "Next selection",
+      "kind": "command",
+      "accel": "Alt+→"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Find on map…",
+      "kind": "command",
+      "accel": "Ctrl+F"
+     },
+     {
+      "label": "Context card",
+      "kind": "command",
+      "accel": "Shift+F10"
+     },
+     {
+      "label": "Cartwheel at the pointer",
+      "kind": "command",
+      "accel": "Q"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Reset generation parameters",
+      "kind": "command",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Reset one stage",
+      "kind": "submenu",
+      "session_mode_gated": true,
+      "items": [
+       {
+        "label": "01 Planet",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "02 Extent & scale",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "03 World structure",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "04 Tectonics",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "05 Volcanism & impacts",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "06 Erosion",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "07 Hydrology",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "08 Climate",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "09 Ecology & biomes",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "10 Resources & soils",
+        "kind": "command",
+        "session_mode_gated": true
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "menu": "Assets",
+    "rows": [
+     {
+      "label": "⧉ Asset library",
+      "kind": "command",
+      "accel": "Shift+A"
+     },
+     {
+      "label": "⧉ Sprite sheet slicer (▦)",
+      "kind": "command"
+     },
+     {
+      "label": "Import asset pack .zip…",
+      "kind": "command"
+     },
+     {
+      "label": "Open pack in library…",
+      "kind": "command"
+     },
+     {
+      "label": "Pack report…",
+      "kind": "command"
+     },
+     {
+      "label": "Import folder of art…",
+      "kind": "command"
+     },
+     {
+      "label": "Compare pack with library…",
+      "kind": "command"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Asset pack",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "ACTIVE PACK",
+        "kind": "caption"
+       },
+       {
+        "label": "NAME",
+        "kind": "readout"
+       },
+       {
+        "label": "AUTHOR",
+        "kind": "readout"
+       },
+       {
+        "label": "LICENSE",
+        "kind": "readout"
+       },
+       {
+        "label": "SCHEMA",
+        "kind": "readout"
+       },
+       {
+        "label": "FILLED",
+        "kind": "readout"
+       },
+       {
+        "label": "Pack metadata…",
+        "kind": "command"
+       },
+       {
+        "label": "Validate pack",
+        "kind": "command"
+       },
+       {
+        "label": "Export pack .zip…",
+        "kind": "command",
+        "accel": "Ctrl+Shift+P"
+       }
+      ]
+     },
+     {
+      "label": "Icon families",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Feature icons   22/31",
+        "kind": "command"
+       },
+       {
+        "label": "Settlement pins   8/10",
+        "kind": "command"
+       },
+       {
+        "label": "Settlement traits   5/12",
+        "kind": "command"
+       },
+       {
+        "label": "Points of interest   14/21",
+        "kind": "command"
+       },
+       {
+        "label": "Sea marks   4/9",
+        "kind": "command"
+       },
+       {
+        "label": "Custom icons   0/6",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Texture sets",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Splat channels   4/4",
+        "kind": "command"
+       },
+       {
+        "label": "Biome textures   9/12",
+        "kind": "command"
+       },
+       {
+        "label": "Terrain textures   6/8",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Landmark types",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Physical",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Peak",
+          "kind": "command"
+         },
+         {
+          "label": "Ridge",
+          "kind": "command"
+         },
+         {
+          "label": "Saddle   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Cliff",
+          "kind": "command"
+         },
+         {
+          "label": "Gorge",
+          "kind": "command"
+         },
+         {
+          "label": "Cave",
+          "kind": "command"
+         },
+         {
+          "label": "Waterfall",
+          "kind": "command"
+         },
+         {
+          "label": "Spring",
+          "kind": "command"
+         },
+         {
+          "label": "Lake",
+          "kind": "command"
+         },
+         {
+          "label": "Delta   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "River confluence",
+          "kind": "command"
+         },
+         {
+          "label": "Volcanic feature",
+          "kind": "command"
+         },
+         {
+          "label": "Rock formation",
+          "kind": "command"
+         },
+         {
+          "label": "Glacial feature   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ancient forest   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Physical in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Transport",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Mountain pass",
+          "kind": "command"
+         },
+         {
+          "label": "River crossing   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ford",
+          "kind": "command"
+         },
+         {
+          "label": "Bridge site",
+          "kind": "command"
+         },
+         {
+          "label": "Road junction",
+          "kind": "command"
+         },
+         {
+          "label": "Caravan station",
+          "kind": "command"
+         },
+         {
+          "label": "Portage",
+          "kind": "command"
+         },
+         {
+          "label": "Harbour",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Transport in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Economic",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Mine",
+          "kind": "command"
+         },
+         {
+          "label": "Quarry",
+          "kind": "command"
+         },
+         {
+          "label": "Salt works   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Resource extraction site",
+          "kind": "command"
+         },
+         {
+          "label": "Market site",
+          "kind": "command"
+         },
+         {
+          "label": "Trade depot",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Economic in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Military",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Fort",
+          "kind": "command"
+         },
+         {
+          "label": "Watchtower",
+          "kind": "command"
+         },
+         {
+          "label": "Fortified pass",
+          "kind": "command"
+         },
+         {
+          "label": "Fortified crossing",
+          "kind": "command"
+         },
+         {
+          "label": "Battlefield",
+          "kind": "command"
+         },
+         {
+          "label": "Border marker",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Military in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Cultural",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Shrine   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Temple   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Sacred grove   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Sacred mountain   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Pilgrimage site   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Tomb   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Monument   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ceremonial site   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Cultural in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Historical",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Ruin   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Abandoned settlement",
+          "kind": "command"
+         },
+         {
+          "label": "Ancient road",
+          "kind": "command"
+         },
+         {
+          "label": "Historic battlefield   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Destroyed fortress   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Historic crossing   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Historical in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Placed by hand   3",
+        "kind": "command"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Landmark icons…",
+        "kind": "command"
+       },
+       {
+        "label": "Landmark label style…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Apply library to map",
+      "kind": "command"
+     },
+     {
+      "label": "Clear library…",
+      "kind": "command"
+     }
+    ]
+   },
+   {
+    "menu": "Records",
+    "rows": [
+     {
+      "label": "⧉ Data manager",
+      "kind": "command"
+     },
+     {
+      "label": "RECORDS",
+      "kind": "caption"
+     },
+     {
+      "label": "Factions…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+F"
+     },
+     {
+      "label": "Places…",
+      "kind": "command"
+     },
+     {
+      "label": "Markdown vault…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+V"
+     },
+     {
+      "label": "Browse & edit a note…",
+      "kind": "command"
+     },
+     {
+      "label": "Places without notes…",
+      "kind": "command"
+     },
+     {
+      "label": "Timeline is in Story ▸ Timeline",
+      "kind": "signpost"
+     },
+     {
+      "label": "TECHNICAL",
+      "kind": "caption"
+     },
+     {
+      "label": "World data tables…",
+      "kind": "command"
+     },
+     {
+      "label": "Import",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Maps   tiles",
+        "kind": "command"
+       },
+       {
+        "label": "Heightmaps   PNG",
+        "kind": "command"
+       },
+       {
+        "label": "GIS / GeoJSON",
+        "kind": "command"
+       },
+       {
+        "label": "World Data   .ctl",
+        "kind": "command"
+       },
+       {
+        "label": "Assets   → Assets",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Sources & validation",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "SOURCES",
+        "kind": "caption"
+       },
+       {
+        "label": "External Sources",
+        "kind": "command"
+       },
+       {
+        "label": "Connected Sources",
+        "kind": "command"
+       },
+       {
+        "label": "Source Registry",
+        "kind": "command"
+       },
+       {
+        "label": "VALIDATION",
+        "kind": "caption"
+       },
+       {
+        "label": "Definitions",
+        "kind": "command"
+       },
+       {
+        "label": "Check Data",
+        "kind": "command"
+       },
+       {
+        "label": "Repair / Normalize",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Export is in File ▸ Export",
+      "kind": "signpost"
+     }
+    ]
+   },
+   {
+    "menu": "Story",
+    "rows": [
+     {
+      "label": "TIME",
+      "kind": "caption"
+     },
+     {
+      "label": "Timeline",
+      "kind": "command",
+      "accel": "Ctrl+Shift+T"
+     },
+     {
+      "label": "Political history of the selection",
+      "kind": "command"
+     },
+     {
+      "label": "Faction history…",
+      "kind": "command"
+     },
+     {
+      "label": "JOURNEYS",
+      "kind": "caption"
+     },
+     {
+      "label": "Journey planner",
+      "kind": "command"
+     },
+     {
+      "label": "Saved journeys…",
+      "kind": "command"
+     },
+     {
+      "label": "Travel library…",
+      "kind": "command",
+      "accel": "Shift+L"
+     },
+     {
+      "label": "CONFLICTS & CAMPAIGNS",
+      "kind": "caption"
+     },
+     {
+      "label": "Conflicts…",
+      "kind": "command"
+     },
+     {
+      "label": "Draw a conflict",
+      "kind": "command"
+     },
+     {
+      "label": "Campaigns this year",
+      "kind": "readout"
+     },
+     {
+      "label": "NOTES",
+      "kind": "caption"
+     },
+     {
+      "label": "Note for the selection",
+      "kind": "command",
+      "accel": "Ctrl+Shift+N"
+     },
+     {
+      "label": "Places without notes… is in Records",
+      "kind": "signpost"
+     },
+     {
+      "label": "Ask the assistant about the selection",
+      "kind": "command",
+      "accel": "Ctrl+J"
+     }
+    ]
+   },
+   {
+    "menu": "Preferences",
+    "rows": [
+     {
+      "label": "PERFORMANCE",
+      "kind": "caption"
+     },
+     {
+      "label": "GPU acceleration",
+      "kind": "check"
+     },
+     {
+      "label": "Devices",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Automatic (highest-performance GPU)",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Adreno 630 · integrated · Vulkan",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Memory",
+        "kind": "readout"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Rescan devices…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Multi-GPU mode",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Single device",
+        "kind": "radio"
+       },
+       {
+        "label": "Split tiles",
+        "kind": "radio"
+       },
+       {
+        "label": "Alternate frames",
+        "kind": "disabled (not built)",
+        "reason": "Not built."
+       }
+      ]
+     },
+     {
+      "label": "CPU worker threads",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Automatic",
+        "kind": "radio"
+       },
+       {
+        "label": "1 — 1 thread",
+        "kind": "radio"
+       },
+       {
+        "label": "2 — quarter",
+        "kind": "radio"
+       },
+       {
+        "label": "4 — half",
+        "kind": "radio"
+       },
+       {
+        "label": "8 — all cores",
+        "kind": "radio"
+       },
+       {
+        "label": "Running",
+        "kind": "readout"
+       }
+      ]
+     },
+     {
+      "label": "VRAM budget",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "No cap",
+        "kind": "radio"
+       },
+       {
+        "label": "1 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "2 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "4 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "8 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "12 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "16 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "24 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "Current grid 2048×2048 needs about",
+        "kind": "readout"
+       }
+      ]
+     },
+     {
+      "label": "Fallback when VRAM full",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "CPU tile pass",
+        "kind": "radio"
+       },
+       {
+        "label": "Reduce working res",
+        "kind": "disabled (not built)",
+        "reason": "Not built."
+       },
+       {
+        "label": "Fail with error",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Try the GPU again",
+      "kind": "command",
+      "disabled_at_build": true,
+      "reason": "Nothing to clear: no GPU readback has failed this session"
+     },
+     {
+      "label": "GRAPHICS",
+      "kind": "caption"
+     },
+     {
+      "label": "Render quality",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "performance",
+        "kind": "radio"
+       },
+       {
+        "label": "balanced",
+        "kind": "radio"
+       },
+       {
+        "label": "quality",
+        "kind": "radio"
+       },
+       {
+        "label": "ultra",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Anti-aliasing · anisotropy",
+      "kind": "disabled (not built)",
+      "reason": "The 3D view draws no terrain yet, so there is nothing to anti-alias."
+     },
+     {
+      "label": "Colour management — CARTO ▸ Colours ▸ Colour management",
+      "kind": "signpost"
+     },
+     {
+      "label": "3D viewport defaults",
+      "kind": "disabled (not built)",
+      "reason": "They arrive with the 3D view’s terrain."
+     },
+     {
+      "label": "Lighting rig defaults",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Following the engine",
+        "kind": "readout"
+       },
+       {
+        "label": "Azimuth",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "0 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "45 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "90 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "135 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "180 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "225 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "270 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "315 deg",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Elevation",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "15 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "25 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "35 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "45 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "55 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "65 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "75 deg",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Ambient",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "0.00",
+          "kind": "radio"
+         },
+         {
+          "label": "0.15",
+          "kind": "radio"
+         },
+         {
+          "label": "0.25",
+          "kind": "radio"
+         },
+         {
+          "label": "0.35",
+          "kind": "radio"
+         },
+         {
+          "label": "0.50",
+          "kind": "radio"
+         },
+         {
+          "label": "0.70",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Multidirectional",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "1 light (single sun)",
+          "kind": "radio"
+         },
+         {
+          "label": "2 lights",
+          "kind": "radio"
+         },
+         {
+          "label": "4 lights",
+          "kind": "radio"
+         },
+         {
+          "label": "6 lights",
+          "kind": "radio"
+         },
+         {
+          "label": "8 lights",
+          "kind": "radio"
+         },
+         {
+          "label": "12 lights",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Use the engine’s own rig",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Relief exaggeration",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "1x",
+        "kind": "radio"
+       },
+       {
+        "label": "2x",
+        "kind": "radio"
+       },
+       {
+        "label": "4x",
+        "kind": "radio"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Use the engine’s own 3.4x",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "TILES & LOD",
+      "kind": "caption"
+     },
+     {
+      "label": "Tiled LOD",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Auto on zoom",
+        "kind": "radio"
+       },
+       {
+        "label": "Manual",
+        "kind": "radio"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Enter deep detail now",
+        "kind": "command"
+       },
+       {
+        "label": "Leave deep detail",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Tile size · LOD levels",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "256 px",
+        "kind": "radio"
+       },
+       {
+        "label": "512 px",
+        "kind": "radio"
+       },
+       {
+        "label": "1024 px",
+        "kind": "radio"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "LOD levels",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "LOD 0–0   1 tile",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–1   5 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–2   21 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–3   85 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–4   341 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–5   1 365 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–6   5 461 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–7   21 845 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–8   87 381 tiles",
+          "kind": "radio"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "label": "Atlas cache",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "85 chunks · 1.2 GB · to LOD 3",
+        "kind": "readout"
+       },
+       {
+        "label": "Size cap · GB",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "No cap",
+          "kind": "radio"
+         },
+         {
+          "label": "0.5 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "1 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "2 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "4 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "8 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "16 GB",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Refine detail for the current view",
+        "kind": "command"
+       },
+       {
+        "label": "Refine viewshed for the current view",
+        "kind": "command"
+       },
+       {
+        "label": "Viewshed",
+        "kind": "readout"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Export atlas…",
+        "kind": "command"
+       },
+       {
+        "label": "Import atlas…",
+        "kind": "command"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Clear atlas cache now…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Chunk debug overlay",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Grid",
+        "kind": "check"
+       },
+       {
+        "label": "Colors",
+        "kind": "check"
+       },
+       {
+        "label": "Labels",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Show tile borders on the map",
+        "kind": "check"
+       }
+      ]
+     },
+     {
+      "label": "MEMORY",
+      "kind": "caption"
+     },
+     {
+      "label": "Undo history",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "64 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "128 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "256 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "512 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "1024 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Clear undo history now",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Working set",
+      "kind": "readout"
+     },
+     {
+      "label": "Clear caches…",
+      "kind": "command"
+     },
+     {
+      "label": "APPLICATION",
+      "kind": "caption"
+     },
+     {
+      "label": "Storage locations…",
+      "kind": "command"
+     },
+     {
+      "label": "Assistant…",
+      "kind": "command"
+     },
+     {
+      "label": "Quick bar…",
+      "kind": "command"
+     },
+     {
+      "label": "Open panels in their own window",
+      "kind": "check"
+     },
+     {
+      "label": "Theme",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Dark",
+        "kind": "radio"
+       },
+       {
+        "label": "Light",
+        "kind": "radio"
+       },
+       {
+        "label": "Follow system",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Units",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Kilometres",
+        "kind": "radio"
+       },
+       {
+        "label": "Miles",
+        "kind": "radio"
+       },
+       {
+        "label": "Nautical miles",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Handedness",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Left",
+        "kind": "radio"
+       },
+       {
+        "label": "Right",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Keyboard shortcuts…",
+      "kind": "command"
+     }
+    ]
+   },
+   {
+    "menu": "Window",
+    "rows": [
+     {
+      "label": "Left dock",
+      "kind": "check"
+     },
+     {
+      "label": "Context panel",
+      "kind": "check"
+     },
+     {
+      "label": "Context panel",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Inspect",
+        "kind": "command",
+        "accel": "Ctrl+1"
+       },
+       {
+        "label": "Note",
+        "kind": "command",
+        "accel": "Ctrl+2"
+       },
+       {
+        "label": "Ask (assistant)",
+        "kind": "command",
+        "accel": "Ctrl+3"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Pin to the current subject",
+        "kind": "command"
+       },
+       {
+        "label": "Follow the selection",
+        "kind": "command"
+       },
+       {
+        "label": "MODULES",
+        "kind": "caption"
+       },
+       {
+        "label": "History",
+        "kind": "check"
+       },
+       {
+        "label": "Economy",
+        "kind": "check"
+       },
+       {
+        "label": "Military",
+        "kind": "check"
+       },
+       {
+        "label": "Faith, culture & relations",
+        "kind": "check"
+       },
+       {
+        "label": "Territory",
+        "kind": "check"
+       },
+       {
+        "label": "City layout",
+        "kind": "check"
+       },
+       {
+        "label": "Here",
+        "kind": "check"
+       },
+       {
+        "label": "Routes & journeys",
+        "kind": "check"
+       },
+       {
+        "label": "Links",
+        "kind": "check"
+       },
+       {
+        "label": "Recent & bookmarks",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Reset panel",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Timeline",
+      "kind": "check"
+     },
+     {
+      "label": "Status bar",
+      "kind": "check"
+     },
+     {
+      "label": "Domain rail",
+      "kind": "check"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Session mode",
+      "kind": "check",
+      "accel": "Ctrl+Shift+M"
+     },
+     {
+      "label": "Diagnostics overlay",
+      "kind": "check",
+      "accel": "Shift+D"
+     },
+     {
+      "label": "3D view",
+      "kind": "check"
+     },
+     {
+      "label": "3D capability",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "3D tier",
+        "kind": "readout"
+       },
+       {
+        "label": "Re-test 3D",
+        "kind": "command"
+       },
+       {
+        "label": "Force tier",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Automatic (as measured)",
+          "kind": "radio"
+         },
+         {
+          "label": "Off",
+          "kind": "radio"
+         },
+         {
+          "label": "Basic",
+          "kind": "radio"
+         },
+         {
+          "label": "Standard",
+          "kind": "radio"
+         },
+         {
+          "label": "Full",
+          "kind": "radio"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Workspace",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "World",
+        "kind": "radio",
+        "session_mode_gated": true
+       },
+       {
+        "label": "Civilization",
+        "kind": "radio"
+       },
+       {
+        "label": "Cartography",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Open windows",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "No windows open",
+        "kind": "readout"
+       },
+       {
+        "label": "Context panel",
+        "kind": "check"
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Reset layout",
+      "kind": "command"
+     },
+     {
+      "label": "Layouts",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Default (reset layout)",
+        "kind": "command"
+       },
+       {
+        "label": "Generate",
+        "kind": "command"
+       },
+       {
+        "label": "Sculpt",
+        "kind": "command"
+       },
+       {
+        "label": "Cartography",
+        "kind": "command"
+       },
+       {
+        "label": "Journey",
+        "kind": "command"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Save layout as…",
+        "kind": "command"
+       },
+       {
+        "label": "Forget layout…",
+        "kind": "command"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "menu": "Help",
+    "rows": [
+     {
+      "label": "Documentation",
+      "kind": "disabled (not built)",
+      "reason": "An installed build has no README beside the project; the desktop checkout opens the documents folder."
+     },
+     {
+      "label": "Keyboard reference…",
+      "kind": "command"
+     },
+     {
+      "label": "Credits & academic principles",
+      "kind": "command"
+     },
+     {
+      "label": "Generation info…",
+      "kind": "command"
+     },
+     {
+      "label": "Save diagnostic report…",
+      "kind": "command"
+     },
+     {
+      "label": "About",
+      "kind": "command"
+     }
+    ]
+   }
+  ],
+  "tablet_wide_1180dp_and_up": [
+   {
+    "menu": "File",
+    "rows": [
+     {
+      "label": "New world…",
+      "kind": "command",
+      "accel": "Ctrl+N",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Generate world",
+      "kind": "command",
+      "accel": "Ctrl+R",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Open project…",
+      "kind": "command",
+      "accel": "Ctrl+O"
+     },
+     {
+      "label": "Recent worlds",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "VHAREN REACH — 129384 · 5 d ago",
+        "kind": "command"
+       },
+       {
+        "label": "KESSA — 774201 · 3 w ago",
+        "kind": "command"
+       },
+       {
+        "label": "THORNWOOD — 908133 · 2 mo ago",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "New world from selection…",
+      "kind": "command",
+      "session_mode_gated": true
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Save project",
+      "kind": "command",
+      "accel": "Ctrl+S"
+     },
+     {
+      "label": "Save as…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+S"
+     },
+     {
+      "label": "Autosave",
+      "kind": "check"
+     },
+     {
+      "label": "Autosave interval",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Off",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 1 min",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 5 min",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 15 min",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Revert to last save",
+      "kind": "command"
+     },
+     {
+      "label": "Close project",
+      "kind": "command",
+      "accel": "Ctrl+W"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Export",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "FOR THE TABLE",
+        "kind": "caption"
+       },
+       {
+        "label": "Player map…",
+        "kind": "command",
+        "accel": "Ctrl+Shift+E"
+       },
+       {
+        "label": "DM / full map…",
+        "kind": "command"
+       },
+       {
+        "label": "SHARE",
+        "kind": "caption"
+       },
+       {
+        "label": "Export map image…",
+        "kind": "command"
+       },
+       {
+        "label": "Print sheet (PDF)…",
+        "kind": "disabled (not built)",
+        "reason": "No print or PDF writer exists in this build."
+       },
+       {
+        "label": "VTT battle map (grid + walls)…",
+        "kind": "disabled (not built)",
+        "reason": "No virtual-tabletop format exists in this build: no grid calibration, wall or light data is computed or written."
+       },
+       {
+        "label": "DATA",
+        "kind": "caption"
+       },
+       {
+        "label": "Maps   tiles",
+        "kind": "command"
+       },
+       {
+        "label": "GIS / GeoJSON   .geojson",
+        "kind": "command"
+       },
+       {
+        "label": "World Data   map + atlas",
+        "kind": "command"
+       },
+       {
+        "label": "Assets   .zip",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "STORAGE LOCATIONS",
+      "kind": "caption"
+     },
+     {
+      "label": "projects",
+      "kind": "readout"
+     },
+     {
+      "label": "tile atlas cache",
+      "kind": "readout"
+     },
+     {
+      "label": "asset packs",
+      "kind": "readout"
+     },
+     {
+      "label": "exports",
+      "kind": "readout"
+     },
+     {
+      "label": "Change locations…",
+      "kind": "command"
+     },
+     {
+      "label": "Show project on disk",
+      "kind": "command"
+     },
+     {
+      "label": "imports live under Records ▸ Import",
+      "kind": "signpost"
+     },
+     {
+      "label": "asset packs under Assets",
+      "kind": "signpost"
+     }
+    ]
+   },
+   {
+    "menu": "Edit",
+    "rows": [
+     {
+      "label": "Undo",
+      "kind": "command",
+      "accel": "Ctrl+Z"
+     },
+     {
+      "label": "Redo",
+      "kind": "command",
+      "accel": "Ctrl+Shift+Z"
+     },
+     {
+      "label": "Undo history…",
+      "kind": "command"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Cut",
+      "kind": "command",
+      "accel": "Ctrl+X"
+     },
+     {
+      "label": "Copy",
+      "kind": "command",
+      "accel": "Ctrl+C"
+     },
+     {
+      "label": "Paste",
+      "kind": "command",
+      "accel": "Ctrl+V"
+     },
+     {
+      "label": "Delete",
+      "kind": "command",
+      "accel": "Delete"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Select all",
+      "kind": "command",
+      "accel": "Ctrl+A"
+     },
+     {
+      "label": "Deselect",
+      "kind": "command",
+      "accel": "Ctrl+D"
+     },
+     {
+      "label": "Previous selection",
+      "kind": "command",
+      "accel": "Alt+←"
+     },
+     {
+      "label": "Next selection",
+      "kind": "command",
+      "accel": "Alt+→"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Find on map…",
+      "kind": "command",
+      "accel": "Ctrl+F"
+     },
+     {
+      "label": "Context card",
+      "kind": "command",
+      "accel": "Shift+F10"
+     },
+     {
+      "label": "Cartwheel at the pointer",
+      "kind": "command",
+      "accel": "Q"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Reset generation parameters",
+      "kind": "command",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Reset one stage",
+      "kind": "submenu",
+      "session_mode_gated": true,
+      "items": [
+       {
+        "label": "01 Planet",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "02 Extent & scale",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "03 World structure",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "04 Tectonics",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "05 Volcanism & impacts",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "06 Erosion",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "07 Hydrology",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "08 Climate",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "09 Ecology & biomes",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "10 Resources & soils",
+        "kind": "command",
+        "session_mode_gated": true
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "menu": "Assets",
+    "rows": [
+     {
+      "label": "⧉ Asset library",
+      "kind": "command",
+      "accel": "Shift+A"
+     },
+     {
+      "label": "⧉ Sprite sheet slicer (▦)",
+      "kind": "command"
+     },
+     {
+      "label": "Import asset pack .zip…",
+      "kind": "command"
+     },
+     {
+      "label": "Open pack in library…",
+      "kind": "command"
+     },
+     {
+      "label": "Pack report…",
+      "kind": "command"
+     },
+     {
+      "label": "Import folder of art…",
+      "kind": "command"
+     },
+     {
+      "label": "Compare pack with library…",
+      "kind": "command"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Asset pack",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "ACTIVE PACK",
+        "kind": "caption"
+       },
+       {
+        "label": "NAME",
+        "kind": "readout"
+       },
+       {
+        "label": "AUTHOR",
+        "kind": "readout"
+       },
+       {
+        "label": "LICENSE",
+        "kind": "readout"
+       },
+       {
+        "label": "SCHEMA",
+        "kind": "readout"
+       },
+       {
+        "label": "FILLED",
+        "kind": "readout"
+       },
+       {
+        "label": "Pack metadata…",
+        "kind": "command"
+       },
+       {
+        "label": "Validate pack",
+        "kind": "command"
+       },
+       {
+        "label": "Export pack .zip…",
+        "kind": "command",
+        "accel": "Ctrl+Shift+P"
+       }
+      ]
+     },
+     {
+      "label": "Icon families",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Feature icons   22/31",
+        "kind": "command"
+       },
+       {
+        "label": "Settlement pins   8/10",
+        "kind": "command"
+       },
+       {
+        "label": "Settlement traits   5/12",
+        "kind": "command"
+       },
+       {
+        "label": "Points of interest   14/21",
+        "kind": "command"
+       },
+       {
+        "label": "Sea marks   4/9",
+        "kind": "command"
+       },
+       {
+        "label": "Custom icons   0/6",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Texture sets",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Splat channels   4/4",
+        "kind": "command"
+       },
+       {
+        "label": "Biome textures   9/12",
+        "kind": "command"
+       },
+       {
+        "label": "Terrain textures   6/8",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Landmark types",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Physical",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Peak",
+          "kind": "command"
+         },
+         {
+          "label": "Ridge",
+          "kind": "command"
+         },
+         {
+          "label": "Saddle   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Cliff",
+          "kind": "command"
+         },
+         {
+          "label": "Gorge",
+          "kind": "command"
+         },
+         {
+          "label": "Cave",
+          "kind": "command"
+         },
+         {
+          "label": "Waterfall",
+          "kind": "command"
+         },
+         {
+          "label": "Spring",
+          "kind": "command"
+         },
+         {
+          "label": "Lake",
+          "kind": "command"
+         },
+         {
+          "label": "Delta   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "River confluence",
+          "kind": "command"
+         },
+         {
+          "label": "Volcanic feature",
+          "kind": "command"
+         },
+         {
+          "label": "Rock formation",
+          "kind": "command"
+         },
+         {
+          "label": "Glacial feature   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ancient forest   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Physical in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Transport",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Mountain pass",
+          "kind": "command"
+         },
+         {
+          "label": "River crossing   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ford",
+          "kind": "command"
+         },
+         {
+          "label": "Bridge site",
+          "kind": "command"
+         },
+         {
+          "label": "Road junction",
+          "kind": "command"
+         },
+         {
+          "label": "Caravan station",
+          "kind": "command"
+         },
+         {
+          "label": "Portage",
+          "kind": "command"
+         },
+         {
+          "label": "Harbour",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Transport in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Economic",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Mine",
+          "kind": "command"
+         },
+         {
+          "label": "Quarry",
+          "kind": "command"
+         },
+         {
+          "label": "Salt works   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Resource extraction site",
+          "kind": "command"
+         },
+         {
+          "label": "Market site",
+          "kind": "command"
+         },
+         {
+          "label": "Trade depot",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Economic in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Military",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Fort",
+          "kind": "command"
+         },
+         {
+          "label": "Watchtower",
+          "kind": "command"
+         },
+         {
+          "label": "Fortified pass",
+          "kind": "command"
+         },
+         {
+          "label": "Fortified crossing",
+          "kind": "command"
+         },
+         {
+          "label": "Battlefield",
+          "kind": "command"
+         },
+         {
+          "label": "Border marker",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Military in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Cultural",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Shrine   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Temple   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Sacred grove   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Sacred mountain   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Pilgrimage site   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Tomb   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Monument   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ceremonial site   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Cultural in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Historical",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Ruin   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Abandoned settlement",
+          "kind": "command"
+         },
+         {
+          "label": "Ancient road",
+          "kind": "command"
+         },
+         {
+          "label": "Historic battlefield   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Destroyed fortress   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Historic crossing   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Historical in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Placed by hand   3",
+        "kind": "command"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Landmark icons…",
+        "kind": "command"
+       },
+       {
+        "label": "Landmark label style…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Apply library to map",
+      "kind": "command"
+     },
+     {
+      "label": "Clear library…",
+      "kind": "command"
+     }
+    ]
+   },
+   {
+    "menu": "Records",
+    "rows": [
+     {
+      "label": "⧉ Data manager",
+      "kind": "command"
+     },
+     {
+      "label": "RECORDS",
+      "kind": "caption"
+     },
+     {
+      "label": "Factions…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+F"
+     },
+     {
+      "label": "Places…",
+      "kind": "command"
+     },
+     {
+      "label": "Markdown vault…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+V"
+     },
+     {
+      "label": "Browse & edit a note…",
+      "kind": "command"
+     },
+     {
+      "label": "Places without notes…",
+      "kind": "command"
+     },
+     {
+      "label": "Timeline is in Story ▸ Timeline",
+      "kind": "signpost"
+     },
+     {
+      "label": "TECHNICAL",
+      "kind": "caption"
+     },
+     {
+      "label": "World data tables…",
+      "kind": "command"
+     },
+     {
+      "label": "Import",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Maps   tiles",
+        "kind": "command"
+       },
+       {
+        "label": "Heightmaps   PNG",
+        "kind": "command"
+       },
+       {
+        "label": "GIS / GeoJSON",
+        "kind": "command"
+       },
+       {
+        "label": "World Data   .ctl",
+        "kind": "command"
+       },
+       {
+        "label": "Assets   → Assets",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Sources & validation",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "SOURCES",
+        "kind": "caption"
+       },
+       {
+        "label": "External Sources",
+        "kind": "command"
+       },
+       {
+        "label": "Connected Sources",
+        "kind": "command"
+       },
+       {
+        "label": "Source Registry",
+        "kind": "command"
+       },
+       {
+        "label": "VALIDATION",
+        "kind": "caption"
+       },
+       {
+        "label": "Definitions",
+        "kind": "command"
+       },
+       {
+        "label": "Check Data",
+        "kind": "command"
+       },
+       {
+        "label": "Repair / Normalize",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Export is in File ▸ Export",
+      "kind": "signpost"
+     }
+    ]
+   },
+   {
+    "menu": "Story",
+    "rows": [
+     {
+      "label": "TIME",
+      "kind": "caption"
+     },
+     {
+      "label": "Timeline",
+      "kind": "command",
+      "accel": "Ctrl+Shift+T"
+     },
+     {
+      "label": "Political history of the selection",
+      "kind": "command"
+     },
+     {
+      "label": "Faction history…",
+      "kind": "command"
+     },
+     {
+      "label": "JOURNEYS",
+      "kind": "caption"
+     },
+     {
+      "label": "Journey planner",
+      "kind": "command"
+     },
+     {
+      "label": "Saved journeys…",
+      "kind": "command"
+     },
+     {
+      "label": "Travel library…",
+      "kind": "command",
+      "accel": "Shift+L"
+     },
+     {
+      "label": "CONFLICTS & CAMPAIGNS",
+      "kind": "caption"
+     },
+     {
+      "label": "Conflicts…",
+      "kind": "command"
+     },
+     {
+      "label": "Draw a conflict",
+      "kind": "command"
+     },
+     {
+      "label": "Campaigns this year",
+      "kind": "readout"
+     },
+     {
+      "label": "NOTES",
+      "kind": "caption"
+     },
+     {
+      "label": "Note for the selection",
+      "kind": "command",
+      "accel": "Ctrl+Shift+N"
+     },
+     {
+      "label": "Places without notes… is in Records",
+      "kind": "signpost"
+     },
+     {
+      "label": "Ask the assistant about the selection",
+      "kind": "command",
+      "accel": "Ctrl+J"
+     }
+    ]
+   },
+   {
+    "menu": "Preferences",
+    "rows": [
+     {
+      "label": "PERFORMANCE",
+      "kind": "caption"
+     },
+     {
+      "label": "GPU acceleration",
+      "kind": "check"
+     },
+     {
+      "label": "Devices",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Automatic (highest-performance GPU)",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Adreno 630 · integrated · Vulkan",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Memory",
+        "kind": "readout"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Rescan devices…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Multi-GPU mode",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Single device",
+        "kind": "radio"
+       },
+       {
+        "label": "Split tiles",
+        "kind": "radio"
+       },
+       {
+        "label": "Alternate frames",
+        "kind": "disabled (not built)",
+        "reason": "Not built."
+       }
+      ]
+     },
+     {
+      "label": "CPU worker threads",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Automatic",
+        "kind": "radio"
+       },
+       {
+        "label": "1 — 1 thread",
+        "kind": "radio"
+       },
+       {
+        "label": "2 — quarter",
+        "kind": "radio"
+       },
+       {
+        "label": "4 — half",
+        "kind": "radio"
+       },
+       {
+        "label": "8 — all cores",
+        "kind": "radio"
+       },
+       {
+        "label": "Running",
+        "kind": "readout"
+       }
+      ]
+     },
+     {
+      "label": "VRAM budget",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "No cap",
+        "kind": "radio"
+       },
+       {
+        "label": "1 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "2 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "4 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "8 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "12 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "16 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "24 GB",
+        "kind": "radio"
+       },
+       {
+        "label": "Current grid 2048×2048 needs about",
+        "kind": "readout"
+       }
+      ]
+     },
+     {
+      "label": "Fallback when VRAM full",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "CPU tile pass",
+        "kind": "radio"
+       },
+       {
+        "label": "Reduce working res",
+        "kind": "disabled (not built)",
+        "reason": "Not built."
+       },
+       {
+        "label": "Fail with error",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Try the GPU again",
+      "kind": "command",
+      "disabled_at_build": true,
+      "reason": "Nothing to clear: no GPU readback has failed this session"
+     },
+     {
+      "label": "GRAPHICS",
+      "kind": "caption"
+     },
+     {
+      "label": "Render quality",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "performance",
+        "kind": "radio"
+       },
+       {
+        "label": "balanced",
+        "kind": "radio"
+       },
+       {
+        "label": "quality",
+        "kind": "radio"
+       },
+       {
+        "label": "ultra",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Anti-aliasing · anisotropy",
+      "kind": "disabled (not built)",
+      "reason": "The 3D view draws no terrain yet, so there is nothing to anti-alias."
+     },
+     {
+      "label": "Colour management — CARTO ▸ Colours ▸ Colour management",
+      "kind": "signpost"
+     },
+     {
+      "label": "3D viewport defaults",
+      "kind": "disabled (not built)",
+      "reason": "They arrive with the 3D view’s terrain."
+     },
+     {
+      "label": "Lighting rig defaults",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Following the engine",
+        "kind": "readout"
+       },
+       {
+        "label": "Azimuth",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "0 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "45 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "90 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "135 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "180 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "225 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "270 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "315 deg",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Elevation",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "15 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "25 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "35 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "45 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "55 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "65 deg",
+          "kind": "radio"
+         },
+         {
+          "label": "75 deg",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Ambient",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "0.00",
+          "kind": "radio"
+         },
+         {
+          "label": "0.15",
+          "kind": "radio"
+         },
+         {
+          "label": "0.25",
+          "kind": "radio"
+         },
+         {
+          "label": "0.35",
+          "kind": "radio"
+         },
+         {
+          "label": "0.50",
+          "kind": "radio"
+         },
+         {
+          "label": "0.70",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Multidirectional",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "1 light (single sun)",
+          "kind": "radio"
+         },
+         {
+          "label": "2 lights",
+          "kind": "radio"
+         },
+         {
+          "label": "4 lights",
+          "kind": "radio"
+         },
+         {
+          "label": "6 lights",
+          "kind": "radio"
+         },
+         {
+          "label": "8 lights",
+          "kind": "radio"
+         },
+         {
+          "label": "12 lights",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Use the engine’s own rig",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Relief exaggeration",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "1x",
+        "kind": "radio"
+       },
+       {
+        "label": "2x",
+        "kind": "radio"
+       },
+       {
+        "label": "4x",
+        "kind": "radio"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Use the engine’s own 3.4x",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "TILES & LOD",
+      "kind": "caption"
+     },
+     {
+      "label": "Tiled LOD",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Auto on zoom",
+        "kind": "radio"
+       },
+       {
+        "label": "Manual",
+        "kind": "radio"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Enter deep detail now",
+        "kind": "command"
+       },
+       {
+        "label": "Leave deep detail",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Tile size · LOD levels",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "256 px",
+        "kind": "radio"
+       },
+       {
+        "label": "512 px",
+        "kind": "radio"
+       },
+       {
+        "label": "1024 px",
+        "kind": "radio"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "LOD levels",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "LOD 0–0   1 tile",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–1   5 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–2   21 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–3   85 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–4   341 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–5   1 365 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–6   5 461 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–7   21 845 tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "LOD 0–8   87 381 tiles",
+          "kind": "radio"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "label": "Atlas cache",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "85 chunks · 1.2 GB · to LOD 3",
+        "kind": "readout"
+       },
+       {
+        "label": "Size cap · GB",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "No cap",
+          "kind": "radio"
+         },
+         {
+          "label": "0.5 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "1 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "2 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "4 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "8 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "16 GB",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Refine detail for the current view",
+        "kind": "command"
+       },
+       {
+        "label": "Refine viewshed for the current view",
+        "kind": "command"
+       },
+       {
+        "label": "Viewshed",
+        "kind": "readout"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Export atlas…",
+        "kind": "command"
+       },
+       {
+        "label": "Import atlas…",
+        "kind": "command"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Clear atlas cache now…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Chunk debug overlay",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Grid",
+        "kind": "check"
+       },
+       {
+        "label": "Colors",
+        "kind": "check"
+       },
+       {
+        "label": "Labels",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Show tile borders on the map",
+        "kind": "check"
+       }
+      ]
+     },
+     {
+      "label": "MEMORY",
+      "kind": "caption"
+     },
+     {
+      "label": "Undo history",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "64 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "128 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "256 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "512 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "1024 MB",
+        "kind": "radio"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Clear undo history now",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Working set",
+      "kind": "readout"
+     },
+     {
+      "label": "Clear caches…",
+      "kind": "command"
+     },
+     {
+      "label": "APPLICATION",
+      "kind": "caption"
+     },
+     {
+      "label": "Storage locations…",
+      "kind": "command"
+     },
+     {
+      "label": "Assistant…",
+      "kind": "command"
+     },
+     {
+      "label": "Quick bar…",
+      "kind": "command"
+     },
+     {
+      "label": "Open panels in their own window",
+      "kind": "disabled (DESKTOP ONLY)"
+     },
+     {
+      "label": "Theme",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Dark",
+        "kind": "radio"
+       },
+       {
+        "label": "Light",
+        "kind": "radio"
+       },
+       {
+        "label": "Follow system",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Units",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Kilometres",
+        "kind": "radio"
+       },
+       {
+        "label": "Miles",
+        "kind": "radio"
+       },
+       {
+        "label": "Nautical miles",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Handedness",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Left",
+        "kind": "radio"
+       },
+       {
+        "label": "Right",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Keyboard shortcuts…",
+      "kind": "command"
+     },
+     {
+      "label": "TOUCH · NEW",
+      "kind": "caption"
+     },
+     {
+      "label": "Touch & gestures…",
+      "kind": "command"
+     }
+    ]
+   },
+   {
+    "menu": "Window",
+    "rows": [
+     {
+      "label": "Left dock",
+      "kind": "check"
+     },
+     {
+      "label": "Context panel",
+      "kind": "check"
+     },
+     {
+      "label": "Context panel",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Inspect",
+        "kind": "command",
+        "accel": "Ctrl+1"
+       },
+       {
+        "label": "Note",
+        "kind": "command",
+        "accel": "Ctrl+2"
+       },
+       {
+        "label": "Ask (assistant)",
+        "kind": "command",
+        "accel": "Ctrl+3"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Pin to the current subject",
+        "kind": "command"
+       },
+       {
+        "label": "Follow the selection",
+        "kind": "command"
+       },
+       {
+        "label": "MODULES",
+        "kind": "caption"
+       },
+       {
+        "label": "History",
+        "kind": "check"
+       },
+       {
+        "label": "Economy",
+        "kind": "check"
+       },
+       {
+        "label": "Military",
+        "kind": "check"
+       },
+       {
+        "label": "Faith, culture & relations",
+        "kind": "check"
+       },
+       {
+        "label": "Territory",
+        "kind": "check"
+       },
+       {
+        "label": "City layout",
+        "kind": "check"
+       },
+       {
+        "label": "Here",
+        "kind": "check"
+       },
+       {
+        "label": "Routes & journeys",
+        "kind": "check"
+       },
+       {
+        "label": "Links",
+        "kind": "check"
+       },
+       {
+        "label": "Recent & bookmarks",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Reset panel",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Timeline",
+      "kind": "check"
+     },
+     {
+      "label": "Status bar",
+      "kind": "check"
+     },
+     {
+      "label": "Domain rail",
+      "kind": "check"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Session mode",
+      "kind": "check",
+      "accel": "Ctrl+Shift+M"
+     },
+     {
+      "label": "Diagnostics overlay",
+      "kind": "check",
+      "accel": "Shift+D"
+     },
+     {
+      "label": "3D view",
+      "kind": "check"
+     },
+     {
+      "label": "3D capability",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "3D tier",
+        "kind": "readout"
+       },
+       {
+        "label": "Re-test 3D",
+        "kind": "command"
+       },
+       {
+        "label": "Force tier",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Automatic (as measured)",
+          "kind": "radio"
+         },
+         {
+          "label": "Off",
+          "kind": "radio"
+         },
+         {
+          "label": "Basic",
+          "kind": "radio"
+         },
+         {
+          "label": "Standard",
+          "kind": "radio"
+         },
+         {
+          "label": "Full",
+          "kind": "radio"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Workspace",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "World",
+        "kind": "radio",
+        "session_mode_gated": true
+       },
+       {
+        "label": "Civilization",
+        "kind": "radio"
+       },
+       {
+        "label": "Cartography",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Open windows",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "No windows open",
+        "kind": "readout"
+       },
+       {
+        "label": "Context panel",
+        "kind": "check"
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Reset layout",
+      "kind": "command"
+     },
+     {
+      "label": "Layouts",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Default (reset layout)",
+        "kind": "command"
+       },
+       {
+        "label": "Generate",
+        "kind": "command"
+       },
+       {
+        "label": "Sculpt",
+        "kind": "command"
+       },
+       {
+        "label": "Cartography",
+        "kind": "command"
+       },
+       {
+        "label": "Journey",
+        "kind": "command"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Save layout as…",
+        "kind": "command"
+       },
+       {
+        "label": "Forget layout…",
+        "kind": "command"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "menu": "Help",
+    "rows": [
+     {
+      "label": "Documentation",
+      "kind": "disabled (not built)",
+      "reason": "An installed build has no README beside the project; the desktop checkout opens the documents folder."
+     },
+     {
+      "label": "Keyboard reference…",
+      "kind": "command"
+     },
+     {
+      "label": "Gesture reference…",
+      "kind": "command"
+     },
+     {
+      "label": "Credits & academic principles",
+      "kind": "command"
+     },
+     {
+      "label": "Generation info…",
+      "kind": "command"
+     },
+     {
+      "label": "Save diagnostic report…",
+      "kind": "command"
+     },
+     {
+      "label": "About",
+      "kind": "command"
+     }
+    ]
+   }
+  ],
+  "tablet_below_1180dp": [
+   {
+    "menu": "☰",
+    "rows": [
+     {
+      "label": "Undo",
+      "kind": "command",
+      "accel": "Ctrl+Z"
+     },
+     {
+      "label": "Redo",
+      "kind": "command",
+      "accel": "Ctrl+Shift+Z"
+     },
+     {
+      "label": "Undo history…",
+      "kind": "command"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "⧉ Asset library",
+      "kind": "command",
+      "accel": "Shift+A"
+     },
+     {
+      "label": "Landmark types",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Physical",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Peak",
+          "kind": "command"
+         },
+         {
+          "label": "Ridge",
+          "kind": "command"
+         },
+         {
+          "label": "Saddle   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Cliff",
+          "kind": "command"
+         },
+         {
+          "label": "Gorge",
+          "kind": "command"
+         },
+         {
+          "label": "Cave",
+          "kind": "command"
+         },
+         {
+          "label": "Waterfall",
+          "kind": "command"
+         },
+         {
+          "label": "Spring",
+          "kind": "command"
+         },
+         {
+          "label": "Lake",
+          "kind": "command"
+         },
+         {
+          "label": "Delta   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "River confluence",
+          "kind": "command"
+         },
+         {
+          "label": "Volcanic feature",
+          "kind": "command"
+         },
+         {
+          "label": "Rock formation",
+          "kind": "command"
+         },
+         {
+          "label": "Glacial feature   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ancient forest   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Physical in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Transport",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Mountain pass",
+          "kind": "command"
+         },
+         {
+          "label": "River crossing   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ford",
+          "kind": "command"
+         },
+         {
+          "label": "Bridge site",
+          "kind": "command"
+         },
+         {
+          "label": "Road junction",
+          "kind": "command"
+         },
+         {
+          "label": "Caravan station",
+          "kind": "command"
+         },
+         {
+          "label": "Portage",
+          "kind": "command"
+         },
+         {
+          "label": "Harbour",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Transport in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Economic",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Mine",
+          "kind": "command"
+         },
+         {
+          "label": "Quarry",
+          "kind": "command"
+         },
+         {
+          "label": "Salt works   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Resource extraction site",
+          "kind": "command"
+         },
+         {
+          "label": "Market site",
+          "kind": "command"
+         },
+         {
+          "label": "Trade depot",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Economic in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Military",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Fort",
+          "kind": "command"
+         },
+         {
+          "label": "Watchtower",
+          "kind": "command"
+         },
+         {
+          "label": "Fortified pass",
+          "kind": "command"
+         },
+         {
+          "label": "Fortified crossing",
+          "kind": "command"
+         },
+         {
+          "label": "Battlefield",
+          "kind": "command"
+         },
+         {
+          "label": "Border marker",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Military in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Cultural",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Shrine   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Temple   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Sacred grove   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Sacred mountain   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Pilgrimage site   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Tomb   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Monument   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Ceremonial site   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Cultural in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Historical",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Ruin   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Abandoned settlement",
+          "kind": "command"
+         },
+         {
+          "label": "Ancient road",
+          "kind": "command"
+         },
+         {
+          "label": "Historic battlefield   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Destroyed fortress   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "Historic crossing   not buildable",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Open Historical in the dock",
+          "kind": "command"
+         },
+         {
+          "label": "Rows here read state; they do not arm a type.",
+          "kind": "signpost"
+         }
+        ]
+       },
+       {
+        "label": "Placed by hand   3",
+        "kind": "command"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Landmark icons…",
+        "kind": "command"
+       },
+       {
+        "label": "Landmark label style…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Toggle theme",
+      "kind": "command"
+     },
+     {
+      "label": "Units",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Kilometres",
+        "kind": "radio"
+       },
+       {
+        "label": "Miles",
+        "kind": "radio"
+       },
+       {
+        "label": "Nautical miles",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Keyboard reference…",
+      "kind": "command"
+     },
+     {
+      "label": "About",
+      "kind": "command"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Edit",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Cut",
+        "kind": "command",
+        "accel": "Ctrl+X"
+       },
+       {
+        "label": "Copy",
+        "kind": "command",
+        "accel": "Ctrl+C"
+       },
+       {
+        "label": "Paste",
+        "kind": "command",
+        "accel": "Ctrl+V"
+       },
+       {
+        "label": "Delete",
+        "kind": "command",
+        "accel": "Delete"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Select all",
+        "kind": "command",
+        "accel": "Ctrl+A"
+       },
+       {
+        "label": "Deselect",
+        "kind": "command",
+        "accel": "Ctrl+D"
+       },
+       {
+        "label": "Previous selection",
+        "kind": "command",
+        "accel": "Alt+←"
+       },
+       {
+        "label": "Next selection",
+        "kind": "command",
+        "accel": "Alt+→"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Find on map…",
+        "kind": "command",
+        "accel": "Ctrl+F"
+       },
+       {
+        "label": "Context card",
+        "kind": "command",
+        "accel": "Shift+F10"
+       },
+       {
+        "label": "Cartwheel at the pointer",
+        "kind": "command",
+        "accel": "Q"
+       }
+      ]
+     },
+     {
+      "label": "Assets",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "⧉ Sprite sheet slicer (▦)",
+        "kind": "command"
+       },
+       {
+        "label": "Import asset pack .zip…",
+        "kind": "command"
+       },
+       {
+        "label": "Open pack in library…",
+        "kind": "command"
+       },
+       {
+        "label": "Pack report…",
+        "kind": "command"
+       },
+       {
+        "label": "Import folder of art…",
+        "kind": "command"
+       },
+       {
+        "label": "Compare pack with library…",
+        "kind": "command"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Asset pack",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "ACTIVE PACK",
+          "kind": "caption"
+         },
+         {
+          "label": "NAME",
+          "kind": "readout"
+         },
+         {
+          "label": "AUTHOR",
+          "kind": "readout"
+         },
+         {
+          "label": "LICENSE",
+          "kind": "readout"
+         },
+         {
+          "label": "SCHEMA",
+          "kind": "readout"
+         },
+         {
+          "label": "FILLED",
+          "kind": "readout"
+         },
+         {
+          "label": "Pack metadata…",
+          "kind": "command"
+         },
+         {
+          "label": "Validate pack",
+          "kind": "command"
+         },
+         {
+          "label": "Export pack .zip…",
+          "kind": "command",
+          "accel": "Ctrl+Shift+P"
+         }
+        ]
+       },
+       {
+        "label": "Icon families",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Feature icons   22/31",
+          "kind": "command"
+         },
+         {
+          "label": "Settlement pins   8/10",
+          "kind": "command"
+         },
+         {
+          "label": "Settlement traits   5/12",
+          "kind": "command"
+         },
+         {
+          "label": "Points of interest   14/21",
+          "kind": "command"
+         },
+         {
+          "label": "Sea marks   4/9",
+          "kind": "command"
+         },
+         {
+          "label": "Custom icons   0/6",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "Texture sets",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Splat channels   4/4",
+          "kind": "command"
+         },
+         {
+          "label": "Biome textures   9/12",
+          "kind": "command"
+         },
+         {
+          "label": "Terrain textures   6/8",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Apply library to map",
+        "kind": "command"
+       },
+       {
+        "label": "Clear library…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Preferences",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "PERFORMANCE",
+        "kind": "caption"
+       },
+       {
+        "label": "GPU acceleration",
+        "kind": "check"
+       },
+       {
+        "label": "Devices",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Automatic (highest-performance GPU)",
+          "kind": "check"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Adreno 630 · integrated · Vulkan",
+          "kind": "check"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Memory",
+          "kind": "readout"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Rescan devices…",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "Multi-GPU mode",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Single device",
+          "kind": "radio"
+         },
+         {
+          "label": "Split tiles",
+          "kind": "radio"
+         },
+         {
+          "label": "Alternate frames",
+          "kind": "disabled (not built)",
+          "reason": "Not built."
+         }
+        ]
+       },
+       {
+        "label": "CPU worker threads",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Automatic",
+          "kind": "radio"
+         },
+         {
+          "label": "1 — 1 thread",
+          "kind": "radio"
+         },
+         {
+          "label": "2 — quarter",
+          "kind": "radio"
+         },
+         {
+          "label": "4 — half",
+          "kind": "radio"
+         },
+         {
+          "label": "8 — all cores",
+          "kind": "radio"
+         },
+         {
+          "label": "Running",
+          "kind": "readout"
+         }
+        ]
+       },
+       {
+        "label": "VRAM budget",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "No cap",
+          "kind": "radio"
+         },
+         {
+          "label": "1 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "2 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "4 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "8 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "12 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "16 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "24 GB",
+          "kind": "radio"
+         },
+         {
+          "label": "Current grid 2048×2048 needs about",
+          "kind": "readout"
+         }
+        ]
+       },
+       {
+        "label": "Fallback when VRAM full",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "CPU tile pass",
+          "kind": "radio"
+         },
+         {
+          "label": "Reduce working res",
+          "kind": "disabled (not built)",
+          "reason": "Not built."
+         },
+         {
+          "label": "Fail with error",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Try the GPU again",
+        "kind": "command",
+        "disabled_at_build": true,
+        "reason": "Nothing to clear: no GPU readback has failed this session"
+       },
+       {
+        "label": "GRAPHICS",
+        "kind": "caption"
+       },
+       {
+        "label": "Render quality",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "performance",
+          "kind": "radio"
+         },
+         {
+          "label": "balanced",
+          "kind": "radio"
+         },
+         {
+          "label": "quality",
+          "kind": "radio"
+         },
+         {
+          "label": "ultra",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Anti-aliasing · anisotropy",
+        "kind": "disabled (not built)",
+        "reason": "The 3D view draws no terrain yet, so there is nothing to anti-alias."
+       },
+       {
+        "label": "Colour management — CARTO ▸ Colours ▸ Colour management",
+        "kind": "signpost"
+       },
+       {
+        "label": "3D viewport defaults",
+        "kind": "disabled (not built)",
+        "reason": "They arrive with the 3D view’s terrain."
+       },
+       {
+        "label": "Lighting rig defaults",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Following the engine",
+          "kind": "readout"
+         },
+         {
+          "label": "Azimuth",
+          "kind": "submenu",
+          "items": [
+           {
+            "label": "0 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "45 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "90 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "135 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "180 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "225 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "270 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "315 deg",
+            "kind": "radio"
+           }
+          ]
+         },
+         {
+          "label": "Elevation",
+          "kind": "submenu",
+          "items": [
+           {
+            "label": "15 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "25 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "35 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "45 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "55 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "65 deg",
+            "kind": "radio"
+           },
+           {
+            "label": "75 deg",
+            "kind": "radio"
+           }
+          ]
+         },
+         {
+          "label": "Ambient",
+          "kind": "submenu",
+          "items": [
+           {
+            "label": "0.00",
+            "kind": "radio"
+           },
+           {
+            "label": "0.15",
+            "kind": "radio"
+           },
+           {
+            "label": "0.25",
+            "kind": "radio"
+           },
+           {
+            "label": "0.35",
+            "kind": "radio"
+           },
+           {
+            "label": "0.50",
+            "kind": "radio"
+           },
+           {
+            "label": "0.70",
+            "kind": "radio"
+           }
+          ]
+         },
+         {
+          "label": "Multidirectional",
+          "kind": "submenu",
+          "items": [
+           {
+            "label": "1 light (single sun)",
+            "kind": "radio"
+           },
+           {
+            "label": "2 lights",
+            "kind": "radio"
+           },
+           {
+            "label": "4 lights",
+            "kind": "radio"
+           },
+           {
+            "label": "6 lights",
+            "kind": "radio"
+           },
+           {
+            "label": "8 lights",
+            "kind": "radio"
+           },
+           {
+            "label": "12 lights",
+            "kind": "radio"
+           }
+          ]
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Use the engine’s own rig",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "Relief exaggeration",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "1x",
+          "kind": "radio"
+         },
+         {
+          "label": "2x",
+          "kind": "radio"
+         },
+         {
+          "label": "4x",
+          "kind": "radio"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Use the engine’s own 3.4x",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "TILES & LOD",
+        "kind": "caption"
+       },
+       {
+        "label": "Tiled LOD",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Auto on zoom",
+          "kind": "radio"
+         },
+         {
+          "label": "Manual",
+          "kind": "radio"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Enter deep detail now",
+          "kind": "command"
+         },
+         {
+          "label": "Leave deep detail",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "Tile size · LOD levels",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "256 px",
+          "kind": "radio"
+         },
+         {
+          "label": "512 px",
+          "kind": "radio"
+         },
+         {
+          "label": "1024 px",
+          "kind": "radio"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "LOD levels",
+          "kind": "submenu",
+          "items": [
+           {
+            "label": "LOD 0–0   1 tile",
+            "kind": "radio"
+           },
+           {
+            "label": "LOD 0–1   5 tiles",
+            "kind": "radio"
+           },
+           {
+            "label": "LOD 0–2   21 tiles",
+            "kind": "radio"
+           },
+           {
+            "label": "LOD 0–3   85 tiles",
+            "kind": "radio"
+           },
+           {
+            "label": "LOD 0–4   341 tiles",
+            "kind": "radio"
+           },
+           {
+            "label": "LOD 0–5   1 365 tiles",
+            "kind": "radio"
+           },
+           {
+            "label": "LOD 0–6   5 461 tiles",
+            "kind": "radio"
+           },
+           {
+            "label": "LOD 0–7   21 845 tiles",
+            "kind": "radio"
+           },
+           {
+            "label": "LOD 0–8   87 381 tiles",
+            "kind": "radio"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "label": "Atlas cache",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "85 chunks · 1.2 GB · to LOD 3",
+          "kind": "readout"
+         },
+         {
+          "label": "Size cap · GB",
+          "kind": "submenu",
+          "items": [
+           {
+            "label": "No cap",
+            "kind": "radio"
+           },
+           {
+            "label": "0.5 GB",
+            "kind": "radio"
+           },
+           {
+            "label": "1 GB",
+            "kind": "radio"
+           },
+           {
+            "label": "2 GB",
+            "kind": "radio"
+           },
+           {
+            "label": "4 GB",
+            "kind": "radio"
+           },
+           {
+            "label": "8 GB",
+            "kind": "radio"
+           },
+           {
+            "label": "16 GB",
+            "kind": "radio"
+           }
+          ]
+         },
+         {
+          "label": "Refine detail for the current view",
+          "kind": "command"
+         },
+         {
+          "label": "Refine viewshed for the current view",
+          "kind": "command"
+         },
+         {
+          "label": "Viewshed",
+          "kind": "readout"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Export atlas…",
+          "kind": "command"
+         },
+         {
+          "label": "Import atlas…",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Clear atlas cache now…",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "Chunk debug overlay",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Grid",
+          "kind": "check"
+         },
+         {
+          "label": "Colors",
+          "kind": "check"
+         },
+         {
+          "label": "Labels",
+          "kind": "check"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Show tile borders on the map",
+          "kind": "check"
+         }
+        ]
+       },
+       {
+        "label": "MEMORY",
+        "kind": "caption"
+       },
+       {
+        "label": "Undo history",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "64 MB",
+          "kind": "radio"
+         },
+         {
+          "label": "128 MB",
+          "kind": "radio"
+         },
+         {
+          "label": "256 MB",
+          "kind": "radio"
+         },
+         {
+          "label": "512 MB",
+          "kind": "radio"
+         },
+         {
+          "label": "1024 MB",
+          "kind": "radio"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Clear undo history now",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "Working set",
+        "kind": "readout"
+       },
+       {
+        "label": "Clear caches…",
+        "kind": "command"
+       },
+       {
+        "label": "APPLICATION",
+        "kind": "caption"
+       },
+       {
+        "label": "Storage locations…",
+        "kind": "command"
+       },
+       {
+        "label": "Assistant…",
+        "kind": "command"
+       },
+       {
+        "label": "Quick bar…",
+        "kind": "command"
+       },
+       {
+        "label": "Open panels in their own window",
+        "kind": "disabled (DESKTOP ONLY)"
+       },
+       {
+        "label": "Theme",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Dark",
+          "kind": "radio"
+         },
+         {
+          "label": "Light",
+          "kind": "radio"
+         },
+         {
+          "label": "Follow system",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Handedness",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Left",
+          "kind": "radio"
+         },
+         {
+          "label": "Right",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Keyboard shortcuts…",
+        "kind": "command"
+       },
+       {
+        "label": "TOUCH · NEW",
+        "kind": "caption"
+       },
+       {
+        "label": "Touch & gestures…",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Window",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Left dock",
+        "kind": "check"
+       },
+       {
+        "label": "Context panel",
+        "kind": "check"
+       },
+       {
+        "label": "Context panel",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Inspect",
+          "kind": "command",
+          "accel": "Ctrl+1"
+         },
+         {
+          "label": "Note",
+          "kind": "command",
+          "accel": "Ctrl+2"
+         },
+         {
+          "label": "Ask (assistant)",
+          "kind": "command",
+          "accel": "Ctrl+3"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Pin to the current subject",
+          "kind": "command"
+         },
+         {
+          "label": "Follow the selection",
+          "kind": "command"
+         },
+         {
+          "label": "MODULES",
+          "kind": "caption"
+         },
+         {
+          "label": "History",
+          "kind": "check"
+         },
+         {
+          "label": "Economy",
+          "kind": "check"
+         },
+         {
+          "label": "Military",
+          "kind": "check"
+         },
+         {
+          "label": "Faith, culture & relations",
+          "kind": "check"
+         },
+         {
+          "label": "Territory",
+          "kind": "check"
+         },
+         {
+          "label": "City layout",
+          "kind": "check"
+         },
+         {
+          "label": "Here",
+          "kind": "check"
+         },
+         {
+          "label": "Routes & journeys",
+          "kind": "check"
+         },
+         {
+          "label": "Links",
+          "kind": "check"
+         },
+         {
+          "label": "Recent & bookmarks",
+          "kind": "check"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Reset panel",
+          "kind": "command"
+         }
+        ]
+       },
+       {
+        "label": "Timeline",
+        "kind": "check"
+       },
+       {
+        "label": "Status bar",
+        "kind": "check"
+       },
+       {
+        "label": "Domain rail",
+        "kind": "check"
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Session mode",
+        "kind": "check",
+        "accel": "Ctrl+Shift+M"
+       },
+       {
+        "label": "Diagnostics overlay",
+        "kind": "check",
+        "accel": "Shift+D"
+       },
+       {
+        "label": "3D view",
+        "kind": "check"
+       },
+       {
+        "label": "3D capability",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "3D tier",
+          "kind": "readout"
+         },
+         {
+          "label": "Re-test 3D",
+          "kind": "command"
+         },
+         {
+          "label": "Force tier",
+          "kind": "submenu",
+          "items": [
+           {
+            "label": "Automatic (as measured)",
+            "kind": "radio"
+           },
+           {
+            "label": "Off",
+            "kind": "radio"
+           },
+           {
+            "label": "Basic",
+            "kind": "radio"
+           },
+           {
+            "label": "Standard",
+            "kind": "radio"
+           },
+           {
+            "label": "Full",
+            "kind": "radio"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Workspace",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "World",
+          "kind": "radio",
+          "session_mode_gated": true
+         },
+         {
+          "label": "Civilization",
+          "kind": "radio"
+         },
+         {
+          "label": "Cartography",
+          "kind": "radio"
+         }
+        ]
+       },
+       {
+        "label": "Open windows",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "No windows open",
+          "kind": "readout"
+         },
+         {
+          "label": "Context panel",
+          "kind": "check"
+         }
+        ]
+       },
+       {
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Reset layout",
+        "kind": "command"
+       },
+       {
+        "label": "Layouts",
+        "kind": "submenu",
+        "items": [
+         {
+          "label": "Default (reset layout)",
+          "kind": "command"
+         },
+         {
+          "label": "Generate",
+          "kind": "command"
+         },
+         {
+          "label": "Sculpt",
+          "kind": "command"
+         },
+         {
+          "label": "Cartography",
+          "kind": "command"
+         },
+         {
+          "label": "Journey",
+          "kind": "command"
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Save layout as…",
+          "kind": "command"
+         },
+         {
+          "label": "Forget layout…",
+          "kind": "command"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "label": "Help",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Documentation",
+        "kind": "disabled (not built)",
+        "reason": "An installed build has no README beside the project; the desktop checkout opens the documents folder."
+       },
+       {
+        "label": "Gesture reference…",
+        "kind": "command"
+       },
+       {
+        "label": "Credits & academic principles",
+        "kind": "command"
+       },
+       {
+        "label": "Generation info…",
+        "kind": "command"
+       },
+       {
+        "label": "Save diagnostic report…",
+        "kind": "command"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "menu": "File",
+    "rows": [
+     {
+      "label": "New world…",
+      "kind": "command",
+      "accel": "Ctrl+N",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Open project…",
+      "kind": "command",
+      "accel": "Ctrl+O"
+     },
+     {
+      "label": "Recent worlds",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "VHAREN REACH — 129384 · 5 d ago",
+        "kind": "command"
+       },
+       {
+        "label": "KESSA — 774201 · 3 w ago",
+        "kind": "command"
+       },
+       {
+        "label": "THORNWOOD — 908133 · 2 mo ago",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "New world from selection…",
+      "kind": "command",
+      "session_mode_gated": true
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Save project",
+      "kind": "command",
+      "accel": "Ctrl+S"
+     },
+     {
+      "label": "Save as…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+S"
+     },
+     {
+      "label": "Autosave",
+      "kind": "check"
+     },
+     {
+      "label": "Autosave interval",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Off",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 1 min",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 5 min",
+        "kind": "radio"
+       },
+       {
+        "label": "Every 15 min",
+        "kind": "radio"
+       }
+      ]
+     },
+     {
+      "label": "Revert to last save",
+      "kind": "command"
+     },
+     {
+      "label": "Close project",
+      "kind": "command",
+      "accel": "Ctrl+W"
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Export",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "FOR THE TABLE",
+        "kind": "caption"
+       },
+       {
+        "label": "Player map…",
+        "kind": "command",
+        "accel": "Ctrl+Shift+E"
+       },
+       {
+        "label": "DM / full map…",
+        "kind": "command"
+       },
+       {
+        "label": "SHARE",
+        "kind": "caption"
+       },
+       {
+        "label": "Export map image…",
+        "kind": "command"
+       },
+       {
+        "label": "Print sheet (PDF)…",
+        "kind": "disabled (not built)",
+        "reason": "No print or PDF writer exists in this build."
+       },
+       {
+        "label": "VTT battle map (grid + walls)…",
+        "kind": "disabled (not built)",
+        "reason": "No virtual-tabletop format exists in this build: no grid calibration, wall or light data is computed or written."
+       },
+       {
+        "label": "DATA",
+        "kind": "caption"
+       },
+       {
+        "label": "Maps   tiles",
+        "kind": "command"
+       },
+       {
+        "label": "GIS / GeoJSON   .geojson",
+        "kind": "command"
+       },
+       {
+        "label": "World Data   map + atlas",
+        "kind": "command"
+       },
+       {
+        "label": "Assets   .zip",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "STORAGE LOCATIONS",
+      "kind": "caption"
+     },
+     {
+      "label": "projects",
+      "kind": "readout"
+     },
+     {
+      "label": "tile atlas cache",
+      "kind": "readout"
+     },
+     {
+      "label": "asset packs",
+      "kind": "readout"
+     },
+     {
+      "label": "exports",
+      "kind": "readout"
+     },
+     {
+      "label": "Change locations…",
+      "kind": "command"
+     },
+     {
+      "label": "Show project on disk",
+      "kind": "command"
+     },
+     {
+      "label": "imports live under Records ▸ Import",
+      "kind": "signpost"
+     },
+     {
+      "label": "asset packs under Assets",
+      "kind": "signpost"
+     }
+    ]
+   },
+   {
+    "menu": "World",
+    "rows": [
+     {
+      "label": "Generate world",
+      "kind": "command",
+      "accel": "Ctrl+R",
+      "session_mode_gated": true
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Reset generation parameters",
+      "kind": "command",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Reset one stage",
+      "kind": "submenu",
+      "session_mode_gated": true,
+      "items": [
+       {
+        "label": "01 Planet",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "02 Extent & scale",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "03 World structure",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "04 Tectonics",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "05 Volcanism & impacts",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "06 Erosion",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "07 Hydrology",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "08 Climate",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "09 Ecology & biomes",
+        "kind": "command",
+        "session_mode_gated": true
+       },
+       {
+        "label": "10 Resources & soils",
+        "kind": "command",
+        "session_mode_gated": true
+       }
+      ]
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Generation pipeline",
+      "kind": "radio",
+      "session_mode_gated": true
+     },
+     {
+      "label": "Sculpt",
+      "kind": "radio",
+      "session_mode_gated": true
+     },
+     {
+      "label": "",
+      "kind": "separator"
+     },
+     {
+      "label": "Seed & size…",
+      "kind": "command",
+      "session_mode_gated": true
+     }
+    ]
+   },
+   {
+    "menu": "Records",
+    "rows": [
+     {
+      "label": "⧉ Data manager",
+      "kind": "command"
+     },
+     {
+      "label": "RECORDS",
+      "kind": "caption"
+     },
+     {
+      "label": "Factions…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+F"
+     },
+     {
+      "label": "Places…",
+      "kind": "command"
+     },
+     {
+      "label": "Markdown vault…",
+      "kind": "command",
+      "accel": "Ctrl+Shift+V"
+     },
+     {
+      "label": "Browse & edit a note…",
+      "kind": "command"
+     },
+     {
+      "label": "Places without notes…",
+      "kind": "command"
+     },
+     {
+      "label": "Timeline is in Story ▸ Timeline",
+      "kind": "signpost"
+     },
+     {
+      "label": "TECHNICAL",
+      "kind": "caption"
+     },
+     {
+      "label": "World data tables…",
+      "kind": "command"
+     },
+     {
+      "label": "Import",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "Maps   tiles",
+        "kind": "command"
+       },
+       {
+        "label": "Heightmaps   PNG",
+        "kind": "command"
+       },
+       {
+        "label": "GIS / GeoJSON",
+        "kind": "command"
+       },
+       {
+        "label": "World Data   .ctl",
+        "kind": "command"
+       },
+       {
+        "label": "Assets   → Assets",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Sources & validation",
+      "kind": "submenu",
+      "items": [
+       {
+        "label": "SOURCES",
+        "kind": "caption"
+       },
+       {
+        "label": "External Sources",
+        "kind": "command"
+       },
+       {
+        "label": "Connected Sources",
+        "kind": "command"
+       },
+       {
+        "label": "Source Registry",
+        "kind": "command"
+       },
+       {
+        "label": "VALIDATION",
+        "kind": "caption"
+       },
+       {
+        "label": "Definitions",
+        "kind": "command"
+       },
+       {
+        "label": "Check Data",
+        "kind": "command"
+       },
+       {
+        "label": "Repair / Normalize",
+        "kind": "command"
+       }
+      ]
+     },
+     {
+      "label": "Export is in File ▸ Export",
+      "kind": "signpost"
+     }
+    ]
+   },
+   {
+    "menu": "Story",
+    "rows": [
+     {
+      "label": "TIME",
+      "kind": "caption"
+     },
+     {
+      "label": "Timeline",
+      "kind": "command",
+      "accel": "Ctrl+Shift+T"
+     },
+     {
+      "label": "Political history of the selection",
+      "kind": "command"
+     },
+     {
+      "label": "Faction history…",
+      "kind": "command"
+     },
+     {
+      "label": "JOURNEYS",
+      "kind": "caption"
+     },
+     {
+      "label": "Journey planner",
+      "kind": "command"
+     },
+     {
+      "label": "Saved journeys…",
+      "kind": "command"
+     },
+     {
+      "label": "Travel library…",
+      "kind": "command",
+      "accel": "Shift+L"
+     },
+     {
+      "label": "CONFLICTS & CAMPAIGNS",
+      "kind": "caption"
+     },
+     {
+      "label": "Conflicts…",
+      "kind": "command"
+     },
+     {
+      "label": "Draw a conflict",
+      "kind": "command"
+     },
+     {
+      "label": "Campaigns this year",
+      "kind": "readout"
+     },
+     {
+      "label": "NOTES",
+      "kind": "caption"
+     },
+     {
+      "label": "Note for the selection",
+      "kind": "command",
+      "accel": "Ctrl+Shift+N"
+     },
+     {
+      "label": "Places without notes… is in Records",
+      "kind": "signpost"
+     },
+     {
+      "label": "Ask the assistant about the selection",
+      "kind": "command",
+      "accel": "Ctrl+J"
+     }
+    ]
+   }
+  ],
+  "phone_MENU": {
+   "root": [
+    "QUICK (pinned commands)",
+    "File",
+    "Edit",
+    "Assets",
+    "Records",
+    "Story",
+    "Preferences",
+    "Window",
+    "Help",
+    "STATUS (world, state, last autosave)"
+   ],
+   "menus": [
+    {
+     "menu": "File",
+     "rows": [
+      {
+       "label": "New world…",
+       "kind": "command",
+       "accel": "Ctrl+N",
+       "session_mode_gated": true
+      },
+      {
+       "label": "Generate world",
+       "kind": "command",
+       "accel": "Ctrl+R",
+       "session_mode_gated": true
+      },
+      {
+       "label": "Open project…",
+       "kind": "command",
+       "accel": "Ctrl+O"
+      },
+      {
+       "label": "Recent worlds",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "VHAREN REACH — 129384 · 5 d ago",
+         "kind": "command"
+        },
+        {
+         "label": "KESSA — 774201 · 3 w ago",
+         "kind": "command"
+        },
+        {
+         "label": "THORNWOOD — 908133 · 2 mo ago",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "New world from selection…",
+       "kind": "command",
+       "session_mode_gated": true
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Save project",
+       "kind": "command",
+       "accel": "Ctrl+S"
+      },
+      {
+       "label": "Save as…",
+       "kind": "command",
+       "accel": "Ctrl+Shift+S"
+      },
+      {
+       "label": "Autosave",
+       "kind": "check"
+      },
+      {
+       "label": "Autosave interval",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Off",
+         "kind": "radio"
+        },
+        {
+         "label": "Every 1 min",
+         "kind": "radio"
+        },
+        {
+         "label": "Every 5 min",
+         "kind": "radio"
+        },
+        {
+         "label": "Every 15 min",
+         "kind": "radio"
+        }
+       ]
+      },
+      {
+       "label": "Revert to last save",
+       "kind": "command"
+      },
+      {
+       "label": "Close project",
+       "kind": "command",
+       "accel": "Ctrl+W"
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Export",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "FOR THE TABLE",
+         "kind": "caption"
+        },
+        {
+         "label": "Player map…",
+         "kind": "command",
+         "accel": "Ctrl+Shift+E"
+        },
+        {
+         "label": "DM / full map…",
+         "kind": "command"
+        },
+        {
+         "label": "SHARE",
+         "kind": "caption"
+        },
+        {
+         "label": "Export map image…",
+         "kind": "command"
+        },
+        {
+         "label": "Print sheet (PDF)…",
+         "kind": "disabled (not built)",
+         "reason": "No print or PDF writer exists in this build."
+        },
+        {
+         "label": "VTT battle map (grid + walls)…",
+         "kind": "disabled (not built)",
+         "reason": "No virtual-tabletop format exists in this build: no grid calibration, wall or light data is computed or written."
+        },
+        {
+         "label": "DATA",
+         "kind": "caption"
+        },
+        {
+         "label": "Maps   tiles",
+         "kind": "command"
+        },
+        {
+         "label": "GIS / GeoJSON   .geojson",
+         "kind": "command"
+        },
+        {
+         "label": "World Data   map + atlas",
+         "kind": "command"
+        },
+        {
+         "label": "Assets   .zip",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "STORAGE LOCATIONS",
+       "kind": "caption"
+      },
+      {
+       "label": "projects",
+       "kind": "readout"
+      },
+      {
+       "label": "tile atlas cache",
+       "kind": "readout"
+      },
+      {
+       "label": "asset packs",
+       "kind": "readout"
+      },
+      {
+       "label": "exports",
+       "kind": "readout"
+      },
+      {
+       "label": "Change locations…",
+       "kind": "command"
+      },
+      {
+       "label": "Show project on disk",
+       "kind": "command"
+      },
+      {
+       "label": "imports live under Records ▸ Import",
+       "kind": "signpost"
+      },
+      {
+       "label": "asset packs under Assets",
+       "kind": "signpost"
+      }
+     ]
+    },
+    {
+     "menu": "Edit",
+     "rows": [
+      {
+       "label": "Undo",
+       "kind": "command",
+       "accel": "Ctrl+Z"
+      },
+      {
+       "label": "Redo",
+       "kind": "command",
+       "accel": "Ctrl+Shift+Z"
+      },
+      {
+       "label": "Undo history…",
+       "kind": "command"
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Cut",
+       "kind": "command",
+       "accel": "Ctrl+X"
+      },
+      {
+       "label": "Copy",
+       "kind": "command",
+       "accel": "Ctrl+C"
+      },
+      {
+       "label": "Paste",
+       "kind": "command",
+       "accel": "Ctrl+V"
+      },
+      {
+       "label": "Delete",
+       "kind": "command",
+       "accel": "Delete"
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Select all",
+       "kind": "command",
+       "accel": "Ctrl+A"
+      },
+      {
+       "label": "Deselect",
+       "kind": "command",
+       "accel": "Ctrl+D"
+      },
+      {
+       "label": "Previous selection",
+       "kind": "command",
+       "accel": "Alt+←"
+      },
+      {
+       "label": "Next selection",
+       "kind": "command",
+       "accel": "Alt+→"
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Find on map…",
+       "kind": "command",
+       "accel": "Ctrl+F"
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Reset generation parameters",
+       "kind": "command",
+       "session_mode_gated": true
+      },
+      {
+       "label": "Reset one stage",
+       "kind": "submenu",
+       "session_mode_gated": true,
+       "items": [
+        {
+         "label": "01 Planet",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "02 Extent & scale",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "03 World structure",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "04 Tectonics",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "05 Volcanism & impacts",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "06 Erosion",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "07 Hydrology",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "08 Climate",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "09 Ecology & biomes",
+         "kind": "command",
+         "session_mode_gated": true
+        },
+        {
+         "label": "10 Resources & soils",
+         "kind": "command",
+         "session_mode_gated": true
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "menu": "Assets",
+     "rows": [
+      {
+       "label": "⧉ Asset library",
+       "kind": "command",
+       "accel": "Shift+A"
+      },
+      {
+       "label": "⧉ Sprite sheet slicer (▦)",
+       "kind": "command"
+      },
+      {
+       "label": "Import asset pack .zip…",
+       "kind": "command"
+      },
+      {
+       "label": "Open pack in library…",
+       "kind": "command"
+      },
+      {
+       "label": "Pack report…",
+       "kind": "command"
+      },
+      {
+       "label": "Import folder of art…",
+       "kind": "command"
+      },
+      {
+       "label": "Compare pack with library…",
+       "kind": "command"
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Asset pack",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "ACTIVE PACK",
+         "kind": "caption"
+        },
+        {
+         "label": "NAME",
+         "kind": "readout"
+        },
+        {
+         "label": "AUTHOR",
+         "kind": "readout"
+        },
+        {
+         "label": "LICENSE",
+         "kind": "readout"
+        },
+        {
+         "label": "SCHEMA",
+         "kind": "readout"
+        },
+        {
+         "label": "FILLED",
+         "kind": "readout"
+        },
+        {
+         "label": "Pack metadata…",
+         "kind": "command"
+        },
+        {
+         "label": "Validate pack",
+         "kind": "command"
+        },
+        {
+         "label": "Export pack .zip…",
+         "kind": "command",
+         "accel": "Ctrl+Shift+P"
+        }
+       ]
+      },
+      {
+       "label": "Icon families",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Feature icons   22/31",
+         "kind": "command"
+        },
+        {
+         "label": "Settlement pins   8/10",
+         "kind": "command"
+        },
+        {
+         "label": "Settlement traits   5/12",
+         "kind": "command"
+        },
+        {
+         "label": "Points of interest   14/21",
+         "kind": "command"
+        },
+        {
+         "label": "Sea marks   4/9",
+         "kind": "command"
+        },
+        {
+         "label": "Custom icons   0/6",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Texture sets",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Splat channels   4/4",
+         "kind": "command"
+        },
+        {
+         "label": "Biome textures   9/12",
+         "kind": "command"
+        },
+        {
+         "label": "Terrain textures   6/8",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Landmark types",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Physical",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "Peak",
+           "kind": "command"
+          },
+          {
+           "label": "Ridge",
+           "kind": "command"
+          },
+          {
+           "label": "Saddle   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Cliff",
+           "kind": "command"
+          },
+          {
+           "label": "Gorge",
+           "kind": "command"
+          },
+          {
+           "label": "Cave",
+           "kind": "command"
+          },
+          {
+           "label": "Waterfall",
+           "kind": "command"
+          },
+          {
+           "label": "Spring",
+           "kind": "command"
+          },
+          {
+           "label": "Lake",
+           "kind": "command"
+          },
+          {
+           "label": "Delta   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "River confluence",
+           "kind": "command"
+          },
+          {
+           "label": "Volcanic feature",
+           "kind": "command"
+          },
+          {
+           "label": "Rock formation",
+           "kind": "command"
+          },
+          {
+           "label": "Glacial feature   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Ancient forest   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "",
+           "kind": "separator"
+          },
+          {
+           "label": "Open Physical in the dock",
+           "kind": "command"
+          },
+          {
+           "label": "Rows here read state; they do not arm a type.",
+           "kind": "signpost"
+          }
+         ]
+        },
+        {
+         "label": "Transport",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "Mountain pass",
+           "kind": "command"
+          },
+          {
+           "label": "River crossing   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Ford",
+           "kind": "command"
+          },
+          {
+           "label": "Bridge site",
+           "kind": "command"
+          },
+          {
+           "label": "Road junction",
+           "kind": "command"
+          },
+          {
+           "label": "Caravan station",
+           "kind": "command"
+          },
+          {
+           "label": "Portage",
+           "kind": "command"
+          },
+          {
+           "label": "Harbour",
+           "kind": "command"
+          },
+          {
+           "label": "",
+           "kind": "separator"
+          },
+          {
+           "label": "Open Transport in the dock",
+           "kind": "command"
+          },
+          {
+           "label": "Rows here read state; they do not arm a type.",
+           "kind": "signpost"
+          }
+         ]
+        },
+        {
+         "label": "Economic",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "Mine",
+           "kind": "command"
+          },
+          {
+           "label": "Quarry",
+           "kind": "command"
+          },
+          {
+           "label": "Salt works   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Resource extraction site",
+           "kind": "command"
+          },
+          {
+           "label": "Market site",
+           "kind": "command"
+          },
+          {
+           "label": "Trade depot",
+           "kind": "command"
+          },
+          {
+           "label": "",
+           "kind": "separator"
+          },
+          {
+           "label": "Open Economic in the dock",
+           "kind": "command"
+          },
+          {
+           "label": "Rows here read state; they do not arm a type.",
+           "kind": "signpost"
+          }
+         ]
+        },
+        {
+         "label": "Military",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "Fort",
+           "kind": "command"
+          },
+          {
+           "label": "Watchtower",
+           "kind": "command"
+          },
+          {
+           "label": "Fortified pass",
+           "kind": "command"
+          },
+          {
+           "label": "Fortified crossing",
+           "kind": "command"
+          },
+          {
+           "label": "Battlefield",
+           "kind": "command"
+          },
+          {
+           "label": "Border marker",
+           "kind": "command"
+          },
+          {
+           "label": "",
+           "kind": "separator"
+          },
+          {
+           "label": "Open Military in the dock",
+           "kind": "command"
+          },
+          {
+           "label": "Rows here read state; they do not arm a type.",
+           "kind": "signpost"
+          }
+         ]
+        },
+        {
+         "label": "Cultural",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "Shrine   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Temple   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Sacred grove   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Sacred mountain   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Pilgrimage site   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Tomb   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Monument   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Ceremonial site   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "",
+           "kind": "separator"
+          },
+          {
+           "label": "Open Cultural in the dock",
+           "kind": "command"
+          },
+          {
+           "label": "Rows here read state; they do not arm a type.",
+           "kind": "signpost"
+          }
+         ]
+        },
+        {
+         "label": "Historical",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "Ruin   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Abandoned settlement",
+           "kind": "command"
+          },
+          {
+           "label": "Ancient road",
+           "kind": "command"
+          },
+          {
+           "label": "Historic battlefield   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Destroyed fortress   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "Historic crossing   not buildable",
+           "kind": "command"
+          },
+          {
+           "label": "",
+           "kind": "separator"
+          },
+          {
+           "label": "Open Historical in the dock",
+           "kind": "command"
+          },
+          {
+           "label": "Rows here read state; they do not arm a type.",
+           "kind": "signpost"
+          }
+         ]
+        },
+        {
+         "label": "Placed by hand   3",
+         "kind": "command"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Landmark icons…",
+         "kind": "command"
+        },
+        {
+         "label": "Landmark label style…",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Apply library to map",
+       "kind": "command"
+      },
+      {
+       "label": "Clear library…",
+       "kind": "command"
+      }
+     ]
+    },
+    {
+     "menu": "Records",
+     "rows": [
+      {
+       "label": "⧉ Data manager",
+       "kind": "command"
+      },
+      {
+       "label": "RECORDS",
+       "kind": "caption"
+      },
+      {
+       "label": "Factions…",
+       "kind": "command",
+       "accel": "Ctrl+Shift+F"
+      },
+      {
+       "label": "Places…",
+       "kind": "command"
+      },
+      {
+       "label": "Markdown vault…",
+       "kind": "command",
+       "accel": "Ctrl+Shift+V"
+      },
+      {
+       "label": "Browse & edit a note…",
+       "kind": "command"
+      },
+      {
+       "label": "Places without notes…",
+       "kind": "command"
+      },
+      {
+       "label": "Timeline is in Story ▸ Timeline",
+       "kind": "signpost"
+      },
+      {
+       "label": "TECHNICAL",
+       "kind": "caption"
+      },
+      {
+       "label": "World data tables…",
+       "kind": "command"
+      },
+      {
+       "label": "Import",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Maps   tiles",
+         "kind": "command"
+        },
+        {
+         "label": "Heightmaps   PNG",
+         "kind": "command"
+        },
+        {
+         "label": "GIS / GeoJSON",
+         "kind": "command"
+        },
+        {
+         "label": "World Data   .ctl",
+         "kind": "command"
+        },
+        {
+         "label": "Assets   → Assets",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Sources & validation",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "SOURCES",
+         "kind": "caption"
+        },
+        {
+         "label": "External Sources",
+         "kind": "command"
+        },
+        {
+         "label": "Connected Sources",
+         "kind": "command"
+        },
+        {
+         "label": "Source Registry",
+         "kind": "command"
+        },
+        {
+         "label": "VALIDATION",
+         "kind": "caption"
+        },
+        {
+         "label": "Definitions",
+         "kind": "command"
+        },
+        {
+         "label": "Check Data",
+         "kind": "command"
+        },
+        {
+         "label": "Repair / Normalize",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Export is in File ▸ Export",
+       "kind": "signpost"
+      }
+     ]
+    },
+    {
+     "menu": "Story",
+     "rows": [
+      {
+       "label": "TIME",
+       "kind": "caption"
+      },
+      {
+       "label": "Timeline",
+       "kind": "command",
+       "accel": "Ctrl+Shift+T"
+      },
+      {
+       "label": "Political history of the selection",
+       "kind": "command"
+      },
+      {
+       "label": "Faction history…",
+       "kind": "command"
+      },
+      {
+       "label": "JOURNEYS",
+       "kind": "caption"
+      },
+      {
+       "label": "Journey planner",
+       "kind": "command"
+      },
+      {
+       "label": "Saved journeys…",
+       "kind": "command"
+      },
+      {
+       "label": "Travel library…",
+       "kind": "command",
+       "accel": "Shift+L"
+      },
+      {
+       "label": "CONFLICTS & CAMPAIGNS",
+       "kind": "caption"
+      },
+      {
+       "label": "Conflicts…",
+       "kind": "command"
+      },
+      {
+       "label": "Draw a conflict",
+       "kind": "command"
+      },
+      {
+       "label": "Campaigns this year",
+       "kind": "readout"
+      },
+      {
+       "label": "NOTES",
+       "kind": "caption"
+      },
+      {
+       "label": "Note for the selection",
+       "kind": "command",
+       "accel": "Ctrl+Shift+N"
+      },
+      {
+       "label": "Places without notes… is in Records",
+       "kind": "signpost"
+      },
+      {
+       "label": "Ask the assistant about the selection",
+       "kind": "command",
+       "accel": "Ctrl+J"
+      }
+     ]
+    },
+    {
+     "menu": "Preferences",
+     "rows": [
+      {
+       "label": "PERFORMANCE",
+       "kind": "caption"
+      },
+      {
+       "label": "GPU acceleration",
+       "kind": "check"
+      },
+      {
+       "label": "Devices",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Automatic (highest-performance GPU)",
+         "kind": "check"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Adreno 630 · integrated · Vulkan",
+         "kind": "check"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Memory",
+         "kind": "readout"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Rescan devices…",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Multi-GPU mode",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Single device",
+         "kind": "radio"
+        },
+        {
+         "label": "Split tiles",
+         "kind": "radio"
+        },
+        {
+         "label": "Alternate frames",
+         "kind": "disabled (not built)",
+         "reason": "Not built."
+        }
+       ]
+      },
+      {
+       "label": "CPU worker threads",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Automatic",
+         "kind": "radio"
+        },
+        {
+         "label": "1 — 1 thread",
+         "kind": "radio"
+        },
+        {
+         "label": "2 — quarter",
+         "kind": "radio"
+        },
+        {
+         "label": "4 — half",
+         "kind": "radio"
+        },
+        {
+         "label": "8 — all cores",
+         "kind": "radio"
+        },
+        {
+         "label": "Running",
+         "kind": "readout"
+        }
+       ]
+      },
+      {
+       "label": "VRAM budget",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "No cap",
+         "kind": "radio"
+        },
+        {
+         "label": "1 GB",
+         "kind": "radio"
+        },
+        {
+         "label": "2 GB",
+         "kind": "radio"
+        },
+        {
+         "label": "4 GB",
+         "kind": "radio"
+        },
+        {
+         "label": "8 GB",
+         "kind": "radio"
+        },
+        {
+         "label": "12 GB",
+         "kind": "radio"
+        },
+        {
+         "label": "16 GB",
+         "kind": "radio"
+        },
+        {
+         "label": "24 GB",
+         "kind": "radio"
+        },
+        {
+         "label": "Current grid 2048×2048 needs about",
+         "kind": "readout"
+        }
+       ]
+      },
+      {
+       "label": "Fallback when VRAM full",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "CPU tile pass",
+         "kind": "radio"
+        },
+        {
+         "label": "Reduce working res",
+         "kind": "disabled (not built)",
+         "reason": "Not built."
+        },
+        {
+         "label": "Fail with error",
+         "kind": "radio"
+        }
+       ]
+      },
+      {
+       "label": "Try the GPU again",
+       "kind": "command",
+       "disabled_at_build": true,
+       "reason": "Nothing to clear: no GPU readback has failed this session"
+      },
+      {
+       "label": "GRAPHICS",
+       "kind": "caption"
+      },
+      {
+       "label": "Render quality",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "performance",
+         "kind": "radio"
+        },
+        {
+         "label": "balanced",
+         "kind": "radio"
+        },
+        {
+         "label": "quality",
+         "kind": "radio"
+        },
+        {
+         "label": "ultra",
+         "kind": "radio"
+        }
+       ]
+      },
+      {
+       "label": "Anti-aliasing · anisotropy",
+       "kind": "disabled (not built)",
+       "reason": "The 3D view draws no terrain yet, so there is nothing to anti-alias."
+      },
+      {
+       "label": "Colour management — CARTO ▸ Colours ▸ Colour management",
+       "kind": "signpost"
+      },
+      {
+       "label": "3D viewport defaults",
+       "kind": "disabled (not built)",
+       "reason": "They arrive with the 3D view’s terrain."
+      },
+      {
+       "label": "Lighting rig defaults",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Following the engine",
+         "kind": "readout"
+        },
+        {
+         "label": "Azimuth",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "0 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "45 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "90 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "135 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "180 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "225 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "270 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "315 deg",
+           "kind": "radio"
+          }
+         ]
+        },
+        {
+         "label": "Elevation",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "15 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "25 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "35 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "45 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "55 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "65 deg",
+           "kind": "radio"
+          },
+          {
+           "label": "75 deg",
+           "kind": "radio"
+          }
+         ]
+        },
+        {
+         "label": "Ambient",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "0.00",
+           "kind": "radio"
+          },
+          {
+           "label": "0.15",
+           "kind": "radio"
+          },
+          {
+           "label": "0.25",
+           "kind": "radio"
+          },
+          {
+           "label": "0.35",
+           "kind": "radio"
+          },
+          {
+           "label": "0.50",
+           "kind": "radio"
+          },
+          {
+           "label": "0.70",
+           "kind": "radio"
+          }
+         ]
+        },
+        {
+         "label": "Multidirectional",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "1 light (single sun)",
+           "kind": "radio"
+          },
+          {
+           "label": "2 lights",
+           "kind": "radio"
+          },
+          {
+           "label": "4 lights",
+           "kind": "radio"
+          },
+          {
+           "label": "6 lights",
+           "kind": "radio"
+          },
+          {
+           "label": "8 lights",
+           "kind": "radio"
+          },
+          {
+           "label": "12 lights",
+           "kind": "radio"
+          }
+         ]
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Use the engine’s own rig",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Relief exaggeration",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "1x",
+         "kind": "radio"
+        },
+        {
+         "label": "2x",
+         "kind": "radio"
+        },
+        {
+         "label": "4x",
+         "kind": "radio"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Use the engine’s own 3.4x",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "TILES & LOD",
+       "kind": "caption"
+      },
+      {
+       "label": "Tiled LOD",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Auto on zoom",
+         "kind": "radio"
+        },
+        {
+         "label": "Manual",
+         "kind": "radio"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Enter deep detail now",
+         "kind": "command"
+        },
+        {
+         "label": "Leave deep detail",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Tile size · LOD levels",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "256 px",
+         "kind": "radio"
+        },
+        {
+         "label": "512 px",
+         "kind": "radio"
+        },
+        {
+         "label": "1024 px",
+         "kind": "radio"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "LOD levels",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "LOD 0–0   1 tile",
+           "kind": "radio"
+          },
+          {
+           "label": "LOD 0–1   5 tiles",
+           "kind": "radio"
+          },
+          {
+           "label": "LOD 0–2   21 tiles",
+           "kind": "radio"
+          },
+          {
+           "label": "LOD 0–3   85 tiles",
+           "kind": "radio"
+          },
+          {
+           "label": "LOD 0–4   341 tiles",
+           "kind": "radio"
+          },
+          {
+           "label": "LOD 0–5   1 365 tiles",
+           "kind": "radio"
+          },
+          {
+           "label": "LOD 0–6   5 461 tiles",
+           "kind": "radio"
+          },
+          {
+           "label": "LOD 0–7   21 845 tiles",
+           "kind": "radio"
+          },
+          {
+           "label": "LOD 0–8   87 381 tiles",
+           "kind": "radio"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "label": "Atlas cache",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "85 chunks · 1.2 GB · to LOD 3",
+         "kind": "readout"
+        },
+        {
+         "label": "Size cap · GB",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "No cap",
+           "kind": "radio"
+          },
+          {
+           "label": "0.5 GB",
+           "kind": "radio"
+          },
+          {
+           "label": "1 GB",
+           "kind": "radio"
+          },
+          {
+           "label": "2 GB",
+           "kind": "radio"
+          },
+          {
+           "label": "4 GB",
+           "kind": "radio"
+          },
+          {
+           "label": "8 GB",
+           "kind": "radio"
+          },
+          {
+           "label": "16 GB",
+           "kind": "radio"
+          }
+         ]
+        },
+        {
+         "label": "Refine detail for the current view",
+         "kind": "command"
+        },
+        {
+         "label": "Refine viewshed for the current view",
+         "kind": "command"
+        },
+        {
+         "label": "Viewshed",
+         "kind": "readout"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Export atlas…",
+         "kind": "command"
+        },
+        {
+         "label": "Import atlas…",
+         "kind": "command"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Clear atlas cache now…",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Chunk debug overlay",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Grid",
+         "kind": "check"
+        },
+        {
+         "label": "Colors",
+         "kind": "check"
+        },
+        {
+         "label": "Labels",
+         "kind": "check"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Show tile borders on the map",
+         "kind": "check"
+        }
+       ]
+      },
+      {
+       "label": "MEMORY",
+       "kind": "caption"
+      },
+      {
+       "label": "Undo history",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "64 MB",
+         "kind": "radio"
+        },
+        {
+         "label": "128 MB",
+         "kind": "radio"
+        },
+        {
+         "label": "256 MB",
+         "kind": "radio"
+        },
+        {
+         "label": "512 MB",
+         "kind": "radio"
+        },
+        {
+         "label": "1024 MB",
+         "kind": "radio"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Clear undo history now",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Working set",
+       "kind": "readout"
+      },
+      {
+       "label": "Clear caches…",
+       "kind": "command"
+      },
+      {
+       "label": "APPLICATION",
+       "kind": "caption"
+      },
+      {
+       "label": "Storage locations…",
+       "kind": "command"
+      },
+      {
+       "label": "Assistant…",
+       "kind": "command"
+      },
+      {
+       "label": "Quick bar…",
+       "kind": "command"
+      },
+      {
+       "label": "Theme",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Dark",
+         "kind": "radio"
+        },
+        {
+         "label": "Light",
+         "kind": "radio"
+        },
+        {
+         "label": "Follow system",
+         "kind": "radio"
+        }
+       ]
+      },
+      {
+       "label": "Units",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Kilometres",
+         "kind": "radio"
+        },
+        {
+         "label": "Miles",
+         "kind": "radio"
+        },
+        {
+         "label": "Nautical miles",
+         "kind": "radio"
+        }
+       ]
+      },
+      {
+       "label": "Handedness",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Left",
+         "kind": "radio"
+        },
+        {
+         "label": "Right",
+         "kind": "radio"
+        }
+       ]
+      },
+      {
+       "label": "Keyboard shortcuts…",
+       "kind": "command"
+      },
+      {
+       "label": "TOUCH · NEW",
+       "kind": "caption"
+      },
+      {
+       "label": "Touch & gestures…",
+       "kind": "command"
+      }
+     ]
+    },
+    {
+     "menu": "Window",
+     "rows": [
+      {
+       "label": "Left dock",
+       "kind": "check"
+      },
+      {
+       "label": "Context panel",
+       "kind": "check"
+      },
+      {
+       "label": "Context panel",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Inspect",
+         "kind": "command",
+         "accel": "Ctrl+1"
+        },
+        {
+         "label": "Note",
+         "kind": "command",
+         "accel": "Ctrl+2"
+        },
+        {
+         "label": "Ask (assistant)",
+         "kind": "command",
+         "accel": "Ctrl+3"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Pin to the current subject",
+         "kind": "command"
+        },
+        {
+         "label": "Follow the selection",
+         "kind": "command"
+        }
+       ]
+      },
+      {
+       "label": "Timeline",
+       "kind": "check"
+      },
+      {
+       "label": "Status bar",
+       "kind": "check"
+      },
+      {
+       "label": "Domain rail",
+       "kind": "check"
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Session mode",
+       "kind": "check",
+       "accel": "Ctrl+Shift+M"
+      },
+      {
+       "label": "Diagnostics overlay",
+       "kind": "check",
+       "accel": "Shift+D"
+      },
+      {
+       "label": "3D view",
+       "kind": "check"
+      },
+      {
+       "label": "3D capability",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "3D tier",
+         "kind": "readout"
+        },
+        {
+         "label": "Re-test 3D",
+         "kind": "command"
+        },
+        {
+         "label": "Force tier",
+         "kind": "submenu",
+         "items": [
+          {
+           "label": "Automatic (as measured)",
+           "kind": "radio"
+          },
+          {
+           "label": "Off",
+           "kind": "radio"
+          },
+          {
+           "label": "Basic",
+           "kind": "radio"
+          },
+          {
+           "label": "Standard",
+           "kind": "radio"
+          },
+          {
+           "label": "Full",
+           "kind": "radio"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Workspace",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "World",
+         "kind": "radio",
+         "session_mode_gated": true
+        },
+        {
+         "label": "Civilization",
+         "kind": "radio"
+        },
+        {
+         "label": "Cartography",
+         "kind": "radio"
+        }
+       ]
+      },
+      {
+       "label": "Open windows",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "No windows open",
+         "kind": "readout"
+        },
+        {
+         "label": "Context panel",
+         "kind": "check"
+        }
+       ]
+      },
+      {
+       "label": "",
+       "kind": "separator"
+      },
+      {
+       "label": "Reset layout",
+       "kind": "command"
+      },
+      {
+       "label": "Layouts",
+       "kind": "submenu",
+       "items": [
+        {
+         "label": "Default (reset layout)",
+         "kind": "command"
+        },
+        {
+         "label": "Generate",
+         "kind": "command"
+        },
+        {
+         "label": "Sculpt",
+         "kind": "command"
+        },
+        {
+         "label": "Cartography",
+         "kind": "command"
+        },
+        {
+         "label": "Journey",
+         "kind": "command"
+        },
+        {
+         "label": "",
+         "kind": "separator"
+        },
+        {
+         "label": "Save layout as…",
+         "kind": "command"
+        },
+        {
+         "label": "Forget layout…",
+         "kind": "command"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "menu": "Help",
+     "rows": [
+      {
+       "label": "Documentation",
+       "kind": "disabled (not built)",
+       "reason": "An installed build has no README beside the project; the desktop checkout opens the documents folder."
+      },
+      {
+       "label": "Keyboard reference…",
+       "kind": "command"
+      },
+      {
+       "label": "Gesture reference…",
+       "kind": "command"
+      },
+      {
+       "label": "Credits & academic principles",
+       "kind": "command"
+      },
+      {
+       "label": "Generation info…",
+       "kind": "command"
+      },
+      {
+       "label": "Save diagnostic report…",
+       "kind": "command"
+      },
+      {
+       "label": "About",
+       "kind": "command"
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

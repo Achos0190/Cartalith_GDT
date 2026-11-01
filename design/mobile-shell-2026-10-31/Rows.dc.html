@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cartalith row vocabulary</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.clr-tap{cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .12s,filter .12s}
+.clr-tap:active{filter:brightness(1.25)}
+.clr-btn{appearance:none;border:0;margin:0;font:inherit;color:inherit;background:none;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.clr-btn:active{filter:brightness(1.25)}
+.clr-btn:focus-visible,.clr-tap:focus-visible{outline:2px solid #e0a34a;outline-offset:2px}
+.clr-rng{-webkit-appearance:none;appearance:none;height:var(--c44,44px);background:transparent;margin:0;flex:1;min-width:0}
+.clr-rng::-webkit-slider-runnable-track{height:4px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}
+.clr-rng::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:11px;background:var(--acc,#e0a34a);margin-top:-9px;border:2px solid var(--pan,#15171a)}
+.clr-rng::-moz-range-track{height:4px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}
+.clr-rng::-moz-range-thumb{width:20px;height:20px;border-radius:10px;background:var(--acc,#e0a34a);border:2px solid var(--pan,#15171a)}
+.clr-in{appearance:none;width:100%;box-sizing:border-box;min-height:var(--c44,44px);border-radius:12px;border:1px solid var(--hair);background:var(--chip);color:var(--ink);font:12px 'IBM Plex Mono',monospace;padding:0 12px;outline:none}
+.clr-in:focus{border-color:var(--acc)}
+</style>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:2px;box-sizing:border-box;font:13px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body,#c8cbcd);{{ rootStyle }}">
+<sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+
+<sc-if value="{{ r.isHd }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:baseline;gap:10px;padding:{{ r.pad }};font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)">
+<span style="flex:1;min-width:0">{{ r.label }}</span>
+<span style="flex:0 1 auto;min-width:0;max-width:62%;letter-spacing:.06em;text-transform:none;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right">{{ r.right }}</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isAcc }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ r.tap }}" aria-expanded="{{ r.open }}" style="display:flex;align-items:center;gap:10px;min-height:var(--c52,52px);padding:0 12px;margin-top:6px;border-radius:14px;border:1px solid var(--hair2);background:{{ r.bg }}">
+<span style="width:22px;font:10px 'IBM Plex Mono',monospace;color:{{ r.numCol }}">{{ r.num }}</span>
+<span style="flex:1;min-width:0;font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:{{ r.titleCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:{{ r.stateCol }};white-space:nowrap">{{ r.state }}</span>
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none;transform:rotate({{ r.rot }}deg);transition:transform .15s"><path d="M6 3l5 5-5 5" fill="none" stroke="var(--dim)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+</sc-if>
+
+<sc-if value="{{ r.isNav }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" onClick="{{ r.tap }}" aria-disabled="{{ r.dis }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c56,56px);padding:var(--rowpad,6px) 12px var(--rowpad,6px) {{ r.padL }}px;border-radius:14px;background:{{ r.bg }}">
+<span style="width:var(--i32,32px);height:var(--i32,32px);flex:none;display:flex;align-items:center;justify-content:center;border-radius:10px;background:var(--chip)">
+<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ r.d }}" fill="none" stroke="{{ r.iconCol }}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+<span style="font-size:13px;color:{{ r.labelCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span>
+<span style="display:{{ r.subDisp }};font:10px 'IBM Plex Mono',monospace;color:{{ r.subCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</span>
+</span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.08em;color:{{ r.badgeCol }};white-space:nowrap">{{ r.badge }}</span>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap">{{ r.accel }}</span>
+<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="flex:none;opacity:{{ r.chevOp }}"><path d="M6 3l5 5-5 5" fill="none" stroke="var(--dim)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+</sc-if>
+
+<sc-if value="{{ r.isChk }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ r.tap }}" role="{{ r.role }}" aria-checked="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c48,48px);padding:0 12px 0 {{ r.padL }}px;border-radius:12px;background:{{ r.bg }}">
+<span style="width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:{{ r.markR }};border:1.5px solid {{ r.markBord }};background:{{ r.markBg }}">
+<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" style="opacity:{{ r.markOp }}"><path d="M0 0{{ r.markD }}" fill="{{ r.markFill }}" stroke="var(--accInk)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</span>
+<span style="flex:1;min-width:0;font-size:13px;color:{{ r.labelCol }}">{{ r.label }}</span>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap">{{ r.accel }}</span>
+</button>
+</sc-if>
+
+<sc-if value="{{ r.isTodo }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ r.tap }}" aria-disabled="true" style="display:flex;flex-direction:column;gap:3px;justify-content:center;min-height:var(--c52,52px);padding:6px 12px 6px {{ r.padL }}px;border-radius:12px">
+<span style="display:flex;align-items:center;gap:10px;width:100%">
+<span style="flex:1;min-width:0;font-size:13px;color:var(--dim)">{{ r.label }}</span>
+<span style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--warn);border:1px solid var(--warnBord);border-radius:9px;padding:2px 7px;white-space:nowrap">{{ r.tag }}</span>
+</span>
+<span style="font:10px/1.5 'IBM Plex Mono',monospace;color:var(--warnText)">{{ r.reason }}</span>
+</button>
+</sc-if>
+
+<sc-if value="{{ r.isAct }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ r.tap }}" style="display:flex;align-items:center;justify-content:center;gap:8px;min-height:var(--c48,48px);margin:5px 0;padding:0 18px;border-radius:var(--r24,24px);border:1px solid {{ r.bord }};background:{{ r.bg }};color:{{ r.col }};font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;text-transform:uppercase;text-align:center">
+<svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ r.iconDisp }}"><path d="M0 0{{ r.d }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span>{{ r.label }}</span>
+</button>
+</sc-if>
+
+<sc-if value="{{ r.isActs }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:5px 0">
+<sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="2">
+<button class="clr-btn" onClick="{{ o.tap }}" style="flex:{{ o.flex }};display:flex;align-items:center;justify-content:center;gap:7px;min-height:var(--c48,48px);padding:0 14px;border-radius:var(--r24,24px);border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap">
+<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ o.iconDisp }}"><path d="M0 0{{ o.d }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span>{{ o.label }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isTog }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ r.tap }}" role="switch" aria-checked="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c56,56px);padding:var(--rowpad,6px) 12px var(--rowpad,6px) {{ r.padL }}px;border-radius:14px">
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+<span style="font-size:13px;color:{{ r.labelCol }}">{{ r.label }}</span>
+<span style="font:10px/1.5 'IBM Plex Mono',monospace;color:{{ r.subCol }}">{{ r.sub }}</span>
+</span>
+<span style="position:relative;width:var(--c44,44px);height:24px;flex:none;border-radius:12px;background:{{ r.track }};transition:background .15s">
+<span style="position:absolute;top:2px;left:{{ r.knobX }}px;width:20px;height:20px;border-radius:10px;background:{{ r.knob }};transition:left .15s"></span>
+</span>
+</button>
+</sc-if>
+
+<sc-if value="{{ r.isSeg }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:7px;padding:8px 4px 6px {{ r.padL4 }}px">
+<span style="display:{{ r.labelDisp }};font:10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:var(--sec)">{{ r.label }}</span>
+<div role="radiogroup" aria-label="{{ r.label }}" style="display:flex;gap:6px;flex-wrap:wrap">
+<sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="3">
+<button class="clr-btn" onClick="{{ o.tap }}" role="radio" aria-checked="{{ o.on }}" style="display:flex;align-items:center;gap:7px;min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:10.5px 'IBM Plex Mono',monospace;letter-spacing:.06em;white-space:nowrap">
+<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ o.iconDisp }}"><path d="M0 0{{ o.d }}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span>{{ o.label }}</span>
+</button>
+</sc-for>
+</div>
+<span style="display:{{ r.subDisp }};font:10px/1.5 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.sub }}</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isRng }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:2px;padding:8px 4px 6px {{ r.padL4 }}px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="flex:1;min-width:0;font:10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:var(--sec)">{{ r.label }}</span>
+<span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink);white-space:nowrap">{{ r.disp }}</span>
+</div>
+<div style="display:flex;align-items:center;gap:8px">
+<button class="clr-btn" onClick="{{ r.dec }}" aria-label="decrease {{ r.label }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:14px;background:var(--chip);color:var(--sec);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+<input class="clr-rng" type="range" min="{{ r.min }}" max="{{ r.max }}" step="{{ r.step }}" value="{{ r.val }}" onInput="{{ r.onIn }}" aria-label="{{ r.label }}">
+<button class="clr-btn" onClick="{{ r.inc }}" aria-label="increase {{ r.label }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:14px;background:var(--chip);color:var(--sec);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8 3v10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+</div>
+<span style="display:{{ r.subDisp }};font:10px/1.5 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.sub }}</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isRead }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:12px;min-height:var(--c44,44px);padding:0 12px 0 {{ r.padL }}px;border-bottom:1px solid var(--hair2)">
+<span style="flex:none;max-width:48%;font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">{{ r.label }}</span>
+<span style="flex:1;min-width:0;text-align:right;font:11px 'IBM Plex Mono',monospace;color:{{ r.vCol }}">{{ r.v }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ r.isLnk }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:10px;min-height:var(--c44,44px);padding:0 4px 0 {{ r.padL }}px;border-bottom:1px solid var(--hair2)">
+<span style="flex:none;max-width:40%;font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)">{{ r.label }}</span>
+<span style="flex:1;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:2px 4px">
+<sc-for list="{{ r.links }}" as="l" hint-placeholder-count="1"><button class="clr-btn" onClick="{{ l.tap }}" title="{{ l.title }}" style="max-width:100%;min-height:var(--c44,44px);min-width:var(--c44,44px);padding:0 6px;border-radius:8px;display:flex;align-items:center;justify-content:flex-end;gap:6px;font:11px 'IBM Plex Mono',monospace;color:{{ l.col }}"><span style="display:{{ l.dotDisp }};width:8px;height:8px;flex:none;border-radius:50%;background:{{ l.dot }}"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:underline;text-decoration-color:rgba(224,163,74,.45);text-underline-offset:3px">{{ l.label }}</span></button></sc-for>
+<span style="display:{{ r.emptyDisp }};font:11px 'IBM Plex Mono',monospace;color:var(--dim)">—</span>
+<span style="display:{{ r.tailDisp }};font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;padding-right:6px">{{ r.tail }}</span>
+</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isInfo }}" hint-placeholder-val="{{ false }}">
+<div style="font:10px/1.6 'IBM Plex Mono',monospace;color:{{ r.col }};padding:8px 4px 8px {{ r.padL4 }}px;border:{{ r.box }};border-radius:14px">{{ r.label }}</div>
+</sc-if>
+
+<sc-if value="{{ r.isTools }}" hint-placeholder-val="{{ false }}">
+<div role="toolbar" aria-label="{{ r.label }}" style="display:grid;grid-template-columns:repeat(auto-fill,minmax({{ r.cell }}px,1fr));gap:6px;padding:4px 0 6px">
+<sc-for list="{{ r.tools }}" as="t" hint-placeholder-count="4">
+<button class="clr-btn" onClick="{{ t.tap }}" aria-pressed="{{ t.on }}" aria-label="{{ t.aria }}" style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:64px;padding:6px 4px;border-radius:14px;border:1px solid {{ t.bord }};background:{{ t.bg }};color:{{ t.col }}">
+<svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ t.d }}" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span style="font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.05em;text-align:center;line-height:1.2">{{ t.label }}</span>
+<span style="position:absolute;top:4px;right:6px;font:8.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ t.key }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isLayer }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:8px;min-height:var(--c52,52px);padding:0 8px 0 {{ r.padL }}px;border-radius:14px;background:{{ r.bg }}">
+<button class="clr-btn" onClick="{{ r.tap }}" role="switch" aria-checked="{{ r.on }}" aria-label="show {{ r.label }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:12px;display:flex;align-items:center;justify-content:center;color:{{ r.eyeCol }}">
+<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ r.eyeD }}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+<button class="clr-btn" onClick="{{ r.tap2 }}" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;min-height:var(--c44,44px);justify-content:center">
+<span style="font-size:13px;color:{{ r.labelCol }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</span>
+</button>
+<span style="width:46px;height:4px;flex:none;border-radius:2px;background:var(--hair);overflow:hidden"><span style="display:block;height:4px;width:{{ r.pct }}%;background:{{ r.barCol }}"></span></span>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isRamp }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ r.tap }}" aria-pressed="{{ r.on }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c48,48px);padding:0 12px;border-radius:14px;border:1px solid {{ r.bord }};background:{{ r.bg }}">
+<span style="flex:1;height:14px;border-radius:7px;background:{{ r.grad }}"></span>
+<span style="width:84px;font:10px 'IBM Plex Mono',monospace;color:{{ r.labelCol }}">{{ r.label }}</span>
+</button>
+</sc-if>
+
+<sc-if value="{{ r.isItem }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ r.tap }}" style="display:flex;align-items:center;gap:12px;min-height:var(--c56,56px);padding:var(--rowpad,6px) 12px var(--rowpad,6px) {{ r.padL }}px;border-radius:14px;background:{{ r.bg }};border:1px solid {{ r.bord }}">
+<span style="width:12px;height:12px;flex:none;border-radius:{{ r.dotR }};background:{{ r.dot }};border:1px solid var(--bord)"></span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+<span style="font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</span>
+</span>
+<span style="font:11px 'IBM Plex Mono',monospace;color:{{ r.rightCol }};white-space:nowrap">{{ r.right }}</span>
+<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="flex:none;opacity:{{ r.chevOp }}"><path d="M6 3l5 5-5 5" fill="none" stroke="var(--dim)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+</sc-if>
+
+<sc-if value="{{ r.isField }}" hint-placeholder-val="{{ false }}">
+<label style="display:flex;flex-direction:column;gap:6px;padding:8px 4px 6px">
+<span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:var(--sec)">{{ r.label }}</span>
+<input class="clr-in" type="text" value="{{ r.val }}" placeholder="{{ r.ph }}" onInput="{{ r.onIn }}">
+</label>
+</sc-if>
+
+<sc-if value="{{ r.isProg }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:9px;padding:13px 14px;border:1px solid var(--acc);border-radius:18px;margin:6px 0">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="flex:1;min-width:0;font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc);text-transform:uppercase">{{ r.label }}</span>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.right }}</span>
+</div>
+<span style="height:5px;border-radius:3px;background:var(--chip);overflow:hidden"><span style="display:block;height:5px;width:{{ r.pct }}%;background:var(--acc);transition:width .25s"></span></span>
+<sc-for list="{{ r.lines }}" as="ln" hint-placeholder-count="2"><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ ln.t }}</span></sc-for>
+<button class="clr-btn" onClick="{{ r.tap }}" style="align-self:flex-end;min-height:var(--c44,44px);padding:0 16px;border-radius:var(--r22,22px);background:var(--chip);color:var(--sec);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">CANCEL</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isCard }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid {{ r.bord }};border-radius:18px;margin:6px 0;background:{{ r.bg }}">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:{{ r.badgeCol }};border:1px solid {{ r.badgeCol }};border-radius:12px;padding:5px 10px">{{ r.badge }}</span>
+<span style="flex:1"></span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.right }}</span>
+</div>
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:500 34px 'IBM Plex Mono',monospace;color:var(--ink);line-height:1">{{ r.big }}</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">{{ r.unit }}</span></div>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ r.sub }}</span>
+<span style="display:{{ r.noteDisp }};font:10px/1.6 'IBM Plex Mono',monospace;color:var(--warnText)">{{ r.note }}</span>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="2">
+<button class="clr-btn" onClick="{{ o.tap }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:10px 'IBM Plex Mono',monospace;letter-spacing:.1em;white-space:nowrap">{{ o.label }}</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isImg }}" hint-placeholder-val="{{ false }}">
+<figure style="margin:4px 0;display:flex;flex-direction:column;gap:7px;padding:10px;border:1px solid var(--hair);border-radius:14px;background:var(--pan2)">
+<figcaption style="display:flex;align-items:baseline;gap:8px;font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)"><span style="flex:1;min-width:0">{{ r.label }}</span></figcaption>
+<img src="{{ r.src }}" alt="{{ r.alt }}" style="width:100%;height:auto;display:block;image-rendering:pixelated;border-radius:4px;background:#2b4d6b">
+<span style="font:9.5px/1.5 'IBM Plex Mono',monospace;color:var(--warnText);border:1px solid var(--warnBord);border-radius:8px;padding:5px 8px">{{ r.disclaimer }}</span>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ r.stats }}</span>
+</figure>
+</sc-if>
+
+<sc-if value="{{ r.isThumbs }}" hint-placeholder-val="{{ false }}">
+<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:4px 0 8px">
+<sc-for list="{{ r.items }}" as="t" hint-placeholder-count="4">
+<button class="clr-btn" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" style="display:flex;flex-direction:column;gap:4px;min-height:var(--c44,44px);padding:4px;border-radius:10px;border:1px solid {{ t.bord }};background:var(--pan2)">
+<img src="{{ t.src }}" alt="" style="width:100%;height:auto;display:block;image-rendering:pixelated;border-radius:3px;background:var(--chip);min-height:24px">
+<span style="font:9px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.label }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ r.isSep }}" hint-placeholder-val="{{ false }}">
+<div style="height:1px;background:var(--hair2);margin:6px 4px"></div>
+</sc-if>
+
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"rows":{"editor":null},"dense":{"editor":null},"$preview":{"width":412,"height":1400}}'>
+/* Rows: the one renderer behind every list in the Cartalith mobile shell.
+   A row is plain data ({k:'nav'|'tog'|...}); this file turns it into DCC-styled,
+   touch-sized controls (every tap target >= 44 px, most 48-56). Standalone, it
+   draws one of every kind so the vocabulary can be reviewed on the canvas. */
+const KINDS = ['hd','acc','nav','chk','todo','act','acts','tog','seg','rng','read','lnk','info','tools','layer','ramp','item','field','prog','card','img','thumbs','sep'];
+function decorateRows(rows) {
+  return (rows || []).map((r0) => {
+    const r = Object.assign({}, r0);
+    for (const k of KINDS) r['is' + k.charAt(0).toUpperCase() + k.slice(1)] = r.k === k;
+    const ind = r.indent || 0;
+    r.padL = 12 + ind * 18; r.padL4 = 4 + ind * 18;
+    r.pad = r.pad || '16px 4px 6px';
+    r.sub = r.sub == null ? '' : r.sub; r.subDisp = r.sub ? 'block' : 'none';
+    r.right = r.right == null ? '' : r.right;
+    r.badge = r.badge == null ? '' : r.badge; r.accel = r.accel || '';
+    r.d = r.d || '';
+    const on = !!r.on, dis = !!r.dis;
+    if (r.k === 'nav') {
+      r.labelCol = dis ? 'var(--dim)' : 'var(--ink)';
+      r.subCol = dis ? 'var(--warnText)' : 'var(--dim)';
+      if (dis && r.reason) r.sub = r.reason;
+      r.iconCol = on ? 'var(--acc)' : (dis ? 'var(--dim)' : 'var(--sec)');
+      r.badgeCol = r.badgeCol || 'var(--acc)';
+      r.chevOp = (r.chev === false || dis) ? 0 : 1;
+      r.bg = on ? 'var(--wash)' : 'transparent';
+    }
+    if (r.k === 'chk') {
+      const radio = !!r.radio;
+      r.role = radio ? 'menuitemradio' : 'menuitemcheckbox';
+      r.h = 48; r.markR = radio ? '10px' : '6px';
+      r.markBord = on ? 'var(--acc)' : 'var(--bord)';
+      r.markBg = on ? 'var(--acc)' : 'transparent';
+      r.markD = radio ? 'M8 5a3 3 0 1 0 .01 0Z' : 'M3.5 8.5l3 3 6-7';
+      r.markFill = radio ? 'var(--accInk)' : 'none';
+      r.markOp = on ? 1 : 0;
+      r.labelCol = 'var(--ink)'; r.bg = 'transparent';
+    }
+    if (r.k === 'todo') { r.tag = r.tag || 'NOT BUILT'; r.reason = r.reason || ''; }
+    // a readout whose value is one or more links: a name selects that thing, a year moves the timeline
+    if (r.k === 'lnk') { r.links = (r.links || []).map((l0) => { const l = Object.assign({}, l0); l.col = l.col || 'var(--acc)'; l.dotDisp = l.dot ? 'inline-block' : 'none'; l.dot = l.dot || 'transparent'; l.title = l.title || ''; return l; }); r.tail = r.tail || ''; r.tailDisp = r.tail ? 'inline' : 'none'; r.emptyDisp = r.links.length ? 'none' : 'inline'; }
+    if (r.k === 'act') {
+      const v = r.variant || 'secondary';
+      r.bg = v === 'primary' ? 'var(--acc)' : (v === 'danger' ? 'transparent' : 'var(--chip)');
+      r.col = v === 'primary' ? 'var(--accInk)' : (v === 'danger' ? 'var(--block)' : 'var(--body)');
+      r.bord = v === 'primary' ? 'var(--acc)' : (v === 'danger' ? 'var(--block)' : 'var(--hair)');
+      r.iconDisp = r.d ? 'inline' : 'none';
+    }
+    if (r.k === 'acts' || r.k === 'seg' || r.k === 'card') {
+      r.opts = (r.opts || []).map((o0) => {
+        const o = Object.assign({}, o0);
+        const v = o.variant || (o.on ? 'on' : 'off');
+        if (r.k === 'acts') {
+          o.bg = v === 'primary' ? 'var(--acc)' : (v === 'danger' ? 'transparent' : 'var(--chip)');
+          o.col = v === 'primary' ? 'var(--accInk)' : (v === 'danger' ? 'var(--block)' : 'var(--body)');
+          o.bord = v === 'primary' ? 'var(--acc)' : (v === 'danger' ? 'var(--block)' : 'var(--hair)');
+          o.flex = o.flex || 1;
+        } else {
+          o.bg = o.on ? 'var(--wash)' : (r.k === 'card' ? 'transparent' : 'var(--chip)');
+          o.col = o.on ? 'var(--acc)' : 'var(--sec)';
+          o.bord = o.on ? 'var(--acc)' : 'var(--hair)';
+        }
+        o.d = o.d || ''; o.iconDisp = o.d ? 'inline' : 'none';
+        return o;
+      });
+      r.labelDisp = r.label ? 'block' : 'none';
+    }
+    if (r.k === 'tog') {
+      r.labelCol = dis ? 'var(--dim)' : 'var(--body)';
+      r.subCol = dis ? 'var(--warnText)' : 'var(--dim)';
+      r.track = on ? 'var(--acc)' : 'var(--chipOn)';
+      r.knob = on ? 'var(--accInk)' : 'var(--sec)';
+      r.knobX = on ? 22 : 2;
+    }
+    if (r.k === 'seg' || r.k === 'rng') r.subDisp = r.sub ? 'block' : 'none';
+    if (r.k === 'read') r.vCol = r.vCol || 'var(--ink)';
+    if (r.k === 'info') { r.col = r.warn ? 'var(--warnText)' : 'var(--dim)'; r.box = r.warn ? '1px solid var(--warnBord)' : '0'; if (r.warn) r.padL4 = 12; }
+    if (r.k === 'tools') {
+      r.cell = r.cell || 72;
+      r.tools = (r.tools || []).map((t0) => {
+        const t = Object.assign({}, t0);
+        t.bg = t.on ? 'var(--wash)' : 'var(--chip)';
+        t.bord = t.on ? 'var(--acc)' : 'transparent';
+        t.col = t.on ? 'var(--acc)' : (t.dis ? 'var(--dim)' : 'var(--body)');
+        t.key = t.key || ''; t.d = t.d || '';
+        t.aria = t.label + (t.key ? ' (' + t.key + ')' : '');
+        return t;
+      });
+    }
+    if (r.k === 'layer') {
+      r.eyeD = on ? 'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8ZM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z' : 'M2 2l12 12M6.5 4C7 3.7 7.5 3.5 8 3.5c4 0 6.5 4.5 6.5 4.5a12 12 0 0 1-1.7 2.3M10 12c-.6.3-1.3.5-2 .5-4 0-6.5-4.5-6.5-4.5a12 12 0 0 1 2.4-3';
+      r.eyeCol = on ? 'var(--acc)' : 'var(--dim)';
+      r.labelCol = on ? 'var(--ink)' : 'var(--dim)';
+      r.pct = r.pct == null ? 100 : r.pct; r.barCol = on ? 'var(--sec)' : 'var(--hair)';
+      r.bg = r.sel ? 'var(--wash)' : 'transparent';
+      if (!r.tap2) r.tap2 = r.tap;
+    }
+    if (r.k === 'ramp') { r.bord = on ? 'var(--acc)' : 'var(--hair)'; r.bg = on ? 'var(--wash)' : 'transparent'; r.labelCol = on ? 'var(--acc)' : 'var(--sec)'; }
+    if (r.k === 'item') {
+      r.dot = r.dot || 'var(--sec)'; r.dotR = r.square ? '3px' : '6px';
+      r.bg = on ? 'var(--wash)' : 'transparent'; r.bord = on ? 'var(--acc)' : 'transparent';
+      r.rightCol = r.rightCol || 'var(--sec)'; r.chevOp = r.chev === false ? 0 : 1;
+    }
+    if (r.k === 'acc') {
+      const open = !!r.open;
+      r.rot = open ? 90 : 0; r.bg = open ? 'var(--chip)' : 'transparent';
+      r.titleCol = open ? 'var(--acc)' : 'var(--body)';
+      r.numCol = r.stale ? 'var(--warn)' : 'var(--dim)';
+      r.stateCol = r.stale ? 'var(--warn)' : 'var(--dim)';
+      r.num = r.num || ''; r.state = r.state || '';
+    }
+    if (r.k === 'card') {
+      r.bord = r.bord || 'var(--acc)'; r.bg = r.bg || 'transparent'; r.badgeCol = r.badgeCol || 'var(--acc)';
+      r.noteDisp = r.note ? 'block' : 'none';
+    }
+    if (r.k === 'prog') r.lines = (r.lines || []).map((t) => ({ t }));
+    if (r.k === 'thumbs') r.items = (r.items || []).map((t) => Object.assign({ bord: t.on ? 'var(--acc)' : 'var(--hair)' }, t));
+    if (!r.tap) r.tap = () => {};
+    return r;
+  });
+}
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { demoOn: true, demoSeg: 1, demoVal: 0.6 }; }
+  _demo() {
+    const s = this.state, set = (o) => this.setState(o);
+    return [
+      { k: 'hd', label: 'Row vocabulary', right: 'every list in the shell' },
+      { k: 'nav', d: 'M2 4h12M2 8h12M2 12h8', label: 'Navigation row', sub: 'drills into a screen' , badge: '72 / 113' },
+      { k: 'nav', d: 'M3 13V3h10v10Z', label: 'Unavailable row', dis: true, reason: 'needs a world: generate or open one first' },
+      { k: 'chk', label: 'Menu check item', accel: 'Shift+D', on: s.demoOn, tap: () => set({ demoOn: !s.demoOn }) },
+      { k: 'chk', radio: true, label: 'Menu radio item', on: true },
+      { k: 'todo', label: 'Drawn but not built', reason: 'The engine has no call for this yet; the desktop shows it disabled too.' },
+      { k: 'tog', label: 'Toggle', sub: 'switches a stored preference', on: s.demoOn, tap: () => set({ demoOn: !s.demoOn }) },
+      { k: 'seg', label: 'Segmented choice', opts: ['512', '1024', '2048', '4096'].map((x, i) => ({ label: x, on: s.demoSeg === i, tap: () => set({ demoSeg: i }) })) },
+      { k: 'rng', label: 'Range with steppers', min: 0, max: 1, step: 0.01, val: s.demoVal, disp: s.demoVal.toFixed(2), onIn: (e) => set({ demoVal: +e.target.value }), dec: () => set({ demoVal: Math.max(0, +(s.demoVal - 0.01).toFixed(2)) }), inc: () => set({ demoVal: Math.min(1, +(s.demoVal + 0.01).toFixed(2)) }) },
+      { k: 'read', label: 'Readout', v: '1 204 m' },
+      { k: 'lnk', label: 'Link readout', links: [{ label: 'Sevjuni League', dot: '#6a9bc4', title: 'selects it' }, { label: 'year 398', title: 'moves the timeline' }], tail: '◂ now' },
+      { k: 'tools', label: 'tools', tools: [{ d: 'M3 3l4 10 1.5-4.5L13 7Z', label: 'Inspect', key: 'V', on: true }, { d: 'M2 13h12M4 13V7l4-3 4 3v6', label: 'Settle', key: 'S' }, { d: 'M8 2v12M2 8h12', label: 'POI', key: 'P' }, { d: 'M2 12c3-6 5 2 8-4 1.5-3 3-3 4-2', label: 'Way', key: 'W' }] },
+      { k: 'layer', label: 'Layer visibility', sub: 'opacity 78 %', on: true, pct: 78 },
+      { k: 'ramp', label: 'Earth', grad: 'linear-gradient(90deg,#2c4a5e,#4a7a52,#8aa05a,#c9b57a,#e8e0c8)', on: true },
+      { k: 'item', label: 'List item', sub: 'town · pop 4 210', right: '61 km', dot: '#c96a5a' },
+      { k: 'acc', num: '04', label: 'Accordion header', state: 'stale', stale: true, open: true },
+      { k: 'info', label: 'Info line: presentation only, nothing here marks a generation stage stale.' },
+      { k: 'info', warn: true, label: 'Warning box: stage 04 edited, stages 04 to 10 are stale.' },
+      { k: 'act', variant: 'primary', label: 'Primary action' },
+      { k: 'acts', opts: [{ label: 'Discard' }, { label: 'Commit', variant: 'primary' }] },
+      { k: 'card', badge: 'FEASIBLE · STRAINED', right: 'confidence ± 4 d', big: '39', unit: 'calendar days', sub: '31.9 travel · 4 rest · 3 layover', note: 'Supply gap Thornwood to Lakemouth.', opts: [{ label: 'SUPPLIES +6 D' }, { label: 'FORAGING', on: true }] },
+      { k: 'sep' }
+    ];
+  }
+  renderVals() {
+    const standalone = !this.props.rows;
+    const rows = decorateRows(standalone ? this._demo() : this.props.rows);
+    const vars = '--sur:#0d0e0f;--pan:#15171a;--pan2:#121314;--ink:#e8ebec;--body:#c8cbcd;--sec:#a9adb0;--dim:#8d9296;--acc:#e0a34a;--accInk:#16130c;--hair:rgba(255,255,255,.10);--hair2:rgba(255,255,255,.07);--bord:rgba(255,255,255,.16);--wash:rgba(224,163,74,.14);--chip:rgba(255,255,255,.05);--chipOn:rgba(255,255,255,.12);--warn:#e0a840;--warnText:#ebc080;--warnBord:rgba(224,168,64,.45);--block:#e08070;--good:#6fae7d;';
+    return { rows, rootStyle: standalone ? vars + 'background:#15171a;padding:14px;min-height:100%' : '' };
+  }
+}
+</script>
+</body>
+</html>

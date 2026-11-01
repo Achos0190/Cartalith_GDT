@@ -275,7 +275,8 @@ dashed line, so they are solid.
   - Conflicts & campaigns (P);
   - Notes (P).
 
-  The bottom nav stays `MAP · GENERATE · PLAN · MORE`. The long-press peek
+  The bottom nav stays `MAP · GENERATE · PLAN · MORE` *(superseded for the tabs by Ruling DT, 2026-10-31:
+  PLAN becomes STORY and MORE becomes MENU; see `MOBILE_SHELL_PROPOSAL.md`)*. The long-press peek
   sheet's four chips are *Open note* (B), *Add event* (P), *Journey from here*
   (P) and *City viewer* (B), on 48 dp pills. This assumes `MAP_CONTEXT_SCOPE.md`
   fork F1 answer (a): the long-press drops the pin **and** opens the verbs, at

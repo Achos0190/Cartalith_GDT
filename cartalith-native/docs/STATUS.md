@@ -47,9 +47,160 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Mobile shell proposal and mockup (2026-10-31)
+
+Design only: nothing in the shell, the engine or `menus.gd` changed. `MOBILE_SHELL_PROPOSAL.md` and the interactive mockup `design/mobile-shell-2026-10-31/` (live as a claude.ai Design canvas) propose the phone and tablet shells re-laid out in dp, from 360 dp to 4K. The owner asked for it on 2026-10-31. Code read for it (two inventories, committed as evidence in `cartalith-native/docs/evidence/mobile-shell-2026-10-31/`): on the phone, CARTO's categories and most of WORLD's dock are reachable only through MORE ▸ Window ▸ Left dock, and CIVIL has no tab; `_compute_layout_mode` decides phone or tablet once at boot from aspect ratio and scales the phone UI by short side ÷ 412. The mockup was measured in Chromium only: every tap target is 44 × 44 dp or more at 360 × 780, 412 × 892, 780 × 360 and 1 194 × 834. All nine owner questions were answered the same day, every default taken: Q1…Q4 by Ruling DT (PLAN becomes STORY, MORE becomes MENU, the domain tab keeps GENERATE, New World auto-populates by default) and Q5…Q9 by Ruling DU (two- and three-finger tap undo and redo, no `⋮`, the tablet's four-menu bar below 1 180 dp, floating docks close on a map touch, peek 76 dp). MS-1 was scheduled first the same day, as documentation only (Ruling DV); MS-2…MS-10 are unscheduled.
+
+**MS-1: specified, not built (2026-10-31).** `MOBILE_SHELL_MS1_SPEC.md` is its build specification. No code changed, and no stage of it (S0…S5) has started. Two findings from writing it, read at the symbols. First, the owner's 900 dp phone/tablet line (`design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3) is applied only below aspect 0.6: `_is_tablet_sized()` sits behind `and not`, after the aspect test, so a touch window of aspect 0.6 or more is a tablet at any size. That includes `TABLET 800`, which §2.3 calls phone-shaped. Second, `DccTheme.phone_scale()` reads short side ÷ 412 on every composition, although its comment says 1.0 off the phone. Its consumers are phone-only, so nothing draws wrong today. Both are in the spec's §2.2 and §2.3.
+
+**The quick bar and the cartwheel, and the GDScript drafts (2026-10-31): documents and drafts only, nothing built.** Asked by the owner. Both are shipped and both are kept: the tablet cartwheel opens with the card on a 500 ms hold (CM-3/CM-4), and the quick bar's tablet cluster (CQ-2) and ring dock (CQ-4) stay. The proposal had described the tablet hold as opening the card alone, at 480 ms. Its §2.2 and §4 are corrected and a new §2.4 covers both, with a phone side drawer for the pins in place of CQ-6's sheet row (MS-11; Q10–Q12 since answered by Ruling DY, every default taken). The mockup draws all of it, with each form factor's shipped hold (480 ms phone, 500 ms tablet), and was republished (canvas version 5), driven in Chromium with no page errors. `cartalith-native/drafts/mobile-shell/` holds eight GDScript drafts: MS-1 S1–S3, the bottom bar and domain fan (MS-2), MENU and STORY (MS-4, MS-6), the quick drawer (MS-11) and the tablet's 1 180 dp menu bar (MS-7). They were **not parse-checked** (no Godot in the cloud session); the 88 shipped symbols they call were checked to exist (`check_symbols.sh`).
+
+**The vault's editor and linking: a proposal and the mockup, nothing built in the shell (2026-10-31).** The owner asked for Markdown linking and editing that comes close to any regular Markdown editor. `VAULT_EDITOR_PROPOSAL.md` records what ships, read at the symbols by an inventory agent; the editor's own header and `chronos`'s were opened by the author. Against a regular editor it lacks most of the linking: no rendered link can be followed (no `meta_clicked` handler anywhere), the `[[ ]]` picker is an unfiltered list, there is no rename, unresolved links are refused, and there is no autosave. The phone toolbar is not docked to the keyboard as Ruling BE asks. The proposal sets the baseline from nine editors' documentation and lays out the design, milestones VE-0…VE-9 and questions VQ1…VQ7 (answered by Ruling DY on 2026-11-01). The mobile mockup now has a working vault (list, Preview with link following, peek, task ticking and a chronos timeline, coloured Write with `[[` suggestions, Split, backlinks, rename, conflict banner), driven in Chromium on 412 × 892 and 1194 × 834 with no page errors. Two `cartalith-vault` tests fail on Linux on `main` (`provider::tests::is_safe_relative_path_matches_resolves_own_boundary`, `resolve_refuses_every_way_out_of_the_vault`: "C:/Windows/x.md must be unsafe"), seen with `cargo test -p cartalith-vault` here: 133 passed, 2 failed. A drive-letter path is only absolute on Windows, so on Android it is accepted. *(Fixed the same day by the crate upgrade, "Vault crate upgrade for the note editor" below: `is_safe_relative_path` now gives one answer on every host. `cargo test -p cartalith-vault -p cartalith-knowledge`, re-run after the upgrade was cherry-picked onto this branch: 195 passed in `cartalith-vault`, none failed.)*
+
+**The PC shell: a proposal and a desktop mockup, nothing built (2026-10-31).** The owner asked for the PC GUI to be refactored so that "the context windows are all properly locked together", with the assistant. `PC_SHELL_PROPOSAL.md` and the `Desktop.dc.html` frame of `design/mobile-shell-2026-10-31/` propose:
+- one selection, one year and one note focus, each with one writer;
+- the right dock as a Context panel (Inspect · Note · Ask), with the assistant docked as Ask;
+- context windows that do not block the map and follow the selection until pinned;
+- the planner beside the map (Ruling DY moved it into its own window);
+- the year strip in every domain, as `GUI_GAP_REGISTER.md` CV-24's design;
+- menu and key changes.
+
+No shell code changed. Every owner question is answered: PQ10…PQ13 by Ruling DX and PQ1…PQ9 by Ruling DY (both 2026-11-01; see the Ruling DY entry below). Read at the symbols and re-run in `shell/` this session:
+- 23 windows extend the exclusive `AcceptDialog`.
+- No window, dialog, assistant file, planner or right dock connects `timeline_changed`.
+- `civilization_workspace.gd::_tl_goto_year` moves the year without emitting it.
+- The right dock is pinned from 8 call sites outside any selection model.
+- `LlmAssistantWindow.open()` calls `_rebuild()`, which starts a new conversation.
+
+**The loading screen is kept everywhere.** `app.gd::_mount_busy_overlay` mounts `busy_overlay.gd` once for the desktop, the tablet and the phone. The mockups had drawn generation as progress rows only, and now draw the overlay on all three; `MISTAKES.md`'s mockup row records the omission. Mockup checks (Chromium): the desktop flows pass without page errors, every tablet and phone target stays at least 44 dp, and the vault and quick-bar flows still pass.
+
+**The assistant's action catalogue: approved, AC-0's model-free half measured, nothing built in the app (2026-10-31).** Ruling DW approved the design, took AQ1 to AQ6 at their defaults and scheduled AC-0 first. **AC-0's model-free half is done**: see `cartalith-native/docs/evidence/assistant-actions-ac0-2026-10-31/REPORT.md`, which used a fixture catalogue of 260 actions, 133 of them with a description, and the Qwen3, gpt-oss and Ministral-3 tokenizers. It found:
+- the new fixed request is about 700 tokens, against 1 914–2 038 for today's Commands first turn;
+- a two-action request peaks near 1 200–1 270 tokens;
+- today's worst case is 6 617–7 097 tokens, 7–15 % above the earlier chars÷4 estimate;
+- search finds the needed action in its top 8 for 27 of 28 tasks, and browsing reaches all 28.
+
+**The model half is not run.** It needs Ollama and the Anthropic key on the owner's PC; `run_ac0.py`'s command is in the report.
+
+**The proposal (2026-10-31).** The owner asked how to make every Cartalith action available to the assistant without burying the model in tokens. `ASSISTANT_ACTIONS_PROPOSAL.md` answers it. Re-checked at the symbols:
+- 13 tools are declared in `cartalith-llm`;
+- `params_flow.rs::MAX_TURNS` = 5;
+- `llm_stream.rs::MAX_TOKENS_RANGE` = (16, 8192);
+- `anthropic.rs` drops server tool blocks;
+- no `is_session_mode()` call is in `llm_assistant_window.gd` or `world_workspace.gd`'s regenerate path.
+
+Owner questions AQ1…AQ6 are open.
+
+**The PC menus drafted in GDScript; nothing built in the shell (2026-11-01).** The owner asked for the PC menus "ready in the godot format for easy implementation". `cartalith-native/drafts/pc-shell/` drafts `PC_SHELL_PROPOSAL.md` §3.8 and §3.9:
+- drafts 01–09 replace `menus.gd`'s `_data`, `_story` and `_on_*` handlers, add the Edit and Window rows, and change `command_index.gd` `EXTRAS`, `shortcuts_dialog.gd` `UNLISTED` and the Q and Shift+F10 handling in `app.gd`;
+- draft 10 adds menu switching on hover;
+- `90_pc_milestone_stubs.gd` is the contract for the methods PC-1, PC-4, PC-5 and PC-6 add.
+
+**Not parse-checked**: no Godot binary was available. Its `check_symbols.sh` was re-run in this session: "need 161, free 94, anchor 26, base 8 checked; all passed".
+
+Ten places where the code and the proposal disagreed are corrected in the proposal (§3.8, §3.9, §3.6, PC-9), and they raised PQ10–PQ12. Implementing these menus, and the mobile ones, is now a row in `OUTSTANDING_WORK.md`.
+
+**The menus checked against the mockup, per platform and per row; nothing built (2026-11-01).** The owner asked to "check the godot version of all menu's against the mockups in the artifact. Per platform and option if they are actually the same". `cartalith-native/docs/evidence/menu-parity-2026-11-01/` compares every row: label, kind, accelerator, disabled state and its reason, Session-mode gate, and submenu contents. The Godot side is the shipped shell plus both sets of drafts, read statically, since no Godot binary was available. The mockup side is its own menu code, evaluated.
+
+**Re-run after the fixes** (`compare.py` exits 0; every row classified):
+
+| Platform | Rows | Same | Same once its milestone lands | Reworded only | For the owner | Not drafted yet |
+|---|---:|---:|---:|---:|---:|---:|
+| Desktop | 435 | 399 | 12 | 24 | 0 | 0 |
+| Tablet, 1 180 dp and wider | 438 | 398 | 12 | 24 | 0 | 4 |
+| Tablet, below 1 180 dp | 453 | 413 | 12 | 24 | 0 | 4 |
+| Phone MENU | 486 | 380 | 5 | 26 | 73 | 2 |
+
+"Reworded only" means reasons paraphrased, labels rewritten at run time, separators. The phone's 73 rows are P1 and P2, now `MOBILE_SHELL_PROPOSAL.md` Q13 and `PC_SHELL_PROPOSAL.md` PQ13.
+
+**What the check fixed:**
+- **The mockup:** eleven fixes, A1–A11 (landmark kinds the engine cannot place, the GPU retry row's state, readout texts, a singular, three Session-mode gates, the Open windows rows, PW-5's pop-out row on the phone, ☰'s Keyboard reference and its `full=false` submenus, the narrow World's duplicate Generate world). It also added the PQ10 default rows, Edit ▸ Context card and Cartwheel at the pointer.
+- **The drafts**, corrected by the checking agent; both `check_symbols.sh` pass:
+  - mobile 08: the whole bar's World is `_pc_world`;
+  - mobile 05: the Story section, a comment, and leading captioned separators;
+  - mobile 03: MENU ▸ Help's closing line;
+  - pc-shell 02: W1 is skipped when 08 is applied.
+
+The mockup's own checks still pass after the fixes.
+
+**Ruling DX applied to the mockup; the drafts follow (2026-11-01).** The owner answered the menu questions.
+- **Done in the mockup:**
+  - the narrow tablet's World row reads "Generate world" (PQ11, one label everywhere);
+  - Alt+←/→ do nothing while a text field has focus (PQ12);
+  - the card and cartwheel rows stay off the phone (PQ10);
+  - the phone keeps the mockup's Window ▸ Context panel rows (PQ13);
+  - MENU follows the desktop rows (Q13).
+- **Done in the backlog:** implementing the PC menus is its own `OUTSTANDING_WORK.md` row, beside the mobile one.
+- **The GDScript drafts now match Ruling DX.** Nothing is built in the shell.
+  - pc-shell: one label, with a "Run pipeline" search alias; the text-field guard for Alt+arrows; the phone's Context panel rows, which act on its selection sheet, vault and assistant.
+  - mobile-shell 05 is rewritten so MENU opens each desktop menu row for row; the new 09 adds the phone's Gesture reference row.
+  - Each phone-only row has a stated home or drop, listed in the mobile README.
+
+**The menu parity check, re-run after the drafts took Ruling DX.** Both `check_symbols.sh` pass (pc-shell: "need 161, free 94, anchor 27, base 8 checked; all passed"), and `compare.py` exits 0 with nothing unclassified. **Mockup errors and open questions are both 0 on every platform.** Per platform:
+
+| Platform | Same | Same once its milestone lands | Differs, same at run time | Mockup or Godot only |
+|---|---:|---:|---:|---:|
+| Desktop | 399 | 12 | 22 | 1 / 1 |
+| Tablet, 1 180 dp and wider | 398 | 12 | 22 | 5 / 1 |
+| Tablet, below 1 180 dp | 413 | 12 | 22 | 5 / 1 |
+| Phone MENU | 408 | 12 | 22 | 3 / 1 |
+
+What remains:
+- **The 22 differences:** 18 landmark labels the shell rewrites when the menu opens, the atlas readout, and three reworded reasons.
+- **Only-on-one-side rows:** the Open windows run-time list, and rows the mockup designs that no draft builds yet (Touch & gestures…; on the tablet, Gesture reference… and the pop-out setting).
+- **One label the check cannot see:** the phone's File ▸ "Share project…". The mockup relabels "Show project on disk" on the phone, but no share action exists in the shell; see `OUTSTANDING_WORK.md`'s mobile menus row.
+
+**Rulings DY and DZ applied to the documents, the mockup and the drafts; nothing built in the shell (2026-11-01).**
+The owner answered every open question in four documents, with their follow-ups (Ruling DY):
+- `PC_SHELL_PROPOSAL.md`: PQ1–PQ9.
+- `MOBILE_SHELL_PROPOSAL.md`: Q10–Q12.
+- `MOBILE_SHELL_MS1_SPEC.md`: MQ-1–MQ-5.
+- `VAULT_EDITOR_PROPOSAL.md`: VQ1–VQ7.
+
+Reviewing the mockup, the owner then ruled that the tool-options bar holds tool settings only (Ruling DZ).
+
+- **Documents.** Each of the four documents carries its answers.
+  - `PC_SHELL_PROPOSAL.md` gains:
+    - the modular Context panel (ten modules, PC-10);
+    - the planner in its own window (PC-8, one change with PW-4);
+    - the conversation and bookmarks saved inside the world file;
+    - World renamed Records, with Generate world in File;
+    - §3.12 and PC-11 for the bar.
+  - MS-1's S4 grows: MQ-5 re-presents open windows in place.
+  - Notes now open in Write, with a session undo back to the first-opened text.
+  - Also updated: `POPOUT_WINDOWS_SCOPE.md`, `GUI_GAP_REGISTER.md` (CV-24's design is approved) and
+    `DCC_SHELL_SPEC.md` §4.
+- **The mockup** (`design/mobile-shell-2026-10-31/`, republished as the canvas) draws all of it. Checks, in Chromium:
+  - Nine scripts exit 0: desk, vault, qr, tl, targets, dy, dy_touch, dy_more and the new dz, which checks the top bar on the desktop and the tablet and the Freehand and Paint brush rows. Eight print no page errors; targets only audits sizes. Every audited touch target is at least 44 × 44 dp (17 audits in targets, 3 in dy_more), and the tablet's new controls (+, tabs, tab-menu rows, the Open › chip) measure 44 dp or more.
+  - The narrow tablet's four menus leave 31 px before Undo at 600 dp, and nothing overlaps at 768, 1 024 or 1 179 dp.
+  - Captures are `dy-*.png` and `dz-*.png` in `cartalith-native/docs/evidence/desktop-shell-2026-10-31/`.
+- **The GDScript drafts** follow both rulings. pc-shell's new draft 11 holds Ruling DZ. `check_symbols.sh` results:
+  - pc-shell: "need 231, free 131, anchor 50, base 12 checked; all passed";
+  - mobile-shell: passes.
+
+  The drafts are not parse-checked, because there is no Godot binary in this session.
+- **The menu parity check, re-run.**
+  - `godot_menus.py` now applies draft 02's W6 and W7; until then, File ▸ Generate world showed as mockup-only.
+  - `compare.py` has a PC-10 rule for the module rows, and exits 0 with nothing unclassified.
+  - Mockup errors and open questions are 0 on every platform. A12 and A13 are the two mockup fixes the run found.
+
+  | Platform | Same | Same once its milestone lands | Differs, same at run time | Mockup or Godot only |
+  |---|---:|---:|---:|---:|
+  | Desktop | 401 | 12 + 11 (PC-10) | 22 | 1 / 1 |
+  | Tablet, 1 180 dp and wider | 400 | 12 + 11 (PC-10) | 22 | 5 / 1 |
+  | Tablet, below 1 180 dp | 414 | 12 + 11 (PC-10) | 22 | 5 / 1 |
+  | Phone MENU | 408 | 12 | 22 | 3 / 1 |
+- **Recorded in `MISTAKES.md`:**
+  - VQ7's question named the capped lists from a summary (the false-premise row, now ×4);
+  - a resumed turn was judged finished while it still owed the owner a round of questions.
+
 ### Consent card on Refresh and Send (2026-10-27)
 
 Shell only, Rust untouched. In `Preferences > Assistant`, Refresh and an entered address, and Send in the assistant panel, open the consent card at once when the only refusal is a missing consent for that endpoint; Allow then carries on (lists the models, or sends the request). Buttons read "Allow" and "Not now". Master switch off: no card, the line "Turn on Assistant enabled first" and a button that turns it on (it asks consent first if needed and sends nothing by itself). Checked with the in-test mock server (`_llmmodels_probe` leg 1b, `_llmpanel_probe` leg 5b) plus `_llmset_probe` and `_llmprofiles_probe`, at 1600x1000, 1280x800 and 393x852: all pass; the gate-reason literals were mutation-tested and both mutants failed. Not covered: real LM Studio, a real remote host (the remote leg stops at the card), a device run.
+
+### Vault crate upgrade for the note editor (2026-10-31)
+
+Rust only: `cartalith-vault`, `vault_bridge.rs`, and two doc comments in `cartalith-knowledge`. No `.gd` was touched, so the editor itself behaves as before until VE-1…VE-9 rewire it (`VAULT_EDITOR_PROPOSAL.md` §6; the owner allowed the crate upgrade on 2026-10-31). **New modules:** `notelinks` (Obsidian link spans — wikilink, embed, Markdown link and image — with character offsets and 0-based lines, outside code; `link_at`; `outgoing_links`; the one `Resolver`; `shortest_link_target`; `rename_plan`, `rename_plan_in`, `rename_candidates`), `noteedit` (`headings`, `toggle_task`, `tags`, `word_count`, `mention_spans`, `link_mention`), `frontmatter` (`aliases`, `frontmatter_set`, `frontmatter_remove`: line splices that leave every other byte identical, refusing duplicate keys and unreadable blocks), `suggest` (exact, prefix, word start, substring, subsequence; aliases; paths when the query holds a `/`), and the private `textscan`. **Changed:** `BacklinkIndex::backlinks_to`, `broken_links` and `orphans` now share `notelinks::Resolver` (before, `[[Wrong/Kelvhold]]` was neither broken nor a backlink, and `[y](Old%20Town.md)` was broken); links are read by `notelinks` (URL-decoded, code skipped, attachments and URLs left out, embeds counted); each record keeps the note's aliases; an index built by the old reader is re-read in full (`LINK_READER`). `is_safe_relative_path` gives the same answer on every host (a drive, a drive-relative path, a UNC prefix and a `\` climb are refused on Linux too), which fixes the two `provider::tests` that failed on Linux. `VaultProvider::move_file` and `can_move`, with refusing defaults; `FsVault::move_file` never overwrites and handles a case-only rename. `VaultSession::resolve_link`, `note_candidates`, `rename_preview` and `rename`: the plan opens only the note and the notes whose indexed links could change; the rename refuses a stale preview hash, moves the note first, writes each note through a re-read-and-compare guard, re-points every `KnowledgeLink`, and refuses a vault of more than `LIST_CAP` notes or a provider that cannot move. `template::strip_md` no longer panics on a name ending in multi-byte text. **Bridge:** 17 `#[func]`s (`vault_link_spans`, `vault_link_at`, `vault_outgoing_links`, `vault_resolve_link`, `vault_rename_plan`, `vault_rename`, `vault_suggest`, `vault_suggest_notes`, `vault_note_headings`, `vault_toggle_task`, `vault_note_tags`, `vault_word_count`, `vault_note_aliases`, `vault_frontmatter_set`, `vault_frontmatter_remove`, `vault_mention_spans`, `vault_link_mention`), with absent values omitted; compile-checked only, as no probe scene calls them yet. **Verified (Linux container, debug info off):** `cargo test --workspace --no-fail-fast`: 262 result lines, **7 722 passed, 7 failed, 142 ignored**, against 7 661 / 9 / 142 on the same container just before the change. The 7 failures are the same tests before and after (`golden_parity_zip_store`'s store-only archive, `golden_parity_labels` cases 3 and 9, `gpu_context_creates_on_this_hardware`, `golden_js_sin_and_js_cos_differ_from_rust_sin_and_cos`, and `cartalith-urban`'s `js_hypot` and ring-angle tests); they passed in the 2026-10-26 gate above, and their cause here was not investigated. `cartalith-vault`'s own tests: 133 passed and 2 failed before, 195 passed after. A no-panic sweep test and one doc comment were added after the workspace run, and re-run with `cargo test -p cartalith-vault -p cartalith-knowledge` (all pass). **Not done:** a rename on an Android (Storage Access Framework) vault refuses, because its handler has no move operation; no mutation testing; no probe scene for the new `#[func]`s; `cartalith-knowledge`'s own resolver still lacks the relative, rooted and exact-case rules (its doc says so).
 
 ## Orientation — read this screen, then stop if that is all you need
 
@@ -5456,7 +5607,7 @@ re-cut 2026-08-31 against the three-domain shell.
 |---|---|---|---|
 | GGR-10 | §10 — the actionable (A) list, twelve ranked rows | done | Sampled rows check out: light theme (PR-13/14) → `dcc_theme.gd`'s `const LIGHT` and `var pal: Dictionary = DARK if _dark else LIGHT`; RD-06/08 → `faction_roster_window.gd`'s `bridge.get_factions()`; JP-13/14 → `journey_planner_view.gd`; CA-05 icon resize → `icon_bridge.rs::icon_handle` + `cartography_workspace.gd`'s `"icon"` drag handler. SH-01 is recorded done-then-withdrawn, which the rail's own header confirms ("Removed 2026-08-24 with the expansion itself") |
 | GGR-49 | §49 — headed "REGISTERED, NOT FIXED"; **all three findings are now fixed** | done | KV-04: `shell/vault_store.gd::save_from()` now parses only to validate and splices the engine's own string into the document unchanged (`"store": state`), with a comment naming `entity_id` / `source_modified` and the silent-loss failure — §49's own "stop re-parsing" fix. WW-16: `world_workspace.gd` replaces the stage-06 `gap` string with a note dated "Corrected 2026-08-30 … it was stale on six of its seven claims", and `_build_droplet_erosion(...)` gates on `bridge._has("erode_op")`, i.e. a live `#[func]`. CV-12: `civilization_workspace.gd`'s button is still correctly disabled and its tooltip was rewritten ("the previous wording ended 'the crate has no consumer at all', which was false") to name the real per-line blocker — urban milestones 9, 10 and 13. *Superseded, re-checked 2026-09-24:* CV-12 is no longer a disabled button — `civilization_workspace.gd::_build_settlement_diagnostics` draws a per-settlement card list from `engine_bridge.gd::settlement_diagnostics` (specialisation, fortification rung, river classification, harbour eligibility), with the reference's bridge/ford/harbour-validity line disclosed as absent |
-| GGR-58 | §58 / PH-28 — a 16:9 tablet is classified as a phone and its controls are clipped off the screen | done | §58 says "**Not applied here** … this pass has a measurement, not a mandate". **It was applied**: `dcc_shell.gd` now reads `_phone = _touch and (short_side / long_side) < _PHONE_ASPECT_MAX and not _is_tablet_sized(short_side)`, with `const _TABLET_MIN_DP := 900.0` and `_is_tablet_sized()` returning `short_side_px / (dpi / 160.0) >= _TABLET_MIN_DP`. §58 proposed ~600 dp (Android's `sw600dp`); commit `660cbef` records the owner ruling **900 dp** instead, on the 48 dp rail + 400 dp dock chrome-floor arithmetic. Both the status and the number in §58 are wrong |
+| GGR-58 | §58 / PH-28 — a 16:9 tablet is classified as a phone and its controls are clipped off the screen | done | §58 says "**Not applied here** … this pass has a measurement, not a mandate". **It was applied**: `dcc_shell.gd` now reads `_phone = _touch and (short_side / long_side) < _PHONE_ASPECT_MAX and not _is_tablet_sized(short_side)`, with `const _TABLET_MIN_DP := 900.0` and `_is_tablet_sized()` returning `short_side_px / (dpi / 160.0) >= _TABLET_MIN_DP`. §58 proposed ~600 dp (Android's `sw600dp`); commit `660cbef` records the owner ruling **900 dp** instead, on the 48 dp rail + 400 dp dock chrome-floor arithmetic. Both the status and the number in §58 are wrong. **2026-10-31:** "It was applied" holds below aspect 0.6 only. `_is_tablet_sized()` sits behind `and not`, after the aspect test, so it never makes a squarer screen a phone: `TABLET 800` (aspect 0.625) gets the desktop-parity shell that the 900 dp answer (`BUILD_ANSWERS.md` §2.3) rules out. See `MOBILE_SHELL_MS1_SPEC.md` §2.2 |
 | GGR-CA19 | CA-19 — the biome colour table: a picker, and every reader honouring the override (Ruling P) | done (verified 2026-09-24) | **Built:** CARTO ▸ Colours ▸ Biome colours draws one `ColorPickerButton` per class, a per-row Reset and Reset all (`render_workspace.gd::_build_biome_colours`, over `engine_bridge.gd`'s `biome_colors_api` wrappers); the map's paint blend already read the override (`WorldGen::appearance()`). `sample_bridge::legend_with` / `debug_raster_with` and `PaintEditor::preview_full_with` / `preview_patch_with` take the live table (`biome_legend_and_raster_follow_an_edited_table`, `biome_previews_take_the_table_they_are_handed`). **Wired (`30025bf`):** `debug_layers`, `build_debug_texture`, `build_paint_preview_texture` and `build_paint_preview_patch` pass the live table, so the legend, the Biomes field and the paint preview follow an edit; `_biomecol_probe.gd` passes on desktop and phone. **Persisted (2026-09-24, verified):** `appearance.json`'s optional `biome_cols` member (`SAVEFILE_COMPAT.md` §13.2; `project_bridge.rs::biome_cols_member` / `biome_overrides_from_member`), omitted when the table is the reference one; an edit marks the project dirty (`engine_bridge.gd`). Tests `project_bridge::biome_cols_tests` (4, from a HEAD-written `appearance.json`) and `_biomesave_probe.gd`. *2026-09-24, verified:* opening a flat or legacy archive no longer inherits the previous session's edits — `WorldGen::load_save` resets the members `project_open` restores wholesale from `appearance.json` (overrides, ramp, NPR block to the session default, biome table), and that restore still wins; `_lookreset_probe.gd` (30 checks; 9 fail against the pre-change DLL) |
 | GGR-53 | §53 — four registered-not-fixed phone items (`⌕` and `⋮` not in the app bar, bottom-nav/sheet colour literals off by 2/255, tool-options sheet still resident, phone pill upper-cases once) | partial | **The `⌕` half is unblocked and its stated reason is stale**: §53 says "`⌕` has no destination — `menus.gd`'s Edit ▸ Find on map… is a `_todo()` row". It is now `_live(p, "Find on map…", ID_FIND_ON_MAP, KEY_MASK_CTRL \| KEY_F)` backed by `shell/place_search.gd`. The `⋮` overflow still exists as floating phone furniture (`_phone_overflow_pop`), the two colour deltas are unchanged, and `dcc_shell.gd` still calls `phone_fit(tool_options_row, …)` on a resident row rather than presenting a sheet |
 | GGR-50 | §50 — six registered-not-fixed items from the OnePlus 6T pass | partial | **The memory item is disclosed, not fixed**: the Working set row (`menus.gd::_refresh_working_set_row`, which replaced `performance_window.gd` under ruling 19) still reports `OS.get_static_memory_usage()`, which excludes the Rust allocations and the ~544 MB of Gfx dev that `dumpsys meminfo` counts, with a note naming the source and §50's own handset figure (0.2 GB on screen vs 818 MB PSS). The other five (Label ellipsis hole, DS-12 duplicate class token, navpad hover tint, stock focused pane-switcher chip, two `✕` on the L2 sheet header) were not re-verified individually this pass |

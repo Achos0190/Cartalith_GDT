@@ -1406,6 +1406,469 @@ impl WorldGen {
     }
 }
 
+/// The note editor's Obsidian-compatible helpers (Ruling BF): link syntax,
+/// the one link resolver, rename with link rewriting, `[[` suggestions,
+/// tasks, tags, properties, headings, word count and unlinked mentions.
+///
+/// Thin wrappers. Every rule lives in `cartalith-vault`
+/// (`notelinks`, `noteedit`, `frontmatter`, `suggest`) where it is unit
+/// tested; this block only marshals. Two conventions hold throughout:
+///
+/// - **Offsets are characters** (Unicode code points, what a GDScript
+///   `String` indexes by) and **lines are 0-based**.
+/// - **An absent value is an absent key**, never `""`, `0` or `false` standing
+///   in for it — read optional keys with `has()`. A failure is the file's
+///   usual `{ok: false, error}`. Nothing here unwraps input-derived data.
+///
+/// Most of these take the editor's current text and touch no file; the two
+/// rename calls and the two vault-backed lookups read the bound vault, and
+/// only `vault_rename` writes.
+#[godot_api(secondary)]
+impl WorldGen {
+    // -- link syntax --------------------------------------------------------
+
+    /// Every link in `text`, in order, outside code: `[{start, end, line,
+    /// syntax, external}]` plus `target`, `heading`, `block` and `alias` when
+    /// written. `syntax` is `wiki`, `embed`, `markdown` or `markdown_embed`;
+    /// `external` is true for a URL. A same-note link (`[[#Heading]]`) has no
+    /// `target`. (`cartalith_vault::notelinks::link_spans`)
+    #[func]
+    fn vault_link_spans(&self, text: GString) -> Array<VarDictionary> {
+        cartalith_vault::notelinks::link_spans(&text.to_string()).iter().map(span_dict).collect()
+    }
+
+    /// The link under a caret at character `offset`: `{found: true, …}` with
+    /// `vault_link_spans`' keys, or `{found: false}` (also for a negative
+    /// offset). A caret just past `]]` still finds its link.
+    #[func]
+    fn vault_link_at(&self, text: GString, offset: i64) -> VarDictionary {
+        let found = usize::try_from(offset).ok().and_then(|o| cartalith_vault::notelinks::link_at(&text.to_string(), o));
+        match found {
+            Some(s) => {
+                let mut d = span_dict(&s);
+                d.set("found", true);
+                d
+            }
+            None => vdict! { "found" => false },
+        }
+    }
+
+    /// The links in `text` that name another note — no URLs, attachments or
+    /// same-note links — in `vault_link_spans`' shape, in order and not
+    /// deduplicated.
+    #[func]
+    fn vault_outgoing_links(&self, text: GString) -> Array<VarDictionary> {
+        cartalith_vault::notelinks::outgoing_links(&text.to_string()).iter().map(span_dict).collect()
+    }
+
+    /// Which note `target`, written in the note at `source`, names — the
+    /// resolver backlinks and broken links use, over the bound vault's notes.
+    /// `{ok, status}` with `status` `unique` (plus `path`), `ambiguous` (plus
+    /// `candidates`) or `none`; `{ok: false, error}` with no vault bound.
+    #[func]
+    fn vault_resolve_link(&self, source: GString, target: GString) -> VarDictionary {
+        match self.vault.resolve_link(&source.to_string(), &target.to_string()) {
+            Ok(r) => resolution_dict(&r),
+            Err(e) => err(e),
+        }
+    }
+
+    // -- rename -------------------------------------------------------------
+
+    /// What renaming (or moving) the note `old` to `new` would do, computed
+    /// and written nowhere: `{ok, from, to, hash, links, read, unreadable,
+    /// knowledge_links, files: [{path, links}], ambiguous: [{path, line,
+    /// target, candidates}]}`.
+    ///
+    /// `files` are the notes whose text changes, by their path before the
+    /// rename; `links` totals the links rewritten; `ambiguous` lists links
+    /// left alone because they could mean another note too; `unreadable`
+    /// counts notes that could not be opened and so were not checked;
+    /// `knowledge_links` counts entity links that will follow the note.
+    /// `hash` must be handed to `vault_rename` unchanged. Refreshes the
+    /// backlink index first (reading only notes that changed).
+    #[func]
+    fn vault_rename_plan(&mut self, old: GString, new: GString) -> VarDictionary {
+        match self.vault.rename_preview(&old.to_string(), &new.to_string()) {
+            Ok(p) => {
+                let files: Array<VarDictionary> = p
+                    .plan
+                    .files
+                    .iter()
+                    .map(|f| vdict! { "path" => f.path.as_str(), "links" => f.links as i64 })
+                    .collect();
+                let ambiguous: Array<VarDictionary> = p
+                    .plan
+                    .ambiguous
+                    .iter()
+                    .map(|a| {
+                        let mut d = vdict! { "path" => a.path.as_str(), "line" => a.line as i64, "target" => a.target.as_str() };
+                        d.set("candidates", &packed(&a.candidates));
+                        d
+                    })
+                    .collect();
+                let mut d = ok();
+                d.set("from", p.plan.from.as_str());
+                d.set("to", p.plan.to.as_str());
+                d.set("hash", p.hash.as_str());
+                d.set("links", p.plan.link_count() as i64);
+                d.set("read", p.read as i64);
+                d.set("unreadable", p.unreadable as i64);
+                d.set("knowledge_links", p.knowledge_links as i64);
+                d.set("files", &files);
+                d.set("ambiguous", &ambiguous);
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    /// Renames (or moves) the note `old` to `new` and rewrites every link the
+    /// plan named. `expect_hash` is `vault_rename_plan(old, new).hash`; if any
+    /// note the plan would write changed since, nothing is written and the
+    /// result is `{ok: false, error, conflict: true}` (re-plan and confirm
+    /// again).
+    ///
+    /// The note is moved first, through the vault provider, so a refused move
+    /// writes nothing at all; then each note's links are rewritten through
+    /// the same re-read-and-compare guard as every write. `{ok: true, path,
+    /// conflict: false, links, relinked, written: [{path, links}], failed:
+    /// [{path, error}]}`: `ok` means the note moved; `failed` names any note
+    /// whose links could not be updated afterwards (it changed during the
+    /// rename, or could not be written) and still names the old path;
+    /// `relinked` counts entity links re-pointed at the new path.
+    #[func]
+    fn vault_rename(&mut self, old: GString, new: GString, expect_hash: GString) -> VarDictionary {
+        match self.vault.rename(&old.to_string(), &new.to_string(), &expect_hash.to_string()) {
+            Ok(o) => {
+                let written: Array<VarDictionary> =
+                    o.written.iter().map(|(p, n)| vdict! { "path" => p.as_str(), "links" => *n as i64 }).collect();
+                let failed: Array<VarDictionary> =
+                    o.failed.iter().map(|(p, e)| vdict! { "path" => p.as_str(), "error" => e.as_str() }).collect();
+                let mut d = ok();
+                d.set("path", o.to.as_str());
+                d.set("conflict", false);
+                d.set("links", o.written.iter().map(|(_, n)| *n as i64).sum::<i64>());
+                d.set("relinked", o.relinked as i64);
+                d.set("written", &written);
+                d.set("failed", &failed);
+                d
+            }
+            Err(e) => {
+                let conflict = matches!(e, cartalith_vault::Error::SourceChanged { .. });
+                let mut d = err(e);
+                d.set("conflict", conflict);
+                d
+            }
+        }
+    }
+
+    // -- `[[` suggestions ---------------------------------------------------
+
+    /// Ranks the caller's own candidates against `query` (exact, prefix, word
+    /// start, substring, subsequence; ties alphabetical), at most `limit`
+    /// (non-positive: 50). Each candidate is a Dictionary with a `name`
+    /// String and optional `path`, `kind` and `aliases` (an Array or
+    /// PackedStringArray of Strings); one without a `name` is skipped.
+    ///
+    /// `[{index, name, match, matched}]` plus `path` and `kind` when the
+    /// candidate had them and `alias` when an alias matched. `index` is the
+    /// candidate's position in `candidates`; `match` is the class;
+    /// `matched` is the text that matched (show it).
+    #[func]
+    fn vault_suggest(&self, query: GString, candidates: VarArray, limit: i64) -> Array<VarDictionary> {
+        let mut cands: Vec<cartalith_vault::suggest::Candidate> = Vec::new();
+        let mut given: Vec<(usize, bool, bool)> = Vec::new(); // (caller's index, had path, had kind)
+        for (i, v) in candidates.iter_shared().enumerate() {
+            let Ok(d) = v.try_to::<VarDictionary>() else { continue };
+            let text = |k: &str| d.get(k).and_then(|v| v.try_to::<GString>().ok()).map(|g| g.to_string());
+            let Some(name) = text("name") else { continue };
+            let (path, kind) = (text("path"), text("kind"));
+            given.push((i, path.is_some(), kind.is_some()));
+            cands.push(cartalith_vault::suggest::Candidate {
+                name,
+                path: path.unwrap_or_default(),
+                kind: kind.unwrap_or_default(),
+                aliases: d.get("aliases").map(|v| strings_of(&v)).unwrap_or_default(),
+            });
+        }
+        let limit = if limit > 0 { limit as usize } else { 50 };
+        cartalith_vault::suggest::suggest(&query.to_string(), &cands, limit)
+            .into_iter()
+            .filter_map(|s| {
+                let c = cands.get(s.index)?;
+                let &(index, had_path, had_kind) = given.get(s.index)?;
+                let mut d = suggestion_dict(&s, c);
+                d.set("index", index as i64);
+                // Echo only what the caller gave: an absent key stays absent.
+                if !had_path {
+                    let _ = d.remove("path");
+                }
+                if !had_kind {
+                    let _ = d.remove("kind");
+                }
+                Some(d)
+            })
+            .collect()
+    }
+
+    /// `vault_suggest` over the bound vault's notes (name = file name without
+    /// `.md`, `kind` = `note`, aliases from the backlink index — so aliases
+    /// appear only once the index has been built): `[{name, path, kind,
+    /// match, matched}]` plus `alias` when an alias matched. Lists the vault
+    /// once per call (no file is opened). Empty with no vault bound.
+    #[func]
+    fn vault_suggest_notes(&self, query: GString, limit: i64) -> Array<VarDictionary> {
+        let Ok(cands) = self.vault.note_candidates() else { return Array::new() };
+        let limit = if limit > 0 { limit as usize } else { 50 };
+        cartalith_vault::suggest::suggest(&query.to_string(), &cands, limit)
+            .into_iter()
+            .filter_map(|s| cands.get(s.index).map(|c| suggestion_dict(&s, c)))
+            .collect()
+    }
+
+    // -- Markdown helpers ---------------------------------------------------
+
+    /// The headings in `text` for `[[Note#…`: `[{level, text, line, start,
+    /// end}]`, fenced code and frontmatter skipped (the same headings
+    /// `vault_attach` accepts).
+    #[func]
+    fn vault_note_headings(&self, text: GString) -> Array<VarDictionary> {
+        cartalith_vault::noteedit::headings(&text.to_string())
+            .into_iter()
+            .map(|h| {
+                vdict! {
+                    "level" => h.level as i64,
+                    "text" => h.text.as_str(),
+                    "line" => h.line as i64,
+                    "start" => h.start as i64,
+                    "end" => h.end as i64,
+                }
+            })
+            .collect()
+    }
+
+    /// Ticks or unticks the task on 0-based `line`, as clicking its box in
+    /// Obsidian does: `{ok, text, checked}`, or `{ok: false, error}` when the
+    /// line is not a task (or is inside code or the frontmatter). Writes
+    /// nothing; save through `vault_write_file`.
+    #[func]
+    fn vault_toggle_task(&self, text: GString, line: i64) -> VarDictionary {
+        let Ok(n) = usize::try_from(line) else { return err("a line number cannot be negative") };
+        match cartalith_vault::noteedit::toggle_task(&text.to_string(), n) {
+            Some(t) => {
+                let mut d = ok();
+                d.set("text", t.text.as_str());
+                d.set("checked", t.checked);
+                d
+            }
+            None => err(format!("line {line} is not a task")),
+        }
+    }
+
+    /// Every tag in `text`: `[{tag, start, end, line, frontmatter}]`, `tag`
+    /// without its `#`, `frontmatter` true for the `tags` property's values.
+    /// Code, links, headings' own `#` and URL fragments are not tags.
+    #[func]
+    fn vault_note_tags(&self, text: GString) -> Array<VarDictionary> {
+        cartalith_vault::noteedit::tags(&text.to_string())
+            .into_iter()
+            .map(|t| {
+                vdict! {
+                    "tag" => t.tag.as_str(),
+                    "start" => t.start as i64,
+                    "end" => t.end as i64,
+                    "line" => t.line as i64,
+                    "frontmatter" => t.frontmatter,
+                }
+            })
+            .collect()
+    }
+
+    /// The note's word count, frontmatter excluded
+    /// (`cartalith_vault::noteedit::word_count` says what a word is).
+    #[func]
+    fn vault_word_count(&self, text: GString) -> i64 {
+        i64::try_from(cartalith_vault::noteedit::word_count(&text.to_string())).unwrap_or(i64::MAX)
+    }
+
+    /// The note's aliases from its `aliases`/`alias` property, in every form
+    /// Obsidian reads, duplicates dropped.
+    #[func]
+    fn vault_note_aliases(&self, text: GString) -> PackedStringArray {
+        packed(&cartalith_vault::frontmatter::aliases(&text.to_string()))
+    }
+
+    /// Sets one property, as Obsidian's Properties panel does, leaving every
+    /// other line byte-identical: `{ok, text}` or `{ok: false, error}`.
+    /// `value` may be a String (written as one scalar; `null` writes an empty
+    /// value) or an Array/PackedStringArray (written as a list). Writes
+    /// nothing; save through `vault_write_file`.
+    #[func]
+    fn vault_frontmatter_set(&self, text: GString, key: GString, value: Variant) -> VarDictionary {
+        let v = frontmatter_value(&value);
+        match cartalith_vault::frontmatter::frontmatter_set(&text.to_string(), &key.to_string(), &v) {
+            Ok(t) => {
+                let mut d = ok();
+                d.set("text", t.as_str());
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    /// Removes one property (case-insensitive key): `{ok, removed: true,
+    /// text}`, or `{ok, removed: false}` with no `text` when the note has no
+    /// such property, or `{ok: false, error}`. Writes nothing.
+    #[func]
+    fn vault_frontmatter_remove(&self, text: GString, key: GString) -> VarDictionary {
+        match cartalith_vault::frontmatter::frontmatter_remove(&text.to_string(), &key.to_string()) {
+            Ok(Some(t)) => {
+                let mut d = ok();
+                d.set("removed", true);
+                d.set("text", t.as_str());
+                d
+            }
+            Ok(None) => {
+                let mut d = ok();
+                d.set("removed", false);
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    // -- unlinked mentions --------------------------------------------------
+
+    /// Every unlinked mention of `name` in `text`: whole-word,
+    /// case-insensitive, outside links, code, the frontmatter and URLs —
+    /// `[{start, end, line, text}]`, `text` as written there.
+    #[func]
+    fn vault_mention_spans(&self, text: GString, name: GString) -> Array<VarDictionary> {
+        cartalith_vault::noteedit::mention_spans(&text.to_string(), &name.to_string())
+            .into_iter()
+            .map(|m| {
+                vdict! {
+                    "start" => m.start as i64,
+                    "end" => m.end as i64,
+                    "line" => m.line as i64,
+                    "text" => m.text.as_str(),
+                }
+            })
+            .collect()
+    }
+
+    /// **Link it**: replaces characters `start..end` with `[[target]]`, or
+    /// `[[target|as written]]` when the text there differs from `target`:
+    /// `{ok, text, caret}` (`caret` just after the link) or `{ok: false,
+    /// error}` when the span is out of range, crosses a line, or touches code,
+    /// a link or the frontmatter. Writes nothing; save through
+    /// `vault_write_file` with the hash the text was read at.
+    #[func]
+    fn vault_link_mention(&self, text: GString, start: i64, end: i64, target: GString) -> VarDictionary {
+        let (Ok(s), Ok(e)) = (usize::try_from(start), usize::try_from(end)) else {
+            return err("an offset cannot be negative");
+        };
+        match cartalith_vault::noteedit::link_mention(&text.to_string(), s, e, &target.to_string()) {
+            Some((t, caret)) => {
+                let mut d = ok();
+                d.set("text", t.as_str());
+                d.set("caret", caret as i64);
+                d
+            }
+            None => err("that text cannot be linked here: it is out of range, crosses a line, or touches code, a link or the properties"),
+        }
+    }
+}
+
+/// A [`cartalith_vault::notelinks::LinkSpan`] as the editor's dictionary:
+/// `{start, end, line, syntax, external}`, plus `target`, `heading`, `block`
+/// and `alias` only when the author wrote them — absent, never `""`.
+fn span_dict(s: &cartalith_vault::notelinks::LinkSpan) -> VarDictionary {
+    let mut d = vdict! {
+        "start" => s.start as i64,
+        "end" => s.end as i64,
+        "line" => s.line as i64,
+        "syntax" => s.syntax.as_str(),
+        "external" => s.external,
+    };
+    for (key, value) in [("target", &s.target), ("heading", &s.heading), ("block", &s.block), ("alias", &s.alias)] {
+        if let Some(v) = value {
+            d.set(key, v.as_str());
+        }
+    }
+    d
+}
+
+/// A [`cartalith_vault::notelinks::Resolution`] as `{ok, status}` plus
+/// `path` (unique) or `candidates` (ambiguous); `none` carries neither.
+fn resolution_dict(r: &cartalith_vault::notelinks::Resolution) -> VarDictionary {
+    use cartalith_vault::notelinks::Resolution;
+    let mut d = ok();
+    match r {
+        Resolution::Unique(p) => {
+            d.set("status", "unique");
+            d.set("path", p.as_str());
+        }
+        Resolution::Ambiguous(c) => {
+            d.set("status", "ambiguous");
+            d.set("candidates", &packed(c));
+        }
+        Resolution::Unresolved => d.set("status", "none"),
+    }
+    d
+}
+
+/// One ranked suggestion: `{name, path, kind, match, matched}` plus `alias`
+/// when an alias matched.
+fn suggestion_dict(s: &cartalith_vault::suggest::Suggestion, c: &cartalith_vault::suggest::Candidate) -> VarDictionary {
+    let mut d = vdict! {
+        "name" => c.name.as_str(),
+        "path" => c.path.as_str(),
+        "kind" => c.kind.as_str(),
+        "match" => s.kind.as_str(),
+        "matched" => s.matched.as_str(),
+    };
+    if let Some(a) = &s.alias {
+        d.set("alias", a.as_str());
+    }
+    d
+}
+
+/// Strings as a `PackedStringArray`.
+fn packed(v: &[String]) -> PackedStringArray {
+    v.iter().map(|s| GString::from(s.as_str())).collect()
+}
+
+/// The Strings in a `PackedStringArray`, an `Array` (its String elements;
+/// anything else is skipped, not stringified) or a single String.
+fn strings_of(v: &Variant) -> Vec<String> {
+    if let Ok(p) = v.try_to::<PackedStringArray>() {
+        return p.as_slice().iter().map(|g| g.to_string()).collect();
+    }
+    if let Ok(a) = v.try_to::<VarArray>() {
+        return a.iter_shared().filter_map(|x| x.try_to::<GString>().ok()).map(|g| g.to_string()).collect();
+    }
+    v.try_to::<GString>().map(|g| vec![g.to_string()]).unwrap_or_default()
+}
+
+/// A GDScript value as a property value: an Array or PackedStringArray is a
+/// list (each element as text), `null` is an empty value (YAML's null — no
+/// value, not a made-up one), anything else its text.
+fn frontmatter_value(v: &Variant) -> cartalith_vault::frontmatter::FrontmatterValue {
+    use cartalith_vault::frontmatter::FrontmatterValue;
+    if v.is_nil() {
+        return FrontmatterValue::Text(String::new());
+    }
+    if let Ok(p) = v.try_to::<PackedStringArray>() {
+        return FrontmatterValue::List(p.as_slice().iter().map(|g| g.to_string()).collect());
+    }
+    if let Ok(a) = v.try_to::<VarArray>() {
+        return FrontmatterValue::List(a.iter_shared().map(|x| x.to_string()).collect());
+    }
+    FrontmatterValue::Text(v.to_string())
+}
+
 /// Sort key for a link's status where the *loudest* state must win: lower is
 /// louder (`Unbound` 0 ... `Connected` 5), so `min_by_key` finds the state a
 /// person most needs to see, and `Connected` is reported only when nothing else

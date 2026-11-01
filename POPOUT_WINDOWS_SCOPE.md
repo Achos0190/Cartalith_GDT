@@ -45,6 +45,17 @@ Consequence: **there is no second native window anywhere in the program today** 
 
 **Planner.** Re-hosting `_left_panel` + `_center_panel` into a `Window` is feasible because both are built in `_build_left_panel`/the centre builder and parented only at `_show()`; the coupling that needs a decision is what stays on the main screen. Recommended [judgement]: in pop-out mode the planner's panels live in the native window, **the main window keeps its live map** (`app.viewport.visible` stays true: that is the whole benefit), the right dock's Journey section stays docked, and `timeline_row` stays in the main window. Costs: `_show()`'s swap becomes conditional; `_phone_refit` and `_recompute_visibility` assume one region; the planner draws its own route map (`_RouteMapView`), so the main map and the planner map both exist, doubling that texture's footprint [to measure]. If PW-4's measurement says this is large, the fallback is a planner pop-out that takes **only the stage table and profile**, with the route map left embedded.
 
+*Added 2026-11-01, Ruling DY (`PC_SHELL_PROPOSAL.md` PQ4).* The owner's words: *"Planner should open in a separate window that doesn't block the map (that way a user could put it on a second screen for example)"*.
+
+- **The planner is a window by default now.** On the desktop it opens in its own embedded, non-blocking window, whether or not pop-out is on. That is `PC_SHELL_PROPOSAL.md`'s PC-8.
+- **PC-8 and PW-4 are one change.** Both re-host the same view, so they are best done together:
+  - PC-8 builds the window;
+  - PW-4 is that window's Pop out / Dock button, the same property flip PW-2 made for the roster, behind the same busy-overlay and accelerator gates.
+- **What is unchanged:**
+  - DK's order: PW-2 and PW-3 already pop out the roster and the other civilisation windows, so PW-4 is next;
+  - DK Q5: the main map stays live;
+  - PW-4's bars. The main map is now live in the embedded case as well.
+
 **Not offered.** Android and iOS (no `FEATURE_SUBWINDOWS`): the setting is absent from the phone's MORE and shown disabled-with-reason on a tablet, per the `CommandIndex` rule (a reason beside every disabled control).
 
 **Never changes.** Seed-deterministic generation, the save format, undo semantics, golden outputs. A world generated with the setting on equals one generated with it off (bar in PW-2).

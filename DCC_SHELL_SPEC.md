@@ -419,6 +419,12 @@ Generation Pipeline: `GENERATE · WORLD` · Run stage 04 · Run 04 → 10 · New
 stale-from items describe no real product — header correction #2; the reference
 keeps only Generate world and New seed.)*
 
+*Owner decision, 2026-11-01 (Ruling DZ, `LARGE_ITEM_RULINGS.md`):* the bar holds the
+armed tool's settings only. The Generation Pipeline row's actions leave it: Generate
+world, New seed, Center landmasses and Bake ALL & finalize all stay in the WORLD
+dock, and Generate world also stays in File (Ctrl+R). With no tool armed, the bar
+shows the context label and one hint. An owner decision is newer than this canvas.
+
 Sculpt: `SCULPT · RAISE` · feature · preset · radius · falloff · mode · ↶ Undo ·
 ↷ Redo · ✓ Commit to map · Discard draft.
 

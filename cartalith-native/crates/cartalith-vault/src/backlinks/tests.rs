@@ -44,9 +44,9 @@ fn wikilinks_lose_their_alias_and_their_heading() {
     assert!(links.iter().all(|l| l.form == LinkForm::Wiki));
 }
 
-/// Protects: `parse_links`/`is_note_path` accept a relative Markdown
-/// link and a note-with-no-extension link, and reject a URL, a mailto,
-/// an anchor-only link and an image.
+/// Protects: `parse_links` (through `notelinks::outgoing_links`) accepts a
+/// relative Markdown link and a note-with-no-extension link, and rejects a
+/// URL, a mailto, an anchor-only link and an image.
 #[test]
 fn markdown_links_are_taken_and_urls_are_not() {
     let links = parse_links(
@@ -341,9 +341,10 @@ fn a_missing_root_is_an_error_not_an_empty_index() {
 /// A bare `[[Kelvhold]]` finds `Settlements/Kelvhold.md`, and a path link
 /// finds it with or without the extension.
 ///
-/// Protects: `target_matches`'s three resolution rules (exact path, path
-/// without `.md`, bare-name-to-stem) each independently find the target,
-/// and a similarly-named-but-different note (`Kelvhold Bridge`) does not.
+/// Protects: the shared resolver's three steps (exact path, path without
+/// `.md`, bare name) each independently find the target through
+/// `backlinks_to`, and a similarly-named-but-different note
+/// (`Kelvhold Bridge`) does not.
 #[test]
 fn a_target_resolves_by_stem_and_by_path() {
     let root = tmp("resolve");
@@ -359,5 +360,82 @@ fn a_target_resolves_by_stem_and_by_path() {
         idx.backlinks_to("Settlements/Kelvhold.md").into_iter().map(|b| b.source).collect();
     src.sort();
     assert_eq!(src, vec!["A.md".to_string(), "B.md".to_string(), "C.md".to_string()]);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The disagreement the shared resolver removed: `broken_links` used to
+/// match any target by file name while `backlinks_to` would not for a path
+/// target, so a link to the wrong folder was neither broken nor a backlink.
+///
+/// Protects: one answer across all three readers -- `[[Wrong/Kelvhold]]` is
+/// broken and is no backlink, so Kelvhold stays an orphan until a real link
+/// arrives; a link inside code, an attachment and a link to the note itself
+/// count as none of the three; an ambiguous name counts for every candidate
+/// and is not broken; a URL-encoded Markdown path is a backlink (the old
+/// reader stored `Old%20Town.md` and called it broken); and the note's
+/// frontmatter aliases are kept in its record.
+#[test]
+fn broken_links_backlinks_and_orphans_give_one_answer() {
+    let root = tmp("onerule");
+    write(&root, "Settlements/Kelvhold.md", "---\naliases: [The Grey Port]\n---\n[[Kelvhold]] links itself.\n");
+    write(&root, "A.md", "[[Wrong/Kelvhold]] `[[Kelvhold]]` ![[map.png]]\n```\n[[Missing In Code]]\n```\n");
+    write(&root, "Old/Nareth.md", "o\n");
+    write(&root, "New/Nareth.md", "n\n");
+    write(&root, "B.md", "[[Nareth]]\n");
+    let vault = FsVault::new(&root);
+    let mut idx = BacklinkIndex::new();
+    idx.refresh(&vault, 500).unwrap();
+
+    assert_eq!(idx.broken_links(), vec![("A.md".to_string(), "Wrong/Kelvhold".to_string())]);
+    assert!(idx.backlinks_to("Settlements/Kelvhold.md").is_empty());
+    let mut orphans = idx.orphans();
+    orphans.sort();
+    assert_eq!(orphans, vec!["A.md", "B.md", "Settlements/Kelvhold.md"]);
+    for n in ["Old/Nareth.md", "New/Nareth.md"] {
+        let src: Vec<String> = idx.backlinks_to(n).into_iter().map(|b| b.source).collect();
+        assert_eq!(src, vec!["B.md".to_string()], "{n}");
+    }
+    assert_eq!(idx.notes["Settlements/Kelvhold.md"].aliases, vec!["The Grey Port".to_string()]);
+
+    write(&root, "Old Town.md", "t\n");
+    write(&root, "C.md", "[x](Settlements/Kelvhold.md) and [y](Old%20Town.md)\n");
+    idx.refresh(&vault, 500).unwrap();
+    for target in ["Settlements/Kelvhold.md", "Old Town.md"] {
+        let want = vec![Backlink { source: "C.md".to_string(), form: LinkForm::Markdown, count: 1 }];
+        assert_eq!(idx.backlinks_to(target), want, "{target}");
+    }
+    assert!(!idx.orphans().contains(&"Settlements/Kelvhold.md".to_string()));
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Protects: records from another link reader are not trusted. The fixture
+/// is a document in the exact shape the pre-2026-10-31 `to_json` wrote (no
+/// `reader`, no `aliases`), holding the old reader's raw `Old%20Town.md`
+/// target and each note's real `(modified, len)` -- so without the reader
+/// check it would look fresh and be kept for ever. It loads as reader 0 and
+/// built; its next refresh re-reads every note, after which the link
+/// resolves; the refresh after that reads nothing.
+#[test]
+fn an_index_from_an_older_link_reader_is_reread_in_full() {
+    let root = tmp("reader");
+    write(&root, "A.md", "[t](Old%20Town.md)\n");
+    write(&root, "Old Town.md", "t\n");
+    let vault = FsVault::new(&root);
+    let (a, t) = (vault.meta("A.md").unwrap(), vault.meta("Old Town.md").unwrap());
+    let old_json = serde_json::json!({
+        "notes": {
+            "A.md": {"modified": a.modified, "len": a.len, "links": [{"target": "Old%20Town.md", "form": "markdown"}], "entities": [], "word_bits": 0},
+            "Old Town.md": {"modified": t.modified, "len": t.len, "links": [], "entities": [], "word_bits": 0}
+        },
+        "refreshed_at": 1_700_000_000u64
+    })
+    .to_string();
+    let mut old = BacklinkIndex::from_json(&old_json).unwrap();
+    assert_eq!((old.reader, old.is_built()), (0, true), "the fixture must load as a built index from the old reader");
+    assert!(old.backlinks_to("Old Town.md").is_empty(), "the old raw target resolves to nothing");
+    assert_eq!(old.refresh(&vault, 500).unwrap().reread, 2);
+    assert_eq!(old.reader, LINK_READER);
+    assert_eq!(old.backlinks_to("Old Town.md").len(), 1, "re-read, the link resolves");
+    assert_eq!(old.refresh(&vault, 500).unwrap().reread, 0);
     std::fs::remove_dir_all(&root).ok();
 }
