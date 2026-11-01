@@ -257,7 +257,7 @@ The context windows become **non-exclusive in-app windows**:
 - **Opening on the right subject.** World ▸ Factions…, Story ▸ Faction history… and CIVIL ▸ Open factions… open on
   the current faction, not the last one used (finding W6). The roster's "Capital: X" is a link that selects it
   (flow F3).
-- **Window ▸ Open windows** lists every open window, the Context panel and pop-outs included (finding W5).
+- **Window ▸ Open windows** lists every open window, the Context panel and pop-outs included (finding W5). While an exclusive dialog is open the menu bar takes no input, so until the context windows stop being exclusive (PC-7) the list can only ever show pop-outs.
 - **Refresh.** Roster edits refresh the Context panel, and an assistant save refreshes the vault (finding W7).
 
 **What stays modal.** The Data manager, the Asset library, New world, Export, Open project and file dialogs stay
@@ -294,7 +294,8 @@ and the tablet's bar mirror these rows, as `MOBILE_SHELL_PROPOSAL.md` requires.
 | Story | "Notes for this place" becomes **"Note for the selection"** (Ctrl+Shift+N, the Note tab), for any kind | S2 |
 | Story | "Assistant panel…" becomes **"Ask the assistant about the selection" (Ctrl+J)** | A1, A4 |
 | Story | Its "Places without notes…" row becomes a signpost to World ▸ Records, where the same id stays | M3 |
-| Window | "Right dock" becomes **"Context panel"**, with a submenu: Inspect, Note and Ask (Ctrl+1, Ctrl+2, Ctrl+3), Pin to the current subject, Follow the selection | §3.3 |
+| Window | "Right dock" becomes **"Context panel"**, as two rows: the check that shows or hides it, then a submenu of the same name (Inspect, Note and Ask on Ctrl+1, Ctrl+2 and Ctrl+3; Pin to the current subject; Follow the selection). A Godot `PopupMenu` row cannot be both a check and a submenu | §3.3 |
+| Edit | **Context card (Shift+F10)** and **Cartwheel at the pointer (Q)**, after Find on map…, so both keys can be rebound and are listed (PQ10) | M8 |
 | Window | Open windows lists everything open | W5 |
 | Help | "Keyboard shortcuts…" becomes **"Keyboard reference…"**, read-only; the editable one stays in Preferences | M2: one label, two behaviours |
 | Assets | "Import image…" is removed; it opened the Asset library under a second name | M2 |
@@ -311,9 +312,23 @@ image" becomes an alias of the Asset library. Every accelerator moved out of a m
 - Preferences ▸ Atlas cache ▸ Size cap;
 - Window ▸ 3D capability ▸ Force tier.
 
-**Desktop menus open as side-by-side columns.** An open submenu is a second column beside its parent, so the whole
-path stays visible. Moving across the bar while a menu is open switches menus. Rows are one line, with the
-accelerator on the right.
+**Desktop menus: what is new and what Godot already does.** Godot's submenus already open beside their row, so the
+whole path stays visible, as the mockup's columns draw it. Rows are one line, with the accelerator on the right. What
+is missing is that **moving across the bar while a menu is open switches menus**: draft 10, `switch_on_hover`.
+
+**Rows that work today keep their shipped form until their milestone.** For example, "Notes for this place", "Assistant
+panel…" and "Political history of this place…" keep their current titles and behaviour until the Context panel exists.
+Each keeps its id, so a rebinding or a quick-bar pin follows the row to its new title. Rows with nothing behind them yet
+are `_todo`, with the reason. Building them as `_todo` instead would remove a working command (`MISTAKES.md`, "Delete
+a surface").
+
+**The GDScript drafts** are in `cartalith-native/drafts/pc-shell/`. Its README gives:
+- the order, and the drafts that must land together;
+- which form each row takes before and after its milestone;
+- the collision check, and the `EXTRAS` and `UNLISTED` rows;
+- the probes to update;
+- what was not drafted, and why;
+- where the code and this section disagreed. Those are corrected here.
 
 **Desktop search runs commands.** The phone already runs a pinnable row through `DccQuickBar.run_pin_on`; the desktop
 draws the same rows disabled (finding S4). They become runnable on the desktop too.
@@ -328,8 +343,16 @@ draws the same rows disabled (finding S4). They become runnable on the desktop t
   - **Alt+←** and **Alt+→** for selection history.
 - **Free.** None of them is in the shipped list (§1). Alt+← and Alt+→ are not used by the shell; on a platform where
   the window manager takes them, Edit ▸ Previous and Next selection remain.
-- **Rebindable.** Q (the cartwheel at the pointer) and Menu or Shift+F10 (the card) move out of
-  `app.gd::_unhandled_key_input` into the rebindable table, and into the reference (finding M8).
+- **Rebindable.**
+  - The only rebindable table is the menu accelerators (`menus.gd::_bind_accelerator`). So Q (the cartwheel at the
+    pointer) and Shift+F10 (the card) become Edit rows (PQ10) and leave `app.gd::_unhandled_key_input`.
+  - The Menu key stays in `app.gd`, because a menu row holds one accelerator; it is listed in the reference through
+    `shortcuts_dialog.gd::UNLISTED` (finding M8).
+  - **On the phone no accelerator fires**, because its menu bar is a hidden model (`PhoneMenuModel`). So a phone with
+    a hardware keyboard loses Q and Shift+F10, and keeps the Menu key and the long-press card.
+- **Two scoped exceptions to "free":**
+  - Ctrl+1, Ctrl+2 and Ctrl+3 pick a layer while the Layers popover is open, because its key match ignores modifiers.
+  - On Windows and Linux, Alt+← and Alt+→ reach the menu while a text field has focus (PQ12).
 - **Esc** closes the topmost transient: a menu, the card, the ring, Find, the topmost window, the edit mode. With
   nothing open, it deselects.
 
@@ -412,7 +435,7 @@ Each bar is something a probe or a grep can show. The probes run windowed where 
 | PC-6 | The Ask tab | Opening, closing or reselecting never empties the transcript. The context at Send includes the year. A citation selects. A note card's Apply goes to the linked note in one undo step. The hostile-string corpus (scope §4 bar 3) re-runs green, because the request changed |
 | PC-7 | Non-exclusive context windows | A windowed probe clicks the map while the roster is open, and the map takes the click. The roster follows a new selection until pinned. The busy overlay mutes it during a generate |
 | PC-8 | The planner beside the map | With the planner open, the map draws and takes input. Start / Add / End from the selection each add one undo step |
-| PC-9 | Menus and keys | Every row in §3.8. `command_index.gd` finds each moved title by TITLE. `shortcuts_dialog.gd` lists every new key. No accelerator collides (`grep` of `menus.gd` and `app.gd`) |
+| PC-9 | Menus and keys (drafted: `cartalith-native/drafts/pc-shell/`) | Every row in §3.8. `command_index.gd` finds each moved title by TITLE. `shortcuts_dialog.gd` lists every new key. No accelerator collides (`grep` of `menus.gd` and `app.gd`). Fully met only after PC-1, PC-4, PC-5 and PC-6, whose behaviour four rows need; until then those rows are `_todo` or keep their shipped form |
 
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-7 shares
 `popout_host.gd` with Ruling DK's PW-2, so the two should not run as concurrent lanes.
@@ -441,6 +464,17 @@ Each has a default; the mockup draws the default.
 - **PQ8.** Take the new keys in §3.9? *Default: yes.*
 - **PQ9.** Should Inspect's edit mode cover only name, class, faction and fortified, with everything else staying in
   the Place editor window, which follows the selection? *Default: yes.*
+
+Raised by the GDScript drafts (their K1–K3), 2026-11-01:
+
+- **PQ10.** Where do the card's and the cartwheel's rows live, now that their keys need rows to be rebindable?
+  *Default: Edit, after Find on map…: "Context card" (Shift+F10) and "Cartwheel at the pointer" (Q), on the desktop
+  and the tablet.*
+- **PQ11.** Should the regenerate command have one label on every form factor? *Default: keep two: "Generate world"
+  on the PC (§3.8), "Run pipeline" on the tablet (its canvas). `_tabletparity_probe.gd` is taught the pair. The
+  question is asked because it is finding M2's own complaint about one command under two names.*
+- **PQ12.** Should Alt+← and Alt+→ move the selection while a text field has focus, as a browser does? *Default: yes.
+  `_typed_into_field()` is the guard if PC-1 decides otherwise.*
 
 ## 8. Limits of this proposal
 

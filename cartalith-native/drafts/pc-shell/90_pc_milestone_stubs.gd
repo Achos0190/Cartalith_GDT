@@ -1,0 +1,119 @@
+## DRAFT, not loaded by Godot. NOT parse-checked. **NOT TO BE PASTED BEFORE ITS MILESTONE.**
+##
+## The contract the PC menu drafts (01-09) call into, for state the proposal adds and the shell does not
+## have yet: PC-1 (one selection, `PC_SHELL_PROPOSAL.md` §3.1 and §5), PC-4 (the Context panel, §3.3),
+## PC-5 (its Note tab, §3.4) and PC-6 (its Ask tab, §3.5). Target: `shell/app.gd` (`DccApp`). Every name
+## here was free in `shell/` at `a38e0ac`; `check_symbols.sh` re-checks that.
+##
+## **Why a contract and not code.** The menu drafts choose each row's form by asking whether the host
+## has the method the new form calls (`DccMenus._host_has()`) or the tab it opens
+## (`DccMenus._context_tab_ready()`). A placeholder body pasted before its milestone would make that
+## answer "yes" over nothing. Each body below therefore answers "nothing" honestly (`false`, `-1`,
+## an empty list), so a premature paste lights no Context panel row and makes Previous selection say
+## "No earlier selection to go back to", which is true. But it would still switch Deselect's tooltip
+## and the Factions rows' tooltips to their PC-1 wording, which would be false. So: **each milestone
+## writes the real body in the same change that builds the state behind it, and deletes the
+## `STUB(PC-n)` marker line.** `check_symbols.sh` fails while any `STUB(PC-` marker is in the shipped tree.
+##
+## Which menu rows each method switches on (form = which row the menu builds; see each draft's header):
+##   PC-1  select_back            Edit ▸ Previous selection (Alt+←); Deselect's tooltip
+##         select_forward         Edit ▸ Next selection (Alt+→)
+##         current_faction        World ▸ Factions… and Story ▸ Faction history… open on it
+##         selection              read by Story's PC-4/PC-5 forms (`_story_selection()`)
+##   PC-4  context_tabs ∋ inspect the Context panel label, Window ▸ Context panel ▸ Inspect (Ctrl+1),
+##                                Pin, Follow; Story ▸ Political history of the selection; the panel's
+##                                row in Window ▸ Open windows
+##         open_context_tab, pin_context_panel, follow_selection: called by those rows
+##   PC-5  context_tabs ∋ note    Window ▸ Context panel ▸ Note (Ctrl+2); Story ▸ Note for the selection
+##   PC-6  context_tabs ∋ ask     Window ▸ Context panel ▸ Ask (Ctrl+3); Story ▸ Ask the assistant about
+##                                the selection (Ctrl+J)
+##
+## Not here, because no menu draft calls it: `DccApp.select(kind, id, opts)`, the one path every producer
+## calls (§3.1, §5), and `selection_changed`. They are PC-1's core; `select_back()` and `select_forward()`
+## below are defined in their terms, so their contract is written in the same place for the reader.
+##
+## Verify, per milestone: the menu rows above show their new form on the next boot (menus are built
+## once); `check_symbols.sh` reports the method as present and no `STUB(PC-` marker left.
+
+## PC-1. The one selection (`PC_SHELL_PROPOSAL.md` §2 rule 1): `{"kind": String, "id": int}`, kind one
+## of "settlement", "landmark", "faction", "culture", "conflict", "note"; `{}` when nothing is selected.
+## Written only by `select()`, `select_back()`, `select_forward()` and `clear_selection()`; every
+## surface reads it and listens to `selection_changed`, none keeps a copy (§2: "No surface keeps a
+## copy"). Never a plausible default (no `{"kind": "settlement", "id": 0}` for "none"): absent is `{}`.
+## `menus.gd::_story_selection()` reads it through `get("selection")` and copies it.
+var selection: Dictionary = {}
+
+## PC-1. Emitted after `selection` changes, never before (`MISTAKES.md`, "Emit a change signal": a
+## synchronous listener must read the new value), with the new value. The argument is not named
+## `selection`, so it cannot be read as shadowing the property.
+signal selection_changed(current: Dictionary)
+
+## PC-1. The one path every producer calls (a map click, a Find hit, the context card, a window row, a
+## link in Inspect, a `[[link]]` in a note, a citation in an answer: §3.1 "Producers"). Records the
+## previous selection in the history unless `opts.get("history", true)` is false (back and forward pass
+## false), drops any forward history when it records, then sets `selection` and emits.
+## Not called by any menu draft.
+func select(kind: String, id: int, opts: Dictionary = {}) -> void:
+	## STUB(PC-1)
+	push_error("DccApp.select(%s, %d, %s) is PC-1's and is not built" % [kind, id, str(opts)])
+
+## PC-1. Edit ▸ Previous selection (Alt+←): makes the selection before this one current again, like a
+## browser's Back, through `select(…, {"history": false})`. Returns false, and changes nothing, when
+## there is no earlier selection; the menu then says so in the status line. Deselect is a step in the
+## history ("Alt+← brings it back", §3.1), so back after Deselect restores what was cleared.
+## Called from a menu accelerator, which has no text-field guard: on Windows and Linux, Alt+← typed in
+## a `LineEdit` reaches it (macOS takes Alt+← as word-left first). Decide at PC-1, with a probe, whether
+## that is wanted (`menus.gd::_typed_into_field()` is the guard if not).
+func select_back() -> bool:
+	## STUB(PC-1)
+	return false
+
+## PC-1. Edit ▸ Next selection (Alt+→): the reverse of `select_back()`. Returns false, and changes
+## nothing, when there is nothing to go forward to.
+func select_forward() -> bool:
+	## STUB(PC-1)
+	return false
+
+## PC-1 (with PC-2's one year). The faction World ▸ Factions… and Story ▸ Faction history… open on
+## (finding W6): the selected faction; for a selected settlement, the faction that holds it in the year
+## the timeline shows; -1 when nothing is selected or the selection has no faction. -1 is
+## `open_faction_roster()`'s own documented "none" (it then opens on the last faction viewed), so it
+## is the honest answer, never a guess. Must never return a faction from a stale copy (the right dock's
+## own `_faction_id`, CIVIL's `_selected_index`): §2 forbids them.
+func current_faction() -> int:
+	## STUB(PC-1)
+	return -1
+
+## PC-4, PC-5, PC-6. The Context panel's tabs that exist in this build, in order: "inspect" from
+## PC-4, "note" from PC-5, "ask" from PC-6. `menus.gd::_context_tab_ready()` asks it once per row at
+## build time. On the phone, which has no panel (§3.11), it lists the tabs whose phone routes exist
+## (`open_context_tab()` below), so Story's rows take their new form there too while Window ▸ Context
+## panel is not built at all. An empty list means "no panel": every panel row stays a `_todo`.
+func context_tabs() -> PackedStringArray:
+	## STUB(PC-4)
+	return PackedStringArray()
+
+## PC-4 (the tab, and the panel), PC-5 ("note"), PC-6 ("ask"). Shows the Context panel on `tab` and
+## returns true; returns false and changes nothing when `tab` is not in `context_tabs()`. `""` keeps
+## the tab the panel already shows (Window ▸ Open windows' panel row). `section` scrolls Inspect to a
+## part of its page ("history": a place's holders year by year, a faction's wars, a conflict's years).
+## "ask" also puts the cursor in the input (§3.5: "Ctrl+J opens Ask from anywhere and focuses the
+## input"). Shows the panel region first if it is hidden. On the phone: "note" opens the vault at the
+## selection's note and "ask" the assistant's sheet (§3.11).
+func open_context_tab(tab: String, section: String = "") -> bool:
+	## STUB(PC-4)
+	push_error("DccApp.open_context_tab(%s, %s) is PC-4's and is not built" % [tab, section])
+	return false
+
+## PC-4. Window ▸ Context panel ▸ Pin to the current subject: the panel keeps what it shows while the
+## selection moves, and shows the banner "selection is now X" with PIN TO IT and FOLLOW (§3.3). Returns
+## false, and changes nothing, when the panel shows nothing; the menu says so.
+func pin_context_panel() -> bool:
+	## STUB(PC-4)
+	return false
+
+## PC-4. Window ▸ Context panel ▸ Follow the selection: releases a pin, so the panel shows the
+## selection and follows each new one. A no-op when the panel is already following.
+func follow_selection() -> void:
+	## STUB(PC-4)
+	pass

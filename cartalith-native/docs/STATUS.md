@@ -91,6 +91,15 @@ No shell code changed. Owner questions PQ1…PQ9 are open. Read at the symbols a
 
 Owner questions AQ1…AQ6 are open.
 
+**The PC menus drafted in GDScript; nothing built in the shell (2026-11-01).** The owner asked for the PC menus "ready in the godot format for easy implementation". `cartalith-native/drafts/pc-shell/` drafts `PC_SHELL_PROPOSAL.md` §3.8 and §3.9:
+- drafts 01–09 replace `menus.gd`'s `_data`, `_story` and `_on_*` handlers, add the Edit and Window rows, and change `command_index.gd` `EXTRAS`, `shortcuts_dialog.gd` `UNLISTED` and the Q and Shift+F10 handling in `app.gd`;
+- draft 10 adds menu switching on hover;
+- `90_pc_milestone_stubs.gd` is the contract for the methods PC-1, PC-4, PC-5 and PC-6 add.
+
+**Not parse-checked**: no Godot binary was available. Its `check_symbols.sh` was re-run in this session: "need 161, free 94, anchor 26, base 8 checked; all passed".
+
+Ten places where the code and the proposal disagreed are corrected in the proposal (§3.8, §3.9, §3.6, PC-9), and they raised PQ10–PQ12. Implementing these menus, and the mobile ones, is now a row in `OUTSTANDING_WORK.md`.
+
 ### Consent card on Refresh and Send (2026-10-27)
 
 Shell only, Rust untouched. In `Preferences > Assistant`, Refresh and an entered address, and Send in the assistant panel, open the consent card at once when the only refusal is a missing consent for that endpoint; Allow then carries on (lists the models, or sends the request). Buttons read "Allow" and "Not now". Master switch off: no card, the line "Turn on Assistant enabled first" and a button that turns it on (it asks consent first if needed and sends nothing by itself). Checked with the in-test mock server (`_llmmodels_probe` leg 1b, `_llmpanel_probe` leg 5b) plus `_llmset_probe` and `_llmprofiles_probe`, at 1600x1000, 1280x800 and 393x852: all pass; the gate-reason literals were mutation-tested and both mutants failed. Not covered: real LM Studio, a real remote host (the remote leg stops at the card), a device run.
