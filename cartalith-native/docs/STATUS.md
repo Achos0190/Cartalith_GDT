@@ -63,6 +63,43 @@ The owner asked: *"Just copy it into the reference folder"*.
 - **The old blocker was wrong.** The re-freeze row had been blocked since 2026-10-10 on "the owner has no v2.71 file to
   supply". That check looked only in this repository; the file had been in `Cartalith_RC` since 2026-09-20.
 
+### Ruling EB in the documents and the mockup, and the map-interaction research; nothing built in the shell (2026-11-01)
+
+`MOBILE_SHELL_PROPOSAL.md` §2.5, `3D_VIEWPORT_SCOPE.md` and `COLOUR_PAINT_SCOPE.md` carry Ruling EB's answers, and the
+mockup follows.
+
+- **DS-13, answered (Q3–Q5):**
+  - the −|+ step stays `ZOOM_BUTTON_STEP` 1.35;
+  - thumb zoom (double-tap, hold, slide; sliding down zooms in) is built with §4's double-tap in MS-5;
+  - from 3D-2 the same −|+ and ⌖ drive the 3D camera.
+- **DS-13, still open:** how thumb zoom behaves while a drawing tool is armed is settled with Q1. Q1 and Q2 await the
+  owner.
+- **Read at the symbols:** `viewport_host.gd::zoom_step()`, `_zoom_at()` and `reset_view()` never call `is_3d()`.
+  Besides its definition and the `view_mode_changed` signal, it is called only in `set_3d()`, `_sync_view3d_btn()`
+  and `_build_navpad()`'s 3D button (`grep -n is_3d shell/viewport_host.gd`, 2026-11-01). So today the row moves the
+  hidden 2D camera while 3D shows.
+- **The research behind Q1 and Q2:** `MAP_INTERACTION_RESEARCH.md`. It supports both defaults, and names two findings
+  they do not cover: a guard against stray strokes after a multi-finger touch, and when thumb zoom should work with a
+  placing or drawing tool.
+- **The 3D height slider:**
+  - its range is 1× to 4×;
+  - it is remembered in `Preferences ▸ Graphics ▸ 3D viewport defaults ▸ relief exaggeration`;
+  - it never writes the world, its save or `WorldState`.
+- **Colour paint's map-width notice** gains Scale with the map, as one undo step.
+- **The mockup.** Checked by the main loop in Chromium: `ds13.js` 204 passed, 0 failed; `ea.js` 69 passed, 0 failed;
+  no page errors. The lane reports further:
+  - against the pre-change canvas, 20 and 23 of the new checks fail;
+  - 15 of 15 mutants are killed;
+  - the other nine render tests' output is unchanged.
+- **The 1.6 zoom step** was the mockup's desktop pointer column, not the touch rocker. It is 1.35 now.
+- **The mockup's source is in the repository** (`design/mobile-shell-2026-10-31/source/`): the component's parts, the
+  stand-in world, the assembler and eleven render tests. Until now they lived only in a session's scratch folder.
+  Rebuilding from them reproduces the committed `Shell.dc.html` byte for byte.
+- **Corrected:** two premises in Ruling EB's questions overstated their sources. The ruling carries both
+  corrections, and `MISTAKES.md`'s false-premise row is now ×6.
+- **Recorded in `MISTAKES.md`:** the Design runtime logs a throw in a component's constructor as a console error, not
+  a page error. The main loop reproduced it: 10 elements drawn against 102, with no `pageerror`.
+
 ### Mobile shell proposal and mockup (2026-10-31)
 
 Design only: nothing in the shell, the engine or `menus.gd` changed. `MOBILE_SHELL_PROPOSAL.md` and the interactive mockup `design/mobile-shell-2026-10-31/` (live as a claude.ai Design canvas) propose the phone and tablet shells re-laid out in dp, from 360 dp to 4K. The owner asked for it on 2026-10-31. Code read for it (two inventories, committed as evidence in `cartalith-native/docs/evidence/mobile-shell-2026-10-31/`): on the phone, CARTO's categories and most of WORLD's dock are reachable only through MORE ▸ Window ▸ Left dock, and CIVIL has no tab; `_compute_layout_mode` decides phone or tablet once at boot from aspect ratio and scales the phone UI by short side ÷ 412. The mockup was measured in Chromium only: every tap target is 44 × 44 dp or more at 360 × 780, 412 × 892, 780 × 360 and 1 194 × 834. All nine owner questions were answered the same day, every default taken: Q1…Q4 by Ruling DT (PLAN becomes STORY, MORE becomes MENU, the domain tab keeps GENERATE, New World auto-populates by default) and Q5…Q9 by Ruling DU (two- and three-finger tap undo and redo, no `⋮`, the tablet's four-menu bar below 1 180 dp, floating docks close on a map touch, peek 76 dp). MS-1 was scheduled first the same day, as documentation only (Ruling DV); MS-2…MS-10 are unscheduled.

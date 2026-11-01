@@ -3071,9 +3071,15 @@ owner picked. *Italics* mark the owner's own words.
 
 **DS-13, the touch map's control row**
 1. **One-finger panning (DS13-Q1 and Q2): not yet decided.** The owner asked first: *"Research how other mapping apps
-   have their interface for map interactions."* That research is under way. The answer will be added here.
+   have their interface for map interactions."* The research is done: `MAP_INTERACTION_RESEARCH.md` (2026-11-01). It
+   supports both defaults and names two findings they do not cover: Krita's stray-stroke guard, and when thumb zoom
+   should be active with a placing or drawing tool. The questions went back to the owner with it. The answer will be
+   added here.
 2. **The zoom step (DS13-Q5): "Keep 1.35×".** The −|+ rocker keeps `viewport_host.gd::ZOOM_BUTTON_STEP` 1.35, the
    reference's step. The mockup's 1.6 goes.
+   - *Corrected 2026-11-01:* the question said *"The mockup had drawn 1.6×"*. The mockup's touch rocker already
+     stepped 1.35 (`MC_ZOOM_STEP`). The 1.6 was its desktop pointer column (`hZoomIn`, `hZoomOut`), which now uses
+     the same constant. The answer stands.
 3. **One-handed continuous zoom (DS13-Q3): "Add it".** This was against the default, "not in the first version".
    - **The gesture:** double-tap, keep the finger down, and slide to zoom continuously, Google Maps style.
    - **It needs the plain double-tap too.** The double-tap zoom in `MOBILE_SHELL_PROPOSAL.md`'s gesture table is
@@ -3092,6 +3098,10 @@ owner picked. *Italics* mark the owner's own words.
 6. **EA 14, the slider's range: "Up to 4×".** Against the default of 3×.
    - **The range:** 1× (true scale, Ruling CT's default) to 4×.
    - **The cost, accepted:** spires on steep ground above about 3.4×, which `3D_VIEWPORT_SCOPE.md` §8.3 measured.
+     - *Corrected 2026-11-01:* §8.3 measured no threshold. On the raw tile heights it saw "spires everywhere" at 3.4×,
+       the only value above 1× it tried, and coastal bluffs that spike even at 1.0×. The question called 3.4× *"the
+       measured spire point"*, and the 3× default *"just under that"*. Both overstated it. The owner's answer
+       accepted spires either way, so it stands.
    - **To revisit:** at 3D-3, when the terrain mesh lands, judged on frames.
 7. **EA 15, colour paint's map-width notice: "Offer 'scale with the map'".** Against the default.
    - **What changes:** the notice gets a button that rescales every paint mark to the new map width, as one undo step.

@@ -399,12 +399,12 @@ back into `WorldState`** (research §E: save, export and
 `get_map_height_km()` read the same field).
 *(Corrected 2026-11-01, after Ruling EB items 5 and 6: the 3D scale does not
 come from that 2D row. `menus.gd`'s comment on `_build_relief_exag_menu`
-says the 3D view does not read it. 3D starts at Ruling CT's true scale,
-`View3D.VERTICAL_EXAGGERATION_DEFAULT` = 1.0. Its default is `Preferences ▸
-Graphics ▸ 3D viewport defaults ▸ relief exaggeration`, from 1× to 4×, which
-the live slider writes (§7 Q4). The shader-uniform design and the rule above
-stand: neither the slider nor the preference writes the world, its save or
-`WorldState`.)*
+says the 3D view does not read it. 3D opens at `Preferences ▸ Graphics ▸ 3D
+viewport defaults ▸ relief exaggeration`, which ranges from 1× to 4× and is
+written by the live slider (§7 Q4). Until it is set, that preference is Ruling
+CT's true scale, `View3D.VERTICAL_EXAGGERATION_DEFAULT` = 1.0. The
+shader-uniform design and the rule above stand: neither the slider nor the
+preference writes the world, its save or `WorldState`.)*
 
 ### 3.2 Geometry: a CDLOD quadtree on the pyramid's `ChunkId`
 
@@ -604,8 +604,8 @@ into tiles.
 - **The touch control row's buttons** (Ruling EB item 4, *"Yes, same
   buttons"*, 2026-11-01). From 3D-2, DS-13's − and + move the camera out and
   in, and ⌖ frames the world (`MOBILE_SHELL_PROPOSAL.md` §2.5, item 7).
-  - They are the 2D row's own buttons: `viewport_host.gd::zoom_step()` and
-    `reset_view()` ask `is_3d()` first.
+  - They are the 2D row's own buttons. From 3D-2,
+    `viewport_host.gd::zoom_step()` and `reset_view()` ask `is_3d()` first.
   - 3D-2 sets the camera's step.
   - Today they move the hidden 2D camera while 3D shows, because neither
     function asks `is_3d()` yet.
