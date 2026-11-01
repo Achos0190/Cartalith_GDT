@@ -8,8 +8,14 @@
 ##   - Open windows lists everything open, the Context panel and pop-outs included (finding W5).
 ##
 ## Target: `shell/menus.gd`, the Window section. Depends on `01_menus_ids_helpers.gd`.
-## Applies to: the PC and the tablet (☰ ▸ Window). The phone keeps "Right dock" and gets no submenu:
-## it gets "the model, not the panel" (§3.11), and its right region is a sheet.
+## Applies to: every form factor: the PC, the tablet (☰ ▸ Window below 1 180 dp) and the phone (MENU ▸
+## Window). **The phone was excluded until Ruling DX PQ13** (2026-11-01, decided under the owner's
+## delegation): its Window menu follows the mockup, with the "Context panel" check and its submenu and no
+## separate "Right dock" row. On the phone the rows open what the phone has, never a panel (§3.11, "the
+## model, not the panel"): the check shows or hides the selection sheet (the right dock as a sheet, which
+## `app.gd::toggle_region(ID_WIN_RIGHT)` already does there); Inspect opens that sheet; Note opens the
+## vault at the selection's note; Ask opens the assistant. `90_pc_milestone_stubs.gd` states those routes
+## as `open_context_tab()`'s phone contract, so the rows switch on there when PC-4/5/6 write them.
 ##
 ## Forms:
 ##   before PC-4  the region row keeps "Right dock"; the submenu exists with five `_todo` rows, each
@@ -31,7 +37,7 @@
 ##                    p.add_check_item(_region_label(rid), rid)
 ##                    p.set_item_checked(p.item_count - 1, true)
 ##                    ## PC-9 (§3.3, §3.8): the Context panel's submenu sits directly under
-##                    ## its region row, as the mockup draws it. Not on the phone (§3.11).
+##                    ## its region row, as the mockup draws it, on every form factor (Ruling DX PQ13).
 ##                    if rid == ID_WIN_RIGHT:
 ##                        _build_context_panel_menu(p)
 ##            (one tab before `for`, two inside, three under the `if`). Every row index `_window()`
@@ -54,8 +60,9 @@
 ##            `WIN_REGION_LABELS`)"): labels from `_region_label()`.
 ##
 ## Verify: the parse check on `res://shell/menus.gd`; `check_symbols.sh`. Probes: `_seedlayout_probe.gd`
-## (the readout's five labels; unchanged until PC-4, when "Right dock" becomes "Context panel" on the
-## desktop), `_appbar20_probe.gd` (the phone's "Right dock" row: unchanged), `_sessionmode_probe.gd` and
+## (the readout's five labels; unchanged until PC-4, when "Right dock" becomes "Context panel"),
+## `_appbar20_probe.gd` (the phone's "Right dock" row: unchanged until PC-4, then "Context panel" there
+## too), `_sessionmode_probe.gd` and
 ## `_leftdockcheck_probe.gd` (region checks by id: unchanged), `_menuwire_probe.gd` (every disabled row
 ## states a reason: the five `_todo` rows do). By hand, desktop: Window shows Left dock, Right dock,
 ## Context panel ▸ (five dark rows with reasons), Timeline…; pop out the faction roster (Preferences ▸
@@ -100,12 +107,13 @@ const OPEN_WINDOW_NATIVE_SUFFIX := "   own window"
 const OPEN_WINDOWS_NONE_TIP := "Nothing to raise: no window is open. It fills in as windows are opened, popped-out ones included, and picking a row brings that window to the front."
 
 ## The label of region row `rid`: `WIN_REGION_LABELS`' wording, except that the right dock is called
-## the Context panel on desktop and tablet once it is one (PC-4). The phone keeps "Right dock" (§3.11:
-## the phone gets the model, not the panel). `_window()` and `_layout_readout()` both read this, so the
-## menu and the Save layout modal cannot name the region differently. Must never rename a region the
-## build does not have: the test is the panel's own Inspect tab, not the proposal.
+## the Context panel once it is one (PC-4), on every form factor: on the phone the row then names the
+## selection sheet (Ruling DX PQ13; it read "Right dock" there until that ruling). `_window()` and
+## `_layout_readout()` both read this, so the menu and the Save layout modal cannot name the region
+## differently. Must never rename a region the build does not have: the test is the panel's own Inspect
+## tab (on the phone, its route to the sheet), not the proposal.
 func _region_label(rid: int) -> String:
-	if rid == ID_WIN_RIGHT and not DccTheme.is_phone() and _context_tab_ready("inspect"):
+	if rid == ID_WIN_RIGHT and _context_tab_ready("inspect"):
 		return CONTEXT_PANEL_LABEL
 	return String(WIN_REGION_LABELS[rid])
 
@@ -121,10 +129,11 @@ func _region_label(rid: int) -> String:
 ## is open, Ctrl+1-3 pick a layer**: its `is_action_pressed()` uses the default `exact_match = false`, so
 ## an unmodified action matches a Ctrl chord too. That is the popover's own scope and is left alone.
 ##
-## Not built on the phone (§3.11). On the tablet it is ☰ ▸ Window ▸ Context panel ▸.
+## Built on every form factor. On the tablet below 1 180 dp it is ☰ ▸ Window ▸ Context panel ▸. On the
+## phone (Ruling DX PQ13) it is MENU ▸ Window ▸ Context panel ▸, its rows reaching the selection sheet, the
+## vault and the assistant through `open_context_tab()`'s phone contract, and its Ctrl+1/2/3 never fire
+## there (the phone's menu bar is a hidden model, so no accelerator does).
 func _build_context_panel_menu(p: PopupMenu) -> void:
-	if DccTheme.is_phone():
-		return
 	var sub := PopupMenu.new()
 	sub.name = "ContextPanelMenu"
 	_shell.style_popup(sub)
@@ -206,11 +215,13 @@ func _open_window_label(w: Window) -> String:
 ##
 ## While an exclusive dialog is open the menu bar takes no input, so in practice this lists pop-outs
 ## until the context windows stop being exclusive (PC-7, §3.6); the walk needs no change when they do.
+## The same test on every form factor (Ruling DX PQ13). On the phone it lists the selection sheet only
+## while that sheet is shown, which MENU's own opening ends (`DccShell._close_all_phone_overlays()`), so
+## the phone's list shows windows in practice.
 func _refresh_open_windows() -> void:
 	_windows_popup.clear()
 	_open_windows.clear()
-	if not DccTheme.is_phone() and _context_tab_ready("inspect") \
-			and _host.is_region_shown(ID_WIN_RIGHT):
+	if _context_tab_ready("inspect") and _host.is_region_shown(ID_WIN_RIGHT):
 		_windows_popup.add_check_item(CONTEXT_PANEL_LABEL, _open_windows.size())
 		_windows_popup.set_item_checked(_windows_popup.item_count - 1, true)
 		_open_windows.append(CONTEXT_PANEL_LABEL)

@@ -61,9 +61,8 @@ func select(kind: String, id: int, opts: Dictionary = {}) -> void:
 ## browser's Back, through `select(…, {"history": false})`. Returns false, and changes nothing, when
 ## there is no earlier selection; the menu then says so in the status line. Deselect is a step in the
 ## history ("Alt+← brings it back", §3.1), so back after Deselect restores what was cleared.
-## Called from a menu accelerator, which has no text-field guard: on Windows and Linux, Alt+← typed in
-## a `LineEdit` reaches it (macOS takes Alt+← as word-left first). Decide at PC-1, with a probe, whether
-## that is wanted (`menus.gd::_typed_into_field()` is the guard if not).
+## Never reached from a key typed into a text field: Ruling DX, PQ12, so the menu's handler drops that
+## press (`menus.gd::_on_edit_selection()`, `_typed_into_field()`); a click on the row still calls it.
 func select_back() -> bool:
 	## STUB(PC-1)
 	return false
@@ -86,9 +85,10 @@ func current_faction() -> int:
 
 ## PC-4, PC-5, PC-6. The Context panel's tabs that exist in this build, in order: "inspect" from
 ## PC-4, "note" from PC-5, "ask" from PC-6. `menus.gd::_context_tab_ready()` asks it once per row at
-## build time. On the phone, which has no panel (§3.11), it lists the tabs whose phone routes exist
-## (`open_context_tab()` below), so Story's rows take their new form there too while Window ▸ Context
-## panel is not built at all. An empty list means "no panel": every panel row stays a `_todo`.
+## build time. On the phone, which has no panel (§3.11: "the model, not the panel"), it lists the tabs
+## whose phone routes exist (`open_context_tab()` below). Since Ruling DX PQ13 the phone builds Window ▸
+## Context panel and its submenu as the desktop does, so this list switches those rows on there too, as
+## it does Story's. An empty list means "no panel": every panel row stays a `_todo`.
 func context_tabs() -> PackedStringArray:
 	## STUB(PC-4)
 	return PackedStringArray()
@@ -98,8 +98,13 @@ func context_tabs() -> PackedStringArray:
 ## the tab the panel already shows (Window ▸ Open windows' panel row). `section` scrolls Inspect to a
 ## part of its page ("history": a place's holders year by year, a faction's wars, a conflict's years).
 ## "ask" also puts the cursor in the input (§3.5: "Ctrl+J opens Ask from anywhere and focuses the
-## input"). Shows the panel region first if it is hidden. On the phone: "note" opens the vault at the
-## selection's note and "ask" the assistant's sheet (§3.11).
+## input"). Shows the panel region first if it is hidden.
+##
+## **On the phone** (Ruling DX PQ13, decided under the owner's delegation; §3.11) the rows open what the
+## phone has, never a panel: "inspect" and `""` show the selection sheet (the right dock as a sheet,
+## `DccShell.phone_show_right_sheet()`), "note" opens the vault at the selection's note, "ask" opens the
+## assistant. Window ▸ Context panel's check is `toggle_region(ID_WIN_RIGHT)`, which on the phone already
+## shows or hides that same sheet (`app.gd::toggle_region()`).
 func open_context_tab(tab: String, section: String = "") -> bool:
 	## STUB(PC-4)
 	push_error("DccApp.open_context_tab(%s, %s) is PC-4's and is not built" % [tab, section])
@@ -107,13 +112,15 @@ func open_context_tab(tab: String, section: String = "") -> bool:
 
 ## PC-4. Window ▸ Context panel ▸ Pin to the current subject: the panel keeps what it shows while the
 ## selection moves, and shows the banner "selection is now X" with PIN TO IT and FOLLOW (§3.3). Returns
-## false, and changes nothing, when the panel shows nothing; the menu says so.
+## false, and changes nothing, when the panel shows nothing; the menu says so. On the phone the same pin
+## holds the selection sheet, which is the right dock presented as a sheet, so the one state serves both.
 func pin_context_panel() -> bool:
 	## STUB(PC-4)
 	return false
 
 ## PC-4. Window ▸ Context panel ▸ Follow the selection: releases a pin, so the panel shows the
-## selection and follows each new one. A no-op when the panel is already following.
+## selection and follows each new one. A no-op when the panel is already following. On the phone it
+## releases the selection sheet the same way.
 func follow_selection() -> void:
 	## STUB(PC-4)
 	pass

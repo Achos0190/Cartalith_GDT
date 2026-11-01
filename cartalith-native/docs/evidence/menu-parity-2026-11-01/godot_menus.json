@@ -1,5 +1,5 @@
 {
- "source": "shipped shell at HEAD, with drafts/pc-shell 01-06 (and their EDITs), drafts/mobile-shell 05 and 08, and mobile-shell 03's EDIT H1 applied in memory by godot_menus.py",
+ "source": "shipped shell at HEAD, with drafts/pc-shell 01-06 (and their EDITs), drafts/mobile-shell 05, 08 and 09 (and 09's EDIT G1) applied in memory by godot_menus.py",
  "applied": [
   {
    "draft": "pc-shell/01_menus_ids_helpers.gd",
@@ -118,6 +118,9 @@
    "edit": "pc-shell 02 W2"
   },
   {
+   "edit": "pc-shell 02 W5"
+  },
+  {
    "edit": "pc-shell 03 E1"
   },
   {
@@ -140,6 +143,18 @@
    ]
   },
   {
+   "draft": "mobile-shell/09_menus_phone_rows.gd",
+   "replaced": [],
+   "added": [
+    "ID_HELP_GESTURES",
+    "HELP_GESTURES_TIP",
+    "_build_gesture_reference_row"
+   ]
+  },
+  {
+   "edit": "mobile-shell 09 G1"
+  },
+  {
    "draft": "mobile-shell/05_phone_menu_root.gd",
    "replaced": [
     "_fill_root",
@@ -147,17 +162,13 @@
     "_fill_popup"
    ],
    "added": [
-    "MENU_SCREENS",
     "MENU_SUBS",
     "MENU_GLYPHS",
-    "WORLD_SCREENS",
+    "_menu_root_row",
     "_fill_status",
-    "_fill_world",
-    "open_story"
+    "open_story",
+    "open_screen"
    ]
-  },
-  {
-   "edit": "mobile-shell 03 H1"
   }
  ],
  "conditions": {
@@ -4720,7 +4731,7 @@
       "menu": "World",
       "rows": [
        {
-        "label": "Run pipeline",
+        "label": "Generate world",
         "kind": "command",
         "accel": "Ctrl+R",
         "session_mode_gated": true,
@@ -7457,7 +7468,7 @@
      },
      {
       "label": "File",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "Edit",
@@ -7465,19 +7476,19 @@
      },
      {
       "label": "Assets",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "World",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "Story",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "Preferences",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "Window",
@@ -7485,7 +7496,7 @@
      },
      {
       "label": "Help",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "STATUS (world, state, last autosave)",
@@ -7494,20 +7505,8 @@
     ],
     "menus": {
      "File": {
-      "screen": "project (_fill_project)",
+      "screen": "the File popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "Save project",
-        "kind": "command",
-        "accel": "Ctrl+S",
-        "id": 12
-       },
-       {
-        "label": "Save as…",
-        "kind": "command",
-        "accel": "Ctrl+Shift+S",
-        "id": 13
-       },
        {
         "label": "New world…",
         "kind": "command",
@@ -7522,18 +7521,40 @@
         "id": 11
        },
        {
-        "label": "RECENT WORLDS",
-        "kind": "head"
+        "label": "Recent worlds",
+        "kind": "drill",
+        "node": "RecentWorlds",
+        "items": [
+         {
+          "label": "{meta.get('name', '')}",
+          "kind": "command",
+          "generated": "for i in recents.size()",
+          "id": 0
+         }
+        ],
+        "id": 2
        },
        {
-        "label": "{meta.get('name', '')}",
+        "label": "New world from selection…",
         "kind": "command",
-        "generated": "for i in recents.size()",
-        "id": 0
+        "session_mode_gated": true,
+        "id": 18
        },
        {
-        "label": "AUTOSAVE",
-        "kind": "head"
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Save project",
+        "kind": "command",
+        "accel": "Ctrl+S",
+        "id": 12
+       },
+       {
+        "label": "Save as…",
+        "kind": "command",
+        "accel": "Ctrl+Shift+S",
+        "id": 13
        },
        {
         "label": "Autosave",
@@ -7541,8 +7562,8 @@
         "id": 14
        },
        {
-        "label": "Interval",
-        "kind": "chips",
+        "label": "Autosave interval",
+        "kind": "drill",
         "node": "AutosaveInterval",
         "items": [
          {
@@ -7569,12 +7590,6 @@
         "id": 8
        },
        {
-        "label": "New world from selection…",
-        "kind": "command",
-        "session_mode_gated": true,
-        "id": 18
-       },
-       {
         "label": "Revert to last save",
         "kind": "command",
         "id": 15
@@ -7584,6 +7599,10 @@
         "kind": "command",
         "accel": "Ctrl+W",
         "id": 16
+       },
+       {
+        "label": "",
+        "kind": "separator"
        },
        {
         "label": "Export",
@@ -7700,7 +7719,7 @@
       ]
      },
      "Edit": {
-      "screen": "the Edit popup (_menu_row -> _fill_popup)",
+      "screen": "the Edit popup (_menu_root_row -> _fill_popup)",
       "rows": [
        {
         "label": "Undo",
@@ -7857,64 +7876,8 @@
       ]
      },
      "Assets": {
-      "screen": "assets (_fill_assets)",
+      "screen": "the Assets popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "Splat channels",
-        "kind": "command"
-       },
-       {
-        "label": "Biome textures",
-        "kind": "command"
-       },
-       {
-        "label": "Terrain textures",
-        "kind": "command"
-       },
-       {
-        "label": "Feature icons",
-        "kind": "command"
-       },
-       {
-        "label": "Settlement pins",
-        "kind": "command"
-       },
-       {
-        "label": "Settlement traits",
-        "kind": "command"
-       },
-       {
-        "label": "Points of interest",
-        "kind": "command"
-       },
-       {
-        "label": "Sea marks",
-        "kind": "command"
-       },
-       {
-        "label": "Custom icons",
-        "kind": "command"
-       },
-       {
-        "label": "PACK",
-        "kind": "head"
-       },
-       {
-        "label": "Name",
-        "kind": "value"
-       },
-       {
-        "label": "Author",
-        "kind": "value"
-       },
-       {
-        "label": "Licence",
-        "kind": "value"
-       },
-       {
-        "label": "Stored items",
-        "kind": "value"
-       },
        {
         "label": "⧉ Asset library",
         "kind": "command",
@@ -7950,6 +7913,10 @@
         "label": "Compare pack with library…",
         "kind": "command",
         "id": 42
+       },
+       {
+        "label": "",
+        "kind": "separator"
        },
        {
         "label": "Asset pack",
@@ -8488,6 +8455,10 @@
         "id": 11
        },
        {
+        "label": "",
+        "kind": "separator"
+       },
+       {
         "label": "Apply library to map",
         "kind": "command",
         "id": 36
@@ -8500,7 +8471,7 @@
       ]
      },
      "World": {
-      "screen": "world (_fill_world)",
+      "screen": "the World popup (_menu_root_row -> _fill_popup)",
       "rows": [
        {
         "label": "Generate world",
@@ -8642,174 +8613,96 @@
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
         "id": 13
-       },
-       {
-        "label": "ON THE PHONE",
-        "kind": "head"
-       },
-       {
-        "label": "Civilization",
-        "kind": "command"
-       },
-       {
-        "label": "Data manager",
-        "kind": "command"
-       },
-       {
-        "label": "Travel library",
-        "kind": "command"
-       },
-       {
-        "label": "Simulation",
-        "kind": "command"
        }
       ]
      },
      "Story": {
-      "screen": "story-root (_fill_story_section)",
+      "screen": "the Story popup (_menu_root_row -> _fill_popup)",
       "rows": [
        {
+        "label": "TIME",
+        "kind": "head"
+       },
+       {
         "label": "Timeline",
-        "kind": "drill",
-        "items": [
-         {
-          "label": "Timeline",
-          "kind": "command",
-          "accel": "Ctrl+Shift+T",
-          "id": 723
-         },
-         {
-          "label": "Political history of this place…",
-          "kind": "command",
-          "id": 724
-         },
-         {
-          "label": "Faction history…",
-          "kind": "command",
-          "id": 725
-         }
-        ]
+        "kind": "command",
+        "accel": "Ctrl+Shift+T",
+        "id": 723
        },
        {
-        "label": "Journeys",
-        "kind": "drill",
-        "items": [
-         {
-          "label": "Journey planner",
-          "kind": "command",
-          "id": 726
-         },
-         {
-          "label": "Saved journeys…",
-          "kind": "command",
-          "id": 732
-         },
-         {
-          "label": "Travel library…",
-          "kind": "command",
-          "accel": "Shift+L",
-          "id": 48
-         }
-        ]
+        "label": "Political history of this place…",
+        "kind": "command",
+        "id": 724
        },
        {
-        "label": "Conflicts & campaigns",
-        "kind": "drill",
-        "items": [
-         {
-          "label": "Conflicts…",
-          "kind": "command",
-          "id": 733
-         },
-         {
-          "label": "Draw a conflict",
-          "kind": "command",
-          "id": 727
-         },
-         {
-          "label": "Campaigns this year",
-          "kind": "readout",
-          "id": 11
-         }
-        ]
+        "label": "Faction history…",
+        "kind": "command",
+        "id": 725
        },
        {
-        "label": "Notes",
-        "kind": "drill",
-        "items": [
-         {
-          "label": "Notes for this place",
-          "kind": "command",
-          "accel": "Ctrl+Shift+N",
-          "id": 728
-         },
-         {
-          "label": "Places without notes is in World ▸ Records",
-          "kind": "signpost",
-          "id": 14
-         },
-         {
-          "label": "Assistant panel…",
-          "kind": "command",
-          "id": 901
-         }
-        ]
+        "label": "JOURNEYS",
+        "kind": "head"
+       },
+       {
+        "label": "Journey planner",
+        "kind": "command",
+        "id": 726
+       },
+       {
+        "label": "Saved journeys…",
+        "kind": "command",
+        "id": 732
+       },
+       {
+        "label": "Travel library…",
+        "kind": "command",
+        "accel": "Shift+L",
+        "id": 48
+       },
+       {
+        "label": "CONFLICTS & CAMPAIGNS",
+        "kind": "head"
+       },
+       {
+        "label": "Conflicts…",
+        "kind": "command",
+        "id": 733
+       },
+       {
+        "label": "Draw a conflict",
+        "kind": "command",
+        "id": 727
+       },
+       {
+        "label": "Campaigns this year",
+        "kind": "readout",
+        "id": 11
+       },
+       {
+        "label": "NOTES",
+        "kind": "head"
+       },
+       {
+        "label": "Notes for this place",
+        "kind": "command",
+        "accel": "Ctrl+Shift+N",
+        "id": 728
+       },
+       {
+        "label": "Places without notes is in World ▸ Records",
+        "kind": "signpost",
+        "id": 14
+       },
+       {
+        "label": "Assistant panel…",
+        "kind": "command",
+        "id": 901
        }
       ]
      },
      "Preferences": {
-      "screen": "prefs (_fill_prefs)",
+      "screen": "the Preferences popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "APPLICATION",
-        "kind": "head"
-       },
-       {
-        "label": "Theme",
-        "kind": "chips",
-        "node": "ThemeChoice",
-        "items": [
-         {
-          "label": "Dark",
-          "kind": "radio",
-          "id": 51
-         },
-         {
-          "label": "Light",
-          "kind": "radio",
-          "id": 52
-         },
-         {
-          "label": "Follow system",
-          "kind": "radio",
-          "id": 58
-         }
-        ],
-        "id": 28
-       },
-       {
-        "label": "Units",
-        "kind": "chips",
-        "node": "UnitsChoice",
-        "items": [
-         {
-          "label": "Kilometres",
-          "kind": "radio",
-          "id": 54
-         },
-         {
-          "label": "Miles",
-          "kind": "radio",
-          "id": 55
-         },
-         {
-          "label": "Nautical miles",
-          "kind": "radio",
-          "id": 604
-         }
-        ],
-        "id": 29
-       },
        {
         "label": "PERFORMANCE",
         "kind": "head"
@@ -8862,7 +8755,7 @@
        },
        {
         "label": "Multi-GPU mode",
-        "kind": "chips",
+        "kind": "drill",
         "node": "GpuMultiMode",
         "items": [
          {
@@ -8880,15 +8773,14 @@
           "kind": "radio",
           "disabled_at_build": true,
           "reason": "Not built. The spec's own note is that alternate-frame rendering only helps the 3D view, and the 3D view (Window ▸ 3D view) draws no terrain yet, so there are no 3D frames to alternate. Selecting it would be indistinguishable from Single device while implying otherwise.",
-          "id": 2,
-          "drawn_below_chips": true
+          "id": 2
          }
         ],
         "id": 3
        },
        {
         "label": "CPU worker threads",
-        "kind": "chips",
+        "kind": "drill",
         "node": "CpuWorkerThreads",
         "items": [
          {
@@ -8919,15 +8811,14 @@
          {
           "label": "Running … workers now",
           "kind": "readout",
-          "id": 5,
-          "drawn_below_chips": true
+          "id": 5
          }
         ],
         "id": 4
        },
        {
         "label": "VRAM budget",
-        "kind": "chips",
+        "kind": "drill",
         "node": "GpuVramBudget",
         "items": [
          {
@@ -8973,15 +8864,14 @@
          {
           "label": "Current grid …x… needs about … MB",
           "kind": "readout",
-          "id": 8,
-          "drawn_below_chips": true
+          "id": 8
          }
         ],
         "id": 5
        },
        {
         "label": "Fallback when VRAM full",
-        "kind": "chips",
+        "kind": "drill",
         "node": "GpuVramFallback",
         "items": [
          {
@@ -8990,17 +8880,16 @@
           "id": 0
          },
          {
-          "label": "Fail with error",
-          "kind": "radio",
-          "id": 2
-         },
-         {
           "label": "Reduce working res",
           "kind": "radio",
           "disabled_at_build": true,
           "reason": "Not built. Nothing in this pipeline computes a stage at a reduced grid and resamples back up -- LOD tile synthesis resamples an already-finished field, which is a different operation. Left visible so the gap is stated rather than silently missing.",
-          "id": 1,
-          "drawn_below_chips": true
+          "id": 1
+         },
+         {
+          "label": "Fail with error",
+          "kind": "radio",
+          "id": 2
          }
         ],
         "id": 6
@@ -9018,7 +8907,7 @@
        },
        {
         "label": "Render quality",
-        "kind": "chips",
+        "kind": "drill",
         "node": "QualityTiers",
         "items": [
          {
@@ -9252,7 +9141,7 @@
        },
        {
         "label": "Relief exaggeration",
-        "kind": "chips",
+        "kind": "drill",
         "node": "ReliefExag",
         "items": [
          {
@@ -9271,10 +9160,13 @@
           "id": 622
          },
          {
+          "label": "",
+          "kind": "separator"
+         },
+         {
           "label": "Use the engine's own 3.4x",
           "kind": "command",
-          "id": 623,
-          "drawn_below_chips": true
+          "id": 623
          }
         ],
         "id": 14
@@ -9285,7 +9177,7 @@
        },
        {
         "label": "Tiled LOD",
-        "kind": "chips",
+        "kind": "drill",
         "node": "TiledLod",
         "items": [
          {
@@ -9299,16 +9191,18 @@
           "id": 161
          },
          {
+          "label": "",
+          "kind": "separator"
+         },
+         {
           "label": "Enter deep detail now",
           "kind": "command",
-          "id": 162,
-          "drawn_below_chips": true
+          "id": 162
          },
          {
           "label": "Leave deep detail",
           "kind": "command",
-          "id": 163,
-          "drawn_below_chips": true
+          "id": 163
          }
         ],
         "id": 16
@@ -9525,7 +9419,7 @@
        },
        {
         "label": "Undo history",
-        "kind": "chips",
+        "kind": "drill",
         "node": "UndoBudget",
         "items": [
          {
@@ -9554,10 +9448,13 @@
           "id": 4
          },
          {
+          "label": "",
+          "kind": "separator"
+         },
+         {
           "label": "Clear undo history now",
           "kind": "command",
-          "id": 22,
-          "drawn_below_chips": true
+          "id": 22
          }
         ],
         "id": 21
@@ -9592,8 +9489,54 @@
         "id": 902
        },
        {
+        "label": "Theme",
+        "kind": "drill",
+        "node": "ThemeChoice",
+        "items": [
+         {
+          "label": "Dark",
+          "kind": "radio",
+          "id": 51
+         },
+         {
+          "label": "Light",
+          "kind": "radio",
+          "id": 52
+         },
+         {
+          "label": "Follow system",
+          "kind": "radio",
+          "id": 58
+         }
+        ],
+        "id": 28
+       },
+       {
+        "label": "Units",
+        "kind": "drill",
+        "node": "UnitsChoice",
+        "items": [
+         {
+          "label": "Kilometres",
+          "kind": "radio",
+          "id": 54
+         },
+         {
+          "label": "Miles",
+          "kind": "radio",
+          "id": 55
+         },
+         {
+          "label": "Nautical miles",
+          "kind": "radio",
+          "id": 604
+         }
+        ],
+        "id": 29
+       },
+       {
         "label": "Handedness",
-        "kind": "chips",
+        "kind": "drill",
         "node": "HandChoice",
         "items": [
          {
@@ -9613,19 +9556,11 @@
         "label": "Keyboard shortcuts…",
         "kind": "command",
         "id": 605
-       },
-       {
-        "label": "TOUCH",
-        "kind": "head"
-       },
-       {
-        "label": "Gesture reference",
-        "kind": "command"
        }
       ]
      },
      "Window": {
-      "screen": "the Window popup (_menu_row -> _fill_popup)",
+      "screen": "the Window popup (_menu_root_row -> _fill_popup)",
       "rows": [
        {
         "label": "Left dock",
@@ -9636,6 +9571,48 @@
         "label": "Right dock",
         "kind": "check",
         "id": 61
+       },
+       {
+        "label": "Context panel",
+        "kind": "drill",
+        "node": "ContextPanelMenu",
+        "items": [
+         {
+          "label": "Inspect",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: the right dock shows one thing at a time and has no tabs. Inspect, Note and Ask arrive when it becomes the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4).",
+          "id": 0
+         },
+         {
+          "label": "Note",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: the Note tab arrives with milestone PC-5 (PC_SHELL_PROPOSAL.md §3.4). Meanwhile Story ▸ Notes for this place opens a settlement's note in the vault window.",
+          "id": 1
+         },
+         {
+          "label": "Ask (assistant)",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: the Ask tab arrives with milestone PC-6 (PC_SHELL_PROPOSAL.md §3.5). Meanwhile Story ▸ Assistant panel… opens the assistant in its own window.",
+          "id": 2
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Pin to the current subject",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: the right dock always shows the latest pick and cannot hold one subject while you select another. Pinning arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4).",
+          "id": 4
+         },
+         {
+          "label": "Follow the selection",
+          "kind": "disabled (not built)",
+          "reason": "Not built yet: there is no pin to release, because the right dock always follows the latest pick. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4).",
+          "id": 5
+         }
+        ],
+        "id": 2
        },
        {
         "label": "Timeline",
@@ -9708,7 +9685,7 @@
           "id": 2
          }
         ],
-        "id": 9
+        "id": 10
        },
        {
         "label": "",
@@ -9736,7 +9713,7 @@
           "id": 2
          }
         ],
-        "id": 11
+        "id": 12
        },
        {
         "label": "Open windows",
@@ -9750,7 +9727,7 @@
           "id": 0
          }
         ],
-        "id": 12
+        "id": 13
        },
        {
         "label": "",
@@ -9806,25 +9783,13 @@
           "id": 603
          }
         ],
-        "id": 15
+        "id": 16
        }
       ]
      },
      "Help": {
-      "screen": "help (_fill_help)",
+      "screen": "the Help popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "Runtime",
-        "kind": "value"
-       },
-       {
-        "label": "Engine",
-        "kind": "value"
-       },
-       {
-        "label": "Gesture reference",
-        "kind": "command"
-       },
        {
         "label": "Documentation",
         "kind": "disabled (not built)",
@@ -9835,6 +9800,11 @@
         "label": "Keyboard reference…",
         "kind": "command",
         "id": 72
+       },
+       {
+        "label": "Gesture reference…",
+        "kind": "command",
+        "id": 919
        },
        {
         "label": "Credits & academic principles",
@@ -9855,10 +9825,6 @@
         "label": "About",
         "kind": "command",
         "id": 71
-       },
-       {
-        "label": "The phone reorganises rather than truncates: every desktop function is reachable through MAP · DOMAIN · STORY · MENU.",
-        "kind": "info"
        }
       ]
      }
@@ -14382,7 +14348,7 @@
       "menu": "World",
       "rows": [
        {
-        "label": "Run pipeline",
+        "label": "Generate world",
         "kind": "command",
         "accel": "Ctrl+R",
         "session_mode_gated": true,
@@ -17124,7 +17090,7 @@
      },
      {
       "label": "File",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "Edit",
@@ -17132,19 +17098,19 @@
      },
      {
       "label": "Assets",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "World",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "Story",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "Preferences",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "Window",
@@ -17152,7 +17118,7 @@
      },
      {
       "label": "Help",
-      "kind": "command"
+      "kind": "drill"
      },
      {
       "label": "STATUS (world, state, last autosave)",
@@ -17161,20 +17127,8 @@
     ],
     "menus": {
      "File": {
-      "screen": "project (_fill_project)",
+      "screen": "the File popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "Save project",
-        "kind": "command",
-        "accel": "Ctrl+S",
-        "id": 12
-       },
-       {
-        "label": "Save as…",
-        "kind": "command",
-        "accel": "Ctrl+Shift+S",
-        "id": 13
-       },
        {
         "label": "New world…",
         "kind": "command",
@@ -17189,18 +17143,40 @@
         "id": 11
        },
        {
-        "label": "RECENT WORLDS",
-        "kind": "head"
+        "label": "Recent worlds",
+        "kind": "drill",
+        "node": "RecentWorlds",
+        "items": [
+         {
+          "label": "{meta.get('name', '')}",
+          "kind": "command",
+          "generated": "for i in recents.size()",
+          "id": 0
+         }
+        ],
+        "id": 2
        },
        {
-        "label": "{meta.get('name', '')}",
+        "label": "New world from selection…",
         "kind": "command",
-        "generated": "for i in recents.size()",
-        "id": 0
+        "session_mode_gated": true,
+        "id": 18
        },
        {
-        "label": "AUTOSAVE",
-        "kind": "head"
+        "label": "",
+        "kind": "separator"
+       },
+       {
+        "label": "Save project",
+        "kind": "command",
+        "accel": "Ctrl+S",
+        "id": 12
+       },
+       {
+        "label": "Save as…",
+        "kind": "command",
+        "accel": "Ctrl+Shift+S",
+        "id": 13
        },
        {
         "label": "Autosave",
@@ -17208,8 +17184,8 @@
         "id": 14
        },
        {
-        "label": "Interval",
-        "kind": "chips",
+        "label": "Autosave interval",
+        "kind": "drill",
         "node": "AutosaveInterval",
         "items": [
          {
@@ -17236,12 +17212,6 @@
         "id": 8
        },
        {
-        "label": "New world from selection…",
-        "kind": "command",
-        "session_mode_gated": true,
-        "id": 18
-       },
-       {
         "label": "Revert to last save",
         "kind": "command",
         "id": 15
@@ -17251,6 +17221,10 @@
         "kind": "command",
         "accel": "Ctrl+W",
         "id": 16
+       },
+       {
+        "label": "",
+        "kind": "separator"
        },
        {
         "label": "Export",
@@ -17367,7 +17341,7 @@
       ]
      },
      "Edit": {
-      "screen": "the Edit popup (_menu_row -> _fill_popup)",
+      "screen": "the Edit popup (_menu_root_row -> _fill_popup)",
       "rows": [
        {
         "label": "Undo",
@@ -17524,64 +17498,8 @@
       ]
      },
      "Assets": {
-      "screen": "assets (_fill_assets)",
+      "screen": "the Assets popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "Splat channels",
-        "kind": "command"
-       },
-       {
-        "label": "Biome textures",
-        "kind": "command"
-       },
-       {
-        "label": "Terrain textures",
-        "kind": "command"
-       },
-       {
-        "label": "Feature icons",
-        "kind": "command"
-       },
-       {
-        "label": "Settlement pins",
-        "kind": "command"
-       },
-       {
-        "label": "Settlement traits",
-        "kind": "command"
-       },
-       {
-        "label": "Points of interest",
-        "kind": "command"
-       },
-       {
-        "label": "Sea marks",
-        "kind": "command"
-       },
-       {
-        "label": "Custom icons",
-        "kind": "command"
-       },
-       {
-        "label": "PACK",
-        "kind": "head"
-       },
-       {
-        "label": "Name",
-        "kind": "value"
-       },
-       {
-        "label": "Author",
-        "kind": "value"
-       },
-       {
-        "label": "Licence",
-        "kind": "value"
-       },
-       {
-        "label": "Stored items",
-        "kind": "value"
-       },
        {
         "label": "⧉ Asset library",
         "kind": "command",
@@ -17617,6 +17535,10 @@
         "label": "Compare pack with library…",
         "kind": "command",
         "id": 42
+       },
+       {
+        "label": "",
+        "kind": "separator"
        },
        {
         "label": "Asset pack",
@@ -18155,6 +18077,10 @@
         "id": 11
        },
        {
+        "label": "",
+        "kind": "separator"
+       },
+       {
         "label": "Apply library to map",
         "kind": "command",
         "id": 36
@@ -18167,7 +18093,7 @@
       ]
      },
      "World": {
-      "screen": "world (_fill_world)",
+      "screen": "the World popup (_menu_root_row -> _fill_popup)",
       "rows": [
        {
         "label": "Generate world",
@@ -18309,175 +18235,97 @@
         "label": "Export is in File ▸ Export",
         "kind": "signpost",
         "id": 13
-       },
-       {
-        "label": "ON THE PHONE",
-        "kind": "head"
-       },
-       {
-        "label": "Civilization",
-        "kind": "command"
-       },
-       {
-        "label": "Data manager",
-        "kind": "command"
-       },
-       {
-        "label": "Travel library",
-        "kind": "command"
-       },
-       {
-        "label": "Simulation",
-        "kind": "command"
        }
       ]
      },
      "Story": {
-      "screen": "story-root (_fill_story_section)",
+      "screen": "the Story popup (_menu_root_row -> _fill_popup)",
       "rows": [
        {
+        "label": "TIME",
+        "kind": "head"
+       },
+       {
         "label": "Timeline",
-        "kind": "drill",
-        "items": [
-         {
-          "label": "Timeline",
-          "kind": "command",
-          "accel": "Ctrl+Shift+T",
-          "id": 723
-         },
-         {
-          "label": "Political history of the selection",
-          "kind": "command",
-          "id": 724
-         },
-         {
-          "label": "Faction history…",
-          "kind": "command",
-          "id": 725
-         }
-        ]
+        "kind": "command",
+        "accel": "Ctrl+Shift+T",
+        "id": 723
        },
        {
-        "label": "Journeys",
-        "kind": "drill",
-        "items": [
-         {
-          "label": "Journey planner",
-          "kind": "command",
-          "id": 726
-         },
-         {
-          "label": "Saved journeys…",
-          "kind": "command",
-          "id": 732
-         },
-         {
-          "label": "Travel library…",
-          "kind": "command",
-          "accel": "Shift+L",
-          "id": 48
-         }
-        ]
+        "label": "Political history of the selection",
+        "kind": "command",
+        "id": 724
        },
        {
-        "label": "Conflicts & campaigns",
-        "kind": "drill",
-        "items": [
-         {
-          "label": "Conflicts…",
-          "kind": "command",
-          "id": 733
-         },
-         {
-          "label": "Draw a conflict",
-          "kind": "command",
-          "id": 727
-         },
-         {
-          "label": "Campaigns this year",
-          "kind": "readout",
-          "id": 11
-         }
-        ]
+        "label": "Faction history…",
+        "kind": "command",
+        "id": 725
        },
        {
-        "label": "Notes",
-        "kind": "drill",
-        "items": [
-         {
-          "label": "Note for the selection",
-          "kind": "command",
-          "accel": "Ctrl+Shift+N",
-          "id": 728
-         },
-         {
-          "label": "Places without notes is in World ▸ Records",
-          "kind": "signpost",
-          "id": 14
-         },
-         {
-          "label": "Ask the assistant about the selection",
-          "kind": "command",
-          "accel": "Ctrl+J",
-          "id": 901
-         }
-        ]
+        "label": "JOURNEYS",
+        "kind": "head"
+       },
+       {
+        "label": "Journey planner",
+        "kind": "command",
+        "id": 726
+       },
+       {
+        "label": "Saved journeys…",
+        "kind": "command",
+        "id": 732
+       },
+       {
+        "label": "Travel library…",
+        "kind": "command",
+        "accel": "Shift+L",
+        "id": 48
+       },
+       {
+        "label": "CONFLICTS & CAMPAIGNS",
+        "kind": "head"
+       },
+       {
+        "label": "Conflicts…",
+        "kind": "command",
+        "id": 733
+       },
+       {
+        "label": "Draw a conflict",
+        "kind": "command",
+        "id": 727
+       },
+       {
+        "label": "Campaigns this year",
+        "kind": "readout",
+        "id": 11
+       },
+       {
+        "label": "NOTES",
+        "kind": "head"
+       },
+       {
+        "label": "Note for the selection",
+        "kind": "command",
+        "accel": "Ctrl+Shift+N",
+        "id": 728
+       },
+       {
+        "label": "Places without notes is in World ▸ Records",
+        "kind": "signpost",
+        "id": 14
+       },
+       {
+        "label": "Ask the assistant about the selection",
+        "kind": "command",
+        "accel": "Ctrl+J",
+        "id": 901
        }
       ]
      },
      "Preferences": {
-      "screen": "prefs (_fill_prefs)",
+      "screen": "the Preferences popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "APPLICATION",
-        "kind": "head"
-       },
-       {
-        "label": "Theme",
-        "kind": "chips",
-        "node": "ThemeChoice",
-        "items": [
-         {
-          "label": "Dark",
-          "kind": "radio",
-          "id": 51
-         },
-         {
-          "label": "Light",
-          "kind": "radio",
-          "id": 52
-         },
-         {
-          "label": "Follow system",
-          "kind": "radio",
-          "id": 58
-         }
-        ],
-        "id": 28
-       },
-       {
-        "label": "Units",
-        "kind": "chips",
-        "node": "UnitsChoice",
-        "items": [
-         {
-          "label": "Kilometres",
-          "kind": "radio",
-          "id": 54
-         },
-         {
-          "label": "Miles",
-          "kind": "radio",
-          "id": 55
-         },
-         {
-          "label": "Nautical miles",
-          "kind": "radio",
-          "id": 604
-         }
-        ],
-        "id": 29
-       },
        {
         "label": "PERFORMANCE",
         "kind": "head"
@@ -18530,7 +18378,7 @@
        },
        {
         "label": "Multi-GPU mode",
-        "kind": "chips",
+        "kind": "drill",
         "node": "GpuMultiMode",
         "items": [
          {
@@ -18548,15 +18396,14 @@
           "kind": "radio",
           "disabled_at_build": true,
           "reason": "Not built. The spec's own note is that alternate-frame rendering only helps the 3D view, and the 3D view (Window ▸ 3D view) draws no terrain yet, so there are no 3D frames to alternate. Selecting it would be indistinguishable from Single device while implying otherwise.",
-          "id": 2,
-          "drawn_below_chips": true
+          "id": 2
          }
         ],
         "id": 3
        },
        {
         "label": "CPU worker threads",
-        "kind": "chips",
+        "kind": "drill",
         "node": "CpuWorkerThreads",
         "items": [
          {
@@ -18587,15 +18434,14 @@
          {
           "label": "Running … workers now",
           "kind": "readout",
-          "id": 5,
-          "drawn_below_chips": true
+          "id": 5
          }
         ],
         "id": 4
        },
        {
         "label": "VRAM budget",
-        "kind": "chips",
+        "kind": "drill",
         "node": "GpuVramBudget",
         "items": [
          {
@@ -18641,15 +18487,14 @@
          {
           "label": "Current grid …x… needs about … MB",
           "kind": "readout",
-          "id": 8,
-          "drawn_below_chips": true
+          "id": 8
          }
         ],
         "id": 5
        },
        {
         "label": "Fallback when VRAM full",
-        "kind": "chips",
+        "kind": "drill",
         "node": "GpuVramFallback",
         "items": [
          {
@@ -18658,17 +18503,16 @@
           "id": 0
          },
          {
-          "label": "Fail with error",
-          "kind": "radio",
-          "id": 2
-         },
-         {
           "label": "Reduce working res",
           "kind": "radio",
           "disabled_at_build": true,
           "reason": "Not built. Nothing in this pipeline computes a stage at a reduced grid and resamples back up -- LOD tile synthesis resamples an already-finished field, which is a different operation. Left visible so the gap is stated rather than silently missing.",
-          "id": 1,
-          "drawn_below_chips": true
+          "id": 1
+         },
+         {
+          "label": "Fail with error",
+          "kind": "radio",
+          "id": 2
          }
         ],
         "id": 6
@@ -18686,7 +18530,7 @@
        },
        {
         "label": "Render quality",
-        "kind": "chips",
+        "kind": "drill",
         "node": "QualityTiers",
         "items": [
          {
@@ -18920,7 +18764,7 @@
        },
        {
         "label": "Relief exaggeration",
-        "kind": "chips",
+        "kind": "drill",
         "node": "ReliefExag",
         "items": [
          {
@@ -18939,10 +18783,13 @@
           "id": 622
          },
          {
+          "label": "",
+          "kind": "separator"
+         },
+         {
           "label": "Use the engine's own 3.4x",
           "kind": "command",
-          "id": 623,
-          "drawn_below_chips": true
+          "id": 623
          }
         ],
         "id": 14
@@ -18953,7 +18800,7 @@
        },
        {
         "label": "Tiled LOD",
-        "kind": "chips",
+        "kind": "drill",
         "node": "TiledLod",
         "items": [
          {
@@ -18967,16 +18814,18 @@
           "id": 161
          },
          {
+          "label": "",
+          "kind": "separator"
+         },
+         {
           "label": "Enter deep detail now",
           "kind": "command",
-          "id": 162,
-          "drawn_below_chips": true
+          "id": 162
          },
          {
           "label": "Leave deep detail",
           "kind": "command",
-          "id": 163,
-          "drawn_below_chips": true
+          "id": 163
          }
         ],
         "id": 16
@@ -19193,7 +19042,7 @@
        },
        {
         "label": "Undo history",
-        "kind": "chips",
+        "kind": "drill",
         "node": "UndoBudget",
         "items": [
          {
@@ -19222,10 +19071,13 @@
           "id": 4
          },
          {
+          "label": "",
+          "kind": "separator"
+         },
+         {
           "label": "Clear undo history now",
           "kind": "command",
-          "id": 22,
-          "drawn_below_chips": true
+          "id": 22
          }
         ],
         "id": 21
@@ -19260,8 +19112,54 @@
         "id": 902
        },
        {
+        "label": "Theme",
+        "kind": "drill",
+        "node": "ThemeChoice",
+        "items": [
+         {
+          "label": "Dark",
+          "kind": "radio",
+          "id": 51
+         },
+         {
+          "label": "Light",
+          "kind": "radio",
+          "id": 52
+         },
+         {
+          "label": "Follow system",
+          "kind": "radio",
+          "id": 58
+         }
+        ],
+        "id": 28
+       },
+       {
+        "label": "Units",
+        "kind": "drill",
+        "node": "UnitsChoice",
+        "items": [
+         {
+          "label": "Kilometres",
+          "kind": "radio",
+          "id": 54
+         },
+         {
+          "label": "Miles",
+          "kind": "radio",
+          "id": 55
+         },
+         {
+          "label": "Nautical miles",
+          "kind": "radio",
+          "id": 604
+         }
+        ],
+        "id": 29
+       },
+       {
         "label": "Handedness",
-        "kind": "chips",
+        "kind": "drill",
         "node": "HandChoice",
         "items": [
          {
@@ -19281,19 +19179,11 @@
         "label": "Keyboard shortcuts…",
         "kind": "command",
         "id": 605
-       },
-       {
-        "label": "TOUCH",
-        "kind": "head"
-       },
-       {
-        "label": "Gesture reference",
-        "kind": "command"
        }
       ]
      },
      "Window": {
-      "screen": "the Window popup (_menu_row -> _fill_popup)",
+      "screen": "the Window popup (_menu_root_row -> _fill_popup)",
       "rows": [
        {
         "label": "Left dock",
@@ -19301,9 +19191,49 @@
         "id": 60
        },
        {
-        "label": "Right dock",
+        "label": "Context panel",
         "kind": "check",
         "id": 61
+       },
+       {
+        "label": "Context panel",
+        "kind": "drill",
+        "node": "ContextPanelMenu",
+        "items": [
+         {
+          "label": "Inspect",
+          "kind": "command",
+          "accel": "Ctrl+1",
+          "id": 914
+         },
+         {
+          "label": "Note",
+          "kind": "command",
+          "accel": "Ctrl+2",
+          "id": 915
+         },
+         {
+          "label": "Ask (assistant)",
+          "kind": "command",
+          "accel": "Ctrl+3",
+          "id": 916
+         },
+         {
+          "label": "",
+          "kind": "separator"
+         },
+         {
+          "label": "Pin to the current subject",
+          "kind": "command",
+          "id": 917
+         },
+         {
+          "label": "Follow the selection",
+          "kind": "command",
+          "id": 918
+         }
+        ],
+        "id": 2
        },
        {
         "label": "Timeline",
@@ -19376,7 +19306,7 @@
           "id": 2
          }
         ],
-        "id": 9
+        "id": 10
        },
        {
         "label": "",
@@ -19404,7 +19334,7 @@
           "id": 2
          }
         ],
-        "id": 11
+        "id": 12
        },
        {
         "label": "Open windows",
@@ -19412,13 +19342,18 @@
         "node": "OpenWindows",
         "items": [
          {
+          "label": "Context panel",
+          "kind": "check",
+          "id": 0
+         },
+         {
           "label": "{w.title.strip_edges()}",
           "kind": "check",
           "generated": "expression",
-          "id": 0
+          "id": 1
          }
         ],
-        "id": 12
+        "id": 13
        },
        {
         "label": "",
@@ -19474,25 +19409,13 @@
           "id": 603
          }
         ],
-        "id": 15
+        "id": 16
        }
       ]
      },
      "Help": {
-      "screen": "help (_fill_help)",
+      "screen": "the Help popup (_menu_root_row -> _fill_popup)",
       "rows": [
-       {
-        "label": "Runtime",
-        "kind": "value"
-       },
-       {
-        "label": "Engine",
-        "kind": "value"
-       },
-       {
-        "label": "Gesture reference",
-        "kind": "command"
-       },
        {
         "label": "Documentation",
         "kind": "disabled (not built)",
@@ -19503,6 +19426,11 @@
         "label": "Keyboard reference…",
         "kind": "command",
         "id": 72
+       },
+       {
+        "label": "Gesture reference…",
+        "kind": "command",
+        "id": 919
        },
        {
         "label": "Credits & academic principles",
@@ -19523,10 +19451,6 @@
         "label": "About",
         "kind": "command",
         "id": 71
-       },
-       {
-        "label": "The phone reorganises rather than truncates: every desktop function is reachable through MAP · DOMAIN · STORY · MENU.",
-        "kind": "info"
        }
       ]
      }

@@ -267,31 +267,12 @@ CLASSIFY = [
     # menu opens. The mockup draws the run-time text (fixed 2026-11-01, A1 and A3), so the two are the same at run time.
     {"id": "R1", "cls": "s", "path": r"Landmark types ▸ [^▸]+ ▸ [^▸]+   not buildable$", "status": r"^differs: label$"},
     {"id": "R2", "cls": "s", "path": r"Atlas cache ▸ \d+ chunks · .* · to LOD \d+$", "status": r"^differs: label$"},
-    # a: the mockup is wrong.
-    {"id": "A1", "cls": "a", "path": r"Landmark types ▸ [^▸]+ ▸ [^▸]+$", "status": r"not-buildable kind"},
-    {"id": "A2", "cls": "a", "path": r"Preferences ▸ Try the GPU again$", "status": r"disabled no/yes"},
-    {"id": "A3", "cls": "a", "path": r"(Lighting rig defaults ▸ Source|Atlas cache ▸ Store)$", "status": r"^differs: label$"},
-    {"id": "A4", "cls": "a", "path": r"LOD levels ▸ LOD 0–0", "status": r"^differs: label$"},
-    {"id": "A5", "cls": "a", "path": r"Workspace ▸ World$", "status": r"session gate no/yes"},
-    {"id": "A6", "cls": "a", "path": r"Open windows ▸ Context panel$", "status": r"^Godot-only"},
-    {"id": "A7", "cls": "a", "platform": r"^phone", "path": r"Open panels in their own window$"},
-    {"id": "A8", "cls": "a", "platform": r"^tablet_below", "path": r"^☰ ▸ Keyboard shortcuts…$", "status": r"label"},
-    {"id": "A9", "cls": "a", "platform": r"^tablet_below", "path": r"^☰ ▸ (Edit|Assets|Preferences|Help) ▸ ",
-     "status": r"^mockup-only"},
-    {"id": "A10", "cls": "a", "platform": r"^tablet_below", "path": r"^World ▸ (Generation pipeline|Sculpt)$",
-     "status": r"session gate no/yes"},
-    {"id": "A11", "cls": "a", "platform": r"^tablet_below", "path": r"^World ▸ Generate world$", "status": r"^mockup-only"},
+    # a, c, and the phone's screen separators: none left. The mockup took A1-A11 (2026-11-01), and Ruling DX answered
+    # K1-K3, P1 and P2, which the drafts now carry; their rules are deleted, so a difference that comes back is
+    # printed as unclassified rather than filed under an answer that no longer applies (`NOTES` keeps the history).
     # s: the same in substance; the difference is drawing only.
     {"id": "S1", "cls": "s", "path": r"(Anti-aliasing · anisotropy|3D viewport defaults|Documentation)$",
      "status": r"^differs: reason$"},
-    # (a separator inside a submenu that only one side has belongs to that submenu's own class, so S2 takes
-    # only a separator at the level being compared)
-    {"id": "S2", "cls": "s", "platform": r"^phone", "path": r"▸ ———$", "status": r"^mockup-only$"},
-    # c: owner decisions.
-    {"id": "K1", "cls": "c", "path": r"Edit ▸ (Context card|Cartwheel at the pointer)$", "status": r"^Godot-only"},
-    {"id": "P2", "cls": "c", "platform": r"^phone", "path": r"^Window ▸ (Context panel|Right dock)"},
-    {"id": "P1", "cls": "c", "platform": r"^phone", "path": r"^(File|Assets|World|Preferences|Help) ▸ ",
-     "status": r"^(Godot-only|mockup-only)"},
 ]
 
 CLASS_NAMES = {"a": "(a) mockup wrong", "b": "(b) draft corrected", "c": "(c) owner decision",
@@ -498,15 +479,16 @@ Evidence only. It records what differs and why. It is not a status record: how f
   `tabletWorldMenu()` from `design/mobile-shell-2026-10-31/Shell.dc.html` (last changed in `fcc4b6f`). Re-run on
   2026-11-01, it reproduced the committed file exactly.
 - **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `{head}`, with these
-  drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs; `drafts/mobile-shell/` 05 and 08; and mobile 03's
-  EDIT H1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
+  drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs; `drafts/mobile-shell/` 05, 08 and 09, with 09's
+  EDIT G1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
   is in its `CONDITIONS` and `RUNTIME` tables (a fresh install, 8 logical cores). The interpreter left **0** conditions
   unresolved on every platform, in both states.
 - **Per platform:**
   - **desktop:** `build()`'s eight menus.
   - **tablet ≥ 1 180 dp:** draft 08's whole bar.
   - **tablet < 1 180 dp:** the shipped bar, `☰ · File · World · Story`.
-  - **phone:** MENU, which is draft 05's root over `phone_menu.gd`'s screens and the phone's own popups.
+  - **phone:** MENU, which is draft 05's root; since Ruling DX Q13 each of its eight rows opens that menu's own
+    popup, row for row.
 - **Two Godot states:**
   - **today:** PC-1, PC-4, PC-5 and PC-6 not built, so each row takes its drafted fallback.
   - **after:** those four milestones built.
@@ -514,7 +496,7 @@ Evidence only. It records what differs and why. It is not a status record: how f
   Rows are compared in the after state. The *Godot today* column is filled only where today's form differs.
 - **Per row:** label, kind, accelerator (not on the phone, which draws none), disabled state and its reason,
   Session-mode gate, and submenu contents. A run-time list is compared by its pattern. On the phone, a radio submenu
-  drawn as chips is compared by its options, not its shape.
+  drawn as chips would be compared by its options, not its shape; since Q13 MENU draws none (`_fill_popup()` drills).
 
 Commands behind every count below:
 
@@ -611,19 +593,44 @@ NOTES = [
         ("B4", "`drafts/mobile-shell/check_symbols.sh`.",
          "The need list gains `_fill_popup _band _popup_row _clean STORY_ROWS`: 93 calls, up from 88. The anchor "
          "section is new."),
+        ("B5", "Ruling DX Q13: the phone's MENU follows the mockup (`drafts/mobile-shell/05` rewritten, `09` new).",
+         "Each of MENU's eight rows now opens its menu's popup row for row (`_menu_root_row()`, `_fill_popup()`), "
+         "instead of the File, Assets, World, Story, Preferences and Help screens. The README's \"Where each "
+         "phone-only row goes\" gives each of those screens' rows a home or a stated drop. The one that needed a row "
+         "is Help ▸ Gesture reference… on the phone (draft 09, the mockup's own row, `ID_HELP_GESTURES` 919). Draft "
+         "09 also makes the landmark rows open the left sheet on the phone. Fourteen screens are left unreachable; "
+         "the README lists them and the sixteen probes that reach them, to delete in the same change. Draft 03's H1 "
+         "is withdrawn with the Help screen; H2, the coach mark, stays."),
+        ("B6", "Ruling DX PQ10: the card's and the cartwheel's rows.",
+         "As drafted: Edit, after Find on map…, on the desktop and the tablet, not on the phone "
+         "(`03_menus_edit.gd::_build_map_surface_rows()` returns there). The mockup has taken them (`notPhone`)."),
+        ("B7", "Ruling DX PQ11: one label, Generate world.",
+         "`pc-shell/02` EDIT W5 renames the narrow tablet's `_world()` row; W4's Session-mode wording follows. "
+         "`pc-shell/07` adds a \"Run pipeline\" `EXTRAS` alias. The README lists the probes that name the row: "
+         "`_sessionmode_probe.gd` and `_storymenus_probe.gd` change, while `_tabletparity_probe.gd` has no pair left. "
+         "`pc-shell/check_symbols.sh` anchors W5 (27 anchors)."),
+        ("B8", "Ruling DX PQ12: no Alt+arrows while typing.",
+         "`pc-shell/03`'s `_on_edit_selection()` drops an Alt+← or Alt+→ press typed into a text field "
+         "(`_typed_into_field()`), as it already did for Q and Shift+F10; a click on the row still acts. The guard's "
+         "doc in 01 and `select_back()`'s in 90 say so."),
+        ("B9", "Ruling DX PQ13: the phone's Window menu.",
+         "`pc-shell/05` builds the Context panel check and its submenu on the phone too: \"Right dock\" until PC-4, "
+         "then \"Context panel\". `90_pc_milestone_stubs.gd` states the phone contract: Inspect shows the selection "
+         "sheet, Note opens the vault at the selection's note, Ask opens the assistant, and Pin/Follow act on the "
+         "sheet, which is the right dock presented as a sheet."),
     ]),
-    ("(c) Owner decisions", [
+    ("(c) Owner decisions: all answered by Ruling DX (2026-11-01); none is open", [
         ("K1", "PQ10: where the card's and the cartwheel's rows live.",
-         "The drafts put Edit ▸ Context card (Shift+F10) and Cartwheel at the pointer (Q) after Find on map… on the "
-         "desktop and both tablets. The mockup has neither row. *Default: as drafted.* If it is taken, add both rows "
+         "*Answered: as drafted, not on the phone (B6).* As asked: the drafts put Edit ▸ Context card (Shift+F10) and Cartwheel at the pointer (Q) after Find on map… on the "
+         "desktop and both tablets. The mockup had neither row. *Default: as drafted.* If it is taken, add both rows "
          "to the mockup's Edit."),
         ("K2", "PQ11: one label for the regenerate command.",
-         "The command is Generate world on the PC and the wide tablet, and Run pipeline on the narrow tablet; it is the "
+         "*Answered: one label, Generate world (B7).* As asked: the command is Generate world on the PC and the wide tablet, and Run pipeline on the narrow tablet; it is the "
          "same command, id 710. It bears on A11. *Default: keep two labels.*"),
         ("K3", "PQ12: Alt+← / Alt+→ while a text field has focus.",
-         "It bears on Edit ▸ Previous / Next selection; the rows match. *Default: yes, as a browser does.*"),
+         "*Answered: no (B8).* As asked: it bears on Edit ▸ Previous / Next selection; the rows match. *Default: yes, as a browser does.*"),
         ("P1", "Phone: MENU's File, Assets, Preferences and Help open the phone screens, which reorder the rows and add some.",
-         "Ruling DT Q2: *the eight desktop menus row for row, in the same order and under the same names, plus Quick "
+         "*Answered (Q13): the phone follows the mockup (B5).* As asked: Ruling DT Q2: *the eight desktop menus row for row, in the same order and under the same names, plus Quick "
          "and Status*. The mockup's MENU follows it, and its band reads *same names, same order*. Draft 05 keeps "
          "`_fill_project()`, `_fill_assets()`, `_fill_prefs()` and `_fill_help()`. These draw:\n"
          "  - File: Save, Save as, New world and Open project first; Recent worlds inline under a head; Autosave with "
@@ -647,7 +654,7 @@ NOTES = [
          "  - Simulation (`_fill_sim()`: year, speed, playback, layers): no home is named yet. The nearest is the "
          "STORY tab's TIME band (Ruling DT Q1)."),
         ("P2", "Phone: Window ▸ Context panel.",
-         "The mockup draws the Context panel check and its submenu (Inspect, Note, Ask, Pin, Follow) on the phone. "
+         "*Answered (PQ13, delegated): the phone follows the mockup (B9).* As asked: the mockup draws the Context panel check and its submenu (Inspect, Note, Ask, Pin, Follow) on the phone. "
          "`pc-shell/05` keeps `Right dock` and no submenu there. It reads `PC_SHELL_PROPOSAL.md` §3.11 (*the phone gets "
          "the model, not the panel*). The same section also gives the phone *the menu rows*. *Default: as drafted.* If "
          "it is taken, the mockup hides both Context panel rows on the phone and draws `Right dock`."),
@@ -656,19 +663,27 @@ NOTES = [
         ("S1", "Disabled-row reasons: Anti-aliasing · anisotropy, 3D viewport defaults, Help ▸ Documentation.",
          "The mockup's reasons are short forms of Godot's tooltips, and they make the same claim."),
         ("S2", "Phone: plain separators inside a menu screen.",
-         "`_rest_of()` skips an unlabelled separator, and `_add()` draws a hairline between every row. The mockup's "
-         "phone draws a gap. Captions are kept on both sides."),
+         "*Gone with the screens (B5).* `_rest_of()` skipped an unlabelled separator, and `_add()` drew a hairline between every row. The mockup's "
+         "phone draws a gap. Since Q13 MENU draws every menu through `_fill_popup()`, which keeps them."),
+        ("S3", "Window ▸ Open windows: the run-time list.",
+         "Both sides fill it when the menu opens. The mockup's static tree shows its empty state (*No windows open*), "
+         "and the Godot side shows the pattern its loop repeats. The Context panel's own row is PC-4's."),
     ]),
     ("Not drafted: the mockup's design, which no draft builds yet", [
         ("N1", "Preferences ▸ TOUCH · NEW ▸ Touch & gestures… (tablet and phone).",
          "This is the proposal's Touch & gestures window. It holds Ruling DU Q5's switch, the hold durations and, per "
          "`MOBILE_SHELL_PROPOSAL.md`, the UI scale. `MOBILE_SHELL_MS1_SPEC.md` §3.6 specifies UI scale as its own "
-         "`Preferences ▸ UI scale` submenu on touch builds, and leaves the panel to later work. On the phone, Godot "
-         "has `TOUCH ▸ Gesture reference`, the read-only half."),
+         "`Preferences ▸ UI scale` submenu on touch builds, and leaves the panel to later work. The read-only half, "
+         "the gesture reference, is the phone's Help ▸ Gesture reference… (B5)."),
         ("N2", "Tablet: Help ▸ Gesture reference….",
-         "The gestures screen exists only in `phone_menu.gd` (`_fill_gestures()`)."),
+         "The gestures screen exists only in `phone_menu.gd` (`_fill_gestures()`); the phone's row is draft 09's."),
         ("N3", "Tablet: Preferences ▸ Open panels in their own window, disabled (DESKTOP ONLY).",
          "PW-5 (*disabled-with-reason on tablet*) is unbuilt. Godot omits the row there today."),
+        ("N4", "Phone: File ▸ Show project on disk, which the mockup labels Share project….",
+         "*Not in the counts.* The mockup relabels the row on the phone through `liveLabel()` (its `phone:` key), which `mockup_menus.js` "
+         "does not apply, so the tables show the row as the same. Godot's row keeps its label and does nothing on a "
+         "touch build: `app.gd::reveal_on_disk()` returns at once when `DccTheme.is_touch()`. No share action exists. "
+         "Found by reading the mockup's source, 2026-11-01."),
     ]),
     ("Same after its milestone", [
         ("PC-1", "Edit ▸ Previous / Next selection.", "A `_todo` row today; live, with Alt+← / Alt+→, from PC-1."),
@@ -692,7 +707,7 @@ def write_report(report, totals):
     L = [INTRO.replace("{head}", head)]
     L.append("## Totals\n")
     L.append("*mockup rows* and *Godot rows* count each side's rows once, at every depth (on the phone, the root's "
-             "eleven included; the mockup's three separators inside rows Godot draws as chips are not compared). "
+             "eleven included). "
              "*rows* counts the tables' rows: a run-time Godot row paired with several of the mockup's sample rows "
              "counts once per sample. Each row that is not *same* counts once more, under its class. Class (b) has "
              "no rows: its fixes are already applied on the Godot side.\n")

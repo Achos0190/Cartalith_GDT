@@ -7,8 +7,9 @@
 ##   - Context card (Shift+F10) and Cartwheel at the pointer (Q): §3.9 moves both keys out of
 ##     `app.gd::_unhandled_key_input` "into the rebindable table, and into the reference" (finding M8).
 ##     The rebindable table IS the menu accelerators (`_bind_accelerator`, which `shortcuts_dialog.gd`
-##     reads and rebinds), so each key needs a row. Neither the proposal nor the mockup says where:
-##     these sit after Find on map…, with the other selection verbs (README, owner question K1).
+##     reads and rebinds), so each key needs a row: after Find on map…, on the desktop and the tablet,
+##     and not on the phone (Ruling DX, PQ10, which answers the drafts' K1 as drafted and records the
+##     phone's absence as a stated exception to its MENU's row for row).
 ##
 ## Target: `shell/menus.gd`. Depends on `01_menus_ids_helpers.gd`. **Lands in the same change as
 ## `09_app_keys.gd`**: the two map rows call `open_context_card()` and `open_cartwheel_at_pointer()`,
@@ -23,7 +24,8 @@
 ##   before PC-1  Previous / Next selection are `_todo` rows with `SELECTION_HISTORY_TODO`; Deselect
 ##                keeps its shipped tooltip (`DESELECT_TIP`).
 ##   from PC-1    (the host has `select_back` / `select_forward`) both rows are live with Alt+← / Alt+→,
-##                and Deselect's tooltip is `DESELECT_ONE_TIP`.
+##                and Deselect's tooltip is `DESELECT_ONE_TIP`. Alt+← and Alt+→ typed into a text field
+##                do nothing (Ruling DX, PQ12); a click on either row acts whatever has focus.
 ##   always       Context card and Cartwheel at the pointer are live (they need no milestone).
 ##
 ## What to do. Each EDIT quotes its old text exactly as it stands at `a38e0ac`.
@@ -59,6 +61,7 @@
 ## hand, on the PC: Edit shows Previous / Next selection disabled, each with its reason; Shift+F10 over
 ## the map opens the card; Q held over the map opens the cartwheel and releasing on a slot picks it;
 ## Q tapped leaves it open; typing Q or Shift+F10 in a text field (a settlement name) opens neither;
+## from PC-1, Alt+← in a text field leaves the selection alone (Windows, Linux; macOS's field takes it);
 ## Preferences ▸ Keyboard shortcuts… lists both rows and rebinding Q to another key moves the press
 ## AND the release. On the tablet with a keyboard: the same, from ☰ ▸ Edit. On the phone: MENU ▸ Edit
 ## has neither map row.
@@ -112,10 +115,11 @@ func _deselect_tip() -> String:
 ## handlers in the project belong to a surface that is open at the time (`context_card.gd::_key()`
 ## while the card is open; `quick_bar_window.gd` uses Alt+Up/Down). `check_symbols.sh`, keys section.
 ##
-## **Not guarded against a focused text field, on purpose, and to be decided at PC-1.** A menu
-## accelerator runs after the focused control has had the key. On macOS a `LineEdit` takes Alt+← as
-## word-left first; on Windows and Linux it does not, so Alt+← while typing changes the selection, as it
-## does in a browser. `_typed_into_field()` is the guard if PC-1 decides otherwise.
+## **Guarded against a focused text field (Ruling DX, PQ12: "no").** A menu accelerator runs after the
+## focused control has had the key. On macOS a `LineEdit` takes Alt+← as word-left first; on Windows and
+## Linux it does not, so the press reaches the row while the user types. `_on_edit_selection()` drops a
+## press that came from the key while a field has focus (`_typed_into_field()`), the guard the map rows
+## below use, and still acts on a click on the row.
 func _build_selection_rows(p: PopupMenu) -> void:
 	if _host_has("select_back"):
 		_live(p, "Previous selection", ID_EDIT_SELECT_BACK, KEY_MASK_ALT | KEY_LEFT)
@@ -140,7 +144,8 @@ func _build_selection_rows(p: PopupMenu) -> void:
 ## item holds one accelerator; `shortcuts_dialog.gd::UNLISTED` lists it). Each handler keeps the old
 ## text-field guard (`_typed_into_field()`), so typing Q or Shift+F10 in a field opens nothing.
 ##
-## **Not built on the phone.** The phone's menu bar lives in a hidden model node
+## **Not built on the phone** (Ruling DX, PQ10: a stated exception to the phone's row for row). The
+## phone's menu bar lives in a hidden model node
 ## (`dcc_shell.gd`, `PhoneMenuModel`, `visible = false`), so no accelerator fires there, and both
 ## surfaces are pointer surfaces: the cartwheel's touch scale is the tablet's (`radial_ring.gd::
 ## _apply_touch_scale()`), and the phone opens the card by its own gesture (`MAP_CONTEXT_SCOPE.md`,
@@ -164,14 +169,19 @@ func _build_map_surface_rows(p: PopupMenu) -> void:
 ##
 ## Previous / Next: their ids exist only on live rows, so the host has the method whenever one
 ## arrives here; a `false` (nothing to step to) says so in the status line rather than doing nothing.
-## The map rows skip a press that came from the key while a text field has focus (the guard
-## `app.gd::_unhandled_key_input` used to apply), and run on a click whatever has focus.
+## All four rows skip a press that came from the key while a text field has focus (for the map rows,
+## the guard `app.gd::_unhandled_key_input` used to apply; for Alt+← and Alt+→, Ruling DX PQ12), and run
+## on a click whatever has focus.
 func _on_edit_selection(id: int) -> void:
 	match id:
 		ID_EDIT_SELECT_BACK:
+			if _typed_into_field(id):
+				return
 			if not bool(_host.select_back()):
 				_host.set_status("hint", SELECT_BACK_NONE, "text_ghost")
 		ID_EDIT_SELECT_FORWARD:
+			if _typed_into_field(id):
+				return
 			if not bool(_host.select_forward()):
 				_host.set_status("hint", SELECT_FORWARD_NONE, "text_ghost")
 		ID_EDIT_CONTEXT_CARD:

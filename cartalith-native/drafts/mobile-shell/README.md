@@ -13,7 +13,7 @@ How far any milestone has got is `cartalith-native/docs/STATUS.md`'s answer, nev
 
 **Not parse-checked.** The cloud session that wrote these had no Godot binary, and downloading one was not permitted. Every shipped
 symbol the drafts call was checked to exist, and every new name was checked to be free in its target file. `check_symbols.sh` repeats
-both checks: 93 calls (88 until the 2026-11-01 menu parity fixes to drafts 05 and 08), none missing; no collisions. Neither check is a parse. The first thing to run on the PC, after pasting each draft:
+both checks: 97 calls (88 on 2026-10-31; 93 after the menu parity fixes to drafts 05 and 08; 97 since Ruling DX's drafts 05 and 09), none missing; no collisions; and every text an edit lands on is still there once. Neither check is a parse. The first thing to run on the PC, after pasting each draft:
 
 ```
 godot --headless --path cartalith-native/godot-project --check-only --script res://shell/<file>.gd
@@ -29,14 +29,15 @@ Then parse-check `shell/app.gd` as well. Re-run the parse check after every edit
 | 0 | `check_symbols.sh` | — | — | re-checks the drafts against the current tree | nothing; run it first |
 | 1 | `01_dcc_theme_classify.gd` | MS-1 S1 | `shell/dcc_theme.gd` | adds `classify()`, `width_class_of()`, `layout()`; takes over `_PHONE_ASPECT_MAX` and `_TABLET_MIN_DP` from the shell | nothing |
 | 2 | `02_dcc_shell_density_unit.gd` | MS-1 S1, S2, S3 | `shell/dcc_shell.gd` | replaces `_compute_layout_mode()`, `_is_tablet_sized()` and `_on_window_resized()`; adds `_density()`, `--density`, `--ui-scale`, `_apply_unit()` and the resize debounce | S0's measurements before S2 (spec §4.1); MQ-2 and MQ-3 before S2 |
-| 3 | `03_dcc_shell_phone_tabs.gd` | MS-2 | `shell/dcc_shell.gd` | replaces `PHONE_TABS`, `_pick_phone_tab()`, `_phone_tab_for_domain()` and `_phone_tab_drives_sheet()`; adds the domain tab's tap, hold and swipe; renames the old tabs in two drawn strings (EDIT H1 in `shell/phone_menu.gd::_fill_help()`, H2 the coach mark, added 2026-11-01) | drafts 4 and 5 |
+| 3 | `03_dcc_shell_phone_tabs.gd` | MS-2 | `shell/dcc_shell.gd` | replaces `PHONE_TABS`, `_pick_phone_tab()`, `_phone_tab_for_domain()` and `_phone_tab_drives_sheet()`; adds the domain tab's tap, hold and swipe; flags the coach mark that still names the old tabs (H2, added 2026-11-01; H1 withdrawn by Ruling DX Q13) | drafts 4 and 5 |
 | 4 | `04_phone_domain_fan.gd` | MS-2 | new `shell/phone_domain_fan.gd` | the domain fan: WORLD · GENERATE, CIVIL, CARTO | nothing |
-| 5 | `05_phone_menu_root.gd` | MS-4, MS-6 | `shell/phone_menu.gd` | replaces `_fill_root()`, `_fill_story_section()` (the Story screen's four band rows, without the old root's "Story" and "World" heads) and `_fill_popup()` (a leading captioned separator is kept as a band); adds the `world` and `story-root` screens and `open_story()`; retires `ROOT_ROWS`, `ROOT_REST`, `_named_in_root()` | nothing |
+| 5 | `05_phone_menu_root.gd` | MS-4, MS-6 | `shell/phone_menu.gd` | replaces `_fill_root()` (the eight menus row for row, Ruling DX Q13), `_fill_story_section()` (the STORY tab's four band rows, without the old root's "Story" and "World" heads) and `_fill_popup()` (a leading captioned separator is kept as a band); adds `_menu_root_row()`, the `story-root` screen, `open_story()` and `open_screen()`; retires `ROOT_ROWS`, `ROOT_REST`, `_named_in_root()` and leaves fourteen screens unreachable (the inventory below) | nothing |
 | 6 | `06_quick_drawer.gd` | MS-11 | new `shell/quick_drawer.gd` | the phone's side drawer of pinned commands | Q10 and Q11 (proposal §7) |
 | 7 | `07_quick_bar_phone_drawer_patch.gd` | MS-11 | `shell/quick_bar_phone.gd`, `shell/dcc_shell.gd` | replaces `QuickBarPhone.refresh()`; adds `set_phone_quick_drawer()` and the back hook | draft 6 |
 | 8 | `08_menus_tablet_bar.gd` | MS-7 (menu bar) | `shell/menus.gd` | replaces `build()`: eight menus from 1 180 dp, World being the PC's (`_pc_world()`) on the desktop, the phone and the wide tablet | draft 1; `drafts/pc-shell/` 01 and 02 (they add `_pc_world()`); MS-1 S4 for a live switch across 1 180 dp |
+| 9 | `09_menus_phone_rows.gd` | MS-4 | `shell/menus.gd`, one function for `shell/dcc_shell.gd` | adds Help ▸ Gesture reference… on the phone (`ID_HELP_GESTURES` 919, `_build_gesture_reference_row()`, an `_on_help()` arm) and `DccShell.phone_open_menu_screen()`; makes `_open_landmark_dock()` open the left sheet on the phone | draft 5 (`open_screen()`) |
 
-Drafts 3 to 8 do not depend on MS-1's unit; they size themselves through the shell's existing `_pscale()`, `_pfont()` and
+Drafts 3 to 9 do not depend on MS-1's unit; they size themselves through the shell's existing `_pscale()`, `_pfont()` and
 `phone_scale()`. They can land before S2 if the owner prefers the menus first.
 
 ## Not drafted, and why
@@ -61,24 +62,56 @@ Drafts 3 to 8 do not depend on MS-1's unit; they size themselves through the she
   - On the phone, drafts 6 and 7 move the pins from CQ-6's row in the sheet to a side drawer on a grip, which is the owner's suggestion
     and Q10's default.
 
-## Where each retired MENU root row goes (draft 5)
+## Where each phone-only row goes (drafts 5 and 9, Ruling DX Q13)
 
-`MISTAKES.md`, "Delete a surface": every item gets a stated home.
+`MISTAKES.md`, "Delete a surface": every item gets a stated home or a stated drop. Ruling DX Q13 (2026-11-01): the
+phone's MENU follows the mockup and repeats the desktop menus row for row, instead of opening the phone screens. Each
+row of those screens was read at its builder in `shell/phone_menu.gd` (`_fill_project`, `_fill_assets`,
+`_fill_prefs`, `_fill_help`, `_fill_civ`, `_fill_data`, `_fill_sim`, `_fill_travel`; draft 5's first version added
+`_fill_world`'s "On the phone" band). Each home was checked at the symbol named.
 
-| Retired root row (`ROOT_ROWS` and bands) | New home |
+| Phone screen ▸ row | Home, or a stated drop |
 |---|---|
-| Quick (band) | MENU, first, unchanged (`_fill_quick()`) |
-| Project → `project` | MENU ▸ File (the same screen) |
-| Civilization → `civ` | MENU ▸ World ▸ On the phone; its lasting home is the CIVIL domain sheet (MS-3) |
-| Story band: Timeline, Journeys, Conflicts & campaigns, Notes | the STORY tab (`open_story()`), and MENU ▸ Story (`story-root`) |
-| Data manager → `data` | MENU ▸ World ▸ On the phone (and World's own first row opens the window) |
-| Asset library → `assets` | MENU ▸ Assets (the same screen, with its fill badge) |
-| Travel library → `travel` | MENU ▸ World ▸ On the phone |
-| Simulation → `sim` | MENU ▸ World ▸ On the phone |
-| Preferences → `prefs` | MENU ▸ Preferences (the same screen) |
-| Help & about → `help` | MENU ▸ Help (the same screen) |
-| Status (band) | MENU, last, unchanged (`_fill_status()`, moved verbatim) |
-| "Not on the MORE list": Edit, Window | MENU ▸ Edit and MENU ▸ Window, in menu-bar order (`_menu_row()`) |
+| Root: Quick, Status | MENU, first and last, unchanged (`_fill_quick()`, `_fill_status()`) |
+| Root: the eight menus | MENU's MENUS band, each row opening its menu's popup row for row (`_menu_root_row()`, `_fill_popup()`) |
+| Project: Save project, Save as…, New world…, Open project… drawn first | MENU ▸ File, the same rows in File's order |
+| Project: Recent worlds inline under a band | MENU ▸ File ▸ Recent worlds (one drill deeper; same `_refresh_recent_worlds()` rows) |
+| Project: Autosave and its "Interval" chips under a band | MENU ▸ File ▸ Autosave and ▸ Autosave interval |
+| Project, Asset library, Help & about: the screen titles | **dropped**: a popup's screen is titled with its menu's name (File, Assets, Help) |
+| Asset library: the nine families with fill badges, and their slot grid and slot inspector (`assets-grid`, `asset-slot`) | MENU ▸ Assets ▸ Icon families (six) and ▸ Texture sets (three); each opens the Asset library on that family (`app.gd::open_asset_library()`), whose rail, slot grid and inspector are the same slots |
+| Asset library: PACK Name, Author, Licence, Stored items | MENU ▸ Assets ▸ Asset pack ▸ NAME, AUTHOR, LICENSE and FILLED (FILLED carries the item total, `_refresh_asset_pack_stats()`) |
+| Preferences: Theme and Units drawn first | MENU ▸ Preferences ▸ Theme and Units, in the APPLICATION band where the popup has them |
+| Preferences: TOUCH ▸ Gesture reference; Help & about: Gesture reference | MENU ▸ Help ▸ Gesture reference…, a new phone row (draft 9), which is the mockup's own row |
+| Help & about: Runtime (Godot version · OS) | MENU ▸ Help ▸ About (`app.gd::open_about()` prints the same `Godot %s · %s`) |
+| Help & about: Engine (the GPU) | MENU's Status band, GPU (the same `top_gpu` slot, `STATUS_ROWS`) |
+| Help & about: the closing line ("The phone reorganises rather than truncates …") | **dropped** from Help with the screen. The mockup draws the sentence in its About window; Godot's About has no such line, and none is drafted |
+| Civilization: Settlement, Territory, Territory lasso, Way, Route, Conflict (arm a tool) | Window ▸ Workspace ▸ Civilization, then Window ▸ Left dock: the CIVIL dock's TOOLS block arms the same six (`_go_civilization()` landed there). MS-3's domain sheet and MS-5's tool strip are their planned phone homes |
+| Civilization: Civilization dock | the same two Window rows |
+| Civilization: Point of interest (a not-built row) | **dropped**: no POI tool exists; POI art stays at Assets ▸ Icon families ▸ Points of interest |
+| Civilization: Landmark generation (`landmarks`, `lm-fam`: caps, spacing, one run) | Assets ▸ Landmark types ▸ any family's rows, which open CIVIL ▸ Landmarks at that family; draft 9 makes them open the left sheet on the phone |
+| Civilization: Open journey planner | Story ▸ Journey planner |
+| Data manager: World's rows | MENU ▸ World, the same popup |
+| Data manager: Maps · tile pyramid (`data-tiles`) | File ▸ Export ▸ Maps (tiles), the Data manager window's `export_maps` route |
+| Travel library (`travel`, `travel-item`) | Story ▸ Travel library…, the window the screen already ended on |
+| Simulation: Transport strip on map, Year, Speed, Playback | Window ▸ Timeline: the phone's timeline bar, whose row opens the sim strip (play, scrub, speed; `app.gd::_fill_phone_timeline_row()`) |
+| Simulation: the six Simulation layers | **dropped on the phone**: they record a choice and no layer renders yet (`DccShell.TL_LAYER_NOTE`); the desktop and the tablet keep them on the timeline strip. If the owner wants them on the phone: Story ▸ TIME ▸ "Timeline layers ▸" (six checks), phone only |
+| World ▸ "On the phone" band (draft 5's first version) | **dropped** with the four doors above |
+| Story band rows (Timeline, Journeys, Conflicts & campaigns, Notes) | the STORY tab (`open_story()`); MENU ▸ Story is the Story popup row for row |
+| "Not on the MORE list": Edit, Window | MENU ▸ Edit and MENU ▸ Window, in menu-bar order, as every menu is now |
+
+**Unreachable after draft 5**, and to be deleted in the same change: the screens `project`, `civ`, `data`, `data-tiles`,
+`sim`, `prefs`, `assets`, `assets-grid`, `asset-slot`, `travel`, `travel-item`, `landmarks`, `lm-fam` and `help`, with their
+`SCREEN_TITLES` entries and helpers. Their only doors were the retired root and each other: `grep -n '_push_screen("'
+shell/phone_menu.gd` lists every one. `gestures` (draft 9) and `story` (the STORY tab) keep theirs. Sixteen probes push
+or read those screens or `ROOT_ROWS`, found with `grep -ln '_push_screen\|ROOT_ROWS' cartalith-native/godot-project/*.gd`:
+`_chipink_probe.gd`, `_emptyphone_probe.gd`, `_etd4_probe.gd`, `_phonemore2_probe.gd`, `_phonemore_act_probe.gd`,
+`_phonemore_reach_probe.gd`, `_phonescroll_probe.gd`, `_phonetiles_probe.gd`, `_prefchip_probe.gd`,
+`_quickbar_phone_probe.gd`, `_quickbar_phoneid_probe.gd`, `_rangeswipe_probe.gd`, `_storymenus_probe.gd`,
+`_vfyb13_probe.gd`, `_vfybold_probe.gd`, `_vfychip_probe.gd`. Each is re-pointed at the menu row that replaced its screen,
+or retired with it. That is a reading of their file names and a grep, not a run (no Godot here).
+
+**Mockup rows this needs**: none new. Gesture reference… is already the mockup's (Help, `mobile`). The one row the owner
+might add is the optional "Timeline layers" above.
 
 ## Verifying each draft
 
@@ -96,9 +129,14 @@ a usage header that names exactly the arguments it reads. Every new probe must f
   - The fan's targets are at least 44 × 44 dp, and a Session-mode refusal draws dim and cannot be picked.
   - The six `for t in PHONE_TABS` loops are re-read.
 - **Draft 5:**
-  - MENU's root lists Quick, then File · Edit · Assets · World · Story · Preferences · Window · Help in the menu bar's order, then Status.
-  - Every row in the table above is reachable.
+  - MENU's root lists Quick, then the MENUS band with File · Edit · Assets · World · Story · Preferences · Window · Help in the menu bar's order, then Status.
+  - Each menu opens its popup row for row, under the menu's own name: the same rows, order, bands and submenus as the desktop popup, File ▸ Export's FOR THE TABLE band included. `cartalith-native/docs/evidence/menu-parity-2026-11-01/` checks this statically against the mockup.
+  - Every home in the table above is reachable, and every row marked dropped is gone.
   - `open_story("JOURNEYS")` lands on the band, and system back returns to Story.
+- **Draft 9:**
+  - On the phone MENU ▸ Help lists Gesture reference… third; it opens the gesture reference, and system back returns to MENU.
+  - On the phone Assets ▸ Landmark types ▸ any type opens the left sheet on CIVIL ▸ Landmarks at that family.
+  - The desktop and the tablet build no Gesture reference… row, and their landmark rows behave as before.
 - **Drafts 6 and 7:** proposal MS-11.
   - Every pin runs from the drawer.
   - The grip is at least 44 × 88 dp and draws nothing while the bar is empty, which keeps `_quickbar_phoneid_probe.gd` green.

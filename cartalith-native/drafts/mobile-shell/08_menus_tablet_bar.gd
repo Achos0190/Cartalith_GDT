@@ -12,7 +12,8 @@
 ## tablet `_tablet_world` repeated Edit's Reset generation parameters and Reset one stage in World (`_world()`
 ## builds them, and the whole bar's Edit does too). The mockup's wide tablet and Ruling DU Q7 ("the eight menus
 ## whole") both draw the desktop's World. Inventory of what the wide tablet's World no longer carries
-## (`MISTAKES.md`, "Delete a surface"): Run pipeline is the same command as Generate world (id 710, Ctrl+R);
+## (`MISTAKES.md`, "Delete a surface"): its first row is the same command as Generate world (id 710, Ctrl+R; it
+## read "Run pipeline" until Ruling DX PQ11 gave the command one label, `drafts/pc-shell/02` EDIT W5);
 ## Reset generation parameters and Reset one stage are in Edit; Generation pipeline and Sculpt are the WORLD
 ## rail's two modes; Seed & size… opens the same dialog as File ▸ New world…. Below 1 180 dp the tablet keeps
 ## `_tablet_world`, as shipped.

@@ -11,8 +11,8 @@ PC-9 or any other milestone has got is `cartalith-native/docs/STATUS.md`'s answe
 `Desktop` frame), which these drafts follow where the proposal's prose is less exact.
 
 **Not parse-checked.** The cloud session that wrote these had no Godot binary. What was checked instead:
-`check_symbols.sh` (below: 161 shipped symbols the drafts call or name, 94 new names, 26 edit anchors, 8 replaced
-blocks; all pass at `a38e0ac`), a lint of the drafts (tab indentation only, balanced brackets per file: 0 problems),
+`check_symbols.sh` (below: 161 shipped symbols the drafts call or name, 94 new names, 27 edit anchors (26 until
+Ruling DX's W5), 8 replaced blocks; all pass at `a38e0ac` and again at `7d2acd1`), a lint of the drafts (tab indentation only, balanced brackets per file: 0 problems),
 and a mutation run of `check_symbols.sh` itself on a scratch copy of the tree (a renamed helper, a taken name, a
 changed anchor, a one-character edit inside a replaced block, a pasted stub, a key bound to another row: each made
 it fail; a CRLF copy passed). None of that is a parse. The first thing to run on the PC, from the repository root,
@@ -36,12 +36,12 @@ rows in the same change as the move, and Q breaks if 03 and 09 are split.
 |---|---|---|---|---|
 | 0 | `check_symbols.sh` | none | re-checks every draft against the current tree; run it first | |
 | 1 | `01_menus_ids_helpers.gd` | `shell/menus.gd` | adds `ID_EDIT_SELECT_BACK` … `ID_WIN_CTX_FOLLOW` (910-918), `_host_has()`, `_context_tab_ready()`, `_typed_into_field()`, `cartwheel_keycode()` | everything |
-| 2 | `02_menus_world.gd` | `shell/menus.gd` | `build()`'s non-tablet World line (not needed when `drafts/mobile-shell/08` replaces `build()`: its whole bar already uses `_pc_world`); replaces `_data()` and `_on_data()`; adds `_pc_world()`, `_open_factions()`, `RUN_PIPELINE_TIP`; edits `_build_vault_rows()`, `_world()`'s tooltip, `SESSION_MODE_TIP` | |
+| 2 | `02_menus_world.gd` | `shell/menus.gd` | `build()`'s non-tablet World line (not needed when `drafts/mobile-shell/08` replaces `build()`: its whole bar already uses `_pc_world`); replaces `_data()` and `_on_data()`; adds `_pc_world()`, `_open_factions()`, `RUN_PIPELINE_TIP`; edits `_build_vault_rows()`, `_world()`'s tooltip and its row's label (W5: "Run pipeline" becomes "Generate world", Ruling DX PQ11), `SESSION_MODE_TIP` | **07** |
 | 3 | `03_menus_edit.gd` | `shell/menus.gd` | edits `_build_edit_actions()` (Deselect's tooltip; two insertions) and `_edit()`; adds `_build_selection_rows()`, `_build_map_surface_rows()`, `_on_edit_selection()`, `_deselect_tip()` | **08, 09** |
 | 4 | `04_menus_story.gd` | `shell/menus.gd` | replaces `_story()`, `_refresh_story_menu()`, `_on_story()` (each with its doc); adds `_story_forms`, `_story_selection()` and their constants | |
 | 5 | `05_menus_window.gd` | `shell/menus.gd` | edits `_window()`'s region loop, `_layout_readout()`, `_open_windows`' comment; replaces `_refresh_open_windows()`, `_on_open_window()`; adds `_region_label()`, `_build_context_panel_menu()`, `_on_context_panel()`, `_visible_windows()` | |
 | 6 | `06_menus_help_assets.gd` | `shell/menus.gd` | replaces `_build_help_shortcuts_row()`; removes `_assets()`'s Import image row and `_on_assets()`'s arm; edits two `ID_*` comments | **07** |
-| 7 | `07_command_index.gd` | `shell/command_index.gd` | three `EXTRAS` rows, the `alias` skip in `build()`, `_has_menu_title()` | **06** |
+| 7 | `07_command_index.gd` | `shell/command_index.gd` | four `EXTRAS` rows, the `alias` skip in `build()`, `_has_menu_title()` | **06, 02** |
 | 8 | `08_shortcuts_dialog.gd` | `shell/shortcuts_dialog.gd` | one `UNLISTED` row (the Menu key); window title per mode (`_set_mode_title()`, `_phone_title`) | **03, 09** |
 | 9 | `09_app_keys.gd` | `shell/app.gd` | replaces `_unhandled_key_input()` with its doc (four exact replacements of the shipped text); adds `open_context_card()`, `open_cartwheel_at_pointer()` | **03, 08** |
 | 10 | `10_dcc_shell_menu_hover.gd` | `shell/dcc_shell.gd` | one line in `add_menu()`: `switch_on_hover` on the desktop | independent |
@@ -57,7 +57,8 @@ lands shows its rows from the next start):
 
 1. **No dependency: live from the moment it is pasted.** Generate world (Ctrl+R) on the PC; Ctrl+Shift+F on
    Factions…; Ctrl+Shift+V on Markdown vault…; the two signposts; Keyboard reference…; Import image removed; Open
-   windows walking every window; Context card (Shift+F10) and Cartwheel at the pointer (Q).
+   windows walking every window; Context card (Shift+F10) and Cartwheel at the pointer (Q), not on the phone; the
+   tablet's World row titled Generate world (Ruling DX PQ11).
 2. **A shipped row whose new form needs a milestone: the shipped form until then.** It works today, and a `_todo` in
    its place would take away a working command and its key (`MISTAKES.md`, "Delete a surface").
 3. **A new row with no behaviour today: `_todo(p, label, reason)` until its milestone**, the shipped convention for a
@@ -68,16 +69,16 @@ panel's tabs (`DccApp.context_tabs()`). `check_symbols.sh` section 6a reports wh
 
 | Row | Before its milestone | From its milestone | Milestone (gate) |
 |---|---|---|---|
-| Edit ▸ Previous / Next selection | `_todo`, `SELECTION_HISTORY_TODO` | live, Alt+← / Alt+→ | PC-1 (`select_back`, `select_forward`) |
+| Edit ▸ Previous / Next selection | `_todo`, `SELECTION_HISTORY_TODO` | live, Alt+← / Alt+→ (ignored while typing in a field, Ruling DX PQ12) | PC-1 (`select_back`, `select_forward`) |
 | Edit ▸ Deselect | shipped tooltip | `DESELECT_ONE_TIP` (behaviour is `clear_selection()`'s) | PC-1 (`select_back`) |
 | World ▸ Factions… | last faction viewed (shipped) | current faction | PC-1 (`current_faction`) |
 | Story ▸ Faction history… | last faction viewed (shipped) | current faction | PC-1 (`current_faction`) |
 | Story ▸ Political history | "…of this place…", Place editor, settlement only | "…of the selection", Inspect | PC-4 (`context_tabs` has inspect) |
 | Story ▸ note row | "Notes for this place", vault window | "Note for the selection", Note tab | PC-5 (note) |
 | Story ▸ assistant row | "Assistant panel…", no key | "Ask the assistant about the selection", Ctrl+J | PC-6 (ask) |
-| Window ▸ Right dock (region row) | "Right dock" | "Context panel" (desktop, tablet) | PC-4 (inspect) |
-| Window ▸ Context panel ▸ Inspect, Pin, Follow | `_todo`, each with its reason | live (Inspect: Ctrl+1) | PC-4 (inspect + the method) |
-| Window ▸ Context panel ▸ Note / Ask | `_todo` | live, Ctrl+2 / Ctrl+3 | PC-5 / PC-6 |
+| Window ▸ Right dock (region row) | "Right dock" | "Context panel" on every form factor; on the phone it shows or hides the selection sheet (Ruling DX PQ13) | PC-4 (inspect) |
+| Window ▸ Context panel ▸ Inspect, Pin, Follow | `_todo`, each with its reason | live (Inspect: Ctrl+1); on the phone Inspect opens the selection sheet | PC-4 (inspect + the method) |
+| Window ▸ Context panel ▸ Note / Ask | `_todo` | live, Ctrl+2 / Ctrl+3; on the phone Note opens the vault at the selection's note and Ask the assistant | PC-5 / PC-6 |
 | Window ▸ Open windows' Context panel row | absent | listed while the panel is shown | PC-4 (inspect) |
 
 **`90_pc_milestone_stubs.gd` must not be pasted before its milestone.** Its bodies answer "nothing" honestly (`false`,
@@ -154,22 +155,24 @@ The 23 bindings are the proposal §1's list exactly. Reading the "other matches"
 - Freehand's F and every tool letter are exact-match `Shortcut`s, so no modified chord fires them. No tool uses Q or J.
 - `app.gd:601` is ⇧J, which excludes Ctrl, so it cannot meet Ctrl+J. Lines 525, 542 and 584 are the Q and Shift+F10
   code 09 removes (it keeps `KEY_MENU`).
-- Alt+← in a focused `LineEdit`: macOS takes it as word-left first; Windows and Linux do not, so Alt+← while typing
-  will change the selection, as in a browser. Left for PC-1 to decide (owner question K3 below).
+- Alt+← in a focused `LineEdit`: macOS takes it as word-left first; Windows and Linux do not, so the press reaches the
+  row. Ruling DX, PQ12: it must not move the selection, so `_on_edit_selection()` drops a press typed into a field
+  (`_typed_into_field()`); a click on the row still acts.
 
 After the drafts are applied, re-run it: each new chord should read "bound to its own command" once its row is live,
 and nothing should read COLLISION.
 
 ## Search and the reference: the EXTRAS and UNLISTED rows
 
-`command_index.gd::EXTRAS` (07) gains three rows with a new `alias` key. An alias is skipped while a live menu row
+`command_index.gd::EXTRAS` (07) gains four rows with a new `alias` key. An alias is skipped while a live menu row
 still carries its exact title, so each appears only once its title has left the bar:
 
 | Title | Blurb (abridged) | Appears |
 |---|---|---|
 | Import image | Assets ▸ ⧉ Asset library (Shift+A), then the library's own Import image… | now (06 removes the row) |
 | Notes for this place | Now Story ▸ Note for the selection (Ctrl+Shift+N) | from PC-5 |
-| Right dock | Now the Context panel: Window ▸ Context panel | from PC-4, desktop and tablet; never on the phone |
+| Right dock | Now the Context panel: Window ▸ Context panel | from PC-4, on every form factor (Ruling DX PQ13) |
+| Run pipeline | Now World ▸ Generate world (Ctrl+R) on every form factor | now (02's W5 renames the tablet's row, Ruling DX PQ11) |
 
 No alias for renames whose words still match the new title ("political history", "assistant", "keyboard"), or for
 titles still on the bar elsewhere (World's "Timeline" → Story ▸ Timeline; Story's "Places without notes" → World's
@@ -188,11 +191,12 @@ Each was read at its own lines; none was run (no Godot here).
 | Probe | What changes | Draft |
 |---|---|---|
 | `_storymenus_probe.gd` | `WORLD_ROWS`: "Timeline" → "Timeline is in Story ▸ Timeline", and slice a desktop head `["Generate world"]` off the World rows the way it slices `TABLET_WORLD_HEAD` on the tablet; drop the `world.id_pressed.emit(DccMenus.ID_WORLD_TIMELINE)` check (no row carries it); `STORY_ROWS`: "Places without notes…" → "Places without notes is in World ▸ Records"; drop the Story-popup press of `ID_PLACES_WITHOUT_NOTES` (World's press stays). Its Ctrl+Shift+N and "Notes for this place" checks hold until PC-5 | 02, 04 |
-| `_sessionmode_probe.gd` | `GATED_DESKTOP` gains "World > Generate world" (the phone run builds the same row) | 02 |
-| `_tabletparity_probe.gd` | desktop gains "Generate world", the tablet keeps "Run pipeline": the same command under two titles. Teach it the pair, or settle K2 | 02 |
-| `_idxfind_probe.gd` | add `"Import image": 1, "Notes for this place": 1, "Right dock": 1` to `want` (it builds with no app, so every alias appears) | 07 |
+| `_sessionmode_probe.gd` | `GATED_DESKTOP` gains "World > Generate world" (the phone run builds the same row); `GATED_TABLET`'s "World > Run pipeline" becomes "World > Generate world" (W5, Ruling DX PQ11) | 02 |
+| `_storymenus_probe.gd`, again for W5 | `TABLET_WORLD_HEAD`'s first entry "Run pipeline" becomes "Generate world" | 02 |
+| `_tabletparity_probe.gd` | no pair to teach any more (Ruling DX PQ11 gave the command one label). Its title census counts "Generate world" once on each bar; it must learn the label wherever it names the row, and before W5 it would have reported "Generate world (desktop x1, tablet x0)" | 02 |
+| `_idxfind_probe.gd` | add `"Import image": 1, "Notes for this place": 1, "Right dock": 1, "Run pipeline": 1` to `want` (it builds with no app, so every alias appears) | 07 |
 | `_ctxring_probe.gd` (windowed, clean user dir) | no edit: its Q and M legs push Q, the Menu key and Shift+F10 through `_vp.push_input()`, which now reaches the rows' accelerators for Q and Shift+F10. They must stay green | 03, 09 |
-| `_seedlayout_probe.gd`, `_appbar20_probe.gd`, `_llmplace_probe.gd`, `_llmpanel_probe.gd` | no edit now; each reads a label that changes only at its milestone (PC-4: "Right dock" on the desktop readout; PC-6: "Assistant panel…") | 04, 05 |
+| `_seedlayout_probe.gd`, `_appbar20_probe.gd`, `_llmplace_probe.gd`, `_llmpanel_probe.gd` | no edit now; each reads a label that changes only at its milestone (PC-4: "Right dock" on the desktop readout, and since Ruling DX PQ13 the phone's row in `_appbar20_probe.gd` too; PC-6: "Assistant panel…") | 04, 05 |
 | `_vfy_r2_menus_probe.gd`, `_apcmdcheck_probe.gd` | census dumps; "Import image" now title-matches the alias row | 06, 07 |
 
 ## Verifying, after pasting
@@ -204,12 +208,13 @@ Each was read at its own lines; none was run (no Godot here).
 3. By hand, desktop (each draft's header has its own list): World starts with Generate world · Ctrl+R; Ctrl+Shift+F
    opens Factions and Ctrl+Shift+V the vault; World's RECORDS band ends with the Timeline signpost; Edit shows Previous
    and Next selection dark with their reason; Shift+F10 and Q work over the map and do nothing while a settlement name
-   is typed; Window shows Right dock, then Context panel ▸ with five dark rows; Help ▸ Keyboard reference… opens a
+   is typed (and from PC-1 Alt+← does nothing while one is typed); Window shows Right dock, then Context panel ▸ with
+   five dark rows; Help ▸ Keyboard reference… opens a
    read-only window titled Keyboard reference listing the two new Edit rows and the Menu key; Assets has no Import
    image row and search for "import image" finds the alias; a popped-out roster appears in Window ▸ Open windows.
-4. Tablet (`--force-touch`): the same rows under ☰ ▸ Edit and ☰ ▸ Window; World keeps Run pipeline first; no hover
-   switching. Phone: MENU ▸ Edit has neither map row; MENU ▸ Window keeps "Right dock" and has no Context panel
-   submenu; MENU ▸ World starts with Generate world.
+4. Tablet (`--force-touch`): the same rows under ☰ ▸ Edit and ☰ ▸ Window; World starts with Generate world · Ctrl+R
+   (W5); no hover switching. Phone: MENU ▸ Edit has neither map row; MENU ▸ Window has Right dock (Context panel
+   from PC-4) and the Context panel submenu with five dark rows; MENU ▸ World starts with Generate world.
 
 ## Not drafted, and why
 
@@ -245,11 +250,11 @@ Each was read at its own lines; none was run (no Godot here).
 
 1. **"Q and Menu or Shift+F10 move into the rebindable table."** The table is the menu accelerators: `DccSettings`'
    only populated context is `SHORTCUT_CONTEXT_MENU`, filled by `menus.gd::_bind_accelerator`. So each key needs a menu
-   row, which neither §3.8 nor the mockup places (K1). And only Shift+F10 can move: one `PopupMenu` item holds one
+   row, which neither §3.8 nor the mockup placed (K1, answered by Ruling DX PQ10). And only Shift+F10 can move: one `PopupMenu` item holds one
    accelerator, so the Menu key stays in `app.gd`, fixed, listed in `UNLISTED`.
 2. **"Generate world, Ctrl+R … The tablet's Run pipeline row is the same command."** Same id, drafted so. The labels
-   differ by form factor ("Generate world" on the PC, the canvas's "Run pipeline" on the tablet), which is one command
-   under two names, finding M2's own complaint about Import image, and `_tabletparity_probe.gd` will report it (K2).
+   differed by form factor, one command under two names (finding M2's own complaint about Import image). Ruling DX
+   PQ11 settles it: "Generate world" everywhere (W5), with a "Run pipeline" search alias (07).
 3. **"'Right dock' becomes 'Context panel', with a submenu."** A `PopupMenu` row cannot be both a check item and a
    submenu. The mockup draws two rows titled "Context panel" (the check, then the submenu); drafted that way.
 4. **"…of the selection" for Political history.** The mockup drops the ellipsis (the row opens a panel tab, not a
@@ -257,7 +262,8 @@ Each was read at its own lines; none was run (no Godot here).
 5. **Help's row is already read-only.** `ID_HELP_SHORTCUTS` opens `ShortcutsDialog.open()` today; M2 is the label, and
    the dialog's own title ("Keyboard shortcuts" in both modes), which 08 fixes.
 6. **"Free" keys, with two scoped exceptions** the proposal does not mention: Ctrl+1-3 pick a layer while the Layers
-   popover is open; Alt+←/→ reach the menu while a text field has focus on Windows and Linux.
+   popover is open; Alt+←/→ reach the menu while a text field has focus on Windows and Linux, where the handler now
+   drops them (Ruling DX PQ12).
 7. **The phone gets "the menu rows" (§3.11)**, but its menu bar is a hidden model (`dcc_shell.gd`, `PhoneMenuModel`), so
    no accelerator fires there. Moving Q and Shift+F10 onto rows therefore drops them for a phone with a hardware
    keyboard (stated in 03 and 09); the Menu key and the phone's long-press card remain.
@@ -268,14 +274,21 @@ Each was read at its own lines; none was run (no Godot here).
 10. **PC-9's bar ("every row in §3.8") cannot be met before PC-1, PC-4, PC-5 and PC-6**: four of its rows are those
     milestones' behaviour. The drafts deliver it progressively, with `_todo` rows meanwhile.
 
-## Questions for the owner that the drafts raise (defaults drafted)
+## Questions the drafts raised, answered (Ruling DX, 2026-11-01)
 
-- **K1.** Where do the cartwheel's and the card's rows live? *Drafted: Edit, after Find on map… (Context card ·
-  Shift+F10, Cartwheel at the pointer · Q), desktop and tablet.*
-- **K2.** One label for the regenerate command on every form factor? *Drafted: "Generate world" on the PC (§3.8),
-  "Run pipeline" kept on the tablet (its canvas); the parity probe learns the pair.*
-- **K3.** Should Alt+← / Alt+→ act while a text field has focus (Windows, Linux)? *Drafted: yes, as a browser does;
-  `_typed_into_field()` is the guard if PC-1 decides otherwise.*
+The drafts' K1-K3 were asked as `PC_SHELL_PROPOSAL.md` PQ10-PQ12; the owner answered them with PQ13 after the menu
+parity check (`cartalith-native/docs/evidence/menu-parity-2026-11-01/`). The drafts now carry each answer:
+
+- **K1 / PQ10.** The card's and the cartwheel's rows: Edit, after Find on map… (Context card · Shift+F10, Cartwheel
+  at the pointer · Q), on the desktop and the tablet, **not on the phone** (a stated exception to the phone's row for
+  row). As drafted (03).
+- **K2 / PQ11.** One label: **"Generate world" on every form factor.** The tablet's row is renamed (02, EDIT W5) and
+  search keeps "Run pipeline" as an alias (07).
+- **K3 / PQ12.** **No**: Alt+← and Alt+→ do not move the selection while a text field has focus (03,
+  `_on_edit_selection()` with `_typed_into_field()`).
+- **PQ13** (decided under the owner's delegation): the phone's Window menu follows the mockup, with the Context panel
+  check and its submenu and no separate Right dock row; on the phone they reach the selection sheet, the vault and the
+  assistant (05, and `90_pc_milestone_stubs.gd`'s phone contract).
 
 Not new questions: PQ6 (rename World) is untouched, and PQ8 (take the new keys) is what these drafts assume.
 

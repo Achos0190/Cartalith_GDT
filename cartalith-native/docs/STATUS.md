@@ -131,7 +131,24 @@ The mockup's own checks still pass after the fixes.
   - the phone keeps the mockup's Window ▸ Context panel rows (PQ13);
   - MENU follows the desktop rows (Q13).
 - **Done in the backlog:** implementing the PC menus is its own `OUTSTANDING_WORK.md` row, beside the mobile one.
-- **Not built:** the GDScript drafts are being updated to match. Nothing is built in the shell.
+- **The GDScript drafts now match Ruling DX.** Nothing is built in the shell.
+  - pc-shell: one label, with a "Run pipeline" search alias; the text-field guard for Alt+arrows; the phone's Context panel rows, which act on its selection sheet, vault and assistant.
+  - mobile-shell 05 is rewritten so MENU opens each desktop menu row for row; the new 09 adds the phone's Gesture reference row.
+  - Each phone-only row has a stated home or drop, listed in the mobile README.
+
+**The menu parity check, re-run after the drafts took Ruling DX.** Both `check_symbols.sh` pass (pc-shell: "need 161, free 94, anchor 27, base 8 checked; all passed"), and `compare.py` exits 0 with nothing unclassified. **Mockup errors and open questions are both 0 on every platform.** Per platform:
+
+| Platform | Same | Same once its milestone lands | Differs, same at run time | Mockup or Godot only |
+|---|---:|---:|---:|---:|
+| Desktop | 399 | 12 | 22 | 1 / 1 |
+| Tablet, 1 180 dp and wider | 398 | 12 | 22 | 5 / 1 |
+| Tablet, below 1 180 dp | 413 | 12 | 22 | 5 / 1 |
+| Phone MENU | 408 | 12 | 22 | 3 / 1 |
+
+What remains:
+- **The 22 differences:** 18 landmark labels the shell rewrites when the menu opens, the atlas readout, and three reworded reasons.
+- **Only-on-one-side rows:** the Open windows run-time list, and rows the mockup designs that no draft builds yet (Touch & gestures…; on the tablet, Gesture reference… and the pop-out setting).
+- **One label the check cannot see:** the phone's File ▸ "Share project…". The mockup relabels "Show project on disk" on the phone, but no share action exists in the shell; see `OUTSTANDING_WORK.md`'s mobile menus row.
 
 ### Consent card on Refresh and Send (2026-10-27)
 

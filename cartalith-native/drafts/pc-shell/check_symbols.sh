@@ -106,6 +106,7 @@ anchor shell/menus.gd "${T}${T}ID_IMPORT_IMAGE: _host.open_asset_library()"
 anchor shell/menus.gd 'const ID_IMPORT_IMAGE := 32  ## Assets ▸ Import image….'
 anchor_sub shell/menus.gd 'Window ▸ Workspace ▸ World, and on a tablet World ▸ Run pipeline,' "SESSION_MODE_TIP's clause, EDIT W4"
 anchor_sub shell/menus.gd '"Runs the whole generation pipeline -- the same path the WORLD dock' "the Run pipeline tooltip, EDIT W3"
+anchor shell/menus.gd "${T}_live(p, \"Run pipeline\", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)"
 anchor shell/command_index.gd "${T}for e in EXTRAS:"
 anchor shell/command_index.gd 'const EXTRAS: Array = ['
 anchor_sub shell/command_index.gd "${T}{\"title\": \"Theme\", \"blurb\": \"Dark, Light or Follow system." "the Theme row, EDIT X1"

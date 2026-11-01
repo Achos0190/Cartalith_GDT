@@ -2,15 +2,19 @@
 ##
 ## PC_SHELL_PROPOSAL.md §3.8, the World rows (milestone PC-9). The menu keeps its name, "World"
 ## (Ruling CK; renaming it is PQ6, asked by name, and nothing here pre-empts the answer).
-##   - Generate world, Ctrl+R, first on the PC: the tablet's Run pipeline command, same id (M1).
+##   - Generate world, Ctrl+R, first on the PC: the tablet's regenerate command, same id (M1). The
+##     tablet's row takes the same label (Ruling DX, PQ11: "Generate world" on every form factor;
+##     EDIT W5 below), and search keeps the old words through an `EXTRAS` alias (`07_command_index.gd`).
 ##   - Factions… gains Ctrl+Shift+F and opens on the current faction once PC-1 lands (W6, M8).
 ##   - Markdown vault… gains Ctrl+Shift+V (M8).
 ##   - The second Timeline row becomes the signpost "Timeline is in Story ▸ Timeline" (M3).
 ##
 ## Target: `shell/menus.gd`. Depends on `01_menus_ids_helpers.gd` (`_host_has()`).
-## Applies to: the PC and the phone (whose MENU ▸ World re-presents this popup through
-## `phone_menu.gd::_fill_data`). The tablet's World menu is `_tablet_world()`, which builds
-## `_data()` below its own Run pipeline, so it gets every change here except the new first row.
+## Applies to: the PC and the phone (whose MENU ▸ World re-presents this popup row for row,
+## `drafts/mobile-shell/05_phone_menu_root.gd`, Ruling DX Q13). The tablet below 1 180 dp builds
+## `_tablet_world()`: `_world()`'s rows, headed by its own Generate world (EDIT W5), then `_data()`, so it
+## gets every change here and keeps its own copy of the first row. From 1 180 dp the tablet shows this
+## popup (`drafts/mobile-shell/08_menus_tablet_bar.gd`).
 ##
 ## Forms: every row here is live from the moment it is pasted, except where Factions… opens. Before
 ## PC-1 it opens on the last faction viewed (shipped behaviour, `FACTIONS_TIP`). Once the host has
@@ -37,7 +41,7 @@
 ##            with the two lines
 ##                ## PC-9 (§3.8/§3.9, M8): Ctrl+Shift+V. Free: no row binds it; Paste is Ctrl+V.
 ##                _live(p, "Markdown vault…", ID_VAULT, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_V)
-##   EDIT W3  `_world()` (tablet): the Run pipeline row's tooltip call is six lines: the line
+##   EDIT W3  `_world()` (tablet): the regenerate row's (`ID_WORLD_RUN_PIPELINE`) tooltip call is six lines: the line
 ##                p.set_item_tooltip(p.item_count - 1,
 ##            then four `##` comment lines, then the string that starts "Runs the whole generation
 ##            pipeline" and ends `from the start.")`. Replace all six with the one line
@@ -47,8 +51,18 @@
 ##   EDIT W4  `SESSION_MODE_TIP`: replace the substring
 ##                Window ▸ Workspace ▸ World, and on a tablet World ▸ Run pipeline,
 ##            with
-##                Window ▸ Workspace ▸ World, World ▸ Generate world, and on a tablet World ▸ Run pipeline,
-##            (`_pc_world()` gates its row; `MISTAKES.md` "Change behaviour": the tooltip lists them).
+##                Window ▸ Workspace ▸ World, World ▸ Generate world on every form factor, and on a tablet World ▸
+##            (the sentence then reads "…and on a tablet World ▸ Generation pipeline, Sculpt and Seed & size…;").
+##            `_pc_world()` gates its row and W5 renames the tablet's; `MISTAKES.md` "Change behaviour": the
+##            tooltip lists every gated row by the name it carries.
+##   EDIT W5  `_world()` (tablet), Ruling DX PQ11: replace the line
+##                _live(p, "Run pipeline", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)
+##            with
+##                _live(p, "Generate world", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)
+##            One command, one label: the owner's ruling departs from the tablet canvas's "Run pipeline"
+##            (DS-03), and an owner decision is newer than a canvas. Same id, key, gate and tooltip, so a
+##            rebind or a quick-bar pin (`menu:710`) is untouched. In the same change: `07_command_index.gd`'s
+##            "Run pipeline" alias, and the two probes that name the row (README, "Probes to update").
 ##   PROSE    Comments the change makes false (`MISTAKES.md`, "Change behaviour"):
 ##            - `ID_WORLD_TIMELINE`'s comment ("SM-1: World ▸ RECORDS ▸ Timeline …"): add
 ##              "Retired by PC-9: the row is the signpost `TIMELINE_MOVED_SIGNPOST` now. Kept defined, never
@@ -57,6 +71,9 @@
 ##              Story ▸ TIME)"): it is Story ▸ TIME ▸ Timeline's tooltip only.
 ##            - `_open_timeline()`'s doc ("Both Timeline rows' action"): Story ▸ TIME ▸ Timeline's action.
 ##            - `_tablet_world()`'s doc ("40-48, 400+, 716, 719-722"): 719-721; 722 is retired.
+##            - `_world()`'s doc ("Builds the tablet's World menu from its canvas: Run pipeline (Ctrl+R), …")
+##              and `_on_world()`'s ("Run pipeline calls the world workspace's guarded …"): Generate world
+##              (W5). `ID_WORLD_RUN_PIPELINE` keeps its name: an identifier, not a label.
 ##
 ## Verify: the parse check on `res://shell/menus.gd`; `check_symbols.sh`; then the probes the README
 ## lists for this draft (`_storymenus_probe.gd`'s WORLD_ROWS and its ID_WORLD_TIMELINE press,
@@ -64,9 +81,9 @@
 ## an empty map generates; with Session mode on, World ▸ Generate world is dark and Ctrl+R does
 ## nothing; Ctrl+Shift+F opens Factions; Ctrl+Shift+V opens the vault.
 
-## The tooltip of the one "regenerate the world" command, on both of its rows: the PC's World ▸
-## Generate world (`_pc_world()`) and the tablet's World ▸ Run pipeline (`_world()`). One string, so
-## the two rows cannot come to describe the same command differently.
+## The tooltip of the one "regenerate the world" command, on both of its rows: World ▸ Generate world
+## in `_pc_world()` (PC, phone, wide tablet) and in the narrow tablet's `_world()` (W5 gives it the same
+## label, Ruling DX PQ11). One string, so the two rows cannot come to describe the same command differently.
 ## Same guarded path as `world_workspace.gd::_regenerate_live()`.
 ## "The engine has no partial recompute" removed 2026-09-24 (ALIGNMENT_
 ## AUDIT Part 2 B6): `recompute_stale_stages`/`recompute_civilisation`
@@ -87,17 +104,18 @@ const FACTIONS_CURRENT_TIP := "Open the Factions window on the current faction: 
 ## disabled row to state a reason does not read it as an undisclosed gap.
 const TIMELINE_MOVED_SIGNPOST := "Timeline is in Story ▸ Timeline"
 
-## The World menu of the PC and of the phone (whose MENU ▸ World re-presents this popup through
-## `phone_menu.gd::_fill_data`): **Generate world, Ctrl+R, first** (`PC_SHELL_PROPOSAL.md` §3.8,
-## finding M1: the PC had no row and no key that starts a generation), then `_data()`'s rows.
+## The World menu of the PC, the phone (whose MENU ▸ World re-presents this popup row for row) and the
+## tablet from 1 180 dp: **Generate world, Ctrl+R, first** (`PC_SHELL_PROPOSAL.md` §3.8, finding M1: the
+## PC had no row and no key that starts a generation), then `_data()`'s rows.
 ##
-## The SAME command as the tablet's World ▸ Run pipeline: one id (`ID_WORLD_RUN_PIPELINE`), one
+## The SAME command as the narrow tablet's World ▸ Generate world (`_world()`, the canvas's "Run
+## pipeline" until Ruling DX PQ11, EDIT W5): one id (`ID_WORLD_RUN_PIPELINE`), one
 ## dispatcher arm (`_on_world()`, connected here), one guarded path (`world_workspace.gd::
 ## _regenerate_live()`, which asks before discarding hand-authored work), one tooltip. One id is what
 ## keeps a rebind and a quick-bar pin (`menu:710`) the same command on every form factor. Ctrl+R is
 ## the tablet's key already; on the PC nothing else binds it (`check_symbols.sh`, keys section).
 ##
-## Why not a row inside `_data()`: the tablet builds `_data()` too, under its own Run pipeline, and
+## Why not a row inside `_data()`: the narrow tablet builds `_data()` too, under `_world()`'s own row, and
 ## one id under two titles in one popup would make `command_index.gd::_disambiguate_pin_keys()`
 ## rename the tablet's pin key and orphan its pins. Session mode disables this row
 ## (`_session_gate_row`), as it does the tablet's. Must never be added to `_tablet_world()`.
@@ -128,7 +146,7 @@ func _open_factions(tab: String = "") -> void:
 ## finding W6). Markdown vault… gained Ctrl+Shift+V (`_build_vault_rows()`, finding M8). The Timeline
 ## row is a signpost to Story ▸ Timeline (finding M3: two rows, one action), the mockup's wording.
 ## Generate world sits ABOVE this function's rows on the PC and the phone (`_pc_world()`), not inside
-## it, because the tablet builds this function too, under its own Run pipeline.
+## it, because the narrow tablet builds this function too, under `_world()`'s own Generate world.
 ## ── end of the appended paragraph ──────────────────────────────────────────────────────────────
 
 func _data(p: PopupMenu) -> void:

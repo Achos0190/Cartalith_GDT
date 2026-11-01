@@ -10,8 +10,9 @@ list every menu row, per platform, in the order Godot builds them, for two miles
          context_tabs() lists inspect, note and ask
 
 Platforms: desktop; tablet_below_1180dp (the shipped tablet bar); tablet_wide_1180dp_and_up (mobile draft 08);
-phone_MENU (phone_menu.gd's screens with mobile draft 05's root, over the phone's own popups, and mobile draft
-03's EDIT H1 on MENU ▸ Help's closing line).
+phone_MENU (mobile draft 05's root, whose eight rows open the phone's own popups row for row, Ruling DX Q13).
+Mobile draft 09 (Help ▸ Gesture reference… on the phone) is applied to menus.gd on every platform; it builds its
+row on the phone only.
 
 What it must never do: write anywhere but godot_menus.json, or pass a draft whose anchor moved. Each EDIT's old
 text must occur exactly once, or the run stops.
@@ -291,6 +292,8 @@ T = "\t"
 PC_EDITS = [
     ("02 W2", T + '_live(p, "Markdown vault…", ID_VAULT)',
      T + '_live(p, "Markdown vault…", ID_VAULT, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_V)'),
+    ("02 W5", T + '_live(p, "Run pipeline", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)',
+     T + '_live(p, "Generate world", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)'),
     ("03 E1", T + '_live(p, "Deselect", ID_DESELECT, KEY_MASK_CTRL | KEY_D)\n' + T + "p.set_item_tooltip(p.item_count - 1,\n"
      + T + T + '"Clears the settlement, label or icon selection in the active domain. Not the same as Escape, '
      'which puts the tool down and deliberately leaves the selection alone.")',
@@ -311,12 +314,28 @@ PC_EDITS = [
 ]
 
 
-# Draft 03's EDIT H1 (mobile-shell, MS-2, added by this check): MENU ▸ Help's closing line on the phone names the
-# new tabs. Transcribed from the draft's header; the run stops if the draft no longer quotes either text.
+# Mobile draft 09's EDIT G1 (Ruling DX Q13): Help ▸ Gesture reference… on the phone, after Keyboard reference….
+# Transcribed from the draft's header, where it is quoted with `##` and four spaces before each line; the run
+# stops if the draft no longer quotes either text. (Draft 03's H1 was withdrawn by the same ruling: MENU ▸ Help
+# no longer draws the screen that line closed.)
 MOBILE_EDITS = [
-    ("03 H1", '+ "function is reachable through MAP · GENERATE · PLAN · MORE.")',
-     '+ "function is reachable through MAP · DOMAIN · STORY · MENU.")'),
+    ("09 G1", T + "if full:\n" + T + T + "_build_help_shortcuts_row(p)\n" + T + '_live(p, "Credits & academic principles", ID_HELP_CREDITS)',
+     T + "if full:\n" + T + T + "_build_help_shortcuts_row(p)\n" + T + "_build_gesture_reference_row(p)\n" + T
+     + '_live(p, "Credits & academic principles", ID_HELP_CREDITS)'),
 ]
+
+
+def quoted_in(draft, text):
+    """Whether `draft` quotes `text` in its header, the way the drafts quote an EDIT: each line after `##` and
+    a run of spaces, tabs written as four spaces each."""
+    lines = [l.replace(T, "    ") for l in text.split("\n")]
+    quoted = [re.sub(r"^##\s+", "", l) for l in draft.split("\n") if l.startswith("##")]
+    n = len(lines)
+    strip = [l.strip() for l in lines]
+    for i in range(len(quoted) - n + 1):
+        if [q.strip() for q in quoted[i:i + n]] == strip:
+            return True
+    return False
 
 
 def build_sources():
@@ -331,15 +350,17 @@ def build_sources():
         applied.append({"edit": "pc-shell " + label})
     menus, rep, add = apply_defs(menus, read(os.path.join(MSD, "08_menus_tablet_bar.gd")))
     applied.append({"draft": "mobile-shell/08_menus_tablet_bar.gd", "replaced": rep, "added": add})
+    d09 = read(os.path.join(MSD, "09_menus_phone_rows.gd"))
+    menus, rep, add = apply_defs(menus, d09)
+    applied.append({"draft": "mobile-shell/09_menus_phone_rows.gd", "replaced": rep, "added": add})
+    for label, old, new in MOBILE_EDITS:
+        if not (quoted_in(d09, old) and quoted_in(d09, new)):
+            raise SystemExit("EDIT %s: draft 09 no longer quotes this text" % label)
+        menus = edit(menus, old, new, label)
+        applied.append({"edit": "mobile-shell " + label})
     phone = read(os.path.join(SHELL, "phone_menu.gd"))
     phone, rep, add = apply_defs(phone, read(os.path.join(MSD, "05_phone_menu_root.gd")))
     applied.append({"draft": "mobile-shell/05_phone_menu_root.gd", "replaced": rep, "added": add})
-    d03 = read(os.path.join(MSD, "03_dcc_shell_phone_tabs.gd"))
-    for label, old, new in MOBILE_EDITS:
-        if old not in d03 or new not in d03:
-            raise SystemExit("EDIT %s: draft 03 no longer quotes this text" % label)
-        phone = edit(phone, old, new, label)
-        applied.append({"edit": "mobile-shell " + label})
     srcs = {"menus": Source("menus.gd", menus), "phone": Source("phone_menu.gd", phone)}
     classes = {"DccMenus": srcs["menus"], "PhoneMenu": srcs["phone"]}
     for path in sorted(glob.glob(os.path.join(SHELL, "*.gd")) + glob.glob(os.path.join(SHELL, "workspaces", "*.gd"))):
@@ -1291,6 +1312,11 @@ class PhoneInterp(Interp):
     def n__menu_row(self, mb):
         return {"label": mb.title, "kind": "drill", "items": self.fill_popup(popup_out(mb.popup, self.bar))}
 
+    def n__menu_root_row(self, mb):
+        """Draft 05's `_menu_root_row()`: the menu's name, opening its popup row for row (`phone_model()` reads
+        the rows; the root needs only the row)."""
+        return {"label": mb.title, "kind": "drill"}
+
     def n__live_root_sub(self, target):
         return ""
 
@@ -1416,26 +1442,19 @@ class PhoneInterp(Interp):
 
 
 def phone_model(srcs, classes, bar):
+    """MENU on the phone: the root `_fill_root()` draws, and for each menu the rows its root row opens. Since Ruling
+    DX Q13 (mobile draft 05) every root row pushes its menu's popup, so a menu's rows are `_fill_popup()` over that
+    popup. A draft that routes a menu through a bespoke screen again (a `MENU_SCREENS` table) stops the run: the
+    screens' order and extra rows were what Q13 retired, and this model no longer interprets them."""
     ph = PhoneInterp(srcs, classes, bar)
-    screens = ph.const(srcs["phone"], "MENU_SCREENS")
-    fills = {"project": "_fill_project", "assets": "_fill_assets", "world": "_fill_world",
-             "story-root": "_fill_story_section", "prefs": "_fill_prefs", "help": "_fill_help"}
-    story_rows = ph.const(srcs["phone"], "STORY_ROWS")
+    if "MENU_SCREENS" in srcs["phone"].consts:
+        raise SystemExit("phone_menu.gd defines MENU_SCREENS again: MENU routes a menu through a phone screen, "
+                         "which this extractor no longer models (Ruling DX Q13). Model the screen first.")
     root = ph.screen("_fill_root")
     menus = {}
     for title, pop in bar.menus:
-        sid = screens.get(title, "")
-        if not sid:
-            menus[title] = {"screen": "the %s popup (_menu_row -> _fill_popup)" % title,
-                            "rows": ph.fill_popup(popup_out(pop, bar))}
-            continue
-        rows = ph.screen(fills[sid])
-        if sid == "story-root":
-            for r in rows:
-                band = next((s["band"] for s in story_rows if s["label"] == r.get("label")), None)
-                if band:
-                    r["kind"], r["items"] = "drill", ph.screen("_fill_story", band)
-        menus[title] = {"screen": sid + " (" + fills[sid] + ")", "rows": rows}
+        menus[title] = {"screen": "the %s popup (_menu_root_row -> _fill_popup)" % title,
+                        "rows": ph.fill_popup(popup_out(pop, bar))}
     root_out = [{"label": r.get("label"), "kind": r.get("kind")} for r in root]
     return root_out, menus, ph.unresolved
 
@@ -1447,8 +1466,8 @@ def count_rows(rows):
 def main():
     srcs, classes, applied = build_sources()
     NOT_BUILDABLE.update(k["label"] for k in landmark_kinds() if not k["buildable"])
-    out = {"source": "shipped shell at HEAD, with drafts/pc-shell 01-06 (and their EDITs), drafts/mobile-shell 05 and "
-                     "08, and mobile-shell 03's EDIT H1 applied in memory by godot_menus.py",
+    out = {"source": "shipped shell at HEAD, with drafts/pc-shell 01-06 (and their EDITs), drafts/mobile-shell 05, "
+                     "08 and 09 (and 09's EDIT G1) applied in memory by godot_menus.py",
            "applied": applied, "conditions": CONDITIONS, "runtime": RUNTIME, "states": {}}
     for state, after in (("today", False), ("after", True)):
         st = {}

@@ -9,8 +9,8 @@
 ##
 ## Target: `shell/menus.gd`, the Story section. Depends on `01_menus_ids_helpers.gd` (`_host_has()`,
 ## `_context_tab_ready()`) and `02_menus_world.gd` (`_open_factions()`).
-## Applies to: every form factor (the tablet's bar has Story; the phone re-presents it band by band
-## through `phone_menu.gd::_fill_story`).
+## Applies to: every form factor (the tablet's bar has Story; the phone re-presents it row for row in
+## MENU ▸ Story, Ruling DX Q13, and band by band on the STORY tab through `phone_menu.gd::_fill_story`).
 ##
 ## Forms (each row keeps its id in both, so rebinds and pins follow it):
 ##   Political history  before PC-4: shipped ("…of this place…", the Place editor's Political tab,
@@ -332,8 +332,8 @@ func _on_story(id: int) -> void:
 				return
 			## `select_domain` first: the Conflict tool belongs to the CIVIL
 			## workspace, whose `_on_civ_tool_armed` fills the options row
-			## only while CIVIL is the domain (`phone_menu.gd::_arm_civ_tool`
-			## does the same two calls in the same order).
+			## only while CIVIL is the domain (the phone's Civilization screen
+			## armed its tools with the same two calls, in the same order).
 			_shell.select_domain("civilization")
 			_host.arm_tool("conflict")
 		ID_STORY_POLITICAL, ID_STORY_NOTES_HERE:

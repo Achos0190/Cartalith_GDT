@@ -71,7 +71,9 @@ func _context_tab_ready(tab: String) -> bool:
 ## Why: Q and Shift+F10 used to be matched in `app.gd::_unhandled_key_input`, behind a guard that
 ## ignored them while a `LineEdit`, `TextEdit` or `SpinBox` had focus. As menu accelerators they run
 ## from `_shortcut_input`, after the focused control has had the key. A field consumes a printable Q
-## itself, but nothing guarantees it consumes Shift+F10, so the guard moves into the handler. Asking
+## itself, but nothing guarantees it consumes Shift+F10, so the guard moves into the handler. Alt+← and
+## Alt+→ (Edit ▸ Previous / Next selection) take the same guard: Ruling DX, PQ12, says they must not act
+## while a text field has focus, and on Windows and Linux a field lets them through. Asking
 ## the focus alone would also swallow a mouse click on the row while a field keeps focus (`MenuButton`
 ## takes no focus), hence the key test. `Input.is_key_pressed` is true for the press being dispatched.
 ##
