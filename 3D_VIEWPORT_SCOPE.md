@@ -397,6 +397,14 @@ exaggeration is a uniform shader scale taken from `Preferences ▸ Graphics ▸
 relief exaggeration` (`menus.gd::_build_relief_exag_menu`). **It never writes
 back into `WorldState`** (research §E: save, export and
 `get_map_height_km()` read the same field).
+*(Corrected 2026-11-01, after Ruling EB items 5 and 6: the 3D scale does not
+come from that 2D row. `menus.gd`'s comment on `_build_relief_exag_menu`
+says the 3D view does not read it. 3D starts at Ruling CT's true scale,
+`View3D.VERTICAL_EXAGGERATION_DEFAULT` = 1.0. Its default is `Preferences ▸
+Graphics ▸ 3D viewport defaults ▸ relief exaggeration`, from 1× to 4×, which
+the live slider writes (§7 Q4). The shader-uniform design and the rule above
+stand: neither the slider nor the preference writes the world, its save or
+`WorldState`.)*
 
 ### 3.2 Geometry: a CDLOD quadtree on the pyramid's `ChunkId`
 
@@ -593,6 +601,14 @@ into tiles.
   two-finger vertical drag tilt. The gestures are arbitrated in the same place
   the slider and scroller arbitration lives (`MISTAKES.md`, gesture hazard
   rows).
+- **The touch control row's buttons** (Ruling EB item 4, *"Yes, same
+  buttons"*, 2026-11-01). From 3D-2, DS-13's − and + move the camera out and
+  in, and ⌖ frames the world (`MOBILE_SHELL_PROPOSAL.md` §2.5, item 7).
+  - They are the 2D row's own buttons: `viewport_host.gd::zoom_step()` and
+    `reset_view()` ask `is_3d()` first.
+  - 3D-2 sets the camera's step.
+  - Today they move the hidden 2D camera while 3D shows, because neither
+    function asks `is_3d()` yet.
 
 ### 3.10 Picking: casting a ray onto the drawn surface
 
@@ -713,7 +729,9 @@ only what's visible" (2026-08-31, `LARGE_ITEM_RULINGS.md`):
 - **Rows that become live.** These rows already exist and are disclosed as
   unavailable today:
   - `Preferences ▸ Graphics ▸ 3D viewport defaults` (relief exaggeration,
-    detail, light, flatten oceans; `menus.gd`);
+    detail, light, flatten oceans; `menus.gd`). Its relief exaggeration is
+    also what the live slider writes, so the last value set is the next
+    session's default (Ruling EB item 5; §7 Q4);
   - "Anti-aliasing · anisotropy" (MSAA 3D is supported under Compatibility,
     per the renderer docs);
   - the alternate-frame row.
@@ -926,6 +944,10 @@ ruling).
 - One 257² patch over a level-z world height texture, with the 2D colour
   texture as the drape. Camera-relative transforms from the start.
 - Orbit and top-down cameras, and the ground clamp.
+- DS-13's − | + and ⌖ drive this camera on touch (Ruling EB item 4; §3.9).
+- The mesh's vertical scale opens at `Preferences ▸ Graphics ▸ 3D viewport
+  defaults ▸ relief exaggeration`, which is 1× until set (§7 Q4). The live
+  slider that writes it is its own backlog row.
 
 **Acceptance:** B4 (no frame below the ground), B5 (depth), and Basic's frame
 bar on desktop.
@@ -1050,8 +1072,9 @@ touch 3D, and none of them answers Q1 to Q10.
 
 *All ten are now answered, and each answer is marked below: Q10 by Ruling CS
 item 4 and Q4 by Ruling CT (both 2026-10-19), and the other eight by Ruling EA
-items 12 to 14 (2026-11-01), each at its default. The questions are kept as
-they were asked.*
+items 12 to 14 (2026-11-01), each at its default. The two questions of Q4's
+slider design were answered by Ruling EB items 5 and 6 (2026-11-01), both
+against their defaults. The questions are kept as they were asked.*
 
 1. **Q1. Which reading of "with vertices"?**
    - **Default: V1.** The display mesh is displaced from the raster's tiles
@@ -1081,14 +1104,22 @@ they were asked.*
      `View3D.VERTICAL_EXAGGERATION_DEFAULT` = 1.0. Ruling CT did not cover the
      live slider; Ruling EA item 14 (2026-11-01) made it a small backlog row
      (`OUTSTANDING_WORK.md` §2.5).
-   - **The slider's design (2026-11-01, for the owner's approval; drawn in the mobile mockup,
-     `design/mobile-shell-2026-10-31/`, and nothing of it built):**
-     - **Range.** 1× to 3× in steps of 0.25, starting at 1×. The 1× floor is
-       Ruling CT's true scale and `View3D.VERTICAL_EXAGGERATION_DEFAULT`. The 3×
-       ceiling is a labelled judgement: it stays under the 3.4× that §8.3
-       measured as "spires everywhere" on the raw tile heights. It is to be
-       re-judged at 3D-3, once the geometry is low-passed (§8.3, candidate a).
-       Below 1× would flatten real relief, so it is not offered.
+   - **The slider's design (2026-11-01; drawn in the mobile mockup,
+     `design/mobile-shell-2026-10-31/`, and nothing of it built). Its two
+     questions were answered by Ruling EB items 5 and 6 the same day:**
+     - **Range.** 1× to 4× in steps of 0.25 (Ruling EB item 6, *"Up to 4×"*,
+       against the default of 3×). It opens at the remembered value, which is 1×
+       until one is set. The 1× floor is Ruling CT's true scale and
+       `View3D.VERTICAL_EXAGGERATION_DEFAULT`. Below 1× would flatten real
+       relief, so it is not offered.
+       - **The cost, accepted by the owner:** spires on steep ground. On the raw
+         tile heights, §8.3 saw "spires everywhere" at 3.4×, the only value
+         above 1× it measured, and spiking coastal bluffs even at 1.0×. Nothing
+         between 1× and 3.4×, or above 3.4×, was measured. So 3.4× is where
+         spires were seen, not a measured threshold; the 3× ceiling of the first
+         design stayed under it, and 4× does not.
+       - **Revisited at 3D-3**, judged on frames, once the geometry is
+         low-passed (§8.3, candidate a).
      - **Where, on the PC and the tablet:** a HEIGHT row in the 3D view's own
        card (`view3d.gd::_build_card()`, top-left inside the safe insets). It
        sits between the info line and the Back to 2D · Re-test 3D · Force tier
@@ -1103,21 +1134,40 @@ they were asked.*
      - **Live.** Dragging rescales the displayed mesh as it moves; from 3D-2,
        the scale is the shader's uniform (§3.1). It never writes into
        `WorldState`, and the measure tools keep reporting true values.
-     - **What it opens at.** `Preferences ▸ Graphics ▸ 3D viewport defaults ▸
-       relief exaggeration` (`menus.gd`, a disclosed row today) is the value
-       each entry to 3D starts at, 1.0× by Ruling CT, once that row is live. The
-       slider is session state; it is not saved with the world.
+     - **What it opens at, and what it writes** (Ruling EB item 5, *"Yes,
+       remember it"*, against the default).
+       - `Preferences ▸ Graphics ▸ 3D viewport defaults ▸ relief exaggeration`
+         (`menus.gd`, a disclosed `_todo` row today) is the value each entry to
+         3D starts at, 1.0× by Ruling CT until set.
+       - The slider writes that preference as it moves, so the last value set
+         is the next session's default, as if it had been set in Preferences.
+         It is per-install state in `DccSettings`
+         (`user://cartalith_settings.cfg`), like the other Graphics defaults,
+         never a world's.
+       - It never touches the world, its save or `WorldState`.
+       - Each form says so beside the slider: *Remembered in Preferences ▸ 3D
+         viewport defaults for the next session · never saved with the world*.
      - **Touch:** the slider is 44 dp tall, as every touch target is. On the PC
        it takes the card's own density.
      - **In the mockup:** phone MAP ▸ View ▸ 3D; tablet and desktop Window ▸ 3D
-       view. The test `ea.js` checks the range, the step, the default, the row's
-       place between the info line and the actions, and that Back to 2D ends 3D.
+       view. The mockup keeps the remembered value in the browser's storage,
+       guarded, and works without it. The test `ea.js` checks:
+       - the range (1 to 4), the step and the default;
+       - the line saying where the value is kept;
+       - that a value set survives a reload;
+       - that with storage blocked the page still draws and starts at 1×;
+       - the row's place between the info line and the actions;
+       - that Back to 2D ends 3D.
+
        Captures: `ea-14-phone-3d-height.png`, `ea-14-tablet-3d-card.png` and
        `ea-14-desktop-3d-card.png`.
      - **Owner questions, with defaults:**
        - Should the live value be remembered as the next default? Default: no;
-         the Preferences row is the default.
-       - Is 3× the right ceiling? Default: yes, re-judged at 3D-3.
+         the Preferences row is the default. **Answered (Ruling EB item 5):
+         "Yes, remember it"**, against the default (above).
+       - Is 3× the right ceiling? Default: yes, re-judged at 3D-3. **Answered
+         (Ruling EB item 6): "Up to 4×"**, against the default; revisited at
+         3D-3 on frames (above).
 5. **Q5. The phone.**
    - **Default:** the gate decides. Expect Basic until 3D-7 measures.
    - "Off on every phone" is the other legitimate choice.

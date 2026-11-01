@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cartalith v2.71 DCC test</title>
+<title>Cartalith v2.72 DCC test</title>
 <style>
   :root{
     /* v2.23 DCC test: the port's own dcc_theme values, mapped onto this file's token names.
@@ -158,8 +158,10 @@
   /* v2.24: Assets mode takes the whole stage. The docks, the rail and the map chrome all step
      aside — the Asset Library is a workspace, not an overlay on the map, and with 372+304+40px of
      chrome beside it .al-grid collapses to a single column. */
+  /* v2.72: the timeline strip is map chrome too. The desktop keeps .toolopts visible in this mode
+     (its pins hold the Assets toggle, the only way back out — see the v2.72 block at the end). */
   body.assets-mode .dock,body.assets-mode .domain-rail,body.assets-mode .toolrail,
-  body.assets-mode .toolopts{display:none}
+  body.assets-mode .toolopts,body.assets-mode .tl-strip{display:none}
   /* v2.46: #assetsHeaderBtn is the one control for this mode and it is always visible. It relabels
      itself "← Map" and takes .on while the library is open (see _carEnterAssetsMode), which is what
      the separate #assetsBackBtn was standing in for while the toggle itself sat inside the cog. */
@@ -545,8 +547,9 @@ body.phase-explore #phaseChip{display:inline-block}
 /* v2.24: the v0.68 gate is the ONLY thing making controls inert while no world exists. It has to
    cover every band that can hold a control, not just the sidebar — the frame hoists Regenerate into
    the tool-options bar and navigation into the domain rail, both outside any dock. */
+/* v2.72: the desktop's timeline strip is a band that holds controls too, so the gate covers it. */
 body.setup-gated .dock,body.setup-gated .toolopts,body.setup-gated .domain-rail,
-body.setup-gated .toolrail,body.setup-gated .status-bar{pointer-events:none;opacity:.4;transition:opacity .18s}
+body.setup-gated .toolrail,body.setup-gated .status-bar,body.setup-gated .tl-strip{pointer-events:none;opacity:.4;transition:opacity .18s}
 /* v0.67 setup-form chrome (reuses sidebar idioms inside the gate) */
 #onboard .ob-step{display:none;text-align:left}
 #onboard .ob-step.on{display:block}
@@ -826,6 +829,264 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :root[data-theme="light"] #scaleBar{background:rgba(251,250,247,.85);color:var(--dim)}
 :root[data-theme="light"] #scaleBar .bar{border-color:var(--dim)}
 
+/* ══════════════════ v2.72 · DESKTOP SHELL (stage 1 of 3) ═════════════════════
+   Owner: "Can we upgrade the layout in the html with the new design?", then "A working copy in this
+   repo" and "Everything, staged". STAGE 1 IS THE DESKTOP SHELL ONLY (wider than 860px). A phone at
+   <=860px keeps v2.71's layout exactly until stage 2, so every rule here that moves geometry sits in a
+   `not all and (max-width:860px)` query — the exact complement of the phone's (max-width:860px), so a
+   fractional window width between 860 and 861 cannot fall between the two layouts — and the two
+   helper classes below say which surface an element belongs to.
+   Design: Cartalith_GDT PC_SHELL_PROPOSAL.md §2-§3.12, Rulings DY and DZ, and the mockup
+   design/mobile-shell-2026-10-31/Desktop.dc.html. TOKENS ARE UNCHANGED: the v2.23 :root block above
+   is the port's dcc_theme, and the mockup's own colours drift from it. The new look is layout, type
+   and spacing only: section labels in mono, uppercase and letter-spaced; the accent used sparingly;
+   flat; radius 0, which the theme layer above already enforces for every element.
+   ONE CONTROL, TWO HOMES (v1.57's rule, carried one step past v2.31's): a control that sits in a
+   different band on the desktop than on a phone is still ONE element. _dskPlace() (block 1, "v2.72:
+   one control, two homes") moves it between its desktop slot and its v2.71 phone slot whenever the
+   860px line is crossed. It must never be duplicated to "appear" in both places. A .shell-slot is
+   display:contents, so it adds no box and the moved element lays out as a child of the slot's parent.
+   ════════════════════════════════════════════════════════════════════════════ */
+.shell-slot{display:contents}
+/* !important on purpose: several elements under these classes carry an inline display their own JS
+   writes (the timeline slider row, the sculpt mode strip). A form-factor gate must beat a state
+   toggle, never the reverse — a desktop-only element must stay off a phone whatever its JS says. */
+@media (max-width:860px){ .dk-only{display:none!important} }
+@media not all and (max-width:860px){ .ph-only{display:none!important} }
+
+/* --- menu rows: one row per line, the accelerator right-aligned (PC_SHELL_PROPOSAL.md §3.8) --- */
+.mb-k{margin-left:auto;padding-left:24px;font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap}
+.mb-cap{font-family:var(--mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);padding:8px 14px 4px}
+.mb-sig{font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--dim);padding:5px 14px;white-space:normal;max-width:300px}
+.mb-ro{display:flex;align-items:center;min-height:26px;padding:0 14px;font-family:var(--mono);font-size:10.5px;color:var(--dim)}
+.mb-ro b{margin-left:auto;padding-left:24px;color:var(--ink);font-weight:500}
+.mb-sep{height:1px;background:var(--line);margin:4px 0}
+/* The three timeline filters carry two labels: the sentence v2.71 shows in Explore (and a phone still
+   does), and the design's short form, which only the strip uses (see #tlStrip below). */
+.tl-short{display:none}
+/* A phone has no submenus: File's export form flows inline in its dropdown exactly as v2.71 drew it. */
+@media (max-width:860px){
+  .mb-sub,.mb-subpanel{display:contents}
+  /* v2.72: the DOM now orders the right cluster Undo · Redo · Find (the desktop design's order, so
+     keyboard focus follows what is drawn there). The phone header is v2.71's Find · Undo · Redo · File
+     · cog until stage 2, so those four take a later flex order and Find keeps its old place. */
+  header #undoBtn,header #redoBtn,header #fileWrap,header #cogBtn{order:1}
+}
+
+@media not all and (max-width:860px){
+  /* ---- D1 · the menu bar replaces the app-bar band ------------------------------------------- */
+  header{height:36px;padding:0 10px 0 14px;gap:0;align-items:center;flex:0 0 auto}
+  header h1{order:1;color:var(--accent);font-size:11px;font-weight:500;letter-spacing:.3em;margin-right:12px;white-space:nowrap}
+  header h1 .h1-gen{display:none}
+  header .tag{display:none}
+  .menubar{order:2;display:flex;align-items:stretch;height:36px}
+  header #undoBtn{order:4;margin-left:auto}
+  header #redoBtn{order:5}
+  /* v2.27's margin-left:auto on the search box was what pushed the old cluster right; on this bar
+     Undo carries that job, so Find sits beside Redo instead of opening a second gap. */
+  header #findWrap{order:6;margin-left:10px}
+  header #findInput{width:200px!important;font-family:var(--mono);font-size:11px!important}
+  header #phaseChip{order:7;margin-left:10px;font-size:9.5px;padding:1px 6px}
+  .doc-readout{order:8;margin-left:12px;font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;min-width:0}
+  /* a narrow desktop window (861-1280px) gives the menus their room first: the readout yields, then
+     the search box narrows. The seed and the grid it hides are also the status bar's first chips. */
+  @media (max-width:1280px){ .doc-readout{display:none} header #findInput{width:150px!important} }
+  @media (max-width:1000px){ header .mb-btn{padding:0 7px} header h1{letter-spacing:.18em;margin-right:6px} }
+  header .mb-btn{height:36px;padding:0 10px;background:none;border:0;color:var(--ink);font-family:var(--sans);font-size:12.5px;cursor:pointer;white-space:nowrap}
+  header .mb-btn:hover,header .mb-btn[aria-expanded="true"]{background:var(--wash);color:var(--accent)}
+  .mb-btn:focus-visible,.mb-row:focus-visible,.mb-panel > button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .mb-wrap{position:relative;display:flex}
+  .mb-panel{position:absolute;top:100%;left:0;z-index:45;min-width:260px;padding:4px 0;background:var(--panel);
+            border:1px solid var(--border);box-shadow:0 14px 34px rgba(0,0,0,.5);display:none}
+  .mb-panel.open{display:block}
+  /* File is v0.87's dropdown, kept by id so the export form and every import row keep their wiring;
+     on this bar it takes the menu-panel geometry instead of v0.87's 300px right-anchored box. Its
+     overflow must be visible, or the Export submenu beside it is clipped by its own scroll box. */
+  header #fileMenu{top:100%;right:auto;left:0;width:auto;min-width:270px;max-height:none;overflow:visible;padding:4px 0;background:var(--panel);border-color:var(--border)}
+  .mb-panel > button,.mb-panel .mb-row{display:flex;align-items:center;width:100%;min-height:28px;padding:0 14px;margin:0;
+        background:none;border:0;color:var(--ink);font-family:var(--sans);font-size:12px;text-align:left;white-space:nowrap;cursor:pointer}
+  .mb-panel > button:hover:not(:disabled),.mb-panel .mb-row:hover:not(:disabled){background:var(--wash);color:var(--ink)}
+  .mb-panel .menu-sec{font-family:var(--mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin:0;padding:8px 14px 4px}
+  .mb-panel .dsep{margin:4px 0}
+  /* a check or radio row shows its state as a glyph; the state itself is aria-pressed, written from
+     the real control every time the menu opens (see _dskMenuSync), never stored here */
+  .mb-row[aria-pressed]::before{content:'\2610';width:16px;flex:0 0 16px;color:var(--dim)}
+  .mb-row[aria-pressed="true"]::before{content:'\2611';color:var(--accent)}
+  .mb-row.mb-radio[aria-pressed]::before{content:'\25CB'}
+  .mb-row.mb-radio[aria-pressed="true"]::before{content:'\25CF'}
+  .mb-arrow{margin-left:auto;padding-left:24px;color:var(--dim);font-size:10px}
+  /* submenus open BESIDE their row (§3.8). _dskMenuOpenSub re-places a panel that would run off the
+     bottom of the window, so the whole path stays on screen. */
+  .mb-sub{position:relative}
+  .mb-subpanel{position:absolute;left:100%;top:-5px;z-index:46;min-width:220px;padding:4px 0;background:var(--panel);
+               border:1px solid var(--border);box-shadow:0 14px 34px rgba(0,0,0,.5);display:none}
+  .mb-sub.open > .mb-subpanel{display:block}
+  .mb-sub.open > .mb-row{background:var(--wash)}
+  /* the export form is a FORM, not a list of commands: it keeps v0.87's own row/check/hint look and
+     scrolls inside its own panel at short window heights */
+  #mbExportPanel{width:340px;max-height:calc(100vh - 60px);max-height:calc(100dvh - 60px);overflow-y:auto;padding:6px 4px}
+  #mbExportPanel #exportSec h2{margin-top:2px}
+
+  /* ---- D2 · the tool-options bar: the armed tool's settings only (Ruling DZ) ------------------- */
+  /* One 40px row with no tool armed: context, hint, pins. With Sculpt armed it becomes TWO rows (the
+     way v2.24's tool rail added a band, and the ResizeObserver refits the map either way): row one is
+     the context, the feature picker, Freehand's brush mode and the pins; row two the brush itself —
+     size (with its real-km radius), hardness, intensity — and the feature's own hint. The tool group is
+     display:contents so its children can take part in this one flex line, ordered by `order`. */
+  .toolopts{gap:10px;padding:0 10px 0 14px;flex-wrap:wrap;row-gap:0}
+  .to-ctx{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);white-space:nowrap;flex:0 0 auto;min-height:40px;display:flex;align-items:center}
+  .to-hint{font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+  .to-hint[hidden]{display:none}
+  .to-tool{display:contents}
+  .to-tool[hidden]{display:none}
+  .toolopts .to-spacer{order:3}
+  .to-pins{order:4;display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-left:auto;min-height:40px}
+  .to-pins button{height:26px;padding:0 10px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+  .to-break{order:5;flex:0 0 100%;height:0}
+  /* the sculpt tool's own settings, moved here from #toolRail and #genSculpt (the same elements);
+     !important only where the element's own inline style would otherwise win */
+  /* basis 0: the picker takes whatever row one has left after the context, the mode and the pins, and
+     scrolls inside it — a content-sized basis would push everything else onto a new line instead */
+  #toolOpts #sculptFeatureSeg{order:1;display:flex;flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:thin;min-width:120px;flex:1 1 0}
+  #toolOpts #sculptFeatureSeg button{flex:0 0 auto;border-top:0;padding:4px 9px;white-space:nowrap}
+  #toolOpts #sculptFeatureSeg button:last-child{border-right:0}
+  #toolOpts #sculptModeSeg{order:2;margin:0!important;flex-wrap:nowrap!important;flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:thin}
+  #toolOpts #sculptModeSeg button{flex:0 0 auto;padding:4px 7px}
+  #toolOpts #sBrushRow,#toolOpts #sBrushKm,#toolOpts #sHardRow,#toolOpts #sIntenRow{order:6}
+  #toolOpts .row{margin:0!important;gap:6px;flex:0 0 auto;min-height:34px}
+  #toolOpts .row label{flex:0 0 auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+  #toolOpts .row input[type=range]{flex:0 0 88px;height:18px}
+  #toolOpts .row .val{flex:0 0 32px}
+  #toolOpts #sBrushKm{margin:0!important;max-width:8em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:10px}
+  #toolOpts #sculptFeatHint{order:7;margin:0!important;min-width:0;flex:1 1 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:10px}
+  /* v2.46: #assetsHeaderBtn is the way OUT of Assets mode as well as in, and on this layout it lives
+     in the pins. So the bar stays in Assets mode (v2.24 hid it) and only its map-tool parts step
+     aside; the domain rail and both docks still give the library the stage, as before. */
+  body.assets-mode .toolopts{display:flex}
+  body.assets-mode .to-tool{display:none}
+
+  /* ---- D3 · the domain rail: leftmost, rotated mono labels, an accent bar on the active one ----- */
+  /* order -2 puts it ahead of the left dock (-1): the DCC frame's own left-to-right order (spec/01
+     §3.6) and the mockup's. v2.30/v2.31 drew it between the dock and the map. */
+  .domain-rail{order:-2;flex:0 0 40px;padding:0;gap:0}
+  .domain-rail .dr-btn{height:auto;min-height:104px;padding:14px 0;gap:0;border-left:2px solid transparent}
+  .domain-rail .dr-gl{display:none}
+  .domain-rail .dr-tx{writing-mode:vertical-rl;transform:rotate(180deg);font-size:10px;letter-spacing:.24em}
+  .domain-rail .dr-btn.on{border-left-color:var(--accent);background:var(--wash);color:var(--accent)}
+  .domain-rail .dr-btn:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+  /* ---- D4 · the left dock: a header, mono section labels, RUN first in WORLD -------------------- */
+  .dock-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;flex:0 0 auto;height:34px;
+             padding:0 6px 0 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .dock-head .dh-path{flex:1;min-width:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dh-btn{width:26px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;font-size:13px}
+  .dock .sublabel,.dock .sublabel-grp{font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+  .dock details.acc>summary{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.14em;text-transform:uppercase}
+  #worldCatSeg{margin:12px 14px 4px!important}
+  #worldCatSeg button{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;padding:8px 6px}
+  .run-sec label[for="seedN"]{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:0 0 5px}
+  .run-sec #seedN{width:100%;padding:6px 9px;font-size:12px}
+  .run-sec #genBtn{display:block;width:100%;margin:10px 0 8px;padding:9px 12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase}
+  .run-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .run-row button{padding:7px 6px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* collapsed (Window ▸ Left dock, or the header's chevron): a 30px strip that keeps the chevron and
+     the path, so the way back is where the dock was. The domain bodies' INLINE displays are left alone
+     (v2.24's rule — _civSubPageVisible() reads #genCiv's): it is the dock's children that are hidden,
+     which is why this needs !important against #generatePanel's own inline display. */
+  body.ldock-collapsed .dock-left{width:30px!important;min-width:30px;overflow:hidden}
+  body.ldock-collapsed .dock-left > :not(.dock-head){display:none!important}
+  body.ldock-collapsed .dock-head{flex-direction:column;height:auto;flex:1 1 auto;padding:8px 0;gap:12px;border-bottom:0}
+  body.ldock-collapsed .dock-head .dh-path{flex:0 0 auto;writing-mode:vertical-rl;transform:rotate(180deg)}
+  body.ldock-collapsed .dock-head .dh-btn{order:-1}
+
+  /* ---- D5 · the right dock becomes the Context panel -------------------------------------------- */
+  .ctx-head{position:sticky;top:0;z-index:3;display:grid;grid-template-columns:1fr auto;column-gap:8px;flex:0 0 auto;
+            padding:9px 6px 8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .ctx-k{font-family:var(--mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent)}
+  .ctx-name{grid-column:1;font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .ctx-hint{grid-column:1;font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .ctx-head .dh-btn{grid-column:2;grid-row:1 / span 3;align-self:start}
+  .ctx-tabs{display:flex;flex:0 0 auto;border-bottom:1px solid var(--line);background:var(--panel)}
+  .ctx-tab{background:none!important;border:0!important;border-bottom:2px solid transparent!important;color:var(--dim)!important;
+           font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;padding:9px 14px;cursor:default}
+  .ctx-tab[aria-selected="true"]{color:var(--accent)!important;border-bottom-color:var(--accent)!important}
+  #inspector > .sublabel:first-child{display:none}
+  /* hidden (Window ▸ Context panel, or the header's chevron): like the left dock, a 30px strip that
+     keeps the chevron and the word CONTEXT, so the way back is where the panel was */
+  body.ctx-hidden .dock-right{width:30px!important;min-width:30px;overflow:hidden}
+  body.ctx-hidden .dock-right > :not(.ctx-head){display:none!important}
+  body.ctx-hidden .ctx-head{display:flex;flex-direction:column;align-items:center;gap:12px;flex:1 1 auto;padding:8px 0;border-bottom:0}
+  body.ctx-hidden .ctx-head .ctx-name,body.ctx-hidden .ctx-head .ctx-hint{display:none}
+  body.ctx-hidden .ctx-head .ctx-k{writing-mode:vertical-rl;transform:rotate(180deg)}
+  body.ctx-hidden .ctx-head .dh-btn{order:-1}
+
+  /* ---- D6 · the timeline strip, above the status bar in every domain (CV-24, PC §3.2) ----------- */
+  .tl-strip{flex:0 0 auto;display:flex;flex-direction:column;border-top:1px solid var(--line);background:var(--panel2)}
+  body.tl-hidden .tl-strip{display:none}
+  .tl-row{display:flex;align-items:center;gap:12px;min-height:34px;padding:0 12px;min-width:0}
+  .tl-toggle{display:flex;align-items:center;gap:6px;padding:4px 6px;background:none!important;border:0!important;
+             font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)!important;white-space:nowrap}
+  .tl-toggle[aria-expanded="true"] .tl-chev{display:inline-block;transform:rotate(180deg)}
+  .tl-empty{font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* #explTimelineSliderRow moved here whole, so _civBuildExploreTimelineUI's "two recorded years or
+     it hides" gate still owns it. Its inline display is '' or none, so this display is only a base. */
+  #tlStrip #explTimelineSliderRow{display:flex;align-items:center;gap:12px;flex:1;min-width:0;margin:0!important}
+  #tlStrip #explTimelineSliderRow > .hint{order:1;margin:0!important;white-space:nowrap;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+  #tlStrip #explTimelineSliderRow > .hint b{color:var(--ink);font-weight:500;letter-spacing:.04em}
+  #tlStrip #explTimelineSliderRow > .btnrow{order:2;margin:0!important;flex:0 0 auto}
+  #tlStrip #explTlPlayBtn{padding:3px 10px;font-size:11px}
+  #tlStrip #explTimelineSliderRow > .row{order:3;flex:1;min-width:120px;margin:0}
+  #tlStrip #explTlMinYear,#tlStrip #explTlMaxYear{font-family:var(--mono);white-space:nowrap}
+  .tl-more{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;padding:7px 12px 9px;border-top:1px solid var(--div)}
+  .tl-more[hidden]{display:none}
+  .tl-lab{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)}
+  #tlStrip #civTimelinePanel{margin:0!important;min-width:0}
+  /* the pills' own "Active year" line repeats the collapsed row's year one line below it */
+  #tlStrip #civTimelinePanel > .hint{display:none}
+  #tlStrip #civTlAddYearBtn{flex:none!important;padding:4px 10px}
+  #tlStrip #civTlYear{width:76px!important}
+  #tlStrip .tl-filters{display:flex;align-items:center;gap:14px}
+  #tlStrip .tl-filters label.chk{margin:0!important;white-space:nowrap}
+  #tlStrip .tl-long{display:none}
+  #tlStrip .tl-short{display:inline}
+
+  /* ---- D7 · the status bar: mono, small, the version at the right end -------------------------- */
+  body.sb-hidden .status-bar{display:none}
+  .status-bar #verTag{order:9;margin-left:4px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--dim);border:0;padding:0}
+  /* #readout's own writer is unchanged; on this layout the version is #verTag at the right end, so
+     the readout's leading copy of it steps aside (the phone keeps it — its header shows #verTag). */
+  .status-bar .readout .r-ver{display:none}
+  body.rail-hidden .domain-rail{display:none}
+
+  /* ---- D8 · map controls ------------------------------------------------------------------------- */
+  /* top-left: the Base map chip (#layersFab, View inside its popover) with the Explore filter beside */
+  .map-tl{position:absolute;top:10px;left:10px;z-index:20;display:flex;gap:6px;align-items:flex-start}
+  /* descendant, not child, selectors: the FABs sit in a display:contents slot inside these columns */
+  .map-tl .map-filter-fab{position:relative;top:auto;left:auto}
+  #layersBtn{width:auto;white-space:nowrap;padding:0 12px;gap:8px;height:32px;font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase}
+  .lp-base .seg{margin:0 0 8px}
+  /* bottom-right: one column — the 3D switch over recentre, zoom in and zoom out */
+  .map-br{position:absolute;right:10px;bottom:10px;z-index:20;display:flex;flex-direction:column;align-items:center;gap:6px}
+  .map-br .viewdim{position:static;transform:none;box-shadow:0 1px 6px rgba(0,0,0,.4)}
+  /* The seg keeps BOTH buttons and both handlers; this draws only the one that is not active, so the
+     single square reads as the switch it will make ("3D" on the flat map, "2D" in the relief). */
+  .map-br .viewdim button.on{display:none}
+  .map-br .viewdim button{width:34px;height:34px;padding:0;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--accent)}
+  .map-br #zoomOverlay{position:static;display:flex;gap:6px}
+  .map-br .zbtn{width:34px;height:34px;font-size:17px;background:var(--panel);color:var(--ink);border:1px solid var(--border)}
+  .map-br .zbtn:hover{border-color:var(--accent);color:var(--accent)}
+  #zoomReset{order:-1}
+  /* ⟳ read as "reload"; on this layout the button is the design's recentre (it fits the map to the
+     view, v1.13), so it draws ⌖. The phone keeps its own glyph. */
+  #zoomReset{font-size:0!important}
+  #zoomReset::before{content:'\2316';font-size:16px}
+  /* ✋ is a touch affordance (v1.19); a mouse pans with Space-drag or the middle button already */
+  @media (hover:hover) and (pointer:fine){ #panBtn{display:none} }
+  /* bottom-left: the scale bar, and the legend stacked above it so neither covers the other */
+  #scaleBar{left:12px;right:auto;bottom:12px}
+  .legend{left:12px;bottom:46px}
+}
+
 </style>
 </head>
 <body>
@@ -840,18 +1101,162 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
        moves back here and the stand-in is retired; the way in and the way out are one button again. -->
   <!-- v2.63: same header slot, same reason as v2.46's Assets toggle — the Settlements screen is a
        place you go, not a setting, so it gets a visible one-click control rather than a cog entry. -->
+  <!-- v2.72: this header slot is now the PHONE's (<=860px, v2.71's layout until stage 2). On the
+       desktop these two buttons are pins at the right end of the tool-options bar (#slotPins, Ruling
+       DZ): _dskPlace() moves the same two elements there and back, so each stays one toggle. -->
   <button class="menubtn" id="settlementsHeaderBtn" aria-pressed="false"
           title="Settlements — the global generation knobs, every faction, and every settlement, in one screen.">&#x1F3D8;&#xFE0F; Settlements</button>
   <button class="menubtn" id="assetsHeaderBtn" aria-pressed="false"
           title="Asset Library — collections, importers, the sprite-sheet slicer, the validator and pack export. Art you sync there reaches the map directly.">🎨 Assets</button>
-  <h1>Cartalith Gen1</h1>
-  <span class="ver" id="verTag">v2.71</span>
+  <!-- v2.72: "Gen1" is the phone's title; the desktop menu bar's wordmark is CARTALITH alone, as the
+       design draws it. Two text nodes, one per form factor, so the h1's textContent is unchanged. -->
+  <h1>Cartalith<span class="h1-gen"> Gen1</span></h1>
+  <!-- v2.72: on the desktop #verTag sits at the right end of the status bar (#slotSbVer). -->
+  <span class="ver" id="verTag">v2.72</span>
   <span class="tag">terrain · climate · civilization · 2D/3D · cartalith gen1</span>
   <!-- v0.63 (§3): phase chip — appears once the world is finalized (Atlas/Explore phase) -->
-  <span id="phaseChip" title="The simulation is frozen — you're editing the cartographic Atlas. Un-finalize at the top of Generate → World.">✓ Atlas — world finalized</span>
+  <span id="phaseChip" title="The simulation is frozen — you're editing the cartographic Atlas. Un-finalize under WORLD › Generate › Finalize world.">✓ Atlas — world finalized</span>
+  <!-- ══ v2.72 MENU BAR (desktop) ═════════════════════════════════════════════════════════════════
+       Owner: "Can we upgrade the layout in the html with the new design?" (PC_SHELL_PROPOSAL.md §3.8;
+       World renamed Records by Ruling DY, PQ6). The eight menus in the design's order. Every row runs a
+       control or a function this file ALREADY has — it clicks the real button, or calls the function
+       that button's own handler calls (_DSK_CMDS, block 1) — so no command gains a second
+       implementation. A design row with nothing behind it in this file is LEFT OUT, not drawn
+       disabled; CHANGELOG v2.72's "not in this build" table lists each with the reason. File is v0.87's
+       #fileWrap/#fileMenu, kept by id: on the desktop _dskPlace() moves it into #slotMbFile here, and
+       on a phone it stays where it was, between Redo and the cog, as v2.71's "File ▾". The other seven
+       menus are desktop-only until stage 2. Behaviour (one line per row, accelerators right-aligned,
+       submenus beside their row, hover switches menus while one is open, Esc or an outside click
+       closes, visible keyboard focus) is _dskMenuInit's. -->
+  <nav class="menubar dk-only" id="menuBar" aria-label="Menu bar">
+    <span class="shell-slot" id="slotMbFile"></span>
+    <div class="mb-wrap" id="mbEditWrap">
+      <button type="button" class="mb-btn" id="mbEditBtn" aria-haspopup="true" aria-expanded="false" aria-controls="mbEdit">Edit</button>
+      <div class="mb-panel" id="mbEdit" aria-label="Edit">
+        <div class="mb-cap">Edit</div>
+        <button type="button" class="mb-row" data-cmd="undo">Undo<span class="mb-k">Ctrl+Z</span></button>
+        <button type="button" class="mb-row" data-cmd="redo">Redo<span class="mb-k">Ctrl+Shift+Z</span></button>
+        <div class="mb-sep"></div>
+        <button type="button" class="mb-row" data-cmd="deletePlace">Delete selected place<span class="mb-k">Del</span></button>
+        <div class="mb-sep"></div>
+        <button type="button" class="mb-row" data-cmd="find">Find…<span class="mb-k">Ctrl+K</span></button>
+      </div>
+    </div>
+    <div class="mb-wrap" id="mbAssetsWrap">
+      <button type="button" class="mb-btn" id="mbAssetsBtn" aria-haspopup="true" aria-expanded="false" aria-controls="mbAssets">Assets</button>
+      <div class="mb-panel" id="mbAssets" aria-label="Assets">
+        <div class="mb-cap">Assets</div>
+        <button type="button" class="mb-row" data-cmd="assetLibrary" aria-pressed="false">Asset library<span class="mb-k">Shift+A</span></button>
+        <button type="button" class="mb-row" data-cmd="slicer">Sprite sheet slicer…</button>
+        <div class="mb-sep"></div>
+        <div class="mb-cap">Library</div>
+        <button type="button" class="mb-row" data-cmd="alImport">Open pack in library…</button>
+        <button type="button" class="mb-row" data-cmd="alExport">Export pack .zip…</button>
+        <button type="button" class="mb-row" data-cmd="alApply">Apply library to map</button>
+        <button type="button" class="mb-row" data-cmd="alClear">Clear library…</button>
+        <div class="mb-sep"></div>
+        <div class="mb-sig">Import asset pack… (the map's live pack) is in File ▸ Import</div>
+      </div>
+    </div>
+    <div class="mb-wrap" id="mbRecordsWrap">
+      <button type="button" class="mb-btn" id="mbRecordsBtn" aria-haspopup="true" aria-expanded="false" aria-controls="mbRecords">Records</button>
+      <div class="mb-panel" id="mbRecords" aria-label="Records">
+        <div class="mb-cap">Records</div>
+        <button type="button" class="mb-row" data-cmd="factions">Factions…<span class="mb-k">Ctrl+Shift+F</span></button>
+        <button type="button" class="mb-row" data-cmd="places">Settlements…</button>
+        <div class="mb-sep"></div>
+        <div class="mb-sig">Heightmap import is in File ▸ Import · export is in File ▸ Export · the timeline is the strip above the status bar</div>
+      </div>
+    </div>
+    <div class="mb-wrap" id="mbStoryWrap">
+      <button type="button" class="mb-btn" id="mbStoryBtn" aria-haspopup="true" aria-expanded="false" aria-controls="mbStory">Story</button>
+      <div class="mb-panel" id="mbStory" aria-label="Story">
+        <div class="mb-cap">Time</div>
+        <button type="button" class="mb-row" data-cmd="timeline" aria-pressed="false">Timeline — recorded years &amp; filters</button>
+        <button type="button" class="mb-row" data-cmd="simulate">Simulate collapse / recovery…</button>
+        <div class="mb-cap">Journeys</div>
+        <button type="button" class="mb-row" data-cmd="planner">Journey planner…</button>
+        <button type="button" class="mb-row" data-cmd="journeys">Saved journeys</button>
+      </div>
+    </div>
+    <div class="mb-wrap" id="mbPrefsWrap">
+      <button type="button" class="mb-btn" id="mbPrefsBtn" aria-haspopup="true" aria-expanded="false" aria-controls="mbPrefs">Preferences</button>
+      <div class="mb-panel" id="mbPrefs" aria-label="Preferences">
+        <div class="mb-cap">Performance</div>
+        <button type="button" class="mb-row" data-cmd="gpu" aria-pressed="false">GPU acceleration</button>
+        <button type="button" class="mb-row" data-cmd="setPerf">Performance &amp; tiled LOD…</button>
+        <div class="mb-cap">Storage</div>
+        <button type="button" class="mb-row" data-cmd="setStorage">Storage &amp; data…</button>
+        <div class="mb-cap">Appearance</div>
+        <div class="mb-sub">
+          <button type="button" class="mb-row" data-sub="1" aria-haspopup="true" aria-expanded="false">Theme<span class="mb-arrow">▸</span></button>
+          <div class="mb-subpanel" aria-label="Theme">
+            <button type="button" class="mb-row mb-radio" data-cmd="themeDark" aria-pressed="false">Dark</button>
+            <button type="button" class="mb-row mb-radio" data-cmd="themeLight" aria-pressed="false">Light</button>
+          </div>
+        </div>
+        <div class="mb-sub">
+          <button type="button" class="mb-row" data-sub="1" aria-haspopup="true" aria-expanded="false">Units<span class="mb-arrow">▸</span></button>
+          <div class="mb-subpanel" aria-label="Units">
+            <button type="button" class="mb-row mb-radio" data-cmd="unitsKm" aria-pressed="false">Kilometres</button>
+            <button type="button" class="mb-row mb-radio" data-cmd="unitsMi" aria-pressed="false">Miles</button>
+          </div>
+        </div>
+        <button type="button" class="mb-row" data-cmd="setAppearance">Appearance &amp; 3D view…</button>
+      </div>
+    </div>
+    <div class="mb-wrap" id="mbWindowWrap">
+      <button type="button" class="mb-btn" id="mbWindowBtn" aria-haspopup="true" aria-expanded="false" aria-controls="mbWindow">Window</button>
+      <div class="mb-panel" id="mbWindow" aria-label="Window">
+        <div class="mb-cap">Window</div>
+        <button type="button" class="mb-row" data-cmd="winLeftDock" aria-pressed="true">Left dock</button>
+        <button type="button" class="mb-row" data-cmd="winContext" aria-pressed="true">Context panel</button>
+        <button type="button" class="mb-row" data-cmd="winTimeline" aria-pressed="true">Timeline</button>
+        <button type="button" class="mb-row" data-cmd="winStatus" aria-pressed="true">Status bar</button>
+        <button type="button" class="mb-row" data-cmd="winRail" aria-pressed="true">Domain rail</button>
+        <div class="mb-sep"></div>
+        <button type="button" class="mb-row" data-cmd="diagnostics" aria-pressed="false">Diagnostics overlay<span class="mb-k">Shift+D</span></button>
+        <button type="button" class="mb-row" data-cmd="view3d" aria-pressed="false">3D view</button>
+        <div class="mb-sep"></div>
+        <div class="mb-sub">
+          <button type="button" class="mb-row" data-sub="1" aria-haspopup="true" aria-expanded="false">Workspace<span class="mb-arrow">▸</span></button>
+          <div class="mb-subpanel" aria-label="Workspace">
+            <button type="button" class="mb-row mb-radio" data-cmd="domWorld" aria-pressed="false">World</button>
+            <button type="button" class="mb-row mb-radio" data-cmd="domCiv" aria-pressed="false">Civil</button>
+            <button type="button" class="mb-row mb-radio" data-cmd="domCarto" aria-pressed="false">Carto</button>
+            <button type="button" class="mb-row mb-radio" data-cmd="domExplore" aria-pressed="false">Explore</button>
+          </div>
+        </div>
+        <div class="mb-sep"></div>
+        <button type="button" class="mb-row" data-cmd="resetLayout">Reset layout</button>
+      </div>
+    </div>
+    <div class="mb-wrap" id="mbHelpWrap">
+      <button type="button" class="mb-btn" id="mbHelpBtn" aria-haspopup="true" aria-expanded="false" aria-controls="mbHelp">Help</button>
+      <div class="mb-panel" id="mbHelp" aria-label="Help">
+        <div class="mb-cap">Help</div>
+        <button type="button" class="mb-row" data-cmd="credits">Credits &amp; academic principles</button>
+        <button type="button" class="mb-row" data-cmd="genInfo">Generation info…</button>
+        <div class="mb-sep"></div>
+        <div class="mb-ro">Cartalith DCC test<b id="mbVersion">—</b></div>
+      </div>
+    </div>
+  </nav>
+  <!-- v2.27 (owner: "undo, redo, file and the cog can be on one line next to the search bar. And redo
+       and undo can be symbols"). Symbol-only, with the word in title + aria-label so the control is
+       still named for a screen reader and on hover. #undoMem keeps its id and is still written by
+       updateUndoUI() — it is just no longer painted between Redo and File, where its sentence of text
+       was the one thing splitting the cluster. Its live step/MB readout is mirrored onto the Undo
+       button's own tooltip instead, so the information stays reachable rather than being deleted. -->
   <!-- v0.64 (§4.8): global Undo, moved here from the retired Edit tab — always visible, wherever an
        edit happens. Same ids (undoBtn/undoMem) so pushUndo()/undoLast()/updateUndoUI() wiring is
        untouched; undoMem's live step-count text now doubles as the header's status readout. -->
+  <!-- v2.72: Undo and Redo now come BEFORE Find in the DOM — the desktop design's order (↶ ↷ then the
+       search box), so keyboard focus follows what the menu bar draws. A phone keeps v2.71's visual
+       order Find · Undo · Redo · File · cog through one flex-order rule (see the v2.72 CSS block). -->
+  <button id="undoBtn" class="menubtn iconbtn" title="Undo" aria-label="Undo" disabled>↩</button>
+  <button id="redoBtn" class="menubtn iconbtn" title="Redo" aria-label="Redo" disabled>↪</button>   <!-- v2.12 -->
+  <span id="undoMem" class="tag" hidden>Up to 5 steps saved in memory</span>
   <!-- v2.15: ONE search over both controls and map entities. The port has these as two features
        (command_index.gd + place_search.gd); here they are one box because they answer one question. -->
   <span id="findWrap" style="position:relative;display:inline-block">
@@ -859,15 +1264,12 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
            style="width:150px;padding:2px 6px;font-size:.82rem">
     <div id="findResults" style="display:none;position:absolute;z-index:80;top:100%;left:0;min-width:290px;max-height:340px;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px"></div>
   </span>
-  <!-- v2.27 (owner: "undo, redo, file and the cog can be on one line next to the search bar. And redo
-       and undo can be symbols"). Symbol-only, with the word in title + aria-label so the control is
-       still named for a screen reader and on hover. #undoMem keeps its id and is still written by
-       updateUndoUI() — it is just no longer painted between Redo and File, where its sentence of text
-       was the one thing splitting the cluster. Its live step/MB readout is mirrored onto the Undo
-       button's own tooltip instead, so the information stays reachable rather than being deleted. -->
-  <button id="undoBtn" class="menubtn iconbtn" title="Undo" aria-label="Undo" disabled>↩</button>
-  <button id="redoBtn" class="menubtn iconbtn" title="Redo" aria-label="Redo" disabled>↪</button>   <!-- v2.12 -->
-  <span id="undoMem" class="tag" hidden>Up to 5 steps saved in memory</span>
+  <!-- v2.72: the document readout — only what this file KNOWS about the open world (its seed, grid and
+       extent; nothing when no world exists), written by _dskDocReadoutSync. The finalized phase is
+       #phaseChip's, beside it. There is no world name because this file has no such field, and none is
+       invented (MISTAKES.md: never encode "no value" as a plausible value); autosave keeps its own chip
+       in the status bar (#sbAutosave), as before. -->
+  <span class="doc-readout dk-only" id="docReadout" title="The open world: seed, grid and extent">no world</span>
   <!-- v0.87: Import + Export consolidated into one "File ▾" dropdown (owner request). Every element id is
        unchanged (loadBtn/inferTectBtn/loadZipBtn/packBtn + bakeRes/bakeTiles/chanAtlasChk/exportBtn/
        bakeProgRow), so all import/export wiring is untouched — only the two containers merged. The Import
@@ -890,19 +1292,37 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   <input type="file" id="file" class="file" accept="image/*" aria-label="Load heightmap image">
   <input type="file" id="zipFile" class="file" accept=".zip,application/zip" aria-label="Load project ZIP">
   <input type="file" id="packFile" class="file" accept=".zip,application/zip" aria-label="Import asset pack ZIP">
-  <div class="dropdown-wrap" id="fileWrap">
-    <button class="menubtn" id="fileMenuBtn">File ▾</button>
-    <div class="dropdown" id="fileMenu">
+  <!-- v2.72: File is the menu bar's first menu on the desktop (_dskPlace moves this wrapper into
+       #slotMbFile) and v2.71's "File ▾" here on a phone. Same element either way, so every row below
+       keeps its id and its wiring. The brief for stage 1 kept File ▾'s own rows in File: the design files
+       heightmap import under Records ▸ Import and asset packs under Assets, and each of those menus now
+       carries a signpost here instead, so a phone's File ▾ (unchanged until stage 2) loses nothing.
+       Rows marked .dk-only are the desktop's additions; each runs an existing control (_DSK_CMDS). -->
+  <div class="dropdown-wrap mb-wrap" id="fileWrap">
+    <button class="menubtn mb-btn" id="fileMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="fileMenu">File<span class="ph-only"> ▾</span></button>
+    <div class="dropdown mb-panel" id="fileMenu" aria-label="File">
+      <div class="mb-cap dk-only">File</div>
+      <button type="button" class="mb-row dk-only" data-cmd="generate">Generate world<span class="mb-k">Ctrl+R</span></button>
+      <div class="mb-sep dk-only"></div>
       <div class="menu-sec">Import</div>
       <button id="loadBtn">Load heightmap…</button>
       <button id="inferTectBtn">Infer tectonics from heightmap</button>
-      <button id="loadZipBtn">Load project .zip…</button>
+      <button id="loadZipBtn">Load project .zip…<span class="mb-k dk-only">Ctrl+O</span></button>
       <!-- v2.12: a load that fails used to leave nothing behind once the alert was dismissed -->
       <div id="loadRefusal" class="hint" style="display:none;color:#e88"></div>
       <div class="dsep"></div>
-      <div class="dsep"></div>
+      <div class="dsep ph-only"></div>
       <button id="packBtn">Import asset pack…</button>
       <div class="dsep"></div>
+      <!-- v2.72: Save project is the project .zip export below (#exportBtn) — "a project ZIP genuinely
+           IS a full save" (v0.88) — so the row presses that button, with the form's current settings. -->
+      <button type="button" class="mb-row dk-only" data-cmd="save">Save project (.zip)<span class="mb-k">Ctrl+S</span></button>
+      <button type="button" class="mb-row dk-only" data-cmd="autosave" aria-pressed="false">Autosave</button>
+      <!-- v2.72: on the desktop the export FORM opens beside this row as a submenu panel; on a phone the
+           two wrappers are display:contents and the form flows inline exactly as v2.71 drew it. -->
+      <div class="mb-sub" id="mbExportSub">
+      <button type="button" class="mb-row dk-only" id="mbExportRow" data-sub="1" aria-haspopup="true" aria-expanded="false">Export<span class="mb-arrow">▸</span></button>
+      <div class="mb-subpanel" id="mbExportPanel" aria-label="Export">
       <div class="sec" id="exportSec" style="padding:4px 6px;border:0">
         <div class="menu-sec" style="margin-left:0">Export</div>
         <h2 style="margin-top:0">Export image &amp; project</h2>
@@ -928,6 +1348,8 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
         <div class="btnrow" style="margin-top:8px"><button id="exportGeoBtn">Export GeoJSON</button></div>
         <div class="hint">Settlements/POIs, roads &amp; sea-routes, rivers (Strahler order ≥2), faction territory (with its state religion) and — once generated below — provinces, as one <code>.geojson</code> file — filter by each feature's <code>layer</code> property. Coordinates are local planar kilometres (east, north) from the map's own scale, <b>not</b> real-world WGS84 longitude/latitude — a fantasy world has no true georeference. Any GIS tool that accepts an unspecified/local coordinate system (e.g. QGIS "Add Vector Layer" with the CRS left as detected) reads it as a flat projected dataset at the map's scale.</div>
       </div>
+      </div><!-- end mbExportPanel -->
+      </div><!-- end mbExportSub -->
     </div>
   </div>
   <!-- v2.24 (owner: "put all program options behind the cog wheel — like gpu use and more system
@@ -938,14 +1360,24 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   <!-- v2.27 (owner: "the cog you can use an emoticon"). The hand-drawn SVG is replaced by the emoji,
        which matches the symbol convention Undo/Redo now use beside it. aria-label carries the name, so
        the button is still announced as "Settings" rather than as a gear character. -->
-  <button class="menubtn cogbtn iconbtn" id="cogBtn" title="Settings — performance, storage, appearance" aria-label="Settings" aria-expanded="false">⚙️</button>
+  <!-- v2.72: the cog is the PHONE's way into Settings (v2.71, unchanged until stage 2). On the desktop
+       Preferences owns program scope and opens the same window at a page (window._openSettings), Help
+       opens Credits and Generation info, so the cog is not drawn there. The window, its five pages and
+       every control on them are untouched. -->
+  <button class="menubtn cogbtn iconbtn ph-only" id="cogBtn" title="Settings — performance, storage, appearance" aria-label="Settings" aria-expanded="false">⚙️</button>
 </header>
 
 <!-- ══════════════════════ v2.24: the DCC editor frame ══════════════════════════════════════════
      app bar 36 · tool-options bar 40 · conditional tool rail 40 · [domain rail 40 | left dock 372 |
      viewport | right dock 304] · status bar 26. Replaces the v0.65 header + single 324px <aside>.
      Every element id from v2.23 survives the move — the restructure is markup + CSS, and the one
-     behavioural contract it changes (navigation) is centralised in _setDomain()/_applyDomainUI(). -->
+     behavioural contract it changes (navigation) is centralised in _setDomain()/_applyDomainUI().
+     v2.72, DESKTOP ONLY (wider than 860px): menu bar 36 · tool-options bar 40 (the armed tool's
+     settings, Ruling DZ) · [domain rail 40 | left dock | viewport | Context panel] · timeline strip ·
+     status bar 26. The conditional tool rail's content joins the tool-options bar there, the rail
+     moves to the far left, and the markup below stays in its v2.71 (phone) order: each control that
+     lives elsewhere on the desktop has an empty .shell-slot at its desktop home, filled at boot by
+     _dskPlace(). A phone keeps exactly the v2.71 frame described above until stage 2. -->
 <div class="shell">
 
   <!-- DOCUMENT BAR (always): what the whole world IS — seed, extent, grid, view mode — plus the
@@ -953,24 +1385,51 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
        vanished the moment you switched branch; they are the controls a user reaches for from every
        domain, which is exactly what a DCC tool-options bar is for. Each carries data-genlock (see
        _stampGenLock) because the finalize lock can no longer be derived from #genWorld ancestry. -->
+  <!-- v2.72 (Ruling DZ, PC_SHELL_PROPOSAL.md §3.12 — the owner: "The buttons in the top rail new seed,
+       generate and bake can be removed. Please see to only keep the paint/sculpt brush settings here").
+       On the DESKTOP this band is the TOOL-OPTIONS BAR: the armed tool's settings and nothing else —
+       with no tool armed, the context name and one hint (_dskToolOptsSync) — plus the pinned commands at
+       its right end. Its v2.24 contents found new homes, each the SAME element (_dskPlace): Seed, ⟳ and
+       Center landmasses in WORLD › Generate › Run, with Generate world (also File ▸ Generate world,
+       Ctrl+R, from every domain); View inside the map's Base map chip. data-genlock still travels with
+       each by id (_stampGenLock never used containment). On a PHONE this stays v2.71's document bar,
+       unchanged until stage 2 — the .ph-only groups below are exactly what it draws there. -->
   <div class="toolopts" id="toolOpts">
-    <div class="to-group">
-      <label class="to-lab" for="seedN">Seed</label>
+    <span class="to-ctx dk-only" id="toolOptsCtx">Generate · World</span>
+    <span class="to-hint dk-only" id="toolOptsHint">Click selects · right-click opens the map menu · Ctrl+R generates</span>
+    <!-- the armed tool's settings: on the desktop, the sculpt tool's feature picker, Freehand's brush
+         mode, brush size, hardness and intensity, and the feature's hint land here (_dskPlace) — the
+         same elements #toolRail and #genSculpt hold on a phone -->
+    <div class="to-tool dk-only" id="toolOptsTool" hidden><span class="to-break"></span><span class="shell-slot" id="slotToolDesk"></span></div>
+    <div class="to-group ph-only">
+      <label class="to-lab" for="seedN" id="seedLab">Seed</label>
       <input type="number" id="seedN" value="0" step="1" class="to-num">
-      <button id="reseedBtn" class="to-btn" title="Roll a new seed and regenerate">⟳</button>
+      <button id="reseedBtn" class="to-btn" title="Roll a new seed and regenerate">⟳<span class="dk-only"> New seed</span></button>
     </div>
-    <div class="to-sep"></div>
-    <div class="to-group"><span class="to-lab">View</span><div class="seg sm" id="modeSeg"><button data-mode="biome" class="on">Biome</button><button data-mode="hypso">Relief</button><button data-mode="gray">Height</button><button data-mode="shade">Shade</button></div></div>
+    <div class="to-sep ph-only"></div>
+    <div class="to-group ph-only"><span class="to-lab">View</span><div class="seg sm" id="modeSeg"><button data-mode="biome" class="on">Biome</button><button data-mode="hypso">Relief</button><button data-mode="gray">Height</button><button data-mode="shade">Shade</button></div></div>
     <div class="to-spacer"></div>
     <button id="centerBtn" class="to-btn" title="Circularly shift the world in X to put the emptiest meridian on the seam">Center landmasses</button>
-    <button class="accent" id="genBtn">Generate world</button>
+    <button class="accent" id="genBtn" title="Generate world — rebuild every generation stage from the seed (Ctrl+R)">Generate world</button>
+    <!-- v2.72: the pins (Ruling DZ item 4 keeps them at the bar's right end). Only HTML-backed ones,
+         and no "+": this build has no pin customisation. Settlements and Assets are the v2.46/v2.63
+         header toggles THEMSELVES, moved here on the desktop (#slotPins) — Assets stays the visible
+         way into and out of the Asset Library (v2.46). Save and Planner press existing controls. -->
+    <div class="to-pins dk-only" id="toolOptsPins" role="toolbar" aria-label="Pinned commands">
+      <button type="button" id="pinSave" data-cmd="save" title="Save project — the project .zip export (File ▸ Save project, Ctrl+S; its options are File ▸ Export)">Save</button>
+      <span class="shell-slot" id="slotPins"></span>
+      <button type="button" id="pinPlanner" data-cmd="planner" title="Journey planner — opens the selected journey's planner; with none selected, shows Explore › Journeys">Planner</button>
+    </div>
   </div>
 
   <!-- CONDITIONAL TOOL RAIL: present only while an armed tool has a sub-palette worth a full band.
        Today that is exactly one case — the Sculpt category's 13-feature picker, which #sculptFeatureSeg
        populates by id, so moving it here needed no JS change. The band's appearance and disappearance
-       resize .canvas-wrap without a window resize, which is what the v2.24 ResizeObserver is for. -->
-  <div class="toolrail" id="toolRail" style="display:none">
+       resize .canvas-wrap without a window resize, which is what the v2.24 ResizeObserver is for.
+       v2.72: a PHONE band only. On the desktop its picker and hint are part of the tool-options bar
+       above (#slotToolDesk), so this band never draws there (.ph-only beats _toolRailSync's inline
+       display). -->
+  <div class="toolrail ph-only" id="toolRail" style="display:none">
     <span class="to-lab" id="toolRailLabel">Feature</span>
     <div class="seg sm grid" id="sculptFeatureSeg" style="flex-wrap:wrap"></div>
     <span class="hint" id="sculptFeatHint" style="margin-left:10px"></span>
@@ -994,6 +1453,14 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
            baked into the terrain-draped texture, so it never tilts/foreshortens with the 3D camera. -->
       <canvas id="view3dLabels" width="960" height="720" style="display:none"></canvas>
     </div>
+    <!-- v2.72: the desktop's two map-control columns (D8). Empty in the markup: on the desktop
+         _dskPlace() moves the Base map chip (#layersFab, View inside its popover) and the Explore filter
+         into the top-left one, and the 2D/3D switch (#viewDimSeg) over recentre / zoom in / zoom out
+         (#zoomOverlay — v2.71 drew it on touch devices only) into the bottom-right one. The scale bar
+         sits bottom-left with the legend stacked above it. A phone keeps every one of these where v2.71
+         put it. -->
+    <div class="map-tl dk-only" id="mapTL"><span class="shell-slot" id="slotMapTL"></span></div>
+    <div class="map-br dk-only" id="mapBR"><span class="shell-slot" id="slotMapBR"></span></div>
     <!-- v0.6: 2D/3D view-dimension pill (floating, top-center) — switches the whole viewport between
          the flat map and the draped 3D relief. -->
     <div id="viewDimSeg" class="seg viewdim"><button data-dim="2d" class="on">2D</button><button data-dim="3d">3D</button></div>
@@ -1040,14 +1507,20 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <!-- v0.63 (§4.2): Layers popover — grouped, full-name map-layer picker on the canvas. Proxies to
          the (hidden) sidebar #debugSeg so ALL existing view wiring (seg handler + syncUI) is reused. -->
     <div class="map-filter-fab layers-fab" id="layersFab">
-      <button type="button" id="layersBtn" class="funnel-btn" title="Map layers" aria-label="Map layers" aria-expanded="false">
+      <!-- v2.72: on the desktop this button is the design's BASE MAP chip (the word is drawn there
+           only; a phone keeps the 36px glyph button), and View (#modeSeg) moves into its popover. -->
+      <button type="button" id="layersBtn" class="funnel-btn" title="Base map and layers" aria-label="Base map and layers" aria-expanded="false">
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.5 15 5 8 8.5 1 5zM2.4 7.6 8 10.4l5.6-2.8M2.4 10.1 8 12.9l5.6-2.8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        <span class="dk-only" aria-hidden="true">Base map</span>
       </button>
       <!-- Layers is a property of the MAP VIEW, not of the selection, so it stays on the map: the
            right dock is the information pane (owner, v2.24). Same popover, same ids — #layersList and
            #layersOpacity are what buildLayersPopover() writes and what proxies clicks to the hidden
            #debugSeg, so this is one rendered surface over one source of truth. -->
       <div class="dropdown layers-popover" id="layersPopover">
+        <!-- v2.72: the desktop home of View (#modeSeg): the base map's own mode, which is not a tool
+             setting (Ruling DZ), sits with the base map's layers. Same seg, same seg() handler. -->
+        <div class="lp-base dk-only"><div class="lp-grp">View</div><span class="shell-slot" id="slotLpMode"></span></div>
         <div class="row" style="margin:0 0 6px"><label for="layersOpacity" style="flex:0 0 54px">Opacity</label><input type="range" id="layersOpacity" min="0" max="100" step="1" value="100" style="flex:1"><span class="val" id="layersOpacityV" style="flex:0 0 42px">100%</span></div>
         <div id="layersList"></div>
       </div>
@@ -1150,10 +1623,10 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       </div>
     </div>
     <div id="zoomOverlay">
-      <button class="zbtn" id="zoomIn">+</button>
-      <button class="zbtn" id="zoomOut">−</button>
-      <button class="zbtn" id="panBtn" style="font-size:18px">✋</button>
-      <button class="zbtn" id="zoomReset" style="font-size:14px">⟳</button>
+      <button class="zbtn" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+      <button class="zbtn" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+      <button class="zbtn" id="panBtn" style="font-size:18px" title="Pan mode — drag moves the map" aria-label="Pan mode">✋</button>
+      <button class="zbtn" id="zoomReset" style="font-size:14px" title="Recentre — fit the whole map to the view" aria-label="Recentre">⟳</button>
     </div>
     <!-- v1.19: touch pan joystick (see _sculptNavSync) — hidden by default. v1.22: shown on any
          touch device whenever the main map is the active surface (not just Generate → Sculpt),
@@ -1276,7 +1749,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
          The original note: data-gsub/data-tab carry the SAME literal tokens the
          retired #genSubBar/#tabBar buttons did, because _findPanelOwners derives its panel ids as
          'gen'+Cap(gsub) — keeping the literals keeps unified search working with no code change.
-         Deliberately NOT class="tab": that selector still has a live global handler elsewhere. -->
+         Deliberately NOT class="tab": that selector still has a live global handler elsewhere.
+         v2.72 (desktop only): the rail is the leftmost band (order -2, the DCC frame's own order) and
+         its labels run vertically in mono with an accent bar on the active domain; buttons, ids,
+         data-* literals and handlers are untouched, and a phone keeps v2.31's drawer head exactly.
+         EXPLORE stays a domain in this stage: its journeys and planner are rehomed in stage 3. -->
     <nav class="domain-rail" id="domainRail" aria-label="Domain">
       <button class="dr-btn on" data-domain="world"   data-gsub="world" title="World — geology, climate, erosion, sculpt"><span class="dr-gl" aria-hidden="true">▲</span><span class="dr-tx">World</span></button>
       <button class="dr-btn"    data-domain="civ"     data-gsub="civ"   title="Civilisation — factions, settlements, ways, economy"><span class="dr-gl" aria-hidden="true">⌂</span><span class="dr-tx">Civil</span></button>
@@ -1285,7 +1762,16 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     </nav>
   <aside class="dock dock-left">
 
-    <!-- UNIFIED TOOLS BLOCK — v2.24 -------------------------------------------------------------
+    <!-- v2.72 (desktop): the dock's header names where you are — WORLD › GENERATE, WORLD › SCULPT,
+         CIVIL, CARTO or EXPLORE, read from _domain by _dskDockHeadSync — and its chevron is Window ▸
+         Left dock (one toggle, _dskWinSet('ldock')). Collapsed, the dock is a 30px strip holding just
+         this header, so the way back is where the dock was. -->
+    <div class="dock-head dk-only" id="dockLeftHead">
+      <span class="dh-path" id="dockLeftPath">World › Generate</span>
+      <button type="button" class="dh-btn" id="dockLeftCollapse" aria-expanded="true" title="Collapse the left dock (Window ▸ Left dock)" aria-label="Collapse the left dock">‹</button>
+    </div>
+
+    <!-- UNIFIED TOOLS BLOCK — v2.24-------------------------------------------------------------
          The three palettes used to live one-per-domain-body, so an armed tool's contextual options
          (POI kind, territory radius, way type, icon gallery, Info readout) could be hidden by a
          body that was not on screen while the tool itself stayed armed — [data-civtool] has always
@@ -1377,8 +1863,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
          has four DOMAINS, and Sculpt is not one — it is a mode of working on the world. The switch
          only appears while WORLD is active (_applyDomainUI), and it is what _sculptCategoryOpen —
          and therefore _sculptEditorActive() — is keyed on. -->
+    <!-- v2.72: drawn on the desktop as the design's GENERATE | SCULPT control. The category's name
+         there is Generate (it holds the generation stages, Run and Finalize); a phone keeps v2.71's
+         "Terrain" label until stage 2. data-wcat and the handler are untouched. -->
     <div class="seg sm" id="worldCatSeg" style="margin:10px 16px 0">
-      <button data-wcat="terrain" class="on">Terrain</button>
+      <button data-wcat="terrain" class="on"><span class="dk-only">Generate</span><span class="ph-only">Terrain</span></button>
       <button data-wcat="sculpt">Sculpt</button>
     </div>
 
@@ -1440,6 +1929,22 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <div class="hint" style="margin-top:4px">The simulation is frozen and the map is served from the baked LOD atlas — explore and edit it cartographically (settlements, labels, icons, territory, routes, timeline). To change geography or weather again, use <b>Un-finalize</b> below.</div>
     </div>
 
+    <!-- v2.72 RUN (Ruling DZ, PC_SHELL_PROPOSAL.md §3.12: "Generate world: the WORLD dock … New seed and
+         Center landmasses: the WORLD dock's RUN section"). The design's order: the Seed field, GENERATE
+         WORLD at full width in the accent, then NEW SEED | CENTER LANDMASSES. The four controls are the
+         v2.24 document bar's own elements (#seedN, #genBtn, #reseedBtn, #centerBtn), moved here on the
+         desktop by _dskPlace() with their handlers and their data-genlock (stamped by id), so finalize
+         still disables them. It sits under the finalized banner on purpose: when the world is locked,
+         the reason is the first thing above the disabled buttons. A phone keeps them in its document
+         bar, so this section is desktop-only. -->
+    <div class="sec run-sec dk-only" id="runSec">
+      <h2>Run</h2>
+      <span class="shell-slot" id="slotRunSeed"></span>
+      <span class="shell-slot" id="slotRunGen"></span>
+      <div class="run-row"><span class="shell-slot" id="slotRunRow"></span></div>
+      <div class="hint">Generate world rebuilds every generation stage from this seed, and works from any domain as <b>File ▸ Generate world</b> (Ctrl+R). New seed rolls one and generates; Center landmasses shifts a whole-world map in X so the emptiest meridian sits on the seam.</div>
+    </div>
+
     <!-- v0.74: finalize control promoted to the FIRST block of Generate → World for one-click access.
          Bakes the whole LOD pyramid to the atlas, then freezes the simulation. The elements keep their
          v0.62 ids (bakeAllDepthRow / bakeAllBtn / unfinalizeBtn) so all handler wiring + applyFinalizedUI
@@ -1478,7 +1983,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <div class="seg sm" id="extentSeg" style="margin-bottom:8px"><button data-world="0" class="on">Region</button><button data-world="1">World</button></div>
       <div class="sublabel-grp">Grid</div>
       <div class="seg sm" id="resSeg" style="margin-bottom:8px"><button data-w="512">512</button><button data-w="1024">1K</button><button data-w="2048" class="on">2K</button><button data-w="4096">4K</button><button data-w="8192">8K</button></div>
-      <div class="hint"><b>Seed</b>, <b>View</b> and <b>Generate</b> stay in the document bar across the top of the map, where they are reachable from every domain.</div>
+      <!-- v2.72: two hints, one per form factor — each states where those controls are on THAT layout. -->
+      <div class="hint ph-only"><b>Seed</b>, <b>View</b> and <b>Generate</b> stay in the document bar across the top of the map, where they are reachable from every domain.</div>
+      <div class="hint dk-only"><b>Seed</b> and <b>Generate world</b> are in <b>Run</b> at the top of this panel (Generate is also <b>File ▸ Generate world</b>, Ctrl+R, from every domain); <b>View</b> is in the map's <b>Base map</b> chip.</div>
 
       <div class="hint">In <b>Whole world</b> mode the map wraps in longitude (X), so a continent can split into slivers on the left/right edges. <b>Center landmasses</b> circularly shifts the world in X to put the emptiest meridian on the seam (latitude/Y is never moved). Re-bake the atlas after centering if you'd baked one.</div>
 
@@ -1854,7 +2361,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
           <button id="civAutoPolityBtn">Recalculate Territories</button>
           <button id="civClearTerrBtn" class="al-danger">Clear territory</button>
         </div>
-        <div class="hint"><b>Paint territory</b>: select a faction from <b>Factions</b> (pick <b>Unclaimed</b> to erase) then drag on the map to assign land. <b>Recalculate Territories</b> generates faction boundaries automatically from settlement locations and terrain. Political eras, playback and the collapse/recovery simulator live in <b>Explore → Timeline</b> (funnel icon above the map) — one home, so there's no tab-switching to run a simulation and another to scrub it.</div>
+        <div class="hint"><b>Paint territory</b>: select a faction from <b>Factions</b> (pick <b>Unclaimed</b> to erase) then drag on the map to assign land. <b>Recalculate Territories</b> generates faction boundaries automatically from settlement locations and terrain. Political eras and playback are the <b>timeline strip</b> above the status bar on a desktop (<b>Explore → Timeline</b> on a phone); the collapse/recovery simulator is in <b>Explore → Timeline</b> and writes its steps into that same timeline.</div>
       </div>
 
       <!-- v1.59: promoted out of "Advanced" — stays physically after Step 3 on purpose:
@@ -2009,7 +2516,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
         <div class="row"><label for="carIconFam">Category</label>
           <select id="carIconFam"><option value="feature">Feature icons</option><option value="settlement">Settlement pins</option><option value="poi">Points of Interest</option><option value="custom">Custom</option></select></div>
         <div id="carIconGallery" class="cargal"></div>
-        <div class="hint" id="carIconHint">Click a tile to arm it, then click empty ground to place it; click an existing icon to select it (drag to move, drag its corner handle to resize, Delete to remove). Custom icons come from a loaded pack's <code>custom</code> sets — <b>Import → Import asset pack</b> (header).</div>
+        <div class="hint" id="carIconHint">Click a tile to arm it, then click empty ground to place it; click an existing icon to select it (drag to move, drag its corner handle to resize, Delete to remove). Custom icons come from a loaded pack's <code>custom</code> sets — <b>File ▸ Import asset pack…</b>.</div>
         <!-- v1.26 (D4): density brush. The armed gallery tile decides WHAT to paint; these decide
              HOW MANY and HOW BIG. Size/variant randomness is read from the asset's own scatter rule
              (Asset Library → Procedural scattering), so a hand-painted stand of trees matches the
@@ -2044,7 +2551,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <label class="chk"><input type="checkbox" id="carPaintErase"> Erase (paint back to procedural)</label>
       <div class="row"><label for="splat">Texture strength</label><input type="range" id="splat" min="0" max="100" step="1" value="70"><span class="val" id="splatV">0.70</span></div>
       <div class="btnrow" style="margin-top:8px"><button id="carPaintClearBtn" class="al-danger">Clear this layer</button><button id="packClearBtn" class="al-danger">Clear pack</button></div>
-      <div class="hint" id="carPaintHint">Paints the Biome/Terrain flat colour as a tint over the shaded procedural map, or (Splat) forces one pack ground texture at full coverage. Never touches ocean or lake cells. <b>Texture strength</b> also controls how strongly the Splat layer and the ordinary procedural ground textures show through. <b>Import → Import asset pack</b> (header) loads ground textures; empty texture slots stay procedural even where painted.</div>
+      <div class="hint" id="carPaintHint">Paints the Biome/Terrain flat colour as a tint over the shaded procedural map, or (Splat) forces one pack ground texture at full coverage. Never touches ocean or lake cells. <b>Texture strength</b> also controls how strongly the Splat layer and the ordinary procedural ground textures show through. <b>File ▸ Import asset pack…</b> loads ground textures; empty texture slots stay procedural even where painted.</div>
       <div class="hint" id="packInfo">No pack loaded &mdash; mountains, trees and ground use built-in procedural art. See <code>docs/ASSET_PACK_FORMAT.md</code>.</div>
       <!-- v1.24 fix (QA report): renderPackInspector() has always targeted #packGrid (its CSS at
            #packGrid{...} above has been sitting unused) but the host div was missing from the
@@ -2153,7 +2660,10 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 
     <!-- v2.24: the feature picker moved to the conditional tool rail above the map (it is the
          armed tool's own sub-palette, which is what that band is for). #sculptFeatureSeg and
-         #sculptFeatHint are populated and read by id, so nothing in sculptSyncUI() changed. -->
+         #sculptFeatHint are populated and read by id, so nothing in sculptSyncUI() changed.
+         v2.72: on the desktop the rail's picker and hint are in the tool-options bar instead (Ruling
+         DZ), beside this panel's brush rows; a phone keeps the rail. Still read by id. Commit and
+         Discard stay below in this stage. -->
 
     <div class="sec">
       <h2>Presets</h2>
@@ -2164,10 +2674,15 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <div class="sec">
       <details class="acc" open>
       <summary>Brush &amp; noise</summary>
-      <div class="row" style="margin-top:8px"><label for="sBrush">Brush size</label><input type="range" id="sBrush" min="6" max="200" step="1"><span class="val" id="sBrushV"></span></div>
-      <div class="hint" id="sBrushKm" style="margin-top:-4px;margin-bottom:6px">—</div>
-      <div class="row"><label for="sHard">Hardness</label><input type="range" id="sHard" min="0" max="100" step="1"><span class="val" id="sHardV"></span></div>
-      <div class="row"><label for="sInten">Intensity</label><input type="range" id="sInten" min="0" max="150" step="1"><span class="val" id="sIntenV"></span></div>
+      <!-- v2.72: the three BRUSH rows (size, hardness, intensity) and the size's km readout are the sculpt
+           tool's own settings, so on the desktop they sit in the tool-options bar while Sculpt is armed
+           (Ruling DZ: "only keep the paint/sculpt brush settings here"). _dskPlace() moves these same
+           elements there; sculptSyncGlobalSliders() and the input handlers find them by id, as always.
+           The noise rows below are the stamp's procedural shape and stay in the dock. -->
+      <div class="row" id="sBrushRow" style="margin-top:8px"><label for="sBrush">Brush size</label><input type="range" id="sBrush" min="6" max="200" step="1"><span class="val" id="sBrushV"></span></div>
+      <div class="hint" id="sBrushKm" style="margin-top:-4px;margin-bottom:6px" title="The brush's radius in real kilometres — it stays this real-world size at any zoom">—</div>
+      <div class="row" id="sHardRow"><label for="sHard">Hardness</label><input type="range" id="sHard" min="0" max="100" step="1"><span class="val" id="sHardV"></span></div>
+      <div class="row" id="sIntenRow"><label for="sInten">Intensity</label><input type="range" id="sInten" min="0" max="150" step="1"><span class="val" id="sIntenV"></span></div>
       <div class="row"><label for="sNoiseScale">Noise scale</label><input type="range" id="sNoiseScale" min="1" max="20" step="0.5"><span class="val" id="sNoiseScaleV"></span></div>
       <div class="row"><label for="sOct">Octaves</label><input type="range" id="sOct" min="1" max="8" step="1"><span class="val" id="sOctV"></span></div>
       <div class="row"><label for="sPers">Persistence</label><input type="range" id="sPers" min="20" max="90" step="1"><span class="val" id="sPersV"></span></div>
@@ -2182,6 +2697,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 
     <div class="sec">
       <h2 id="sculptFeatureControlsTitle">Feature parameters</h2>
+      <!-- v2.72: Freehand's sub-mode (Raise · Lower · Smooth · …) is the brush's MODE, so on the desktop
+           this strip joins the brush rows in the tool-options bar (_dskPlace); it is filled and shown
+           by sculptBuildFeatureControls() by id, wherever it sits. -->
       <div id="sculptModeSeg" class="seg sm" style="display:none;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="sculptFeatureControls"></div>
     </div>
@@ -2236,13 +2754,19 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
          _civBuildExploreTimelineUI). -->
     <div class="sec" id="explTimelineSection">
       <h2>Timeline</h2>
-      <div class="sublabel">Add year</div>
-      <div class="row">
+      <!-- v2.72 (GUI_GAP_REGISTER.md CV-24, PC_SHELL_PROPOSAL.md §3.2; approved by Ruling DY, PQ2): on
+           the desktop the year itself — scrub, play, the recorded years, Add year and the three filters —
+           is the TIMELINE STRIP above the status bar, in every domain. These are the same elements,
+           moved there by _dskPlace(); the simulator and Journeys stay here. A phone keeps all of it in
+           this section exactly as v2.71 did, until stage 2. -->
+      <div class="hint dk-only">The year — scrub, play, the recorded years, <b>Add year</b> and the three filters — is the <b>timeline strip</b> above the status bar, in every domain (Window ▸ Timeline). The simulator below writes its steps into it.</div>
+      <div class="sublabel ph-only">Add year</div>
+      <div class="row ph-only">
         <input id="civTlYear" type="number" min="-9999" max="9999" value="100" style="width:70px" aria-label="Timeline year">
-        <button id="civTlAddYearBtn" style="flex:1">Add year</button>
+        <button id="civTlAddYearBtn" style="flex:1" title="Record this year: a snapshot of the territory paint plus which settlements and roads exist now. Negative years are BC.">Add year</button>
       </div>
       <div id="civTimelinePanel" style="margin-top:6px"></div>
-      <div class="hint">Each year stores a snapshot of the territory paint plus which settlements/roads existed then. Negative years are BC. Tap a pill (or its ✕) to jump to/remove that era.</div>
+      <div class="hint ph-only">Each year stores a snapshot of the territory paint plus which settlements/roads existed then. Negative years are BC. Tap a pill (or its ✕) to jump to/remove that era.</div>
 
       <!-- v0.91: real time-scale — min/max/value are actual years (not a snapshot-count index),
            and the datalist gives proportional tick marks, so uneven gaps between recorded years
@@ -2258,10 +2782,15 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
         <div class="btnrow" style="margin-top:6px"><button id="explTlPlayBtn">▶ Animate</button></div>
       </div>
 
-      <label class="chk" style="margin-top:8px"><input type="checkbox" id="explTlExistOnly"> Show only objects existing in selected year</label>
-      <label class="chk"><input type="checkbox" id="explTlGhost"> Ghost removed objects</label>
-      <label class="chk"><input type="checkbox" id="explTlHighlight"> Highlight new objects</label>
-      <div class="hint">Ghost/highlight compare the selected year against the previous recorded year.</div>
+      <!-- v2.72: one wrapper so the three filters move into the strip together (#tlFilters); each label
+           carries v2.71's sentence and the design's short form, and CSS shows the one that fits where
+           the wrapper sits. A wrapper is a plain block, so the phone's stacking is unchanged. -->
+      <div class="tl-filters" id="tlFilters" title="Ghost and highlight compare the selected year against the previous recorded year.">
+      <label class="chk" style="margin-top:8px"><input type="checkbox" id="explTlExistOnly"> <span class="tl-long">Show only objects existing in selected year</span><span class="tl-short">Exist only</span></label>
+      <label class="chk"><input type="checkbox" id="explTlGhost"> <span class="tl-long">Ghost removed objects</span><span class="tl-short">Ghost removed</span></label>
+      <label class="chk"><input type="checkbox" id="explTlHighlight"> <span class="tl-long">Highlight new objects</span><span class="tl-short">Highlight new</span></label>
+      </div>
+      <div class="hint ph-only">Ghost/highlight compare the selected year against the previous recorded year.</div>
 
       <!-- v0.85: mechanistic collapse/recovery timeline (docs/research/collapse-timeline-dynamics.md).
            Runs a year-stepped mortality+migration (or logistic regrowth) simulation and writes ONE
@@ -2334,7 +2863,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <div class="row"><label for="alPackAuthor">Author</label><input type="text" id="alPackAuthor" value="" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:12px"></div>
       <div class="row"><label for="alPackLicense">License</label><input type="text" id="alPackLicense" value="CC0" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:12px"></div>
       <div class="readout" id="alStats">—</div>
-      <div class="hint">Assets live in the project: <b>Export .zip</b> (header <b>File ▾</b>) embeds them and <b>Load project .zip</b> restores them — no rebuilding from pack ZIPs.</div>
+      <div class="hint">Assets live in the project: <b>Export .zip</b> (<b>File ▸ Export</b>) embeds them and <b>Load project .zip</b> restores them — no rebuilding from pack ZIPs.</div>
     </div>
     <div class="sec">
       <h2>Build &amp; export</h2>
@@ -2361,8 +2890,23 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
        properties, and the Info tool's readout for a clicked cell. Layers describes the map VIEW, not
        the selection, so it stayed on the map where it has always lived.
        #inspector was previously hidden outright on World and Sculpt; it is persistent with an empty
-       state now, which is why _civClearInspectorIfStale() exists — the old hide cleared it for free. -->
+       state now, which is why _civClearInspectorIfStale() exists — the old hide cleared it for free.
+       v2.72 (desktop, PC_SHELL_PROPOSAL.md §3.3): the right dock is the CONTEXT PANEL. Its header names
+       the subject — read by _dskCtxSync from exactly what _civRenderInspector() renders from
+       (_civSelectedPlace, then _civSelectedLabel, then _iconSelected) — and the tab strip holds INSPECT
+       only, whose page is #inspector below, unchanged. Note and Ask are not drawn: this file has no vault
+       editor and no assistant. Back, forward and pin need a selection history (stage 3). Window ▸
+       Context panel and the header's chevron hide it; a phone keeps v2.71's dock in its drawer. -->
   <aside class="dock dock-right" id="dockRight">
+    <div class="ctx-head dk-only" id="ctxHead">
+      <div class="ctx-k" id="ctxKind">Context</div>
+      <div class="ctx-name" id="ctxName">Nothing selected</div>
+      <div class="ctx-hint" id="ctxHint">Inspect a settlement, label or icon on the map, or a row in a list</div>
+      <button type="button" class="dh-btn" id="ctxHideBtn" title="Hide the Context panel (Window ▸ Context panel)" aria-label="Hide the Context panel">›</button>
+    </div>
+    <div class="ctx-tabs dk-only" role="tablist" aria-label="Context panel">
+      <button type="button" class="ctx-tab" id="ctxTabInspect" role="tab" aria-selected="true" aria-controls="inspector">Inspect</button>
+    </div>
     <div class="sec" id="inspector">
       <div class="sublabel">Properties</div>
       <div id="inspectorBody"><div class="hint">Nothing selected. Pick the <b>Inspect</b> tool and click a label or icon on the map, or a row in a list — settlements and POIs open their editor in a pop-up on the map.</div></div>
@@ -2378,16 +2922,45 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     </div><!-- end dockwrap -->
   </div><!-- end stage -->
 
+  <!-- ══ v2.72 TIMELINE STRIP (desktop) ══════════════════════════════════════════════════════════
+       GUI_GAP_REGISTER.md CV-24, "the year scrubber as program scope", which the owner held for a
+       design pass on 2026-09-03; PC_SHELL_PROPOSAL.md §3.2 is that design and Ruling DY (PQ2) approved
+       it. A band above the status bar in EVERY domain. Collapsed it is one line: TIMELINE · the active
+       year · play · the slider with a tick per recorded year · min/max. The chevron reveals the
+       recorded years (the pills, Add year) and the three filters. Every control is Explore's own
+       element, moved here by _dskPlace(), so _civBuildExploreTimelineUI / _civWireYearSlider /
+       civGotoYear drive it unchanged — and civGotoYear → civSnapshotLoad → drawCivLayerAuto has no
+       domain gate, so the slider moves the map wherever you are (checked at every reader, v2.72).
+       The simulator and Journeys stay in Explore. Showing, hiding and expanding it all call
+       _scheduleViewportRefit() (v2.24's rule for any band that resizes the viewport). -->
+  <div class="tl-strip dk-only" id="tlStrip">
+    <div class="tl-row">
+      <button type="button" class="tl-toggle" id="tlStripToggle" aria-expanded="false" aria-controls="tlStripMore" title="Show the recorded years, Add year and the filters"><span class="tl-chev" aria-hidden="true">⌃</span>Timeline</button>
+      <span class="shell-slot" id="slotTlRow"></span>
+      <!-- shown while fewer than two years are recorded, i.e. while the slider row's own gate hides it
+           (_civBuildExploreTimelineUI); it says why there is nothing to scrub rather than leaving a gap -->
+      <span class="tl-empty" id="tlStripEmpty">No recorded years yet — open the strip and press Add year</span>
+    </div>
+    <div class="tl-more" id="tlStripMore" hidden>
+      <span class="tl-lab">Recorded</span>
+      <span class="shell-slot" id="slotTlYears"></span>
+      <span class="shell-slot" id="slotTlFilters"></span>
+    </div>
+  </div>
+
   <!-- STATUS BAR: #readout re-homed out of the sidebar. updateReadout() was rewritten from seven
        <br>-separated lines (~176px of content) to inline chips — no CSS can reflow the old markup
-       into a 26px band. -->
+       into a 26px band.
+       v2.72: on the desktop #verTag joins the right end (#slotSbVer); the two chips' tooltips name the
+       desktop's way into Settings (Preferences) and the phone's (the cog). -->
   <div class="status-bar" id="statusBar">
     <div class="readout" id="readout"></div>
     <div class="sb-spacer"></div>
     <span class="sb-chip" id="sbProtocol" title="How this page was opened. Workers and WASM threads need http(s); file:// degrades gracefully."></span>
-    <span class="sb-chip" id="sbAutosave" title="Autosave state — configure it under Settings → Storage &amp; data">autosave off</span>
-    <span class="sb-chip" id="sbGpu" title="GPU acceleration — configure it under Settings → Performance">GPU —</span>
+    <span class="sb-chip" id="sbAutosave" title="Autosave state — configure it under Preferences ▸ Storage &amp; data (the cog's Settings on a phone)">autosave off</span>
+    <span class="sb-chip" id="sbGpu" title="GPU acceleration — configure it under Preferences ▸ Performance (the cog's Settings on a phone)">GPU —</span>
     <button type="button" class="sb-chip sb-btn" id="genInfoBtn" title="Show the current generation parameters as plain text — paste into a bug report for troubleshooting">ℹ Generation info</button>
+    <span class="shell-slot" id="slotSbVer"></span>
   </div>
 </div><!-- end shell -->
 <div class="scrim" id="scrim"></div>
@@ -2551,7 +3124,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <details class="cat-acc" id="genV3dSec"><!-- v0.62: id — exempt from the finalized lock (visualization-only dials) -->
     <summary>3D view</summary>
     <div class="sec">
-      <div class="hint" style="margin-bottom:8px">Press the <b>3D</b> pill above the map to drape the fully-painted map over a relief mesh. These dials style the 3D view only — they never change the heightmap data.</div>
+      <div class="hint" style="margin-bottom:8px">Press <b>3D</b> on the map (the bottom-right column on a desktop, also <b>Window ▸ 3D view</b>; the pill at the top of the map on a phone) to drape the fully-painted map over a relief mesh. These dials style the 3D view only — they never change the heightmap data.</div>
       <div class="row"><label for="v3dExag">Relief</label><input type="range" id="v3dExag" min="10" max="150" step="1" value="50"><span class="val" id="v3dExagV">0.50</span></div>
       <div class="row"><label for="v3dDetail">Detail</label>
         <select id="v3dDetail" style="flex:1">
@@ -2679,7 +3252,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
    The full reasoning for the reader's shape lives at `_treeRead` (~line 12680)
    rather than being duplicated here.
    ========================================================================== */
-const VERSION='2.71';   /* v1.30: this had drifted — it is export/atlas metadata only (never gated on), and was still reading 1.24 six versions later.
+const VERSION='2.72';   /* v1.30: this had drifted — it is export/atlas metadata only (never gated on), and was still reading 1.24 six versions later.
    v1.52: drifted AGAIN, two versions after that fix-comment — v1.51 and this file both still read '1.50', which is what the header
    chip (id="verTag", set from VERSION at line ~13033, overwriting the HTML span's own hardcoded text on load) was showing in a
    verification screenshot. Confirmed harmless to every hashed/tested field (nothing reads VERSION except display + export
@@ -11437,6 +12010,7 @@ function sculptSyncFeatureSeg(){
   document.querySelectorAll('#sculptFeatureSeg button').forEach(b=>b.classList.toggle('on', b.dataset.sfeat===_sculptType));
   const hint=document.getElementById('sculptFeatHint'); if(hint) hint.textContent=SCULPT_FEATURES[_sculptType].hint;
   const title=document.getElementById('sculptFeatureControlsTitle'); if(title) title.textContent=SCULPT_FEATURES[_sculptType].label+' parameters';
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: the desktop bar reads "Sculpt · <feature>" */
 }
 function sculptBuildPresets(){
   const wrap=document.getElementById('sculptPresetSeg'); if(!wrap) return;
@@ -11920,8 +12494,11 @@ function updateReadout(){
   /* v2.24: ONE inline row of chips, not seven <br>-separated lines. The old markup is ~176px of
      content at line-height 1.9 — no CSS reflows that into a 26px status band, so the template is
      what had to change. Every figure it showed is still here, in the same order. */
+  /* v2.72: the version chip carries .r-ver so the DESKTOP can drop it — there #verTag sits at the
+     status bar's right end (D7) and two copies of one figure in one bar read as noise. A phone, whose
+     #verTag is in its header, still shows this chip; nothing else in this writer changed. */
   document.getElementById('readout').innerHTML=
-    `<span>v<b>${VERSION}</b></span>`+
+    `<span class="r-ver">v<b>${VERSION}</b></span>`+
     `<span><b>${GW}×${GH}</b> · ${fmt(GW*GH)} cells</span>`+
     `<span>${cellKm.toFixed(2)} km/cell</span>`+
     `<span>seed <b>${state.tect.seed}</b></span>`+
@@ -13281,6 +13858,8 @@ function applyFinalizedUI(){
   document.body.classList.toggle('phase-explore',on);
   if(typeof buildLayersPopover==='function') buildLayersPopover();   /* curated subset flips with the phase */
   if(typeof _sculptNavSync==='function') _sculptNavSync();   /* v1.19: finalizing forces read-only, which turns off _sculptEditorActive() too */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: …which the desktop tool-options bar reports as "Sculpt · locked" */
+  if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync();
 }
 /* v2.24: stamp data-genlock over exactly the set applyFinalizedUI()'s old #genWorld query reached
    (minus its two documented exemptions), plus the controls the DCC frame hoists into the
@@ -16796,6 +17375,22 @@ function _findPanelOwners(){
     if(sm) for(const pg of sm.querySelectorAll('.set-page[data-setpage]')){
       const nav=sm.querySelector('#setNav button[data-setpage="'+pg.dataset.setpage+'"]');
       if(nav) out.push({panel:pg,btn:nav,settings:true}); } }
+  /* v2.72: three more kinds of owner, each pushed AFTER the rail owner it follows, because
+     _findReveal() clicks every owner that contains the hit, in this order.
+     (1) WORLD's two categories. #genWorld and #genSculpt are shown by #worldCatSeg, not by the rail, so
+         a hit in Run (Seed, now that Seed lives there on the desktop) or in Sculpt must switch the
+         category too — the rail button alone leaves the other category on screen.
+     (2) The sculpt tool's settings: on the desktop they sit in the tool-options bar, which shows
+         while Sculpt is armed — so a hit there takes the World rail, then the Sculpt category.
+     (3) The menus: a control inside one (File's export form) needs its menu opened, then its
+         submenu — the same two clicks a person makes. */
+  { const wr=document.querySelector('#domainRail [data-domain="world"]'),
+          ct=document.querySelector('#worldCatSeg [data-wcat="terrain"]'), cs=document.querySelector('#worldCatSeg [data-wcat="sculpt"]'),
+          gw=document.getElementById('genWorld'), gs=document.getElementById('genSculpt'), tt=document.getElementById('toolOptsTool');
+    if(gw&&ct) out.push({panel:gw,btn:ct});
+    for(const p of [gs,tt]) if(p&&cs){ if(wr) out.push({panel:p,btn:wr}); out.push({panel:p,btn:cs}); } }
+  for(const mb of document.querySelectorAll('.mb-btn')){ const p=document.getElementById(mb.getAttribute('aria-controls')); if(p) out.push({panel:p,btn:mb,menu:true}); }
+  for(const sr of document.querySelectorAll('.mb-sub > [data-sub]')){ const sp=sr.parentElement.querySelector(':scope > .mb-subpanel'); if(sp) out.push({panel:sp,btn:sr,menu:true}); }
   return out;
 }
 function _findControlIndex(){
@@ -17443,6 +18038,8 @@ function _applyDomainUI(){
   if(typeof _gpuApplyTabOverride==='function') _gpuApplyTabOverride();   /* v0.64: suspend condition keys off the armed tool, not the open domain */
   if(typeof _sculptNavSync==='function') _sculptNavSync();               /* v1.19/v1.22: joystick gate */
   if(typeof _toolRailSync==='function') _toolRailSync();                 /* v2.24: the conditional tool rail is domain-scoped */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();           /* v2.72: the desktop tool-options bar names the domain and its armed tool */
+  if(typeof _dskDockHeadSync==='function') _dskDockHeadSync();           /* v2.72: and the left dock's header names where you are */
   /* v1.96: render the Civilization page ON REVEAL — _civRefreshActiveSubPage() early-returns while
      #genCiv is hidden, so the reveal is what has to paint it (and this also fixes the pre-existing
      staleness where a background render of the PREVIOUS world's aggregates was what you saw). */
@@ -17945,6 +18542,7 @@ function _carDisarmOtherTools(except){
   if(_paintMode) _carDisarmOtherTools('paint');
   view.style.cursor=_paintMode?'crosshair':''; sculptClearOverlay();
   if(typeof _gpuApplyTabOverride==='function') _gpuApplyTabOverride();
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: "Carto · Paint" on the desktop bar */
   renderNow();
 }); }
 { const seg=document.getElementById('paintLayerSeg'); if(seg) seg.addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b)return; [...seg.children].forEach(c=>c.classList.toggle('on',c===b)); _paintLayer=b.dataset.paintlayer; const sel=document.getElementById('carPaintValue'); if(sel) _carPopulatePaintValueSelect(sel); }); }
@@ -17985,17 +18583,12 @@ bind('carPaintRadius',e=>{ _paintRadius=+e.target.value; document.getElementById
    outside-click / Escape. The Import rows are single-shot actions, so each closes the menu on click;
    the Export section is a form the user adjusts before pressing Export (closing on every internal click
    would dismiss it the instant a checkbox is ticked), so only pressing Export itself closes it — clicks
-   inside the form do not. (Replaces the separate v0.100 Import ▾ and v0.65 Export ▾ handlers.) */
-{ const wrap=document.getElementById('fileWrap'), btn=document.getElementById('fileMenuBtn'), menu=document.getElementById('fileMenu');
-  if(btn&&menu){
-    const close=()=>menu.classList.remove('open');
-    btn.addEventListener('click',e=>{ e.stopPropagation(); menu.classList.toggle('open'); });
-    document.addEventListener('click',e=>{ if(wrap&&!wrap.contains(e.target)) close(); }, true);
-    document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&menu.classList.contains('open')) close(); });
-    ['loadBtn','inferTectBtn','loadZipBtn','packBtn','exportBtn'].forEach(id=>{   // single-shot actions close the menu
-      const b=document.getElementById(id); if(b) b.addEventListener('click',close); });
-  }
-}
+   inside the form do not. (Replaces the separate v0.100 Import ▾ and v0.65 Export ▾ handlers.)
+   v2.72: File is now the first of the menu bar's eight menus, and ONE controller owns all eight
+   (_dskMenuInit, "v2.72: the desktop shell" below) — two controllers toggling one panel could not
+   agree on which menu is open, and hover-switching needs to know. This block's contract moved there
+   unchanged and holds on a phone too: the button toggles, an outside click or Escape closes, the five
+   single-shot rows close it (_DSK_MENU_CLOSE_IDS), and clicks inside the export form do not. */
 /* v0.65: Assets header button — enters the full-viewport Asset Library workspace directly (was
    the "Assets" tab's tp==='assets' branch in the tab-switch handler below).
    v0.86 (mobile fix): the ONLY way out used to be clicking a phase tab, which on mobile lives inside
@@ -18014,6 +18607,7 @@ function _carEnterAssetsMode(){
   document.body.classList.add('assets-mode');   /* v2.24: the library takes the whole stage — the docks and rail would otherwise cost it ~716px and collapse .al-grid to one column */
   if(cw&&al){ cw.style.display='none'; al.style.display='flex'; if(window.AssetLibrary&&window.AssetLibrary.opened) window.AssetLibrary.opened(); }
   if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: the desktop bar reads "Assets · Library" */
 }
 /* Reverse of the above — restore whichever phase (Generate/Explore) was active before Assets mode.
    Mirrors the tab-switch handler's restore branch, so a phase tab click and this button agree. */
@@ -18030,6 +18624,7 @@ function _carExitAssetsMode(){
   const cw=document.querySelector('.canvas-wrap'), al=document.getElementById('assetLibrary');
   if(cw&&al){ cw.style.display=''; al.style.display='none'; }
   document.body.classList.remove('assets-mode');
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72 */
 }
 { const ab=document.getElementById('assetsHeaderBtn'); if(ab) ab.addEventListener('click',()=>{ _assetsModeOn?_carExitAssetsMode():_carEnterAssetsMode(); }); }
 /* Explore map-filter funnel — toggle + close-on-outside-click/Escape (mirrors Cartalith V1.915's
@@ -18150,7 +18745,10 @@ function renderDistLegend(host,onPick){ if(!host)return; host.innerHTML='';
 
 /* ---- the gate ---- */
 const _obEl=document.getElementById('onboard');
-function _setupHide(){ if(_obEl) _obEl.style.display='none'; if(document&&document.body) document.body.classList.remove('setup-gated'); if(typeof _sculptNavSync==='function') _sculptNavSync(); }   /* v0.68: re-enable the sidebar once a world exists; v1.22: reveal the touch pan joystick now that the map is live */
+/* v2.72: the gate decides whether a world exists (_hasLiveWorld), so opening or closing it must refresh the
+   menu bar's document readout — the boot render writes that readout BEFORE the gate opens, and would
+   otherwise leave the boot seed on screen as if it were a world's. */
+function _setupHide(){ if(_obEl) _obEl.style.display='none'; if(document&&document.body) document.body.classList.remove('setup-gated'); if(typeof _sculptNavSync==='function') _sculptNavSync(); if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync(); }   /* v0.68: re-enable the sidebar once a world exists; v1.22: reveal the touch pan joystick now that the map is live */
 /* v1.24 fix (QA report, data loss): no beforeunload guard existed anywhere — manual "File → Export
    .zip" is the only save path, so an accidental refresh/close silently lost every edit since the
    last export. Deliberately NOT a fine-grained "dirty since last export" flag: threading that
@@ -18182,6 +18780,7 @@ function _setupOpen(mode){ if(!_obEl) return; _setupSkipped=false;
       [...archSeg.children].forEach(c=>c.classList.toggle('on',c.dataset.arc===cur)); } } }   /* v1.08: reflect current world_structure state if the gate is reopened */
   else if(mode==='calibrate'){ _suShowStep('obStepCalibrate'); _suCalSync(); }
   else _suShowStep('obStepIntro');
+  if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync();   /* v2.72: "no world" while the gate is up */
 }
 
 /* Both setup forms share ONE canonical working object (only one form is ever visible). width in km,
@@ -18668,11 +19267,438 @@ function _sbSyncChips(){
     a.textContent=(ck&&ck.checked)?('autosave '+((mn&&mn.value)||'?')+'m'):'autosave off'; }
   const g=document.getElementById('sbGpu'), gt=document.getElementById('gpuTag');
   if(g&&gt) g.textContent='GPU '+(gt.textContent||'—');
+  if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync();   /* v2.72: the menu bar's document readout rides the same refresh */
 }
 (function(){
   ['autosaveChk','autosaveMins'].forEach(id=>{ const el=document.getElementById(id); if(el) el.addEventListener('change',_sbSyncChips); });
   const gi=document.getElementById('genInfoBtn');
   if(gi) gi.addEventListener('click',()=>{ if(typeof window._openSettings==='function') window._openSettings('workspace'); });
+})();
+
+/* ══════════════════════ v2.72: the desktop shell (stage 1 of 3) ══════════════════════════════════
+   Owner: "Can we upgrade the layout in the html with the new design?", then "A working copy in this
+   repo" and "Everything, staged". The design is Cartalith_GDT's PC_SHELL_PROPOSAL.md §2-§3.12 with
+   Rulings DY and DZ; the CSS is the "v2.72 · DESKTOP SHELL" block at the end of the stylesheet.
+   EVERYTHING HERE IS PRESENTATION. It moves controls that already exist, names the context they act
+   in, and points menu rows and keys at controls and functions this file already has. It never
+   computes or writes world state, so the engine, the save format and every render hash are untouched.
+   It must stay STUB-SAFE: the headless suite runs this block under a DOM stub with no matchMedia and
+   no layout. And it must never throw on a TDZ binding: block 2 calls into these functions, and several
+   of them read block-2 state, so each such read goes through _dskV (try/catch, never `typeof`, which
+   throws on a `let` still in its dead zone — v2.15's lesson). Until _dskReady is set at the end of
+   _dskInit every sync function returns at once, which keeps early hooks (syncUI, the boot render)
+   away from this block's own consts. */
+var _dskReady=false;   /* var, not let: hooks above this block read it before this line has run */
+function _dskV(f,d){ try{ const v=f(); return v===undefined?d:v; }catch(_){ return d; } }
+function _dskEl(id){ return document.getElementById(id); }
+function _dskDisabled(id){ const el=_dskEl(id); return !el||!!el.disabled; }
+/* press a control by id or selector — the menu's whole way of acting (never a second implementation) */
+function _dskPress(sel){ const el=/[#\[ .]/.test(sel)?document.querySelector(sel):_dskEl(sel); if(!el||el.disabled) return false; el.click(); return true; }
+
+/* --- one control, two homes ----------------------------------------------------------------------
+   [element id, desktop slot id]. The markup keeps every element in its v2.71 place, which is its PHONE
+   home (a phone keeps v2.71's layout until stage 2). The first time _dskPlace() runs it writes an empty
+   comment node immediately before each element, marking that home; on the desktop the element then
+   moves into its slot, and back on a phone it returns to just after its marker — exactly where it
+   came from, whatever order the rows are restored in. A slot receives its elements in THIS TABLE'S
+   ORDER, so within one slot the order here is the order drawn. Elements are only ever MOVED: one
+   node, one id, one set of listeners (v1.57; MISTAKES.md "Delete a surface"). Never clone one. */
+const _DSK_SLOTS=[
+  ['fileWrap','slotMbFile'],                                    /* File: the first menu on the bar */
+  ['settlementsHeaderBtn','slotPins'], ['assetsHeaderBtn','slotPins'],   /* pins (Ruling DZ item 4) */
+  ['verTag','slotSbVer'],                                       /* the status bar's right end (D7) */
+  ['seedLab','slotRunSeed'], ['seedN','slotRunSeed'], ['genBtn','slotRunGen'],   /* WORLD › Generate › Run */
+  ['reseedBtn','slotRunRow'], ['centerBtn','slotRunRow'],
+  ['modeSeg','slotLpMode'],                                     /* View, inside the Base map chip */
+  ['layersFab','slotMapTL'], ['explFilterFab','slotMapTL'],     /* the map's top-left */
+  ['viewDimSeg','slotMapBR'], ['zoomOverlay','slotMapBR'],      /* the map's bottom-right column */
+  ['sculptFeatureSeg','slotToolDesk'], ['sculptModeSeg','slotToolDesk'],   /* the sculpt tool's settings */
+  ['sBrushRow','slotToolDesk'], ['sBrushKm','slotToolDesk'], ['sHardRow','slotToolDesk'], ['sIntenRow','slotToolDesk'],
+  ['sculptFeatHint','slotToolDesk'],
+  ['explTimelineSliderRow','slotTlRow'],                        /* the timeline strip */
+  ['civTimelinePanel','slotTlYears'], ['civTlYear','slotTlYears'], ['civTlAddYearBtn','slotTlYears'],
+  ['tlFilters','slotTlFilters'],
+];
+/* The phone's own query, the one every v2.24-v2.71 phone rule uses; the desktop is its complement. */
+const _DSK_PHONE_QUERY='(max-width:860px)';
+var _dskDesktop=null;   /* null before the first placement; then whether the desktop layout is in force */
+function _dskIsDesktop(){ return typeof window!=='undefined'&&typeof window.matchMedia==='function'&&!window.matchMedia(_DSK_PHONE_QUERY).matches; }
+function _dskPlace(){
+  if(typeof window==='undefined'||typeof window.matchMedia!=='function'||typeof document.createComment!=='function') return;
+  const desk=_dskIsDesktop();
+  if(_dskDesktop===desk) return;
+  _dskDesktop=desk;
+  _dskMenuClose();   /* an open menu must not survive the layout it was opened in */
+  for(const [id,slotId] of _DSK_SLOTS){
+    const el=_dskEl(id), slot=_dskEl(slotId);
+    if(!el||!slot||!el.parentNode) continue;
+    if(!el._dskHome){ el._dskHome=document.createComment(' v2.72: phone home of #'+id+' '); el.parentNode.insertBefore(el._dskHome,el); }
+    if(desk) slot.appendChild(el);
+    else if(el._dskHome.parentNode) el._dskHome.parentNode.insertBefore(el,el._dskHome.nextSibling);
+  }
+  _dskToolOptsSync();
+  if(typeof _syncChromeTop==='function') _syncChromeTop();
+  if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
+}
+
+/* --- what each menu row, pin and key RUNS ----------------------------------------------------------
+   Every entry presses an existing control or calls the function that control's own handler calls.
+   `enabled` and `checked` READ the real control each time a menu opens (_dskMenuSync) — a row never
+   keeps its own copy of a state (MISTAKES.md: two views of one state will disagree). `refused` says
+   why when a key fires a command whose control is disabled, instead of doing nothing silently. */
+function _dskAssetsOpen(){ if(!_dskV(()=>_assetsModeOn,false)) _dskPress('assetsHeaderBtn'); }
+function _dskSettlementsTab(tab){ const m=_dskEl('civFactionsModal'); if(!(m&&m.classList.contains('open'))) _dskPress('settlementsHeaderBtn'); _dskPress('#civPmBar button[data-pm="'+tab+'"]'); }
+function _dskSettings(page){ if(typeof window._openSettings==='function') window._openSettings(page); }
+/* the search's own reveal: opens the panel that owns a control (the rail's Explore button for
+   #explorePanel), opens its <details>, scrolls to it and flashes it */
+function _dskReveal(id){ const el=_dskEl(id); _dskWinSet('ldock',true); if(el&&typeof _findReveal==='function') _findReveal(el); }
+function _dskTheme(){ return document.documentElement.getAttribute('data-theme')==='light'?'light':'dark'; }
+const _DSK_CMDS={
+  /* File */
+  generate:{ run:()=>_dskPress('genBtn'), enabled:()=>!_dskDisabled('genBtn'),
+             refused:()=>{ if(typeof confirmRegenerate==='function') confirmRegenerate(); } },   /* finalized: the same alert the button's own guard gives */
+  openProject:{ run:()=>_dskPress('loadZipBtn') },
+  save:{ run:()=>_dskPress('exportBtn'), enabled:()=>!_dskDisabled('exportBtn') },
+  autosave:{ run:()=>_dskPress('autosaveChk'), checked:()=>!!(_dskEl('autosaveChk')||{}).checked },
+  /* Edit */
+  undo:{ run:()=>_dskPress('undoBtn'), enabled:()=>!_dskDisabled('undoBtn') },
+  redo:{ run:()=>_dskPress('redoBtn'), enabled:()=>!_dskDisabled('redoBtn') },
+  deletePlace:{ run:()=>{ if(typeof _civDeleteSelectedPlace==='function') _civDeleteSelectedPlace(); }, enabled:()=>!!_dskV(()=>_civSelectedPlace,null) },
+  find:{ run:()=>{ const fi=_dskEl('findInput'); if(fi){ fi.focus(); fi.select(); } } },
+  /* Assets — the library's own buttons live in a panel Assets mode never shows (v2.24 hides the docks
+     there), so each row opens the library first and then presses its button, which keeps the button's
+     toasts visible */
+  assetLibrary:{ run:()=>_dskPress('assetsHeaderBtn'), checked:()=>!!_dskV(()=>_assetsModeOn,false) },
+  slicer:{ run:()=>{ _dskAssetsOpen(); _dskPress('alSlicerBtn'); } },
+  alImport:{ run:()=>{ _dskAssetsOpen(); _dskPress('alImportPackBtn'); } },
+  alExport:{ run:()=>{ _dskAssetsOpen(); _dskPress('alExportBtn'); } },
+  alApply:{ run:()=>{ _dskAssetsOpen(); _dskPress('alApplyBtn'); } },
+  alClear:{ run:()=>{ _dskAssetsOpen(); _dskPress('alClearBtn'); } },
+  /* Records */
+  factions:{ run:()=>_dskSettlementsTab('factions') },
+  places:{ run:()=>_dskSettlementsTab('places') },
+  /* Story */
+  timeline:{ run:()=>{ const on=!_dskTlExpanded(); _dskWinSet('tl',true); _dskTlExpand(on); }, checked:()=>_dskTlExpanded() },
+  simulate:{ run:()=>_dskReveal('civSimulateBtn') },
+  planner:{ run:()=>{ if(typeof _civOpenRouteEditor==='function'&&_civOpenRouteEditor()) return; _dskReveal('civJourneyList'); } },   /* no journey selected: show where journeys are, never a silent no-op */
+  journeys:{ run:()=>_dskReveal('civJourneyList') },
+  /* Preferences */
+  gpu:{ run:()=>_dskPress('gpuToggle'), enabled:()=>!_dskDisabled('gpuToggle'), checked:()=>!!(_dskEl('gpuToggle')||{}).checked },
+  setPerf:{ run:()=>_dskSettings('perf') },
+  setStorage:{ run:()=>_dskSettings('storage') },
+  setAppearance:{ run:()=>_dskSettings('appearance') },
+  themeDark:{ run:()=>{ if(_dskTheme()!=='dark') _dskPress('themeToggleBtn'); }, checked:()=>_dskTheme()==='dark' },
+  themeLight:{ run:()=>{ if(_dskTheme()!=='light') _dskPress('themeToggleBtn'); }, checked:()=>_dskTheme()==='light' },
+  /* km/mi is #calUnitSeg in WORLD › Generate › Scale & calibration, which finalize locks with the rest
+     of #genWorld; the rows follow its buttons' disabled state rather than unlocking it */
+  unitsKm:{ run:()=>_dskPress('#calUnitSeg button[data-unit="km"]'), enabled:()=>!_dskV(()=>document.querySelector('#calUnitSeg button[data-unit="km"]').disabled,true), checked:()=>_dskV(()=>_units,'km')==='km' },
+  unitsMi:{ run:()=>_dskPress('#calUnitSeg button[data-unit="mi"]'), enabled:()=>!_dskV(()=>document.querySelector('#calUnitSeg button[data-unit="mi"]').disabled,true), checked:()=>_dskV(()=>_units,'km')==='mi' },
+  /* Window */
+  winLeftDock:{ run:()=>_dskWinSet('ldock',!_dskWin.ldock), checked:()=>_dskWin.ldock },
+  winContext:{ run:()=>_dskWinSet('ctx',!_dskWin.ctx), checked:()=>_dskWin.ctx },
+  winTimeline:{ run:()=>_dskWinSet('tl',!_dskWin.tl), checked:()=>_dskWin.tl },
+  winStatus:{ run:()=>_dskWinSet('sb',!_dskWin.sb), checked:()=>_dskWin.sb },
+  winRail:{ run:()=>_dskWinSet('rail',!_dskWin.rail), checked:()=>_dskWin.rail },
+  diagnostics:{ run:()=>{ if(typeof toggleResOverlay==='function') toggleResOverlay(); }, checked:()=>!!_dskV(()=>_resOverlayOn,false) },   /* the Shift+D overlay's own toggle */
+  view3d:{ run:()=>_dskPress('#viewDimSeg button[data-dim="'+(_dskV(()=>_view3dOn,false)?'2d':'3d')+'"]'), checked:()=>!!_dskV(()=>_view3dOn,false) },
+  domWorld:{ run:()=>_dskPress('#domainRail [data-domain="world"]'), checked:()=>_domain==='world' },
+  domCiv:{ run:()=>_dskPress('#domainRail [data-domain="civ"]'), checked:()=>_domain==='civ' },
+  domCarto:{ run:()=>_dskPress('#domainRail [data-domain="carto"]'), checked:()=>_domain==='carto' },
+  domExplore:{ run:()=>_dskPress('#domainRail [data-domain="explore"]'), checked:()=>_domain==='explore' },
+  resetLayout:{ run:()=>_dskWinReset() },
+  /* Help */
+  credits:{ run:()=>_dskPress('creditsBtn') },
+  genInfo:{ run:()=>_dskPress('genInfoBtn') },
+};
+function _dskRun(cmd){
+  const c=_DSK_CMDS[cmd]; if(!c) return false;
+  if(c.enabled&&!c.enabled()){ if(c.refused) c.refused(); return false; }
+  c.run(); return true;
+}
+
+/* --- the Window toggles ----------------------------------------------------------------------- */
+/* Session-only, like v2.71's own layout (nothing here persisted a dock state either). Reset layout
+   puts all five back. Each is a body class the v2.72 CSS reads, desktop only. */
+const _dskWin={ldock:true,ctx:true,tl:true,sb:true,rail:true};
+const _DSK_WIN_CLASS={ldock:'ldock-collapsed',ctx:'ctx-hidden',tl:'tl-hidden',sb:'sb-hidden',rail:'rail-hidden'};
+function _dskWinSet(key,on){
+  if(!(key in _dskWin)) return;
+  _dskWin[key]=!!on;
+  document.body.classList.toggle(_DSK_WIN_CLASS[key],!on);
+  const chev=(id,open,shut,what)=>{ const b=_dskEl(id); if(!b||!b.setAttribute) return;
+    b.textContent=on?open:shut; b.setAttribute('aria-expanded',on?'true':'false');
+    b.title=(on?'Hide ':'Show ')+what+' (Window ▸ '+(what==='the left dock'?'Left dock':'Context panel')+')'; b.setAttribute('aria-label',(on?'Hide ':'Show ')+what); };
+  if(key==='ldock') chev('dockLeftCollapse','‹','›','the left dock');
+  if(key==='ctx') chev('ctxHideBtn','›','‹','the Context panel');
+  if(typeof _syncChromeTop==='function') _syncChromeTop();
+  if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();   /* v2.24: any band that resizes the viewport */
+}
+function _dskWinReset(){ for(const k of Object.keys(_dskWin)) _dskWinSet(k,true); _dskTlExpand(false); }
+
+/* --- the timeline strip -------------------------------------------------------------------------- */
+function _dskTlExpanded(){ const m=_dskEl('tlStripMore'); return !!(m&&!m.hidden); }
+function _dskTlExpand(on){
+  const m=_dskEl('tlStripMore'), t=_dskEl('tlStripToggle'); if(!m||!t||!t.setAttribute) return;
+  m.hidden=!on; t.setAttribute('aria-expanded',on?'true':'false');
+  t.title=on?'Hide the recorded years and the filters':'Show the recorded years, Add year and the filters';
+  if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();   /* v2.24's rule */
+}
+/* Read from civTimeline, the same array _civBuildExploreTimelineUI gates the slider row on, so the
+   note shows exactly while the row is hidden and says which of the two reasons applies. */
+function _dskTlSync(){
+  if(!_dskReady) return;
+  const em=_dskEl('tlStripEmpty'); if(!em) return;
+  const n=_dskV(()=>civTimeline.length,0);
+  em.style.display=n>1?'none':'';
+  em.textContent=n===0?'No recorded years yet — open the strip and press Add year'
+    :'One recorded year ('+_dskV(()=>_civFormatYear(civTimeline[0].year),'—')+') — record another to scrub between them';
+}
+
+/* --- the tool-options bar, the dock header, the Context panel header, the document readout ------- */
+const _DSK_DOMAIN_NAMES={world:'World',civ:'Civil',carto:'Carto',explore:'Explore'};
+const _DSK_TOOL_NAMES={inspect:'Inspect',info:'Info',place:'Settlement',place_poi:'POI',territory:'Territory',
+  draw_way:'Way',route:'Route',label:'Label',icon:'Icon',paint:'Paint'};
+/* One hint per tool, each saying what a click does and — for a tool whose settings stay in the dock's
+   Tools block in this stage — where they are. Every key named is one this file really binds. */
+const _DSK_TOOL_HINTS={
+  inspect:'Click selects · right-click opens the map menu',
+  info:'Click reads out the place or the ground beneath it',
+  place:'Click empty land to drop a settlement · click one to select it',
+  place_poi:'Click land to drop a point of interest — its type is in the dock’s Tools',
+  territory:'Drag paints the faction picked in Factions — the radius is in the dock’s Tools',
+  draw_way:'Click waypoints · Esc or ✓ Commit way finishes — type and snap are in the dock’s Tools',
+  route:'Click waypoints · Esc or ✓ Commit route finishes',
+  label:'Click empty ground to name a region',
+  icon:'Pick an icon in the gallery, then click the map',
+  paint:'Drag paints the chosen layer — the brush is in CARTO › Paint brush',
+};
+/* Ruling DZ: with no tool armed the bar carries the context name and one hint; with Sculpt armed, the
+   sculpt tool's own settings (the slot's elements) and nothing else. */
+function _dskToolOptsSync(){
+  if(!_dskReady) return;
+  const ctx=_dskEl('toolOptsCtx'), hint=_dskEl('toolOptsHint'), tool=_dskEl('toolOptsTool'); if(!ctx||!hint||!tool) return;
+  const sculpt=typeof _sculptEditorActive==='function'&&_sculptEditorActive();
+  let c, h='';
+  if(_dskV(()=>_assetsModeOn,false)){ c='Assets · Library'; h='The library has the stage — Assets (← Map) in the pins returns to the map'; }
+  else if(sculpt){ const f=_dskV(()=>SCULPT_FEATURES[_sculptType],null); c='Sculpt · '+(f?f.label:'—'); }
+  else if(_domain==='world'){
+    if(_sculptCategoryOpen){ c='Sculpt · locked'; h='This world is finalized — Un-finalize under WORLD › Generate › Finalize world to sculpt again'; }
+    else { c='Generate · World'; h='Click selects · right-click opens the map menu · Ctrl+R generates'; }
+  } else {
+    const t=_dskV(()=>_paintMode,false)?'paint':_dskV(()=>_civTool,'inspect');
+    c=(_DSK_DOMAIN_NAMES[_domain]||_domain)+' · '+(_DSK_TOOL_NAMES[t]||t);
+    h=_DSK_TOOL_HINTS[t]||'';
+  }
+  ctx.textContent=c; hint.textContent=h; hint.hidden=!h;
+  const was=tool.hidden; tool.hidden=!sculpt;
+  if(was!==tool.hidden&&typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
+}
+function _dskDockHeadSync(){
+  if(!_dskReady) return;
+  const el=_dskEl('dockLeftPath'); if(!el) return;
+  const D=_DSK_DOMAIN_NAMES[_domain]||_domain;
+  el.textContent=_domain==='world'?D+' › '+(_sculptCategoryOpen?'Sculpt':'Generate'):D;
+}
+/* The subject is read from EXACTLY what _civRenderInspector() renders from, in its own order of
+   precedence: a place (settlement or POI), else a label, else an icon. Absent facts are left out, never
+   shown as a zero (a settlement with no population carries no "pop 0"). */
+function _dskCtxSync(){
+  if(!_dskReady) return;
+  const kEl=_dskEl('ctxKind'), nEl=_dskEl('ctxName'), hEl=_dskEl('ctxHint'); if(!kEl||!nEl||!hEl) return;
+  const p=_dskV(()=>_civSelectedPlace,null), lb=_dskV(()=>_civSelectedLabel,null), ic=_dskV(()=>_iconSelected,null);
+  let kind='Context', name='Nothing selected', hint='Inspect a settlement, label or icon on the map, or a row in a list';
+  if(p){
+    if(_dskV(()=>CIV_POI_KEYS.has(p.kind),false)){
+      const t=_dskV(()=>CIV_POI_TYPES.find(x=>x.key===p.kind),null);
+      kind='Context · Point of interest'; name=p.name||'Unnamed point of interest';
+      hint=(t?t.label+' · ':'')+'editing in the popup on the map';
+    } else {
+      const k=_dskV(()=>CIV_SETTLEMENT_CLASSES.find(x=>x.key===(p.kind||'town')),null);
+      const fac=_dskV(()=>civFactionNames[p.faction]||(CIV_FACTIONS[p.faction]||[])[0],null);
+      kind='Context · Settlement'; name=p.name||'Unnamed settlement';
+      hint=[k?k.label:null, fac||null, p.pop?('pop '+Math.round(p.pop).toLocaleString()):null].filter(Boolean).join(' · ')||'editing in the popup on the map';
+    }
+  } else if(lb){ kind='Context · Label'; name=lb.name||'Unnamed label'; hint='Map label · its editor is Inspect, below'; }
+  else if(ic){ kind='Context · Icon'; name=_dskV(()=>_carIconLabel(ic),'Map icon'); hint='Map icon · its editor is Inspect, below'; }
+  kEl.textContent=kind; nEl.textContent=name; nEl.title=name; hEl.textContent=hint; hEl.title=hint;
+}
+/* Only what this file knows about the open world. Before a world exists (the setup gate, or Skip for
+   now) it says so; it never shows the boot seed as if it were a world's. */
+function _dskDocReadoutSync(){
+  if(!_dskReady) return;
+  const el=_dskEl('docReadout'); if(!el) return;
+  const live=_dskV(()=>_hasLiveWorld(),false);
+  el.textContent=live?('seed '+state.tect.seed+' · '+GW+'×'+GH+' · '+(state.world?'whole world':'region')):'no world';
+}
+
+/* --- the menu bar ---------------------------------------------------------------------------------
+   One controller for all eight menus — File included, on a phone too, where it is v2.71's File ▾.
+   v0.87's single-shot File rows close the menu; any other click inside the export form leaves it
+   open, because that section is a form you fill in before pressing Export. */
+const _DSK_MENU_CLOSE_IDS=new Set(['loadBtn','inferTectBtn','loadZipBtn','packBtn','exportBtn']);
+var _dskMenuBtn=null;   /* the bar button whose menu is open, or null (var: _dskPlace may run first) */
+function _dskMenuButtons(){ return [...document.querySelectorAll('.mb-btn')].filter(b=>b.getClientRects().length); }
+function _dskMenuPanelOf(btn){ return btn?_dskEl(btn.getAttribute('aria-controls')):null; }
+/* a (sub)menu's own rows, in order: visible, enabled buttons whose nearest menu is this one */
+function _dskMenuRows(panel){ return [...panel.querySelectorAll('button')].filter(b=>!b.disabled&&b.getClientRects().length&&b.closest('.mb-subpanel,.mb-panel')===panel); }
+function _dskMenuSync(panel){
+  for(const b of panel.querySelectorAll('[data-cmd]')){
+    const c=_DSK_CMDS[b.dataset.cmd]; if(!c) continue;
+    if(c.enabled) b.disabled=!c.enabled();
+    if(c.checked) b.setAttribute('aria-pressed',c.checked()?'true':'false');
+  }
+}
+function _dskMenuOpen(btn,focusFirst){
+  if(!btn) return;
+  if(_dskMenuBtn!==btn) _dskMenuClose();
+  const p=_dskMenuPanelOf(btn); if(!p) return;
+  _dskMenuSync(p);
+  p.classList.add('open'); btn.setAttribute('aria-expanded','true'); _dskMenuBtn=btn;
+  if(focusFirst){ const r=_dskMenuRows(p)[0]; if(r) r.focus(); }
+}
+function _dskMenuClose(){
+  const btn=_dskMenuBtn; if(!btn) return;
+  const p=_dskMenuPanelOf(btn);
+  if(p){ p.classList.remove('open'); p.querySelectorAll('.mb-sub.open').forEach(_dskSubClose); }
+  btn.setAttribute('aria-expanded','false'); _dskMenuBtn=null;
+}
+function _dskSubOpen(sub,focusFirst){
+  const owner=sub.parentElement&&sub.parentElement.closest('.mb-panel,.mb-subpanel');
+  if(owner) owner.querySelectorAll(':scope > .mb-sub.open').forEach(s=>{ if(s!==sub) _dskSubClose(s); });
+  const sp=sub.querySelector(':scope > .mb-subpanel'), trig=sub.querySelector(':scope > [data-sub]'); if(!sp) return;
+  _dskMenuSync(sp);
+  sub.classList.add('open'); if(trig) trig.setAttribute('aria-expanded','true');
+  /* beside its row (§3.8), lifted when it would run off the bottom of the window — never above the top */
+  sp.style.top='';
+  const r=sp.getBoundingClientRect(), vh=window.innerHeight||0, d=Math.min(r.bottom-(vh-6),r.top-6);
+  if(vh&&d>0) sp.style.top=Math.round(-5-d)+'px';
+  if(focusFirst){ const f=_dskMenuRows(sp)[0]||sp.querySelector('select,input,button'); if(f) f.focus(); }
+}
+function _dskSubClose(sub){ sub.classList.remove('open'); const t=sub.querySelector(':scope > [data-sub]'); if(t) t.setAttribute('aria-expanded','false'); }
+function _dskMenuStep(dir,open){
+  const bs=_dskMenuButtons(); if(!bs.length) return;
+  let i=bs.indexOf(_dskMenuBtn||document.activeElement); if(i<0) i=0;
+  const nb=bs[(i+dir+bs.length)%bs.length];
+  if(open) _dskMenuOpen(nb,true); else nb.focus();
+}
+function _dskMenuInit(){
+  for(const btn of document.querySelectorAll('.mb-btn')){
+    btn.addEventListener('click',e=>{ e.stopPropagation(); if(_dskMenuBtn===btn) _dskMenuClose(); else _dskMenuOpen(btn,e.detail===0); });
+    /* while a menu is open, moving across the bar switches menus (PC_SHELL_PROPOSAL.md §3.8) */
+    btn.addEventListener('mouseenter',()=>{ if(_dskMenuBtn&&_dskMenuBtn!==btn) _dskMenuOpen(btn,false); });
+    const panel=_dskMenuPanelOf(btn); if(!panel) continue;
+    panel.addEventListener('click',e=>{
+      const b=e.target.closest('button'); if(!b||!panel.contains(b)) return;
+      if(b.dataset.sub){ const sub=b.closest('.mb-sub'); if(sub){ if(sub.classList.contains('open')) _dskSubClose(sub); else _dskSubOpen(sub,e.detail===0); } return; }
+      if(b.dataset.cmd){ if(b.disabled) return; _dskMenuClose(); _dskRun(b.dataset.cmd); return; }
+      if(_DSK_MENU_CLOSE_IDS.has(b.id)) _dskMenuClose();
+    });
+    /* hovering a row opens its submenu, and hovering another row of the same menu closes it */
+    panel.addEventListener('mouseover',e=>{
+      const b=e.target.closest('.mb-row,.mb-panel > button'); if(!b) return;
+      const owner=b.closest('.mb-subpanel,.mb-panel'); if(!owner) return;
+      const sub=b.dataset.sub?b.closest('.mb-sub'):null;
+      owner.querySelectorAll(':scope > .mb-sub.open').forEach(s=>{ if(s!==sub) _dskSubClose(s); });
+      if(sub&&!sub.classList.contains('open')) _dskSubOpen(sub,false);
+    });
+  }
+  /* capture, as v0.87 did: an outside click closes the menu before anything else handles it */
+  document.addEventListener('click',e=>{ if(_dskMenuBtn&&!(e.target.closest&&e.target.closest('.mb-wrap'))) _dskMenuClose(); },true);
+}
+/* Keys while a menu is open: Esc closes the innermost level and returns focus to its opener; arrows
+   walk rows and menus; Tab leaves. Handled at WINDOW CAPTURE so an open menu takes Esc before the
+   map's own Esc handlers (which commit a route or way) can see it. Inside the export form's fields
+   every key belongs to the field. */
+function _dskMenuKey(e){
+  const ae=document.activeElement, panel=_dskMenuPanelOf(_dskMenuBtn); if(!panel) return false;
+  const inSub=ae&&ae.closest?ae.closest('.mb-subpanel'):null;
+  if(e.key==='Escape'){
+    e.preventDefault(); e.stopPropagation();
+    const sub=inSub?inSub.closest('.mb-sub'):null;
+    if(sub){ _dskSubClose(sub); const t=sub.querySelector(':scope > [data-sub]'); if(t) t.focus(); }
+    else { const b=_dskMenuBtn; _dskMenuClose(); if(b) b.focus(); }
+    return true;
+  }
+  const tag=ae&&ae.tagName;
+  if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return false;
+  if(e.key==='Tab'){ _dskMenuClose(); return false; }
+  const rows=_dskMenuRows(inSub||panel), i=rows.indexOf(ae);
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'||e.key==='Home'||e.key==='End'){
+    e.preventDefault(); e.stopPropagation(); if(!rows.length) return true;
+    const n=e.key==='Home'?0:e.key==='End'?rows.length-1:e.key==='ArrowDown'?(i+1)%rows.length:(i<=0?rows.length-1:i-1);
+    rows[n].focus(); return true;
+  }
+  if(e.key==='ArrowRight'){
+    e.preventDefault(); e.stopPropagation();
+    if(ae&&ae.dataset&&ae.dataset.sub){ const sub=ae.closest('.mb-sub'); if(sub) _dskSubOpen(sub,true); }
+    else _dskMenuStep(1,true);
+    return true;
+  }
+  if(e.key==='ArrowLeft'){
+    e.preventDefault(); e.stopPropagation();
+    if(inSub){ const sub=inSub.closest('.mb-sub'); _dskSubClose(sub); const t=sub.querySelector(':scope > [data-sub]'); if(t) t.focus(); }
+    else _dskMenuStep(-1,true);
+    return true;
+  }
+  return false;
+}
+
+/* --- accelerators ----------------------------------------------------------------------------------
+   [Ctrl/Cmd, Shift, key, command]. Each was checked free against every key this file already binds
+   (Space, Shift+D, Delete, Enter, Escape, Ctrl+K, Ctrl/Cmd+Z, and the bare layer letters 0 B T F S W R,
+   whose handler bails on any modifier) and is not one a browser keeps for itself — Ctrl+N, Ctrl+T and
+   Ctrl+W are, which is one reason the menus carry no New world or Close project rows (see CHANGELOG).
+   Ctrl+R is File ▸ Generate world in EVERY domain (v2.24 hoisted Generate into the document bar so it
+   was one click from anywhere; this keeps that, and Ruling DY PQ8 gave the PC the tablet's key). Its
+   preventDefault is what stops the browser reloading the page. Under a modal or the setup gate none of
+   these fire and the browser keeps its default: the menu bar is covered there, and so are its keys. */
+const _DSK_KEYS=[
+  [true,false,'r','generate'],
+  [true,false,'o','openProject'],
+  [true,false,'s','save'],
+  [true,true,'f','factions'],
+  [false,true,'a','assetLibrary'],
+];
+function _dskModalOpen(){
+  if(document.body.classList.contains('setup-gated')) return true;
+  for(const id of ['settingsModal','creditsModal','cityViewerModal','routeEditorModal','civFactionsModal']){ const m=_dskEl(id); if(m&&m.classList.contains('open')) return true; }
+  const sl=_dskEl('alSliceModal'); return !!(sl&&sl.style.display!=='none'&&sl.getClientRects().length);
+}
+function _dskAccelKey(e){
+  if(e.altKey) return;
+  const mod=e.ctrlKey||e.metaKey, k=(e.key||'').toLowerCase();
+  const hit=_DSK_KEYS.find(r=>r[0]===mod&&r[1]===e.shiftKey&&r[2]===k); if(!hit) return;
+  const t=e.target, tag=t&&t.tagName, typing=tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||!!(t&&t.isContentEditable);
+  if(!mod&&typing) return;   /* Shift+A in a text field is a capital A */
+  if(_dskModalOpen()) return;
+  e.preventDefault();
+  if(e.repeat) return;       /* a held Ctrl+R must neither reload nor queue a stack of generates */
+  _dskRun(hit[3]);
+}
+function _dskKeydown(e){
+  if(_dskMenuBtn){ if(_dskMenuKey(e)) return; }
+  else { const ae=document.activeElement;
+    if(ae&&ae.classList&&ae.classList.contains('mb-btn')&&(e.key==='ArrowRight'||e.key==='ArrowLeft'||e.key==='ArrowDown')){
+      e.preventDefault(); if(e.key==='ArrowDown') _dskMenuOpen(ae,true); else _dskMenuStep(e.key==='ArrowRight'?1:-1,false); return; } }
+  _dskAccelKey(e);
+}
+
+/* --- boot -------------------------------------------------------------------------------------- */
+(function _dskInit(){
+  if(typeof document==='undefined'||typeof document.querySelectorAll!=='function') return;
+  _dskMenuInit();
+  document.querySelectorAll('#toolOptsPins [data-cmd]').forEach(b=>b.addEventListener('click',()=>_dskRun(b.dataset.cmd)));
+  { const b=_dskEl('dockLeftCollapse'); if(b&&b.addEventListener) b.addEventListener('click',()=>_dskWinSet('ldock',!_dskWin.ldock)); }
+  { const b=_dskEl('ctxHideBtn'); if(b&&b.addEventListener) b.addEventListener('click',()=>_dskWinSet('ctx',!_dskWin.ctx)); }
+  { const b=_dskEl('tlStripToggle'); if(b&&b.addEventListener) b.addEventListener('click',()=>_dskTlExpand(!_dskTlExpanded())); }
+  { const v=_dskEl('mbVersion'); if(v) v.textContent='v'+VERSION; }
+  if(typeof window!=='undefined'&&window.addEventListener) window.addEventListener('keydown',_dskKeydown,true);
+  _dskReady=true;
+  _dskPlace();
+  if(typeof window!=='undefined'&&typeof window.matchMedia==='function'){
+    const mq=window.matchMedia(_DSK_PHONE_QUERY), f=()=>_dskPlace();
+    if(mq.addEventListener) mq.addEventListener('change',f); else if(mq.addListener) mq.addListener(f); }
+  _dskToolOptsSync(); _dskDockHeadSync(); _dskCtxSync(); _dskDocReadoutSync();
 })();
 
 /* ===================== init ===================== */
@@ -32317,11 +33343,17 @@ document.addEventListener('keydown',e=>{
   const civActive=(_activeTab==='generate'||_activeTab==='explore');
   if(e.key==='Escape'&&civActive&&_civTool==='route'&&!_reOpen&&!_cfmOpen) _civCommitRoute();   /* v1.44/v1.57: don't also commit a stray in-progress draw while the Route Editor's or Factions pop-up's own Escape-to-close handles this keypress */
   if(e.key==='Escape'&&civActive&&_civTool==='draw_way') _civCommitWay();
-  if(e.key==='Delete'&&civActive&&_civSelectedPlace){
-    const idx=state.places.indexOf(_civSelectedPlace); if(idx>=0) state.places.splice(idx,1);
-    _civSelectedPlace=null; _civRenderPlaceEditor(); renderNow();
-  }
+  if(e.key==='Delete'&&civActive&&_civSelectedPlace) _civDeleteSelectedPlace();
 });
+/* v2.72: the Delete key's body, unchanged, given a name so Edit ▸ Delete selected place runs the SAME
+   code rather than a copy of it. Like the key it has no confirm and no undo (v1.24 noted the risk);
+   the menu row is enabled only while a place is selected. Returns whether anything was deleted. */
+function _civDeleteSelectedPlace(){
+  if(!_civSelectedPlace) return false;
+  const idx=state.places.indexOf(_civSelectedPlace); if(idx>=0) state.places.splice(idx,1);
+  _civSelectedPlace=null; _civRenderPlaceEditor(); renderNow();
+  return true;
+}
 
 /* ---- civ state persistence via state.civ (serialised in params.json by EF) ---- */
 function _civSyncToState(){
@@ -32837,6 +33869,7 @@ function _civBuildExploreTimelineUI(){
   const sec=document.getElementById('explTimelineSection'); if(!sec) return;
   const sliderRow=document.getElementById('explTimelineSliderRow');
   if(sliderRow) sliderRow.style.display=civTimeline.length>1?'':'none';
+  if(typeof _dskTlSync==='function') _dskTlSync();   /* v2.72: the desktop strip says why it has no slider while this row is hidden */
   _civWireYearSlider(document.getElementById('explTimelineSlider'),
     document.getElementById('explTlMinYear'), document.getElementById('explTlMaxYear'),
     document.getElementById('explTlActiveYear'), document.getElementById('explTimelineTicks'));
@@ -32865,7 +33898,12 @@ function _civBuildExploreTimelineUI(){
    opens #placeEditPopup, floating over the map at the place's own screen position (_civPlaceScreenPos),
    reusing _civPopulatePlaceEditor's field-building/wiring unchanged (only the host element changed).
    Labels/icons are untouched — still the sidebar-pinned inspector below (not in scope for this pass). */
-function _civClosePlacePopup(){ const el=document.getElementById('placeEditPopup'); if(el) el.style.display='none'; }
+/* v2.72: every place/label/icon selection change ends in _civClosePlacePopup or _civOpenPlacePopup —
+   _civRenderInspector() always calls one of the two, and the writers that skip it (list rows, the
+   Info tool, the popup's own ×) call one directly — so the desktop Context panel's header refreshes
+   from these two. _dskCtxSync only READS the selection; it never writes it. */
+function _civClosePlacePopup(){ const el=document.getElementById('placeEditPopup'); if(el) el.style.display='none';
+  if(typeof _dskCtxSync==='function') _dskCtxSync(); }
 function _civOpenPlacePopup(){
   const el=document.getElementById('placeEditPopup'), p=_civSelectedPlace; if(!el||!p) return;
   // v1.00 (owner: "when tapping a city in explore mode I want a popup with the city layout — a zoom in
@@ -32894,6 +33932,7 @@ function _civOpenPlacePopup(){
     if(ty<vr.top+6) ty=vr.top+6; if(ty+h>vr.bottom-6) ty=Math.max(vr.top+6,vr.bottom-h-6); }
   el.style.left=lx+'px'; el.style.top=ty+'px';
   el.querySelector('.si-close').onclick=()=>{ _civSelectedPlace=null; _civClosePlacePopup(); drawCivLayerAuto(); };
+  if(typeof _dskCtxSync==='function') _dskCtxSync();
 }
 function _civRenderInspector(){
   const el=document.getElementById('inspectorBody'); if(!el) return;
@@ -32945,6 +33984,7 @@ function _civSetTool(tool){
   const cursorTools=(tool==='place'||tool==='place_poi'||tool==='territory'||tool==='draw_way'||tool==='route'||tool==='label'||(tool==='icon'&&_carIconArmed));
   view.style.cursor=cursorTools?'crosshair':'';
   if(typeof _gpuApplyTabOverride==='function') _gpuApplyTabOverride();
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();   /* v2.72: the desktop tool-options bar names the armed tool */
   if(typeof renderNow==='function') renderNow();
 }
 

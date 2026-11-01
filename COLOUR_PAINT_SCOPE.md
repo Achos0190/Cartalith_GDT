@@ -154,7 +154,9 @@ fall on water vanish under `land_only` (default) and reappear if land returns.
 Nothing is ever deleted by a regenerate. A different `map_width_km` keeps the
 kilometres, so the marks keep their ground size and move relative to the
 plate; CP-2 shows a one-line notice when a regenerate changes the map width
-while marks exist.
+while marks exist. The notice offers **Scale with the map** (Ruling EB item 7,
+2026-11-01): one undo step that rescales every mark to the new width (§17 Q5).
+Without that press the marks keep their kilometres.
 
 ## 6. Resolution independence
 
@@ -193,7 +195,8 @@ change and the reverse. A step is a whole document (marks are small: 5 000 ×
 40-point marks measure 3.98 MB as JSON, §9), held structurally shared where the
 shell can; the stack shares the app's undo budget (the oldest steps drop
 first). Labels: *Paint stroke*, *Fill*, *Erase stroke*, *Clear colour paint*,
-*Colour paint shown/hidden*.
+*Colour paint shown/hidden*, and *Scale paint with the map* (the map-width
+notice's button, Ruling EB item 7; §17 Q5).
 
 ## 9. Save format — `appearance_paint.json`, additive and optional
 
@@ -367,8 +370,9 @@ undoable like any stroke. Feasible.
 ## 17. Owner questions, with the defaults this scope builds unless told otherwise
 
 *Answered 2026-11-01 by Ruling EA item 15 ("Confirm as built"), except Q1,
-which Ruling CS answered. Each answer is marked below; the questions are kept
-as they were asked.*
+which Ruling CS answered. Q5's notice design asked one more question, answered
+by Ruling EB item 7 the same day. Each answer is marked below; the questions
+are kept as they were asked.*
 
 1. **Default mode** — Replace (measured, §3), not the brief's tint. Keep?
    **Answered (Ruling CS, 2026-10-19): Colour, and organise paint into layers** (§21).
@@ -389,9 +393,9 @@ as they were asked.*
 5. **Map-width change with marks** — keep kilometres, notify (§5).
    **Answered (Ruling EA item 15): confirmed as shipped.** Paint keeps its
    kilometres when the map changes size. The notice half is not built.
-   - **The notice's design (2026-11-01, for the owner's approval; drawn in the
-     mobile mockup, `design/mobile-shell-2026-10-31/`, and nothing of it
-     built):**
+   - **The notice's design (2026-11-01; drawn in the mobile mockup,
+     `design/mobile-shell-2026-10-31/`, and nothing of it built). Its question
+     was answered by Ruling EB item 7 the same day:**
      - **When.** After a regenerate whose `map_width_km` differs from the one
        the marks were painted at, while at least one mark exists. Never
        otherwise: a regenerate at the same width moves no mark relative to the
@@ -420,19 +424,48 @@ as they were asked.*
      - **Actions.**
        - **Show marks** outlines every mark on the map once, so the user can
          see where they now sit.
+       - **Scale with the map** (Ruling EB item 7) rescales every mark to the
+         new map width:
+         - Each mark's points and radius, in kilometres, are multiplied by new
+           width ÷ old width about the map's top-left edge, which is the
+           kilometre origin (§2). Each mark then keeps its place and size as a
+           share of the map.
+         - It is one undo step, *Scale paint with the map*, on paint's own stack
+           (§8). The notice goes once the marks are scaled.
+         - Undo puts every mark back at its kilometres and brings the notice
+           back, since what it says is true again. Redo scales them again.
+         - The ground under a scaled mark is still the new world's, so a mark
+           can land on other land, or on water, where Land only hides it (§5).
        - **Dismiss** removes the row.
 
-       Neither moves or deletes a mark.
+       Show marks and Dismiss move and delete nothing. Scale with the map moves
+       every mark and deletes none. **The rule is unchanged:** marks keep their
+       real kilometres unless the user presses Scale with the map (Ruling EA
+       item 15, Q5).
      - **In the mockup:** CARTO ▸ Style ▸ Colours ▸ *Simulate a regenerate at
-       another width*. The test `ea.js` checks the sentence word for word, its
-       place at the head of the section, Dismiss, and the miles form on the
-       desktop. Captures: `ea-15-phone-paint-width.png` and
-       `ea-15-desktop-paint-width.png`.
+       another width*. It draws 17 sample marks where their kilometres fall on
+       the 1.5× wider map, and counts the hidden ones from those marks. The
+       mockup's Colour paint tool does not store strokes, so the sample is
+       what Scale with the map moves. The test `ea.js` checks:
+       - the sentence word for word, and its place at the head of the section;
+       - the three buttons;
+       - that Scale with the map moves every mark ×1.5 (1 200 ÷ 800), points
+         and radius, and removes the notice;
+       - that one undo restores both and a redo scales again, on the phone
+         (Undo, then a three-finger tap) and the desktop (the menu bar's undo
+         and redo);
+       - Dismiss, which moves no mark;
+       - the miles form on the desktop.
+
+       Captures: `ea-15-phone-paint-width.png`, `ea-15-phone-paint-scaled.png`,
+       `ea-15-desktop-paint-width.png` and `ea-15-desktop-paint-scaled.png`.
      - **Owner question, with its default:** should Show marks also offer to
        scale the marks with the map (one undo step)? Default: no. A
        regenerate at another width is a different world, so neither choice
        keeps a mark on the feature it was painted on, and the ruling keeps
-       kilometres.
+       kilometres. **Answered (Ruling EB item 7): "Offer 'scale with the
+       map'"**, against the default. The notice gets the button (Actions,
+       above). Marks keep their real kilometres unless the user presses it.
 6. **Long-press on phone** — button eyedropper until MAP_CONTEXT F1 is ruled (§14).
    **Dropped (Ruling EA item 15):** the long-press it waited on was settled
    by Ruling AX F1 on 2026-09-26, before this scope was written: a phone
