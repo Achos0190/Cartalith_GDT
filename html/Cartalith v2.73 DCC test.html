@@ -2109,7 +2109,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
          a side drawer on a grip, on the side AWAY from the dominant hand, so left by default). A visible
          tab, never an edge swipe: Android's gesture navigation takes an edge swipe as Back
          (MOBILE_SHELL_PROPOSAL.md §2.4). Tap it, or drag it inward, to open #phDrawer. -->
-    <button type="button" class="ph-grip ph-only" id="phGrip" aria-label="Quick commands" aria-expanded="false" aria-controls="phDrawer" title="Quick commands — tap, or pull inward"><span class="ph-grip-bar" aria-hidden="true"></span></button>
+    <button type="button" class="ph-grip ph-only" id="phGrip" aria-label="Quick commands" aria-expanded="false" aria-controls="phDrawer" title="Quick commands — tap or pull inward to open; tap or push back to close"><span class="ph-grip-bar" aria-hidden="true"></span></button>
     <!-- v1.19: touch pan joystick (see _sculptNavSync) — hidden by default. v1.22: shown on any
          touch device whenever the main map is the active surface (not just Generate → Sculpt),
          hidden behind the setup gate / in 3D / in the City Viewer. -->
@@ -21275,9 +21275,11 @@ function _phWire(){
   /* The strip's height is its CONTENT's: Freehand's mode row, a longer hint, Commit appearing. _phLayout reads
      it, and the sculpt picker rebuilds its rows AFTER _dskToolOptsSync has run, so a layout taken there was one
      row short — measured (fix pass): tapping Freehand left DS-13 36px UNDER the strip until the next resize.
-     So the layout re-runs whenever the strip's box changes size. It only writes the custom properties the
-     row, the grip and the scale bar read, never the strip's own size, so it cannot loop. Absent in the
-     headless suite (no ResizeObserver), where nothing is laid out. */
+     So the layout re-runs whenever the strip's box changes size. It cannot loop: of the properties it writes,
+     the two the strip reads — its bottom offset (--ph-strip-b) and, in landscape, its right edge (--ph-cover-r,
+     which can re-wrap it) — come from the bar and the sheet, never from the strip, so a second call writes the
+     same values and the observer settles. Absent in the headless suite (no ResizeObserver), where nothing is
+     laid out. */
   if(typeof ResizeObserver==='function'){ const st=_dskEl('phStrip');
     if(st) try{ new ResizeObserver(()=>{ if(_shell==='phone') _phLayout(); }).observe(st); }catch(_){} }
 }

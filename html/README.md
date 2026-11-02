@@ -21,7 +21,7 @@ shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
 | `tests/perf/probe_desktopshell.js` | v2.72's Playwright probe (usage in its header) | `tests/perf/probe_desktopshell.js` |
 | `CHANGELOG_v2.73.md`, `CHANGELOG_v2.72.md` | each version's `## v2.7x (DCC line) — …` entry, in `CHANGELOG.md`'s own format | paste at the top of `CHANGELOG.md`, v2.72's first, then v2.73's above it |
 | `CLAUDE_v2.73.md`, `CLAUDE_v2.72.md` | each version's two pastes for the root `CLAUDE.md`: the file-table row (and the phrase to change in the previous row) and the `### … (v2.7x, DCC-line file only)` section | as each file says, v2.72's first |
-| `evidence/v2.73/*.png` | 21 screenshots: the phone at 412×915 (the map with the pull-out tab, the quick drawer open with its grip riding the drawer's edge, the domain sheet, the domain fan, MENU, MENU drawn over a settlement's popup, MAP with one View caption and the Scale bar switch, the sculpt strip with ✋, the strip with Settlement armed — no Sculpt rows, the long-press card, left-handed), at 360×780 (STORY › Time, the asset library with ← Map and the bar on screen, MENU › File › Export), the landscape phone at 844×390 (the domain sheet; left-handed, the grip at the sheet's edge), the tablet at 1194×834 (the Context panel floating, open, its pin beside the chevron) and 768×1024 (the narrow bar, ☰ › Preferences drilled in), the desktop at 600×900 (the narrow bar, File › Export drilled in), 700×900 (the left dock floating, open) and 1366×768. The fix pass (2026-11-02) re-took two and added seven | review only; Cartalith_RC needs none of them |
+| `evidence/v2.73/*.png` | 21 screenshots: the phone at 412×915 (the map with the pull-out tab, the quick drawer open with its grip riding the drawer's edge, the domain sheet, the domain fan, MENU, MENU drawn over a settlement's popup, MAP with one View caption and the Scale bar switch, the sculpt strip with ✋, the strip with Settlement armed — no Sculpt rows, the long-press card, left-handed), at 360×780 (STORY › Time, the asset library with ← Map and the bar on screen, MENU › File › Export), the landscape phone at 844×390 (the domain sheet; left-handed, the grip at the sheet's edge), the tablet at 1194×834 (the Context panel floating, open, its pin beside the chevron) and 768×1024 (the narrow bar, ☰ › Preferences drilled in), the desktop at 600×900 (the narrow bar, File › Export drilled in), 700×900 (the left dock floating, open) and 1366×768. The fix pass (2026-11-02) re-took three (the open quick drawer, the floating Context panel and the 768 narrow bar, whose DS-13 rocker spacing changed) and added seven; the other eleven re-take pixel-identical on the final bytes | review only; Cartalith_RC needs none of them |
 | `evidence/v2.72/*.png` | v2.72's screenshots (the desktop at four sizes, light and dark, File ▸ Export, the sculpt bar; the phone at 412×915; v2.71; the design board) | review only |
 
 ## The stage plan
@@ -30,11 +30,11 @@ shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
    tool-options bar holding the armed tool's settings only (Ruling DZ), Run in the WORLD dock, the rail on the left,
    the Context panel (Inspect), the timeline strip in every domain, the restyled status bar and map controls.
 2. **Stage 2 — v2.73: the phone and tablet shells**, from `MOBILE_SHELL_PROPOSAL.md` §2.1–§2.5, §3, §4 and Rulings DT,
-   DU, DX, DY, EB. One decider for the class (phone under 600px wide or under 500px tall in landscape; tablet for any
-   other coarse primary pointer; desktop for a fine one), CSS keyed on `html[data-shell]`, the slot table generalised
-   to every shell; the phone's bottom bar, app bar, sheet, MENU, STORY, tool strip, quick drawer on a grip (the
-   owner's "pull-out tab") and long-press card; DS-13 and Handedness; the touch gestures; the tablet's touch sizing,
-   drill-in menus and narrow bar; the docking rule on the desktop and the tablet.
+   DU, DX, DY, EB and EC (items 1–4). One decider for the class (phone under 600px wide or under 500px tall in
+   landscape; tablet for any other coarse primary pointer; desktop for a fine one), CSS keyed on `html[data-shell]`,
+   the slot table generalised to every shell; the phone's bottom bar, app bar, sheet, MENU, STORY, tool strip, quick
+   drawer on a grip (the owner's "pull-out tab") and long-press card; DS-13 and Handedness; the touch gestures; the
+   tablet's touch sizing, drill-in menus and narrow bar; the docking rule on the desktop and the tablet.
 3. **Stage 3 — the Context panel's modules and the journey planner in its own window** (`PC_SHELL_PROPOSAL.md`
    §3.3, §3.7), with the selection history (back, forward, pin) and Explore's journeys rehomed — after which EXPLORE
    stops being a domain (the phone's domain tab and fan list it until then).
@@ -61,8 +61,8 @@ node tests/perf/hash_gen1.js "Cartalith v2.72 DCC test.html" "Cartalith v2.73 DC
 The shells themselves, by real taps, CDP touches, clicks and measured geometry:
 
 ```bash
-node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect @@N@@ passed, 0 failed
-node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: @@F72@@ fail, by design
+node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect 237 passed, 0 failed
+node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: 117 fail, by design
 node tests/perf/probe_desktopshell.js "Cartalith v2.73 DCC test.html" "Cartalith v2.71 DCC test.html"
 ```
 

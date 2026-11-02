@@ -11,7 +11,7 @@
  * Every claim is a rendered geometry or a REAL input: page.touchscreen taps, CDP Input.dispatchTouchEvent for
  * drags, holds and two-finger touches (Playwright has no touch drag), page.mouse with a mouse, page.keyboard.
  * The shell is NAVIGATED by those inputs: the bar's tabs, the sheet's head, the fan, MENU's rows, the grip, the
- * domain pages' own tool buttons. A page.evaluate is used for three things only, each marked where it happens:
+ * domain pages' own tool buttons. A page.evaluate is used for four things only, each marked where it happens:
  *   - SET-UP a person would take minutes over: a world; a settlement under the finger; the icon density brush
  *     armed from the gallery; Territory's radius, faction and raster; every accordion opened by setting
  *     details.open (so the floor walk can measure what an open accordion draws — opening ~200 of them by tap
@@ -20,7 +20,10 @@
  *   - READS of what an input changed: the camera, the domain, a raster or icon count, a class, a rect;
  *   - the drawn-rect measure itself (window.__pbDrawn, injected at boot): an element's rect clipped by every
  *     ancestor that clips it, which is what a finger can reach (MISTAKES.md, "Assert a control is present,
- *     sized or reachable" — an unclipped rect proves nothing).
+ *     sized or reachable" — an unclipped rect proves nothing);
+ *   - RESETS between steps, after the step's assertions have been made: the theme put back, the Settlements
+ *     window a pin opened closed again, a selection and its popup or card cleared (clearSel). No assertion
+ *     rests on a reset; each only gives the next step a clean map.
  * The first cut of this probe (v2.73 before the 2026-11-02 fix pass) said "never to navigate the shell" and
  * then reached its floor walk, Krita's guard and Handedness's reset by calling _phSheetSet, _setDomain,
  * _civSetTool, _setSculptCategory and _openSettings; those steps are taps now.
@@ -118,6 +121,7 @@ const drag = async (p, x0, y0, x1, y1, steps) => { steps = steps || 8; await T(p
 const hold = async (p, x, y, ms) => { await T(p, 'touchStart', [[x, y]]); await sleep(ms); await T(p, 'touchEnd', []); await sleep(260); };
 const cam = p => p.evaluate(() => ({ s: viewT.scale, x: viewT.panX, y: viewT.panY }));
 const shell = p => p.evaluate(() => document.documentElement.getAttribute('data-shell'));
+/* RESET (see the header): no selection, no popup, no card — between steps, never as a step */
 const clearSel = p => p.evaluate(() => { if (typeof _civCtxHide === 'function') _civCtxHide(); _civSelectedPlace = null; if (typeof _civClosePlacePopup === 'function') _civClosePlacePopup(); });
 /* the map's centre band, clear of the sheet, the bars and the row */
 const mapPt = async (p, fx, fy) => { const r = await rectOf(p, '.canvas-wrap'); return [r.l + r.w * (fx || 0.5), r.t + r.h * (fy || 0.35)]; };
@@ -341,6 +345,7 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
     const was = await p.evaluate(() => document.documentElement.getAttribute('data-theme'));
     await tap(p, '#mbPrefs [data-cmd="themeLight"]');
     A('Preferences › Theme › Light presses the theme switch (the page goes light) and the sheet closes', (await p.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'light' && (await p.evaluate(() => _ph.detent)) === 'closed', was);
+    /* RESET: the theme back to dark for the steps after this one (the light theme was the assertion above) */
     await p.evaluate(() => { const b = document.getElementById('themeToggleBtn'); if (document.documentElement.getAttribute('data-theme') === 'light' && b) b.click(); });
     /* Help › Credits opens the credits window as a full-height sheet */
     await tapEdge(p, '#phTabMenu');
@@ -385,6 +390,7 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
     A('a tap opens the drawer of pins: Save, Settlements, Assets, Planner (the bar\'s own four elements)', JSON.stringify(pins) === JSON.stringify(['pinSave', 'settlementsHeaderBtn', 'assetsHeaderBtn', 'pinPlanner']), JSON.stringify(pins));
     await tap(p, '#phDrawer #settlementsHeaderBtn'); await sleep(300);
     A('the Settlements pin opens the Settlements window, and the drawer closes', (await p.evaluate(() => document.getElementById('civFactionsModal').classList.contains('open'))) && !(await vis(p, '#phDrawer')));
+    /* RESET: the Settlements window the pin opened (asserted above) closed again, so the grip is in reach */
     await p.evaluate(() => { const c = document.getElementById('cfmCloseBtn'); if (c) c.click(); });
     await drag(p, g.l + 10, g.t + g.h / 2, g.l + 90, g.t + g.h / 2, 6);
     A('dragging the grip inward opens it too', await vis(p, '#phDrawer'));

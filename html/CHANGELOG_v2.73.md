@@ -4,19 +4,21 @@ Owner: *"Can we upgrade the layout in the html with the new design?"* — then *
 *"Everything, staged"* (stage 1 was v2.72's desktop shell; stage 2 is this; stage 3 is the Context panel's modules
 and the planner window). Looking at v2.72's phone capture: *"The screenshots on phone don't seem to have the
 pull-out tab from the side."* Design: Cartalith_GDT `MOBILE_SHELL_PROPOSAL.md` §2.1–§2.5, §3 and §4, with Rulings
-DT, DU, DX, DY (MQ-1, Q10–Q12, PQ6) and EB, and the mockup `design/mobile-shell-2026-10-31/Live.dc.html`.
+DT, DU, DX, DY (MQ-1, Q10–Q12, PQ6), EB and EC (items 1–4, which answered EB's open touch questions), and the mockup
+`design/mobile-shell-2026-10-31/Live.dc.html`.
 `tests/run.sh` **1280/0**, `run_um.sh` **882/0**, `hash_gen1.js` vs v2.72 **ALL IDENTICAL**. Verification is
-`tests/perf/probe_mobileshell.js`: **@@N@@ assertions** over the **@@V@@ viewports** it lists on its last lines (phone
+`tests/perf/probe_mobileshell.js`: **237 assertions** over the **15 viewports** it lists on its last lines (phone
 360×780, 375×812, 412×915 and 844×390, the 412×915 phone turned to 915×412 and squeezed to 412×380 by a keyboard;
 tablet 768×1024, 1024×768 and 1194×834; the narrow tablet bar at 600×960; desktop 600, 700, 870 and 900 wide and
 1366×768). It **navigates the shell only by real input** — touchscreen taps, CDP touches for drags, holds and two
-fingers, the mouse, the keyboard — and uses `page.evaluate` for three things, each marked where it happens: SET-UP a
+fingers, the mouse, the keyboard — and uses `page.evaluate` for four things, each marked where it happens: SET-UP a
 person would take minutes over (a world; a settlement under the finger; the icon density brush armed from the
 gallery; Territory's radius and faction; every accordion opened for the floor walk; Handedness in storage before a
-fresh page), READS of what an input changed, and the drawn-rect measure (a control's rect clipped by whatever clips
-it, which is what a finger can reach). Run on v2.72 it fails **@@F72@@** and passes @@P72@@ (a section that cannot
-run there fails once, by name); run on this version's **first cut**, before the fix pass below, it fails
-**@@F1@@** — every one of the verifiers' defects fails its own section there.
+fresh page), READS of what an input changed, the drawn-rect measure (a control's rect clipped by whatever clips
+it, which is what a finger can reach), and RESETS between steps after their assertions (the theme put back, a
+window a step opened closed, a selection cleared), on which no assertion rests. Run on v2.72 it fails **117**
+and passes 36 (a section that cannot run there fails once, by name); run on this version's **first cut**, before
+the fix pass below, it fails **57** — every one of the verifiers' defects fails its own section there.
 
 - **This entry's first cut overstated its own method, and the probe's header did too** (found by the 2026-11-02
   verifiers). It said "159 assertions, all real taps" and "at seven sizes", and the probe's header said a
@@ -197,7 +199,7 @@ run there fails once, by name); run on this version's **first cut**, before the 
   the app bar, the bar, the row, the grip, all four domains' pages with every accordion open, MAP, both STORY panes,
   MENU's root and each of its eight menus and their submenus, the context page with a label's editor in it, the
   drawer, the strip for Sculpt and for Freehand, a settlement's popup, Find's results, the long-press card and
-  Settings — **@@FLOOR_N@@ target measurements over @@FLOOR_S@@ surfaces, none drawn under 44 × 44 on either axis**,
+  Settings — **490 target measurements over 30 surfaces, none drawn under 44 × 44 on either axis**,
   and on the tablet's bars, rail, dock and map controls. (The first cut's walk read unclipped rects over fewer
   surfaces — "336, none under 44" — and missed the popup's 🎲, cut to 22px on every shell since before v2.72; it is
   whole now.)
@@ -238,15 +240,20 @@ run there fails once, by name); run on this version's **first cut**, before the 
   onto a second row at 860–940px (v2.72 the same; the hint now takes a zero basis at every width), every gesture
   figure without a source (each now names one or says it is a judgement, Ruling BK), "pending" for what Ruling EC
   had answered, and stale comments (the tool rail band, `_toolRailSync`, the version chip, the File block, the menu
-  bar's header, the old drawer's handler, an end-of-line comment). **Not changed, with the reason:** the 1000px
-  rule meant to tighten the desktop's menu buttons has never applied (the base rule after it has the same
+  bar's header, the old drawer's handler, an end-of-line comment, the strip observer's reason it cannot loop) and the
+  grip's tooltip, which told only how to open the drawer it now also closes. **Not changed, with the reason:** the
+  1000px rule meant to tighten the desktop's menu buttons has never applied (the base rule after it has the same
   specificity) — left as v2.72 shipped it and annotated, since making it live would change stage 1's desktop at
   861–1000px and the full bar fits there; the long-press card's and MAP's departures from the design are stated
   in *Not in this build* rather than built (the card is one implementation shared with the right-click menu).
 - **Unchanged by construction:** no engine line moved, so the headless suites and the render hashes are v2.72's.
-  Stage 1's desktop at 1366 and wider keeps its layout (the docks stay docked, the row stays a column); two
-  fixes reach it on purpose and draw the same where there was room — the tool hint's zero flex basis, and the
-  popup's name field, which may now shrink so the 🎲 beside it is whole.
+  Stage 1's desktop at 1366 and wider keeps its layout (the docks stay docked, the row stays a column); three
+  fixes reach it on purpose. Two draw the same where there was room — the tool hint's zero flex basis, and the
+  popup's name field, which may now shrink so the 🎲 beside it is whole. The third is behaviour: an open
+  right-click menu closes when the window's width changes, as the long-press card does, since both are one
+  element placed in window coordinates (`_civCtxHide` from the resize handler). Measured with a mouse, a right-click
+  menu open at 1366 × 768 and the window narrowed to 1280: v2.72 leaves it open, v2.73 closes it; a height-only
+  change keeps it open.
 
 **`tests/perf/probe_desktopshell.js` (v2.72's probe) on v2.73**, with v2.71 as the comparison file: 154 passed,
 4 failed, against v2.72's 174/0. Every difference, classified:
@@ -285,12 +292,12 @@ already classified). **Seven assertions change, each pinning the v2.31 phone tha
 | `#docReadout`, `#phaseChip` | not drawn; header | the world pill |
 | `#undoBtn`, `#redoBtn` | header | app bar |
 | `#findWrap` | header | the search row (`#phSearch`) |
-| `#fileWrap`/`#fileMenu`, the other seven `.mb-panel`s | File ▾ in the header; menus not drawn | MENU, row for row but for Window's Status bar and Domain rail (not drawn: the phone has neither band) |
+| `#fileWrap`/`#fileMenu`, the other seven `.mb-panel`s (`#mbEdit`, `#mbAssets`, `#mbRecords`, `#mbStory`, `#mbPrefs`, `#mbWindow`, `#mbHelp`) | File ▾ in the header; menus not drawn | MENU, row for row but for Window's Status bar and Domain rail (not drawn: the phone has neither band) |
 | `#seedN`/`#seedLab`, `#reseedBtn`, `#centerBtn`, `#genBtn` | document bar | WORLD › Generate › Run (now their markup home on every shell) |
 | `#modeSeg` (View) | document bar | the Base map chip's popover — the MAP page (now its markup home) |
 | `#layersFab` (popover open), `#viewDimSeg`, `#legend` | map overlays | the MAP page |
 | `#scaleBarChkRow` (the Scale bar switch, newly id'd) | CARTO › Map style | the MAP page's view rows (desktop and tablet: CARTO › Map style, as before) |
-| `#toolRail` band; `#sculptFeatureSeg`, `#sculptFeatHint`, `#sculptModeSeg`, brush rows | band under the document bar; WORLD › Sculpt | band drawn on no shell; the tool strip |
+| `#toolRail` band; `#sculptFeatureSeg`, `#sculptFeatHint`, `#sculptModeSeg`, the brush rows (`#sBrushRow`, `#sBrushKm`, `#sHardRow`, `#sIntenRow`) | band under the document bar; WORLD › Sculpt | band drawn on no shell; the tool strip |
 | `#toolOptsCtx`, `#toolOptsHint` | not drawn | the tool strip |
 | `#sculptCommitBtn`, `#sculptDiscardBtn`, `#civCommitWayBtn`, `#civCommitRouteBtn` | in the dock | the tool strip, the armed tool's only |
 | `#undoBtn`'s hold (the design's undo history, with Redo inside it) | — | not built; `#redoBtn` is its own app-bar button instead (a departure: no undo-history list exists to hold it) |
@@ -311,7 +318,7 @@ docking rule; Preferences › Touch › Handedness.
 |---|---|
 | STORY › Conflicts, Notes; MENU's Records › notes rows | No conflict entity and no note editor in this file (above) |
 | Two-finger tap undo, three-finger tap redo (Ruling DU Q5) | Not in stage 2's brief; no multi-finger tap handler exists here. The touch layer leaves two-finger touches to the existing pinch |
-| Map rotation, the compass | No map rotation exists here |
+| Map rotation, the compass (and MAP's North up) | The 2D map never rotates (`viewT` holds a scale and a pan only), so it is always north-up. The 3D view's orbit camera has an azimuth (`_cam3d.az`), which ⌖ resets to its default view, not to north; no compass exists (grep `compass`: prose only) |
 | The edge swipe for the inspector, haptics, *Pen draws, finger pans*, UI scale, Touch & gestures settings | None exist; the browser exposes no haptics to a file:// page |
 | The cartwheel and its ring dock (tablet, §2.4) | The HTML has no cartwheel |
 | World › Reset generation parameters, Reset one stage | Neither exists (CHANGELOG v2.72) |
