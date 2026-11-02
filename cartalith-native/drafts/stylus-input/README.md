@@ -45,14 +45,11 @@ pen-only/finger-pans mode with a palm rule, and no stylus setting or tester.
 | File | Milestone | What it is | Needs | Status |
 |---|---|---|---|---|
 | `00_stylus_tester.gd` | **SH-9** | A self-contained tester/calibration `Control`: live pressure, tilt, tilt angle, eraser flag, hover, buttons, report rate, device id, and the observed pressure span. Pure pointer input; no engine, no settings write | `DccTheme.c()` (optional styling); a menu row to open it | **written** |
+| `01_dcc_settings_stylus.gd` | **SH-2/4/5** | A `DccSettings` `_SEC_STYLUS` section: pressure curve (soft/linear/firm), comfortable maximum, *Pen draws, finger pans*, tilt-to-size. Per-install, never a world's | pastes by the handedness accessors | **written** |
+| `10_pressure_curve.gd` | **SH-4** | One helper `_apply_pen_pressure` plus two one-line wraps at the sculpt and paint pressure chokepoints. GDScript only; identity at the default settings, so no golden can move | `01`; `_sculpt_take_pressure`, `_paint_drag` | **written** |
 
 **Planned next, in this folder (not yet drafted):**
 
-- `01_dcc_settings_stylus.gd` — **SH-2/4/5 settings.** A `DccSettings`
-  `_SEC_STYLUS` section with getters/setters: the pressure curve
-  (`soft`/`linear`/`firm`), *Pen draws, finger pans* (SH-3), tilt-to-size (SH-5).
-  Follows the `_cfg.get_value`/`set_value` + `_save()` pattern already in
-  `dcc_settings.gd`.
 - `02_input_hygiene.gd` — **SH-2.** `project.godot` keys
   `input_devices/pointing/android/enable_long_press_as_right_click` and
   `.../emulate_touch_from_mouse` as the research names, plus
@@ -60,10 +57,6 @@ pen-only/finger-pans mode with a palm rule, and no stylus setting or tester.
   pen stroke is live (set and restored in `map_overlay.gd`). The
   finger-mistaken-for-a-pen refinement that needs a real `TOOL_TYPE` is left to
   SH-10 (the plugin) and is called out, not faked.
-- `10_pressure_curve.gd` — **SH-4.** Apply γ (0.6 / 1.0 / 1.6) to the pressure in
-  `world_workspace.gd::_sculpt_take_pressure` and the colour-paint sample path,
-  reading the setting. **GDScript only; the engine's pressure law is unchanged**,
-  so goldens cannot move.
 - `11_hover_inner_ring.gd` — **SH-6.** Extend `tool_overlay.gd`'s brush draw with
   an inner ring at `pressure_min`, hidden ~150 ms after the last hover.
 - `20_pen_draws_finger_pans.gd` — **SH-3.** The mockup's *Pen draws, finger pans*

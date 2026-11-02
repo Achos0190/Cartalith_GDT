@@ -33,6 +33,21 @@ check '"text_secondary":'              'palette token "text_secondary"'
 check '"accent":'                      'palette token "accent"'
 check '"panel":'                       'palette token "panel"'
 
+# -- 01_dcc_settings_stylus.gd (pastes into dcc_settings.gd; mirrors its pattern) --
+check 'class_name DccSettings'         'DccSettings (class_name)'
+check 'static func _ensure_loaded\('   'DccSettings._ensure_loaded()'
+check 'static func _save\('            'DccSettings._save()'
+check 'const _SEC_HANDEDNESS'          'the _SEC_* section pattern (handedness, the model)'
+check 'func set_dominant_hand\('       'the validated getter/setter pattern (handedness)'
+
+# -- 10_pressure_curve.gd (edits world_workspace.gd at the two pressure chokepoints) --
+check 'func _sculpt_take_pressure\('   'world_workspace _sculpt_take_pressure (sculpt chokepoint)'
+check 'func _paint_drag\('             'world_workspace _paint_drag (paint chokepoint)'
+check '_sculpt_pressure_on'            'world_workspace _sculpt_pressure_on (the Pressure toggle)'
+check 'func sculpt_add_point_p\(|sculpt_add_point_p\('  'bridge.sculpt_add_point_p (pressure-aware sculpt add)'
+check 'paint_stroke_sample\('          'bridge.paint_stroke_sample (paint add)'
+check '_paint_pending_sample'          'world_workspace _paint_pending_sample (the matched sample)'
+
 echo
 echo "Godot built-ins the tester uses (InputEventMouseMotion.pressure/.tilt/.pen_inverted,"
 echo "InputEventScreenDrag, InputEventScreenTouch, MOUSE_BUTTON_MASK_LEFT, Time.get_ticks_msec)"
