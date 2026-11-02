@@ -48,6 +48,12 @@ check 'func sculpt_add_point_p\(|sculpt_add_point_p\('  'bridge.sculpt_add_point
 check 'paint_stroke_sample\('          'bridge.paint_stroke_sample (paint add)'
 check '_paint_pending_sample'          'world_workspace _paint_pending_sample (the matched sample)'
 
+# -- 11_hover_inner_ring.gd (edits tool_overlay.gd's brush ring) --
+check 'func set_brush_cursor\('      'tool_overlay set_brush_cursor'
+check 'var brush_radius_cells'        'tool_overlay brush_radius_cells'
+check 'MEASURE_COLOR'                 'tool_overlay MEASURE_COLOR (ring colour)'
+check 'cell_px'                       'tool_overlay cell_px (fit scale)'
+
 echo
 echo "Godot built-ins the tester uses (InputEventMouseMotion.pressure/.tilt/.pen_inverted,"
 echo "InputEventScreenDrag, InputEventScreenTouch, MOUSE_BUTTON_MASK_LEFT, Time.get_ticks_msec)"

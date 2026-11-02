@@ -47,6 +47,7 @@ pen-only/finger-pans mode with a palm rule, and no stylus setting or tester.
 | `00_stylus_tester.gd` | **SH-9** | A self-contained tester/calibration `Control`: live pressure, tilt, tilt angle, eraser flag, hover, buttons, report rate, device id, and the observed pressure span. Pure pointer input; no engine, no settings write | `DccTheme.c()` (optional styling); a menu row to open it | **written** |
 | `01_dcc_settings_stylus.gd` | **SH-2/4/5** | A `DccSettings` `_SEC_STYLUS` section: pressure curve (soft/linear/firm), comfortable maximum, *Pen draws, finger pans*, tilt-to-size. Per-install, never a world's | pastes by the handedness accessors | **written** |
 | `10_pressure_curve.gd` | **SH-4** | One helper `_apply_pen_pressure` plus two one-line wraps at the sculpt and paint pressure chokepoints. GDScript only; identity at the default settings, so no golden can move | `01`; `_sculpt_take_pressure`, `_paint_drag` | **written** |
+| `11_hover_inner_ring.gd` | **SH-6** | One optional field + one arc on `tool_overlay.gd`'s brush ring: a dimmer inner ring at the minimum-pressure radius, so a hovering pen previews its footprint span. Additive; default 0 = today's single ring | `set_brush_cursor`, `MEASURE_COLOR`, `cell_px` | **written** |
 
 **Planned next, in this folder (not yet drafted):**
 
@@ -57,8 +58,6 @@ pen-only/finger-pans mode with a palm rule, and no stylus setting or tester.
   pen stroke is live (set and restored in `map_overlay.gd`). The
   finger-mistaken-for-a-pen refinement that needs a real `TOOL_TYPE` is left to
   SH-10 (the plugin) and is called out, not faked.
-- `11_hover_inner_ring.gd` — **SH-6.** Extend `tool_overlay.gd`'s brush draw with
-  an inner ring at `pressure_min`, hidden ~150 ms after the last hover.
 - `20_pen_draws_finger_pans.gd` — **SH-3.** The mockup's *Pen draws, finger pans*
   with a palm rule, in `map_overlay.gd`'s input routing. Ties to **Ruling EC**
   (✋ only with drawing tools; one finger pans with tap-only tools). The most
