@@ -63,6 +63,18 @@ The owner asked: *"Just copy it into the reference folder"*.
 - **The old blocker was wrong.** The re-freeze row had been blocked since 2026-10-10 on "the owner has no v2.71 file to
   supply". That check looked only in this repository; the file had been in `Cartalith_RC` since 2026-09-20.
 
+### Stylus: standard input only (Ruling EE), and the input drafts begin (2026-11-02)
+
+The owner settled the stylus scope: *"standard stylus input with pressure and touch is what it is"* (Ruling EE).
+Everything past standard input is off — the haptics, the root/Magisk route, the Bluetooth pen-motor experiment, and
+the Kotlin input plugin (Ruling ED's Gradle acceptance is withdrawn). The VIBRATE permission already set stays.
+
+**The input work is building** as GDScript drafts in `cartalith-native/drafts/stylus-input/` (no Godot in the session
+to parse-check; `check_symbols.sh` greps the shipped tree). The shell already reads the pen (`map_overlay.gd`'s
+`_emit_stroke_sample`; sculpt scales by pressure), so these extend it. First written: SH-9, a self-contained stylus
+tester (`00_stylus_tester.gd`) the owner can open on the Pad 3 to see exactly what the Stylo 2 reports — pressure,
+tilt, hover, rate, device — which is also SH-0's measurement without adb. Nothing is built in the shell yet.
+
 ### Stylus and haptics research, and Ruling ED; the VIBRATE permission set (2026-11-02)
 
 `STYLUS_HAPTICS_RESEARCH.md` is written, fact-checked and supplemented, for the Godot version on the owner's OnePlus

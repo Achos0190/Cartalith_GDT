@@ -3218,3 +3218,26 @@ on it for lack of hardware, not the permission. What follows:
 - **The contour-tick design (§7) stands,** but on the Pad 3 its output is the sound-and-visual fallback (§7.7), not a
   body buzz. How to pursue the felt relief on the Pad 3 — chase the pen SDK, lean on sound and visual, or pause it —
   is an open owner call.
+
+## Ruling EE: the stylus is standard input only — pressure and touch; no haptics, no root, no plugin, no pen SDK (owner, 2026-11-02)
+
+The owner researched the pen's own haptics and settled the scope: *"we're not going into restricted area anymore. I
+did some research and it's impossible. So standard stylus input with pressure and touch is what it is."*
+
+This supersedes the parts of Ruling ED that looked past standard input:
+
+- **Off:** the haptic feedback (SH-7, SH-8, SH-12), the Bluetooth pen-motor experiment (Ruling ED Q13), and the open
+  Magisk/root module route. The app will not root a device, force-grant a protected permission, bind to OnePlus's
+  private pen service, or ship a pen-motor driver.
+- **Off too:** the Kotlin input plugin (SH-10) with its Gradle build (Ruling ED Q9), and anything else that reaches
+  beyond what Godot already delivers. "Standard" is the pointer input the engine passes today: pressure, tilt, hover
+  and touch.
+- **Kept:** SH-1's VIBRATE permission already landed in `export_presets.cfg` and stays. It is for the OnePlus 6T and
+  any device that has a motor; it is moot on the Pad 3, which has no vibrator (Ruling ED).
+- **The active work:** the standard stylus-input milestones — SH-2 (input hygiene within standard settings), SH-3 (pen
+  draws, finger pans, with a palm rule; Ruling EC), SH-4 (the pressure curve, GDScript only, engine law unchanged),
+  SH-5 (tilt to the brush: the GDScript toggle, and the Rust `paint_stroke_options` field as its own parity-gated
+  change — still standard input), SH-6 (the hover cursor's inner ring), and SH-9 (the stylus tester). Built as GDScript
+  drafts in `cartalith-native/drafts/stylus-input/`.
+
+The restricted area is not pursued, researched further, or documented as a route.

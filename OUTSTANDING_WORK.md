@@ -163,16 +163,28 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
 - **The VIBRATE permission (SH-1's preset half) is set** (Ruling ED, 2026-11-02): until then every `_haptic` call was
   silent on Android. Not yet seen on a device: build the next APK, then `adb logcat | grep -i "VIBRATE permission"`
   while holding on the map must show nothing.
-- **Ruling ED also schedules:** the Kotlin input plugin with a Gradle build (SH-10; the owner chose the most extensive
-  feature set), and an experiment reaching the pen's own motor over Bluetooth, read-only discovery first, never the
-  firmware services, behind an off switch (Q13).
+- **Superseded by Ruling EE (2026-11-02): standard input only.** The owner settled the scope — pressure and touch,
+  nothing that reaches past what Godot delivers. So Ruling ED's Kotlin input plugin (SH-10, Gradle) and its Bluetooth
+  pen-motor experiment (Q13) are **off**, with the haptics. The VIBRATE permission already set stays.
 - **The Pad 3 has no haptics (owner, 2026-11-02).** So the tablet's body cannot vibrate and SH-0's vibrator question
   is answered: a felt relief on the Pad 3 needs the licensed OnePlus/Oppo pen SDK (research Q10, uncertain) or falls
   to sound and visual cues (Q11). The relief design (§7) stays but routes to those channels there. The VIBRATE
   permission stays for the 6T.
 - **The rest of SH-0 still wants the device:** `wm density`, `getevent -lt` while double-tapping the pen,
   `dumpsys input`.
-- **SH-2 to SH-12** and owner questions Q1–Q13: research §8.1 and §8.3. Nothing is built.
+- **Parked by the owner, 2026-11-02: the haptic feedback.** *"Let's park the haptics feedback for now."* So SH-7
+  (haptic backend), SH-8 (haptic relief) and SH-12 (pen-tip haptics via OnePlus's SDK) are on hold, as is the Q13
+  Bluetooth pen-motor experiment. SH-1 (the VIBRATE permission) already landed and stays. **Reason the owner gave for
+  not pursuing the open Magisk route in-app:** it force-grants a protected OnePlus permission and binds to OnePlus's
+  proprietary pen service; the app will not integrate that.
+- **Active, within standard stylus-input permissions (owner, 2026-11-02): the input work.** SH-2 (input hygiene and
+  the finger-mistaken-for-a-pen fix), SH-3 (pen draws, finger pans, with a palm rule; ties to Ruling EC), SH-4 (the
+  pressure curve, GDScript only, engine law unchanged), SH-5 (tilt to the brush: the GDScript toggles now, the Rust
+  `paint_stroke_options` field as its own parity-gated change), SH-6 (the hover cursor's inner ring), and SH-9 (the
+  stylus tester and calibration screen). All are standard pointer input: pressure, tilt, hover and pen-vs-finger,
+  with no special permission. Built as GDScript drafts in `cartalith-native/drafts/stylus-input/` (no Godot in the
+  session to parse-check); implementing them in the shell is the follow-on. SH-10 (the Kotlin input plugin) is **off**
+  (Ruling EE: standard input only, no Gradle plugin).
 - **Stale pen prose (Ruling BK):** `TABLET_UI_SPEC.md` §4.2 ("nothing in the shell reads pen pressure") and
   `EDITING_TOOLS_SCOPE.md` §3.2 ("are never read") predate ET-D2/D3/D5; `map_overlay.gd` passes pressure and the sculpt
   and paint tools read it. Also stale comments the fact-check found: `analysis.rs::ruggedness` (a uniform slope reads
