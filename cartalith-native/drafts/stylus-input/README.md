@@ -49,19 +49,8 @@ pen-only/finger-pans mode with a palm rule, and no stylus setting or tester.
 | `10_pressure_curve.gd` | **SH-4** | One helper `_apply_pen_pressure` plus two one-line wraps at the sculpt and paint pressure chokepoints. GDScript only; identity at the default settings, so no golden can move | `01`; `_sculpt_take_pressure`, `_paint_drag` | **written** |
 | `11_hover_inner_ring.gd` | **SH-6** | One optional field + one arc on `tool_overlay.gd`'s brush ring: a dimmer inner ring at the minimum-pressure radius, so a hovering pen previews its footprint span. Additive; default 0 = today's single ring | `set_brush_cursor`, `MEASURE_COLOR`, `cell_px` | **written** |
 
-**Planned next, in this folder (not yet drafted):**
-
-- `02_input_hygiene.gd` — **SH-2.** `project.godot` keys
-  `input_devices/pointing/android/enable_long_press_as_right_click` and
-  `.../emulate_touch_from_mouse` as the research names, plus
-  `disable_scroll_deadzone=true` and `Input.use_accumulated_input = false` while a
-  pen stroke is live (set and restored in `map_overlay.gd`). The
-  finger-mistaken-for-a-pen refinement that needs a real `TOOL_TYPE` is left to
-  SH-10 (the plugin) and is called out, not faked.
-- `20_pen_draws_finger_pans.gd` — **SH-3.** The mockup's *Pen draws, finger pans*
-  with a palm rule, in `map_overlay.gd`'s input routing. Ties to **Ruling EC**
-  (✋ only with drawing tools; one finger pans with tap-only tools). The most
-  delicate draft; written last and against the real `_gui_input` branches.
+**The remaining two milestones, SH-2 and SH-3, are implementer specs** (below),
+not paste-in drafts: both have a real blocker and neither can be verified here.
 
 SH-5's Rust half (a `paint_stroke_options` field) is its own change, not a draft
 here: it needs the workspace build and a golden-parity pass. **SH-10 (the Kotlin
@@ -69,7 +58,57 @@ input plugin) is OFF** — Ruling EE (2026-11-02) narrows the scope to standard
 input only (pressure and touch), so nothing here needs a Gradle build or reaches
 past what Godot delivers.
 
+## SH-2 and SH-3 — specs, not patches (and why)
+
+Two milestones are **not** given as paste-in drafts, because a blind patch here
+would be a regression risk this session cannot test, and both have a real
+blocker. They are written up so an implementer with the editor and the device can
+build them against the live branches.
+
+**SH-2 — input hygiene.** The research names `disable_scroll_deadzone=true` and
+`Input.use_accumulated_input = false` while a pen is active.
+- Neither exists in the shipped tree (grep 2026-11-02: no `use_accumulated_input`,
+  no `disable_scroll_deadzone`).
+- **The hazard:** both interact with the shell's OWN touch handling. `map_overlay.gd`
+  withholds and replays a touch press and uses `_TOUCH_SLOP` deliberately
+  (`_touch_armed`, `_release_touch_press`); `project.godot`'s pinch/emulation notes
+  say the shell relies on emulate-touch-from-mouse. Flipping these globally could
+  drop the shell's own slop logic or change every finger gesture, not just the pen.
+- **The trigger problem:** `use_accumulated_input=false` wants to be on only for a
+  pen, but at press time the pen is not yet known — `_stroke_pen_seen` (ET-D2)
+  latches only after a sample shows a pen signature. So it cannot be toggled
+  cleanly per stroke from the press.
+- **Build it on the device:** measure the pen's real report rate and dropped-sample
+  behaviour with the SH-9 tester first, then decide whether a global
+  `use_accumulated_input=false` on touch builds is worth its cost, and whether
+  `disable_scroll_deadzone` helps or fights `_TOUCH_SLOP`. It is a measurement, not
+  a guess.
+
+**SH-3 — pen draws, finger pans (Ruling EC).** When the setting
+`DccSettings.pen_draws_finger_pans` (draft `01`) is on and the touch is a finger,
+a drag pans the camera instead of reaching the tool.
+- **The mechanism exists:** `viewport_host.gd` already pans the camera on a
+  one-finger left drag while `_pan_mode` (the ✋ latch) is on — `_pan_mode`,
+  `_pan_last_screen`, `_camera.position += mm.position - _pan_last_screen` (lines
+  ~1145–1179). SH-3 reuses that path; it does not write a second pan.
+- **Blocker 1 — Ruling EC is not built.** DS13-Q2 (one finger pans with a tap-only
+  tool, without the ✋ latch) is the camera-pan trigger SH-3 needs, and it is an
+  open shell row (`OUTSTANDING_WORK.md`, the DS-13 / Ruling EC rows). SH-3 lands
+  **with or after** that input-routing change, not before it.
+- **Blocker 2 — reliable finger-vs-pen at press.** Routing a finger to pan and a
+  pen to the tool needs to know which it is at the moment of the drag.
+  `_stroke_pen_seen` only resolves mid-stroke, and the research found Godot 4.7.2
+  does not expose `TOOL_TYPE` on the emulated mouse, so certain detection needs the
+  SH-10 plugin — which Ruling EE put **off**. So SH-3's finger/pen split is
+  **best-effort** on the ET-D2 heuristic, and that limit is the honest ceiling
+  under standard input.
+- **When both clear:** add a branch in the input routing that, when
+  `pen_draws_finger_pans` is on and the stroke has not shown a pen signature,
+  forwards the drag to the `_pan_mode` camera path instead of `map_dragged`. One
+  branch, reusing the shipped pan; the palm rule is the same `_TOUCH_SLOP` gate.
+
 ## Order
+
 
 `00` stands alone. `01` (settings) comes before `10`/`20`, which read it. `02`,
 `10`, `11` are independent of each other. `20` lands last and after Ruling EC's
