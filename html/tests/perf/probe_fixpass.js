@@ -613,22 +613,23 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
     await radiusIs(p, '#tlStripToggle', '10px', 'the strip\'s TIMELINE toggle');
     await radiusIs(p, '#extentSeg', '16px', 'a segmented control');
     const sk = await p.evaluate(() => { const s = document.getElementById('extentSeg'); return { ov: getComputedStyle(s).overflow, kids: [...s.children].map(e => { const c = getComputedStyle(e); return c.borderTopRightRadius + ' ' + c.borderBottomRightRadius; }) }; });
-    A('…which clips its children (overflow hidden), the dividing edges square, so its inner edges stay straight', sk.ov === 'hidden' && sk.kids.length >= 2 && sk.kids.every(k => k === '0px 0px'), JSON.stringify(sk));
-    for (const s of ['#dockLeft', '#dockRight', 'header', '#toolOpts', '#statusBar', '#tlStrip', '.canvas-wrap', '#legend', '#scaleBar']) await radiusIs(p, s, '0px', 'a surface stays square:');
-    for (const s of ['.domain-rail .dr-btn', '#ctxTabInspect']) await radiusIs(p, s, '0px', 'a rail item or a tab stays square:');
+    A('…which clips its children (overflow hidden), the dividing edges square, so its inner edges stay straight, as before', sk.ov === 'hidden' && sk.kids.length >= 2 && sk.kids.every(k => k === '0px 0px'), JSON.stringify(sk));
+    /* the regression guards: what the universal reset kept square must stay square without it */
+    for (const s of ['#dockLeft', '#dockRight', 'header', '#toolOpts', '#statusBar', '#tlStrip', '.canvas-wrap', '#legend', '#scaleBar']) await radiusIs(p, s, '0px', 'a surface stays square, as before:');
+    for (const s of ['.domain-rail .dr-btn', '#ctxTabInspect']) await radiusIs(p, s, '0px', 'a rail item or a tab stays square, as before:');
     await click(p, '#mbHelpBtn'); await sleep(200);
-    await radiusIs(p, '#mbHelp', '0px', 'an open menu stays square:');
-    await radiusIs(p, '#mbHelp .mb-row', '0px', 'its rows stay square:');
+    await radiusIs(p, '#mbHelp', '0px', 'an open menu stays square, as before:');
+    await radiusIs(p, '#mbHelp .mb-row', '0px', 'its rows stay square, as before:');
     await p.keyboard.press('Escape'); await sleep(150);
     await click(p, '#domainRail [data-domain="civ"]');
-    await radiusIs(p, '#civSubBar .subtab', '0px', 'a sub-tab stays square (an underline on a band):');
+    await radiusIs(p, '#civSubBar .subtab', '0px', 'a sub-tab stays square (an underline on a band), as before:');
     const at = await placeOnMap(p); if (at) { await p.mouse.click(at.x, at.y); await sleep(600); }
-    await radiusIs(p, '#placeEditPopup', '0px', 'the place popup stays square:');
+    await radiusIs(p, '#placeEditPopup', '0px', 'the place popup stays square, as before:');
     await radiusIs(p, '#placeEditPopup .pill', '999px', 'a trait pill');
     await radiusIs(p, '#_civPeHist', '12px', 'a textarea (the place\'s History)');
     await click(p, '#placeEditPopup .si-close');
     await click(p, '#mbRecordsBtn'); await click(p, '#mbRecords [data-cmd="factions"]'); await sleep(600);
-    await radiusIs(p, '#civFactionsModal .cfm-body', '0px', 'the Settlements window stays square:');
+    await radiusIs(p, '#civFactionsModal .cfm-body', '0px', 'the Settlements window stays square, as before:');
     await radiusIs(p, '.cfm-close', '16px', 'its × (a 32px button, so a circle)');
     await click(p, '#cfmCloseBtn');
     const uni = await p.evaluate(() => { let n = 0; for (const sh of document.styleSheets) { let rs; try { rs = sh.cssRules; } catch (_) { continue; } for (const r of rs) if (r.selectorText && r.selectorText.trim() === '*' && r.style && r.style.getPropertyValue('border-radius')) n++; } return n; });
@@ -653,10 +654,10 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
     const q = await boot(b, { width: 412, height: 915 }, { touch: true });
     await gen(q, 12345, 256);
     await radiusIs(q, '#undoBtn', '24px', 'phone: the app bar\'s Undo is round (44px, the design\'s app bar)');
-    await radiusIs(q, '.ph-tab', '0px', 'phone: the bottom bar\'s cells stay square (a band)');
+    await radiusIs(q, '.ph-tab', '0px', 'phone: the bottom bar\'s cells stay square (a band), as before');
     await radiusIs(q, '.ph-grip-bar', '0px 14px 14px 0px', 'phone: the pull-out tab rounds the side facing the map (the design\'s gripRadius)');
     await tap(q, '#phTabMenu'); await sleep(300);
-    await radiusIs(q, '#phMenuRoot [data-sub]', '0px', 'phone: MENU\'s rows stay square');
+    await radiusIs(q, '#phMenuRoot [data-sub]', '0px', 'phone: MENU\'s rows stay square, as before');
     await radiusIs(q, '.ph-sheet-btn', '24px', 'phone: the sheet\'s head buttons are round');
     await close(q);
   });
@@ -679,12 +680,16 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       const p = await boot(b, { width: 1600, height: 900 }, { light });
       await gen(p, 12345, 256); await settle(p);
       const C = T(light), segs = [], acts = [], fills = [];
-      /* READ: every drawn control of a kind, with its type, its on-state and its chip (::before) */
-      const take = () => p.evaluate(acc => { const vis = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden';
+      /* READ: every drawn control of a kind, with its type, its on-state and its chip (::before). The fill check is
+         structural — "is any armed control's ground the accent colour" — so it compares with the PAGE's own
+         --accent, whatever its value (a literal would let the old light accent of a before-build slip past); the
+         accent's value itself is pinned as a literal in V02/V08/V09 above. */
+      const take = () => p.evaluate(() => { const vis = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden';
+        const hx = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), acc = 'rgb(' + [1, 3, 5].map(i => parseInt(hx.substr(i, 2), 16)).join(', ') + ')';
         const cs = e => { const c = getComputedStyle(e), b4 = getComputedStyle(e, '::before'); return { id: ((e.closest('[id]') || {}).id || '') + ' ' + e.textContent.trim().slice(0, 16), ff: c.fontFamily, fs: c.fontSize, fw: c.fontWeight, ls: c.letterSpacing, tt: c.textTransform,
           on: e.classList.contains('on'), tool: e.hasAttribute('data-civtool') || !!e.closest('#sculptFeatureSeg'), cat: !!e.closest('#worldCatSeg'), bg: c.backgroundColor, fg: c.color, bc: b4.content, bbg: b4.backgroundColor, bbd: b4.borderTopWidth + ' ' + b4.borderTopStyle + ' ' + b4.borderTopColor }; };
         const fill = [...document.querySelectorAll('.on,[aria-pressed="true"],[aria-selected="true"]')].filter(e => vis(e) && getComputedStyle(e).backgroundColor === acc && !(e.hasAttribute('data-civtool') || e.closest('#sculptFeatureSeg'))).map(e => (e.id || e.className) + ' "' + e.textContent.trim().slice(0, 14) + '"');
-        return { segs: [...document.querySelectorAll('.dock .seg button')].filter(vis).map(cs), acts: [...document.querySelectorAll('.dock .btnrow > button')].filter(vis).map(cs), fill }; }, C.accent);
+        return { segs: [...document.querySelectorAll('.dock .seg button')].filter(vis).map(cs), acts: [...document.querySelectorAll('.dock .btnrow > button')].filter(vis).map(cs), fill }; });
       for (const d of ['world', 'civ', 'carto', 'explore']) {
         await click(p, '#domainRail [data-domain="' + d + '"]');
         await p.evaluate(() => { for (const x of document.querySelectorAll('.dock-left details')) x.open = true; });   /* SET-UP: every section open, for the READ */
@@ -703,7 +708,7 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       A('an armed segment is washed: a chip of wash2 (' + C.wash2 + ') with a 1px accent edge, accent ink, no fill (' + onW.length + ' armed)', onW.length >= 4 && washBad.length === 0, washBad.slice(0, 3).map(x => x.id + ': ' + x.bg + ' ' + x.fg + ' ' + x.bbg + ' ' + x.bbd).join(' | '));
       const ink = await p.evaluate(() => { const e = document.querySelector('#extentSeg button.on'); if (!e) return null; const c = getComputedStyle(e), b4 = getComputedStyle(e, '::before');
         const g = __aud.over(__aud.parse(b4.backgroundColor), __aud.parse(c.backgroundColor)); return +__aud.ratio(__aud.parse(c.color), g).toFixed(2); });
-      A('…its accent ink measures ≥ 4.5:1 on the chip it sits on (wash2 over --panel2)', ink >= 4.5, ink);
+      A('…an armed segment\'s ink measures ≥ 4.5:1 on what it sits on — the chip, wash2 over --panel2 (v2.73\'s fill passed too, as before)', ink >= 4.5, ink);
       const toolBad = onT.filter(x => x.bg !== C.accent || x.fg !== C.accInk || x.bc !== 'none');
       A('an armed TOOL-MODE segment keeps the fill, as before (owner default Q5): accent with --accInk (' + onT.length + ' tool palettes)', onT.length >= 3 && toolBad.length === 0, toolBad.slice(0, 3).map(x => x.id + ': ' + x.bg + ' ' + x.fg + ' ' + x.bc).join(' | '));
       A('no other armed control draws the solid accent fill — docks, the sculpt bar, the Settlements window, Settings', fills.length === 0, [...new Set(fills)].slice(0, 6).join(' | '));
@@ -864,7 +869,7 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
 
   await b.close();
   console.log('\n' + (errors.length ? 'page errors:\n  ' + errors.slice(0, 10).join('\n  ') : 'no page errors'));
-  A('no page errors', errors.length === 0, errors.length);
+  A('no page errors, as before', errors.length === 0, errors.length);
   console.log('\nviewports (' + VIEWPORTS.size + '): ' + [...VIEWPORTS].join(', '));
   console.log('\n' + pass + ' passed, ' + fail + ' failed' + (skipped ? ', ' + skipped + ' sections skipped (PROBE_ONLY — not a verdict)' : ''));
   process.exit(fail ? 1 : (skipped ? 3 : 0));

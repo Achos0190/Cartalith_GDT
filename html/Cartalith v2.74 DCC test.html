@@ -869,21 +869,26 @@ details.cat-acc[open]>summary{color:var(--accent)}
    and 35 inline ones in the markup and the JS templates (counted 2026-11-02 with a scan for `border-radius`
    outside that rule). Each was decided where it is written: kept (a swatch, a dot, a progress track, the
    joystick's circles), changed to a token below (a control), or removed (it rounded a surface).
-   The tokens, read off design/mobile-shell-2026-10-31 (Desktop.dc.html imports its Shell; source/build/
-   d_vals.js `densVars` gives the pointer values, the touch values are the template's own defaults), pointer
-   first, then touch (the tablet and the phone):
-     --r-btn   16 / 24  every button that draws a box: the design's --r24 on its 32 / 48px buttons, so a one-line
-                        button is a pill and a wrapped one keeps 16 / 24px corners instead of becoming a stadium.
-                        The port's DccTheme `btn_radius` [8, 12] was measured on the 2026-09-07 canvas; the newer
-                        canvas wins (Cartalith_GDT CLAUDE.md, owner ruling 2026-08-25).
-     --r-tile  14 / 20  a selectable tile (the icon gallery, the asset cards and their variants): the design's
-                        --r20 tool tile.
+   The tokens, pointer value first, then touch (the tablet and the phone). The pointer values are read off
+   design/mobile-shell-2026-10-31 (Desktop.dc.html imports its Shell; source/build/d_vals.js `densVars`); the touch
+   value is the port's own touch radius (DccTheme ROLE "btn_radius" [8, 12]):
+     --r-btn   16 / 12  every button that draws a box. Pointer: the design's --r24 on its 32px buttons, so a
+                        one-line button is a pill and a wrapped one keeps 16px corners instead of becoming a stadium
+                        (the port's pointer 8 was measured on the 2026-09-07 canvas; the newer canvas wins,
+                        Cartalith_GDT CLAUDE.md, owner ruling 2026-08-25). Touch: 12, the port's touch figure and
+                        inside the ruling's "about 10–16 px", NOT the design's 24 (its touch buttons are pills):
+                        hit-testing follows border-radius, so a 44px pill loses its corners as targets, and v2.73's
+                        guarantee that a finger 4px in from a 44px control's corner still meets it (its probe presses
+                        there: the floating dock's chevron, DS-13's rocker) holds at 12 and fails at 22.
+     --r-tile  14 / 12  a selectable tile (the icon gallery, the asset cards and their variants): the design's
+                        --r20 tool tile at a pointer; at touch the touch radius, for the same reason.
      --r-field 12       inputs, selects and textareas at both densities: the design's .clr-in, and the port's own
                         touch figure.
      --r-menu  10       the menu bar's buttons, Undo/Redo and the strip's TIMELINE toggle: the design's menu
                         buttons and timeline toggle.
      --r-pill  999px    chips, pins, pills and the map's round buttons: the design's --r22 is half its chip's
-                        height, so a pill; the port's pill() is 999px.
+                        height, so a pill; the port's pill() is 999px. A ROUND 44px touch target keeps its whole
+                        box as its target (DS-13's, below).
    A segmented control (.seg) is ONE rounded container that clips its square children (overflow:hidden), so
    its inner dividers stay straight — the design's zoom column and rocker are built the same way. Rows, tabs and
    the rail belong to the panel or band they sit in and stay square (the rule after the tokens): a rounded
@@ -891,7 +896,7 @@ details.cat-acc[open]>summary{color:var(--accent)}
    every rounded control, and an !important one beats even inline styles. The departures from the design
    (it also rounds its windows, menus, popovers and cards) are listed in CHANGELOG v2.74. */
 :where(:root){--r-btn:16px;--r-tile:14px;--r-field:12px;--r-menu:10px;--r-pill:999px}
-:where(html[data-shell="phone"],html[data-shell="tablet"]){--r-btn:24px;--r-tile:20px}
+:where(html[data-shell="phone"],html[data-shell="tablet"]){--r-btn:12px;--r-tile:12px}
 .mb-row,.mb-panel > button,.layers-fab .lp-item,.al-rail .al-cat,.set-nav button,.subtab,.ctx-tab,.domain-rail .dr-btn,.ph-tab,.ph-fan-row,.ph-sheet-title,.ph-grip,.civ-ctx button{border-radius:0}
 /* text fields (number fields and selects carry the token in their own base rules above). :where() keeps this
    at zero specificity, so a field rule with a class or an id (the search pill) still decides; a colour input is
@@ -907,6 +912,11 @@ details.cat-acc[open]>summary{color:var(--accent)}
    so − is always the left one. */
 :where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay #zoomOut{border-radius:var(--r-pill) 0 0 var(--r-pill)}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay #zoomIn{border-radius:0 var(--r-pill) var(--r-pill) 0}
+/* …and each of DS-13's round buttons keeps its whole 44 × 44 box as the target: hit-testing follows border-radius,
+   so without this a finger at the box's corner (where v2.73's probe presses, 4px in) met the MAP beneath, not −.
+   An empty ::after over the box, unclipped (the button's overflow is visible), takes those presses for the button.
+   ::before is spoken for (+'s hairline, ⌖'s glyph). */
+:where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay .zbtn::after{content:'';position:absolute;inset:0}
 
 body{font-size:12px}
 .canvas-wrap{background:repeating-linear-gradient(0deg,#0d0e0f 0 24px,#101112 24px 48px)}
