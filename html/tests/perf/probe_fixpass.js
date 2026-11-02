@@ -639,26 +639,34 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
     await close(p);
   });
 
-  await section('V26 — the corners on the touch shells (the design\'s touch values)', async () => {
+  await section('V26 — the corners on the touch shells (the touch radius)', async () => {
     const p = await boot(b, { width: 1194, height: 834 }, { touch: true });
     await gen(p, 12345, 256);
-    await radiusIs(p, '#reseedBtn', '24px', 'tablet: a dock button (the design\'s --r24 at touch)');
-    await radiusIs(p, '#genBtn', '24px', 'tablet: the primary button');
+    await radiusIs(p, '#reseedBtn', '12px', 'tablet: a dock button takes the touch radius (the port\'s btn_radius at touch)');
+    await radiusIs(p, '#genBtn', '12px', 'tablet: the primary button');
     await radiusIs(p, '#seedN', '12px', 'tablet: a field keeps 12px (the design\'s .clr-in at both densities)');
-    await radiusIs(p, '#worldCatSeg', '24px', 'tablet: a segmented control');
+    await radiusIs(p, '#worldCatSeg', '12px', 'tablet: a segmented control');
     const rk = await p.evaluate(() => ['zoomOut', 'zoomIn'].map(id => { const c = getComputedStyle(document.getElementById(id)); return [c.borderTopLeftRadius, c.borderTopRightRadius, c.borderBottomRightRadius, c.borderBottomLeftRadius].join(' '); }));
     A('tablet: DS-13\'s − | + rocker is one pill — − rounds its outer corners, + its own, and they meet square', rk[0] === '999px 0px 0px 999px' && rk[1] === '0px 999px 999px 0px', rk.join(' | '));
     await radiusIs(p, '#zoomReset', '999px', 'tablet: ⌖ is round');
     await radiusIs(p, '#undoBtn', '10px', 'tablet: Undo keeps the menu bar\'s 10px');
+    /* READ: what a finger 4px in from a 44px control's corner meets — hit-testing follows border-radius, and v2.73
+       promised the corner is the control (its probe presses there) */
+    const corner = (pg, ids) => pg.evaluate(ids => ids.map(id => { const e = document.getElementById(id); if (!e || !e.getClientRects().length) return id + ':not drawn'; const q = e.getBoundingClientRect();
+      return [[q.left + 4, q.top + 4], [q.right - 4, q.bottom - 4]].every(([x, y]) => { const t = document.elementFromPoint(x, y); return !!t && (t === e || e.contains(t)); }) ? '' : id; }).filter(Boolean), ids);
+    const ct = await corner(p, ['zoomOut', 'zoomIn', 'zoomReset', 'dockLeftCollapse', 'reseedBtn', 'genBtn', 'undoBtn']);
+    A('tablet: a finger 4px in from the corners of DS-13\'s round buttons, the dock\'s chevron and the dock\'s buttons still meets them, as before (square, they always did)', ct.length === 0, ct.join(', '));
     await close(p);
     const q = await boot(b, { width: 412, height: 915 }, { touch: true });
     await gen(q, 12345, 256);
-    await radiusIs(q, '#undoBtn', '24px', 'phone: the app bar\'s Undo is round (44px, the design\'s app bar)');
+    await radiusIs(q, '#undoBtn', '12px', 'phone: the app bar\'s Undo takes the touch radius');
+    const cq = await corner(q, ['zoomOut', 'zoomIn', 'zoomReset', 'undoBtn']);
+    A('phone: a finger 4px in from the corners of DS-13\'s buttons and Undo still meets them, as before (square, they always did)', cq.length === 0, cq.join(', '));
     await radiusIs(q, '.ph-tab', '0px', 'phone: the bottom bar\'s cells stay square (a band), as before');
     await radiusIs(q, '.ph-grip-bar', '0px 14px 14px 0px', 'phone: the pull-out tab rounds the side facing the map (the design\'s gripRadius)');
     await tap(q, '#phTabMenu'); await sleep(300);
     await radiusIs(q, '#phMenuRoot [data-sub]', '0px', 'phone: MENU\'s rows stay square, as before');
-    await radiusIs(q, '.ph-sheet-btn', '24px', 'phone: the sheet\'s head buttons are round');
+    await radiusIs(q, '.ph-sheet-btn', '12px', 'phone: the sheet\'s head buttons take the touch radius');
     await close(q);
   });
 
@@ -710,7 +718,7 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
         const g = __aud.over(__aud.parse(b4.backgroundColor), __aud.parse(c.backgroundColor)); return +__aud.ratio(__aud.parse(c.color), g).toFixed(2); });
       A('…an armed segment\'s ink measures ≥ 4.5:1 on what it sits on — the chip, wash2 over --panel2 (v2.73\'s fill passed too, as before)', ink >= 4.5, ink);
       const toolBad = onT.filter(x => x.bg !== C.accent || x.fg !== C.accInk || x.bc !== 'none');
-      A('an armed TOOL-MODE segment keeps the fill, as before (owner default Q5): accent with --accInk (' + onT.length + ' tool palettes)', onT.length >= 3 && toolBad.length === 0, toolBad.slice(0, 3).map(x => x.id + ': ' + x.bg + ' ' + x.fg + ' ' + x.bc).join(' | '));
+      A('an armed TOOL-MODE segment keeps the fill, as before (owner default Q5), in this version\'s accent (' + C.accent + ') with --accInk (' + onT.length + ' tool palettes)', onT.length >= 3 && toolBad.length === 0, toolBad.slice(0, 3).map(x => x.id + ': ' + x.bg + ' ' + x.fg + ' ' + x.bc).join(' | '));
       A('no other armed control draws the solid accent fill — docks, the sculpt bar, the Settlements window, Settings', fills.length === 0, [...new Set(fills)].slice(0, 6).join(' | '));
       const actBad = acts.filter(x => !mono(x) || x.tt !== 'uppercase' || x.fw !== '500' || !/^(10px|10\.5px)$/.test(x.fs));
       A('every action button in a dock is mono, uppercase, weight 500 (' + acts.length + ' buttons)', acts.length >= 8 && actBad.length === 0, actBad.slice(0, 4).map(x => x.id + ': ' + x.ff.split(',')[0] + ' ' + x.tt + ' ' + x.fs).join(' | '));
@@ -762,7 +770,7 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       const missing = SEL.filter(s => !seen[s]), off = SEL.filter(s => seen[s] && seen[s] !== want);
       A('the nine section-label selectors compute one style: ' + want, missing.length === 0 && off.length === 0, (missing.length ? 'not reached: ' + missing.join(', ') + '; ' : '') + off.map(s => s + ' = ' + seen[s]).join(' || '));
       const loc = await p.evaluate(() => ['dockLeftPath', 'toolOptsCtx'].map(id => getComputedStyle(document.getElementById(id)).color));
-      A('a location label keeps the accent (the dock\'s path, the tool bar\'s context), as before', loc.every(c => c === C.accent), loc.join(' '));
+      A('a location label keeps the accent (the dock\'s path, the tool bar\'s context), as before, in this version\'s accent (' + C.accent + ')', loc.every(c => c === C.accent), loc.join(' '));
       await close(p);
     });
   }

@@ -16,12 +16,12 @@ shows what v2.73 changed. `Cartalith v2.74 DCC test.html` started as a byte copy
 
 | Path | What it is | Where it goes in Cartalith_RC |
 |---|---|---|
-| `Cartalith v2.74 DCC test.html` | the app, v2.74 (DCC line) — the fix pass of the 2026-11-01 audits (`audits/v2.72-2026-11-01/PLAN.md` §5) and the planner's toll fix (Ruling EC item 6), ahead of stage 3 (Ruling EF) | the repository root, beside v2.73 |
-| `tests/perf/probe_v274fix.js` | v2.74's Playwright probe: every fix-pass finding at its bar, by real clicks and taps (usage in its header) | `tests/perf/probe_v274fix.js` |
+| `Cartalith v2.74 DCC test.html` | the app, v2.74 (DCC line) — the fix pass and the design alignment of the 2026-11-01 audits (`audits/v2.72-2026-11-01/PLAN.md` §5 and §8), the planner's toll fix (Ruling EC item 6) and rounded corners (item 7), ahead of the ports and stage 3 (Ruling EF) | the repository root, beside v2.73 |
+| `tests/perf/probe_fixpass.js` | v2.74's Playwright probe: every fix-pass and design-alignment finding at its bar, by real clicks, taps and keys, with measured geometry and computed style; give v2.73 second and it also takes the truncation census on both (usage in its header) | `tests/perf/probe_fixpass.js` |
 | `tests/perf/census_v274.js` | v2.74's contrast gate: the visual audit's WCAG census over its seven views, both themes, 1600×900 and 1366×768 | `tests/perf/census_v274.js` |
-| `tests/perf/shots_v274.js` | the captures in `evidence/v2.74/`, by the probe's own clicks | `tests/perf/shots_v274.js` (optional) |
+| `tests/perf/shots_v274.js` | the sixteen captures in `evidence/v2.74/`, by the probe's own clicks | `tests/perf/shots_v274.js` (optional) |
 | `CHANGELOG_v2.74.md`, `CLAUDE_v2.74.md` | v2.74's changelog entry and its two `CLAUDE.md` pastes | as v2.73's, after them |
-| `evidence/v2.74/*.png` | v2.74's captures (the start card's flat backdrop, the New World card, a place selected and the Settlements window in both themes, Credits over Settings, Assets mode with the pack panel, the sculpt bar with Freehand armed, the busy overlay, the phone's faction rows) | review only |
+| `evidence/v2.74/*.png` | v2.74's sixteen captures, final bytes: the desktop at 1366 (WORLD › Generate) and 1600 (CIVIL › Generation), dark and light, the strip open; 1920 (CARTO, its sections open) and 2560 (EXPLORE, a settlement selected); the Settlements window, the route editor, File ▸ Export and the asset library at 1600 dark; the place popup at 1600 light; the sculpt bar with Freehand armed at 1366; New World at 1366 (over the flat backdrop, Q10a); the phone at 412×915 (the map, the Settlements window's faction rows) and the tablet at 1194×834 | review only |
 | `Cartalith v2.73 DCC test.html` | the app, v2.73 (DCC line) — stage 2 of the shell upgrade: the phone and tablet shells | the repository root, beside v2.72 |
 | `Cartalith v2.72 DCC test.html` | the app, v2.72 (DCC line) — stage 1: the desktop shell | the repository root, beside `Cartalith v2.71 DCC test.html` (keep v2.71) |
 | `tests/perf/probe_mobileshell.js` | v2.73's Playwright probe: the three classes, the phone shell, DS-13, the gestures, the tablet, the docking rule (usage in its header) | `tests/perf/probe_mobileshell.js` |
@@ -46,10 +46,21 @@ shows what v2.73 changed. `Cartalith v2.74 DCC test.html` started as a byte copy
    §3.3, §3.7), with the selection history (back, forward, pin) and Explore's journeys rehomed — after which EXPLORE
    stops being a domain (the phone's domain tab and fan list it until then).
 
+**Before stage 3, the owner's order** (Ruling EF, 2026-11-02: *"Fixes and feature ports first then stage 3"*), each
+one new file, its number confirmed free in Cartalith_RC when its lane starts:
+1. **v2.74 — the fix pass and the design alignment** (built): the plan's §5, the toll fix (Ruling EC item 6), the
+   rounded corners (item 7) and §8's V24 (the washed on-state and the dock's type), V25, V29 and V30.
+2. **v2.75 — the speed pass**: §6 (generate) and §7 (zoom, LOD, sliders, brush, the render tail), with the
+   half-resolution slider preview (Ruling EC item 8). `hash_gen1` stays ALL IDENTICAL.
+3. **v2.76 — the first ports** (Ruling EC item 5): Export map image, Find runs commands, faction relations and a
+   settlement's political history.
+4. **v2.77 — the Measure tool** (Ruling EC item 5), on v2.73's touch layer.
+5. **Then stage 3** (above), with the map card's two journey verbs (F07).
+
 ## Moving it
 
 1. Copy `Cartalith v2.72 DCC test.html`, `Cartalith v2.73 DCC test.html` and `Cartalith v2.74 DCC test.html` to
-   Cartalith_RC's root, and `tests/perf/probe_desktopshell.js`, `probe_mobileshell.js`, `probe_v274fix.js` and
+   Cartalith_RC's root, and `tests/perf/probe_desktopshell.js`, `probe_mobileshell.js`, `probe_fixpass.js` and
    `census_v274.js` to its `tests/perf/`.
 2. Paste `CHANGELOG_v2.72.md`, then `CHANGELOG_v2.73.md`, then `CHANGELOG_v2.74.md` (each from its `## v2.7x` heading
    down) at the top of `CHANGELOG.md`, so v2.74's entry ends up first.
@@ -74,15 +85,17 @@ node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the be
 node tests/perf/probe_desktopshell.js "Cartalith v2.73 DCC test.html" "Cartalith v2.71 DCC test.html"
 ```
 
-v2.74, the fix pass (its CHANGELOG entry gives each figure):
+v2.74, the fix pass and the design alignment (its CHANGELOG entry gives each figure):
 
 ```bash
 tests/run.sh "Cartalith v2.74 DCC test.html"        # expect 1280 passed, 0 failed (two random-world assertions can flake — CHANGELOG v2.74; re-run once)
 tests/run_um.sh "Cartalith v2.74 DCC test.html"     # expect 882 passed, 0 failed
 node tests/perf/hash_gen1.js "Cartalith v2.73 DCC test.html" "Cartalith v2.74 DCC test.html"   # expect ALL IDENTICAL
-node tests/perf/probe_v274fix.js "Cartalith v2.74 DCC test.html"   # expect 131 passed, 0 failed; on v2.73 it fails 92, by design
+node tests/perf/probe_fixpass.js "Cartalith v2.74 DCC test.html" "Cartalith v2.73 DCC test.html"   # expect ⟦README_FIXPASS⟧
+node tests/perf/probe_fixpass.js "Cartalith v2.73 DCC test.html"   # the before build: ⟦README_FIXPASS73⟧, by design
 node tests/perf/census_v274.js "Cartalith v2.74 DCC test.html"     # expect 0 enabled text runs below AA (v2.73: 561)
-node tests/perf/probe_mobileshell.js "Cartalith v2.74 DCC test.html"
+node tests/perf/probe_mobileshell.js "Cartalith v2.74 DCC test.html"    # expect ⟦README_MOBILE⟧
+node tests/perf/probe_desktopshell.js "Cartalith v2.74 DCC test.html"   # expect ⟦README_DESKTOP⟧
 ```
 
 `probe_desktopshell.js` on v2.73 fails four, all by design (CHANGELOG v2.73 classifies them): the two version checks
@@ -130,8 +143,11 @@ done
   across the map at the side sheet's head line, present in every headless full-page capture but not in a clipped one
   and not in the map's own pixels (see CHANGELOG v2.73) — confirm on a device it is absent, or it is a capture
   artifact to leave as noted.
-- **v2.74's fix pass:** one native select list and one number spinner in each theme (the new `color-scheme`; headless
-  cannot capture native popups); Segoe UI on Windows for the widths that were measured with Inter — the status chips,
-  CIVIL's sub-tabs (359px of 371 at 1366) and the sculpt picker with Freehand armed (one feature out of sight at
-  1366); Credits from Settings › About on a real phone; and, for the owner to look at, the flat backdrop behind the
-  start card (Q10a) and the busy overlay taking the map's input mid-generate (Q10b).
+- **v2.74's fix pass and design alignment:** one native select list and one number spinner in each theme (the new
+  `color-scheme`; headless cannot capture native popups); Segoe UI and Consolas on Windows for the widths that were
+  measured here with Inter and DejaVu Sans Mono — the status chips, CIVIL's mono sub-tabs (they fit 1366 here), the
+  sculpt picker with Freehand armed (one feature out of sight at 1366), and the dock's mono segments and action
+  buttons with the rows they wrap; Credits from Settings › About on a real phone; a screen reader over the timeline
+  strip's three filter chips (each should still be announced as a checkbox); a finger on DS-13's round buttons and the
+  12px touch controls on a real tablet and phone; and, for the owner to look at, the flat backdrop behind the start
+  card (Q10a), the busy overlay taking the map's input mid-generate (Q10b), and the corners and washed on-states.

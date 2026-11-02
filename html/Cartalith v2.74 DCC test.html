@@ -745,7 +745,7 @@ details.cat-acc>summary::-webkit-details-marker{display:none}
 details.cat-acc>summary::before{content:'▸  ';color:var(--faint)}
 /* v2.74 (the 2026-11-01 visual audit, V25, the arrow only): a gap after the category arrow. The summary is a
    flex container, so the two spaces in content:'▸  ' collapse away and the arrow was glued to the word
-   ('▸GEOLOGY'). The label rule itself is v2.77's (Ruling EF's design alignment). */
+   ('▸GEOLOGY'). The label rule itself is in the D4 block (V25, this version's design alignment). */
 details.cat-acc>summary::before{margin-right:8px}
 details.cat-acc[open]>summary::before{content:'▾  '}
 details.cat-acc[open]>summary{color:var(--accent)}
@@ -1011,7 +1011,9 @@ button.on{background:var(--accent);border:1px solid var(--accent);font-weight:60
    16px. Tighter tracking and side padding bring the five labels to 359px (text 333.8 + tracking + 4px each,
    measured with this machine's Inter at 11px — a person re-checks Segoe UI on Windows), and each tab's basis
    is its own label (1 1 auto) rather than an equal fifth — at basis 0 every tab got 74px and SETTLEMENTS,
-   86px of text, was cut inside its button. Desktop and tablet only; the phone's domain page is its own width. */
+   86px of text, was cut inside its button. Desktop and tablet only; the phone's domain page is its own width.
+   The design alignment (V24, the D4 block) then set the tabs in mono 10px, weight 500: the five labels and their
+   padding measure 306px of the 371 at 1366 with this machine's DejaVu Sans Mono (354 in Inter 11px before). */
 :where(html:not([data-shell="phone"])) .subtab{letter-spacing:.02em;padding:9px 2px;min-width:0;flex:1 1 auto}
 /* the phone draws the Settings page list as a row of tabs (the v2.73 phone block above): underline there */
 :where(html[data-shell="phone"]) .set-nav button.on{border-left:0;border-bottom:2px solid var(--accent)}

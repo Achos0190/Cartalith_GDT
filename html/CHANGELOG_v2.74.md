@@ -1,18 +1,23 @@
-## v2.74 (DCC line) — the fix pass: the Sun slider's cache key, the Settlements rows, Credits under Settings, AA contrast in both themes, the browser's own controls, the clippings, no render behind the start card, the shell's resize cost, and the planner's toll fix
+## v2.74 (DCC line) — the fix pass and the design alignment: the Sun slider's cache key, the Settlements rows, Credits under Settings, AA contrast in both themes, the browser's own controls, the clippings, no render behind the start card, the shell's resize cost, the planner's toll fix, rounded controls on square surfaces, one washed on-state, and one type for the dock's controls, its labels and the windows' headings
 
 Owner: *"can you check and improve the visuals and performance of the html? Maybe even upgrade some features based of
 the godot version"*, then, on the order: *"Fixes and feature ports first then stage 3."* (Ruling EF, Cartalith_GDT
 `LARGE_ITEM_RULINGS.md`). This version is the first of those: the fix pass of the 2026-11-01 audits of v2.72
 (`html/audits/v2.72-2026-11-01/PLAN.md` §5 in Cartalith_GDT, each finding re-opened at its symbol in this file
-first — v2.73 had moved several), and Ruling EC item 6, the planner's toll fix ("Apply Godot's fix"). The owner
-questions the plan put take Ruling EF's stated defaults: the light accent `#8b550d` (Q3), the place popup's dark
-palette unchanged (Q6), the darker box behind the scale bar and legend (Q9), a flat backdrop behind the start
-card and a busy overlay that takes every input on the map (Q10a, Q10b), and the view still resetting on a domain
-switch (Q11 — P8 is not built). `tests/run.sh` **1280/0**, `run_um.sh` **882/0**, `hash_gen1.js` vs v2.73 **ALL
-IDENTICAL**. Verification is `tests/perf/probe_v274fix.js` (**131 assertions**; on v2.73 it fails **92**) and the
-contrast gate `tests/perf/census_v274.js`: the visual audit's own WCAG census over its seven views (a place
-selected on the map, the Settlements screen, the Asset Library, the route editor, the City viewer, Settings' five
-pages, Credits), both themes, 1600×900 and 1366×768 — **0 enabled text runs below AA of 2 408** (v2.73: **561**).
+first — v2.73 had moved several) and the plan's design alignment (§8: V24's washed on-state and the dock's type,
+V25, V26, V29, V30), with Ruling EC item 6, the planner's toll fix (*"Apply Godot's fix"*), and item 7, the
+corners (*"Rounded, as the design"*). **The owner questions, by number:** Q1 (the order) is Ruling EF's; Q2 (the
+toll fix) and Q4 (the corners) are Ruling EC items 6 and 7, built; every other question takes the default the plan
+states for it, as Ruling EF lists — **Q3** the light accent `#8b550d`; **Q5** the washed on-state, a fill kept only
+on tool-mode segments; **Q6** the place popup's dark palette unchanged (its light theme fixed); **Q7** no icon swap;
+**Q8** no font embedded and the status-bar chips kept; **Q9** the darker box behind the scale bar and legend;
+**Q10(a)** a flat backdrop behind the start card and **Q10(b)** a busy overlay that takes every input on the map
+(both shown to the owner in the captures); **Q11** the view still resets on a domain switch (P8 is not built);
+Q10(c)–(e), Q12–Q14 belong to later versions. `tests/run.sh` **1280/0**, `run_um.sh` **882/0**, `hash_gen1.js` vs
+v2.73 **ALL IDENTICAL**. Verification is `tests/perf/probe_fixpass.js` — ⟦FIXPASS⟧ — and the contrast gate
+`tests/perf/census_v274.js`: the visual audit's own WCAG census over its seven views (a place selected on the map,
+the Settlements screen, the Asset Library, the route editor, the City viewer, Settings' five pages, Credits), both
+themes, 1600×900 and 1366×768 — **0 enabled text runs below AA of 2 414** (v2.73: **561** of 2 494).
 
 - **The Sun slider did nothing, and two more controls served a stale image (P7).** The render cache's key,
   `_civBakeKey`, read `state.sun`, but the slider writes `state.sunAz` — a field the state literal has never had,
@@ -85,7 +90,8 @@ pages, Credits), both themes, 1600×900 and 1366×768 — **0 enabled text runs 
   survives (4.54 against 5.62 on `--panel2`). The light `--accent` `#a4650f` (3.75–4.22) is `#8b550d` (owner default
   Q3): 4.52–5.91 on all six grounds, and `--accInk` on it 5.91. The light washes deliberately keep the old hue — a
   wash on `#8b550d` would drop the accent on wash2 to 4.41. Two literal inks on the accent fill (`.pill.on` 3.73,
-  the Layers row 3.92 on the old light accent; 2.85 and 3.00 on the new) are `--accInk`. The census then found two
+  the Layers row 3.92 on the old light accent; 2.85 and 3.00 on the new) became `--accInk` — and the design
+  alignment below then washed both on-states, so no ink sits on an accent fill there at all. The census then found two
   more the audit had not named, both fixed: the CIVIL dock's faction picker drew white names on every faction's own
   colour (Sythe Dominion 2.40, Draumr League 2.55, Veldmark 3.32 — the colours are data, so the ink is now whichever
   of white and `#141005` measures higher on each), and the route editor's "(land)" note, faded to .55 (2.59 dark,
@@ -135,7 +141,7 @@ pages, Credits), both themes, 1600×900 and 1366×768 — **0 enabled text runs 
   in a list", 397px in a 249–273px line) was cut at every size and repeated the body below it; it reads *Shows
   what you select*.
 - **The category arrow (V25, the arrow only)** was glued to its label ('▸GEOLOGY') — a flex summary collapses the
-  spaces in `content:'▸  '`; it keeps 8px. The label rule is v2.77's.
+  spaces in `content:'▸  '`; it keeps 8px. The label rule itself is below (V25).
 - **Stale copy (V28).** The strip's empty note told a user looking at the open strip to open it (it says *press Add
   year below* while open now, and follows the chevron); WORLD's "World has no map tools — shape terrain in Sculpt"
   is hidden while Sculpt is open; Freehand's hint (above).
@@ -176,18 +182,117 @@ pages, Credits), both themes, 1600×900 and 1366×768 — **0 enabled text runs 
   unclaimed land or water*. World generation does not read this function. No RC suite test pins the old output
   (`smoke_gen1.js`, `probe_travel.js`, `probe_landsurface.js` and `probe_rivernav.js` build fixed stages or
   monkey-patch `_jpDeriveStages`; grepped for `_jpClaimedAt`, `claimedFrac`, `tolls`, *Ruined Region*).
+- **Rounded controls on square surfaces (V26; owner, Ruling EC item 7: *"Rounded, as the design"*).** v2.23's
+  `*{border-radius:0 !important}` — with a comment calling the mockup flat — squared every corner in the file, inline
+  styles included. The mockup is not flat: it rounds its controls and keeps its panels and bands square, and the
+  native port's DccTheme had already moved off radius 0 (`btn_radius`). The reset is gone, and the radius lives in
+  five tokens in the theme layer, **pointer / touch**: `--r-btn` **16 / 12** (every button that draws a box),
+  `--r-tile` **14 / 12** (a selectable tile: the icon gallery, the asset cards and their variants), `--r-field`
+  **12** (inputs, selects, textareas), `--r-menu` **10** (the menu bar's buttons, Undo/Redo, the strip's TIMELINE
+  toggle) and `--r-pill` **999px** (chips, pins, pills, the map's round buttons, the search field, the Base map
+  chip, the 2D/3D square). **Which source each follows, and why:** at a pointer, the design's own radii
+  (design/mobile-shell-2026-10-31, `d_vals.js` `densVars` and `shell.tpl.html`: buttons `--r24` 16px on 32px, chips
+  and pins `--r22` 15px on 30px — pills — fields `.clr-in` 12px, menu buttons and the timeline toggle 10px, tool
+  tiles `--r20` 14px) — the newer canvas wins over the port's pointer 8, which DccTheme measured on the 2026-09-07
+  canvas; at touch, **the port's touch radius, 12** (DccTheme `btn_radius` [8, 12]; inside the ruling's "about 10–16
+  px"), not the design's touch pills (`--r24` 24px on 48px buttons): hit-testing follows `border-radius`, so a 44px
+  pill loses its corners as targets, and v2.73's guarantee that a finger 4px in from a 44px control's corner still
+  meets it — its probe presses there — failed at 22 (the floating dock's chevron at three tablet sizes, DS-13's −)
+  and holds at 12. Fields are 12 at both densities in the design, the port and here. DS-13's round buttons keep the
+  design's shape — ⌖ round, − | + one pill whose halves meet square at the hairline — and their whole 44px box as
+  the target (an empty `::after`). Panels, docks, bands, windows' outer frames, menus, popovers, cards, wells,
+  toasts, the scale bar, the legend and the map stay square (Ruling EC item 7: "Panels and bands stay square"); rows,
+  tabs and the rail are squared by one rule, since a rounded full-width row curves its own divider. A segmented
+  control is one rounded container that clips its square children, so its inner dividers stay straight (the
+  design's zoom column and rocker are built the same way); `.seg.grid`'s six-column borders are re-checked by the
+  probe (unchanged), and New World's three-column shape grid stops drawing a divider after its third cell (it doubled
+  the container's edge inside the curve). The pull-out tab on a phone rounds the side facing the map (the design's
+  `gripRadius`, 14px). The shell block's comment that called the mockup flat is corrected (Ruling BK).
+- **Every radius the reset had silenced, decided where it is written: 101 declarations** — 66 in the stylesheet
+  (68 `border-radius` in the `<style>` block, less the reset and its re-assertion of the joystick's circles) and 35
+  inline (7 in the markup, 28 in the JS templates; counted with a scan of the file for `border-radius`, 2026-11-02).
+  The audit counted 67 in v2.72's stylesheet. **Kept, 26:** the swatches, dots and keycaps (the legend's, the
+  faction colours in four JS templates, the Strahler legend's, the slicer's transparency swatch, the Layers rows'
+  key, the asset library's background swatches), the progress bar and its two pseudo-elements, the planner's
+  stacked bar, the joystick's two circles, the thumbnails inside tiles (the pack grid's, the icon gallery's and its
+  "none" glyph, the asset card's thumb), the version, phase and asset badges and tags (already pills), and the three
+  explicit squares (`.seg button`, the sub-tabs, the asset rail's rows). **Changed to a token, 10:** `button` (6px),
+  `input[type=number]` and `select` (5px), `.seg` (6px), `.pill` (999px, now the token), the Explore filter and the
+  map's `.zbtn` (8px, now pills), the icon gallery's options, the asset cards and their variants (5–8px, now tiles).
+  **Removed, 65:** 26 from controls whose class token now decides them — the windows' × buttons, the City viewer's
+  edit button, the old `.menubtn` and `.dropdown button`, the slicer's zoom buttons, the panel toggle, the Layers
+  rows (squared as rows) and the map's context-menu rows, and every field that wrote its own 4–10px (the place
+  popup's, New World's numbers, the route editor's stops, the asset library's search, metadata and cell names, the
+  sculpt seed, the pack's name, author and licence, a place's History, a faction's rename, the variant and slicer
+  names); and 39 from surfaces, now square — the legend, the scale bar, the resolution overlay, the place popup and
+  its city picture, the settlement info card, the City viewer's legend, the route editor's map, profile and columns,
+  the Credits and start cards, New World's legend, the File dropdown, the Find results and their rows, the asset
+  inspector's preview, the slicer's dialog, canvas, drop zone and name list, the toast, the Settlements table's
+  viewport, the type preview's canvas, eight civ cards and boxes in the dock's lists, the planner's blocked box, stage
+  cards, details and calculation trace, the map's context menu, and the phone's Credits card. `.find-hit` no longer
+  sets a 3px corner on whatever Find reveals; its outline follows the control's own.
+- **One on-state: the wash (V24 a; owner default Q5; Cartalith_GDT `LARGE_ITEM_RULINGS.md` 2026-09-06 item 7,
+  "Resolved to the WASHED treatment").** 26 of the docks' segments — and every other segmented control, the
+  Settlements window's tabs and the route editor's Carriage switch among them — drew v2.23's saturated accent fill,
+  which the theme layer's own rule 3 forbids. An armed segment is now the design's chip — wash2, a 1px accent edge,
+  accent ink — drawn 2px INSIDE the segment (`::before`, under the label): a ring on the segment's own box would be
+  cut off along the container's rounded end, and a chip inside leaves the segment's width and every divider where
+  they were. **The fill stays on tool-mode segments only** — the Tools palettes (`[data-civtool]`: Inspect,
+  Settlement, POI, Territory, Way, Label, Icon, Info, Route) and Sculpt's feature picker — as the port keeps its
+  tool bar's SCULPT / PAINT / MEASURE segments filled. An armed pill (a recorded year, a place's trait) and the Base
+  map popover's picked row are washed too; no other armed control draws the accent fill (the probe walks the docks,
+  the sculpt bar, the Settlements window and Settings). The ink on the chip measures ≥ 4.5:1 in both themes (dark
+  accent on wash2 over `--panel2`; light `#8b550d` on wash2 over `#fbfaf7`). The Carriage switch gets 10px a side,
+  room for its chip (it had 1px).
+- **The dock's type (V24 a–c).** The dock's segments take the design's chip type — mono 10px, weight 500, .08em (its
+  category chip: IBM Plex Mono 10px/500/0.8px) — with each segment's basis its own label on one line: at an equal
+  share mono's wider labels broke inside their segments at 1366 ("⌂" over "Settlement"). Every dock action button
+  (`.dock .btnrow > button`; 8 drew sans sentence case at 12px in the audit's census: Commit way, Clear all labels,
+  Simulate…) is mono, weight 500, uppercase, .12em (.14em at 10.5px on a primary), as Run's already were. CIVIL's
+  five sub-tabs are mono 10px, weight 500 — the armed one too. **Bake ALL levels** and **Un-finalize** run the dock's
+  full width (Bake was 224px of 371 at 1366); the probe bakes for real to measure Un-finalize.
+- **One section label (V25).** One rule over the nine selectors the audit listed — the dock's section heads and
+  sublabels, the strip's RECORDED, the Layers popover's groups, the asset rail's heads, New World's labels, the City
+  viewer's and the route editor's column heads: mono 9.5px, weight 500, .2em, uppercase, `--dim` (the design's
+  "section label TOOLS": 9.5px/500/1.9px, `#8d9296`). The same role had been drawn about eight ways (9–10.5px,
+  .06–.22em, weights 400–700, `--dim`, `--faint` or accent); the two that were faint move up to `--dim`. Location
+  labels keep the accent (the dock's path, the tool bar's context, the Context panel's kind, a menu's caption).
+  Long help that might move into `details.adv` is content, not CSS, and is not moved.
+- **The timeline strip's toggles (V29; the 2026-09-06 ruling, item 7, that the timeline's pill on-state matches the
+  WORLD dock's).** The recorded years are pills, washed while active. The three filters — Exist only, Ghost removed,
+  Highlight new — were native checkboxes with sans labels; each LABEL is now the design's chip (a pill, a 1px edge,
+  mono 10px, `--muted` ink), washed while checked. The checkbox stays inside it, visually hidden but focusable: Tab
+  still reaches it, Space still toggles it, the focus ring is drawn on the chip, and the label is kept (a screen
+  reader still announces a checkbox — a person checks that). The play button is the washed accent control, its
+  label kept. A year pill's ✕ (remove the year) drew the label at .6 opacity, 2.39:1 on the old fill and 3.75 off
+  it; it takes `--dim`, or the pill's ink when armed. The phone's STORY › Time keeps the long-label checkboxes.
+- **One window heading (V30).** The five windows' headings drew six styles (Settlements sans 19px bold, the route
+  editor sans 17px, Credits mono 14px, Settings mono 12px at .1em, the start card and New World mono 13px). One rule
+  now: mono 11px, weight 500, .2em, uppercase, accent — the design's dialog title (`font:500 11px 'IBM Plex
+  Mono';letter-spacing:.2em`, its titles in capitals). The audit's plan said 12px, Settings' size; the drawing says
+  11 and wins. The City viewer's heading is a place's name and keeps its 16px sans (exempt). Records ▸ Factions…
+  still opens the window titled "Settlements": renaming one of the two is the owner's call (the default is no change).
+- **Two more contrast failures**, found by taking the census over views the audit's seven did not include (the strip
+  expanded, the Settlements window's Types tab): the year pills' ✕ (above), and the Types tab's quarters line
+  (`_umTypePreviewStats`), the hint's `--faint` at .75 opacity, 3.19:1 — now the hint's own ink, 4.79.
+- **The truncation census and the rows that wrap.** The visual audit's census (`lib.js` `__aud.truncs`), taken by
+  `probe_fixpass.js` against v2.73 over every dock with its sections open, CIVIL's five sub-tabs, the sculpt bar, a
+  place's popup, the Settlements window's four tabs, Settings' five pages, Credits, File ▸ Export, the asset library,
+  the strip and New World, at 1366×768 and 1600×900 on seeds 12345 and 777: **no truncation v2.73 did not have**
+  (12 truncations at 1366 and 14 at 1600 on both seeds, against v2.73's 22 and 23). The Settlements table is left out of that comparison: the fix pass made each of its cells ellipsise so
+  its head lines up with its rows (V01), and at 1366 two of its heads are cut ("Faction" needs 38px of 36, "Econ.
+  role" 51). **The rows of buttons that wrap**, every one, on both seeds: Sculpt's eight presets now wrap as whole
+  segments onto two lines at 1366 and 1600 (before, "Rolling Hills", "Volcanic Isle" and "Glacial Valley" broke
+  inside their segments); CIVIL ▸ Generation's AUTO-POPULATE WORLD | CLEAR PLACES & ROUTES takes two lines at 1366
+  (one at 1600); WORLD › Sculpt's Deselect | Hide/show | Move up | Move down | Delete took two lines before and
+  still does; New World's six shapes are the fix pass's three-by-two grid. Section labels wrap too where the .2em
+  tracking makes them longer than the dock ("STEP 1 · POPULATE SETTLEMENTS (blank = automatic)").
 
-**Measured** (this 4-CPU machine, which another agent may share; timings are indicative and the counters are the
-gate): `tests/run.sh` 1280/0, `run_um.sh` 882/0, `hash_gen1.js` v2.73 → v2.74 ALL IDENTICAL (default, geoid,
-waves, ao, icons). `probe_v274fix.js`: v2.74 131/0, v2.73 39 passed and 92 failed (each passing one is labelled
-"as before" or set-up in its own text). `census_v274.js`: v2.74 0 of 2 408 enabled runs below AA (2 more per place
-view, disabled controls' labels, are exempt and counted apart), v2.73 561 of 2 494. The load (P4), alone on the
-machine, a fresh browser per sample, n=6 each, interleaved: the longest task 2 697 [2 325..2 971] ms on v2.73 against
-332 [313..557] on v2.74, `DOMContentLoaded` 3 123 [2 748..3 509] against 858 [773..1 096] — disjoint. The shell's
-own probes: `probe_mobileshell.js` 279/0 (as v2.73); `probe_desktopshell.js` 154/4, the same four by-design failures
-as v2.73 (the two version checks, the two sections pinning v2.71's phone); RC's eight shell probes give v2.73's
-results exactly (`shellui` 16/3, `domainrail` 14/6, `cogmodal` 33/0, `assetsbtn` 13/1, `settleparams` 28/2,
-`geninfo` 21/0, `worldreset` 35/0, `typepreview` 41/0 — v2.73's CHANGELOG classifies each failure).
+**Measured** on the final bytes (this 4-CPU machine, which another agent may share; timings are indicative and the
+counters are the gate): `tests/run.sh` 1280/0, `run_um.sh` 882/0 and `hash_gen1.js` v2.73 → v2.74 ALL IDENTICAL (default, geoid, waves, ao, icons). `probe_fixpass.js`: ⟦FIXPASS_DETAIL⟧. `census_v274.js`: v2.74 0 of 2 414 enabled runs below AA (2 more per place view, disabled controls' labels, are exempt and counted apart; the fix pass's bytes counted 2 408), v2.73 561 of 2 494. The
+load (P4), alone on the machine, a fresh browser per sample, n=6 each, interleaved (the fix pass's bytes): the
+longest task 2 697 [2 325..2 971] ms on v2.73 against 332 [313..557] on v2.74, `DOMContentLoaded` 3 123 [2 748..3 509]
+against 858 [773..1 096] — disjoint. The shell's own probes on the final bytes: ⟦SHELL⟧.
 
 **Two flaky suite assertions, disclosed not fixed.** Of four `tests/run.sh` runs over this version's bytes, two passed
 1280/0 (the final bytes' last run among them) and two failed ONE assertion each, a different one each time: *smoothed
@@ -195,20 +300,56 @@ bathymetry variance <= raw seabed variance (5.8e-3 <= 5.8e-3)* — v2.73's known
 boundary-cell count (4721 vs 2208)*. Both build their world on an unpinned seed (`state.tect.seed` is
 `Math.random()` at load, and `test_tail.js` generates on it). With `Math.random` pinned (seeds 101, 202 and 303), v2.73
 and v2.74 print the same 1 280 assertion lines, timings aside, and pass 1280/0 each; `hash_gen1.js` is ALL IDENTICAL.
-If either goes red, re-run before believing it, as for v2.25's SST assertion.
+If either goes red, re-run before believing it, as for v2.25's SST assertion. ⟦FLAKE⟧
+
+**Where this departs from the design** (design/mobile-shell-2026-10-31; MISTAKES' "it matches the design" — the
+whole list, not the rows that agree):
+- **Windows, menus, popovers, cards and callouts are square.** The design rounds its windows (12px at a pointer,
+  18px at touch, a phone sheet's top corners 22px), its menus (a dropdown's lower corners 16px, column menus 10px,
+  the tab and context menus 12px), its popovers (search 20px, edit history 16px, the module list 14px) and its
+  cards, messages and alerts (12px). The owner's answer keeps panels and bands square (Ruling EC item 7), so every
+  surface here is.
+- **The phone's quick drawer is square**; the design rounds its outer side 18px (its pull-out tab here does round,
+  14px, as drawn). **The domain fan's rows** are rows in a panel; the design floats each domain as an 18px card.
+- **Touch controls are rounded rectangles (12px), not the design's touch pills** (24px on 48px buttons, 22px on
+  44px chips): the port's touch radius, chosen so a finger at a 44px control's corner still meets it (above).
+  Pills that stay pills at touch (`.pill`, the pins, the Base map chip, the 2D/3D square, DS-13) are the design's.
+- **Segmented controls are joined**, with dividers, and the armed segment carries the chip inside it; the design
+  draws its category chips apart, with gaps, and its tools as 64px tiles with icons.
+- **Tool palettes keep a filled armed segment** (owner default Q5, as the port does); the design washes even its
+  tool tiles.
+- **The desktop's zoom + and −** are two separate round buttons; the design joins them in one pill column. (On
+  touch, DS-13's − | + is one pill, as drawn.)
+- **Undo and Redo are boxed** (10px, the theme's button box); the design draws them unboxed, with a 10px hover.
+- **Fields are 26–28px tall at a pointer** against the design's 30px, so the same 12px corner reads a little rounder.
+- **CIVIL's sub-tabs track at .02em**, not the design's .18em (1.8px): at .18em the five need 380px of the 371 the
+  dock has at 1366.
+- **Segment labels keep their own case** ("Region", "1K", "km"); the design's chips are written in capitals.
+- **The window heading is 11px, as drawn**; the audit's plan had said 12px.
+- **Type faces** stay the system stacks (owner default Q8): the design loads IBM Plex Mono and Helvetica Neue, so
+  every width measured here (DejaVu Sans Mono and Inter on this machine) moves on another OS. **Icons** stay as they
+  are (Q7): the design draws monochrome line icons where the file has emoji.
+- **The status bar keeps its chips** (Q8); the design's holds three items.
 
 **Found, not fixed:**
 - `_lodRenderKey` (the LOD tiles' cache key) has no `state.bioBlend`, which `renderBiomeTileRGBA` reads — the same
   class as P7, in the LOD cache: in the Tiled LOD view the Relief ↔ biome slider would serve stale tiles. The LOD
   cache is v2.75's speed pass; not changed here.
 - The phone has no way to the pack panel (above).
+- At 1366 two heads of CIVIL ▸ Settlements' table are cut by the V01 fix's per-cell ellipsis: "Faction" (38px of
+  36) and "Econ. role" (51 of 36). The columns line up, which is what V01 chose; a shorter label or a narrower
+  column elsewhere would show them whole.
 
-**Not in this build** (Ruling EF's order): the corner radii (Ruling EC item 7) and the design alignment (V24, V25's
-label rule, V26, V29, V30) — the second lane of v2.74; the speed pass (P1–P3, P5, P6, P9, P10, the slider preview) —
-v2.75; P8, keeping the view across a domain switch — owner default Q11, not built; V12's dark palette (Q6), V27's
-icons and V31's fonts (Q7, Q8) — no change until the owner answers.
+**Not in this build** (Ruling EF's order): the speed pass (P1–P3, P5, P6, P9, P10, the slider preview) — v2.75;
+P8, keeping the view across a domain switch — owner default Q11, not built; V12's dark palette (Q6), V27's icons and
+V31's fonts and status bar (Q7, Q8) — no change until the owner answers; V21's halo trial (the plan's §8, under
+Q9's default the box stays) and the plan's re-measure of the 1100-px desktop window — not done here; moving long
+help into `details.adv` (V25's note) — a content change, not made.
 
 **What needs a person on a device:** one native select list and one number spinner in each theme (V02); Segoe UI
-on Windows for the widths V14, V15 (one feature hidden at 1366 with Inter) and V18 (359px of 371 with Inter)
-depend on; Credits from Settings ▸ About on a real phone (V10); the flat backdrop behind the start card (Q10a) and
-the overlay taking the map's input mid-generate (Q10b), to be shown to the owner.
+and Consolas on Windows for the widths measured here with Inter and DejaVu Sans Mono — the status chips (V14), the
+sculpt picker with Freehand armed (V15, one feature out of sight at 1366), CIVIL's mono sub-tabs (V18/V24, they fit
+1366 here), the dock's mono segments and action buttons and the rows they wrap; Credits from Settings ▸ About on a
+real phone (V10); a screen reader over the strip's three filter chips (V29: it should still announce checkboxes);
+a finger on DS-13's round buttons and the 12px touch controls on a real tablet and phone; the flat backdrop behind
+the start card (Q10a) and the overlay taking the map's input mid-generate (Q10b), to be shown to the owner.
