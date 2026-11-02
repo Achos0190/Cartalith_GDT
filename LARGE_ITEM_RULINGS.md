@@ -3195,6 +3195,12 @@ first. A label in quotation marks is the option the owner picked; *italics* mark
    - **Built in:** an off switch, and written steps for re-pairing the pen through OnePlus's own settings.
    - **Permissions:** the Bluetooth runtime permissions it needs (BLUETOOTH_CONNECT, and BLUETOOTH_SCAN for discovery)
      are asked only when the experiment is switched on.
+   - **Refined by a summary the owner supplied the same day** (attributed to XDA/the OnePlus community,
+     `STYLUS_HAPTICS_RESEARCH.md` §2.3): the apps that drive the pen's motor (HiPaint, Notein) do it with OnePlus/Oppo's
+     **licensed** pencil SDK, gated by a privileged permission. So the experiment is the read-only discovery step only;
+     actually driving the motor is the official-SDK route (Q10). Reverse-engineering the SDK out of firmware or another
+     app, stubbing its authentication, or a root module that force-grants the permission are **out of scope and declined**
+     — they circumvent OnePlus's and those apps' software protections.
 
 **The other nine questions** (Q2–Q6, Q8, Q10–Q12) keep the research's recommended defaults until the owner says
 otherwise. **What comes first:** SH-0, measuring on the tablet, decides how much of the relief design the Pad 3 can

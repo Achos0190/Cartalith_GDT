@@ -370,6 +370,19 @@ other device with a motor (§8.1).
     above [unconfirmed: AI-written, S21]. Only the Bluetooth command channel appears in code outside that project:
     LineageOS's pen service uses the same vendor service and characteristic (`18092dbc-…`, `18093046-…`)
     [verified: L7 code; its commits are marked `Assisted-by: LLM`].
+- **A summary the owner supplied (2026-11-02), attributed to XDA and the OnePlus community.** It agrees with the
+  picture above and names the pieces: the advanced haptics and double-tap go through a OnePlus service
+  (`com.oplus.ipemanager`, a `CoreService`), gated by a privileged system permission (`com.oplus.permission.safe.IOT`)
+  that the stock Notes app holds. Its one new, load-bearing point is **the sanctioned route**: the third-party apps
+  that got the feature working -- HiPaint, Notein, Notewise -- did it by **licensing and bundling OnePlus/Oppo's own
+  pencil SDK** (`PencilManagerUnitClient`) and authenticating with vendor keys, not by any workaround. So an ordinary
+  app reaches the pen's motor only with an SDK licence from OnePlus/Oppo, which is Q10. [unconfirmed: user-supplied
+  secondary summary, 2026-11-02; the cited XDA thread would not load here, HTTP 403]
+  - The same summary also set out reverse-engineering steps (pulling the SDK out of the tablet's firmware, decompiling
+    one of those apps to lift its SDK classes and stub out its authentication, and a root module that force-grants the
+    privileged permission). **These are out of scope for Cartalith and are not pursued**: they circumvent OnePlus's
+    signature check and those apps' own authentication, and redistribute another vendor's proprietary SDK. The path to
+    the pen's motor is the licensed SDK (Q10), or recommending an app that already licenses it, not a bypass.
   - **A direct Bluetooth route** from Cartalith would need `BLUETOOTH_CONNECT`, a *"dangerous"* runtime permission
     since API level 31 [verified: A28]. The same AI-written account warns that the pen's firmware-update services sit
     beside the command channel [unconfirmed: AI-written, S21], and such a route could clash with the system's own
@@ -1137,7 +1150,7 @@ the owner says otherwise. The table below is kept as the questions were asked.
 | Q10 | Ask OnePlus for access to the pen's haptics? | Optional; low odds. If SH-0 finds no body vibrator, this is the only sanctioned route to a felt relief on the Pad 3 (§1.4) |
 | Q11 | Offer a sound per contour when the device cannot vibrate? | Offered in settings, off by default. On a Pad 3 without a vibrator it is the whole relief besides the drawn lines (§1.4); RealPen pairs a pen's feel with sound [verified: R12] |
 | Q12 | Should colour paint's stroke width follow pen pressure? | No for now: colour paint marks have one radius in km, and variable width is a bigger change to its data |
-| Q13 | May Cartalith talk to the pen's own motor over Bluetooth, bypassing OnePlus's service? **The premise is unconfirmed**: it comes from an AI-written project, which says the pen takes a texture setting and a one-shot pulse command (§2.3). The route would need `BLUETOOTH_CONNECT`, a dangerous runtime permission; by the same account it sits beside the pen's firmware-update services; it could clash with the system's own connection; and it would give a fixed texture and one-shot pulses, not a texture that follows the terrain | No |
+| Q13 | May Cartalith talk to the pen's own motor over Bluetooth, bypassing OnePlus's service? **The premise is unconfirmed**: it comes from an AI-written project, which says the pen takes a texture setting and a one-shot pulse command (§2.3). The route would need `BLUETOOTH_CONNECT`, a dangerous runtime permission; by the same account it sits beside the pen's firmware-update services; it could clash with the system's own connection; and it would give a fixed texture and one-shot pulses, not a texture that follows the terrain. **Refined 2026-11-02 (Ruling ED; user summary, §2.3):** the owner chose to try it, taken as **read-only discovery only** -- passively listing the pen's own Bluetooth services on the owner's tablet, writing nothing -- because actually driving the motor needs the licensed OnePlus/Oppo SDK (Q10), not a bypass; SDK extraction or auth-bypass is out of scope | Read-only discovery; then Q10 |
 
 ---
 
