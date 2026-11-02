@@ -1,0 +1,80 @@
+{
+ "phone412": [
+  {
+   "name": "Aurelia",
+   "drawnW": 0,
+   "needW": 44,
+   "rowW": 352
+  },
+  {
+   "name": "Veldmark",
+   "drawnW": 0,
+   "needW": 60,
+   "rowW": 352
+  },
+  {
+   "name": "Korrath",
+   "drawnW": 0,
+   "needW": 47,
+   "rowW": 352
+  },
+  {
+   "name": "Sythe Dominion",
+   "drawnW": 0,
+   "needW": 99,
+   "rowW": 352
+  },
+  {
+   "name": "Mirelle",
+   "drawnW": 0,
+   "needW": 42,
+   "rowW": 352
+  },
+  {
+   "name": "Draumr League",
+   "drawnW": 0,
+   "needW": 96,
+   "rowW": 352
+  }
+ ],
+ "phone412_overview": "Largest by population: Aurelia (0)",
+ "desk1366": [
+  {
+   "name": "Aurelia",
+   "drawnW": 231,
+   "needW": 231,
+   "rowW": 648
+  },
+  {
+   "name": "Veldmark",
+   "drawnW": 231,
+   "needW": 231,
+   "rowW": 648
+  },
+  {
+   "name": "Korrath",
+   "drawnW": 231,
+   "needW": 231,
+   "rowW": 648
+  },
+  {
+   "name": "Sythe Dominion",
+   "drawnW": 231,
+   "needW": 231,
+   "rowW": 648
+  },
+  {
+   "name": "Mirelle",
+   "drawnW": 231,
+   "needW": 231,
+   "rowW": 648
+  },
+  {
+   "name": "Draumr League",
+   "drawnW": 231,
+   "needW": 231,
+   "rowW": 648
+  }
+ ],
+ "desk1366_overview": "Largest by population: Aurelia (0)"
+}

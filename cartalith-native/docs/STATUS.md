@@ -47,6 +47,22 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### The HTML's next versions ordered (Ruling EF), and the v2.72 audits filed; v2.74 begun (2026-11-02)
+
+The owner answered the order: *"Fixes and feature ports first then stage 3"* (`LARGE_ITEM_RULINGS.md`, Ruling EF).
+So the fix pass and design alignment (v2.74), the speed pass (v2.75), the first three ports (v2.76) and Measure
+(v2.77) come before stage 3. Questions the owner has not answered take the version plan's stated defaults, listed in
+the ruling.
+
+- **The audits are filed** in `html/audits/v2.72-2026-11-01/` (26 MB): the three reports, the version plan
+  (`PLAN.md`, paths re-pointed), the scripts, raw results, contact sheets and the 54 screenshots the plan cites. Until
+  now they lived only in this session's scratchpad.
+- **`MISTAKES.md`:** the audits' three candidates merged — a cache key part naming a field the state does not have
+  (into "Add a capability, or write a staleness/cache key"), and `setTimeout(0)` as "the background" and the
+  one-border-side active state (a new row).
+- **Built: nothing yet.** `html/Cartalith v2.74 DCC test.html` starts as a byte copy of v2.73; what it carries when
+  it closes is recorded here then.
+
 ### Reference: the DCC line's v2.71 copied into `reference/` (2026-11-01)
 
 The owner asked: *"Just copy it into the reference folder"*.

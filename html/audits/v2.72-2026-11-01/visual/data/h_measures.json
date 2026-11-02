@@ -1,0 +1,18 @@
+{
+ "credits": {
+  "creditsOpen": true,
+  "zCredits": "50",
+  "zSettings": "74",
+  "topAtCentre": "settingsModal"
+ },
+ "busy": {
+  "busyZ": "auto",
+  "mapBrZ": "20",
+  "zoomIn": "zoomIn",
+  "viewDim3d": "BUTTON",
+  "baseMap": "dk-only",
+  "scaleBar": "busy overlay",
+  "legend": "busy overlay"
+ },
+ "phoneFactionRows": null
+}

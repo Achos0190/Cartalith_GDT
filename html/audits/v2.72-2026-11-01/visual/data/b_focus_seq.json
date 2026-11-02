@@ -1,0 +1,68 @@
+[
+ {
+  "el": "button#genBtn",
+  "r": [
+   54,
+   329,
+   371,
+   32
+  ],
+  "outline": "auto 1px rgb(16, 16, 16)",
+  "fv": true
+ },
+ {
+  "el": "button#reseedBtn",
+  "r": [
+   54,
+   369,
+   182,
+   27
+  ],
+  "outline": "auto 1px rgb(16, 16, 16)",
+  "fv": true
+ },
+ {
+  "el": "button#centerBtn",
+  "r": [
+   244,
+   369,
+   182,
+   27
+  ],
+  "outline": "auto 1px rgb(16, 16, 16)",
+  "fv": true
+ },
+ {
+  "el": "select#bakeAllDepth",
+  "r": [
+   152,
+   512,
+   273,
+   30
+  ],
+  "outline": "auto 1px rgb(16, 16, 16)",
+  "fv": true
+ },
+ {
+  "el": "button#bakeAllBtn",
+  "r": [
+   54,
+   549,
+   224,
+   31
+  ],
+  "outline": "auto 1px rgb(16, 16, 16)",
+  "fv": true
+ },
+ {
+  "el": "div#genWorld summary",
+  "r": [
+   40,
+   678,
+   399,
+   33
+  ],
+  "outline": "auto 1px rgb(16, 16, 16)",
+  "fv": true
+ }
+]

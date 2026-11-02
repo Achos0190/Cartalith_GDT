@@ -3241,3 +3241,32 @@ This supersedes the parts of Ruling ED that looked past standard input:
   drafts in `cartalith-native/drafts/stylus-input/`.
 
 The restricted area is not pursued, researched further, or documented as a route.
+
+## Ruling EF: the HTML working copy's order — fixes and feature ports first, then stage 3 (owner, 2026-11-02)
+
+Asked whether stage 3 or the audit fixes and the Godot feature ports came next, the owner answered: *"Fixes and
+feature ports first then stage 3."* This answers Q1 of the version plan written from the 2026-11-01 audits of v2.72
+(`html/audits/v2.72-2026-11-01/PLAN.md`), whose recommendation put the four ports after stage 3; the owner's order
+puts them before it.
+
+**The order.** Each is one new `Cartalith v2.NN DCC test.html`, its number confirmed free in Cartalith_RC when its
+lane starts (RC's newest is v2.71 as of 2026-11-02):
+1. **v2.74, the fix pass and the design alignment.** The plan's §5 (the Sun slider's cache key, the Settlements rows,
+   Credits under Settings, the contrast and native-control fixes, the clippings, the boot render behind the start
+   card, the shell's resize cost), with Ruling EC item 6 (the toll fix) and item 7 (rounded corners), and the plan's
+   §8 items that follow an existing ruling or the drawing (V24's washed on-state, V25, V29, V30).
+2. **v2.75, the speed pass.** The plan's §6 (generate: the routing-surface cache, the flood seeding, stage progress,
+   the civ edge-cost table) and §7 (the zoom, LOD, slider, brush and render-tail costs), with Ruling EC item 8 (the
+   half-resolution slider preview). `hash_gen1` stays ALL IDENTICAL.
+3. **v2.76, the first ports** (Ruling EC item 5): Export map image, Find runs commands, faction relations and a
+   settlement's political history.
+4. **v2.77, the Measure tool** (Ruling EC item 5), on v2.73's touch layer.
+5. **Then stage 3**: the Context panel's modules, the selection history and the planner window, with the map card's
+   two journey verbs (F07).
+
+**The plan's other questions are unanswered and take its stated defaults** — these are defaults, not rulings, and an
+answer replaces any of them: Q3, the light accent `#8b550d`; Q5, the washed on-state, keeping a fill only for
+tool-mode segments; Q6, the place popup's dark palette unchanged (its light theme is fixed either way); Q7 and Q8, no
+change to icons, fonts or the status-bar chips; Q9, the darker box behind the scale bar and legend; Q10(a)–(c) and
+(e), each built and shown to the owner; Q11, the view still resets on a domain switch; Q13(a), the port's CV-26
+relation weights, labelled as its judgement, without FH-R2's religion extension; Q13(b)–(d) and Q14, nothing built.

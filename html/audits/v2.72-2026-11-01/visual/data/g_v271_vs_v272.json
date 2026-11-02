@@ -1,0 +1,58 @@
+{
+ "v271": {
+  "readout": {
+   "client": 956,
+   "scroll": 1003
+  },
+  "subtab": {
+   "top": "1px rgb(224, 163, 74)",
+   "left": "1px",
+   "bottom": "1px",
+   "fw": "600",
+   "text": "Factions"
+  },
+  "assetsPin": {
+   "bg": "rgb(224, 163, 74)",
+   "color": "rgb(224, 163, 74)",
+   "text": "← Map",
+   "rect": [
+    133,
+    7,
+    64,
+    27
+   ]
+  },
+  "geojson": {
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px none"
+  }
+ },
+ "v272": {
+  "readout": {
+   "client": 905,
+   "scroll": 959
+  },
+  "subtab": {
+   "top": "1px rgb(224, 163, 74)",
+   "left": "1px",
+   "bottom": "1px",
+   "fw": "600",
+   "text": "Factions"
+  },
+  "assetsPin": {
+   "bg": "rgb(224, 163, 74)",
+   "color": "rgb(224, 163, 74)",
+   "text": "← Map",
+   "rect": [
+    1456,
+    43,
+    57,
+    26
+   ]
+  },
+  "geojson": {
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px none"
+  }
+ }
+}

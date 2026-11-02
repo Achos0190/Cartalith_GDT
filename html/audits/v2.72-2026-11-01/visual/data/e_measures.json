@@ -1,0 +1,285 @@
+{
+ "A1 world-shape buttons that overflow their cell": [
+  {
+   "t": "Classic",
+   "cw": 59,
+   "sw": 59,
+   "h": 42
+  },
+  {
+   "t": "Earth-like",
+   "cw": 59,
+   "sw": 59,
+   "h": 42
+  },
+  {
+   "t": "Pangaea",
+   "cw": 59,
+   "sw": 59,
+   "h": 42
+  },
+  {
+   "t": "Archipelago",
+   "cw": 59,
+   "sw": 68,
+   "h": 42
+  },
+  {
+   "t": "Volcanic Isles",
+   "cw": 59,
+   "sw": 59,
+   "h": 42
+  },
+  {
+   "t": "Rift Valleys",
+   "cw": 59,
+   "sw": 59,
+   "h": 42
+  }
+ ],
+ "A2 sticky actions: what shows between the bar and the card bottom when scrolled half-way": {
+  "card": [
+   36,
+   864
+  ],
+  "bar": [
+   777,
+   839
+  ],
+  "gap": 25,
+  "y": 852,
+  "hit": "obStepGenerate :: New world — base settings\n          Thes",
+  "scrollTop": 28,
+  "scrollMax": 56,
+  "gapAfter": 1
+ },
+ "A3 world-shape seg as a 3-column grid (after)": 0,
+ "C status readout 1366": {
+  "client": 677,
+  "scroll": 678,
+  "cut": [
+   "grade 506.6%"
+  ]
+ },
+ "P ctx hint 1366": {
+  "client": 249,
+  "scroll": 397,
+  "text": "Inspect a settlement, label or icon on the map, or a row in a list"
+ },
+ "C status readout 1600": {
+  "client": 911,
+  "scroll": 989,
+  "cut": [
+   "volc 20·prov · craters 100"
+  ]
+ },
+ "P ctx hint 1600": {
+  "client": 273,
+  "scroll": 397,
+  "text": "Inspect a settlement, label or icon on the map, or a row in a list"
+ },
+ "C status readout 1920": {
+  "client": 989,
+  "scroll": 989,
+  "cut": []
+ },
+ "P ctx hint 1920": {
+  "client": 273,
+  "scroll": 397,
+  "text": "Inspect a settlement, label or icon on the map, or a row in a list"
+ },
+ "C status readout 2560": {
+  "client": 989,
+  "scroll": 989,
+  "cut": []
+ },
+ "P ctx hint 2560": {
+  "client": 273,
+  "scroll": 397,
+  "text": "Inspect a settlement, label or icon on the map, or a row in a list"
+ },
+ "D1 active sub-tab computed border (intended: underline only)": {
+  "border-top": "1px solid rgb(224, 163, 74)",
+  "border-left": "1px solid rgb(224, 163, 74)",
+  "border-right": "1px solid rgb(224, 163, 74)",
+  "border-bottom": "1px solid rgb(224, 163, 74)",
+  "font-weight": "600",
+  "background-color": "rgba(224, 163, 74, 0.09)"
+ },
+ "Q civ sub-tab bar overflow 1366": {
+  "bar": [
+   371,
+   387
+  ],
+  "dock": [
+   371,
+   387
+  ],
+  "tabs": [
+   106,
+   192,
+   284,
+   353,
+   427
+  ],
+  "dockRight": 412
+ },
+ "Q civ sub-tab bar overflow 1600": {
+  "bar": [
+   399,
+   399
+  ],
+  "dock": [
+   399,
+   399
+  ],
+  "tabs": [
+   113,
+   199,
+   291,
+   364,
+   439
+  ],
+  "dockRight": 440
+ },
+ "E1 settlements table row display": {
+  "rows": 21,
+  "display": [
+   "block",
+   "block",
+   "block"
+  ],
+  "inline": [
+   "no display in inline style",
+   "no display in inline style",
+   "no display in inline style"
+  ]
+ },
+ "G1 Assets pin in Assets mode, at rest": {
+  "background-color": "rgb(224, 163, 74)",
+  "color": "rgb(224, 163, 74)",
+  "border-top-color": "rgb(224, 163, 74)"
+ },
+ "G2 Assets pin hovered": {
+  "background-color": "rgba(224, 163, 74, 0.09)",
+  "color": "rgb(224, 163, 74)",
+  "border-top-color": "rgb(224, 163, 74)"
+ },
+ "G3 empty asset tiles: background": {
+  "bg": "rgb(255, 255, 255)",
+  "empty": true,
+  "var": "#ffffff"
+ },
+ "H Export GeoJSON button computed": {
+  "background-color": "rgba(0, 0, 0, 0)",
+  "border-top-width": "0px",
+  "border-top-style": "none",
+  "border-top-color": "rgb(232, 235, 236)",
+  "padding-top": "9px",
+  "color": "rgb(232, 235, 236)"
+ },
+ "H2 Export .zip button computed": {
+  "background-color": "rgb(224, 163, 74)",
+  "border-top-width": "1px",
+  "color": "rgb(20, 16, 5)",
+  "font-family": "ui-sans-serif, -apple-system, \"Segoe UI\", sans-serif"
+ },
+ "I1 popup Name row overflow": {
+  "popup": [
+   278,
+   289
+  ],
+  "rollRight": 883,
+  "popupInnerRight": 861,
+  "popupRight": 873,
+  "bgAlpha": "rgba(14, 17, 23, 0.97)"
+ },
+ "I2 popup Name row after min-width:0": {
+  "popup": [
+   278,
+   278
+  ],
+  "rollRight": 860
+ },
+ "N popup vs strip at 1366": {
+  "popup": [
+   593,
+   83,
+   873,
+   697
+  ],
+  "strip": [
+   0,
+   664,
+   1366,
+   742
+  ],
+  "map": [
+   412,
+   77,
+   1062,
+   664
+  ]
+ },
+ "M scale bar + legend computed": {
+  "sb": {
+   "background-color": "rgba(10, 12, 16, 0.55)",
+   "color": "rgb(207, 212, 220)"
+  },
+  "legend": {
+   "background-color": "rgba(10, 12, 17, 0.74)",
+   "color": "rgb(141, 146, 150)"
+  },
+  "sbRect": [
+   452,
+   757,
+   535,
+   784
+  ],
+  "legendRect": [
+   452,
+   579,
+   574,
+   750
+  ]
+ },
+ "J sculpt feature picker scroll state": {
+  "scrollLeft": 608,
+  "client": 342,
+  "scroll": 950,
+  "hiddenLeft": [
+   "⛰️ Mountains",
+   "🌄 Hills",
+   "⛰ Ridge",
+   "🟫 Plateau",
+   "🧱 Cliff / Escarpment",
+   "🪨 Canyon",
+   "🏞️ Valley",
+   "🏞 River"
+  ],
+  "partialFirst": "💧 Lake",
+  "hiddenRight": []
+ },
+ "J2 sculpt hint text": "Continuous quick touch-up, no preset landform — pick a sub-mode below. Raise/Lower/Smooth follow the drag; Cliff/Ridge/Canyon follow drag direction; Mesa/Volcano stamp once at a tap (a 1-point stroke degenerates to radial distance, so the same geometry serves both interactions).",
+ "L map chips heights": {
+  "base": [
+   450,
+   87,
+   564,
+   119
+  ],
+  "filter": [
+   570,
+   87,
+   606,
+   123
+  ]
+ },
+ "D2 settings nav active item computed border (intended: left bar only)": {
+  "border-top": "1px solid rgb(224, 163, 74)",
+  "border-right": "1px solid rgb(224, 163, 74)",
+  "border-bottom": "1px solid rgb(224, 163, 74)",
+  "border-left": "1px solid rgb(224, 163, 74)",
+  "font-weight": "600"
+ }
+}

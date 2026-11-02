@@ -1,0 +1,21 @@
+{
+ "truncs": [
+  {
+   "el": "div#placeEditPopup",
+   "region": "map",
+   "text": "×\nEdit settlement\n⤢ Open city view\nName\n🎲\nCategory\nSettleme",
+   "client": 278,
+   "scroll": 289,
+   "ell": false
+  },
+  {
+   "el": "div#dockWrap aside.dock.dock-left",
+   "region": "dock-left",
+   "text": "CIVIL\n‹\nTOOLS\nInspect\n⌂ Settlement\n◈ POI",
+   "client": 371,
+   "scroll": 387,
+   "scroller": true
+  }
+ ],
+ "off": []
+}

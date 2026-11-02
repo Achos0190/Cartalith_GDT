@@ -143,8 +143,10 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
   - Four assertions in RC's own probes need re-pointing; `html/CLAUDE_v2.72.md` says how.
   - What headless Chromium cannot check needs a real browser: Ctrl+R, Ctrl+S and Ctrl+O; the 3D view on real WebGL;
     a touch screen wider than 860 px; a screen reader over the menu bar.
-- **The next versions, by Ruling EC** (2026-11-01) **and the audits of v2.72** (performance, visuals, features; the
-  audit reports are in the stage-2 workflow's results and are to be filed beside `html/README.md`):
+- **The next versions, by Ruling EC** (2026-11-01) **and the audits of v2.72** (performance, visuals, features; filed
+  with their evidence and version plan in `html/audits/v2.72-2026-11-01/`). **Ruling EF** (2026-11-02) sets the
+  order: the fix pass and design alignment (v2.74), the speed pass (v2.75), the first three ports (v2.76), Measure
+  (v2.77), then stage 3. They carry:
   - the toll fix: `_jpClaimedAt` from `>= 0` to `> 0`, as Godot's `jp_claimed_at` (item 6), with a probe that fails
     before it and the planner's changed results disclosed;
   - the design's corner radii on controls, replacing v2.23's `*{border-radius:0 !important}` (item 7);

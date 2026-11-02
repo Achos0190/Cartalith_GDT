@@ -1,0 +1,42 @@
+== dark ==
+ink               bg       panel      panel2         ins  wash/panel wash2/panel
+ink       16.13       15.52       14.72       15.78       13.51       11.76     
+muted      8.55        8.23        7.81        8.36        7.16        6.24     
+dim        6.15        5.92        5.62        6.02        5.15        4.49*    
+faint      4.09*       3.94*       3.73*       4.00*       3.43*       2.98*!   
+accent     8.75        8.42        7.99        8.56        7.33        6.38     
+accent2    6.53        6.29        5.96        6.39        5.47        4.77     
+warn       5.24        5.04        4.78        5.12        4.39*       3.82*    
+good       7.39        7.11        6.74        7.22        6.19        5.39     
+stale      8.22        7.91        7.51        8.04        6.89        6.00     
+accInk on accent 8.6
+#18191a on accent (.pill.on) 7.97
+#1a1206 on accent (.lp-item.on) 8.39
+border(.16/.18) vs panel: line 1.30  border 1.60
+border(.16/.18) vs panel2: line 1.33  border 1.64
+border(.16/.18) vs ins: line 1.29  border 1.59
+border(.16/.18) vs bg: line 1.28  border 1.56
+accent edge vs panel 8.42
+== light ==
+ink               bg       panel      panel2         ins  wash/panel wash2/panel
+ink       15.56       15.29       16.67       13.82       13.90       12.75     
+muted      7.39        7.26        7.92        6.56        6.60        6.05     
+dim        6.04        5.93        6.47        5.36        5.39        4.95     
+faint      4.54        4.46*       4.86        4.03*       4.05*       3.72*    
+accent     4.22*       4.15*       4.52        3.75*       3.77*       3.46*    
+accent2    5.14        5.05        5.50        4.56        4.59        4.21*    
+warn       5.32        5.22        5.69        4.72        4.75        4.35*    
+good       4.58        4.49*       4.90        4.06*       4.08*       3.75*    
+stale      4.27*       4.20*       4.58        3.80*       3.82*       3.50*    
+accInk on accent 4.52
+#18191a on accent (.pill.on) 3.73
+#1a1206 on accent (.lp-item.on) 3.92
+border(.16/.18) vs panel: line 1.31  border 1.52
+border(.16/.18) vs panel2: line 1.31  border 1.52
+border(.16/.18) vs ins: line 1.31  border 1.51
+border(.16/.18) vs bg: line 1.31  border 1.52
+accent edge vs panel 4.15
+popup text #e8dcc4 on popup bg: 13.93
+popup row label #c8b998 on popup bg: 9.77
+popup x #b08d54 on popup bg: 6.11
+popup heading #d8b97a on popup bg: 10.03

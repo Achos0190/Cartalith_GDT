@@ -1,0 +1,187 @@
+{
+ "d_contrast_place": {
+  "texts": 136,
+  "fail": 0,
+  "failures": []
+ },
+ "d_readout": {
+  "client": 911,
+  "cutMidChip": [],
+  "wrappedAway": [
+   "volc 20·prov · craters 100"
+  ]
+ },
+ "d_popup": {
+  "client": 278,
+  "scroll": 278
+ },
+ "d_contrast_factions": {
+  "texts": 39,
+  "fail": 0,
+  "failures": []
+ },
+ "d_credits_top": "creditsModal",
+ "d_sculpt": {
+  "scrollLeft": 418,
+  "client": 532,
+  "scroll": 950,
+  "hiddenLeft": 5,
+  "barH": 75
+ },
+ "d_geom_1366": {
+  "truncs": [
+   "div#stSpacer span.st-name 62/107",
+   "div#stSpacer span 31/36",
+   "div#stSpacer span 31/55",
+   "div#stSpacer span 31/38",
+   "div#stSpacer span 31/38",
+   "div#stSpacer span 31/55",
+   "div#stSpacer span.st-name 62/64",
+   "div#stSpacer span 31/36",
+   "div#stSpacer span 31/55",
+   "div#ctxHint 249/397"
+  ]
+ },
+ "d_geom_1920": {
+  "truncs": [
+   "div#stSpacer span.st-name 70/107",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/90",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/99",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/86",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/104",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/116",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/101",
+   "div#stSpacer span 35/40",
+   "div#stSpacer span 35/92",
+   "div#stSpacer span.st-name 70/104",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/92",
+   "div#stSpacer span.st-name 70/99",
+   "div#stSpacer span 35/51",
+   "div#stSpacer span 35/92",
+   "div#stSpacer span.st-name 72/79",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/40",
+   "div#stSpacer span 36/92",
+   "div#stSpacer span.st-name 72/94",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/86",
+   "div#stSpacer span 36/55",
+   "div#stSpacer span 36/38",
+   "div#ctxHint 273/397"
+  ]
+ },
+ "d_geom_2560": {
+  "truncs": [
+   "div#stSpacer span.st-name 70/107",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/90",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/99",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/86",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/104",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/116",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span.st-name 70/101",
+   "div#stSpacer span 35/40",
+   "div#stSpacer span 35/92",
+   "div#stSpacer span.st-name 70/104",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/55",
+   "div#stSpacer span 35/38",
+   "div#stSpacer span 35/92",
+   "div#stSpacer span.st-name 70/99",
+   "div#stSpacer span 35/51",
+   "div#stSpacer span 35/92",
+   "div#stSpacer span.st-name 72/79",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/40",
+   "div#stSpacer span 36/92",
+   "div#stSpacer span.st-name 72/94",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/86",
+   "div#stSpacer span 36/55",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span.st-name 72/86",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/40",
+   "div#stSpacer span 36/92",
+   "div#stSpacer span.st-name 70/97",
+   "div#stSpacer span 35/84",
+   "div#stSpacer span 35/37",
+   "div#stSpacer span.st-name 72/105",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/40",
+   "div#stSpacer span 36/92",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/86",
+   "div#stSpacer span 36/55",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/86",
+   "div#stSpacer span 36/55",
+   "div#stSpacer span.st-name 72/106",
+   "div#stSpacer span 36/38",
+   "div#stSpacer span 36/86",
+   "div#stSpacer span 36/81",
+   "div#ctxHint 273/397"
+  ]
+ },
+ "l_contrast_place": {
+  "texts": 136,
+  "fail": 0,
+  "failures": []
+ },
+ "l_readout": {
+  "client": 911,
+  "cutMidChip": [],
+  "wrappedAway": [
+   "volc 20·prov · craters 100"
+  ]
+ },
+ "l_popup": {
+  "client": 278,
+  "scroll": 278
+ },
+ "l_contrast_factions": {
+  "texts": 39,
+  "fail": 0,
+  "failures": []
+ },
+ "l_credits_top": "creditsModal",
+ "l_sculpt": {
+  "scrollLeft": 418,
+  "client": 532,
+  "scroll": 950,
+  "hiddenLeft": 5,
+  "barH": 75
+ }
+}
