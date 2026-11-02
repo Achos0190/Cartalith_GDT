@@ -21,7 +21,7 @@ shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
 | `tests/perf/probe_desktopshell.js` | v2.72's Playwright probe (usage in its header) | `tests/perf/probe_desktopshell.js` |
 | `CHANGELOG_v2.73.md`, `CHANGELOG_v2.72.md` | each version's `## v2.7x (DCC line) — …` entry, in `CHANGELOG.md`'s own format | paste at the top of `CHANGELOG.md`, v2.72's first, then v2.73's above it |
 | `CLAUDE_v2.73.md`, `CLAUDE_v2.72.md` | each version's two pastes for the root `CLAUDE.md`: the file-table row (and the phrase to change in the previous row) and the `### … (v2.7x, DCC-line file only)` section | as each file says, v2.72's first |
-| `evidence/v2.73/*.png` | 14 screenshots: the phone at 412×915 (the map with the pull-out tab, the quick drawer, the domain sheet, the domain fan, MENU, the sculpt strip with ✋, the long-press card, left-handed), STORY › Time at 360×780, the landscape phone at 844×390, the tablet at 1194×834 (the Context panel floating, open) and 768×1024 (the narrow bar, ☰ › Preferences drilled in), the desktop at 700×900 (the narrow bar, the left dock floating, open) and 1366×768 | review only; Cartalith_RC needs none of them |
+| `evidence/v2.73/*.png` | 21 screenshots: the phone at 412×915 (the map with the pull-out tab, the quick drawer open with its grip riding the drawer's edge, the domain sheet, the domain fan, MENU, MENU drawn over a settlement's popup, MAP with one View caption and the Scale bar switch, the sculpt strip with ✋, the strip with Settlement armed — no Sculpt rows, the long-press card, left-handed), at 360×780 (STORY › Time, the asset library with ← Map and the bar on screen, MENU › File › Export), the landscape phone at 844×390 (the domain sheet; left-handed, the grip at the sheet's edge), the tablet at 1194×834 (the Context panel floating, open, its pin beside the chevron) and 768×1024 (the narrow bar, ☰ › Preferences drilled in), the desktop at 600×900 (the narrow bar, File › Export drilled in), 700×900 (the left dock floating, open) and 1366×768. The fix pass (2026-11-02) re-took two and added seven | review only; Cartalith_RC needs none of them |
 | `evidence/v2.72/*.png` | v2.72's screenshots (the desktop at four sizes, light and dark, File ▸ Export, the sculpt bar; the phone at 412×915; v2.71; the design board) | review only |
 
 ## The stage plan
@@ -61,8 +61,8 @@ node tests/perf/hash_gen1.js "Cartalith v2.72 DCC test.html" "Cartalith v2.73 DC
 The shells themselves, by real taps, CDP touches, clicks and measured geometry:
 
 ```bash
-node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect 159 passed, 0 failed
-node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: 88 fail, by design
+node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect @@N@@ passed, 0 failed
+node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: @@F72@@ fail, by design
 node tests/perf/probe_desktopshell.js "Cartalith v2.73 DCC test.html" "Cartalith v2.71 DCC test.html"
 ```
 
@@ -95,6 +95,9 @@ done
 - **Rotating a real phone** between portrait and landscape with the sheet open.
 - **Ctrl+R, Ctrl+S, Ctrl+O** on the desktop (v2.72's list), **the 3D view** with real WebGL, and **a screen reader**
   over the menu bar, the phone's bar, sheet and fan.
-- **The pending owner questions** — DS13-Q1, DS13-Q2 and thumb zoom with a drawing or placing tool — are built at
-  their stated defaults and labelled pending; the owner's answers may change three functions (`_ds13DrawKey`,
-  `_tchDown`'s tap branch, `_tchThumbOn`).
+- **The phone frame's gesture figures that are labelled judgements** (the domain tab's swipe, the grip's drag, the
+  drawer's swipe, the sheet's dead band, the click-swallow windows, the card's gap — each named in the file) are
+  set on glass in MS-10. (DS13-Q1, DS13-Q2 and thumb zoom with a drawing or placing tool are no longer open: Ruling
+  EC items 1–4 answered them on 2026-11-01 at exactly the defaults v2.73 builds.)
+- **A sideways swipe on the open quick drawer, and the asset library on a real 360dp phone** (a mobile browser may
+  zoom out rather than widen its layout viewport, as Chrome's emulation does).

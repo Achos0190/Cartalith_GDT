@@ -66,7 +66,11 @@ const AND = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML,
 const DRAWN_SRC = 'window.__pbDrawn=function(e){var r=e.getBoundingClientRect(),L=r.left,T=r.top,R=r.right,B=r.bottom,pos=getComputedStyle(e).position;'
   + 'for(var a=e.parentElement;a&&a!==document.body&&a!==document.documentElement;a=a.parentElement){if(pos==="fixed")break;var s=getComputedStyle(a);'
   + 'if(!(pos==="absolute"&&s.position==="static")){var q=a.getBoundingClientRect();if(s.overflowX!=="visible"){L=Math.max(L,q.left);R=Math.min(R,q.right);}if(s.overflowY!=="visible"){T=Math.max(T,q.top);B=Math.min(B,q.bottom);}}'
-  + 'if(s.position!=="static")pos=s.position;}return {l:L,t:T,r:R,b:B,w:Math.max(0,R-L),h:Math.max(0,B-T)};};';
+  + 'if(s.position!=="static")pos=s.position;}return {l:L,t:T,r:R,b:B,w:Math.max(0,R-L),h:Math.max(0,B-T)};};'
+  /* inside a CLOSED <details> (and not its own summary): Chrome still gives such content layout boxes — measured
+     at 360, #flexure in a closed "Advanced" reported a 44px rect below the summary — but it is never drawn, so it
+     is not a target at all (the first walk counted these as 44px passes) */
+  + 'window.__pbHidden=function(e){for(var a=e.parentElement;a;a=a.parentElement){if(a.tagName==="DETAILS"&&!a.open){var s=a.querySelector(":scope > summary");if(!(s&&(s===e||s.contains(e))))return true;}}return false;};';
 const boot = async (b, vp, touch, init) => {
   VIEWPORTS.add(vp.width + 'x' + vp.height + (touch ? ' touch' : ' mouse'));
   const ctx = await b.newContext({ viewport: vp, hasTouch: !!touch, isMobile: !!touch && vp.width < 1000, userAgent: touch ? AND : undefined });
@@ -77,7 +81,8 @@ const boot = async (b, vp, touch, init) => {
   p._vp = vp;
   p.on('pageerror', e => errors.push(vp.width + 'x' + vp.height + ': ' + e.message));
   p.on('console', m => { if (m.type() === 'error') errors.push(vp.width + 'x' + vp.height + ' console: ' + m.text()); });
-  p.on('dialog', d => d.dismiss().catch(() => {}));
+  /* every dialog is dismissed, unless a step has set p._answer: then the next prompt is answered with it, as typed */
+  p.on('dialog', d => { const ans = p._answer; p._answer = null; (ans != null ? d.accept(ans) : d.dismiss()).catch(() => {}); });
   await p.goto('file://' + path.resolve(FILE));
   await p.waitForFunction(() => typeof window.generate === 'function', { timeout: 60000 });
   p._cdp = await ctx.newCDPSession(p);
@@ -157,7 +162,7 @@ const drawnTargets = (p, roots) => p.evaluate(([roots, sel, VW, VH]) => {
   for (const rs of roots) for (const root of document.querySelectorAll(rs)) for (const e of root.querySelectorAll(sel)) {
     if (seen.has(e)) continue; seen.add(e);
     if (!e.getClientRects().length) continue;
-    const cs = getComputedStyle(e); if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    const cs = getComputedStyle(e); if (cs.visibility === 'hidden' || cs.display === 'none' || window.__pbHidden(e)) continue;
     try { e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_) {}
     const se = document.scrollingElement; if (se) { se.scrollTop = 0; se.scrollLeft = 0; }
     for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) { const s = getComputedStyle(a);
@@ -183,7 +188,7 @@ const overflow = p => p.evaluate(([VW, VH, sel]) => {
   if (document.documentElement.scrollWidth > VW + 1) bad.push('document ' + document.documentElement.scrollWidth + '>' + VW);
   for (const e of document.querySelectorAll(sel)) {
     if (!e.getClientRects().length) continue; const r = e.getBoundingClientRect(); if (!r.width || !r.height) continue;
-    if (getComputedStyle(e).visibility === 'hidden') continue;
+    if (getComputedStyle(e).visibility === 'hidden' || window.__pbHidden(e)) continue;
     const d = window.__pbDrawn(e); if (!d.w || !d.h) continue;
     if (d.l < -1 || d.r > VW + 1 || d.t < -1 || d.b > VH + 1) bad.push((e.id || String(e.className).split(' ')[0] || e.tagName) + ' ' + Math.round(d.l) + '..' + Math.round(d.r) + ' x ' + Math.round(d.t) + '..' + Math.round(d.b));
   }
@@ -302,6 +307,12 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
     A('MAP holds the 2D/3D switch, View and the layers list, and the legend', (await vis(p, '#phPageMap #viewDimSeg')) && (await vis(p, '#phPageMap #modeSeg')) && (await vis(p, '#phPageMap #layersList')) && (await vis(p, '#phPageMap #legend')));
     const caps = await p.evaluate(() => [...document.querySelectorAll('#phPageMap .ph-cap, #phPageMap .lp-grp')].filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden').map(e => e.textContent.trim().toLowerCase()));
     A('MAP draws ONE "View" caption over 2D/3D and the base map\'s mode (not the popover\'s second one)', caps.filter(c => c === 'view').length === 1, JSON.stringify(caps));
+    A('MAP\'s view rows carry the Scale bar switch (CARTO › Map style\'s own, moved there on a phone)', (await vis(p, '#phPageMap #scaleBarChkRow')) && (await p.evaluate(() => !document.getElementById('scaleBarChk').closest('#dockLeft'))));
+    const sb0 = await p.evaluate(() => state.viz.scaleBar !== false);
+    await tap(p, '#phPageMap #scaleBarChkRow');
+    const sb1 = await p.evaluate(() => state.viz.scaleBar !== false);
+    await tap(p, '#phPageMap #scaleBarChkRow');
+    A('...and a tap on it switches the scale bar, and another puts it back', sb1 === !sb0 && (await p.evaluate(() => state.viz.scaleBar !== false)) === sb0, sb0 + ' → ' + sb1);
     await tap(p, '#phPageMap #modeSeg [data-mode="hypso"]');
     A('...and its View row is the real control (Relief takes)', (await p.evaluate(() => state.mode)) === 'hypso');
     await tap(p, '#phPageMap #modeSeg [data-mode="biome"]');
@@ -600,10 +611,19 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
       for (const s of subs) { await tap(p, s); await check('menu ' + m + ' ' + s, ['#phPageMenu']); await tap(p, s); }
       await tap(p, trig);
     }
-    /* the context page, by Window › Context panel */
+    /* the context page: Window › Context panel opens it (empty, nothing selected, it holds no target), so it is
+       measured with a label's editor in it — CARTO's Label tool by its button, a tap on the map, a typed name;
+       the context page opens itself for the new subject */
     await menuPath(p, 'window'); await tap(p, '#mbWindow [data-cmd="winContext"]');
+    A('Window › Context panel opens the context page', await p.evaluate(() => _ph.page === 'context' && _ph.detent !== 'closed'));
+    await toDomain(p, 'carto'); await tap(p, '#phPageDomain [data-civtool="label"]'); await sleep(250);
+    const [lx, ly] = await mapPt(p, 0.4, 0.22); p._answer = 'Probe Reach'; await p.touchscreen.tap(lx, ly); await sleep(600);
+    A('(a tap with the Label tool, and a typed name, makes a label; the context page opens for it)', await p.evaluate(() => !!_civSelectedLabel && _ph.page === 'context' && _ph.detent !== 'closed'));
     if ((await sheetState(p)).det !== 'full') { await tap(p, '#phSheetHandle'); await sleep(250); }
     await check('context', ['#phPageContext']);
+    /* the Label tool disarmed by its own button again, then World by the fan */
+    await toDomain(p, 'carto'); await tap(p, '#phPageDomain [data-civtool="label"]'); await sleep(200);
+    await toDomain(p, 'world');
     /* the drawer, by its grip (closed by its ×, which every build draws) */
     await closeSheet(p); await tapEdge(p, '#phGrip'); await check('drawer', ['#phDrawer', '#phGrip']);
     await tap(p, '#phDrawerClose');

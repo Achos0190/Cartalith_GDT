@@ -847,6 +847,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   /* a narrow desktop window (861-1280px) gives the menus their room first: the readout yields, then
      the search box narrows. The seed and the grid it hides are also the status bar's first chips. */
   @media (max-width:1280px){ :where(html:not([data-shell="phone"])) .doc-readout{display:none} :where(html:not([data-shell="phone"])) header #findInput{width:150px!important} }
+  /* v2.73 note (found by the 2026-11-02 verifier, left as v2.72 shipped it): this rule's .mb-btn padding has
+     never applied — the base `header .mb-btn{…padding:0 10px…}` just below has the same specificity and comes
+     later, so the buttons keep 10px at every width (measured: 469px for the eight at 860 and at 1000). Its h1
+     half does apply. Making the padding live would change stage 1's desktop between 861 and 1000px, which
+     nothing needs: the full bar fits there (812px of content at 860). */
   @media (max-width:1000px){ :where(html:not([data-shell="phone"])) header .mb-btn{padding:0 7px} :where(html:not([data-shell="phone"])) header h1{letter-spacing:.18em;margin-right:6px} }
   :where(html:not([data-shell="phone"])) header .mb-btn{height:36px;padding:0 10px;background:none;border:0;color:var(--ink);font-family:var(--sans);font-size:12.5px;cursor:pointer;white-space:nowrap}
   :where(html:not([data-shell="phone"])) header .mb-btn:hover,:where(html:not([data-shell="phone"])) header .mb-btn[aria-expanded="true"]{background:var(--wash);color:var(--accent)}
@@ -1308,8 +1313,10 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
    mode's four buttons share the row with room around their labels (fix pass: two VIEW headings in a row,
    and "Relief" starting at the selected button's edge) */
 :where(html[data-shell="phone"]) #phPageMap .lp-base > .lp-grp{display:none}
+:where(html[data-shell="phone"]) #phPageMap .ph-map-row{padding:0 16px}
+:where(html[data-shell="phone"]) #phPageMap .ph-map-row label.chk{margin:4px 0}
 :where(html[data-shell="phone"]) #phPageMap #modeSeg{display:flex;margin:8px 0}
-:where(html[data-shell="phone"]) #phPageMap #modeSeg button{flex:1 1 0;padding:0 8px}
+:where(html[data-shell="phone"]) #phPageMap #modeSeg button{flex:1 1 0;padding:0 8px;justify-content:center;text-align:center}
 :where(html[data-shell="phone"]) .ph-story-seg{margin:12px 16px 4px}
 :where(html[data-shell="phone"]) .ph-story-seg button{height:44px}
 :where(html[data-shell="phone"]) .ph-story-pane[hidden]{display:none}
@@ -3118,7 +3125,10 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <label class="chk"><input type="checkbox" id="wavesChk"> Coastal wave lines</label>
       <div class="row"><label for="waveDistR">Wave reach</label><input type="range" id="waveDistR" min="25" max="300" step="5" value="100"><span class="val" id="waveDistV">1.00×</span></div>
       <label class="chk"><input type="checkbox" id="waterAnimChk"> Animate water (flow map) — runs at ≤~1K working res</label>
-      <label class="chk"><input type="checkbox" id="scaleBarChk" checked> Scale bar</label>
+      <!-- v2.73 (fix pass): id'd so the slot table can MOVE it to the phone's MAP page, which the design gives
+           the scale bar (MOBILE_SHELL_PROPOSAL.md §2.1: MAP holds "view (2D/3D, …, scale bar)"); it stays here
+           on the desktop and tablet. One element: on a phone CARTO › Map style no longer lists it. -->
+      <label class="chk" id="scaleBarChkRow"><input type="checkbox" id="scaleBarChk" checked> Scale bar</label>
       <label class="chk"><input type="checkbox" id="landmassLabelChk"> Continent &amp; island names</label>
       <label class="chk"><input type="checkbox" id="multiSun"> Multi-sun lighting (softer, painterly relief)</label>
       <div class="hint">Parchment multiplies a paper-fibre grain and warm tint into the map colours. The icon layer finds ridgelines and forest cover and draws mountain, hill and tree glyphs over the relief &mdash; largest peaks claim the range spine first. Wave lines add concentric foam contours hugging the shore. All are render-only (PNG bakes/layer exports are unchanged) and work with zero assets.</div>
@@ -3498,6 +3508,8 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <div class="ph-page" data-page="map" id="phPageMap" hidden>
       <div class="ph-cap">View</div>
       <span class="shell-slot" id="slotPhMapView"></span>
+      <!-- the scale bar's switch (CARTO › Map style's own #scaleBarChk, moved): the design's MAP › view row -->
+      <div class="ph-map-row"><span class="shell-slot" id="slotPhMapScale"></span></div>
       <span class="shell-slot" id="slotPhMapLayers"></span>
       <div class="ph-cap">Legend</div>
       <span class="shell-slot" id="slotPhMapLegend"></span>
@@ -13109,8 +13121,9 @@ function updateReadout(){
      content at line-height 1.9 — no CSS reflows that into a 26px status band, so the template is
      what had to change. Every figure it showed is still here, in the same order. */
   /* v2.72: the version chip carries .r-ver so the DESKTOP can drop it — there #verTag sits at the
-     status bar's right end (D7) and two copies of one figure in one bar read as noise. A phone, whose
-     #verTag is in its header, still shows this chip; nothing else in this writer changed. */
+     status bar's right end (D7) and two copies of one figure in one bar read as noise. v2.73: it is
+     dropped on every shell, since the phone's status bar (MENU › Status) holds #verTag too (the slot
+     table moves it there); nothing else in this writer changed. */
   document.getElementById('readout').innerHTML=
     `<span class="r-ver">v<b>${VERSION}</b></span>`+
     `<span><b>${GW}×${GH}</b> · ${fmt(GW*GH)} cells</span>`+
@@ -19223,8 +19236,10 @@ bind('carPaintRadius',e=>{ _paintRadius=+e.target.value; document.getElementById
    v2.72: File is now the first of the menu bar's eight menus, and ONE controller owns all eight
    (_dskMenuInit, "v2.72: the desktop shell" below) — two controllers toggling one panel could not
    agree on which menu is open, and hover-switching needs to know. This block's contract moved there
-   unchanged and holds on a phone too: the button toggles, an outside click or Escape closes, the five
-   single-shot rows close it (_DSK_MENU_CLOSE_IDS), and clicks inside the export form do not. */
+   unchanged: the button toggles, an outside click or Escape closes, the five single-shot rows close it
+   (_DSK_MENU_CLOSE_IDS), and clicks inside the export form do not. v2.73: a phone has no File button —
+   File's panel is MENU › File in the phone's sheet, where a single-shot row closes the sheet instead
+   (_phCommandFrom) and the export form still stays open while it is filled in. */
 /* v0.65: Assets header button — enters the full-viewport Asset Library workspace directly (was
    the "Assets" tab's tp==='assets' branch in the tab-switch handler below).
    v0.86 (mobile fix): the ONLY way out used to be clicking a phase tab, which on mobile lives inside
@@ -19966,7 +19981,8 @@ function _dskPress(sel){ const el=/[#\[ .]/.test(sel)?document.querySelector(sel
    It must never read layout or a const declared below: it also runs from the TOP of this script block
    (_shellEarly, hoisted), before the shell exists, so the first paint is already the right shell. */
 function _shellClassOf(w,h,coarse,prev,typingSameWidth){
-  /* the numbers are inline on purpose — see the last paragraph above */
+  /* the numbers are inline on purpose — see the last paragraph above. 600 and 500 are MQ-1's lines (Ruling DY
+     item 13); 16 is MOBILE_SHELL_MS1_SPEC.md's hysteresis band, "16 dp for a dp line" (its Hysteresis rule). */
   const PHONE_W=600, PHONE_LAND_H=500, HYST=16;
   if(!(w>0&&h>0)) return prev||'desktop';
   if(prev&&typingSameWidth) return prev;
@@ -19978,9 +19994,11 @@ function _shellClassOf(w,h,coarse,prev,typingSameWidth){
   return phone?'phone':(coarse?'tablet':'desktop');
 }
 /* the narrow bar (☰ · File · World · Records · Story): the tablet's below 1180 — MOBILE_SHELL_PROPOSAL.md
-   §2.2, Ruling DY PQ6 — and, a judgement of this build, the desktop's below 860. The eight menus measure
-   802px on the desktop bar (v2.72's compact padding), so a 600-860px window with a mouse — the phone layout
-   until v2.73, the desktop shell now that MQ-1 moved the phone line to 600 — would otherwise scroll the page
+   §2.2, Ruling DY PQ6 — and, a judgement of this build, the desktop's below 860. The full bar's content — the
+   wordmark, the eight menus (469px of it), Undo, Redo and Find — measures 812px with a mouse at 860-1000px
+   (fix pass, 2026-11-02: the header's max-content width, scratch barw.js; the first cut said "the eight menus
+   measure 802px", which was wrong twice over), so a 600-860px window with a mouse — the phone layout until
+   v2.73, the desktop shell now that MQ-1 moved the phone line to 600 — would otherwise scroll the page
    sideways; it takes the bar the design already made for that width. A sub-mode for menu placement only:
    never a fourth class. */
 function _shellModeOf(cls,w){ return cls==='tablet'&&w<1180?'tabletN':cls==='desktop'&&w<860?'desktopN':cls; }
@@ -20049,6 +20067,8 @@ const _SHELL_SLOTS=[
   ['layersFab',{d:'slotMapTL',p:'slotPhMapLayers'}], ['explFilterFab',{d:'slotMapTL'}],
   ['viewDimSeg',{d:'slotMapBR',p:'slotPhMapView'}], ['zoomOverlay',{d:'slotMapBR'}],
   ['legend',{p:'slotPhMapLegend'}],
+  /* the scale bar's switch: CARTO › Map style on the desktop and tablet, MAP's view row on a phone (§2.1) */
+  ['scaleBarChkRow',{p:'slotPhMapScale'}],
   /* the armed tool's name and hint: the tool-options bar, or the phone's tool strip */
   ['toolOptsCtx',{p:'slotPhStripCtx'}], ['toolOptsHint',{p:'slotPhStripCtx'}],
   /* the sculpt tool's own settings, in the tool-options bar or the phone's tool strip */
@@ -20378,9 +20398,11 @@ function _dskDocReadoutSync(){
 }
 
 /* --- the menu bar ---------------------------------------------------------------------------------
-   One controller for all eight menus — File included, on a phone too, where it is v2.71's File ▾.
-   v0.87's single-shot File rows close the menu; any other click inside the export form leaves it
-   open, because that section is a form you fill in before pressing Export. */
+   One controller for all eight menus — File included. v2.73: on a phone the same eight panels are MENU's
+   drill-in pages in the sheet (no bar button opens them there); the tablet and the narrow bars drill in too
+   (_dskDrill), and the desktop keeps the cascade. v0.87's single-shot File rows close the menu (on a phone,
+   the sheet); any other click inside the export form leaves it open, because that section is a form you
+   fill in before pressing Export. */
 const _DSK_MENU_CLOSE_IDS=new Set(['loadBtn','inferTectBtn','loadZipBtn','packBtn','exportBtn']);
 /* the bar button whose menu is open, or null (var: _shellPlace may run first) */
 var _dskMenuBtn=null;
@@ -20579,10 +20601,12 @@ function _dskKeydown(e){
    places what exists, and its buttons press the controls this file already has or run _DSK_CMDS. It never
    computes or writes world state, so no render hash moves. Stub-safe: every entry point is either called
    from an event or guarded by _dskReady, and block-2 state is read through _dskV.
-   What waits on the owner, and is marked so where it is decided: DS13-Q1 (✋ only while a drawing tool is
-   armed) and DS13-Q2 (one finger pans with a tap-only tool) are built at their stated defaults, pending
-   (Ruling EB item 1); so is thumb zoom's "off while a drawing or placing tool is armed unless ✋ is on"
-   (MAP_INTERACTION_RESEARCH.md §6's second finding, put to the owner, not decided by it). */
+   The owner's answers on touch panning, Ruling EC items 1-4 (2026-11-01), each marked where it is built:
+   DS13-Q1, ✋ only while a drawing tool is armed (item 1); DS13-Q2, one finger pans with a tap-only tool
+   (item 2); once two fingers have been down nothing more of that touch reaches a tool (item 3, Krita's
+   guard); and thumb zoom and the double-tap off while a drawing or placing tool is armed unless ✋ is on
+   (item 4, MAP_INTERACTION_RESEARCH.md §6's second finding). This build had made each its default before
+   the ruling; the ruling kept every one, so none of it changed when it landed. */
 
 /* one CSS custom property on the root: the stage-2 layout publishes its measured numbers this way. Stub-safe
    (the headless suite's root element has a plain style object), like every entry point in this section. */
@@ -20894,8 +20918,8 @@ function _handSet(h){
 
 /* --- DS-13: the latch follows the armed tool (§2.5, What it replaces, items 3-4) -------------------- */
 /* The DRAWING tools — the ones whose one-finger drag is a stroke: Sculpt, Paint, Territory, Way, Select region
-   and the icon density brush. With one armed, ✋ is drawn at the row's inner end (DS13-Q1's default, pending:
-   Ruling EB item 1), and the latch clears whenever a tool is armed or disarmed (§2.5: "It clears when a tool
+   and the icon density brush. With one armed, ✋ is drawn at the row's inner end (DS13-Q1, answered by Ruling
+   EC item 1: "Only with drawing tools"), and the latch clears whenever a tool is armed or disarmed (§2.5: "It clears when a tool
    is armed or disarmed (new)"), so it never silently survives into a tool whose drag means something else. */
 function _ds13DrawKey(){
   if(typeof _sculptEditorActive==='function'&&_sculptEditorActive()) return 'sculpt';
@@ -20921,8 +20945,8 @@ function _ds13Sync(){
    A capture-phase layer on .canvas-wrap that sees a TOUCH pointer on #view before any tool handler does, and
    decides what the finger means. Mouse and pen are never touched: the desktop is unchanged. What it does:
    - A TAP-ONLY tool (Inspect, Info, Settlement, POI, Route, Label, Icon — and the resting state) gets the
-     press only once it is a tap: the press is withheld; past the slop it becomes a pan of the map (DS13-Q2's
-     default, pending); lifted in place, it is REPLAYED to the tool as the same pointerdown/pointerup/click, so
+     press only once it is a tap: the press is withheld; past the slop it becomes a pan of the map (DS13-Q2,
+     Ruling EC item 2: "Yes, drag pans"); lifted in place, it is REPLAYED to the tool as the same pointerdown/pointerup/click, so
      every tool keeps its one implementation. A press on a label's or icon's own box goes straight through (it
      drags the label or icon).
    - A DRAWING tool keeps the finger (the reference's "one finger keeps painting/drawing"); ✋ hands it to the
@@ -20932,11 +20956,15 @@ function _ds13Sync(){
    - The DOUBLE-TAP zooms ×1.7 at the finger over 240 ms; double-tap, hold and SLIDE zooms continuously about
      where it landed, down in and up out ("Google Maps style", Ruling EB item 3; MAP_INTERACTION_RESEARCH.md
      §2). Both are on with Inspect and Info, and with ✋ on; off while a drawing or placing tool is armed
-     (MAP_INTERACTION_RESEARCH.md §6, put to the owner — pending). While they are on, a tap waits 240 ms for a
-     second press before it acts, so one pair of taps never both acts and zooms (06-phone.md §7).
-   - KRITA'S GUARD (§6's first finding): once two fingers have been down, nothing of that touch reaches a tool
-     until every finger is up; any stroke in progress is cancelled. Two fingers pinch and pan through the
-     existing touch handlers, unchanged. */
+     (Ruling EC item 4: "Off unless ✋ is on"; MAP_INTERACTION_RESEARCH.md §6). While they are on, a tap waits
+     240 ms for a second press before it acts, so one pair of taps never both acts and zooms (06-phone.md §7).
+   - KRITA'S GUARD (§6's first finding; Ruling EC item 3, "nothing more of that touch reaches a drawing
+     tool"): once two fingers have been down, nothing of that touch reaches a tool until every finger is up,
+     and the tool's drag state is cancelled through #view's own pointercancel. What the FIRST finger already
+     drew before the second arrived stays: a direct-paint tool (Territory, Paint) keeps that dab — measured by
+     the 2026-11-02 verifier, 29 cells for a pinch whose fingers land together or 20 ms apart, against v2.72's
+     182 and 91 — while Sculpt's stroke, a draft until lift, adds no stamp. Two fingers pinch and pan through
+     the existing touch handlers, unchanged. */
 /* map_overlay.gd's _TOUCH_SLOP is 28 px, about 10 dp (§2.5); CSS px are dp here */
 const TCH_SLOP=10;
 /* the shipped holds, _PHONE_TOUCH_HOLD_MS and _TOUCH_HOLD_MS (§4) */
@@ -34704,6 +34732,9 @@ function _civCtxShow(e,items,opts){
   document.body.appendChild(m);
   const r=m.getBoundingClientRect();
   { const vr=(typeof _viewportRect==='function')?_viewportRect():{left:0,top:0,right:innerWidth,bottom:innerHeight};   /* v2.24: viewport-clamped, see showSettleInfo */
+    /* gap: how far the card stays from the finger's point, 24px — a LABELLED JUDGEMENT (Ruling BK), none from
+       the design: about a fingertip's half-width, so the thumb that held the map does not cover the card's
+       edge; MS-10 sets it on glass */
     const side=opts&&opts.side, gap=24;
     let x=side==='left'?e.clientX-r.width-gap:side==='right'?e.clientX+gap:e.clientX;
     let y=side?e.clientY-r.height/2:e.clientY;
