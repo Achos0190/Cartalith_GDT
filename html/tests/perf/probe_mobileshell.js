@@ -6,17 +6,18 @@
  *
  * Owner: "Can we upgrade the layout in the html with the new design?", "Everything, staged", and on v2.72's
  * phone capture: "The screenshots on phone don't seem to have the pull-out tab from the side." Design:
- * Cartalith_GDT MOBILE_SHELL_PROPOSAL.md §2.1-§2.5, §3, §4; Rulings DT, DU, DX, DY (MQ-1, Q10-Q12, PQ6), EB.
+ * Cartalith_GDT MOBILE_SHELL_PROPOSAL.md §2.1, §2.2, §2.4, §2.5, §3, §4; Rulings DT, DU, DX, DY (MQ-1, Q10-Q12, PQ6), EB, EC.
  *
  * Every claim is a rendered geometry or a REAL input: page.touchscreen taps, CDP Input.dispatchTouchEvent for
  * drags, holds and two-finger touches (Playwright has no touch drag), page.mouse with a mouse, page.keyboard.
  * The shell is NAVIGATED by those inputs: the bar's tabs, the sheet's head, the fan, MENU's rows, the grip, the
  * domain pages' own tool buttons. A page.evaluate is used for four things only, each marked where it happens:
  *   - SET-UP a person would take minutes over: a world; a settlement under the finger; the icon density brush
- *     armed from the gallery; Territory's radius, faction and raster; every accordion opened by setting
- *     details.open (so the floor walk can measure what an open accordion draws — opening ~200 of them by tap
- *     proves nothing the taps elsewhere do not); Handedness put in storage before a fresh page loads; a probe
- *     id on a row found by its text, so a real tap can be aimed at it;
+ *     armed from the gallery in one older section (the fix round's own ✋ section arms it by taps, because that
+ *     path is what went stale); Territory's radius, faction and raster; every accordion opened by setting
+ *     details.open (so a floor walk can measure what an open accordion draws — opening ~200 of them by tap
+ *     proves nothing the taps elsewhere do not), the Settlements window's included; Handedness put in storage
+ *     before a fresh page loads; a probe id on a row found by its text, so a real tap can be aimed at it;
  *   - READS of what an input changed: the camera, the domain, a raster or icon count, a class, a rect;
  *   - the drawn-rect measure itself (window.__pbDrawn, injected at boot): an element's rect clipped by every
  *     ancestor that clips it, which is what a finger can reach (MISTAKES.md, "Assert a control is present,
@@ -1149,8 +1150,13 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
       const q = await boot(b, { width: w, height: h }, true); await gen(q); await sleep(300);
       await tapEdge(q, '#phTabDomain'); await tap(q, '#worldCatSeg [data-wcat="sculpt"]'); await sleep(350);
       const bad = [];
+      /* where the picker is: the strip in portrait; the top of WORLD › Sculpt in landscape, in the side sheet beside the
+         strip (the mockup's landscape) — and drawn there */
+      const home = await q.evaluate(() => { const f = document.getElementById('sculptFeatureSeg'); const d = window.__pbDrawn(f);
+        return { strip: !!f.closest('#phStrip'), top: !!f.closest('#phSculptOpts'), w: Math.round(d.w), h: Math.round(d.h) }; });
+      A(w + 'x' + h + ': Sculpt\'s feature picker is drawn ' + (land ? 'at the top of WORLD › Sculpt in the side sheet' : 'in the strip'), (land ? home.top : home.strip) && home.w > 100 && home.h > 30, JSON.stringify(home));
       for (const step of ['Sculpt', 'Freehand']) {
-        if (step === 'Freehand') { const id = await q.evaluate(() => { const x = [...document.querySelectorAll('#phStrip #sculptFeatureSeg button')].find(e => /freehand/i.test(e.textContent)); if (x) x.id = '__pbFh'; return !!x; }); if (id) { await tap(q, '#__pbFh'); await sleep(350); } }
+        if (step === 'Freehand') { const id = await q.evaluate(() => { const x = [...document.querySelectorAll('#sculptFeatureSeg button')].find(e => /freehand/i.test(e.textContent)); if (x) x.id = '__pbFh'; return !!x; }); if (id) { await tap(q, '#__pbFh'); await sleep(350); } }
         const g = await q.evaluate(() => {
           const map = document.querySelector('.canvas-wrap').getBoundingClientRect(), st = document.getElementById('phStrip').getBoundingClientRect();
           const out = [];
@@ -1165,6 +1171,22 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
       A(w + 'x' + h + ': with Sculpt (and Freehand) armed the band above the strip keeps ' + (land ? '≥ 200px' : '≥ 50% of the map') + ', and every drawn map control is inside it', bad.length === 0, bad.join(' | '));
       await q._ctx.close();
     }
+  });
+
+  await section('phone: turning the phone carries Sculpt\'s picker between the strip and the side sheet', async () => {
+    const q = await boot(b, { width: 412, height: 915 }, true); await gen(q); await sleep(300);
+    await tapEdge(q, '#phTabDomain'); await tap(q, '#worldCatSeg [data-wcat="sculpt"]'); await sleep(350);
+    const at = () => q.evaluate(() => { const f = document.getElementById('sculptFeatureSeg'), d = window.__pbDrawn(f); return { strip: !!f.closest('#phStrip'), top: !!f.closest('#phSculptOpts'), drawn: d.w > 100 && d.h > 30, n: f.querySelectorAll('button').length }; });
+    const p0 = await at();
+    A('412x915 with Sculpt armed: the picker is the strip\'s', p0.strip && p0.drawn, JSON.stringify(p0));
+    VIEWPORTS.add('915x412 touch (412x915 turned)');
+    await q.setViewportSize({ width: 915, height: 412 }); q._vp = { width: 915, height: 412 }; await sleep(500);
+    const p1 = await at();
+    A('turned to 915x412: the same picker is at the top of WORLD › Sculpt in the side sheet, drawn', p1.top && p1.drawn && p1.n === p0.n, JSON.stringify(p1));
+    await q.setViewportSize({ width: 412, height: 915 }); q._vp = { width: 412, height: 915 }; await sleep(500);
+    const p2 = await at();
+    A('...and turned back, it is the strip\'s again', p2.strip && p2.drawn && (await dupIds(q)).length === 0, JSON.stringify(p2));
+    await q._ctx.close();
   });
 
   await section('phone 360: the Settlements window\'s four tabs — 44px targets, and sliders that keep their width', async () => {

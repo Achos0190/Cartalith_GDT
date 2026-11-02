@@ -29,7 +29,7 @@ shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
 1. **Stage 1 — v2.72: the desktop shell** (then: windows wider than 860px). The menu bar with the eight menus, the
    tool-options bar holding the armed tool's settings only (Ruling DZ), Run in the WORLD dock, the rail on the left,
    the Context panel (Inspect), the timeline strip in every domain, the restyled status bar and map controls.
-2. **Stage 2 — v2.73: the phone and tablet shells**, from `MOBILE_SHELL_PROPOSAL.md` §2.1–§2.5, §3, §4 and Rulings DT,
+2. **Stage 2 — v2.73: the phone and tablet shells**, from `MOBILE_SHELL_PROPOSAL.md` §2.1, §2.2, §2.4, §2.5, §3, §4 and Rulings DT,
    DU, DX, DY, EB and EC (items 1–4). One decider for the class (phone under 600px wide or under 500px tall in
    landscape; tablet for any other coarse primary pointer; desktop for a fine one), CSS keyed on `html[data-shell]`,
    the slot table generalised to every shell; the phone's bottom bar, app bar, sheet, MENU, STORY, tool strip, quick
@@ -61,14 +61,16 @@ node tests/perf/hash_gen1.js "Cartalith v2.72 DCC test.html" "Cartalith v2.73 DC
 The shells themselves, by real taps, CDP touches, clicks and measured geometry:
 
 ```bash
-node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect 237 passed, 0 failed
-node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: 117 fail, by design
+node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect @@N@@ passed, 0 failed
+node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: @@F72@@ fail, by design
 node tests/perf/probe_desktopshell.js "Cartalith v2.73 DCC test.html" "Cartalith v2.71 DCC test.html"
 ```
 
 `probe_desktopshell.js` on v2.73 fails four, all by design (CHANGELOG v2.73 classifies them): the two version checks
 (v2.72 → v2.73) and its two phone sections, which pin v2.71's phone (the ☰ drawer, the document bar) that stage 2
-replaced. Every desktop assertion passes unchanged.
+replaced. Every desktop assertion passes unchanged. Run it alone on the machine: under load its *"NEW SEED is
+clickable in the dock and generates"* failed once in the 2026-11-02 verifiers' runs and passed in isolation every time;
+it now prints its three parts (clicked, in the dock, generates run), so a red run says which — re-run before believing it.
 
 Every Playwright script reads `PLAYWRIGHT_DIR` and `CHROME_BIN` as the other probes in that folder do; unset
 `CHROME_BIN` if its default path does not exist on the machine.
@@ -101,3 +103,7 @@ done
   EC items 1–4 answered them on 2026-11-01 at exactly the defaults v2.73 builds.)
 - **A sideways swipe on the open quick drawer, and the asset library on a real 360dp phone** (a mobile browser may
   zoom out rather than widen its layout viewport, as Chrome's emulation does).
+- **Fix round 2's three device checks**: a pinch on the sheet or the app bar must not zoom the page (Android's *Force
+  enable zoom* may override `touch-action`); a field focused in the sheet must stay above the keyboard (proved
+  headless only for a keyboard that resizes the layout viewport, which Chrome on Android does not do by default); and
+  a hold on the domain tab lifted in place must leave the fan open, its lift's click spent on the new scrim.

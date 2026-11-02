@@ -1447,19 +1447,20 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 /* fix round 2: Sculpt's strip is its name, the feature picker as ONE row of chips, and Commit / Discard —
    the rest of its settings are at the top of WORLD › Sculpt (#phSculptOpts). Its name carries no hint, so
    the name may yield to Commit / Discard on the first row (basis 96px, ellipsised: the mockup's strip
-   ellipsises "SCULPT · MOUNTAI…" the same way), and the chips take the second. In landscape the name has a
-   row of its own and the chips share the second with Commit / Discard, so the strip is two rows wherever
-   the side sheet leaves it narrow — measured, 226px tall at 844x390 in the first cut. #phStrip[data-tool]
-   is written by _phStripSync. */
+   ellipsises "SCULPT · MOUNTAI…" the same way), and the chips take the second. In LANDSCAPE the picker's
+   home is the top of WORLD › Sculpt too (_SHELL_SLOTS `pl`), in the side sheet beside the strip, as the
+   mockup's landscape draws it, so the strip there is the name and Commit / Discard — one row, two where the
+   side sheet leaves it narrow (the first cut's was 226px tall at 844x390). The empty group is not drawn.
+   #phStrip[data-tool] is written by _phStripSync. */
 :where(html[data-shell="phone"]) #phStrip[data-tool="sculpt"] .ph-strip-main{flex-basis:96px}
-:where(html[data-shell="phone"][data-orient="land"]) #phStrip[data-tool="sculpt"] .ph-strip-main{flex:1 1 100%}
-:where(html[data-shell="phone"][data-orient="land"]) #phStrip[data-tool="sculpt"] .ph-strip-tool{flex:1 1 0;order:2}
-:where(html[data-shell="phone"][data-orient="land"]) #phStrip[data-tool="sculpt"] .ph-strip-act{order:3}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-strip-tool{display:none}
 /* the sculpt tool's other settings at the top of WORLD › Sculpt (the phone's domain page): the feature's
    hint first, then Freehand's mode, the brush size with its km readout, hardness and intensity */
 :where(html[data-shell="phone"]) #phSculptOpts{display:flex;flex-direction:column;gap:2px}
+:where(html[data-shell="phone"]) #phSculptOpts[hidden]{display:none}
 :where(html[data-shell="phone"]) #phSculptOpts #sculptFeatHint{order:-1;margin:0 0 6px!important}
 :where(html[data-shell="phone"]) #phSculptOpts #sculptModeSeg{margin:0 0 6px!important}
+:where(html[data-shell="phone"]) #phSculptOpts #sculptFeatureSeg{margin:0 0 6px}
 :where(html[data-shell="phone"]) #phSculptOpts .row{margin:4px 0}
 :where(html[data-shell="phone"]) #phSculptOpts #sBrushKm{margin:0 0 4px!important}
 /* the map's controls: DS-13 at the bottom on the dominant hand's side, above the sheet and the strip
@@ -2369,6 +2370,19 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <button type="button" class="dh-btn" id="dockLeftCollapse" aria-expanded="true" title="Collapse the left dock (Window ▸ Left dock)" aria-label="Collapse the left dock">‹</button>
     </div>
 
+    <!-- v2.73 (fix round 2): on a PHONE, while Sculpt is armed, the sculpt tool's settings — the feature's hint,
+         Freehand's mode, Brush size with its km readout, Hardness and Intensity, and in landscape the feature
+         picker too — sit HERE, first on the domain page (WORLD › Sculpt), above its tools and categories:
+         MOBILE_SHELL_PROPOSAL.md §2.1, "Tapping the strip's tool chip opens the full options at the top of the
+         domain sheet"; the mockup's domain sheet leads with them (Shell.dc.html domainRows → toolOptRows), and
+         its landscape side sheet shows them beside the strip. The slot table moves the same elements here
+         (`p`; the picker's `pl`); the strip keeps the picker (in portrait) and Commit / Discard. The first cut
+         put every one of them in the strip: measured by the 2026-11-02 verifiers at 323px tall at 412x915 and
+         226px at 844x390, leaving a 100px map band in landscape, against the mockup's 66px strip. Drawn only
+         while Sculpt is armed (_phStripSync writes [hidden]), as the desktop bar's sculpt group is. Phone only
+         (.ph-only): on the desktop and the tablet these elements are the tool-options bar's. -->
+    <div class="sec ph-only" id="phSculptOpts" hidden><span class="shell-slot" id="slotPhSculptOpts"></span></div>
+
     <!-- UNIFIED TOOLS BLOCK — v2.24-------------------------------------------------------------
          The three palettes used to live one-per-domain-body, so an armed tool's contextual options
          (POI kind, territory radius, way type, icon gallery, Info readout) could be hidden by a
@@ -3268,16 +3282,8 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
          bar's end (the design's tablet bar carries them); on a phone the picker is the tool strip's
          (#phStrip), as one row of chips, with Commit and Discard. The rail band is drawn on no shell.
          Still read by id. On the desktop Commit and Discard stay below in this stage. -->
-    <!-- v2.73 (fix round 2): on a PHONE the sculpt tool's other settings — the feature's hint, Freehand's
-         mode, Brush size with its km readout, Hardness and Intensity — sit HERE, at the top of WORLD ›
-         Sculpt, which is the phone's domain page (MOBILE_SHELL_PROPOSAL.md §2.1: "Tapping the strip's tool
-         chip opens the full options at the top of the domain sheet"; the mockup's domain sheet leads with
-         them too, Shell.dc.html toolOptRows). The slot table moves the same elements here; the strip
-         keeps only the picker and Commit / Discard. The first cut put every one of them in the strip:
-         measured by the 2026-11-02 verifiers at 323px tall at 412x915 and 226px at 844x390, leaving a
-         100px map band in landscape, against the mockup's 66px strip. Phone only (.ph-only): on the
-         desktop and the tablet these elements are the tool-options bar's. -->
-    <div class="sec ph-only" id="phSculptOpts"><span class="shell-slot" id="slotPhSculptOpts"></span></div>
+    <!-- (v2.73, fix round 2: on a phone these settings sit at the top of the domain page while Sculpt is
+         armed — #phSculptOpts, the left dock's first section) -->
 
     <div class="sec">
       <h2>Presets</h2>
@@ -3291,7 +3297,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <!-- v2.72: the three BRUSH rows (size, hardness, intensity) and the size's km readout are the sculpt
            tool's own settings, so on the desktop they sit in the tool-options bar while Sculpt is armed
            (Ruling DZ: "only keep the paint/sculpt brush settings here"). The slot table moves these same
-           elements there (and, v2.73, on a phone to the top of this Sculpt page, #phSculptOpts above);
+           elements there (and, v2.73, on a phone to the top of the domain page while Sculpt is armed, #phSculptOpts);
            sculptSyncGlobalSliders() and the input handlers find them by id, as always.
            The noise rows below are the stamp's procedural shape and stay in the dock. -->
       <div class="row" id="sBrushRow" style="margin-top:8px"><label for="sBrush">Brush size</label><input type="range" id="sBrush" min="6" max="200" step="1"><span class="val" id="sBrushV"></span></div>
@@ -3314,7 +3320,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <h2 id="sculptFeatureControlsTitle">Feature parameters</h2>
       <!-- v2.72: Freehand's sub-mode (Raise · Lower · Smooth · …) is the brush's MODE, so on the desktop
            this strip joins the brush rows in the tool-options bar (the slot table; v2.73: on a phone, the
-           brush rows' place at the top of this page, #phSculptOpts); it is filled and shown by
+           brush rows' place at the top of the domain page, #phSculptOpts); it is filled and shown by
            sculptBuildFeatureControls() by id, wherever it sits. -->
       <div id="sculptModeSeg" class="seg sm" style="display:none;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="sculptFeatureControls"></div>
@@ -3604,7 +3610,8 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
      while SCULPT is the armed tool: the slot keeps the picker whatever is armed, so the group itself is what
      hides (fix pass 2026-11-02 — the first cut drew Sculpt's picker and brush under Settlement, Route and
      Label, against Ruling DZ: "the armed tool's settings only"). Fix round 2: Sculpt's brush, mode and
-     feature hint are at the top of WORLD › Sculpt (#phSculptOpts), not here — the strip stays two rows. -->
+     feature hint are at the top of WORLD › Sculpt (#phSculptOpts), not here — the strip stays two rows — and in
+     landscape the picker is there too, in the side sheet beside the strip. -->
 <div class="ph-strip ph-only" id="phStrip" hidden role="toolbar" aria-label="Armed tool">
   <div class="ph-strip-main"><span class="shell-slot" id="slotPhStripCtx"></span></div>
   <div class="ph-strip-tool" id="phStripTool" hidden><span class="shell-slot" id="slotPhStripTool"></span></div>
@@ -18143,15 +18150,16 @@ function _findPanelOwners(){
          submenu — the same two clicks a person makes. */
   /* v2.73 (fix pass): (2) holds on a phone too, for the tool strip's sculpt group (#phStripTool), drawn only
      while Sculpt is armed (v2.72's rule above: Find must own every container a control can sit in). Fix
-     round 2: on a phone the group holds only the feature picker now; Brush size, Hardness and Intensity sit
-     at the top of WORLD › Sculpt (#phSculptOpts), inside #genSculpt, so (1)'s #genSculpt owner reveals them
-     — the World rail, then the Sculpt category — and _phRevealFor opens the domain page over them. */
+     round 2: on a phone the group holds only the feature picker now (in portrait); Brush size, Hardness and
+     Intensity sit at the top of the domain page while Sculpt is armed (#phSculptOpts, the left dock's first
+     section, drawn only then), so it is a fourth owner of the same kind — the World rail, then the Sculpt
+     category, which arms it — and _phRevealFor opens the domain page over them. */
   { const wr=document.querySelector('#domainRail [data-domain="world"]'),
           ct=document.querySelector('#worldCatSeg [data-wcat="terrain"]'), cs=document.querySelector('#worldCatSeg [data-wcat="sculpt"]'),
           gw=document.getElementById('genWorld'), gs=document.getElementById('genSculpt'), tt=document.getElementById('toolOptsTool'),
-          ps=document.getElementById('phStripTool');
+          ps=document.getElementById('phStripTool'), po=document.getElementById('phSculptOpts');
     if(gw&&ct) out.push({panel:gw,btn:ct});
-    for(const p of [gs,tt,ps]) if(p&&cs){ if(wr) out.push({panel:p,btn:wr}); out.push({panel:p,btn:cs}); } }
+    for(const p of [gs,tt,ps,po]) if(p&&cs){ if(wr) out.push({panel:p,btn:wr}); out.push({panel:p,btn:cs}); } }
   for(const mb of document.querySelectorAll('.mb-btn')){ const p=document.getElementById(mb.getAttribute('aria-controls')); if(p) out.push({panel:p,btn:mb,menu:true}); }
   for(const sr of document.querySelectorAll('.mb-sub > [data-sub]')){ const sp=sr.parentElement.querySelector(':scope > .mb-subpanel'); if(sp) out.push({panel:sp,btn:sr,menu:true}); }
   return out;
@@ -20223,8 +20231,11 @@ const _SHELL_SLOTS=[
   /* the sculpt tool's own settings, in the tool-options bar. On a phone the strip keeps only the feature
      picker, as one row of chips; the rest go to the top of WORLD › Sculpt, the phone's domain page
      (§2.1: "Tapping the strip's tool chip opens the full options at the top of the domain sheet") — fix
-     round 2: all of them in the strip made it 323px tall at 412x915 and left a 100px map band at 844x390 */
-  ['sculptFeatureSeg',{d:'slotToolDesk',p:'slotPhStripTool'}], ['sculptModeSeg',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
+     round 2: all of them in the strip made it 323px tall at 412x915 and left a 100px map band at 844x390.
+     `pl`: a phone in LANDSCAPE puts the picker there too, as the mockup's landscape does — the side sheet
+     beside the strip shows WORLD › Sculpt, and beside the sheet the strip is too narrow for a chip row next
+     to Commit and Discard (41px of chips at 740x360, measured); _shellApply re-places it on a turn. */
+  ['sculptFeatureSeg',{d:'slotToolDesk',p:'slotPhStripTool',pl:'slotPhSculptOpts'}], ['sculptModeSeg',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
   ['sBrushRow',{d:'slotToolDesk',p:'slotPhSculptOpts'}], ['sBrushKm',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
   ['sHardRow',{d:'slotToolDesk',p:'slotPhSculptOpts'}], ['sIntenRow',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
   ['sculptFeatHint',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
@@ -20254,11 +20265,12 @@ const _SHELL_SLOTS=[
   ['mbPrefs',{n:'slotMorePrefs',p:'slotPhMenuPrefs'}], ['mbWindow',{n:'slotMoreWindow',p:'slotPhMenuWindow'}],
   ['mbHelp',{n:'slotMoreHelp',p:'slotPhMenuHelp'}],
 ];
-/* the slot an element takes in a mode, or null for its markup home. A row's `pa` is its phone home while
-   Assets mode is on (only the Assets toggle has one); _assetsModeOn is read through _dskV, never typeof. */
+/* the slot an element takes in a mode, or null for its markup home. On a phone two states can move a row:
+   `pa` is its home while Assets mode is on (the Assets toggle's), `pl` its home in landscape (Sculpt's
+   picker's), else `p`. _assetsModeOn is read through _dskV, never typeof; the orientation is the decider's. */
 function _shellSlotFor(row,mode){
   const s=row[1];
-  if(mode==='phone') return (s.pa&&_dskV(()=>_assetsModeOn,false)?s.pa:s.p)||null;
+  if(mode==='phone') return (s.pa&&_dskV(()=>_assetsModeOn,false)?s.pa:(s.pl&&_shellOrient==='land'?s.pl:s.p))||null;
   if(mode==='tabletN') return (s.n!==undefined?s.n:(s.t!==undefined?s.t:s.d))||null;
   if(mode==='desktopN') return (s.n!==undefined?s.n:s.d)||null;
   if(mode==='tablet') return (s.t!==undefined?s.t:s.d)||null;
@@ -20313,7 +20325,9 @@ function _shellApply(){
   _shellLastW=n.w;
   /* the orientation can change without the class (a phone turned on its side stays a phone), so it is
      written before the early return; the caller's resize path re-lays the phone out (_phLayout) */
-  if(n.orient!==_shellOrient){ _shellOrient=n.orient; document.documentElement.setAttribute('data-orient',_shellOrient); }
+  if(n.orient!==_shellOrient){ _shellOrient=n.orient; document.documentElement.setAttribute('data-orient',_shellOrient);
+    /* a row whose phone home depends on the orientation (`pl`) moves with the turn (fix round 2) */
+    if(_shellPlaced==='phone') for(const r of _SHELL_SLOTS) if(r[1].pl) _shellPlaceRow(r[0]); }
   if(n.cls===_shell&&mode===_shellMode&&_shellPlaced===mode) return false;
   _shell=n.cls; _shellMode=mode;
   document.documentElement.setAttribute('data-shell',_shell);
@@ -20605,9 +20619,10 @@ function _dskMenuPanelOf(btn){ return btn?_dskEl(btn.getAttribute('aria-controls
 /* a (sub)menu's own rows, in order: visible, enabled buttons whose nearest menu is this one */
 function _dskMenuRows(panel){ return [...panel.querySelectorAll('button')].filter(b=>!b.disabled&&b.getClientRects().length&&b.closest('.mb-subpanel,.mb-panel')===panel); }
 /* A row's reason line (fix round 2): on the TOUCH shells a disabled row carries `why` as a second line
-   (.mb-why), because there no key raises the command's `refused` — on a phone, none at all. The desktop keeps
-   v2.72's rows exactly (no span is left in them), and raises the reason when a key fires (`refused`). It
-   writes presentation only: never the row's enabled state, which _dskMenuSync reads from the real control. */
+   (.mb-why) — a phone has no key at all, and a tablet's menus are its way in. The desktop keeps v2.72's rows
+   exactly (no span is left in them); there Ctrl+R on a finalized world still raises its reason as an alert
+   (generate's `refused`). It writes presentation only: never the row's enabled state, which _dskMenuSync reads
+   from the real control. */
 function _dskWhySet(b,text){
   if(!(_shell==='phone'||_shell==='tablet')) text='';
   let w=b.querySelector(':scope > .mb-why');
@@ -21057,14 +21072,17 @@ function _phToolArmed(){
    (#phStripTool) holds Sculpt's feature picker and nothing else, so it is drawn for Sculpt only: the slot
    table keeps the picker in the strip on a phone whatever is armed (Ruling DZ, "the armed tool's settings
    only"; the first cut drew Sculpt's rows under every tool). Sculpt's other settings are at the top of
-   WORLD › Sculpt (#phSculptOpts), one tap away on the domain tab. data-tool names the armed tool for the
-   CSS (Sculpt's two-row layout). It must never arm or disarm anything: it only reads the armed tool. */
+   WORLD › Sculpt (#phSculptOpts), one tap away on the domain tab — the picker too in landscape, where the
+   side sheet beside the strip shows that page (the group is then empty and not drawn). data-tool names the
+   armed tool for the CSS. It must never arm or disarm anything: it only reads the armed tool. */
 function _phStripSync(){
   const s=_dskEl('phStrip'); if(!s) return;
   const key=_shell==='phone'?_phToolArmed():'';
   s.hidden=!key;
   if(s.dataset) s.dataset.tool=key;
   { const tg=_dskEl('phStripTool'); if(tg) tg.hidden=key!=='sculpt'; }
+  /* the domain page's first section, Sculpt's settings, is drawn while Sculpt is armed, as the bar's group is */
+  { const po=_dskEl('phSculptOpts'); if(po) po.hidden=key!=='sculpt'; }
   const act={sculpt:['sculptCommitBtn','sculptDiscardBtn'],draw_way:['civCommitWayBtn'],route:['civCommitRouteBtn']}[key]||[];
   for(const id of ['sculptCommitBtn','sculptDiscardBtn','civCommitWayBtn','civCommitRouteBtn']){ const b=_dskEl(id); if(b&&b.classList) b.classList.toggle('ph-act-off',!act.includes(id)); }
   if(key&&key!==_ph.armed&&(_ph.detent==='half'||_ph.detent==='full')) _phSheetSet(null,'peek');

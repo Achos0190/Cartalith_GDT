@@ -59,8 +59,9 @@ const spyGenerate = p => p.evaluate(() => { if (window.__genSpy) return; window.
 /* wait out whatever the last input queued: the busy chain, then the busy overlay itself (v2.73 fix round 2 —
    _busyChain is the chain as it was when this is CALLED, so on a loaded machine a step could read a count
    before the operation behind the chain had finished; _busyDepth reaching 0 is the overlay's own "done") */
-const settle = async p => { await p.evaluate(() => (typeof _busyChain !== 'undefined' ? _busyChain : Promise.resolve()));
-  await p.waitForFunction(() => typeof _busyDepth === 'undefined' || _busyDepth === 0, null, { timeout: 60000 }).catch(() => {});
+const settle = async (p, holdingOverlay) => { await p.evaluate(() => (typeof _busyChain !== 'undefined' ? _busyChain : Promise.resolve()));
+  /* a step that holds the overlay up itself (the busy-key rule) must not wait for it to drop */
+  if (!holdingOverlay) await p.waitForFunction(() => typeof _busyDepth === 'undefined' || _busyDepth === 0, null, { timeout: 60000 }).catch(() => {});
   await sleep(120); };
 const vis = (p, sel) => p.evaluate(sel => { const e = document.querySelector(sel); if (!e) return false;
   const r = e.getBoundingClientRect(); const cs = getComputedStyle(e);
@@ -166,7 +167,7 @@ const row = async (p, btnSel, cmd, sub) => {
          reload the page nor queue a second run behind the one in progress */
       const gb = await gens();
       await p.evaluate(() => { showBusy('generating…'); window.__noReload = 1; });
-      await p.keyboard.press('Control+r'); await settle(p);
+      await p.keyboard.press('Control+r'); await settle(p, true);
       const KB = await p.evaluate(() => ({ g: window.__gens, still: window.__noReload === 1 }));
       await p.evaluate(() => hideBusy());
       A('Ctrl+R under the busy overlay does nothing — no reload, nothing queued', KB.g === gb && KB.still, JSON.stringify(KB) + ' from ' + gb);

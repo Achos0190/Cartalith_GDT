@@ -3,22 +3,26 @@
 Owner: *"Can we upgrade the layout in the html with the new design?"* — then *"A working copy in this repo"* and
 *"Everything, staged"* (stage 1 was v2.72's desktop shell; stage 2 is this; stage 3 is the Context panel's modules
 and the planner window). Looking at v2.72's phone capture: *"The screenshots on phone don't seem to have the
-pull-out tab from the side."* Design: Cartalith_GDT `MOBILE_SHELL_PROPOSAL.md` §2.1–§2.5, §3 and §4, with Rulings
-DT, DU, DX, DY (MQ-1, Q10–Q12, PQ6), EB and EC (items 1–4, which answered EB's open touch questions), and the mockup
-`design/mobile-shell-2026-10-31/Live.dc.html`.
+pull-out tab from the side."* Design: Cartalith_GDT `MOBILE_SHELL_PROPOSAL.md` §2.1, §2.2, §2.4 and §2.5, §3 and §4,
+with Rulings DT, DU, DX, DY (MQ-1, Q10–Q12, PQ6), EB and EC (items 1–4, which answered EB's open touch questions),
+and the mockup `design/mobile-shell-2026-10-31/Live.dc.html`. §2.3 (New World, kept as shipped, plus auto-populate)
+is not in this build, and three other design items are not either: *Not in this build* lists each with its reason
+(the first cut cited "§2.1–§2.5" and listed none of them).
 `tests/run.sh` **1280/0**, `run_um.sh` **882/0**, `hash_gen1.js` vs v2.72 **ALL IDENTICAL**. Verification is
-`tests/perf/probe_mobileshell.js`: **237 assertions** over the **15 viewports** it lists on its last lines (phone
-360×780, 375×812, 412×915 and 844×390, the 412×915 phone turned to 915×412 and squeezed to 412×380 by a keyboard;
-tablet 768×1024, 1024×768 and 1194×834; the narrow tablet bar at 600×960; desktop 600, 700, 870 and 900 wide and
-1366×768). It **navigates the shell only by real input** — touchscreen taps, CDP touches for drags, holds and two
-fingers, the mouse, the keyboard — and uses `page.evaluate` for four things, each marked where it happens: SET-UP a
-person would take minutes over (a world; a settlement under the finger; the icon density brush armed from the
-gallery; Territory's radius and faction; every accordion opened for the floor walk; Handedness in storage before a
-fresh page), READS of what an input changed, the drawn-rect measure (a control's rect clipped by whatever clips
-it, which is what a finger can reach), and RESETS between steps after their assertions (the theme put back, a
-window a step opened closed, a selection cleared), on which no assertion rests. Run on v2.72 it fails **117**
-and passes 36 (a section that cannot run there fails once, by name); run on this version's **first cut**, before
-the fix pass below, it fails **57** — every one of the verifiers' defects fails its own section there.
+`tests/perf/probe_mobileshell.js`: **@@N@@ assertions** over the **@@V@@ viewports** it lists on its last lines
+(phone 360×780, 375×812, 412×915, 844×390 and 740×360, the 412×915 phone turned to 915×412 and squeezed to 412×380
+by a keyboard; tablet 768×1024, 1024×768 and 1194×834; the narrow tablet bar at 600×960; desktop 600, 700, 870 and
+900 wide and 1366×768). It **navigates the shell only by real input** — touchscreen taps, CDP touches for drags,
+holds and two fingers, the mouse, the keyboard — and uses `page.evaluate` for four things, each marked where it
+happens: SET-UP a person would take minutes over (a world; a settlement under the finger; the icon density brush
+armed from the gallery in one older section — the fix round's own ✋ section arms it by taps; Territory's radius
+and faction; every accordion opened for a floor walk, the Settlements window's included; Handedness in storage
+before a fresh page), READS of what an input changed, the drawn-rect measure (a control's rect clipped by whatever
+clips it, which is what a finger can reach), and RESETS between steps after their assertions (the theme put back,
+a window a step opened closed, a selection cleared), on which no assertion rests. Run on v2.72 it fails
+**@@F72@@** and passes @@P72@@ (a section that cannot run there fails once, by name); run on this version's
+**first cut**, before the fix pass below, it fails **@@F1@@**; run on the fix pass's final bytes (`52f7d61b…`),
+before fix round 2, it fails **@@FR1@@** — each verifier's defect fails its own section on the build it was found in.
 
 - **This entry's first cut overstated its own method, and the probe's header did too** (found by the 2026-11-02
   verifiers). It said "159 assertions, all real taps" and "at seven sizes", and the probe's header said a
@@ -57,10 +61,14 @@ the fix pass below, it fails **57** — every one of the verifiers' defects fail
   (the status chips at 1560/1180/900, the docks at 1440) stay media queries.
 - **One control, one home per shell (`_SHELL_SLOTS`, `_shellPlace`).** v2.72's `_DSK_SLOTS` (one desktop slot per
   control across 860px) is generalised to a home per layout MODE — desktop, tablet (defaults to the desktop's),
-  the narrow bar (below), phone — with the markup position as the home a mode leaves blank: **47 rows, 37 slots**
-  (counted from the file's `_SHELL_SLOTS`, 2026-11-02; the fix pass added the scale bar's switch).
-  Still one element moved, never cloned: a comment marker records the markup home on the first move and the way
-  back is "insert after the marker". Seed, ⟳ New seed, Center landmasses, Generate world and View now have ONE home
+  the narrow bar (below), phone — with the markup position as the home a mode leaves blank: **47 rows, 40 slots**
+  (counted from the file's `_SHELL_SLOTS` by a script, 2026-11-02; the fix pass added the scale bar's switch, fix
+  round 2 three slots: the top of WORLD › Sculpt, the tablet bar's Commit and Discard, and the Assets toggle's place
+  in the app bar). Still one element moved, never cloned: a comment marker records the markup home on the first move
+  and the way back is "insert after the marker". Two rows have a phone home that depends on a state, not only on
+  the mode: the Assets toggle's is the app bar while the library is open (`pa`), and Sculpt's picker's is the top
+  of WORLD › Sculpt in landscape (`pl`); each is re-placed alone by `_shellPlaceRow`, which keeps the table's order
+  inside the slot. Seed, ⟳ New seed, Center landmasses, Generate world and View now have ONE home
   on every shell (WORLD › Generate › Run; the Base map chip's popover), so their markup moved there and the v2.24
   document bar is gone.
 - **The phone (MOBILE_SHELL_PROPOSAL.md §2.1).** A **bottom bar** — MAP · the domain tab · STORY · MENU, 64px of
@@ -73,7 +81,11 @@ the fix pass below, it fails **57** — every one of the verifiers' defects fail
   - **the domain tab** reads GENERATE, CIVIL, CARTO or EXPLORE (still a domain until stage 3); its page is **the left
     dock itself**. A tap opens it; a **380ms hold opens the domain fan** (slide and lift, or tap); a **sideways
     swipe** cycles; the sheet title's **▾** opens the same fan, so the hold is never the only way (§2.1). Fan rows
-    run Window › Workspace's own commands, which press the rail's buttons. Four dots show the current domain.
+    run Window › Workspace's own commands, which press the rail's buttons. Four dots show the current domain. **The
+    fan lies over a scrim** (z 39, as the mockup draws one), so the tap that dismisses it is spent on the scrim. Fix
+    round 2: the first cut closed the fan from a capture-phase press and let that press through — with Settlement
+    armed, a tap meant only to dismiss the fan dropped a settlement (which `_civDropPlace` does not put on the undo
+    stack), with Territory armed it painted 81 cells, and a tap where + is zoomed.
   - **MAP**: under one View caption the 2D/3D switch, the base map's View (Biome · Relief · Height · Shade) and the
     **Scale bar** switch — CARTO › Map style's own `#scaleBarChk` row, moved there on a phone, since the design's MAP
     holds "view (2D/3D, North up, Fit world, grid, scale bar)" — then the layers list with its opacity (the Base map
@@ -84,26 +96,45 @@ the fix pass below, it fails **57** — every one of the verifiers' defects fail
     collapse/recovery simulator) and Journeys (the journey list and the planner). Only the segments this file has:
     there is no conflict entity (the one "conflict" is a collapse-simulator character) and no note editor (v2.11
     shows a native save's vault links read-only), so CONFLICTS and NOTES are not drawn.
-  - **MENU**: the eight desktop menus **row for row, but for two stated drops** (Ruling DT Q2, Ruling DX Q13) — the
-    eight `.mb-panel`s themselves, moved, so one command model (`_DSK_CMDS`) has two renderings. The two drops are
-    Window › Status bar and Window › Domain rail, which toggle bands a phone does not draw (its status is MENU ›
-    Status, its rail the bottom bar, which never hides): `.dk-only` on the rows, and a row in *Not in this build*
-    below. They are drawn as drill-in lists with **48px rows**;
+  - **MENU**: the eight desktop menus row for row, as Ruling DT Q2 and Ruling DX Q13 ask — the eight `.mb-panel`s
+    themselves, moved, so one command model (`_DSK_CMDS`) has two renderings — **with two departures the owner has
+    not ruled on**, stated in *Not in this build* for an answer: Window › Status bar and Window › Domain rail are not
+    drawn (this file leaves out a row with nothing behind it, and a phone has neither band — but DX Q13's one ruled
+    exception is PQ10's two rows, and the mockup draws both), and Window › Left dock and Context panel are commands,
+    not checks (PQ13 says the Context panel row stays a check that "shows or hides the selection sheet"). The first
+    cut presented the two drops as covered by DT Q2 and DX Q13; neither covers them. They are drawn as drill-in lists
+    with **48px rows**;
     Quick first (Save, Settlements, Asset library, Journey planner: rows that run the pins' commands), Status last
     (`#statusBar`, moved). A drill-in level hides its siblings and the row you came through is the way back. No
     accelerator is drawn (none fires on a phone, Ruling DX PQ10). A row that ran a command closes the sheet unless
-    the command opened a page of it.
+    the command opened a page of it. **A row that cannot run says why** (§3: "drawn with its reason as a second line
+    in #ebc080, never only greyed"; fix round 2 — the first cut only greyed it at .45): each `_DSK_CMDS` entry that can
+    be disabled carries a `why` that reads the real cause — the one writer of that control's disabled state — and
+    the touch shells draw it under the label (MENU › Edit with nothing done reads *Nothing to undo yet*, *Nothing to
+    redo*, *Select a settlement or point of interest first*). The tablet's menus draw it too; the desktop keeps
+    v2.72's rows exactly (there, Ctrl+R on a finalized world still raises its reason as an alert, `refused`). The light theme's reason colour is a
+    labelled judgement (#7a4f0e, 6.25:1), since #ebc080 on its panel is 1.49:1.
   - **the context page** (Ruling DX PQ13's "selection sheet"): the Context panel aside, moved. It opens itself for
     an Info reading or a NEW label/icon selection — a label's editor otherwise renders on a page nobody is
     looking at. Window › Context panel opens it; Window › Left dock opens the domain page; Window › Timeline and
     Story › Timeline open STORY › Time (on a phone these are commands, not checks).
 - **The armed tool's strip (§2.1).** While a tool is armed a strip above the sheet carries its name and one hint
-  (`#toolOptsCtx`/`#toolOptsHint`, moved — `_dskToolOptsSync` writes them on every shell), **Sculpt's own settings
-  only while Sculpt is armed** (the very rows the desktop bar hosts, in a group, `#phStripTool`, that is drawn for
-  Sculpt alone) and **Commit / Discard where the tool drafts** (Sculpt's, Way's, Route's). **Arming drops an open
-  sheet to peek.** At peek the domain tab's tap brings the page back to half (a judgement: closing it there would
-  take two taps to reach the tools). The map's row and grip re-place themselves whenever the strip changes height
-  (a `ResizeObserver` on it), since Freehand's mode row and a longer hint arrive after the layout has run.
+  (`#toolOptsCtx`/`#toolOptsHint`, moved — `_dskToolOptsSync` writes them on every shell), **for Sculpt its feature
+  picker as one row of chips** (the very element the desktop bar hosts, in a group, `#phStripTool`, that is drawn for
+  Sculpt alone) and **Commit / Discard where the tool drafts** (Sculpt's, Way's, Route's). **Sculpt's other
+  settings — the feature's hint, Freehand's mode, Brush size with its km readout, Hardness and Intensity — sit at
+  the top of WORLD › Sculpt**, the phone's domain page, one tap away on the domain tab (§2.1: "Tapping the strip's
+  tool chip opens the full options at the top of the domain sheet"; the mockup's domain sheet leads with them too).
+  Fix round 2: the first cut put every Sculpt setting in the strip — 323px tall at 412×915 and 226px at 844×390,
+  leaving a 100px map band in landscape, against the mockup's 66px strip. **In landscape the picker joins the rest
+  at the top of WORLD › Sculpt**, in the side sheet beside the strip, as the mockup's landscape draws it (a state
+  in the slot table, `pl`, re-placed on a turn): beside the sheet, a chip row next to Commit and Discard had 41px
+  at 740×360. Now the strip is two rows in portrait (three at 360 wide) — 108px at 412×915, 124px at 360×780 —
+  and in landscape one row, 58px at 844×390 and 915×412 (two, 74px, at 740×360), leaving 68–81% of the map's height
+  above it at those five sizes (measured at seeds 777 and 12345, the same both). **Arming drops
+  an open sheet to peek.** At peek the domain tab's tap brings the page back to half (a judgement: closing it there
+  would take two taps to reach the tools). The map's row and grip re-place themselves whenever the strip changes
+  height (a `ResizeObserver` on it), since a longer hint can arrive after the layout has run.
 - **The quick drawer — the pull-out tab (§2.4; Ruling DY Q10, Q11).** A **44×88 grip** on the map's edge AWAY from
   the dominant hand (left by default), at the middle of the map band left above the sheet and strip (so a half sheet
   never covers it and it never meets the scale bar). A tap, or a drag inward past 24px, opens a drawer of the pins —
@@ -128,8 +159,15 @@ the fix pass below, it fails **57** — every one of the verifiers' defects fail
   **− | + rocker** (two 44px halves, a hairline inset 11px), and **✋ only while a drawing tool is armed** (Sculpt,
   Paint, Territory, Way, Select region, the icon density brush), at the inner end so ⌖ never moves. ± step 1.35 about
   the centre off-LOD (Ruling EB item 2; the existing handlers — under Tiled LOD they keep their pyramid-level
-  doubling, in 3D their camera step); ⌖ fits the map. The row rides 12px above the sheet or the strip and hides when
-  the band left is shorter than it (§2.5, When it hides). On the tablet it sits at the map's bottom right, 12px in and
+  doubling, in 3D their camera step); ⌖ fits the map. The four glyphs are one size (§2.5, "one glyph size"; fix
+  round 2 — − and + were 21px, ✋ 18px by an inline style and ⌖ 16px; 20px is a labelled judgement), and the
+  double-tap's ×1.7 eases `1−(1−t)³` over its 240ms, as 06-phone.md §7 specifies (the first cut stepped linearly).
+  The row rides 12px above the sheet or the strip; it, the scale bar and the grip hide when the band of map left
+  above them is under §3's 120px (§2.5, When it hides; §3: "thin out below 250 / 120 dp of free map" — the mockup
+  hides them below 120, and its 250 is computed and drawn by nothing, so only 120 is built), and the v1.19 joystick
+  hides when its own stack does not fit. Fix round 2: the first cut hid the row and the grip each at its own size
+  and gave the joystick no rule, so with Sculpt armed at 844×390 it sat at y 10..88 under the app bar, whose
+  buttons took its taps. On the tablet it sits at the map's bottom right, 12px in and
   14px up, with the 2D/3D square above it (no 3D in the row). **The latch clears whenever a tool is armed or
   disarmed** (§2.5). The scale bar takes the other side. **Preferences › Handedness** (Right / Left; per viewer, in
   `localStorage` behind try/catch — the page works without it) mirrors the row, the grip, the scale bar, the joystick
@@ -167,7 +205,11 @@ the fix pass below, it fails **57** — every one of the verifiers' defects fail
     when it landed; the first cut of this entry called them pending.
 - **The tablet (§2.2): the desktop shell at touch size.** 48px bars, a 48px rail, **44px targets everywhere**, menus
   with **48px rows whose submenus drill in** instead of cascading, the pins at the tool-options bar's right end (Ruling
-  DY Q12), the long-press card at 500ms and the DS-13 row (its rocker's halves touching, gaps 10px). The tool hint
+  DY Q12), the long-press card at 500ms and the DS-13 row (its rocker's halves touching, gaps 10px). **With Sculpt
+  armed, its Discard and Commit sit at the end of the tool-options bar** beside its brush (fix round 2: the design's
+  tablet bar draws DISCARD and COMMIT beside the feature chips; the first cut left them only at the foot of the left
+  dock — at 1194×834 Commit was laid at y 1454 in a 598px dock scroller). Below 1180px the bar takes a third row for
+  them while Sculpt is armed. The desktop keeps them in the dock this stage, as v2.72 did. The tool hint
   says Tap and hold for click and right-click but **keeps its keys** (Ctrl+R, Esc): a tablet's menus draw
   accelerators "for a keyboard" (§2.2), and only the phone, which has none, drops them (Ruling DX PQ10). **Below
   1180px the bar is ☰ · File · World · Records ·
@@ -193,27 +235,70 @@ the fix pass below, it fails **57** — every one of the verifiers' defects fail
   left it 284px. Measured: at 1366 both stay docked (650px of map), at 1194 the Context panel floats, at 768 and 700
   both float.
 - **The 44px floor, by construction.** One rule set floors every control the touch shells draw — buttons, selects,
-  text and number fields, colour wells, summaries, checkbox labels, pills, and sliders (by `min-height`, which no
-  row's height can out-specify: the first cut lost to `.row input[type=range]`'s 22px). Measured by a walk, reached
+  text and number fields, colour wells, summaries, pills, sliders (by `min-height`, which no row's height can
+  out-specify: the first cut lost to `.row input[type=range]`'s 22px), and **every checkbox's or radio's label,
+  however the label is written**: wrapping it, or naming it by `for=` right before or after it (`:has()`). Fix round
+  2: the first cut floored `label.chk` alone and called that "checkbox labels" — the icon density brush, a
+  `<label for>` beside a bare box, measured 13×13 with a 78×32 label at 412×915 and 90×15 at 1194×834, and the
+  Settlements window's *star fort* and *ruined* and the library's scatter switches were not floored either; the
+  probe's walk only measured `label.chk`, so it could not see them. Now the walk measures every checkbox and radio
+  through `input.labels` (the largest drawn label, or the bare box when it has none). Measured by that walk, reached
   by taps, of every target as it is DRAWN — scrolled into view, clipped by whatever clips it — on every phone surface:
-  the app bar, the bar, the row, the grip, all four domains' pages with every accordion open, MAP, both STORY panes,
-  MENU's root and each of its eight menus and their submenus, the context page with a label's editor in it, the
-  drawer, the strip for Sculpt and for Freehand, a settlement's popup, Find's results, the long-press card and
-  Settings — **490 target measurements over 30 surfaces, none drawn under 44 × 44 on either axis**,
-  and on the tablet's bars, rail, dock and map controls. (The first cut's walk read unclipped rects over fewer
-  surfaces — "336, none under 44" — and missed the popup's 🎲, cut to 22px on every shell since before v2.72; it is
-  whole now.)
+  the app bar, the bar, the row, the grip, all four domains' pages with every accordion open, WORLD › Sculpt with
+  Sculpt armed, MAP, both STORY panes, MENU's root and each of its eight menus and their submenus, the context page
+  with a label's editor in it, the drawer, the strip for Sculpt and for Freehand, a settlement's popup, Find's
+  results, the long-press card and Settings — **@@FLOOR_N@@ target measurements over @@FLOOR_S@@ surfaces, none drawn
+  under 44 × 44 on either axis** — and the Settlements window's four tabs at 360×780 (every slider keeping at least
+  120px of track there), and on the tablet's bars, rail, dock and map controls. (The first cut's walk read unclipped
+  rects over fewer surfaces — "336, none under 44" — and missed the popup's 🎲, cut to 22px on every shell since
+  before v2.72; it is whole now.)
+- **The Settlements window on a phone: the label above its slider** (fix round 2, a regression the first cut made).
+  Its rows give the label a fixed width (150px in Global; 118px and 190px in Types) beside a 62px value and a reset
+  ↺ that is hidden until the value changes. Once the floor sized that hidden ↺ at 44px, the Global sliders were 12px
+  wide at 360×780 (30px in v2.72) and a 60px finger drag set Settlement threshold from 0.42 down to 0.2; Types' 23
+  sliders were 40px in both builds. On a phone each label now sits over its slider: at 360 the narrowest slider is
+  170px (Global) and 238px (Types). The ↺ keeps its reserved 44px while hidden — a labelled judgement: a slider that
+  widened when its ↺ appeared would move under the finger on the first drag, which `display:none` until the value
+  differs (one of the verifiers' two suggestions) would cause.
 - **Windows open as full-height sheets on a phone (§2.1).** Settings already did (v2.28); Credits now does; the City
   Viewer, Route Editor and Settlements windows were already full-screen. Every window's × is a 44px target on a touch
-  shell.
+  shell, and **stays in reach while the window scrolls** (fix round 2): Credits' and Settlements' × and title are a
+  head row that sticks to the top of the window's scroller, as Settings' head already did. Their × used to scroll
+  away with the content — after one swipe Credits' was drawn 0px tall and the Settlements × sat at y −553 at 360
+  (v2.72 the same) — and a phone has no Esc. A floated sticky × alone was tried first and dropped: it lay over
+  whatever scrolled under it, the Settlements tab bar's Types tab included. On the desktop the two heads are plain
+  wrappers, and both windows capture pixel-identical to the fix pass's at 1366×768.
+- **No page zoom on a touch shell** (fix round 2; v2.72 the same): a two-finger pinch on the phone's sheet or app
+  bar zoomed the whole page to 5×, and the sheet is where a second finger lands while the first pinches the map at
+  half. `touch-action: pan-x pan-y` on the touch shells keeps every scroller scrolling and takes the browser's pinch
+  and double-tap zoom away; the map, the sliders, the joystick, the sheet's head, the tabs and the drawer keep their
+  own narrower values. Android's *Force enable zoom* may override it (a device check).
+- **A focused field stays in view** when the layout viewport shrinks under it on a phone (fix round 2): the sheet
+  body scrolls the field back into its visible part once the sheet's own height transition has run. Measured
+  headless by shrinking the layout viewport, as a resizes-content keyboard does: Seed was drawn 0px tall when
+  412×915 went to 380, behind the bottom bar. Chrome on Android resizes the visual viewport by default, so a device
+  may never do this — a device check.
 - **Find on a phone** opens the page that holds the control (the domain page, STORY, MENU's drill-in path or the
   context page) and scrolls it into view; a chosen result closes the search row. Sculpt's Brush size, Hardness and
-  Intensity, which sit in the tool strip, are revealed by arming Sculpt (the strip's group is a Find owner, v2.72's
-  rule: Find must own every container a control can sit in).
+  Intensity, at the top of WORLD › Sculpt, are revealed by arming Sculpt — the World rail, then the Sculpt category,
+  #genSculpt's own Find owner (v2.72's rule: Find must own every container a control can sit in) — with the domain
+  page opened over them.
 - **Assets mode on a phone.** The library is one column — its categories a row of chips that scrolls sideways, the
-  grid, the inspector beneath — and while it is open the app bar draws **← Map**, a frame button that runs the Asset
-  library command (it presses `#assetsHeaderBtn`, the one toggle; v2.46's rule that the toggle is the visible way in
-  AND out). On a phone that toggle's home is the quick drawer, whose grip sits on the map that Assets mode hides.
+  grid, the inspector beneath — and while it is open **the Assets toggle itself** (`#assetsHeaderBtn`, relabelled
+  "← Map" as v2.46 made it) **moves from the quick drawer to the app bar's start**, by a state-aware slot (`pa` in
+  `_SHELL_SLOTS`, re-placed by `_carEnterAssetsMode`/`_carExitAssetsMode`): its drawer home opens from a grip on the
+  map, which the library hides. Fix round 2: the fix pass drew a separate "← Map" frame button there
+  (`#phAssetsBack`) and justified it with v2.46's rule — but that is the stand-in v2.46 retired (v2.24's
+  `#assetsBackBtn`, "v1.57's one-control-two-surfaces defect"); it is gone, and the one toggle is again the visible
+  way in and out. **No tab opens an empty page from the library** (fix round 2): MAP, the domain tab and STORY leave
+  the library first, by pressing the same toggle, because their pages are the map's controls, the left dock and the
+  timeline — all of which the library hides (the domain tab drew an empty sheet; MAP offered a hidden map's view
+  controls); MENU works inside the library and stays. This is v0.65's rule on every shell, that switching domain
+  leaves the library.
+- **Leaving the library by a domain switch restores what entering it hid** (fix round 2, on every shell; v2.72 the
+  same): `_applyDomainUI`'s exit undid only part of `_carEnterAssetsMode`, so after Window ▸ Workspace ▸ Civil from
+  the library the toggle still read "← Map" and the Base map chip (`#layersFab`) stayed hidden — measured at
+  1366×768 in v2.72 and in v2.73 before this fix. It now goes through `_carExitAssetsMode`, the one way out.
 - **A settlement's popup on a phone sits under the phone's frame** (z 31: above the map's own controls, below the
   strip, the sheet, the bar, the scrim, the drawer, the fan and the search row) and stays open beneath a page until
   the sheet goes down. The desktop and the tablet keep v0.90's z 61.
@@ -246,17 +331,47 @@ the fix pass below, it fails **57** — every one of the verifiers' defects fail
   specificity) — left as v2.72 shipped it and annotated, since making it live would change stage 1's desktop at
   861–1000px and the full bar fits there; the long-press card's and MAP's departures from the design are stated
   in *Not in this build* rather than built (the card is one implementation shared with the right-click menu).
+- **Fix round 2 (2026-11-02): two more independent verifiers' 23 findings on the fix pass's final bytes.** Each
+  was reproduced before it was changed, and each fix has a probe section (or a stated reason) that fails on those
+  bytes. Majors, all fixed and described in their bullets above: Sculpt's phone strip carried every Sculpt setting;
+  the Settlements window's sliders shrank to 12px at 360 (a regression of the first cut); the domain fan's
+  dismissing tap reached the map under it; ✋ went stale when the icon gallery armed or disarmed placement with the
+  density brush on (`_carIconGalleryPick` and the category select now end in `_dskToolOptsSync`, so CLAUDE's "every
+  way to arm a tool ends there" is true again); a phone in Assets mode opened an empty domain page and offered MAP's
+  controls for a hidden map; the fix pass's "← Map" was the retired stand-in; the 44px floor missed every checkbox
+  label but `label.chk`; and a menu row that cannot run did not say why. Minors fixed: the joystick's missing hide
+  rule and §3's thin-out; Sculpt's Commit and Discard in the tablet's bar; page pinch-zoom on the touch shells; two
+  phone hints that named a dock and an Esc a phone does not have ("the dock's Tools" now names the domain's page,
+  and STORY › Journeys says tap ✓ Commit route — the older hints that say "click" for a tap are pre-existing and left);
+  windows whose × scrolled away; a focused field left behind the bar by a resizes-content keyboard; DS-13's three
+  glyph sizes and its linear double-tap animation; the docs' "§2.1–§2.5" (§2.3 and two more design items were
+  neither built nor listed); MENU's drops presented as ruled when they are departures; the strip's missing *Not in
+  this build* row for the other tools' settings; 22 new functions without a comment of their own (the file's
+  67 new functions now all have one, counted by a script over v2.72 and v2.73), the stale "cog's Settings
+  window" heading and `_phCtxAuto('info')`'s ignored argument; and `probe_desktopshell`'s NEW SEED assertion, which
+  failed once under load and could not say why (its `settle` now also waits for the busy overlay to drop, and the
+  assertion prints its three parts). Stated rather than changed: the app bar's 56px and the docks' widths, as
+  departures from §3's figures (*Not in this build*). Found on the way and fixed: the quick drawer's pin-close read
+  the DOM after the click, which the Assets pin's own click now changes (the drawer and its scrim stayed open over
+  the library), so it reads the event's path; and leaving the library by a domain switch (above). @@SEAM@@
 - **Unchanged by construction:** no engine line moved, so the headless suites and the render hashes are v2.72's.
-  Stage 1's desktop at 1366 and wider keeps its layout (the docks stay docked, the row stays a column); three
+  Stage 1's desktop at 1366 and wider keeps its layout (the docks stay docked, the row stays a column); four
   fixes reach it on purpose. Two draw the same where there was room — the tool hint's zero flex basis, and the
-  popup's name field, which may now shrink so the 🎲 beside it is whole. The third is behaviour: an open
-  right-click menu closes when the window's width changes, as the long-press card does, since both are one
-  element placed in window coordinates (`_civCtxHide` from the resize handler). Measured with a mouse, a right-click
-  menu open at 1366 × 768 and the window narrowed to 1280: v2.72 leaves it open, v2.73 closes it; a height-only
-  change keeps it open.
+  popup's name field, which may now shrink so the 🎲 beside it is whole. Two are behaviour: an open right-click
+  menu closes when the window's width changes, as the long-press card does, since both are one element placed in
+  window coordinates (`_civCtxHide` from the resize handler) — measured with a mouse, a right-click menu open at
+  1366 × 768 and the window narrowed to 1280: v2.72 leaves it open, v2.73 closes it; a height-only change keeps it
+  open — and (fix round 2) leaving the asset library by a domain switch now relabels the toggle and brings the Base
+  map chip back, as the toggle's own way out always did. Everything else fix round 2 changed is keyed to the touch
+  shells: the desktop's menus draw no reason line, its Credits and Settlements windows capture pixel-identical to
+  the fix pass's at 1366×768, and so do its map, WORLD › Sculpt with Sculpt armed, and the File and Edit menus open,
+  at 1366×768 and 1600×900 — the one differing patch is Sculpt's stamp-seed field, a random number per session.
 
-**`tests/perf/probe_desktopshell.js` (v2.72's probe) on v2.73**, with v2.71 as the comparison file: 154 passed,
-4 failed, against v2.72's 174/0. Every difference, classified:
+**`tests/perf/probe_desktopshell.js` (v2.72's probe) on v2.73**, with v2.71 as the comparison file: @@DSK@@, against
+v2.72's 174/0 (fix round 2: run twice, alone on the machine; the 2026-11-02 verifiers' two runs under load gave
+153/5 both times, the fifth being *"NEW SEED is clickable in the dock and generates"*, which passed in isolation
+every time — its `settle` now also waits for the busy overlay to drop, and the assertion prints its three parts,
+so a red run classifies itself; re-run before believing it). Every difference, classified:
 - *"the version is v2.72 (the tag and the title)"* and *"Help carries the version"* — the version is v2.73. By
   design.
 - *"phone 390x760"* and *"phone 412x915: the section ran to the end"* (18 assertions in v2.72's run, 9 per size) —
@@ -288,7 +403,7 @@ already classified). **Seven assertions change, each pinning the v2.31 phone tha
 | `#dockLeft` (the left dock, newly id'd) | in the drawer | the domain page |
 | `#dockRight` (Context panel) | in the drawer, below the left dock | the context page |
 | `h1`, `.tag`, `#cogBtn` | header | not drawn (MENU's Preferences and Help reach Settings) |
-| `#settlementsHeaderBtn`, `#assetsHeaderBtn`, `#pinSave`, `#pinPlanner` | header (the two toggles); pins not drawn | the quick drawer |
+| `#settlementsHeaderBtn`, `#assetsHeaderBtn`, `#pinSave`, `#pinPlanner` | header (the two toggles); pins not drawn | the quick drawer; the Assets toggle moves to the app bar's start while the library is open |
 | `#docReadout`, `#phaseChip` | not drawn; header | the world pill |
 | `#undoBtn`, `#redoBtn` | header | app bar |
 | `#findWrap` | header | the search row (`#phSearch`) |
@@ -297,20 +412,24 @@ already classified). **Seven assertions change, each pinning the v2.31 phone tha
 | `#modeSeg` (View) | document bar | the Base map chip's popover — the MAP page (now its markup home) |
 | `#layersFab` (popover open), `#viewDimSeg`, `#legend` | map overlays | the MAP page |
 | `#scaleBarChkRow` (the Scale bar switch, newly id'd) | CARTO › Map style | the MAP page's view rows (desktop and tablet: CARTO › Map style, as before) |
-| `#toolRail` band; `#sculptFeatureSeg`, `#sculptFeatHint`, `#sculptModeSeg`, the brush rows (`#sBrushRow`, `#sBrushKm`, `#sHardRow`, `#sIntenRow`) | band under the document bar; WORLD › Sculpt | band drawn on no shell; the tool strip |
+| `#toolRail` band; `#sculptFeatureSeg`, `#sculptFeatHint`, `#sculptModeSeg`, the brush rows (`#sBrushRow`, `#sBrushKm`, `#sHardRow`, `#sIntenRow`) | band under the document bar; WORLD › Sculpt | band drawn on no shell; the picker in the tool strip, the rest at the top of WORLD › Sculpt (`#phSculptOpts`) |
 | `#toolOptsCtx`, `#toolOptsHint` | not drawn | the tool strip |
-| `#sculptCommitBtn`, `#sculptDiscardBtn`, `#civCommitWayBtn`, `#civCommitRouteBtn` | in the dock | the tool strip, the armed tool's only |
+| `#sculptCommitBtn`, `#sculptDiscardBtn`, `#civCommitWayBtn`, `#civCommitRouteBtn` | in the dock | the tool strip, the armed tool's only (the tablet: Sculpt's two at the tool-options bar's end) |
 | `#undoBtn`'s hold (the design's undo history, with Redo inside it) | — | not built; `#redoBtn` is its own app-bar button instead (a departure: no undo-history list exists to hold it) |
 | `#explTimelineSection`, `#explJourneysSec` (newly id'd), `#civPlannerSec` | Explore | STORY › Time and Journeys |
 | `#statusBar` (with `#verTag`) | bottom band | MENU › Status |
 | `#zoomOverlay` (`#zoomIn`, `#zoomOut`, `#panBtn`, `#zoomReset`) | bottom-right column, touch only | DS-13's row (also the tablet's) |
-| `#sculptNavpad` (v1.19 joystick) | bottom right | above the DS-13 row, mirrors with it |
+| `#sculptNavpad` (v1.19 joystick) | bottom right | above the DS-13 row, mirrors with it; hides when its stack does not fit the map band |
 
 **New elements** (the frame only; each opens an existing control or runs a `_DSK_CMDS` command): `#phWorldPill`,
 `#phSearchBtn`/`#phSearch`/`#phSearchClose`, `#phBar` and its four tabs, `#phSheet` and its five pages, `#phMenuRoot`,
-`#phStrip` (its Sculpt group `#phStripTool`), `#phGrip`, `#phDrawer`, `#phFan`, `#phAssetsBack` (← Map, Assets mode
-only); `#mbMoreWrap` (☰) and `#mbWorldWrap` (World) for the narrow bar; `#dockLeftPin` and `#ctxPinBtn` for the
-docking rule; Preferences › Touch › Handedness.
+`#phStrip` (its Sculpt group `#phStripTool`), `#phSculptOpts` (the top of WORLD › Sculpt on a phone), `#phGrip`,
+`#phDrawer`, `#phFan` (over v2.71's own `#scrim`, reused); `#mbMoreWrap` (☰) and `#mbWorldWrap` (World) for the
+narrow bar; `#dockLeftPin` and `#ctxPinBtn` for the docking rule; the `.cfm-head` and `.cr-head` wrappers (the
+Settlements and Credits windows' sticky heads); empty slots `#slotPhAppAssets` (the Assets toggle's place in the app
+bar) and `#slotToolAct` (the tablet bar's Commit and Discard); Preferences › Touch › Handedness. The fix pass's
+`#phAssetsBack` is gone (fix round 2). The slot table is now **47 rows into 40 slots** (counted from the file's
+`_SHELL_SLOTS` by a script, 2026-11-02).
 
 **Not in this build** — each checked by grep, by concept
 
@@ -326,12 +445,20 @@ docking rule; Preferences › Touch › Handedness.
 | Holding Undo for its history, with Redo inside it (§2.1, Ruling DU Q6); the tool chip's fan | No undo-history list exists to hold them (`undoStack` has no view; v2.72) and no tool fan exists. **A departure, stated:** the app bar draws Redo as its own button (the same `#redoBtn`), so the one redo command stays one tap away |
 | The long-press card's sample pin, its per-domain actions (WORLD: Sculpt here, Cross-section from here, Paint with this biome, Centre here, Measure from here; CIVIL and CARTO alike) and its ground readouts (§2.1; Live.dc.html's SAMPLE sheet) | The card is the right-click menu's own item list (`_civCtxItems`): one implementation for a hold and a right-click. The design's rows would either join the desktop's right-click menu too (a change to stage 1 nobody asked for) or split the list in two. No sample-pin entity, cross-section tool or Measure tool exists (grep `samplePin`, `crossSection`, `data-civtool="measure"`: 0 matches each); Ruling EC item 5 ports Measure in a later version. The reading the card's Info here takes goes to the context page, the Info tool's own panel |
 | MAP's Fit world, grid, the quick visibility switches (settlements, ways, landmarks, rivers, labels, political, hillshade) and the six Measure modes (§2.1) | Fit world is DS-13's ⌖, on the map, one tap. There is no graticule (grep `graticule`: 0) and no Measure tool (EC item 5). The switches that exist live in their own panels — rivers in WORLD › Generate › Ecology, hillshade in CARTO › Map view, territory, settlements and roads in Explore's filter chip on the map — and region labels and landmarks have none; moving them here would empty those panels on a phone. The Scale bar IS on MAP (moved, above) |
-| MENU › Window › Status bar and Domain rail | The phone draws neither band: its status is MENU › Status and its rail is the bottom bar, which never hides. The two rows are `.dk-only` (a code comment at `winStatus`/`winRail` says why); everything else in MENU is the desktop's eight menus row for row |
+| MENU › Window › Status bar and Domain rail | **A departure the owner has not ruled on** (fix round 2; the first cut called it covered by Ruling DT Q2 and DX Q13): DX Q13 says the phone's MENU repeats the desktop menus row for row, its one ruled exception is PQ10's two rows, and the mockup's phone Window menu draws both. Left out because this file leaves out a row with nothing behind it, and a phone draws neither band — its status is MENU › Status and its rail is the bottom bar, which never hides. The two rows are `.dk-only` (a code comment at `winStatus`/`winRail` says why). For the owner: draw them (as inert checks), or rule the drop |
+| MENU › Window › Context panel and Left dock as checks (Ruling DX PQ13) | **A departure the owner has not ruled on** (fix round 2): PQ13 keeps the Context panel row a check on the phone that "shows or hides the selection sheet". This build draws both rows as commands (they open the context page and the domain page), because the one sheet that shows MENU cannot show either page at the same time, so a check read from MENU would always read off. For the owner: keep them commands, or say how the check should read |
+| §2.3 — New World, kept as shipped, plus AUTO-POPULATE (Ruling DT Q4) | §2.3 describes the native shell's New World dialog (`new_world_dialog.gd`, NWP-3) and four auto-populate switches after the terrain. This file's start card (the setup gate, *New world — base settings*) is its own and unchanged since v2.72, and no auto-populate switch exists on it (grep *Auto-populate the world*: 2 matches, both alerts sending the user to CIVIL's *Auto-populate world* button). Not built: a later version |
+| §2.1 — Session mode hides WORLD from the fan and the swipe | No session mode exists in this file (grep *session mode*, *sessionMode*: 0) |
+| §2.4 — the Assistant chip, first in the drawer and in MENU's Quick | No assistant exists in this file (grep *assistant*: 1 match, a comment saying there is none). §2.4's other phone rule, "no grip until something is pinned", never applies: the drawer always holds its four pins |
+| The strip's other tools' settings as chips (§2.1, "its main options as chips"; Ruling DZ item 6: the strip "holds that tool's settings") — the paint brush, Territory's radius and faction, Way's type and snap, POI's type | Not built (fix round 2 states it; v2.72 listed it for the desktop bar): those settings stay on the domain page, one tap away on the domain tab, at half. Each tool's strip hint names the page they are on ("the Civil page's Tools"); only Sculpt's picker is in the strip |
+| The app bar at 52 under a 28 status inset (§3) | **A departure** (a labelled judgement): 56px plus the safe-area inset — Material's phone top app bar, which keeps 6px around the 44px targets where 52 would keep 4 |
+| The docks at §3's tablet widths (left 340/360, right 312/340; 400/380 from 1920) | **A departure**: the tablet is the desktop shell at touch size and keeps stage 1's 372/304 (400/328 from 1440), so one dock geometry serves both and the docking rule's sums are the desktop's |
 | A swipe up on a tab opens its sheet full (§4) | Not built: a tab's tap opens its page at half, and the handle's tap or a drag on the head takes it to full |
 | A submenu of only radio rows drawn inline as chips (§2.1) | Theme, Units, Handedness and Workspace drill in like every submenu: MENU is the desktop's panels themselves (one model, two renderings — Ruling DT Q2), and chips would be a third layout of the same rows |
-| Tapping the strip's tool chip opens the tool's full options at the top of the domain sheet (§2.1) | Not built: the domain tab's tap opens the domain page, where the armed tool's options are, at half |
+| Tapping the strip's tool chip opens the tool's full options at the top of the domain sheet (§2.1) | The strip draws no tool chip (Sculpt's chips are its features). The domain tab's tap opens the domain page at half, and for Sculpt its full options ARE at the top of that page now (fix round 2) |
 | The latch's toast (§2.5) | No map toast exists in this file (grep: the only toast element is the asset library's `#alToast`) |
 | The landscape sheet "or wide (up to 600)", and from 1920px wider docks and the bar's readouts (§3) | Not built: the landscape sheet is 300–400px (42%), and stage 1's desktop is unchanged above 1440 |
+| §3's second thin-out figure, "250 dp of free map" | The mockup computes it (`more: free >= 250`, Shell.dc.html) and draws nothing with it; only its 120 is built — the row, the scale bar and the grip hide below it (fix round 2) |
 | The tablet's medium-width rail at 64px (§3) | **A departure:** the rail is 48px, the desktop's 40px raised to the touch floor |
 | Search "runs any menu row" (§2.1) | Find lists controls and map entities; Ruling EC item 5 ports "Find runs commands" in a later version |
 | The mockup's MENU look — Quick as chips, rows with an icon, a subtitle and a count, the drilled level's back arrow in the sheet head — the domain tab's own icon (▲ here), and rounded corners | **Departures:** the rows are the desktop panels' own rows (one model), the tab's glyph is the rail button's, and corners stay square until Ruling EC item 7 (rounded, as the design) lands in a later version. 844×390, 768×1024 and 1194×834 follow the mockup's structure closely (the 2026-11-02 verifier's side-by-side) |
