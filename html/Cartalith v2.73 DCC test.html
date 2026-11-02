@@ -368,7 +368,8 @@
     :where(html[data-shell="phone"]) .set-nav{flex:0 0 auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}
     :where(html[data-shell="phone"]) .set-nav button{border-left:0;border-bottom:2px solid transparent;white-space:nowrap}
     :where(html[data-shell="phone"]) .set-nav button.on{border-left-color:transparent;border-bottom-color:var(--accent)}
-    :where(html[data-shell="phone"]) header #undoMem{display:none}        /* step-count status is desktop chrome; id-scoped so it beats the base .tag rule */
+    /* step-count status is desktop chrome; id-scoped so it beats the base .tag rule */
+    :where(html[data-shell="phone"]) header #undoMem{display:none}
     :where(html[data-shell="phone"]) .row label{flex-basis:78px;font-size:13px}
     :where(html[data-shell="phone"]) .row .val{flex-basis:54px}
     :where(html[data-shell="phone"]) button{padding:11px 12px;font-size:13px}
@@ -1886,7 +1887,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
        resize .canvas-wrap without a window resize, which is what the v2.24 ResizeObserver is for.
        v2.72: a PHONE band only. On the desktop its picker and hint are part of the tool-options bar
        above (#slotToolDesk), so this band never draws there (.ph-only beats _toolRailSync's inline
-       display). -->
+       display). v2.73: drawn on NO shell (#toolRail{display:none!important}): the slot table moves the
+       picker and hint into the tool-options bar on the desktop and tablet, and into the phone's tool
+       strip (#slotPhStripTool), so this is only their markup home now. -->
   <div class="toolrail ph-only" id="toolRail" style="display:none">
     <span class="to-lab" id="toolRailLabel">Feature</span>
     <div class="seg sm grid" id="sculptFeatureSeg" style="flex-wrap:wrap"></div>
@@ -19785,7 +19788,10 @@ window.addEventListener('blur',()=>{ spaceDown=false; _cam3dDrag=null; });
   document.getElementById('zipFile').addEventListener('change',e=>{ if(e.target.files[0]) loadZip(e.target.files[0]); e.target.value=''; });
 })();
 
-/* mobile control drawer */
+/* the v2.24-v2.72 phone's control drawer (☰ slid both docks in as one sheet, body.panel-open). v2.73: no shell
+   draws #panelToggle now — the phone opens each dock as a page of its sheet — so this toggle only runs if
+   something presses the hidden button by id (RC's older probes look it up); the scrim's own click also
+   closes the v2.73 quick drawer, wired in _phWire. */
 (function(){ const pt=document.getElementById('panelToggle'), sc=document.getElementById('scrim');
   const set=o=>document.body.classList.toggle('panel-open',o);
   if(pt) pt.onclick=()=>set(!document.body.classList.contains('panel-open'));
@@ -19823,7 +19829,12 @@ window.addEventListener('blur',()=>{ spaceDown=false; _cam3dDrag=null; });
 /* Present only while a tool with a genuinely bar-sized sub-palette is armed. Today that is exactly
    the Sculpt category's feature picker; the rail exists as a band so a future tool can claim it
    without another layout change. It is also the only band whose presence CHANGES the viewport's
-   height, which is what makes the ResizeObserver load-bearing rather than defensive. */
+   height, which is what makes the ResizeObserver load-bearing rather than defensive.
+   v2.73: the band is drawn on NO shell (`#toolRail{display:none!important}` in the stage-2 CSS): its picker
+   and hint are the tool-options bar's on the desktop and tablet (v2.72) and the phone's tool strip's
+   (v2.73). This still writes the band's inline display, which that rule outranks, and so it no longer
+   changes the viewport's height; the bands that do now (the tool-options bar's second row, the strip)
+   refit through the same ResizeObserver. Kept so the id and its writer stay where RC's code expects them. */
 function _toolRailSync(){
   const rail=document.getElementById('toolRail'); if(!rail) return;
   const on=(typeof _sculptEditorActive==='function') ? _sculptEditorActive() : false;
