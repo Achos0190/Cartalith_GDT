@@ -159,24 +159,39 @@ const dropSettlementNear = (p, x, y) => p.evaluate(([x, y]) => { const g = evtTo
    or reachable": the first cut read getBoundingClientRect, which passed a button with 10px of it on screen).
    A box with overflow:hidden scrolls for a script but never for a finger, so whatever scrollIntoView did to one
    is undone before measuring, and the page itself is put back. The floor is on the TARGET, both axes
-   (MISTAKES.md, "Ask a lane to walk a touch floor"); a checkbox's or radio's target is its label. */
-const TAPPABLE = 'button, select, textarea, input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]), summary, label.chk, a[href], [role="button"], [role="tab"], [role="menuitemradio"], [data-find-i], .pill';
+   (MISTAKES.md, "Ask a lane to walk a touch floor").
+   A checkbox's or radio's target is its LABEL, however the label is written (fix round 2): each one is measured
+   through input.labels — the largest drawn label, or the bare box when it has none — rather than through
+   `label.chk` alone, which let a <label for> beside a 13x13 box (the icon density brush) go unmeasured. */
+const TAPPABLE = 'button, select, textarea, input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]), summary, a[href], [role="button"], [role="tab"], [role="menuitemradio"], [data-find-i], .pill, input[type=checkbox], input[type=radio]';
 const drawnTargets = (p, roots) => p.evaluate(([roots, sel, VW, VH]) => {
   const out = [], seen = new Set();
-  for (const rs of roots) for (const root of document.querySelectorAll(rs)) for (const e of root.querySelectorAll(sel)) {
-    if (seen.has(e)) continue; seen.add(e);
-    if (!e.getClientRects().length) continue;
-    const cs = getComputedStyle(e); if (cs.visibility === 'hidden' || cs.display === 'none' || window.__pbHidden(e)) continue;
+  /* the drawn rect of one element, scrolled into view the way a finger reaches it */
+  const measure = e => {
+    if (!e.getClientRects().length) return null;
+    const cs = getComputedStyle(e); if (cs.visibility === 'hidden' || cs.display === 'none' || window.__pbHidden(e)) return null;
     try { e.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_) {}
     const se = document.scrollingElement; if (se) { se.scrollTop = 0; se.scrollLeft = 0; }
     for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) { const s = getComputedStyle(a);
       if ((s.overflowX === 'hidden' || s.overflowX === 'clip') && a.scrollLeft) a.scrollLeft = 0;
       if ((s.overflowY === 'hidden' || s.overflowY === 'clip') && a.scrollTop) a.scrollTop = 0; }
-    const r = e.getBoundingClientRect(); if (r.width === 0 || r.height === 0) continue;
+    const r = e.getBoundingClientRect(); if (r.width === 0 || r.height === 0) return null;
     const d = window.__pbDrawn(e);
-    const w = Math.max(0, Math.min(d.r, VW) - Math.max(d.l, 0)), h = Math.max(0, Math.min(d.b, VH) - Math.max(d.t, 0));
-    out.push({ name: (e.id ? '#' + e.id : e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '')) + ' "' + (e.textContent || e.value || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 20) + '"',
-      w: Math.round(w), h: Math.round(h), lw: Math.round(r.width), lh: Math.round(r.height) });
+    return { e, w: Math.max(0, Math.min(d.r, VW) - Math.max(d.l, 0)), h: Math.max(0, Math.min(d.b, VH) - Math.max(d.t, 0)), lw: r.width, lh: r.height };
+  };
+  for (const rs of roots) for (const root of document.querySelectorAll(rs)) for (const e of root.querySelectorAll(sel)) {
+    if (seen.has(e)) continue; seen.add(e);
+    let m;
+    if (e.type === 'checkbox' || e.type === 'radio') {
+      /* the box must be drawn for its label to be its target (a hidden box with a styled label is not a checkbox target here) */
+      if (!e.getClientRects().length || getComputedStyle(e).visibility === 'hidden' || window.__pbHidden(e)) continue;
+      const cands = [...(e.labels || [])].map(measure).filter(Boolean);
+      m = cands.length ? cands.sort((a, b) => b.w * b.h - a.w * a.h)[0] : measure(e);
+    } else m = measure(e);
+    if (!m) continue;
+    const t = m.e;
+    out.push({ name: (t.id ? '#' + t.id : t.tagName.toLowerCase() + (t.className && typeof t.className === 'string' ? '.' + t.className.split(' ')[0] : '')) + (t !== e ? ' (for ' + (e.id ? '#' + e.id : e.type) + ')' : '') + ' "' + (t.textContent || t.value || t.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 20) + '"',
+      w: Math.round(m.w), h: Math.round(m.h), lw: Math.round(m.lw), lh: Math.round(m.lh) });
   }
   return out;
 }, [roots, TAPPABLE, p._vp.width, p._vp.height]);
@@ -430,8 +445,8 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
     /* ⌖'s place across the row before a drawing tool arms (the row's x; its y follows the sheet) */
     const x0 = (await rectOf(p, '#zoomReset') || {}).l;
     await tap(p, '#worldCatSeg [data-wcat="sculpt"]'); await sleep(300);
-    const S = await p.evaluate(() => ({ strip: !document.getElementById('phStrip').hidden, ctx: document.getElementById('toolOptsCtx').textContent, inStrip: !!document.getElementById('sBrushRow').closest('#phStrip'), commit: !!(document.getElementById('sculptCommitBtn').closest('#phStrip') && document.getElementById('sculptCommitBtn').getClientRects().length), det: _ph.detent }));
-    A('arming Sculpt shows the strip: the tool\'s name, its brush (the same rows the desktop bar hosts) and Commit', S.strip && /^Sculpt · /.test(S.ctx) && S.inStrip && S.commit, JSON.stringify(S));
+    const S = await p.evaluate(() => ({ strip: !document.getElementById('phStrip').hidden, ctx: document.getElementById('toolOptsCtx').textContent, picker: !!document.getElementById('sculptFeatureSeg').closest('#phStrip'), brushTop: !!document.getElementById('sBrushRow').closest('#phSculptOpts'), commit: !!(document.getElementById('sculptCommitBtn').closest('#phStrip') && document.getElementById('sculptCommitBtn').getClientRects().length), det: _ph.detent }));
+    A('arming Sculpt shows the strip: the tool\'s name, its feature picker (the element the desktop bar hosts) and Commit — its brush sits at the top of WORLD › Sculpt (§2.1)', S.strip && /^Sculpt · /.test(S.ctx) && S.picker && S.brushTop && S.commit, JSON.stringify(S));
     A('...and drops the sheet to peek (§2.1, "Arming drops the sheet to peek")', S.det === 'peek', S.det);
     const st = await rectOf(p, '#phStrip'), sh = await rectOf(p, '#phSheet'), zr = await rectOf(p, '#zoomReset');
     A('the strip sits above the sheet, and the row above the strip', st && sh && zr && st.b <= sh.t - 7 && zr.b <= st.t - 11, JSON.stringify([st && st.b, sh && sh.t, zr && zr.b, st && st.t]));
@@ -639,7 +654,12 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
     const fh = await p.evaluate(() => { const b = [...document.querySelectorAll('#phStrip #sculptFeatureSeg button')].find(x => /freehand/i.test(x.textContent)); if (b) b.id = b.id || '__probeFreehand'; return b ? '#' + b.id : null; });
     if (fh) { await tap(p, fh); await sleep(300); }
     await check('strip Freehand', ['#phStrip']);
-    await tapEdge(p, '#phTabDomain'); await tap(p, '#worldCatSeg [data-wcat="terrain"]'); await sleep(250); await closeSheet(p);
+    /* WORLD › Sculpt with Sculpt armed (Freehand): its brush, Freehand's mode and the feature's hint at the top of
+       the page (fix round 2), by the domain tab (peek → half) and the handle (full); SET-UP every accordion open */
+    await tapEdge(p, '#phTabDomain'); if ((await sheetState(p)).det !== 'full') { await tap(p, '#phSheetHandle'); await sleep(250); }
+    await p.evaluate(() => document.querySelectorAll('#phPageDomain details').forEach(x => x.open = true)); await sleep(150);
+    await check('domain world sculpt', ['#phPageDomain']);
+    await tap(p, '#worldCatSeg [data-wcat="terrain"]'); await sleep(250); await closeSheet(p);
     /* a settlement's popup: SET-UP a settlement, then a real tap selects it */
     const [sx, sy] = await mapPt(p, 0.45, 0.4);
     const at = await dropSettlementNear(p, sx, sy);
@@ -813,7 +833,7 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
     A('Settlement, POI, Territory, Way, Route and Label each draw the strip WITHOUT Sculpt\'s picker, brush or hardness', bad.length === 0, bad.join(' | '));
     await toDomain(q, 'world'); await tap(q, '#worldCatSeg [data-wcat="sculpt"]'); await sleep(300);
     const sc = await strip();
-    A('...while Sculpt\'s own strip still carries them (the positive control)', !!sc && sc.picker && sc.brush && sc.hard, JSON.stringify(sc));
+    A('...while Sculpt\'s own strip carries its picker (the positive control) — and not its brush or hardness, which sit at the top of WORLD › Sculpt (fix round 2)', !!sc && sc.picker && !sc.brush && !sc.hard, JSON.stringify(sc));
     await q._ctx.close();
   });
 
@@ -888,12 +908,31 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
       A(w + 'x' + h + ': the library\'s grid has room for its cards (wider than 200px)', st.grid > 200, st.grid);
       const ov = await overflow(q);
       A(w + 'x' + h + ': nothing of the shell runs past the edges in Assets mode', ov.length === 0, ov.join('; '));
-      const back = await rectOf(q, '#phAssetsBack');
-      A(w + 'x' + h + ': a way back out is drawn (← Map, in the app bar), at least 44 x 44', !!back && back.w >= 43.5 && back.h >= 43.5, JSON.stringify(back));
-      if (back) await tap(q, '#phAssetsBack');
-      A(w + 'x' + h + ': ...and one tap on it returns to the map, grip and all', (await q.evaluate(() => !_assetsModeOn)) && (await vis(q, '#phGrip')));
+      /* fix round 2: the way out is the Assets toggle ITSELF, moved into the app bar (v2.46: "the way in AND out");
+         the fix pass's separate ← Map button (#phAssetsBack) was v2.24's retired stand-in */
+      const back = await rectOf(q, 'header #assetsHeaderBtn');
+      A(w + 'x' + h + ': the way back out is the Assets toggle itself, in the app bar (reading ← Map), at least 44 x 44 — no second button', !!back && back.w >= 43.5 && back.h >= 43.5 && (await q.evaluate(() => !document.getElementById('phAssetsBack') && /Map/.test(document.getElementById('assetsHeaderBtn').textContent))), JSON.stringify(back));
+      if (back) await tap(q, 'header #assetsHeaderBtn');
+      A(w + 'x' + h + ': ...and one tap on it returns to the map, grip and all, the toggle back in the drawer', (await q.evaluate(() => !_assetsModeOn && !!document.getElementById('assetsHeaderBtn').closest('#phDrawer'))) && (await vis(q, '#phGrip')));
       await q._ctx.close();
     }
+  });
+
+  await section('phone: from the asset library no tab opens an empty page (MAP, the domain tab, STORY leave it; MENU stays)', async () => {
+    const q = await boot(b, { width: 412, height: 915 }, true); await gen(q); await sleep(300);
+    const bad = [];
+    for (const [tab, page] of [['#phTabMap', 'map'], ['#phTabDomain', 'domain'], ['#phTabStory', 'story'], ['#phTabMenu', 'menu']]) {
+      await closeSheet(q);
+      /* into the library by the drawer's Assets pin, as a person does */
+      if (!(await q.evaluate(() => _assetsModeOn))) { await tapEdge(q, '#phGrip'); await tap(q, '#phDrawer #assetsHeaderBtn'); await sleep(700); }
+      await tapEdge(q, tab); await sleep(450);
+      const s = await q.evaluate(pg => { const el = document.querySelector('.ph-page[data-page="' + pg + '"]'), body = document.getElementById('phSheetBody').getBoundingClientRect();
+        const n = el && !el.hidden ? [...el.querySelectorAll('button, input, select, summary')].filter(e => { if (!e.getClientRects().length || getComputedStyle(e).visibility === 'hidden') return false; const r = e.getBoundingClientRect(); return r.bottom > body.top && r.top < body.bottom; }).length : 0;
+        return { page: _ph.page, det: _ph.detent, controls: n, assets: _assetsModeOn }; }, page);
+      if (!(s.page === page && s.det !== 'closed' && s.controls > 0 && (page === 'menu' ? s.assets : !s.assets))) bad.push(page + ' ' + JSON.stringify(s));
+    }
+    A('each tab opens a page with controls on screen; MAP, the domain tab and STORY leave the library first (their pages are what it hides), MENU works inside it', bad.length === 0, bad.join(' | '));
+    await q._ctx.close();
   });
 
   await section('phone landscape 844 x 390, left-handed: the grip clears the side sheet', async () => {
@@ -934,7 +973,7 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
     }
   });
 
-  await section('phone: Find reveals the tool strip\'s brush settings (it arms Sculpt to show them)', async () => {
+  await section('phone: Find reveals Sculpt\'s brush settings at the top of WORLD › Sculpt (it arms Sculpt to show them)', async () => {
     const q = await boot(b, { width: 412, height: 915 }, true); await gen(q); await sleep(300);
     for (const [word, id] of [['Brush size', 'sBrush'], ['Hardness', 'sHard'], ['Intensity', 'sInten']]) {
       await tap(q, '#phSearchBtn'); await q.keyboard.type(word); await sleep(300);
@@ -943,8 +982,8 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
       if (listed) await tap(q, '#__probeFind');
       await sleep(400);
       const r = await q.evaluate(id => { const el = document.getElementById(id); if (!el || !el.getClientRects().length) return { drawn: false, sculpt: _sculptEditorActive() };
-        const d = window.__pbDrawn(el); return { inStrip: !!el.closest('#phStrip'), w: Math.round(d.w), h: Math.round(d.h), sculpt: _sculptEditorActive() }; }, id);
-      A('Find › ' + word + ': listed, and the chosen result shows it on screen in the strip (Sculpt armed)', listed && !!r.inStrip && r.sculpt && r.w > 20 && r.h > 10, JSON.stringify(r));
+        const d = window.__pbDrawn(el); return { atTop: !!el.closest('#phSculptOpts'), page: _ph.page, det: _ph.detent, w: Math.round(d.w), h: Math.round(d.h), sculpt: _sculptEditorActive() }; }, id);
+      A('Find › ' + word + ': listed, and the chosen result shows it on screen at the top of WORLD › Sculpt (the domain page, Sculpt armed)', listed && !!r.atTop && r.page === 'domain' && r.det !== 'closed' && r.sculpt && r.w > 20 && r.h > 10, JSON.stringify(r));
       /* disarmed for the next word: the domain tab, then WORLD's Generate category */
       await tapEdge(q, '#phTabDomain'); await tap(q, '#worldCatSeg [data-wcat="terrain"]'); await sleep(200); await closeSheet(q);
     }
@@ -1049,6 +1088,189 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
       A(w + 'x900: WORLD\'s hint ellipsises rather than wrapping the pins onto a second row (one 40px row)', h1 <= 42, h1);
       await q._ctx.close();
     }
+  });
+
+  /* ════════════ FOUND BY THE 2026-11-02 VERIFIERS' SECOND ROUND: each section below fails on the build before
+     fix round 2 (v2.73 at 52f7d61b…, the fix pass's final bytes) ════════════ */
+
+  await section('phone: the domain fan\'s dismissing tap reaches nothing under it (a scrim, as the mockup draws one)', async () => {
+    /* (a) Settlement armed by its button on the CIVIL page; the fan held open from the domain tab; a tap on the map */
+    let q = await boot(b, { width: 412, height: 915 }, true); await gen(q); await sleep(300);
+    await toDomain(q, 'civ'); await tap(q, '#phPageDomain [data-civtool="place"]'); await sleep(300);
+    A('(state: Settlement armed by its button)', await q.evaluate(() => _civTool === 'place'));
+    const t = await rectOf(q, '#phTabDomain'); await hold(q, t.l + t.w / 2, t.t + t.h / 2, 520); await sleep(150);
+    A('(a 520ms hold on the domain tab, lifted in place, leaves the fan open for a tap)', await vis(q, '#phFan'));
+    const n0 = await q.evaluate(() => state.places.length);
+    const [mx, my] = await mapPt(q, 0.5, 0.3); await q.touchscreen.tap(mx, my); await sleep(600);
+    const s1 = await q.evaluate(() => ({ fan: !document.getElementById('phFan').hidden, n: state.places.length }));
+    A('with Settlement armed, a tap on the map closes the fan and drops no settlement', !s1.fan && s1.n === n0, JSON.stringify(s1) + ' from ' + n0);
+    await q._ctx.close();
+    /* (b) the fan opened by the title's ▾; a tap where + is */
+    q = await boot(b, { width: 412, height: 915 }, true); await gen(q); await sleep(300);
+    await tapEdge(q, '#phTabDomain'); await tap(q, '#phSheetTitle');
+    A('(the title\'s ▾ opens the fan)', await vis(q, '#phFan'));
+    const z = await rectOf(q, '#zoomIn'), c0 = await cam(q);
+    if (z) { await q.touchscreen.tap(z.l + z.w / 2, z.t + z.h / 2); await sleep(400); }
+    const c1 = await cam(q);
+    A('a tap where + is only closes the fan: the map does not zoom', !!z && c1.s === c0.s && !(await vis(q, '#phFan')), c0.s + ' → ' + c1.s);
+    await q._ctx.close();
+  });
+
+  await section('phone and tablet: ✋ follows the icon gallery — Stop placing and a tile, by taps', async () => {
+    for (const [w, h] of [[412, 915], [1194, 834]]) {
+      const q = await boot(b, { width: w, height: h }, true); await gen(q); await sleep(300);
+      const phone = w < 600;
+      /* the page up to full on a phone, so the gallery is in reach (the tool's arming drops it to peek) */
+      const up = async () => { if (!phone) return; const d = (await sheetState(q)).det; if (d !== 'full') { if (d !== 'half') await tapEdge(q, '#phTabDomain'); await tap(q, '#phSheetHandle'); await sleep(250); } };
+      /* SET-UP ids only, on what a tap then presses: the Icon tool's visible button, the accordion's summary, a tile */
+      const mark = (sel, id) => q.evaluate(([sel, id]) => { document.querySelectorAll('#' + id).forEach(e => e.removeAttribute('id')); const e = [...document.querySelectorAll(sel)].find(x => x.getClientRects().length); if (e) e.id = id; return !!e; }, [sel, id]);
+      const tile = async stop => { await mark(stop ? '#carIconGallery figure.caropt.none' : '#carIconGallery figure.caropt:not(.none)', '__pbTile'); await tap(q, '#__pbTile'); await sleep(250); };
+      if (phone) await toDomain(q, 'carto'); else await tap(q, '#domainRail [data-domain="carto"]');
+      await mark('[data-civtool="icon"]', '__pbIcon'); await tap(q, '#__pbIcon'); await sleep(300); await up();
+      if (await q.evaluate(() => { const d = document.getElementById('carIconContextSec').closest('details'); if (d && !d.open) { d.querySelector(':scope > summary').id = '__pbSum'; return true; } return false; })) { await tap(q, '#__pbSum'); await sleep(250); }
+      await tile(false); await up();
+      await reach(q, 'label[for="carIconBrushChk"]');
+      const lab = await q.evaluate(() => { const e = document.querySelector('label[for="carIconBrushChk"]'); const d = window.__pbDrawn(e); return { w: Math.round(d.w), h: Math.round(d.h) }; });
+      A(w + 'x' + h + ': the density brush\'s label — its checkbox\'s target — is drawn at least 44 x 44', lab.w >= 43.5 && lab.h >= 43.5, JSON.stringify(lab));
+      await tap(q, 'label[for="carIconBrushChk"]');
+      const st = () => q.evaluate(() => ({ key: _ds13DrawKey(), drawn: !!document.getElementById('panBtn').getClientRects().length && getComputedStyle(document.getElementById('panBtn')).display !== 'none', brush: _carIconBrush.on }));
+      const a = await st(); A(w + 'x' + h + ': a tile and the brush ticked: ✋ is drawn', a.key === 'iconbrush' && a.drawn && a.brush, JSON.stringify(a));
+      await up(); await tile(true);
+      const s2 = await st(); A(w + 'x' + h + ': "Stop placing" in the gallery, the brush still ticked: ✋ goes', s2.key === '' && !s2.drawn, JSON.stringify(s2));
+      await up(); await tile(false);
+      const s3 = await st(); A(w + 'x' + h + ': a tile again: ✋ comes back', s3.key === 'iconbrush' && s3.drawn, JSON.stringify(s3));
+      await q._ctx.close();
+    }
+  });
+
+  await section('phone: Sculpt\'s strip leaves the map most of its band, and every drawn map control lies inside that band', async () => {
+    for (const [w, h, land] of [[412, 915, false], [360, 780, false], [844, 390, true], [740, 360, true]]) {
+      VIEWPORTS.add(w + 'x' + h + ' touch');
+      const q = await boot(b, { width: w, height: h }, true); await gen(q); await sleep(300);
+      await tapEdge(q, '#phTabDomain'); await tap(q, '#worldCatSeg [data-wcat="sculpt"]'); await sleep(350);
+      const bad = [];
+      for (const step of ['Sculpt', 'Freehand']) {
+        if (step === 'Freehand') { const id = await q.evaluate(() => { const x = [...document.querySelectorAll('#phStrip #sculptFeatureSeg button')].find(e => /freehand/i.test(e.textContent)); if (x) x.id = '__pbFh'; return !!x; }); if (id) { await tap(q, '#__pbFh'); await sleep(350); } }
+        const g = await q.evaluate(() => {
+          const map = document.querySelector('.canvas-wrap').getBoundingClientRect(), st = document.getElementById('phStrip').getBoundingClientRect();
+          const out = [];
+          for (const s of ['#zoomReset', '#zoomIn', '#zoomOut', '#panBtn', '#sculptNavpad', '#phGrip', '#scaleBar']) { const e = document.querySelector(s); if (!e || !e.getClientRects().length) continue;
+            const cs = getComputedStyle(e); if (cs.display === 'none' || cs.visibility === 'hidden') continue; const r = e.getBoundingClientRect(); if (!r.width || !r.height) continue;
+            if (r.top < map.top - 1 || r.bottom > Math.min(map.bottom, st.top) + 1) out.push(s + ' ' + Math.round(r.top) + '..' + Math.round(r.bottom)); }
+          return { mapH: Math.round(map.height), band: Math.round(Math.min(map.bottom, st.top) - map.top), strip: Math.round(st.height), outside: out }; });
+        const need = land ? 200 : Math.ceil(g.mapH * 0.5);
+        if (g.band < need) bad.push(step + ': band ' + g.band + ' < ' + need + ' (strip ' + g.strip + ', map ' + g.mapH + ')');
+        if (g.outside.length) bad.push(step + ': outside the band — ' + g.outside.join(', '));
+      }
+      A(w + 'x' + h + ': with Sculpt (and Freehand) armed the band above the strip keeps ' + (land ? '≥ 200px' : '≥ 50% of the map') + ', and every drawn map control is inside it', bad.length === 0, bad.join(' | '));
+      await q._ctx.close();
+    }
+  });
+
+  await section('phone 360: the Settlements window\'s four tabs — 44px targets, and sliders that keep their width', async () => {
+    const q = await boot(b, { width: 360, height: 780 }, true); await gen(q); await sleep(300);
+    await tapEdge(q, '#phGrip'); await tap(q, '#phDrawer #settlementsHeaderBtn'); await sleep(600);
+    const bad = [], sl = [], seen = {};
+    for (const tab of ['global', 'factions', 'places', 'types']) {
+      await tap(q, '#civPmBar [data-pm="' + tab + '"]'); await sleep(450);
+      /* SET-UP: every disclosure in the window opened (as the domain walk does) */
+      await q.evaluate(() => document.querySelectorAll('#civFactionsModal details').forEach(d => d.open = true)); await sleep(200);
+      const ts = await drawnTargets(q, ['#civFactionsModal']);
+      /* a control clipped to nothing (the faction drawer's ← Back while the drawer is shut) is not drawn: it is no
+         target at all, counted apart and never as a pass */
+      const drawn = ts.filter(x => x.w > 0 && x.h > 0); seen[tab] = drawn.length;
+      for (const x of drawn) if (x.w < 43.5 || x.h < 43.5) bad.push(tab + ': ' + x.name + ' drawn ' + x.w + 'x' + x.h);
+      const w = await q.evaluate(() => [...document.querySelectorAll('#civFactionsModal input[type=range]')].filter(e => e.getClientRects().length && !window.__pbHidden(e) && getComputedStyle(e).visibility !== 'hidden').map(e => Math.round(e.getBoundingClientRect().width)));
+      for (const x of w) sl.push(tab + ' ' + x);
+    }
+    A('each tab measured targets (' + JSON.stringify(seen) + ')', Object.values(seen).every(n => n > 0), JSON.stringify(seen));
+    A('every drawn target in the four tabs is at least 44 x 44', bad.length === 0, bad.slice(0, 6).join(' | '));
+    const narrow = sl.filter(x => +x.split(' ')[1] < 120);
+    A('every slider in them keeps at least 120px of track (' + sl.length + ' sliders)', sl.length > 20 && narrow.length === 0, narrow.slice(0, 6).join(', '));
+    /* a swipe up the window, then its × */
+    await tap(q, '#civPmBar [data-pm="types"]'); await sleep(300);
+    const body = await rectOf(q, '.cfm-body');
+    await drag(q, body.l + body.w / 2, body.t + body.h * 0.8, body.l + body.w / 2, body.t + body.h * 0.2, 10);
+    const x = await q.evaluate(() => { const e = document.getElementById('cfmCloseBtn'), d = window.__pbDrawn(e); return { sc: document.querySelector('.cfm-body').scrollTop, w: Math.round(d.w), h: Math.round(d.h), t: Math.round(d.t) }; });
+    A('after a swipe through the window its × is still drawn whole at the top (sticky)', x.sc > 50 && x.w >= 43.5 && x.h >= 43.5 && x.t >= 0, JSON.stringify(x));
+    await tap(q, '#cfmCloseBtn');
+    A('...and one tap on it closes the window', !(await q.evaluate(() => document.getElementById('civFactionsModal').classList.contains('open'))));
+    await q._ctx.close();
+  });
+
+  await section('phone 412 and tablet 1194: a swipe through Credits keeps its × in reach', async () => {
+    for (const [w, h] of [[412, 915], [1194, 834]]) {
+      const q = await boot(b, { width: w, height: h }, true); await gen(q); await sleep(300);
+      if (w < 600) { await menuPath(q, 'help'); await tap(q, '#mbHelp [data-cmd="credits"]'); }
+      else { await tap(q, '#mbHelpBtn'); await tap(q, '#mbHelp [data-cmd="credits"]'); }
+      await sleep(300);
+      const c = await rectOf(q, '#creditsModal .cr-card');
+      if (c) await drag(q, c.l + c.w / 2, c.t + c.h * 0.8, c.l + c.w / 2, c.t + c.h * 0.2, 10);
+      const x = await q.evaluate(() => { const e = document.getElementById('creditsClose'), d = window.__pbDrawn(e); return { sc: document.querySelector('#creditsModal .cr-card').scrollTop, w: Math.round(d.w), h: Math.round(d.h) }; });
+      A(w + 'x' + h + ': after a swipe through Credits its × is drawn whole', !!c && x.sc > 50 && x.w >= 43.5 && x.h >= 43.5, JSON.stringify(x));
+      await q._ctx.close();
+    }
+  });
+
+  await section('phone: the page does not zoom, the hints name what a phone has, one glyph size, a menu row says why it cannot run', async () => {
+    const q = await boot(b, { width: 412, height: 915 }, true); await gen(q); await sleep(300);
+    /* a two-finger pinch on the sheet, then on the app bar */
+    await tapEdge(q, '#phTabDomain');
+    for (const sel of ['#phSheetBody', 'header']) {
+      const r = await rectOf(q, sel); const cx = r.l + r.w / 2, cy = r.t + Math.min(80, r.h / 2);
+      await T(q, 'touchStart', [[cx - 30, cy, 0], [cx + 30, cy, 1]]);
+      for (let i = 1; i <= 10; i++) { await T(q, 'touchMove', [[cx - 30 - i * 10, cy, 0], [cx + 30 + i * 10, cy, 1]]); await sleep(16); }
+      await T(q, 'touchEnd', []); await sleep(400);
+      const s = await q.evaluate(() => visualViewport.scale);
+      A('a two-finger pinch on ' + (sel === 'header' ? 'the app bar' : 'the sheet') + ' does not zoom the page (visualViewport.scale ' + s + ')', s === 1);
+    }
+    await closeSheet(q);
+    /* Territory armed by its button: its strip hint */
+    await toDomain(q, 'civ'); await tap(q, '#phPageDomain [data-civtool="territory"]'); await sleep(300);
+    const hint = await q.evaluate(() => document.getElementById('toolOptsHint').textContent);
+    A('Territory\'s strip hint sends a phone to the Civil page\'s Tools, not to a dock it never draws', /Civil page’s Tools/.test(hint) && !/dock/.test(hint), hint);
+    await tapEdge(q, '#phTabDomain'); await tap(q, '#phPageDomain [data-civtool="territory"]'); await sleep(200); await closeSheet(q);
+    /* STORY › Journeys with no journey */
+    await tapEdge(q, '#phTabStory'); await tap(q, '#phStorySeg [data-story="journeys"]');
+    const jh = await q.evaluate(() => document.getElementById('civJourneyList').textContent);
+    A('STORY › Journeys tells a phone to tap ✓ Commit route (it has no Esc)', /tap ✓ Commit route/.test(jh) && !/Esc/.test(jh), jh);
+    await tap(q, '#phStorySeg [data-story="time"]'); await closeSheet(q);
+    /* DS-13's four glyphs, ✋ drawn by arming Sculpt */
+    await tapEdge(q, '#phTabDomain'); await tap(q, '#worldCatSeg [data-wcat="sculpt"]'); await sleep(300);
+    const gs = await q.evaluate(() => ['zoomIn', 'zoomOut', 'panBtn'].map(id => getComputedStyle(document.getElementById(id)).fontSize).concat([getComputedStyle(document.getElementById('zoomReset'), '::before').fontSize]));
+    A('DS-13 draws ⌖, −, + and ✋ at one glyph size (§2.5)', new Set(gs).size === 1, JSON.stringify(gs));
+    await tapEdge(q, '#phTabDomain'); await tap(q, '#worldCatSeg [data-wcat="terrain"]'); await sleep(250); await closeSheet(q);
+    /* MENU › Edit with nothing to undo or redo and nothing selected */
+    await menuPath(q, 'edit');
+    const why = await q.evaluate(() => [...document.querySelectorAll('#mbEdit .mb-row')].filter(e => e.getClientRects().length && e.disabled).map(e => { const w = e.querySelector('.mb-why'); return { why: w && w.getClientRects().length ? w.textContent : null, op: getComputedStyle(e).opacity }; }));
+    A('MENU › Edit: each row that cannot run carries its reason as a second line, not only grey (§3)', why.length >= 2 && why.every(x => x.why && x.op === '1'), JSON.stringify(why));
+    await closeSheet(q);
+    await q._ctx.close();
+  });
+
+  await section('phone: a focused field stays in view when a keyboard shrinks the layout viewport', async () => {
+    const q = await boot(b, { width: 412, height: 915 }, true); await gen(q); await sleep(300);
+    await toDomain(q, 'world', true);
+    await tap(q, '#seedN');
+    A('(Seed is focused)', await q.evaluate(() => document.activeElement && document.activeElement.id === 'seedN'));
+    VIEWPORTS.add('412x380 touch (a keyboard over 412x915)');
+    await q.setViewportSize({ width: 412, height: 380 }); q._vp = { width: 412, height: 380 }; await sleep(600);
+    const s = await q.evaluate(() => { const d = window.__pbDrawn(document.getElementById('seedN')); return { h: Math.round(d.h), t: Math.round(d.t), b: Math.round(d.b) }; });
+    A('412 x 380 with Seed focused: the field is drawn whole inside the sheet', s.h >= 30, JSON.stringify(s));
+    await q._ctx.close();
+  });
+
+  await section('tablet: Sculpt\'s Commit and Discard are in the tool-options bar, and a menu row says why it cannot run', async () => {
+    const q = await boot(b, { width: 1194, height: 834 }, true); await gen(q); await sleep(300);
+    await tap(q, '#domainRail [data-domain="world"]'); await tap(q, '#worldCatSeg [data-wcat="sculpt"]'); await sleep(400);
+    const c = await q.evaluate(() => { const bar = document.getElementById('toolOpts').getBoundingClientRect(); return ['sculptCommitBtn', 'sculptDiscardBtn'].map(id => { const e = document.getElementById(id), d = window.__pbDrawn(e);
+      return { id, inBar: !!e.closest('#toolOpts'), w: Math.round(d.w), h: Math.round(d.h), within: d.t >= bar.top - 1 && d.b <= bar.bottom + 1 }; }); });
+    A('with Sculpt armed both are drawn whole in the bar, 44px tall (the design\'s tablet bar)', c.every(x => x.inBar && x.within && x.h >= 43.5 && x.w >= 43.5), JSON.stringify(c));
+    await tap(q, '#worldCatSeg [data-wcat="terrain"]'); await sleep(250);
+    await tap(q, '#mbEditBtn');
+    const why = await q.evaluate(() => [...document.querySelectorAll('#mbEdit .mb-row')].filter(e => e.getClientRects().length && e.disabled).map(e => { const w = e.querySelector('.mb-why'); return w && w.getClientRects().length ? w.textContent : null; }));
+    A('Edit\'s rows that cannot run carry their reason on the tablet too', why.length >= 2 && why.every(Boolean), JSON.stringify(why));
+    await q._ctx.close();
   });
 
   A('no page errors and no console errors anywhere', errors.length === 0, errors.slice(0, 4).join(' | '));

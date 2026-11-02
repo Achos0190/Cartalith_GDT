@@ -1063,20 +1063,36 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 
 /* ══════════════════ v2.73 · STAGE 2: THE PHONE AND TABLET SHELLS ═════════════════════
    Owner: "Can we upgrade the layout in the html with the new design?", "Everything, staged"; stage 2 is the
-   phone and the tablet. Design: Cartalith_GDT MOBILE_SHELL_PROPOSAL.md §2.1-§2.5, §3, §4, Rulings DT, DU,
+   phone and the tablet. Design: Cartalith_GDT MOBILE_SHELL_PROPOSAL.md §2.1, §2.2, §2.4, §2.5, §3, §4, Rulings DT, DU,
    DX, DY (MQ-1, Q10-Q12, PQ6) and EB. Every rule below is keyed on html[data-shell] — which only
    _shellClassOf (block 1) decides — and wrapped in :where() so it adds no specificity. Three shorthands in
-   these comments: TOUCH = phone and tablet, PHONE, TABLET. Tokens are the v2.23 :root's; only --navpill
-   is new (DS-13's pill fill, `panel` at NAVPAD_ALPHA 0.92, §2.5's colour table).
+   these comments: TOUCH = phone and tablet, PHONE, TABLET. Tokens are the v2.23 :root's; two are new:
+   --navpill (DS-13's pill fill, `panel` at NAVPAD_ALPHA 0.92, §2.5's colour table) and --why (a disabled
+   menu row's reason line, §3's #ebc080; fix round 2).
    ════════════════════════════════════════════════════════════════════════════ */
 :root{--navpill:rgba(18,19,20,.92)}
 :root[data-theme="light"]{--navpill:rgba(251,250,247,.92)}
+/* fix round 2: --why, a disabled row's reason line — §3's #ebc080 (10.97:1 on --panel); the light theme's
+   value is a labelled judgement, since #ebc080 on its panel is 1.49:1: #7a4f0e, 6.25:1 on #f2f0ec (computed
+   with the WCAG formula, 2026-11-02) */
+:root{--why:#ebc080}
+:root[data-theme="light"]{--why:#7a4f0e}
 /* v2.24's tool rail band is drawn on no shell any more: its feature picker and hint are the tool-options
    bar's on the desktop and tablet (v2.72) and the tool strip's on a phone (v2.73). The band keeps its id —
    _toolRailSync still writes its inline display, which this outranks. */
 #toolRail{display:none!important}
 /* the narrow tablet's ☰ and World menus exist only below 1180px on a tablet (Ruling DY PQ6) */
 .mb-narrow-only{display:none!important}
+
+/* ---- TOUCH · no page zoom (fix round 2) ----------------------------------------------------------------
+   A two-finger pinch on the phone's sheet or app bar zoomed the whole PAGE (visualViewport.scale 1 → 5, the
+   shell drawn huge; the 2026-11-02 verifiers; v2.72 the same), and the sheet is where a second finger lands
+   while the first pinches the map at half. pan-x pan-y keeps every scroller scrolling and takes away the
+   browser's pinch-zoom and double-tap zoom, by construction for whatever is added later. The map, the
+   sliders, the joystick, the sheet's head, the bar's tabs and the drawer keep their own narrower values,
+   which out-specify this (it is one type selector). Android's "Force enable zoom" may override it: MS-10. */
+:where(html[data-shell="phone"],html[data-shell="tablet"]) body,
+:where(html[data-shell="phone"],html[data-shell="tablet"]) body *{touch-action:pan-x pan-y}
 
 /* ---- TOUCH · the 44px floor (§3: "every tap target is at least 44 × 44 dp on both axes") -------------
    One rule set for every control the docks, menus, windows and popups draw, rather than a size per
@@ -1092,12 +1108,31 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) button{min-width:44px}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) input[type=number]{min-width:56px}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) label.chk{min-height:44px}
+/* A checkbox's or radio's target is its LABEL, whichever way the label is written — wrapping it, or naming it
+   by for= right before or after it — not only label.chk (fix round 2). The first cut floored label.chk alone,
+   so the icon density brush (<label for> beside a bare checkbox) measured 13x13 with a 78x32 label at
+   412x915 and 90x15 at 1194x834, and the Settlements window's star fort / ruined and the library's scatter
+   switches were not floored either (the 2026-11-02 verifiers). Flex, so a 44px label keeps its text centred;
+   a rule with an id that sets display (#mbExportPanel's paragraphs) outranks this one. */
+:where(html[data-shell="phone"],html[data-shell="tablet"]) label:has(> input[type=checkbox]),
+:where(html[data-shell="phone"],html[data-shell="tablet"]) label:has(> input[type=radio]),
+:where(html[data-shell="phone"],html[data-shell="tablet"]) label[for]:has(+ input[type=checkbox]),
+:where(html[data-shell="phone"],html[data-shell="tablet"]) label[for]:has(+ input[type=radio]),
+:where(html[data-shell="phone"],html[data-shell="tablet"]) input[type=checkbox] + label[for],
+:where(html[data-shell="phone"],html[data-shell="tablet"]) input[type=radio] + label[for]{min-height:44px;min-width:44px;display:flex;align-items:center}
 /* min-height, not height: rows set a slider's height by class or id (.row 22px, the bar's 18px), and a
    min-height beats any height whatever its specificity — the floor cannot be out-specified by accident */
 :where(html[data-shell="phone"],html[data-shell="tablet"]) input[type=range]{min-height:44px}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) details>summary{min-height:44px;display:flex;align-items:center}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) .pill{min-height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center;padding:0 12px}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) #findResults [data-find-i]{min-height:44px;align-items:center!important}
+/* A menu row that cannot run says why, as a second line (§3: "A row that cannot run is drawn with its reason
+   as a second line in #ebc080, never only greyed"; fix round 2 — the first cut only greyed it at .45). The
+   line is _dskWhySet's .mb-why, written on the touch shells only; the label stays legible in --dim (§3 keeps
+   #6f7478 off text). The desktop draws no such span. */
+.mb-why{display:none}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .mb-row:disabled{opacity:1;color:var(--dim);flex-wrap:wrap;align-content:center}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .mb-row:disabled > .mb-why{display:block;flex:1 0 100%;order:9;margin:1px 0 6px;font-family:var(--mono);font-size:10.5px;line-height:1.35;letter-spacing:0;text-transform:none;color:var(--why);white-space:normal}
 /* the touch map menu (the long-press card) — the same rows as the desktop's right-click menu */
 :where(html[data-shell="phone"],html[data-shell="tablet"]) .civ-ctx button{min-height:48px;font-size:14px!important}
 /* windows open as full-height sheets on a phone (§2.1); their × is a 44px target on any touch shell */
@@ -1106,6 +1141,25 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-close,
 :where(html[data-shell="phone"],html[data-shell="tablet"]) .place-edit-popup .si-close,
 :where(html[data-shell="phone"],html[data-shell="tablet"]) .settle-info .si-close{width:44px;height:44px;font-size:20px}
+/* a window's × stays in reach while its content scrolls (fix round 2): sticky at the top of the window's own
+   scroller, floated to its right, as Settings' head already is (.set-head). Credits and Settlements placed
+   theirs absolutely inside the scroller, so it scrolled away — after one swipe #creditsClose was drawn 0px
+   tall and the Settlements × sat at y -553 at 360 (the 2026-11-02 verifiers; v2.72 the same) — and a phone
+   has no Esc. The Settlements title takes the ×'s height, so the tab bar below starts clear of the float. */
+:where(html[data-shell="phone"],html[data-shell="tablet"]) #creditsModal .cr-close,
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-close{position:sticky;top:0;right:auto;float:right;margin:0 0 6px 8px;z-index:3}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-body > h2{min-height:44px;display:flex;align-items:center}
+/* The Settlements window's slider rows on a phone: the label goes ABOVE its slider (fix round 2). Its rows
+   give the label a fixed basis (150px in Global, 118px and 190px in Types, by inline style, hence the
+   !important) beside a 62px value and a reset ↺; once the floor sized that ↺ at 44px the Global sliders were
+   12px wide at 360x780 (30px in v2.72) and a 60px drag went the wrong way, and Types' 23 were 40px (the
+   2026-11-02 verifiers). Stacked, each slider keeps the row's width less the value and the ↺: about 200px at
+   360. The ↺ keeps its reserved 44px while hidden (visibility, as v2.63 drew it), a judgement: a slider that
+   widened when its ↺ appeared would move under the finger on the first drag. Global's hint loses its
+   150px indent with the label. */
+:where(html[data-shell="phone"]) #civFactionsModal .row:has(> input[type=range]){flex-wrap:wrap;row-gap:0}
+:where(html[data-shell="phone"]) #civFactionsModal .row:has(> input[type=range]) > label{flex:1 0 100%!important}
+:where(html[data-shell="phone"]) #civPmGlobal .row + .hint{margin-left:0!important}
 :where(html[data-shell="phone"]) #creditsModal{padding:0}
 :where(html[data-shell="phone"]) #creditsModal .cr-card{width:100vw;height:100vh;height:100dvh;max-height:none;border-radius:0}
 
@@ -1117,8 +1171,12 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
    with it. #zoomOverlay's own buttons and handlers: zoomAt(×1.35 / ÷1.35) about the centre off-LOD, the
    LOD camera's doubling step under Tiled LOD, and the 3D camera in 3D (all unchanged). */
 :where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay{display:flex;flex-direction:row;align-items:center;gap:0;z-index:21}
-:where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay .zbtn{position:relative;width:44px;height:44px;min-width:44px;padding:0;font-size:21px;font-weight:400;
+:where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay .zbtn{position:relative;width:44px;height:44px;min-width:44px;padding:0;font-size:20px;font-weight:400;
   background:var(--navpill);color:var(--ink);border:1px solid var(--line);box-shadow:0 2px 10px rgba(0,0,0,.35)}
+/* one glyph size for the four (§2.5, "one glyph size"; fix round 2): − and + were 21px, ✋ 18px (its inline
+   style, now gone) and ⌖ 16px (stage 1's ::before, which draws the recentre glyph on every shell). 20px is a
+   labelled judgement between them, for a 44px target. */
+:where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay #zoomReset::before{font-size:20px}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay #panBtn{order:1;margin-right:10px;display:none}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay #zoomOut{order:2;border-right:0}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay #zoomIn{order:3;border-left:0;margin-right:10px}
@@ -1154,6 +1212,12 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="tablet"]) header #findInput{height:44px}
 :where(html[data-shell="tablet"]) .toolopts{min-height:48px}
 :where(html[data-shell="tablet"]) .to-pins button{height:44px;padding:0 12px}
+/* fix round 2: Sculpt's Commit and Discard at the end of the bar's second row, after the brush and the
+   feature's hint (order 7), which yields to them — the design's tablet bar draws DISCARD and COMMIT beside
+   the feature chips (Shell.dc.html toolBar). Before this they sat only at the foot of the left dock: at
+   1194x834 #sculptCommitBtn was laid at y 1454 in a 598px dock scroller (the 2026-11-02 verifier). */
+:where(html[data-shell="tablet"]) #toolOpts #sculptDiscardBtn,:where(html[data-shell="tablet"]) #toolOpts #sculptCommitBtn{order:8;flex:0 0 auto;margin:2px 0;white-space:nowrap}
+:where(html[data-shell="tablet"]) #toolOpts #sculptCommitBtn{order:9}
 :where(html[data-shell="tablet"]) .domain-rail{flex:0 0 48px}
 :where(html[data-shell="tablet"]) .dh-btn{width:44px;height:44px}
 :where(html[data-shell="tablet"]) .dock-head{height:48px}
@@ -1239,13 +1303,19 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 
 /* ---- PHONE · the shell (§2.1, §3) ----------------------------------------------------------------- */
 :where(html[data-shell="phone"]) body{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
-/* the app bar: the world pill, Undo, Redo, Search — one row under the status-bar inset */
+/* the app bar: the world pill, Undo, Redo, Search — one row under the status-bar inset. 56px is a LABELLED
+   JUDGEMENT, stated in the CHANGELOG as a departure: §3 gives "app bar 52 under a 28 status inset"; 56 is
+   Material's phone top app bar, and keeps 6px around the 44px targets where 52 would keep 4. The drawer's
+   top, the search row and the landscape side sheet's top read the same 56. */
 :where(html[data-shell="phone"]) header{flex:0 0 auto;position:relative;height:calc(56px + env(safe-area-inset-top,0px));align-items:center;flex-wrap:nowrap;gap:6px;
   padding:env(safe-area-inset-top,0px) max(8px,env(safe-area-inset-right,0px)) 0 max(8px,env(safe-area-inset-left,0px))}
-:where(html[data-shell="phone"]) header > :not(#phWorldPill):not(#undoBtn):not(#redoBtn):not(#phSearchBtn):not(#phSearch):not(#phAssetsBack){display:none!important}
-/* ← Map: drawn in the app bar only while Assets mode is on (fix pass — the library had no visible way out) */
-:where(html[data-shell="phone"]) #phAssetsBack{display:none}
-:where(html[data-shell="phone"]) body.assets-mode #phAssetsBack{display:flex;flex:0 0 auto;height:44px;align-items:center;padding:0 12px;white-space:nowrap;border-color:var(--accent);color:var(--accent)}
+:where(html[data-shell="phone"]) header > :not(#phWorldPill):not(#undoBtn):not(#redoBtn):not(#phSearchBtn):not(#phSearch):not(#slotPhAppAssets){display:none!important}
+/* Fix round 2: while Assets mode is on, the Assets toggle ITSELF (#assetsHeaderBtn, which _carEnterAssetsMode
+   relabels "← Map" and marks .on) sits at the app bar's start, moved there by the slot table — its quick-drawer
+   home opens from a grip on the map, which the library hides. The fix pass drew a separate "← Map" button
+   (#phAssetsBack) here instead: v2.24's stand-in, which v2.46 retired as v1.57's one-control-two-surfaces
+   defect (the 2026-11-02 verifiers). One toggle, the visible way in and out, as v2.46 made it. */
+:where(html[data-shell="phone"]) header #assetsHeaderBtn{flex:0 0 auto;height:44px;display:flex;align-items:center;padding:0 12px;white-space:nowrap;border-color:var(--accent);color:var(--accent)}
 :where(html[data-shell="phone"]) #phWorldPill{flex:1 1 auto;min-width:0;height:44px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;padding:0 12px;text-align:left;border:1px solid var(--border);background:var(--panel2)}
 :where(html[data-shell="phone"]) .ph-pill-k{font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);line-height:1}
 :where(html[data-shell="phone"]) #phWorldPill .shell-slot{display:flex;gap:8px;min-width:0;max-width:100%}
@@ -1283,8 +1353,8 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
    sheet, the bar and the drawer: measured (fix pass), with a settlement selected MENU's rows were covered at
    6-8 points and a tap on Preferences › Handedness pressed the popup instead. On a phone it sits UNDER the
    frame — above the map's own controls (DS-13 21, the grip 22), below the strip 32, the sheet 33, the bar 34,
-   the scrim 35, the drawer 36, the fan 40 and the search row 41 — and stays open beneath a page until the
-   sheet goes down again. The desktop and tablet keep v0.90's 61. */
+   the scrim 35 (39 under the fan), the drawer 36, the fan 40 and the search row 41 — and stays open beneath
+   a page until the sheet goes down again. The desktop and tablet keep v0.90's 61. */
 :where(html[data-shell="phone"]) .place-edit-popup{z-index:31}
 :where(html[data-shell="phone"]) .ph-sheet-head{flex:0 0 76px;height:76px;position:relative;padding:14px 6px 0 14px;touch-action:none;-webkit-user-select:none;user-select:none;border-bottom:1px solid var(--line)}
 :where(html[data-shell="phone"]) .ph-grabber{position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;background:var(--faint)}
@@ -1326,7 +1396,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"]) #phPageMenu .mb-sub:not(.open) > .mb-subpanel{display:none}
 :where(html[data-shell="phone"]) #phPageMenu .mb-row,:where(html[data-shell="phone"]) #phPageMenu .mb-panel > button{display:flex;align-items:center;gap:0;width:100%;min-height:48px;padding:0 16px;margin:0;
   background:none;border:0;border-bottom:1px solid var(--div);color:var(--ink);font-family:var(--sans);font-size:14px;text-align:left;white-space:normal}
-:where(html[data-shell="phone"]) #phPageMenu .mb-row:disabled{opacity:.45}
+:where(html[data-shell="phone"]) #phPageMenu .mb-row:disabled{opacity:1;color:var(--dim)}
 :where(html[data-shell="phone"]) #phPageMenu .mb-arrow{margin-left:auto;padding-left:16px;color:var(--dim);font-size:15px}
 :where(html[data-shell="phone"]) #phPageMenu .mb-k{display:none}
 :where(html[data-shell="phone"]) #phPageMenu .mb-cap,:where(html[data-shell="phone"]) #phPageMenu .menu-sec{font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);padding:16px 16px 6px;margin:0}
@@ -1364,10 +1434,24 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"]) .ph-strip-tool[hidden]{display:none}
 :where(html[data-shell="phone"]) .ph-strip #sculptFeatureSeg{display:flex;flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:thin}
 :where(html[data-shell="phone"]) .ph-strip #sculptFeatureSeg button{flex:0 0 auto;padding:0 12px;white-space:nowrap;border-top:0}
-:where(html[data-shell="phone"]) .ph-strip #sculptModeSeg{flex-wrap:nowrap!important;overflow-x:auto;margin:0!important}
-:where(html[data-shell="phone"]) .ph-strip #sculptModeSeg button{flex:0 0 auto;padding:0 10px}
-:where(html[data-shell="phone"]) .ph-strip .row{margin:0!important}
-:where(html[data-shell="phone"]) .ph-strip #sBrushKm,:where(html[data-shell="phone"]) .ph-strip #sculptFeatHint{margin:0!important;font-family:var(--mono);font-size:10px}
+/* fix round 2: Sculpt's strip is its name, the feature picker as ONE row of chips, and Commit / Discard —
+   the rest of its settings are at the top of WORLD › Sculpt (#phSculptOpts). Its name carries no hint, so
+   the name may yield to Commit / Discard on the first row (basis 96px, ellipsised: the mockup's strip
+   ellipsises "SCULPT · MOUNTAI…" the same way), and the chips take the second. In landscape the name has a
+   row of its own and the chips share the second with Commit / Discard, so the strip is two rows wherever
+   the side sheet leaves it narrow — measured, 226px tall at 844x390 in the first cut. #phStrip[data-tool]
+   is written by _phStripSync. */
+:where(html[data-shell="phone"]) #phStrip[data-tool="sculpt"] .ph-strip-main{flex-basis:96px}
+:where(html[data-shell="phone"][data-orient="land"]) #phStrip[data-tool="sculpt"] .ph-strip-main{flex:1 1 100%}
+:where(html[data-shell="phone"][data-orient="land"]) #phStrip[data-tool="sculpt"] .ph-strip-tool{flex:1 1 0;order:2}
+:where(html[data-shell="phone"][data-orient="land"]) #phStrip[data-tool="sculpt"] .ph-strip-act{order:3}
+/* the sculpt tool's other settings at the top of WORLD › Sculpt (the phone's domain page): the feature's
+   hint first, then Freehand's mode, the brush size with its km readout, hardness and intensity */
+:where(html[data-shell="phone"]) #phSculptOpts{display:flex;flex-direction:column;gap:2px}
+:where(html[data-shell="phone"]) #phSculptOpts #sculptFeatHint{order:-1;margin:0 0 6px!important}
+:where(html[data-shell="phone"]) #phSculptOpts #sculptModeSeg{margin:0 0 6px!important}
+:where(html[data-shell="phone"]) #phSculptOpts .row{margin:4px 0}
+:where(html[data-shell="phone"]) #phSculptOpts #sBrushKm{margin:0 0 4px!important}
 /* the map's controls: DS-13 at the bottom on the dominant hand's side, above the sheet and the strip
    (--ph-cover-b, written by _phLayout); the scale bar takes the other side; the grip sits at the middle of
    the edge away from the dominant hand. The joystick (v1.19/v1.22) stacks above the row. */
@@ -1376,9 +1460,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"]) body.ds13-hide #zoomOverlay{visibility:hidden}
 :where(html[data-shell="phone"]) #scaleBar{left:12px;right:auto;bottom:calc(var(--ph-cover-b,0px) + 12px)}
 :where(html.hand-left[data-shell="phone"]) #scaleBar{left:auto;right:12px}
+/* §3's thin-out takes the scale bar with the row (fix round 2; _phLayout) */
+:where(html[data-shell="phone"]) body.ds13-hide #scaleBar{visibility:hidden}
 :where(html[data-shell="phone"]) #sculptNavpad{right:12px;bottom:calc(var(--ph-cover-b,0px) + 68px)}
 :where(html.hand-left[data-shell="phone"]) #sculptNavpad{right:auto;left:12px}
-:where(html[data-shell="phone"]) body.ds13-hide #sculptNavpad{visibility:hidden}
+:where(html[data-shell="phone"]) body.ds13-hide #sculptNavpad,:where(html[data-shell="phone"]) body.ph-nav-hide #sculptNavpad{visibility:hidden}
 /* the grip sits at the middle of the map band LEFT VISIBLE above the sheet and the strip (§2.4: "at the middle
    of the map's edge"), so a half-open sheet never covers it and it never meets the scale bar; it hides with
    the band (body.ph-grip-hide, _phLayout) */
@@ -1413,6 +1499,10 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   background:none;border:0;border-bottom:1px solid var(--div);color:var(--ink);font-family:var(--sans);font-size:14px;text-align:left;letter-spacing:0;text-transform:none}
 :where(html[data-shell="phone"]) #phDrawer #assetsHeaderBtn.on{color:var(--accent)}
 :where(html[data-shell="phone"]) body.ph-drawer-open .scrim{display:block;z-index:35}
+/* fix round 2: the same scrim lies under the domain fan (z 39, the fan 40), as the mockup draws one
+   (Shell.dc.html, the fan's scrim: rgba(0,0,0,.45)), so the tap that dismisses the fan is spent on it
+   (_phFanSet; its click closes the fan, _phWire). touch-action none: nothing under it may scroll or zoom. */
+:where(html[data-shell="phone"]) body.ph-fan-open .scrim{display:block;z-index:39;touch-action:none}
 /* the asset library on a phone: ONE column — the categories as a row of chips that scrolls sideways, the grid,
    then the inspector under it (capped, scrolling) — instead of v0.65's three columns side by side. Their 150 +
    250px of rail and inspector ran a 360-390px phone past its edge — the page widened to 401px and the bottom
@@ -1483,12 +1573,13 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
        is no world name in this file, so none is shown (MISTAKES.md: never encode "no value" as a value).
        Search opens #phSearch, which holds the one Find box (#findWrap, moved): a button that opens the real
        control, not a second search. No ⋮ overflow (Ruling DU Q6): MENU covers it. -->
-  <!-- v2.73 (fix pass): the way back out of the asset library on a phone, drawn in the app bar only while
-       Assets mode is on. v2.46 made the Assets toggle "the way in AND out, always visible"; on a phone its home
-       is the quick drawer, whose grip sits on the map — and Assets mode hides the map, so the library had no
-       visible way out (only MENU › Quick › Asset library). This is frame only: it runs the Asset library command,
-       which presses #assetsHeaderBtn itself (one toggle, one implementation), as MENU's Quick row does. -->
-  <button type="button" class="ph-only" id="phAssetsBack" aria-label="Back to the map — close the asset library" title="Back to the map (closes the asset library)">← Map</button>
+  <!-- v2.73 (fix round 2): the Assets toggle's place in the PHONE's app bar while Assets mode is on. v2.46 made
+       the toggle "the way in AND out, always visible"; on a phone its home is the quick drawer, whose grip sits
+       on the map — and Assets mode hides the map — so while the library is open the slot table moves
+       #assetsHeaderBtn itself here (_SHELL_SLOTS's `pa`, re-placed by _carEnterAssetsMode/_carExitAssetsMode),
+       and back to the drawer when it closes. The fix pass drew a separate "← Map" button here (#phAssetsBack),
+       which brought back v2.24's stand-in that v2.46 retired (see below): it is gone. -->
+  <span class="shell-slot" id="slotPhAppAssets"></span>
   <button type="button" class="ph-pill ph-only" id="phWorldPill" title="The open world — opens MENU › File" aria-label="World: open MENU, File"><span class="ph-pill-k">World</span><span class="shell-slot" id="slotPhPill"></span></button>
   <!-- v2.46 (owner: "the button for the asset manager has gone"). It had not: v2.24 filed the Asset
        Library under "program scope" and moved this toggle into the cog's Settings window, leaving a
@@ -1533,7 +1624,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
        Records · Story (Ruling DY PQ6): #mbMoreWrap and #mbWorldWrap below are drawn only there, and the
        five panels the bar has no room for move into ☰'s drill-in pages (slots n: in _SHELL_SLOTS). On a
        PHONE the bar is not drawn: the eight panels move into MENU (slots p:), row for row (Ruling DT Q2,
-       Ruling DX Q13) — the same panels and the same _DSK_CMDS, two renderings. -->
+       Ruling DX Q13) — the same panels and the same _DSK_CMDS, two renderings — but for Window's Status bar
+       and Domain rail, which this build leaves off the phone: a departure stated for the owner (see winStatus
+       in _DSK_CMDS). -->
   <nav class="menubar dk-only" id="menuBar" aria-label="Menu bar">
     <!-- v2.73: the narrow tablet's ☰ (below 1180px only): Edit, Assets, Preferences, Window and Help as
          drill-in rows; each subpanel receives that menu's own panel (the slot table's n: column) -->
@@ -1867,8 +1960,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <span class="to-hint" id="toolOptsHint">Click selects · right-click opens the map menu · Ctrl+R generates</span>
     <!-- the armed tool's settings: on the desktop and tablet, the sculpt tool's feature picker, Freehand's
          brush mode, brush size, hardness and intensity, and the feature's hint land here (the slot table)
-         — the same elements the phone's tool strip holds, and #genSculpt is their markup home -->
-    <div class="to-tool dk-only" id="toolOptsTool" hidden><span class="to-break"></span><span class="shell-slot" id="slotToolDesk"></span></div>
+         — on a phone the strip holds the picker and the top of WORLD › Sculpt the rest; #genSculpt is
+         their markup home. v2.73 (fix round 2): on the TABLET, Sculpt's Commit and Discard join them at
+         the end of the bar (#slotToolAct), as the design's tablet bar draws them; the desktop leaves that
+         slot empty. -->
+    <div class="to-tool dk-only" id="toolOptsTool" hidden><span class="to-break"></span><span class="shell-slot" id="slotToolDesk"></span><span class="shell-slot" id="slotToolAct"></span></div>
     <!-- v2.73: the v2.24 document bar's Seed, ⟳, View, Center landmasses and Generate world sat here as the
          phone's (v2.71) layout until stage 2. They now have ONE home on every shell — Seed, ⟳ New seed,
          Center landmasses and Generate world in WORLD › Generate › Run (#runSec), View in the Base map
@@ -2102,7 +2198,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <div id="zoomOverlay">
       <button class="zbtn" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
       <button class="zbtn" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
-      <button class="zbtn" id="panBtn" style="font-size:18px" title="Pan mode — drag moves the map" aria-label="Pan mode" aria-pressed="false">✋</button>
+      <!-- v2.73 (fix round 2): no inline font-size on ✋ any more (v1.19 gave it 18px) — DS-13 draws one glyph size
+           across the row (§2.5), set by the touch shells' row rule; a mouse never draws ✋ -->
+      <button class="zbtn" id="panBtn" title="Pan mode — drag moves the map" aria-label="Pan mode" aria-pressed="false">✋</button>
       <button class="zbtn" id="zoomReset" style="font-size:14px" title="Recentre — fit the whole map to the view" aria-label="Recentre">⟳</button>
     </div>
     <!-- v2.73: the phone's quick drawer grip — the owner's "pull-out tab from the side" (Ruling DY Q10, Q11:
@@ -3156,9 +3254,20 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
          armed tool's own sub-palette, which is what that band is for). #sculptFeatureSeg and
          #sculptFeatHint are populated and read by id, so nothing in sculptSyncUI() changed.
          v2.72: on the desktop the rail's picker and hint are in the tool-options bar instead (Ruling
-         DZ), beside this panel's brush rows. v2.73: the tablet likewise; on a phone they are the tool
-         strip's (#phStrip), with Commit and Discard; the rail band is drawn on no shell. Still read by id.
-         On the desktop and tablet Commit and Discard stay below in this stage. -->
+         DZ), beside this panel's brush rows. v2.73: the tablet likewise, with Commit and Discard at the
+         bar's end (the design's tablet bar carries them); on a phone the picker is the tool strip's
+         (#phStrip), as one row of chips, with Commit and Discard. The rail band is drawn on no shell.
+         Still read by id. On the desktop Commit and Discard stay below in this stage. -->
+    <!-- v2.73 (fix round 2): on a PHONE the sculpt tool's other settings — the feature's hint, Freehand's
+         mode, Brush size with its km readout, Hardness and Intensity — sit HERE, at the top of WORLD ›
+         Sculpt, which is the phone's domain page (MOBILE_SHELL_PROPOSAL.md §2.1: "Tapping the strip's tool
+         chip opens the full options at the top of the domain sheet"; the mockup's domain sheet leads with
+         them too, Shell.dc.html toolOptRows). The slot table moves the same elements here; the strip
+         keeps only the picker and Commit / Discard. The first cut put every one of them in the strip:
+         measured by the 2026-11-02 verifiers at 323px tall at 412x915 and 226px at 844x390, leaving a
+         100px map band in landscape, against the mockup's 66px strip. Phone only (.ph-only): on the
+         desktop and the tablet these elements are the tool-options bar's. -->
+    <div class="sec ph-only" id="phSculptOpts"><span class="shell-slot" id="slotPhSculptOpts"></span></div>
 
     <div class="sec">
       <h2>Presets</h2>
@@ -3172,8 +3281,8 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <!-- v2.72: the three BRUSH rows (size, hardness, intensity) and the size's km readout are the sculpt
            tool's own settings, so on the desktop they sit in the tool-options bar while Sculpt is armed
            (Ruling DZ: "only keep the paint/sculpt brush settings here"). The slot table moves these same
-           elements there (and, v2.73, into a phone's tool strip); sculptSyncGlobalSliders() and the input
-           handlers find them by id, as always.
+           elements there (and, v2.73, on a phone to the top of this Sculpt page, #phSculptOpts above);
+           sculptSyncGlobalSliders() and the input handlers find them by id, as always.
            The noise rows below are the stamp's procedural shape and stay in the dock. -->
       <div class="row" id="sBrushRow" style="margin-top:8px"><label for="sBrush">Brush size</label><input type="range" id="sBrush" min="6" max="200" step="1"><span class="val" id="sBrushV"></span></div>
       <div class="hint" id="sBrushKm" style="margin-top:-4px;margin-bottom:6px" title="The brush's radius in real kilometres — it stays this real-world size at any zoom">—</div>
@@ -3194,8 +3303,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <div class="sec">
       <h2 id="sculptFeatureControlsTitle">Feature parameters</h2>
       <!-- v2.72: Freehand's sub-mode (Raise · Lower · Smooth · …) is the brush's MODE, so on the desktop
-           this strip joins the brush rows in the tool-options bar (the slot table; v2.73: the phone's tool
-           strip); it is filled and shown by sculptBuildFeatureControls() by id, wherever it sits. -->
+           this strip joins the brush rows in the tool-options bar (the slot table; v2.73: on a phone, the
+           brush rows' place at the top of this page, #phSculptOpts); it is filled and shown by
+           sculptBuildFeatureControls() by id, wherever it sits. -->
       <div id="sculptModeSeg" class="seg sm" style="display:none;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="sculptFeatureControls"></div>
     </div>
@@ -3478,12 +3588,13 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
      frame: the bar, the sheet and its head, the strip's box, the drawer's box and the domain fan, and every
      button in them opens one of those or runs a _DSK_CMDS command. -->
 <!-- The armed tool (§2.1): a strip above the sheet with the tool's name and one hint (#toolOptsCtx and
-     #toolOptsHint, which _dskToolOptsSync writes on every shell), the sculpt tool's settings (the very
-     elements the desktop tool-options bar hosts) and Commit / Discard where the tool drafts. Shown only
-     while a tool is armed (_phStripSync). The sculpt group (#phStripTool) is drawn only while SCULPT is
-     the armed tool: the slot keeps those elements whatever is armed, so the group itself is what hides
-     (fix pass 2026-11-02 — the first cut drew Sculpt's picker and brush under Settlement, Route and Label,
-     against Ruling DZ: "the armed tool's settings only"). -->
+     #toolOptsHint, which _dskToolOptsSync writes on every shell), Sculpt's feature picker as one row of
+     chips (the very element the desktop tool-options bar hosts) and Commit / Discard where the tool
+     drafts. Shown only while a tool is armed (_phStripSync). The sculpt group (#phStripTool) is drawn only
+     while SCULPT is the armed tool: the slot keeps the picker whatever is armed, so the group itself is what
+     hides (fix pass 2026-11-02 — the first cut drew Sculpt's picker and brush under Settlement, Route and
+     Label, against Ruling DZ: "the armed tool's settings only"). Fix round 2: Sculpt's brush, mode and
+     feature hint are at the top of WORLD › Sculpt (#phSculptOpts), not here — the strip stays two rows. -->
 <div class="ph-strip ph-only" id="phStrip" hidden role="toolbar" aria-label="Armed tool">
   <div class="ph-strip-main"><span class="shell-slot" id="slotPhStripCtx"></span></div>
   <div class="ph-strip-tool" id="phStripTool" hidden><span class="shell-slot" id="slotPhStripTool"></span></div>
@@ -3531,7 +3642,8 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <!-- MENU (Ruling DT Q2, Ruling DX Q13): the eight desktop menus, row for row, same order and names — each
          subpanel receives that menu's own panel, so the rows are the desktop's rows and press the same
          _DSK_CMDS; a tap drills in (the row you came through becomes the way back). Quick first, Status last,
-         as the design draws them. -->
+         as the design draws them. Two stated departures, for the owner (fix round 2): Window's Status bar and
+         Domain rail are not drawn, and its Left dock and Context panel are commands, not checks (_DSK_CMDS). -->
     <div class="ph-page" data-page="menu" id="phPageMenu" hidden>
       <div class="mb-panel ph-menu-root" id="phMenuRoot" aria-label="Menu">
         <div class="mb-cap">Quick</div>
@@ -18012,9 +18124,11 @@ function _findPanelOwners(){
          while Sculpt is armed — so a hit there takes the World rail, then the Sculpt category.
      (3) The menus: a control inside one (File's export form) needs its menu opened, then its
          submenu — the same two clicks a person makes. */
-  /* v2.73 (fix pass): (2) holds on a phone too, where those settings sit in the tool strip's sculpt group
-     (#phStripTool), drawn only while Sculpt is armed — Brush size, Hardness and Intensity were listed and
-     could not be revealed until this owner existed (v2.72's rule above: Find must own every container). */
+  /* v2.73 (fix pass): (2) holds on a phone too, for the tool strip's sculpt group (#phStripTool), drawn only
+     while Sculpt is armed (v2.72's rule above: Find must own every container a control can sit in). Fix
+     round 2: on a phone the group holds only the feature picker now; Brush size, Hardness and Intensity sit
+     at the top of WORLD › Sculpt (#phSculptOpts), inside #genSculpt, so (1)'s #genSculpt owner reveals them
+     — the World rail, then the Sculpt category — and _phRevealFor opens the domain page over them. */
   { const wr=document.querySelector('#domainRail [data-domain="world"]'),
           ct=document.querySelector('#worldCatSeg [data-wcat="terrain"]'), cs=document.querySelector('#worldCatSeg [data-wcat="sculpt"]'),
           gw=document.getElementById('genWorld'), gs=document.getElementById('genSculpt'), tt=document.getElementById('toolOptsTool'),
@@ -18667,12 +18781,16 @@ function _applyDomainUI(){
     const pop=document.getElementById('explFilterPopover'), fbtn=document.getElementById('explFilterBtn');
     if(pop) pop.classList.remove('open'); if(fbtn) fbtn.setAttribute('aria-expanded','false'); } }   /* funnel popover never stays open across a domain switch */
 
-  /* v0.65/v0.86: switching domain always exits Assets mode and restores the canvas viewport. */
+  /* v0.65/v0.86: switching domain always exits Assets mode and restores the canvas viewport.
+     v2.73 (fix round 2): through _carExitAssetsMode, the one way out. This block used to undo only part of
+     what entering does, so after a domain switch out of the library the toggle still read "← Map" and the
+     Base map chip (#layersFab, hidden on entry) stayed hidden — measured with Window ▸ Workspace ▸ Civil at
+     1366x768 in v2.72 and in v2.73 before this fix — and a phone's toggle would have stayed in the app bar.
+     The panels were already set above from the same _activeTab, so the exit's own panel lines agree. */
   { const cw=document.querySelector('.canvas-wrap'), al=document.getElementById('assetLibrary');
     if(cw&&al){ cw.style.display=''; al.style.display='none'; }
     document.body.classList.remove('assets-mode');
-    if(typeof _assetsModeOn!=='undefined' && _assetsModeOn){ _assetsModeOn=false;
-      const ab=document.getElementById('assetsHeaderBtn'); if(ab){ ab.classList.remove('on'); ab.setAttribute('aria-pressed','false'); } } }
+    if(typeof _assetsModeOn!=='undefined' && _assetsModeOn) _carExitAssetsMode(); }
 
   if(typeof _gpuApplyTabOverride==='function') _gpuApplyTabOverride();   /* v0.64: suspend condition keys off the armed tool, not the open domain */
   if(typeof _sculptNavSync==='function') _sculptNavSync();               /* v1.19/v1.22: joystick gate */
@@ -19155,7 +19273,10 @@ function _carDisarmOtherTools(except){
   if(state.labels.length && !confirm('Clear all '+state.labels.length+' region label'+(state.labels.length===1?'':'s')+'?')) return;
   clearLabels(); _civSelectedLabel=null; _civLabelEditSnapshot=null; _civRenderLabelEditor(); }); }
 /* ---- Manual icons wiring ---- */
-{ const fam=document.getElementById('carIconFam'); if(fam) fam.addEventListener('change',()=>{ _carIconArmed=null; _iconPlaceMode=false; view.style.cursor=''; const gal=document.getElementById('carIconGallery'); if(gal&&typeof _carPopulateIconGallery==='function') _carPopulateIconGallery(gal,fam.value,null,_carIconGalleryPick); }); }
+/* v2.73 (fix round 2): changing the category disarms placement, so it ends in _dskToolOptsSync as well — DS-13's
+   ✋ follows _iconPlaceMode with the density brush on (the same reason as _carIconGalleryPick's) */
+{ const fam=document.getElementById('carIconFam'); if(fam) fam.addEventListener('change',()=>{ _carIconArmed=null; _iconPlaceMode=false; view.style.cursor=''; const gal=document.getElementById('carIconGallery'); if(gal&&typeof _carPopulateIconGallery==='function') _carPopulateIconGallery(gal,fam.value,null,_carIconGalleryPick);
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync(); }); }
 /* v1.26 (D4): density-brush controls. Pure transient UI state — the checkbox only changes how a
    drag is interpreted, so nothing here touches the map until the user actually paints. */
 { const bc=document.getElementById('carIconBrushChk'), bo=document.getElementById('carIconBrushOpts');
@@ -19260,6 +19381,9 @@ function _carEnterAssetsMode(){
   if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
   /* v2.72: the desktop bar reads "Assets · Library" */
   if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
+  /* v2.73 (fix round 2): on a phone this toggle moves from the quick drawer to the app bar while the library
+     is open (_SHELL_SLOTS `pa`) — the drawer's grip is on the map, which the library hides */
+  if(typeof _shellPlaceRow==='function') _shellPlaceRow('assetsHeaderBtn');
 }
 /* Reverse of the above — restore whichever phase (Generate/Explore) was active before Assets mode.
    Mirrors the tab-switch handler's restore branch, so a phase tab click and this button agree. */
@@ -19278,6 +19402,8 @@ function _carExitAssetsMode(){
   document.body.classList.remove('assets-mode');
   /* v2.72 */
   if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
+  /* v2.73 (fix round 2): and back to its quick-drawer home on a phone */
+  if(typeof _shellPlaceRow==='function') _shellPlaceRow('assetsHeaderBtn');
 }
 { const ab=document.getElementById('assetsHeaderBtn'); if(ab) ab.addEventListener('click',()=>{ _assetsModeOn?_carExitAssetsMode():_carEnterAssetsMode(); }); }
 /* Explore map-filter funnel — toggle + close-on-outside-click/Escape (mirrors Cartalith V1.915's
@@ -19889,7 +20015,10 @@ function _toolsBlockSync(){
   });
 }
 
-/* --- the cog's Settings window --------------------------------------------------------------- */
+/* --- the Settings window ------------------------------------------------------------------------
+   (v2.24 opened it from the header's cog; v2.72 drew the cog on no desktop and v2.73 on no shell, so it is
+   reached from Preferences' rows — _dskSettings → window._openSettings — on every shell. #cogBtn keeps its
+   id and handler for RC's older probes, as #panelToggle does.) */
 (function(){
   const modal=document.getElementById('settingsModal'), btn=document.getElementById('cogBtn'),
         close=document.getElementById('settingsClose');
@@ -20055,7 +20184,10 @@ const _SHELL_SLOTS=[
   /* the pins: the tool-options bar's right end (Ruling DZ item 4); the phone's quick drawer (Ruling DY
      Q10 — "Side drawer on a grip"), in the drawer's order Save, Settlements, Assets, Planner */
   ['pinSave',{p:'slotPhDrawer'}],
-  ['settlementsHeaderBtn',{d:'slotPins',p:'slotPhDrawer'}], ['assetsHeaderBtn',{d:'slotPins',p:'slotPhDrawer'}],
+  /* `pa`: the Assets toggle's phone home WHILE ASSETS MODE IS ON — the app bar (fix round 2), since the
+     drawer opens from a grip on the map the library hides; _carEnterAssetsMode/_carExitAssetsMode re-place
+     it (_shellPlaceRow). Still one element: it moves, the way v2.46 made it the way in and out. */
+  ['settlementsHeaderBtn',{d:'slotPins',p:'slotPhDrawer'}], ['assetsHeaderBtn',{d:'slotPins',p:'slotPhDrawer',pa:'slotPhAppAssets'}],
   ['pinPlanner',{p:'slotPhDrawer'}],
   /* the status bar's right end (D7); on a phone the status bar itself is MENU › Status */
   ['verTag',{d:'slotSbVer',p:'slotSbVer'}],
@@ -20071,13 +20203,18 @@ const _SHELL_SLOTS=[
   ['scaleBarChkRow',{p:'slotPhMapScale'}],
   /* the armed tool's name and hint: the tool-options bar, or the phone's tool strip */
   ['toolOptsCtx',{p:'slotPhStripCtx'}], ['toolOptsHint',{p:'slotPhStripCtx'}],
-  /* the sculpt tool's own settings, in the tool-options bar or the phone's tool strip */
-  ['sculptFeatureSeg',{d:'slotToolDesk',p:'slotPhStripTool'}], ['sculptModeSeg',{d:'slotToolDesk',p:'slotPhStripTool'}],
-  ['sBrushRow',{d:'slotToolDesk',p:'slotPhStripTool'}], ['sBrushKm',{d:'slotToolDesk',p:'slotPhStripTool'}],
-  ['sHardRow',{d:'slotToolDesk',p:'slotPhStripTool'}], ['sIntenRow',{d:'slotToolDesk',p:'slotPhStripTool'}],
-  ['sculptFeatHint',{d:'slotToolDesk',p:'slotPhStripTool'}],
-  /* Commit / Discard where the tool drafts: the phone's tool strip (§2.1, "The armed tool") */
-  ['sculptCommitBtn',{p:'slotPhStripAct'}], ['sculptDiscardBtn',{p:'slotPhStripAct'}],
+  /* the sculpt tool's own settings, in the tool-options bar. On a phone the strip keeps only the feature
+     picker, as one row of chips; the rest go to the top of WORLD › Sculpt, the phone's domain page
+     (§2.1: "Tapping the strip's tool chip opens the full options at the top of the domain sheet") — fix
+     round 2: all of them in the strip made it 323px tall at 412x915 and left a 100px map band at 844x390 */
+  ['sculptFeatureSeg',{d:'slotToolDesk',p:'slotPhStripTool'}], ['sculptModeSeg',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
+  ['sBrushRow',{d:'slotToolDesk',p:'slotPhSculptOpts'}], ['sBrushKm',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
+  ['sHardRow',{d:'slotToolDesk',p:'slotPhSculptOpts'}], ['sIntenRow',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
+  ['sculptFeatHint',{d:'slotToolDesk',p:'slotPhSculptOpts'}],
+  /* Commit / Discard where the tool drafts: the phone's tool strip (§2.1, "The armed tool"), and Sculpt's
+     two at the tablet bar's end, where the design's tablet tool-options bar draws them beside the feature
+     chips (Shell.dc.html toolBar: "DISCARD", "COMMIT"); the desktop keeps them in the dock this stage */
+  ['sculptCommitBtn',{t:'slotToolAct',p:'slotPhStripAct'}], ['sculptDiscardBtn',{t:'slotToolAct',p:'slotPhStripAct'}],
   ['civCommitWayBtn',{p:'slotPhStripAct'}], ['civCommitRouteBtn',{p:'slotPhStripAct'}],
   /* the timeline strip (desktop and tablet); on a phone these stay in Explore's Timeline section, which
      is STORY › Time */
@@ -20100,10 +20237,11 @@ const _SHELL_SLOTS=[
   ['mbPrefs',{n:'slotMorePrefs',p:'slotPhMenuPrefs'}], ['mbWindow',{n:'slotMoreWindow',p:'slotPhMenuWindow'}],
   ['mbHelp',{n:'slotMoreHelp',p:'slotPhMenuHelp'}],
 ];
-/* the slot an element takes in a mode, or null for its markup home */
+/* the slot an element takes in a mode, or null for its markup home. A row's `pa` is its phone home while
+   Assets mode is on (only the Assets toggle has one); _assetsModeOn is read through _dskV, never typeof. */
 function _shellSlotFor(row,mode){
   const s=row[1];
-  if(mode==='phone') return s.p||null;
+  if(mode==='phone') return (s.pa&&_dskV(()=>_assetsModeOn,false)?s.pa:s.p)||null;
   if(mode==='tabletN') return (s.n!==undefined?s.n:(s.t!==undefined?s.t:s.d))||null;
   if(mode==='desktopN') return (s.n!==undefined?s.n:s.d)||null;
   if(mode==='tablet') return (s.t!==undefined?s.t:s.d)||null;
@@ -20111,6 +20249,21 @@ function _shellSlotFor(row,mode){
 }
 /* the placement mode the elements are in now (null before the first placement) */
 var _shellPlaced=null;
+/* Put one row's element where `mode` says: into its slot (before `before`, or at the slot's end), or back
+   to its markup home. The first move writes the comment marker that records that home. It only MOVES the
+   one element — never clones it, never touches its listeners or state. */
+function _shellPut(row,mode,before){
+  const el=_dskEl(row[0]); if(!el||!el.parentNode) return;
+  const sid=_shellSlotFor(row,mode), slot=sid?_dskEl(sid):null;
+  if(!el._dskHome){
+    /* nothing to do while it is home and stays home */
+    if(!slot) return;
+    el._dskHome=document.createComment(' v2.73: markup home of #'+row[0]+' '); el.parentNode.insertBefore(el._dskHome,el);
+  }
+  if(slot){ if(before&&before.parentNode===slot) slot.insertBefore(el,before); else slot.appendChild(el); }
+  else if(el._dskHome.parentNode) el._dskHome.parentNode.insertBefore(el,el._dskHome.nextSibling);
+}
+/* Place every row for the current mode (once per mode change). */
 function _shellPlace(){
   if(typeof document==='undefined'||typeof document.createComment!=='function') return;
   const mode=_shellMode||'desktop';
@@ -20118,20 +20271,21 @@ function _shellPlace(){
   _shellPlaced=mode;
   /* an open menu must not survive the layout it was opened in */
   _dskMenuClose();
-  for(const row of _SHELL_SLOTS){
-    const el=_dskEl(row[0]); if(!el||!el.parentNode) continue;
-    const sid=_shellSlotFor(row,mode), slot=sid?_dskEl(sid):null;
-    if(!el._dskHome){
-      /* nothing to do while it is home and stays home */
-      if(!slot) continue;
-      el._dskHome=document.createComment(' v2.73: markup home of #'+row[0]+' '); el.parentNode.insertBefore(el._dskHome,el);
-    }
-    if(slot) slot.appendChild(el);
-    else if(el._dskHome.parentNode) el._dskHome.parentNode.insertBefore(el,el._dskHome.nextSibling);
-  }
+  for(const row of _SHELL_SLOTS) _shellPut(row,mode,null);
   _dskToolOptsSync();
   if(typeof _syncChromeTop==='function') _syncChromeTop();
   if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
+}
+/* Re-place ONE row in the mode already in force, when a state its slot depends on changed (the Assets
+   toggle's `pa`, fix round 2). Within its slot it keeps the table's order: it goes in before the first
+   later row's element that sits in the same slot (the drawer reads Save, Settlements, Assets, Planner). */
+function _shellPlaceRow(id){
+  if(!_shellPlaced||typeof document==='undefined'||typeof document.createComment!=='function') return;
+  const i=_SHELL_SLOTS.findIndex(r=>r[0]===id); if(i<0) return;
+  const row=_SHELL_SLOTS[i], sid=_shellSlotFor(row,_shellPlaced), slot=sid?_dskEl(sid):null;
+  let before=null;
+  if(slot) for(let j=i+1;j<_SHELL_SLOTS.length&&!before;j++){ const e=_dskEl(_SHELL_SLOTS[j][0]); if(e&&e.parentNode===slot) before=e; }
+  _shellPut(row,_shellPlaced,before);
 }
 /* Re-decide the class, and when it (or the narrow-tablet mode) changed, re-place every control and
    re-sync what depends on the shell. Called from _dskInit, and on every resize, rotation and pointer
@@ -20165,21 +20319,31 @@ function _dskSettings(page){ if(typeof window._openSettings==='function') window
    #explorePanel), opens its <details>, scrolls to it and flashes it */
 function _dskReveal(id){ const el=_dskEl(id); _dskWinSet('ldock',true); if(el&&typeof _findReveal==='function') _findReveal(el); }
 function _dskTheme(){ return document.documentElement.getAttribute('data-theme')==='light'?'light':'dark'; }
+/* `why` (v2.73, fix round 2): the reason a disabled row cannot run, drawn on the touch shells as the row's
+   second line (_dskWhySet) — MOBILE_SHELL_PROPOSAL.md §3: "A row that cannot run is drawn with its reason as
+   a second line in #ebc080, never only greyed". Each reads the control's real cause — the one writer of
+   that control's disabled state, named beside it — and returns '' when that cause does not hold, so a row
+   is never given a reason it does not have (MISTAKES.md: "Dash a field with a reason"). */
 const _DSK_CMDS={
   /* File */
-  /* refused: on a finalized world, the same alert the button's own guard gives */
+  /* refused: on a finalized world, the same alert the button's own guard gives. why: #genBtn carries
+     [data-genlock], and applyFinalizedUI is the only writer of its disabled state */
   generate:{ run:()=>_dskPress('genBtn'), enabled:()=>!_dskDisabled('genBtn'),
-             refused:()=>{ if(typeof confirmRegenerate==='function') confirmRegenerate(); } },
+             refused:()=>{ if(typeof confirmRegenerate==='function') confirmRegenerate(); },
+             why:()=>_dskV(()=>state.finalized,false)?'The world is finalized — un-finalize it under WORLD › Generate › Finalize world':'' },
   openProject:{ run:()=>_dskPress('loadZipBtn') },
   /* Region export ▸ Extract as new world needs a region selected first (Select region, right above it),
      so the row takes you to both rather than pressing a button that is disabled until then */
   regionWorld:{ run:()=>_dskReveal('regionNewWorldBtn') },
-  save:{ run:()=>_dskPress('exportBtn'), enabled:()=>!_dskDisabled('exportBtn') },
+  /* why: exportZip is the only writer of #exportBtn's disabled state — true while it bakes, false in its finally */
+  save:{ run:()=>_dskPress('exportBtn'), enabled:()=>!_dskDisabled('exportBtn'), why:()=>'A project export is still running' },
   autosave:{ run:()=>_dskPress('autosaveChk'), checked:()=>!!(_dskEl('autosaveChk')||{}).checked },
   /* Edit */
-  undo:{ run:()=>_dskPress('undoBtn'), enabled:()=>!_dskDisabled('undoBtn') },
-  redo:{ run:()=>_dskPress('redoBtn'), enabled:()=>!_dskDisabled('redoBtn') },
-  deletePlace:{ run:()=>{ if(typeof _civDeleteSelectedPlace==='function') _civDeleteSelectedPlace(); }, enabled:()=>!!_dskV(()=>_civSelectedPlace,null) },
+  /* why: updateUndoUI is the only writer of both buttons' disabled state, from the two stacks' lengths */
+  undo:{ run:()=>_dskPress('undoBtn'), enabled:()=>!_dskDisabled('undoBtn'), why:()=>_dskV(()=>undoStack.length,1)===0?'Nothing to undo yet':'' },
+  redo:{ run:()=>_dskPress('redoBtn'), enabled:()=>!_dskDisabled('redoBtn'), why:()=>_dskV(()=>redoStack.length,1)===0?'Nothing to redo':'' },
+  deletePlace:{ run:()=>{ if(typeof _civDeleteSelectedPlace==='function') _civDeleteSelectedPlace(); }, enabled:()=>!!_dskV(()=>_civSelectedPlace,null),
+                why:()=>'Select a settlement or point of interest first' },
   /* v2.73: on a phone the Find box lives in the app bar's search row, which has to open first */
   find:{ run:()=>{ if(_shell==='phone'){ _phSearchSet(true); return; } const fi=_dskEl('findInput'); if(fi){ fi.focus(); fi.select(); } } },
   /* Assets — the library's own buttons live in a panel Assets mode never shows (v2.24 hides the docks
@@ -20203,7 +20367,10 @@ const _DSK_CMDS={
   planner:{ run:()=>{ if(typeof _civOpenRouteEditor==='function'&&_civOpenRouteEditor()) return; _dskReveal('civJourneyList'); } },
   journeys:{ run:()=>_dskReveal('civJourneyList') },
   /* Preferences */
-  gpu:{ run:()=>_dskPress('gpuToggle'), enabled:()=>!_dskDisabled('gpuToggle'), checked:()=>!!(_dskEl('gpuToggle')||{}).checked },
+  /* why: _gpuApplyTabOverride (and the toggle's own init) write its disabled state: !GPU.ok — GPU.init's tag
+     says what failed — or paused while the paint or icon tool is armed */
+  gpu:{ run:()=>_dskPress('gpuToggle'), enabled:()=>!_dskDisabled('gpuToggle'), checked:()=>!!(_dskEl('gpuToggle')||{}).checked,
+        why:()=>!_dskV(()=>GPU.ok,false)?'GPU unavailable in this browser ('+(_dskV(()=>GPU._tagStr,'')||'not checked')+')':(_dskV(()=>_paintMode||_iconPlaceMode,false)?'Paused while the paint or icon tool is armed':'') },
   setPerf:{ run:()=>_dskSettings('perf') },
   setStorage:{ run:()=>_dskSettings('storage') },
   setAppearance:{ run:()=>_dskSettings('appearance') },
@@ -20211,21 +20378,28 @@ const _DSK_CMDS={
   themeLight:{ run:()=>{ if(_dskTheme()!=='light') _dskPress('themeToggleBtn'); }, checked:()=>_dskTheme()==='light' },
   /* km/mi is #calUnitSeg in WORLD › Generate › Scale & calibration, which finalize locks with the rest
      of #genWorld; the rows follow its buttons' disabled state rather than unlocking it */
-  unitsKm:{ run:()=>_dskPress('#calUnitSeg button[data-unit="km"]'), enabled:()=>!_dskV(()=>document.querySelector('#calUnitSeg button[data-unit="km"]').disabled,true), checked:()=>_dskV(()=>_units,'km')==='km' },
-  unitsMi:{ run:()=>_dskPress('#calUnitSeg button[data-unit="mi"]'), enabled:()=>!_dskV(()=>document.querySelector('#calUnitSeg button[data-unit="mi"]').disabled,true), checked:()=>_dskV(()=>_units,'km')==='mi' },
+  unitsKm:{ run:()=>_dskPress('#calUnitSeg button[data-unit="km"]'), enabled:()=>!_dskV(()=>document.querySelector('#calUnitSeg button[data-unit="km"]').disabled,true), checked:()=>_dskV(()=>_units,'km')==='km',
+            why:()=>_dskV(()=>state.finalized,false)?'Locked while the world is finalized':'' },
+  unitsMi:{ run:()=>_dskPress('#calUnitSeg button[data-unit="mi"]'), enabled:()=>!_dskV(()=>document.querySelector('#calUnitSeg button[data-unit="mi"]').disabled,true), checked:()=>_dskV(()=>_units,'km')==='mi',
+            why:()=>_dskV(()=>state.finalized,false)?'Locked while the world is finalized':'' },
   /* Window */
   /* v2.73: on a phone these rows open what the phone has (Ruling DX PQ13: "On the phone they open what
      the phone has"): the left dock is the domain page, the Context panel the context page, the timeline
      STORY › Time. They are commands there, not checks (null drops the check glyph), because the sheet
-     that shows MENU cannot also be showing the page the check would describe. A floating dock (the
-     docking rule) is opened and closed by its row instead of collapsed. */
+     that shows MENU cannot also be showing the page the check would describe. That is a DEPARTURE, stated
+     for the owner in the CHANGELOG (fix round 2): PQ13 says the Context panel row stays a check on the phone,
+     one that "shows or hides the selection sheet". A floating dock (the docking rule) is opened and closed
+     by its row instead of collapsed. */
   winLeftDock:{ run:()=>{ if(_shell==='phone'){ _phSheetSet('domain','half'); return; } if(_dskFloat('ldock')){ _dskFloatOpen('ldock',!_dskFloatIsOpen('ldock')); return; } _dskWinSet('ldock',!_dskWin.ldock); },
                 checked:()=>_shell==='phone'?null:(_dskFloat('ldock')?_dskFloatIsOpen('ldock'):_dskWin.ldock) },
   winContext:{ run:()=>{ if(_shell==='phone'){ _phSheetSet('context','half'); return; } if(_dskFloat('ctx')){ _dskFloatOpen('ctx',!_dskFloatIsOpen('ctx')); return; } _dskWinSet('ctx',!_dskWin.ctx); },
                checked:()=>_shell==='phone'?null:(_dskFloat('ctx')?_dskFloatIsOpen('ctx'):_dskWin.ctx) },
   winTimeline:{ run:()=>{ if(_shell==='phone'){ _phStoryShow('time'); return; } _dskWinSet('tl',!_dskWin.tl); }, checked:()=>_shell==='phone'?null:_dskWin.tl },
   /* the phone has no status band (its readout is MENU › Status) and no rail (the bottom bar never hides),
-     so these two rows are not drawn there (.dk-only on the rows) */
+     so these two rows are not drawn there (.dk-only on the rows): a row with nothing behind it is left out,
+     this file's rule. That is a DEPARTURE from Ruling DX Q13's "row for row", whose one ruled exception is
+     PQ10's two rows, and the mockup draws both on the phone — stated for the owner in the CHANGELOG (fix
+     round 2), not covered by DT Q2 or DX Q13 as the first cut said. */
   winStatus:{ run:()=>_dskWinSet('sb',!_dskWin.sb), checked:()=>_dskWin.sb },
   winRail:{ run:()=>_dskWinSet('rail',!_dskWin.rail), checked:()=>_dskWin.rail },
   /* the Shift+D overlay's own toggle */
@@ -20343,6 +20517,9 @@ function _dskToolOptsSync(){
      keyboard among its inputs (fix pass: the first cut dropped them on the tablet too). */
   if(_shell==='phone'||_shell==='tablet') h=h.replace(/right-click opens/g,'hold opens').replace(/\bClick\b/g,'Tap').replace(/\bclick\b/g,'tap');
   if(_shell==='phone') h=h.replace(/ · Ctrl\+R generates/g,'').replace(/Esc or /g,'');
+  /* fix round 2: a phone has no dock — its Tools block is the top of the domain page, which the sheet titles by
+     the domain ("the dock's Tools" told a phone user to look for a band it never draws) */
+  if(_shell==='phone') h=h.replace(/the dock’s Tools/g,'the '+(_DSK_DOMAIN_NAMES[_domain]||_domain)+' page’s Tools');
   ctx.textContent=c; hint.textContent=h; hint.hidden=!h;
   /* v2.73: DS-13's latch and the phone's tool strip follow the armed tool; every way to arm one ends here */
   if(typeof _ds13Sync==='function') _ds13Sync();
@@ -20410,10 +20587,21 @@ function _dskMenuButtons(){ return [...document.querySelectorAll('.mb-btn')].fil
 function _dskMenuPanelOf(btn){ return btn?_dskEl(btn.getAttribute('aria-controls')):null; }
 /* a (sub)menu's own rows, in order: visible, enabled buttons whose nearest menu is this one */
 function _dskMenuRows(panel){ return [...panel.querySelectorAll('button')].filter(b=>!b.disabled&&b.getClientRects().length&&b.closest('.mb-subpanel,.mb-panel')===panel); }
+/* A row's reason line (fix round 2): on the TOUCH shells a disabled row carries `why` as a second line
+   (.mb-why), because there no key raises the command's `refused` — on a phone, none at all. The desktop keeps
+   v2.72's rows exactly (no span is left in them), and raises the reason when a key fires (`refused`). It
+   writes presentation only: never the row's enabled state, which _dskMenuSync reads from the real control. */
+function _dskWhySet(b,text){
+  if(!(_shell==='phone'||_shell==='tablet')) text='';
+  let w=b.querySelector(':scope > .mb-why');
+  if(!text){ if(w) w.remove(); return; }
+  if(!w){ w=document.createElement('span'); w.className='mb-why'; b.appendChild(w); }
+  w.textContent=text;
+}
 function _dskMenuSync(panel){
   for(const b of panel.querySelectorAll('[data-cmd]')){
     const c=_DSK_CMDS[b.dataset.cmd]; if(!c) continue;
-    if(c.enabled) b.disabled=!c.enabled();
+    if(c.enabled){ b.disabled=!c.enabled(); if(b.classList&&b.classList.contains('mb-row')) _dskWhySet(b,b.disabled&&c.why?c.why():''); }
     /* v2.73: a checked() of null means "a command, not a check, on this shell" — no glyph */
     if(c.checked){ const v=c.checked(); if(v===null) b.removeAttribute('aria-pressed'); else b.setAttribute('aria-pressed',v?'true':'false'); }
   }
@@ -20596,7 +20784,8 @@ function _dskKeydown(e){
 /* ══════════════════════ v2.73: stage 2 — the phone shell, the docking rule, DS-13, touch gestures ══════════
    Owner: "Can we upgrade the layout in the html with the new design?", then "Everything, staged"; on v2.72's
    phone capture, "The screenshots on phone don't seem to have the pull-out tab from the side." Design:
-   Cartalith_GDT MOBILE_SHELL_PROPOSAL.md §2.1-§2.5, §3, §4; Rulings DT, DU, DX, DY (MQ-1, Q10-Q12, PQ6), EB.
+   Cartalith_GDT MOBILE_SHELL_PROPOSAL.md §2.1, §2.2, §2.4, §2.5, §3, §4 (not §2.3, New World: see the
+   CHANGELOG's Not in this build); Rulings DT, DU, DX, DY (MQ-1, Q10-Q12, PQ6), EB.
    The same contract as stage 1's section above: EVERYTHING HERE IS PRESENTATION. It opens, closes and
    places what exists, and its buttons press the controls this file already has or run _DSK_CMDS. It never
    computes or writes world state, so no render hash moves. Stub-safe: every entry point is either called
@@ -20623,12 +20812,14 @@ function _shellChanged(){
   document.querySelectorAll('.mb-drilled').forEach(e=>e.classList.remove('mb-drilled'));
   _shellDockSync(); _phSync();
   _dskToolOptsSync(); _dskDockHeadSync(); _dskCtxSync(); _dskDocReadoutSync();
+  /* fix round 2: the empty journey list names the shell's way to commit a route (Esc, or the strip's ✓) */
+  if(typeof _civRenderJourneyList==='function') _civRenderJourneyList();
 }
 
 /* --- the phone: one sheet, four destinations (§2.1) ---------------------------------------------- */
 /* page: the sheet's page; detent: closed | peek | half | full; h: its height in px (portrait); serial counts
    every page/detent write, so a menu command can tell whether it opened a page itself (_phCommandFrom). */
-const _ph={page:'domain',detent:'closed',h:0,serial:0,story:'time',armed:'',ctxSubj:null};
+const _ph={page:'domain',detent:'closed',h:0,serial:0,story:'time',armed:'',ctxSubj:null,fanSpentUntil:0};
 /* Ruling DU Q9: "The sheet's peek detent is 76 dp instead of 66, so the header holds the armed tool's line" */
 const PH_PEEK=76;
 /* the domain tab's hold that opens the fan (§2.1: "Hold (380 ms)") — the mockup's NAV_HOLD_MS */
@@ -20649,6 +20840,13 @@ const PH_NAV_HOLD_MS=380;
      browser's own click follows the lift within a frame or two, and a later, deliberate tap is not lost. */
 const PH_TAB_SWIPE_PX=40, PH_TAB_SWIPE_RATIO=1.5, PH_GRIP_DRAG_PX=24, PH_DRAWER_SWIPE_PX=56, PH_DRAWER_SWIPE_DY=40;
 const PH_SHEET_DEAD_PX=6, PH_SHEET_MIN_PX=40, PH_SHEET_CLOSE_FRAC=0.6, PH_CLICK_SPENT_MS=600;
+/* §3's phone row: "floating controls follow the sheet edge and thin out below 250 / 120 dp of free map". The
+   mockup hides them below 120 (Shell.dc.html: v.fab and v.mc, show: free >= 120); its 250 ("more") is
+   computed there and drawn by nothing, so only 120 is built (_phLayout). */
+const PH_FREE_MIN=120;
+/* how far the v1.19 joystick sits above the cover: the CSS's #sculptNavpad bottom, cover + 68 — DS-13's 44px
+   row with 12px below it and 12px between (_phLayout reads this beside the joystick's own height) */
+const PH_NAV_ABOVE=68;
 const _PH_DOMAINS=['world','civ','carto','explore'];
 const _PH_DOM_TAB={world:'Generate',civ:'Civil',carto:'Carto',explore:'Explore'};
 const _PH_DOM_CMD={world:'domWorld',civ:'domCiv',carto:'domCarto',explore:'domExplore'};
@@ -20664,8 +20862,18 @@ function _phHeights(){
   const avail=Math.max(PH_PEEK,barTop-appB);
   return {peek:PH_PEEK, half:Math.max(PH_PEEK,Math.round(avail*0.5)), full:Math.max(PH_PEEK,Math.round(avail-2))};
 }
+/* THE ONE WRITER of the sheet's state (page, detent, height): every tab, title, handle, drag, menu command,
+   reveal and shell change goes through it, so the bar's pressed tab, the title and the map's cover never
+   disagree with what is drawn. A null page or detent keeps the current one. It never runs a command of its
+   own — with one exception (fix round 2): opening any page but MENU on a phone while the asset library is
+   open first leaves the library, by pressing its toggle (the Asset library command). MAP, the domain page,
+   STORY and the context page are the map's controls, the left dock, the timeline and the Context panel —
+   all of which the library hides (body.assets-mode .dock, .tl-strip), so the domain page drew empty and MAP
+   offered a hidden map's controls (the 2026-11-02 verifiers). The same rule as v0.65's on every shell:
+   switching domain leaves the library (_applyDomainUI). MENU's rows work in the library, so MENU stays. */
 function _phSheetSet(page,detent){
   const sh=_dskEl('phSheet'); if(!sh) return;
+  if(_shell==='phone'&&detent&&detent!=='closed'&&(page||_ph.page)!=='menu'&&_dskV(()=>_assetsModeOn,false)) _dskRun('assetLibrary');
   _ph.serial++;
   if(page) _ph.page=page;
   if(detent) _ph.detent=detent;
@@ -20710,11 +20918,12 @@ function _phTabsSync(){
 function _phSync(){ if(!_dskReady) return; _phTabsSync(); _phTitleSync(); _phStripSync(); _phLayout(); }
 /* Where the map is covered. In portrait the sheet (and the strip above it) cover the map from the bottom; in
    landscape the side sheet covers it from the right and the strip sits at the bottom. DS-13, the scale bar and
-   the joystick read --ph-cover-b/-r so they sit 12px clear of whatever ends the map (§2.5, Anchoring), and the
-   row hides when the band left above the cover is shorter than the row and its gaps (§2.5, When it hides). */
+   the joystick read --ph-cover-b/-r so they sit 12px clear of whatever ends the map (§2.5, Anchoring); the row,
+   the scale bar and the grip hide when the band left above the cover is under §3's 120 (§2.5, When it hides),
+   and the joystick when its own stack does not fit. It writes layout only: never a tool, a page or a world. */
 function _phLayout(){
   const root=document.documentElement, body=document.body; if(!root||!body) return;
-  if(_shell!=='phone'){ body.classList.remove('ds13-hide'); body.classList.remove('ph-grip-hide'); return; }
+  if(_shell!=='phone'){ body.classList.remove('ds13-hide'); body.classList.remove('ph-grip-hide'); body.classList.remove('ph-nav-hide'); return; }
   const cw=document.querySelector('.canvas-wrap'), strip=_dskEl('phStrip'), sh=_dskEl('phSheet'), bar=_dskEl('phBar');
   const wr=cw?cw.getBoundingClientRect():null; if(!wr) return;
   const open=_ph.detent!=='closed', stripOn=!!(strip&&!strip.hidden);
@@ -20729,9 +20938,19 @@ function _phLayout(){
     coverB=Math.max(0,Math.round(wr.bottom-top));
   }
   _cssVar('--ph-cover-b',coverB+'px'); _cssVar('--ph-cover-r',coverR+'px');
-  body.classList.toggle('ds13-hide',wr.height-coverB<44+24);
-  /* the grip (88px) needs its own height and a 12px margin above and below in the band it centres in */
-  body.classList.toggle('ph-grip-hide',wr.height-coverB<88+24);
+  /* §3's thin-out (fix round 2): the floating controls — DS-13's row, the scale bar beside it and the grip —
+     show only while the band of map left above the cover is at least PH_FREE_MIN. The row alone needs 68
+     (44 and 12 above and below) and the grip 112 (88 and 12 above and below), so §3's 120 is the binding
+     figure for both; the first cut hid each at its own size, which kept a grip and a row in a sliver. */
+  const free=wr.height-coverB;
+  body.classList.toggle('ds13-hide',free<PH_FREE_MIN);
+  body.classList.toggle('ph-grip-hide',free<PH_FREE_MIN);
+  /* The v1.19 joystick stacks PH_NAV_ABOVE over the cover and is taller than the row, so it needs its own
+     rule: it hides when its stack does not fit 12px clear of the map's top. The first cut had none — with
+     Sculpt armed at 844x390 it sat at y 10..88 under the app bar, whose buttons took its taps (the
+     2026-11-02 verifiers). offsetHeight is 0 while it is not drawn (a mouse, 3D), and then nothing hides. */
+  const nav=_dskEl('sculptNavpad'), navH=(nav&&nav.offsetHeight)||0;
+  body.classList.toggle('ph-nav-hide',free<PH_NAV_ABOVE+navH+12);
 }
 /* a tab: open its page (at half, or at the detent already open); the open tab's re-tap closes the sheet (§4).
    At peek — where arming a tool leaves the sheet (§2.1) — a re-tap brings the page back up to half instead:
@@ -20775,6 +20994,9 @@ function _phSearchSet(on){
 /* the quick drawer (§2.4, Ruling DY Q10-Q11); its open state is the element's own [hidden], read here and
    written only by _phDrawerSet */
 function _phDrawerOpen(){ const d=_dskEl('phDrawer'); return !!(d&&!d.hidden); }
+/* Open or close the drawer: its [hidden], the body class that raises the scrim (35) and the grip over it (37),
+   the grip's aria-expanded and the "N pinned" count. Phone only — on any other shell it only ever closes.
+   It never runs a pin; a pin's own click does that, and then closes it (_phWire). */
 function _phDrawerSet(on){
   const d=_dskEl('phDrawer'), g=_dskEl('phGrip'); if(!d) return;
   on=!!on&&_shell==='phone';
@@ -20782,14 +21004,24 @@ function _phDrawerSet(on){
   if(g) g.setAttribute('aria-expanded',on?'true':'false');
   const n=_dskEl('phDrawerN'); if(n) n.textContent=d.querySelectorAll('.shell-slot > button').length+' pinned';
 }
-/* the domain fan: the four domains; the current one checked (§2.1) */
+/* the domain fan: the four domains; the current one checked (§2.1). While it is open the scrim lies under it
+   (body.ph-fan-open; the mockup's full-screen scrim under the fan, Shell.dc.html hFanScrim), so the tap that
+   dismisses it lands on the scrim and reaches nothing else — fix round 2: the first cut closed the fan from
+   a capture-phase pointerdown and let the same press through, so with Settlement armed a tap meant only to
+   dismiss the fan dropped a settlement (which _civDropPlace does not put on the undo stack), with Territory
+   armed it painted 81 cells, and on + it zoomed (the 2026-11-02 verifiers). It must never act on a domain
+   itself: picking is _phFanPick's, and the open state is the element's own [hidden]. */
 function _phFanSet(on){
   const f=_dskEl('phFan'); if(!f) return;
   on=!!on&&_shell==='phone';
   f.hidden=!on;
+  if(document.body&&document.body.classList) document.body.classList.toggle('ph-fan-open',on);
   for(const r of f.querySelectorAll('.ph-fan-row')){ const c=_DSK_CMDS[r.dataset.cmd]; r.setAttribute('aria-checked',c&&c.checked&&c.checked()?'true':'false'); r.classList.remove('ph-hot'); }
   const t=_dskEl('phSheetTitle'); if(t) t.setAttribute('aria-expanded',on?'true':'false');
 }
+/* A fan row picked (a tap, or a hold's slide and lift): close the fan, run the row's command — Window ›
+   Workspace's own domain commands, which press the rail's buttons (never a second domain switch) — and let
+   the tab and an open page follow the new domain. */
 function _phFanPick(row){ _phFanSet(false); if(row&&row.dataset.cmd) _dskRun(row.dataset.cmd); _phSync(); }
 /* a sideways swipe on the domain tab cycles the domains (§4) */
 function _phDomainCycle(dir){ const i=_PH_DOMAINS.indexOf(_domain); const d=_PH_DOMAINS[(i+dir+_PH_DOMAINS.length)%_PH_DOMAINS.length]; _dskRun(_PH_DOM_CMD[d]); _phSync(); }
@@ -20805,13 +21037,16 @@ function _phToolArmed(){
 }
 /* the strip (§2.1, "The armed tool"): shown while a tool is armed, with only that tool's settings and its
    Commit/Discard; arming drops an open sheet to peek, so the map is in view for the tool. The sculpt group
-   (#phStripTool) holds Sculpt's own settings and nothing else, so it is drawn for Sculpt only: the slot
-   table keeps those elements in the strip on a phone whatever is armed (Ruling DZ, "the armed tool's
-   settings only"; the first cut drew them under every tool). */
+   (#phStripTool) holds Sculpt's feature picker and nothing else, so it is drawn for Sculpt only: the slot
+   table keeps the picker in the strip on a phone whatever is armed (Ruling DZ, "the armed tool's settings
+   only"; the first cut drew Sculpt's rows under every tool). Sculpt's other settings are at the top of
+   WORLD › Sculpt (#phSculptOpts), one tap away on the domain tab. data-tool names the armed tool for the
+   CSS (Sculpt's two-row layout). It must never arm or disarm anything: it only reads the armed tool. */
 function _phStripSync(){
   const s=_dskEl('phStrip'); if(!s) return;
   const key=_shell==='phone'?_phToolArmed():'';
   s.hidden=!key;
+  if(s.dataset) s.dataset.tool=key;
   { const tg=_dskEl('phStripTool'); if(tg) tg.hidden=key!=='sculpt'; }
   const act={sculpt:['sculptCommitBtn','sculptDiscardBtn'],draw_way:['civCommitWayBtn'],route:['civCommitRouteBtn']}[key]||[];
   for(const id of ['sculptCommitBtn','sculptDiscardBtn','civCommitWayBtn','civCommitRouteBtn']){ const b=_dskEl(id); if(b&&b.classList) b.classList.toggle('ph-act-off',!act.includes(id)); }
@@ -20821,10 +21056,31 @@ function _phStripSync(){
 }
 /* the context page opens itself for a reading or a NEW label/icon subject (see #phPageContext) */
 function _phCtxAuto(){ if(_shell==='phone'&&!(_ph.page==='context'&&_ph.detent!=='closed')) _phSheetSet('context','half'); }
+/* The Context panel's subject changed (_dskCtxSync passes the selected label or icon — a settlement's editor
+   is its popup on the map): a NEW subject opens the context page on a phone, so its editor is on a page
+   someone is looking at; the same subject again (a re-render) does not reopen a page the user closed. The
+   title follows whenever the page is the context. */
 function _phCtxSubject(s){
   if(s&&s!==_ph.ctxSubj) _phCtxAuto();
   _ph.ctxSubj=s||null;
   if(_ph.page==='context') _phTitleSync();
+}
+/* After a resize on a phone, keep a focused text field of the sheet in view (fix round 2). Where a browser's
+   keyboard resizes the LAYOUT viewport (resizes-content; Chrome on Android defaults to resizes-visual, so a
+   device may never do this — MS-10), the sheet shrinks with it and the field fell below the body's visible
+   edge, behind the bottom bar: measured headless, Seed at 332..376 drawn 0px when 412x915 went to 380 (the
+   2026-11-02 verifiers). Only the sheet body's own scroll moves — never the page's (scrollIntoView would also
+   scroll <body>, which hides overflow but still scrolls for a script). It never focuses or blurs anything. */
+function _phKeepFocusInView(){
+  if(_shell!=='phone'||typeof setTimeout!=='function') return;
+  const ae=document.activeElement, body=_dskEl('phSheetBody'), sh=_dskEl('phSheet');
+  if(!ae||!body||!body.contains(ae)||!/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+  /* measured after the sheet's own height transition (.ph-anim, read from the CSS, not assumed): measured in
+     the next frame, the body was still its old height and the field looked visible */
+  let ms=0; try{ ms=(parseFloat(getComputedStyle(sh).transitionDuration)||0)*1000; }catch(_){}
+  setTimeout(()=>{ const b=body.getBoundingClientRect(), r=ae.getBoundingClientRect();
+    if(r.bottom>b.bottom-8) body.scrollTop+=r.bottom-b.bottom+8;
+    else if(r.top<b.top+8) body.scrollTop-=b.top+8-r.top; },ms+30);
 }
 /* Find's reveal on a phone: open the page that holds the control, and the drill-in path down to it */
 function _phRevealFor(el){
@@ -20847,13 +21103,21 @@ function _phRevealFor(el){
    on the map closes it unless it is pinned. It replaces v2.72's squeeze at 861-1000px, which the rule's own
    number shows: at 1000px, 1000 - 40 - 372 - 304 left the map 284px. */
 const DOCK_MAP_MIN=520;
+/* The docking rule's state is four body classes per dock, and these helpers are their only readers and
+   writers outside _shellDockSync: k is 'ldock' (the left dock) or 'ctx' (the Context panel).
+   _dskFloat: is that dock floating now (the rule decided the map would keep under 520px)? */
 function _dskFloat(k){ return !!document.body&&document.body.classList.contains(k==='ldock'?'ldock-float':'ctx-float'); }
+/* _dskFloatIsOpen: is a floating dock open over the map? (false for a docked one) */
 function _dskFloatIsOpen(k){ return !!document.body&&document.body.classList.contains(k==='ldock'?'ldock-open':'ctx-open'); }
+/* _dskFloatOpen: open or close a FLOATING dock over the map, and re-label its chevron; a docked dock is left
+   alone (its chevron collapses it instead, v2.72's _dskWinSet), so this never undocks or docks anything */
 function _dskFloatOpen(k,on){
   if(!_dskFloat(k)) return;
   document.body.classList.toggle(k==='ldock'?'ldock-open':'ctx-open',!!on);
   _dskFloatChev();
 }
+/* _dskFloatPin: pin or unpin a dock — a pinned floating dock stays open when the map is pressed (Ruling DU
+   Q8's pin); the pin's aria-pressed follows. A dock that docks again sheds its pin (_shellDockSync). */
 function _dskFloatPin(k,on){
   document.body.classList.toggle(k==='ldock'?'ldock-pinned':'ctx-pinned',!!on);
   const b=_dskEl(k==='ldock'?'dockLeftPin':'ctxPinBtn'); if(b&&b.setAttribute) b.setAttribute('aria-pressed',on?'true':'false');
@@ -20865,6 +21129,11 @@ function _dskFloatChev(){
     b.title=(o?'Close ':'Open ')+what+(o?'':' over the map'); b.setAttribute('aria-label',(o?'Close ':'Open ')+what); };
   set('dockLeftCollapse','ldock','‹','›','the left dock'); set('ctxHideBtn','ctx','›','‹','the Context panel');
 }
+/* THE DOCKING RULE (desktop and tablet): decide, from the window's width, the rail's measured width and the
+   docks' own widths, which dock floats so the map keeps DOCK_MAP_MIN — the Context panel first, then the left
+   dock — and write the body classes the CSS draws from. Runs on every resize (not only a class change), from
+   _dskWinSet and from _shellChanged. A phone, Assets mode and the headless suite (no laid-out window) float
+   nothing. It never resizes a dock, and never opens one: a dock that starts floating starts closed. */
 function _shellDockSync(){
   const b=document.body; if(!b||!b.classList||!_dskReady) return;
   let lf=false, rf=false;
@@ -20873,7 +21142,9 @@ function _shellDockSync(){
   if(W>0&&_shell!=='phone'&&!b.classList.contains('assets-mode')){
     const wide=W>=1440;
     /* the docks' widths: .dock-left 372 / .dock-right 304, and v0.63's ≥1440px rule (400 / 328); a dock the
-       user collapsed (Window ▸ Left dock / Context panel) is v2.72's 30px strip */
+       user collapsed (Window ▸ Left dock / Context panel) is v2.72's 30px strip. The tablet keeps these
+       stage-1 widths — a departure stated in the CHANGELOG from §3's tablet figures (left 340/360, right
+       312/340; 400/380 from 1920): the tablet is the desktop shell at touch size, one dock geometry for both. */
     const L=wide?400:372, R=wide?328:304;
     const rail=_dskEl('domainRail'), railW=_dskWin.rail&&rail?(rail.getBoundingClientRect().width||0):0;
     const avail=W-railW, lw=_dskWin.ldock?L:30, rw=_dskWin.ctx?R:30;
@@ -20902,13 +21173,20 @@ function _dskWinSetChevOnly(key){
 /* one swallowed click: the press that closed a floating dock, or that a touch gesture consumed, must not
    also click whatever is under it */
 var _dskSwallowUntil=0;
+/* arm that swallow for `ms` (DSK_SWALLOW_MS by default): the next click on the map inside the window is eaten
+   by _tchClick, once. It swallows nothing by itself, outside the map, or after the window. */
 function _dskSwallowClick(ms){ _dskSwallowUntil=(typeof performance!=='undefined'?performance.now():Date.now())+(ms||DSK_SWALLOW_MS); }
 
 /* --- Preferences › Handedness (§2.5; Ruling DY Q11) ---------------------------------------------- */
 /* Per viewer, in this browser only (localStorage, behind try/catch): the page works without it, and a
    private window simply starts right-handed. Never in the world file. */
 const HAND_KEY='cartalith_hand';
+/* the dominant hand in force: 'left' while html.hand-left is set, else 'right' (the default). The class is the
+   one state — the CSS mirrors from it — so this reads it and never storage. */
 function _hand(){ return document.documentElement&&document.documentElement.classList.contains('hand-left')?'left':'right'; }
+/* Preferences › Handedness: set the class (anything but 'left' is right), keep the choice in this browser,
+   and re-lay the phone's map controls (the grip, the row and the joystick change sides). Storage may be
+   blocked; the choice still holds for this page. */
 function _handSet(h){
   h=h==='left'?'left':'right';
   if(document.documentElement&&document.documentElement.classList) document.documentElement.classList.toggle('hand-left',h==='left');
@@ -20931,6 +21209,10 @@ function _ds13DrawKey(){
   return '';
 }
 var _ds13Last=null;
+/* Draw ✋ while a drawing tool is armed (body.ds13-draw), and clear the latch whenever the armed tool's
+   drawing key changes — arming or disarming (§2.5, "It clears when a tool is armed or disarmed"); ✋'s
+   aria-pressed follows panMode. Called from _dskToolOptsSync, the end of every way to arm a tool. It never
+   turns the latch ON: only ✋'s own tap does. */
 function _ds13Sync(){
   if(!_dskReady||!document.body) return;
   const k=_ds13DrawKey();
@@ -20985,8 +21267,16 @@ const TCH_THUMB_DOUBLE=120;
    floating dock or ended a two-finger touch (_dskSwallowClick). */
 const TCH_CLICK_WINDOW_MS=1500, TCH_LIFT_CLICK_MS=1200, TCH_LIFT_CLICK_PX=24, DSK_SWALLOW_MS=700;
 const _tch={ptrs:new Map(),g:null,multi:false,lastTap:null,tapT:null,lpT:null,swallowClick:false,lastTouchT:0,replaying:false};
+/* the touch layer's clock: performance.now() where it exists (monotonic), Date.now() in a stub */
 function _tchNow(){ return typeof performance!=='undefined'?performance.now():Date.now(); }
+/* The PLACING tools — a tap puts something on the map: Settlement, POI, Route (a waypoint), Label and Icon.
+   With one armed, thumb zoom and the double-tap are off (Ruling EC item 4, "Off unless ✋ is on"), because a
+   second tap there is a second placement, not a zoom. A new tool whose tap places must be added here, or
+   the finger will treat it as Inspect (the drawing tools are _ds13DrawKey's). */
 function _tchPlaceTool(){ const t=_dskV(()=>_civTool,'inspect'); return t==='place'||t==='place_poi'||t==='route'||t==='label'||t==='icon'; }
+/* Ruling EC item 4 as one predicate: thumb zoom and the double-tap are ON with ✋ on (the finger is the
+   map's), and otherwise only while neither a drawing nor a placing tool is armed — Inspect and Info. While it
+   is true a tap waits TCH_TAP_WAIT for a second press (_tchUp); while false a tap acts at once. */
 function _tchThumbOn(){ return _dskV(()=>panMode,false)||(!_ds13DrawKey()&&!_tchPlaceTool()); }
 /* a press on a label's or icon's own box drags that label or icon — the tool keeps it (off-LOD, as the
    handlers it goes to) */
@@ -21013,9 +21303,13 @@ function _tchZoomAt(x,y,k){
   if(_dskV(()=>_lodOn,false)){ _lodZoomAt(x,y,k); requestLodRender(); }
   else zoomAt(x,y,k);
 }
+/* The double-tap's zoom: k (×1.7) about the finger over TCH_DTAP_ANIM, eased 1−(1−t)³ — 06-phone.md §7's
+   "240 ms, easing 1−(1−k)³" (fix round 2: the first cut stepped linearly in time). Each frame applies only
+   the increment since the last, so the frames multiply to exactly k whatever the frame timing. It moves the
+   camera only, through the pinch's own branches (_tchZoomAt), and asks Tiled LOD to refine once at the end. */
 function _tchZoomAnim(k,x,y){
   const t0=_tchNow(); let done=0;
-  const step=()=>{ const f=Math.min(1,(_tchNow()-t0)/TCH_DTAP_ANIM); _tchZoomAt(x,y,Math.pow(k,f-done)); done=f;
+  const step=()=>{ const f=Math.min(1,(_tchNow()-t0)/TCH_DTAP_ANIM), e=1-Math.pow(1-f,3); _tchZoomAt(x,y,Math.pow(k,e-done)); done=e;
     if(f<1) requestAnimationFrame(step); else if(_dskV(()=>_lodOn,false)) scheduleLodRefine(); };
   requestAnimationFrame(step);
 }
@@ -21043,6 +21337,11 @@ function _tchMultiStart(){
   /* every other drag state is reset by #view's own pointercancel handler — one list, not a second copy */
   _tch.replaying=true; try{ view.dispatchEvent(new PointerEvent('pointercancel',{bubbles:true,pointerType:'touch'})); }catch(_){} finally{ _tch.replaying=false; }
 }
+/* A touch pointer goes down on the map (capture phase, before any tool): decide what this finger means —
+   a second finger (the pinch, Krita's guard), the second tap of a double-tap (zoom), ✋ on (a pan the tools
+   never see), a drawing tool or a label's own box (the tool keeps the finger), or a tap tool's press, which
+   is withheld until it proves a tap (replayed), a pan (past the slop) or a hold (the card). It never acts on
+   a mouse or a pen, or on a press it replayed itself. */
 function _tchDown(e){
   if(e.pointerType!=='touch'||_tch.replaying||typeof view==='undefined') return;
   _tch.lastTouchT=_tchNow();
@@ -21077,6 +21376,10 @@ function _tchDown(e){
   clearTimeout(_tch.lpT); _tch.lpT=setTimeout(_tchLongPress,_shell==='tablet'?TCH_HOLD_TABLET:TCH_HOLD_PHONE);
   e.stopPropagation(); e.preventDefault();
 }
+/* A touch pointer moves: a withheld tap that drifts past TCH_SLOP becomes a pan (handed to the drag-pan
+   state the existing handlers read), a held double-tap's slide becomes thumb zoom (down in, up out, doubling
+   every TCH_THUMB_DOUBLE px), and a latch press past the slop is marked as moved. While two fingers are or
+   have been down it only tracks them; a drawing tool's moves pass through untouched. */
 function _tchMove(e){
   if(e.pointerType!=='touch'||_tch.replaying) return;
   const q=_tch.ptrs.get(e.pointerId); if(!q) return;
@@ -21100,6 +21403,10 @@ function _tchMove(e){
   }
   if(g.mode==='latch'&&far) g.moved=true;
 }
+/* A touch pointer lifts (cancel = pointercancel): a withheld tap is replayed to the tool — at once, or after
+   TCH_TAP_WAIT when a second tap could still make it a zoom — unless a hold already opened the card; a pan
+   spends its click; a double-tap that did not slide zooms ×1.7; ✋'s still tap may start a double-tap. The last
+   finger of a two-finger touch ends Krita's guard and spends the click that follows it. */
 function _tchUp(e,cancel){
   if(e.pointerType!=='touch'||_tch.replaying) return;
   if(!_tch.ptrs.has(e.pointerId)) return;
@@ -21134,6 +21441,9 @@ function _tchClick(e){
   if(now<_dskSwallowUntil){ _dskSwallowUntil=0; e.stopPropagation(); e.preventDefault(); return; }
   if(e.target===view&&_tch.swallowClick&&now-_tch.lastTouchT<TCH_CLICK_WINDOW_MS){ _tch.swallowClick=false; e.stopPropagation(); e.preventDefault(); }
 }
+/* the browser's own long-press menu (Android fires contextmenu on a hold) while a finger is down or just
+   after: refused, so it never opens a second card over this layer's own. A mouse's right-click, long after
+   any touch, passes through to the map menu as on the desktop. */
 function _tchContextMenu(e){
   if(_tch.ptrs.size||(_tchNow()-_tch.lastTouchT<TCH_CLICK_WINDOW_MS)){ e.preventDefault(); e.stopPropagation(); }
 }
@@ -21186,6 +21496,10 @@ function _phWire(){
     const up=(e,cancel)=>{
       if(!g||e.pointerId!==g.id) return; clearTimeout(g.t); const h=g; g=null;
       if(h.held||h.swiped) suppress=_tchNow()+PH_CLICK_SPENT_MS;
+      /* a hold lifted in place leaves the fan open for a tap (above); the click that lift may still send is
+         hit-tested where the finger is, on the scrim that now lies over the tab, so the scrim must not take
+         it as a dismissal (the scrim's click handler reads this) */
+      if(h.held) _ph.fanSpentUntil=_tchNow()+PH_CLICK_SPENT_MS;
       if(h.held&&!cancel){ const el=document.elementFromPoint(e.clientX,e.clientY), row=el&&el.closest?el.closest('.ph-fan-row'):null; if(row) _phFanPick(row); }
     };
     on('phTabDomain','pointerup',e=>up(e,false)); on('phTabDomain','pointercancel',e=>up(e,true));
@@ -21232,9 +21546,8 @@ function _phWire(){
   }
   /* STORY's segments */
   for(const b of document.querySelectorAll('#phStorySeg [data-story]')) b.addEventListener('click',()=>_phStoryShow(b.dataset.story));
-  /* the app bar; ← Map (drawn only in Assets mode) runs the Asset library command, which presses the toggle */
+  /* the app bar (in Assets mode the Assets toggle itself joins it, moved by the slot table: no listener here) */
   on('phWorldPill','click',_phOpenFile);
-  on('phAssetsBack','click',()=>_dskRun('assetLibrary'));
   on('phSearchBtn','click',()=>_phSearchSet(true));
   on('phSearchClose','click',()=>_phSearchSet(false));
   /* the grip (§2.4: "Tap the grip or drag it inward" to open; "drag the grip back" to close): a tap toggles the
@@ -21252,13 +21565,22 @@ function _phWire(){
   /* the drawer closes from the grip, its ×, the scrim, a swipe back toward its edge, or Esc; a pin closes it
      after running */
   on('phDrawerClose','click',()=>_phDrawerSet(false));
-  { const sc=_dskEl('scrim'); if(sc&&sc.addEventListener) sc.addEventListener('click',()=>_phDrawerSet(false)); }
+  /* the scrim lies under whichever of the two is open (the fan at z 39, the drawer at 35; neither can open
+     while the other is, since each one's opener is under the other's scrim): a tap on it closes that one and
+     is spent there — except the one click a hold's lift sends, which opened the fan rather than dismissing it */
+  { const sc=_dskEl('scrim'); if(sc&&sc.addEventListener) sc.addEventListener('click',()=>{
+      const f=_dskEl('phFan');
+      if(f&&!f.hidden){ if(_tchNow()<(_ph.fanSpentUntil||0)){ _ph.fanSpentUntil=0; return; } _phFanSet(false); return; }
+      _phDrawerSet(false); }); }
   { let sw=null;
     on('phDrawer','pointerdown',e=>{ sw={id:e.pointerId,x:e.clientX,y:e.clientY}; });
     on('phDrawer','pointermove',e=>{ if(!sw||e.pointerId!==sw.id) return; const dx=(e.clientX-sw.x)*(_hand()==='left'?-1:1);
       if(dx<-PH_DRAWER_SWIPE_PX&&Math.abs(e.clientY-sw.y)<PH_DRAWER_SWIPE_DY){ sw=null; _phDrawerSet(false); } });
     on('phDrawer','pointerup',()=>{ sw=null; });
-    on('phDrawer','click',e=>{ const b=e.target.closest&&e.target.closest('#slotPhDrawer > button'); if(b) _phDrawerSet(false); });
+    /* a pin closes the drawer after running. Asked of the event's PATH (fixed when it was dispatched), not of
+       the DOM now: the Assets pin's own click moves it out of the drawer into the app bar (_carEnterAssetsMode,
+       fix round 2), so by the time this runs `closest('#slotPhDrawer > button')` no longer finds it */
+    on('phDrawer','click',e=>{ const path=typeof e.composedPath==='function'?e.composedPath():[]; if(path.some(n=>n&&n.id==='slotPhDrawer')) _phDrawerSet(false); });
   }
   /* Esc closes the top layer (§4's system-back order, as far as a browser page has one: the fan, the drawer,
      the search row, the sheet). A browser's Back leaves the page; this file does not intercept it. */
@@ -21270,8 +21592,11 @@ function _phWire(){
     if(s&&!s.hidden){ _phSearchSet(false); e.stopPropagation(); return; }
     if(_ph.detent!=='closed'&&!(document.activeElement&&/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName))){ _phSheetSet(null,'closed'); e.stopPropagation(); }
   },true);
-  /* an outside tap closes the fan */
-  document.addEventListener('pointerdown',e=>{ const f=_dskEl('phFan'); if(f&&!f.hidden&&!f.contains(e.target)&&!(e.target.closest&&e.target.closest('#phTabDomain,#phSheetTitle'))) _phFanSet(false); },true);
+  /* A press outside the fan closes it. A press on the scrim is left to the scrim's click (above), so the
+     scrim stays drawn until that click has landed on it: closing here, on the press, took the scrim away and
+     the click fell through to whatever lay under it (fix round 2). What this still closes the fan for is a
+     press on something drawn above the scrim — the search row (z 41). */
+  document.addEventListener('pointerdown',e=>{ const f=_dskEl('phFan'); if(f&&!f.hidden&&!f.contains(e.target)&&!(e.target.closest&&e.target.closest('#phTabDomain,#phSheetTitle,#scrim'))) _phFanSet(false); },true);
   /* The strip's height is its CONTENT's: Freehand's mode row, a longer hint, Commit appearing. _phLayout reads
      it, and the sculpt picker rebuilds its rows AFTER _dskToolOptsSync has run, so a layout taken there was one
      row short — measured (fix pass): tapping Freehand left DS-13 36px UNDER the strip until the next resize.
@@ -21313,7 +21638,8 @@ function _phWire(){
        does on any outside press. A height-only change (an address bar showing, a keyboard) keeps it. */
     const f=()=>{ const w0=_shellLastW;
       if(!_shellApply()){ _shellDockSync(); if(_ph.detent!=='closed') _phSheetSet(null,null); else _phLayout(); }
-      if(_shellLastW!==w0&&typeof _civCtxHide==='function') _civCtxHide(); };
+      if(_shellLastW!==w0&&typeof _civCtxHide==='function') _civCtxHide();
+      _phKeepFocusInView(); };
     window.addEventListener('resize',f);
     window.addEventListener('orientationchange',f);
     if(typeof window.matchMedia==='function'){ try{ const mq=window.matchMedia('(pointer:coarse)');
@@ -24928,6 +25254,11 @@ function _carIconGalleryPick(fam,slot,set){
   const gal=document.getElementById('carIconGallery'), famEl=document.getElementById('carIconFam');
   if(gal&&famEl){ const cur=fam==null?null:(fam==='custom'?set+'::'+slot:slot); _carPopulateIconGallery(gal,famEl.value,cur,_carIconGalleryPick); }
   if(typeof _gpuApplyTabOverride==='function') _gpuApplyTabOverride();
+  /* v2.73 (fix round 2): a tile arms placement and "Stop placing" disarms it, and with the density brush on
+     that turns a drag into a stroke and back — so DS-13's ✋ (drawn only while a drawing tool is armed) must
+     hear of it, like every other way to arm a tool (v2.72's rule: each ends in _dskToolOptsSync). The first
+     cut did not call it here: Stop placing left ✋ drawn, and re-arming from the gallery left it hidden. */
+  if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
   renderNow();
 }
 function _carPopulateIconEditor(host,icon,rowRefs){
@@ -25224,7 +25555,9 @@ function _civRenderWayList(){
 /* ---- journey list (user-planned travel) ---- */
 function _civRenderJourneyList(){
   const el=document.getElementById('civJourneyList'); if(!el) return;
-  if(!civJourneys.length){ el.innerHTML='<div class="hint">No journeys yet. Draw one with the <b>Route</b> tool and press Esc to commit.</div>'; return; }
+  /* v2.73 (fix round 2): a phone has no Esc — its strip carries ✓ Commit route (the markup's own first text says
+     so); the desktop and the tablet keep the key. _shellChanged re-renders this on a change of shell. */
+  if(!civJourneys.length){ el.innerHTML='<div class="hint">No journeys yet. Draw one with the <b>Route</b> tool and '+(typeof _shell!=='undefined'&&_shell==='phone'?'tap <b>✓ Commit route</b>.':'press Esc to commit.')+'</div>'; return; }
   el.innerHTML='';
   civJourneys.forEach((jn,ji)=>{
     const sel=(ji===_civSelectedJourneyIdx);
@@ -28515,7 +28848,7 @@ function _civInfoAt(gx,gy){
   if(gx<0||gx>=GW||gy<0||gy>=GH) return;
   /* v2.73: on a phone the readout's panel is the sheet's context page, so a reading opens it (it would
      otherwise be written to a page nobody is looking at). No-op on the desktop and tablet. */
-  if(typeof _phCtxAuto==='function') _phCtxAuto('info');
+  if(typeof _phCtxAuto==='function') _phCtxAuto();
   const ci=gy*GW+gx;
   let html='';
   // Terrain actually under the cursor — read the exact clicked cell, never a "nearest node"
