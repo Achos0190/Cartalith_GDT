@@ -3163,3 +3163,40 @@ performance of the html? Maybe even upgrade some features based of the godot ver
 **Consequences:** `MOBILE_SHELL_PROPOSAL.md` §2.5 marks DS13-Q1 and Q2 answered. The HTML's next versions carry items
 5–8, with the audits' performance and visual fixes. The HTML's v2.73 already builds items 1–4 as its defaults. Nothing
 in `cartalith-native/` is built by this ruling.
+
+## Ruling ED: the stylus and haptics on the OnePlus Pad 3: the device, the VIBRATE permission, the input plugin and the pen's own motor (owner, 2026-11-02)
+
+The owner asked for research into the OnePlus Pad 3's pen and haptics so that the terrain's relief can be "felt",
+scoped to the Godot version (`STYLUS_HAPTICS_RESEARCH.md`). Four of its owner questions were put, each premise checked
+first. A label in quotation marks is the option the owner picked; *italics* mark the owner's own words.
+
+1. **The device (research Q1): "Pad 3 + Stylo 2".** The research's assumption stands: the OnePlus Pad 3 (OPD2415) with
+   the OnePlus Stylo 2.
+2. **The VIBRATE permission (Q7): "Yes, enable it".**
+   - The Android preset in `export_presets.cfg` gains `permissions/vibrate=true`. That is the key Godot 4.7.2's
+     exporter reads (`platform/android/export/export_plugin.cpp`, `"permissions/" + "VIBRATE".to_lower()`).
+   - Without it, every `dcc_shell.gd::_haptic` call was silent on Android.
+   - Done the same day, as SH-1's preset half. It has not been seen on a device: the next APK and an
+     `adb logcat | grep -i "VIBRATE permission"` confirm it.
+3. **The input plugin (Q9): *"Whichever gives the best and most extensive feature set."***
+   - **The main loop's reading:** accept the Gradle build and plan the Kotlin input plugin (SH-10). It recovers
+     everything Godot 4.7.2 drops on Android: the eraser end, the pen's side keys, the batched samples between frames,
+     the hover distance, palm-cancel flags, and motion prediction and front-buffered ink. Godot fixes upstream would
+     cover less, later, and are not in the project's hands.
+   - **Upstream reports stay optional.** Richer vibration (primitives and envelopes) still goes through Godot's built-in
+     `JavaClassWrapper`, so it waits for nothing.
+   - **The owner can override this reading.**
+4. **The pen's own motor over Bluetooth (Q13): "Yes, try it"**, against the recommendation, with the risks accepted.
+   - **An experiment, not a feature.** The premise comes from an unverified, AI-written project (research §2.3): that the
+     Stylo 2 takes a texture setting and a single-pulse command over Bluetooth.
+   - **Discovery first, read-only.** The first step lists the pen's Bluetooth services and characteristics without
+     writing anything. It confirms or refutes the premise before any write.
+   - **Never touched:** the firmware-update services.
+   - **Built in:** an off switch, and written steps for re-pairing the pen through OnePlus's own settings.
+   - **Permissions:** the Bluetooth runtime permissions it needs (BLUETOOTH_CONNECT, and BLUETOOTH_SCAN for discovery)
+     are asked only when the experiment is switched on.
+
+**The other nine questions** (Q2–Q6, Q8, Q10–Q12) keep the research's recommended defaults until the owner says
+otherwise. **What comes first:** SH-0, measuring on the tablet, decides how much of the relief design the Pad 3 can
+use. Its first step is `adb shell cmd vibrator_manager list`, because the tablet's body may have no vibrator
+(research §1.4).

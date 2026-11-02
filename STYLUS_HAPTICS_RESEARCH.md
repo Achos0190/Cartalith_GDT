@@ -1117,6 +1117,12 @@ logging is broken (*Supplement merge, 2026-11-02*).
 
 ### 8.3 Owner questions, with recommended defaults
 
+**Answered 2026-11-02 by Ruling ED** (`LARGE_ITEM_RULINGS.md`): Q1 "Pad 3 + Stylo 2"; Q7 "Yes, enable it" (the
+Android preset now carries `permissions/vibrate=true`, not yet seen on a device); Q9 *"Whichever gives the best and
+most extensive feature set"*, read as accepting the Gradle build and the Kotlin input plugin (SH-10); Q13 "Yes, try
+it", as a read-only discovery experiment first, against the recommendation. The other nine keep their defaults until
+the owner says otherwise. The table below is kept as the questions were asked.
+
 | # | Question | Recommended default |
 |---|---|---|
 | Q1 | Which tablet and pen do you have: OnePlus Pad 3 with the Stylo 2, or the newer Pad 4 with the Stylo Pro? | Pad 3 + Stylo 2 |

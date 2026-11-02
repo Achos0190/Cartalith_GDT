@@ -160,9 +160,12 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
   - At 1 366 × 768 the floating place editor can cover the expanded timeline strip.
 
 **Stylus and haptics on the OnePlus Pad 3: feel the relief** (owner, 2026-11-01; `STYLUS_HAPTICS_RESEARCH.md` §8)
-- **Every shipped haptic is silent on Android:** the Android preset in `export_presets.cfg` lists only
-  `permissions/custom_permissions` and `permissions/internet`, and Godot documents that `vibrate_handheld` then has no
-  effect (`dcc_shell.gd::_haptic`). SH-1, a scoped preset edit, is the owner's Q7.
+- **The VIBRATE permission (SH-1's preset half) is set** (Ruling ED, 2026-11-02): until then every `_haptic` call was
+  silent on Android. Not yet seen on a device: build the next APK, then `adb logcat | grep -i "VIBRATE permission"`
+  while holding on the map must show nothing.
+- **Ruling ED also schedules:** the Kotlin input plugin with a Gradle build (SH-10; the owner chose the most extensive
+  feature set), and an experiment reaching the pen's own motor over Bluetooth, read-only discovery first, never the
+  firmware services, behind an off switch (Q13).
 - **SH-0, measured on the owner's tablet first:** `adb shell cmd vibrator_manager list` (the Pad 3 may have no body
   vibrator, research §1.4; the command prints "No vibrator found" if so), `wm density`, `getevent -lt` while
   double-tapping the pen, `dumpsys input`. Its result decides how much of the relief design the Pad 3 can use.

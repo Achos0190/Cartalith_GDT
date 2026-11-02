@@ -63,6 +63,22 @@ The owner asked: *"Just copy it into the reference folder"*.
 - **The old blocker was wrong.** The re-freeze row had been blocked since 2026-10-10 on "the owner has no v2.71 file to
   supply". That check looked only in this repository; the file had been in `Cartalith_RC` since 2026-09-20.
 
+### Stylus and haptics research, and Ruling ED; the VIBRATE permission set (2026-11-02)
+
+`STYLUS_HAPTICS_RESEARCH.md` is written, fact-checked and supplemented, for the Godot version on the owner's OnePlus
+Pad 3 with the Stylo 2. **Its finding: every shipped haptic was silent on Android,** because the Android preset never
+enabled VIBRATE.
+
+- **The fix:** Ruling ED item 2 set `permissions/vibrate=true` in `export_presets.cfg`, the key Godot 4.7.2's
+  exporter reads. `dcc_shell.gd::_haptic`'s doc comment now says so, and its stale call-site count is corrected (four
+  kinds, not three).
+- **Not verified on a device:** there is no APK or Godot binary in this session. The next build and one `adb logcat`
+  confirm it.
+- **Ruling ED also accepts** a Gradle build for a Kotlin input plugin (SH-10), and a read-only experiment towards the
+  pen's own motor over Bluetooth.
+- **Nothing else is built.** SH-0, measuring on the tablet, comes first: its body may have no vibrator (research
+  §1.4).
+
 ### Ruling EC: touch panning answered, and the HTML's next versions decided; nothing built by it (2026-11-01)
 
 **The owner answered eight questions, each with the recommended option** (`LARGE_ITEM_RULINGS.md`, Ruling EC).
