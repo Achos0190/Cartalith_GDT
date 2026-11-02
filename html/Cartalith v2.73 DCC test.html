@@ -208,6 +208,11 @@
   .place-edit-popup .pe-city{display:block;width:100%;height:auto;aspect-ratio:560/380;margin:0 0 9px;border-radius:6px;border:1px solid rgba(200,169,110,.28);background:#262a32;image-rendering:auto}
   .place-edit-popup .row{margin:7px 0;gap:6px}
   .place-edit-popup .row label{flex:0 0 76px;font-size:11px;color:#c8b998}
+  /* v2.73 (fix pass): a field in a row may shrink below its intrinsic width, so the name row's 🎲 fits
+     inside the 280px popup. The field's min-content width held the row past the box, and overflow-x:hidden
+     cut the button to 22px of its width on every shell (of 44 on a touch shell, of 33 on the desktop) — the
+     same in v2.72, so not new to stage 2, but the one drawn target under 44px a phone floor walk found. */
+  .place-edit-popup .row > input{min-width:0}
   .place-edit-popup select,.place-edit-popup input[type=text],.place-edit-popup input[type=number]{background:rgba(255,255,255,.06);border:1px solid rgba(200,169,110,.3);color:#e8dcc4;border-radius:5px;padding:4px 6px;font-size:11px;width:auto}
   /* v1.18: Interactive City Viewer — full-viewport modal, above #placeEditPopup (z-index 61). */
   .city-viewer-modal{position:fixed;inset:0;z-index:70;display:none;background:rgba(8,9,13,.88)}
@@ -879,9 +884,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   /* Two of the form's checkbox labels carry an inline <code> path (atlas/, layers/). As label.chk's flex
      row, each text run and the <code> became a column of its own and the last ran past the panel's edge
      (v2.71's 300px dropdown clipped them too, worse). Here they flow as one paragraph, the checkbox
-     hanging in front: 20px = the 13px box + its 7px gap, measured. */
-  :where(html:not([data-shell="phone"])) #mbExportPanel label.chk{display:block;padding-left:20px;text-indent:-20px;line-height:1.45}
-  :where(html:not([data-shell="phone"])) #mbExportPanel label.chk input{margin:0 7px 0 0;vertical-align:-2px}
+     hanging in front: 20px = the 13px box + its 7px gap, measured.
+     v2.73 (fix pass): on every shell, the phone's MENU › File › Export included — keyed to not-phone, the new
+     phone page split the same two labels into three columns each (seen at 360x780). */
+  #mbExportPanel label.chk{display:block;padding-left:20px;text-indent:-20px;line-height:1.45}
+  #mbExportPanel label.chk input{margin:0 7px 0 0;vertical-align:-2px}
 
   /* ---- D2 · the tool-options bar: the armed tool's settings only (Ruling DZ) ------------------- */
   /* One 40px row with no tool armed: context, hint, pins. With Sculpt armed it becomes TWO rows (the
@@ -891,7 +898,13 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
      display:contents so its children can take part in this one flex line, ordered by `order`. */
   :where(html:not([data-shell="phone"])) .toolopts{gap:10px;padding:0 10px 0 14px;flex-wrap:wrap;row-gap:0}
   :where(html:not([data-shell="phone"])) .to-ctx{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);white-space:nowrap;flex:0 0 auto;min-height:40px;display:flex;align-items:center}
-  :where(html:not([data-shell="phone"])) .to-hint{font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+  /* v2.73 (fix pass): basis 0, so the hint takes what the context name and the pins leave and ellipsises.
+     With a content-sized basis a long hint wrapped the pins onto a second row (the bar is flex-wrap, and a
+     flex line is decided at max-content): measured 81px tall at 870 and 900 wide in v2.72 and v2.73, 41
+     from 950 — stage 2's narrow bar had this fix and the desktop above 860 did not. Where there is room the
+     text sits where it did (left of the pins, which the hint now pushes to the end instead of their auto
+     margin). */
+  :where(html:not([data-shell="phone"])) .to-hint{font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 0}
   :where(html:not([data-shell="phone"])) .to-hint[hidden]{display:none}
   :where(html:not([data-shell="phone"])) .to-tool{display:contents}
   :where(html:not([data-shell="phone"])) .to-tool[hidden]{display:none}
@@ -1114,6 +1127,12 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="tablet"]) .map-br{right:12px;bottom:14px;align-items:flex-end;gap:10px}
 :where(html.hand-left[data-shell="tablet"]) .map-br{right:auto;left:12px;align-items:flex-start}
 :where(html[data-shell="tablet"]) .map-br .viewdim button{width:44px;height:44px}
+/* the row's spacing is the margins above (rocker halves touching, 10px gaps). Stage 1's column gap,
+   `.map-br #zoomOverlay{gap:6px}`, is one id and one class, which out-specified this block's `#zoomOverlay
+   {gap:0}` on the tablet — measured (fix pass): the rocker's halves 6px apart and 16px gaps at 768 and 1194.
+   The same selector, later in the file, puts the design's spacing back (§2.5: "two 44 dp halves with a 1 px
+   hairline … Gaps are 10 dp"). */
+:where(html[data-shell="tablet"]) .map-br #zoomOverlay{gap:0}
 :where(html.hand-left[data-shell="tablet"]) #scaleBar{left:auto;right:12px}
 :where(html.hand-left[data-shell="tablet"]) .legend{left:auto;right:12px;bottom:46px}
 /* v1.19's pan joystick (the owner's, kept — v1.22: "on mobile/tablet … in all views"), stacked above the row
@@ -1144,10 +1163,16 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="tablet"]) .mb-panel .mb-row,:where(html[data-shell="tablet"]) .mb-panel > button{min-height:48px;font-size:13.5px}
 :where(html[data-shell="tablet"]) .mb-subpanel{position:static;left:auto;min-width:0;border:0;box-shadow:none;padding:0}
 :where(html[data-shell="tablet"]) #mbExportPanel{width:auto;max-height:none}
-:where(html[data-shell="phone"],html[data-shell="tablet"]) .mb-drilled > :not(.mb-sub.open){display:none!important}
-:where(html[data-shell="phone"],html[data-shell="tablet"]) .mb-drilled > .mb-sub.open > [data-sub]{border-bottom:1px solid var(--line);color:var(--accent)}
-:where(html[data-shell="phone"],html[data-shell="tablet"]) .mb-drilled > .mb-sub.open > [data-sub]::before{content:'‹';flex:0 0 18px;width:18px;font-size:16px;color:var(--accent)}
-:where(html[data-shell="phone"],html[data-shell="tablet"]) .mb-drilled > .mb-sub.open > [data-sub] .mb-arrow{display:none}
+:where(html[data-shell="phone"],html[data-shell="tablet"],html.shell-narrow) .mb-drilled > :not(.mb-sub.open){display:none!important}
+:where(html[data-shell="phone"],html[data-shell="tablet"],html.shell-narrow) .mb-drilled > .mb-sub.open > [data-sub]{border-bottom:1px solid var(--line);color:var(--accent)}
+:where(html[data-shell="phone"],html[data-shell="tablet"],html.shell-narrow) .mb-drilled > .mb-sub.open > [data-sub]::before{content:'‹';flex:0 0 18px;width:18px;font-size:16px;color:var(--accent)}
+:where(html[data-shell="phone"],html[data-shell="tablet"],html.shell-narrow) .mb-drilled > .mb-sub.open > [data-sub] .mb-arrow{display:none}
+/* the narrow DESKTOP bar drills in as well (_dskDrill): its menus scroll in their own panel and a submenu sits in
+   flow, as the tablet's do above — the same four rules, keyed on the narrow bar, which the tablet's already meet */
+:where(html.shell-narrow) .mb-panel{max-height:calc(100vh - 60px);max-height:calc(100dvh - 60px);overflow-y:auto}
+:where(html.shell-narrow) header #fileMenu{max-height:calc(100vh - 60px);max-height:calc(100dvh - 60px);overflow-y:auto;min-width:300px}
+:where(html.shell-narrow) .mb-subpanel{position:static;left:auto;min-width:0;border:0;box-shadow:none;padding:0}
+:where(html.shell-narrow) #mbExportPanel{width:auto;max-height:none}
 /* the narrow bar — the tablet below 1180px (Ruling DY PQ6) and the desktop below 860px (_shellModeOf): ☰ · File · World · Records · Story. ☰ takes the five
    menus the bar has no room for (their panels move into its drill-in pages); File leaves out Generate
    world, which World holds. The wordmark yields below 760px and Find narrows, so nothing overlaps at 600. */
@@ -1162,9 +1187,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html.shell-narrow) header #findInput{width:120px!important}
 :where(html.shell-narrow) header h1{letter-spacing:.14em;margin-right:6px}
 @media (max-width:760px){ :where(html.shell-narrow) header h1{display:none} }
-/* the narrow bar's tool-options row: the hint takes what the context name and the pins leave and ellipsises,
-   rather than wrapping the pins onto a second 48px row (a wrapped flex line is decided at max-content) */
-:where(html.shell-narrow) .to-hint{flex:1 1 0}
+/* (the narrow bar's own hint rule, basis 0, now holds for the whole tool-options bar — see .to-hint in D2) */
 /* the status bar on a narrow window: the readout may shrink, and the three state chips (protocol, autosave,
    GPU — each also in Preferences) yield before they overlap Generation info and the version, as the phone's
    v2.71 status bar did */
@@ -1198,14 +1221,25 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 .dh-pin{display:none}
 :where(html:not([data-shell="phone"])) body.ldock-float .dock-head .dh-pin,:where(html:not([data-shell="phone"])) body.ctx-float .ctx-head .dh-pin{display:flex}
 .dh-pin[aria-pressed="true"]{color:var(--accent);border-color:var(--accent)}
-:where(html:not([data-shell="phone"])) .ctx-head .dh-pin{grid-column:2;grid-row:1 / span 3;align-self:end}
+/* The Context panel's pin has a column of its own, BETWEEN the text and the chevron — the order #dockLeftHead
+   draws (path · pin · chevron) — and only while the panel floats, the one state that draws the pin, so the
+   docked head keeps v2.72's two columns. The first cut put both buttons in column 2 (chevron at the top, pin
+   at the bottom); at touch size, two 44px buttons in a head about 45px tall, the pin covered the chevron
+   completely, so a tap meant to close the panel pinned it instead — measured (fix pass) at 1194, 1024 and
+   768 wide, and an 8px overlap with a mouse at 700. */
+:where(html:not([data-shell="phone"])) body.ctx-float .ctx-head{grid-template-columns:1fr auto auto}
+:where(html:not([data-shell="phone"])) body.ctx-float .ctx-head .dh-pin{grid-column:2;grid-row:1 / span 3;align-self:start}
+:where(html:not([data-shell="phone"])) body.ctx-float .ctx-head #ctxHideBtn{grid-column:3}
 
 /* ---- PHONE · the shell (§2.1, §3) ----------------------------------------------------------------- */
 :where(html[data-shell="phone"]) body{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
 /* the app bar: the world pill, Undo, Redo, Search — one row under the status-bar inset */
 :where(html[data-shell="phone"]) header{flex:0 0 auto;position:relative;height:calc(56px + env(safe-area-inset-top,0px));align-items:center;flex-wrap:nowrap;gap:6px;
   padding:env(safe-area-inset-top,0px) max(8px,env(safe-area-inset-right,0px)) 0 max(8px,env(safe-area-inset-left,0px))}
-:where(html[data-shell="phone"]) header > :not(#phWorldPill):not(#undoBtn):not(#redoBtn):not(#phSearchBtn):not(#phSearch){display:none!important}
+:where(html[data-shell="phone"]) header > :not(#phWorldPill):not(#undoBtn):not(#redoBtn):not(#phSearchBtn):not(#phSearch):not(#phAssetsBack){display:none!important}
+/* ← Map: drawn in the app bar only while Assets mode is on (fix pass — the library had no visible way out) */
+:where(html[data-shell="phone"]) #phAssetsBack{display:none}
+:where(html[data-shell="phone"]) body.assets-mode #phAssetsBack{display:flex;flex:0 0 auto;height:44px;align-items:center;padding:0 12px;white-space:nowrap;border-color:var(--accent);color:var(--accent)}
 :where(html[data-shell="phone"]) #phWorldPill{flex:1 1 auto;min-width:0;height:44px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;padding:0 12px;text-align:left;border:1px solid var(--border);background:var(--panel2)}
 :where(html[data-shell="phone"]) .ph-pill-k{font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);line-height:1}
 :where(html[data-shell="phone"]) #phWorldPill .shell-slot{display:flex;gap:8px;min-width:0;max-width:100%}
@@ -1239,6 +1273,13 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   height:var(--ph-sheet-h,76px);padding:0 env(safe-area-inset-right,0px) 0 env(safe-area-inset-left,0px);background:var(--panel);border-top:1px solid var(--border);box-shadow:0 -12px 32px rgba(0,0,0,.45)}
 :where(html[data-shell="phone"]) .ph-sheet[hidden]{display:none}
 :where(html[data-shell="phone"]) .ph-sheet.ph-anim{transition:height .2s ease}
+/* A settlement's or POI's edit popup floats on the map (v0.90) at z 61, which on a phone put it over the
+   sheet, the bar and the drawer: measured (fix pass), with a settlement selected MENU's rows were covered at
+   6-8 points and a tap on Preferences › Handedness pressed the popup instead. On a phone it sits UNDER the
+   frame — above the map's own controls (DS-13 21, the grip 22), below the strip 32, the sheet 33, the bar 34,
+   the scrim 35, the drawer 36, the fan 40 and the search row 41 — and stays open beneath a page until the
+   sheet goes down again. The desktop and tablet keep v0.90's 61. */
+:where(html[data-shell="phone"]) .place-edit-popup{z-index:31}
 :where(html[data-shell="phone"]) .ph-sheet-head{flex:0 0 76px;height:76px;position:relative;padding:14px 6px 0 14px;touch-action:none;-webkit-user-select:none;user-select:none;border-bottom:1px solid var(--line)}
 :where(html[data-shell="phone"]) .ph-grabber{position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;background:var(--faint)}
 :where(html[data-shell="phone"]) .ph-sheet-row{display:flex;align-items:center;gap:2px;height:52px}
@@ -1261,6 +1302,13 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"]) #phPageMap #layersBtn{display:none}
 :where(html[data-shell="phone"]) #phPageMap #layersPopover{display:block!important;position:static;min-width:0;max-width:none;max-height:none;width:auto;margin:8px 0 0;padding:0;border:0;box-shadow:none;background:none}
 :where(html[data-shell="phone"]) #phPageMap .legend{position:static;margin:0 16px 16px;display:block;pointer-events:none}
+/* MAP draws ONE "View" caption: the page's own (.ph-cap) heads 2D/3D and the base map's mode below it, so the
+   popover's caption for the mode (.lp-base's .lp-grp, the desktop chip's) is not drawn a second time, and the
+   mode's four buttons share the row with room around their labels (fix pass: two VIEW headings in a row,
+   and "Relief" starting at the selected button's edge) */
+:where(html[data-shell="phone"]) #phPageMap .lp-base > .lp-grp{display:none}
+:where(html[data-shell="phone"]) #phPageMap #modeSeg{display:flex;margin:8px 0}
+:where(html[data-shell="phone"]) #phPageMap #modeSeg button{flex:1 1 0;padding:0 8px}
 :where(html[data-shell="phone"]) .ph-story-seg{margin:12px 16px 4px}
 :where(html[data-shell="phone"]) .ph-story-seg button{height:44px}
 :where(html[data-shell="phone"]) .ph-story-pane[hidden]{display:none}
@@ -1302,7 +1350,10 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 /* only the armed tool's own Commit / Discard (_phStripSync marks the others) */
 :where(html[data-shell="phone"]) .ph-strip .ph-act-off{display:none!important}
 :where(html[data-shell="phone"]) .ph-strip-tool{flex:1 1 100%;order:3;min-width:0;display:flex;flex-direction:column;gap:2px}
-:where(html[data-shell="phone"]) .ph-strip-tool:empty,:where(html[data-shell="phone"]) .ph-strip-act:empty{display:none}
+/* the sculpt group is drawn for Sculpt only (_phStripSync writes [hidden]); the class rule's display:flex
+   would otherwise outrank the attribute. (The first cut's :empty rule never matched: the slot span is a
+   child, so the group was never empty.) */
+:where(html[data-shell="phone"]) .ph-strip-tool[hidden]{display:none}
 :where(html[data-shell="phone"]) .ph-strip #sculptFeatureSeg{display:flex;flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:thin}
 :where(html[data-shell="phone"]) .ph-strip #sculptFeatureSeg button{flex:0 0 auto;padding:0 12px;white-space:nowrap;border-top:0}
 :where(html[data-shell="phone"]) .ph-strip #sculptModeSeg{flex-wrap:nowrap!important;overflow-x:auto;margin:0!important}
@@ -1329,12 +1380,22 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"]) .ph-grip-bar::after{content:'';position:absolute;left:8px;top:28px;bottom:28px;width:4px;background:var(--accent)}
 :where(html.hand-left[data-shell="phone"]) .ph-grip{left:auto;right:0;justify-content:flex-end}
 :where(html.hand-left[data-shell="phone"]) .ph-grip-bar{border-left:1px solid var(--line);border-right:0}
-:where(html[data-shell="phone"]) body.ph-drawer-open .ph-grip{visibility:hidden}
+/* While the drawer is open the grip travels with its edge and stays above the drawer and the scrim, so
+   the way to close it is the same tab that opened it — tap it, or drag it back toward the edge (§2.4: "tap
+   the scrim, drag the grip back or press system back to close"; the mockup's grip rides the drawer's
+   edge). The first cut hid it, and the drawer's own swipe never fired (see .ph-drawer's touch-action), so
+   no drag could close the drawer at all. The offset is the drawer's own width rule, so the two cannot
+   part; the left-handed form adds the side sheet's cover in landscape (--ph-cover-r, 0 in portrait). */
+:where(html[data-shell="phone"]) body.ph-drawer-open .ph-grip{left:min(82vw,320px);z-index:37}
+:where(html.hand-left[data-shell="phone"]) body.ph-drawer-open .ph-grip{left:auto;right:calc(min(82vw,320px) + var(--ph-cover-r,0px))}
 :where(html[data-shell="phone"]) #explFilterFab{top:10px;left:10px}
 :where(html[data-shell="phone"]) #explFilterBtn{width:44px;height:44px}
-/* the quick drawer: the pins as 56px rows, from the grip's side, over a scrim */
+/* the quick drawer: the pins as 56px rows, from the grip's side, over a scrim. touch-action pan-y: the
+   drawer may scroll vertically, and a SIDEWAYS swipe is left to its own pointer handlers (the swipe back
+   toward the edge closes it). With the default (auto) the browser took the swipe and sent pointercancel
+   after two moves — measured (fix pass), so the swipe-to-close never ran. */
 :where(html[data-shell="phone"]) .ph-drawer{position:fixed;left:0;top:calc(56px + env(safe-area-inset-top,0px));bottom:calc(64px + env(safe-area-inset-bottom,0px));z-index:36;width:min(82vw,320px);
-  display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--border);box-shadow:14px 0 34px rgba(0,0,0,.55);overflow-y:auto;padding-left:env(safe-area-inset-left,0px)}
+  display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--border);box-shadow:14px 0 34px rgba(0,0,0,.55);overflow-y:auto;padding-left:env(safe-area-inset-left,0px);touch-action:pan-y}
 :where(html.hand-left[data-shell="phone"]) .ph-drawer{left:auto;right:0;border-right:0;border-left:1px solid var(--border);box-shadow:-14px 0 34px rgba(0,0,0,.55)}
 :where(html[data-shell="phone"]) .ph-drawer[hidden]{display:none}
 :where(html[data-shell="phone"]) .ph-drawer-h{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 16px;font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);border-bottom:1px solid var(--line)}
@@ -1344,6 +1405,19 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   background:none;border:0;border-bottom:1px solid var(--div);color:var(--ink);font-family:var(--sans);font-size:14px;text-align:left;letter-spacing:0;text-transform:none}
 :where(html[data-shell="phone"]) #phDrawer #assetsHeaderBtn.on{color:var(--accent)}
 :where(html[data-shell="phone"]) body.ph-drawer-open .scrim{display:block;z-index:35}
+/* the asset library on a phone: ONE column — the categories as a row of chips that scrolls sideways, the grid,
+   then the inspector under it (capped, scrolling) — instead of v0.65's three columns side by side. Their 150 +
+   250px of rail and inspector ran a 360-390px phone past its edge — the page widened to 401px and the bottom
+   bar went below the screen (measured, fix pass, at 360x780 and 375x812) — and left the grid one 24px column
+   at 412 (v2.72 the same). The library's own elements and handlers, laid out differently; nothing moved. */
+:where(html[data-shell="phone"]) #assetLibrary{flex-direction:column;min-width:0}
+:where(html[data-shell="phone"]) .al-rail{width:auto;flex:0 0 auto;display:flex;align-items:center;gap:6px;overflow-x:auto;overflow-y:hidden;padding:6px 8px;border-right:0;border-bottom:1px solid var(--line)}
+:where(html[data-shell="phone"]) .al-rail .al-cat{flex:0 0 auto;width:auto;white-space:nowrap;padding:0 12px;border:1px solid var(--line)}
+:where(html[data-shell="phone"]) .al-rail .al-cat.on{border-color:var(--accent)}
+:where(html[data-shell="phone"]) .al-rail .al-rail-h,:where(html[data-shell="phone"]) .al-rail > div{flex:0 0 auto;white-space:nowrap;padding:0 4px!important}
+:where(html[data-shell="phone"]) .al-main{flex:1 1 auto;min-height:0}
+:where(html[data-shell="phone"]) .al-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
+:where(html[data-shell="phone"]) .al-insp{width:auto;flex:0 0 auto;max-height:40%;border-left:0;border-top:1px solid var(--line)}
 /* the domain fan */
 :where(html[data-shell="phone"]) .ph-fan{position:fixed;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:calc(64px + env(safe-area-inset-bottom,0px) + 8px);z-index:40;
   background:var(--panel);border:1px solid var(--border);box-shadow:0 14px 40px rgba(0,0,0,.6);padding:4px 0}
@@ -1356,27 +1430,35 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"]) .ph-fan-row[aria-checked="true"],:where(html[data-shell="phone"]) .ph-fan-row.ph-hot{background:var(--wash);color:var(--accent)}
 :where(html[data-shell="phone"]) .ph-fan-row[aria-checked="true"] .ph-fan-gl{color:var(--accent)}
 /* phone LANDSCAPE (under 500px tall): the bar becomes an 80px rail on the left, and the sheet docks on the
-   right at 42% (300-400px) — §3's table. Orientation is read by CSS; which SHELL it is never is. */
-@media (orientation:landscape){
-  :where(html[data-shell="phone"]) body{padding-bottom:0;padding-left:calc(80px + env(safe-area-inset-left,0px))}
-  :where(html[data-shell="phone"]) .ph-bar{top:0;bottom:0;right:auto;width:calc(80px + env(safe-area-inset-left,0px));height:auto;flex-direction:column;justify-content:center;gap:4px;
-    padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);border-top:0;border-right:1px solid var(--line)}
-  :where(html[data-shell="phone"]) .ph-tab{flex:0 0 auto;width:80px;height:72px}
-  :where(html[data-shell="phone"]) .ph-sheet{left:auto;right:0;top:calc(56px + env(safe-area-inset-top,0px));bottom:0;width:clamp(300px,42vw,400px);height:auto;
-    border-top:0;border-left:1px solid var(--border);box-shadow:-12px 0 32px rgba(0,0,0,.45)}
-  :where(html[data-shell="phone"]) .ph-sheet[data-detent="peek"] .ph-sheet-body{display:block}
-  :where(html[data-shell="phone"]) .ph-sheet .ph-grabber{display:none}
-  :where(html[data-shell="phone"]) #phSheetHandle{display:none}
-  :where(html[data-shell="phone"]) .ph-strip{left:calc(80px + 8px + env(safe-area-inset-left,0px));right:calc(var(--ph-cover-r,0px) + 8px);bottom:8px;max-height:58vh;max-height:58dvh}
-  :where(html[data-shell="phone"]) #zoomOverlay{right:calc(var(--ph-cover-r,0px) + 12px)}
-  :where(html.hand-left[data-shell="phone"]) #zoomOverlay{right:auto;left:12px}
-  :where(html[data-shell="phone"]) #sculptNavpad{right:calc(var(--ph-cover-r,0px) + 12px)}
-  :where(html.hand-left[data-shell="phone"]) #sculptNavpad{right:auto;left:12px}
-  :where(html.hand-left[data-shell="phone"]) #scaleBar{right:calc(var(--ph-cover-r,0px) + 12px)}
-  :where(html[data-shell="phone"]) .ph-drawer{left:calc(80px + env(safe-area-inset-left,0px));bottom:0}
-  :where(html.hand-left[data-shell="phone"]) .ph-drawer{left:auto}
-  :where(html[data-shell="phone"]) .ph-fan{left:calc(80px + 8px + env(safe-area-inset-left,0px));right:auto;width:320px;bottom:8px}
-}
+   right at 42% (300-400px) — §3's table. v2.73 (fix pass): keyed on html[data-orient="land"], which the
+   decider writes under its keyboard guard (_shellNow), not on `@media (orientation:landscape)`. The media
+   query turned a TYPING portrait phone into this layout whenever the keyboard left the layout viewport
+   shorter than it is wide — the guard kept the class but not the layout (measured at 412x380 with Find
+   focused: the bar became the 80px rail). Same rules, same order, same zero specificity, so the cascade is
+   the one the media query gave. Neither the class nor the orientation is ever read by CSS from the size. */
+:where(html[data-shell="phone"][data-orient="land"]) body{padding-bottom:0;padding-left:calc(80px + env(safe-area-inset-left,0px))}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-bar{top:0;bottom:0;right:auto;width:calc(80px + env(safe-area-inset-left,0px));height:auto;flex-direction:column;justify-content:center;gap:4px;
+  padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);border-top:0;border-right:1px solid var(--line)}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-tab{flex:0 0 auto;width:80px;height:72px}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-sheet{left:auto;right:0;top:calc(56px + env(safe-area-inset-top,0px));bottom:0;width:clamp(300px,42vw,400px);height:auto;
+  border-top:0;border-left:1px solid var(--border);box-shadow:-12px 0 32px rgba(0,0,0,.45)}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-sheet[data-detent="peek"] .ph-sheet-body{display:block}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-sheet .ph-grabber{display:none}
+:where(html[data-shell="phone"][data-orient="land"]) #phSheetHandle{display:none}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-strip{left:calc(80px + 8px + env(safe-area-inset-left,0px));right:calc(var(--ph-cover-r,0px) + 8px);bottom:8px;max-height:58vh;max-height:58dvh}
+:where(html[data-shell="phone"][data-orient="land"]) #zoomOverlay{right:calc(var(--ph-cover-r,0px) + 12px)}
+:where(html.hand-left[data-shell="phone"][data-orient="land"]) #zoomOverlay{right:auto;left:12px}
+:where(html[data-shell="phone"][data-orient="land"]) #sculptNavpad{right:calc(var(--ph-cover-r,0px) + 12px)}
+:where(html.hand-left[data-shell="phone"][data-orient="land"]) #sculptNavpad{right:auto;left:12px}
+:where(html.hand-left[data-shell="phone"][data-orient="land"]) #scaleBar{right:calc(var(--ph-cover-r,0px) + 12px)}
+/* left-handed, the grip and its drawer take the RIGHT edge — and in landscape that edge is the side sheet's
+   when one is open: the grip sits 0px clear of the sheet and the drawer opens from there (fix pass: the grip
+   stayed at the window's edge, UNDER the sheet, and a tap meant for it pressed the sheet's page; the mockup
+   clears the sheet too — Shell.dc.html quickDrawerVals). --ph-cover-r is 0 while no sheet is open. */
+:where(html.hand-left[data-shell="phone"][data-orient="land"]) .ph-grip{right:var(--ph-cover-r,0px)}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-drawer{left:calc(80px + env(safe-area-inset-left,0px));bottom:0}
+:where(html.hand-left[data-shell="phone"][data-orient="land"]) .ph-drawer{left:auto;right:var(--ph-cover-r,0px)}
+:where(html[data-shell="phone"][data-orient="land"]) .ph-fan{left:calc(80px + 8px + env(safe-area-inset-left,0px));right:auto;width:320px;bottom:8px}
 </style>
 </head>
 <body>
@@ -1393,6 +1475,12 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
        is no world name in this file, so none is shown (MISTAKES.md: never encode "no value" as a value).
        Search opens #phSearch, which holds the one Find box (#findWrap, moved): a button that opens the real
        control, not a second search. No ⋮ overflow (Ruling DU Q6): MENU covers it. -->
+  <!-- v2.73 (fix pass): the way back out of the asset library on a phone, drawn in the app bar only while
+       Assets mode is on. v2.46 made the Assets toggle "the way in AND out, always visible"; on a phone its home
+       is the quick drawer, whose grip sits on the map — and Assets mode hides the map, so the library had no
+       visible way out (only MENU › Quick › Asset library). This is frame only: it runs the Asset library command,
+       which presses #assetsHeaderBtn itself (one toggle, one implementation), as MENU's Quick row does. -->
+  <button type="button" class="ph-only" id="phAssetsBack" aria-label="Back to the map — close the asset library" title="Back to the map (closes the asset library)">← Map</button>
   <button type="button" class="ph-pill ph-only" id="phWorldPill" title="The open world — opens MENU › File" aria-label="World: open MENU, File"><span class="ph-pill-k">World</span><span class="shell-slot" id="slotPhPill"></span></button>
   <!-- v2.46 (owner: "the button for the asset manager has gone"). It had not: v2.24 filed the Asset
        Library under "program scope" and moved this toggle into the cog's Settings window, leaving a
@@ -3379,10 +3467,13 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 <!-- The armed tool (§2.1): a strip above the sheet with the tool's name and one hint (#toolOptsCtx and
      #toolOptsHint, which _dskToolOptsSync writes on every shell), the sculpt tool's settings (the very
      elements the desktop tool-options bar hosts) and Commit / Discard where the tool drafts. Shown only
-     while a tool is armed (_phStripSync). -->
+     while a tool is armed (_phStripSync). The sculpt group (#phStripTool) is drawn only while SCULPT is
+     the armed tool: the slot keeps those elements whatever is armed, so the group itself is what hides
+     (fix pass 2026-11-02 — the first cut drew Sculpt's picker and brush under Settlement, Route and Label,
+     against Ruling DZ: "the armed tool's settings only"). -->
 <div class="ph-strip ph-only" id="phStrip" hidden role="toolbar" aria-label="Armed tool">
   <div class="ph-strip-main"><span class="shell-slot" id="slotPhStripCtx"></span></div>
-  <div class="ph-strip-tool"><span class="shell-slot" id="slotPhStripTool"></span></div>
+  <div class="ph-strip-tool" id="phStripTool" hidden><span class="shell-slot" id="slotPhStripTool"></span></div>
   <div class="ph-strip-act"><span class="shell-slot" id="slotPhStripAct"></span></div>
 </div>
 <!-- The sheet: one bottom sheet (a side sheet in landscape) with detents — peek 76px (Ruling DU Q9), half
@@ -17905,11 +17996,15 @@ function _findPanelOwners(){
          while Sculpt is armed — so a hit there takes the World rail, then the Sculpt category.
      (3) The menus: a control inside one (File's export form) needs its menu opened, then its
          submenu — the same two clicks a person makes. */
+  /* v2.73 (fix pass): (2) holds on a phone too, where those settings sit in the tool strip's sculpt group
+     (#phStripTool), drawn only while Sculpt is armed — Brush size, Hardness and Intensity were listed and
+     could not be revealed until this owner existed (v2.72's rule above: Find must own every container). */
   { const wr=document.querySelector('#domainRail [data-domain="world"]'),
           ct=document.querySelector('#worldCatSeg [data-wcat="terrain"]'), cs=document.querySelector('#worldCatSeg [data-wcat="sculpt"]'),
-          gw=document.getElementById('genWorld'), gs=document.getElementById('genSculpt'), tt=document.getElementById('toolOptsTool');
+          gw=document.getElementById('genWorld'), gs=document.getElementById('genSculpt'), tt=document.getElementById('toolOptsTool'),
+          ps=document.getElementById('phStripTool');
     if(gw&&ct) out.push({panel:gw,btn:ct});
-    for(const p of [gs,tt]) if(p&&cs){ if(wr) out.push({panel:p,btn:wr}); out.push({panel:p,btn:cs}); } }
+    for(const p of [gs,tt,ps]) if(p&&cs){ if(wr) out.push({panel:p,btn:wr}); out.push({panel:p,btn:cs}); } }
   for(const mb of document.querySelectorAll('.mb-btn')){ const p=document.getElementById(mb.getAttribute('aria-controls')); if(p) out.push({panel:p,btn:mb,menu:true}); }
   for(const sr of document.querySelectorAll('.mb-sub > [data-sub]')){ const sp=sr.parentElement.querySelector(':scope > .mb-subpanel'); if(sp) out.push({panel:sp,btn:sr,menu:true}); }
   return out;
@@ -19003,7 +19098,7 @@ function _lodZoomAt(cx,cy,k){
 }
 document.getElementById('zoomIn').addEventListener('click',()=>{ if(_view3dOn){ _cam3.dist=Math.max(0.8,_cam3.dist/1.2); _v3dDirty=true; return; } if(_lodOn){ lodZoomStep(2); return; } const c=viewCenter(); zoomAt(c[0],c[1],1.35); });
 document.getElementById('zoomOut').addEventListener('click',()=>{ if(_view3dOn){ _cam3.dist=Math.min(16,_cam3.dist*1.2); _v3dDirty=true; return; } if(_lodOn){ lodZoomStep(0.5); return; } const c=viewCenter(); zoomAt(c[0],c[1],1/1.35); });
-document.getElementById('zoomReset').addEventListener('click',()=>{ if(_view3dOn){ Object.assign(_cam3d,_CAM3D_DEF); _v3dDirty=true; return; } if(_lodOn){ _lodZoom=1; _lodCx=GW/2; _lodCy=GH/2; requestLodRender(); scheduleLodRefine(); return; }   /* v1.29: reset jumps to a view whose tiles may never have been refined — schedule one, like every other camera move does. v1.74: budgeted like every other camera move too */ panMode=false; const pb=document.getElementById('panBtn'); if(pb)pb.classList.remove('on'); _viewFill(); });   /* v1.13: reset FILLS the display (cover), not just clears the transform */
+document.getElementById('zoomReset').addEventListener('click',()=>{ if(_view3dOn){ Object.assign(_cam3d,_CAM3D_DEF); _v3dDirty=true; return; } if(_lodOn){ _lodZoom=1; _lodCx=GW/2; _lodCy=GH/2; requestLodRender(); scheduleLodRefine(); return; }   /* v1.29: reset jumps to a view whose tiles may never have been refined — schedule one, like every other camera move does. v1.74: budgeted like every other camera move too */ panMode=false; const pb=document.getElementById('panBtn'); if(pb){ pb.classList.remove('on'); pb.setAttribute('aria-pressed','false'); } _viewFill(); });   /* v1.13: reset FILLS the display (cover), not just clears the transform */
 { const lc=document.getElementById('lodChk'); if(lc) lc.addEventListener('change',()=>{ _lodOn=lc.checked; sculptCancelStroke(); sculptClearOverlay(); panDrag=null; /* clear stuck sculpt/pan state when toggling LOD */ if(_lodOn){ _lodCx=GW/2; _lodCy=GH/2; _lodZoom=Math.max(1,_lodZoom); } applyView(); renderNow();
   /* v0.92 fix (owner report: "graphic fidelity seems to have degraded also") — every OTHER way into LOD
      (wheel-zoom, pan release, the zoom buttons, auto-enter-on-zoom) schedules a refine so the sharp tile
@@ -19521,7 +19616,9 @@ function enterLodFromView(clientX,clientY,scale){
     applyView(); renderNow(); scheduleLodRefine();
   }catch(_){ }
 }
-document.getElementById('panBtn').addEventListener('click',()=>{ panMode=!panMode; document.getElementById('panBtn').classList.toggle('on',panMode); view.style.cursor=panMode?'grab':''; });
+/* v2.73 (fix pass): the latch's aria-pressed (added with DS-13) is written here too — it was written only
+   when the armed tool changed (_ds13Sync), so a tap that turned ✋ on left it reading "false" */
+document.getElementById('panBtn').addEventListener('click',()=>{ panMode=!panMode; const pb=document.getElementById('panBtn'); pb.classList.toggle('on',panMode); pb.setAttribute('aria-pressed',panMode?'true':'false'); view.style.cursor=panMode?'grab':''; });
 /* desktop: wheel zoom-to-cursor (ctrl = trackpad pinch, finer steps) */
 /* v1.32: any scrollable overlay LAYERED OVER the canvas is a DOM child of .canvas-wrap (the setup
    gate #onboard, the busy overlay, the credits/city-viewer modals), so its wheel and touch events
@@ -19890,16 +19987,24 @@ function _shellNow(prev){
   let typing=false;
   try{ const ae=document.activeElement, tag=ae&&ae.tagName;
     typing=(tag==='TEXTAREA'||(tag==='INPUT'&&!/^(checkbox|radio|range|button|submit|file|color)$/i.test(ae.type||''))||!!(ae&&ae.isContentEditable)); }catch(_){}
-  return {cls:_shellClassOf(w,h,coarse,prev,typing&&w===_shellLastW),w};
+  const guard=typing&&w===_shellLastW;
+  /* v2.73 (fix pass): the ORIENTATION is decided here too, under the same keyboard guard, and written as
+     html[data-orient] (land | port), which the phone's landscape CSS reads instead of a media query. A
+     keyboard that shrinks the layout viewport below its width made `(orientation:landscape)` true while the
+     guard kept the class: a typing phone kept the phone shell but turned its bar into the landscape rail
+     (measured, 412x380 with Find focused). Landscape is width > height, as the media query defined it. */
+  const orient=(guard&&_shellOrient)?_shellOrient:(w>h?'land':'port');
+  return {cls:_shellClassOf(w,h,coarse,prev,guard),w,orient};
 }
 /* var, not let, and NO initialisers: _shellEarly runs from the top of this block, long before this line,
    and `var x=null` here would wipe what it wrote when execution reaches it (undefined reads as "none") */
-var _shell, _shellMode, _shellLastW;
+var _shell, _shellMode, _shellLastW, _shellOrient;
 /* the first paint: write the class before the markup above this script is drawn as the wrong shell */
 function _shellEarly(){
   try{ if(typeof document==='undefined'||!document.documentElement||_shell) return;
-    const n=_shellNow(null); _shell=n.cls; _shellMode=_shellModeOf(n.cls,n.w); _shellLastW=n.w;
+    const n=_shellNow(null); _shell=n.cls; _shellMode=_shellModeOf(n.cls,n.w); _shellLastW=n.w; _shellOrient=n.orient;
     document.documentElement.setAttribute('data-shell',_shell);
+    document.documentElement.setAttribute('data-orient',_shellOrient);
     if(document.documentElement.classList) document.documentElement.classList.toggle('shell-narrow',/N$/.test(_shellMode)); }catch(_){}
 }
 
@@ -20004,6 +20109,9 @@ function _shellApply(){
   if(typeof document==='undefined'||!document.documentElement) return false;
   const n=_shellNow(_shell), mode=_shellModeOf(n.cls,n.w);
   _shellLastW=n.w;
+  /* the orientation can change without the class (a phone turned on its side stays a phone), so it is
+     written before the early return; the caller's resize path re-lays the phone out (_phLayout) */
+  if(n.orient!==_shellOrient){ _shellOrient=n.orient; document.documentElement.setAttribute('data-orient',_shellOrient); }
   if(n.cls===_shell&&mode===_shellMode&&_shellPlaced===mode) return false;
   _shell=n.cls; _shellMode=mode;
   document.documentElement.setAttribute('data-shell',_shell);
@@ -20199,9 +20307,11 @@ function _dskToolOptsSync(){
     h=_DSK_TOOL_HINTS[t]||'';
   }
   /* v2.73: on a touch shell the hint names the touch gestures — a tap for a click, a hold for the
-     right-click menu (the long-press card) — and drops the keys, which a phone cannot press (Ruling DX PQ10) */
-  if(_shell==='phone'||_shell==='tablet') h=h.replace(/right-click opens/g,'hold opens').replace(/\bClick\b/g,'Tap').replace(/\bclick\b/g,'tap')
-    .replace(/ · Ctrl\+R generates/g,'').replace(/Esc or /g,'');
+     right-click menu (the long-press card). Only the PHONE drops the keys, which it cannot press (Ruling DX
+     PQ10); a tablet keeps them, since its menus draw accelerators "for a keyboard" (§2.2) and §4 lists a
+     keyboard among its inputs (fix pass: the first cut dropped them on the tablet too). */
+  if(_shell==='phone'||_shell==='tablet') h=h.replace(/right-click opens/g,'hold opens').replace(/\bClick\b/g,'Tap').replace(/\bclick\b/g,'tap');
+  if(_shell==='phone') h=h.replace(/ · Ctrl\+R generates/g,'').replace(/Esc or /g,'');
   ctx.textContent=c; hint.textContent=h; hint.hidden=!h;
   /* v2.73: DS-13's latch and the phone's tool strip follow the armed tool; every way to arm one ends here */
   if(typeof _ds13Sync==='function') _ds13Sync();
@@ -20293,7 +20403,10 @@ function _dskMenuClose(){
    menu's rows — the owner gets .mb-drilled, and the CSS hides every sibling of the open sub, so the row you
    came through is the one left above it, drawn as the way back. The desktop keeps v2.72's cascade beside
    the row. One open/close pair serves both, so a sub's open state has one writer. */
-function _dskDrill(){ return _shell==='phone'||_shell==='tablet'; }
+/* v2.73 (fix pass): the narrow DESKTOP bar (a mouse below 860px, _shellModeOf's desktopN) drills in too. It is
+   the tablet's narrow bar at mouse size, and its cascades ran off the right edge: File › Export opened at
+   327..667 in a 600px window, ☰ › Preferences › Theme at 492..712 in a 700px one. */
+function _dskDrill(){ return _shell==='phone'||_shell==='tablet'||_shellMode==='desktopN'; }
 function _dskSubOpen(sub,focusFirst){
   const owner=sub.parentElement&&sub.parentElement.closest('.mb-panel,.mb-subpanel');
   if(owner) owner.querySelectorAll(':scope > .mb-sub.open').forEach(s=>{ if(s!==sub) _dskSubClose(s); });
@@ -20485,11 +20598,29 @@ const _ph={page:'domain',detent:'closed',h:0,serial:0,story:'time',armed:'',ctxS
 const PH_PEEK=76;
 /* the domain tab's hold that opens the fan (§2.1: "Hold (380 ms)") — the mockup's NAV_HOLD_MS */
 const PH_NAV_HOLD_MS=380;
+/* The phone frame's other gesture figures (Ruling BK: each names its source or says it is a judgement). The
+   design gives none of them, so each is a LABELLED JUDGEMENT of this build, for MS-10 to set on glass:
+   - the domain tab's sideways swipe: past 40px and 1.5 times more sideways than vertical. Stricter than the
+     mockup's 12px and |dx|>|dy| (Shell.dc.html, _navMove), because here the same tab also takes a tap and
+     a 380ms hold whose slide picks a fan row, and a 12px drift during a hold would cycle the domain;
+   - the grip: a drag of 24px inward opens the drawer and 24px back closes it — the mockup's own figure for
+     a tab's swipe up (dy < -24, Shell.dc.html _navMove), reused;
+   - the drawer: a swipe of 56px back toward its edge closes it, if it stays within 40px of its line (its
+     rows are 56px tall, so that drift stays on one row and is not a scroll);
+   - the sheet head: a press that moves less than 6px is still a tap on the title or the handle; a drag
+     never makes the sheet shorter than 40px (the head stays grabbable); released below 0.6 of the peek
+     height it closes (the head IS the peek, so well under it means away);
+   - a click that a hold, a swipe or a drag already spent is swallowed for 600ms after the lift: the
+     browser's own click follows the lift within a frame or two, and a later, deliberate tap is not lost. */
+const PH_TAB_SWIPE_PX=40, PH_TAB_SWIPE_RATIO=1.5, PH_GRIP_DRAG_PX=24, PH_DRAWER_SWIPE_PX=56, PH_DRAWER_SWIPE_DY=40;
+const PH_SHEET_DEAD_PX=6, PH_SHEET_MIN_PX=40, PH_SHEET_CLOSE_FRAC=0.6, PH_CLICK_SPENT_MS=600;
 const _PH_DOMAINS=['world','civ','carto','explore'];
 const _PH_DOM_TAB={world:'Generate',civ:'Civil',carto:'Carto',explore:'Explore'};
 const _PH_DOM_CMD={world:'domWorld',civ:'domCiv',carto:'domCarto',explore:'domExplore'};
 const _PH_PAGES={map:['Map','view · layers · legend'],story:['Story','time · journeys'],menu:['Menu','the desktop menus · same names, same order']};
-function _phLand(){ return typeof window!=='undefined'&&(window.innerWidth||0)>(window.innerHeight||0); }
+/* landscape, as the decider wrote it (html[data-orient], under its keyboard guard) — the same answer the
+   landscape CSS reads, so the layout and the script cannot disagree */
+function _phLand(){ return _shellOrient==='land'; }
 /* the three heights, from the bar and the app bar as laid out now (§3: peek 76, half 50 % of the space above
    the bar, full to just under the app bar) */
 function _phHeights(){
@@ -20606,7 +20737,9 @@ function _phSearchSet(on){
   if(on){ if(fi){ fi.focus(); if(fi.select) fi.select(); } }
   else { if(typeof _findClose==='function') _findClose(); if(fi&&document.activeElement===fi) fi.blur(); }
 }
-/* the quick drawer (§2.4, Ruling DY Q10-Q11) */
+/* the quick drawer (§2.4, Ruling DY Q10-Q11); its open state is the element's own [hidden], read here and
+   written only by _phDrawerSet */
+function _phDrawerOpen(){ const d=_dskEl('phDrawer'); return !!(d&&!d.hidden); }
 function _phDrawerSet(on){
   const d=_dskEl('phDrawer'), g=_dskEl('phGrip'); if(!d) return;
   on=!!on&&_shell==='phone';
@@ -20635,12 +20768,16 @@ function _phToolArmed(){
   const t=_dskV(()=>_civTool,'inspect');
   return t&&t!=='inspect'&&t!=='info'?t:'';
 }
-/* the strip (§2.1, "The armed tool"): shown while a tool is armed, with only that tool's Commit/Discard;
-   arming drops an open sheet to peek, so the map is in view for the tool */
+/* the strip (§2.1, "The armed tool"): shown while a tool is armed, with only that tool's settings and its
+   Commit/Discard; arming drops an open sheet to peek, so the map is in view for the tool. The sculpt group
+   (#phStripTool) holds Sculpt's own settings and nothing else, so it is drawn for Sculpt only: the slot
+   table keeps those elements in the strip on a phone whatever is armed (Ruling DZ, "the armed tool's
+   settings only"; the first cut drew them under every tool). */
 function _phStripSync(){
   const s=_dskEl('phStrip'); if(!s) return;
   const key=_shell==='phone'?_phToolArmed():'';
   s.hidden=!key;
+  { const tg=_dskEl('phStripTool'); if(tg) tg.hidden=key!=='sculpt'; }
   const act={sculpt:['sculptCommitBtn','sculptDiscardBtn'],draw_way:['civCommitWayBtn'],route:['civCommitRouteBtn']}[key]||[];
   for(const id of ['sculptCommitBtn','sculptDiscardBtn','civCommitWayBtn','civCommitRouteBtn']){ const b=_dskEl(id); if(b&&b.classList) b.classList.toggle('ph-act-off',!act.includes(id)); }
   if(key&&key!==_ph.armed&&(_ph.detent==='half'||_ph.detent==='full')) _phSheetSet(null,'peek');
@@ -20730,7 +20867,7 @@ function _dskWinSetChevOnly(key){
 /* one swallowed click: the press that closed a floating dock, or that a touch gesture consumed, must not
    also click whatever is under it */
 var _dskSwallowUntil=0;
-function _dskSwallowClick(ms){ _dskSwallowUntil=(typeof performance!=='undefined'?performance.now():Date.now())+(ms||700); }
+function _dskSwallowClick(ms){ _dskSwallowUntil=(typeof performance!=='undefined'?performance.now():Date.now())+(ms||DSK_SWALLOW_MS); }
 
 /* --- Preferences › Handedness (§2.5; Ruling DY Q11) ---------------------------------------------- */
 /* Per viewer, in this browser only (localStorage, behind try/catch): the page works without it, and a
@@ -20800,6 +20937,14 @@ const TCH_DTAP_ZOOM=1.7, TCH_DTAP_ANIM=240;
 /* thumb zoom doubles the scale every 120 px of slide: the mockup's QZ_DOUBLING_DP, a labelled judgement
    ("none of the sources gives a figure; the build sets its own on glass") — MS-10 measures it on a device */
 const TCH_THUMB_DOUBLE=120;
+/* The windows in which this layer swallows the browser's own click after a touch it consumed — LABELLED
+   JUDGEMENTS (Ruling BK), none from the design: the native click follows the lift within a frame or two, so
+   each window is long enough for a slow device and short enough that a later, deliberate tap is never lost.
+   TCH_CLICK_WINDOW_MS bounds the click (and Android's long-press contextmenu) that belongs to the last touch;
+   TCH_LIFT_CLICK_MS and TCH_LIFT_CLICK_PX bound the one click a long-press card's lift can send where the
+   finger held (it pressed the card's first row on the first cut); DSK_SWALLOW_MS is the press that closed a
+   floating dock or ended a two-finger touch (_dskSwallowClick). */
+const TCH_CLICK_WINDOW_MS=1500, TCH_LIFT_CLICK_MS=1200, TCH_LIFT_CLICK_PX=24, DSK_SWALLOW_MS=700;
 const _tch={ptrs:new Map(),g:null,multi:false,lastTap:null,tapT:null,lpT:null,swallowClick:false,lastTouchT:0,replaying:false};
 function _tchNow(){ return typeof performance!=='undefined'?performance.now():Date.now(); }
 function _tchPlaceTool(){ const t=_dskV(()=>_civTool,'inspect'); return t==='place'||t==='place_poi'||t==='route'||t==='label'||t==='icon'; }
@@ -20874,14 +21019,20 @@ function _tchDown(e){
   if(dbl){ _tch.g={mode:'dbl',id:e.pointerId,x0:x,y0:y,moved:false,zooming:false,zy:y,dblTap:lt.pending?lt:null}; _tch.swallowClick=true; e.stopPropagation(); e.preventDefault(); return; }
   /* ✋ on: the finger is the map's. The pan goes through the same state the drag-pan handlers read
      (panDrag, or _lodPan under Tiled LOD), and the press is kept from every tool — v2.71's latch only took
-     the first handler, so with Territory armed a drag both panned and painted. */
+     the first handler, so with Territory armed a drag both panned and painted. The browser's own CLICK
+     after a tap is kept from them too (swallowClick, _tchClick): stopping the pointerdown does not stop
+     it, and #view's click handler places an icon with the density brush armed — measured (fix pass), one
+     tap under ✋ placed one icon, on the phone and the tablet. */
   if(_dskV(()=>panMode,false)){
     _tch.g={mode:'latch',id:e.pointerId,x0:x,y0:y,t0:now,moved:false};
+    _tch.swallowClick=true;
     if(_dskV(()=>_lodOn,false)){ const r=view.getBoundingClientRect(); _lodPan={x,y,cx:_lodCx,cy:_lodCy,rw:r.width||GW,rh:r.height||GH}; }
     else panDrag={x,y,px:viewT.panX,py:viewT.panY};
     e.stopPropagation(); e.preventDefault(); return;
   }
-  if(_ds13DrawKey()||_tchOnDraggable(x,y)){ _tch.g={mode:'draw',id:e.pointerId}; return; }
+  /* a drawing tool (or a label's or icon's own box) keeps the finger, its click included: a swallow left
+     armed by an earlier latch press or tap must not eat it (a Way's waypoints are clicks) */
+  if(_ds13DrawKey()||_tchOnDraggable(x,y)){ _tch.swallowClick=false; _tch.g={mode:'draw',id:e.pointerId}; return; }
   _tch.g={mode:'tap',id:e.pointerId,x0:x,y0:y,t0:now,moved:false,long:false};
   _tch.swallowClick=true;
   clearTimeout(_tch.lpT); _tch.lpT=setTimeout(_tchLongPress,_shell==='tablet'?TCH_HOLD_TABLET:TCH_HOLD_PHONE);
@@ -20942,10 +21093,10 @@ function _tchClick(e){
   if(_tch.replaying) return;
   const now=_tchNow();
   if(now<_dskSwallowUntil){ _dskSwallowUntil=0; e.stopPropagation(); e.preventDefault(); return; }
-  if(e.target===view&&_tch.swallowClick&&now-_tch.lastTouchT<1500){ _tch.swallowClick=false; e.stopPropagation(); e.preventDefault(); }
+  if(e.target===view&&_tch.swallowClick&&now-_tch.lastTouchT<TCH_CLICK_WINDOW_MS){ _tch.swallowClick=false; e.stopPropagation(); e.preventDefault(); }
 }
 function _tchContextMenu(e){
-  if(_tch.ptrs.size||(_tchNow()-_tch.lastTouchT<1500)){ e.preventDefault(); e.stopPropagation(); }
+  if(_tch.ptrs.size||(_tchNow()-_tch.lastTouchT<TCH_CLICK_WINDOW_MS)){ e.preventDefault(); e.stopPropagation(); }
 }
 /* The map's capture listeners, in this order: a press on the map first closes a floating dock (and is spent
    doing so — Ruling DU Q8), then the touch layer decides what a finger means. Registered on .canvas-wrap in
@@ -20967,7 +21118,7 @@ function _tchWire(){
   cw.addEventListener('contextmenu',_tchContextMenu,true);
   window.addEventListener('click',e=>{
     const a=_tch.lpAt; if(!a||!e.isTrusted) return;
-    if(_tchNow()-a.t<1200&&Math.hypot(e.clientX-a.x,e.clientY-a.y)<24){ _tch.lpAt=null; e.stopPropagation(); e.preventDefault(); }
+    if(_tchNow()-a.t<TCH_LIFT_CLICK_MS&&Math.hypot(e.clientX-a.x,e.clientY-a.y)<TCH_LIFT_CLICK_PX){ _tch.lpAt=null; e.stopPropagation(); e.preventDefault(); }
   },true);
 }
 
@@ -20989,13 +21140,13 @@ function _phWire(){
     on('phTabDomain','pointermove',e=>{
       if(!g||e.pointerId!==g.id) return;
       const dx=e.clientX-g.x, dy=e.clientY-g.y;
-      if(!g.held&&!g.swiped&&Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5){ clearTimeout(g.t); g.swiped=true; _phDomainCycle(dx<0?1:-1); }
+      if(!g.held&&!g.swiped&&Math.abs(dx)>PH_TAB_SWIPE_PX&&Math.abs(dx)>Math.abs(dy)*PH_TAB_SWIPE_RATIO){ clearTimeout(g.t); g.swiped=true; _phDomainCycle(dx<0?1:-1); }
       if(g.held){ const el=document.elementFromPoint(e.clientX,e.clientY), row=el&&el.closest?el.closest('.ph-fan-row'):null;
         for(const r of document.querySelectorAll('#phFan .ph-fan-row')) r.classList.toggle('ph-hot',r===row); }
     });
     const up=(e,cancel)=>{
       if(!g||e.pointerId!==g.id) return; clearTimeout(g.t); const h=g; g=null;
-      if(h.held||h.swiped) suppress=_tchNow()+600;
+      if(h.held||h.swiped) suppress=_tchNow()+PH_CLICK_SPENT_MS;
       if(h.held&&!cancel){ const el=document.elementFromPoint(e.clientX,e.clientY), row=el&&el.closest?el.closest('.ph-fan-row'):null; if(row) _phFanPick(row); }
     };
     on('phTabDomain','pointerup',e=>up(e,false)); on('phTabDomain','pointercancel',e=>up(e,true));
@@ -21023,45 +21174,50 @@ function _phWire(){
     });
     on('phSheetHead','pointermove',e=>{
       if(!drag||e.pointerId!==drag.id) return;
-      const dy=e.clientY-drag.y0; if(!drag.moved&&Math.abs(dy)<6) return;
+      const dy=e.clientY-drag.y0; if(!drag.moved&&Math.abs(dy)<PH_SHEET_DEAD_PX) return;
       if(!drag.moved){ drag.moved=true; const sh=_dskEl('phSheet'); if(sh) sh.classList.remove('ph-anim'); }
-      const H=_phHeights(); _ph.h=Math.max(40,Math.min(H.full,drag.h0-dy));
+      const H=_phHeights(); _ph.h=Math.max(PH_SHEET_MIN_PX,Math.min(H.full,drag.h0-dy));
       _cssVar('--ph-sheet-h',_ph.h+'px'); _phLayout();
     });
     const end=e=>{
       if(!drag||e.pointerId!==drag.id) return; const d=drag; drag=null;
       const sh=_dskEl('phSheet'); if(sh) sh.classList.add('ph-anim');
       if(!d.moved) return;
-      suppress=_tchNow()+600;
+      suppress=_tchNow()+PH_CLICK_SPENT_MS;
       /* snap to the nearest detent; well below peek closes */
       const H=_phHeights(), h=_ph.h;
       let best='peek', bd=Infinity; for(const k of ['peek','half','full']){ const dd=Math.abs(H[k]-h); if(dd<bd){ bd=dd; best=k; } }
-      _phSheetSet(null,h<H.peek*0.6?'closed':best);
+      _phSheetSet(null,h<H.peek*PH_SHEET_CLOSE_FRAC?'closed':best);
     };
     on('phSheetHead','pointerup',end); on('phSheetHead','pointercancel',end);
   }
   /* STORY's segments */
   for(const b of document.querySelectorAll('#phStorySeg [data-story]')) b.addEventListener('click',()=>_phStoryShow(b.dataset.story));
-  /* the app bar */
+  /* the app bar; ← Map (drawn only in Assets mode) runs the Asset library command, which presses the toggle */
   on('phWorldPill','click',_phOpenFile);
+  on('phAssetsBack','click',()=>_dskRun('assetLibrary'));
   on('phSearchBtn','click',()=>_phSearchSet(true));
   on('phSearchClose','click',()=>_phSearchSet(false));
-  /* the grip: a tap opens the drawer; so does a drag inward past 24px (§2.4: "Tap the grip or drag it inward") */
+  /* the grip (§2.4: "Tap the grip or drag it inward" to open; "drag the grip back" to close): a tap toggles the
+     drawer, a drag inward past PH_GRIP_DRAG_PX opens it and a drag back toward the edge closes it. While the
+     drawer is open the grip rides its edge, above it and the scrim (the CSS), so it is the same tab both ways. */
   { let gd=null, suppress=0;
-    const grip=on('phGrip','pointerdown',e=>{ suppress=0; gd={id:e.pointerId,x:e.clientX,opened:false}; try{ grip.setPointerCapture(e.pointerId); }catch(_){} e.stopPropagation(); });
-    on('phGrip','pointermove',e=>{ if(!gd||e.pointerId!==gd.id||gd.opened) return; const dx=(e.clientX-gd.x)*(_hand()==='left'?-1:1);
-      if(dx>24){ gd.opened=true; suppress=_tchNow()+600; _phDrawerSet(true); } });
+    const grip=on('phGrip','pointerdown',e=>{ suppress=0; gd={id:e.pointerId,x:e.clientX,done:false}; try{ grip.setPointerCapture(e.pointerId); }catch(_){} e.stopPropagation(); });
+    on('phGrip','pointermove',e=>{ if(!gd||e.pointerId!==gd.id||gd.done) return; const dx=(e.clientX-gd.x)*(_hand()==='left'?-1:1), open=_phDrawerOpen();
+      if(!open&&dx>PH_GRIP_DRAG_PX){ gd.done=true; suppress=_tchNow()+PH_CLICK_SPENT_MS; _phDrawerSet(true); }
+      else if(open&&dx<-PH_GRIP_DRAG_PX){ gd.done=true; suppress=_tchNow()+PH_CLICK_SPENT_MS; _phDrawerSet(false); } });
     const gup=e=>{ if(gd&&e.pointerId===gd.id) gd=null; };
     on('phGrip','pointerup',gup); on('phGrip','pointercancel',gup);
-    on('phGrip','click',e=>{ e.stopPropagation(); if(_tchNow()<suppress){ suppress=0; return; } _phDrawerSet(true); });
+    on('phGrip','click',e=>{ e.stopPropagation(); if(_tchNow()<suppress){ suppress=0; return; } _phDrawerSet(!_phDrawerOpen()); });
   }
-  /* the drawer closes from its ×, the scrim, a swipe back toward its edge, or Esc; a pin closes it after running */
+  /* the drawer closes from the grip, its ×, the scrim, a swipe back toward its edge, or Esc; a pin closes it
+     after running */
   on('phDrawerClose','click',()=>_phDrawerSet(false));
   { const sc=_dskEl('scrim'); if(sc&&sc.addEventListener) sc.addEventListener('click',()=>_phDrawerSet(false)); }
   { let sw=null;
     on('phDrawer','pointerdown',e=>{ sw={id:e.pointerId,x:e.clientX,y:e.clientY}; });
     on('phDrawer','pointermove',e=>{ if(!sw||e.pointerId!==sw.id) return; const dx=(e.clientX-sw.x)*(_hand()==='left'?-1:1);
-      if(dx<-56&&Math.abs(e.clientY-sw.y)<40){ sw=null; _phDrawerSet(false); } });
+      if(dx<-PH_DRAWER_SWIPE_PX&&Math.abs(e.clientY-sw.y)<PH_DRAWER_SWIPE_DY){ sw=null; _phDrawerSet(false); } });
     on('phDrawer','pointerup',()=>{ sw=null; });
     on('phDrawer','click',e=>{ const b=e.target.closest&&e.target.closest('#slotPhDrawer > button'); if(b) _phDrawerSet(false); });
   }
@@ -21077,6 +21233,14 @@ function _phWire(){
   },true);
   /* an outside tap closes the fan */
   document.addEventListener('pointerdown',e=>{ const f=_dskEl('phFan'); if(f&&!f.hidden&&!f.contains(e.target)&&!(e.target.closest&&e.target.closest('#phTabDomain,#phSheetTitle'))) _phFanSet(false); },true);
+  /* The strip's height is its CONTENT's: Freehand's mode row, a longer hint, Commit appearing. _phLayout reads
+     it, and the sculpt picker rebuilds its rows AFTER _dskToolOptsSync has run, so a layout taken there was one
+     row short — measured (fix pass): tapping Freehand left DS-13 36px UNDER the strip until the next resize.
+     So the layout re-runs whenever the strip's box changes size. It only writes the custom properties the
+     row, the grip and the scale bar read, never the strip's own size, so it cannot loop. Absent in the
+     headless suite (no ResizeObserver), where nothing is laid out. */
+  if(typeof ResizeObserver==='function'){ const st=_dskEl('phStrip');
+    if(st) try{ new ResizeObserver(()=>{ if(_shell==='phone') _phLayout(); }).observe(st); }catch(_){} }
 }
 
 /* --- boot -------------------------------------------------------------------------------------- */
@@ -21102,7 +21266,13 @@ function _phWire(){
   if(typeof window!=='undefined'&&window.addEventListener){
     /* the docking rule and the sheet's heights depend on the window's size even when the class does not
        change, so a resize that keeps the class still re-runs both */
-    const f=()=>{ if(!_shellApply()){ _shellDockSync(); if(_ph.detent!=='closed') _phSheetSet(null,null); else _phLayout(); } };
+    /* A map menu or long-press card is placed in window coordinates beside a finger, so a change of WIDTH (a
+       rotation, a window resized) leaves it where the old layout put it — measured (fix pass): a card opened
+       at 412x915 stayed at 346..509 after turning to 915x412, mostly below the edge. It closes instead, as it
+       does on any outside press. A height-only change (an address bar showing, a keyboard) keeps it. */
+    const f=()=>{ const w0=_shellLastW;
+      if(!_shellApply()){ _shellDockSync(); if(_ph.detent!=='closed') _phSheetSet(null,null); else _phLayout(); }
+      if(_shellLastW!==w0&&typeof _civCtxHide==='function') _civCtxHide(); };
     window.addEventListener('resize',f);
     window.addEventListener('orientationchange',f);
     if(typeof window.matchMedia==='function'){ try{ const mq=window.matchMedia('(pointer:coarse)');
