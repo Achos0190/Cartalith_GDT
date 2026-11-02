@@ -91,28 +91,28 @@ v2.74, the fix pass and the design alignment (its CHANGELOG entry gives each fig
 tests/run.sh "Cartalith v2.74 DCC test.html"        # expect 1280 passed, 0 failed (two random-world assertions can flake — CHANGELOG v2.74; re-run once)
 tests/run_um.sh "Cartalith v2.74 DCC test.html"     # expect 882 passed, 0 failed
 node tests/perf/hash_gen1.js "Cartalith v2.73 DCC test.html" "Cartalith v2.74 DCC test.html"   # expect ALL IDENTICAL
-node tests/perf/probe_fixpass.js "Cartalith v2.74 DCC test.html" "Cartalith v2.73 DCC test.html"   # expect ⟦README_FIXPASS⟧
-node tests/perf/probe_fixpass.js "Cartalith v2.73 DCC test.html"   # the before build: ⟦README_FIXPASS73⟧, by design
+node tests/perf/probe_fixpass.js "Cartalith v2.74 DCC test.html" "Cartalith v2.73 DCC test.html"   # expect 220 passed, 0 failed
+node tests/perf/probe_fixpass.js "Cartalith v2.73 DCC test.html"   # the before build: 70 passed, 146 failed, by design
 node tests/perf/census_v274.js "Cartalith v2.74 DCC test.html"     # expect 0 enabled text runs below AA (v2.73: 561)
-node tests/perf/probe_mobileshell.js "Cartalith v2.74 DCC test.html"    # expect ⟦README_MOBILE⟧
-node tests/perf/probe_desktopshell.js "Cartalith v2.74 DCC test.html"   # expect ⟦README_DESKTOP⟧
+node tests/perf/probe_mobileshell.js "Cartalith v2.74 DCC test.html"    # expect 279 passed, 0 failed
+node tests/perf/probe_desktopshell.js "Cartalith v2.74 DCC test.html"   # expect 154 passed, 4 failed: v2.73's four, by design (below)
 ```
 
 `probe_desktopshell.js` on v2.73 fails four, all by design (CHANGELOG v2.73 classifies them): the two version checks
 (v2.72 → v2.73) and its two phone sections, which pin v2.71's phone (the ☰ drawer, the document bar) that stage 2
-replaced. Every desktop assertion passes unchanged. Run it alone on the machine: under load its *"NEW SEED is
+replaced. Every desktop assertion passes unchanged. v2.74 fails the same four and no other. Run it alone on the machine: under load its *"NEW SEED is
 clickable in the dock and generates"* failed once in the 2026-11-02 verifiers' runs and passed in isolation every time;
 it now prints its three parts (clicked, in the dock, generates run), so a red run says which — re-run before believing it.
 
 Every Playwright script reads `PLAYWRIGHT_DIR` and `CHROME_BIN` as the other probes in that folder do; unset
 `CHROME_BIN` if its default path does not exist on the machine.
 
-RC's own shell probes were run on v2.72 and v2.73; the CHANGELOG v2.73 entry classifies every difference. To repeat
-them:
+RC's own shell probes were run on v2.72, v2.73 and v2.74; the CHANGELOG v2.73 entry classifies every difference, and
+v2.74 prints v2.73's FAIL lines, line for line (CHANGELOG v2.74 gives the counts). To repeat them:
 
 ```bash
 for p in shellui domainrail cogmodal assetsbtn settleparams geninfo worldreset typepreview; do
-  NODE_OPTIONS=--max-old-space-size=8192 node tests/perf/probe_$p.js "Cartalith v2.73 DCC test.html"
+  NODE_OPTIONS=--max-old-space-size=8192 node tests/perf/probe_$p.js "Cartalith v2.74 DCC test.html"
 done
 ```
 

@@ -24288,7 +24288,7 @@ function _civBakeKey(){
        - "Show rivers in biome view" writes state.showRivers, which renderNow's river blend reads and the
          key left out (the LOD tile key, _lodViewKey's sibling above, has always carried it).
      Each part below names a field the state literal declares; a probe checks that for every state.X
-     here and changes every render-calling control once (tests/perf/probe_v274fix.js, "bake key").
+     here and changes every render-calling control once (tests/perf/probe_fixpass.js, "P7 — the bake-cache key").
      A new render input must be added here, or its control serves a stale image. This changes only
      which renders are reused — a miss renders exactly as before, so hash_gen1 is unaffected. */
   return _fieldGen+'|'+_climGen+'|'+_paintGen+'|'+(typeof _assetGen!=='undefined'?_assetGen:0)+'|'+state.mode+'|'+state.debug+'|'+(state.debugOpacity!=null?state.debugOpacity:1)+'|'+state.bioBlend+'|'+state.exag+'|'+state.sunAz+'|'+(state.shadeHypso?1:0)+'|'+(state.showRivers!==false?1:0)+'|'+state.seaLevel+'|'+JSON.stringify(state.viz);

@@ -12,9 +12,12 @@ states for it, as Ruling EF lists — **Q3** the light accent `#8b550d`; **Q5** 
 on tool-mode segments; **Q6** the place popup's dark palette unchanged (its light theme fixed); **Q7** no icon swap;
 **Q8** no font embedded and the status-bar chips kept; **Q9** the darker box behind the scale bar and legend;
 **Q10(a)** a flat backdrop behind the start card and **Q10(b)** a busy overlay that takes every input on the map
-(both shown to the owner in the captures); **Q11** the view still resets on a domain switch (P8 is not built);
+(both still to be shown to the owner: the New World capture sits over the backdrop, and the overlay is the probe's
+V11 section, not a capture); **Q11** the view still resets on a domain switch (P8 is not built);
 Q10(c)–(e), Q12–Q14 belong to later versions. `tests/run.sh` **1280/0**, `run_um.sh` **882/0**, `hash_gen1.js` vs
-v2.73 **ALL IDENTICAL**. Verification is `tests/perf/probe_fixpass.js` — ⟦FIXPASS⟧ — and the contrast gate
+v2.73 **ALL IDENTICAL**. Verification is `tests/perf/probe_fixpass.js` — **220/0** on v2.74 given v2.73 as the before file; on v2.73
+alone 146 of its 216 fail, and each of the 70 that pass says in its own text that it is a set-up, an "as before" or a
+v2.73 guarantee kept — and the contrast gate
 `tests/perf/census_v274.js`: the visual audit's own WCAG census over its seven views (a place selected on the map,
 the Settlements screen, the Asset Library, the route editor, the City viewer, Settings' five pages, Credits), both
 themes, 1600×900 and 1366×768 — **0 enabled text runs below AA of 2 414** (v2.73: **561** of 2 494).
@@ -289,18 +292,29 @@ themes, 1600×900 and 1366×768 — **0 enabled text runs below AA of 2 414** (v
   tracking makes them longer than the dock ("STEP 1 · POPULATE SETTLEMENTS (blank = automatic)").
 
 **Measured** on the final bytes (this 4-CPU machine, which another agent may share; timings are indicative and the
-counters are the gate): `tests/run.sh` 1280/0, `run_um.sh` 882/0 and `hash_gen1.js` v2.73 → v2.74 ALL IDENTICAL (default, geoid, waves, ao, icons). `probe_fixpass.js`: ⟦FIXPASS_DETAIL⟧. `census_v274.js`: v2.74 0 of 2 414 enabled runs below AA (2 more per place view, disabled controls' labels, are exempt and counted apart; the fix pass's bytes counted 2 408), v2.73 561 of 2 494. The
+counters are the gate; the last edits changed three comments and nothing else — two in the stylesheet, one in a
+script — so the suites, the census and the shell probes ran on the bytes before them, `probe_fixpass.js` on the
+bytes before the last): `tests/run.sh` 1280/0, `run_um.sh` 882/0 and `hash_gen1.js` v2.73 → v2.74 ALL IDENTICAL (default, geoid, waves, ao, icons). `probe_fixpass.js`: 220 passed, 0 failed on v2.74 with v2.73 as the before file (its truncation census at
+1366×768 and 1600×900 on seeds 12345 and 777: 12 and 14 against v2.73's 22 and 23, none new); 70 passed, 146 failed
+on v2.73 alone (216 — the census skips without a before file, and says so): 63 of the 70 say "as before", 2 are
+set-up, 5 name the v2.73 guarantee they keep. `census_v274.js`: v2.74 0 of 2 414 enabled runs below AA (2 more per place view, disabled controls' labels, are exempt and counted apart; the fix pass's bytes counted 2 408), v2.73 561 of 2 494. The
 load (P4), alone on the machine, a fresh browser per sample, n=6 each, interleaved (the fix pass's bytes): the
 longest task 2 697 [2 325..2 971] ms on v2.73 against 332 [313..557] on v2.74, `DOMContentLoaded` 3 123 [2 748..3 509]
-against 858 [773..1 096] — disjoint. The shell's own probes on the final bytes: ⟦SHELL⟧.
+against 858 [773..1 096] — disjoint. The shell's own probes: `probe_mobileshell.js` **279/0** (on the way it caught
+the touch pills' lost corners, above); `probe_desktopshell.js` **154/4**, v2.73's same four and by design (its two
+version checks pin v2.72, and its two phone sections pin v2.71's phone, which v2.73 replaced); RC's eight shell
+probes print, line for line, the FAIL lines they print on v2.73 — shellui 16/3, domainrail 14/6, cogmodal 33/0,
+assetsbtn 13/1, settleparams 28/2, geninfo 21/0, worldreset 35/0, typepreview 41/0 — each pinning a layout the DCC
+shell replaced, as the v2.72 and v2.73 entries classify them.
 
-**Two flaky suite assertions, disclosed not fixed.** Of four `tests/run.sh` runs over this version's bytes, two passed
-1280/0 (the final bytes' last run among them) and two failed ONE assertion each, a different one each time: *smoothed
+**Two flaky suite assertions, disclosed not fixed.** Of five `tests/run.sh` runs over this version's bytes, three passed
+1280/0 (the fix pass's last bytes on their second run and the design alignment's on their one run among them) and two failed
+ONE assertion each, a different one each time: *smoothed
 bathymetry variance <= raw seabed variance (5.8e-3 <= 5.8e-3)* — v2.73's known flake — and *traced length sane vs
 boundary-cell count (4721 vs 2208)*. Both build their world on an unpinned seed (`state.tect.seed` is
 `Math.random()` at load, and `test_tail.js` generates on it). With `Math.random` pinned (seeds 101, 202 and 303), v2.73
 and v2.74 print the same 1 280 assertion lines, timings aside, and pass 1280/0 each; `hash_gen1.js` is ALL IDENTICAL.
-If either goes red, re-run before believing it, as for v2.25's SST assertion. ⟦FLAKE⟧
+If either goes red, re-run before believing it, as for v2.25's SST assertion.
 
 **Where this departs from the design** (design/mobile-shell-2026-10-31; MISTAKES' "it matches the design" — the
 whole list, not the rows that agree):

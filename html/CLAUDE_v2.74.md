@@ -83,8 +83,9 @@ census, its arithmetic unchanged).
   and an inset chip leaves the segment's width and every divider where they were. A segment sized to its label
   needs side padding for the chip (`#reParty`'s Carriage switch had 1px). **The fill belongs to a tool-mode segment
   only** — the one that says which map tool is armed (`[data-civtool]`, Sculpt's feature picker), as the port keeps
-  its SCULPT / PAINT / MEASURE segments filled (owner default Q5; the 2026-09-06 ruling, item 7, washed everything
-  else). A new segmented control is washed unless it arms a tool; an armed pill or list row is washed too.
+  its SCULPT / PAINT / MEASURE segments filled (owner default Q5; the port's DS-02 pass, `GUI_GAP_REGISTER` §48,
+  removed every other filled slab, and its 2026-09-06 ruling, item 7, washed the timeline's pills). A new segmented
+  control is washed unless it arms a tool; an armed pill or list row is washed too.
 - **One rule each for the dock's control type, the section label and the window heading.** Dock segments: mono 10px,
   weight 500, .08em, each segment's basis its own label on one line (at an equal share mono labels broke inside their
   segment at 1366). Dock action buttons (`.dock .btnrow > button`): mono, weight 500, uppercase, .12em (.14em and
