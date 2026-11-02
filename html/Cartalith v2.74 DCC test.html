@@ -196,10 +196,11 @@
   #assetsHeaderBtn.on{border-color:var(--accent,#7fd1c8);color:var(--accent,#7fd1c8)}
   /* v2.74 (the 2026-11-01 visual audit, V04): an armed pin is a wash plus an edge — the theme layer's rule 3.
      The rule above set only the ink, so the theme layer's `button.on` fill painted the accent BEHIND accent
-     text: at rest "← Map", the visible way out of the library (v2.46), was a blank amber block (1:1) in
-     every home it has (the tool-options bar, the phone's app bar). The Settlements pin takes .on while its
-     window is open (_civOpenFactionsModal) and had the same fault. The phone's quick drawer keeps its own
-     rows (no fill; #phDrawer's rule out-specifies this one). */
+     text: at rest "← Map", the visible way out of the library (v2.46), was a blank amber block (1:1, the
+     audit's measure in the tool-options bar; the phone's app bar home takes the same two rules). The
+     Settlements pin, .on while its window is open (_civOpenFactionsModal), drew the saturated fill with
+     --accInk — readable, but the fill rule 3 forbids — so it takes the same wash. The phone's quick drawer
+     keeps its own rows (no fill; #phDrawer's rule out-specifies this one). */
   #assetsHeaderBtn.on,#settlementsHeaderBtn.on{background:var(--wash2);color:var(--accent);border-color:var(--accent)}
   .canvas-wrap{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(0deg,#0c0e13 0 24px,#0d0f15 24px 48px);overflow:hidden;padding:18px;touch-action:none}
   canvas#view{max-width:100%;max-height:100%;background:#000;border:1px solid var(--line);image-rendering:auto;cursor:crosshair;box-shadow:0 0 0 1px #000}
@@ -207,7 +208,7 @@
      .86 and its text --muted. At .74 with --dim the legend measured 2.77:1 over white snow and 3.47 over sand
      (#d9c79c); now 6.01 and 6.68 (computed over those two grounds, not sampled per pixel). The light theme's
      own box (rgba(251,250,247,.85) with --dim, below) out-specifies this rule and is unchanged. */
-  .legend{position:absolute;left:24px;bottom:20px;font-family:var(--mono);font-size:10px;color:var(--muted);background:rgba(10,12,17,.86);border:1px solid var(--line);border-radius:6px;padding:8px 10px;line-height:1.7;pointer-events:none}
+  .legend{position:absolute;left:24px;bottom:20px;font-family:var(--mono);font-size:10px;color:var(--muted);background:rgba(10,12,17,.86);border:1px solid var(--line);padding:8px 10px;line-height:1.7;pointer-events:none}
   .legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
   /* v2.74 (the 2026-11-01 visual audit, V11; owner default Q10(b), Ruling EF): the loading overlay sits ABOVE
      everything drawn on the map and takes every input there during a long operation, as the Godot shell's
@@ -219,13 +220,13 @@
   .busy{position:absolute;inset:0;z-index:30;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:rgba(10,12,17,.60);font-family:var(--mono);letter-spacing:.06em;-webkit-user-select:none;user-select:none}
   .busy-wit{font-size:13px;color:var(--accent);text-align:center;padding:0 24px;max-width:360px;line-height:1.5}
   .busy-label{font-size:10px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase}
-  #resOverlay{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:10px;color:rgba(200,169,110,.6);background:rgba(10,12,17,.55);border:1px solid rgba(200,169,110,.18);border-radius:5px;padding:6px 8px;line-height:1.8;pointer-events:none;display:none}
+  #resOverlay{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:10px;color:rgba(200,169,110,.6);background:rgba(10,12,17,.55);border:1px solid rgba(200,169,110,.18);padding:6px 8px;line-height:1.8;pointer-events:none;display:none}
   /* label/value stat rows used by the Info panel + Journey planner results */
   .insp-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:.78rem;padding:1px 0}
   .insp-row .k{color:var(--muted);flex-shrink:0}
   .insp-row .val{text-align:right;min-width:0;overflow-wrap:anywhere}
   /* v0.110: clickable settlement-seed "why" popup */
-  .settle-info{position:fixed;z-index:60;width:220px;max-width:78vw;font-size:11px;line-height:1.5;color:#e8dcc4;background:rgba(14,17,23,.96);border:1px solid rgba(200,169,110,.4);border-radius:7px;padding:9px 11px 10px;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  .settle-info{position:fixed;z-index:60;width:220px;max-width:78vw;font-size:11px;line-height:1.5;color:#e8dcc4;background:rgba(14,17,23,.96);border:1px solid rgba(200,169,110,.4);padding:9px 11px 10px;box-shadow:0 6px 24px rgba(0,0,0,.5)}
   .settle-info .si-close{position:absolute;top:4px;right:6px;background:none;border:none;color:#b08d54;font-size:15px;line-height:1;cursor:pointer;padding:2px 4px}
   .settle-info .si-h{font-weight:600;color:#d8b97a;margin-right:14px}
   .settle-info .si-score{font-family:var(--mono);font-size:10px;color:#e0c98a;margin:1px 0 4px}
@@ -241,7 +242,7 @@
      (fits the Type/Polity selects + trait pills) and scrollable (History textarea can push it tall), but
      otherwise the same fixed-position/clamped-to-viewport idiom. Reuses .row/.pill/input/select/button — no
      new form-control CSS needed. */
-  .place-edit-popup{position:fixed;z-index:61;width:280px;max-width:min(82vw,340px);max-height:min(80vh,660px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box;overflow-wrap:anywhere;word-break:break-word;font-size:11px;color:#e8dcc4;background:rgba(14,17,23,.97);border:1px solid rgba(200,169,110,.4);border-radius:8px;padding:10px 12px 12px;box-shadow:0 8px 28px rgba(0,0,0,.55)}
+  .place-edit-popup{position:fixed;z-index:61;width:280px;max-width:min(82vw,340px);max-height:min(80vh,660px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box;overflow-wrap:anywhere;word-break:break-word;font-size:11px;color:#e8dcc4;background:rgba(14,17,23,.97);border:1px solid rgba(200,169,110,.4);padding:10px 12px 12px;box-shadow:0 8px 28px rgba(0,0,0,.55)}
   .place-edit-popup .si-close{position:absolute;top:5px;right:7px;background:none;border:none;color:#b08d54;font-size:16px;line-height:1;cursor:pointer;padding:2px 5px;z-index:1}
   /* v1.39: the popup's own box was already capped at 82vw/80vh, but its CONTENT could still be
      wider than the box — the Connected-roads and Exports lines are long comma-separated runs with
@@ -249,7 +250,7 @@
      cap. Wrapping is the fix; box-sizing keeps the padding inside the width cap. */
   .place-edit-popup *{max-width:100%;box-sizing:border-box}
   .place-edit-popup .pe-h{font-weight:600;color:#d8b97a;margin:0 20px 8px 0;font-size:12px}
-  .place-edit-popup .pe-city{display:block;width:100%;height:auto;aspect-ratio:560/380;margin:0 0 9px;border-radius:6px;border:1px solid rgba(200,169,110,.28);background:#262a32;image-rendering:auto}
+  .place-edit-popup .pe-city{display:block;width:100%;height:auto;aspect-ratio:560/380;margin:0 0 9px;border:1px solid rgba(200,169,110,.28);background:#262a32;image-rendering:auto}
   .place-edit-popup .row{margin:7px 0;gap:6px}
   .place-edit-popup .row label{flex:0 0 76px;font-size:11px;color:#c8b998}
   /* v2.73 (fix pass): a field in a row may shrink below its intrinsic width, so the name row's 🎲 fits
@@ -257,7 +258,7 @@
      cut the button to 22px of its width on every shell (of 44 on a touch shell, of 33 on the desktop) — the
      same in v2.72, so not new to stage 2, but the one drawn target under 44px a phone floor walk found. */
   .place-edit-popup .row > input{min-width:0}
-  .place-edit-popup select,.place-edit-popup input[type=text],.place-edit-popup input[type=number]{background:rgba(255,255,255,.06);border:1px solid rgba(200,169,110,.3);color:#e8dcc4;border-radius:5px;padding:4px 6px;font-size:11px;width:auto}
+  .place-edit-popup select,.place-edit-popup input[type=text],.place-edit-popup input[type=number]{background:rgba(255,255,255,.06);border:1px solid rgba(200,169,110,.3);color:#e8dcc4;padding:4px 6px;font-size:11px;width:auto}
   /* v2.74 (the 2026-11-01 visual audit, V12, first half): in the LIGHT theme the place popup and the
      settlement-seed popup take the theme's colours. The v0.90 warm palette above is literal, so in light the
      card stayed dark while its pills, hints and fields took light-theme tokens — trait pills 3.51:1, '0–1'
@@ -282,9 +283,9 @@
      chip (rgba(10,12,17,.72)) under --ink drew the light theme's dark ink on near-black — 1.07-1.08:1, an
      invisible ×, on this City viewer, the route editor and the Settlements screen. --ink on --panel2 is
      14.72 dark and 16.67 light; on hover the accent edge and ink, as #creditsModal .cr-close does. */
-  .cv-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
+  .cv-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
   .cv-close:hover{border-color:var(--accent);color:var(--accent)}
-  .cv-legend{position:absolute;left:12px;bottom:12px;z-index:2;font-family:var(--mono);font-size:10px;color:var(--dim);background:rgba(10,12,17,.74);border:1px solid var(--line);border-radius:6px;padding:6px 9px;pointer-events:none}
+  .cv-legend{position:absolute;left:12px;bottom:12px;z-index:2;font-family:var(--mono);font-size:10px;color:var(--dim);background:rgba(10,12,17,.74);border:1px solid var(--line);padding:6px 9px;pointer-events:none}
   .cv-info{width:340px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:16px 16px 24px;font-size:12px}
   .cv-info h2{font-size:16px;margin:0 0 2px;color:var(--accent);line-height:1.25}
   .cv-info .cv-sub{font-size:11px;color:var(--dim);margin-bottom:12px}
@@ -292,7 +293,7 @@
   .cv-section:last-child{border-bottom:none}
   .cv-section h3{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 6px}
   .cv-note{font-size:10.5px;color:var(--faint);font-style:italic;margin-top:3px}
-  .cv-edit-btn{margin-top:4px;background:rgba(217,164,91,.14);border:1px solid var(--accent);color:var(--accent);border-radius:6px;padding:6px 10px;font-size:11.5px;cursor:pointer;width:100%}
+  .cv-edit-btn{margin-top:4px;background:rgba(217,164,91,.14);border:1px solid var(--accent);color:var(--accent);padding:6px 10px;font-size:11.5px;cursor:pointer;width:100%}
   .cv-edit-btn:hover{background:rgba(217,164,91,.24)}
   @media (max-width:760px){ .city-viewer-modal.open{flex-direction:column} .cv-info{width:auto;max-height:42vh;border-left:none;border-top:1px solid var(--line)} }
   /* v1.44: Route Editor — a full-screen modal for editing a drawn journey, mirroring the v1.18 City
@@ -308,15 +309,15 @@
   .route-editor-modal{position:fixed;inset:0;z-index:71;display:none;background:var(--bg)}
   .route-editor-modal.open{display:flex}
   /* v2.74 (V05): the panel tokens, as .cv-close above */
-  .re-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
+  .re-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
   .re-close:hover{border-color:var(--accent);color:var(--accent)}
   .re-body{flex:1;min-width:0;overflow-y:auto;padding:18px 22px 32px;display:flex;flex-direction:column;gap:14px}
   .re-header{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-  canvas#reRouteMap{width:260px;height:170px;flex-shrink:0;border-radius:8px;border:1px solid var(--line);background:#1b1f27}
+  canvas#reRouteMap{width:260px;height:170px;flex-shrink:0;border:1px solid var(--line);background:#1b1f27}
   .re-summary{flex:1;min-width:220px}
   .re-summary h2{font-size:17px;margin:0 0 6px;color:var(--accent)}
   .re-cols{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
-  .re-col{flex:1 1 300px;min-width:280px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .re-col{flex:1 1 300px;min-width:280px;background:var(--panel);border:1px solid var(--line);padding:12px 14px}
   /* v1.49: the output column sticks to the top of .re-body's scroll box, so the answer stays on
      screen while the (much taller) party form scrolls past it. align-self:flex-start is required —
      the parent is align-items:flex-start, and a stretched flex item cannot stick. Its own
@@ -329,7 +330,11 @@
   .re-col h3{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:0 0 8px}
   .re-stop-row{display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px}
   .re-stop-row .re-stop-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .re-stop-row input[type=number]{width:52px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:2px 4px;font-size:11px}
+  .re-stop-row input[type=number]{width:52px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:2px 4px;font-size:11px}
+  /* v2.74 (V24): the Carriage switch (Auto | Manual) is a segment sized to its labels (width:auto), and .seg.sm
+     gives a segment 1px a side — room for a fill, none for the washed chip drawn 2px inside the armed one, whose
+     edge then crossed "Auto". 10px a side, as the tool bar's segments have 7. */
+  #reParty .seg button{padding:5px 10px}
   @media (max-width:900px){ .route-editor-modal.open{overflow-y:auto} .re-body{padding:16px} .re-cols{flex-direction:column}
     /* stacked single-column: sticking the output block would pin it over the form it sits above */
     .re-col-out{position:static;max-height:none;flex:1 1 auto} }
@@ -350,7 +355,7 @@
   .cfm-body{flex:1;min-width:0;overflow-y:auto;padding:18px 22px 32px;max-width:720px;margin:0 auto;width:100%;position:relative;background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border)}
   .cfm-body h2{color:var(--accent);font-size:19px}
   /* v2.74 (V05): the panel tokens, as .cv-close above */
-  .cfm-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
+  .cfm-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
   .cfm-close:hover{border-color:var(--accent);color:var(--accent)}
   @media (max-width:760px){ .cfm-body{padding:16px} }
   #resOverlay.visible{display:block}
@@ -383,14 +388,14 @@
   .row label,.row .val{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   .row{-webkit-touch-callout:none}
   .row .val{flex:0 0 60px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--ink);-webkit-user-select:none;user-select:none}
-  input[type=number]{width:88px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-family:var(--mono);font-size:12px}
+  input[type=number]{width:88px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:var(--r-field);padding:5px 7px;font-family:var(--mono);font-size:12px}
   .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
-  button{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:7px 11px;font-size:12px;cursor:pointer;font-family:var(--sans)}
+  button{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:var(--r-btn);padding:7px 11px;font-size:12px;cursor:pointer;font-family:var(--sans)}
   button:hover{border-color:var(--faint)}
   button:disabled{opacity:.5;cursor:default}
   button.on{background:var(--accent);border-color:var(--accent);color:#1a1206;font-weight:600}
   button.accent{border-color:var(--accent);color:var(--accent)}
-  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg{display:flex;border:1px solid var(--line);border-radius:var(--r-btn);overflow:hidden}
   .seg button{border:0;border-radius:0;border-right:1px solid var(--line);flex:1;padding:7px 3px;font-size:11.5px}
   .seg button:last-child{border-right:0}
   .seg.sm button{padding:6px 1px;font-size:10.5px}
@@ -405,18 +410,25 @@
   .hint{font-size:11px;color:var(--faint);line-height:1.5;margin-top:8px}
   .sublabel{font-size:11px;color:var(--dim);margin:12px 0 5px;font-weight:600}
   .file{display:none}
-  .pill{font-family:var(--mono);font-size:10px;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:1px 7px;cursor:pointer;-webkit-user-select:none;user-select:none}
-  /* v2.74 (V09): the ink on the accent fill is --accInk, never a literal. #18191a measured 3.73:1 on the
-     light accent (2.85 on the v2.74 one) — the 'Trade hub' trait pill; --accInk is 8.60 dark, 5.91 light. */
-  .pill.on{background:var(--accent);color:var(--accInk);border-color:var(--accent)}
+  .pill{font-family:var(--mono);font-size:10px;color:var(--faint);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 7px;cursor:pointer;-webkit-user-select:none;user-select:none}
+  /* v2.74 (V09, then V29): an armed pill — a recorded year, a place's trait — is WASHED: wash2, an accent edge and
+     accent ink (Cartalith_GDT LARGE_ITEM_RULINGS.md 2026-09-06 item 7: the timeline's pill on-state matches the
+     WORLD dock's, "Resolved to the WASHED treatment"; the theme layer's rule 3). It was the saturated fill, whose
+     literal ink #18191a measured 3.73:1 on the old light accent; the fix pass first moved that ink to --accInk
+     (V09), and the design alignment then removed the fill itself, so no ink sits on the accent here any more.
+     The pill's own ✕ (remove a recorded year) is --dim, or the pill's ink when armed — it was the label's colour
+     at .6 opacity, 2.39:1 on the fill and 3.75 off it. */
+  .pill.on{background:var(--wash2);color:var(--accent);border-color:var(--accent)}
+  .pill .pill-x{color:var(--dim)}
+  .pill.on .pill-x{color:inherit}
   label.chk{display:flex;align-items:center;gap:7px;cursor:pointer;color:var(--dim);font-size:12px;margin:9px 0}
   progress{flex:1;height:8px;border:0;border-radius:4px;background:var(--panel2);accent-color:var(--accent);overflow:hidden}
   progress::-webkit-progress-bar{background:var(--panel2);border-radius:4px}
   progress::-webkit-progress-value{background:var(--accent);border-radius:4px}
   progress::-moz-progress-bar{background:var(--accent)}
-  select{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:6px 8px;font-family:var(--mono);font-size:12px;min-width:0}
+  select{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:var(--r-field);padding:6px 8px;font-family:var(--mono);font-size:12px;min-width:0}
   option:disabled{color:var(--faint)}
-  .panel-toggle{display:none;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 11px;font-size:16px;line-height:1;cursor:pointer}
+  .panel-toggle{display:none;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:4px 11px;font-size:16px;line-height:1;cursor:pointer}
   .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:25}
   body.panel-open .scrim{display:block}
   /* ── v2.73: the phone's v2.24-v2.71 rules, re-keyed ───────────────────────────────────────────────
@@ -483,11 +495,11 @@
 .sculpt-navpad-stick.dragging .sculpt-navpad-knob{background:var(--accent)}
 /* v2.74 (V21, Q9's darker box): .85, not .55 — #cfd4dc on the .55 box measured 2.91:1 over white snow and
    4.19 over sand; 8.82 over white at .85 (computed). The light theme's box (.85, below) is unchanged. */
-#scaleBar{position:absolute;bottom:10px;right:64px;z-index:15;font-size:10px;color:#cfd4dc;background:rgba(10,12,16,.85);padding:3px 8px 5px;border-radius:6px;pointer-events:none;line-height:1.3}
+#scaleBar{position:absolute;bottom:10px;right:64px;z-index:15;font-size:10px;color:#cfd4dc;background:rgba(10,12,16,.85);padding:3px 8px 5px;pointer-events:none;line-height:1.3}
 #scaleBar .bar{height:4px;border:1px solid #cfd4dc;border-top:none;margin-top:2px}
 /* ---- Explore map-filter funnel (mirrors Cartalith V1.915's floating layers funnel) ---- */
 .map-filter-fab{position:absolute;top:10px;left:10px;z-index:20}
-.map-filter-fab .funnel-btn{width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--dim);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.map-filter-fab .funnel-btn{width:36px;height:36px;padding:0;display:flex;align-items:center;justify-content:center;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-pill);color:var(--dim);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .map-filter-fab .funnel-btn:hover{color:var(--accent);border-color:var(--faint)}
 .map-filter-fab .funnel-btn[aria-expanded="true"]{color:var(--accent);border-color:var(--accent);background:var(--panel)}
 .map-filter-fab .funnel-glyph{display:block}
@@ -509,10 +521,12 @@
   overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:8px}
 .layers-fab .lp-grp{font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);margin:8px 2px 3px}
 .layers-fab .lp-grp:first-child{margin-top:0}
-.layers-fab .lp-item{display:block;width:100%;text-align:left;background:none;border:0;border-radius:5px;padding:4px 8px;color:var(--ink);cursor:pointer;font-size:11.5px}
+.layers-fab .lp-item{display:block;width:100%;text-align:left;background:none;border:0;padding:4px 8px;color:var(--ink);cursor:pointer;font-size:11.5px}
 .layers-fab .lp-item:hover{background:var(--panel2)}
-/* v2.74 (V09): --accInk on the accent fill (#1a1206 measured 3.92:1 on the light accent, 3.00 on the v2.74 one) */
-.layers-fab .lp-item.on{background:var(--accent);color:var(--accInk);font-weight:600}
+/* v2.74 (V09, then V24): the picked row is a wash with accent ink — a row's on-state, as the phone's fan rows and
+   an open menu row draw it (rule 3: never a saturated fill). It was the fill, whose literal ink #1a1206 measured
+   3.92:1 on the old light accent; the fix pass moved it to --accInk (V09) before the fill went. */
+.layers-fab .lp-item.on{background:var(--wash2);color:var(--accent);font-weight:500}
 .layers-fab .lp-pin{opacity:.5;font-size:10px;margin-left:4px}
 /* v0.65 (§4.10): per-layer hotkey badge, right-aligned in the full-width .lp-item row */
 .layers-fab .lp-key{float:right;font-family:var(--mono);font-size:9px;opacity:.55;border:1px solid currentColor;border-radius:3px;padding:0 4px;line-height:1.4}
@@ -560,7 +574,8 @@ details.adv[open]>summary::before{content:'▾ '}
 details.adv>summary:hover{color:var(--accent)}
 /* v0.63 (§4.4): Map-style preset row */
 .style-presets{margin-bottom:10px}
-.style-presets .seg button.on{background:var(--accent);border-color:var(--accent);color:#1a1206;font-weight:600}
+/* v2.74 (V24): v0.63's own filled on-state for this row is gone — the theme layer's segment rule decides every
+   segment's on-state, and this one is washed like the rest (it picks a look, not a tool) */
 .style-custom{font-size:10px;color:var(--faint);margin:4px 2px 0}
 /* v0.63 (§3): finalized-phase signal — Unity play-mode-style tint on the shell chrome */
 body.phase-explore header{border-bottom-color:var(--accent2)}
@@ -575,7 +590,7 @@ body.phase-explore #phaseChip{display:inline-block}
    route to Credits — so the tap seemed to do nothing and Credits' × could not be reached. */
 #creditsModal{display:none;position:fixed;inset:0;z-index:76;align-items:center;justify-content:center;background:rgba(10,12,17,.78);padding:24px}
 #creditsModal.open{display:flex}
-#creditsModal .cr-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 24px 24px;width:min(680px,94vw);max-height:88vh;overflow-y:auto;box-shadow:0 12px 44px rgba(0,0,0,.55);position:relative}
+#creditsModal .cr-card{background:var(--panel);border:1px solid var(--line);padding:20px 24px 24px;width:min(680px,94vw);max-height:88vh;overflow-y:auto;box-shadow:0 12px 44px rgba(0,0,0,.55);position:relative}
 #creditsModal h2{font-family:var(--mono);font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin:0 0 4px}
 #creditsModal .cr-sub{color:var(--dim);font-size:12px;line-height:1.55;margin:0 0 14px}
 #creditsModal h3{font-family:var(--mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--accent2);margin:18px 0 6px;border-bottom:1px solid var(--line);padding-bottom:4px}
@@ -584,7 +599,7 @@ body.phase-explore #phaseChip{display:inline-block}
 #creditsModal li{font-size:12px;line-height:1.55;color:var(--ink);margin:3px 0}
 #creditsModal li b{color:var(--ink)}
 #creditsModal .cr-src{color:var(--dim)}
-#creditsModal .cr-close{position:absolute;top:12px;right:14px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;width:30px;height:30px;font-size:16px;line-height:1;cursor:pointer}
+#creditsModal .cr-close{position:absolute;top:12px;right:14px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);width:30px;height:30px;font-size:16px;line-height:1;cursor:pointer}
 #creditsModal .cr-close:hover{border-color:var(--accent);color:var(--accent)}
 #creditsModal .cr-foot{font-size:11px;color:var(--faint);line-height:1.5;margin-top:16px;border-top:1px solid var(--line);padding-top:10px}
 /* v0.63 (§4.9): first-run onboarding empty-state card — v0.67: promoted to the hard setup gate */
@@ -595,7 +610,7 @@ body.phase-explore #phaseChip{display:inline-block}
    the viewport; body.setup-gated already makes every band behind it inert, so showing them above
    it was noise even when it fitted. z-index clears every overlay (settings 74, context menu 80). */
 #onboard{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:rgba(10,12,17,.86);overflow-y:auto;padding:12px;box-sizing:border-box}
-#onboard .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px 28px;width:min(440px,92vw);max-height:92vh;overflow-y:auto;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.55)}
+#onboard .card{background:var(--panel);border:1px solid var(--line);padding:24px 28px;width:min(440px,92vw);max-height:92vh;overflow-y:auto;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.55)}
 #onboard h3{font-family:var(--mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:0 0 6px}
 #onboard .ob-sub{color:var(--dim);font-size:12px;line-height:1.6;margin-bottom:16px}
 #onboard .ob-flow{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.06em;margin:14px 0 4px}
@@ -621,10 +636,10 @@ body.setup-gated .toolrail,body.setup-gated .status-bar,body.setup-gated .tl-str
 #onboard .seg.su{display:flex;gap:4px;flex-wrap:wrap}
 #onboard .seg.su button{flex:1 1 0;min-width:44px;padding:7px 6px;font-size:11px}
 #onboard .su-numrow{display:flex;align-items:center;gap:8px}
-#onboard .su-numrow input[type=number]{flex:1;min-width:0;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:7px 9px;font:inherit;font-size:12px}
+#onboard .su-numrow input[type=number]{flex:1;min-width:0;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:7px 9px;font:inherit;font-size:12px}
 #onboard .su-pill{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:22px}
 #onboard .su-note{color:var(--faint);font-size:11px;line-height:1.5;margin-top:5px}
-#onboard .su-legend{margin-top:6px;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+#onboard .su-legend{margin-top:6px;border:1px solid var(--line);overflow:hidden}
 #onboard .su-legend .lg-row{display:flex;justify-content:space-between;gap:10px;padding:4px 9px;font-size:11px;cursor:pointer;border-top:1px solid var(--line)}
 #onboard .su-legend .lg-row:first-child{border-top:0}
 #onboard .su-legend .lg-row:hover{background:var(--panel2)}
@@ -645,18 +660,21 @@ body.setup-gated .toolrail,body.setup-gated .status-bar,body.setup-gated .tl-str
    was forced onto two lines. And the sticky Back/Generate bar meets the card's bottom edge: bottom:0 stuck
    it 25px above it (the card's 24px padding), and scrolled content showed through that band. */
 #onboard #suArchSeg{display:grid;grid-template-columns:repeat(3,1fr)}
+/* v2.74 (V26, the segment borders re-checked under the rounded container): the third cell of each row ends the
+   row, so it draws no divider — Pangaea's 1px right edge doubled the container's own inside its rounded corner */
+#onboard #suArchSeg button:nth-child(3n){border-right:0}
 #onboard .su-actions{bottom:-24px}
 #packGrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 /* v2.15: search hit flash. Referenced by _findReveal — without this rule the class is added and
    nothing is visible, exactly the v1.80 windFxCanvas shape. */
-.find-hit{outline:2px solid var(--accent)!important;outline-offset:2px;border-radius:3px;transition:outline-color .3s}
+.find-hit{outline:2px solid var(--accent)!important;outline-offset:2px;transition:outline-color .3s}
 #findResults [data-find-i]:hover{background:var(--border)}
 #packGrid figure{margin:0;width:44px;text-align:center}
 #packGrid canvas{width:40px;height:40px;border:1px solid var(--line);border-radius:4px;background:#0c0e12;display:block;margin:0 auto;image-rendering:auto}
 #packGrid figcaption{font-size:9px;color:var(--muted);margin-top:2px;line-height:1.15;word-break:break-word}
 /* ---- icon gallery picker (Manual icons, Cartography) ---- */
 .cargal{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.cargal .caropt{margin:0;width:52px;text-align:center;cursor:pointer;padding:2px;border-radius:5px;border:1px solid transparent}
+.cargal .caropt{margin:0;width:52px;text-align:center;cursor:pointer;padding:2px;border-radius:var(--r-tile);border:1px solid transparent}
 .cargal .caropt:hover{border-color:var(--line)}
 .cargal .caropt.on{border-color:var(--accent);background:rgba(255,255,255,.06)}
 .cargal .caropt canvas{width:40px;height:40px;border:1px solid var(--line);border-radius:4px;background:#0c0e12;display:block;margin:0 auto;image-rendering:auto}
@@ -667,16 +685,16 @@ body.setup-gated .toolrail,body.setup-gated .status-bar,body.setup-gated .tl-str
 .cargal.compact .caropt{width:40px}
 .cargal.compact .caropt canvas,.cargal.compact .caropt .stopglyph{width:30px;height:30px}
 .cargal.compact .caropt figcaption{display:none}
-.zbtn{width:42px;height:42px;font-size:22px;font-weight:700;background:rgba(10,10,10,.72);color:#e0e0e0;border:1px solid rgba(255,255,255,.18);border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.zbtn{width:42px;height:42px;font-size:22px;font-weight:700;background:rgba(10,10,10,.72);color:#e0e0e0;border:1px solid rgba(255,255,255,.18);border-radius:var(--r-pill);cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
 /* ---- undo memory hint accent ---- */
 .undo-warn{color:var(--accent)!important}
 /* ---- header import dropdown ---- */
 .dropdown-wrap{position:relative;display:inline-block}
-.menubtn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:5px 11px;font-size:12px;cursor:pointer;font-family:var(--sans)}
+.menubtn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:5px 11px;font-size:12px;cursor:pointer;font-family:var(--sans)}
 .menubtn:hover{border-color:var(--faint)}
-.dropdown{display:none;position:absolute;top:calc(100% + 6px);right:0;min-width:200px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px;z-index:40;box-shadow:0 12px 32px rgba(0,0,0,.55)}
+.dropdown{display:none;position:absolute;top:calc(100% + 6px);right:0;min-width:200px;background:var(--panel2);border:1px solid var(--line);padding:5px;z-index:40;box-shadow:0 12px 32px rgba(0,0,0,.55)}
 .dropdown.open{display:block}
-.dropdown button{display:block;width:100%;text-align:left;background:none;border:0;border-radius:5px;padding:9px 10px;font-size:12px;color:var(--ink);cursor:pointer}
+.dropdown button{display:block;width:100%;text-align:left;background:none;border:0;padding:9px 10px;font-size:12px;color:var(--ink);cursor:pointer}
 .dropdown button:hover{background:var(--panel)}
 .dropdown .dsep{height:1px;background:var(--line);margin:4px 6px}
 .dropdown .menu-sec{font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);margin:4px 6px 2px}
@@ -707,6 +725,13 @@ details.acc[open]>summary{color:var(--accent)}
 .subtab{flex:1;padding:9px 4px;background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--dim);cursor:pointer;font:inherit;font-size:11px;letter-spacing:.04em;text-transform:uppercase;transition:color .12s;border-radius:0}
 .subtab.on{color:var(--accent);border-bottom-color:var(--accent);background:transparent}   /* v0.66: the generic button.on accent fill (v0.64) must not paint the phase sub-tabs — amber-on-amber made the active label invisible */
 .subtab:hover:not(.on){color:var(--ink);border-color:transparent}
+/* v2.74 (the 2026-11-01 visual audit, V01): CIVIL ▸ Settlements' head and rows share ONE column grid. Both use
+   the same flex factors, but a cell without overflow:hidden kept its content's min-width — the head's labels and
+   a row's numbers differ — so the columns drifted apart by up to 10px once the rows were laid out as rows again
+   (V01's display:flex fix, _stUpdateVisible). Every cell may shrink to its share (and ellipsises), and the head
+   takes the 1px side borders #stViewport has, so both lay out the same 369px. */
+#stTableHead > span,#stSpacer > div > span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#stTableHead{border-left:1px solid transparent;border-right:1px solid transparent}
 /* ---- v1.55: Faction detail drawer — slides in from the LEFT over the Factions overview.
    Same translateX+transition idiom as the mobile <aside> slide-in (~line 185), mirrored to the
    opposite edge and scoped to #civFactionsWrap instead of the viewport, so it overlays the
@@ -735,12 +760,12 @@ details.cat-acc[open]>summary{color:var(--accent)}
 .al-rail .al-rail-h{font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);padding:12px 14px 4px}
 .al-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 .al-toolbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
-.al-toolbar input[type=text]{flex:1;min-width:140px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 9px;font-size:12px}
+.al-toolbar input[type=text]{flex:1;min-width:140px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:6px 9px;font-size:12px}
 .al-selcount{font-family:var(--mono);font-size:11px;color:var(--accent)}
 .al-batch{display:inline-flex;gap:6px;align-items:center}
 .al-danger{color:var(--warn);border-color:var(--warn)}
 .al-grid{flex:1;overflow-y:auto;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;align-content:start}
-.al-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;cursor:pointer;position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
+.al-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-tile);padding:8px;cursor:pointer;position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
 .al-card:hover{border-color:var(--faint)}
 .al-card.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .al-card.msel{border-color:var(--accent2);box-shadow:0 0 0 1px var(--accent2)}
@@ -764,9 +789,9 @@ details.cat-acc[open]>summary{color:var(--accent)}
 .al-insp-empty{color:var(--faint);font-size:12px;padding:22px 16px;text-align:center}
 .al-insp .sec{padding:12px 14px}
 .al-insp h3{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);margin:0 0 9px}
-.al-insp .al-prev-wrap{position:relative;width:100%;aspect-ratio:1;background:var(--preview-al,#0c0e13);border:1px solid var(--line);border-radius:7px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.al-insp .al-prev-wrap{position:relative;width:100%;aspect-ratio:1;background:var(--preview-al,#0c0e13);border:1px solid var(--line);overflow:hidden;display:flex;align-items:center;justify-content:center}
 .al-insp .al-prev-wrap canvas{max-width:100%;max-height:100%;touch-action:none}
-.al-insp .al-meta input,.al-insp .al-meta textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:11.5px;font-family:var(--sans)}
+.al-insp .al-meta input,.al-insp .al-meta textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:5px 7px;font-size:11.5px;font-family:var(--sans)}
 .al-insp .al-meta textarea{resize:vertical;min-height:44px}
 .al-insp .al-meta .row label{flex-basis:70px;font-size:11px}
 .al-insp .al-variants{display:flex;flex-wrap:wrap;gap:6px}
@@ -774,7 +799,7 @@ details.cat-acc[open]>summary{color:var(--accent)}
 .al-insp .al-biomes{flex:1;display:grid;grid-template-columns:repeat(2,1fr);gap:2px 8px}
 .al-insp .al-biome{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--dim);white-space:nowrap;cursor:pointer}
 .al-insp .al-biome input{margin:0;flex:none}
-.al-insp .al-var{width:56px;text-align:center;cursor:pointer;border:1px solid var(--line);border-radius:5px;padding:3px;background:var(--preview-al,#0c0e13)}
+.al-insp .al-var{width:56px;text-align:center;cursor:pointer;border:1px solid var(--line);border-radius:var(--r-tile);padding:3px;background:var(--preview-al,#0c0e13)}
 .al-insp .al-var.on{border-color:var(--accent)}
 .al-insp .al-var canvas{width:100%;aspect-ratio:1}
 .al-insp .al-var .vn{font-size:8.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -783,7 +808,7 @@ details.cat-acc[open]>summary{color:var(--accent)}
 .al-bgsw button.on{outline:2px solid var(--accent)}
 /* slicer overlay */
 .al-modal{position:absolute;inset:0;z-index:50;background:rgba(8,10,14,.88);display:flex;align-items:center;justify-content:center;padding:18px}
-.al-modal .al-dlg{background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:min(1180px,96%);max-height:94%;overflow:auto;display:flex;flex-direction:column}
+.al-modal .al-dlg{background:var(--panel);border:1px solid var(--line);max-width:min(1180px,96%);max-height:94%;overflow:auto;display:flex;flex-direction:column}
 .al-modal .al-dlg-h{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
 .al-modal .al-dlg-h b{color:var(--accent);font-family:var(--mono);font-size:12px;letter-spacing:.06em}
 .al-modal .al-dlg-h button{margin-left:auto}
@@ -792,25 +817,25 @@ details.cat-acc[open]>summary{color:var(--accent)}
 /* v1.21: plain block (not flex) so overflow:auto scrolling is reliable once the canvas grows
    past the wrap on zoom — a flex container centering an overflowing item is a known cross-browser
    quirk (the "before" overflow can end up unreachable by scroll); the canvas just sits top-left. */
-.al-slice-cv-wrap{overflow:auto;max-height:60vh;background:#0c0e13;border:1px solid var(--line);border-radius:6px}
+.al-slice-cv-wrap{overflow:auto;max-height:60vh;background:#0c0e13;border:1px solid var(--line)}
 .al-slice-cv-wrap canvas{touch-action:none;cursor:crosshair;display:block}
 .al-slice-cv-wrap canvas.mode-grid{cursor:move}
 .al-slice-cv-wrap canvas.mode-pick{cursor:copy}
 .al-slice-cv-wrap canvas.mode-pan{cursor:grab}
 .al-slice-cv-wrap canvas.mode-pan.panning{cursor:grabbing}
 .al-slice-zoom{display:flex;gap:6px;align-items:center}
-.al-slice-zoom button{width:26px;height:24px;padding:0;border-radius:5px;border:1px solid var(--line);font-size:13px;line-height:1;background:var(--panel2);color:var(--ink)}
+.al-slice-zoom button{width:26px;height:24px;padding:0;border:1px solid var(--line);font-size:13px;line-height:1;background:var(--panel2);color:var(--ink)}
 .al-slice-zoom-pct{font-family:var(--mono);font-size:10.5px;color:var(--dim);min-width:38px;text-align:center}
 .al-slice-right{width:280px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;font-size:12px}
 .al-slice-right .row{margin:4px 0}
-.al-slice-drop{border:1px dashed var(--line);border-radius:7px;padding:20px 10px;text-align:center;color:var(--dim);cursor:pointer}
+.al-slice-drop{border:1px dashed var(--line);padding:20px 10px;text-align:center;color:var(--dim);cursor:pointer}
 .al-slice-drop.over{border-color:var(--accent);color:var(--accent)}
-.al-cellnames{max-height:130px;overflow-y:auto;border:1px solid var(--line);border-radius:5px;padding:5px}
+.al-cellnames{max-height:130px;overflow-y:auto;border:1px solid var(--line);padding:5px}
 .al-cellnames .cn{display:flex;gap:6px;align-items:center;margin:2px 0}
 .al-cellnames .cn .n{font-family:var(--mono);font-size:10px;color:var(--faint);width:30px}
-.al-cellnames .cn input{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:2px 6px;font-size:11px}
+.al-cellnames .cn input{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:2px 6px;font-size:11px}
 .al-cellnames .empty{color:var(--faint);font-size:10.5px;padding:4px}
-#alToast{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 16px;font-size:12px;color:var(--ink);opacity:0;pointer-events:none;transition:opacity .2s;max-width:70%}
+#alToast{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;background:var(--panel2);border:1px solid var(--line);padding:9px 16px;font-size:12px;color:var(--ink);opacity:0;pointer-events:none;transition:opacity .2s;max-width:70%}
 #alToast.show{opacity:1}
 #alToast.warn{border-color:var(--accent)}
 #alToast.err{border-color:var(--warn)}
@@ -826,15 +851,62 @@ details.cat-acc[open]>summary{color:var(--accent)}
    the rendered map is identical and the headless suites are unaffected.
 
    Four rules carry most of the look:
-     1. radius 0 everywhere — the DCC separates surfaces by hairline, never by a
-        rounded fill. The two joystick circles are re-asserted; they are a knob,
-        not a panel.
+     1. surfaces are square, controls are rounded. v2.23 wrote "radius 0 everywhere
+        — the DCC separates surfaces by hairline, never by a rounded fill" and forced
+        it with *{border-radius:0 !important}. The design has since rounded its
+        controls (v2.74, owner: "Rounded, as the design" — the radius block just
+        below); a surface still separates by hairline and stays square.
      2. the --line / --border split, made in :root above.
-     3. an active surface is a wash plus an edge, never a saturated fill.
+     3. an active surface is a wash plus an edge, never a saturated fill. v2.74
+        applies it to every on-state but the tool-mode segments (the block after
+        `button.on` below).
      4. every numeric readout in mono. Most of this file already did that.
    ════════════════════════════════════════════════════════════════════════════ */
-*{border-radius:0 !important}
-.sculpt-navpad-stick,.sculpt-navpad-knob{border-radius:50% !important}
+/* v2.74 (Ruling EC item 7, owner 2026-11-01: "Rounded, as the design"; the 2026-11-01 visual audit, V26): THE
+   CORNER RADIUS. Controls take the design's radii; panels, docks, bands, windows' outer frames, menus, popovers,
+   cards, wells, toasts and the map stay square ("Panels and bands stay square", the same ruling). This replaces
+   v2.23's *{border-radius:0 !important}, which overrode every radius in this file — 66 stylesheet declarations
+   and 35 inline ones in the markup and the JS templates (counted 2026-11-02 with a scan for `border-radius`
+   outside that rule). Each was decided where it is written: kept (a swatch, a dot, a progress track, the
+   joystick's circles), changed to a token below (a control), or removed (it rounded a surface).
+   The tokens, read off design/mobile-shell-2026-10-31 (Desktop.dc.html imports its Shell; source/build/
+   d_vals.js `densVars` gives the pointer values, the touch values are the template's own defaults), pointer
+   first, then touch (the tablet and the phone):
+     --r-btn   16 / 24  every button that draws a box: the design's --r24 on its 32 / 48px buttons, so a one-line
+                        button is a pill and a wrapped one keeps 16 / 24px corners instead of becoming a stadium.
+                        The port's DccTheme `btn_radius` [8, 12] was measured on the 2026-09-07 canvas; the newer
+                        canvas wins (Cartalith_GDT CLAUDE.md, owner ruling 2026-08-25).
+     --r-tile  14 / 20  a selectable tile (the icon gallery, the asset cards and their variants): the design's
+                        --r20 tool tile.
+     --r-field 12       inputs, selects and textareas at both densities: the design's .clr-in, and the port's own
+                        touch figure.
+     --r-menu  10       the menu bar's buttons, Undo/Redo and the strip's TIMELINE toggle: the design's menu
+                        buttons and timeline toggle.
+     --r-pill  999px    chips, pins, pills and the map's round buttons: the design's --r22 is half its chip's
+                        height, so a pill; the port's pill() is 999px.
+   A segmented control (.seg) is ONE rounded container that clips its square children (overflow:hidden), so
+   its inner dividers stay straight — the design's zoom column and rocker are built the same way. Rows, tabs and
+   the rail belong to the panel or band they sit in and stay square (the rule after the tokens): a rounded
+   full-width row would curve its own divider up at both ends. NEVER bring back a universal reset: it hides
+   every rounded control, and an !important one beats even inline styles. The departures from the design
+   (it also rounds its windows, menus, popovers and cards) are listed in CHANGELOG v2.74. */
+:where(:root){--r-btn:16px;--r-tile:14px;--r-field:12px;--r-menu:10px;--r-pill:999px}
+:where(html[data-shell="phone"],html[data-shell="tablet"]){--r-btn:24px;--r-tile:20px}
+.mb-row,.mb-panel > button,.layers-fab .lp-item,.al-rail .al-cat,.set-nav button,.subtab,.ctx-tab,.domain-rail .dr-btn,.ph-tab,.ph-fan-row,.ph-sheet-title,.ph-grip,.civ-ctx button{border-radius:0}
+/* text fields (number fields and selects carry the token in their own base rules above). :where() keeps this
+   at zero specificity, so a field rule with a class or an id (the search pill) still decides; a colour input is
+   a swatch and keeps its square. */
+:where(input:not([type]),input[type=text],input[type=search],input[type=email],input[type=url],input[type=password],input[type=tel],textarea){border-radius:var(--r-field)}
+/* named controls the design draws with its other radii. The menu bar's buttons, Undo/Redo and the strip's
+   TIMELINE toggle: --r-menu (the phone's app bar keeps its 44px Undo/Redo round, --r-btn, as the design's app
+   bar does). The pins, the Base map chip, the header's search field and the 2D/3D square: pills. */
+:where(html:not([data-shell="phone"])) header .mb-btn,:where(html:not([data-shell="phone"])) header #undoBtn,:where(html:not([data-shell="phone"])) header #redoBtn,.tl-toggle{border-radius:var(--r-menu)}
+.to-pins button,#layersBtn,#findInput,.seg.viewdim{border-radius:var(--r-pill)}
+/* DS-13's − | + rocker (the touch shells) is two buttons drawn as ONE pill, as the design's rocker is: the outer
+   corners round and the halves meet square at the hairline. Handedness moves ⌖ and ✋, never the two halves,
+   so − is always the left one. */
+:where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay #zoomOut{border-radius:var(--r-pill) 0 0 var(--r-pill)}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) #zoomOverlay #zoomIn{border-radius:0 var(--r-pill) var(--r-pill) 0}
 
 body{font-size:12px}
 .canvas-wrap{background:repeating-linear-gradient(0deg,#0d0e0f 0 24px,#101112 24px 48px)}
@@ -871,7 +943,8 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
    (the design states a ring for its chips only); if it reads too loud, scope this to the non-text controls. */
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* :not(.on) matters — three :not()s already out-specify `button.on`, and without it every
-   armed segment (Region, 2K, a picked tool) silently lost its active fill. */
+   armed segment (Region, 2K, a picked tool) silently lost its active state (v2.74: a wash, or a
+   tool's fill — the segment rules below). */
 /* v2.24 FIX — this shipped broken in v2.23. A :not() contributes its ARGUMENT's specificity, so the
    four-class chain below read (0,4,1) and out-specified EVERY .seg rule: `.seg button{border:0;
    border-right:1px}` (0,1,1) and, worse, `.seg.grid button:nth-child(-n+6)` / `:nth-child(6n)`
@@ -883,16 +956,32 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 .menubtn,button:where(:not(.accent):not(.subtab):not(.tab):not(.on)){border:1px solid var(--border);background:var(--panel2);color:var(--muted)}
 .menubtn:hover,button:where(:not(.accent):not(.subtab):not(.tab):not(.on)):hover{color:var(--ink);background:var(--wash)}
 /* a filled accent carries reversed type in BOTH themes — never near-black on the light amber */
-button.on,.style-presets .seg button.on{color:var(--accInk)}
+button.on{color:var(--accInk)}
 button.on{background:var(--accent);border:1px solid var(--accent);font-weight:600}
 /* v2.24: …but a segmented control owns its own border model — the seg draws one outer 1px box and
    1px dividers, so an armed button taking a full border made it 1px taller than its neighbours and
-   pushed the divider out of line. Inside a .seg the active state is the FILL, not a new box. */
-.seg button.on{border:0;border-right:1px solid var(--accent)}
+   pushed the divider out of line. Inside a .seg the armed segment keeps the dividers it had at rest.
+   v2.74 (the 2026-11-01 visual audit, V24; owner default Q5, Ruling EF; Cartalith_GDT LARGE_ITEM_RULINGS.md,
+   2026-09-06 item 7: "Resolved to the WASHED treatment"): an armed segment is WASHED — rule 3 of this layer, and
+   the design's chip (Desktop.dc.html: a pill with a wash, a 1px accent border and accent text), drawn as a chip
+   2px INSIDE the segment (::before, under the label). Inside, not on the segment's own box, for two reasons: the
+   container's rounded corners clip its square children (V26), and a ring on the end segment's box would be cut
+   off along that curve; and a chip inside leaves the segment's width and every divider where they were. It was
+   v2.23's saturated fill on 26 dock segments and on every other segmented control. The fill stays on a TOOL-MODE
+   segment only, the one that says which map tool is armed — the Tools palettes ([data-civtool]) and Sculpt's
+   feature picker — as the port keeps its tool bar's SCULPT / PAINT / MEASURE segments filled (DS-02,
+   dcc_widgets.gd) "and nothing else". A new segmented control is washed unless it arms a tool. On the light
+   theme the ink is --accent on wash2 over --panel2 (the segment's own ground), above the 4.52:1 the token block
+   records for wash2 over --panel. */
+.seg button{position:relative;z-index:0}
+.seg button.on{border:0;border-right:1px solid var(--line);background:var(--panel2);color:var(--accent);font-weight:inherit}
+.seg button.on::before{content:'';position:absolute;inset:2px;z-index:-1;border:1px solid var(--accent);border-radius:calc(var(--r-btn) - 2px);background:var(--wash2);pointer-events:none}
 .seg button.on:last-child{border-right:0}
-.seg.grid button.on{border-right:1px solid var(--accent);border-top:1px solid var(--accent)}
+.seg.grid button.on{border-right:1px solid var(--line);border-top:1px solid var(--line)}
 .seg.grid button.on:nth-child(-n+6){border-top:0}
 .seg.grid button.on:nth-child(6n){border-right:0}
+.seg button[data-civtool].on,#sculptFeatureSeg button.on{background:var(--accent);color:var(--accInk);font-weight:500}
+.seg button[data-civtool].on::before,#sculptFeatureSeg button.on::before{content:none}
 
 /* active = wash + edge, never a saturated fill that swallows its own label */
 .tab{background:transparent;color:var(--muted);border:1px solid var(--border);font-weight:400}
@@ -909,15 +998,26 @@ button.on{background:var(--accent);border:1px solid var(--accent);font-weight:60
 .set-nav button.on{border:0;border-left:2px solid var(--accent);font-weight:inherit}
 /* v2.74 (the 2026-11-01 visual audit, V18): CIVIL's five sub-tabs fit the dock at 1366. They needed 387px of
    the 371 the dock gives there, so STATISTICS was cut at the dock's edge and the dock scrolled sideways by
-   16px; tighter tracking and side padding fit them (measured with this machine's Inter — a person re-checks
-   Segoe UI on Windows). Desktop and tablet only; the phone's domain page is its own width. */
-:where(html:not([data-shell="phone"])) .subtab{letter-spacing:.02em;padding:9px 2px;min-width:0}
+   16px. Tighter tracking and side padding bring the five labels to 359px (text 333.8 + tracking + 4px each,
+   measured with this machine's Inter at 11px — a person re-checks Segoe UI on Windows), and each tab's basis
+   is its own label (1 1 auto) rather than an equal fifth — at basis 0 every tab got 74px and SETTLEMENTS,
+   86px of text, was cut inside its button. Desktop and tablet only; the phone's domain page is its own width. */
+:where(html:not([data-shell="phone"])) .subtab{letter-spacing:.02em;padding:9px 2px;min-width:0;flex:1 1 auto}
 /* the phone draws the Settings page list as a row of tabs (the v2.73 phone block above): underline there */
 :where(html[data-shell="phone"]) .set-nav button.on{border-left:0;border-bottom:2px solid var(--accent)}
 button.accent{background:var(--accent);color:var(--accInk);border:1px solid var(--accent);font-weight:600}
 
 /* numerics and codes in mono — the one type rule the DCC states outright */
 .val,.insp-row .val,code,progress{font-family:var(--mono)}
+/* v2.74 (the 2026-11-01 visual audit, V30): ONE window heading — mono 11px, weight 500, .2em, uppercase, accent:
+   the design's window title (design/mobile-shell-2026-10-31 source/build/shell.tpl.html, the dialog's title span:
+   `font:500 11px 'IBM Plex Mono';letter-spacing:.2em;color:var(--acc)`, its titles written in capitals). The audit's
+   plan said 12px, Settings' size; the drawing says 11 and wins. The five windows drew six styles: Settlements sans
+   19px bold, the route editor sans 17px, Credits mono 14px, Settings mono 12px at .1em, the start card and New
+   World mono 13px. The City viewer's heading is a PLACE's name, a proper noun, and keeps its 16px sans (exempt by
+   the audit). Records ▸ Factions… opens the window titled "Settlements": the two names are for the owner to decide
+   (PLAN.md §8), and the default is no change, so the title is restyled, not renamed. */
+.cfm-body h2,.re-summary h2,.set-head h3,#creditsModal h2,#onboard h3{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
 details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 /* three map-overlay scrims are hardcoded dark in BOTH themes (pre-existing). A theme pass is
    the right place to give light its own, since these sit on the matte, not on the map. */
@@ -938,8 +1038,12 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
    Design: Cartalith_GDT PC_SHELL_PROPOSAL.md §2-§3.12, Rulings DY and DZ, and the mockup
    design/mobile-shell-2026-10-31/Desktop.dc.html. TOKENS ARE UNCHANGED: the v2.23 :root block above
    is the port's dcc_theme, and the mockup's own colours drift from it. The new look is layout, type
-   and spacing only: section labels in mono, uppercase and letter-spaced; the accent used sparingly;
-   flat; radius 0, which the theme layer above already enforces for every element.
+   and spacing only: section labels in mono, uppercase and letter-spaced; the accent used sparingly.
+   v2.74 correction (Ruling BK: a comment that has gone stale is fixed with the change that exposes it): this
+   block used to end "flat; radius 0, which the theme layer above already enforces for every element". The
+   mockup is NOT flat — Desktop.dc.html rounds its controls (10-16px, its chips and buttons pills) and keeps
+   its panels and bands square — and the owner chose its radii (Ruling EC item 7, "Rounded, as the design").
+   The theme layer's radius block holds the tokens; nothing in this block sets a corner of its own.
    ONE CONTROL, ONE HOME PER SHELL (v1.57's rule, carried past v2.31's and v2.72's): a control that sits
    in a different band on one shell than on another is still ONE element. _shellPlace() (block 1, the
    slot table _SHELL_SLOTS) moves it into that shell's slot whenever the class changes. It must never be
@@ -1087,6 +1191,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   :where(html:not([data-shell="phone"])) #toolOpts #sculptModeSeg{order:6}
   :where(html:not([data-shell="phone"])) #toolOpts .to-spacer{flex:0 0 0;min-width:0}
   :where(html:not([data-shell="phone"])) #toolOpts #sBrushKm{max-width:11em}
+  /* and the chips 7px a side instead of 9: measured on this build, row one gave the picker 832px of its 950 at
+     1366 (Mountains and Hills out of sight); 26px less per pair of sides brings it to one at most there. */
+  :where(html:not([data-shell="phone"])) #toolOpts #sculptFeatureSeg button{padding:4px 7px}
   /* v2.46: #assetsHeaderBtn is the way OUT of Assets mode as well as in, and on this layout it lives
      in the pins. So the bar stays in Assets mode (v2.24 hid it) and only its map-tool parts step
      aside; the domain rail and both docks still give the library the stage, as before. */
@@ -1108,7 +1215,16 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
              padding:0 6px 0 14px;border-bottom:1px solid var(--line);background:var(--panel)}
   :where(html:not([data-shell="phone"])) .dock-head .dh-path{flex:1;min-width:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   :where(html:not([data-shell="phone"])) .dh-btn{width:26px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;font-size:13px}
-  .dock .sublabel,.dock .sublabel-grp{font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+  /* v2.74 (the 2026-11-01 visual audit, V25): ONE section label — mono 9.5px, weight 500, .2em, uppercase, --dim:
+     the design's (Desktop.dc.html's "section label TOOLS / RUN": IBM Plex Mono 9.5px/500, 1.9px tracking,
+     uppercase, #8d9296 = --dim). The same role was drawn about eight ways across these nine selectors (9-10.5px,
+     .06-.22em, weights 400-700, --dim, --faint or accent): the dock's section heads and sublabels, the strip's
+     RECORDED, the Layers popover's groups, the asset rail's heads, New World's labels, and the City viewer's and
+     the route editor's column heads. A LOCATION label keeps the accent — the dock's path, the tool bar's context,
+     the Context panel's kind, a menu's caption (.dh-path, .to-ctx, .ctx-k, .mb-cap) — and is not in this list.
+     The two that were --faint (.lp-grp, .al-rail-h) move up to --dim, as V08's note asked. Each keeps its own
+     margins; only the type and the ink are one rule. */
+  .sec h2,.dock .sublabel,.dock .sublabel-grp,.tl-lab,.layers-fab .lp-grp,.al-rail .al-rail-h,#onboard .su-label,.cv-section h3,.re-col h3{font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)}
   .dock details.acc>summary{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.14em;text-transform:uppercase}
   #worldCatSeg{margin:12px 14px 4px!important}
   #worldCatSeg button{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;padding:8px 6px}
@@ -1117,6 +1233,30 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   .run-sec #genBtn{display:block;width:100%;margin:10px 0 8px;padding:9px 12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase}
   .run-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .run-row button{padding:7px 6px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* v2.74 (the 2026-11-01 visual audit, V24 b and c; owner default Q5): a dock's action buttons take the design's
+     button type, as Run's already did — mono, weight 500, uppercase, letter-spaced: the secondary at 10px/.12em,
+     a primary (.accent) at 10.5px/.14em (Desktop.dc.html: NEW SEED mono 10px/500/1.2px, GENERATE WORLD
+     10.5px/500/1.47px). On v2.73 eight drew sans sentence case at 12px (Commit way, Clear all labels, Simulate…);
+     the rule is every `.btnrow` button in a dock, so none is left out by its id. Mono uppercase is about 1.3x
+     wider, and a row that runs out of room wraps (`.btnrow` is flex-wrap): the rows that wrap are listed in
+     CHANGELOG v2.74. Bake and Un-finalize run the dock's whole width, as the design draws Finalize's button (it
+     was 224px of 371 at 1366). One of the two is display:none at any time (applyFinalizedUI writes '' or 'none'). */
+  .dock .btnrow > button{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase}
+  .dock .btnrow > button.accent{font-size:10.5px;letter-spacing:.14em}
+  #bakeAllBtn,#unfinalizeBtn{flex:1 1 100%}
+  /* (V24 a) a dock's segments take the design's chip type — mono 10px, weight 500, .08em (its category chip:
+     IBM Plex Mono 10px/500/0.8px) — 26 of them drew sans 10.5px. Their labels keep their own case ("Region",
+     "1K", "km"); WORLD's GENERATE | SCULPT keeps its own capitals and .2em (#worldCatSeg). The on-state is the
+     theme layer's segment rule (washed, or a tool's fill). */
+  .dock .seg button{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.08em}
+  /* and each segment's basis is its own label, on one line, as V18 did for the sub-tabs: at an equal fifth
+     (basis 0) mono's wider labels broke inside their segment at 1366 ("⌂" over "Settlement", "▦" over
+     "Territory" in CIVIL's Tools). A palette that still cannot fit wraps as whole segments (its own flex-wrap). */
+  :where(html:not([data-shell="phone"])) .dock .seg:not(.grid) button{flex:1 1 auto;white-space:nowrap}
+  /* the CIVIL dock's sub-tabs: mono, weight 500 (the design's Context tabs, mono 10px/500), the armed one too
+     (V03 reset its weight to `inherit`, which is the bar's 400). Their tracking stays the V18 fix's .02em on
+     desktop and tablet: the design's .18em would need 380px of the 371 they have at 1366. */
+  .subtab,.subtab.on{font-family:var(--mono);font-size:10px;font-weight:500}
   /* collapsed (Window ▸ Left dock, or the header's chevron): a 30px strip that keeps the chevron and
      the path, so the way back is where the dock was. The domain bodies' INLINE displays are left alone
      (v2.24's rule — _civSubPageVisible() reads #genCiv's): it is the dock's children that are hidden,
@@ -1177,6 +1317,20 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   :where(html:not([data-shell="phone"])) #tlStrip .tl-filters label.chk{margin:0!important;white-space:nowrap}
   :where(html:not([data-shell="phone"])) #tlStrip .tl-long{display:none}
   :where(html:not([data-shell="phone"])) #tlStrip .tl-short{display:inline}
+  /* v2.74 (the 2026-11-01 visual audit, V29; the 2026-09-06 ruling, item 7, that the timeline's pill on-state
+     matches the WORLD dock's, washed): the strip's toggles are the design's chips. The recorded years are pills
+     already (washed while active, `.pill.on`); the three filters were native checkboxes with sans labels. Each
+     filter is now its LABEL drawn as a chip — mono 10px, a 1px edge, a pill — washed with an accent edge and
+     accent ink while checked. The checkbox stays in the label, visually hidden but focusable, so Tab still
+     reaches it, Space still toggles it, its ring is drawn on the chip (:focus-visible), and a screen reader still
+     announces a checkbox with its label (a person checks that). Never hide it with display:none: that takes it
+     out of the tab order. The play button is the design's washed accent control, its label kept. The phone's
+     STORY › Time keeps the long-label checkboxes. */
+  :where(html:not([data-shell="phone"])) #tlStrip .tl-filters label.chk{position:relative;padding:3px 10px;border:1px solid var(--border);border-radius:var(--r-pill);font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--muted)}
+  :where(html:not([data-shell="phone"])) #tlStrip .tl-filters label.chk:has(input:checked){border-color:var(--accent);background:var(--wash2);color:var(--accent)}
+  :where(html:not([data-shell="phone"])) #tlStrip .tl-filters label.chk input{position:absolute;left:0;top:0;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}
+  :where(html:not([data-shell="phone"])) #tlStrip .tl-filters label.chk:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+  :where(html:not([data-shell="phone"])) #tlStrip #explTlPlayBtn{background:var(--wash2);border-color:var(--accent);color:var(--accent);font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase}
 
   /* ---- D7 · the status bar: mono, small, the version at the right end -------------------------- */
   :where(html:not([data-shell="phone"])) body.sb-hidden .status-bar{display:none}
@@ -1328,7 +1482,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"]) #civFactionsModal .row:has(> input[type=range]) > label{flex:1 0 100%!important}
 :where(html[data-shell="phone"]) #civPmGlobal .row + .hint{margin-left:0!important}
 :where(html[data-shell="phone"]) #creditsModal{padding:0}
-:where(html[data-shell="phone"]) #creditsModal .cr-card{width:100vw;height:100vh;height:100dvh;max-height:none;border-radius:0}
+:where(html[data-shell="phone"]) #creditsModal .cr-card{width:100vw;height:100vh;height:100dvh;max-height:none}
 
 /* ---- DS-13 · the map's control row (TOUCH; §2.5, Ruling EB) -------------------------------------------
    From the OUTER edge: ⌖ recentre, then the − | + rocker (two 44px halves, a 1px hairline inset 11px),
@@ -1649,6 +1803,13 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"]) .ph-grip-bar::after{content:'';position:absolute;left:8px;top:28px;bottom:28px;width:4px;background:var(--accent)}
 :where(html.hand-left[data-shell="phone"]) .ph-grip{left:auto;right:0;justify-content:flex-end}
 :where(html.hand-left[data-shell="phone"]) .ph-grip-bar{border-left:1px solid var(--line);border-right:0}
+/* v2.74 (V26, Ruling EC item 7): the pull-out tab is a control, so it takes the design's corners — round on the
+   side that faces the map, square against the screen's edge (d_ring.js `gripRadius`: 0 14px 14px 0 on the left,
+   mirrored on the right), and its accent bar is a rounded rule (2px). The drawer it opens is a panel and stays
+   square (the design rounds its outer side 18px: a stated departure). */
+:where(html[data-shell="phone"]) .ph-grip-bar{border-radius:0 14px 14px 0}
+:where(html.hand-left[data-shell="phone"]) .ph-grip-bar{border-radius:14px 0 0 14px}
+:where(html[data-shell="phone"]) .ph-grip-bar::after{border-radius:2px}
 /* While the drawer is open the grip travels with its edge and stays above the drawer and the scrim, so
    the way to close it is the same tab that opened it — tap it, or drag it back toward the edge (§2.4: "tap
    the scrim, drag the grip back or press system back to close"; the mockup's grip rides the drawer's
@@ -1980,7 +2141,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   <span id="findWrap" style="position:relative;display:inline-block">
     <input id="findInput" type="search" placeholder="Search  ⌃K" autocomplete="off" spellcheck="false"
            style="width:150px;padding:2px 6px;font-size:.82rem">
-    <div id="findResults" style="display:none;position:absolute;z-index:80;top:100%;left:0;min-width:290px;max-height:340px;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px"></div>
+    <div id="findResults" style="display:none;position:absolute;z-index:80;top:100%;left:0;min-width:290px;max-height:340px;overflow:auto;background:var(--panel);border:1px solid var(--border);padding:3px"></div>
   </span>
   <!-- v2.73: the phone's search row. It covers the app bar while open and holds #findWrap (moved here on a
        phone by the slot table), so the one search runs; × or Esc closes it. -->
@@ -2441,7 +2602,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
                (the whole point of the panel: change a control, watch the number move). -->
           <div class="re-col re-col-out">
             <h3>Results</h3>
-            <canvas id="reProfileCv" width="640" height="70" style="width:100%;height:70px;margin:0 0 6px;border-radius:4px;background:#14110c"></canvas>
+            <canvas id="reProfileCv" width="640" height="70" style="width:100%;height:70px;margin:0 0 6px;background:#14110c"></canvas>
             <div id="reResults"><div class="hint">Select a journey above to plan it.</div></div>
             <h3 style="margin-top:14px">Stops</h3>
             <div id="reStops"><div class="hint">No settlements along this route.</div></div>
@@ -3232,7 +3393,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
           <span style="flex:1;text-align:right">Pop</span><span style="flex:1;text-align:right">Prosp.</span>
           <span style="flex:1">Econ. role</span><span style="flex:0 0 40px;text-align:right">Roads</span><span style="flex:1">Status</span>
         </div>
-        <div id="stViewport" style="position:relative;overflow-y:auto;height:420px;border:1px solid var(--border);border-radius:0 0 5px 5px">
+        <div id="stViewport" style="position:relative;overflow-y:auto;height:420px;border:1px solid var(--border)">
           <div id="stSpacer" style="position:relative"></div>
         </div>
       </div>
@@ -3474,7 +3635,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
       <div class="row"><label for="sLac">Lacunarity</label><input type="range" id="sLac" min="140" max="320" step="5"><span class="val" id="sLacV"></span></div>
       <div class="row"><label for="sEdge">Edge noise</label><input type="range" id="sEdge" min="0" max="100" step="1"><span class="val" id="sEdgeV"></span></div>
       <div class="seedrow" style="display:flex;gap:6px;align-items:center;margin-top:8px">
-        <input type="number" id="sSeed" step="1" style="flex:1;background:#10151c;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px">
+        <input type="number" id="sSeed" step="1" style="flex:1;background:#10151c;color:var(--fg);border:1px solid var(--line);padding:6px 8px">
         <button id="sSeedRand" title="Randomize seed">🎲</button>
       </div>
       </details>
@@ -3645,9 +3806,9 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <div id="assetsPanel" style="display:none">
     <div class="sec">
       <h2>Asset pack</h2>
-      <div class="row"><label for="alPackName">Pack name</label><input type="text" id="alPackName" value="Custom Asset Pack" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:12px"></div>
-      <div class="row"><label for="alPackAuthor">Author</label><input type="text" id="alPackAuthor" value="" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:12px"></div>
-      <div class="row"><label for="alPackLicense">License</label><input type="text" id="alPackLicense" value="CC0" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:12px"></div>
+      <div class="row"><label for="alPackName">Pack name</label><input type="text" id="alPackName" value="Custom Asset Pack" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:5px 7px;font-size:12px"></div>
+      <div class="row"><label for="alPackAuthor">Author</label><input type="text" id="alPackAuthor" value="" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:5px 7px;font-size:12px"></div>
+      <div class="row"><label for="alPackLicense">License</label><input type="text" id="alPackLicense" value="CC0" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:5px 7px;font-size:12px"></div>
       <div class="readout" id="alStats">—</div>
       <div class="hint">Assets live in the project: <b>Export .zip</b> (<b>File ▸ Export</b>) embeds them and <b>Load project .zip</b> restores them — no rebuilding from pack ZIPs.</div>
     </div>
@@ -18405,7 +18566,7 @@ function _findRender(){
   const inp=document.getElementById('findInput'), rs=document.getElementById('findResults'); if(!inp||!rs) return;
   const hits=_findRun(inp.value);
   if(!hits.length){ _findClose(); return; }
-  rs.innerHTML=hits.map((h,i)=>'<div data-find-i="'+i+'" style="padding:3px 6px;border-radius:4px;cursor:pointer;display:flex;gap:6px;align-items:baseline">'
+  rs.innerHTML=hits.map((h,i)=>'<div data-find-i="'+i+'" style="padding:3px 6px;cursor:pointer;display:flex;gap:6px;align-items:baseline">'
     +'<span style="flex:1">'+_escHtml(h.label)+'</span>'
     +'<span style="opacity:.6;font-size:.75rem">'+_escHtml(h.kind==='control'?'setting':h.kind)+'</span></div>').join('');
   rs.style.display='';
@@ -20751,7 +20912,9 @@ function _dskToolOptsSync(){
   const ctx=_dskEl('toolOptsCtx'), hint=_dskEl('toolOptsHint'), tool=_dskEl('toolOptsTool'); if(!ctx||!hint||!tool) return;
   const sculpt=typeof _sculptEditorActive==='function'&&_sculptEditorActive();
   let c, h='';
-  if(_dskV(()=>_assetsModeOn,false)){ c='Assets · Library'; h='The library has the stage — Assets (← Map) in the pins returns to the map'; }
+  /* v2.74: on the desktop and the tablet the left dock now holds the library's pack panel in this mode (the v2.24
+     rule's v2.74 note), so the hint names it; the phone does not draw it */
+  if(_dskV(()=>_assetsModeOn,false)){ c='Assets · Library'; h=(_shell==='phone')?'The library has the stage — Assets (← Map) in the pins returns to the map':'The library has the stage, its pack panel on the left — Assets (← Map) in the pins returns to the map'; }
   else if(sculpt){ const f=_dskV(()=>SCULPT_FEATURES[_sculptType],null); c='Sculpt · '+(f?f.label:'—'); }
   /* v2.73: Select region (Region export) is a drawing tool too; it used to leave the bar naming the domain */
   else if(_dskV(()=>regionSelMode,false)){ c=(_DSK_DOMAIN_NAMES[_domain]||_domain)+' · Region select'; h='Drag a box on the map — then Refine & export, or File ▸ New world from selection'; }
@@ -24333,7 +24496,7 @@ function _civRenderFactionList(){
        faction name was drawn 0px wide (needing 42–99px) behind two pills and the stats that do not
        shrink. Now the pills and stats move to a second line instead; where the row has room (the desktop
        modal draws names ~231px wide) nothing wraps and nothing changes. */
-    row.style.cssText='display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 7px;cursor:pointer;font-size:.8rem;border-radius:5px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);margin-bottom:3px';
+    row.style.cssText='display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 7px;cursor:pointer;font-size:.8rem;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);margin-bottom:3px';
     row.innerHTML=`<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgb(${f[1].join(',')});flex:0 0 auto"></span>`+
       `<b style="flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escHtml(name)}</b>`+
       `<span class="pill" style="font-size:.68rem">${_escHtml(gov)}</span>`+
@@ -24547,7 +24710,10 @@ function _umTypePreviewCtx(ui){
 }
 /* The measurement line. A preview that is only a picture cannot tell you whether a slider did
    anything — these are read straight off the generated model, so a change that moves nothing
-   reads as a change that moves nothing (v2.42's defect, from the other side). */
+   reads as a change that moves nothing (v2.42's defect, from the other side).
+   v2.74 (the contrast census, extended to the Settlements window's Types tab): the quarters line drew the hint's
+   --faint at .75 opacity, 3.19:1 on the window's panel; it is the hint's own ink now (4.79). Never fade text
+   that is already the lowest ink. */
 function _umTypePreviewStats(m,ms){
   if(!m) return '';
   let km=0; const N=m.graph.nodes;
@@ -24558,7 +24724,7 @@ function _umTypePreviewStats(m,ms){
     +(m.parcels?m.parcels.length:0)+' parcels · '+(km/1000).toFixed(2)+' km of street'
     +(m.wall&&m.wall.ring&&m.wall.ring.length>2?(' · walled ('+(m.wall.style||'stone')+', '+((m.wall.gates||[]).length)+' gates)'):' · unwalled')
     +' · '+ms.toFixed(0)+' ms'
-    +(dn.length?('<br><span style="opacity:.75">quarters: '+dn.slice(0,8).map(function(k){return _escHtml(k)+'×'+ds[k];}).join(', ')+(dn.length>8?', …':'')+'</span>'):'');
+    +(dn.length?('<br><span>quarters: '+dn.slice(0,8).map(function(k){return _escHtml(k)+'×'+ds[k];}).join(', ')+(dn.length>8?', …':'')+'</span>'):'');
 }
 function _civPmDrawTypePreview(){
   const cv=document.getElementById('_pmTypeCv'); if(!cv||!_civPmTypeUI) return;
@@ -24631,7 +24797,7 @@ function _civRenderPmTypes(){
      rendered pane, which no DOM assertion in the probe would have reported. */
   h+='<div class="sec" style="position:sticky;top:0;z-index:2;background:var(--panel,#16181d);padding-bottom:6px;margin-bottom:4px;box-shadow:0 8px 12px -10px rgba(0,0,0,.95)">'
     +'<div class="sublabel">Preview</div>'
-    +'<canvas id="_pmTypeCv" width="680" height="320" style="width:100%;height:auto;display:block;border:1px solid var(--line,#444);border-radius:4px;background:#1a1614"></canvas>'
+    +'<canvas id="_pmTypeCv" width="680" height="320" style="width:100%;height:auto;display:block;border:1px solid var(--line,#444);background:#1a1614"></canvas>'
     +'<div class="hint" id="_pmTypeStat" style="margin-top:5px">…</div>'
     +'<div class="hint" style="margin-top:3px;font-size:.66rem">Same renderer the settlement popup uses, on a SYNTHETIC site — no map terrain, no real water, no approach roads. The prevailing wind and the river’s direction are fixed constants here (a preview has no map to read them off), so v2.64’s kiln and tan yards land on constant sides rather than on this world’s.</div>'
     +'</div>';
@@ -25118,7 +25284,7 @@ function _civRenderEconomyPage(){
   for(let fid=1;fid<CIV_FACTIONS.length;fid++){ const b=agg.byFaction[fid];
     if(!b.settlementCount) continue;
     const name=civFactionNames[fid]||CIV_FACTIONS[fid][0], col=CIV_FACTIONS[fid][1];
-    html+=`<div style="border-radius:5px;border:1px solid var(--border);background:var(--panel);padding:5px 7px;margin-bottom:4px;font-size:.76rem">
+    html+=`<div style="border:1px solid var(--border);background:var(--panel);padding:5px 7px;margin-bottom:4px;font-size:.76rem">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
         <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgb(${col.join(',')})"></span><b>${name}</b>
       </div>
@@ -25362,7 +25528,7 @@ function _civPopulatePlaceEditor(host,p,rowRefs){
     ${!isPOI?`<div class="row" style="flex-wrap:wrap;align-items:flex-start"><label>Traits</label><div style="flex:1;display:flex;flex-wrap:wrap;gap:3px">${traitHtml}</div></div>`:''}
     ${!isPOI?`<div class="row"><label for="_civPeAge">Age (yrs)</label><input id="_civPeAge" type="number" min="30" max="1000" step="10" placeholder="auto (${_umInferAge(p.pop||0)})" style="flex:1" value="${p.umAge!=null?p.umAge:''}"></div>
     <label class="chk"><input type="checkbox" id="_civPeWalls"${(p.umWalls!=null?p.umWalls:_umInferWalls(p))?' checked':''}> Fortifications (walls)${p.umWalls==null?' <span style="color:var(--muted);font-size:.72rem">(auto)</span>':''}</label>`:''}
-    <div class="row" style="align-items:flex-start"><label for="_civPeHist">History</label><textarea id="_civPeHist" rows="3" placeholder="Lore, founding, notable events…" style="flex:1;resize:vertical;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:.78rem;font-family:var(--sans)">${(p.history||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></div>
+    <div class="row" style="align-items:flex-start"><label for="_civPeHist">History</label><textarea id="_civPeHist" rows="3" placeholder="Lore, founding, notable events…" style="flex:1;resize:vertical;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:5px 7px;font-size:.78rem;font-family:var(--sans)">${(p.history||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></div>
     ${!isPOI?`<button id="_civPeConnect" style="width:100%;margin-top:6px">🛤 Connect to road network</button>
     <div class="sublabel" style="margin-top:10px">Derived <span style="text-transform:none;font-weight:400;color:var(--muted)">(v1.16 — read-only, computed from existing map/economy state)</span></div>
     <div class="hint" id="_civPeInsp" style="margin-top:4px">${_civFormatPlaceInsp(p)}</div>
@@ -25639,7 +25805,7 @@ function _carRenderIconList(){
   for(const icon of state.mapIcons){
     const sel=(icon===_iconSelected);
     const card=document.createElement('div');
-    card.style.cssText='border-radius:5px;margin-bottom:3px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);';
+    card.style.cssText='margin-bottom:3px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);';
     const row=document.createElement('div');
     row.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:pointer;font-size:.8rem;';
     const glyph=document.createElement('span'); glyph.textContent=icon.fam==='custom'?'◆':((_carIconTypeList(icon.fam).find(t=>t.key===icon.slot)||{glyph:'📍'}).glyph); glyph.style.cssText='flex-shrink:0;width:14px;text-align:center';
@@ -25689,7 +25855,7 @@ function _civRenderLabelList(){
   for(const lb of state.labels){
     const sel=(lb===_civSelectedLabel);
     const card=document.createElement('div');
-    card.style.cssText='border-radius:5px;margin-bottom:3px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);';
+    card.style.cssText='margin-bottom:3px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);';
     const row=document.createElement('div');
     row.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:pointer;font-size:.8rem;';
     const glyph=document.createElement('span'); glyph.textContent='🏷'; glyph.style.cssText='flex-shrink:0;width:14px;text-align:center';
@@ -25758,7 +25924,7 @@ function _civRenderPoiList(){
     const klass=CIV_POI_TYPES.find(t=>t.key===p.kind)||CIV_POI_TYPES[CIV_POI_TYPES.length-1];
     const sel=(p===_civSelectedPlace);
     const card=document.createElement('div');
-    card.style.cssText='border-radius:5px;margin-bottom:3px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);';
+    card.style.cssText='margin-bottom:3px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);';
     const row=document.createElement('div');
     row.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:pointer;font-size:.8rem;';
     const glyph=document.createElement('span'); glyph.textContent=klass.glyph; glyph.title=klass.label;
@@ -25813,7 +25979,7 @@ function _civRenderWayList(){
     if(!rt.villageAddon) return el;
     if(!_vaHost){
       const d=document.createElement('details');
-      d.style.cssText='margin-top:4px;border:1px solid var(--border);border-radius:5px;padding:3px 6px;background:var(--panel);';
+      d.style.cssText='margin-top:4px;border:1px solid var(--border);padding:3px 6px;background:var(--panel);';
       const s=document.createElement('summary');
       s.style.cssText='cursor:pointer;font-size:.76rem;color:var(--muted);';
       s.textContent=`🏚 Village tracks (${_vaCount})`;
@@ -25831,7 +25997,7 @@ function _civRenderWayList(){
     const kmStr=rt.km!=null?rt.km.toFixed(0)+' km':'';
     const expanded=(ri===_civSelectedWayIdx);
     const card=document.createElement('div');
-    card.style.cssText='border-radius:5px;padding:4px 8px;margin-bottom:3px;border:1px solid '+(expanded?'var(--accent)':'var(--border)')+';background:var(--panel);font-size:.8rem;';
+    card.style.cssText='padding:4px 8px;margin-bottom:3px;border:1px solid '+(expanded?'var(--accent)':'var(--border)')+';background:var(--panel);font-size:.8rem;';
     const head=document.createElement('div'); head.style.cssText='display:flex;align-items:center;gap:5px;';
     const iconSpan=document.createElement('span'); iconSpan.textContent=typeIcon; iconSpan.style.fontSize='11px';
     const nameInput=document.createElement('input');
@@ -25892,7 +26058,7 @@ function _civRenderJourneyList(){
     const name=jn.name||('Journey '+(ji+1));
     const kmStr=jn.km!=null?jn.km.toFixed(0)+' km':'';
     const card=document.createElement('div');
-    card.style.cssText='border-radius:6px;padding:5px 8px;cursor:pointer;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:'+(sel?'var(--panel-darker)':'var(--panel)');
+    card.style.cssText='padding:5px 8px;cursor:pointer;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:'+(sel?'var(--panel-darker)':'var(--panel)');
     const header=document.createElement('div'); header.style.cssText='display:flex;align-items:center;gap:6px;';
     const icon=document.createElement('span'); icon.textContent='🗺'; icon.style.cssText='font-size:11px;flex-shrink:0';
     const nameInput=document.createElement('input');
@@ -28401,11 +28567,13 @@ function _jpRenderPartyForm(jn,autoHint){
   const isAuto=p.assetMode==='auto';
   const dis=isAuto?'disabled':'';
   const vessels=Object.keys(JP_SHIPS).filter(v=>JP_SHIPS[v].modes.includes(p.transport==="Sea Faring"?"sea":"river"));
+  /* v2.74 (the 2026-11-01 visual audit, V08): Hours/day's "(land)" note is --dim, not the label faded to .55 —
+     at that opacity it measured 2.59:1 dark and 2.34 light (the census's one route-editor failure). */
   host.innerHTML=`
     <div class="sublabel">Traveler options</div>
     <div class="row"><label>Group size</label><input data-jp="groupSize" type="number" min="1" max="100000" value="${p.groupSize}" style="flex:1"><span style="padding-left:4px;color:var(--muted);font-size:.75rem">people</span></div>
     <div class="row"><label>Pace</label><select data-jp="pace" style="flex:1">${opt(Object.keys(JP_PACE),p.pace)}</select></div>
-    <div class="row"><label title="Hours the party travels per day. Land stages only — a water stage uses the sailing window for its water type (a coastal hull anchors at nightfall; an open-water passage sails through it).">Hours/day <span style="opacity:.55">(land)</span></label><input data-jp="hours" type="number" min="1" max="16" value="${p.hours}" style="flex:1"></div>
+    <div class="row"><label title="Hours the party travels per day. Land stages only — a water stage uses the sailing window for its water type (a coastal hull anchors at nightfall; an open-water passage sails through it).">Hours/day <span style="color:var(--dim)">(land)</span></label><input data-jp="hours" type="number" min="1" max="16" value="${p.hours}" style="flex:1"></div>
     <div class="row"><label>Trade cargo</label><input data-jp="cargoKg" type="number" min="0" step="10" value="${p.cargoKg}" style="flex:1"><span style="padding-left:4px;color:var(--muted);font-size:.75rem">kg</span></div>
     <div class="row"><label title="How many days of food and fodder the party carries at a time — plus water, but only in arid biomes or aboard a vessel; elsewhere water is assumed abundant and collectable, so it isn't carried weight. With pack animals this is bounded by the wagon equation — see the range note below.">Supplies carried</label><input data-jp="supplyDays" type="number" min="1" max="60" value="${p.supplyDays}" style="flex:1"><span style="padding-left:4px;color:var(--muted);font-size:.75rem">days</span></div>
     ${(()=>{ /* v1.49: the wagon-equation ceiling, stated up front. v1.48 only reported the
@@ -28522,14 +28690,14 @@ function _jpRenderResults(jn){
   const dRow=document.querySelector('[data-jp-desert]'); if(dRow) dRow.style.display=plan.hasDesert?'':'none';
   const catIco={land:'🏞',river:'⛵',sea:'🌊'};
   let html='';
-  if(plan.blocked) html+=`<div style="border:1px solid var(--warn);border-radius:6px;padding:6px 9px;margin-bottom:6px;font-size:.78rem;color:var(--warn)">⛔ ${plan.blockedMsg}</div>`;
+  if(plan.blocked) html+=`<div style="border:1px solid var(--warn);padding:6px 9px;margin-bottom:6px;font-size:.78rem;color:var(--warn)">⛔ ${plan.blockedMsg}</div>`;
   /* v1.49: verdict first — the synthesis the panel used to leave entirely to the reader. Its colour
      is the only thing in Results that reads at a glance, so it carries the headline judgement; the
      named reasons below it are what make that judgement checkable rather than oracular. */
   const verdict=_jpVerdict(plan);
   if(verdict&&verdict.level!=='blocked'){
     const col={favourable:'#7dc06a',moderate:'var(--accent)',strained:'#e0a840',severe:'var(--warn)'}[verdict.level]||'var(--accent)';
-    html+=`<div style="border:1px solid ${col};border-left-width:3px;border-radius:6px;padding:6px 9px;margin-bottom:7px">
+    html+=`<div style="border:1px solid ${col};border-left-width:3px;padding:6px 9px;margin-bottom:7px">
       <div style="font-size:.8rem;font-weight:600;color:${col}">${verdict.label}</div>
       <div style="font-size:.72rem;color:var(--muted);margin-top:2px">${verdict.text}</div>`+
       (verdict.reasons.length?`<ul style="margin:4px 0 0;padding-left:16px;font-size:.7rem;color:var(--muted)">`+
@@ -28802,7 +28970,7 @@ function _jpRenderResults(jn){
       pkgFix.speciesFix?`${JP_ANIMALS[pkgFix.speciesFix].label}${pkgFix.curSpecies?' (was '+JP_ANIMALS[pkgFix.curSpecies].label+')':''}`:null,
       pkgFix.vehicleFix?`${pkgFix.vehicleFix==='carts'?'cart':pkgFix.vehicleFix==='wagons'?'wagon':pkgFix.vehicleFix==='travois'?'travois':'sled'}${pkgFix.curVehicle?' (was '+(pkgFix.curVehicle==='carts'?'cart':pkgFix.curVehicle==='wagons'?'wagon':pkgFix.curVehicle==='travois'?'travois':'sled')+')':''}`:null
     ].filter(Boolean).join(' + '):'';
-    html+=`<details style="margin-top:3px;border:1px solid ${bad?badCol:'var(--border)'};border-radius:5px;padding:2px 6px${bad?';background:rgba(190,70,60,.07)':''}"${bad?' open':''}>
+    html+=`<details style="margin-top:3px;border:1px solid ${bad?badCol:'var(--border)'};padding:2px 6px${bad?';background:rgba(190,70,60,.07)':''}"${bad?' open':''}>
       <summary style="cursor:pointer;font-size:.72rem${bad?';color:'+badCol:''}">${catIco[s.cat]||''} Stage ${i+1} — ${s.terrain} (${s.km.toFixed(0)} km)${bad?` <b>${bad.icon} ${bad.label}</b>`:''}${showBest?' <b style="color:var(--accent)">⚡ faster mode available</b>':''}${showPkg?' <b style="color:var(--accent)">⚡ better animal/vehicle available</b>':''}</summary>
       ${bad?`<div style="font-size:.68rem;margin:3px 0 5px;padding:4px 6px;border-left:2px solid ${badCol};background:rgba(0,0,0,.16)">
         <div style="color:${badCol}">${_escHtml(bad.msg)}</div>
@@ -28925,7 +29093,7 @@ function _jpRenderResults(jn){
       (tl.length>shown.length?`<div style="color:var(--muted);padding:3px 0">… ${tl.length-shown.length} more days</div>`:'')+`</div></details>`; }
   /* formula trace */
   html+=`<details style="margin-top:4px"><summary style="cursor:pointer;font-size:.75rem;color:var(--accent)">Calculation trace</summary>
-    <pre style="font-size:9px;line-height:1.45;overflow-x:auto;background:var(--panel-darker);border:1px solid var(--border);border-radius:5px;padding:6px;margin-top:4px">${
+    <pre style="font-size:9px;line-height:1.45;overflow-x:auto;background:var(--panel-darker);border:1px solid var(--border);padding:6px;margin-top:4px">${
     plan.results.map((r,i)=>`── Stage ${i+1} · ${r.transportLabel||''} ──\n`+(r.blocked?`⛔ ${r.blocked}`:r.formula)).join('\n\n')}</pre></details>`;
   host.innerHTML=html;
   host.querySelectorAll('[data-jps]').forEach(el=>{
@@ -29402,11 +29570,13 @@ function _civBuildTimelineUI(){
   const tl=document.getElementById('civTimelinePanel'); if(!tl) return;
   if(!civTimeline.length){ tl.innerHTML='<div class="hint">No years added yet.</div>'; }
   else {
+    /* v2.74 (V29): each year is a .pill — washed while it is the active year (CSS) — and its ✕ takes its ink from
+       .pill-x; an inline opacity of .6 put it at 2.39:1 on the armed pill and 3.75 on the others. */
     let html='<div style="display:flex;flex-wrap:wrap;gap:4px">';
     for(const s of civTimeline){
       const on=s.year===civYear;
       html+=`<button class="pill${on?' on':''}" onclick="civGotoYear(${s.year})"
-        style="min-width:48px">${_civFormatYear(s.year)} <span onclick="event.stopPropagation();civRemoveYear(${s.year})" style="opacity:.6">✕</span></button>`;
+        style="min-width:48px">${_civFormatYear(s.year)} <span class="pill-x" onclick="event.stopPropagation();civRemoveYear(${s.year})">✕</span></button>`;
     }
     html+='</div>';
     if(civTimeline.length) html+=`<div class="hint" style="margin-top:4px">Active year: <b>${_civFormatYear(civYear)}</b></div>`;   /* v0.62: civTimeline.length gate (was if(civYear) — a legitimate year 0 showed nothing) */
@@ -35397,12 +35567,12 @@ function _civCtxShow(e,items,opts){
   const m=document.createElement('div');
   m.className='civ-ctx';
   m.setAttribute('role','menu');
-  m.style.cssText='position:fixed;z-index:80;min-width:190px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:4px;box-shadow:0 6px 24px rgba(0,0,0,.5);font-size:12px';
+  m.style.cssText='position:fixed;z-index:80;min-width:190px;background:var(--panel2);border:1px solid var(--line);padding:4px;box-shadow:0 6px 24px rgba(0,0,0,.5);font-size:12px';
   for(const it of items){
     if(it==='—'){ const hr=document.createElement('div'); hr.style.cssText='height:1px;background:var(--line);margin:4px 2px'; m.appendChild(hr); continue; }
     const b=document.createElement('button');
     b.textContent=it.label;
-    b.style.cssText='display:block;width:100%;text-align:left;background:none;border:0;border-radius:5px;padding:6px 9px;color:var(--ink);cursor:pointer;font-size:12px';
+    b.style.cssText='display:block;width:100%;text-align:left;background:none;border:0;padding:6px 9px;color:var(--ink);cursor:pointer;font-size:12px';
     b.onmouseenter=()=>{ b.style.background='var(--panel)'; };
     b.onmouseleave=()=>{ b.style.background='none'; };
     b.onclick=()=>{ _civCtxHide(); it.act(); };
@@ -36033,6 +36203,14 @@ function _vaultSummaryHtml(){
    (naming a faction while painting its territory is a genuine map-authoring action, unlike the other
    four attributes, and the Inspector's own Name field already writes the identical civFactionNames
    array, so there is still only one underlying value either surface can produce). */
+/* v2.74: the ink for text drawn on an [r,g,b] colour that is DATA (a faction's), white or #141005, whichever has
+   the higher WCAG 2 contrast ratio on it (relative luminance, sRGB). Read-only; never used for a theme surface,
+   whose inks are tokens. */
+function _civInkOn(rgb){
+  const lum=c=>{ const t=x=>{ x/=255; return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4); }; return 0.2126*t(c[0])+0.7152*t(c[1])+0.0722*t(c[2]); };
+  const L=lum(rgb), Ld=lum([20,16,5]);
+  return (1.05/(L+0.05))>=((L+0.05)/(Ld+0.05))?'#fff':'#141005';
+}
 function _civBuildFactionPicker(){
   const el=document.getElementById('civFactionPicker'); if(!el) return;
   el.innerHTML='';
@@ -36047,7 +36225,12 @@ function _civBuildFactionPicker(){
     const btn=document.createElement('button');
     btn.className='pill'+((_civActiveFaction===fid)?' on':'');
     btn.style.background=none?'transparent':`rgb(${f[1].join(',')})`;
-    btn.style.color=none?'var(--dim)':'#fff'; btn.style.fontWeight='600';
+    /* v2.74 (the v2.74 contrast census, html/tests/perf/census_v274.js): the name's ink is whichever of white and
+       dark (#141005, the dark theme's --accInk) measures the higher contrast on the faction's own colour. It was
+       white on every colour, and on the lighter ones it measured 2.4-4.2:1 (Sythe Dominion 2.40, Draumr League
+       2.55, Veldmark 3.32 — seed 12345). The colours are data (CIV_FACTIONS, golden-angle for added factions), so
+       no fixed ink can serve them all. */
+    btn.style.color=none?'var(--dim)':_civInkOn(f[1]); btn.style.fontWeight='600';
     if(none) btn.style.border='1px dashed var(--faint)';
     btn.textContent=name;
     btn.title=none?'Click to select — paint with Unclaimed to erase territory':'Click to select · double-click to rename · full profile in the Faction Roster pop-up';
@@ -36067,7 +36250,7 @@ function _civRenameFaction(fid, currentName){
   const btn=btns[idx];
   const inp=document.createElement('input');
   inp.type='text'; inp.value=currentName;
-  inp.style.cssText='font-size:.82rem;padding:3px 6px;border-radius:10px;border:1px solid var(--accent);width:90px;color:var(--text);background:var(--panel2);';
+  inp.style.cssText='font-size:.82rem;padding:3px 6px;border:1px solid var(--accent);width:90px;color:var(--text);background:var(--panel2);';
   const confirm=()=>{
     const v=inp.value.trim();
     if(v) civFactionNames[fid]=v;
@@ -37030,7 +37213,7 @@ const InspectorUI={
       (fam.opaque?'':'<div class="row"><label for="alTexBg">Texture bg</label><select id="alTexBg" style="flex:1"></select></div>')+
       '</div>'+
       (fam.multi?'<div class="sec"><h3>Variants ('+items.length+')</h3><div class="al-variants" id="alVars"></div>'+
-        (it?'<div class="row" style="margin-top:8px"><label for="alVarName">Name</label><input type="text" id="alVarName" value="'+(it.name||'').replace(/"/g,'&quot;')+'" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:4px 7px;font-size:11px"></div>':'')+
+        (it?'<div class="row" style="margin-top:8px"><label for="alVarName">Name</label><input type="text" id="alVarName" value="'+(it.name||'').replace(/"/g,'&quot;')+'" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:4px 7px;font-size:11px"></div>':'')+
         '<div class="hint">Deterministic per-cell variant pick on the map (pickIconVariant) — variants break repetition.</div></div>':'')+
       /* v1.26 (D2): procedural-scattering controls. Only rendered for families that can actually
          scatter, so the panel stays honest — a settlement pin never shows a density slider it would
@@ -37246,8 +37429,8 @@ const SpriteSheetImporter={
             '<div class="row"><label for="alChTol">Tolerance</label><input type="range" id="alChTol" min="0" max="150" value="40"><span class="val" id="alChTolV">40</span></div>'+
             '<label class="chk"><input type="checkbox" id="alSlSkip" checked> skip fully-transparent cells</label>'+
             '<div class="row"><label for="alSlTarget">Target</label><select id="alSlTarget" style="flex:1"></select></div>'+
-            '<div class="row"><label for="alSlSet">Custom set</label><input type="text" id="alSlSet" value="Default" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:4px 7px;font-size:11px"></div>'+
-            '<div class="row"><label for="alSlNew">New name</label><input type="text" id="alSlNew" placeholder="e.g. windmill" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:4px 7px;font-size:11px"></div>'+
+            '<div class="row"><label for="alSlSet">Custom set</label><input type="text" id="alSlSet" value="Default" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:4px 7px;font-size:11px"></div>'+
+            '<div class="row"><label for="alSlNew">New name</label><input type="text" id="alSlNew" placeholder="e.g. windmill" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:4px 7px;font-size:11px"></div>'+
             '<div><div class="sublabel" style="margin-top:4px">Per-cell names <span class="al-selcount" id="alCnHint"></span></div><div class="al-cellnames" id="alCellNames"><div class="empty">Select cells to name them.</div></div></div>'+
             '<button class="accent" id="alSlAdd">Add selected cells →</button>'+
           '</div>'+

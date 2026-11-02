@@ -9,12 +9,19 @@ copy in this repo"* and *"Everything, staged"* — so that the owner can move ea
 `Cartalith v2.72 DCC test.html` started as a byte copy of Cartalith_RC's `Cartalith v2.71 DCC test.html` (commit
 `aca222c` here; the same bytes are frozen in `reference/`), so `git diff aca222c -- html/` shows what v2.72 changed.
 `Cartalith v2.73 DCC test.html` started as a byte copy of v2.72 (commit `61ccab5`), so `git diff 61ccab5 -- html/`
-shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
+shows what v2.73 changed. `Cartalith v2.74 DCC test.html` started as a byte copy of v2.73 (commit `dfa97d2`), so
+`git diff dfa97d2 -- html/` shows what v2.74 changed. Old versions stay as they are: they are never edited.
 
 ## What is here
 
 | Path | What it is | Where it goes in Cartalith_RC |
 |---|---|---|
+| `Cartalith v2.74 DCC test.html` | the app, v2.74 (DCC line) — the fix pass of the 2026-11-01 audits (`audits/v2.72-2026-11-01/PLAN.md` §5) and the planner's toll fix (Ruling EC item 6), ahead of stage 3 (Ruling EF) | the repository root, beside v2.73 |
+| `tests/perf/probe_v274fix.js` | v2.74's Playwright probe: every fix-pass finding at its bar, by real clicks and taps (usage in its header) | `tests/perf/probe_v274fix.js` |
+| `tests/perf/census_v274.js` | v2.74's contrast gate: the visual audit's WCAG census over its seven views, both themes, 1600×900 and 1366×768 | `tests/perf/census_v274.js` |
+| `tests/perf/shots_v274.js` | the captures in `evidence/v2.74/`, by the probe's own clicks | `tests/perf/shots_v274.js` (optional) |
+| `CHANGELOG_v2.74.md`, `CLAUDE_v2.74.md` | v2.74's changelog entry and its two `CLAUDE.md` pastes | as v2.73's, after them |
+| `evidence/v2.74/*.png` | v2.74's captures (the start card's flat backdrop, the New World card, a place selected and the Settlements window in both themes, Credits over Settings, Assets mode with the pack panel, the sculpt bar with Freehand armed, the busy overlay, the phone's faction rows) | review only |
 | `Cartalith v2.73 DCC test.html` | the app, v2.73 (DCC line) — stage 2 of the shell upgrade: the phone and tablet shells | the repository root, beside v2.72 |
 | `Cartalith v2.72 DCC test.html` | the app, v2.72 (DCC line) — stage 1: the desktop shell | the repository root, beside `Cartalith v2.71 DCC test.html` (keep v2.71) |
 | `tests/perf/probe_mobileshell.js` | v2.73's Playwright probe: the three classes, the phone shell, DS-13, the gestures, the tablet, the docking rule (usage in its header) | `tests/perf/probe_mobileshell.js` |
@@ -41,11 +48,12 @@ shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
 
 ## Moving it
 
-1. Copy `Cartalith v2.72 DCC test.html` and `Cartalith v2.73 DCC test.html` to Cartalith_RC's root, and
-   `tests/perf/probe_desktopshell.js` and `tests/perf/probe_mobileshell.js` to its `tests/perf/`.
-2. Paste `CHANGELOG_v2.72.md`, then `CHANGELOG_v2.73.md` (each from its `## v2.7x` heading down) at the top of
-   `CHANGELOG.md`, so v2.73's entry ends up first.
-3. Make the `CLAUDE.md` edits `CLAUDE_v2.72.md` describes, then those `CLAUDE_v2.73.md` describes.
+1. Copy `Cartalith v2.72 DCC test.html`, `Cartalith v2.73 DCC test.html` and `Cartalith v2.74 DCC test.html` to
+   Cartalith_RC's root, and `tests/perf/probe_desktopshell.js`, `probe_mobileshell.js`, `probe_v274fix.js` and
+   `census_v274.js` to its `tests/perf/`.
+2. Paste `CHANGELOG_v2.72.md`, then `CHANGELOG_v2.73.md`, then `CHANGELOG_v2.74.md` (each from its `## v2.7x` heading
+   down) at the top of `CHANGELOG.md`, so v2.74's entry ends up first.
+3. Make the `CLAUDE.md` edits `CLAUDE_v2.72.md` describes, then `CLAUDE_v2.73.md`'s, then `CLAUDE_v2.74.md`'s.
 4. Run the checks below from Cartalith_RC's root.
 
 ## Verifying it (from Cartalith_RC's root, after moving)
@@ -64,6 +72,17 @@ The shells themselves, by real taps, CDP touches, clicks and measured geometry:
 node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect 279 passed, 0 failed
 node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: 133 fail, by design
 node tests/perf/probe_desktopshell.js "Cartalith v2.73 DCC test.html" "Cartalith v2.71 DCC test.html"
+```
+
+v2.74, the fix pass (its CHANGELOG entry gives each figure):
+
+```bash
+tests/run.sh "Cartalith v2.74 DCC test.html"        # expect 1280 passed, 0 failed (two random-world assertions can flake — CHANGELOG v2.74; re-run once)
+tests/run_um.sh "Cartalith v2.74 DCC test.html"     # expect 882 passed, 0 failed
+node tests/perf/hash_gen1.js "Cartalith v2.73 DCC test.html" "Cartalith v2.74 DCC test.html"   # expect ALL IDENTICAL
+node tests/perf/probe_v274fix.js "Cartalith v2.74 DCC test.html"   # expect 131 passed, 0 failed; on v2.73 it fails 92, by design
+node tests/perf/census_v274.js "Cartalith v2.74 DCC test.html"     # expect 0 enabled text runs below AA (v2.73: 561)
+node tests/perf/probe_mobileshell.js "Cartalith v2.74 DCC test.html"
 ```
 
 `probe_desktopshell.js` on v2.73 fails four, all by design (CHANGELOG v2.73 classifies them): the two version checks
@@ -111,3 +130,8 @@ done
   across the map at the side sheet's head line, present in every headless full-page capture but not in a clipped one
   and not in the map's own pixels (see CHANGELOG v2.73) — confirm on a device it is absent, or it is a capture
   artifact to leave as noted.
+- **v2.74's fix pass:** one native select list and one number spinner in each theme (the new `color-scheme`; headless
+  cannot capture native popups); Segoe UI on Windows for the widths that were measured with Inter — the status chips,
+  CIVIL's sub-tabs (359px of 371 at 1366) and the sculpt picker with Freehand armed (one feature out of sight at
+  1366); Credits from Settings › About on a real phone; and, for the owner to look at, the flat backdrop behind the
+  start card (Q10a) and the busy overlay taking the map's input mid-generate (Q10b).

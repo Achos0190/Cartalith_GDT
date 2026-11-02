@@ -133,7 +133,7 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
     A('0 full renders before the user leaves the gate (renderPixelLoop)', s.loops === 0, s.loops);
     await click(p, '#obSkip'); await raf2(p);
     const a = await p.evaluate(() => { const d = vctx.getImageData(0, 0, view.width, view.height).data; const set = new Set(); for (let i = 0; i < d.length; i += 4 * 997) set.add(d[i] + ',' + d[i + 1] + ',' + d[i + 2]); return { loops: PERF.counters.renderPixelLoop, colours: set.size }; });
-    A('"Skip for now" renders the empty world once (a rendered ocean, not the flat backdrop)', a.loops === 1 && a.colours > 3, JSON.stringify(a));
+    A('"Skip for now" leaves the empty world rendered (a rendered ocean, not the flat backdrop), as v2.73\'s boot left it', a.loops === 1 && a.colours > 3, JSON.stringify(a));
     await close(p);
   });
 
@@ -147,7 +147,8 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       const h0 = H(); const el = document.getElementById('sun'); el.value = String((+el.value + 90) % 360); el.dispatchEvent(new Event('input', { bubbles: true })); await raf2();
       const h1 = H(); _civBakeCache.clear(); renderNow(); await raf2(); const h2 = H();
       const ex = document.getElementById('exag'); const e0 = H(); ex.value = String(Math.min(100, +ex.value + 20)); ex.dispatchEvent(new Event('input', { bubbles: true })); await raf2(); const e1 = H();
-      const parts = [...new Set((_civBakeKey.toString().match(/state\.([A-Za-z_$][\w$]*)/g) || []).map(s => s.slice(6)))];
+      const code = _civBakeKey.toString().replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');   /* comments stripped: they name the old fields in prose */
+      const parts = [...new Set((code.match(/state\.([A-Za-z_$][\w$]*)/g) || []).map(s => s.slice(6)))];
       return { sunMoves: h1 !== h0, dependsOnSun: h2 !== h0, exagMoves: e1 !== e0, missing: parts.filter(k => !(k in state)), parts };
     });
     A('positive control: the Relief (exag) slider changes the map, as before', r.exagMoves);
@@ -231,21 +232,26 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       const p = await boot(b, { width: 1600, height: 900 }, { light });
       await gen(p, 12345, 256); await settle(p);
       await click(p, '#settlementsHeaderBtn'); await sleep(600);
-      const s = await p.evaluate(() => ({ pin: __aud.pair(document.getElementById('settlementsHeaderBtn')), x: __aud.pair(document.querySelector('.cfm-close')),
+      await p.mouse.move(3, 300); await sleep(150);   /* at REST: the pointer off the pin (the audit's 1:1 was at rest; a hover washes it) */
+      const s = await p.evaluate(() => ({ pin: __aud.pair(document.getElementById('settlementsHeaderBtn')), pinBg: getComputedStyle(document.getElementById('settlementsHeaderBtn')).backgroundColor, x: __aud.pair(document.querySelector('.cfm-close')),
         body: getComputedStyle(document.querySelector('.cfm-body')).backgroundColor, fails: __aud.contrast('#civFactionsModal').filter(r => r.fail && !r.dis).map(r => r.el + ' "' + r.text + '" ' + r.ratio), runs: __aud.contrast('#civFactionsModal').length }));
-      A('the armed Settlements pin\'s label measures ≥ 4.5:1 at rest', s.pin >= 4.5, s.pin);
-      A('the Settlements screen\'s × measures ≥ 4.5:1', s.x >= 4.5, s.x);
+      const WASH2 = light ? 'rgba(164, 101, 15, 0.15)' : 'rgba(224, 163, 74, 0.16)';
+      A('the armed Settlements pin is a wash (' + WASH2 + '), not the accent fill', s.pinBg === WASH2, s.pinBg);
+      A('the armed Settlements pin\'s label measures ≥ 4.5:1 at rest (as before: the fill carried --accInk)', s.pin >= 4.5, s.pin);
+      A('the Settlements screen\'s × measures ≥ 4.5:1' + (light ? '' : ' (as before in dark)'), s.x >= 4.5, s.x);
       A('the Settlements screen draws on --panel (' + (light ? 'rgb(242, 240, 236)' : 'rgb(18, 19, 20)') + ')', s.body === (light ? 'rgb(242, 240, 236)' : 'rgb(18, 19, 20)'), s.body);
       A('0 of the Settlements screen\'s ' + s.runs + ' text runs below AA', s.runs > 10 && s.fails.length === 0, s.fails.slice(0, 6).join(' | '));
       await click(p, '#cfmCloseBtn'); await sleep(300);
       await click(p, '#assetsHeaderBtn'); await sleep(700);
-      const a = await p.evaluate(() => __aud.pair(document.getElementById('assetsHeaderBtn')));
-      A('in the Asset Library the "← Map" pin\'s label measures ≥ 4.5:1 at rest', a >= 4.5, a);
+      await p.mouse.move(3, 300); await sleep(150);
+      const a = await p.evaluate(() => ({ r: __aud.pair(document.getElementById('assetsHeaderBtn')), bg: getComputedStyle(document.getElementById('assetsHeaderBtn')).backgroundColor }));
+      A('in the Asset Library the "← Map" pin\'s label measures ≥ 4.5:1 at rest (it was accent on accent, 1:1)', a.r >= 4.5, a.r);
+      A('…and it is a wash, not the accent fill', a.bg === WASH2, a.bg);
       const re = await p.evaluate(() => ({ re: getComputedStyle(document.querySelector('.route-editor-modal')).backgroundColor, rex: (() => { const m = document.querySelector('.route-editor-modal'); m.classList.add('open'); const v = __aud.pair(m.querySelector('.re-close')); m.classList.remove('open'); return v; })(),
         cvx: (() => { const m = document.querySelector('.city-viewer-modal'); m.classList.add('open'); const v = __aud.pair(m.querySelector('.cv-close')); m.classList.remove('open'); return v; })() }));
       A('the route editor draws on --bg (' + (light ? 'rgb(244, 242, 238)' : 'rgb(13, 14, 15)') + ')', re.re === (light ? 'rgb(244, 242, 238)' : 'rgb(13, 14, 15)'), re.re);
-      A('the route editor\'s × measures ≥ 4.5:1', re.rex >= 4.5, re.rex);
-      A('the City viewer\'s × measures ≥ 4.5:1', re.cvx >= 4.5, re.cvx);
+      A('the route editor\'s × measures ≥ 4.5:1' + (light ? '' : ' (as before in dark)'), re.rex >= 4.5, re.rex);
+      A('the City viewer\'s × measures ≥ 4.5:1' + (light ? '' : ' (as before in dark)'), re.cvx >= 4.5, re.cvx);
       await close(p);
     });
   }
@@ -282,11 +288,14 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       const pt = pr ? document.elementFromPoint(pr.left + pr.width / 2, pr.top + 40) : null;
       return { zoom: hit('#zoomIn'), dim: hit('#viewDimSeg [data-dim="3d"]'), base: hit('#layersBtn'), popup: !!(pt && pt.closest('#placeEditPopup')), havePopup: !!pr }; });
     A('mid-operation the overlay is what lies over zoom, the 3D switch and the Base map chip (3 of 3)', r.zoom === 'overlay' && r.dim === 'overlay' && r.base === 'overlay', JSON.stringify(r));
-    A('the place popup stays above the overlay', r.havePopup && r.popup, JSON.stringify(r));
-    const fr = await rect(p, '#fileMenuBtn'); await p.mouse.click(fr.l + fr.w / 2, fr.t + fr.h / 2); await sleep(300);
-    const m = await p.evaluate(() => { const pn = document.getElementById('fileMenu'); if (!pn || !pn.getClientRects().length) return 'closed'; const q = pn.getBoundingClientRect(), cw = document.querySelector('.canvas-wrap').getBoundingClientRect();
-      const y = Math.max(q.top, cw.top) + 10, x = Math.max(q.left, cw.left) + 10; const t = document.elementFromPoint(x, y); return t && t.closest('#fileMenu') ? 'menu' : (t ? t.id || t.className : 'none'); });
-    A('an open menu panel over the map stays above the overlay', m === 'menu', m);
+    A('the place popup stays above the overlay, as before', r.havePopup && r.popup, JSON.stringify(r));
+    const fr = await rect(p, '#mbHelpBtn'); await p.mouse.click(fr.l + fr.w / 2, fr.t + fr.h / 2); await sleep(300);
+    const m = await p.evaluate(() => { const pn = document.getElementById('mbHelp'); if (!pn || !pn.getClientRects().length) return 'closed'; const q = pn.getBoundingClientRect(), cw = document.querySelector('.canvas-wrap').getBoundingClientRect();
+      /* a point inside BOTH the open panel and the map */
+      const l = Math.max(q.left, cw.left), r = Math.min(q.right, cw.right), t0 = Math.max(q.top, cw.top), b0 = Math.min(q.bottom, cw.bottom);
+      if (r - l < 4 || b0 - t0 < 4) return 'no overlap with the map';
+      const t = document.elementFromPoint((l + r) / 2, (t0 + b0) / 2); return t && t.closest('#mbHelp') ? 'menu' : (t ? t.id || t.className : 'none'); });
+    A('an open menu panel over the map stays above the overlay, as before', m === 'menu', m);
     await p.keyboard.press('Escape'); await p.evaluate(() => hideBusy());
     await close(p);
   });
@@ -304,8 +313,8 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
         return { drawn: d.w > 50 && d.h > 50 && d.l >= 0 && d.r <= innerWidth && d.t >= 0 && d.t < innerHeight, ctx: vis('.dock-right'), rail: vis('#domainRail'), strip: vis('#tlStrip'), tools: vis('#toolsBlock'), gen: vis('#generatePanel'), lib: vis('#assetLibrary'),
           cols: getComputedStyle(document.getElementById('alGrid')).gridTemplateColumns.split(' ').length, path: (document.getElementById('dockLeftPath') || {}).textContent }; });
       A('#assetsPanel is drawn inside the window beside the library' + (floating ? ' (its floating dock opened by the chevron)' : ''), r.drawn && r.lib, JSON.stringify(r));
-      A('what v2.24 hid stays hidden: the Context panel, the rail, the timeline strip, the dock\'s tools and domain bodies', !r.ctx && !r.rail && !r.strip && !r.tools && !r.gen, JSON.stringify(r));
-      A('the library keeps at least two tile columns', r.cols >= 2, r.cols);
+      A('as before, what v2.24 hid stays hidden: the Context panel, the rail, the timeline strip, the dock\'s tools and domain bodies', !r.ctx && !r.rail && !r.strip && !r.tools && !r.gen, JSON.stringify(r));
+      A('the library keeps at least two tile columns (v2.73: it had the whole stage)', r.cols >= 2, r.cols);
       A('the dock\'s head names the pack, not the domain the library hid', r.path === 'Assets › Pack', r.path);
       const v0 = await p.evaluate(() => document.getElementById('alValidation').textContent);
       await press(p, '#alValidateBtn'); await sleep(500);
@@ -314,7 +323,7 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       if (floating) await press(p, '#dockLeftCollapse');
       await press(p, '#assetsHeaderBtn'); await sleep(600);
       const back = await p.evaluate(() => ({ tools: getComputedStyle(document.getElementById('toolsBlock')).display !== 'none', panel: getComputedStyle(document.getElementById('assetsPanel')).display, path: document.getElementById('dockLeftPath').textContent }));
-      A('leaving the library restores the dock (its tools back, the pack panel hidden, the domain in its head)', back.tools && back.panel === 'none' && back.path !== 'Assets › Pack', JSON.stringify(back));
+      A('leaving the library restores the dock (its tools back, the pack panel hidden, the domain in its head), as before', back.tools && back.panel === 'none' && back.path !== 'Assets › Pack', JSON.stringify(back));
       if (!vp.touch) {
         await click(p, '#findInput'); await p.keyboard.type('Pack name'); await sleep(500);
         const hit = await p.evaluate(() => { const rs = [...document.querySelectorAll('#findResults [data-find-i]')]; const h = rs.find(e => /Pack name/.test(e.textContent)); if (h) h.id = '__pbPack'; return !!h; });
@@ -370,7 +379,7 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       const pp = await p.evaluate(() => { const pe = document.getElementById('placeEditPopup'); if (!pe || !pe.getClientRects().length) return null; const roll = document.getElementById('_civPeNameRoll');
         const inner = pe.getBoundingClientRect().right - parseFloat(getComputedStyle(pe).paddingRight) - parseFloat(getComputedStyle(pe).borderRightWidth);
         return { bg: getComputedStyle(pe).backgroundColor, cw: pe.clientWidth, sw: pe.scrollWidth, roll: roll ? roll.getBoundingClientRect().right : null, inner, fails: __aud.contrast('#placeEditPopup').filter(r => r.fail && !r.dis).map(r => r.el + ' "' + r.text + '" ' + r.ratio) }; });
-      A('a settlement\'s popup opened by a real click', !!pp);
+      A('(set-up) a settlement\'s popup opened by a real click', !!pp);
       if (pp) {
         A(light ? 'in light the popup draws on --panel (rgb(242, 240, 236))' : 'in dark the popup keeps its v0.90 palette (rgba(14, 17, 23, 0.97)), as before (owner default Q6)', pp.bg === (light ? 'rgb(242, 240, 236)' : 'rgba(14, 17, 23, 0.97)'), pp.bg);
         A('the Name row fits: clientWidth = scrollWidth and 🎲 inside the inner edge, as v2.73\'s fix pass made it', pp.cw === pp.sw && pp.roll != null && pp.roll <= pp.inner + 0.5, pp.cw + '/' + pp.sw + ' roll ' + pp.roll + ' inner ' + pp.inner);
@@ -395,10 +404,12 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
     await click(p, '#seedN'); const ring = [];
     for (let i = 0; i < 4; i++) { await p.keyboard.press('Tab'); await sleep(120); ring.push(await p.evaluate(() => { const e = document.activeElement, c = getComputedStyle(e); return (e.id || e.tagName) + ':' + c.outlineStyle + ' ' + c.outlineWidth + ' ' + c.outlineColor + ' ' + c.outlineOffset; })); }
     A('four controls reached by Tab draw the design\'s ring (2px solid accent, 2px out)', ring.every(x => /solid 2px rgb\(224, 163, 74\) 2px$/.test(x)), ring.join(' | '));
-    const f = await p.evaluate(() => { const t = [...document.querySelectorAll('input[type=text]')].find(e => !e.getAttribute('style')); const n = document.querySelector('input[type=number]'), s = document.querySelector('select');
-      return t ? { id: t.id, ff: getComputedStyle(t).fontFamily, pad: getComputedStyle(t).padding, nf: getComputedStyle(n).fontFamily, sf: getComputedStyle(s).fontFamily } : null; });
+    /* SET-UP: three bare fields in the dock — what any field without a rule of its own gets (the landmass names'
+       case, which are built by script) — read, then removed */
+    const f = await p.evaluate(() => { const host = document.getElementById('toolsBlock'); const t = document.createElement('input'); t.type = 'text'; const n = document.createElement('input'); n.type = 'number'; const s = document.createElement('select');
+      [t, n, s].forEach(e => host.appendChild(e)); const r = { ff: getComputedStyle(t).fontFamily, pad: getComputedStyle(t).padding, nf: getComputedStyle(n).fontFamily, sf: getComputedStyle(s).fontFamily }; [t, n, s].forEach(e => e.remove()); return r; });
     A('a text field takes the UI font, not Arial, with 5px 7px padding', !!f && !/Arial/.test(f.ff) && f.pad === '5px 7px', JSON.stringify(f));
-    A('numbers and selects stay mono', !!f && /monospace/.test(f.nf) && /monospace/.test(f.sf), f && (f.nf + ' / ' + f.sf));
+    A('numbers and selects stay mono, as before', !!f && /monospace/.test(f.nf) && /monospace/.test(f.sf), f && (f.nf + ' / ' + f.sf));
     const mr = await css(p, 'details.cat-acc > summary', 'marginRight', '::before');
     A('a category\'s arrow keeps an 8px gap before its label', mr === '8px', mr);
     await close(p);
@@ -429,16 +440,16 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
       await gen(p, 12345, 256);
       const c = await p.evaluate(() => { const ro = document.getElementById('readout'), q = ro.getBoundingClientRect(); let cut = 0, shown = 0;
         for (const e of ro.children) { const r = e.getBoundingClientRect(); if (!r.width || getComputedStyle(e).display === 'none') continue; if (r.top >= q.bottom - 1) continue; shown++; if (r.right > q.right + 0.5 || r.left < q.left - 0.5) cut++; } return { cut, shown }; });
-      A('0 status chips drawn cut', c.shown > 3 && c.cut === 0, JSON.stringify(c));
+      A('0 status chips drawn cut' + (w === 1600 ? '' : ' (as before at this width: v2.73 cut one at 1600)'), c.shown > 3 && c.cut === 0, JSON.stringify(c));
       const h = await p.evaluate(() => { const e = document.getElementById('ctxHint'); return { cw: e.clientWidth, sw: e.scrollWidth, t: e.textContent, body: document.getElementById('inspectorBody').textContent }; });
       A('the Context panel\'s empty hint is drawn whole and does not repeat the body', h.cw > 0 && h.sw <= h.cw + 1 && !h.body.includes(h.t), JSON.stringify({ cw: h.cw, sw: h.sw, t: h.t }));
       if (w === 1366 || w === 1600) {
         await click(p, '#domainRail [data-domain="civ"]');
         const s = await p.evaluate(() => { const d = document.querySelector('.dock-left'); const tabs = [...document.querySelectorAll('[data-civsub]')].filter(e => e.getClientRects().length); return { dsw: d.scrollWidth, dcw: d.clientWidth, cut: tabs.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent.trim()) }; });
-        A('CIVIL\'s five sub-tabs fit the dock (no sideways scroll, no label cut)', s.dsw <= s.dcw && s.cut.length === 0, JSON.stringify(s));
+        A('CIVIL\'s five sub-tabs fit the dock (no sideways scroll, no label cut)' + (w === 1600 ? ' (as before at 1600, with 1px to spare)' : ''), s.dsw <= s.dcw && s.cut.length === 0, JSON.stringify(s));
       }
       await click(p, '#domainRail [data-domain="explore"]');
-      const ch = await p.evaluate(() => { const a = document.getElementById('layersBtn').getBoundingClientRect(), f = document.querySelector('.map-tl .funnel-btn'); if (!f || !f.getClientRects().length) return null; return { a: a.bottom, f: f.getBoundingClientRect().bottom }; });
+      const ch = await p.evaluate(() => { const a = document.getElementById('layersBtn').getBoundingClientRect(), f = document.querySelector('#explFilterFab .funnel-btn'); if (!f || !f.getClientRects().length) return null; return { a: a.bottom, f: f.getBoundingClientRect().bottom }; });
       A('the Base map chip and the Explore filter share a bottom edge', !!ch && Math.abs(ch.a - ch.f) < 0.5, JSON.stringify(ch));
       await close(p);
     });
@@ -455,7 +466,7 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
         const hidden = bs.filter(e => { const r = e.getBoundingClientRect(); return r.right > q.right + 0.5 || r.left < q.left - 0.5; }).length;
         return { n: bs.length, hidden, bar: Math.round(document.getElementById('toolOpts').getBoundingClientRect().height), hint: (document.getElementById('sculptFeatHint') || {}).textContent || '', world: getComputedStyle(document.querySelector('#toolsBlock [data-tooldomain="world"]')).display }; });
       A('with Freehand armed, ' + (w === 1600 ? '0 features are' : 'at most 1 feature is') + ' out of the picker\'s sight (of ' + r.n + ')', r.n >= 13 && r.hidden <= (w === 1600 ? 0 : 1), r.hidden);
-      A('the bar stays two rows (≤ 80px)', r.bar <= 80, r.bar);
+      A('the bar stays two rows (≤ 80px), as before', r.bar <= 80, r.bar);
       A('the idle bar\'s pins end ' + (w - 10) + 'px in, as before', Math.round(idlePins.r || 0) === w - 10, idlePins.r);
       A('Freehand\'s hint no longer says "below"', r.hint.length > 20 && !/below/.test(r.hint), r.hint.slice(0, 80));
       A('WORLD\'s "no map tools" sentence is hidden while Sculpt is open', r.world === 'none', r.world);
@@ -532,13 +543,19 @@ const placeOnMap = p => p.evaluate(() => { const w = document.querySelector('.ca
     await gen(p, 777, 256); await settle(p);
     await click(p, '#domainRail [data-domain="explore"]');
     await click(p, '[data-civtool="route"]');
-    const two = await p.evaluate(() => { const w = document.querySelector('.canvas-wrap').getBoundingClientRect(); const out = []; for (const q of [...state.places].filter(x => x.pop && x.category === 'settlement').sort((a, b) => b.pop - a.pop)) { const s = _civPlaceScreenPos(q.x, q.y); if (s[0] > w.left + 60 && s[0] < w.right - 80 && s[1] > w.top + 60 && s[1] < w.bottom - 60) out.push({ x: s[0], y: s[1] }); if (out.length === 2) break; } return out; });
-    for (const q of two) { await p.mouse.click(q.x, q.y); await sleep(400); }
-    await click(p, '#civCommitRouteBtn'); await idle(p);
-    await click(p, '#jpOpenEditorBtn'); await sleep(1200);
+    /* SET-UP: a route the planner can price (a blocked plan draws no cost block), committed through the same
+       _civCommitRoute the ✓ Commit route button runs; the editor is then opened by a real click */
+    const priced = await p.evaluate(() => { const S = state.places.filter(q => q.category === 'settlement').sort((a, b) => b.pop - a.pop);
+      for (let i = 0; i < S.length; i++) for (let k = i + 1; k < Math.min(S.length, i + 6); k++) { _civWaypoints = [[S[i].x, S[i].y], [S[k].x, S[k].y]]; _civCommitRoute();
+        const jn = civJourneys[civJourneys.length - 1]; const pl = _jpPlan(jn); if (pl && jpJourneyCost(pl)) return true; }
+      return false; });
+    await idle(p);
+    await click(p, '#jpOpenEditorBtn');
+    await p.waitForFunction(() => /Priced in/.test(document.getElementById('routeEditorModal').textContent), null, { timeout: 15000 }).catch(() => {});
     const t = await p.evaluate(() => document.getElementById('routeEditorModal').textContent);
     A('the route editor says a faction\'s land never reads below Sparse Settlements', /never reads below\s*Sparse Settlements/.test(t));
-    A('…and that a toll is one levy between a faction\'s land and unclaimed land or water', /between a faction's land and unclaimed land or water/.test(t));
+    const ti = t.indexOf('Tolls are');
+    A('…and that a toll is one levy between a faction\'s land and unclaimed land or water', /between a faction's land and unclaimed land or water/.test(t), ti >= 0 ? JSON.stringify(t.slice(ti, ti + 140)) : 'no cost block; "Priced in" ' + /Priced in/.test(t));
     await close(p);
   });
 
