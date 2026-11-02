@@ -9,7 +9,7 @@ and the mockup `design/mobile-shell-2026-10-31/Live.dc.html`. §2.3 (New World, 
 is not in this build, and three other design items are not either: *Not in this build* lists each with its reason
 (the first cut cited "§2.1–§2.5" and listed none of them).
 `tests/run.sh` **1280/0**, `run_um.sh` **882/0**, `hash_gen1.js` vs v2.72 **ALL IDENTICAL**. Verification is
-`tests/perf/probe_mobileshell.js`: **@@N@@ assertions** over the **@@V@@ viewports** it lists on its last lines
+`tests/perf/probe_mobileshell.js`: **279 assertions** over the **16 viewports** it lists on its last lines
 (phone 360×780, 375×812, 412×915, 844×390 and 740×360, the 412×915 phone turned to 915×412 and squeezed to 412×380
 by a keyboard; tablet 768×1024, 1024×768 and 1194×834; the narrow tablet bar at 600×960; desktop 600, 700, 870 and
 900 wide and 1366×768). It **navigates the shell only by real input** — touchscreen taps, CDP touches for drags,
@@ -20,9 +20,9 @@ and faction; every accordion opened for a floor walk, the Settlements window's i
 before a fresh page), READS of what an input changed, the drawn-rect measure (a control's rect clipped by whatever
 clips it, which is what a finger can reach), and RESETS between steps after their assertions (the theme put back,
 a window a step opened closed, a selection cleared), on which no assertion rests. Run on v2.72 it fails
-**@@F72@@** and passes @@P72@@ (a section that cannot run there fails once, by name); run on this version's
-**first cut**, before the fix pass below, it fails **@@F1@@**; run on the fix pass's final bytes (`52f7d61b…`),
-before fix round 2, it fails **@@FR1@@** — each verifier's defect fails its own section on the build it was found in.
+**133** and passes 37 (a section that cannot run there fails once, by name); run on this version's
+**first cut**, before the fix pass below, it fails **87**; run on the fix pass's final bytes (`52f7d61b…`),
+before fix round 2, it fails **38** — each verifier's defect fails its own section on the build it was found in.
 
 - **This entry's first cut overstated its own method, and the probe's header did too** (found by the 2026-11-02
   verifiers). It said "159 assertions, all real taps" and "at seven sizes", and the probe's header said a
@@ -248,7 +248,7 @@ before fix round 2, it fails **@@FR1@@** — each verifier's defect fails its ow
   the app bar, the bar, the row, the grip, all four domains' pages with every accordion open, WORLD › Sculpt with
   Sculpt armed, MAP, both STORY panes, MENU's root and each of its eight menus and their submenus, the context page
   with a label's editor in it, the drawer, the strip for Sculpt and for Freehand, a settlement's popup, Find's
-  results, the long-press card and Settings — **@@FLOOR_N@@ target measurements over @@FLOOR_S@@ surfaces, none drawn
+  results, the long-press card and Settings — **513 target measurements over 31 surfaces, none drawn
   under 44 × 44 on either axis** — and the Settlements window's four tabs at 360×780 (every slider keeping at least
   120px of track there), and on the tablet's bars, rail, dock and map controls. (The first cut's walk read unclipped
   rects over fewer surfaces — "336, none under 44" — and missed the popup's 🎲, cut to 22px on every shell since
@@ -354,7 +354,13 @@ before fix round 2, it fails **@@FR1@@** — each verifier's defect fails its ow
   assertion prints its three parts). Stated rather than changed: the app bar's 56px and the docks' widths, as
   departures from §3's figures (*Not in this build*). Found on the way and fixed: the quick drawer's pin-close read
   the DOM after the click, which the Assets pin's own click now changes (the drawer and its scrim stayed open over
-  the library), so it reads the event's path; and leaving the library by a domain switch (above). @@SEAM@@
+  the library), so it reads the event's path; and leaving the library by a domain switch (above). Noted, not a
+  shell fault: the two 844×390 captures (`v273_phone844x390_landscape`, `…_left_hand_sheet`) carry a 1px darker
+  row across the map at the side sheet's head line (y≈133 — (72,96,90) against (61,119,129) above it). It is a
+  headless-capture compositor artifact: `display:none` on `#phSheet` removes it, removing the head's border or
+  box-shadow does not, a clipped capture of the same region shows no seam, and the map's own pixels there are
+  unchanged with the sheet closed. Re-captured on the final bytes it persists unchanged, so it is left for a
+  device check (listed under *What still needs a person* in the README), not chased in the CSS.
 - **Unchanged by construction:** no engine line moved, so the headless suites and the render hashes are v2.72's.
   Stage 1's desktop at 1366 and wider keeps its layout (the docks stay docked, the row stays a column); four
   fixes reach it on purpose. Two draw the same where there was room — the tool hint's zero flex basis, and the
@@ -368,7 +374,7 @@ before fix round 2, it fails **@@FR1@@** — each verifier's defect fails its ow
   the fix pass's at 1366×768, and so do its map, WORLD › Sculpt with Sculpt armed, and the File and Edit menus open,
   at 1366×768 and 1600×900 — the one differing patch is Sculpt's stamp-seed field, a random number per session.
 
-**`tests/perf/probe_desktopshell.js` (v2.72's probe) on v2.73**, with v2.71 as the comparison file: @@DSK@@, against
+**`tests/perf/probe_desktopshell.js` (v2.72's probe) on v2.73**, with v2.71 as the comparison file: **154 passed, 4 failed** — the two version checks (it expects v2.72; this is v2.73) and the two phone sections that pin v2.71's shell (the ☰ drawer, the document bar) and now time out, all by design — against
 v2.72's 174/0 (fix round 2: run twice, alone on the machine; the 2026-11-02 verifiers' two runs under load gave
 153/5 both times, the fifth being *"NEW SEED is clickable in the dock and generates"*, which passed in isolation
 every time — its `settle` now also waits for the busy overlay to drop, and the assertion prints its three parts,

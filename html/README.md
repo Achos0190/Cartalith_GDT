@@ -21,7 +21,7 @@ shows what v2.73 changed. v2.72 stays as it is: old versions are never edited.
 | `tests/perf/probe_desktopshell.js` | v2.72's Playwright probe (usage in its header) | `tests/perf/probe_desktopshell.js` |
 | `CHANGELOG_v2.73.md`, `CHANGELOG_v2.72.md` | each version's `## v2.7x (DCC line) — …` entry, in `CHANGELOG.md`'s own format | paste at the top of `CHANGELOG.md`, v2.72's first, then v2.73's above it |
 | `CLAUDE_v2.73.md`, `CLAUDE_v2.72.md` | each version's two pastes for the root `CLAUDE.md`: the file-table row (and the phrase to change in the previous row) and the `### … (v2.7x, DCC-line file only)` section | as each file says, v2.72's first |
-| `evidence/v2.73/*.png` | 21 screenshots: the phone at 412×915 (the map with the pull-out tab, the quick drawer open with its grip riding the drawer's edge, the domain sheet, the domain fan, MENU, MENU drawn over a settlement's popup, MAP with one View caption and the Scale bar switch, the sculpt strip with ✋, the strip with Settlement armed — no Sculpt rows, the long-press card, left-handed), at 360×780 (STORY › Time, the asset library with ← Map and the bar on screen, MENU › File › Export), the landscape phone at 844×390 (the domain sheet; left-handed, the grip at the sheet's edge), the tablet at 1194×834 (the Context panel floating, open, its pin beside the chevron) and 768×1024 (the narrow bar, ☰ › Preferences drilled in), the desktop at 600×900 (the narrow bar, File › Export drilled in), 700×900 (the left dock floating, open) and 1366×768. The fix pass (2026-11-02) re-took three (the open quick drawer, the floating Context panel and the 768 narrow bar, whose DS-13 rocker spacing changed) and added seven; the other eleven re-take pixel-identical on the final bytes | review only; Cartalith_RC needs none of them |
+| `evidence/v2.73/*.png` | 26 screenshots: the phone at 412×915 (the map with the pull-out tab, the quick drawer open with its grip riding the drawer's edge, the domain sheet, the domain fan, MENU, MENU › Edit with each disabled row's reason on a second amber line, MENU over a settlement's popup, MAP with one View caption and the Scale bar switch, the sculpt strip — feature picker and Commit/Discard only, its brush/hardness/intensity now on the WORLD › Sculpt page shown beside it — the strip with Settlement armed, the long-press card, left-handed), at 360×780 (STORY › Time, the asset library with ← Map in the app bar, MENU › File › Export, the Settlements window's Global tab with each label stacked above a full-width slider), the landscape phone at 844×390 (the domain sheet; Sculpt armed; left-handed, the grip at the sheet's edge), the tablet at 1194×834 (the Context panel floating; the Sculpt tool-options bar carrying Discard and Commit) and 768×1024 (the narrow bar, ☰ › Preferences drilled in), the desktop at 600×900 (the narrow bar, File › Export drilled in), 700×900 (the left dock floating, open) and 1366×768. Fix round 2 (2026-11-02) re-took fifteen and added five (the Settlements Global window, MENU › Edit's reason lines, the WORLD › Sculpt page, landscape Sculpt, the tablet Sculpt bar); the other six re-take pixel-identical on the final bytes | review only; Cartalith_RC needs none of them |
 | `evidence/v2.72/*.png` | v2.72's screenshots (the desktop at four sizes, light and dark, File ▸ Export, the sculpt bar; the phone at 412×915; v2.71; the design board) | review only |
 
 ## The stage plan
@@ -61,8 +61,8 @@ node tests/perf/hash_gen1.js "Cartalith v2.72 DCC test.html" "Cartalith v2.73 DC
 The shells themselves, by real taps, CDP touches, clicks and measured geometry:
 
 ```bash
-node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect @@N@@ passed, 0 failed
-node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: @@F72@@ fail, by design
+node tests/perf/probe_mobileshell.js "Cartalith v2.73 DCC test.html"    # expect 279 passed, 0 failed
+node tests/perf/probe_mobileshell.js "Cartalith v2.72 DCC test.html"    # the before build: 133 fail, by design
 node tests/perf/probe_desktopshell.js "Cartalith v2.73 DCC test.html" "Cartalith v2.71 DCC test.html"
 ```
 
@@ -107,3 +107,7 @@ done
   enable zoom* may override `touch-action`); a field focused in the sheet must stay above the keyboard (proved
   headless only for a keyboard that resizes the layout viewport, which Chrome on Android does not do by default); and
   a hold on the domain tab lifted in place must leave the fan open, its lift's click spent on the new scrim.
+- **The 1px seam in the two 844×390 captures** (`v273_phone844x390_landscape`, `…_left_hand_sheet`): a darker row
+  across the map at the side sheet's head line, present in every headless full-page capture but not in a clipped one
+  and not in the map's own pixels (see CHANGELOG v2.73) — confirm on a device it is absent, or it is a capture
+  artifact to leave as noted.

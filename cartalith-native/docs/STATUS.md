@@ -110,6 +110,35 @@ enabled VIBRATE.
 `MOBILE_SHELL_PROPOSAL.md` §2.5 and `OUTSTANDING_WORK.md` carry the answers. The Godot shell has none of them built,
 and the HTML gets them in versions after v2.73. The mockup still keeps thumb zoom off under ✋ (backlog row).
 
+### The HTML's layout upgrade, stage 2 of 3: the phone and tablet shells, as `html/Cartalith v2.73 DCC test.html` (2026-11-02)
+
+**Stage 2 is built and verified.** The owner's specific complaint about v2.72 — *"The screenshots on phone don't seem
+to have the pull-out tab from the side"* — is fixed: the phone has the side quick drawer (Save, Settlements, Assets,
+Planner) on a grip. v2.72 is untouched; v2.73 is the next DCC-line version for the owner to move into Cartalith_RC.
+
+- **One layout decider** (`_shellClassOf`): phone under 600 px wide (or landscape under 500 px tall), tablet for any
+  other coarse-pointer window, desktop otherwise; re-run on resize/rotation with hysteresis. One slot table
+  (`_SHELL_SLOTS`) moves each control to its home per class — never a clone.
+- **The phone:** a MAP · domain · STORY · MENU bottom bar (a left rail in landscape), a world-pill app bar with Undo,
+  Redo and Search, one bottom sheet with detents, a tool strip, the long-press card, the quick-drawer grip, and the
+  DS-13 row (⌖, −|+, ✋ only with a drawing tool). MENU mirrors the eight menus as drill-in lists.
+- **The tablet:** the desktop shell at touch size; below 1 180 px the bar is ☰ · File · World · Records · Story.
+- **Docking rule (desktop and tablet):** a dock floats when the map would drop below 520 px.
+- **Touch gestures** per Rulings EB and EC (built at the stated defaults): drag pans with tap-only tools, a drawing
+  tool keeps the finger (✋ gives it back), double-tap and hold-slide zoom (down zooms in), and a drawing tool ignores
+  a touch once two fingers have been down.
+- **Checked on the final bytes** (md5 `3be75cd6…`) by the main loop with Cartalith_RC's harness: `run.sh` 1280/0,
+  `run_um.sh` 882/0, `hash_gen1` vs v2.72 **ALL IDENTICAL**, `probe_mobileshell.js` **279/0**, and
+  `probe_desktopshell.js` 154/4 (the 4 by design: the version now reads v2.73, and the stage-1 probe's two phone
+  sections tap `#panelToggle`, which v2.73 replaced).
+- **Built by an adversarial workflow:** build, then two verifiers (a tester and a design reviewer) over three rounds
+  with fix rounds between, until the reviewers found no blocker or major.
+- **Still the owner's, on a real device (MS-10):** touch timings on glass, safe-area insets, the keyboard guard, and
+  WebGL 3D. **Not in this build** (changelog): New World auto-populate (§2.3), two/three-finger undo, map rotation,
+  and the Reset-generation rows the HTML lacks.
+- **Stage 3** (Context modules, the planner window) is next; the v2.72 performance/visual audits and the Godot-feature
+  ports (Ruling EC) are their own later versions.
+
 ### The HTML's layout upgrade, stage 1 of 3: the desktop shell, as `html/Cartalith v2.72 DCC test.html` (2026-11-01)
 
 The owner asked: *"Can we upgrade the layout in the html with the new design?"*, then chose "A working copy in this
