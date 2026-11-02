@@ -56,7 +56,12 @@ const gen = (p, seed) => p.evaluate(async (seed) => {
    binding is what that call reads, so wrapping it counts real runs without changing what they do */
 const spyGenerate = p => p.evaluate(() => { if (window.__genSpy) return; window.__genSpy = true; window.__gens = 0;
   const orig = window.generate; window.generate = async function () { window.__gens++; return orig.apply(this, arguments); }; });
-const settle = async p => { await p.evaluate(() => (typeof _busyChain !== 'undefined' ? _busyChain : Promise.resolve())); await sleep(120); };
+/* wait out whatever the last input queued: the busy chain, then the busy overlay itself (v2.73 fix round 2 —
+   _busyChain is the chain as it was when this is CALLED, so on a loaded machine a step could read a count
+   before the operation behind the chain had finished; _busyDepth reaching 0 is the overlay's own "done") */
+const settle = async p => { await p.evaluate(() => (typeof _busyChain !== 'undefined' ? _busyChain : Promise.resolve()));
+  await p.waitForFunction(() => typeof _busyDepth === 'undefined' || _busyDepth === 0, null, { timeout: 60000 }).catch(() => {});
+  await sleep(120); };
 const vis = (p, sel) => p.evaluate(sel => { const e = document.querySelector(sel); if (!e) return false;
   const r = e.getBoundingClientRect(); const cs = getComputedStyle(e);
   return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight; }, sel);
@@ -171,7 +176,10 @@ const row = async (p, btnSel, cmd, sub) => {
     let g0 = await gens(); const clicked = await tryClick(p, '#genBtn'); await settle(p);
     A('the dock\'s own GENERATE WORLD button generates (a real click, in Run)', clicked && (await inDock('genBtn')) && (await gens()) === g0 + 1);
     g0 = await gens(); const ng = await tryClick(p, '#reseedBtn'); await settle(p);
-    A('NEW SEED is clickable in the dock and generates', ng && (await inDock('reseedBtn')) && (await gens()) === g0 + 1);
+    /* v2.73 fix round 2: the assertion prints its three parts, so a red run classifies itself (it failed once
+       under load in the 2026-11-02 verifiers' runs, 153/5, and passed in isolation every time) */
+    { const dock = await inDock('reseedBtn'), dg = (await gens()) - g0;
+      A('NEW SEED is clickable in the dock and generates', ng && dock && dg === 1, 'clicked ' + ng + ', in the dock ' + dock + ', generates run ' + dg); }
 
     let chooser = p.waitForEvent('filechooser', { timeout: 3000 }).then(() => true, () => false);
     await openMenu(p, '#fileMenuBtn'); await tryClick(p, '#loadZipBtn');

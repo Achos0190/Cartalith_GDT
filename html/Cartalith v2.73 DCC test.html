@@ -1141,14 +1141,24 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 :where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-close,
 :where(html[data-shell="phone"],html[data-shell="tablet"]) .place-edit-popup .si-close,
 :where(html[data-shell="phone"],html[data-shell="tablet"]) .settle-info .si-close{width:44px;height:44px;font-size:20px}
-/* a window's × stays in reach while its content scrolls (fix round 2): sticky at the top of the window's own
-   scroller, floated to its right, as Settings' head already is (.set-head). Credits and Settlements placed
-   theirs absolutely inside the scroller, so it scrolled away — after one swipe #creditsClose was drawn 0px
-   tall and the Settlements × sat at y -553 at 360 (the 2026-11-02 verifiers; v2.72 the same) — and a phone
-   has no Esc. The Settlements title takes the ×'s height, so the tab bar below starts clear of the float. */
-:where(html[data-shell="phone"],html[data-shell="tablet"]) #creditsModal .cr-close,
-:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-close{position:sticky;top:0;right:auto;float:right;margin:0 0 6px 8px;z-index:3}
-:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-body > h2{min-height:44px;display:flex;align-items:center}
+/* A window's × stays in reach while its content scrolls (fix round 2): its title and × are a HEAD row that
+   sticks to the top of the window's own scroller, with a background the content scrolls under — as Settings'
+   head already does (.set-head). Credits and Settlements placed the × absolutely inside the scroller, so it
+   scrolled away: after one swipe #creditsClose was drawn 0px tall and the Settlements × sat at y -553 at 360
+   (the 2026-11-02 verifiers; v2.72 the same), and a phone has no Esc. A floated sticky × alone was tried and
+   dropped: it lay over whatever scrolled under it, the Settlements tab bar's Types tab included. The heads
+   (.cfm-head, .cr-head) are plain wrappers on the desktop, where nothing about either window changes. */
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-head,
+:where(html[data-shell="phone"],html[data-shell="tablet"]) #creditsModal .cr-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;min-height:52px}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-head{background:rgba(8,9,13,.97);margin-bottom:10px}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) #creditsModal .cr-head{background:var(--panel);margin-bottom:4px}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-head > h2,:where(html[data-shell="phone"],html[data-shell="tablet"]) #creditsModal .cr-head > h2{flex:1 1 auto;min-width:0;margin:0!important}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-close,:where(html[data-shell="phone"],html[data-shell="tablet"]) #creditsModal .cr-close{position:static;order:2;flex:0 0 44px}
+/* and anything scrolled into view (Find's reveal, a focused field) stops below the head, not under it. The
+   scroller's top padding moves into the head, because a sticky box sticks at the scrollport's padding edge:
+   with the padding left on the scroller, content showed through a 16-20px band above the stuck head. */
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-body,:where(html[data-shell="phone"],html[data-shell="tablet"]) #creditsModal .cr-card{scroll-padding-top:64px;padding-top:0}
+:where(html[data-shell="phone"],html[data-shell="tablet"]) .cfm-head,:where(html[data-shell="phone"],html[data-shell="tablet"]) #creditsModal .cr-head{padding-top:8px}
 /* The Settlements window's slider rows on a phone: the label goes ABOVE its slider (fix round 2). Its rows
    give the label a fixed basis (150px in Global, 118px and 190px in Types, by inline style, hence the
    !important) beside a 62px value and a reset ↺; once the floor sized that ↺ at 44px the Global sliders were
@@ -3706,8 +3716,12 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
      already lived outside #genCiv was factually wrong; corrected at _civSubPageVisible(). -->
     <div id="civFactionsModal" class="civ-factions-modal">
       <div class="cfm-body">
+        <!-- v2.73 (fix round 2): the × and the title in one head (.cfm-head), which sticks to the top of this
+             scroller on the touch shells so the × stays in reach; a plain wrapper on the desktop -->
+        <div class="cfm-head">
         <button class="cfm-close" id="cfmCloseBtn" aria-label="Close faction roster" title="Close (Esc)">×</button>
         <h2 style="margin:0 0 10px">Settlements</h2>
+        </div>
         <!-- v2.63: three scopes, one screen. The Factions pane is v1.57's, unmoved; Global and
              Settlements are new. Same #civSubBar click-handler pattern (keyed on data-pm, never
              on DOM position). -->
@@ -3904,8 +3918,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
 
 <div id="creditsModal" role="dialog" aria-modal="true" aria-labelledby="crTitle">
   <div class="cr-card">
+    <!-- v2.73 (fix round 2): the × and the title in one head (.cr-head), sticky on the touch shells (see .cfm-head) -->
+    <div class="cr-head">
     <button class="cr-close" id="creditsClose" aria-label="Close">✕</button>
     <h2 id="crTitle">Credits &amp; academic principles</h2>
+    </div>
     <p class="cr-sub">Cartalith Gen1 is a single self-contained HTML file with <b>zero external dependencies</b> — every solver, renderer and UI control is original code. The algorithms below were <b>studied, not copied</b>: each is an independent implementation of a published method. Full inline attribution lives in the source and in <code>docs/research/</code>.</p>
 
     <h3>Programming &amp; code sources studied</h3>

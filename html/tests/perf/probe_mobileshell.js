@@ -1189,9 +1189,9 @@ const dupIds = p => p.evaluate(() => { const seen = {}, d = []; for (const e of 
     A('every slider in them keeps at least 120px of track (' + sl.length + ' sliders)', sl.length > 20 && narrow.length === 0, narrow.slice(0, 6).join(', '));
     /* a swipe up the window, then its × */
     await tap(q, '#civPmBar [data-pm="types"]'); await sleep(300);
-    const body = await rectOf(q, '.cfm-body');
+    const body = await rectOf(q, '#civFactionsModal .cfm-body');
     await drag(q, body.l + body.w / 2, body.t + body.h * 0.8, body.l + body.w / 2, body.t + body.h * 0.2, 10);
-    const x = await q.evaluate(() => { const e = document.getElementById('cfmCloseBtn'), d = window.__pbDrawn(e); return { sc: document.querySelector('.cfm-body').scrollTop, w: Math.round(d.w), h: Math.round(d.h), t: Math.round(d.t) }; });
+    const x = await q.evaluate(() => { const e = document.getElementById('cfmCloseBtn'), d = window.__pbDrawn(e); return { sc: document.querySelector('#civFactionsModal .cfm-body').scrollTop, w: Math.round(d.w), h: Math.round(d.h), t: Math.round(d.t) }; });
     A('after a swipe through the window its × is still drawn whole at the top (sticky)', x.sc > 50 && x.w >= 43.5 && x.h >= 43.5 && x.t >= 0, JSON.stringify(x));
     await tap(q, '#cfmCloseBtn');
     A('...and one tap on it closes the window', !(await q.evaluate(() => document.getElementById('civFactionsModal').classList.contains('open'))));
