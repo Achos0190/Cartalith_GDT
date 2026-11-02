@@ -123,8 +123,9 @@ before fix round 2, it fails **@@FR1@@** — each verifier's defect fails its ow
   picker as one row of chips** (the very element the desktop bar hosts, in a group, `#phStripTool`, that is drawn for
   Sculpt alone) and **Commit / Discard where the tool drafts** (Sculpt's, Way's, Route's). **Sculpt's other
   settings — the feature's hint, Freehand's mode, Brush size with its km readout, Hardness and Intensity — sit at
-  the top of WORLD › Sculpt**, the phone's domain page, one tap away on the domain tab (§2.1: "Tapping the strip's
-  tool chip opens the full options at the top of the domain sheet"; the mockup's domain sheet leads with them too).
+  the top of WORLD › Sculpt**: first on the phone's domain page, above its tools, drawn while Sculpt is armed, one
+  tap away on the domain tab (§2.1: "Tapping the strip's tool chip opens the full options at the top of the domain
+  sheet"; the mockup's domain sheet leads with them too).
   Fix round 2: the first cut put every Sculpt setting in the strip — 323px tall at 412×915 and 226px at 844×390,
   leaving a 100px map band in landscape, against the mockup's 66px strip. **In landscape the picker joins the rest
   at the top of WORLD › Sculpt**, in the side sheet beside the strip, as the mockup's landscape draws it (a state
@@ -281,8 +282,8 @@ before fix round 2, it fails **@@FR1@@** — each verifier's defect fails its ow
 - **Find on a phone** opens the page that holds the control (the domain page, STORY, MENU's drill-in path or the
   context page) and scrolls it into view; a chosen result closes the search row. Sculpt's Brush size, Hardness and
   Intensity, at the top of WORLD › Sculpt, are revealed by arming Sculpt — the World rail, then the Sculpt category,
-  #genSculpt's own Find owner (v2.72's rule: Find must own every container a control can sit in) — with the domain
-  page opened over them.
+  pressed by `#phSculptOpts`' own Find owner (v2.72's rule: Find must own every container a control can sit in) —
+  with the domain page opened over them.
 - **Assets mode on a phone.** The library is one column — its categories a row of chips that scrolls sideways, the
   grid, the inspector beneath — and while it is open **the Assets toggle itself** (`#assetsHeaderBtn`, relabelled
   "← Map" as v2.46 made it) **moves from the quick drawer to the app bar's start**, by a state-aware slot (`pa` in
