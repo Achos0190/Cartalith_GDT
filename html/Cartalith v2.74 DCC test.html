@@ -5,7 +5,7 @@
 <!-- v2.73: viewport-fit=cover lets the phone shell lay itself out under a notch and a gesture bar and pad
      for them with env(safe-area-inset-*) (MOBILE_SHELL_PROPOSAL.md §3). Without it every inset reads 0. -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Cartalith v2.73 DCC test</title>
+<title>Cartalith v2.74 DCC test</title>
 <style>
   :root{
     /* v2.23 DCC test: the port's own dcc_theme values, mapped onto this file's token names.
@@ -14,7 +14,12 @@
        suggestion rather than an edge. --muted likewise stops aliasing --dim: a parameter label
        is text_secondary in the DCC, one step brighter than a secondary value. */
     --bg:#0d0e0f; --panel:#121314; --panel2:#17191a; --line:rgba(255,255,255,.10);
-    --ink:#e8ebec; --dim:#8d9296; --faint:#6f7478;
+    /* v2.74 (the 2026-11-01 visual audit, V08): --faint re-based from #6f7478, which measured 3.73-4.09:1
+       on the four grounds and put 94 text runs below WCAG AA across seven views (every one of them faint
+       but one). #7d8285 measures 4.97 on --bg, 4.79 on --panel, 4.54 on --panel2 and 4.86 on --ins, and
+       stays a step under --dim (5.62 on --panel2), so faint still reads as the lowest ink. It FAILS on the
+       wash (4.17) and wash2 (3.63): no text may be faint on a wash. Recompute these if a ground moves. */
+    --ink:#e8ebec; --dim:#8d9296; --faint:#7d8285;
     --accent:#e0a34a; --accent2:#6a9bc4; --warn:#c96a5a;
     --ins:#101112; --div:rgba(255,255,255,.07); --wash:rgba(224,163,74,.09);
     --wash2:rgba(224,163,74,.16); --accInk:#141005; --stale:#b9a878; --good:#6fae7d;
@@ -33,6 +38,12 @@
        New code should prefer the canonical names on the two lines above. */
     --border:rgba(255,255,255,.16); --muted:#a9adb0; --fg:var(--ink); --text:var(--ink);
     --bg2:var(--panel2); --panel-darker:var(--bg);
+    /* v2.74 (the 2026-11-01 visual audit, V02): the browser's own controls (checkbox and radio wells,
+       range tracks, number spinners, select lists, scrollbars) follow the theme. There was no
+       color-scheme anywhere, so on the dark UI an unchecked box was a white square and a checked one
+       Chrome blue. The light theme restates `light` below. Native select popups and spinners cannot be
+       captured headless: a person checks one of each per theme. */
+    color-scheme:dark;
   }
   *{box-sizing:border-box}
   /* v2.27 (owner: "the last items are hidden behind the address bar"). height:100% resolves against the
@@ -164,15 +175,48 @@
      (its pins hold the Assets toggle, the only way back out — see the v2.72 block at the end). */
   body.assets-mode .dock,body.assets-mode .domain-rail,body.assets-mode .toolrail,
   body.assets-mode .toolopts,body.assets-mode .tl-strip{display:none}
+  /* v2.74 (OUTSTANDING_WORK.md "Found in the HTML by stage 1"; html/audits/v2.72-2026-11-01/PLAN.md §5): the rule
+     above hid #assetsPanel too — the library's own side panel since v0.65 (the pack's name, author, licence and
+     stats; Export pack, Validate, Apply, Import pack, Clear), which lives in the left dock and which
+     _carEnterAssetsMode shows — so from v2.24 its metadata and Validate could not be reached by a click. On the
+     desktop and the tablet the LEFT dock now stays in this mode showing that panel alone (and its head: the
+     collapse chevron, and the strip a floating dock keeps). What v2.24 meant to hide stays hidden: the Context
+     panel, the rail, the timeline strip, and every other part of the left dock (its tools and domain bodies).
+     _shellDockSync floats the dock over the library when docking it would leave the library less than its rail,
+     its inspector and two tile columns (AL_STAGE_MIN). The phone keeps v2.73's library (its sheet's domain
+     page leaves the library first); there the panel's Export, Open pack, Apply and Clear are MENU › Assets. */
+  :where(html:not([data-shell="phone"])) body.assets-mode .dock-left{display:flex}
+  :where(html:not([data-shell="phone"])) body.assets-mode .dock-left > :not(.dock-head):not(#assetsPanel){display:none}
+  /* a floating dock's 44px strip lies over the stage's left edge; the map moves aside for it (body.ldock-float
+     .canvas-wrap below), and so does the library */
+  :where(html:not([data-shell="phone"])) body.assets-mode.ldock-float #assetLibrary{margin-left:44px}
   /* v2.46: #assetsHeaderBtn is the one control for this mode and it is always visible. It relabels
      itself "← Map" and takes .on while the library is open (see _carEnterAssetsMode), which is what
      the separate #assetsBackBtn was standing in for while the toggle itself sat inside the cog. */
   #assetsHeaderBtn.on{border-color:var(--accent,#7fd1c8);color:var(--accent,#7fd1c8)}
+  /* v2.74 (the 2026-11-01 visual audit, V04): an armed pin is a wash plus an edge — the theme layer's rule 3.
+     The rule above set only the ink, so the theme layer's `button.on` fill painted the accent BEHIND accent
+     text: at rest "← Map", the visible way out of the library (v2.46), was a blank amber block (1:1) in
+     every home it has (the tool-options bar, the phone's app bar). The Settlements pin takes .on while its
+     window is open (_civOpenFactionsModal) and had the same fault. The phone's quick drawer keeps its own
+     rows (no fill; #phDrawer's rule out-specifies this one). */
+  #assetsHeaderBtn.on,#settlementsHeaderBtn.on{background:var(--wash2);color:var(--accent);border-color:var(--accent)}
   .canvas-wrap{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(0deg,#0c0e13 0 24px,#0d0f15 24px 48px);overflow:hidden;padding:18px;touch-action:none}
   canvas#view{max-width:100%;max-height:100%;background:#000;border:1px solid var(--line);image-rendering:auto;cursor:crosshair;box-shadow:0 0 0 1px #000}
-  .legend{position:absolute;left:24px;bottom:20px;font-family:var(--mono);font-size:10px;color:var(--dim);background:rgba(10,12,17,.74);border:1px solid var(--line);border-radius:6px;padding:8px 10px;line-height:1.7;pointer-events:none}
+  /* v2.74 (the 2026-11-01 visual audit, V21; owner default Q9, Ruling EF: the darker box): the legend's box at
+     .86 and its text --muted. At .74 with --dim the legend measured 2.77:1 over white snow and 3.47 over sand
+     (#d9c79c); now 6.01 and 6.68 (computed over those two grounds, not sampled per pixel). The light theme's
+     own box (rgba(251,250,247,.85) with --dim, below) out-specifies this rule and is unchanged. */
+  .legend{position:absolute;left:24px;bottom:20px;font-family:var(--mono);font-size:10px;color:var(--muted);background:rgba(10,12,17,.86);border:1px solid var(--line);border-radius:6px;padding:8px 10px;line-height:1.7;pointer-events:none}
   .legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
-  .busy{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:rgba(10,12,17,.60);font-family:var(--mono);letter-spacing:.06em;-webkit-user-select:none;user-select:none}
+  /* v2.74 (the 2026-11-01 visual audit, V11; owner default Q10(b), Ruling EF): the loading overlay sits ABOVE
+     everything drawn on the map and takes every input there during a long operation, as the Godot shell's
+     busy overlay does (PC_SHELL_PROPOSAL.md §3.10). It had no z-index, so the map's own controls (z 20 —
+     zoom, the 2D/3D square, the Base map chip; DS-13 21, the phone's grip 22, a floating dock 29) stayed
+     bright and pressable over a dimmed map mid-generate. 30 keeps it under every menu panel (45/46), the
+     place popup (61 desktop and tablet, 31 on a phone), the phone's strip, sheet, bar and drawer (32-41)
+     and every window (50+). The overlay covers the map only; the docks beside it are P1(C)'s (v2.75). */
+  .busy{position:absolute;inset:0;z-index:30;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:rgba(10,12,17,.60);font-family:var(--mono);letter-spacing:.06em;-webkit-user-select:none;user-select:none}
   .busy-wit{font-size:13px;color:var(--accent);text-align:center;padding:0 24px;max-width:360px;line-height:1.5}
   .busy-label{font-size:10px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase}
   #resOverlay{position:absolute;top:10px;right:10px;font-family:var(--mono);font-size:10px;color:rgba(200,169,110,.6);background:rgba(10,12,17,.55);border:1px solid rgba(200,169,110,.18);border-radius:5px;padding:6px 8px;line-height:1.8;pointer-events:none;display:none}
@@ -214,14 +258,32 @@
      same in v2.72, so not new to stage 2, but the one drawn target under 44px a phone floor walk found. */
   .place-edit-popup .row > input{min-width:0}
   .place-edit-popup select,.place-edit-popup input[type=text],.place-edit-popup input[type=number]{background:rgba(255,255,255,.06);border:1px solid rgba(200,169,110,.3);color:#e8dcc4;border-radius:5px;padding:4px 6px;font-size:11px;width:auto}
+  /* v2.74 (the 2026-11-01 visual audit, V12, first half): in the LIGHT theme the place popup and the
+     settlement-seed popup take the theme's colours. The v0.90 warm palette above is literal, so in light the
+     card stayed dark while its pills, hints and fields took light-theme tokens — trait pills 3.51:1, '0–1'
+     and '(auto)' 2.16, 'Fortifications (walls)' 2.64, the 'Trade hub' pill 3.73 — and its inputs were white
+     wells on a dark card. The DARK palette is unchanged (owner default Q6, Ruling EF: kept until the owner
+     answers). _civPopulatePlaceEditor's templates carry tokens only (var(--muted), --ink, --panel2, --line,
+     --warn; grepped 2026-11-02), so these rules reach everything the popup draws. */
+  :root[data-theme="light"] .place-edit-popup,:root[data-theme="light"] .settle-info{background:var(--panel);color:var(--ink);border-color:var(--border)}
+  :root[data-theme="light"] .place-edit-popup .pe-h,:root[data-theme="light"] .settle-info .si-h,:root[data-theme="light"] .settle-info .si-h2,:root[data-theme="light"] .settle-info .si-score{color:var(--accent)}
+  :root[data-theme="light"] .settle-info .si-h2{border-top-color:var(--line)}
+  :root[data-theme="light"] .place-edit-popup .row label{color:var(--muted)}
+  :root[data-theme="light"] .place-edit-popup select,:root[data-theme="light"] .place-edit-popup input[type=text],:root[data-theme="light"] .place-edit-popup input[type=number]{background:var(--ins);border-color:var(--border);color:var(--ink)}
+  :root[data-theme="light"] .place-edit-popup .si-close,:root[data-theme="light"] .settle-info .si-close{color:var(--dim)}
+  :root[data-theme="light"] .settle-info .si-grid b,:root[data-theme="light"] .settle-info .si-res b{color:var(--ink)}
   /* v1.18: Interactive City Viewer — full-viewport modal, above #placeEditPopup (z-index 61). */
   .city-viewer-modal{position:fixed;inset:0;z-index:70;display:none;background:rgba(8,9,13,.88)}
   .city-viewer-modal.open{display:flex}
   .cv-canvas-wrap{flex:1;position:relative;overflow:hidden;touch-action:none;min-width:0}
   canvas#cvCanvas{width:100%;height:100%;display:block;background:#1b1f27;cursor:grab}
   canvas#cvCanvas:active{cursor:grabbing}
-  .cv-close{position:absolute;top:12px;right:12px;z-index:2;background:rgba(10,12,17,.72);border:1px solid var(--line);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
-  .cv-close:hover{background:rgba(20,23,30,.9)}
+  /* v2.74 (the 2026-11-01 visual audit, V05): the three windows' × take the panel tokens. A hard-coded dark
+     chip (rgba(10,12,17,.72)) under --ink drew the light theme's dark ink on near-black — 1.07-1.08:1, an
+     invisible ×, on this City viewer, the route editor and the Settlements screen. --ink on --panel2 is
+     14.72 dark and 16.67 light; on hover the accent edge and ink, as #creditsModal .cr-close does. */
+  .cv-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
+  .cv-close:hover{border-color:var(--accent);color:var(--accent)}
   .cv-legend{position:absolute;left:12px;bottom:12px;z-index:2;font-family:var(--mono);font-size:10px;color:var(--dim);background:rgba(10,12,17,.74);border:1px solid var(--line);border-radius:6px;padding:6px 9px;pointer-events:none}
   .cv-info{width:340px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:16px 16px 24px;font-size:12px}
   .cv-info h2{font-size:16px;margin:0 0 2px;color:var(--accent);line-height:1.25}
@@ -239,10 +301,15 @@
      a scrollable form column, since "properly make edits" means giving the existing party/results
      forms room, not a new interactive surface. z-index above the City Viewer's 70 since the two are
      mutually exclusive but never assume that elsewhere. */
-  .route-editor-modal{position:fixed;inset:0;z-index:71;display:none;background:rgba(8,9,13,.9)}
+  /* v2.74 (the 2026-11-01 visual audit, V06): the route editor draws on --bg, opaque. Its content sat
+     straight on the 90% scrim, so the dimmed menu bar and pins showed through its header band, and in the
+     light theme light-theme ink landed on that dark scrim (its warning 2.73:1, its title 3.43:1). It is
+     full-screen and exclusive already, so nothing usable is hidden by the change. */
+  .route-editor-modal{position:fixed;inset:0;z-index:71;display:none;background:var(--bg)}
   .route-editor-modal.open{display:flex}
-  .re-close{position:absolute;top:12px;right:12px;z-index:2;background:rgba(10,12,17,.72);border:1px solid var(--line);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
-  .re-close:hover{background:rgba(20,23,30,.9)}
+  /* v2.74 (V05): the panel tokens, as .cv-close above */
+  .re-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
+  .re-close:hover{border-color:var(--accent);color:var(--accent)}
   .re-body{flex:1;min-width:0;overflow-y:auto;padding:18px 22px 32px;display:flex;flex-direction:column;gap:14px}
   .re-header{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
   canvas#reRouteMap{width:260px;height:170px;flex-shrink:0;border-radius:8px;border:1px solid var(--line);background:#1b1f27}
@@ -277,10 +344,14 @@
      here. */
   .civ-factions-modal{position:fixed;inset:0;z-index:72;display:none;background:rgba(8,9,13,.9)}
   .civ-factions-modal.open{display:flex}
-  .cfm-body{flex:1;min-width:0;overflow-y:auto;padding:18px 22px 32px;max-width:720px;margin:0 auto;width:100%;position:relative}
+  /* v2.74 (V06): the Settlements screen's column is a panel with side rules, over the scrim. Its content was
+     drawn on the 90% scrim itself, so the map's labels showed through behind the slider rows and in light
+     22 of its text runs fell below AA ('World overview' 2.4:1). The scrim still dims the map either side. */
+  .cfm-body{flex:1;min-width:0;overflow-y:auto;padding:18px 22px 32px;max-width:720px;margin:0 auto;width:100%;position:relative;background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border)}
   .cfm-body h2{color:var(--accent);font-size:19px}
-  .cfm-close{position:absolute;top:12px;right:12px;z-index:2;background:rgba(10,12,17,.72);border:1px solid var(--line);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
-  .cfm-close:hover{background:rgba(20,23,30,.9)}
+  /* v2.74 (V05): the panel tokens, as .cv-close above */
+  .cfm-close{position:absolute;top:12px;right:12px;z-index:2;background:var(--panel2);border:1px solid var(--border);color:var(--ink);border-radius:6px;width:32px;height:32px;font-size:18px;line-height:1;cursor:pointer}
+  .cfm-close:hover{border-color:var(--accent);color:var(--accent)}
   @media (max-width:760px){ .cfm-body{padding:16px} }
   #resOverlay.visible{display:block}
    /* v2.24: re-keyed from the bare `aside` TYPE selector to `.dock`, so the single sidebar can be
@@ -335,7 +406,9 @@
   .sublabel{font-size:11px;color:var(--dim);margin:12px 0 5px;font-weight:600}
   .file{display:none}
   .pill{font-family:var(--mono);font-size:10px;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:1px 7px;cursor:pointer;-webkit-user-select:none;user-select:none}
-  .pill.on{background:var(--accent);color:#18191a;border-color:var(--accent)}
+  /* v2.74 (V09): the ink on the accent fill is --accInk, never a literal. #18191a measured 3.73:1 on the
+     light accent (2.85 on the v2.74 one) — the 'Trade hub' trait pill; --accInk is 8.60 dark, 5.91 light. */
+  .pill.on{background:var(--accent);color:var(--accInk);border-color:var(--accent)}
   label.chk{display:flex;align-items:center;gap:7px;cursor:pointer;color:var(--dim);font-size:12px;margin:9px 0}
   progress{flex:1;height:8px;border:0;border-radius:4px;background:var(--panel2);accent-color:var(--accent);overflow:hidden}
   progress::-webkit-progress-bar{background:var(--panel2);border-radius:4px}
@@ -408,7 +481,9 @@
 .sculpt-navpad-stick{position:relative;width:78px;height:78px;border-radius:50%;background:rgba(10,10,10,.55);border:1px solid rgba(255,255,255,.18);box-shadow:0 2px 10px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}
 .sculpt-navpad-knob{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;background:rgba(217,164,91,.55);border:2px solid var(--accent);box-shadow:0 1px 6px rgba(0,0,0,.4);transition:background .12s}
 .sculpt-navpad-stick.dragging .sculpt-navpad-knob{background:var(--accent)}
-#scaleBar{position:absolute;bottom:10px;right:64px;z-index:15;font-size:10px;color:#cfd4dc;background:rgba(10,12,16,.55);padding:3px 8px 5px;border-radius:6px;pointer-events:none;line-height:1.3}
+/* v2.74 (V21, Q9's darker box): .85, not .55 — #cfd4dc on the .55 box measured 2.91:1 over white snow and
+   4.19 over sand; 8.82 over white at .85 (computed). The light theme's box (.85, below) is unchanged. */
+#scaleBar{position:absolute;bottom:10px;right:64px;z-index:15;font-size:10px;color:#cfd4dc;background:rgba(10,12,16,.85);padding:3px 8px 5px;border-radius:6px;pointer-events:none;line-height:1.3}
 #scaleBar .bar{height:4px;border:1px solid #cfd4dc;border-top:none;margin-top:2px}
 /* ---- Explore map-filter funnel (mirrors Cartalith V1.915's floating layers funnel) ---- */
 .map-filter-fab{position:absolute;top:10px;left:10px;z-index:20}
@@ -436,7 +511,8 @@
 .layers-fab .lp-grp:first-child{margin-top:0}
 .layers-fab .lp-item{display:block;width:100%;text-align:left;background:none;border:0;border-radius:5px;padding:4px 8px;color:var(--ink);cursor:pointer;font-size:11.5px}
 .layers-fab .lp-item:hover{background:var(--panel2)}
-.layers-fab .lp-item.on{background:var(--accent);color:#1a1206;font-weight:600}
+/* v2.74 (V09): --accInk on the accent fill (#1a1206 measured 3.92:1 on the light accent, 3.00 on the v2.74 one) */
+.layers-fab .lp-item.on{background:var(--accent);color:var(--accInk);font-weight:600}
 .layers-fab .lp-pin{opacity:.5;font-size:10px;margin-left:4px}
 /* v0.65 (§4.10): per-layer hotkey badge, right-aligned in the full-width .lp-item row */
 .layers-fab .lp-key{float:right;font-family:var(--mono);font-size:9px;opacity:.55;border:1px solid currentColor;border-radius:3px;padding:0 4px;line-height:1.4}
@@ -452,12 +528,25 @@
   /* the DCC handoff only says "inks inverted" for light, so these were derived here — and the
      first derivation put labels at 4.09:1 and hints at 2.83:1 against the panel, both under AA
      and both WORSE than the v2.22 light theme they replace. Measured, then darkened two steps. */
-  --ink:#1b1a17; --dim:#5b5c56; --faint:#6e6f69;
-  --accent:#a4650f; --accent2:#2f6a9b; --warn:#a8442f;
+  /* v2.74 (the 2026-11-01 visual audit, V08 and V09): two light inks re-based to clear WCAG AA as small
+     text on every ground they sit on.
+       --faint #6e6f69 → #676762: 4.46 on --panel and 4.03 on --ins before; 5.09 on --bg, 5.00 on
+         --panel, 5.45 on --panel2, 4.52 on --ins after. It fails on wash2 (4.17): no faint text on wash2.
+       --accent #a4650f → #8b550d (owner default Q3, Ruling EF): the old accent measured 3.75-4.22 and
+         failed as the 9-11px captions, tabs and links it colours. The new one measures 5.52 on --bg,
+         5.42 on --panel, 5.91 on --panel2, 4.90 on --ins, 4.93 on the wash and 4.52 on wash2, and
+         --accInk on it 5.91 (4.52 before). The design's #9a5d0c (Shell.dc.html themeVars) was the
+         other option; it fails on --ins (4.23) and the wash (4.25).
+     The two washes deliberately KEEP the old accent's hue (164,101,15): a wash on #8b550d would drop the
+     accent on wash2 to 4.41. A wash is a tint, not an ink; its hue difference is not visible. */
+  --ink:#1b1a17; --dim:#5b5c56; --faint:#676762;
+  --accent:#8b550d; --accent2:#2f6a9b; --warn:#a8442f;
   --ins:#e7e5e0; --div:rgba(0,0,0,.08); --wash:rgba(164,101,15,.08);
   --wash2:rgba(164,101,15,.15); --accInk:#fbfaf7; --stale:#8a6f2e; --good:#3f7a4e;
   /* both aliases are broken in :root, so light has to restate them or it inherits dark's */
   --border:rgba(0,0,0,.18); --muted:#4e4f4a;
+  /* v2.74 (V02): the browser's own controls in the light scheme — see color-scheme in :root */
+  color-scheme:light;
 }
 /* the map viewport backdrop is a hardcoded dark grid (not a var) — lighten it in light mode too so the
    frame matches. The MAP canvas itself is untouched (JS-drawn), only the surrounding matte. */
@@ -481,7 +570,10 @@ body.phase-explore .dock-right{border-left-color:var(--accent2)}
 body.phase-explore #phaseChip{display:inline-block}
 /* v0.86: Credits & academic-principles modal (header ⓘ). A scrim-backed scrollable card, same visual
    language as #onboard. Content is static reference text — no state, safe to open any time. */
-#creditsModal{display:none;position:fixed;inset:0;z-index:50;align-items:center;justify-content:center;background:rgba(10,12,17,.78);padding:24px}
+/* v2.74 (the 2026-11-01 visual audit, V10): z-index 76, above Settings (74) and below the map menu (80) and
+   the setup gate (90). At 50, Credits opened BEHIND Settings from its About page's ⓘ — on a phone the only
+   route to Credits — so the tap seemed to do nothing and Credits' × could not be reached. */
+#creditsModal{display:none;position:fixed;inset:0;z-index:76;align-items:center;justify-content:center;background:rgba(10,12,17,.78);padding:24px}
 #creditsModal.open{display:flex}
 #creditsModal .cr-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 24px 24px;width:min(680px,94vw);max-height:88vh;overflow-y:auto;box-shadow:0 12px 44px rgba(0,0,0,.55);position:relative}
 #creditsModal h2{font-family:var(--mono);font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin:0 0 4px}
@@ -548,6 +640,12 @@ body.setup-gated .toolrail,body.setup-gated .status-bar,body.setup-gated .tl-str
   position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);z-index:1}
 #onboard .su-actions button{flex:1;padding:10px 12px;font-size:12px}
 #onboard .su-actions .su-back{flex:0 0 auto}
+/* v2.74 (the 2026-11-01 visual audit, V17): the six world shapes in three columns. As six flex cells in the
+   card's width each was 59px, so 'Archipelago' (68px) was clipped ('Archipela' on a phone) and every cell
+   was forced onto two lines. And the sticky Back/Generate bar meets the card's bottom edge: bottom:0 stuck
+   it 25px above it (the card's 24px padding), and scrolled content showed through that band. */
+#onboard #suArchSeg{display:grid;grid-template-columns:repeat(3,1fr)}
+#onboard .su-actions{bottom:-24px}
 #packGrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 /* v2.15: search hit flash. Referenced by _findReveal — without this rule the class is added and
    nothing is visible, exactly the v1.80 windFxCanvas shape. */
@@ -620,6 +718,10 @@ details.cat-acc{border-bottom:1px solid var(--line)}
 details.cat-acc>summary{cursor:pointer;list-style:none;padding:11px 16px;color:var(--dim);font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;font-weight:600;-webkit-user-select:none;user-select:none;display:flex;align-items:center}
 details.cat-acc>summary::-webkit-details-marker{display:none}
 details.cat-acc>summary::before{content:'▸  ';color:var(--faint)}
+/* v2.74 (the 2026-11-01 visual audit, V25, the arrow only): a gap after the category arrow. The summary is a
+   flex container, so the two spaces in content:'▸  ' collapse away and the arrow was glued to the word
+   ('▸GEOLOGY'). The label rule itself is v2.77's (Ruling EF's design alignment). */
+details.cat-acc>summary::before{margin-right:8px}
 details.cat-acc[open]>summary::before{content:'▾  '}
 details.cat-acc[open]>summary{color:var(--accent)}
 /* ══ Asset Library (full-workspace page) ══ */
@@ -645,6 +747,13 @@ details.cat-acc[open]>summary{color:var(--accent)}
 .al-card .al-thumb{width:100%;aspect-ratio:1;border-radius:5px;background:var(--preview-al,#0c0e13);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
 .al-card .al-thumb canvas{max-width:100%;max-height:100%}
 .al-card .al-thumb .al-empty{color:var(--faint);font-size:22px}
+/* v2.74 (the 2026-11-01 visual audit, V07): an EMPTY slot is a well, not a preview. --preview-al is the
+   user's preview background for real art, and it defaults to white (UIState.data.previewBg '#ffffff'), so on
+   the dark library 18 empty 154px slots were white squares filling the first screen at 1600×900. A tile
+   with art keeps --preview-al. A browser without :has() (Chrome <105, Safari <15.4, Firefox <121) keeps the
+   old white, a graceful fallback. */
+.al-card .al-thumb:has(> .al-empty){background:var(--ins)}
+.al-card .al-thumb .al-empty{color:var(--dim)}
 .al-card .al-nm{font-size:11.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .al-card .al-sub{font-family:var(--mono);font-size:9.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .al-card .al-badge{position:absolute;top:5px;right:5px;font-family:var(--mono);font-size:9px;background:rgba(10,12,17,.8);border:1px solid var(--line);border-radius:999px;padding:1px 6px;color:var(--accent2)}
@@ -746,6 +855,21 @@ header .tag{font-size:10.5px;color:var(--faint)}
 /* wells sit BACK from the panel; controls outline one step brighter than a region rule */
 input,select,textarea{background:var(--ins);border:1px solid var(--border);color:var(--ink)}
 input[type=range]{background:transparent;border:0}
+/* v2.74 (the 2026-11-01 visual audit, V20): a text field takes the UI's font, numbers and selects stay mono,
+   and a text field gets the padding the number field already had. This layer set colours on fields but never
+   a font, so text fields drew the browser's Arial 13.33px with 1px of padding (the landmass names, the
+   popup's Name). `select` is restated after `inherit` because this rule comes after its own mono rule. */
+input,select,textarea{font-family:inherit}
+input[type=number],select{font-family:var(--mono)}
+input[type=text],input[type=search],input:not([type]){padding:5px 7px}
+/* v2.74 (V02): checked boxes and radios paint the accent, as ranges and progress bars already did */
+input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
+/* v2.74 (V19): the design's focus ring on every control a keyboard reaches (Desktop.dc.html's
+   .dk-chip:focus-visible: 2px solid accent, 2px out). Only the menu bar and the rail had one; everything
+   else drew Chrome's 1px auto ring. Their own -2px rules out-specify this one and keep their inset ring.
+   A text field matches :focus-visible whenever it is focused, so fields draw it too — a labelled judgement
+   (the design states a ring for its chips only); if it reads too loud, scope this to the non-text controls. */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* :not(.on) matters — three :not()s already out-specify `button.on`, and without it every
    armed segment (Region, 2K, a picked tool) silently lost its active fill. */
 /* v2.24 FIX — this shipped broken in v2.23. A :not() contributes its ARGUMENT's specificity, so the
@@ -776,6 +900,20 @@ button.on{background:var(--accent);border:1px solid var(--accent);font-weight:60
 .subtab-bar{border-bottom:1px solid var(--line)}
 .subtab{border-bottom:2px solid transparent}
 .subtab.on{background:var(--wash)}
+/* v2.74 (the 2026-11-01 visual audit, V03; MISTAKES.md "Defer work… or restyle an active state"): an active
+   sub-tab is underlined and an active Settings page is barred on the left — ONE 2px side, by resetting the
+   border shorthand first. `button.on` above sets `border:1px solid var(--accent)` on all four sides, and
+   .subtab.on and .set-nav button.on each recoloured only their one side, so both drew a full accent box
+   (1px on all four, since v2.23). Never restyle an active state by recolouring one side under a shorthand. */
+.subtab.on{border:0;border-bottom:2px solid var(--accent);font-weight:inherit}
+.set-nav button.on{border:0;border-left:2px solid var(--accent);font-weight:inherit}
+/* v2.74 (the 2026-11-01 visual audit, V18): CIVIL's five sub-tabs fit the dock at 1366. They needed 387px of
+   the 371 the dock gives there, so STATISTICS was cut at the dock's edge and the dock scrolled sideways by
+   16px; tighter tracking and side padding fit them (measured with this machine's Inter — a person re-checks
+   Segoe UI on Windows). Desktop and tablet only; the phone's domain page is its own width. */
+:where(html:not([data-shell="phone"])) .subtab{letter-spacing:.02em;padding:9px 2px;min-width:0}
+/* the phone draws the Settings page list as a row of tabs (the v2.73 phone block above): underline there */
+:where(html[data-shell="phone"]) .set-nav button.on{border-left:0;border-bottom:2px solid var(--accent)}
 button.accent{background:var(--accent);color:var(--accInk);border:1px solid var(--accent);font-weight:600}
 
 /* numerics and codes in mono — the one type rule the DCC states outright */
@@ -895,6 +1033,11 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
      phone page split the same two labels into three columns each (seen at 360x780). */
   #mbExportPanel label.chk{display:block;padding-left:20px;text-indent:-20px;line-height:1.45}
   #mbExportPanel label.chk input{margin:0 7px 0 0;vertical-align:-2px}
+  /* v2.74 (the 2026-11-01 visual audit, V13): Export GeoJSON is drawn as a button. The form sits inside File's
+     .dropdown, whose v0.87 row reset (`.dropdown button{background:none;border:0}`) stripped it to a line of
+     text (transparent, '0px none'); Export .zip escaped only because button.accent restyles it. On every
+     shell, the phone's MENU › File › Export included. */
+  #mbExportPanel #exportGeoBtn{background:var(--panel2);border:1px solid var(--border);padding:7px 12px;width:auto;display:inline-block}
 
   /* ---- D2 · the tool-options bar: the armed tool's settings only (Ruling DZ) ------------------- */
   /* One 40px row with no tool armed: context, hint, pins. With Sculpt armed it becomes TWO rows (the
@@ -934,6 +1077,16 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   :where(html:not([data-shell="phone"])) #toolOpts .row .val{flex:0 0 32px}
   :where(html:not([data-shell="phone"])) #toolOpts #sBrushKm{margin:0!important;max-width:8em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:10px}
   :where(html:not([data-shell="phone"])) #toolOpts #sculptFeatHint{order:7;margin:0!important;min-width:0;flex:1 1 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono);font-size:10px}
+  /* v2.74 (the 2026-11-01 visual audit, V15): the feature picker gets row one to itself. Freehand's mode strip
+     moves to row two, first among the brush rows (the same order 6; it precedes them in the slot table), and
+     the spacer stops growing — at flex 1 1 auto it took half of row one beside the picker, the pins keep their
+     auto margin. With Freehand armed the picker had 342px at 1600 and 225 at 1366, and _dskToolOptsSync
+     centres the armed feature, so Freehand (the last) scrolled 8 of the 13 features out of sight at 1600 and
+     10 at 1366, with nothing saying the row scrolls. The km readout gets 11em so "≈ 25.0 km radius" is not
+     cut. The tablet's Discard and Commit keep orders 8 and 9, after the hint. */
+  :where(html:not([data-shell="phone"])) #toolOpts #sculptModeSeg{order:6}
+  :where(html:not([data-shell="phone"])) #toolOpts .to-spacer{flex:0 0 0;min-width:0}
+  :where(html:not([data-shell="phone"])) #toolOpts #sBrushKm{max-width:11em}
   /* v2.46: #assetsHeaderBtn is the way OUT of Assets mode as well as in, and on this layout it lives
      in the pins. So the bar stays in Assets mode (v2.24 hid it) and only its map-tool parts step
      aside; the domain rail and both docks still give the library the stage, as before. */
@@ -1039,6 +1192,10 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   /* descendant, not child, selectors: the FABs sit in a display:contents slot inside these columns */
   :where(html:not([data-shell="phone"])) .map-tl .map-filter-fab{position:relative;top:auto;left:auto}
   :where(html:not([data-shell="phone"])) #layersBtn{width:auto;white-space:nowrap;padding:0 12px;gap:8px;height:32px;font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase}
+  /* v2.74 (the 2026-11-01 visual audit, V22): the Explore filter chip takes the Base map chip's 32px, so the two
+     chips beside each other share a bottom edge (36 against 32 left them 4px apart). The touch shells' 44px
+     floor (min-height) still raises both on the tablet. */
+  :where(html:not([data-shell="phone"])) .map-tl .funnel-btn{width:32px;height:32px}
   :where(html:not([data-shell="phone"])) .lp-base .seg{margin:0 0 8px}
   /* bottom-right: one column — the 3D switch over recentre, zoom in and zoom out */
   :where(html:not([data-shell="phone"])) .map-br{position:absolute;right:10px;bottom:10px;z-index:20;display:flex;flex-direction:column;align-items:center;gap:6px}
@@ -1272,6 +1429,13 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
    GPU — each also in Preferences) yield before they overlap Generation info and the version, as the phone's
    v2.71 status bar did */
 :where(html:not([data-shell="phone"])) .status-bar .readout{min-width:0;flex:0 1 auto}
+/* v2.74 (the 2026-11-01 visual audit, V14): a chip that does not fit disappears WHOLE. The readout wraps onto a
+   second line that its 26px height and overflow:hidden never show, so a chip either fits on the first line or
+   is not drawn — at any width and in any font. Before, the readout clipped mid-chip (911px of 989 needed at
+   1600, 'volc 20·prov · craters 100' cut; 677 of 678 at 1366), which the 1560/1180 breakpoints above cannot
+   prevent because the chips' widths depend on the font and the world. The phone's MENU › Status wraps the
+   same chips in full (its own rule), so this one is keyed off the phone. */
+:where(html:not([data-shell="phone"])) .status-bar .readout{flex-wrap:wrap;height:26px;align-content:flex-start;line-height:26px;row-gap:0}
 @media (max-width:900px){ :where(html:not([data-shell="phone"])) .status-bar .sb-chip:not(#genInfoBtn){display:none} }
 
 /* ---- DESKTOP + TABLET · the docking rule (§2.2; v2.72's open issue: at 861-1000px the docks squeezed the
@@ -1615,7 +1779,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
   <h1>Cartalith<span class="h1-gen"> Gen1</span></h1>
   <!-- v2.72: on the desktop #verTag sits at the right end of the status bar (#slotSbVer); v2.73: on every
        shell — on a phone the status bar is MENU › Status. -->
-  <span class="ver" id="verTag">v2.73</span>
+  <span class="ver" id="verTag">v2.74</span>
   <span class="tag">terrain · climate · civilization · 2D/3D · cartalith gen1</span>
   <!-- v0.63 (§3): phase chip — appears once the world is finalized (Atlas/Explore phase) -->
   <span id="phaseChip" title="The simulation is frozen — you're editing the cartographic Atlas. Un-finalize under WORLD › Generate › Finalize world.">✓ Atlas — world finalized</span>
@@ -3526,7 +3690,7 @@ details.adv>summary{font-size:10.5px;letter-spacing:.02em}
     <div class="ctx-head dk-only" id="ctxHead">
       <div class="ctx-k" id="ctxKind">Context</div>
       <div class="ctx-name" id="ctxName">Nothing selected</div>
-      <div class="ctx-hint" id="ctxHint">Inspect a settlement, label or icon on the map, or a row in a list</div>
+      <div class="ctx-hint" id="ctxHint">Shows what you select</div>
       <button type="button" class="dh-btn" id="ctxHideBtn" title="Hide the Context panel (Window ▸ Context panel)" aria-label="Hide the Context panel">›</button>
       <!-- v2.73: the docking rule's pin (drawn only while the Context panel floats; see #dockLeftPin) -->
       <button type="button" class="dh-btn dh-pin" id="ctxPinBtn" aria-pressed="false" title="Pin the Context panel open over the map — pressing the map then leaves it open" aria-label="Pin the Context panel open">⊙</button>
@@ -4013,7 +4177,7 @@ _shellEarly();
    The full reasoning for the reader's shape lives at `_treeRead` (~line 12680)
    rather than being duplicated here.
    ========================================================================== */
-const VERSION='2.73';   /* v1.30: this had drifted — it is export/atlas metadata only (never gated on), and was still reading 1.24 six versions later.
+const VERSION='2.74';   /* v1.30: this had drifted — it is export/atlas metadata only (never gated on), and was still reading 1.24 six versions later.
    v1.52: drifted AGAIN, two versions after that fix-comment — v1.51 and this file both still read '1.50', which is what the header
    chip (id="verTag", set from VERSION at line ~13033, overwriting the HTML span's own hardcoded text on load) was showing in a
    verification screenshot. Confirmed harmless to every hashed/tested field (nothing reads VERSION except display + export
@@ -11486,6 +11650,7 @@ function renderNow(rect){
      (enforced by the caller), so the debug-view/LOD branches below are unreachable with a rect and
      need no special-casing. */
   if(suspendRender) return;
+  _bootRenderPending=false;   /* v2.74 (P4): any render replaces the flat boot backdrop, so "Skip for now" need not render again (var, set at the end of this block's boot) */
   if(_view3dOn){ _v3dDirty=true; _v3dTexDirty=true; }   /* v0.6: the map just repainted → flag the 3D drape for re-upload next frame (covers every renderNow path incl. LOD early-return) */
   const _rT0=performance.now();   /* v0.148: phase timing (timestamps only; LOD early-return simply skips the record) */
   const px=img.data, dbg=state.debug;
@@ -12350,7 +12515,10 @@ const SCULPT_FEATURES = {
   },
   freehand: {
     label:'Freehand', icon:'✏️', radial:false, edgeChar:0.3, edgeFreqMul:0.6,
-    hint:'Continuous quick touch-up, no preset landform — pick a sub-mode below. Raise/Lower/Smooth follow the drag; Cliff/Ridge/Canyon follow drag direction; Mesa/Volcano stamp once at a tap (a 1-point stroke degenerates to radial distance, so the same geometry serves both interactions).',
+    /* v2.74 (the 2026-11-01 visual audit, V15/V28): the hint names the mode strip instead of saying "below" —
+       since v2.72 the modes sit beside the brush rows (the tool-options bar on the desktop and tablet, the
+       top of WORLD › Sculpt on a phone), not under this text. */
+    hint:'Continuous quick touch-up, no preset landform — pick its mode (Raise … Volcano) in the mode strip. Raise/Lower/Smooth follow the drag; Cliff/Ridge/Canyon follow drag direction; Mesa/Volcano stamp once at a tap (a 1-point stroke degenerates to radial distance, so the same geometry serves both interactions).',
     modes:[['raise','Raise'],['lower','Lower'],['smooth','Smooth'],['cliff','Cliff'],['ridge','Ridge'],['canyon','Canyon'],['mesa','Mesa'],['volcano','Volcano']],
     controls:[['amount','Amount',0.02,0.3,0.005,0.12]],
     apply(c,P){ const m=P.subMode||'raise';
@@ -18132,6 +18300,14 @@ function _findPanelOwners(){
      living in Civilisation was "owned" by a button that reveals World. The rail's Explore button is
      the only [data-tab] left, and #generatePanel is the correct owner for the other three domains. */
   for(const b of document.querySelectorAll('[data-tab]')){ const id={generate:'generatePanel',explore:'explorePanel',assets:'assetsPanel'}[b.dataset.tab]; const el=id&&document.getElementById(id); if(el) out.push({panel:el,btn:b,top:true}); }
+  /* v2.74: #assetsPanel (the pack's name, author, licence, Validate…) is drawn in Assets mode since v2.74, and
+     no [data-tab="assets"] button has existed since v2.24, so Find listed its labelled fields and could reveal
+     none. Its owner presses the Assets toggle — the one way into the library — only when the library is not
+     already open (a second press would leave it). Not on a phone, where the panel is not drawn (the v2.24 rule's
+     v2.74 note in the stylesheet). */
+  { const ap=document.getElementById('assetsPanel'), ab=document.getElementById('assetsHeaderBtn');
+    if(ap&&ab&&!(typeof _shell!=='undefined'&&_shell==='phone'))
+      out.push({panel:ap,btn:{click(){ if(!_dskV(()=>_assetsModeOn,false)) ab.click(); }}}); }
   /* v2.24: everything the cog absorbed (GPU, Tiled LOD, Atlas cache, Region export, autosave, 3D
      view, generation info) is inside a modal that is display:none until opened, so search has to be
      able to open it — otherwise those controls are findable and unreachable. */
@@ -19409,6 +19585,10 @@ function _carEnterAssetsMode(){
   /* v2.73 (fix round 2): on a phone this toggle moves from the quick drawer to the app bar while the library
      is open (_SHELL_SLOTS `pa`) — the drawer's grip is on the map, which the library hides */
   if(typeof _shellPlaceRow==='function') _shellPlaceRow('assetsHeaderBtn');
+  /* v2.74: the left dock now stays in this mode with #assetsPanel alone (desktop and tablet): re-decide whether
+     it docks beside the library or floats over it, and name it in its head */
+  if(typeof _shellDockSync==='function') _shellDockSync();
+  if(typeof _dskDockHeadSync==='function') _dskDockHeadSync();
 }
 /* Reverse of the above — restore whichever phase (Generate/Explore) was active before Assets mode.
    Mirrors the tab-switch handler's restore branch, so a phase tab click and this button agree. */
@@ -19429,6 +19609,9 @@ function _carExitAssetsMode(){
   if(typeof _dskToolOptsSync==='function') _dskToolOptsSync();
   /* v2.73 (fix round 2): and back to its quick-drawer home on a phone */
   if(typeof _shellPlaceRow==='function') _shellPlaceRow('assetsHeaderBtn');
+  /* v2.74: the map is back, so the docking rule is asked of the map again, and the dock's head names the domain */
+  if(typeof _shellDockSync==='function') _shellDockSync();
+  if(typeof _dskDockHeadSync==='function') _dskDockHeadSync();
 }
 { const ab=document.getElementById('assetsHeaderBtn'); if(ab) ab.addEventListener('click',()=>{ _assetsModeOn?_carExitAssetsMode():_carEnterAssetsMode(); }); }
 /* Explore map-filter funnel — toggle + close-on-outside-click/Escape (mirrors Cartalith V1.915's
@@ -19550,8 +19733,9 @@ function renderDistLegend(host,onPick){ if(!host)return; host.innerHTML='';
 /* ---- the gate ---- */
 const _obEl=document.getElementById('onboard');
 /* v2.72: the gate decides whether a world exists (_hasLiveWorld), so opening or closing it must refresh the
-   menu bar's document readout — the boot render writes that readout BEFORE the gate opens, and would
-   otherwise leave the boot seed on screen as if it were a world's. */
+   menu bar's document readout — a render writes that readout, and would otherwise leave the boot seed on
+   screen as if it were a world's (until v2.74 the boot itself rendered before the gate opened; since v2.74
+   only Skip for now renders the empty world, and it runs after _setupHide). */
 function _setupHide(){ if(_obEl) _obEl.style.display='none'; if(document&&document.body) document.body.classList.remove('setup-gated'); if(typeof _sculptNavSync==='function') _sculptNavSync(); if(typeof _dskDocReadoutSync==='function') _dskDocReadoutSync(); }   /* v0.68: re-enable the sidebar once a world exists; v1.22: reveal the touch pan joystick now that the map is live */
 /* v1.24 fix (QA report, data loss): no beforeunload guard existed anywhere — manual "File → Export
    .zip" is the only save path, so an accidental refresh/close silently lost every edit since the
@@ -19571,8 +19755,11 @@ function _suShowStep(id){ ['obStepIntro','obStepGenerate','obStepCalibrate'].for
    a world exists" — beforeunload and autosave both read it — so skipping must NOT make it true, or
    an empty app warns on close and autosaves a blank world. The flag is cleared by generate()/load,
    which is exactly when the contract becomes true again on its own. */
+/* v2.74 (P4): the boot no longer renders the empty world behind the gate (see the boot line at the end of
+   this block), so leaving by Skip renders it here, once — the canvas then holds what v2.73's boot drew. */
 { const sb=document.getElementById('obSkip');
-  if(sb) sb.addEventListener('click',()=>{ _setupSkipped=true; if(typeof _setupHide==='function') _setupHide(); if(typeof _sculptNavSync==='function') _sculptNavSync(); }); }
+  if(sb) sb.addEventListener('click',()=>{ _setupSkipped=true; if(typeof _setupHide==='function') _setupHide(); if(typeof _sculptNavSync==='function') _sculptNavSync();
+    if(_bootRenderPending) renderNow(); }); }
 function _setupOpen(mode){ if(!_obEl) return; _setupSkipped=false;
   if(mode==='hide'){ _setupHide(); return; }
   _obEl.style.display='flex';
@@ -19879,8 +20066,13 @@ function updateScaleBar(){
    it (today the header dropdowns) reads --chrome-top instead of guessing. */
 function _syncChromeTop(){
   const hd=document.querySelector('header'); if(!hd) return;
-  const b=Math.round(hd.getBoundingClientRect().bottom);
-  if(b>0) document.documentElement.style.setProperty('--chrome-top', b+'px');
+  /* v2.74 (V272-1/-2): both bands are READ before either custom property is written, and a property is written
+     only when its value changed. Writing --chrome-top between the two reads dirtied the style, so the second
+     read forced another layout; and an unchanged value re-written still invalidates every rule that uses it. */
+  const cw=document.querySelector('.canvas-wrap');
+  const b=Math.round(hd.getBoundingClientRect().bottom), t=cw?Math.round(cw.getBoundingClientRect().top):0;
+  const st=document.documentElement.style;
+  if(b>0&&st.getPropertyValue('--chrome-top')!==b+'px') st.setProperty('--chrome-top', b+'px');
   /* v2.27: --canvas-top is the same idea one band lower — the top of the MAP, below whatever chrome
      happens to be stacked above it (header + document bar; before v2.31 the domain rail was a 44px row
      in that stack too). The Layers popover is absolutely positioned inside the map, so a cap written
@@ -19889,14 +20081,18 @@ function _syncChromeTop(){
      the screen where no amount of scrolling reaches them. Measuring the band instead of guessing a
      constant is also the only version that stays correct on BOTH layouts, since the rail is a vertical
      column on desktop and a horizontal row on mobile. */
-  const cw=document.querySelector('.canvas-wrap');
-  if(cw){ const t=Math.round(cw.getBoundingClientRect().top);
-    if(t>0) document.documentElement.style.setProperty('--canvas-top', t+'px'); }
+  if(t>0&&st.getPropertyValue('--canvas-top')!==t+'px') st.setProperty('--canvas-top', t+'px');
 }
 function _viewportRect(){ const cw=document.querySelector('.canvas-wrap'); return cw?cw.getBoundingClientRect():{left:0,top:0,right:innerWidth,bottom:innerHeight,width:innerWidth,height:innerHeight}; }
 let _vpRefitQueued=false;
 function _refitViewportNow(){
   _vpRefitQueued=false;
+  /* v2.74 (V272-1/-2): the bands' heights are published here, in the frame, FIRST, reading the layout the fill
+     below reads anyway — after the fill (which writes the map's transform and the civ canvas) a read forced a
+     layout of its own. _shellPlace no longer forces one for it, the boot no longer measures before the
+     controls are placed, and the window's resize listeners now schedule this refit instead of measuring.
+     Every caller that moves a band schedules this refit (v2.24's rule). */
+  _syncChromeTop();
   if(_lodOn) _lodFitCanvas(); else _viewFill();
   if(typeof updateScaleBar==='function') updateScaleBar();
   if(typeof _view3dOn!=='undefined' && _view3dOn && typeof resizeView3D==='function'){ resizeView3D(); _v3dDirty=true; }
@@ -19909,10 +20105,20 @@ function _scheduleViewportRefit(){ if(_vpRefitQueued) return; _vpRefitQueued=tru
   const hd=document.querySelector('header');
   if(hd) try{ new ResizeObserver(()=>_syncChromeTop()).observe(hd); }catch(_){}
 })();
-_syncChromeTop();
-if(window.addEventListener) window.addEventListener('resize',_syncChromeTop);
+/* v2.74 (the 2026-11-01 performance audit, V272-2): no boot-time _syncChromeTop() here any more. It ran before
+   _dskInit had placed the controls, so it forced the page's first full layout on an arrangement that was about
+   to change, and _shellPlace forced a second. _dskInit's placement schedules the refit, which publishes the
+   values in the first frame, before anything paints (_refitViewportNow).
+   The window's two resize listeners that measured — this one (--chrome-top) and v0.87's (the map's fill) —
+   now SCHEDULE that refit, which does both in the frame: as 'resize' listeners they ran before _dskInit's own
+   resize listener re-placed the controls, so each forced a layout of the arrangement about to change, on every
+   resize (measured by a timeline trace, 2026-11-02: one each per resize, plus _shellPlace's own). They stay as
+   listeners, for the DPR and orientation changes the observers do not see. */
+if(window.addEventListener) window.addEventListener('resize',_scheduleViewportRefit);
 if(window.addEventListener) window.addEventListener('resize',updateScaleBar);
-if(window.addEventListener) window.addEventListener('resize',()=>{ if(_lodOn) _lodFitCanvas(); else _viewFill(); });   /* v0.87: keep the LOD viewport filled on window resize; v1.01/v1.13: re-fill (cover) — a resize/rotation changes the cover scale, and the default should stay filled */
+/* v0.87: keep the LOD viewport filled on window resize; v1.01/v1.13: re-fill (cover) — a resize/rotation changes
+   the cover scale, and the default should stay filled. v2.74: through the scheduled refit above (_lodFitCanvas or
+   _viewFill in the frame), not a synchronous fill. */
 
 /* ---- keyboard: Ctrl/Cmd-Z undo, Space = hold-to-pan ---- */
 document.addEventListener('keydown',e=>{
@@ -20035,8 +20241,13 @@ function _civClearInspectorIfStale(){
    silent capability change, not a layout change. Each palette stays scoped to the domain that owned
    it; the gain is that an ARMED tool's contextual options are always on screen. */
 function _toolsBlockSync(){
+  /* v2.74 (the 2026-11-01 visual audit, V28): WORLD's palette is one sentence, "World has no map tools — shape
+     terrain in Sculpt…", which was still drawn with the Sculpt category open, i.e. while WORLD's one map tool
+     was armed. It is hidden there; in Generate it stays, where it is true. (_applyDomainUI, which every
+     category switch runs, calls this; _sculptCategoryOpen is initialised long before either can run.) */
   document.querySelectorAll('#toolsBlock [data-tooldomain]').forEach(g=>{
-    g.style.display=(g.dataset.tooldomain===_domain)?'':'none';
+    const show=(g.dataset.tooldomain===_domain)&&!(g.dataset.tooldomain==='world'&&_sculptCategoryOpen);
+    g.style.display=show?'':'none';
   });
 }
 
@@ -20105,8 +20316,8 @@ function _sbSyncChips(){
    no layout. And it must never throw on a TDZ binding: block 2 calls into these functions, and several
    of them read block-2 state, so each such read goes through _dskV (try/catch, never `typeof`, which
    throws on a `let` still in its dead zone — v2.15's lesson). Until _dskReady is set at the end of
-   _dskInit every sync function returns at once, which keeps early hooks (syncUI, the boot render)
-   away from this block's own consts. */
+   _dskInit every sync function returns at once, which keeps early hooks (syncUI, and any render before
+   _dskInit — the boot render was one until v2.74 stopped it) away from this block's own consts. */
 /* var, not let: hooks above this block read it before this line has run */
 var _dskReady=false;
 function _dskV(f,d){ try{ const v=f(); return v===undefined?d:v; }catch(_){ return d; } }
@@ -20302,7 +20513,11 @@ function _shellPlace(){
   _dskMenuClose();
   for(const row of _SHELL_SLOTS) _shellPut(row,mode,null);
   _dskToolOptsSync();
-  if(typeof _syncChromeTop==='function') _syncChromeTop();
+  /* v2.74 (the 2026-11-01 performance audit, V272-1 and V272-2): no _syncChromeTop() here. Measuring the bands
+     right after moving the rows forced a full layout inside the resize (or boot) task — one more per class or
+     mode crossing, and at boot one more on top of the boot's own — and the frame's layout followed anyway. The
+     refit this schedules publishes --chrome-top and --canvas-top in its frame instead (_refitViewportNow),
+     before that frame paints, so nothing draws with a stale value. */
   if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
 }
 /* Re-place ONE row in the mode already in force, when a state its slot depends on changed (the Assets
@@ -20491,6 +20706,8 @@ function _dskTlExpand(on){
   const m=_dskEl('tlStripMore'), t=_dskEl('tlStripToggle'); if(!m||!t||!t.setAttribute) return;
   m.hidden=!on; t.setAttribute('aria-expanded',on?'true':'false');
   t.title=on?'Hide the recorded years and the filters':'Show the recorded years, Add year and the filters';
+  /* v2.74 (V28): the empty note's copy depends on whether the strip is open */
+  _dskTlSync();
   /* v2.24's rule */
   if(typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
 }
@@ -20501,7 +20718,11 @@ function _dskTlSync(){
   const em=_dskEl('tlStripEmpty'); if(!em) return;
   const n=_dskV(()=>civTimeline.length,0);
   em.style.display=n>1?'none':'';
-  em.textContent=n===0?'No recorded years yet — open the strip and press Add year'
+  /* v2.74 (the 2026-11-01 visual audit, V28): while the strip is OPEN, Add year is on screen below, so the
+     note says "press Add year" — "open the strip" was told to a user looking at the open strip. _dskTlExpand
+     re-runs this sync, so the copy follows the chevron. */
+  const open=!!(_dskEl('tlStripMore')&&!_dskEl('tlStripMore').hidden);
+  em.textContent=n===0?(open?'No recorded years yet — press Add year below':'No recorded years yet — open the strip and press Add year')
     :'One recorded year ('+_dskV(()=>_civFormatYear(civTimeline[0].year),'—')+') — record another to scrub between them';
 }
 
@@ -20557,9 +20778,11 @@ function _dskToolOptsSync(){
   if(typeof _phStripSync==='function') _phStripSync();
   const was=tool.hidden; tool.hidden=!sculpt;
   if(was!==tool.hidden&&typeof _scheduleViewportRefit==='function') _scheduleViewportRefit();
-  /* the picker scrolls inside its share of the row, and arming Freehand narrows that share (its mode
-     strip joins the row, after this runs — hence the next frame) — so keep the ARMED feature in view.
-     scrollLeft, not scrollIntoView, which could also scroll an overflow:hidden ancestor. */
+  /* the picker scrolls inside its share of the row — so keep the ARMED feature in view, on the next frame,
+     after the bar has laid out what this sync changed. (v2.72-v2.73: arming Freehand narrowed that share, its
+     mode strip joining row one; since v2.74, V15, the mode strip is on row two and the picker has row one,
+     so this matters only where the row is too narrow for all thirteen.) scrollLeft, not scrollIntoView,
+     which could also scroll an overflow:hidden ancestor. */
   if(sculpt&&typeof requestAnimationFrame==='function') requestAnimationFrame(()=>{
     const fs=_dskEl('sculptFeatureSeg'), on=fs&&fs.querySelector('button.on');
     if(on&&fs.closest&&fs.closest('#toolOpts,#phStrip')) fs.scrollLeft=Math.max(0,fs.scrollLeft+on.getBoundingClientRect().left-fs.getBoundingClientRect().left-(fs.clientWidth-on.offsetWidth)/2); });
@@ -20568,6 +20791,9 @@ function _dskDockHeadSync(){
   if(!_dskReady) return;
   const el=_dskEl('dockLeftPath'); if(!el) return;
   const D=_DSK_DOMAIN_NAMES[_domain]||_domain;
+  /* v2.74: in Assets mode the left dock holds the library's pack panel alone (see _shellDockSync), so its head
+     names that, not the domain the library hid */
+  if(_dskV(()=>_assetsModeOn,false)){ el.textContent='Assets › Pack'; return; }
   el.textContent=_domain==='world'?D+' › '+(_sculptCategoryOpen?'Sculpt':'Generate'):D;
 }
 /* The subject is read from EXACTLY what _civRenderInspector() renders from, in its own order of
@@ -20577,7 +20803,11 @@ function _dskCtxSync(){
   if(!_dskReady) return;
   const kEl=_dskEl('ctxKind'), nEl=_dskEl('ctxName'), hEl=_dskEl('ctxHint'); if(!kEl||!nEl||!hEl) return;
   const p=_dskV(()=>_civSelectedPlace,null), lb=_dskV(()=>_civSelectedLabel,null), ic=_dskV(()=>_iconSelected,null);
-  let kind='Context', name='Nothing selected', hint='Inspect a settlement, label or icon on the map, or a row in a list';
+  /* v2.74 (the 2026-11-01 visual audit, V22): the empty state's hint says what the panel is for, in a line
+     the header can draw whole. It was "Inspect a settlement, label or icon on the map, or a row in a list" —
+     397px of mono in a 249-273px line at every desktop size, cut, and the same sentence the body below
+     (_civRenderInspector's empty state) spells out in full. */
+  let kind='Context', name='Nothing selected', hint='Shows what you select';
   if(p){
     if(_dskV(()=>CIV_POI_KEYS.has(p.kind),false)){
       const t=_dskV(()=>CIV_POI_TYPES.find(x=>x.key===p.kind),null);
@@ -21138,6 +21368,12 @@ function _phRevealFor(el){
    on the map closes it unless it is pinned. It replaces v2.72's squeeze at 861-1000px, which the rule's own
    number shows: at 1000px, 1000 - 40 - 372 - 304 left the map 284px. */
 const DOCK_MAP_MIN=520;
+/* v2.74: the Asset Library's floor beside the docked left dock in Assets mode — its category rail (.al-rail,
+   190px), its inspector (.al-insp, 300px) and two tile columns of .al-grid (2 × 150px minmax tracks, a 10px
+   gap and 2 × 12px padding). Read from those rules; if one of them changes, change this. v2.24 hid every
+   dock in Assets mode because with 716px of chrome .al-grid fell to ONE column, which this keeps from
+   happening while the pack panel is docked. */
+const AL_STAGE_MIN=190+300+(2*150+10+24);
 /* The docking rule's state is four body classes per dock, and these helpers are their only readers and
    writers outside _shellDockSync: k is 'ldock' (the left dock) or 'ctx' (the Context panel).
    _dskFloat: is that dock floating now (the rule decided the map would keep under 520px)? */
@@ -21188,6 +21424,15 @@ function _shellDockSync(){
       if(_dskWin.ldock&&avail-lw-(rf?44:rw)<DOCK_MAP_MIN) lf=true;
     }
     _cssVar('--rail-w',railW+'px');
+  }
+  /* v2.74: in Assets mode the left dock holds only the library's side panel (#assetsPanel; the v2.24 rule's
+     v2.74 note in the stylesheet) and the rail and the Context panel are hidden, so the same rule is asked of
+     the LIBRARY: the dock floats over it — closed, a 44px strip whose chevron opens it — when docking it
+     would leave the library less than AL_STAGE_MIN. */
+  else if(W>0&&_shell!=='phone'){
+    const L=W>=1440?400:372;
+    if(_dskWin.ldock&&W-L<AL_STAGE_MIN) lf=true;
+    _cssVar('--rail-w','0px');
   }
   const was=b.classList.contains('ldock-float')+'/'+b.classList.contains('ctx-float');
   /* a dock that starts floating starts closed and unpinned; one that docks again sheds both */
@@ -22120,11 +22365,27 @@ window.addEventListener('resize',()=>{ if(_view3dOn){ resizeView3D(); _v3dDirty=
 
 /* v0.67: boot. Headless (no indexedDB — the stub harness) keeps auto-generating so the 852-suite
    environment and FNV bit-identity are byte-unchanged. In the browser NOTHING is simulated until the
-   user commits base settings: allocate the buffers, render the empty field (all-ocean, sits behind the
-   modal), and open the hard setup gate. generate() stays the sole generation path either way. */
+   user commits base settings: allocate the buffers, fill the empty field's backdrop (v2.74: a flat fill,
+   not a render — see below; it sits behind the modal), and open the hard setup gate. generate() stays
+   the sole generation path either way. */
 GW=state.resW; GH=gridH(GW); allocate();
+/* v2.74 (the 2026-11-01 performance audit, P4; owner default Q10(a), Ruling EF): the browser branch no
+   longer renders the empty world behind the gate. That renderNow drew a 2048×1311 all-ocean field —
+   1846–1960 ms of every page load (median, v2.71/v2.72), inside one long task, so the gate's buttons were
+   dead for about 2 s — and the gate covers it at 86% opacity. Instead #view is sized as renderNow would
+   size it (GW×GH, so the layout and the cover zoom are the ones that render gives) and filled flat with
+   BOOT_OCEAN; the empty world is rendered only if the user leaves the gate by "Skip for now"
+   (_bootRenderPending, read by the Skip handler). Generate, Load and Import render a world anyway, and any
+   renderNow clears the flag. The headless branch (no indexedDB: tests/run.sh) is untouched — it
+   generates, so the 1280-assertion suite and hash_gen1 never see this. */
+var _bootRenderPending=false;
+/* The mean colour of v2.73's boot render of that empty 2048 field, measured 2026-11-02 (rgb 73,102,118;
+   its vignette ran from 50,68,78 at the corners to 68,101,119 at the centre). A labelled judgement: one
+   flat colour for a backdrop the gate dims, not a value any render depends on. */
+const BOOT_OCEAN='rgb(73,102,118)';
 if(typeof indexedDB==='undefined'){ withBusy('generating…',generate); }
-else { renderNow(); if(typeof _setupOpen==='function') _setupOpen('intro'); }
+else { if(view.width!==GW||view.height!==GH){ view.width=GW; view.height=GH; } vctx.fillStyle=BOOT_OCEAN; vctx.fillRect(0,0,GW,GH);
+  _bootRenderPending=true; if(typeof _setupOpen==='function') _setupOpen('intro'); }
 /* v2.12: arm autosave once at boot. Deliberately not inside generate() — invariant 12 keeps that
    path synchronous, and an autosave is async by nature (zipStore + IndexedDB). */
 try{ autosaveSyncUI(); autosaveReschedule(); _renderSnapList(); }catch(_){}
@@ -23842,7 +24103,20 @@ function _civBakeKey(){
      rainField/tempField/koppenField without bumping _fieldGen, so without this term the cached bitmap was
      reused and the climate/biome views only refreshed when an unrelated state.viz change (e.g. Min stream
      order) happened to change the key. Same climate ⇒ same key ⇒ bit-identity preserved. */
-  return _fieldGen+'|'+_climGen+'|'+_paintGen+'|'+(typeof _assetGen!=='undefined'?_assetGen:0)+'|'+state.mode+'|'+state.debug+'|'+(state.debugOpacity!=null?state.debugOpacity:1)+'|'+state.bioBlend+'|'+state.exag+'|'+state.sun+'|'+(state.shadeOnHypso?1:0)+'|'+state.seaLevel+'|'+JSON.stringify(state.viz);
+  /* v2.74 fix (the 2026-11-01 performance audit, P7; MISTAKES.md "Add a capability, or write a
+     staleness/cache key"): three render inputs were never in this key, so the cache served the image
+     drawn before the control moved and the control did nothing on screen.
+       - the Sun slider writes state.sunAz, but the key read state.sun, a field the state literal has
+         never had (undefined in every key since at least v2.71);
+       - "Hillshade the tinted map" writes state.shadeHypso, but the key read state.shadeOnHypso — the
+         CHECKBOX's id, not a state field — so Relief view never re-shaded when it was ticked;
+       - "Show rivers in biome view" writes state.showRivers, which renderNow's river blend reads and the
+         key left out (the LOD tile key, _lodViewKey's sibling above, has always carried it).
+     Each part below names a field the state literal declares; a probe checks that for every state.X
+     here and changes every render-calling control once (tests/perf/probe_v274fix.js, "bake key").
+     A new render input must be added here, or its control serves a stale image. This changes only
+     which renders are reused — a miss renders exactly as before, so hash_gen1 is unaffected. */
+  return _fieldGen+'|'+_climGen+'|'+_paintGen+'|'+(typeof _assetGen!=='undefined'?_assetGen:0)+'|'+state.mode+'|'+state.debug+'|'+(state.debugOpacity!=null?state.debugOpacity:1)+'|'+state.bioBlend+'|'+state.exag+'|'+state.sunAz+'|'+(state.shadeHypso?1:0)+'|'+(state.showRivers!==false?1:0)+'|'+state.seaLevel+'|'+JSON.stringify(state.viz);
 }
 function _civBakeCacheGet(k){
   if(!_civBakeCache.has(k)) return null;
@@ -24054,9 +24328,14 @@ function _civRenderFactionList(){
     const gov=(CIV_GOVERNMENTS.find(g=>g.key===civFactionGovernment[fid])||{}).label||'';
     const agLabel=(_civAgTechByKey(civFactionAgTech[fid]||'traditionalAgrarian')||{}).label||'';
     const row=document.createElement('div');
-    row.style.cssText='display:flex;align-items:center;gap:6px;padding:5px 7px;cursor:pointer;font-size:.8rem;border-radius:5px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);margin-bottom:3px';
+    /* v2.74 (the 2026-11-01 visual audit, V23): the row WRAPS and the name keeps a 120px basis. With
+       flex:1 and min-width:0 the name was the only thing in the row allowed to shrink, so at 412px every
+       faction name was drawn 0px wide (needing 42–99px) behind two pills and the stats that do not
+       shrink. Now the pills and stats move to a second line instead; where the row has room (the desktop
+       modal draws names ~231px wide) nothing wraps and nothing changes. */
+    row.style.cssText='display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 7px;cursor:pointer;font-size:.8rem;border-radius:5px;border:1px solid '+(sel?'var(--accent)':'var(--border)')+';background:var(--panel);margin-bottom:3px';
     row.innerHTML=`<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgb(${f[1].join(',')});flex:0 0 auto"></span>`+
-      `<b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escHtml(name)}</b>`+
+      `<b style="flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escHtml(name)}</b>`+
       `<span class="pill" style="font-size:.68rem">${_escHtml(gov)}</span>`+
       `<span class="pill" style="font-size:.68rem" title="Agricultural technology">${_escHtml(agLabel)}</span>`+
       `<span style="font-size:.72rem;color:var(--muted);white-space:nowrap;flex:0 0 auto">${b.settlementCount} settl. · ${b.pop.toLocaleString()} pop</span>`;
@@ -24490,12 +24769,22 @@ function _civRenderFactionsWorldOverview(){
   for(let f=1;f<CIV_FACTIONS.length;f++){
     const b=agg.byFaction[f]; if(!b) continue;
     nF++; totalPop+=b.pop; totalTerr+=b.territoryKm2; totalSettle+=b.settlementCount;
-    if(b.pop>topPop){ topPop=b.pop; topFid=f; }
+    /* v2.74 (the 2026-11-01 visual audit, V23): only a faction with people can be the largest. The argmax
+       used to run over zeros, so before any settlement existed the overview read "Largest by population:
+       Aurelia (0)" — a plausible-looking name standing in for none (MISTAKES.md "Return, marshal or
+       default a value that can be absent"). */
+    if(b.pop>0&&b.pop>topPop){ topPop=b.pop; topFid=f; }
   }
   const topName=topFid>=0?(civFactionNames[topFid]||CIV_FACTIONS[topFid][0]):null;
+  /* No faction has a population: dash the name with the verified reason. _civFactionAggregates counts only
+     places whose category is 'settlement', and only factions 1..n reach this loop, so there are two causes:
+     no settlement exists at all, or every one is Unclaimed (or recorded with no population). */
+  const anySettle=(state.places||[]).some(p=>p&&p.category==='settlement');
+  const topLine=topName?`Largest by population: <b>${_escHtml(topName)}</b> (${topPop.toLocaleString()})`
+    :`Largest by population: — <span class="hint">(${anySettle?'no faction holds a populated settlement':'no settlements yet'})</span>`;
   out.innerHTML=`<b>${nF}</b> faction${nF===1?'':'s'} &nbsp;·&nbsp; <b>${totalPop.toLocaleString()}</b> total population &nbsp;·&nbsp; `+
     `<b>${totalTerr.toLocaleString()}</b> km² claimed &nbsp;·&nbsp; <b>${totalSettle}</b> settlements`+
-    (topName?`<br>Largest by population: <b>${_escHtml(topName)}</b> (${topPop.toLocaleString()})`:'')+
+    `<br>${topLine}`+
     _vaultSummaryHtml();   /* v2.11 */
 }
 
@@ -24738,7 +25027,11 @@ function _stUpdateVisible(){
   _stEnsurePool(count);
   for(let i=0;i<count;i++){
     const idx=first+i, r=_stFiltered[idx], row=_stPool[i];
-    row.style.display=''; row.style.transform='translateY('+(idx*ST_ROW_H)+'px)'; row.dataset.idx=String(idx);
+    /* v2.74 fix (the 2026-11-01 visual audit, V01): 'flex', never ''. _stEnsurePool writes display:flex into
+       the row's cssText, and the '' this line used to write DELETED that declaration, so every visible row
+       computed display:block and its cells ran together into one string ("AbedomarmarchCapitalKorrath19,306…")
+       since v1.16. A pooled row is shown here and hidden only by _stEnsurePool's display:none. */
+    row.style.display='flex'; row.style.transform='translateY('+(idx*ST_ROW_H)+'px)'; row.dataset.idx=String(idx);
     row.innerHTML=_stRowHtml(r);
     /* mirrors the older sidebar lists' "if(sel) _civSelectedRowRefs={nameSpan}" convention — the
        currently-selected place's visible row hands its live-patch target to whatever inspector
@@ -26719,13 +27012,25 @@ function _jpInfraContext(settles,corridorKm){
 /* Is this grid point inside some faction's claimed territory? Claimed land carries the villages,
    fields and local tracks the generator never places as `state.places`, so it is the one real
    signal that a stage with no TOWN near it is nonetheless inhabited country. */
+/* v2.74 fix (owner, Ruling EC item 6, 2026-11-01: "Apply Godot's fix"): `> 0`, not `>= 0`. civTerritory is
+   a Uint8Array whose 0 is Unclaimed (CIV_FACTIONS[0]), so `>= 0` was true on EVERY cell — the open sea
+   included — and both things built on this predicate never fired: _jpStageInfra's claimed-land floor
+   applied to every stage of every route, and jpJourneyCost's frontier toll (JP_COST_TOLL_PER_BORDER)
+   counted 0 borders on every journey. `> 0` is the native port's cartalith-civ jp_claimed_at. What it
+   changes, measured in CHANGELOG v2.74: a stage over unclaimed land or water no longer takes the floor
+   (unclaimed wilderness can read "Ruined Region", as in Godot), and a route that passes between claimed
+   and unclaimed ground pays a toll there. The territory raster covers land only, so a water stage is
+   never claimed. World generation does not read this function. Never return true for a 0 cell. */
 function _jpClaimedAt(gx,gy){
   if(typeof civTerritory==='undefined'||!civTerritory) return false;
   const xi=Math.max(0,Math.min(GW-1,Math.round(gx))), yi=Math.max(0,Math.min(GH-1,Math.round(gy)));
-  return civTerritory[yi*GW+xi]>=0;
+  return civTerritory[yi*GW+xi]>0;
 }
 /* Stage → infrastructure tier. Three rules on top of the density ratio:
    (a) claimed territory floors the tier at "Sparse Settlements" — inhabited country is not wilderness;
+       a stage counts as claimed when at least half its samples fall on a faction's land (v2.74: only
+       since _jpClaimedAt stopped reading Unclaimed and the sea as claimed — before, this floor applied
+       to every stage). Territory covers land only, so a coastal, bay or river stage takes no floor;
    (b) "Hostile / Dead Zone" needs a real hostile signal (ruins terrain / Ruined Wastes biome), never
        merely "no town within the pick radius", which on a normal generated world is most of the map;
    (c) open water is not tiered by LAND settlement density at all — a hull in blue water does not
@@ -27336,7 +27641,11 @@ function jpJourneyCost(plan){
   const upkeep=(animals*JP_COST_ANIMAL_DAY+vehicles*JP_COST_VEHICLE_DAY)*days;
   /* tolls: one levy per political frontier. plan.stages carries claimedFrac per stage, so a change
      in claimed status between consecutive stages is a frontier — an approximation, and labelled as
-     one, but derived from real territory rather than invented. */
+     one, but derived from real territory rather than invented. v2.74: this counted 0 on every journey
+     until _jpClaimedAt stopped reading Unclaimed and the sea as claimed (Ruling EC item 6). It counts a
+     change between claimed and UNCLAIMED ground, not between two factions (two neighbouring polities'
+     stages both read claimed), and territory covers land only, so a route that leaves claimed land for
+     a sea or river stage crosses one here — the native port's jp_journey_cost counts the same way. */
   let borders=0;
   for(let i=1;i<plan.stages.length;i++){
     const a0=(plan.stages[i-1].claimedFrac||0)>0.5, a1=(plan.stages[i].claimedFrac||0)>0.5;
@@ -28149,7 +28458,7 @@ function _jpRenderPartyForm(jn,autoHint){
     <div class="row"><label>Infrastructure</label><select data-jp="infra" style="flex:1">${opt(['auto',...Object.keys(JP_INFRA)],p.infra)}</select></div>
     <div class="row" data-jp-desert style="display:none"><label title="Auto measures the longest waterless run on this route from the world's own rivers and lakes, and picks the matching crossing tier. Choose a tier explicitly to override that measurement.">Desert water</label><select data-jp="desertWater" style="flex:1">${opt(['auto',...Object.keys(JP_DESERT_WATER)],p.desertWater)}</select></div>
     <label class="chk" style="font-size:.72rem" title="A high pass in a cold biome is impassable in Winter, not merely slow — historically these close under snow for months. Uncheck for a world whose passes stay open year-round."><input data-jp="seasonalClosures" data-structural="1" type="checkbox" ${p.seasonalClosures!==false?'checked':''}> Respect seasonal closures (winter mountain passes)</label>
-    <div class="hint" style="font-size:.7rem">Road quality &amp; infrastructure default to <b>auto</b> — derived from ways/roads the route follows and settlement density along it. Coordination, fatigue, load, weather (biome × season), grazing/foraging and terrain modifiers follow the V1.915 model.</div>`;
+    <div class="hint" style="font-size:.7rem">Road quality &amp; infrastructure default to <b>auto</b> — derived from ways/roads the route follows and settlement density along it; a stretch through a faction's land never reads below <b>Sparse Settlements</b>, while unclaimed land and water can read lower. Coordination, fatigue, load, weather (biome × season), grazing/foraging and terrain modifiers follow the V1.915 model.</div>`;
   host.querySelectorAll('[data-jp]').forEach(el=>{
     const path=el.dataset.jp; if(!path) return;
     const apply=()=>{
@@ -28299,7 +28608,7 @@ function _jpRenderResults(jn){
   if(cost){
     const f=v=>v>=1000?(v/1000).toFixed(1)+'k':v>=100?v.toFixed(0):v.toFixed(1);
     html+=`<details style="margin-top:4px"><summary style="cursor:pointer;font-size:.75rem;color:var(--accent)">Cost — ${f(cost.total)} day-wages${cost.breakEvenPerTonne!=null?` · break-even ${f(cost.breakEvenPerTonne)}/tonne`:''}</summary>
-      <div class="hint" style="font-size:.68rem;margin:4px 0 5px">Priced in <b>day-wages</b> (one day of unskilled labour) — the ratios between land, river and sea carriage follow Diocletian's Price Edict, which this file already uses for food logistics; the absolute level of money in your world is yours to set. Tolls are approximated from territory changes along the route.</div>
+      <div class="hint" style="font-size:.68rem;margin:4px 0 5px">Priced in <b>day-wages</b> (one day of unskilled labour) — the ratios between land, river and sea carriage follow Diocletian's Price Edict, which this file already uses for food logistics; the absolute level of money in your world is yours to set. Tolls are approximated from territory: one levy each time the route passes between a faction's land and unclaimed land or water.</div>
       <table style="width:100%;border-collapse:collapse;font-size:.7rem">
       <tr style="border-top:1px solid var(--border)"><td>Carriage (${cost.cargoT.toFixed(2)} t over ${plan.km.toFixed(0)} km)</td><td style="text-align:right">${f(cost.carriage)}</td></tr>
       <tr style="border-top:1px solid var(--border)"><td>Wages (${plan.plan.groupSize} × ${cost.days.toFixed(0)} d)</td><td style="text-align:right">${f(cost.wages)}</td></tr>
@@ -35944,6 +36253,13 @@ function _civOpenPlacePopup(){
   { const ob=el.querySelector('#peCityOpen');
     if(ob) ob.onclick=()=>{ if(typeof _civOpenCityViewer==='function') _civOpenCityViewer(p); }; }
   el.style.display='block';
+  /* v2.74 (the 2026-11-01 visual audit, V16; OUTSTANDING_WORK.md "Found in the HTML by stage 1"): on the desktop and
+     the tablet the popup is no taller than the map it is clamped into, less the clamp's 6px each side. Its CSS cap,
+     min(80vh,660px), is 614px at 768 tall, while with the timeline strip expanded the map there is 587px — so the
+     clamp below could not fit it and it ran 33px onto the strip ([593,83,873,697] against a strip top of 664).
+     The popup scrolls inside already. The phone keeps v2.73's placement (and the CSS cap). */
+  { const vr0=(typeof _viewportRect==='function'&&typeof _shell!=='undefined'&&_shell!=='phone')?_viewportRect():null;
+    el.style.maxHeight=vr0?Math.max(120,Math.min(Math.round(innerHeight*0.8),660,Math.floor(vr0.height-12)))+'px':''; }
   const[cx,cy]=_civPlaceScreenPos(p.x,p.y);
   const w=el.offsetWidth||280, h=el.offsetHeight||200, pad=14; let lx=cx+pad, ty=cy-h/2;
   { const vr=(typeof _viewportRect==='function')?_viewportRect():{left:0,top:0,right:innerWidth,bottom:innerHeight};   /* v2.24: viewport-clamped, see showSettleInfo */
