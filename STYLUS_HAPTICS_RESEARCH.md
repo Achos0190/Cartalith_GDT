@@ -252,9 +252,27 @@ Android devices commonly use (dp = px × 160 ÷ density) [estimate]:
 
 ### 1.4 Does the Pad 3 have a vibration motor?
 
-OnePlus does not say (§1.2). One command settles it: `adb shell cmd vibrator_manager list` prints one id per vibrator,
-or *"No vibrator found"* when there is none [verified: A26, `runListVibrators`, the same on AOSP `main`,
-`android15-release` and `android16-release`]. Until it is run, the evidence is circumstantial and points both ways.
+**Answered by the owner, 2026-11-02: the Pad 3 has no haptics.** The owner, who has the device, states it plainly:
+*"The pad does not have haptics."* So the tablet's body cannot vibrate, and `Input.vibrate_handheld()` is a no-op on
+it whatever the permission — not for lack of the VIBRATE grant (now set, Ruling ED) but for lack of hardware. The
+circumstantial evidence below pointed the same way, and is kept as the record of why. The adb check is no longer
+needed to decide it; it would only name the id of any accessory vibrator, which does not change the conclusion for the
+tablet itself.
+
+**Consequence for "feel the relief".** On the Pad 3 a *felt* relief has only two possible sources, and the tablet's
+own motor is not one of them:
+- the **pen's** own motor, reachable only through OnePlus/Oppo's licensed pencil SDK (§2.3, Q10) — uncertain, and by
+  the one (unverified) account limited to a fixed texture and one-shot pulses, not a terrain-following texture;
+- **non-haptic cues**: a sound per contour and the visual relief on screen (Q11).
+
+The contour-tick design in §7 still stands, but on the Pad 3 its output is routed to those channels, not to a body
+vibrator. The design degrades to them by its own fallback ladder (§7.7). The VIBRATE permission stays enabled: it is
+for the OnePlus 6T and any other device that does have a motor.
+
+OnePlus does not publish the vibrator either way (§1.2). The command that would have settled it from software is
+`adb shell cmd vibrator_manager list`, which prints one id per vibrator or *"No vibrator found"* when there is none
+[verified: A26, `runListVibrators`, the same on AOSP `main`, `android15-release` and `android16-release`]. The
+circumstantial evidence below, written before the owner's answer, pointed both ways.
 
 **What LineageOS's device trees show** [verified: L1–L5; a case-insensitive grep over each whole tree for "vibrat",
 "haptic", "richtap" and "awinic"]:

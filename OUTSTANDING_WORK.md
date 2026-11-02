@@ -166,9 +166,12 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
 - **Ruling ED also schedules:** the Kotlin input plugin with a Gradle build (SH-10; the owner chose the most extensive
   feature set), and an experiment reaching the pen's own motor over Bluetooth, read-only discovery first, never the
   firmware services, behind an off switch (Q13).
-- **SH-0, measured on the owner's tablet first:** `adb shell cmd vibrator_manager list` (the Pad 3 may have no body
-  vibrator, research §1.4; the command prints "No vibrator found" if so), `wm density`, `getevent -lt` while
-  double-tapping the pen, `dumpsys input`. Its result decides how much of the relief design the Pad 3 can use.
+- **The Pad 3 has no haptics (owner, 2026-11-02).** So the tablet's body cannot vibrate and SH-0's vibrator question
+  is answered: a felt relief on the Pad 3 needs the licensed OnePlus/Oppo pen SDK (research Q10, uncertain) or falls
+  to sound and visual cues (Q11). The relief design (§7) stays but routes to those channels there. The VIBRATE
+  permission stays for the 6T.
+- **The rest of SH-0 still wants the device:** `wm density`, `getevent -lt` while double-tapping the pen,
+  `dumpsys input`.
 - **SH-2 to SH-12** and owner questions Q1–Q13: research §8.1 and §8.3. Nothing is built.
 - **Stale pen prose (Ruling BK):** `TABLET_UI_SPEC.md` §4.2 ("nothing in the shell reads pen pressure") and
   `EDITING_TOOLS_SCOPE.md` §3.2 ("are never read") predate ET-D2/D3/D5; `map_overlay.gd` passes pressure and the sculpt

@@ -76,8 +76,10 @@ enabled VIBRATE.
   confirm it.
 - **Ruling ED also accepts** a Gradle build for a Kotlin input plugin (SH-10), and a read-only experiment towards the
   pen's own motor over Bluetooth.
-- **Nothing else is built.** SH-0, measuring on the tablet, comes first: its body may have no vibrator (research
-  §1.4).
+- **The owner states the Pad 3 has no haptics (2026-11-02).** So the tablet's body cannot vibrate; a felt relief
+  there needs the licensed pen SDK (Q10) or falls to sound and visual cues (Q11). The VIBRATE permission stays, for
+  the 6T. SH-0's vibrator question is answered; the rest of SH-0 (density, pen events) still wants the device.
+- **Nothing else is built.**
 
 ### Ruling EC: touch panning answered, and the HTML's next versions decided; nothing built by it (2026-11-01)
 

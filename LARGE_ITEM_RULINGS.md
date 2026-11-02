@@ -3204,5 +3204,17 @@ first. A label in quotation marks is the option the owner picked; *italics* mark
 
 **The other nine questions** (Q2–Q6, Q8, Q10–Q12) keep the research's recommended defaults until the owner says
 otherwise. **What comes first:** SH-0, measuring on the tablet, decides how much of the relief design the Pad 3 can
-use. Its first step is `adb shell cmd vibrator_manager list`, because the tablet's body may have no vibrator
+use. Its first step was `adb shell cmd vibrator_manager list`, to find whether the tablet's body has a vibrator
 (research §1.4).
+
+**Update, 2026-11-02 — the owner states the Pad 3 has no haptics** (*"The pad does not have haptics."*). This resolves
+SH-0's first measurement and research §1.4: the tablet's body cannot vibrate, so `Input.vibrate_handheld()` is a no-op
+on it for lack of hardware, not the permission. What follows:
+- **Q2 (is "feel the relief" on by default) resolves on the Pad 3:** there is no body vibrator to turn on. A *felt*
+  relief there has only the pen's own motor through the licensed OnePlus/Oppo SDK (Q10) — uncertain and limited — or
+  non-haptic cues (sound per contour and the on-screen relief, Q11).
+- **The VIBRATE permission stays** (item 2): it is for the OnePlus 6T and any device that does have a motor; it is
+  simply moot on the Pad 3.
+- **The contour-tick design (§7) stands,** but on the Pad 3 its output is the sound-and-visual fallback (§7.7), not a
+  body buzz. How to pursue the felt relief on the Pad 3 — chase the pen SDK, lean on sound and visual, or pause it —
+  is an open owner call.
