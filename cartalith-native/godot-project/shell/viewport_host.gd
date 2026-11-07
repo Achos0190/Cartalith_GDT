@@ -3602,7 +3602,12 @@ func _update_lod() -> void:
 	if native_scale <= 0.0:
 		_set_lod_active(false)
 		return
-	var screen_px_per_cell := native_scale * _zoom
+	## **Physical px, not canvas units** (MS-1 S2, spec §2.6 and R3). Under a tablet's dp unit `size` is
+	## in dp, so `native_scale * _zoom` is dp per cell and tiles would engage `density` times too late,
+	## showing the base raster's nearest-neighbour cells first -- the blockiness the threshold exists to
+	## prevent. The viewport's final transform is the content scale (1.0 on the PC and the phone, whose
+	## root is never scaled), so this is byte-identical wherever no unit is applied.
+	var screen_px_per_cell := native_scale * _zoom * get_viewport().get_final_transform().x.x
 	if screen_px_per_cell <= LOD_PX_PER_CELL_THRESHOLD or _zoom <= LOD_AUTO_ZOOM:
 		## Below the threshold the pyramid goes down in either mode, and the
 		## manual request goes with it -- otherwise a request made once would

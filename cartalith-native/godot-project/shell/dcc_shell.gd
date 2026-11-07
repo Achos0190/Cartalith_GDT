@@ -864,6 +864,9 @@ func _ready() -> void:
 	## two apart from `is_touch()` alone. See `DccTheme.is_phone()`.
 	DccTheme.set_phone(_phone)
 	DccTheme.set_phone_scale(_phone_scale)
+	## MS-1 S2: the tablet's dp unit, before either composition is built so every figure is laid out in
+	## it. Needs `set_phone()` above (`_unit_factor()` reads `DccTheme.is_tablet()`).
+	_apply_unit(_unit_factor())
 	_style_window_chrome()
 
 	## Hand the Android back gesture to `_notification()` below instead of
@@ -1067,6 +1070,53 @@ func _ui_scale() -> float:
 		return arg.to_float()
 	return 1.0
 
+## S2 (spec §3.3, MQ-3 (a), Ruling DY's answer): the phone's unit from density. It is capped at today's
+## short/412, so a phone narrower than 412 dp keeps its 412-unit layout until MS-2 to MS-6 rebuild those
+## surfaces. It is 1.0 off the phone, which makes `DccTheme.phone_scale()`'s own comment true. On the
+## OnePlus 6T at a density of 2.625 this returns today's 1080/412 = 2.6214 exactly (B7). UI scale is not
+## applied on the phone under MQ-3 (a). With the legacy figure (no `--density`, off a device) it is
+## exactly today's `max(1, short/412)`, so every existing phone probe is unchanged.
+func _phone_scale_for(px: Vector2, density: float) -> float:
+	if not _phone:
+		return 1.0
+	return maxf(1.0, minf(density, minf(px.x, px.y) / DccTheme.PHONE_REF_SHORT))
+
+## S2 (spec §3.3): the tablet's unit. The window the shell lives in gets a content scale, so every tablet
+## figure (the `TABLET` table, `role_px()`'s touch column, the static factories) reads as dp with no
+## call-site edit. The phone and the PC keep a factor of 1.
+##
+## S0 measured the mode on this build (`cartalith-native/docs/evidence/ms1-2026-11-07/`): the root keeps
+## mode DISABLED (the project's default, which `project.godot` requires), where the factor scales the
+## canvas exactly and Godot raises the root's font oversampling to the factor by itself (edge test 0.925
+## at 2, against 1.000 native), so no `oversampling_override` is set. CANVAS_ITEMS would scale against the
+## project's 1152 x 648 base size instead (2.083 at a factor of 2), so it is not used. Embedded dialogs,
+## popups and colour pickers inherit the factor, and input maps back to canvas units correctly.
+##
+## A `--vp` probe host is a SubViewport: `size_2d_override` with stretch, which S0 measured drawing the
+## same pixels as the root factor (0 of 120 000 differ). **At a factor of 1 the override is cleared to
+## (0, 0)**, not set to the full size as draft 02 wrote it: that is the host's own default, so a legacy run
+## is the pre-MS-1 viewport by construction rather than by arithmetic (B9, B10).
+func _apply_unit(factor: float) -> void:
+	var vp := get_viewport()
+	if vp is Window:
+		(vp as Window).content_scale_factor = factor
+	elif vp is SubViewport:
+		var sv := vp as SubViewport
+		if is_equal_approx(factor, 1.0):
+			sv.size_2d_override = Vector2i.ZERO
+		else:
+			sv.size_2d_override = Vector2i(roundi(sv.size.x / factor), roundi(sv.size.y / factor))
+		sv.size_2d_override_stretch = true
+
+## S2: what `_ready()` calls after the layout is published, and what S3 calls after a resize: the tablet
+## takes density x UI scale; everything else takes 1. Off a device without `--density` the tablet's
+## density is the legacy 1.0, so no existing probe moves.
+func _unit_factor() -> float:
+	if DccTheme.is_tablet():
+		var d := _density()
+		return float(d["value"]) * _ui_scale()
+	return 1.0
+
 ## Classifies the viewport as phone, tablet or desktop and sets `_phone`, `_landscape`
 ## and `_phone_scale` (plus the narrow-laptop density set, explained below). Needs a
 ## non-empty viewport and silently keeps the previous answer otherwise; must never be
@@ -1086,8 +1136,8 @@ func _compute_layout_mode() -> void:
 	DccTheme.set_layout(_layout)
 	_phone = bool(_layout["phone"])
 	_landscape = bool(_layout["landscape"])
-	## Today's figure, for every composition (spec §2.3); stage S2 replaces it with the density.
-	_phone_scale = maxf(1.0, minf(px.x, px.y) / DccTheme.PHONE_REF_SHORT)
+	## MS-1 S2: the phone's unit from the density, 1.0 off the phone (draft 02's `_phone_scale_for()`).
+	_phone_scale = _phone_scale_for(px, float(d["value"]))
 	## The **fourth density set**, new with the 2026-08-31 token re-base.
 	## `DccTheme.LAPTOP`'s header carries the whole argument; what belongs here
 	## is why the test is on `size.x` and not on `short_side`. The prototype's

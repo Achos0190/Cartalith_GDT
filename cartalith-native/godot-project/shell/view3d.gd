@@ -101,6 +101,11 @@ func _ready() -> void:
 	_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_box)
+	resized.connect(_fit_physical)
+	get_viewport().size_changed.connect(_fit_physical)
+	## Once now as well: this node is laid out before `_ready()` connects, so neither signal fires for the
+	## size it already has (measured: without this call a 692 x 1268 px view kept a 346 x 634 SubViewport).
+	_fit_physical.call_deferred()
 	_sv = SubViewport.new()
 	## Its own World3D, so nothing 3D this mode adds can meet any other 3D
 	## content a probe or a later milestone puts in the main viewport.
@@ -245,6 +250,27 @@ func busy() -> bool:
 ## The gate node, for the acceptance probe's test seams only.
 func gate() -> View3DGate:
 	return _gate
+
+## **The 3D image at physical resolution under a content scale** (MS-1 S2, spec §2.6 and R4). A
+## `SubViewportContainer` with `stretch` sizes its `SubViewport` in canvas units, so under a tablet's dp
+## unit the 3D view rendered at dp resolution and was magnified (S0: a 400 x 300 container at a factor of 2
+## got a 400 x 300 `SubViewport` for an 800 x 600 physical rect). Above a factor of 1 the container is
+## therefore laid out at `size x factor` canvas units and drawn at `1 / factor`, which makes its
+## `SubViewport` exactly the physical rect. At a factor of 1 (the PC, the phone) it keeps the full-rect
+## anchors it always had, so nothing there changes. The container ignores the mouse, so no input passes
+## through the scaled node.
+func _fit_physical() -> void:
+	if _box == null or not is_inside_tree():
+		return
+	var f := get_viewport().get_final_transform().x.x
+	if f <= 1.0001:
+		_box.scale = Vector2.ONE
+		_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		return
+	_box.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_box.position = Vector2.ZERO
+	_box.scale = Vector2.ONE / f
+	_box.size = size * f
 
 ## The `SubViewport` this mode draws into.
 func subviewport() -> SubViewport:

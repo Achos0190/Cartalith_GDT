@@ -70,3 +70,21 @@ Two things the drafts leave to the build are in place:
   `_quickbar_phone_probe` at 720 × 1600 and 1080 × 2340 exits 2 ("this probe is for the phone form") both before and after: a `--resolution` taller than this monitor is clamped. The other 93 `--vp` scripts were not re-run.
 
 `DccShell._phone_scale` reads 2.6214 on a 1920 × 1080 desktop and 1.8641 at 1366 × 768. That confirms spec §2.3: `phone_scale()` is published as short ÷ 412 off the phone.
+
+## S2 results (the dp unit)
+
+Built from draft 02's `_phone_scale_for()`, `_apply_unit()` and `_unit_factor()`, with one deviation. At a factor of 1, `_apply_unit()` clears a probe host's `size_2d_override` to (0, 0), the host's default, rather than setting it to the full size. That makes a legacy run the pre-MS-1 viewport by construction. Three sites (spec §2.6) follow:
+
+- `ViewportHost._update_lod()` multiplies by the viewport's final transform;
+- `DccApp._capture_preview_png()` maps its crop through that transform;
+- `view3d.gd`'s `_fit_physical()` renders 3D at physical resolution.
+
+- **B3, `_ms1unit_probe.gd`.** Sizes were read from the framebuffer by a modulate-to-black difference. Every leg below **fails on the S1 tree**: the menu bar draws 52 px and the undo chip 168 px.
+  - **Tablet** (`--vp 2388x1668 --density 2`): menu bar 104 px, rail 96 px, status bar 72 px (each ±1). The 12 px label "CARTALITH" passes the edge test, normalised to its own luminance range (≥ 0.9). This deviates from spec B3's raw 0.9. That figure was HD-01's white-on-black reading, and this label's ink is not white: it reads 0.579 raw even at factor 1. The 3D `SubViewport` equals the view's physical rect. The preview image is the map's physical rect after the thumbnail rule. **PASS, 7 checks.**
+  - **OnePlus Pad 3** (`--vp 3392x2400` and `2400x3392`, `--density 2` = 1 696 × 1 200 dp): the same checks, **PASS in both orientations**. `classify()` gives it the tablet form: aspect 0.71, so a tablet under today's rule and under MQ-1 (c). The width class is xl in landscape and large in portrait. Captures `pad3-*.png` here: the map is the larger pane in both orientations, and no dock overflows.
+  - **Phone** (`--vp 1440x3120 --density 3`): `phone_scale` 3.0000. The 48-unit undo chip is 144 px. Every visible button is at least 132 px on both axes. **PASS, 3 checks.**
+  - **Map: the bar as written does not hold, reported rather than tuned.** On a small generated world at 2388 × 1668, the tile pyramid first engages after 2 zoom steps at `--density 1` and at fit (step 0) at `--density 2`. That is 2 steps apart, against the bar's "within one step". The cause is layout, not the LOD arithmetic. At density 2 the window is 1 194 dp wide, so the two 400 dp docks leave a **346 × 634 dp** map instead of 1 540 × 1 468 px. The cover-fit zoom is therefore 2.44 instead of about 1.27, which is already past `LOD_AUTO_ZOOM` (2.2), a zoom gate in canvas units. At engagement the physical px per cell is 6.97 at density 1 and 3.30 at density 2, both over the 1.0 threshold. **For the owner:** at true dp, an 11-inch-class tablet in landscape keeps a 346 dp map. This is spec §2.2's arithmetic made real, and it waits on MS-7's floating docks.
+- **B9.** Pointer builds at 1920 × 1080 and 1366 × 768 are byte-identical to the S0 baseline, and the root factor reads 1.000. An export PNG at density 2 was **not measured**.
+- **B10, partly.** All 16 legacy touch captures (no `--density`) are byte-identical to the baseline. The 14 probe runs give the same results. `DccTheme.phone_scale()` now reads 1.0000 off the phone, where it read 2.6214 at 1920 × 1080.
+- **B7: pending the 6T.** At its quoted densities: 420 dpi gives `_phone_scale` = 2.6214, unchanged; 402 dpi gives 2.5125, every phone figure −4.1 %; 450 dpi gives 2.6214, held by the cap. At `--density 2.625` the desktop composition reads `phone_scale` 2.6214.
+- The regression runs above preceded one line added to `view3d.gd` afterwards: a deferred first `_fit_physical()`, without which the 3D `SubViewport` stayed in dp. That line was verified by the B3 re-run. The S3 run re-runs everything.

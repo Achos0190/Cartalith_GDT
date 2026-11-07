@@ -1374,11 +1374,11 @@ static func is_phone() -> bool:
 ## the mistake `DccShell._ptap()` carried until 2026-08-30 -- a 44 compared
 ## against a scaled value never fires past a factor of about 1.1.
 ##
-## **Not yet `1.0` on desktop and tablet**, although neither composition is drawn
-## through `_pscale`: `DccShell._compute_layout_mode()` still publishes short ÷ 412
-## for every composition (2.62 on a 1920 x 1080 desktop; `MOBILE_SHELL_MS1_SPEC.md`
-## §2.3, measured by `_ms1ident_probe.gd`'s CLASS line). Harmless only because
-## every consumer is phone-gated. MS-1 stage S2 publishes 1.0 off the phone.
+## `1.0` on desktop and tablet, which is correct: neither composition is drawn
+## through `_pscale` at all. True since MS-1 stage S2 (`DccShell._phone_scale_for()`);
+## before it the shell published short ÷ 412 for every composition (2.62 on a
+## 1920 x 1080 desktop, `MOBILE_SHELL_MS1_SPEC.md` §2.3), harmless only because every
+## consumer is phone-gated. On the phone it is the density, capped at short ÷ 412.
 static var _phone_scale := 1.0
 
 ## Published by `DccShell`. Floored at 1.0, so a smaller device never shrinks a

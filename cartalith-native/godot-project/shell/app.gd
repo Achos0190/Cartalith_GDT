@@ -4305,7 +4305,10 @@ func _capture_preview_png() -> PackedByteArray:
 		return PackedByteArray()
 	if viewport == null:
 		return PackedByteArray()
-	var rect := viewport.get_global_rect()
+	## The framebuffer is in physical px and `get_global_rect()` in canvas units; under a tablet's dp
+	## unit (MS-1 S2, spec §2.6 and R5) the crop is mapped through the viewport's final transform, which
+	## is the identity wherever no unit is applied.
+	var rect: Rect2 = get_viewport().get_final_transform() * viewport.get_global_rect()
 	if rect.size.x < 1.0 or rect.size.y < 1.0:
 		return PackedByteArray()
 	var img := get_viewport().get_texture().get_image()

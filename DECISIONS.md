@@ -1506,3 +1506,39 @@ go*. It does not cover the inputs they read. A landmark placer that consumes a
 ported, golden-verified field (flow, the mountain-pass corridor detector, the
 mineral resources) must not change that field's computation. §7's ordinary
 discipline still governs those subsystems.
+
+## 7r. The touch shells take a dp unit by two mechanisms, one per composition (MS-1 stage S2, 2026-11-07)
+
+`MOBILE_SHELL_MS1_SPEC.md` §3.3; Ruling DV scheduled MS-1, and Ruling DY answered its questions.
+
+- **The phone** keeps its own multiplier. `DccShell._phone_scale` becomes the density, capped at short side ÷ 412
+  (MQ-3 (a)), and every `_pscale()`, `_ptap()`, `_pfont()` and `phone_present()` follows without an edit. The phone's root
+  window keeps a factor of 1, so nothing is scaled twice.
+- **The tablet** takes the viewport's content scale: the root `Window`'s `content_scale_factor`, in mode `DISABLED`, set
+  to density × UI scale. In a `--vp` probe host the same effect comes from the `SubViewport`'s `size_2d_override` with
+  stretch. Every `TABLET` figure, `role_px()` touch value and static-factory literal then reads as dp, with no call-site
+  edit.
+- **The PC** keeps a factor of 1.
+
+**What it beat.** One root factor for both would have meant re-pointing the phone's 41 present sites and 25 consumer
+lines, and every raw-pixel draw in the phone chrome would have grown, losing the 6T's pixel identity. A per-call-site
+density for the tablet would have meant auditing 205 `role_px()` lines, the `_scaled()` lines and every factory literal,
+which is DS-03 restated.
+
+**Measured before the choice was built** (`cartalith-native/docs/evidence/ms1-2026-11-07/`, S0):
+
+- `DISABLED` at a factor of 2 scales the canvas exactly. The engine raises the root's oversampling by itself, and a
+  12 px label's edge test reads 0.925.
+- `CANVAS_ITEMS` scales against the project's 1152 × 648 base instead, a factor of 2.083, so it is not used.
+- Embedded dialogs, popups and colour pickers inherit the factor.
+- Input maps back to canvas units.
+- `size_2d_override` with stretch draws the same pixels as the root factor: 0 of 120 000 differ.
+
+**What had to follow** were the three places that mix canvas units with physical pixels:
+
+- `ViewportHost._update_lod()` multiplies by the final transform;
+- `DccApp._capture_preview_png()` maps its crop through it;
+- `view3d.gd` lays its `SubViewportContainer` out at size × factor and draws it at 1 / factor, so the 3D image is
+  rendered at physical resolution.
+
+Off a device without `--density`, the tablet's density is the legacy 1.0, so no existing probe moves.
