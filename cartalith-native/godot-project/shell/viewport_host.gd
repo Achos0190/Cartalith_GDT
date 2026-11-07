@@ -2059,7 +2059,7 @@ func _raster() -> TextureRect:
 ## the reference's own `isMobile` gate means -- what that gate is really
 ## testing is "there is no wheel, no middle button and no space bar", which is
 ## as true of a tablet as of a phone. `DccShell._phone` would be the wrong
-## gate: it is an *aspect-ratio* test (`_PHONE_ASPECT_MAX`) that exists to
+## gate: it is an *aspect-ratio* test (`DccTheme.PHONE_ASPECT_MAX`) that exists to
 ## pick a layout, and a tablet fails it and takes the desktop shell -- desktop
 ## chrome with no mouse, which is precisely the case that needs this most.
 ## Desktop is excluded because it already has all four (wheel, MMB/Space,

@@ -487,68 +487,12 @@ var _dragging_dock := ""  ## "", "left" or "right" -- which handle (if any) owns
 # -- Phone layout (§13) --------------------------------------------------------
 #
 # `_touch` alone can't tell a tablet from a phone -- both are touch devices.
-# The discriminator is the screen's own aspect: `min(w,h)/max(w,h)` is
-# order-independent, so it survives rotation without flip-flopping between the
-# two compositions (a phone rotated to landscape is still ~0.46, a tablet
-# rotated to portrait is still ~0.625). `_phone` is decided once, at boot,
-# because a device's form factor never changes at runtime; `_landscape` is
-# re-decided on every resize, because rotation genuinely does, and §13 asks
-# for a distinct landscape treatment.
-const _PHONE_ASPECT_MAX := 0.6  ## Midpoint-ish between 19.5:9 (~0.46) phones
-	## and 16:10 (~0.625) tablets -- every common handset aspect sits under it.
-
-## **Aspect alone gets a 16:9 tablet wrong, and that is not hypothetical.**
-##
-## 1920 x 1080 is 0.5625, under `_PHONE_ASPECT_MAX`, so every 16:9 Android
-## tablet was classified as a PHONE and given the phone composition. Found on
-## 2026-08-30 by `_tabletparity_probe.gd`, whose "desktop" leg boots 1920x1080
-## under `--force-touch` and came up running `phone_project_picker.gd` --
-## visible in the run as a `_set_transient_exclusive_child` warning from
-## `phone_present()` in a leg that had no business being a phone at all.
-##
-## It also runs straight against the owner's standing directive to "keep the
-## tablet version as close as possible to the windows gui": a 16:9 tablet was
-## getting the opposite.
-##
-## The fix is a SIZE test, which is the thing aspect was standing in for.
-## dp is `px / (dpi / 160)`.
-##
-## **The threshold is 900 dp, and it is deliberately NOT Android's own 600.**
-## Owner ruling, 2026-08-31, with the arithmetic that settles it: the
-## desktop-parity shell has a hard chrome floor of 48 dp rail + 400 dp dock =
-## **448 dp before any map at all**. At 800 dp that leaves a 352 dp map --
-## narrower than the dock beside it, which is not the Windows GUI in any useful
-## sense. At 900 dp it leaves 452 dp and the map is the larger pane again.
-##
-## So the line is where the map stops being the smaller half. `sw600dp` is the
-## right breakpoint for a phone/tablet LAYOUT question in general; it is the
-## wrong one for this shell, whose chrome is unusually wide.
-##
-## Worked through, on the devices this port is measured against:
-##
-##   OnePlus 6T   1080 short / (402/160) = 430 dp  -> phone
-##   OnePlus 12   1440 short / (525/160) = 439 dp  -> phone
-##   TABLET 800    800 dp                          -> phone   (deliberate; the
-##                                                   design frames it as one)
-##   16:9 tablet  1080 short / (200/160) = 864 dp  -> phone   (under 900)
-##   2560x1600    1600 short / (288/160) = 889 dp  -> phone   (!! see below)
-##   TABLET PORT. 1600 dp shortest width           -> tablet
-##
-## **The 2560x1600 case is worth stating plainly**: at 288 dpi it measures
-## 889 dp, four short of the line, so a physically large tablet with a very
-## dense panel lands on the phone side. That is what the ruling says and the
-## arithmetic is the ruling's own -- the shell needs 448 dp of chrome and 889
-## does not comfortably carry it. `_tabletparity_probe` forces the tablet
-## composition directly and so is unaffected.
-##
-## **Applied only on a real mobile device.** `screen_get_dpi()` reports the
-## desktop monitor under `--force-touch`, where the viewport size is synthetic
-## and the two have nothing to do with each other -- a probe forcing 1080x2340
-## on a 96-dpi monitor computes 1800 dp and would classify the phone leg as a
-## tablet. So the dp test runs when `OS.has_feature("mobile")` is genuinely
-## true, and `--force-touch` runs keep pure aspect, which is what every existing
-## phone probe was written against.
-const _TABLET_MIN_DP := 900.0
+# The classifier is `DccTheme.classify()` (MS-1 stage S1, `MOBILE_SHELL_MS1_SPEC.md`
+# §3.1), which owns the line and its argument: the aspect half (`DccTheme.PHONE_ASPECT_MAX`,
+# order-independent, so a rotation cannot flip it) and the 900 dp size half
+# (`DccTheme.TABLET_MIN_DP`, owner answer `BUILD_ANSWERS.md` §2.3, applied only below
+# that aspect and only when the density is known). Both constants and their worked table
+# moved there from this file; `_compute_layout_mode()` is the shell's one caller.
 ## True when the composition is the phone one. Decided once at boot (a device's form
 ## factor does not change at runtime), mirrored into `DccTheme.set_phone`.
 var _phone := false
@@ -1048,38 +992,102 @@ func _scaled(px: int) -> int:
 
 # -- §13 Phone layout mode ------------------------------------------------
 
-## Order-independent aspect: see the field comment on `_phone` above for why.
-## Android's `sw600dp`: is the short side at least 600 density-independent
-## pixels? See `_TABLET_MIN_DP`'s own comment for why this exists and why it is
-## gated on a real device.
-##
-## Returns `false` -- "not tablet-sized, judge by aspect alone" -- whenever the
-## question cannot be answered honestly: off a mobile device, or when the
-## platform reports a DPI of zero or less, which some Android builds do for a
-## secondary display. A wrong `true` would hand a phone the desktop
-## composition, which is far worse than the aspect rule this falls back to.
-func _is_tablet_sized(short_side_px: float) -> bool:
-	if not OS.has_feature("mobile"):
-		return false
-	var dpi := float(DisplayServer.screen_get_dpi(DisplayServer.window_get_current_screen()))
-	if dpi <= 0.0:
-		return false
-	return short_side_px / (dpi / 160.0) >= _TABLET_MIN_DP
+# -- MS-1: density, probe arguments and the classifier's inputs ------------------
+#
+# `MOBILE_SHELL_MS1_SPEC.md` §3.2. `_is_tablet_sized()` lived here until MS-1 stage S1; its question (is
+# the short side at least 900 dp, on a real device with a DPI above zero) is now `DccTheme.classify()`'s
+# size half, fed by `_density()` below, which answers "unknown" in exactly the cases it answered false.
+
+## The last `DccTheme.classify()` result, `{}` before the first. From stage S3 it is fed back as the
+## classifier's `current` argument, for hysteresis; in S1 it is only published.
+var _layout: Dictionary = {}
+
+## The value of a user argument, `-- --density 2.625` or `-- --density=2.625`, or "" when it is absent.
+## `OS.get_cmdline_user_args()` is what `--force-touch` already reads.
+func _user_arg_value(name: String) -> String:
+	var args := OS.get_cmdline_user_args()
+	for i in args.size():
+		var a := String(args[i])
+		if a == name and i + 1 < args.size():
+			return String(args[i + 1])
+		if a.begins_with(name + "="):
+			return a.substr(name.length() + 1)
+	return ""
+
+## The hosting viewport's size in PHYSICAL px: `Window.size` for the root, `SubViewport.size` inside a
+## `--vp` probe host. Never `get_viewport_rect()`, which is in canvas units once a content scale is set
+## (stage S2). With no content scale the two are equal, which is why stage S1 changes no answer.
+func _host_px() -> Vector2:
+	var vp := get_viewport()
+	if vp is Window:
+		return Vector2((vp as Window).size)
+	if vp is SubViewport:
+		return Vector2((vp as SubViewport).size)
+	return get_viewport_rect().size
+
+## The legacy figure (spec §3.2): what each composition draws at today when no real density is known,
+## short side ÷ 412 below aspect 0.6 (the phone's `_phone_scale`) and 1.0 otherwise (the tablet draws
+## unscaled). It does not measure dp, so `classify()` is told the density is unknown and skips the dp half
+## of the line, exactly as the off-device rule always has. This keeps every existing probe's result.
+func _legacy_density() -> float:
+	var px := _host_px()
+	var s := minf(px.x, px.y)
+	var l := maxf(px.x, px.y)
+	if l <= 0.0:
+		return 1.0
+	if _touch and s / l < DccTheme.PHONE_ASPECT_MAX:
+		return maxf(1.0, s / DccTheme.PHONE_REF_SHORT)
+	return 1.0
+
+## The density the shell classifies with, as `{value: float, known: bool}`. `known` is false only for the
+## legacy figure.
+##   - On a device (`OS.has_feature("mobile")`): `screen_get_dpi() ÷ 160`, the figure `_is_tablet_sized()`
+##     used. Stage S0 is to measure on the OnePlus 6T whether the platform's own density can be read
+##     instead; until then this is MQ-2's accepted fallback (Ruling DY, 2026-11-01). A DPI of zero or less
+##     (some Android builds report it for a secondary display) is unknown, as `_is_tablet_sized()` treated it.
+##   - Off a device: `--density D` (D > 0) when given, else the legacy figure.
+## It must never report `known` for a figure that is not a real density: the dp half of the line would
+## then classify a synthetic `--force-touch` viewport against the desktop monitor's DPI.
+func _density() -> Dictionary:
+	if OS.has_feature("mobile"):
+		var dpi := float(DisplayServer.screen_get_dpi(DisplayServer.window_get_current_screen()))
+		if dpi > 0.0:
+			return {"value": dpi / 160.0, "known": true}
+		return {"value": _legacy_density(), "known": false}
+	var arg := _user_arg_value("--density")
+	if arg != "" and arg.to_float() > 0.0:
+		return {"value": arg.to_float(), "known": true}
+	return {"value": _legacy_density(), "known": false}
+
+## The UI scale (spec §3.6). `--ui-scale S` (S > 0) overrides for a probe run without writing anything.
+## Stage S5 adds the setting behind it; until then it is 1.0 unless the argument is given.
+func _ui_scale() -> float:
+	var arg := _user_arg_value("--ui-scale")
+	if arg != "" and arg.to_float() > 0.0:
+		return arg.to_float()
+	return 1.0
 
 ## Classifies the viewport as phone, tablet or desktop and sets `_phone`, `_landscape`
 ## and `_phone_scale` (plus the narrow-laptop density set, explained below). Needs a
 ## non-empty viewport and silently keeps the previous answer otherwise; must never be
 ## called with `_touch` unset expecting a phone result.
+##
+## The phone/tablet decision is `DccTheme.classify()` over the host's physical size (MS-1 S1). It is
+## called with no `current` class, so no hysteresis applies yet: a resize answers exactly what a boot at
+## that size answers, which is today's behaviour on the phone (the only composition that re-runs this on
+## resize). Stage S3 feeds `_layout` back for the band.
 func _compute_layout_mode() -> void:
-	var size: Vector2 = get_viewport_rect().size
-	if size.x <= 0.0 or size.y <= 0.0:
+	var px := _host_px()
+	if px.x <= 0.0 or px.y <= 0.0:
 		return
-	var short_side: float = minf(size.x, size.y)
-	var long_side: float = maxf(size.x, size.y)
-	_phone = _touch and (short_side / long_side) < _PHONE_ASPECT_MAX \
-		and not _is_tablet_sized(short_side)
-	_landscape = size.x > size.y
-	_phone_scale = maxf(1.0, short_side / DccTheme.PHONE_REF_SHORT)
+	var size: Vector2 = get_viewport_rect().size
+	var d := _density()
+	_layout = DccTheme.classify(px, float(d["value"]), _ui_scale(), _touch, bool(d["known"]))
+	DccTheme.set_layout(_layout)
+	_phone = bool(_layout["phone"])
+	_landscape = bool(_layout["landscape"])
+	## Today's figure, for every composition (spec §2.3); stage S2 replaces it with the density.
+	_phone_scale = maxf(1.0, minf(px.x, px.y) / DccTheme.PHONE_REF_SHORT)
 	## The **fourth density set**, new with the 2026-08-31 token re-base.
 	## `DccTheme.LAPTOP`'s header carries the whole argument; what belongs here
 	## is why the test is on `size.x` and not on `short_side`. The prototype's
@@ -1261,7 +1269,7 @@ func _ptap(px: float) -> int:
 ## `update_set_*` node properties). So the OS setting has to be *derived*.
 ##
 ## The derivation uses the two `DisplayServer` screen metrics this file already
-## trusts: `_is_tablet_sized()` above reads `screen_get_dpi() / 160.0` as the
+## trusts: `_density()` above reads `screen_get_dpi() / 160.0` as the
 ## platform's display **density**, which is Android's own definition. Android's
 ## other metric, `DisplayMetrics.scaledDensity`, is density multiplied by the
 ## user's font scale, and is what `screen_get_scale()` reports there -- so their
@@ -2571,7 +2579,7 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 ##
 ## **The gap this closes, measured before the change** -- `--force-touch --vp
 ## 800x1280`, which `_compute_layout_mode()` classifies `phone=false
-## tablet=true` (aspect .625, over `_PHONE_ASPECT_MAX`):
+## tablet=true` (aspect .625, over `DccTheme.PHONE_ASPECT_MAX`):
 ##
 ## | probe | at boot | what it means on glass |
 ## |---|---|---|

@@ -1374,8 +1374,11 @@ static func is_phone() -> bool:
 ## the mistake `DccShell._ptap()` carried until 2026-08-30 -- a 44 compared
 ## against a scaled value never fires past a factor of about 1.1.
 ##
-## `1.0` on desktop and tablet, which is correct: neither composition is drawn
-## through `_pscale` at all.
+## **Not yet `1.0` on desktop and tablet**, although neither composition is drawn
+## through `_pscale`: `DccShell._compute_layout_mode()` still publishes short ÷ 412
+## for every composition (2.62 on a 1920 x 1080 desktop; `MOBILE_SHELL_MS1_SPEC.md`
+## §2.3, measured by `_ms1ident_probe.gd`'s CLASS line). Harmless only because
+## every consumer is phone-gated. MS-1 stage S2 publishes 1.0 off the phone.
 static var _phone_scale := 1.0
 
 ## Published by `DccShell`. Floored at 1.0, so a smaller device never shrinks a
@@ -1399,6 +1402,128 @@ static func phone_scale() -> float:
 ## and a tablet pass that also re-sizes the phone.
 static func is_tablet() -> bool:
 	return _touch and not _phone_mode
+
+# -- Size classes in dp (MS-1, `MOBILE_SHELL_MS1_SPEC.md` §3.1) -------------------
+#
+# One classifier decides phone or tablet for every caller, over the hosting viewport's size in dp. It moved
+# here from `DccShell` (`_PHONE_ASPECT_MAX`, `_TABLET_MIN_DP`, `_is_tablet_sized()`) in MS-1 stage S1, and it
+# answers exactly what that code answered (MQ-1's option (a), Ruling DY): MS-1 moves no device between
+# phone and tablet. Where the line ends up is MQ-1's answer (c), "under 600 dp wide is a phone", which lands
+# with MS-7's floating docks and NOT before; until then the two constants below stay as they are.
+
+## The aspect half of the phone/tablet line: `min(w, h) / max(w, h)` below this is a narrow screen. 19.5:9
+## phones read ~0.46, 16:9 panels 0.5625, 16:10 tablets 0.625, 4:3 0.75, so every common handset sits under
+## it and every 16:10-or-squarer tablet over it. Order-independent, so a rotation cannot flip it. Moved
+## unchanged from `DccShell._PHONE_ASPECT_MAX` (MS-1 S1).
+const PHONE_ASPECT_MAX := 0.6
+
+## The size half of the line: a narrow touch screen whose shortest side is at least this many dp is a
+## tablet. Owner answer, `design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3 (2026-08-31): the
+## desktop-parity shell's chrome floor is 48 dp rail + 400 dp dock = 448 dp before any map, so at 900 dp
+## the map is the larger pane again; 600 (`sw600dp`) was rejected for that reason. Moved unchanged from
+## `DccShell._TABLET_MIN_DP` (MS-1 S1). It was found on 2026-08-30 by `_tabletparity_probe.gd`, whose
+## 1920 x 1080 `--force-touch` leg came up as a phone: aspect alone calls every 16:9 tablet a phone.
+##
+## **The code applies §2.3 only below `PHONE_ASPECT_MAX`** (spec §2.2): this test sits behind the aspect
+## test, so it can turn a narrow screen into a tablet but never a squarer one into a phone. The worked
+## table that used to sit on `_TABLET_MIN_DP` was false about the code in two rows; corrected here, with
+## the density each figure assumes:
+##
+##   OnePlus 6T   1080 x 2340 px, aspect 0.46, 384-430 dp short at any of the three densities this
+##                tree quotes for it (402, 420, 450 dpi; none measured yet, spec §2.4)  -> phone
+##   OnePlus 12   1440 x 3168 px, aspect 0.45, at 525 dpi (the old table's figure) = 439 dp -> phone
+##   16:9 tablet  1080 x 1920 px, aspect 0.5625, at 1.25 (200 dpi) = 864 dp       -> phone (under 900)
+##   TABLET 800   1600 x 2560 px, aspect 0.625                                     -> TABLET (aspect >= 0.6,
+##                                                         whatever its size; §2.3 calls it phone-shaped)
+##   2560x1600    aspect 0.625, at 1.8 (288 dpi) = 889 dp                         -> TABLET (same reason)
+##   4K panel     3840 x 2160 px, aspect 0.5625, at 2 = 1080 dp                   -> tablet
+##   OnePlus Pad 3  3392 x 2400 px (13.2 in, 7:5, ~315 ppi), aspect 0.71          -> tablet
+##
+## **Only with a known density.** Off a device without `--density`, the density is the legacy figure
+## (`DccShell._density()`), which does not measure dp, and this half is skipped: `screen_get_dpi()` there
+## reports the desktop monitor, against a synthetic `--force-touch` viewport. That is what every existing
+## probe was written against (spec B10).
+const TABLET_MIN_DP := 900.0
+
+## Hysteresis bands (spec §3.1): once classified, a window leaves its class only when it is past the line by
+## this much, so a window parked on a line cannot flap between two compositions. Both are labelled
+## judgements (16 dp is about one finger-width of drag; 0.01 of aspect is ~16 px on a 1600 px side), to be
+## revisited with stage S3's numbers.
+const BAND_DP := 16.0
+const BAND_ASPECT := 0.01
+
+## The proposal's width classes (`MOBILE_SHELL_PROPOSAL.md` §3) as [name, lower bound in dp], ascending.
+## Nothing in the product reads them in MS-1; MS-7 (the docking rule) is the first consumer, and
+## `_ms1class_probe.gd` pins the bounds.
+const WIDTH_CLASSES: Array = [
+	["compact", 0.0], ["medium", 600.0], ["expanded", 840.0], ["large", 1200.0], ["xl", 1600.0],
+]
+
+## Classifies a viewport. Pure (no node, no `DisplayServer`), so a probe can call it with any numbers.
+##
+## `px` is the hosting viewport's size in PHYSICAL px (`Window.size` for the root, `SubViewport.size` in a
+## probe host), never `get_viewport_rect()`, which turns into dp once a content scale is applied.
+## `density_known` is false only for the legacy figure, and then the dp half of the line is skipped.
+## `current` is the previous result, for hysteresis; `{}` at boot.
+##
+## Returns `{dp, short_dp, aspect, phone, landscape, width_class}`. A size or factor of zero or less is
+## not a size: it returns `current` unchanged when there is one, and otherwise answers not-phone (the
+## direction `_is_tablet_sized()` fell back to) with `width_class` "" (not classified), never a guessed
+## class. It must never return a dictionary missing a key a caller reads.
+static func classify(px: Vector2, density: float, ui_scale: float, touch: bool,
+		density_known: bool, current: Dictionary = {}) -> Dictionary:
+	var k := density * ui_scale
+	if px.x <= 0.0 or px.y <= 0.0 or k <= 0.0:
+		if not current.is_empty():
+			return current
+		return {"dp": Vector2.ZERO, "short_dp": 0.0, "aspect": 0.0, "phone": false,
+			"landscape": px.x > px.y, "width_class": ""}
+	var dp := px / k
+	var short_dp := minf(dp.x, dp.y)
+	var aspect := minf(px.x, px.y) / maxf(px.x, px.y)
+	## At boot both lines sit exactly at their constants. After that each moves by its band in the
+	## direction that keeps the current class: a phone stays a phone until it is past the line by the band,
+	## and so does a tablet.
+	var aspect_line := PHONE_ASPECT_MAX
+	var size_line := TABLET_MIN_DP
+	if not current.is_empty():
+		if bool(current.get("phone", false)):
+			aspect_line += BAND_ASPECT
+			size_line += BAND_DP
+		else:
+			aspect_line -= BAND_ASPECT
+			size_line -= BAND_DP
+	var phone := touch and aspect < aspect_line and (not density_known or short_dp < size_line)
+	return {"dp": dp, "short_dp": short_dp, "aspect": aspect, "phone": phone,
+		"landscape": px.x > px.y, "width_class": width_class_of(dp.x)}
+
+## The proposal's width class for a width in dp: the last `WIDTH_CLASSES` row whose bound it reaches.
+## Pure; "compact" for anything below 600, including zero.
+static func width_class_of(width_dp: float) -> String:
+	var out := "compact"
+	for row in WIDTH_CLASSES:
+		if width_dp >= float(row[1]):
+			out = String(row[0])
+	return out
+
+## The last classification, published by `DccShell` (its single writer) for the static widget factories,
+## which have no node to reach the shell through. `{}` until the shell has classified once; readers must
+## treat an empty dictionary as "not classified yet", never as a phone or a tablet.
+static var _layout: Dictionary = {}
+
+## Published by `DccShell._compute_layout_mode()` after every classification. Never call it from a widget or
+## a probe without restoring the old value: it changes every static reader's answer for the process.
+static func set_layout(d: Dictionary) -> void:
+	_layout = d
+
+## The last classification, or `{}` before the first one (see `_layout`).
+static func layout() -> Dictionary:
+	return _layout
+
+## The current width class (`compact` ... `xl`), or "" before the first classification. "" is not a
+## class: a caller that needs one decides what to do before boot instead of reading a guess.
+static func width_class() -> String:
+	return String(_layout.get("width_class", ""))
 
 ## The **fourth density set's** own predicate. See `LAPTOP`'s header for the
 ## whole argument; the short version is that "narrow" and "touch" are two
