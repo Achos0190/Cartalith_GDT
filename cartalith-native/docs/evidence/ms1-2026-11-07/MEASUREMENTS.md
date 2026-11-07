@@ -40,6 +40,18 @@ No device was connected (`adb devices` empty), and `adb` was not run. Every cell
 | B7: boot screenshots before and after S2, two of each, with `lastUpdateTime` | `adb exec-out screencap -p > a.png` ×2, `adb shell dumpsys package org.cartalith.walkingskeleton \| grep lastUpdateTime` (`export_presets.cfg` `package/unique_name`) | Pixel identity of the owner's phone. |
 | B7: `adb shell wm size 1600x2560` with `adb shell wm density 320`, then `adb shell wm size reset` and `adb shell wm density reset` | as written | Whether 800 × 1 280 dp comes up a tablet (today's rule: aspect 0.625, so a tablet). |
 
+### S1 against the drafts
+
+S1 is drafts 01 and 02 (`cartalith-native/drafts/mobile-shell/`), transplanted. `check_symbols.sh` was run on `f5637c89` and reported nothing missing and nothing taken. The function bodies are the drafts', apart from two deviations, each made because the draft was wrong against its own spec or the live code:
+
+1. **`classify()` without a current class, for a size of zero.** Here `width_class` is `""`, where draft 01 returns `"xl"`. A guessed class stands in for "not classified", and `MISTAKES.md` forbids encoding absence as a plausible value. Draft 01's own `width_class()` already treats `""` as not classified.
+2. **S1's `_compute_layout_mode()` passes no `current`**, where draft 02 passes `_layout`. With `_layout` fed back, the hysteresis band acts from S1 onwards. A phone resized to an aspect between 0.600 and 0.610 would then stay a phone, where today's code makes it a tablet. That breaks the draft's own statement that S1 "gives the same `_phone` ... as today". The band arrives in S3, as the draft's S3 section has it.
+
+Two things the drafts leave to the build are in place:
+
+- `_TABLET_MIN_DP`'s worked table was corrected in the move;
+- the comment on `phone_scale()` is marked false until S2.
+
 ## S1 results
 
 - **B1.** `_ms1class_probe.gd --table`: PASS, 73 checks. Before S1 it fails, because `classify()` does not exist. All 12 mutants were killed (`mut_b1.py`: exact literal replace, restored in a `finally`, the file's hash checked afterwards): `TABLET_MIN_DP` 899 and 901, `PHONE_ASPECT_MAX` 0.59 and 0.61, `BAND_DP` 0, `BAND_ASPECT` 0, the width-class bounds 601, 841, 1201 and 1601, and the band direction flipped on each line.
