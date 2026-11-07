@@ -337,6 +337,7 @@ do after the build. `_unmount_composition()` is its inverse. A swap is: unmount,
     the windows when the swap does run.
 - **S4.0, before any S4 code: the inventory.** Each entry gets a stated action: rebuilt, survives, reset, freed or
   (a window) re-presented.
+  **Written 2026-11-07:** `cartalith-native/docs/evidence/ms1-2026-11-07/S4_INVENTORY.md`, with Ruling EG's consequences for S4.
   `MISTAKES.md`'s "Delete a surface" row applies, because a swap deletes one.
   - Every field the two builders and their callees assign. `dcc_shell.gd` alone declares at least 78 fields typed with
     a Node class, and 16 `Dictionary` fields, several of which map keys to nodes. The same for `app.gd`, whose
