@@ -580,10 +580,12 @@ func _rebuild() -> void:
 func _current_place() -> Dictionary:
 	if bridge.generating or not bridge.has_world:
 		return {}
-	var dock = app.get("right_dock_ctrl")
-	if dock == null or not dock.has_method("current_settlement_index"):
+	## PC-1 (`PC_SHELL_PROPOSAL.md` §2, finding A2): the place is the one selection's, not the right
+	## dock's copy, so the dock, CIVIL and this context cannot name different places.
+	var sel = app.get("selection")
+	if typeof(sel) != TYPE_DICTIONARY or String((sel as Dictionary).get("kind", "")) != "settlement":
 		return {}
-	var idx := int(dock.current_settlement_index())
+	var idx := int((sel as Dictionary)["id"])
 	var all: Array = bridge.settlements()
 	if idx < 0 or idx >= all.size():
 		return {}

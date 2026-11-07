@@ -659,6 +659,133 @@ func _apply_lighting_defaults() -> void:
 		return
 	bridge.set_appearance(DccSettings.lighting_defaults())
 
+# ── PC-1: the one selection (`PC_SHELL_PROPOSAL.md` §2 rule 1, §3.1, §5) ─────────────────────────
+
+## How many earlier selections Edit ▸ Previous selection (Alt+←) can walk back through. A labelled
+## judgement (PC-1, 2026-11-07): the proposal sets no depth, a browser keeps far more, and 64 steps is
+## more than a session of clicking around a map revisits while staying a few hundred bytes.
+const SELECTION_HISTORY_MAX := 64
+
+## PC-1. The one selection: `{"kind": String, "id": int}`, kind one of "settlement", "landmark",
+## "faction", "culture", "conflict", "note"; `{}` when nothing is selected (never a plausible default
+## such as settlement 0: `MISTAKES.md`, "Return, marshal or default a value that can be absent").
+## Written only by `select()` (and through it by `select_back()`, `select_forward()` and
+## `clear_selection()`). Every surface reads it or is told by `_apply_selection()`; none keeps a copy
+## (§2). For a settlement, `id` is its index in `bridge.settlements()`, the handle every shipped
+## surface already uses (the right dock, CIVIL's `_selected_index`, the Place editor).
+## `menus.gd::_story_selection()` reads it through `get("selection")` and copies it.
+var selection: Dictionary = {}
+
+## PC-1. Emitted after `selection` changes and after the surfaces were told, never before
+## (`MISTAKES.md`, "Emit a change signal"), with a copy of the new value. Named `current`, so it cannot
+## read as shadowing the property.
+signal selection_changed(current: Dictionary)
+
+## PC-1. The selections before this one, oldest first (`select_back()` pops the end), and the ones
+## `select_back()` stepped away from (`select_forward()` pops the end). Each entry is a `selection`
+## value, `{}` included: Deselect is a step, so Alt+← brings back what it cleared (§3.1). Both are
+## dropped when the world is replaced (`_reset_selection()`), because a settlement index names a
+## different town in the next world.
+var _selection_back: Array = []
+var _selection_forward: Array = []
+
+## PC-1. The one path every producer calls (§3.1 "Producers"): a map click (`_wire_selection()`), a
+## Find hit (`dcc_shell.gd::_select_search_hit()`), the CIVIL dock's settlement, landmark-religion,
+## garrison and context-card rows, the trade-flow rows, the faction roster's settlement rows. `kind`
+## "" or a negative `id` selects nothing.
+##
+## Records the previous selection in the history unless `opts.get("history", true)` is false (back and
+## forward pass false) or the selection did not change, drops the forward history when it records, sets
+## `selection`, tells the surfaces (`_apply_selection()`), then emits. Re-selecting the same subject
+## re-applies it (a repeated pick refreshes the dock) without a history step.
+##
+## A settlement index the live list does not hold selects nothing rather than a neighbour: the same
+## rule `right_dock.gd::refresh_settlement()` applies to a stale pin.
+func select(kind: String, id: int, opts: Dictionary = {}) -> void:
+	var next: Dictionary = {}
+	if kind != "" and id >= 0:
+		next = {"kind": kind, "id": id}
+	if String(next.get("kind", "")) == "settlement" and id >= bridge.settlements().size():
+		next = {}
+	if bool(opts.get("history", true)) and next != selection:
+		_selection_back.append(selection.duplicate())
+		while _selection_back.size() > SELECTION_HISTORY_MAX:
+			_selection_back.pop_front()
+		_selection_forward.clear()
+	selection = next
+	_apply_selection()
+	selection_changed.emit(selection.duplicate())
+
+## PC-1. Tells the surfaces that show a settlement which one is selected: every entry of `_workspaces`
+## with `on_settlement_selected` (CIVIL's `_selected_index`, which Delete and the Place editor act on,
+## and the right dock), the same fan-out a map click used before PC-1, so the dock and CIVIL can no
+## longer disagree (finding S1).
+##
+## **PC-1 applies settlements only.** A faction, landmark, culture, conflict or note selection is
+## recorded (history, `current_faction()`) but the surfaces that would show it are PC-4's Inspect
+## builders; until then such a selection empties the settlement surfaces, which is true: no settlement
+## is selected. The landmark and icon picks keep their own shipped paths (`_wire_selection()`).
+func _apply_selection() -> void:
+	var data: Variant = null
+	var idx := -1
+	if String(selection.get("kind", "")) == "settlement":
+		idx = int(selection["id"])
+		data = bridge.settlements()[idx]
+	for ws in _workspaces:
+		if ws.has_method("on_settlement_selected"):
+			ws.on_settlement_selected(data, idx)
+
+## PC-1. Edit ▸ Previous selection (Alt+←): makes the selection before this one current again, like a
+## browser's Back, through `select(…, {"history": false})`. Returns false, and changes nothing, when
+## there is no earlier selection; the menu then says so in the status line. Never reached from a key
+## typed into a text field (Ruling DX, PQ12: `menus.gd::_on_edit_selection()` drops that press).
+func select_back() -> bool:
+	if _selection_back.is_empty():
+		return false
+	var prev: Dictionary = _selection_back.pop_back()
+	_selection_forward.append(selection.duplicate())
+	select(String(prev.get("kind", "")), int(prev.get("id", -1)), {"history": false})
+	return true
+
+## PC-1. Edit ▸ Next selection (Alt+→): the reverse of `select_back()`. Returns false, and changes
+## nothing, when there is nothing to go forward to.
+func select_forward() -> bool:
+	if _selection_forward.is_empty():
+		return false
+	var nxt: Dictionary = _selection_forward.pop_back()
+	_selection_back.append(selection.duplicate())
+	select(String(nxt.get("kind", "")), int(nxt.get("id", -1)), {"history": false})
+	return true
+
+## PC-1. The faction Records ▸ Factions… and Story ▸ Faction history… open on (finding W6): the
+## selected faction; for a selected settlement, the faction the engine's settlement list gives it now,
+## which is the holder in the year the civilisation layer was last moved to (`civ_goto_year`; PC-2
+## makes that one year the strip's); -1 when nothing is selected or the selection has no faction. -1 is
+## `open_faction_roster()`'s own documented "none" (it then opens on the last faction viewed), never a
+## guess. Never read from a stale copy (the right dock's `_faction_id`, CIVIL's `_selected_index`).
+func current_faction() -> int:
+	match String(selection.get("kind", "")):
+		"faction":
+			return int(selection["id"])
+		"settlement":
+			var all: Array = bridge.settlements()
+			var i := int(selection["id"])
+			if i >= 0 and i < all.size() and (all[i] as Dictionary).has("faction"):
+				return int((all[i] as Dictionary)["faction"])
+	return -1
+
+## PC-1. A generate or a load replaces the world, and a settlement index then names a different town
+## (`tid` is re-issued too), so the selection and both histories are dropped, with no history step and
+## no fan-out (the dock drops its own context on the same signals, `right_dock.gd::setup()`). Emits so a
+## listener never keeps the old subject.
+func _reset_selection() -> void:
+	_selection_back.clear()
+	_selection_forward.clear()
+	if selection.is_empty():
+		return
+	selection = {}
+	selection_changed.emit({})
+
 ## Clear every selection the shell holds -- `Edit > Deselect` (⌘D,
 ## `DCC_SHELL_SPEC.md` §2.2, "Select all / Deselect ... Scoped to the active
 ## layer").
@@ -684,8 +811,16 @@ func _apply_lighting_defaults() -> void:
 ## by a layer test: `on_deselect()` refuses unless its own domain is active,
 ## and labels and icons are both Cartography's, so a Deselect in World clears
 ## nothing. Returns whether anything was actually cleared.
+##
+## **PC-1 (`PC_SHELL_PROPOSAL.md` §3.1, finding S1): it clears the one selection first**, in every
+## domain, through `select("", -1)`: the right dock, CIVIL's index and the assistant's context empty
+## together, and Previous selection (Alt+←) brings it back. The label and icon selections below are
+## still Cartography's own and keep their domain scope.
 func clear_selection() -> bool:
 	var any := false
+	if not selection.is_empty():
+		select("", -1)
+		any = true
 	for ws in _workspaces:
 		if ws.has_method("on_deselect"):
 			if ws.on_deselect():
@@ -1958,10 +2093,13 @@ func refresh_atlas_status() -> void:
 ## workspace opts in by defining the handler. Call once, after `viewport` and
 ## `_workspaces` exist.
 func _wire_selection() -> void:
+	## PC-1: a map pick is a producer of the one selection (`select()`), which fans the pick out to the
+	## same workspaces this lambda used to; a click on empty ground (`data == null`) selects nothing.
 	viewport.settlement_selected.connect(func(data, index):
-		for ws in _workspaces:
-			if ws.has_method("on_settlement_selected"):
-				ws.on_settlement_selected(data, index))
+		select("settlement" if data != null else "", index if data != null else -1))
+	## PC-1: a new world renumbers settlements, so the selection and its history go with the old one.
+	bridge.generation_finished.connect(func(_ok: bool): _reset_selection())
+	bridge.world_loaded.connect(_reset_selection)
 	## Ruling AL: a landmark click, fanned out the same way. Emitted after
 	## `settlement_selected` for the same click (`map_overlay.gd`'s order).
 	viewport.landmark_selected.connect(func(data, index):

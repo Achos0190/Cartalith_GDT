@@ -546,7 +546,8 @@ func _ready() -> void:
 		if int(_x["rows"][pi]["tid"]) == tid2:
 			place_idx = pi
 	_ok(place_idx >= 0, "the probe's settlement has an index on the map")
-	_app.right_dock_ctrl.on_settlement_selected(_bridge.settlements()[place_idx], place_idx)
+	## PC-1: the assistant's place is the one selection's; select through `select()`, not a dock-only pin.
+	_app.select("settlement", place_idx)
 	await _settle(6)
 	_win.open()
 	await _settle(10)

@@ -1195,7 +1195,8 @@ func _assistant() -> void:
 	DccSettings.set_popout_enabled(false)
 	PopoutHost.forget_choices(get_tree())
 	var places: Array = _bridge.settlements()
-	_app.right_dock_ctrl.on_settlement_selected(places[0], 0)
+	## PC-1: the assistant's place is the one selection's; select through `select()`, not a dock-only pin.
+	_app.select("settlement", 0)
 	await _settle(4)
 	a.open()
 	await _settle(12)

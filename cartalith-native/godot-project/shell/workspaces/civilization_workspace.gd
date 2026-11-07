@@ -1305,7 +1305,7 @@ func _on_ctx_id(id: int) -> void:
 			## `cursor_sampled` -- so the honest action is to select whatever
 			## is here and say where to read it, not to build a second panel.
 			if _ctx_hit >= 0:
-				app.right_dock_ctrl.on_settlement_selected(bridge.settlements()[_ctx_hit], _ctx_hit)
+				app.select("settlement", _ctx_hit)  ## PC-1: the one selection, not a dock-only pin
 				app.set_status("hint", "Pinned in the right dock — the reference's _civInfoAt readout.", "text_ghost")
 			else:
 				## **Both halves ARE bound, and this message said they were not**
@@ -1830,8 +1830,8 @@ func _settlement_click(gx: float, gy: float) -> void:
 		## pins the right dock directly rather than through `map_overlay.gd`'s
 		## `settlement_selected`, so `on_settlement_selected` above never fires
 		## for it and `_selected_index` would otherwise stay stale.
-		_selected_index = idx
-		app.right_dock_ctrl.on_settlement_selected(settlements[idx], idx)
+		## PC-1: `select()` sets `_selected_index` through `on_settlement_selected()` too.
+		app.select("settlement", idx)
 	## §4.5.6: "A tool that writes world data ... reports its staleness
 	## consequence in the status bar the moment it commits." Not `bridge.
 	## mark_dirty()` -- that flags the GENERATION PARAMETERS stale, prompting
@@ -3038,7 +3038,7 @@ func _diag_card(parent: Control, settlement: Dictionary, d: Dictionary, index: i
 	var b := DccWidgets.action(box, place_name, func():
 		if index >= 0:
 			app.arm_tool("inspect")
-			app.right_dock_ctrl.on_settlement_selected(settlement, index))
+			app.select("settlement", index))  ## PC-1; this row skipped `_selected_index` before (S1)
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.tooltip_text = "Pin this settlement in the right dock (same as clicking it on the map)."
 	DccWidgets.note(box, "%s · %s" % [spec_text, wall_text])
@@ -3080,9 +3080,8 @@ func _settlement_row(parent: Control, data: Dictionary, index: int) -> void:
 	row.add_theme_constant_override("separation", 4)
 	var text := "%s -- %s, pop %d" % [data.get("name", "?"), String(data.get("kind", "?")).capitalize(), int(data.get("population", 0))]
 	var b := DccWidgets.action(row, text, func():
-		_selected_index = index
 		app.arm_tool("inspect")
-		app.right_dock_ctrl.on_settlement_selected(data, index))
+		app.select("settlement", index))  ## PC-1: the one selection
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## DS-03, and the one call site that has to overrule `action()`'s own rule.
@@ -4567,9 +4566,8 @@ func _religion_pin(index: int) -> void:
 	var places := bridge.settlements()
 	if index < 0 or index >= places.size():
 		return
-	_selected_index = index
 	app.arm_tool("inspect")
-	app.right_dock_ctrl.on_settlement_selected(places[index], index)
+	app.select("settlement", index)  ## PC-1: the one selection
 
 ## Each faction's own religious composition, and whether its people still hold
 ## the state religion its ruler has set.
@@ -7025,8 +7023,7 @@ func _fill_military(parent: Control) -> void:
 				int(round(100.0 * float(d.get("defensibility", 0.0))))],
 				func():
 					if idx >= 0 and idx < roster.size():
-						_selected_index = idx
-						app.right_dock_ctrl.on_settlement_selected(roster[idx], idx))
+						app.select("settlement", idx))  ## PC-1: the one selection
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.tooltip_text = "%s · population %d · faction %d. Pin it in the right dock." % [
 				String(d.get("kind", "")).capitalize(), int(d.get("pop", 0)), int(d.get("faction", 0))]
@@ -7207,8 +7204,7 @@ func _fill_garrisons(parent: Control, factions: Array, places: Array) -> void:
 				func():
 					var roster := bridge.settlements()
 					if idx >= 0 and idx < roster.size():
-						_selected_index = idx
-						app.right_dock_ctrl.on_settlement_selected(roster[idx], idx))
+						app.select("settlement", idx))  ## PC-1: the one selection
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.disabled = idx < 0
 			b.tooltip_text = ("Population %d · %s wall · border exposure %.2f · walls/capital "

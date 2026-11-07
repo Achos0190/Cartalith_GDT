@@ -575,7 +575,9 @@ func _ready() -> void:
 
 	# ------------------------------------------------------------------ 5. the panel: send, fences, summary
 	print("== 5. the panel ==")
-	_app.right_dock_ctrl.on_settlement_selected(_bridge.settlements()[first_idx], first_idx)
+	## PC-1: the assistant's place is the one selection's, so the probe selects through `select()`, the
+	## path every producer uses; a dock-only pin is no longer a selection.
+	_app.select("settlement", first_idx)
 	await _settle(4)
 	_configure({"ctx_entity": false, "ctx_notes": true})
 	var row := _find_row(_app, "Assistant panel…")

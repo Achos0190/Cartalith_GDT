@@ -47,6 +47,34 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-1 built: one selection (2026-11-07)
+
+`PC_SHELL_PROPOSAL.md` §2 rule 1, §3.1, §5; the contract in `drafts/pc-shell/90_pc_milestone_stubs.gd`.
+
+- **Built:** `DccApp.selection` (`{kind, id}`, `{}` for none), `selection_changed` (emitted after the surfaces are
+  told), `select(kind, id, opts)`, `select_back()` / `select_forward()` (a 64-step history; Deselect is a step),
+  `current_faction()`, and a reset when a generate or load replaces the world. Every producer calls `select()`: the
+  map click (`_wire_selection()`), Find's settlement and faction hits (`dcc_shell.gd::_select_search_hit()`, finding
+  S4), the CIVIL dock's settlement, context-card, religion, roster and garrison rows, the trade-flow rows, and the
+  faction roster's settlement rows. `clear_selection()` (Edit ▸ Deselect) clears it in every domain. The assistant's
+  place is the selection's (finding A2). Edit ▸ Previous / Next selection go live on Alt+← / Alt+→ from the next boot,
+  and Records ▸ Factions… and Story ▸ Faction history… open on `current_faction()`.
+- **Bar:** `grep -rn "right_dock_ctrl.on_settlement_selected(" shell/` → 0 (it was 8).
+- **Measured:** new `_pc1select_probe` (windowed, real clicks and keys) selects one place by a map click, a Find hit
+  and a CIVIL Settlements row; after each the selection, the right dock, CIVIL's `_selected_index` and the assistant's
+  context name the same settlement, Ctrl+D empties all four, Alt+← brings it back, Alt+→ goes forward: PASS 31/31 at
+  1600×1000 and at 1600×1000 touch, 0 SCRIPT ERROR; on the pre-PC-1 tree it cannot run (no `select()`). Six mutants (history off, map producer off, Find producer off, the roster
+  row back to its old dock-only pin, Deselect not clearing, the assistant reading the next index) each turned it red.
+- **Scope, stated:** PC-1 applies settlement selections to the surfaces. A faction or other kind is recorded (history,
+  `current_faction()`) but shown by PC-4's Inspect; landmark and icon picks keep their own paths. §3.9's Escape-deselects
+  is not built.
+- **Probes that pinned the dock directly to set the assistant's place** now call `select()`, the one path:
+  `_llmplace`, `_llmpanel`, `_llmknow`, `_llmplace_live`, `_llmprofiles`, `_popout_windows`. Re-run green: `_pc9menus`
+  (86, with Previous / Next selection now live), `_pc9menus` phone (9), `_storymenus`, `_cmdindex`, `_ctxring`,
+  `_llmplace`, `_llmpanel`, `_llmprofiles` (phase 1 only; phase 2 needs the same user dir), `_vfy_batch0905`,
+  `_sessionmode`. Failing as on origin/main: `_factionhub` (3), `_llmknow` (2: Send's knowledge-box reason, the caps
+  line), `_popout_windows` (1). `_llmplace_live` needs a model and was not run.
+
 ### PC-9 and PC-11 built: the PC menus and keys, and a tool-options bar that holds tool settings only (2026-11-07)
 
 `PC_SHELL_PROPOSAL.md` §3.8, §3.9 and §3.12; Rulings DX, DY and DZ. The drafts in `cartalith-native/drafts/pc-shell/`

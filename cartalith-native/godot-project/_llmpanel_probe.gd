@@ -292,7 +292,8 @@ func _ready() -> void:
 		_app.open_project_dialog.hide()
 	var places: Array = _bridge.settlements()
 	_ok(places.size() > 0, "the generated world has settlements (%d)" % places.size())
-	_app.right_dock_ctrl.on_settlement_selected(places[0], 0)
+	## PC-1: the assistant's place is the one selection's; select through `select()`, not a dock-only pin.
+	_app.select("settlement", 0)
 	await _settle(4)
 	var place_name := String(places[0].get("name", ""))
 	_vault = ProjectSettings.globalize_path(VAULT_DIR)

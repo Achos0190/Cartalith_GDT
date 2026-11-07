@@ -342,7 +342,8 @@ func _ask(condition: String, seed_: int, pick: Dictionary, rep: int, tag: String
 	var ss: Array = _bridge.settlements()
 	var idx: int = int(pick["index"])
 	var place: Dictionary = ss[idx]
-	_app.right_dock_ctrl.on_settlement_selected(place, idx)
+	## PC-1: the assistant's place is the one selection's; select through `select()`, not a dock-only pin.
+	_app.select("settlement", idx)
 	await _frames(4)
 	_win.open()
 	await _frames(10)

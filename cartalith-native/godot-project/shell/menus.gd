@@ -1693,9 +1693,10 @@ func _build_edit_actions(p: PopupMenu) -> void:
 	## all to select INTO"* (2026-09-03, with the multi-selection model), then
 	## *"Select all above stays disabled"* (later the same day, with the
 	## clipboard). Deselect never depended on either: clearing a set of any
-	## size is `clear_selection()`'s same one call per owner, and it is
-	## domain-scoped by the workspace guard rather than by `_select_all()`'s
-	## own `match`.
+	## size is `clear_selection()`'s same one call per owner. Since PC-1 it
+	## clears the one selection in every domain first (`DccApp.select("", -1)`,
+	## so Previous selection brings it back); labels and icons stay scoped by
+	## the workspace guard rather than by `_select_all()`'s own `match`.
 	_live(p, "Deselect", ID_DESELECT, KEY_MASK_CTRL | KEY_D)
 	p.set_item_tooltip(p.item_count - 1, _deselect_tip())
 	_build_selection_rows(p)

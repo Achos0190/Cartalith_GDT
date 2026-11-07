@@ -8870,10 +8870,19 @@ func _refresh_desktop_search() -> void:
 ## `civilization_workspace.gd`: `move_view_to(float(int(row.get("x",0))),
 ## float(int(row.get("y",0))))`, matched verbatim rather than invented here),
 ## then close whichever surface opened it.
+##
+## **PC-1 (`PC_SHELL_PROPOSAL.md` §3.1, finding S4): a hit also selects** what it names, through
+## `DccApp.select()`, for the two kinds whose `id` is the selection's own handle: a settlement (its index
+## in `bridge.settlements()`, `place_search.gd::_add_settlements()`) and a faction (its id). Other kinds
+## (labels, ways, routes) only move the camera, as before. Asked through `has_method`, because this
+## base class has no selection of its own.
 func _select_search_hit(d: Dictionary, close_fn: Callable) -> void:
 	var vh := _find_viewport_host()
 	if vh != null:
 		vh.move_view_to(float(int(d.get("x", 0))), float(int(d.get("y", 0))))
+	var entity := String(d.get("entity", ""))
+	if (entity == "settlement" or entity == "faction") and d.has("id") and has_method("select"):
+		call("select", entity, int(d["id"]))
 	close_fn.call()
 
 ## Public: `menus.gd`'s Edit ▸ Find on map… row calls `_host.open_find_on_map()`

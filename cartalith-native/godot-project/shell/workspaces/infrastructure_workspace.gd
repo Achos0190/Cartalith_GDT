@@ -1188,8 +1188,7 @@ func _fill_flows_partners(d: Dictionary) -> void:
 			String(worth["text"])],
 			func():
 				if from_i >= 0:
-					app.right_dock_ctrl.on_settlement_selected(
-						bridge.settlements()[from_i], from_i))
+					app.select("settlement", from_i))  ## PC-1; it skipped CIVIL's index before (S1)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		## The converted amount, unrounded, for anything that checks it.
 		b.set_meta("worth", worth)

@@ -582,7 +582,8 @@ Each bar is something a probe or a grep can show. The probes run windowed where 
 the drafts unchanged, with two departures found while building: the bar's Center landmasses button was the only home of
 the pass's full disclosure, so the WORLD dock's button now reads `DccApp.CENTRE_TOOLTIP` (an item §3.12's inventory
 missed); and the menu parity extractor had to learn that a draft's EDIT can already be in the tree. The PC-9 probe is
-`_pc9menus_probe`; PC-1's is `_pc1select_probe`.
+`_pc9menus_probe`; PC-1's is `_pc1select_probe`. PC-1 applies settlement selections to the surfaces; the other kinds are
+recorded and wait for PC-4's Inspect builders. MS-1 shipped ids 930-933 first, so Reset panel is 934.
 
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes

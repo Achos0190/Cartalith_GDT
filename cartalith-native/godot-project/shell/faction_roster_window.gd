@@ -3714,6 +3714,8 @@ func _open_place(idx: int) -> void:
 		return
 	var s: Dictionary = roster[idx]
 	app.viewport.move_view_to(float(int(s.get("x", 0))), float(int(s.get("y", 0))))
+	## PC-1: the row selects the place (the one selection), so the dock and CIVIL show it too.
+	app.select("settlement", idx)
 	hide()
 	app.open_place_editor(idx)
 
@@ -3816,6 +3818,7 @@ func _build_settlement_sublist(parent: Control) -> void:
 			_thousands(int(s.get("population", 0)))],
 			func():
 				app.viewport.move_view_to(float(int(s.get("x", 0))), float(int(s.get("y", 0))))
+				app.select("settlement", idx)  ## PC-1: the row selects the place
 				hide()
 				app.open_place_editor(idx))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL

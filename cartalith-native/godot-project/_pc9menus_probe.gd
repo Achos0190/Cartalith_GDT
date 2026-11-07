@@ -24,7 +24,7 @@ extends Node
 ##   C. RECORDS (real click): Factions… · Ctrl+Shift+F, Markdown vault… · Ctrl+Shift+V, the Timeline
 ##      signpost, and no row titled Generate world.
 ##   D. EDIT (the bar's on desktop, ☰ ▸ Edit on the tablet): Previous / Next selection after
-##      Deselect, disabled with a reason naming PC-1; Context card · Shift+F10 and Cartwheel at the
+##      Deselect, disabled with a reason naming PC-1 until it is built, then live on Alt+← / Alt+→; Context card · Shift+F10 and Cartwheel at the
 ##      pointer · Q directly after Find on map…; neither map row on the phone.
 ##   E. WINDOW: Right dock, then the Context panel submenu: five rows, a MODULES band of ten and
 ##      Reset panel on desktop and tablet (five and no band on the phone); every row disabled with
@@ -362,10 +362,16 @@ func _edit() -> void:
 	var di := rows.find("Deselect")
 	_ok(di >= 0 and di + 2 < rows.size() and rows[di + 1] == "Previous selection" and rows[di + 2] == "Next selection",
 		"Previous / Next selection follow Deselect (got %s)" % str(rows.slice(maxi(di, 0), di + 3)))
-	for t in ["Previous selection", "Next selection"]:
-		var i := _index_of(p, t)
-		_ok(i >= 0 and p.is_item_disabled(i) and p.get_item_tooltip(i).contains("PC-1"),
-			"%s is disabled until PC-1, with a reason naming it" % t)
+	## Two forms (draft 03): a `_todo` naming PC-1 before it, live on Alt+← / Alt+→ from it.
+	var pc1 := _app.has_method("select_back")
+	for e in [["Previous selection", KEY_MASK_ALT | KEY_LEFT, 910], ["Next selection", KEY_MASK_ALT | KEY_RIGHT, 911]]:
+		var i := _index_of(p, String(e[0]))
+		if pc1:
+			_ok(i >= 0 and not p.is_item_disabled(i) and p.get_item_accelerator(i) == int(e[1]) and p.get_item_id(i) == int(e[2]),
+				"%s is live (PC-1 built) on %s, id %d" % [e[0], OS.get_keycode_string(int(e[1])), int(e[2])])
+		else:
+			_ok(i >= 0 and p.is_item_disabled(i) and p.get_item_tooltip(i).contains("PC-1"),
+				"%s is disabled until PC-1, with a reason naming it" % e[0])
 	var fi := rows.find("Find on map…")
 	_ok(fi >= 0 and fi + 2 < rows.size() and rows[fi + 1] == "Context card" and rows[fi + 2] == "Cartwheel at the pointer",
 		"Context card and Cartwheel at the pointer follow Find on map… (got %s)" % str(rows.slice(maxi(fi, 0), fi + 3)))
