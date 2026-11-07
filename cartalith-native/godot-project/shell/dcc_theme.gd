@@ -1605,9 +1605,10 @@ static var _portrait_watchers: Array[Callable] = []
 ## domain switches and 50 right-dock rebuilds, 951 of them already-freed dead
 ## weight). Lazy pruning assumed a rotation would eventually walk this array;
 ## on desktop one never comes, because `is_tablet_portrait()` is
-## `is_tablet() and _portrait` and `is_tablet()` is decided once at boot and
-## never revisited (`dcc_shell.gd::_ready()`: "a device's own form factor is
-## not something that changes at runtime"). A label built while `is_tablet()`
+## `is_tablet() and _portrait` and `is_tablet()` is fixed after boot (MS-1 S3:
+## `DccShell._phone` is written by the boot classification only; a resize across the
+## line requests a swap, which MS-1 S4 has not built yet -- when it does, this registry
+## is one of the things the swap must rebuild, spec §3.5). A label built while `is_tablet()`
 ## is false can therefore never have its elide state change after `header()`'s
 ## own initial `_apply_elide()` call below -- there is no live event left that
 ## could ever flip it for that label -- so appending it here bought nothing

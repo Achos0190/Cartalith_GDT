@@ -1066,12 +1066,24 @@ func _density() -> Dictionary:
 	return {"value": _legacy_density(), "known": false}
 
 ## The UI scale (spec §3.6). `--ui-scale S` (S > 0) overrides for a probe run without writing anything.
-## Stage S5 adds the setting behind it; until then it is 1.0 unless the argument is given.
+## Otherwise, on a touch build, `DccSettings.ui_scale()` (MS-1 S5); on the PC always 1.0 (MQ-4, Ruling DY:
+## the PC keeps its own density sets). On the phone it still enters the classification, because a scale
+## can cross the line, but the phone's unit ignores it (`_phone_scale_for()`, MQ-3 (a)).
 func _ui_scale() -> float:
 	var arg := _user_arg_value("--ui-scale")
 	if arg != "" and arg.to_float() > 0.0:
 		return arg.to_float()
+	if _touch:
+		return DccSettings.ui_scale()
 	return 1.0
+
+## MS-1 S5: re-runs the class question and the unit after the UI scale changed (`Preferences ▸ UI scale`).
+## The same path as a settled resize, so a scale that crosses the line requests a class swap instead of
+## flipping the composition in place.
+func ui_scale_changed() -> void:
+	if not _touch:
+		return
+	_on_resize_settled()
 
 ## S2 (spec §3.3, MQ-3 (a), Ruling DY's answer): the phone's unit from density. It is capped at today's
 ## short/412, so a phone narrower than 412 dp keeps its 412-unit layout until MS-2 to MS-6 rebuild those

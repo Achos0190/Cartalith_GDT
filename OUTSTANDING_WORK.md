@@ -91,7 +91,12 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   rather than squeeze the map below 520 dp, sizes up to 4K, New World kept with an auto-populate block. Owner:
   `MOBILE_SHELL_PROPOSAL.md` (milestones MS-1…MS-11, questions Q1…Q13); mockup `design/mobile-shell-2026-10-31/`.
   **MS-1** (size classes in dp, live re-classification, UI scale) is routed to its build specification,
-  `MOBILE_SHELL_MS1_SPEC.md`: stages S0…S5, starting with S0's measurements on the 6T. Its owner questions MQ-1…MQ-5
+  `MOBILE_SHELL_MS1_SPEC.md`: stages S0…S5. **What is left** (state in `STATUS.md`; evidence in
+  `cartalith-native/docs/evidence/ms1-2026-11-07/MEASUREMENTS.md`): S0's device rows and B7 wait on the OnePlus 6T
+  (the `adb` commands are listed there); S4, the class swap, waits on its S4.0 per-item inventory (a census is
+  there) and MQ-5's re-present path in the ~30 `phone_present()` files; B9's export half and B10's other 93 probes
+  were not re-run; the 11-inch tablet at true dp (346 dp map) and at UI scale 150 % (no map) wait on MS-7.
+  Its owner questions MQ-1…MQ-5
   are all answered (Ruling DY, 2026-11-01):
   - MQ-1: the line becomes "under 600 dp wide is a phone", landing with MS-7. MS-1 itself moves no device.
   - MQ-5: open windows are re-presented in place, not closed. That enlarges S4: each of the 28 windows that call

@@ -68,6 +68,8 @@ const _SEC_ATLAS := "atlas"
 const _SEC_WINDOWS := "window_sizes"
 ## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1) -- the tablet's dominant-hand preference.
 const _SEC_HANDEDNESS := "handedness"
+## MS-1 S5 (`MOBILE_SHELL_MS1_SPEC.md` §3.6) -- the touch shell's UI scale, per device, never in a world.
+const _SEC_UI_SCALE := "ui_scale"
 ## 3D-1 (`3D_VIEWPORT_SCOPE.md` §4.2): the 3D capability gate's measured result
 ## and the user's forced tier. Machine state: it names this device's GPU.
 const _SEC_VIEW3D := "view3d"
@@ -566,6 +568,27 @@ static func set_dominant_hand(hand: String) -> void:
 		return
 	_ensure_loaded()
 	_cfg.set_value(_SEC_HANDEDNESS, "hand", hand)
+	_save()
+
+# -- MS-1 S5: UI scale ----------------------------------------------------------
+
+## The four offered UI scales (spec §3.6: 100 %, 125 %, 150 %, 200 %). Anything else read back or offered to
+## `set_ui_scale()` is rejected, so a hand-edited file cannot set a factor no layout was checked at.
+const UI_SCALES: Array[float] = [1.0, 1.25, 1.5, 2.0]
+
+## The stored UI scale; unset or not one of `UI_SCALES` reads as 1.0. Read by `DccShell._ui_scale()` on
+## touch builds only: the PC gets no UI scale (MQ-4, Ruling DY), and the phone's unit ignores it (MQ-3 (a)).
+static func ui_scale() -> float:
+	_ensure_loaded()
+	var v := float(_cfg.get_value(_SEC_UI_SCALE, "scale", 1.0))
+	return v if UI_SCALES.has(v) else 1.0
+
+## Stores the UI scale and saves. A value outside `UI_SCALES` is ignored, not stored.
+static func set_ui_scale(v: float) -> void:
+	if not UI_SCALES.has(v):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_UI_SCALE, "scale", v)
 	_save()
 
 # -- §2.5 Application > Theme --------------------------------------------------

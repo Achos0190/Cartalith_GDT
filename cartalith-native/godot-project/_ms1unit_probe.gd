@@ -26,6 +26,12 @@ extends Node
 ##           the map's physical rect's size, after the function's own thumbnail rule.
 ##   phone   the undo chip, authored 48 units (`H_PHONE_PILL`), is 48 x density px tall (+-1); every visible
 ##           BaseButton in the main viewport is at least 44 x density px on BOTH axes (the walk is by target).
+##   uiscale (B6, MS-1 S5) presses `Preferences ▸ UI scale ▸ 150 %` by emitting the submenu's `id_pressed`
+##           (the handler path, not a finger: `MISTAKES.md`, "Plan a phone probe that must reach a DIALOG"),
+##           then checks the settings file holds 1.5 and the menu bar draws 52 x density x 1.5 px, then
+##           restores 100 % and checks 52 x density again. At 3840 x 2160 it presses 125 % instead, which
+##           crosses the line (1 536 x 864 dp at density 2), and the runner greps the log for the shell's
+##           class-change request (S4 is not built, so the boot class is kept).
 ##   map     prints the zoom at which `ViewportHost.lod_active()` first turns true, stepping the zoom by
 ##           `zoom_step(1.35)` from fit on a small generated world; the bar compares two runs (density 1
 ##           and 2) and is judged by the runner, within one step.
@@ -140,8 +146,8 @@ func _ready() -> void:
 		return
 	var parts := _arg("--vp", "").split("x")
 	var leg := _arg("--leg", "")
-	if parts.size() != 2 or not leg in ["tablet", "phone", "map"]:
-		print("ABORT: needs --vp WxH and --leg tablet|phone|map")
+	if parts.size() != 2 or not leg in ["tablet", "phone", "map", "uiscale"]:
+		print("ABORT: needs --vp WxH and --leg tablet|phone|map|uiscale")
 		get_tree().quit(2)
 		return
 	_density = _arg("--density", "1").to_float()
@@ -173,6 +179,8 @@ func _ready() -> void:
 			await _phone()
 		"map":
 			await _map()
+		"uiscale":
+			await _uiscale(vw, vh)
 	print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
 	get_tree().quit(0 if _fails == 0 else 1)
 
@@ -323,3 +331,45 @@ func _map() -> void:
 		first, host.zoom(), ns * host.zoom() * _vp.get_final_transform().x.x, str(host.size),
 		_vp.get_final_transform().x.x, host.LOD_AUTO_ZOOM])
 	_ok(first >= 0, "the tile pyramid engaged within 40 zoom steps (step %d)" % first)
+
+
+func _stored_ui_scale() -> String:
+	var cfg := ConfigFile.new()
+	if cfg.load("user://cartalith_settings.cfg") != OK:
+		return "no file"
+	return str(cfg.get_value("ui_scale", "scale", "unset"))
+
+func _uiscale(vw: int, vh: int) -> void:
+	_ok(DccTheme.is_tablet(), "boots as a tablet")
+	var nodes: Array = []
+	_all(_app, nodes)
+	var pop: PopupMenu = null
+	for n in nodes:
+		if n is PopupMenu and n.name == "UiScaleChoice":
+			pop = n
+	_ok(pop != null, "Preferences has a UI scale submenu")
+	if pop == null:
+		return
+	var menu: Control = _shell_column().get_child(0)
+	var m0 := await _drawn(menu)
+	_ok(absf(m0.size.y - 52.0 * _density) <= 1.0, "menu bar %d px at 100 %%; want %.1f" % [m0.size.y, 52.0 * _density])
+	if vw == 3840 and vh == 2160:
+		pop.id_pressed.emit(931)
+		await get_tree().create_timer(0.4).timeout
+		await _frames(4)
+		_ok(_stored_ui_scale() == "1.25", "125 %% stored (file reads %s)" % _stored_ui_scale())
+		_ok(DccTheme.is_tablet(), "still the boot composition after crossing the line (S4 not built)")
+		print("UIS crossed 4K@2 x1.25")
+	else:
+		pop.id_pressed.emit(932)
+		await get_tree().create_timer(0.4).timeout
+		await _frames(4)
+		_ok(_stored_ui_scale() == "1.5", "150 %% stored (file reads %s)" % _stored_ui_scale())
+		var m1 := await _drawn(menu)
+		_ok(absf(m1.size.y - 52.0 * _density * 1.5) <= 1.0, "menu bar %d px at 150 %%; want %.1f" % [m1.size.y, 52.0 * _density * 1.5])
+	pop.id_pressed.emit(930)
+	await get_tree().create_timer(0.4).timeout
+	await _frames(4)
+	_ok(_stored_ui_scale() == "1.0", "100 %% restored (file reads %s)" % _stored_ui_scale())
+	var m2 := await _drawn(menu)
+	_ok(absf(m2.size.y - 52.0 * _density) <= 1.0, "menu bar %d px after restoring 100 %%; want %.1f" % [m2.size.y, 52.0 * _density])

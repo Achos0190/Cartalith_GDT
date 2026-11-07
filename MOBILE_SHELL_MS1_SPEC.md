@@ -278,7 +278,10 @@ Each touch composition takes the unit through the mechanism it is already built 
   touch column, the static widget factories' sizes and the theme's fonts. That is the only practical way the 205
   `role_px()` lines in 24 files, and the factories' literals, get a density at all. `DccTheme.phone_scale()` is
   published as 1.0 off the phone, which makes its comment true once S2 has audited its 25 consumer lines. S0 decides
-  the content-scale mode, and whether text needs `oversampling_override` (by HD-01's method).
+  the content-scale mode, and whether text needs `oversampling_override` (by HD-01's method). *Decided by S0's desktop
+  rows (2026-11-07, `cartalith-native/docs/evidence/ms1-2026-11-07/`): mode `DISABLED`, which scales by the factor
+  alone, while `CANVAS_ITEMS` scales against the 1152 × 648 base. No override is needed: the engine raises the root's
+  oversampling to the factor by itself.*
 - **Desktop: untouched.** A factor of 1, no `--density`, and no UI scale unless MQ-4 says otherwise.
 
 **Why two mechanisms and not one.** One root factor for both was considered. It would give the phone dp too, but every
@@ -429,11 +432,15 @@ The bars:
   - Tablet, `--force-touch --vp 2388x1668 --density 2`, read from the framebuffer: the menu bar is 104 px tall (52 dp),
     the rail 96 px wide (48 dp) and the status bar 72 px tall (36 dp), each ±1 px. A 12 dp label passes HD-01's edge
     test with a maximum adjacent-pixel |ΔLum| of at least 0.9. HD-01 measured 0.98 for a native control and 0.27 for a
-    magnified raster; 0.9 is a labelled judgement between them.
+    magnified raster; 0.9 is a labelled judgement between them. *As built, that figure is taken as a share of the glyph box's own
+    luminance range. HD-01's figures were white on black, and the theme's 12 px label reads 0.579 raw even at
+    factor 1.*
   - Phone, `--force-touch --vp 1440x3120 --density 3`: a 48 dp pill is 144 px tall, and every tap target is at least
     132 px on both axes (44 dp). The walk is by target, not by height.
   - Map: the zoom at which `_lod_active` first turns true is the same at `--density 1` and `--density 2`, within one
-    zoom step.
+    zoom step. *Measured 2026-11-07, and it does not hold: step 2 at density 1, step 0 at density 2. The steps compare
+    two different layouts. At density 2 the 1 194 dp window keeps a 346 dp map beside two 400 dp docks, so its
+    cover-fit zoom (2.44) is already past `LOD_AUTO_ZOOM` (2.2). The LOD threshold itself is now in physical px.*
   - 3D: `view3d.gd`'s `SubViewport.size` equals its rect in physical px at density 2.
   - Preview: `_capture_preview_png()`'s crop equals the map's physical rect at density 2.
 - **B4 — live within a class (S3).** Rotating `--vp 1080x2340 --density 2.625` to 2 340 × 1 080 gives the phone's

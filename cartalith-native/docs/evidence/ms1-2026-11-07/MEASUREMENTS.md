@@ -102,3 +102,42 @@ These are draft 02's S3 pieces: `_booted`, the 150 ms `_resize_timer`, `_on_wind
   - At 880 × 1 564 the shell logs exactly one `size class change requested (phone=true, (880.0, 1564.0) dp); kept the boot class until MS-1 S4` and keeps the tablet composition.
   - Before S3 the leg's checks pass, but no request line is logged.
 - **B10, partly, and B9.** All 18 identity captures are byte-identical to the S0 baseline. The 14 probe runs are unchanged. B3's six legs still pass.
+
+## S5 results (UI scale)
+
+There is no draft for S5; it follows spec §3.6. `DccSettings.ui_scale()` and `set_ui_scale()` are stored in a `[ui_scale]` section and accept only 1.0, 1.25, 1.5 and 2.0. `Preferences ▸ UI scale ▸ 100 % · 125 % · 150 % · 200 %` is a radio submenu built like Handedness, with ids 930 to 933. It exists on touch builds only: the PC's Preferences is unchanged (MQ-4), and the phone shows a disabled row with its reason (MQ-3 (a)). The shell reads the setting in `_ui_scale()` on touch builds, and `--ui-scale` overrides it. A choice calls `DccShell.ui_scale_changed()`, which takes the same path as a settled resize.
+
+- **B6.**
+  - **`--vp 2388x1668 --density 2`, then 150 % pressed** (`id_pressed` on `UiScaleChoice`, the handler path, not a finger). The settings file reads 1.5 and the menu bar draws **156 px**. Restoring 100 % stores 1.0 and the bar draws 104 px again. PASS, 7 checks. On the S3 tree the leg **fails**: there is no submenu.
+  - **`--ui-scale 1.5` on the same tablet.** The menu bar is 156 px, but **the layout does not fit**. That size is 796 × 556 dp, so the rail plus two 400 dp docks leave the map 0 px wide and the status bar draws 57 px against 108. The 3D and preview checks fail with it. **Reported, not tuned:** a UI scale above 100 % on an 11-inch-class tablet waits on MS-7's floating docks, just as density 2 alone leaves a 346 dp map (S2 results above).
+  - **At UI scale 125 %, 4K at density 2 is 1 536 × 864 dp.** A cold boot (`--ui-scale 1.25`) gets the **phone** composition with `phone_scale` 2.0, which is MQ-1's current rule. Pressing 125 % on a running 4K tablet logs `size class change requested (phone=true, (1536.0, 864.0) dp)` and keeps the tablet. B6's "that swap meets B5" waits on S4.
+- **B9 and B10, partly.** All 18 identity captures are byte-identical to the S0 baseline, and the 14 probe runs are unchanged. B3 and B4 still pass.
+
+## S4: not built; the S4.0 census
+
+S4 (spec §3.5) needs the full S4.0 inventory first: an action for each item (rebuilt, survives, reset, freed, or re-presented), and per window, the state its re-present path must carry (MQ-5, Ruling DY). That inventory was **not written** in this pass. This is the census it starts from, measured 2026-11-07 on the S5 tree:
+
+| Count | Figure | Method |
+|---|---|---|
+| node-typed fields in `dcc_shell.gd` | 73 | `grep -cE "^var [A-Za-z_]+ *: *(Control\|Button\|Label\|…)"` over 27 Node classes. The spec's 78 used a different class list, so the two are not comparable. |
+| `Dictionary` fields in `dcc_shell.gd` | 17 | the spec counted 16 |
+| `node_added`, `size_changed` and `phone_insets_changed` connections | 15 in 10 files: `dcc_shell.gd` 4, `app.gd` 2, `dcc_widgets.gd` 2, and one each in `asset_library_window.gd`, `new_world_dialog.gd`, `open_project_dialog.gd`, `quick_bar_menu_pin.gd`, `quick_bar_window.gd`, `vault_window.gd` and `view3d.gd` (new in S2) | spec §6's grep |
+| `phone_present(` call lines | 41 in 30 files | spec §6's `cnt` |
+| files calling `phone_window(` | 31 | `grep -rln` |
+| static node registries in `DccTheme` | `_portrait_watchers` (Callables) and `_elide_labels` (Labels) | — |
+| prose that relies on the class never changing | `DccTheme._elide_labels` and `radial_ring.gd`'s `_apply_touch_scale()`, both rewritten in S5 to say what S4 must do; `dcc_shell.gd::_process()`'s self-disable, rewritten in S3 to say the swap must re-enable it | spec §6's grep, run again |
+
+## Bars: measured and pending
+
+| Bar | State |
+|---|---|
+| B1 | **met** (S1) |
+| B2 | **met at 18 sizes** (S1) |
+| B3 | **met for tablet, Pad 3 and phone.** The map leg **does not hold as written**: 2 steps apart, a layout effect that waits on MS-7. |
+| B4 | **met** (S3) |
+| B5 | **pending S4** (not built) |
+| B6 | **met through the handler.** The 4K swap waits on S4. |
+| B7 | **pending the 6T** |
+| B8 | parse checks after every edit, all clean. No Rust changed, so `cargo test` was not run (brief). |
+| B9 | **met** for 1920 × 1080 and 1366 × 768 at every stage, with a root factor of 1.000. The export PNG half was **not measured**. |
+| B10 | **14 of 107** scripts re-run, plus 16 legacy touch captures. The other 93 were not re-run. |

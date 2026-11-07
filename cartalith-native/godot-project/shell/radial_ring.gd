@@ -215,11 +215,11 @@ func setup(app_ref) -> void:
 	_apply_touch_scale()
 
 
-## §7.2's touch figures, computed once -- `DccShell._compute_layout_mode()`'s
-## own header is why: "Phone-vs-tablet is decided once ... a device's own form
-## factor is not something that changes at runtime," so there is no resize
-## hook to re-run this from, the same way `_phone_scale` itself is set once at
-## boot and never revisited.
+## §7.2's touch figures, computed once. The composition class is fixed after boot
+## (MS-1 S3: `DccShell._phone` is written by the boot classification only, and a
+## resize across the line only requests a swap), so there is no class-change hook to
+## re-run this from. **MS-1 S4 changes that**: a swap that keeps this ring alive must
+## re-run `_apply_touch_scale()` (`MOBILE_SHELL_MS1_SPEC.md` §3.5, R9).
 ##
 ## `DccTheme.TOUCH_SCALE` (1.53) is this shell's one documented general-
 ## purpose touch multiplier -- reused here rather than inventing a ring-only

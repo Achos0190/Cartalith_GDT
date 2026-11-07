@@ -205,6 +205,11 @@ const ID_PREF_CLEAR_CACHES := 59  ## Preferences ▸ Clear caches….
 ## (`ID_TABLET_TOGGLE_THEME`'s own note above), already spoken for by a live
 ## row rather than sitting open.
 const ID_PREF_HAND_LEFT := 717
+## MS-1 S5: Preferences ▸ UI scale ▸ 100 % · 125 % · 150 % · 200 % (touch builds only). 930-933 were free.
+const ID_PREF_UI_SCALE_100 := 930
+const ID_PREF_UI_SCALE_125 := 931
+const ID_PREF_UI_SCALE_150 := 932
+const ID_PREF_UI_SCALE_200 := 933
 const ID_PREF_HAND_RIGHT := 718  ## Preferences ▸ Handedness ▸ Right.
 ## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
 ## after 717/718 above -- grepped this whole file for 719 before taking it,
@@ -501,6 +506,7 @@ var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## marks are read back off `ViewportHost` each time it opens.
 var _theme_popup: PopupMenu
 var _popout_pref_row := -1   ## `Preferences ▸ Open panels in their own window` row index (PW-1), -1 where absent
+var _ui_scale_popup: PopupMenu  ## MS-1 S5: `Preferences ▸ UI scale` (touch builds only).
 var _hand_popup: PopupMenu   ## `Preferences ▸ Handedness` -- CM-4's touch-hold
 	## ring/card dock side (`MAP_CONTEXT_SCOPE.md` §7.1), read by
 	## `context_broker.gd`'s tablet path via `DccSettings.dominant_hand()`.
@@ -3796,6 +3802,54 @@ func _build_handedness_submenu(p: PopupMenu) -> void:
 	p.add_child(_hand_popup)
 	p.add_submenu_item("Handedness", "HandChoice")
 
+## MS-1 S5: each UI-scale menu id's factor (spec §3.6's four values, `DccSettings.UI_SCALES`).
+const _UI_SCALE_IDS := {930: 1.0, 931: 1.25, 932: 1.5, 933: 2.0}
+
+## `Preferences ▸ UI scale` (MS-1 S5, `MOBILE_SHELL_MS1_SPEC.md` §3.6): a four-item radio submenu built the
+## way Handedness is. **Touch builds only**: the PC gets no UI scale (MQ-4, Ruling DY), so on a pointer
+## build nothing is added and the PC's Preferences is unchanged (B9). **On the phone the row is drawn
+## disabled with its reason** (MQ-3 (a)): phones follow Android's Display size until the phone layout
+## reflows below 412 dp (MS-2 to MS-6). On the tablet a choice is stored and re-runs the shell's class
+## question and unit (`DccShell.ui_scale_changed()`).
+func _build_ui_scale_submenu(p: PopupMenu) -> void:
+	if not DccTheme.is_touch():
+		return
+	if DccTheme.is_phone():
+		p.add_item("UI scale", ID_PREF_UI_SCALE_100)
+		var idx := p.item_count - 1
+		p.set_item_disabled(idx, true)
+		p.set_item_tooltip(idx, "Phones follow Android's Display size setting until the phone layout reflows below 412 dp (MOBILE_SHELL_PROPOSAL.md MS-2 to MS-6).")
+		return
+	_ui_scale_popup = PopupMenu.new()
+	_ui_scale_popup.name = "UiScaleChoice"
+	_ui_scale_popup.add_radio_check_item("100 %", ID_PREF_UI_SCALE_100)
+	_ui_scale_popup.add_radio_check_item("125 %", ID_PREF_UI_SCALE_125)
+	_ui_scale_popup.add_radio_check_item("150 %", ID_PREF_UI_SCALE_150)
+	_ui_scale_popup.add_radio_check_item("200 %", ID_PREF_UI_SCALE_200)
+	for i in 4:
+		_ui_scale_popup.set_item_tooltip(i, "Scales the whole tablet interface. Stored on this device, never in a world.")
+	_refresh_ui_scale_menu()
+	_ui_scale_popup.id_pressed.connect(_on_ui_scale_choice)
+	_shell.style_popup(_ui_scale_popup)
+	p.add_child(_ui_scale_popup)
+	p.add_submenu_item("UI scale", "UiScaleChoice")
+
+## Ticks Preferences ▸ UI scale from `DccSettings.ui_scale()`. Reads settings only.
+func _refresh_ui_scale_menu() -> void:
+	var v := DccSettings.ui_scale()
+	for i in _ui_scale_popup.item_count:
+		_ui_scale_popup.set_item_checked(i, is_equal_approx(float(_UI_SCALE_IDS[_ui_scale_popup.get_item_id(i)]), v))
+
+## Serves Preferences ▸ UI scale: stores the scale, re-ticks, and asks the shell to re-apply its unit. An
+## unknown id is ignored.
+func _on_ui_scale_choice(id: int) -> void:
+	if not _UI_SCALE_IDS.has(id):
+		return
+	DccSettings.set_ui_scale(float(_UI_SCALE_IDS[id]))
+	_refresh_ui_scale_menu()
+	if _shell != null and _shell.has_method("ui_scale_changed"):
+		_shell.ui_scale_changed()
+
 ## Ticks Preferences ▸ Handedness from `DccSettings.dominant_hand()` (item 0 left, item 1
 ## right). Reads settings only; storing the hand is `_on_handedness_choice`'s job.
 func _refresh_handedness_menu() -> void:
@@ -4142,6 +4196,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## CM-4 residual: unconditional, unlike the two rows above -- see this
 	## function's own header comment for why.
 	_build_handedness_submenu(p)
+	_build_ui_scale_submenu(p)
 	## **Built.** This row was a `_todo` reading "SS2.5 asks for an editable,
 	## per-context table... what is missing is rebinding: a per-context store
 	## in DccSettings that both the menu accelerators here and app.gd's own
