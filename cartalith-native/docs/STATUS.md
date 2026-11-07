@@ -47,6 +47,46 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-9 and PC-11 built: the PC menus and keys, and a tool-options bar that holds tool settings only (2026-11-07)
+
+`PC_SHELL_PROPOSAL.md` §3.8, §3.9 and §3.12; Rulings DX, DY and DZ. The drafts in `cartalith-native/drafts/pc-shell/`
+(01–11; 90 stays a contract) were transplanted into `shell/` after `check_symbols.sh` passed against the live tree
+(231 symbols, 50 anchors, 12 block fingerprints). Every anchor still matched; nothing in a draft had to be rewritten.
+
+- **Built:** the World menu is **Records** on every bar; **File ▸ Generate world (Ctrl+R)** after New world… (on the
+  narrow tablet bar ☰ · File · World · Records · Story, World ▸ Generate world); Factions… Ctrl+Shift+F; Markdown
+  vault… Ctrl+Shift+V; Records' Timeline and Story's Places without notes are signposts; Edit ▸ Previous / Next
+  selection (disabled until PC-1), Context card (Shift+F10) and Cartwheel at the pointer (Q), moved off `app.gd`'s
+  key handler (the Menu key stays there, listed in `UNLISTED`); Window ▸ Context panel ▸ (five rows, MODULES ten,
+  Reset panel; disabled with reasons until PC-4/5/6); Open windows walks every visible window; Help ▸ Keyboard
+  reference…; Assets ▸ Import image… removed; the `EXTRAS` aliases and the "Records (was World)" pointer;
+  `switch_on_hover` on the desktop bar. PC-11: WORLD's idle bar row is "GENERATE · WORLD" and one hint.
+- **One gap the drafts' inventory missed (fixed):** the bar's Center landmasses button carried `CENTRE_TOOLTIP`, the
+  full disclosure (cannot be undone, drops the civilisation layer). The WORLD dock's button had a shorter text, so it
+  reads `DccApp.CENTRE_TOOLTIP` now.
+- **Measured:** new `_pc9menus_probe` (windowed, real clicks and keys, wiped user dir): PASS at 1600×1000 (85 checks),
+  1280×800 touch (75) and 393×852 phone (9), 0 SCRIPT ERROR; on the pre-change tree it fails 44 of 77. No accelerator
+  is carried by two commands. The menu parity check re-run: 0 unclassified differences on every platform, and the
+  regenerated `REPORT.md` is identical to the drafts-in-memory one apart from its source hash (`godot_menus.py` now
+  records an already-shipped EDIT as shipped).
+- **Existing probes re-run** (sequential, windowed where their headers say): green — `_cmdindex`, `_gsw`,
+  `_toolstrip`, `_quickbar` ×3 forms, `_quickbar_assistant` ×2, `_quickbar_phone`, `_quickbar_ring` desktop,
+  `_quickbar_store`, `_quickbar_window` ×3, `_alignment` ×2, `_llmview` desktop, `_popout`, `_popout_roster`,
+  `_popout_settings`, `_vfytl` ×2, `_storymenus` ×3 forms, `_sessionmode` ×2, `_tabletparity`, `_idxfind`, `_vfyb13`,
+  `_structmove`, `_vfy_batch0905`, `_adaudit`, `_adpress`, `_phonemore_reach`, `_ctxring`, `_menuwire`, `_shortcuts`,
+  `_appbar20`, `_llmplace`, `_llmpanel`. `_quickbar_ring` tablet failed 2 once and passed 165/165 on a re-run.
+  **Failing, the same on origin/main `f5637c89`:** `_factionhub` (FH8 ×2, RF03), `_v3menu` (cartography Undo/Redo
+  disabled with no reason), `_ds03fit` (4 "panel still carries its inventory"; the new armed-tool band checks pass),
+  `_llmview` tablet (the known 'Choose groups' failure; it hung and was killed), `_popout_windows` desktop (1 of 457:
+  "feature off: Send is disabled with its reason in the native window"; it needs more than 360 s).
+- **Mutation-tested** (Python, exact literal, restored and hash-checked): eight mutants of the new logic (File's Ctrl+R,
+  `_generate_in_world`, the phone guard on the map rows, `switch_on_hover`, the alias skip, the WORLD context label,
+  the typing guard, the Records title) each turned `_pc9menus_probe` red.
+- **Not run:** the four `*_id_probe` capture/compare probes (they need two baseline captures); `cargo test` (no Rust
+  change).
+
+---
+
 ### The HTML's next versions ordered (Ruling EF), and the v2.72 audits filed; v2.74 begun (2026-11-02)
 
 The owner answered the order: *"Fixes and feature ports first then stage 3"* (`LARGE_ITEM_RULINGS.md`, Ruling EF).

@@ -578,6 +578,12 @@ Each bar is something a probe or a grep can show. The probes run windowed where 
 | PC-8 | The planner in its own window (Ruling DY, PQ4) | The planner is a window: `_show` no longer hides `app.viewport`. With it open, the map draws and takes input. Start / Add / End from the selection each add one undo step. Its Pop out button is present; reaching a second screen is PW's planner step |
 | PC-9 | Menus and keys (drafted: `cartalith-native/drafts/pc-shell/`) | Every row in §3.8. `command_index.gd` finds each moved title by TITLE. `shortcuts_dialog.gd` lists every new key. No accelerator collides (`grep` of `menus.gd` and `app.gd`). The World menu reads Records, and Generate world sits in File after New world…. On a touch tablet 600 dp wide, File · World · Records · Story fit without overlap (measured). Fully met only after PC-1, PC-4, PC-5 and PC-6, whose behaviour four rows need; until then those rows are `_todo` or keep their shipped form |
 
+**Build notes (2026-11-07; how far each milestone has got is `STATUS.md`'s answer).** PC-9 and PC-11 were built from
+the drafts unchanged, with two departures found while building: the bar's Center landmasses button was the only home of
+the pass's full disclosure, so the WORLD dock's button now reads `DccApp.CENTRE_TOOLTIP` (an item §3.12's inventory
+missed); and the menu parity extractor had to learn that a draft's EDIT can already be in the tree. The PC-9 probe is
+`_pc9menus_probe`; PC-1's is `_pc1select_probe`.
+
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes
 `popout_host.gd`, which Ruling DK's PW-2 built. PC-8 and PW-4 re-host the planner, so they are one change (§3.7).
