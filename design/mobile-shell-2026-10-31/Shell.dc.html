@@ -79,7 +79,7 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <div ref="{{ rootRef }}" style="position:relative;width:{{ W }}px;height:{{ H }}px;transform:scale({{ uiScale }});transform-origin:0 0;overflow:hidden;background:var(--sur);font:13px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);user-select:none;-webkit-user-select:none;{{ themeVars }}{{ densVars }}">
 
 <!-- ===================== MAP (shared by every form factor) ===================== -->
-<div ref="{{ mapRef }}" aria-label="map: drag to pan, pinch to zoom, long-press to sample" style="position:absolute;left:{{ L.mapL }}px;top:{{ L.mapT }}px;right:{{ L.mapR }}px;bottom:{{ L.mapB }}px;touch-action:none;overflow:hidden;background:#17303f;cursor:{{ mapCursor }}">
+<div ref="{{ mapRef }}" aria-label="{{ mapAria }}" style="position:absolute;left:{{ L.mapL }}px;top:{{ L.mapT }}px;right:{{ L.mapR }}px;bottom:{{ L.mapB }}px;touch-action:none;overflow:hidden;background:#17303f;cursor:{{ mapCursor }}">
 <canvas ref="{{ cvRef }}" style="position:absolute;left:0;top:0;width:100%;height:100%"></canvas>
 <sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
 <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:10.5px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#a9adb0;background:#101213">GENERATING MOCK WORLD…</div>
@@ -118,23 +118,21 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 </button>
 </sc-if>
 
-<!-- floating map controls: follow the sheet edge, thin out as space shrinks -->
-<div style="position:absolute;right:{{ L.fabR }}px;bottom:{{ fab.bottom }}px;display:{{ fab.disp }};flex-direction:column;gap:10px;align-items:flex-end;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
-<sc-if value="{{ fab.more }}" hint-placeholder-val="{{ true }}">
-<button class="clr-btn" onClick="{{ h3D }}" aria-label="{{ fab.dimAria }}" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;font:500 12px 'IBM Plex Mono',monospace;color:var(--acc)">{{ fab.dimLabel }}</button>
-<button class="clr-btn" onClick="{{ hFit }}" aria-label="fit the whole world" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)">
-<svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>
-</button>
+<!-- DS-13: the map's control row (MOBILE_SHELL_PROPOSAL.md §2.5). Bottom of the map on the dominant-hand side, outer end first: recentre, the zoom rocker, then the pan latch, shown only while a drawing tool is armed. 3D/2D lives in MAP ▸ View. -->
+<div role="toolbar" aria-label="map controls" data-mc="1" style="position:absolute;left:{{ mc.left }};right:{{ mc.right }};bottom:{{ mc.bottom }}px;display:{{ mc.disp }};flex-direction:{{ mc.dir }};gap:10px;align-items:center;z-index:4;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<sc-if value="{{ mc.panShow }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" data-mc-btn="pan" onClick="{{ mc.panTap }}" aria-label="{{ mc.panAria }}" aria-pressed="{{ mc.panOn }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:{{ mc.panBg }};border:1px solid {{ mc.panBorder }};display:flex;align-items:center;justify-content:center;color:{{ mc.panCol }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 8V3.6a1 1 0 0 1 2 0V7.4M7.5 7.2V2.6a1 1 0 0 1 2 0v4.7M9.5 7.3V3.8a1 1 0 0 1 2 0v5.3c0 2.9-2 4.9-4.6 4.9-1.7 0-2.9-.9-3.6-2.2L1.9 9.7a1 1 0 0 1 1.7-1.1l1.9 2.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
 </sc-if>
-<div style="width:var(--c48,48px);display:flex;flex-direction:column;border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);overflow:hidden">
-<button class="clr-btn" onClick="{{ hZoomIn }}" aria-label="zoom in" style="height:var(--c48,48px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
-<span style="height:1px;background:var(--hair)"></span>
-<button class="clr-btn" onClick="{{ hZoomOut }}" aria-label="zoom out" style="height:var(--c48,48px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<div data-mc-btn="rocker" style="height:var(--c44,44px);flex:none;display:flex;flex-direction:row;align-items:center;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);overflow:hidden">
+<button class="clr-btn" data-mc-btn="zoomout" onClick="{{ mc.zoomOut }}" aria-label="zoom out" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<span style="width:1px;height:22px;background:var(--hair);flex:none"></span>
+<button class="clr-btn" data-mc-btn="zoomin" onClick="{{ mc.zoomIn }}" aria-label="zoom in" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
 </div>
+<button class="clr-btn" data-mc-btn="fit" onClick="{{ mc.fit }}" aria-label="recentre: fit the whole world" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
 </div>
 
 <!-- scale bar -->
-<div style="position:absolute;left:{{ L.scaleL }}px;bottom:{{ fab.scaleBottom }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<div style="position:absolute;left:{{ fab.scaleLeft }};right:{{ fab.scaleRight }};bottom:{{ fab.scaleBottom }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
 <span style="font:9.5px 'IBM Plex Mono',monospace;color:#f0f2f3;text-shadow:0 1px 2px #000,0 0 3px #000">{{ scale.label }}</span>
 <span style="width:{{ scale.px }}px;height:5px;border:1.5px solid #f0f2f3;border-top:0;box-shadow:0 1px 2px rgba(0,0,0,.6)"></span>
 </div>
@@ -467,9 +465,26 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 </sc-if>
 
 <!-- map furniture on tablet -->
-<div style="position:absolute;left:{{ T.mapL }}px;top:{{ T.furnT }}px;display:flex;gap:8px;z-index:4">
+<div style="position:absolute;left:{{ T.mapL }}px;top:{{ T.furnT }}px;display:{{ T.v3.furnDisp }};gap:8px;z-index:4">
 <button class="clr-btn" onClick="{{ hLayersPop }}" aria-label="layers" aria-expanded="{{ T.layersOpen }}" style="height:var(--c44,44px);display:flex;align-items:center;gap:8px;padding:0 14px 0 12px;border-radius:var(--r22,22px);background:var(--pill);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6 3.5-6 3.5-6-3.5ZM2 8.5L8 12l6-3.5M2 11.5L8 15l6-3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg>{{ T.baseLabel }}</button>
 </div>
+<!-- Ruling EA 14 on the desktop and the tablet: the 3D view's live height-exaggeration slider, as a row in the 3D view's own card. The card stands in for view3d.gd::_build_card() as shipped by 3D-1: top-left inside the map at CARD_INSET 12, at most CARD_MAX_W 460 wide, panel with a line border; title, tier disclosure, info line, then Back to 2D, Re-test 3D and Force tier. The new HEIGHT row sits between the info line and the actions. In the build the 3D view covers the 2D map and its furniture, so the layers button is hidden here while 3D is on. 1× is true scale (Ruling CT); the range is 1× to 4× (Ruling EB item 6), and the value is the preference Preferences ▸ 3D viewport defaults, remembered for the next session and never saved with the world (Ruling EB item 5; v3ExagSet in d_screens.js). On the phone the row is in MAP ▸ View instead (MOBILE_SHELL_PROPOSAL.md §2.5). -->
+<div role="group" aria-label="3D view" data-v3="1" style="position:absolute;left:{{ T.v3.left }}px;top:{{ T.v3.top }}px;width:{{ T.v3.w }}px;display:{{ T.v3.disp }};flex-direction:column;gap:8px;padding:12px;box-sizing:border-box;border-radius:8px;background:var(--pan);border:1px solid var(--hair);z-index:4">
+<span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)">3D VIEW</span>
+<span style="font:13px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Basic tier, as measured on this device.</span>
+<span style="font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--dim)">Terrain is not drawn in 3D yet (mock: the stand-in map stays 2D). When it is, it is drawn at the height below.</span>
+<div style="display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)">HEIGHT · 1× IS TRUE SCALE</span><span style="font:500 13px 'IBM Plex Mono',monospace;color:var(--ink)">{{ T.v3.label }}</span></div>
+<input type="range" min="{{ T.v3.min }}" max="{{ T.v3.max }}" step="{{ T.v3.step }}" value="{{ T.v3.val }}" onInput="{{ T.v3.onIn }}" aria-label="{{ T.v3.aria }}" style="width:100%;height:var(--c44,44px);accent-color:var(--acc);margin:0">
+<span data-v3-where="1" style="font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--dim)">{{ T.v3.where }}</span>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<button class="clr-btn" onClick="{{ T.v3.back }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--acc);color:var(--pan);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">BACK TO 2D</button>
+<button class="clr-btn" onClick="{{ T.v3.retest }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--chip);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">RE-TEST 3D</button>
+<button class="clr-btn" onClick="{{ T.v3.force }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--chip);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">FORCE TIER…</button>
+</div>
+</div>
+<sc-if value="{{ T.ptrNav }}" hint-placeholder-val="{{ false }}">
 <div style="position:absolute;right:{{ T.furnR }}px;bottom:{{ T.furnB }}px;display:flex;flex-direction:column;gap:10px;z-index:4">
 <button class="clr-btn" onClick="{{ h3D }}" aria-label="{{ fab.dimAria }}" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);font:500 12px 'IBM Plex Mono',monospace;color:var(--acc)">{{ fab.dimLabel }}</button>
 <button class="clr-btn" onClick="{{ hFit }}" aria-label="fit the whole world" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
@@ -479,7 +494,21 @@ textarea.md-ta::selection{background:rgba(224,163,74,.30)}
 <button class="clr-btn" onClick="{{ hZoomOut }}" aria-label="zoom out" style="height:var(--c48,48px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
 </div>
 </div>
-<div style="position:absolute;left:{{ T.scaleL }}px;bottom:{{ T.scaleB }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;z-index:4">
+</sc-if>
+<sc-if value="{{ T.touchNav }}" hint-placeholder-val="{{ true }}">
+<div role="toolbar" aria-label="map controls" data-mc="1" style="position:absolute;left:{{ T.mc.left }};right:{{ T.mc.right }};bottom:{{ T.mc.bottom }}px;display:{{ T.mc.disp }};flex-direction:{{ T.mc.dir }};gap:10px;align-items:center;z-index:4;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<sc-if value="{{ T.mc.panShow }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" data-mc-btn="pan" onClick="{{ T.mc.panTap }}" aria-label="{{ T.mc.panAria }}" aria-pressed="{{ T.mc.panOn }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:{{ T.mc.panBg }};border:1px solid {{ T.mc.panBorder }};display:flex;align-items:center;justify-content:center;color:{{ T.mc.panCol }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 8V3.6a1 1 0 0 1 2 0V7.4M7.5 7.2V2.6a1 1 0 0 1 2 0v4.7M9.5 7.3V3.8a1 1 0 0 1 2 0v5.3c0 2.9-2 4.9-4.6 4.9-1.7 0-2.9-.9-3.6-2.2L1.9 9.7a1 1 0 0 1 1.7-1.1l1.9 2.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-if>
+<div data-mc-btn="rocker" style="height:var(--c44,44px);flex:none;display:flex;flex-direction:row;align-items:center;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);overflow:hidden">
+<button class="clr-btn" data-mc-btn="zoomout" onClick="{{ T.mc.zoomOut }}" aria-label="zoom out" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<span style="width:1px;height:22px;background:var(--hair);flex:none"></span>
+<button class="clr-btn" data-mc-btn="zoomin" onClick="{{ T.mc.zoomIn }}" aria-label="zoom in" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+</div>
+<button class="clr-btn" data-mc-btn="fit" onClick="{{ T.mc.fit }}" aria-label="recentre: fit the whole world" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+</div>
+</sc-if>
+<div style="position:absolute;left:{{ T.scaleLeft }};right:{{ T.scaleRight }};bottom:{{ T.scaleB }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;z-index:4">
 <span style="font:9.5px 'IBM Plex Mono',monospace;color:#f0f2f3;text-shadow:0 1px 2px #000,0 0 3px #000">{{ scale.label }}</span>
 <span style="width:{{ scale.px }}px;height:5px;border:1.5px solid #f0f2f3;border-top:0"></span>
 </div>
@@ -1420,6 +1449,13 @@ function drawMap(c, ctx, W, H) {
   ctx.imageSmoothingEnabled = true; ctx.drawImage(c._baseCv, 0, 0, KM, KM);
   const px = 1 / v.s; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   if (L.grid) { ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = px; ctx.beginPath(); for (let g = 0; g <= KM; g += 256) { ctx.moveTo(g, 0); ctx.lineTo(g, KM); ctx.moveTo(0, g); ctx.lineTo(KM, g); } ctx.stroke(); }
+  // Colour paint marks (COLOUR_PAINT_SCOPE.md; the mock's marks and their rules are in d_cats.js, cpSample onwards).
+  // Drawn over the ground and under rivers and ways, as the build composites paint into the land colour. A land-only
+  // mark wholly on water is hidden, not deleted (§5), and CARTO ▸ Colours ▸ Hide colour paint hides every mark.
+  if (s.cpMarks.length && !V(c, 'cp.hide', false)) {
+    for (const m of s.cpMarks) { if (cpMarkWet(c, m)) continue; ctx.globalAlpha = 0.62; ctx.strokeStyle = m.col; ctx.lineWidth = m.r * 2; ctx.beginPath(); m.pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
   if (L.water && L.rivers) {
     const rc = s.style === 'ink' ? '#5b6b78' : (s.style === 'parchment' ? '#5f7f8c' : '#6fa3c8');
     [[0, 0.7], [1, 1.3], [2, 2.2]].forEach(([cls, wpx]) => { const a = c.rivers[cls]; if (!a || !a.length) return; if (cls === 0 && v.s < 0.35) return; ctx.strokeStyle = rc; ctx.globalAlpha = cls === 0 ? 0.7 : 0.9; ctx.lineWidth = wpx * px * Math.max(1, Math.min(2.4, v.s * 2)); ctx.beginPath(); for (let i = 0; i < a.length; i += 4) { ctx.moveTo(a[i], a[i + 1]); ctx.lineTo(a[i + 2], a[i + 3]); } ctx.stroke(); });
@@ -1840,7 +1876,8 @@ function catRows(c, cat, tablet) {
         fold(c, 'f-ra5', 'Atmosphere', '3 sliders', () => [R(c, 'ra.haze', 'Atmospheric haze', 0, 0.6, 0.01, 0.1), R(c, 'ra.desat', 'Distance desaturation', 0, 1, 0.01, 0.2), R(c, 'ra.cont', 'Distance contrast loss', 0, 1, 0.01, 0.2)]),
         fold(c, 'f-ra6', 'Multi-scale detail', '3 sliders', () => ['Macro detail', 'Meso detail', 'Micro detail'].map((x) => R(c, 'ra.' + x, x, 0, 1, 0.01, 0.5))),
         [B('Reset to quality tier', () => c._toast('Appearance reset to the balanced tier')), info('Unset tunables follow the quality tier in Preferences ▸ Render quality.')]);
-    case 'Colours': return [H('COLOUR RELIEF'), R(c, 'col.ramp', 'Colour relief', 0, 1, 0.01, 1)]
+    case 'Colours': return (s.paintWidth ? [info('Map width ' + fmtDist(s.paintWidth.from, s.prefs.units) + ' → ' + fmtDist(s.paintWidth.to, s.prefs.units) + ': ' + s.paintWidth.marks + ' paint marks kept their real size and position; ' + s.paintWidth.wet + ' now on water are hidden, not deleted.', true), BB({ label: 'Show marks', tap: () => { c.setState({ paintWidth: null }); c._toast('Marks outlined on the map (mock)'); } }, { label: 'Scale with the map', tap: () => cpScaleWithMap(c) }, { label: 'Dismiss', tap: () => c.setState({ paintWidth: null }) })] : [])
+      .concat([H('COLOUR RELIEF'), R(c, 'col.ramp', 'Colour relief', 0, 1, 0.01, 1), H('COLOUR PAINT', 'marks in map kilometres'), { k: 'nav', d: IC.link, label: 'Simulate a regenerate at another width', sub: 'mock: sample marks, then a regenerate at 1.5× the width (Ruling EA 15, EB 7)', tap: () => cpSimulateWidth(c) }])
       .concat([['earth', 'Earth'], ['elevation', 'Elevation'], ['atlas', 'Atlas'], ['mono', 'Mono'], ['imhof', 'Imhof'], ['ice', 'Ice'], ['darkice', 'Dark ice'], ['desert', 'Desert'], ['darkatlas', 'Dark atlas']].map(([id, l]) => ({ k: 'ramp', label: l, grad: 'linear-gradient(90deg,' + RAMPS[id].join(',') + ')', on: s.ramp === id, tap: () => { c.setState({ ramp: id }); c._dirty = true; } })),
         [read('Also in the engine', 'Blueprint · Ink wash · Night · Vintage atlas · Custom'), S(c, 'col.blend', 'Blend', ['Linear', 'Ease', 'Step'], 'Linear'), BB({ label: 'Add stop', tap: () => c._toast('Stop added at 50 %') }, { label: 'Reverse', tap: () => c._toast('Ramp reversed') }), H('COLOUR GRADE')],
         fold(c, 'f-cg1', 'Rivers', '7 sliders', () => [R(c, 'cg.rw', 'River width', 0.25, 3, 0.05, 1, 'x'), R(c, 'cg.ro', 'River opacity', 0, 1, 0.01, 1), R(c, 'cg.ri', 'River ink', 0, 1, 0.01, 0.5), R(c, 'cg.rr', 'River ink red', 0, 255, 1, 106), R(c, 'cg.rg', 'River ink green', 0, 255, 1, 155), R(c, 'cg.rb', 'River ink blue', 0, 255, 1, 196), R(c, 'cg.ru', 'River under styles', 0, 1, 0.01, 0)]),
@@ -1866,6 +1903,52 @@ function catRows(c, cat, tablet) {
   }
   return [info('—')];
 }
+/* ---------- colour paint marks in the mockup, and Ruling EB item 7's "Scale with the map" ----------
+   What it is: the marks the mock draws (drawMap, d_place.js) for COLOUR_PAINT_SCOPE.md §17 Q5's map-width notice.
+   Each mark is a polyline and a radius in plate units, measured from the map's top-left edge, which is §2's
+   kilometre origin. The plate is 2 048 units across at every width, so a unit is (map width ÷ 2 048) km. The
+   stand-in world never changes size. A regenerate at another width is therefore simulated by moving every mark to
+   where its unchanged kilometres now fall: × old width ÷ new width, toward the top-left edge.
+   Why: Ruling EB item 7 gives the notice a button that rescales every mark to the new map width as one undo step.
+   The mock needs marks on the map to show what that button moves.
+   What it must never do: move a mark anywhere but the simulation and that button. The rule stays "marks keep their
+   kilometres" (Ruling EA 15, Q5). It must not state a count it did not take from the marks themselves. */
+const CP_MARK_COLS = ['#c0392b', '#e8541e', '#c0392b', '#ff8a3d', '#c0392b', '#7fd3e6', '#c0392b', '#8fd14f'];
+/* The sample: 17 marks as [[x, y] points, radius], in plate units on the 800 km map they were painted on. They were
+   picked against the default seed's stand-in world (genWorld(483920)): all 17 on land where painted, and exactly 3
+   wholly on water once the simulated regenerate to 1 200 km has moved them. The notice still counts both numbers from
+   the marks (cpMarkWet), so another seed gives other counts, never a stale "3". */
+const CP_SAMPLE = [[[[391, 1483], [415, 1478], [439, 1473]], 26], [[[1775, 1723], [1764, 1713], [1752, 1702]], 24], [[[1064, 1584], [1048, 1577], [1032, 1570]], 28], [[[1225, 1510], [1214, 1545], [1204, 1580]], 18], [[[399, 751], [372, 736], [345, 721]], 21], [[[559, 925], [543, 898], [527, 871]], 28], [[[777, 1363], [754, 1390], [732, 1417]], 30], [[[172, 1188], [189, 1205], [206, 1222]], 25], [[[993, 1006], [1004, 991], [1015, 977]], 22], [[[1151, 1283], [1137, 1295], [1123, 1307]], 19], [[[1527, 1026], [1496, 1047], [1464, 1068]], 22], [[[608, 1125], [635, 1147], [662, 1169]], 19], [[[1380, 1097], [1352, 1118], [1324, 1139]], 20], [[[1003, 1236], [987, 1259], [971, 1281]], 22], [[[1738, 352], [1748, 341], [1758, 329]], 25], [[[1434, 722], [1410, 694], [1386, 666]], 29], [[[148, 963], [174, 985], [200, 1006]], 29]];
+/* The sample as marks: land only (the default, §5), coloured from the materials' family. */
+function cpSample() { return CP_SAMPLE.map(([pts, r], i) => ({ pts: pts.map(([x, y]) => ({ x, y })), r, col: CP_MARK_COLS[i % CP_MARK_COLS.length], land: true })); }
+/* One mark scaled by k about the top-left edge: every point and the radius. Returns a new mark; never edits one. */
+function cpScaleMark(m, k) { return Object.assign({}, m, { pts: m.pts.map((p) => ({ x: p.x * k, y: p.y * k })), r: m.r * k }); }
+/* Whether a land-only mark is hidden: every point on water (ocean or lake, biomeOf) in the world the mock draws, or
+   off the plate, which the mock surrounds with sea. A mark painted with Land only off is never hidden (§5). */
+function cpMarkWet(c, m) {
+  const w = c.world; if (!w || !m.land) return false;
+  return m.pts.every((p) => { if (p.x < 0 || p.y < 0 || p.x >= w.KM || p.y >= w.KM) return true; const b = biomeOf(w, Math.floor(p.y / w.cell) * w.N + Math.floor(p.x / w.cell)); return b === 'ocean' || b === 'lake'; });
+}
+/* CARTO ▸ Colours ▸ Simulate a regenerate at another width (mock). Uses the marks on the map, or the sample if there
+   are none; widens the map 1.5×; moves each mark as its kilometres dictate; raises the notice with counts taken from
+   those marks. A regenerate is not an edit, so this pushes no undo step. */
+function cpSimulateWidth(c) {
+  const s = c.state, from = s.cpMapKm, to = Math.round(from * 1.5);
+  const marks = (s.cpMarks.length ? s.cpMarks : cpSample()).map((m) => cpScaleMark(m, from / to));
+  const wet = marks.filter((m) => cpMarkWet(c, m)).length;
+  c.setState({ cpMarks: marks, cpMapKm: to, paintWidth: { from, to, marks: marks.length, wet } }); c._dirty = true;
+  c._toast('Map width ' + fmtDist(from, s.prefs.units) + ' → ' + fmtDist(to, s.prefs.units) + ' · paint marks kept their real size');
+}
+/* The notice's "Scale with the map" (Ruling EB item 7): every mark × new width ÷ old width about the top-left edge, so
+   each keeps its share of the map. One undo step, which restores the marks' kilometres and the notice with them, since
+   what the notice says is true again; redo scales again and removes it. */
+function cpScaleWithMap(c) {
+  const s = c.state, pw = s.paintWidth; if (!pw) return;
+  const k = pw.to / pw.from, before = s.cpMarks, after = before.map((m) => cpScaleMark(m, k));
+  c.setState({ cpMarks: after, paintWidth: null }); c._dirty = true;
+  c._push('Scale paint with the map', () => { c.setState({ cpMarks: before, paintWidth: pw }); c._dirty = true; }, () => { c.setState({ cpMarks: after, paintWidth: null }); c._dirty = true; });
+  c._toast('Scaled ' + after.length + ' paint marks with the map, ×' + k.toFixed(2) + ' · undo puts them back at their kilometres');
+}
 function applyPreset(c, p) { const lk = STYLE_LOOK[p] || ['atlas', 'earth']; setV(c, 'style.preset', p); c.setState({ style: lk[0], ramp: lk[1] }); c._dirty = true; }
 function discardStamps(c, kind) { const old = c.state.stamps; const keep = old.filter((x) => (kind ? x.kind !== kind : x.kind === 'paint')); if (keep.length === old.length) { c._toast('Nothing to discard'); return; } c.setState({ stamps: keep }); c._toast('Draft discarded · heightfield untouched'); c._dirty = true; }
 function commitStamps(c, kind) {
@@ -1881,9 +1964,40 @@ function commitStamps(c, kind) {
 function quickRow(c) {
   return { k: 'acts', opts: quickItems(c).map((q) => ({ label: q.label, d: q.d, tap: q.run, flex: '0 0 auto' })).concat([{ label: 'Edit', d: IC.star, tap: () => c._openWin('quickbar'), flex: '0 0 auto' }]) };
 }
+/* ---------- the 3D view's live height-exaggeration slider (Ruling EA 14; Ruling EB items 5 and 6) ----------
+   What it is: one preference, Preferences ▸ 3D viewport defaults ▸ relief exaggeration, which every slider for it
+   writes: the phone's row in MAP ▸ View and the HEIGHT row of the 3D card on the tablet and the desktop.
+   Why: Ruling EB item 5 makes the last value set the next session's default, as if set in that preference, so the
+   slider writes the preference itself rather than a session value. Item 6 sets the range to 1× (true scale, Ruling CT,
+   view3d.gd's VERTICAL_EXAGGERATION_DEFAULT) to 4×; 3D_VIEWPORT_SCOPE.md §8.3 saw spires at 3.4×, the owner accepted
+   that cost, and the ceiling is judged again at 3D-3 on frames. Steps of 0.25 are the approved design's.
+   What it must never do: touch the world, its save or WorldState (it writes state.prefs and this browser's storage
+   only), or treat a missing or unreadable stored value as anything but the real default, 1×. Storage can be absent
+   or throw (a private window, a preview), so every read and write is guarded and the page works without it. */
+const V3_EXAG_MIN = 1, V3_EXAG_MAX = 4, V3_EXAG_STEP = 0.25, V3_EXAG_DEFAULT = 1;
+const V3_EXAG_KEY = 'cartalith.prefs.v3exag';
+const V3_EXAG_WHERE = 'Remembered in Preferences ▸ 3D viewport defaults for the next session · never saved with the world';
+/* Reads the stored preference once, at boot: a finite value inside the range, or the default. */
+function v3ExagStored() {
+  let v = V3_EXAG_DEFAULT;
+  try { const x = parseFloat(localStorage.getItem(V3_EXAG_KEY)); if (Number.isFinite(x) && x >= V3_EXAG_MIN && x <= V3_EXAG_MAX) v = x; } catch (e) { v = V3_EXAG_DEFAULT; }
+  return v;
+}
+/* Sets the preference from a slider: clamped to the range, ignored if not a number, written through to storage. */
+function v3ExagSet(c, v) {
+  const x = Math.max(V3_EXAG_MIN, Math.min(V3_EXAG_MAX, +v));
+  if (!Number.isFinite(x)) return;
+  c.setState({ prefs: Object.assign({}, c.state.prefs, { v3exag: x }) });
+  try { localStorage.setItem(V3_EXAG_KEY, String(x)); } catch (e) { }
+}
+/* The phone's MAP ▸ View row: R()'s shape, reading and writing the preference instead of a session value. */
+function v3ExagRow(c) {
+  const v = c.state.prefs.v3exag;
+  return { k: 'rng', label: 'Height exaggeration (3D)', min: V3_EXAG_MIN, max: V3_EXAG_MAX, step: V3_EXAG_STEP, val: v, disp: fmtVal(v, { step: V3_EXAG_STEP, unit: '×' }), sub: V3_EXAG_WHERE, onIn: (e) => v3ExagSet(c, e.target.value), dec: () => v3ExagSet(c, v - V3_EXAG_STEP), inc: () => v3ExagSet(c, v + V3_EXAG_STEP) };
+}
 function rowsMap(c) {
   const s = c.state; const fid = s.field || 'off';
-  const rows = [H('VIEW'), { k: 'seg', label: '', opts: [{ label: '2D', on: !s.dim3, tap: () => setK(c, 'dim3', false) }, { label: '3D', on: s.dim3, tap: () => setK(c, 'dim3', true) }, { label: 'North up', d: IC.locate || '', on: false, tap: () => { c.view = Object.assign({}, c.view, { r: 0 }); c._dirty = true; c.forceUpdate(); } }, { label: 'Fit world', on: false, tap: () => c._fit(true) }] }, T(c, 'v.grid', 'Grid', false, 'graticule every 256 km', { after: (v) => { c.setState({ layers: Object.assign({}, s.layers, { grid: v }) }); c._dirty = true; } }), T(c, 'v.scale', 'Scale bar', true)];
+  const rows = [H('VIEW'), { k: 'seg', label: '', opts: [{ label: '2D', on: !s.dim3, tap: () => setK(c, 'dim3', false) }, { label: '3D', on: s.dim3, tap: () => setK(c, 'dim3', true) }, { label: 'North up', d: IC.locate || '', on: false, tap: () => { c.view = Object.assign({}, c.view, { r: 0 }); c._dirty = true; c.forceUpdate(); } }, { label: 'Fit world', on: false, tap: () => c._fit(true) }] }].concat(s.dim3 ? [v3ExagRow(c), info('1× is true scale (Ruling CT), up to 4× (Ruling EB). Live: the 3D view redraws as you drag. Mock: the stand-in map stays 2D.')] : []).concat([T(c, 'v.grid', 'Grid', false, 'graticule every 256 km', { after: (v) => { c.setState({ layers: Object.assign({}, s.layers, { grid: v }) }); c._dirty = true; } }), T(c, 'v.scale', 'Scale bar', true)]);
   rows.push(H('VIEW FIELD', 'what the map shows · keys 1–8'));
   ANALYSIS.forEach(([grp, list]) => rows.push({ k: 'seg', label: grp, opts: list.map(([id, l]) => ({ label: l, on: fid === id, tap: () => pickField(c, id, l) })) }));
   if (s.overlay) rows.push({ k: 'rng', label: 'Field opacity', min: 0.1, max: 1, step: 0.05, val: s.ovA, disp: Math.round(s.ovA * 100) + ' %', onIn: (e) => { c.setState({ ovA: +e.target.value }); c._dirty = true; }, dec: () => c.setState({ ovA: Math.max(0.1, +(s.ovA - 0.05).toFixed(2)) }), inc: () => c.setState({ ovA: Math.min(1, +(s.ovA + 0.05).toFixed(2)) }) });
@@ -1907,7 +2021,9 @@ function routeStages(c) {
 function plannerRows(c, tablet) {
   const s = c.state; const st = routeStages(c); const total = st.reduce((a, x) => a + x.days, 0); const km = st.reduce((a, x) => a + x.km, 0);
   if (s.planStage >= 0 && st[s.planStage]) { const x = st[s.planStage]; return [H('STAGE ' + (s.planStage + 1) + ' OF ' + st.length, x.a.name + ' → ' + x.b.name), read('Terrain', x.terr), read('Biome', x.biome), read('Distance', fmtDist(x.km, s.prefs.units)), read('Ascent', x.asc + ' m'), read('Pace', x.water ? 'boat · 70 km/d' : (x.terr === 'mountain' ? 'pack · 17 km/d' : 'march · 24 km/d')), read('Days', x.days.toFixed(1)), read('Water crossing', x.water ? 'yes · ferry at ' + x.a.name : 'no', x.water ? 'var(--water)' : ''), S(c, 'pl.ov.' + s.planStage, 'Override pace', ['auto', 'forced march', 'slow'], 'auto'), BB({ label: '‹ Route', tap: () => c.setState({ planStage: -1 }) }, { label: 'Next stage ›', variant: 'primary', tap: () => c.setState({ planStage: Math.min(st.length - 1, s.planStage + 1) }) })]; }
-  const feasible = total < 75; const rows = plannerSelRows(c).concat([{ k: 'card', badge: feasible ? 'FEASIBLE · STRAINED' : 'INFEASIBLE', badgeCol: feasible ? 'var(--acc)' : 'var(--block)', right: 'confidence ± 4 d', big: String(Math.round(total + 7)), unit: 'calendar days', sub: total.toFixed(1) + ' travel · 4 rest · 3 layover · ' + fmtDist(km, s.prefs.units), note: 'Supply gap ' + (c.route[2] ? c.route[2].name : '') + ' → ' + (c.route[5] ? c.route[5].name : '') + ' runs 15.4 effective days but only 10 are carried. Add supplies, forage harder, or plan a resupply layover.', opts: [{ label: 'SUPPLIES +6 D', tap: () => setV(c, 'pl.sup', 16) }, { label: 'FORAGING ACTIVE', on: V(c, 'pl.forage', 'Active') === 'Active', tap: () => setV(c, 'pl.forage', 'Active') }] }]);
+  const feasible = total < 75; const stale = (s.staleLegs || []).filter((x) => st[x.i]);
+  const staleRows = stale.length ? [info(stale.length + ' leg change' + (stale.length > 1 ? 's' : '') + ' no longer fit' + (stale.length > 1 ? '' : 's') + ' this world and ' + (stale.length > 1 ? 'were' : 'was') + ' dropped: ' + stale.map((x) => 'stage ' + (x.i + 1) + ', ' + st[x.i].a.name + ' → ' + st[x.i].b.name + ' (' + x.what + ')').join('; ') + '. The legs were rebuilt after the world changed; nothing was applied to a different leg.', true), BB({ label: 'Show stage ' + (stale[0].i + 1), tap: () => c.setState({ planStage: stale[0].i }) }, { label: 'Dismiss', tap: () => c.setState({ staleLegs: null }) })] : [];
+  const rows = staleRows.concat(plannerSelRows(c)).concat([{ k: 'card', badge: feasible ? 'FEASIBLE · STRAINED' : 'INFEASIBLE', badgeCol: feasible ? 'var(--acc)' : 'var(--block)', right: 'confidence ± 4 d', big: String(Math.round(total + 7)), unit: 'calendar days', sub: total.toFixed(1) + ' travel · 4 rest · 3 layover · ' + fmtDist(km, s.prefs.units), note: 'Supply gap ' + (c.route[2] ? c.route[2].name : '') + ' → ' + (c.route[5] ? c.route[5].name : '') + ' runs 15.4 effective days but only 10 are carried. Add supplies, forage harder, or plan a resupply layover.', opts: [{ label: 'SUPPLIES +6 D', tap: () => setV(c, 'pl.sup', 16) }, { label: 'FORAGING ACTIVE', on: V(c, 'pl.forage', 'Active') === 'Active', tap: () => setV(c, 'pl.forage', 'Active') }] }]);
   rows.push(H('ROUTE', (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : '') + ' · ' + st.length + ' stages'));
   st.forEach((x, i) => rows.push({ k: 'item', label: x.a.name + ' → ' + x.b.name, sub: x.terr + ' · ' + fmtDist(x.km, s.prefs.units) + (x.asc ? ' · +' + x.asc + ' m' : ''), right: x.days.toFixed(1) + ' d', dot: x.water ? 'var(--water)' : 'var(--acc)', tap: () => c.setState({ planStage: i }) }));
   rows.push(BB({ label: 'Show on map', d: IC.map, tap: () => { c.setState({ det: 'peek' }); c._fit(true); } }, { label: 'Save journey', variant: 'primary', tap: () => c._toast('Journey saved · ' + (c.route[0] ? c.route[0].name : '')) }));
@@ -1961,6 +2077,35 @@ function rowsSel(c) {
 }
 function hasNote(o, c) { return !!(o && c && noteByName(c, o.name)); }
 
+/* ---------- DS-13: the map's control cluster on touch (phone and tablet), MOBILE_SHELL_PROPOSAL.md §2.5 ----------
+   One row at the bottom of the map on the dominant-hand side (Preferences ▸ Handedness), outer end first: recentre (⌖),
+   the zoom rocker (− | +), and the pan latch (✋) at the inner end, shown only while a drawing tool is armed, so its
+   coming and going moves nothing else. A tap-only tool (Inspect, Measure, Settlement, Label, Icon …) already gives a
+   one-finger drag to the camera, which is what the approved gesture table says; the latch is for the tools that draw.
+   The rocker steps by the shipped ZOOM_BUTTON_STEP, 1.35 (viewport_host.gd, reference 13464), about the map's centre.
+   Ruling EB item 2 (DS13-Q5) keeps that step. It is the mockup's only button zoom step: the desktop pointer column
+   (d_vals.js hZoomIn / hZoomOut) uses this constant too, where it used to step by 1.6.
+   Ruling EB item 4 (DS13-Q4): from 3D-2 the same −|+ and ⌖ drive the 3D camera (zoom moves it in and out, ⌖ frames
+   the world). The mockup's 3D is a label over the 2D stand-in, so here they still act on that map.
+   o: { bottom (px from the map host's bottom), edge (px from the dominant side), show } */
+const MC_ZOOM_STEP = 1.35;
+function mapCtlVals(c, o) {
+  const s = c.state; const left = s.prefs.hand === 'left';
+  const draws = c._strokeTool() && !s.prefs.penOnly;
+  const on = draws && !!s.panLatch;
+  const px = (n) => n + 'px';
+  return {
+    disp: o.show ? 'flex' : 'none', left: left ? px(o.edge) : 'auto', right: left ? 'auto' : px(o.edge), bottom: o.bottom,
+    dir: left ? 'row-reverse' : 'row', side: left ? 'left' : 'right',
+    panShow: draws, panOn: on ? 'true' : 'false',
+    panAria: on ? 'pan latch on: one finger pans; tap to give it back to the tool' : 'pan latch: one finger pans the map while the tool stays armed',
+    panBg: on ? 'linear-gradient(var(--navarm),var(--navarm)),var(--navpill)' : 'var(--navpill)', panBorder: on ? 'var(--navacc)' : 'var(--hair)', panCol: on ? 'var(--navacc)' : 'var(--body)',
+    panTap: () => { const v = !s.panLatch; c.setState({ panLatch: v }); if (v) c._toast('One finger pans — tap ✋ again to give it back to the tool'); },
+    zoomIn: () => { const { W: w, H: h } = c._hostWH(); c._zoomAnim(MC_ZOOM_STEP, w / 2, h / 2); },
+    zoomOut: () => { const { W: w, H: h } = c._hostWH(); c._zoomAnim(1 / MC_ZOOM_STEP, w / 2, h / 2); },
+    fit: () => { c.setState({ panLatch: false }); c._fit(true); }
+  };
+}
 /* ---------- the armed tool: one description for the phone strip and the tablet tool-options bar ---------- */
 function toolBar(c) {
   const s = c.state, t = s.tool, T0 = TOOLS[t] || TOOLS.inspect; const acts = []; let main = T0.label, hint = T0.hint || '', chips = [], field = false;
@@ -2041,14 +2186,14 @@ function winRows(c, id) {
     }
     case 'vault': return { title: arg === 'without' ? 'PLACES WITHOUT NOTES' : arg === 'place' ? 'NOTE · ' + (selName(c) || 'PLACE').toUpperCase() : 'MARKDOWN VAULT', sub: arg === 'browse' ? 'browse & edit a note' : 'link and attach notes', rows: arg === 'without' ? [read('Settlements', (c.places.length - 3) + ' of ' + c.places.length + ' have no note'), S(c, 'vt.kind', 'Kind', ['Settlements', 'Provinces', 'Continents', 'Factions'], 'Settlements')].concat(placeItems(c, c.places.slice(3, 9), () => 'attach')) : arg === 'place' ? [read('Vault', '~/Cartalith/Vault'), read('Note', hasNote(selObj(c), c) ? selName(c) + '.md' : 'none yet'), info('# ' + (selName(c) || 'Place') + '\nFounded on the old ford. Salt and grain…'), BB({ label: 'Open in editor', tap: () => c._toast('Opens the note (raw text, edit, save)') }, { label: hasNote(selObj(c), c) ? 'Detach' : 'Attach note…', variant: 'primary', tap: () => c._toast('Note attached') })] : [H('INDEX'), read('Notes', '41'), read('Linked', '29'), read('Missing', '3', 'var(--warn)'), read('Orphan', '2'), H('RECENT')].concat(['Vhal Serai.md', 'Sevjuni League.md', 'The Old Rite.md', 'Kess Ford crossing.md'].map((n) => ({ k: 'item', label: n, sub: 'edited 2 d ago', dot: 'var(--sec)', square: true, tap: () => c._toast('Opens ' + n) }))) };
     case 'worlddata': return { title: 'WORLD DATA TABLES', sub: 'every field the world holds', rows: [S(c, 'wd.t', 'Table', ['Settlements', 'Factions', 'Rivers', 'Landmarks', 'Fields'], 'Settlements')].concat(V(c, 'wd.t', 'Settlements') === 'Settlements' ? placeItems(c, c.places) : V(c, 'wd.t') === 'Factions' ? factionItems(c) : V(c, 'wd.t') === 'Landmarks' ? c.landmarks.map((l) => read(l.name, l.kind)) : [read('Rivers', c.rivers[2].length / 4 + ' trunk segments'), read('Fields', '43 analysis fields')]) };
-    case 'journeys': return { title: 'SAVED JOURNEYS', sub: '2 journeys', rows: [{ k: 'item', label: (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : ''), sub: '6 stages · 39 d · summer', dot: 'var(--acc)', tap: () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); } }, { k: 'item', label: 'Port Amre → Sevjuni', sub: 'sea lane · 9 d', dot: 'var(--water)', tap: () => c._toast('Opens in the planner') }] };
+    case 'journeys': return { title: 'SAVED JOURNEYS', sub: '3 journeys', rows: [{ k: 'item', label: (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : ''), sub: '6 stages · 39 d · summer', dot: 'var(--acc)', tap: () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); } }, { k: 'item', label: 'Port Amre → Sevjuni', sub: 'sea lane · 9 d', dot: 'var(--water)', tap: () => c._toast('Opens in the planner') }, { k: 'item', label: (c.route[0] ? c.route[0].name : '') + ' → ' + (c.route[c.route.length - 1] ? c.route[c.route.length - 1].name : '') + ' · before the regenerate', sub: 'saved with a pace change on stage 3 · mock of Ruling EA 10', dot: 'var(--warn)', tap: () => { c.setState({ win: null, staleLegs: [{ i: 2, what: 'pace override “forced march”' }] }); c._toast('1 leg change dropped: stage 3 was rebuilt after the regenerate'); doAct(c, { act: 'story', arg: 'journeys' }); } }] };
     case 'travel': { const kind = V(c, 'tv.kind', 'Animals & mounts'); const L = { 'Animals & mounts': ['Mule', 'Horse', 'Camel', 'Ox', 'Pack goat'], Vehicles: ['Cart', 'Wagon', 'Sledge'], Vessels: ['River boat', 'Cog', 'Galley', 'Ferry'], 'Party set-ups': ['Trader caravan', 'Pilgrims', 'Courier', 'Warband'] }[kind]; return { title: 'TRAVEL LIBRARY', sub: 'classifications & constraints — feeds the planner', rows: [S(c, 'tv.kind', 'Type', ['Animals & mounts', 'Vehicles', 'Vessels', 'Party set-ups'], 'Animals & mounts')].concat(L.map((x, i) => ({ k: 'item', label: x, sub: ['carries 90 kg · 30 km/d', 'carries 140 kg · 40 km/d', 'needs water every 3 d', 'slow · strong'][i % 4], right: i === 1 ? 'CUSTOM' : '', dot: 'var(--sec)', tap: () => c._toast(x + ' · class, constraints, source, used by') })), [info('Edit entries on the desktop or here; the planner reads them live.'), kind === 'Party set-ups' ? B('Load into planner', () => { c.setState({ win: null }); doAct(c, { act: 'story', arg: 'journeys' }); }, 'primary') : sep()]) }; }
     case 'storage': return { title: 'STORAGE LOCATIONS', sub: 'where Cartalith keeps things', rows: [['Projects', '…/Cartalith/Worlds'], ['Tile atlas cache', '…/Cartalith/Atlas'], ['Asset packs', '…/Cartalith/Packs'], ['Exports', '…/Cartalith/Exports']].map((x) => ({ k: 'nav', d: IC.file, label: x[0], sub: x[1], tap: () => c._toast('System folder picker · ' + x[0]) })).concat([info('On Android these are app-scoped folders; Change uses the system picker.')]) };
     case 'assistantSettings': return { title: 'ASSISTANT', sub: 'optional · off by default', rows: [info('Off until you turn it on; with it off nothing is sent anywhere. A world generates the same with or without a model.'), prefTog(c, 'assistant', 'Assistant enabled', 'the master switch · off means nothing is sent'), T(c, 'as.prose', 'Prose and Vault assist', true), T(c, 'as.cmd', 'Commands: view, layer, parameter', true, 'proposals you review and Apply'), { k: 'todo', label: 'Edit actions: sculpt, paint', reason: 'Not built yet (LLM-7).' }, T(c, 'as.local', 'Local providers allowed', true), T(c, 'as.remote', 'Remote providers allowed', false), prefTog(c, 'askSave', 'Save the conversation with the world', 'off by default · kept inside the world file, so it travels with the world when shared'), H('PROVIDER'), S(c, 'as.prov', 'Provider', ['LM Studio (local network)', 'Anthropic', 'OpenAI-compatible'], 'LM Studio (local network)'), { k: 'field', label: 'Address', val: V(c, 'as.addr', 'http://192.168.1.238:1234'), onIn: (e) => setV(c, 'as.addr', e.target.value) }, { k: 'field', label: 'Model', val: V(c, 'as.model', 'qwen3.8-27b'), onIn: (e) => setV(c, 'as.model', e.target.value) }, S(c, 'as.key', 'Key source', ['OS credential store', 'Environment variable', 'None'], 'OS credential store'), H('CONTEXT SENT WITH A REQUEST'), T(c, 'as.s1', 'Send: current entity', true), T(c, 'as.s2', 'Send: selection', false), T(c, 'as.s3', 'Send: named Vault notes', true), BB({ label: 'Review consent', tap: () => c._toast('Consent card · Allow / Not now') }, { label: 'Save', variant: 'primary', tap: () => { c.setState({ win: null }); c._toast('Assistant settings saved'); } })] };
     case 'assistant': return { title: 'ASSISTANT', sub: s.prefs.assistant ? 'your model · ready' : 'off · turn it on first', rows: (s.prefs.assistant && s.prefs.askSave == null && s.askSent ? [info('Save this conversation with the world? It is stored inside the world file and travels with it when you share it. Off unless you say so; one conversation per session, and New clears it.', true), BB({ label: 'Not now', tap: () => { setK(c, 'prefs.askSave', false); c._toast('Kept for this session only · Preferences changes it'); } }, { label: 'Save with the world', variant: 'primary', tap: () => { setK(c, 'prefs.askSave', true); c._toast('This conversation is saved with the world · Preferences changes it'); } })] : []).concat([s.prefs.assistant ? info('Ready: requests go to the local network.') : { k: 'acts', opts: [{ label: 'Turn on Assistant enabled first', variant: 'primary', tap: () => setK(c, 'prefs.assistant', true) }] }, S(c, 'as.mode', '', ['Describe place', 'Story', 'Note', 'Commands'], 'Describe place'), read('Place', hasSel(c) ? selName(c) : 'none selected · tap a settlement'), { k: 'field', label: 'Request', val: V(c, 'as.req', ''), ph: 'Ask for prose about the selected place…', onIn: (e) => setV(c, 'as.req', e.target.value) }, BB({ label: 'Reset', tap: () => setV(c, 'as.req', '') }, { label: 'Send', variant: 'primary', tap: () => { c._toast(s.prefs.assistant ? 'Sent · streaming the reply' : 'Turn on Assistant enabled first'); if (s.prefs.assistant) c.setState({ askSent: true }); } }), info('Saved text is appended to the note, marked model-generated. Your own text is never changed.')]) };
     case 'quickbar': return { title: 'QUICK BAR', sub: 'pin commands · ' + s.quick.length + ' of 24', rows: [H('PINNED')].concat(s.quick.map((q, i) => ({ k: 'item', label: q, sub: 'pinned · tap to unpin', right: '#' + (i + 1), dot: 'var(--acc)', square: true, chev: false, tap: () => c.setState({ quick: s.quick.filter((x) => x !== q) }) })), [H('COMMANDS'), ...['save', 'export.player', 'story.journeys', 'world.vault', 'assistant'].filter((q) => !s.quick.includes(q)).map((q) => ({ k: 'item', label: q, sub: 'tap to pin', dot: 'var(--sec)', square: true, chev: false, tap: () => c.setState({ quick: s.quick.concat([q]) }) })), info('Long-press any menu row to pin it. Check, radio and generated rows cannot be pinned.')]) };
     case 'shortcuts': return { title: 'KEYBOARD SHORTCUTS', sub: 'for a tablet with a keyboard · rebind on desktop', rows: [['New world…', 'Ctrl+N'], ['Open project…', 'Ctrl+O'], ['Save project', 'Ctrl+S'], ['Save as…', 'Ctrl+Shift+S'], ['Close project', 'Ctrl+W'], ['Player map…', 'Ctrl+Shift+E'], ['Undo', 'Ctrl+Z'], ['Redo', 'Ctrl+Shift+Z · Ctrl+Y'], ['Cut · Copy · Paste', 'Ctrl+X · C · V'], ['Delete', 'Delete'], ['Select all', 'Ctrl+A'], ['Deselect', 'Ctrl+D'], ['Find on map…', 'Ctrl+F'], ['Asset library', 'Shift+A'], ['Export pack .zip…', 'Ctrl+Shift+P'], ['Timeline', 'Ctrl+Shift+T'], ['Travel library…', 'Shift+L'], ['Notes for this place', 'Ctrl+Shift+N'], ['Session mode', 'Ctrl+Shift+M'], ['Diagnostics overlay', 'Shift+D'], ['Run pipeline (tablet)', 'Ctrl+R'], ['Journey planner', 'Shift+J'], ['Tools', 'V M R · S T W · I L · B F'], ['Ring', 'Q (hold)'], ['Context card', 'Menu · Shift+F10'], ['Layer views', '1–8'], ['Pan', 'Space (hold)']].map((x) => read(x[0], x[1])) };
-    case 'touch': return { title: 'TOUCH & GESTURES', sub: 'the whole touch vocabulary', rows: [H('MAP'), read('Drag', 'pan'), read('Pinch', 'zoom'), read('Two fingers turn', 'rotate'), read('Double-tap', 'zoom in ×1.7'), read('Press and hold', 'phone: sample pin + context card · tablet: the cartwheel and the card'), read('Hold, slide, lift', 'tablet: picks a cartwheel slot without reading it'), read('Two-finger tap', 'undo'), read('Three-finger tap', 'redo'), read('Swipe in from right edge', 'inspector, where the system leaves the edge to the app'), read('Tap or drag the QUICK grip', 'phone: the quick drawer of pinned commands'), H('BARS AND SHEETS'), read('Hold the domain tab', 'switch WORLD · CIVIL · CARTO'), read('Swipe the domain tab', 'next / previous domain'), read('Swipe up on a tab', 'open its sheet full'), read('Tab re-tap', 'close the sheet'), read('Sheet handle', 'drag peek · half · full; tap toggles'), read('Hold the tool chip', 'tool fan'), read('Hold undo', 'edit history'), read('System back', 'closes the top layer'), H('SETTINGS'), prefTog(c, 'twoFingerUndo', 'Two- and three-finger tap undo / redo', 'off if it fights your stylus'), prefTog(c, 'edgeSwipe', 'Edge swipe opens the inspector'), prefTog(c, 'haptics', 'Haptic tick on holds and snaps'), prefTog(c, 'penOnly', 'Pen draws, finger pans', 'tablets with a stylus'), prefSeg(c, 'longPressMs', 'Press-and-hold delay', [[350, 'Short'], [0, 'Normal'], [700, 'Long']], 'Normal is the shipped hold: 480 ms on a phone, 500 ms on a tablet'), prefSeg(c, 'hand', 'Handedness', [['left', 'Left'], ['right', 'Right']], 'the card and the quick drawer sit away from the dominant hand'), prefSeg(c, 'density', 'Density', [['auto', 'Auto'], ['comfortable', 'Comfortable'], ['compact', 'Compact']], 'auto = 48 dp targets on touch, 40 with a mouse'), H('DISPLAY'), prefSeg(c, 'uiScale', 'UI scale', [[1, '100 %'], [1.25, '125 %'], [1.5, '150 %'], [2, '200 %']], 'multiplies every dp on top of the OS density · for 4K panels at 1× and for reading comfort'), read('Window', Math.round(c._W()) + ' × ' + Math.round(c._H()) + ' dp at this scale')] };
+    case 'touch': return { title: 'TOUCH & GESTURES', sub: 'the whole touch vocabulary', rows: [H('MAP'), read('Drag', 'pan'), read('Pinch', 'zoom'), read('Two fingers turn', 'rotate'), read('Double-tap', 'zoom in ×1.7 at the finger'), read('Double-tap, hold, slide', 'zoom at the finger: slide down to zoom in, up to zoom out (Ruling EB)'), read('With a drawing tool armed', 'double-tap and thumb zoom off · pending DS13-Q1', 'var(--warnText)'), read('Press and hold', 'phone: sample pin + context card · tablet: the cartwheel and the card'), read('Hold, slide, lift', 'tablet: picks a cartwheel slot without reading it'), read('Two-finger tap', 'undo'), read('Three-finger tap', 'redo'), read('Swipe in from right edge', 'inspector, where the system leaves the edge to the app'), read('Tap or drag the QUICK grip', 'phone: the quick drawer of pinned commands'), H('BARS AND SHEETS'), read('Hold the domain tab', 'switch WORLD · CIVIL · CARTO'), read('Swipe the domain tab', 'next / previous domain'), read('Swipe up on a tab', 'open its sheet full'), read('Tab re-tap', 'close the sheet'), read('Sheet handle', 'drag peek · half · full; tap toggles'), read('Hold the tool chip', 'tool fan'), read('Hold undo', 'edit history'), read('System back', 'closes the top layer'), H('SETTINGS'), prefTog(c, 'twoFingerUndo', 'Two- and three-finger tap undo / redo', 'off if it fights your stylus'), prefTog(c, 'edgeSwipe', 'Edge swipe opens the inspector'), prefTog(c, 'haptics', 'Haptic tick on holds and snaps'), prefTog(c, 'penOnly', 'Pen draws, finger pans', 'tablets with a stylus'), prefSeg(c, 'longPressMs', 'Press-and-hold delay', [[350, 'Short'], [0, 'Normal'], [700, 'Long']], 'Normal is the shipped hold: 480 ms on a phone, 500 ms on a tablet'), prefSeg(c, 'hand', 'Handedness', [['left', 'Left'], ['right', 'Right']], 'the card and the quick drawer sit away from the dominant hand'), prefSeg(c, 'density', 'Density', [['auto', 'Auto'], ['comfortable', 'Comfortable'], ['compact', 'Compact']], 'auto = 48 dp targets on touch, 40 with a mouse'), H('DISPLAY'), prefSeg(c, 'uiScale', 'UI scale', [[1, '100 %'], [1.25, '125 %'], [1.5, '150 %'], [2, '200 %']], 'multiplies every dp on top of the OS density · for 4K panels at 1× and for reading comfort'), read('Window', Math.round(c._W()) + ' × ' + Math.round(c._H()) + ' dp at this scale')] };
     case 'credits': return { title: 'CREDITS & ACADEMIC PRINCIPLES', sub: 'sources and methods', rows: [read('Priority-Flood', 'Barnes et al. 2014'), read('Stream-power erosion', 'Braun & Willett 2013'), read('Hillshade', 'Imhof 1965'), read('Clipmaps / CDLOD', 'Losasso & Hoppe 2004 · Strugar 2009'), info('The full text is in Help ▸ Credits on every form factor.')] };
     case 'geninfo': return { title: 'GENERATION INFO', sub: PARAMS.length + ' parameters as text', rows: STAGE_NAMES.flatMap((n, i) => [H(String(i + 1).padStart(2, '0') + ' ' + n)].concat(PARAMS.filter((p) => p.stage === i + 1).map((p) => read(p.label, fmtVal(c._val(p.key, p.def), p))))) };
     case 'about': return { title: 'ABOUT', sub: 'Cartalith', rows: [read('Version', 'Cartalith 2.11 · native'), read('Runtime', 'Godot 4.7 · Android 13'), read('Engine', 'shared with desktop · Vulkan'), info('The phone reorganises rather than truncates: every desktop function is reachable through MAP · DOMAIN · STORY · MENU.')] };
@@ -3303,8 +3448,8 @@ function deskKey(c, e) {
    ====================================================================================================== */
 function themeVars(light) {
   return light
-    ? '--sur:#f4f2ee;--pan:#fbfaf7;--pan2:#eceae4;--ink:#111210;--body:#23241f;--sec:#3d3f39;--dim:#5d615c;--acc:#9a5d0c;--accInk:#fbf7ef;--hair:rgba(0,0,0,.14);--hair2:rgba(0,0,0,.08);--bord:rgba(0,0,0,.2);--wash:rgba(164,101,15,.12);--chip:rgba(0,0,0,.05);--chipOn:rgba(0,0,0,.14);--warn:#8a5a00;--warnText:#7a4f00;--warnBord:rgba(138,90,0,.45);--block:#a8402f;--good:#3d7a4c;--water:#3f6f96;--pill:rgba(251,250,247,.94);--scrim:rgba(244,242,238,.85);--sheetShadow:0 -10px 30px rgba(0,0,0,.18);'
-    : '--sur:#0d0e0f;--pan:#15171a;--pan2:#121314;--ink:#e8ebec;--body:#c8cbcd;--sec:#a9adb0;--dim:#8d9296;--acc:#e0a34a;--accInk:#16130c;--hair:rgba(255,255,255,.10);--hair2:rgba(255,255,255,.07);--bord:rgba(255,255,255,.16);--wash:rgba(224,163,74,.14);--chip:rgba(255,255,255,.05);--chipOn:rgba(255,255,255,.12);--warn:#e0a840;--warnText:#ebc080;--warnBord:rgba(224,168,64,.45);--block:#e08070;--good:#6fae7d;--water:#6a9bc4;--pill:rgba(18,20,21,.92);--scrim:rgba(10,11,12,.72);--sheetShadow:0 -10px 30px rgba(0,0,0,.35);';
+    ? '--sur:#f4f2ee;--pan:#fbfaf7;--pan2:#eceae4;--ink:#111210;--body:#23241f;--sec:#3d3f39;--dim:#5d615c;--acc:#9a5d0c;--accInk:#fbf7ef;--hair:rgba(0,0,0,.14);--hair2:rgba(0,0,0,.08);--bord:rgba(0,0,0,.2);--wash:rgba(164,101,15,.12);--chip:rgba(0,0,0,.05);--chipOn:rgba(0,0,0,.14);--warn:#8a5a00;--warnText:#7a4f00;--warnBord:rgba(138,90,0,.45);--block:#a8402f;--good:#3d7a4c;--water:#3f6f96;--pill:rgba(251,250,247,.94);--navpill:rgba(251,250,247,.92);--navarm:rgba(164,101,15,.16);--navacc:#a4650f;--scrim:rgba(244,242,238,.85);--sheetShadow:0 -10px 30px rgba(0,0,0,.18);'
+    : '--sur:#0d0e0f;--pan:#15171a;--pan2:#121314;--ink:#e8ebec;--body:#c8cbcd;--sec:#a9adb0;--dim:#8d9296;--acc:#e0a34a;--accInk:#16130c;--hair:rgba(255,255,255,.10);--hair2:rgba(255,255,255,.07);--bord:rgba(255,255,255,.16);--wash:rgba(224,163,74,.14);--chip:rgba(255,255,255,.05);--chipOn:rgba(255,255,255,.12);--warn:#e0a840;--warnText:#ebc080;--warnBord:rgba(224,168,64,.45);--block:#e08070;--good:#6fae7d;--water:#6a9bc4;--pill:rgba(18,20,21,.92);--navpill:rgba(18,19,20,.92);--navarm:rgba(224,163,74,.16);--navacc:#e0a34a;--scrim:rgba(10,11,12,.72);--sheetShadow:0 -10px 30px rgba(0,0,0,.35);';
 }
 const chipStyle = (on) => ({ bg: on ? 'var(--wash)' : 'var(--chip)', bord: on ? 'var(--acc)' : 'transparent', col: on ? 'var(--acc)' : 'var(--sec)' });
 function paletteFor(c) { const s = c.state; return s.dom === 'world' ? (s.node.world === 'sculpt' ? ['inspect', 'measure', 'region', 'paint'] : ['inspect', 'measure', 'region']) : (s.dom === 'civil' ? ['inspect', 'measure', 'region', 'settle', 'territory', 'lasso', 'way', 'route', 'conflict'] : ['inspect', 'measure', 'region', 'icon', 'label']); }
@@ -3384,6 +3529,10 @@ function buildVals(c) {
     rootRef: c.rootRef, mapRef: c.mapRef, cvRef: c.cvRef, sheetRef: c.sheetRef, grabRef: c.grabRef, bodyRef: c.bodyRef, searchRef: c.searchRef, noteTaRef: c.noteTaRef, noteMirrorRef: c.noteMirrorRef, noteReadRef: c.noteReadRef, noteReadScrollRef: c.noteReadScrollRef, noteWriteScrollRef: c.noteWriteScrollRef, dockReadRef: c.dockReadRef, dockMirrorRef: c.dockMirrorRef, dockTaRef: c.dockTaRef, askScrollRef: c.askScrollRef, askInRef: c.askInRef,
     densVars: c._ptr() ? '--c44:30px;--c48:32px;--c52:34px;--c40:28px;--c56:34px;--i32:24px;--rowpad:3px;--r22:15px;--r24:16px;--r20:14px;' : '', ptr: c._ptr(),
     mapCursor: s.tool === 'inspect' ? 'grab' : 'crosshair', noCtx: (e) => e.preventDefault(),
+    // The map's accessible name lists its gestures, and says when thumb zoom (Ruling EB item 3) is off: while a drawing
+    // tool is armed, pending DS13-Q1 (c._thumbZoomOn). Every form keeps the "map: drag to pan" opening the tests find
+    // it by. The desktop with a mouse keeps its own wording: it has no touch gestures.
+    mapAria: c._ptr() ? 'map: drag to pan, pinch to zoom, long-press to sample' : (c._thumbZoomOn() ? 'map: drag to pan, pinch to zoom, double-tap to zoom in, double-tap and hold then slide down to zoom in or up to zoom out, long-press to sample' : 'map: drag to pan with two fingers or with ✋ on (one finger draws with this tool), pinch to zoom, long-press to sample; double-tap and thumb zoom are off while a drawing tool is armed, pending DS13-Q1'),
     press: s.press ? { show: true, x: s.press.x, y: s.press.y } : { show: false, x: 0, y: 0 },
     world: { name: s.worldName, seed: s.seed, saved: 'autosaved ' + s.savedAt, sub: s.seed + ' · ' + (s.running ? 'generating…' : (s.stale ? 'stale from ' + String(s.stale).padStart(2, '0') : 'resolved')) + ' · ' + domainDef(s.dom).label.toLowerCase() },
     undoLabel: s.undo.length ? s.undo[s.undo.length - 1] : 'nothing', undoCol: s.undo.length ? 'var(--acc)' : 'var(--dim)', undoN: String(s.undo.length), undoDot: s.undo.length ? 'block' : 'none',
@@ -3400,7 +3549,9 @@ function buildVals(c) {
     hUndo: () => c._undo(), hRedo: () => c._redo(), hSearch: () => c.setState({ srch: true, q: '', scope: 'all' }),
     hNorth: () => { c.view = Object.assign({}, c.view, { r: 0 }); c._dirty = true; c.forceUpdate(); },
     h3D: () => setK(c, 'dim3', !s.dim3), hFit: () => c._fit(true),
-    hZoomIn: () => { const { W: w, H: h } = c._hostWH(); c._zoomAnim(1.6, w / 2, h / 2); }, hZoomOut: () => { const { W: w, H: h } = c._hostWH(); c._zoomAnim(1 / 1.6, w / 2, h / 2); },
+    // The desktop pointer column's + and −: the same step as the touch rocker, ZOOM_BUTTON_STEP 1.35, which Ruling EB
+    // item 2 keeps (it stepped by 1.6 here before; MC_ZOOM_STEP in d_screens.js says why there is one constant).
+    hZoomIn: () => { const { W: w, H: h } = c._hostWH(); c._zoomAnim(MC_ZOOM_STEP, w / 2, h / 2); }, hZoomOut: () => { const { W: w, H: h } = c._hostWH(); c._zoomAnim(1 / MC_ZOOM_STEP, w / 2, h / 2); },
     hToolDown: (e) => c._toolDown(e), hToolUp: (e) => c._toolUp(e), hToolLeave: () => {},
     hLabelText: (e) => c.setState({ labelText: e.target.value }),
     hBack: () => c._back(), hClose: () => { c.setState({ tab: null }); }, hSheetWide: () => c.setState({ wide: !s.wide }),
@@ -3427,6 +3578,10 @@ function buildVals(c) {
     const free = land ? H : H - NAV_H - sh - (INSET_T + 60) - stripH;
     v.fab = { bottom: land ? 16 + stripH : NAV_H + sh + 12 + stripH, scaleBottom: land ? 18 + stripH : NAV_H + sh + 14 + stripH, disp: free >= 120 ? 'flex' : 'none', more: free >= 250, dimLabel: s.dim3 ? '2D' : '3D', dimAria: s.dim3 ? 'switch to 2D' : 'switch to 3D' };
     v.qd = quickDrawerVals(c, land, sh, stripH);
+    // DS-13: the control row on the dominant-hand side; the scale bar takes the other side.
+    const handL = s.prefs.hand === 'left';
+    v.mc = mapCtlVals(c, { show: free >= 120, bottom: v.fab.bottom, edge: land ? (handL ? RAIL_W + 12 : sw + 12) : 12 });
+    v.fab.scaleLeft = handL ? 'auto' : L.scaleL + 'px'; v.fab.scaleRight = handL ? (land ? sw + 14 : 14) + 'px' : 'auto';
     v.strip = Object.assign({ show: showStrip, bottom: land ? 12 : NAV_H + sh + 10, toolD: tb.d, toolShort: tb.short, toolLabel: tb.label, main: tb.main, hint: tb.hint, field: tb.field, acts: tb.acts }, {});
     let title = '', sub = '', chips = [], rows = [], back = false, caret = false, titleTap = () => {}, titleAria = '';
     if (s.tab === 'map') { title = 'MAP'; sub = 'view · fields · layers · measure'; rows = rowsMap(c); }
@@ -3479,13 +3634,18 @@ function buildVals(c) {
       ldock: { show: s.ldockOpen, w: ldW, shadow: ldOverlay ? '16px 0 40px rgba(0,0,0,.45)' : 'none', z: ldOverlay ? 9 : 5, title: D.label + ' › ' + nd.label.toUpperCase(), sub: ldOverlay ? 'overlay · the map keeps ' + (W - G.railW - G.rtabW) + (ptr ? ' px' : ' dp') : 'docked · ' + ldW + (ptr ? ' px' : ' dp'), canPin: ldOverlay || s.ldockPin, pinned: s.ldockPin, pinCol: s.ldockPin ? 'var(--acc)' : 'var(--sec)', pinAria: s.ldockPin ? 'unpin: float over the map' : 'pin: dock beside the map', chips: nodeChips(c).map((x) => Object.assign({}, x)), rows: domainRows(c, true) },
       rdock: ctxDockVals(c, G, rdOverlay, toolRows),
       rtab: !s.rdockOpen || rdOverlay, rtabW: G.rtabW, rtabCol: s.sel || s.sample ? 'var(--acc)' : 'var(--dim)', rtabLabel: 'CONTEXT',
-      furnT: G.bodyT + 12, furnR: mapR + 12, furnB: G.bodyB + 14, scaleL: mapL + 14, scaleB: G.bodyB + 16, layersT: G.bodyT + 62, popMaxH: H - G.bodyT - G.bodyB - 80,
+      furnT: G.bodyT + 12, furnR: mapR + 12, furnB: G.bodyB + 14, scaleL: mapL + 14, scaleB: G.bodyB + 16,
+      touchNav: !ptr, ptrNav: !!ptr,
+      // The 3D card's HEIGHT row reads and writes the one preference (v3ExagSet, d_screens.js; Ruling EB items 5 and 6).
+      v3: { disp: s.dim3 ? 'flex' : 'none', furnDisp: s.dim3 ? 'none' : 'flex', left: mapL + 12, top: G.bodyT + 12, w: Math.min(460, W - mapL - mapR - 24), val: s.prefs.v3exag, min: V3_EXAG_MIN, max: V3_EXAG_MAX, step: V3_EXAG_STEP, aria: 'height exaggeration, ' + V3_EXAG_MIN + ' to ' + V3_EXAG_MAX + ' times', where: V3_EXAG_WHERE, label: '×' + Number(s.prefs.v3exag).toFixed(2), onIn: (e) => v3ExagSet(c, e.target.value), back: () => setK(c, 'dim3', false), retest: () => c._toast('Testing 3D on this device… about 3 seconds (mock)'), force: () => c._toast('Force tier… · Automatic (as measured) · Off · Basic · Standard · Full (mock)') }, mc: mapCtlVals(c, { show: !ptr, bottom: G.bodyB + 14, edge: s.prefs.hand === 'left' ? mapL + 12 : mapR + 12 }),
+      scaleLeft: !ptr && s.prefs.hand === 'left' ? 'auto' : (mapL + 14) + 'px', scaleRight: !ptr && s.prefs.hand === 'left' ? (mapR + 14) + 'px' : 'auto', layersT: G.bodyT + 62, popMaxH: H - G.bodyT - G.bodyB - 80,
       layersOpen: s.layersPop, layerRows: rowsMap(c), baseLabel: ((ANALYSIS.flatMap((g) => g[1]).find((f) => f[0] === (s.field || 'off')) || ['', 'Relief'])[1]).toUpperCase().replace('NO OVERLAY (BASE MAP)', 'BASE MAP'),
       dd: ptr ? { show: false, rows: [] } : dd, ctx: tctx, tlOpen: s.tlOpen, tlRot: s.tlOpen ? 180 : 0,
       quick: quickCluster(c, W), ring: ringVals(c)
     };
     v.qd = { show: false, rows: [] };
-    v.toastB = G.bodyB + 20; v.toastT = null;
+    // DS-13: on touch the map's control row holds the bottom band (bodyB + 14, 44 tall), so toasts stack 20 above it.
+    v.toastB = G.bodyB + 20 + (ptr ? 0 : 58); v.toastT = null;
     v.status = { left: s.running ? 'generating · stage ' + String(s.running.i + 1).padStart(2, '0') : (s.stale ? 'stale from stage ' + String(s.stale).padStart(2, '0') : 'stages 01–10 resolved'), mid: (subjectOf(c) && entOf(c, subjectOf(c)) ? (s.ctxPin ? 'pinned ' : 'selected ') + entOf(c, subjectOf(c)).name + ' · ' : '') + 'year ' + s.year + ' · ' + s.worldName.toLowerCase() + ' · seed ' + s.seed + ' · ' + (s.tool !== 'inspect' ? 'tool ' + TOOLS[s.tool].label.toLowerCase() : 'inspect') + ' · autosave ' + s.savedAt, right: ptr ? W + ' × ' + H + ' · desktop · docks ' + (G.rightDocks ? 'both' : (G.leftDocks ? 'left' : 'overlay')) : W + '×' + H + ' dp · ' + sizeClass(c) + ' · docks ' + (G.rightDocks ? 'both' : (G.leftDocks ? 'left' : 'overlay')) };
   } else { v.T = { menus: [], rail: [], ldock: { show: false, chips: [], rows: [] }, rdock: Object.assign(ctxDockVals(c, { rdW: 0 }, false, []), { show: false }), ddCols: { show: false, cols: [] }, dd: { show: false, rows: [] }, ctx: { show: false, rows: [] }, toolChips: [], toolActs: [], layerRows: [], rtab: false }; v.status = { left: '', mid: '', right: '' }; }
   /* ---- shared overlays ---- */
@@ -3553,6 +3713,12 @@ const RAIL_W = 80;            // phone landscape rail
 const INSET_T = 28;           // status-bar inset: left unpainted, the OS draws there
 const PEEK = 76;              // sheet peek: handle + header only
 const LONG_MS = 480, LONG_MS_TABLET = 500, NAV_HOLD_MS = 380, DOUBLE_MS = 300, TAP_MS = 280;
+// The double-tap and thumb zoom (Ruling EB item 3; MOBILE_SHELL_PROPOSAL.md §2.5). From
+// design/dcc-environment-2026-08-31/spec/06-phone.md §7: the second tap within DOUBLE_MS (300 ms) and DOUBLE_SLOP
+// (34 px) of the first, a ×DOUBLE_ZOOM (1.7) zoom at the tap, and a single tap resolved after TAP_RESOLVE_MS (240 ms)
+// so a double-tap can win. QZ_DOUBLING_DP is how far the held second press slides for the scale to double: a labelled
+// judgement for the mockup (none of the sources gives a figure); the build sets its own on glass.
+const DOUBLE_SLOP = 34, DOUBLE_ZOOM = 1.7, TAP_RESOLVE_MS = 240, QZ_DOUBLING_DP = 120;
 const SMAX = 14;
 const DOMS = ['world', 'civil', 'carto'];
 
@@ -3580,6 +3746,10 @@ class Component extends DCLogic {
       layers: { labels: true, settlements: true, ways: true, landmarks: true, political: false, water: true, rivers: true, vegetation: true, terrain: true, hillshade: true, colour: true, handdrawn: false, land: true, background: true, grid: false, scale: true },
       layerOp: {}, units: 'km',
       measure: [], wayDraft: [], labelAt: null, labelText: '', stamps: [], userPlaces: [], userLabels: [], userWays: [], userIcons: [], conflictDraft: [],
+      // Colour paint marks and the map width they are measured against (d_cats.js, cpSample onwards). 800 km is the
+      // width in the map-width notice's approved example sentence, not the stand-in world's 2 048 km: only the ratio of
+      // two widths moves a mark.
+      cpMarks: [], cpMapKm: 800,
       year: 412, playing: false, speed: 1,
       seed: 483920, running: null, stale: 0, lastRun: '14:02',
       vals: {}, brush: { size: 64, hard: 0.35, inten: 1.0, mode: 'raise' }, feature: 'Mountains', settleTier: 'town', wayKind: 'road', iconKind: 'diamond', lmKind: 'Peak',
@@ -3590,7 +3760,10 @@ class Component extends DCLogic {
       coach: !!props.coach && !coachDone, coachStep: 0,
       savedAt: '14:02', worldName: 'ELDRA',
       quick: ['save', 'export.player', 'story.journeys', 'world.vault'],
-      prefs: { theme: 'dark', units: 'km', gpu: true, threads: 12, quality: 'balanced', aa: 'MSAA 4×', lod: true, lodMode: 'auto', undoMB: 256, hand: 'right', assistant: !!props.assistantOn, askSave: null, session: false, diag: false, autosave: true, autoInt: 5, haptics: true, penOnly: false, twoFingerUndo: true, edgeSwipe: true, longPressMs: 0, density: 'auto', textScale: 1, uiScale: 1 }
+      prefs: { theme: 'dark', units: 'km', gpu: true, threads: 12, quality: 'balanced', aa: 'MSAA 4×', lod: true, lodMode: 'auto', undoMB: 256, hand: 'right', assistant: !!props.assistantOn, askSave: null, session: false, diag: false, autosave: true, autoInt: 5, haptics: true, penOnly: false, twoFingerUndo: true, edgeSwipe: true, longPressMs: 0, density: 'auto', textScale: 1, uiScale: 1,
+        // Preferences ▸ 3D viewport defaults ▸ relief exaggeration: the 3D height slider's value, remembered from the
+        // last session (Ruling EB item 5; v3ExagStored in d_screens.js reads it, guarded, defaulting to 1×).
+        v3exag: v3ExagStored() }
     };
   }
 
@@ -3716,13 +3889,28 @@ class Component extends DCLogic {
     const p = this._loc(e); this.ptrs.set(e.pointerId, { x: p.x, y: p.y });
     const n = this.ptrs.size;
     if (n === 1) {
-      this.g = { mode: 'one', t0: performance.now(), x0: p.x, y0: p.y, moved: false, v0: Object.assign({}, this.view), edge: p.x > host.clientWidth - 28, pen: e.pointerType === 'pen' };
-      const mouseDesk = e.pointerType === 'mouse' && this._ptr();   // a held left button pans; right-click and Q open the card and ring
-      clearTimeout(this._lpT); if (!mouseDesk && e.button === 0) this._lpT = setTimeout(() => this._longPress(p.x, p.y), this.state.prefs.longPressMs || (this._mode() === 'tablet' ? LONG_MS_TABLET : LONG_MS));
-      if (!mouseDesk && e.button === 0 && (this._mode() !== 'phone' || this.state.tool === 'inspect')) this.setState({ press: { x: p.x, y: p.y } });
+      // A held left button pans; right-click and Q open the card and ring.
+      const mouseDesk = e.pointerType === 'mouse' && this._ptr();
+      // Thumb zoom (Ruling EB item 3): a press that lands while the last tap is still waiting to resolve, within
+      // DOUBLE_SLOP of it, is that double-tap's second press. Its hold belongs to thumb zoom, so it starts no
+      // long-press and draws no press ring; lifting it without sliding is the plain double-tap (_pu). The window is the
+      // TAP_RESOLVE_MS the first tap waits, inside the spec's DOUBLE_MS, so one pair of taps never both acts and zooms.
+      // _lastTap is only set while _thumbZoomOn(), so with a drawing tool armed no press is ever a second press.
+      const lt = this._lastTap;
+      const dbl = !!(lt && this._tapT && e.button === 0 && performance.now() - lt.t < DOUBLE_MS && Math.hypot(p.x - lt.x, p.y - lt.y) < DOUBLE_SLOP);
+      clearTimeout(this._tapT); this._tapT = null; this._lastTap = null;
+      // A press that is not a second press lets a waiting tap act now, rather than swallowing it.
+      if (lt && !dbl) this._tap(lt.x, lt.y);
+      this.g = { mode: 'one', t0: performance.now(), x0: p.x, y0: p.y, moved: false, v0: Object.assign({}, this.view), edge: p.x > host.clientWidth - 28, pen: e.pointerType === 'pen', dbl, dblTap: dbl ? lt : null, mouseDesk };
+      clearTimeout(this._lpT); if (!mouseDesk && e.button === 0 && !dbl) this._lpT = setTimeout(() => this._longPress(p.x, p.y), this.state.prefs.longPressMs || (this._mode() === 'tablet' ? LONG_MS_TABLET : LONG_MS));
+      if (!mouseDesk && e.button === 0 && !dbl && (this._mode() !== 'phone' || this.state.tool === 'inspect')) this.setState({ press: { x: p.x, y: p.y } });
       this._closeTransient();
     } else if (n === 2) {
       clearTimeout(this._lpT); if (this.state.press) this.setState({ press: null });
+      // A second finger ends a double-tap's press and hands the view to pinch. If that press had not slid yet, it was the
+      // start of a two-finger gesture, not a double-tap: the first tap it held back acts now, so a tap followed by a
+      // two-finger tap is still a tap and an undo (Ruling DU Q5).
+      const g1 = this.g; if (g1 && g1.mode === 'one' && g1.dbl && !g1.zooming && g1.dblTap) this._tap(g1.dblTap.x, g1.dblTap.y);
       const [a, b] = [...this.ptrs.values()];
       this.g = { mode: 'two', tTwo: performance.now(), d0: Math.hypot(b.x - a.x, b.y - a.y), a0: Math.atan2(b.y - a.y, b.x - a.x), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, v0: Object.assign({}, this.view), moved: false, maxN: 2 };
     } else if (this.g) this.g.maxN = Math.max(this.g.maxN || 0, n);
@@ -3734,9 +3922,16 @@ class Component extends DCLogic {
       const dx = p.x - g.x0, dy = p.y - g.y0;
       if (!g.moved && Math.hypot(dx, dy) > 10) {
         g.moved = true; clearTimeout(this._lpT); if (this.state.press) this.setState({ press: null });
-        if (g.edge && dx < 0 && Math.abs(dy) < Math.abs(dx) && this.state.prefs.edgeSwipe) g.edgeSwipe = true;
-        else if (this._strokeTool() && !(this.state.prefs.penOnly && !g.pen)) { g.stroke = true; this._strokeStart(this._s2w(g.x0, g.y0)); }
+        // A double-tap's second press that slides is thumb zoom, measured from where the slide begins. With a mouse on
+        // the desktop it stays a pan: the hold-slide is a touch gesture.
+        if (g.dbl && !g.mouseDesk) { g.zooming = true; g.zy = p.y; }
+        else if (g.edge && dx < 0 && Math.abs(dy) < Math.abs(dx) && this.state.prefs.edgeSwipe) g.edgeSwipe = true;
+        else if (this._strokeTool() && !this.state.panLatch && !(this.state.prefs.penOnly && !g.pen)) { g.stroke = true; this._strokeStart(this._s2w(g.x0, g.y0)); }
       }
+      // Thumb zoom: sliding down zooms in and up zooms out ("Google Maps style", the owner's words, Ruling EB item 3;
+      // MAP_INTERACTION_RESEARCH.md §2, where Apple Maps is the reverse), doubling every QZ_DOUBLING_DP, about the
+      // point the press landed on, inside the same scale limits as pinch.
+      if (g.zooming) { const sc = Math.max(this._sMin(), Math.min(SMAX, g.v0.s * Math.pow(2, (p.y - g.zy) / QZ_DOUBLING_DP))); this._anchor(this._s2w(g.x0, g.y0, g.v0), g.x0, g.y0, sc, g.v0.r); return; }
       if (g.edgeSwipe) { if (dx < -60 && !g.done) { g.done = true; this._openInspector(); } return; }
       if (g.stroke) { this._strokeMove(this._s2w(p.x, p.y)); return; }
       if (g.moved) {
@@ -3757,7 +3952,10 @@ class Component extends DCLogic {
     if (g.mode === 'one') {
       clearTimeout(this._lpT); if (this.state.press) this.setState({ press: null });
       if (g.long && this.state.ring && this.state.ring.live) { const R = this.state.ring; if (R.hover) this._ringPick(R.hover); else this.setState({ ring: Object.assign({}, R, { live: false }) }); this.g = null; return; }
-      if (g.stroke) this._strokeEnd();
+      // A double-tap's second press lifted without sliding is the plain double-tap, ×DOUBLE_ZOOM at the finger; one that
+      // slid has already zoomed (_pm). Either way it is not a tap.
+      if (g.dbl) { if (!cancel && !g.moved && q) this._zoomAnim(DOUBLE_ZOOM, q.x, q.y); }
+      else if (g.stroke) this._strokeEnd();
       else if (!cancel && !g.moved && !g.long && !g.done && performance.now() - g.t0 < TAP_MS && q) this._tapCandidate(q);
       if (g.moved) this._viewChanged();
       this.g = null;
@@ -3766,11 +3964,21 @@ class Component extends DCLogic {
       this._viewChanged(); this.g = null;
     }
   }
+  /* A one-finger tap that did not move. With thumb zoom on it waits TAP_RESOLVE_MS for a second press, which would make
+     it a double-tap (_pd decides that when the second press lands). With thumb zoom off nothing can follow it, so it
+     goes to the armed tool at once. It must never act twice, or act after a double-tap has claimed it. */
   _tapCandidate(p) {
-    const now = performance.now(), lt = this._lastTap;
-    if (lt && now - lt.t < DOUBLE_MS && Math.hypot(p.x - lt.x, p.y - lt.y) < 34) { clearTimeout(this._tapT); this._lastTap = null; this._zoomAnim(1.7, p.x, p.y); return; }
-    this._lastTap = { t: now, x: p.x, y: p.y }; clearTimeout(this._tapT); this._tapT = setTimeout(() => this._tap(p.x, p.y), 240);
+    clearTimeout(this._tapT); this._tapT = null; this._lastTap = null;
+    if (!this._thumbZoomOn()) { this._tap(p.x, p.y); return; }
+    this._lastTap = { t: performance.now(), x: p.x, y: p.y };
+    this._tapT = setTimeout(() => { this._tapT = null; this._lastTap = null; this._tap(p.x, p.y); }, TAP_RESOLVE_MS);
   }
+  /* Whether thumb zoom (the double-tap and its hold-slide, Ruling EB item 3) is on: yes unless a drawing tool is armed.
+     With a drawing tool, how it behaves waits on the owner's answer to DS13-Q1 (Ruling EB items 1 and 3). Until then the
+     mock keeps it off and labels it "pending DS13-Q1" (the map's accessible name; Touch & gestures), so a double-tap is
+     two dabs and nothing collides with a stroke. MAP_INTERACTION_RESEARCH.md §6 sets out the options for the owner;
+     this placeholder decides none of them. */
+  _thumbZoomOn() { return !this._strokeTool(); }
   _longPress(x, y, mouse, ringOnly) {
     if (this.g && this.g.mode === 'one') { if (this.g.moved) return; this.g.long = true; }
     const wp = this._s2w(x, y); if (!this._inWorld(wp)) return;
@@ -4029,8 +4237,8 @@ class Component extends DCLogic {
   _setNode(n) { const s = this.state; this.setState({ node: Object.assign({}, s.node, { [s.dom]: n }), tool: 'inspect' }); this._dirty = true; }
   _arm(tool) {
     const s = this.state; const T = toolDef(tool);
-    if (s.tool === tool || tool === 'inspect') { this.setState({ tool: 'inspect', measure: [], wayDraft: [], labelAt: null, conflictDraft: [] }); this._dirty = true; return; }
-    const patch = { tool, measure: [], wayDraft: [], labelAt: null, conflictDraft: [] };
+    if (s.tool === tool || tool === 'inspect') { this.setState({ tool: 'inspect', measure: [], wayDraft: [], labelAt: null, conflictDraft: [], panLatch: false }); this._dirty = true; return; }
+    const patch = { tool, measure: [], wayDraft: [], labelAt: null, conflictDraft: [], panLatch: false };
     if (this._mode() !== 'tablet' && s.tab) patch.det = 'peek';
     this.setState(patch); this._haptic(); this._dirty = true;
   }

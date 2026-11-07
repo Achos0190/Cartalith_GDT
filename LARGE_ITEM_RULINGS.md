@@ -2894,3 +2894,379 @@ Recorded:
 - The mockup follows.
 
 Nothing is built by this ruling.
+
+## Ruling EA: the backlog's open decisions, worked through: religion, geology, rock drafts, story extras (owner, 2026-11-01)
+
+The owner asked to work through the decisions `OUTSTANDING_WORK.md` §4 says are owed (*"Let's work trough the
+decisions, prompt me and think your questions trough"*).
+
+Before each question was put, its premise was re-checked at the symbols and against every ruling up to DZ. A label in
+quotation marks is the option the owner picked. The questions are numbered as §4 numbers them.
+
+**Not asked, because already answered.** Item 7's follow-up, *"the default age slider makes every arc/rift volcano
+young"*, was answered by Ruling CX item 2 (re-spread volcano ages, about 500 ka at the dormant boundary).
+- It is built: `cartalith_terrain::volcano_attr::respread_age_years`.
+- It was measured on the five census worlds (`STATUS.md`, 2026-10-24).
+- §4 had not been re-checked after Ruling CV, so it still listed the item.
+
+**Religion expansion (`FH_R2_PLAN.md` §9; item 1)**
+1. **Q5, belief determinism for S3b: "Your saved simulation".**
+   - **What is saved:** the belief state is saved with the project, as a new optional save slot.
+   - **What S3b reads:** when S3b (R2-5) is built, it reads that state. A world nobody simulated falls back to the
+     ruler's faith, as towns read it today (`urban_bridge.rs::town_faith`).
+   - **What does not change:** fresh worlds.
+   - **What it does not schedule:** this answer does not schedule S3b. R2-5 still needs the go-ahead that Ruling CY
+     withheld, and its deity-siting part needs S5.
+   - **Premise checked:** belief is not saved today (`project_bridge.rs` restores `belief: Vec::new()`), so a run
+     made in the simulator is lost on reload.
+2. **Q8, the fixed list: "Yes, and add an S7 row".**
+   - The built list is confirmed: `roster::CIV_RELIGIONS`, 15 entries, `none` included. A custom religion counts in
+     its base faith's share of the spread.
+   - World-instanced religions and schisms (S7) become their own unscheduled `OUTSTANDING_WORK.md` row.
+   - Until S7, two custom variants of the same base faith count as one faith in the spread.
+3. **The R2-1 seven's derived type words: "Confirm all".**
+   - **Organized:** The One God, The Revealed Law, The Middle Path and The Divine Throne.
+   - **Cult:** The Mysteries.
+   - **Folk:** Spirit Ways.
+   - **None, shown as a dash:** The Covenant.
+
+   These are display only (`religion_profile::RELIGION_PROFILES`, read by `civ_religion_vocabulary`).
+4. **M2's cost bar: "Accept; re-measure the bar".**
+   - **The breach:** 2.4× on the 1 024-wide world, 0.75 ms (0.72..0.79) against 0.30 ms (0.30..0.33) per 100 years
+     (`STATUS.md`, 2026-10-18), against a 2× bar. It is accepted.
+   - **Why it is acceptable:** the run happens only on demand, never during generation.
+   - **The new bar:** the cost is re-measured on today's tree, because the recorded figure predates R2-3 and R2-6.
+     The result is recorded as the new bar, disclosed as set after the result. The precedent is Ruling CA's GF-11
+     cost bar.
+
+**Geology (items 2 and 3)**
+5. **GF-9, when to switch the geology processes on: "Re-measure, switch on what passes".**
+   - **What is re-measured:** every switch-on bar, with frames, on today's app worlds. That is twice: for the
+     processes alone, and for the processes plus rock-aware construction.
+   - **What is switched on:** whatever passes, under Ruling BO. The rest is reported.
+   - **Why re-measure:** the readings on file are from 2026-10-12/13 worlds, re-baselined six times since (Rulings CM,
+     CO, CU/CV, CX, DB, DJ).
+   - **Ruling CP's route A** applies to what is switched on.
+6. **GF-8, unfinished Rock drafts: "Tie it to the switch-on".**
+   - Saving Rock drafts is built as part of the GF-9 switch-on, and dropped if the switch-on never comes.
+   - **Premise checked:** `WorldGen::rock_paint_gate` refuses while `geology_processes` is off. That is the app
+     default (`params::defaults()`), so no user can make a Rock draft today.
+
+**Story menus (item 4)**
+7. **`STORY_MENUS_PROPOSAL.md` §8's later rows: "None for now".** All four stay unscheduled:
+   - a per-item DM-only mark;
+   - free timeline events;
+   - print and VTT writers;
+   - a CIVIL ▸ Settlements rail node.
+
+   **Recorded with it:** the Player map export still includes a secret place whenever its layer is on, because
+   nothing marks a place DM-only. Free events can already be written as chronos lines in a place's note (Ruling AM).
+
+**Planner and rivers (items 5 and 6)**
+8. **The credited-edge reading: "Keep it centred".**
+   - `road_edge_map_path` keeps the exact inverse, `round(cx/sc)`, of the router's `round(px*sc)`
+     (`routing_grid_scale`). The band `jp_road_cells` credits stays centred on the road.
+   - This is recorded as a deliberate divergence from the reference's `(cx+0.5)/sc`, and the §3.1 row closes.
+   - **Premise checked:** in v2.11 that reading belongs to `buildRoadsOp`.
+     - The reference retired that tool's only UI at v0.64, and its zip loader sets `roads=null`.
+     - The port's road edges come from its own road network (`CivData::road_edges`), which the reference never
+       stores.
+     - So adopting the reference reading would have copied a drawing offset that becomes a one-cell error once
+       rounded.
+9. **River navigability and the river-mouth delta gate: "Keep both".**
+   - **Navigability:** a river is navigable from Strahler order 3 (`river_class.rs::NAVIGABLE_ORDER`), with no
+     discharge gate (River Transport's question 4 at its default).
+   - **Delta fans:** they keep `river_delta.rs`'s order-and-discharge rule (`MIN_ORDER` 3 and `MIN_DISCHARGE_FRAC`).
+   - **The measurement behind it,** taken after fix F1 (`RIVER_GATE_MEASUREMENTS.md`):
+     - a discharge OR would take navigable cells from 73 737 to 159 641 at 512×328;
+     - only 271 cells of high-discharge river are still below order 3;
+     - discharge alone would add 1 246 to 1 977 small fans per map shape, pooled over that shape's twelve seeds, and 105
+       on the owner's world.
+       - *Corrected the same day:* the question put to the owner said "about 1 200 to 2 000 small fans per world". The
+         figures are per shape, pooled over twelve seeds, not per world.
+       - The answer's direction holds: discharge alone would mostly add fans on small order-1–2 streams.
+   - **Rows to close:** the rivers-in-map row and the River Transport row stop reading "awaiting the owner".
+   - **Not measured:** `RIVER_GATE_MEASUREMENTS.md`'s "what would move" table misses a third reader of
+     `NAVIGABLE_ORDER`, `landmark.rs::pool_portage`. With no change made, nothing moves.
+10. **The `stage_overrides` re-chunk point: "Detect, drop and tell me".**
+    - **The problem:** a saved journey's per-leg overrides are keyed by stage number (`project_bridge.rs`,
+      `journey_planner_view.gd::_stage_overrides`). The port-only river legs are rebuilt from the current heights
+      (`story_bridge::jp_world_parts`), so after a regenerate, a sculpt or an engine change, an override can apply
+      to a different leg.
+    - **The fix:**
+      - each override saves a small fingerprint of the leg it was set on, as an optional additive save field;
+      - an override whose leg no longer matches is dropped, with a notice naming it;
+      - nothing is ever applied to a different leg.
+    - **What it costs:** small. `SAVEFILE_COMPAT.md` gains the field when it is built.
+
+**Pop-out windows (`POPOUT_WINDOWS_SCOPE.md` §11 finding 5; from the "Open after 2026-10-26" list)**
+11. **Dialogs a pop-out spawns: "Yes, same monitor".**
+    - **What changes:** a confirmation or picker opens on the screen of the window that asked. Where it would not fit
+      inside that window (finding 6: a native window's popups are embedded and clipped), it opens as its own window
+      on that screen, through the existing `opener_screen`/`centred_in` helpers.
+    - **The sites, found by grep:**
+      - five `DccWidgets.confirm(app` calls (the roster, the Place editor twice, the Vault twice);
+      - the Vault's compare and write-preview dialogs;
+      - the assistant's consent card (`LlmConsent.present(app`);
+      - the Vault's folder chooser.
+    - **Not affected:** the planner spawns none.
+    - **What it costs:** small. GDScript only, plus a probe.
+
+**3D, colour paint and EF-9 (§4 items 8 to 10; they had run on their defaults)**
+12. **3D Q3, shading once terrain shows (3D-4): "Lit, map shading a toggle away".** 3D-4 shows frames of both.
+13. **3D Q5, phones: "Let the speed check decide".**
+    - The capability gate, built in 3D-1 after 3D-0's measurement, offers 3D on a phone only where the device measures
+      smooth enough.
+    - It is calibrated on the OnePlus 6T in the owner's device pass. The 6T has not been measured in 3D yet.
+14. **3D, the rest: "Keep all, add the slider row".**
+    - **Confirmed at their defaults:**
+      - Q1 (the display mesh from the raster's tiles) and Q2 (`gl_compatibility`), both already in `DECISIONS.md` §4a;
+      - Q6 (overlays in 3D-6);
+      - Q7 (read-only tools in 3D, brushes later);
+      - Q8 (rivers painted into the colour);
+      - Q9 (enter top-down, then tilt).
+    - **3D-1's two departures stand:**
+      - `Window ▸ 3D view` is the menu home; the approved PC menus keep it there.
+      - The 3D/2D pill is on the phone only. That is interim: the approved mobile shell moves it into the phone's MAP
+        view row.
+    - **New row:** a live height-exaggeration slider, which Ruling CT left unbuilt, becomes a small backlog row.
+15. **Colour paint (`COLOUR_PAINT_SCOPE.md` §17): "Confirm as built".**
+    - **Ruling CS item 2's "use paint layers" is satisfied** by the named layers, as built (`PaintLayers`): order,
+      visibility, lock, rename, per-layer clear and delete, up to `MAX_LAYERS` 32.
+    - **Lava, Embers and the two glows keep opening on Replace.** On the Colour blend a lava crust would take the
+      ground's lightness.
+    - **Confirmed as shipped:**
+      - Q2: saved looks carry no paint;
+      - Q3: exports include paint;
+      - Q4: land-only per mark;
+      - Q5: paint keeps its kilometres when the map changes size (the notice half is not built);
+      - Q7: the lava defaults.
+    - **Q7's premise corrected:** cooling along a stroke ships at **0.0** (`colour_paint_tool.gd::heat_along`), not the
+      0.6 that §17 and `OUTSTANDING_WORK.md` quoted. The 0.6 came from the CP-1M cost benchmark.
+    - **Q6 dropped:** the long-press it waited on was settled by Ruling AX F1 on 2026-09-26.
+16. **EF-9 on the Performance tier: "Keep it off on Performance".**
+    - 'Performance' stays the cheap tier for good: `lod_worker.rs::budget_for_tier`, `ef9_refine` false there.
+    - **Premise corrected:** phones start on Quality, not on Performance. A saved project restores the tier it was saved
+      on (`project_bridge.rs`), so a phone runs Performance only if someone chose it.
+      - `WorldGen` starts on Quality on every device (`quality: QualityTier::Quality`), and
+        `recommended_quality_tier` is applied nowhere. So the 6T already runs EF-9.
+      - The 6T timing in the owner's device pass is pointed at Quality.
+      - The recorded cost is desktop-only: +0.9 to +1.2 ms per frame.
+
+**Consequences:**
+- `OUTSTANDING_WORK.md` §4 and §3.1 are refreshed against this ruling.
+- The answered rows close or become build rows: S7, the cost re-measure, GF-9's re-measure, the override fingerprint,
+  the pop-out dialogs and the exaggeration slider.
+- The owning documents mark their questions answered: `FH_R2_PLAN.md`, `GEOLOGY_FIRST_SCOPE.md`,
+  `STORY_MENUS_PROPOSAL.md`, `RIVER_GATE_MEASUREMENTS.md`, `POPOUT_WINDOWS_SCOPE.md`, `3D_VIEWPORT_SCOPE.md` and
+  `COLOUR_PAINT_SCOPE.md`.
+
+Nothing is built by this ruling.
+
+## Ruling EB: the phone map's control row (DS-13) and Ruling EA's three small designs: the owner's answers (owner, 2026-11-01)
+
+The owner put these questions after reviewing the DS-13 design (`MOBILE_SHELL_PROPOSAL.md` §2.5) and the small designs
+for Ruling EA items 10, 14 and 15, live in the mockup's canvas, version 13. A label in quotation marks is the option the
+owner picked. *Italics* mark the owner's own words.
+
+**DS-13, the touch map's control row**
+1. **One-finger panning (DS13-Q1 and Q2): not yet decided.** The owner asked first: *"Research how other mapping apps
+   have their interface for map interactions."* The research is done: `MAP_INTERACTION_RESEARCH.md` (2026-11-01). It
+   supports both defaults and names two findings they do not cover: Krita's stray-stroke guard, and when thumb zoom
+   should be active with a placing or drawing tool. **Answered by Ruling EC items 1–4 (2026-11-01):** every default was
+   kept, with both findings adopted.
+2. **The zoom step (DS13-Q5): "Keep 1.35×".** The −|+ rocker keeps `viewport_host.gd::ZOOM_BUTTON_STEP` 1.35, the
+   reference's step. The mockup's 1.6 goes.
+   - *Corrected 2026-11-01:* the question said *"The mockup had drawn 1.6×"*. The mockup's touch rocker already
+     stepped 1.35 (`MC_ZOOM_STEP`). The 1.6 was its desktop pointer column (`hZoomIn`, `hZoomOut`), which now uses
+     the same constant. The answer stands.
+3. **One-handed continuous zoom (DS13-Q3): "Add it".** This was against the default, "not in the first version".
+   - **The gesture:** double-tap, keep the finger down, and slide to zoom continuously, Google Maps style.
+   - **It needs the plain double-tap too.** The double-tap zoom in `MOBILE_SHELL_PROPOSAL.md`'s gesture table is
+     designed but not built, so both are built together.
+   - **The conflict to design around:** the two-finger tap is undo (Ruling DU Q5). The gesture must not collide with
+     undo or with a drawing tool's strokes. That is settled with item 1's answer.
+4. **The 3D camera (DS13-Q4): "Yes, same buttons".** From 3D-2, the same −|+ and recentre buttons drive the 3D camera:
+   zoom moves the camera in and out, and recentre frames the world.
+
+**Ruling EA's small designs**
+
+5. **EA 14, the live 3D height slider: "Yes, remember it".** Against the default.
+   - **What changes:** the last value set becomes the default for the next session, as if it were set in Preferences ▸
+     3D viewport defaults. It writes that preference.
+   - **What it never touches:** the world, its save, or `WorldState`.
+6. **EA 14, the slider's range: "Up to 4×".** Against the default of 3×.
+   - **The range:** 1× (true scale, Ruling CT's default) to 4×.
+   - **The cost, accepted:** spires on steep ground above about 3.4×, which `3D_VIEWPORT_SCOPE.md` §8.3 measured.
+     - *Corrected 2026-11-01:* §8.3 measured no threshold. On the raw tile heights it saw "spires everywhere" at 3.4×,
+       the only value above 1× it tried, and coastal bluffs that spike even at 1.0×. The question called 3.4× *"the
+       measured spire point"*, and the 3× default *"just under that"*. Both overstated it. The owner's answer
+       accepted spires either way, so it stands.
+   - **To revisit:** at 3D-3, when the terrain mesh lands, judged on frames.
+7. **EA 15, colour paint's map-width notice: "Offer 'scale with the map'".** Against the default.
+   - **What changes:** the notice gets a button that rescales every paint mark to the new map width, as one undo step.
+   - **The rule is unchanged:** marks keep their real kilometres unless the user presses that button (Ruling EA item
+     15, Q5).
+
+**Consequences:** `MOBILE_SHELL_PROPOSAL.md` §2.5, `3D_VIEWPORT_SCOPE.md` and `COLOUR_PAINT_SCOPE.md` carry the answers,
+and the mockup follows. Nothing is built by this ruling.
+
+## Ruling EC: touch panning (DS13-Q1/Q2), and the HTML working copy's next versions: features, the toll fix, corners, slider preview (owner, 2026-11-01)
+
+The owner asked to be prompted for the open questions. Two sets were put, each premise checked at its symbol first. A
+label in quotation marks is the option the owner picked; every answer took the recommended option.
+
+**Touch panning** (`MOBILE_SHELL_PROPOSAL.md` §2.5; the research is `MAP_INTERACTION_RESEARCH.md`). This answers
+Ruling EB item 1. It binds the Godot shell and the HTML working copy alike.
+1. **DS13-Q1: "Only with drawing tools".** ✋ appears on the control row only while a drawing tool is armed (sculpt,
+   paint, territory, way and the like), and gives the finger back to panning.
+2. **DS13-Q2: "Yes, drag pans".** With a tap-only tool armed (Inspect, Measure, Settlement, Label, Icon, Route), a
+   one-finger drag past the touch slop pans the map. A tap still selects or places, and a hold still opens the card.
+   The shipped Godot build pans one finger only while ✋ is latched, so this is a build row, and
+   `phone_menu.gd::GESTURES`'s "Drag — Pans the map" claim becomes true when it lands.
+3. **Stray strokes: "Yes, ignore it".** Once two fingers have been down, nothing more of that touch reaches a drawing
+   tool (Krita's fix for the same defect, `MAP_INTERACTION_RESEARCH.md` §4).
+4. **Thumb zoom with a drawing or placing tool: "Off unless ✋ is on".** With such a tool armed, a tap acts at once,
+   and double-tap and thumb zoom work only while ✋ is on. ✋ has one meaning: the finger moves the map.
+
+**The HTML working copy** (`html/`; the owner's earlier request: *"can you check and improve the visuals and
+performance of the html? Maybe even upgrade some features based of the godot version"*). The premises come from the
+2026-11-01 audits of v2.72, re-checked against v2.73.
+
+5. **Features to port, all four offered:**
+   - Export map image: a standalone PNG. Today the rendered image goes only inside the project .zip
+     (`bakeSingle`'s one caller).
+   - Find runs commands: the search box also runs any menu command by name.
+   - Relations and history: fill "Diplomatic relations — not yet implemented", and add a settlement's holders by
+     recorded year.
+   - The Measure tool: distance, bearing, area, radius, cross-section and height difference. It comes after stage 2,
+     because it must work by touch.
+6. **The planner's toll bug: "Apply Godot's fix".** `_jpClaimedAt` tests `civTerritory[…] >= 0`, so every cell, the sea
+   included, reads as claimed. The per-frontier toll (`JP_COST_TOLL_PER_BORDER` 6) never fires. Godot's
+   `cartalith-civ::jp_claimed_at` uses `> 0`.
+   - **The fix changes planner results**, measured by the audit on two seeds: tolls appear, and the infrastructure
+     tier changes on 12 of 77 and 41 of 84 stages.
+   - **Two consequences come with it:** unclaimed land reads "Ruined Region", and stages over water lose the
+     claimed-land floor.
+   - **Unaffected:** world generation.
+   - **Disclosure:** the version's changelog states the change.
+7. **Corners: "Rounded, as the design".**
+   - Controls take the design's radii, about 10–16 px on buttons, inputs, chips and pins. Panels and bands stay square.
+   - This replaces v2.23's `*{border-radius:0 !important}`. The newer design wins, and the Godot theme already rounds
+     controls (`dcc_theme.gd`, `btn_radius`).
+8. **Slider drag: "Preview while dragging".**
+   - While a look slider is dragged, the map renders a half-resolution preview, and it renders exactly on release.
+   - The audit measured 0.7–1 s per step at the 1 024 grid and 2.6–4.3 s at 2 048, on a loaded shared machine.
+   - The preview is never cached, saved, exported or baked, so the exact render, and what `hash_gen1` hashes, stays
+     byte-identical.
+
+**Consequences:** `MOBILE_SHELL_PROPOSAL.md` §2.5 marks DS13-Q1 and Q2 answered. The HTML's next versions carry items
+5–8, with the audits' performance and visual fixes. The HTML's v2.73 already builds items 1–4 as its defaults. Nothing
+in `cartalith-native/` is built by this ruling.
+
+## Ruling ED: the stylus and haptics on the OnePlus Pad 3: the device, the VIBRATE permission, the input plugin and the pen's own motor (owner, 2026-11-02)
+
+The owner asked for research into the OnePlus Pad 3's pen and haptics so that the terrain's relief can be "felt",
+scoped to the Godot version (`STYLUS_HAPTICS_RESEARCH.md`). Four of its owner questions were put, each premise checked
+first. A label in quotation marks is the option the owner picked; *italics* mark the owner's own words.
+
+1. **The device (research Q1): "Pad 3 + Stylo 2".** The research's assumption stands: the OnePlus Pad 3 (OPD2415) with
+   the OnePlus Stylo 2.
+2. **The VIBRATE permission (Q7): "Yes, enable it".**
+   - The Android preset in `export_presets.cfg` gains `permissions/vibrate=true`. That is the key Godot 4.7.2's
+     exporter reads (`platform/android/export/export_plugin.cpp`, `"permissions/" + "VIBRATE".to_lower()`).
+   - Without it, every `dcc_shell.gd::_haptic` call was silent on Android.
+   - Done the same day, as SH-1's preset half. It has not been seen on a device: the next APK and an
+     `adb logcat | grep -i "VIBRATE permission"` confirm it.
+3. **The input plugin (Q9): *"Whichever gives the best and most extensive feature set."***
+   - **The main loop's reading:** accept the Gradle build and plan the Kotlin input plugin (SH-10). It recovers
+     everything Godot 4.7.2 drops on Android: the eraser end, the pen's side keys, the batched samples between frames,
+     the hover distance, palm-cancel flags, and motion prediction and front-buffered ink. Godot fixes upstream would
+     cover less, later, and are not in the project's hands.
+   - **Upstream reports stay optional.** Richer vibration (primitives and envelopes) still goes through Godot's built-in
+     `JavaClassWrapper`, so it waits for nothing.
+   - **The owner can override this reading.**
+4. **The pen's own motor over Bluetooth (Q13): "Yes, try it"**, against the recommendation, with the risks accepted.
+   - **An experiment, not a feature.** The premise comes from an unverified, AI-written project (research §2.3): that the
+     Stylo 2 takes a texture setting and a single-pulse command over Bluetooth.
+   - **Discovery first, read-only.** The first step lists the pen's Bluetooth services and characteristics without
+     writing anything. It confirms or refutes the premise before any write.
+   - **Never touched:** the firmware-update services.
+   - **Built in:** an off switch, and written steps for re-pairing the pen through OnePlus's own settings.
+   - **Permissions:** the Bluetooth runtime permissions it needs (BLUETOOTH_CONNECT, and BLUETOOTH_SCAN for discovery)
+     are asked only when the experiment is switched on.
+   - **Refined by a summary the owner supplied the same day** (attributed to XDA/the OnePlus community,
+     `STYLUS_HAPTICS_RESEARCH.md` §2.3): the apps that drive the pen's motor (HiPaint, Notein) do it with OnePlus/Oppo's
+     **licensed** pencil SDK, gated by a privileged permission. So the experiment is the read-only discovery step only;
+     actually driving the motor is the official-SDK route (Q10). Reverse-engineering the SDK out of firmware or another
+     app, stubbing its authentication, or a root module that force-grants the permission are **out of scope and declined**
+     — they circumvent OnePlus's and those apps' software protections.
+
+**The other nine questions** (Q2–Q6, Q8, Q10–Q12) keep the research's recommended defaults until the owner says
+otherwise. **What comes first:** SH-0, measuring on the tablet, decides how much of the relief design the Pad 3 can
+use. Its first step was `adb shell cmd vibrator_manager list`, to find whether the tablet's body has a vibrator
+(research §1.4).
+
+**Update, 2026-11-02 — the owner states the Pad 3 has no haptics** (*"The pad does not have haptics."*). This resolves
+SH-0's first measurement and research §1.4: the tablet's body cannot vibrate, so `Input.vibrate_handheld()` is a no-op
+on it for lack of hardware, not the permission. What follows:
+- **Q2 (is "feel the relief" on by default) resolves on the Pad 3:** there is no body vibrator to turn on. A *felt*
+  relief there has only the pen's own motor through the licensed OnePlus/Oppo SDK (Q10) — uncertain and limited — or
+  non-haptic cues (sound per contour and the on-screen relief, Q11).
+- **The VIBRATE permission stays** (item 2): it is for the OnePlus 6T and any device that does have a motor; it is
+  simply moot on the Pad 3.
+- **The contour-tick design (§7) stands,** but on the Pad 3 its output is the sound-and-visual fallback (§7.7), not a
+  body buzz. How to pursue the felt relief on the Pad 3 — chase the pen SDK, lean on sound and visual, or pause it —
+  is an open owner call.
+
+## Ruling EE: the stylus is standard input only — pressure and touch; no haptics, no root, no plugin, no pen SDK (owner, 2026-11-02)
+
+The owner researched the pen's own haptics and settled the scope: *"we're not going into restricted area anymore. I
+did some research and it's impossible. So standard stylus input with pressure and touch is what it is."*
+
+This supersedes the parts of Ruling ED that looked past standard input:
+
+- **Off:** the haptic feedback (SH-7, SH-8, SH-12), the Bluetooth pen-motor experiment (Ruling ED Q13), and the open
+  Magisk/root module route. The app will not root a device, force-grant a protected permission, bind to OnePlus's
+  private pen service, or ship a pen-motor driver.
+- **Off too:** the Kotlin input plugin (SH-10) with its Gradle build (Ruling ED Q9), and anything else that reaches
+  beyond what Godot already delivers. "Standard" is the pointer input the engine passes today: pressure, tilt, hover
+  and touch.
+- **Kept:** SH-1's VIBRATE permission already landed in `export_presets.cfg` and stays. It is for the OnePlus 6T and
+  any device that has a motor; it is moot on the Pad 3, which has no vibrator (Ruling ED).
+- **The active work:** the standard stylus-input milestones — SH-2 (input hygiene within standard settings), SH-3 (pen
+  draws, finger pans, with a palm rule; Ruling EC), SH-4 (the pressure curve, GDScript only, engine law unchanged),
+  SH-5 (tilt to the brush: the GDScript toggle, and the Rust `paint_stroke_options` field as its own parity-gated
+  change — still standard input), SH-6 (the hover cursor's inner ring), and SH-9 (the stylus tester). Built as GDScript
+  drafts in `cartalith-native/drafts/stylus-input/`.
+
+The restricted area is not pursued, researched further, or documented as a route.
+
+## Ruling EF: the HTML working copy's order — fixes and feature ports first, then stage 3 (owner, 2026-11-02)
+
+Asked whether stage 3 or the audit fixes and the Godot feature ports came next, the owner answered: *"Fixes and
+feature ports first then stage 3."* This answers Q1 of the version plan written from the 2026-11-01 audits of v2.72
+(`html/audits/v2.72-2026-11-01/PLAN.md`), whose recommendation put the four ports after stage 3; the owner's order
+puts them before it.
+
+**The order.** Each is one new `Cartalith v2.NN DCC test.html`, its number confirmed free in Cartalith_RC when its
+lane starts (RC's newest is v2.71 as of 2026-11-02):
+1. **v2.74, the fix pass and the design alignment.** The plan's §5 (the Sun slider's cache key, the Settlements rows,
+   Credits under Settings, the contrast and native-control fixes, the clippings, the boot render behind the start
+   card, the shell's resize cost), with Ruling EC item 6 (the toll fix) and item 7 (rounded corners), and the plan's
+   §8 items that follow an existing ruling or the drawing (V24's washed on-state, V25, V29, V30).
+2. **v2.75, the speed pass.** The plan's §6 (generate: the routing-surface cache, the flood seeding, stage progress,
+   the civ edge-cost table) and §7 (the zoom, LOD, slider, brush and render-tail costs), with Ruling EC item 8 (the
+   half-resolution slider preview). `hash_gen1` stays ALL IDENTICAL.
+3. **v2.76, the first ports** (Ruling EC item 5): Export map image, Find runs commands, faction relations and a
+   settlement's political history.
+4. **v2.77, the Measure tool** (Ruling EC item 5), on v2.73's touch layer.
+5. **Then stage 3**: the Context panel's modules, the selection history and the planner window, with the map card's
+   two journey verbs (F07).
+
+**The plan's other questions are unanswered and take its stated defaults** — these are defaults, not rulings, and an
+answer replaces any of them: Q3, the light accent `#8b550d`; Q5, the washed on-state, keeping a fill only for
+tool-mode segments; Q6, the place popup's dark palette unchanged (its light theme is fixed either way); Q7 and Q8, no
+change to icons, fonts or the status-bar chips; Q9, the darker box behind the scale bar and legend; Q10(a)–(c) and
+(e), each built and shown to the owner; Q11, the view still resets on a domain switch; Q13(a), the port's CV-26
+relation weights, labelled as its judgement, without FH-R2's religion extension; Q13(b)–(d) and Q14, nothing built.

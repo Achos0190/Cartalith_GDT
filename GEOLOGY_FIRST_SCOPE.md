@@ -1069,6 +1069,12 @@ the shell's save note says "commit it before saving". Persisting the drafts is
 left as written above for the owner to schedule; it needs no format change
 beyond the three keys.
 
+*Answered 2026-11-01 (Ruling EA item 6, "Tie it to the switch-on"):* the
+drafts are saved, as written above, as part of the GF-9 switch-on, and the
+work is dropped if the switch-on never comes. The ruling checked the premise:
+`WorldGen::rock_paint_gate` refuses while `geology_processes` is off, which is
+the app default (`params::defaults()`), so no user can make a Rock draft today.
+
 **Regeneration** replaces the column and the paint together, as it replaces a
 sculpted heightmap. The shell already asks before a regenerate that would
 discard hand-authored work (`_authored_inventory()`, which lists sculpt
@@ -3482,6 +3488,22 @@ Two predecessor items are also still open:
   no.** Q9's "yes, at GF-9" stands, but only once the column replaces it in
   the app.
 
+**Answered.** Ruling CP (2026-10-18) took the defaults: G9-1, wait, with
+route A after the switch-on; G9-2 and G9-3, no. **When to switch on was
+answered by Ruling EA item 5 (2026-11-01), "Re-measure, switch on what
+passes":**
+- Every switch-on bar is re-measured, with frames, on today's app worlds.
+  That is twice: for the processes alone, and for the processes plus
+  rock-aware construction.
+- The readings on file are from 2026-10-12/13 worlds, which have been
+  re-baselined six times since (Rulings CM, CO, CU/CV, CX, DB and DJ). That is
+  why they are taken again.
+- Whatever passes is switched on, under Ruling BO, and the rest is reported.
+- Ruling CP's route A applies to what is switched on.
+
+The second predecessor item above, GF-8's Rock draft layers, is tied to the
+same switch-on by Ruling EA item 6 (§4.13, the *As built* paragraph).
+
 *Ruling BJ moved lithology painting into this build as GF-8, above; §9 Q2
 records the answer.*
 
@@ -5224,7 +5246,8 @@ What this slice adds:
   `_mapsharp_probe.gd` does; the check itself is unchanged and its negative
   control is now two captures `SETTLE` frames apart rather than one frame.
 - **Not built:** the three Rock draft layers in `drafts/paint.json` (§4.13's
-  persistence paragraph, amended).
+  persistence paragraph, amended). Ruling EA item 6 (2026-11-01) ties them to
+  the GF-9 switch-on.
 
 **Measured.**
 - Size, 2048 × 1311, seed 24601, the app's parameters: **+0.90 MiB (+2.8 %)**

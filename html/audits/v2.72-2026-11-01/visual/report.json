@@ -1,0 +1,285 @@
+{
+ "method": "Read-only audit; nothing written in the repo. All work ran against byte copies in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/:\n- v272.html comes from `git show 7bd3b49:\"html/Cartalith v2.72 DCC test.html\"`. Its md5 57e6628a\u2026 matches the working file.\n- v271.html is copied from reference/.\n\nHarness: Playwright, headless Chromium 153, DPR 1. Scripts are lib.js and capA\u2013capK.js in that folder.\n\nHow worlds were made, with real clicks wherever a user would click:\n- Generation went through the start card: Generate a world \u2192 seed field \u2192 Generate world.\n  - Seed 12345 at the card's default 2K (37.8\u201339.4 s), in dark and in light.\n  - Seed 4242 at 2K.\n  - 1K worlds for the targeted probes.\n- Populated with CIVIL \u25b8 Generation \u25b8 Auto-populate.\n- Recorded years 380 and 412 through the strip's own year field and Add year.\n- Places selected by mouse clicks at `_civPlaceScreenPos`.\n\nWhat was captured:\n- Sizes:\n  - Dark, both seeds: 1366\u00d7768, 1600\u00d7900, 1920\u00d71080, 2560\u00d71440.\n  - Light: 1600\u00d7900, plus the other three sizes on seed 12345.\n- Every menu and submenu.\n- Every modal or window, opened through its real entry:\n  - start card and New World;\n  - Settings (5 pages), Credits, Generation info;\n  - Find, map context menu, Base map popover;\n  - city viewer;\n  - route editor (route drawn with the Route tool, then Commit route, then Edit route\u2026);\n  - Settlements screen (4 tabs);\n  - Asset Library and slicer;\n  - the loading screen;\n  - the finalized state, after a real Bake & finalize.\n- Dock scroll series for:\n  - WORLD Generate and Sculpt;\n  - CIVIL \u00d75 sub-pages;\n  - CARTO;\n  - EXPLORE.\n- Hover crops and keyboard-focus crops.\n- Phone at 412\u00d7915 (touch) for the shared modals.\n\nDesign side:\n- Desktop.dc.html at its four size chips and its theme switch.\n- Clicks inside the frame: File, Export, Preferences, timeline expanded, CIVIL, a selection, Sculpt.\n- Computed styles of 32 design controls in the 1366 frame, which is shown at 100 % (data/d_styles_1366.json).\n\nIn-page measurements:\n- WCAG contrast of every visible text node against its composited background, with ancestor opacity applied (data/*contrast*.json).\n- Truncation (scrollWidth > clientWidth).\n- Off-window controls.\n- A control-style census (data/*controls*.json) and an emoji census.\n- Token pairs computed in Python (data/token_contrast.txt).\n\nTesting the fixes:\n- Each proposed CSS fix was injected into a scratch page with addStyleTag, then re-captured and re-measured.\n- All fixes together are /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/fixes.css. Re-measured in dark and light: data/j_after.json, k_sculpt.json.\n- New versus pre-existing: v2.71 and v2.72 compared on the same boot world (Skip for now), by computed style (data/g_v271_vs_v272.json).\n\nChecks on the evidence itself:\n- Every screenshot cited was opened and looked at. Crops at 2\u20133\u00d7 are under sheets/.\n- Page errors: none in any run (pageerror and console-error listeners). The only dialogs were my own reload's beforeunload and the Bake confirm.\n\nChecked and found sound: the eight menus and their rows, the Help readout, Find's results, the 860 px slot moves, the finalized-state dimming, and hover states (all visible).\n\nPath convention: every path below is under /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/.",
+ "findings": [
+  {
+   "id": "V01",
+   "title": "[CHEAP+HIGH] CIVIL \u25b8 Settlements table rows run together into one string",
+   "evidence": "In a 1600\u00d7900 capture every row reads like 'AbedomarmarchCapitalKorrath19,30661%Trade hub5Fortified' and is clipped at the right. Files: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_64_dock_civ_settlements_s0.png and the 2\u00d7 crop /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/settle_table.png.\n\nMeasured (data/e_measures.json, E1): computed display is 'block' on 3 of 3 sampled visible rows, and their inline style has no display.\n\nCause: `_stEnsurePool` writes `display:flex` into each row's style.cssText. `_stUpdateVisible` then sets `row.style.display=''`, which deletes that declaration.\n\nPre-existing, not new in v2.72: `grep -n \"row.style.display=''; row.style.transform\"` finds v271.html:21734 and v272.html:22816. The same line is in the RC clone's v1.16 onward.\n\nBefore/after with the fix injected: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_E1_table_before.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_E1_table_after.png. The pair is also in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/before_after_1.png.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "Add one CSS rule beside the #stViewport rules: `#stSpacer > div{display:flex}`.\n\nPool rows that are hidden keep their inline `display:none`, which still wins, so the JS needs no change. The equivalent JS fix is in `_stUpdateVisible`: `row.style.display='flex'`.\n\nOptional: after the fix, names ellipsize in the 372\u2013400 px dock (62\u201372 px of 107 px at 1366 and 1920, data/j_after.json). Giving Name room, for example by hiding Econ. role in the dock, is a separate choice.",
+   "risk": "None to behaviour: hide and show still go through the inline display. Re-check that the header row (#stTableHead) still lines up with the data columns; it does in e_E1_table_after.png."
+  },
+  {
+   "id": "V02",
+   "title": "[CHEAP+HIGH] Native controls draw in the light scheme on the dark UI: no `color-scheme` anywhere",
+   "evidence": "`grep -c color-scheme v272.html` \u2192 0.\n\nWhat this produces:\n- Unchecked checkboxes are white squares.\n- Checked ones are Chrome blue, which is off-palette: 'Snap to places & ways' in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/a_03_civil_populated_1600.png.\n- The unfilled part of every slider track is light grey: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_62_world_sculpt.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/dock_world_generate.png.\n- Scrollbars and select popups also stay light.\n\nScale: the dock markup alone (lines from `<aside class=\"dock dock-left\">` to #tlStrip) holds 125 `type=\"range\"` and 43 `type=\"checkbox\"` (grep -o \u2026 | wc -l on data/dock_markup.html).\n\nBefore/after: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/before_after_colorscheme.png (from shots/e_F_colorscheme_before.png and shots/e_F_colorscheme_after.png).",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "Add after the light-theme `:root[data-theme=\"light\"]` block:\n`:root{color-scheme:dark} :root[data-theme=\"light\"]{color-scheme:light} input[type=checkbox],input[type=radio]{accent-color:var(--accent)}`\n\nRange inputs and progress already carry `accent-color:var(--accent)`.",
+   "risk": "It also darkens number spinners, select dropdown lists and scrollbars. That is intended, but look at one select popup by hand: headless cannot capture native popups.\n\nIn the dark scheme an unchecked box is a mid-grey square, subtler than white. Its edge stays visible in e_F_colorscheme_after.png."
+  },
+  {
+   "id": "V03",
+   "title": "[CHEAP+HIGH] Active sub-tabs and the Settings page list draw a full accent box, not an underline or left bar",
+   "evidence": "Computed style (data/e_measures.json D1 and D2): `.subtab.on` and `#setNav button.on` both have `1px solid rgb(224,163,74)` on all four sides and font-weight 600.\n\nVisible in:\n- CIVIL's GENERATION tab: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_11_place_selected_1600.png.\n- Settings: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/settings_pages.png.\n- The phone's Settings tabs: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/phone_modals.png.\n\nCause: the v2.23 theme layer's `button.on{background:var(--accent);border:1px solid var(--accent);font-weight:600}`, specificity (0,1,1).\n- It out-orders `.set-nav button` (also (0,1,1), declared earlier).\n- It out-specifies `.subtab` (0,1,0).\n- Each `.on` rule then recolours only one side, so the other three sides keep the 1px accent border.\n\nThe theme layer's own rule 3 says 'an active surface is a wash plus an edge'.\n\nPre-existing: v2.71 measures the same (data/g_v271_vs_v272.json).\n\nBefore/after: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_D2_setnav_before.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_D2_setnav_after.png.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "Add after the theme layer's `button.on` rule:\n`.subtab.on{border:0;border-bottom:2px solid var(--accent);font-weight:inherit}`\n`.set-nav button.on{border:0;border-left:2px solid var(--accent);font-weight:inherit}`\n`@media (max-width:860px){ .set-nav button.on{border-left:0;border-bottom:2px solid var(--accent)} }`",
+   "risk": "Font-weight 600 goes away on these active labels. The underline or bar, the wash and the accent colour still mark the state."
+  },
+  {
+   "id": "V04",
+   "title": "[CHEAP+HIGH] In the Asset Library, the 'Assets / \u2190 Map' pin is a blank amber block",
+   "evidence": "In Assets mode, at rest, #assetsHeaderBtn computes background rgb(224,163,74) and color rgb(224,163,74), so the label is accent on accent (data/e_measures.json G1). The text appears only on hover, when the background turns to wash (G2).\n\nScreenshots:\n- At rest: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_G1_assets_pin_rest.png.\n- Hovered: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_G2_assets_pin_hover.png.\n- With the slicer open: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_51_slicer.png.\n\nCause: the theme layer's `button.on` fill combines with v2.46's `#assetsHeaderBtn.on{color:var(--accent)}`.\n\nPre-existing: v2.71 measures the same (data/g_v271_vs_v272.json; shots/g_v271_assets_toggle_rest.png).\n\nWhy it matters: per v2.46 and the v2.72 CHANGELOG, this pin is the visible way out of the library.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "`#assetsHeaderBtn.on,#settlementsHeaderBtn.on{background:var(--wash2);color:var(--accent);border-color:var(--accent)}`\n\nThis is the theme's rule 3, wash plus edge. Verified readable in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_d_assets_fixed.png.",
+   "risk": "None found. On a phone the same two toggles sit in the header, and the rule reads the same there."
+  },
+  {
+   "id": "V05",
+   "title": "[CHEAP+HIGH] Light theme: the close buttons of the Settlements screen, route editor and city viewer are invisible",
+   "evidence": "`.cv-close`, `.re-close` and `.cfm-close` hard-code `background:rgba(10,12,17,.72)` with `color:var(--ink)`. In light, --ink is #1b1a17, so the \u00d7 is dark on near-black.\n\nMeasured contrast:\n- 1.08:1 on the Settlements screen (data/l_contrast_factions.json).\n- 1.08:1 on the route editor (data/l_contrast_routeeditor.json).\n- 1.07:1 on the city viewer (data/l_contrast_cityviewer.json).\n\nFiles: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/l_30_factions_modal.png, /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/l_70_route_editor.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/l_14_cityviewer_1600.png. The three are compared in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/light_modals.png.\n\nEsc still closes all three windows.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "`.cv-close,.re-close,.cfm-close{background:var(--panel2);color:var(--ink);border-color:var(--border)}`\n\nReplace the three `:hover{background:rgba(20,23,30,.9)}` rules with `border-color:var(--accent);color:var(--accent)`. This is the same pattern as `#creditsModal .cr-close:hover`.\n\nAfter the fix, ink on panel2 measures 16.67:1. Verified in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_l_factions_fixed.png.",
+   "risk": "In dark, the buttons change from a translucent chip to an opaque panel2 chip. That is visually equivalent."
+  },
+  {
+   "id": "V06",
+   "title": "[CHEAP+HIGH] The Settlements screen and the route editor draw their content straight on a 90 % scrim",
+   "evidence": "Dark:\n- On the Settlements screen's Global tab, the map's labels show through behind the slider rows: 'Galcasgalregopolis' sits behind 'Village cap' in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/settlements_tabs.png.\n- The route editor's header band sits over the dimmed menu bar and pins: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_70_route_editor.png.\n\nLight: light-theme ink lands on the dark scrim.\n- 'World overview' and 'All factions' measure 2.4:1; the counts 3.2:1 (data/l_contrast_factions.json).\n- The route editor's warning measures 2.73:1 and its 'Route' title 3.43:1 (data/l_contrast_routeeditor.json).\n- Files: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/light_factions_crop.png.\n\nIn total, 22 light-theme text runs on the Settlements screen fall below AA.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "`.civ-factions-modal .cfm-body{background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border)}`\n`.route-editor-modal{background:var(--bg)}`\n\nAfter the fix: 0 of 39 text runs fail on the Settlements screen, in dark and light (data/j_after.json). Captures: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_l_factions_fixed.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_d_settlements_global_fixed.png.",
+   "risk": "The route editor becomes fully opaque. It was already full-screen and exclusive, so nothing usable is hidden. The city viewer needs nothing, because its canvas covers the scrim."
+  },
+  {
+   "id": "V07",
+   "title": "[CHEAP+HIGH] Empty asset slots are 154 px white squares on the dark library",
+   "evidence": "18 white tiles fill the first screen at 1600\u00d7900: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_50_asset_library.png.\n\nMeasured on an empty tile: background rgb(255,255,255), and `--preview-al` is '#ffffff' (data/e_measures.json G3).\n\nCause: `UIState.data` defaults to `previewBg:'#ffffff'`, and boot runs `setPreviewBg(UIState.data.previewBg||'#ffffff')`.\n\nIn light the white tiles look natural: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/l_50_asset_library.png.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "CSS, which keeps the user's preview choice for real art:\n`.al-card .al-thumb:has(> .al-empty){background:var(--ins)!important} .al-card .al-thumb .al-empty{color:var(--dim)}`\n\nAfter the fix: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_d_assets_fixed.png.\n\nAlternative (JS): default `previewBg` to '#101218', the dark swatch already offered, when no saved value exists and the theme is dark.",
+   "risk": "`:has()` needs Chrome 105+, Safari 15.4+ or Firefox 121+. Older browsers keep today's white, a graceful fallback."
+  },
+  {
+   "id": "V08",
+   "title": "[CHEAP+HIGH] --faint text fails WCAG AA in both themes",
+   "evidence": "Token math (data/token_contrast.txt).\n- Dark #6f7478: 3.94:1 on --panel, 3.73 on --panel2, 4.00 on --ins, 4.09 on --bg.\n- Light #6e6f69: 4.46 on --panel, 4.03 on --ins.\n\nMeasured on screen, dark: 94 enabled text runs fall below 4.5:1 across 7 views. Every one is --faint except '(land)' in the route editor (#535759, 2.59).\n- place view: 26;\n- Settlements screen: 19;\n- Asset Library: 31;\n- route editor: 8;\n- city viewer: 9;\n- Settings: 1.\n\nWhat --faint covers: `.hint` (10.5 px; `grep -o 'class=\"hint' v272.html | wc -l` \u2192 197), tags, counts and captions. The stylesheet has 28 `var(--faint)` uses.\n\nThe design has no faint ink: its lowest text ink is --dim #8d9296 (data/d_styles_1366.json, 'hint last run').\n\nExamples: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_11_place_selected_1600.png (dock hints) and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_50_asset_library.png (counts).",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "Re-base the token.\n- Dark: `:root{--faint:#7d8285}` gives 4.97 on bg, 4.79 on panel, 4.54 on panel2, 4.86 on ins.\n- Light: `:root[data-theme=\"light\"]{--faint:#676762}` gives 5.09 on bg, 5.00 on panel, 5.45 on panel2, 4.52 on ins.\n- Design-faithful alternative: `.hint{color:var(--dim)}`.\n\nWith V08, V09 and V12 applied, the place view measures 0 failures of 136 runs in both themes (data/j_after.json).",
+   "risk": "This is a shared-token re-base, so re-check the relationships built on the old value (MISTAKES.md):\n- The faint\u2013dim step shrinks (4.54 against 5.62 on panel2).\n- Default `.pill` text gets brighter.\n- `option:disabled` reads slightly less disabled.\n- Faint on --wash2 still measures 3.63, a rare ground.\n\nThe 4.5 margins are thin, so recompute them if --panel2 or --ins ever move."
+  },
+  {
+   "id": "V09",
+   "title": "[CHEAP+HIGH] Light --accent fails AA as small text; two hard-coded dark inks sit on the accent fill",
+   "evidence": "Light #a4650f measures 4.15 on --panel, 3.77 on wash, 3.75 on --ins (data/token_contrast.txt).\n\nMeasured failures in light (data/l_contrast_place_1600.json and l_contrast_routeeditor.json):\n- the 9 px 'Context \u00b7 Settlement' caption;\n- the 10 px Inspect tab;\n- the 11 px wordmark;\n- rail 'Civil' at 4.1 and the 9.5 px dock path;\n- the GENERATION tab at 3.77;\n- 11 links in the route editor;\n- the Credits title and the city name at 4.15.\n\nHard-coded inks on the accent fill:\n- `.pill.on{color:#18191a}` measures 3.73 on the light accent; it is the 'Trade hub' trait in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/l_11_place_selected_1600.png.\n- `.layers-fab .lp-item.on{color:#1a1206}` measures 3.92.\n\nThe design's light accent is #9a5d0c (`themeVars` in Shell.dc.html).",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "Option 1: `:root[data-theme=\"light\"]{--accent:#8b550d}`. It passes on every ground: 5.52 on bg, 5.42 on panel, 5.91 on panel2, 4.90 on ins, 4.93 on wash, 4.52 on wash2. --accInk on it is 5.91.\n\nOption 2: the design's #9a5d0c. It passes on panel (4.68), bg and panel2, but fails on --ins (4.23) and wash (4.25).\n\nIn either case add `.pill.on,.layers-fab .lp-item.on{color:var(--accInk)}`.\n\nAfter the fix: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_l_place_selected_fixed.png.",
+   "risk": "Option 1 departs from the design's exact value. Ask the owner which one; Option 1 is the one that clears AA everywhere.\n\nThe accent fill darkens too. The `--accInk` on it improves, from 4.52 to 5.91."
+  },
+  {
+   "id": "V10",
+   "title": "[CHEAP+HIGH] Credits from Settings \u25b8 About \u25b8 \u24d8 opens behind the Settings window; on a phone that is the only way to it",
+   "evidence": "After a real click on #creditsBtn (data/h_measures.json):\n- creditsOpen is true;\n- #creditsModal has z-index 50, #settingsModal 74;\n- the element at screen centre belongs to #settingsModal.\n\nThe Credits card peeks out behind Settings: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/h_credits_from_settings_1600.png.\n\nOn a phone, after tapping \u24d8 the screen still shows the About page, and the tap on Credits' \u00d7 timed out (/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/f_phone_credits.png).\n\nThe desktop's Help \u25b8 Credits works, because Settings is closed there. The phone has no Help menu, so the cog's About page is its only route.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "`#creditsModal{z-index:76}`. That is above Settings (74) and below the map menu (80) and the setup gate (90).\n\nAfter the fix, the element at screen centre is creditsModal in dark and in light (data/j_after.json; /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_l_credits_over_settings_fixed.png).",
+   "risk": "Settings stays open underneath Credits, so closing Credits returns to the About page. That is expected."
+  },
+  {
+   "id": "V11",
+   "title": "[CHEAP] The loading screen dims the map, but the map controls stay bright and clickable above it",
+   "evidence": "Measured while generating, after Ctrl+R (data/h_measures.json):\n- `.busy` has z-index auto; #mapBR has 20.\n- elementFromPoint at #zoomIn returns zoomIn, at the 3D switch a BUTTON, at the Base map chip the chip itself.\n- At the scale bar and the legend it returns the busy overlay.\n\nScreenshots: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/h_busy_map_controls.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/f_busy_overlay_1600.png.\n\nNew with v2.72: the zoom column now shows on every desktop. v2.71 drew it on touch devices only.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "`.busy{z-index:30}`. That puts it above .map-tl and .map-br (20) and the scale bar (15), and below the menu panels (45) and the place popup (61).",
+   "risk": "Zoom, 3D and Base map can no longer be pressed mid-generate. That matches the Godot busy overlay, which takes every input (PC_SHELL_PROPOSAL.md \u00a73.10)."
+  },
+  {
+   "id": "V12",
+   "title": "[MEDIUM effort, HIGH in light] The place popup keeps a hard-coded warm dark palette, and its Name row clips the \ud83c\udfb2 button",
+   "evidence": "`.place-edit-popup` and `.settle-info` hard-code:\n- text #e8dcc4, heading #d8b97a, labels #c8b998;\n- ground rgba(14,17,23,.97);\n- control borders rgba(200,169,110,.3).\nIts form controls take theme tokens, so in light the card stays dark with white inputs and buttons on it.\n\nMeasured light failures (data/l_contrast_place_1600.json): trait pills 3.51, '0\u20131' and '(auto)' 2.16, 'Fortifications (walls)' 2.64, the 'Trade hub' pill 3.73. File: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/l_11_place_selected_1600.png.\n\nIn dark it is the only surface with a parchment palette. The .97 alpha also ghosts map labels: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/popup_name_row.png.\n\nName row clip (data/e_measures.json I1):\n- the popup measures clientWidth 278 against scrollWidth 289;\n- #_civPeNameRoll's right edge sits at 883 against the inner edge at 861.\nSame on seed 4242 at 1920 and 2560 (data/s2_geom_*.json): /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/s2_11_place_selected_1600.png.",
+   "impact": "high",
+   "effort": "medium",
+   "proposal": "Re-token both popups in both themes:\n`.place-edit-popup,.settle-info{background:var(--panel);color:var(--ink);border-color:var(--border)}`\n`.place-edit-popup .pe-h,.settle-info .si-h,.settle-info .si-h2,.settle-info .si-score{color:var(--accent)}`\n`.place-edit-popup .row label{color:var(--muted)}`\n`.place-edit-popup select,.place-edit-popup input[type=text],.place-edit-popup input[type=number]{background:var(--ins);border-color:var(--border);color:var(--ink)}`\n`.place-edit-popup .si-close,.settle-info .si-close{color:var(--dim)}`\n`.settle-info .si-grid b,.settle-info .si-res b{color:var(--ink)}`\n\nCheap part, on its own: `.place-edit-popup .row input{min-width:0}`. Measured after: 278/278, the roll button's right edge at 860.\n\nAfter captures: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_d_place_selected_fixed.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_l_place_selected_fixed.png.",
+   "risk": "The warm palette was a v0.90 choice. Ask the owner whether the popup should stay 'parchment'.\n\nThe template strings in `_civPopulatePlaceEditor` may carry their own inline colours, so grep them before relying on CSS alone. They looked consistent in the after-captures."
+  },
+  {
+   "id": "V13",
+   "title": "[CHEAP] File \u25b8 Export: 'Export GeoJSON' looks like a line of text, not a button",
+   "evidence": "Computed style of #exportGeoBtn: transparent background, `0px none` border (data/e_measures.json H).\n\nCause: v0.87's `.dropdown button{background:none;border:0}` styles list rows, and it also strips this form button.\n\nFiles: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_H_geojson_button.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_21_menu_file_export.png.\n\nPre-existing: v2.71 measures the same.\n\nThe submenu also stacks two headings, the 'EXPORT' cap and 'EXPORT IMAGE & PROJECT'.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "`#mbExportPanel #exportGeoBtn{background:var(--panel2);border:1px solid var(--border);padding:7px 12px;width:auto;display:inline-block}`. Verified in /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/j_d_file_export_fixed.png.\n\nOptional: `#mbExportPanel #exportSec h2{display:none}` on the desktop, so only the cap names the panel.",
+   "risk": "A phone's File \u25be flows the same form inline. The rule is not scoped, so the button gains a box there too, which is an improvement."
+  },
+  {
+   "id": "V14",
+   "title": "[CHEAP] The status readout cuts a chip mid-text at 1600 and at 1366",
+   "evidence": "Measured `#readout` widths (data/e_measures.json C):\n- 1600: clientWidth 911 against scrollWidth 989; 'volc 20\u00b7prov \u00b7 craters 100' is cut.\n- 1366: 677 against 678; 'grade 506.6%' is cut by 1 px.\n- 1920 and 2560: no cut.\n\nThe file's own comment says 'whole chips drop by priority\u2026 a status bar that clips mid-word reads broken'.\n\nCrop: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/statusbar_1600.png.\n\nPre-existing: v2.71 clips too, at 956 against 1003.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "`.status-bar .readout{flex-wrap:wrap;height:26px;align-content:flex-start;line-height:26px;row-gap:0}`. A chip that does not fit wraps onto the clipped second line and disappears whole, at any width or font. The existing .r-lo and .r-md breakpoints stay.\n\nMeasured after: no chip is cut, and 'volc\u2026' is wrapped away whole (data/j_after.json).",
+   "risk": "The readout overflows by up to 78 px at 1600, so measure the chips at the other font's metrics on Windows (see limits)."
+  },
+  {
+   "id": "V15",
+   "title": "[CHEAP+HIGH] Arming Sculpt hides 8 of 13 features at 1600 and 10 at 1366; the bar's hint and readout are stale or cut",
+   "evidence": "Measured with Freehand armed (data/k_sculpt.json):\n- 1600: picker scrollLeft 608, scrollWidth 950, 342 px visible; 8 features hidden to the left (Mountains \u2026 River) and '\ud83d\udca7 Lake' half cut.\n- 1366: 225 px visible, 10 hidden.\n- Nothing on screen says the picker scrolls.\n\nCause: `_dskToolOptsSync` deliberately centres the armed feature. Freehand is the last item, so centring scrolls to the end.\n\nThe hint still says 'pick a sub-mode below', but the modes now sit beside it (data/e_measures.json J2). The km readout shows '\u2248 25.0 km ra\u2026'.\n\nFiles: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_J_sculpt_bar.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_62_world_sculpt.png.\n\nBefore/after: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/sculpt_bar_before_after.png.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "Give the picker row one, inside the desktop query:\n`#toolOpts #sculptModeSeg{order:6}`\n`#toolOpts .to-spacer{flex:0 0 0;min-width:0}`\nThe spacer otherwise grows level with the picker and takes half the row. The pins keep `margin-left:auto`.\n`#toolOpts #sBrushRow,#toolOpts #sBrushKm,#toolOpts #sHardRow,#toolOpts #sIntenRow{order:7}`\n`#toolOpts #sculptFeatHint{order:8}`\n`#toolOpts #sBrushKm{max-width:11em}`\n\nMeasured after:\n- 1600: 1064 px visible, 0 hidden.\n- 1366: 830 px, 1 hidden.\n- The bar stays 75 px, and the idle bar's pins still end at 1590/1356.\n\nAlso reword the Freehand hint in the sculpt feature table ('pick a mode: Raise, Lower, Smooth\u2026'). Optional: a right-edge fade on the picker, `mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent)`.",
+   "risk": "Row two gets longer, so the feature hint truncates sooner. It already ellipsizes."
+  },
+  {
+   "id": "V16",
+   "title": "[CHEAP] At 1366\u00d7768 with the strip expanded, the place popup runs 33 px onto the timeline strip",
+   "evidence": "Measured rects (data/e_measures.json N): popup [593,83,873,697]; strip top 664; map bottom 664.\n\nCause: `_civOpenPlacePopup` clamps to `_viewportRect()`, the map's own box, but cannot fit the popup there. Its max-height `min(80vh,660px)` is 614 px at 768, and the map is 587 px tall.\n\nFile: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_91_civil_selected_1366.png. The slider track is hidden behind the popup.\n\nCHANGELOG_v2.72 lists it under 'Seen, not changed'.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Desktop query only, so a phone keeps v2.71's placement:\n`.place-edit-popup{max-height:min(80vh,660px,calc(100vh - 232px));max-height:min(80dvh,660px,calc(100dvh - 232px))}`\n\nThe vh declaration comes first as the fallback. 232 px is the worst-case chrome: menu bar 36, two-row tool bar 80, expanded strip 78, status 26, clamp padding 12. The popup already scrolls inside.",
+   "risk": "With the strip collapsed, the popup is up to about 40 px shorter than it could be. The exact fix is to set `el.style.maxHeight` from `_viewportRect()` in `_civOpenPlacePopup` under the desktop media query."
+  },
+  {
+   "id": "V17",
+   "title": "[CHEAP+HIGH] New World card: 'Archipelago' is clipped and every shape cell is forced onto two lines",
+   "evidence": "Measured (data/e_measures.json A1): 'Archipelago' needs 68 px in a 59 px cell, and all six cells are 42 px tall.\n\nSeen in:\n- dark: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/a_00_newworld.png;\n- light: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/light_start.png;\n- phone, where it reads 'Archipela': /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/phone_modals.png.\n\nThis is the first form a new user sees.\n\nAlso (A2): the sticky Back/Generate bar sits 25 px above the card's bottom edge (the card's padding-bottom). Scrolled content passes through that band, which elementFromPoint confirms (it returns #obStepGenerate).",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "`#onboard #suArchSeg{display:grid;grid-template-columns:repeat(3,1fr)}`. Measured after: 0 clipped cells. Before/after: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_A3_worldshape_before.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_A3_worldshape_after.png.\n\n`#onboard .su-actions{bottom:-24px}`. The gap goes from 25 px to 1 px: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_A2_sticky_gap_after.png.",
+   "risk": "Two rows of three make the card about 40 px taller. Its actions are sticky, so they stay reachable."
+  },
+  {
+   "id": "V18",
+   "title": "[CHEAP] At 1366, CIVIL's five sub-tabs overflow the dock: STATISTICS is clipped and the dock gains a 16 px horizontal scroll",
+   "evidence": "Measured (data/e_measures.json Q):\n- 1366: the bar and the dock are 371 px wide but need 387; STATISTICS ends at 427 against the dock's edge at 412.\n- 1600: fits with 1 px to spare (399/399).\n\nSame on seed 4242 (data/s2_geom_1366.json).\n\nFiles: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_91_civil_selected_1366.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/s2_91_civil_selected_1366.png.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Desktop query: `.subtab{letter-spacing:.02em;padding:9px 2px;min-width:0}`.\n\nMeasured after at 1366: no dock scroller (data/j_after.json d_geom_1366).\n\nDesign-shaped alternative: mono 9.5px labels.",
+   "risk": "The width depends on the font. Measured with Inter as the sans; Segoe UI on Windows differs (see limits). The fix leaves margin either way."
+  },
+  {
+   "id": "V19",
+   "title": "[CHEAP] The design's accent focus ring is on the menu bar and rail only; everything else gets Chrome's default ring",
+   "evidence": "Six controls reached with Tab (data/b_focus_seq.json): #genBtn, #reseedBtn, #centerBtn, #bakeAllDepth, #bakeAllBtn and a summary. All compute `outline: auto 1px rgb(16,16,16)`, Chrome's default ring.\n\nIn the CSS, only `.mb-btn`, `.mb-row`, `.mb-panel > button` and `.domain-rail .dr-btn` have a :focus-visible rule.\n\nThe design's ring is `outline:2px solid #e0a34a;outline-offset:2px` (.dk-chip and .clr-btn in the mockup).\n\nCrops: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/focus_seq.png.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "`:focus-visible{outline:2px solid var(--accent);outline-offset:2px}`.\n\nThe existing `-2px` rules for menu rows and the rail out-specify it and keep their inset ring.",
+   "risk": "Text inputs always match :focus-visible, so every focused field gets the accent ring. If that reads too loud, scope it to `button,summary,select,[role=tab],input[type=checkbox],input[type=radio],input[type=range]`."
+  },
+  {
+   "id": "V20",
+   "title": "[CHEAP] Text fields use the browser's font (Arial 13.33 px) and almost no padding",
+   "evidence": "Census (data/b_controls_civ.json): input[type=text] computes 'Arial 13.3333px', 19 px tall. These are the landmass name fields, whose text touches the border: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/stats_inputs.png.\n\nThe popup's Name field shows the same.\n\nCause: the theme layer sets colours on `input,select,textarea` but not the font. Buttons set `font-family:var(--sans)`. Selects and numbers are mono.\n\nThe design's input is mono 12px, 30 px tall, padding 0 12px (data/d_styles_1366.json).",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "`input,select,textarea{font-family:inherit}`\n`input[type=number],select{font-family:var(--mono)}`\n`input[type=text],input[type=search],input:not([type]){padding:5px 7px}`",
+   "risk": "Every text field changes typeface slightly. The ragged landmass inputs ('flex:1' against a varying descriptor width) stay ragged. Give them `flex:0 0 160px` if alignment matters."
+  },
+  {
+   "id": "V21",
+   "title": "[CHEAP] The legend and scale-bar backgrounds are too thin over bright terrain",
+   "evidence": "Computed: #scaleBar rgba(10,12,16,.55) with #cfd4dc text; .legend rgba(10,12,17,.74) with --dim text (data/e_measures.json M).\n\nContrast:\n- Scale bar over white snow: 2.91:1. Over sand #d9c79c: 4.19.\n- Legend over white: 2.77. Over sand: 3.47.\n\nCanvas map labels show through and strike out '20 km': /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/legend_scalebar_1600.png.\n\nLight already uses .85.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "`#scaleBar{background:rgba(10,12,16,.85)}` gives 8.82:1 over white.\n`.legend{background:rgba(10,12,17,.86);color:var(--muted)}` gives 6.01 over white and 6.68 over sand.\n\nThe light overrides keep their own values, because `:root[data-theme=\"light\"] \u2026` out-specifies these rules.",
+   "risk": "The legend hides more of the map beneath its roughly 120\u00d7170 px box.\n\nThe design's own scale bar has no box: text with a halo. That is an owner choice."
+  },
+  {
+   "id": "V22",
+   "title": "[CHEAP, LOW] Map chips are misaligned, and the Context panel's hint is cut at every size",
+   "evidence": "Chips (data/e_measures.json L): the Base map chip spans [450,87,564,119], 32 px tall, against the Explore filter's [570,87,606,123], 36 px. Bottoms differ by 4 px: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_L_map_chips.png.\n\nHint (data/e_measures.json P): .ctx-hint needs 397 px and gets 249\u2013273 px at all four sizes. It reads 'Inspect a settlement, label or icon on the m\u2026', and the body below repeats the same sentence in full.\n\nFile: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_11_place_selected_1600.png. The design's hint is cut too.",
+   "impact": "low",
+   "effort": "small",
+   "proposal": "`.map-tl .funnel-btn{width:32px;height:32px}`\n\nFor the hint, either shorten the empty-state copy in `_dskCtxSync` (e.g. 'Click a place on the map'), or use `.ctx-hint{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}`.",
+   "risk": "None found."
+  },
+  {
+   "id": "V23",
+   "title": "[PHONE MODAL, CHEAP+HIGH] On a phone, the Settlements screen draws every faction name at 0 px",
+   "evidence": "Measured (data/i_faction_rows.json):\n- 412\u00d7915: all 6 names (Aurelia \u2026 Draumr League) draw at 0 px wide, against a need of 42\u201399 px. Rows are 352 px.\n- 1366: they draw at 231 px.\n\nCause: `_civRenderFactionList` gives the name `flex:1;min-width:0`, while the two pills and the stats do not shrink.\n\nFiles: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/i_faction_rows_phone412.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/phone_modals.png.\n\nAlso: before any settlements exist, the overview reads 'Largest by population: Aurelia (0)'. That is an argmax over zeros, a plausible-looking value standing in for none.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "`#civFactionList > div{flex-wrap:wrap}`\n`#civFactionList > div > b{flex:1 1 120px}`\nThe name keeps 120 px and the pills wrap below it.\n\nIn the overview writer, show 'Largest by population: \u2014 (no settlements yet)' when the population is 0.",
+   "risk": "Rows grow to two lines at phone width. The overview change is a copy change in JS; its message must be the verified reason (no settlements yet)."
+  },
+  {
+   "id": "V24",
+   "title": "[MEDIUM] Controls inside the docks are still v2.71's style; 5 of 96 match the design",
+   "evidence": "Census of the 96 controls visible in the four domain docks (data/b_controls_world/civ/carto/explore.json):\n\nMatch the design's control type (mono, uppercase, letter-spaced): 5. They are GENERATE WORLD, NEW SEED, CENTER LANDMASSES and GENERATE|SCULPT.\n\nDo not match:\n- 26 segmented buttons: sans 10.5px, 25 px tall, active state a solid accent fill.\n- 8 action buttons: sans 12px sentence case. \ud83d\udd12 'Bake ALL levels & finalize world' sits directly under GENERATE WORLD at 224 px wide (/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_60_world_generate.png); the design draws it full width, 292 px, uppercase (data/d_inventory_1600.json).\n- 16 sliders and 8 checkboxes: native.\n- 5 sub-tabs: sans 11px.\n\nThe design (data/d_styles_1366.json):\n- Chips: mono 10px/500/.8px, 30 px tall, active = wash .14 + 1px accent edge + accent text.\n- Secondary buttons: mono 10px/500/1.2px uppercase, 32 px.\n- Primary buttons: mono 10.5px/500/1.47px uppercase.\n\nThe theme layer's own rule 3 also says 'never a saturated fill'.\n\nStatic count in the dock markup: 130 buttons, 14 segs, 125 ranges, 43 checkboxes.\n\nCompare /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_64_dock_civ_generation_s0.png with the design's /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/d3_civil_selected.png.",
+   "impact": "high",
+   "effort": "medium",
+   "proposal": "Staged, inside the desktop query.\n\n(a) Segmented controls get the design's chip state:\n`.dock .seg button{font-family:var(--mono);font-size:10px;letter-spacing:.06em;min-height:28px}`\n`.dock .seg button.on{background:var(--wash2);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}`\n\n(b) Dock action buttons get Run's type:\n`.dock .btnrow > button,#bakeAllBtn,#unfinalizeBtn{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;min-height:30px}`\n\n(c) `#bakeAllBtn,#unfinalizeBtn{display:block;width:100%}`\n\nThen re-run the truncation census (lib.js `__aud.truncs`) at 1366: uppercase mono is wider.",
+   "risk": "Changes the look of every segmented control: Region/World, grid sizes, presets and tools.\n\nUppercase mono is about 1.3\u00d7 wider. `.btnrow` wraps, but a 4-button row such as Deselect / Hide/show / Move up / Move down will go to two lines.\n\nThe owner may prefer filled tool segments, so confirm before taking (a)."
+  },
+  {
+   "id": "V25",
+   "title": "[MEDIUM] Section-label type has about eight variants, and long help paragraphs set the density",
+   "evidence": "The same role, a small uppercase section label, is drawn at:\n- `.sec h2` 9px/.22em;\n- `.dock .sublabel` 9.5px/.18em/500;\n- `details.cat-acc>summary` 10px/.13em/600;\n- `details.acc>summary` 10px/.14em/500;\n- `.tl-lab` 9.5px/.2em;\n- `.lp-grp` and `.al-rail-h` 9px/.11\u2013.13em in faint;\n- `#creditsModal h3` 11px/.07em in accent2;\n- `.cv-section h3` and `.re-col h3` sans 10.5px/700/.06em.\n\nThe design uses one rule: 9.5px/500/.2em, --dim (d_styles_1366.json 'section label TOOLS').\n\nCategory summaries glue the arrow to the word ('\u25b8GEOLOGY', '\u25b8TILED LOD VIEW'), because `content:'\u25b8  '` loses its spaces in a flex summary: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/settings_pages.png.\n\nRow labels wrap ('Towns / Villages'), and help runs up to 9 lines (Auto-populate): /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/a_03_civil_populated_1600.png.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "One rule for section labels:\n`.sec h2,.dock .sublabel,.dock .sublabel-grp,.tl-lab,.lp-grp,.al-rail .al-rail-h,#onboard .su-label,.cv-section h3,.re-col h3{font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)}`\n\nKeep accent for the location labels (.dh-path, .to-ctx, .ctx-k, .mb-cap).\n\nFor the arrows: `details.cat-acc>summary::before{margin-right:8px}`.\n\nThe help length is content, not CSS. Consider `details.adv` for paragraphs over 3 lines.",
+   "risk": "Purely typographic. Check that 9.5px faint labels such as .lp-grp move to --dim (V08)."
+  },
+  {
+   "id": "V26",
+   "title": "[OWNER CALL, high impact] Corner radius: the mockup and the native port moved off radius 0, but v2.72 forces 0 and its comment says the mockup is flat",
+   "evidence": "Design computed radii (data/d_styles_1366.json):\n- menu buttons 10px;\n- inputs 12px;\n- chips, pins, search and Base map 15px;\n- primary and secondary buttons 16px;\n- tool tiles 14px;\n- map buttons 16px;\n- bands and panels 0.\nSee /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/d_frame_1600_light.png.\n\nv2.72 keeps v2.23's `*{border-radius:0 !important}`, which overrides 67 radius declarations in its stylesheet. Its D-block comment says 'flat; radius 0, which the theme layer above already enforces'.\n\nThe native port already records this rule as abandoned. `dcc_theme.gd` ROLE `\"btn_radius\": [8, 12]`, whose comment says '\u00a711's \"radius 0 everywhere\"\u2026 Both current canvases have moved off it\u2026 the shell was faithfully implementing a rule the design had abandoned'.",
+   "impact": "high",
+   "effort": "medium",
+   "proposal": "Narrow the reset to non-controls:\n`*:not(button):not(select):not(input):not(textarea):not(.pill):not(.mb-panel):not(.mb-subpanel):not(.dropdown):not(.card):not(.cr-card):not(.set-shell):not(.place-edit-popup):not(.zbtn){border-radius:0!important}`\n\nThen set radii from two tokens:\n`:root{--r-ctl:8px;--r-pill:999px}`\n`button,select,input:not([type=range]):not([type=checkbox]):not([type=radio]),textarea{border-radius:var(--r-ctl)}`\n`.seg{border-radius:var(--r-ctl);overflow:hidden} .seg button{border-radius:0}`\n`.pill,.to-pins button,#layersBtn,.funnel-btn,.map-br .zbtn,.map-br .viewdim button{border-radius:var(--r-pill)}`\n`.mb-panel,.mb-subpanel,.dropdown,.place-edit-popup,#onboard .card,#creditsModal .cr-card,.set-shell{border-radius:var(--r-ctl)}`\n\nFix the D-block comment in the same change (Ruling BK).",
+   "risk": "This reverses a stated v2.23 rule, so ask the owner. The newer canvas wins under CLAUDE.md, and the port's DccTheme already did it.\n\nThe joystick circles keep their own `!important`. `.seg.grid` borders need a re-check with `overflow:hidden`."
+  },
+  {
+   "id": "V27",
+   "title": "[MEDIUM] Colour emoji used as icons, against the design's monochrome line glyphs",
+   "evidence": "Counts:\n- 12 of 130 dock buttons carry emoji, for example \ud83d\udd12 Bake, \ud83d\udd13 Un-finalize, \ud83d\udccb Open Faction Roster\u2026, \ud83d\udd0d Info, \ud83c\udff7 Label, \ud83d\udee4 Way and \ud83c\udfb2 (python count on data/dock_markup.html).\n- The file holds 209 emoji code points in all.\n\nThe pin row mixes 'SAVE' and 'PLANNER' (text) with '\ud83c\udfd8 SETTLEMENTS' and '\ud83c\udfa8 ASSETS': /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_11_place_selected_1600.png.\n\nThe sculpt picker is all emoji (\u26f0\ufe0f \ud83c\udf04 \ud83e\uddf1 \ud83e\udea8 \ud83c\udfde\ufe0f \ud83d\udca7 \ud83c\udfe0 \ud83c\udf0a \ud83c\udf0b \u270f\ufe0f): /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/e_J_sculpt_bar.png.\n\nThe start card uses \ud83c\udf0d \ud83d\udcc2 \ud83d\uddfb: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/a_00_startcard.png.\n\nThe design draws SVG line icons in currentColor.",
+   "impact": "medium",
+   "effort": "medium",
+   "proposal": "Start with the pins.\n- Wrap each emoji in `<span class=\"ico\" aria-hidden=\"true\">\u2026</span>`.\n- Add `@media not all and (max-width:860px){ #toolOptsPins .ico{display:none} }`.\n- Also change the two JS writers: `_carEnterAssetsMode` sets `ab.textContent='\u2190 Map'` and `_carExitAssetsMode` sets '\ud83c\udfa8 Assets'. Both must write the span.\n\nThen drop the emoji from the dock's primary buttons (Bake, Un-finalize), which the design draws text-only.\n\nThe Base map chip's inline SVG is the house pattern for any icon kept.",
+   "risk": "Markup and JS edits, not CSS only. Hunt every textContent writer of each button, and keep the phone header's emoji until stage 2."
+  },
+  {
+   "id": "V28",
+   "title": "[LOW] Copy that v2.72's moves made stale",
+   "evidence": "Three places:\n- The strip says 'No recorded years yet \u2014 open the strip and press Add year' while the strip is already open: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/a_04_strip_expanded_noyears_1600.png.\n- WORLD's tools line says 'World has no map tools \u2014 shape terrain in Sculpt' while Sculpt is armed: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_62_world_sculpt.png.\n- Freehand's hint says 'pick a sub-mode below' (V15).",
+   "impact": "low",
+   "effort": "small",
+   "proposal": "- Strip empty state: 'No recorded years yet \u2014 press Add year' when #tlStripMore is open.\n- Hide WORLD's tools sentence while the Sculpt category is open.\n- Reword the Freehand hint.\n\nThese are copy edits in the writers of #tlStrip's empty line, the WORLD tools block and the sculpt feature table.",
+   "risk": "Per the HTML's rules, grep each old phrase for every other copy."
+  },
+  {
+   "id": "V29",
+   "title": "[LOW\u2013MEDIUM] Timeline strip: v2.71 controls where the design draws chips and a round play button",
+   "evidence": "The design's expanded strip draws:\n- recorded years, Exist only, Ghost removed, Highlight new and \u00d71/\u00d710/\u00d7100 as pill toggles;\n- play as a round accent button.\nSee /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/d3_timeline_expanded.png.\n\nv2.72 draws native checkboxes, a boxed sans '\u25b6 Animate' and a thick native slider: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/a_05_strip_expanded_twoyears_1600.png.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Pure CSS, keeping Explore's own elements:\n`#tlStrip .tl-filters label.chk{border:1px solid var(--border);padding:4px 10px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--muted)}`\n`#tlStrip .tl-filters label.chk:has(input:checked){border-color:var(--accent);background:var(--wash2);color:var(--accent)}`\n`#tlStrip .tl-filters label.chk input{position:absolute;opacity:0;width:1px;height:1px}`\n`#tlStrip .tl-filters label.chk:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}`\n`#tlStrip #explTlPlayBtn{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;background:var(--wash2);color:var(--accent);border-color:var(--accent)}`",
+   "risk": "The checkbox stays focusable and labelled. A screen reader still announces a checkbox: verify by hand."
+  },
+  {
+   "id": "V30",
+   "title": "[LOW] Window headings come in six styles",
+   "evidence": "- Settlements: sans 19px bold accent.\n- Route editor: 17px sans.\n- City viewer: 16px sans.\n- Credits: mono 14px uppercase.\n- Settings: mono 12px uppercase.\n- New World: mono 13px.\n\nSee /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_30_factions_modal.png, /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_70_route_editor.png and /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/shots/b_41_credits.png.\n\nAlso, Records \u25b8 Factions\u2026 opens a window titled 'Settlements'.",
+   "impact": "low",
+   "effort": "small",
+   "proposal": "`.cfm-body h2,.re-summary h2,.set-head h3,#creditsModal h2,#onboard h3{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}`\n\nKeep the city viewer's place name at 16px as a proper noun.",
+   "risk": "None found."
+  },
+  {
+   "id": "V31",
+   "title": "[OWNER, LOW] Type faces and status-bar density differ from the design",
+   "evidence": "The design loads IBM Plex Mono and uses Helvetica Neue (Desktop.dc.html helmet).\n\nThe file's stacks resolve differently by platform:\n- here: DejaVu Sans Mono and Inter;\n- on Windows: Consolas or Cascadia and Segoe UI.\nAt .2em tracking the mono widths vary by about 9 %, which moves every truncation point (V14, V18).\n\nThe design's status bar holds 3 items. v2.72's holds about 15 chips of generation statistics: /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-visual/sheets/statusbar_1600.png.",
+   "impact": "low",
+   "effort": "medium",
+   "proposal": "Either embed one mono face (a Plex Mono subset as a base64 @font-face, about 30\u201360 KB), so widths are the same on every OS, or keep the system stacks and the wrap-to-hide rules (V14). Moving the physics chips into Generation info is the owner's call.",
+   "risk": "An embedded font adds file size, and the licence must be confirmed (Plex is OFL)."
+  }
+ ],
+ "limits": "- Fonts. This machine has no Consolas, Cascadia, SF Mono or Segoe UI: --mono resolved to DejaVu Sans Mono and --sans to Inter. Width-dependent numbers (V14's 78 px, V18's 16 px) may differ on the owner's Windows machine. The proposed fixes hold either way.\n- Browser. Headless Chromium only; Firefox and Safari were not run. Native select popups, number spinners and date pickers cannot be captured headless, so V02 needs one look by hand. WebGL 3D was not examined (the software path runs headless).\n- Contrast over the map (legend, scale bar) is computed for two grounds only, white snow and sand #d9c79c, not sampled per pixel.\n- Not covered: screen readers; touch targets on desktop; the phone shell itself (stage 2 owns it). Only the shared modals were checked at 412\u00d7915.\n- Concurrency. Ran while the main loop ran its stage-2 probes (load 1.5\u20132.2). Captures are visual, not timings.\n- Out of scope, seen in passing: after generation, the map opens at 'cover' zoom (20 km scale bar at 2K) and the terrain looks soft at that zoom. That is map rendering, not the shell.\n- Report text, not written:\n  - MISTAKES.md candidate. 'Restyling an active state by recolouring one border side: reset the shorthand first. A generic `button.on{border:1px solid}` in a later layer fills the other three sides. \u00d71, found 2026-11-01: `.subtab.on` and `.set-nav button.on` had drawn boxes since v2.23. Verify with getComputedStyle on all four sides.'\n  - Ruling BK. The v2.72 D-block comment 'flat; radius 0' misdescribes the mockup (V26) and should be corrected in whichever change settles radius."
+}

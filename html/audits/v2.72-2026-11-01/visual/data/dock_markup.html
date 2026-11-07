@@ -1,0 +1,1176 @@
+  <aside class="dock dock-left">
+
+    <!-- v2.72 (desktop): the dock's header names where you are — WORLD › GENERATE, WORLD › SCULPT,
+         CIVIL, CARTO or EXPLORE, read from _domain by _dskDockHeadSync — and its chevron is Window ▸
+         Left dock (one toggle, _dskWinSet('ldock')). Collapsed, the dock is a 30px strip holding just
+         this header, so the way back is where the dock was. -->
+    <div class="dock-head dk-only" id="dockLeftHead">
+      <span class="dh-path" id="dockLeftPath">World › Generate</span>
+      <button type="button" class="dh-btn" id="dockLeftCollapse" aria-expanded="true" title="Collapse the left dock (Window ▸ Left dock)" aria-label="Collapse the left dock">‹</button>
+    </div>
+
+    <!-- UNIFIED TOOLS BLOCK — v2.24-------------------------------------------------------------
+         The three palettes used to live one-per-domain-body, so an armed tool's contextual options
+         (POI kind, territory radius, way type, icon gallery, Info readout) could be hidden by a
+         body that was not on screen while the tool itself stayed armed — [data-civtool] has always
+         been ONE global mutually-exclusive group. They are one block now, pinned above the domain
+         body. Each palette stays domain-scoped (data-tooldomain), so no tool becomes armable that
+         was not armable before: this is a layout change, not a capability change. -->
+    <div class="sec toolsblock" id="toolsBlock">
+      <div data-tooldomain="world" class="tool-group"><div class="sublabel">Tools</div><div class="hint">World has no map tools — shape terrain in <b>Sculpt</b>, or switch domain to place settlements, label the map or plan a route.</div></div>
+      <div data-tooldomain="civ" class="tool-group" style="display:none">
+    <div class="sec" id="civToolPalette">
+      <div class="sublabel">Tools</div>
+      <div class="seg sm" style="flex-wrap:wrap">
+        <button data-civtool="inspect" class="on">Inspect</button>
+        <button data-civtool="place">⌂ Settlement</button>
+        <button data-civtool="place_poi">◈ POI</button>
+        <button data-civtool="territory">▦ Territory</button>
+        <button data-civtool="draw_way">🛤 Way</button>
+      </div>
+      <div class="hint">Pick a tool, then click the map. <b>Inspect</b> selects an existing place — its editor opens in <b>Selection</b> above; <b>Settlement</b>/<b>POI</b> drop new ones; <b>Territory</b> paints faction land (pick a faction in Factions — <b>∅ Unclaimed</b> erases); <b>Way</b> clicks waypoints, then tap <b>✓ Commit way</b> below (Esc also works).</div>
+    </div>
+    <div class="row" id="civPoiTypeRow" style="display:none">
+      <label for="civPoiKind">POI type</label>
+      <select id="civPoiKind" style="flex:1">
+        <option value="ruin">⊕ Ruin</option>
+        <option value="landmark">◈ Landmark</option>
+        <option value="mountain_peak">▲ Peak</option>
+        <option value="named_forest">♧ Forest</option>
+        <option value="battlefield">⊗ Battlefield</option>
+        <option value="shrine">✧ Shrine</option>
+        <option value="cave">◐ Cave</option>
+        <option value="other">◆ Other</option>
+      </select>
+    </div>
+    <div class="row" id="civTerritoryToolRow" style="display:none">
+      <label for="civTerRadius">Territory radius</label>
+      <input type="range" id="civTerRadius" min="1" max="20" value="5"><span class="val" id="civTerRadiusV">5</span>
+    </div>
+    <div class="sec" id="civWayDrawRow">
+      <div class="sublabel">Manual way drawing</div>
+      <div class="row"><label for="civWayType">Way type</label>
+        <select id="civWayType" style="flex:1">
+          <option value="road">Road</option>
+          <option value="track">Track</option>
+          <option value="sea-lane">Sea lane</option>
+          <option value="ancient">Ancient route</option>
+        </select>
+      </div>
+      <label class="chk" style="font-size:.72rem" title="Click near a settlement, POI, or another way while drawing and the waypoint lands exactly on it instead of the raw cursor cell — ported from Cartalith V1.915's Route Editor snapping."><input type="checkbox" id="civSnapWayChk" checked> Snap to places &amp; ways</label>
+      <div class="btnrow" style="margin-top:6px"><button id="civCommitWayBtn">✓ Commit way</button></div>
+      <div class="hint">Select a way type then click the map to add waypoints, then tap <b>✓ Commit way</b> (desktop: Esc also works) to finish — each segment routes through the terrain via Dijkstra least-cost pathfinding. Roads prefer valleys and passes; sea lanes cross open water.</div>
+    </div>
+      </div>
+      <div data-tooldomain="carto" class="tool-group" style="display:none">
+    <div class="sec" id="cartoToolPalette">
+      <div class="sublabel">Tools</div>
+      <div class="seg sm" style="flex-wrap:wrap">
+        <button data-civtool="inspect" class="on">Inspect</button>
+        <button data-civtool="label">🏷 Label</button>
+        <button data-civtool="icon">◇ Icon</button>
+      </div>
+      <div class="hint"><b>Inspect</b> selects an existing label or icon on the map — its editor opens in <b>Selection</b> above; <b>Label</b> names a region (click an empty spot); <b>Icon</b> reveals the gallery below to pick a variant first.</div>
+    </div>
+      </div>
+      <div data-tooldomain="explore" class="tool-group" style="display:none">
+    <div class="sec" id="explToolPalette">
+      <div class="sublabel">Tools</div>
+      <div class="seg sm" style="flex-wrap:wrap">
+        <button data-civtool="info" title="Info — click map for settlement &amp; ecology details">🔍 Info</button>
+        <button data-civtool="route">➱ Route</button>
+      </div>
+      <label class="chk" style="font-size:.72rem" title="Click near a settlement, POI, or another way while drawing and the waypoint lands exactly on it instead of the raw cursor cell — ported from Cartalith V1.915's Route Editor snapping."><input type="checkbox" id="civSnapRouteChk" checked> Snap to places &amp; ways</label>
+      <div class="btnrow" id="civRouteCommitRow" style="margin-top:6px"><button id="civCommitRouteBtn">✓ Commit route</button></div>
+      <div class="hint">Draw a planned <b>Route</b> (journey) with the <b>Route</b> tool — click waypoints on the map, then tap <b>✓ Commit route</b> (desktop: Esc also works) to finish. <b>Info</b> reads out settlement &amp; ecology details for any clicked cell. The Journey planner below sets transport mode, terrain and group conditions.</div>
+    </div>
+      </div>
+    </div>
+    <!-- v0.65 (§Stage 2 follow-up): Assets and Export are utilities, not phases — moved to the
+         header (Export ▾ dropdown next to Import ▾; Assets a plain mode-entry button), leaving
+         this bar as the genuine two-position Forge/Atlas phase switch the proposal (§3) describes. -->
+
+    <!-- ══ GENERATE ══ -->
+    <div id="generatePanel">
+    <!-- v0.66: the Generate sub-tab bar is RESTORED (v0.64 had retired it and moved Civilization +
+         Cartography into Explore — that contradicted the owner's intended IA). Generate is the
+         authoring phase with three categorical branches: World (geology/climate/erosion),
+         Civilization (factions/settlements/polity/ways) and Cartography (labels/icons/paint/style);
+         Explore is the route-planning/reading phase. -->
+    <!-- v2.24: WORLD's own category switch. Sculpt was a fourth sibling sub-tab; the domain rail
+         has four DOMAINS, and Sculpt is not one — it is a mode of working on the world. The switch
+         only appears while WORLD is active (_applyDomainUI), and it is what _sculptCategoryOpen —
+         and therefore _sculptEditorActive() — is keyed on. -->
+    <!-- v2.72: drawn on the desktop as the design's GENERATE | SCULPT control. The category's name
+         there is Generate (it holds the generation stages, Run and Finalize); a phone keeps v2.71's
+         "Terrain" label until stage 2. data-wcat and the handler are untouched. -->
+    <div class="seg sm" id="worldCatSeg" style="margin:10px 16px 0">
+      <button data-wcat="terrain" class="on"><span class="dk-only">Generate</span><span class="ph-only">Terrain</span></button>
+      <button data-wcat="sculpt">Sculpt</button>
+    </div>
+
+    <!-- v0.65 (§4.7), re-homed v0.66: pinned selection editor — see _civRenderInspector. Selecting
+         a settlement, POI, label or icon (map click, right-click menu, or a list row's ✎) renders
+         its FULL edit form here. Shared by the Civilization and Cartography branches (hidden on
+         World); the gsub handler toggles it. Single selection across all three groups. -->
+
+    <!-- DEBUG OVERLAY: v0.63 (§4.2) — re-housed into the canvas "Layers" popover (◇ FAB top-left).
+         This sidebar block is kept HIDDEN (not removed) for one version: the popover proxies its
+         clicks to these #debugSeg buttons + #dbgOpacity, so every existing view handler, seg('debugSeg',…)
+         wiring and syncUI() reflection is reused verbatim. -->
+    <div class="sec" id="debugOverlaySec" style="display:none">
+      <details class="acc">
+      <summary>Debug overlay</summary>
+      <div class="seg sm grid" id="debugSeg" style="margin-top:8px">
+        <button data-d="off" class="on">Off</button>
+        <button data-d="temp">Temp</button><button data-d="koppen">Köppen</button>
+        <button data-d="rain">Rain</button><button data-d="wind">Wind</button>
+        <button data-d="ocean">Ocean</button>
+        <button data-d="plates">Plates</button>
+        <button data-d="bounds">Bounds</button>
+        <button data-d="btype">Tect</button>
+        <button data-d="oro">Orog</button>
+        <button data-d="stress">Stress</button>
+        <button data-d="age">Age</button>
+        <button data-d="flow">Flow</button>
+        <button data-d="strahler">Strahler</button>
+        <button data-d="velo">Velocity</button>
+        <button data-d="geoid">Geoid</button>
+        <button data-d="tides">Tides</button>
+        <button data-d="bclass">Biomes</button>
+        <button data-d="cterrain">Terrain</button>
+        <button data-d="lith">Lithology</button>
+        <button data-d="landform">Landforms</button>
+        <button data-d="fjord">Fjord</button>
+        <button data-d="soil">Soil</button>
+        <button data-d="water">Water</button>
+        <button data-d="rsrc">Resources</button><button data-d="carry">Carry Cap</button><button data-d="settle">Settlement</button>
+        <button data-d="siteprofile">Site profile</button>
+        <button data-d="corridor">Corridors</button><button data-d="travelcost">Travel cost</button>   <!-- v2.13 -->
+        <button data-d="windthrow">Wind-throw</button>
+        <button data-d="flood">Flood</button>
+        <button data-d="wildlife">Wildlife</button>
+        <button data-d="popdensity">Pop density</button>
+      </div>
+      <div class="row" style="margin-top:8px"><label for="dbgOpacity">Layer opacity</label><input type="range" id="dbgOpacity" min="0" max="100" step="1" value="100"><span class="val" id="dbgOpacityV">100%</span></div>
+      <div class="hint" style="margin-top:4px">Blends the active debug layer over the base map — drop it to see terrain underneath. In the <b>Settlement</b> view, click a gold dot for a "why here" summary (resource availability + soil/water/carry). Available from World, Civilization and Cartography — the view picker isn't tied to any one sub-tab.</div>
+      </details>
+    </div>
+
+    <!-- World sub-panel -->
+    <div id="genWorld">
+
+    <!-- v0.62: finalized-world banner — shown (and every control below locked) once the whole LOD
+         pyramid is baked via "Bake ALL levels & finalize" (the finalize control at the top of Generate → World). -->
+    <div class="sec" id="finalizedBanner" style="display:none;border-left:3px solid var(--accent)">
+      <b style="color:var(--accent)">🔒 World finalized.</b>
+      <div class="hint" style="margin-top:4px">The simulation is frozen and the map is served from the baked LOD atlas — explore and edit it cartographically (settlements, labels, icons, territory, routes, timeline). To change geography or weather again, use <b>Un-finalize</b> below.</div>
+    </div>
+
+    <!-- v2.72 RUN (Ruling DZ, PC_SHELL_PROPOSAL.md §3.12: "Generate world: the WORLD dock … New seed and
+         Center landmasses: the WORLD dock's RUN section"). The design's order: the Seed field, GENERATE
+         WORLD at full width in the accent, then NEW SEED | CENTER LANDMASSES. The four controls are the
+         v2.24 document bar's own elements (#seedN, #genBtn, #reseedBtn, #centerBtn), moved here on the
+         desktop by _dskPlace() with their handlers and their data-genlock (stamped by id), so finalize
+         still disables them. It sits under the finalized banner on purpose: when the world is locked,
+         the reason is the first thing above the disabled buttons. A phone keeps them in its document
+         bar, so this section is desktop-only. -->
+    <div class="sec run-sec dk-only" id="runSec">
+      <h2>Run</h2>
+      <span class="shell-slot" id="slotRunSeed"></span>
+      <span class="shell-slot" id="slotRunGen"></span>
+      <div class="run-row"><span class="shell-slot" id="slotRunRow"></span></div>
+      <div class="hint">Generate world rebuilds every generation stage from this seed, and works from any domain as <b>File ▸ Generate world</b> (Ctrl+R). New seed rolls one and generates; Center landmasses shifts a whole-world map in X so the emptiest meridian sits on the seam.</div>
+    </div>
+
+    <!-- v0.74: finalize control promoted to the FIRST block of Generate → World for one-click access.
+         Bakes the whole LOD pyramid to the atlas, then freezes the simulation. The elements keep their
+         v0.62 ids (bakeAllDepthRow / bakeAllBtn / unfinalizeBtn) so all handler wiring + applyFinalizedUI
+         show/hide logic is unchanged; per-view bakes, atlas export and the chunk overlay stay under
+         Atlas cache below (v0.92: split out of the old single "Tiles & LOD" accordion). -->
+    <div class="sec" id="finalizeSec">
+      <h2>Finalize world</h2>
+      <div class="row" id="bakeAllDepthRow"><label for="bakeAllDepth">Bake depth</label>
+        <select id="bakeAllDepth" style="flex:1">
+          <option value="2">LOD 0–2 · 21 tiles</option>
+          <option value="3" selected>LOD 0–3 · 85 tiles</option>
+          <option value="4">LOD 0–4 · 341 tiles</option>
+          <option value="5">LOD 0–5 · 1365 tiles (large!)</option>
+          <option value="6">LOD 0–6 · 5461 tiles (huge!)</option>
+        </select></div>
+      <div class="btnrow"><button id="bakeAllBtn" class="accent">🔒 Bake ALL levels &amp; finalize world</button><button id="unfinalizeBtn" style="display:none">🔓 Un-finalize (unlock generation)</button></div>
+      <div class="hint">Bakes the whole LOD pyramid down to the chosen depth, then <b>freezes the simulation</b> — Generate → World locks and the project becomes a cartographic LOD viewer/editor (settlements, labels, icons, territory, routes, timeline stay fully editable; un-finalize any time). Per-view bakes, atlas export/import and the chunk overlay live under <b>Atlas cache</b> below.</div>
+    </div>
+
+    <!-- GEOLOGY: Source, Planet, Scale, World Structure, Tectonics, Volcanism -->
+    <details class="cat-acc" open>
+    <summary>Geology</summary>
+    <div id="worldPanel">
+    <div class="sec">
+      <h2>Extent &amp; resolution</h2>
+      <!-- v2.27 (owner: "the size and world type buttons should go back in the sidebar under extent and
+           resolution"). v2.24 hoisted both into the document bar and left a hint here pointing at them;
+           they are back under the heading that already names them. MOVED, not copied — one control, one
+           editing surface (v1.57), because two segments writing the same state.world/state.resW can
+           disagree on screen. Seed, View and Generate stay in the document bar: they are per-render
+           actions reachable from every domain, while extent and grid are world-creation settings that
+           belong with the rest of Geology. No JS changed — _stampGenLock() stamps [data-genlock] by ID,
+           not by DOM containment (v2.24), and both handlers already call confirmRegenerate() themselves,
+           which is what a control outside #genWorld needed and what one inside it still wants. -->
+      <div class="sublabel-grp">Extent</div>
+      <div class="seg sm" id="extentSeg" style="margin-bottom:8px"><button data-world="0" class="on">Region</button><button data-world="1">World</button></div>
+      <div class="sublabel-grp">Grid</div>
+      <div class="seg sm" id="resSeg" style="margin-bottom:8px"><button data-w="512">512</button><button data-w="1024">1K</button><button data-w="2048" class="on">2K</button><button data-w="4096">4K</button><button data-w="8192">8K</button></div>
+      <!-- v2.72: two hints, one per form factor — each states where those controls are on THAT layout. -->
+      <div class="hint ph-only"><b>Seed</b>, <b>View</b> and <b>Generate</b> stay in the document bar across the top of the map, where they are reachable from every domain.</div>
+      <div class="hint dk-only"><b>Seed</b> and <b>Generate world</b> are in <b>Run</b> at the top of this panel (Generate is also <b>File ▸ Generate world</b>, Ctrl+R, from every domain); <b>View</b> is in the map's <b>Base map</b> chip.</div>
+
+      <div class="hint">In <b>Whole world</b> mode the map wraps in longitude (X), so a continent can split into slivers on the left/right edges. <b>Center landmasses</b> circularly shifts the world in X to put the emptiest meridian on the seam (latitude/Y is never moved). Re-bake the atlas after centering if you'd baked one.</div>
+
+      <div class="hint">Generate a world below, or <b>Import → Load heightmap</b> (white = high). Both feed the same field you can warp, erode, sculpt and calibrate. <b>4K/8K are memory-heavy</b> — for huge final maps use <b>Tiles → Export tile grid</b> to reach 16K without ever holding the whole grid.</div>
+
+    </div>
+
+    <div class="sec">
+      <h2>Planet</h2>
+      <div class="row"><label for="pg">Gravity</label><input type="range" id="pg" min="30" max="250" step="5" value="100"><span class="val" id="pgV">1.00 g</span></div>
+      <div class="row"><label for="prot">Day length</label><input type="range" id="prot" min="6" max="96" step="1" value="24"><span class="val" id="protV">24 h</span></div>
+      <div class="row"><label for="ptilt">Axial tilt</label><input type="range" id="ptilt" min="0" max="45" step="0.5" value="23.4"><span class="val" id="ptiltV">23.4&deg;</span></div>
+      <label class="chk"><input type="checkbox" id="geoidChk"> Geoid sea level (rotation bulge + mantle)</label>
+      <div class="row"><label for="geoidAmp">Geoid range</label><input type="range" id="geoidAmp" min="1" max="50" step="1" value="15"><span class="val" id="geoidAmpV">0.015</span></div>
+      <label class="chk"><input type="checkbox" id="tidesChk"> Tides &amp; intertidal zones (moons)</label>
+      <div class="row"><label for="tideMass">Moon mass</label><input type="range" id="tideMass" min="0" max="300" step="5" value="100"><span class="val" id="tideMassV">1.00×</span></div>
+      <div class="row"><label for="tideDist">Moon distance</label><input type="range" id="tideDist" min="30" max="300" step="5" value="100"><span class="val" id="tideDistV">1.00×</span></div>
+      <div class="row"><label for="tideK2">Tidal response k₂</label><input type="range" id="tideK2" min="0" max="200" step="5" value="100"><span class="val" id="tideK2V">1.00</span></div>
+      <div class="hint"><b>Tides</b>: the moons' gravitational pull (∝ mass ÷ distance³, ÷ g) sets the open-ocean tidal range; it amplifies in shallow shelf seas and funnels at coasts into a <b>spring tidal-range field</b> — wide intertidal flats and "wandering flood zones" hugging gentle coasts (coastal hazard for settlements/routes; exported as <code>tidal_range.f32</code>). Preview in the <b>Tides</b> debug view.</div>
+      <div class="hint">Surface gravity scales fluvial &amp; glacial erosion (&times;g), temperature lapse (&times;g), crater size (&times;g<sup>&minus;0.22</sup>), wave energy (&times;1/g) and rescales peak altitude (~1/g). Talus angle stays fixed: friction-dominated, gravity-independent. <b>Geoid</b> makes sea level a field, not a number: a fast-spinning planet's seas bulge at the equator (J2 &prop; &Omega;&sup2;R/g) on top of lumpy-mass harmonics and mantle noise &mdash; coastlines, climate ocean masks and biomes all follow the <i>local</i> sea level. Preview it in the <b>Geoid</b> debug view before enabling. Day length and tilt also drive the weather model (circulation cells, seasons).</div>
+    </div>
+
+    <div class="sec">
+      <h2>Scale &amp; calibration</h2>
+      <!-- v0.67: km/mi toggle (canonical storage stays km + m; this only converts the display) -->
+      <div class="seg sm" id="calUnitSeg" style="margin-bottom:8px">
+        <button data-unit="km" class="on">km</button><button data-unit="mi">mi</button>
+      </div>
+      <div class="sublabel-grp">Vertical</div>
+      <div class="row"><label for="sea">Sea level</label><input type="range" id="sea" min="0" max="100" step="1" value="42"><span class="val" id="seaV">42%</span></div>
+      <div class="row"><label for="peak">Peak altitude</label><input type="number" id="peak" value="4000" min="1" step="50"><span class="pill" id="peakPill">m</span></div>
+      <!-- v0.83: map width removed from here — it's a creation-time decision, set only in the New-world /
+           Import setup gate (never editable mid-project; changing it would silently rescale every derived
+           distance, grade, route length and settlement spacing). The sidebar previously showed a disabled,
+           read-only copy of it (v0.70) — now it's simply not duplicated here. v0.84: restored the "Vertical"
+           sublabel-grp above Sea level/Peak — v0.83 dropped it along with "Horizontal" by overreach; Sea
+           level's own control never moved and stays exactly where it was. -->
+      <div class="hint">Sea level = which height is 0&nbsp;m (below is sea). Peak = highest point (auto-scales with map width on new worlds — real relief tops out near Everest ≈ 8&nbsp;849&nbsp;m; edit to override). Map width is set once, at creation (in the setup gate). The km/mi toggle is display-only.</div>
+    </div>
+
+    <div class="sec">
+      <h2>World Structure</h2>
+      <label class="chk"><input type="checkbox" id="wsEnabled"> Enable continental steering</label>
+      <div id="wsPanel" style="display:none">
+        <div class="seg" id="archetypeSeg">
+          <button data-arc="earth" class="on">Earth</button>
+          <button data-arc="supercontinent">Super</button>
+          <button data-arc="archipelago">Islands</button>
+          <button data-arc="volcanic">Volcanic</button>
+          <button data-arc="rift">Rift</button>
+          <button data-arc="custom">Custom</button>
+        </div>
+        <div class="row"><label for="wsCont">Continentality</label><input type="range" id="wsCont" min="1" max="90" step="1" value="30"><span class="val" id="wsContV">0.30</span></div>
+        <div class="row"><label for="wsFrag">Fragmentation</label><input type="range" id="wsFrag" min="0" max="100" step="1" value="50"><span class="val" id="wsFragV">0.50</span></div>
+        <div class="row"><label for="wsTect">Tectonic energy</label><input type="range" id="wsTect" min="0" max="100" step="1" value="60"><span class="val" id="wsTectV">0.60</span></div>
+        <div class="row"><label for="wsOcean">Ocean depth</label><input type="range" id="wsOcean" min="0" max="100" step="1" value="60"><span class="val" id="wsOceanV">0.60</span></div>
+        <div class="row"><label for="wsHot">Hotspot density</label><input type="range" id="wsHot" min="0" max="100" step="1" value="20"><span class="val" id="wsHotV">0.20</span></div>
+      </div>
+      <div class="hint">When enabled a Continentality field is generated first: continental plates settle in high-field zones, oceanic in low, and a large-scale elevation bias anchors the land/sea split. Continental interiors become drier. <b>Disabled (default):</b> existing random plate generation — identical to current behaviour. All tectonic sliders below remain editable as fine-tuning on top of whichever archetype is active.</div>
+    </div>
+    </div><!-- end worldPanel (Geology inner) -->
+
+    <div class="sec">
+      <h2>Tectonics</h2>
+      <div class="row"><label for="plates">Plates</label><input type="range" id="plates" min="4" max="40" step="1" value="14"><span class="val" id="platesV">14</span></div>
+      <div class="row"><label for="vel">Drift</label><input type="range" id="vel" min="0" max="100" step="1" value="50"><span class="val" id="velV">×1.00</span></div>
+      <div class="row"><label for="warp">Warp</label><input type="range" id="warp" min="0" max="100" step="1" value="45"><span class="val" id="warpV">0.45</span></div>
+      <div class="row"><label for="sigma">Uplift spread</label><input type="range" id="sigma" min="0" max="100" step="1" value="40"><span class="val" id="sigmaV">18px</span></div>
+      <div class="row"><label for="alpha">Tectonic α</label><input type="range" id="alpha" min="0" max="100" step="1" value="71"><span class="val" id="alphaV">0.85</span></div>
+      <div class="row"><label for="beta">Noise β</label><input type="range" id="beta" min="0" max="100" step="1" value="37"><span class="val" id="betaV">0.22</span></div>
+      <div class="row"><label for="age">Erosion / age</label><input type="range" id="age" min="0" max="100" step="1" value="60"><span class="val" id="ageV">0.60</span></div>
+      <!-- v0.63 (§4.3): expert physical-coupling dials folded into Advanced (defaults unchanged) -->
+      <details class="adv"><summary>Physical coupling fields</summary>
+      <div class="row"><label for="flexure">Flexure F</label><input type="range" id="flexure" min="0" max="60" step="1" value="20"><span class="val" id="flexureV">0.20</span></div>
+      <div class="row"><label for="hetero">Heterogeneity C</label><input type="range" id="hetero" min="0" max="40" step="1" value="8"><span class="val" id="heteroV">0.08</span></div>
+      <div class="row"><label for="resist">Rock resistance</label><input type="range" id="resist" min="0" max="100" step="1" value="50"><span class="val" id="resistV">0.50</span></div>
+      <div class="hint"><b>Flexure</b> adds broad isostatic arches around mountain ranges and subsidence in rift basins — the main driver of continental shelves. <b>Heterogeneity</b> applies low-frequency crustal diversity inside old stable plates (cratons, sedimentary basins). <b>Rock resistance</b> scales erodibility in stream-power erosion: old shields resist incision, young volcanic arcs erode rapidly.</div>
+      </details>
+      <label class="chk"><input type="checkbox" id="ridged" checked> Ridged mountain detail</label>
+      <label class="chk"><input type="checkbox" id="tectGraph"> Structured orogeny (graph-driven ranges)</label>
+      <div class="hint">Replaces blurred-stress uplift blobs with type-specific landforms grown along each plate margin: collision fold belts + foreland basins, subduction trenches + volcanic arcs, rift grabens, and transform fault valleys with offset pressure ridges. Preview in the <b>Orog</b> debug view.</div>
+      <div class="row"><label for="foldI">Fold intensity</label><input type="range" id="foldI" min="0" max="300" step="1" value="100"><span class="val" id="foldIV">1.00</span></div>
+      <div class="row"><label for="trenchD">Trench depth</label><input type="range" id="trenchD" min="0" max="250" step="1" value="100"><span class="val" id="trenchDV">1.00</span></div>
+      <div class="row"><label for="faultB">Fault blocks</label><input type="range" id="faultB" min="0" max="200" step="1" value="60"><span class="val" id="faultBV">0.60</span></div>
+      <div class="hint"><b>Warp</b> bends the straight plate boundaries into organic coastlines and ranges.</div>
+    </div>
+
+    <div class="sec">
+      <h2>Volcanism &amp; impacts</h2>
+      <div class="row"><label for="volc">Volcanoes</label><input type="range" id="volc" min="0" max="100" step="1" value="20"><span class="val" id="volcV">20</span></div>
+      <div class="row"><label for="volca">Volcano age</label><input type="range" id="volca" min="0" max="100" step="1" value="40"><span class="val" id="volcaV">0.40</span></div>
+      <label class="chk"><input type="checkbox" id="volcProv" checked> Provinces &amp; arc/rift placement</label>
+      <div class="row"><label for="crat">Craters</label><input type="range" id="crat" min="0" max="100" step="1" value="50"><span class="val" id="cratV">100</span></div>
+      <div class="row"><label for="crata">Crater age</label><input type="range" id="crata" min="0" max="100" step="1" value="50"><span class="val" id="crataV">0.50</span></div>
+      <label class="chk"><input type="checkbox" id="cratPhys"> Physical model (rate × area × surface age)</label>
+      <div class="row" id="cratRateRow"><label for="cratRate">Impact rate</label><input type="range" id="cratRate" min="1" max="600" step="1" value="260"><span class="val" id="cratRateV">0.49</span></div>
+      <div class="row" id="cratAgeRow"><label for="cratAge">Surface age</label><input type="range" id="cratAge" min="1" max="200" step="1" value="50"><span class="val" id="cratAgeV">500 Myr</span></div>
+      <div class="hint" id="cratPhysHint">With the physical model on, <b>Craters</b> and <b>Crater age</b> above are ignored: the count comes from the impact rate (craters ≥ 0.5 km per million km² per million years) times the map's real area and the surface age, sizes follow the crater size-frequency law N(&gt;D) ∝ D<sup>−1.8</sup>, and each crater's wear comes from its own exposure time against an obliteration timescale proportional to its diameter — so an old surface keeps its large basins and loses its small craters, and a small region genuinely gets few impacts instead of the same hundred a whole world does.</div>
+      <div class="hint">Built into the world after mountain-building. Volcanoes cluster on plate boundaries (arcs &amp; rifts) with power-law sizes; impacts scatter by Poisson with D⁻² sizes. Both degrade with age. Re-erode to weather them.</div>
+    </div>
+
+    </details><!-- end Geology cat-acc -->
+
+    <!-- HYDROLOGY: Erosion, Glacial, Coastal -->
+    <details class="cat-acc">
+    <summary>Hydrology</summary>
+
+    <div class="sec">
+      <h2>Erosion</h2>
+      <label class="chk"><input type="checkbox" id="carveRiversChk" checked> Carve river valleys on generation</label>
+      <label class="chk"><input type="checkbox" id="hydroIntegrateChk" checked> Integrated drainage (rivers reach the sea)</label>
+      <div class="hint">Routes flow over a depression-filled surface, so a river is not stopped by every local pit. Measured off: 66% of land drained into an interior pit. The terrain itself is unchanged.</div>
+      <label class="chk"><input type="checkbox" id="hydroDeltasChk"> River deltas at the coast</label>
+      <div class="hint">Deposits the carve's own eroded sediment at river mouths. Needs integrated drainage — a delta is a trunk-river landform. Most mouths stay wave-dominated; only the strongest build a lobe with distributaries.</div>
+      <div class="hint" style="margin-top:2px">When on, <code>generate()</code> runs a light stream-power pass then stamps parabolic valley cross-sections along the Strahler network, so rivers sit in real carved terrain instead of being painted on a flat surface. Off → identical to v0.144.</div>
+      <details class="acc" open>
+        <summary>Droplet hydraulic</summary>
+        <div class="btnrow" style="margin-top:8px"><button class="accent" id="erodeBtn">Erode (droplet)</button><button id="resetBtn">Reset</button></div>
+        <div class="row"><label for="drops">Droplets</label><input type="range" id="drops" min="0" max="100" step="1" value="40"><span class="val" id="dropsV">60k</span></div>
+        <div class="row"><label for="estr">Strength</label><input type="range" id="estr" min="0" max="100" step="1" value="35"><span class="val" id="estrV">0.35</span></div>
+        <div class="row"><label for="edep">Deposition</label><input type="range" id="edep" min="0" max="100" step="1" value="30"><span class="val" id="edepV">0.30</span></div>
+        <div class="row"><label for="ethr">Thermal</label><input type="range" id="ethr" min="0" max="30" step="1" value="8"><span class="val" id="ethrV">8</span></div>
+        <div class="row"><label for="etal">Slope limit</label><input type="range" id="etal" min="1" max="40" step="1" value="12"><span class="val" id="etalV">0.012</span></div>
+      </details>
+      <details class="acc">
+        <summary>Hillslope diffuse</summary>
+        <div class="btnrow" style="margin-top:8px"><button class="accent" id="diffuseBtn">Hillslope diffuse</button></div>
+        <label class="chk"><input type="checkbox" id="passDiffChk"> Run during Generate</label>
+        <div class="row"><label for="edD">Diffusivity D</label><input type="range" id="edD" min="1" max="100" step="1" value="75"><span class="val" id="edDV">0.15</span></div>
+        <div class="row"><label for="edPas">Passes</label><input type="range" id="edPas" min="1" max="40" step="1" value="6"><span class="val" id="edPasV">6</span></div>
+        <div class="hint">Smooths slopes by linear diffusion (∂z/∂t = D∇²z) — softens cliffs and fills hollows between fluvial passes.</div>
+      </details>
+      <details class="acc">
+        <summary>Stream-power carve</summary>
+        <div class="btnrow" style="margin-top:8px"><button class="accent" id="streamBtn">Stream-power carve</button></div>
+        <div class="row"><label for="sUp">Uplift</label><input type="range" id="sUp" min="0" max="100" step="1" value="0"><span class="val" id="sUpV">0.00</span></div>
+        <div class="row"><label for="sK">Channeling</label><input type="range" id="sK" min="0" max="100" step="1" value="40"><span class="val" id="sKV">0.012</span></div>
+        <div class="row"><label for="sIt">Iterations</label><input type="range" id="sIt" min="4" max="40" step="1" value="15"><span class="val" id="sItV">15</span></div>
+        <div class="row"><label for="sDep">Deposition</label><input type="range" id="sDep" min="0" max="100" step="1" value="30"><span class="val" id="sDepV">0.30</span></div>
+        <div class="row"><label for="sClim">Rain → erosion</label><input type="range" id="sClim" min="0" max="100" step="1" value="50"><span class="val" id="sClimV">0.50</span></div>
+        <div class="hint">Carves dendritic river valleys by fluvial incision (implicit stream-power, Braun &amp; Willett 2013) with multiple-flow-direction drainage. <b>Uplift</b> is <b>off by default</b> — raise it only to grow mountains that compete with incision; at 0 it purely carves existing relief. <b>Channeling</b> sets incision aggressiveness; <b>Deposition</b> refills valleys/builds deltas but never raises a channel above the land; <b>Rain → erosion</b> makes wet regions carve faster. See the <b>Flow</b> view.</div>
+      </details>
+      <details class="acc">
+        <summary>Velocity (momentum)</summary>
+        <div class="btnrow" style="margin-top:8px"><button class="accent" id="veloBtn">Velocity erode</button></div>
+        <label class="chk"><input type="checkbox" id="passVeloChk"> Run during Generate</label>
+        <div class="row"><label for="vIt">Iterations</label><input type="range" id="vIt" min="10" max="160" step="1" value="60"><span class="val" id="vItV">60</span></div>
+        <div class="row"><label for="vStr">Strength</label><input type="range" id="vStr" min="0" max="100" step="1" value="50"><span class="val" id="vStrV">0.50</span></div>
+        <div class="row"><label for="vMnd">Meander</label><input type="range" id="vMnd" min="0" max="100" step="1" value="60"><span class="val" id="vMndV">0.60</span></div>
+        <div class="hint">Pillar 2 — full <b>velocity-field</b> hydraulic erosion (virtual-pipe shallow water, Mei et al. 2007 / LanLou123): water carries <b>momentum</b> (semi-Lagrangian advection), so it overshoots bends and presses the <b>outer bank</b> (erosion) while dropping sediment on the inner bank — meanders &amp; oxbows. Closed basins <b>pool</b> into lakes until they spill the lowest sill. Gravity (Planet → g) scales the flux. See the <b>Velocity</b> debug view. A new op — it doesn't touch the droplet/stream/glacial passes.</div>
+      </details>
+      <details class="acc">
+        <summary>Evolve &amp; sediment</summary>
+        <div class="row" style="margin-top:8px"><label for="evoCyc">Evolve cycles</label><input type="range" id="evoCyc" min="2" max="12" step="1" value="5"><span class="val" id="evoCycV">5</span></div>
+        <div class="btnrow"><button id="evolveBtn">Evolve climate ↔ terrain</button><button id="sedimentBtn">Sediment fill</button></div>
+        <div class="btnrow"><button id="tidalFlatsBtn">Tidal flats (G4)</button></div>
+        <label class="chk"><input type="checkbox" id="dynLithChk"> Dynamic lithology (exhumation hardens rock)</label>
+        <div class="hint"><b>Evolve</b> couples climate and erosion: each cycle carves, rebounds isostatically, then recomputes the weather on the freshly carved terrain — so rain shadows and rivers migrate as mountains grow/wear down. <b>Tidal flats</b> accretes mudflats in the intertidal zone (needs <b>Tides</b> on). <b>Dynamic lithology</b> hardens deeply-exhumed rock so the next pass bites less there.</div>
+      </details>
+    </div>
+
+    <div class="sec">
+      <h2>Glacial erosion</h2>
+      <div class="btnrow"><button class="accent" id="glacBtn">Glacial carve</button><button id="fjordBtn">Carve fjords</button></div>
+      <label class="chk"><input type="checkbox" id="passGlacChk"> Run during Generate</label>
+      <div class="row"><label for="gSnow">Snowline</label><input type="range" id="gSnow" min="0" max="100" step="1" value="65"><span class="val" id="gSnowV">0.65</span></div>
+      <div class="row"><label for="gKg">Intensity</label><input type="range" id="gKg" min="1" max="100" step="1" value="15"><span class="val" id="gKgV">0.15</span></div>
+      <div class="row"><label for="gUF">U-width</label><input type="range" id="gUF" min="0" max="100" step="1" value="60"><span class="val" id="gUFV">0.60</span></div>
+      <div class="row"><label for="gPas">Passes</label><input type="range" id="gPas" min="1" max="30" step="1" value="8"><span class="val" id="gPasV">8</span></div>
+      <div class="hint">Carves high, cold terrain (above the snowline) into U-shaped valleys. Ice follows the drainage network and widens valleys laterally instead of just cutting down. Glacier heads scoop into cirque bowls. Lower the snowline to glaciate more of the landscape; raise it to restrict ice to the peaks. Run after erosion for best results — erode first, then glaciate. <b>Carve fjords</b> overdeepens valleys below sea level <i>only</i> on cold, steep, hard-rock (granite/gneiss/basalt) coasts — drowned glacial troughs (Norway/Patagonia-style), never on tropical or weak-rock shores. See the <b>Fjord</b> debug view for the probability mask.</div>
+    </div>
+
+    <div class="sec">
+      <h2>Coastal</h2>
+      <div class="btnrow"><button class="accent" id="coastBtn">Apply coastal</button></div>
+      <label class="chk"><input type="checkbox" id="passCoastChk"> Run during Generate</label>
+      <div class="row"><label for="cWave">Wave strength</label><input type="range" id="cWave" min="0" max="100" step="1" value="50"><span class="val" id="cWaveV">0.50</span></div>
+      <div class="row"><label for="cEst">Estuary depth</label><input type="range" id="cEst" min="0" max="100" step="1" value="40"><span class="val" id="cEstV">0.08</span></div>
+      <div class="row"><label for="cMar">Marsh band</label><input type="range" id="cMar" min="0" max="100" step="1" value="30"><span class="val" id="cMarV">0.03</span></div>
+      <div class="row"><label for="cPas">Passes</label><input type="range" id="cPas" min="1" max="15" step="1" value="4"><span class="val" id="cPasV">4</span></div>
+      <div class="hint">Three coastal processes in one pass. <b>Sea cliffs</b>: wave energy erodes exposed coastal cells and leaves steep cliff faces (run multiple times to carve retreating cliffs). <b>Estuaries</b>: high-flow river mouths near sea level are widened with an exponential taper — funnel-shaped inlets emerge where major rivers meet the coast. <b>Tidal marsh</b>: the narrow, flat intertidal band is roughened with organic micro-relief. Run after stream-power carve so river mouths are established.</div>
+      <div class="hint"><b>Run during Generate</b> (on this panel, Velocity, Glacial and Hillslope diffuse) makes that pass part of world generation rather than a one-off button: it is saved with the project, and a regenerate at the same seed reproduces the same eroded world. The four run in a fixed order — velocity, glacial, coastal, hillslope — after climate and before rivers are carved, so each uses the sliders above it. All four are off by default.</div>
+    </div>
+
+    </details><!-- end Hydrology cat-acc -->
+
+    <!-- CLIMATE: Climate & biomes, Weather -->
+    <details class="cat-acc">
+    <summary>Climate</summary>
+
+    <div class="sec">
+      <h2>Climate &amp; biomes</h2>
+      <div class="sublabel">Latitude band this map spans (Region mode — see Map extent above)</div>
+      <div class="row"><label for="latN">North edge</label><input type="range" id="latN" min="-90" max="90" step="1" value="55"><span class="val" id="latNV">55°</span></div>
+      <div class="row"><label for="latS">South edge</label><input type="range" id="latS" min="-90" max="90" step="1" value="5"><span class="val" id="latSV">5°</span></div>
+      <div class="sublabel">Temperature</div>
+      <div class="row"><label for="teq">Equator °C</label><input type="range" id="teq" min="0" max="45" step="1" value="30"><span class="val" id="teqV">30°C</span></div>
+      <div class="row"><label for="tpo">Pole °C</label><input type="range" id="tpo" min="-50" max="10" step="1" value="-25"><span class="val" id="tpoV">−25°C</span></div>
+      <div class="row"><label for="lapse">Lapse rate</label><input type="range" id="lapse" min="0" max="120" step="1" value="65"><span class="val" id="lapseV">6.5°C/km</span></div>
+      <label class="chk"><input type="checkbox" id="seasons"> Seasons &amp; Köppen climate</label>
+      <label class="chk"><input type="checkbox" id="currents"> Ocean currents</label>
+      <div class="row"><label for="albedo">Ice albedo</label><input type="range" id="albedo" min="0" max="100" step="1" value="0"><span class="val" id="albedoV">off</span></div>
+      <div class="hint">Temperature falls with latitude (insolation) and altitude (lapse rate). In <b>Whole world</b> mode the map spans pole-to-pole; in <b>Region</b> mode you set the latitude band. <b>Seasons</b> runs summer/winter passes (thermal equator shifts by the planet's axial tilt) and classifies every land cell into a Köppen–Geiger climate (see the Köppen debug view). <b>Ice albedo</b> adds the cryosphere feedback — ice/snow reflects sunlight and cools further, so polar caps and high massifs grow colder and broaden (0 = off). Prevailing wind always bends around real mountains/coastlines (not just reacting to temperature); with <b>Ocean currents</b> on, the resulting deflected wind also drives a real 2-D current (Ekman rotation, coastal blocking, shelf friction, a western-intensification/gyre heuristic) whose warm/cold anomaly feeds back into rainfall/temperature — see the Wind/Ocean debug views for both fields directly.</div>
+    </div>
+
+    <div class="sec">
+      <h2>Weather · rainfall sim</h2>
+      <div class="btnrow"><button class="accent" id="weatherBtn">Simulate weather</button></div>
+      <div class="row"><label for="wIters">Iterations</label><input type="range" id="wIters" min="20" max="200" step="5" value="70"><span class="val" id="wItersV">70</span></div>
+      <div class="row"><label for="rainK">Orographic</label><input type="range" id="rainK" min="0" max="200" step="1" value="100"><span class="val" id="rainKV">×1.00</span></div>
+      <div class="row"><label for="evap">Evaporation</label><input type="range" id="evap" min="0" max="100" step="1" value="40"><span class="val" id="evapV">0.12</span></div>
+      <div class="row"><label for="rainDep">Dryness</label><input type="range" id="rainDep" min="0" max="100" step="1" value="35"><span class="val" id="rainDepV">0.35</span></div>
+      <div class="row"><label for="ocean">Ocean supply</label><input type="range" id="ocean" min="0" max="200" step="1" value="100"><span class="val" id="oceanV">×1.00</span></div>
+      <div class="row"><label>Wind model</label><div class="seg sm" id="windModeSeg"><button data-wm="auto" class="on">Planetary</button><button data-wm="manual">Manual</button></div></div>
+      <div class="row"><label for="pressK">Pressure infl.</label><input type="range" id="pressK" min="0" max="150" step="5" value="60"><span class="val" id="pressKV">0.60</span></div>
+      <div class="row"><label for="zonalK">Zonal belts</label><input type="range" id="zonalK" min="0" max="150" step="5" value="50"><span class="val" id="zonalKV">0.50</span></div>
+      <div class="row"><label for="windDir">Wind →</label><input type="range" id="windDir" min="0" max="360" step="5" value="0"><span class="val" id="windDirV">0°</span></div>
+      <div class="hint">Moisture evaporates off the seas (more from warm water), rides the wind, and rains where air climbs terrain or saturates — windward coasts wet, lee interiors dry. <b>Planetary</b> wind = latitude belts (trades / westerlies / polar easterlies; belt count follows day length) bent by thermal lows and highs (pressure influence, Coriolis-deflected) — monsoon-style sea→land flow emerges where summer land runs hot. <b>Manual</b> = one fixed direction (Wind →, region only). Runs on click; more iterations push moisture deeper inland.</div>
+    </div>
+
+    </details><!-- end Climate cat-acc -->
+
+    <!-- ECOLOGY: River and biome display controls -->
+    <details class="cat-acc">
+    <summary>Ecology</summary>
+    <div class="sec">
+      <label class="chk"><input type="checkbox" id="showRivers" checked> Show rivers in biome view</label>
+      <label class="chk"><input type="checkbox" id="riverWaysChk"> Draw rivers as ways (stroked line style)</label>
+      <div class="row"><label for="riverDensR">River density</label><input type="range" id="riverDensR" min="30" max="300" step="5" value="100"><span class="val" id="riverDensV">1.00×</span></div>
+      <div class="row"><label for="minOrderR">Min stream order</label><input type="range" id="minOrderR" min="1" max="8" step="1" value="1"><span class="val" id="minOrderV">all</span></div>
+      <label class="chk"><input type="checkbox" id="sharpBiomes" checked> Sharper biome detail (finer ecotones)</label>
+      <label class="chk"><input type="checkbox" id="showLakes" checked> Show lakes as water (inland seas + deposited water)</label>
+      <div class="hint">River density scales the channel-initiation drainage area — higher = fewer, larger channels; lower = denser network. Min stream order hides small tributaries (order 1 = all). Sharper biomes adds a finer ecotone-jitter octave for resolution-revealing biome boundaries. Lakes appear as inland water bodies when water-body detection is enabled.</div>
+    </div>
+    </details><!-- end Ecology cat-acc -->
+
+
+
+    <!-- v0.64 (§Stage 2): re-homed here from the retired Edit tab — a Generate-phase concern
+         (tiling/atlas/finalize), not a separate top-level tab.
+         v0.92 (save-export-architecture-audit.md §5B, owner report the old single "Tiles & LOD"
+         accordion read as more systems than actually exist): split into three independently-labeled
+         sections — the LIVE zoom-in renderer (no persisted data at all), the ATLAS bake cache (the
+         thing "Atlas" actually names — an IndexedDB store, previously nested two levels deep with a
+         name that also doubles for its zip-embedded copy, see §3 of the audit), and the REGION EXPORT
+         flow (a wholly separate, standalone .zip download — never touches the main project export).
+         All element ids unchanged from the old single accordion, so no JS wiring changed. -->
+
+
+
+
+
+
+    </div><!-- end genWorld -->
+
+    <!-- Civilization sub-panel (restored v0.66) -->
+    <div id="genCiv" style="display:none">
+    <!-- v0.64 (§4.5) unified tool palette, split per branch in v0.66: Civilization carries the
+         civ authoring tools, Cartography carries Label/Icon, Explore carries the planning tools
+         (Info/Route). Every button shares the one [data-civtool] auto-wiring and the _civSetTool
+         state machine — one mutually-exclusive tool across all branches and tabs. -->
+
+    <!-- v1.16 (Civilization menu redesign): the Place-POI tool's contextual option row and the
+         manual way-drawing controls are promoted here, above the sub-tab bar, so they stay visible
+         whenever their tool is armed regardless of which sub-page (Generation/Factions/Settlements/
+         Economy/Statistics) is currently open. civPoiTypeRow keeps its pre-existing _civSetTool-
+         driven display:none/'' toggle unchanged; the way row has no such toggle — its tool arms via
+         the palette button above, this is just the always-available type-select + commit button. -->
+    <!-- v1.59: the Territory-paint brush radius moved here from Generation → Advanced — it's a
+         tool-brush parameter (_civPaintTerritoryAt reads the global _civTerRadius), not a
+         generation setting, so it belongs beside civPoiTypeRow as a contextual row that shows only
+         while the Territory tool is armed. Same _civSetTool-driven display:none/'' toggle idiom. -->
+
+    <!-- v1.16 (Civilization menu redesign): mirrors #genSubBar's own sub-tab-bar pattern (see the
+         click handler beside #genSubBar's). Generation carries exactly the world-generation tools
+         (Auto-populate, Recalculate Territories [was "Auto-polity"], Generate Roads [was
+         "Auto-routes"] — same functions/ids/handlers, relabeled only); Factions/Settlements are
+         the faction- and settlement-centric pages (Factions/Settlements sub-pages below);
+         Economy/Statistics aggregate purely from _civFactionAggregates(). -->
+    <!-- v1.55: faction-first ordering — factions drive settlement sizes (ag. tech) and territory,
+         so Factions is the entry point. -->
+    <!-- v1.59: Generation moved from last to 2nd — "faction creation that leads up to the
+         autopopulate function" (owner request). Define who's in your world (Factions), then the
+         very next tab is populating it (Generation's Step 1→2→3), not a browse-only report page
+         that reads empty until Auto-populate has run. Settlements/Economy/Statistics (all
+         post-generation reports) stay after. Tab click handler keys off data-civsub, not position
+         — no JS change needed for this reorder. -->
+    <div class="subtab-bar" id="civSubBar">
+      <button class="subtab on" data-civsub="factions">Factions</button>
+      <button class="subtab" data-civsub="generation">Generation</button>
+      <button class="subtab" data-civsub="settlements">Settlements</button>
+      <button class="subtab" data-civsub="economy">Economy</button>
+      <button class="subtab" data-civsub="statistics">Statistics</button>
+    </div>
+
+    <!-- GENERATION (v1.59: restructured into an explicit Step 1→2→3 sequence — populate, connect,
+         formalize control — dissolving the old "Advanced" grab-bag, which existed only because
+         Provinces/Ways/Display "had no named slot in the 4-item Generation list", not because they
+         belonged together. Ways is promoted to always-visible (it's Step 2's own output); Provinces
+         stays physically after Step 3 (_civGenerateProvinces() needs civTerritory populated first);
+         Display (pure map-styling sliders, unrelated to generation) gets its own collapsed
+         accordion instead of sharing one with Provinces/Ways. Auto-populate/Recalculate
+         Territories/Generate Roads are exactly the CLAUDE.md-mandated "Auto Populate"/"Auto
+         Polity" functions, unchanged — same ids/handlers, only physical position/labels moved. -->
+    <div id="civSubGeneration" style="display:none">
+      <div class="sec">
+        <div class="sublabel">Step 1 · Populate settlements <span style="text-transform:none;font-weight:400;color:var(--muted)">(blank = automatic)</span></div>
+        <div class="row" style="gap:4px"><label>Capitals / Cities</label>
+          <input id="civNCap" type="number" min="0" max="50" placeholder="auto" style="flex:1;min-width:0" aria-label="Capitals count">
+          <input id="civNCity" type="number" min="0" max="200" placeholder="auto" style="flex:1;min-width:0" aria-label="Cities count"></div>
+        <div class="row" style="gap:4px"><label>Towns / Villages</label>
+          <input id="civNTown" type="number" min="0" max="500" placeholder="auto" style="flex:1;min-width:0" aria-label="Towns count">
+          <input id="civNVil" type="number" min="0" max="1000" placeholder="auto" style="flex:1;min-width:0" aria-label="Villages count"></div>
+        <div class="row"><label for="civNHam">Hamlets</label>
+          <input id="civNHam" type="number" min="0" max="2000" placeholder="auto" style="flex:1;min-width:0"></div>
+        <div class="btnrow" style="margin-top:6px">
+          <button id="civAutoPopulateBtn" class="accent">Auto-populate world</button>
+          <button id="civClearPlacesBtn" class="al-danger">Clear places &amp; routes</button>
+        </div>
+        <div class="hint"><b>Auto-populate world</b> places settlements based on terrain suitability and carrying capacity. Fill in any of the count fields to fix how many of each tier are seeded (e.g. Capitals 3, Villages 10, Hamlets 20) — tiers are then assigned best-site-first and the centrality promotion step is skipped so your counts hold; crossroads trade settlements may still add a few. Use <b>Drop place</b> to manually place settlements or POIs; <b>Inspect</b> selects and edits existing places. <b>Clear places &amp; routes</b> wipes settlements/POIs AND every way/journey with them — a route to a deleted place is meaningless, so nothing is left orphaned on the map.</div>
+        <!-- v0.69: opt-in biome carrying-capacity residual (disease burden + extreme-climate friction). Default OFF ⇒ bit-identical. -->
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="civBiomeKChk"> Biome carrying-capacity (disease · climate residual)</label>
+        <div class="hint" style="margin-top:2px">Sourced correction to carrying capacity for effects soil/temp/water miss — the <b>rainforest paradox</b> (wet, productive biomes suppressed by pathogen load), arid/cold survival friction, and (v0.77) a <b>wetland/marsh</b> story: productive fish/rice/waterfowl land with high water-managed intensification potential but malaria/flood friction. Off by default; on re-derives carrying capacity, settlement suitability and the <b>Pop density</b> layer. See <code>docs/research/settlement-density.md</code>.</div>
+        <!-- v0.75: opt-in imperial-seat (metropolis) tier. Default OFF ⇒ auto-populate output bit-identical. -->
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="civMetropolisChk"> Imperial-seat tier (metropolis ★)</label>
+        <div class="hint" style="margin-top:2px">Adds a rare tier above Capital for empire-scale worlds (settlement-density §5). On the next <b>Auto-populate</b>, a dominant capital — very high trade-through (betweenness) centrality <i>and</i> a large polity — is promoted to a <b>Metropolis</b> (Nineveh/Baghdad register, ~3× a capital's base population). Off by default ⇒ auto-populate is byte-identical; capped rare (≤1 per faction). See <code>docs/research/settlement-density.md</code>.</div>
+        <!-- v0.95: opt-in urban-morphology settlement layouts. Default OFF ⇒ render bit-identical. -->
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="civUrbanLayoutsChk"> Generate settlement layouts (urban morphology)</label>
+        <div class="hint" style="margin-top:2px">At deep zoom (Tiled LOD), a settlement's pin fades into its own procedurally-generated street plan — blocks, parcels, walls/fortifications and buildings, seeded from that settlement's population, with its main roads locked onto the region routes already generated here (internal streets/lanes stay the generator's own). Age and fortification default from population/tier; override either per-settlement in its Inspect panel. Off by default; generation is deferred/cached per settlement so it costs nothing until you zoom in. See <code>urban-morphology/</code>.</div>
+        <!-- v1.17 (S7): settlement-diagnostics overlay — per-settlement Site-Profile facts + layout validity, default OFF. -->
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="civDiagnosticsChk"> Settlement diagnostics overlay</label>
+        <div class="hint" style="margin-top:2px">Draws each settlement's town-footprint box plus its derived facts on the map: specialisation, wall spec (none/ditch/palisade/stone), river order &amp; distance, and — once a layout has been generated — bridge/ford and harbour validity. Debug aid; everything shown is simulation data, nothing is invented at draw time.</div>
+        <!-- v1.70: opt-in villages layer (settlement-density §6), replacing v0.76's "Dense village
+             grid" and v1.68/v1.69's "Roadside villages" with one suitability-weighted, road-biased
+             pass. Default OFF ⇒ auto-populate bit-identical. v1.71 additionally connects each
+             village to the existing network with a low-tier "Ancient route" way. -->
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="civVillagesChk"> Villages (suitability-weighted, road-biased)</label>
+        <div class="hint" style="margin-top:2px">On the next <b>Auto-populate</b>, once the road network is finished, real hamlet-tier settlements are seeded from the SAME suitability grid the dense grid used to scan wholesale (~10 km site-catchment spacing, Vita-Finzi &amp; Higgs 1970) — so decent land is covered everywhere, not only beside a road — but each candidate's odds of actually being kept rise smoothly the closer it sits to a real road, with no hard cutoff: a village can still appear well off-road on great land, and never appears on land below the suitability floor no matter how close a road runs. They're full settlements (named, populated, counted in food/trade totals like any hamlet), capped at 200 pins, and each is connected to the nearest settlement or road with a low-tier <b>Ancient route</b> — but both the village pin and its connecting track only appear once you've zoomed in a good deal further than a normal settlement needs, revealing together — a deliberately deep, additive layer, not part of the default view. Base capital/city/town/village/hamlet placement is unaffected either way. Off by default ⇒ auto-populate byte-identical. See <code>docs/research/settlement-density.md</code> §6.</div>
+        <!-- v0.82: post-collapse recovery phase (settlement-emergence.md §5–6). Stable ⇒ auto-populate bit-identical. -->
+        <div class="row" style="margin-top:8px"><label for="civRecoveryPhase">Recovery phase</label>
+          <select id="civRecoveryPhase" style="flex:1">
+            <option value="0" selected>Stable (mature civilisation)</option>
+            <option value="1">I · Survival (&lt;10%)</option>
+            <option value="2">II · Subsistence (10–30%)</option>
+            <option value="3">III · Regional (30–70%)</option>
+            <option value="4">IV · Mature recovery (70%+)</option>
+          </select></div>
+        <div class="hint" style="margin-top:2px">Models a world rebuilding <b>after a demographic collapse</b> (settlement-emergence §5–6). On the next <b>Auto-populate</b>, populations run <i>below</i> the ecological ceiling by the phase fraction, and where a nucleus is scaled below the labour its tier needs it <b>collapses into its ruins</b> — a former city surviving only as a fortified village. Survival/Subsistence phases abandon tiny inland nodes; survivors cluster on water and defensible ruins. <b>Stable</b> ⇒ auto-populate byte-identical (mature society at the ceiling).</div>
+        <!-- v0.81: regional population is now a BASE OUTPUT of auto-populate (map-size-dependent), auto-computed
+             — no longer a user-triggered button. Each settlement's own population is drawn from its catchment's
+             carrying capacity (settlement-emergence.md). -->
+        <div class="sublabel" style="margin-top:8px">Modeled population <span style="text-transform:none;font-weight:400;color:var(--muted)">(auto · scales with map size)</span></div>
+        <div class="hint" id="civPopEstimateOut" style="margin-top:2px">Computed automatically on <b>Auto-populate</b>. Integrates the modeled persons/km² field (the <b>Pop density</b> layer) over all land — the population the map's habitable land sustains at pre-industrial density, and the base each settlement's own population is drawn from (via its catchment carrying capacity). Reflects the <b>Biome carrying-capacity</b> toggle; per-faction totals sum over painted territory.</div>
+      </div>
+
+      <div class="sec">
+        <div class="sublabel">Step 2 · Generate roads</div>
+        <div class="btnrow"><button id="civAutoRoutesBtn">Generate Roads</button></div>
+        <div class="btnrow" style="margin-top:6px"><button id="civClearRoadsBtn" class="al-danger">Clear ways &amp; journeys</button></div>
+        <div class="hint"><b>Generate Roads</b> draws land &amp; sea ways between existing settlements.</div>
+      </div>
+
+      <!-- v1.59: promoted out of the old "Advanced" grab-bag — it's Step 2's own output, so it
+           belongs directly under it, always visible (not hidden behind an accordion). -->
+      <div class="sec">
+        <div class="sublabel">Ways</div>
+        <div id="civWayList"><div class="hint">No ways yet. Use <b>Generate Roads</b>, or draw one manually with the <b>Way</b> tool.</div></div>
+      </div>
+
+      <div class="sec">
+        <div class="sublabel">Step 3 · Recalculate territories</div>
+        <div class="btnrow" style="margin-top:6px">
+          <button id="civAutoPolityBtn">Recalculate Territories</button>
+          <button id="civClearTerrBtn" class="al-danger">Clear territory</button>
+        </div>
+        <div class="hint"><b>Paint territory</b>: select a faction from <b>Factions</b> (pick <b>Unclaimed</b> to erase) then drag on the map to assign land. <b>Recalculate Territories</b> generates faction boundaries automatically from settlement locations and terrain. Political eras and playback are the <b>timeline strip</b> above the status bar on a desktop (<b>Explore → Timeline</b> on a phone); the collapse/recovery simulator is in <b>Explore → Timeline</b> and writes its steps into that same timeline.</div>
+      </div>
+
+      <!-- v1.59: promoted out of "Advanced" — stays physically after Step 3 on purpose:
+           _civGenerateProvinces() bails to an empty result until civTerritory is populated, so
+           Provinces can't move any earlier than this. Territory-radius (the brush for the manual
+           Territory-paint tool, not a generation parameter) moved to civTerritoryToolRow above
+           #civSubBar, alongside the tool palette. -->
+      <div class="sec">
+        <div class="sublabel">Provinces</div>
+        <!-- v1.10 (borrow-list #4, after FMG provinces — "a mid-tier region between faction and
+             settlement"): auto-subdivides each faction's territory into provinces, one per city+
+             settlement. Regenerate-on-demand rather than automatic on every territory edit. -->
+        <label class="chk"><input type="checkbox" id="civProvincesChk"> Show provinces (subtle per-province tint within each faction's territory)</label>
+        <div class="btnrow" style="margin-top:4px"><button id="civGenProvincesBtn">Generate provinces</button></div>
+        <div class="hint" style="font-size:.75rem">One province per city-tier+ settlement in each faction (a faction with only towns/villages gets one province, seeded by its biggest settlement). Re-run after adding settlements or repainting territory.</div>
+      </div>
+
+      <!-- v1.59: map-styling sliders — unrelated to generation, so they get their own clearly
+           labeled home instead of sharing the old catch-all "Advanced" accordion with
+           Provinces/Ways (which have nothing to do with each other besides also lacking a slot). -->
+      <details class="cat-acc">
+      <summary>Display</summary>
+      <div class="sec">
+        <div class="row"><label for="civIconScaleR">Settlement icons &amp; labels</label><input type="range" id="civIconScaleR" min="20" max="250" step="5" value="100"><span class="val" id="civIconScaleV">1.00×</span></div>
+        <div class="row"><label for="civWayScaleR">Way line width</label><input type="range" id="civWayScaleR" min="20" max="250" step="5" value="100"><span class="val" id="civWayScaleV">1.00×</span></div>
+        <div class="hint">Settlement pins, POI markers and their labels stay a roughly constant on-screen size at any zoom level — this slider is a further multiplier on top of that. <b>Way line width</b> scales the road/track/sea-lane strokes drawn by the Civilization layer, independently of the reference roads in Generate → World.</div>
+        <!-- v1.12 (borrow-list #6, after FMG's "restyle-everything panels"): per-layer opacity —
+             each of the map's civ layers (territory fill, way strokes) gets its own restyle
+             control, same spirit as the scale sliders above but for opacity instead of size. -->
+        <div class="row"><label for="territoryOpacityR">Territory fill opacity</label><input type="range" id="territoryOpacityR" min="0" max="100" step="1" value="51"><span class="val" id="territoryOpacityV">0.51</span></div>
+        <div class="row"><label for="wayOpacityR">Way opacity</label><input type="range" id="wayOpacityR" min="0" max="100" step="1" value="100"><span class="val" id="wayOpacityV">1.00</span></div>
+        <div class="hint">Restyle the territory fill and road/track/sea-lane strokes independently of each other — e.g. fade territory down to let the terrain show through more, or fade roads to spotlight settlements.</div>
+      </div>
+      </details><!-- end Display -->
+    </div><!-- end civSubGeneration -->
+
+    <!-- FACTIONS (P4, v1.55 faction-first redesign; v1.57: moved into a full-screen pop-up).
+         The sidebar page itself now only holds what the map-authoring tools need visible while the
+         canvas is on screen — the Quick-select pills (still drive _civActiveFaction, a deliberately
+         separate concern from browsing/editing a faction, per the v1.55 comment this inherits) plus
+         a launcher button. Browsing/editing (world overview, roster, per-faction drawer) moved into
+         #civFactionsModal — a full-viewport pop-up, same shell contract as #cityViewerModal (v1.18)/
+         #routeEditorModal (v1.44): own .open-class toggle, own Escape handler, added to
+         _overCanvasOverlay's scroll-fix list and _sculptNavSync's joystick gate. The drawer inside it
+         keeps its v1.55 slide-in-from-the-left behaviour unchanged, just re-scoped to the modal's own
+         stage instead of the sidebar's. -->
+    <div id="civSubFactions">
+      <div class="sec">
+        <div class="sublabel">Quick select <span style="text-transform:none;font-weight:400;color:var(--muted)">(active faction for the Territory/Settlement map tools)</span></div>
+        <div id="civFactionPicker" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px"></div>
+        <div class="btnrow" style="margin-bottom:6px"><button id="civAddFactionBtn">+ Add faction</button><button id="civRemoveFactionBtn">− Remove last</button></div>
+        <div class="hint" style="margin-bottom:6px;font-size:.75rem">Double-click a faction pill above to rename it. <b>Add faction</b> appends a new polity with a distinct colour; <b>Remove last</b> drops the most recently added one (settlements/territory using it revert to Unclaimed).</div>
+      </div>
+      <div class="sec">
+        <button id="civOpenFactionsBtn" style="width:100%">📋 Open Faction Roster…</button>
+        <div class="hint" style="margin-top:4px">World overview, every faction's full profile — government, culture, ag. technology, territory fit, population, power breakdown, economy — and its settlements, in a full-screen view.</div>
+      </div>
+    </div><!-- end civSubFactions -->
+
+    <!-- v1.57: Factions pop-up — see the comment on #civSubFactions above for the shell contract. -->
+
+    <!-- SETTLEMENTS (P5): sortable/filterable virtual-scroll table — every settlement in the
+         world, lightweight/instant filtering, only visible rows ever touch the DOM. POIs (out of
+         scope for this table per the spec) stay reachable via the toggle below, reusing the
+         existing non-virtualized _civRenderPoiList as-is. -->
+    <div id="civSubSettlements" style="display:none">
+      <div class="sec" id="stSettlementTableWrap">
+        <div class="row"><input id="stSearchInput" type="text" placeholder="Search by name…" style="flex:1"></div>
+        <div class="row" style="gap:4px;flex-wrap:wrap">
+          <select id="stFilterFaction" style="flex:1;min-width:100px"></select>
+          <select id="stFilterType" style="flex:1;min-width:100px"></select>
+          <select id="stFilterEconRole" style="flex:1;min-width:100px"></select>
+        </div>
+        <div class="row" style="gap:4px;flex-wrap:wrap">
+          <input id="stFilterPopMin" type="number" placeholder="Pop min" style="flex:1;min-width:0">
+          <input id="stFilterPopMax" type="number" placeholder="Pop max" style="flex:1;min-width:0">
+          <select id="stSortKey" style="flex:1;min-width:110px">
+            <option value="pop">Population</option>
+            <option value="prosperity">Prosperity</option>
+            <option value="importance">Importance</option>
+            <option value="economy">Economy</option>
+            <option value="age">Age</option>
+            <option value="dist">Distance</option>
+            <option value="military">Military value</option>
+          </select>
+          <button id="stSortDirBtn" type="button" title="Toggle ascending/descending">↓</button>
+        </div>
+        <div class="hint" id="stResultCount" style="margin-top:4px">0 settlements</div>
+        <div id="stTableHead" style="display:flex;gap:4px;font-size:.68rem;color:var(--muted);padding:3px 6px;border-bottom:1px solid var(--border);margin-top:4px">
+          <span style="flex:2">Name</span><span style="flex:1">Type</span><span style="flex:1">Faction</span>
+          <span style="flex:1;text-align:right">Pop</span><span style="flex:1;text-align:right">Prosp.</span>
+          <span style="flex:1">Econ. role</span><span style="flex:0 0 40px;text-align:right">Roads</span><span style="flex:1">Status</span>
+        </div>
+        <div id="stViewport" style="position:relative;overflow-y:auto;height:420px;border:1px solid var(--border);border-radius:0 0 5px 5px">
+          <div id="stSpacer" style="position:relative"></div>
+        </div>
+      </div>
+      <div class="sec">
+        <label class="chk"><input type="checkbox" id="stShowPoiChk"> Show POIs instead <span style="text-transform:none;font-weight:400;color:var(--muted)">(points of interest aren't settlements — kept as a separate list)</span></label>
+        <div id="stPoiHost" style="display:none;margin-top:8px">
+          <div class="hint" style="margin-bottom:6px">Points of interest — click a row (or ✎) to open its editor in the pinned <b>Selection</b> panel.</div>
+          <div id="civPoiList"></div>
+          <div class="hint" style="margin-top:4px">All POIs: <span id="civPoiCount">0</span></div>
+        </div>
+      </div>
+    </div><!-- end civSubSettlements -->
+
+    <!-- ECONOMY: aggregate faction economics (P6). -->
+    <div id="civSubEconomy" style="display:none">
+      <div class="sec" id="civEconomyBody"><div class="hint">Generate a world and auto-populate it to see aggregate economic output here.</div></div>
+    </div>
+
+    <!-- STATISTICS: world + per-faction summary (P6). -->
+    <div id="civSubStatistics" style="display:none">
+      <div class="sec" id="civStatisticsBody"><div class="hint">Generate a world and auto-populate it to see world/faction statistics here.</div></div>
+    </div>
+
+    <!-- (v0.62: the former POLITICS section merged into POLITY, later renamed Territories above.
+         v0.91: its Add-year/pills/Simulate controls moved again — this time to Explore → Timeline,
+         see #explTimelineSection — ids civTlYear/civTlAddYearBtn/civTimelinePanel/civSim* unchanged,
+         handlers unchanged) -->
+
+
+    </div><!-- end genCiv -->
+
+    <!-- Cartography sub-panel (restored v0.66) -->
+    <div id="genCarto" style="display:none">
+
+    <!-- REGION NAMES: kept first per user request -->
+    <details class="cat-acc" open>
+    <summary>Region names</summary>
+    <!-- v0.64 (§4.5): "Add labels" is now the unified palette's Label tool (folded into _civTool) -->
+    <div class="sec">
+      <div class="hint">Pick the <b>Label</b> tool above, then click an empty spot to name a mountain range, sea, forest or any area. Click an existing label's box (or drag it, or its corner handle to resize) to select it; a ✓/✗ appear above the box to confirm or cancel edits. Saved with the project.</div>
+      <div class="btnrow" style="margin-top:8px"><button id="carClearLabelsBtn" class="al-danger">Clear all labels</button></div>
+      <details class="acc" style="margin-top:8px" open>
+        <summary>All labels (<span id="carLabelCount">0</span>)</summary>
+        <div class="hint" style="margin-top:6px">Click a row (or ✎) to open its editor in the pinned <b>Selection</b> panel above.</div>
+        <div id="carLabelList" style="margin-top:8px"></div>
+      </details>
+    </div>
+    </details><!-- end Region names cat-acc -->
+
+    <details class="cat-acc">
+    <summary>Manual icons</summary>
+    <div class="sec">
+      <!-- v0.64 (§4.5): the family picker + gallery are the Icon tool's CONTEXTUAL options — hidden
+           until the Icon tool (unified palette above) is active, exactly the Dungeondraft/Wonderdraft
+           "tool options only for the active tool" idea. Toggled by _civSetTool. Existing icons stay
+           manageable (clear/list below) regardless of which tool is active. -->
+      <div id="carIconContextSec" style="display:none">
+        <div class="row"><label for="carIconFam">Category</label>
+          <select id="carIconFam"><option value="feature">Feature icons</option><option value="settlement">Settlement pins</option><option value="poi">Points of Interest</option><option value="custom">Custom</option></select></div>
+        <div id="carIconGallery" class="cargal"></div>
+        <div class="hint" id="carIconHint">Click a tile to arm it, then click empty ground to place it; click an existing icon to select it (drag to move, drag its corner handle to resize, Delete to remove). Custom icons come from a loaded pack's <code>custom</code> sets — <b>File ▸ Import asset pack…</b>.</div>
+        <!-- v1.26 (D4): density brush. The armed gallery tile decides WHAT to paint; these decide
+             HOW MANY and HOW BIG. Size/variant randomness is read from the asset's own scatter rule
+             (Asset Library → Procedural scattering), so a hand-painted stand of trees matches the
+             procedurally-scattered ones instead of being uniform stamps. -->
+        <div class="row" style="margin-top:6px"><label for="carIconBrushChk">Density brush</label><input type="checkbox" id="carIconBrushChk"></div>
+        <div id="carIconBrushOpts" style="display:none">
+          <div class="row"><label for="carIconBrushR">Brush radius</label><input type="range" id="carIconBrushR" min="2" max="60" value="12"><span class="val" id="carIconBrushRV">12</span></div>
+          <div class="row"><label for="carIconBrushD">Brush density</label><input type="range" id="carIconBrushD" min="5" max="200" value="60"><span class="val" id="carIconBrushDV">0.60</span></div>
+          <div class="hint">Drag on the map to scatter the armed icon inside the brush. Spacing is blue-noise (no overlap), size varies within the asset's Min/Max size rule, and water is never painted.</div>
+        </div>
+      </div>
+      <div class="hint" id="carIconIdleHint">Pick the <b>Icon</b> tool above to reveal the icon gallery and place one.</div>
+      <div class="btnrow" style="margin-top:8px"><button id="carClearIconsBtn" class="al-danger">Clear all icons</button></div>
+      <details class="acc" style="margin-top:8px" open>
+        <summary>Placed icons (<span id="carIconCount">0</span>)</summary>
+        <div id="carIconList" style="margin-top:8px"></div>
+      </details>
+    </div>
+    </details><!-- end Manual icons cat-acc -->
+
+    <details class="cat-acc">
+    <summary>Paint brush</summary>
+    <div class="sec">
+      <label class="chk"><input type="checkbox" id="carPaintChk"> Paint (drag on the map — land only)</label>
+      <div class="seg sm" id="paintLayerSeg">
+        <button data-paintlayer="biome" class="on">Biome</button>
+        <button data-paintlayer="splat">Splat</button>
+        <button data-paintlayer="terrain">Terrain</button>
+      </div>
+      <div class="row"><label for="carPaintValue">Value</label><select id="carPaintValue"></select></div>
+      <div class="row"><label for="carPaintRadius">Brush radius</label><input type="range" id="carPaintRadius" min="1" max="40" value="6"><span class="val" id="carPaintRadiusV">6</span></div>
+      <label class="chk"><input type="checkbox" id="carPaintErase"> Erase (paint back to procedural)</label>
+      <div class="row"><label for="splat">Texture strength</label><input type="range" id="splat" min="0" max="100" step="1" value="70"><span class="val" id="splatV">0.70</span></div>
+      <div class="btnrow" style="margin-top:8px"><button id="carPaintClearBtn" class="al-danger">Clear this layer</button><button id="packClearBtn" class="al-danger">Clear pack</button></div>
+      <div class="hint" id="carPaintHint">Paints the Biome/Terrain flat colour as a tint over the shaded procedural map, or (Splat) forces one pack ground texture at full coverage. Never touches ocean or lake cells. <b>Texture strength</b> also controls how strongly the Splat layer and the ordinary procedural ground textures show through. <b>File ▸ Import asset pack…</b> loads ground textures; empty texture slots stay procedural even where painted.</div>
+      <div class="hint" id="packInfo">No pack loaded &mdash; mountains, trees and ground use built-in procedural art. See <code>docs/ASSET_PACK_FORMAT.md</code>.</div>
+      <!-- v1.24 fix (QA report): renderPackInspector() has always targeted #packGrid (its CSS at
+           #packGrid{...} above has been sitting unused) but the host div was missing from the
+           markup, so it silently no-op'd and the loaded pack's texture/icon thumbnail gallery never
+           rendered anywhere. -->
+      <div id="packGrid"></div>
+    </div>
+    </details><!-- end Paint brush cat-acc -->
+
+    <details class="cat-acc">
+    <summary>Map view</summary>
+    <div class="sec">
+
+      <div class="row" style="margin-top:12px"><label for="bioBlend">Relief ↔ biome</label><input type="range" id="bioBlend" min="0" max="100" step="1" value="90"><span class="val" id="bioBlendV">0.90</span></div>
+      <div class="row"><label for="exag">Relief</label><input type="range" id="exag" min="0" max="100" step="1" value="42"><span class="val" id="exagV">×3.4</span></div>
+      <div class="row"><label for="sun">Sun</label><input type="range" id="sun" min="0" max="360" step="5" value="315"><span class="val" id="sunV">315°</span></div>
+      <label class="chk"><input type="checkbox" id="shadeOnHypso" checked> Hillshade the tinted map</label>
+    </div>
+    </details><!-- end Map view cat-acc -->
+
+    <details class="cat-acc">
+    <summary>Map style</summary>
+    <div class="sec">
+      <!-- v0.63 (§4.4): style presets — one click sets a tasteful bundle of state.viz keys; the
+           full slider set moves into the two "Advanced" accordions below. Touching any slider marks
+           the row "Custom". Presets are pure state.viz writes ⇒ Default reproduces the base look
+           bit-identically. -->
+      <div class="style-presets">
+        <div class="sublabel-grp">Style preset</div>
+        <div class="seg sm" id="stylePresetSeg" style="flex-wrap:wrap">
+          <button data-preset="default" class="on">Default</button>
+          <button data-preset="antique">Antique</button>
+          <button data-preset="ink">Ink</button>
+          <button data-preset="watercolor">Watercolor</button>
+          <button data-preset="print">Print</button>
+          <button data-preset="village">Village map</button>
+        </div>
+        <div class="style-custom" id="styleCustomNote" style="display:none">Custom — sliders edited since the last preset.</div>
+      </div>
+      <details class="adv"><summary>Rendering — advanced</summary>
+      <div class="sublabel-grp">Rendering</div>
+      <div class="row"><label for="parch">Parchment</label><input type="range" id="parch" min="0" max="100" step="1" value="0"><span class="val" id="parchV">off</span></div>
+      <div class="row"><label for="aoR">Ambient occlusion</label><input type="range" id="aoR" min="0" max="100" step="1" value="0"><span class="val" id="aoV">off</span></div>
+      <div class="row"><label for="crestR">Ridge crests</label><input type="range" id="crestR" min="0" max="100" step="1" value="0"><span class="val" id="crestV">off</span></div>
+      <div class="row"><label for="rockR">Slope rock</label><input type="range" id="rockR" min="0" max="100" step="1" value="0"><span class="val" id="rockV">off</span></div>
+      <div class="row"><label for="texR">Surface texture</label><input type="range" id="texR" min="0" max="100" step="1" value="0"><span class="val" id="texV">off</span></div>
+      <div class="row"><label for="minorR">Minor channels</label><input type="range" id="minorR" min="0" max="100" step="1" value="0"><span class="val" id="minorV">off</span></div>
+      <div class="row"><label for="ridgeR">Ridged relief</label><input type="range" id="ridgeR" min="0" max="100" step="1" value="0"><span class="val" id="ridgeV">off</span></div>
+      <div class="row"><label for="svfR">Sky view factor</label><input type="range" id="svfR" min="0" max="100" step="1" value="0"><span class="val" id="svfV">off</span></div>
+      <div class="row"><label for="shadowsR">Cast shadows</label><input type="range" id="shadowsR" min="0" max="100" step="1" value="0"><span class="val" id="shadowsV">off</span></div>
+      <div class="row"><label for="curveShadeR">Curvature shading</label><input type="range" id="curveShadeR" min="0" max="100" step="1" value="0"><span class="val" id="curveShadeV">off</span></div>
+      <div class="row"><label for="geologyR">Geology materials</label><input type="range" id="geologyR" min="0" max="100" step="1" value="0"><span class="val" id="geologyV">off</span></div>
+      <div class="row"><label for="wetnessR">Wetness</label><input type="range" id="wetnessR" min="0" max="100" step="1" value="0"><span class="val" id="wetnessV">off</span></div>
+      <div class="row"><label for="seasonR">Season (render)</label><input type="range" id="seasonR" min="-100" max="100" step="5" value="0"><span class="val" id="seasonV">annual</span></div>
+      <div class="hint" id="seasonNote" style="font-size:.68rem;margin:-2px 0 4px">Annual average — drag to blend the rendered climate toward January or July.</div>
+      <div class="hint"><b>Sky view factor</b> darkens enclosed valleys/gorges that see less sky; <b>cast shadows</b> throw long soft shadows off major ranges toward the sun azimuth; <b>curvature shading</b> brightens convex ridges and darkens concave hollows; <b>geology materials</b> recolours exposed rock by the lithology underneath (granite speckle, basalt fields, sandstone strata, karst limestone, gneiss banding + dune ripples) so mountains read geological; <b>wetness</b> darkens persistently saturated ground (high TWI); <b>season</b> blends the <i>rendered</i> climate toward January&nbsp;⇠&nbsp;annual&nbsp;⇢&nbsp;July when <b>Seasons</b> (Weather) is on — snowlines migrate, vegetation dries/greens. All render-only, default off.</div>
+      <div class="row"><label for="contourMR">Contour interval</label><input type="range" id="contourMR" min="0" max="50" step="5" value="0"><span class="val" id="contourMV">auto</span></div>
+      <div class="row"><label for="sdfCoastR">SDF coastlines</label><input type="range" id="sdfCoastR" min="0" max="100" step="1" value="0"><span class="val" id="sdfCoastV">off</span></div>
+      <div class="row"><label for="sdfRiversR">SDF river bands</label><input type="range" id="sdfRiversR" min="0" max="100" step="1" value="0"><span class="val" id="sdfRiversV">off</span></div>
+      <div class="row"><label for="sdfBiomesR">SDF biome blend</label><input type="range" id="sdfBiomesR" min="0" max="100" step="1" value="0"><span class="val" id="sdfBiomesV">off</span></div>
+      <div class="hint">The <b>SDF</b> (signed-distance) layers treat coast, rivers and biome edges as continuous geometry: <b>coastlines</b> add resolution-independent beach &rarr; coastal-plain bands; <b>river bands</b> draw bank/wetland/floodplain margins from the drainage SDF; <b>biome blend</b> widens ecotones near biome boundaries. Render-only (screen overlays, like the river/minor-channel layers); all default off.</div>
+      </details><!-- end Rendering advanced -->
+      <details class="adv"><summary>Painter styles (NPR)</summary>
+      <div class="sublabel-grp">Painter (NPR)</div>
+      <div class="row"><label for="contoursR">Contour veins</label><input type="range" id="contoursR" min="0" max="100" step="1" value="0"><span class="val" id="contoursV">off</span></div>
+      <div class="row"><label for="inkR">Ink linework</label><input type="range" id="inkR" min="0" max="100" step="1" value="0"><span class="val" id="inkV">off</span></div>
+      <div class="row"><label for="hachureR">Hachure</label><input type="range" id="hachureR" min="0" max="100" step="1" value="0"><span class="val" id="hachureV">off</span></div>
+      <div class="row"><label for="watercolorR">Watercolor</label><input type="range" id="watercolorR" min="0" max="100" step="1" value="0"><span class="val" id="watercolorV">off</span></div>
+      <div class="row"><label for="celR">Cel / toon</label><input type="range" id="celR" min="0" max="100" step="1" value="0"><span class="val" id="celV">off</span></div>
+      <div class="row"><label for="crosshatchR">Engraving (cross-hatch)</label><input type="range" id="crosshatchR" min="0" max="100" step="1" value="0"><span class="val" id="crosshatchV">off</span></div>
+      <div class="row"><label for="stippleR">Stipple (pen)</label><input type="range" id="stippleR" min="0" max="100" step="1" value="0"><span class="val" id="stippleV">off</span></div>
+      <div class="row"><label for="sepiaR">Sepia / antique</label><input type="range" id="sepiaR" min="0" max="100" step="1" value="0"><span class="val" id="sepiaV">off</span></div>
+      <div class="row"><label for="risographR">Risograph (duotone)</label><input type="range" id="risographR" min="0" max="100" step="1" value="0"><span class="val" id="risographV">off</span></div>
+      <div class="row"><label for="villageR">Village map</label><input type="range" id="villageR" min="0" max="100" step="1" value="0"><span class="val" id="villageV">off</span></div>
+      <div class="row"><label for="pointillismR">Pointillism</label><input type="range" id="pointillismR" min="0" max="100" step="1" value="0"><span class="val" id="pointillismV">off</span></div>
+      <div class="hint">Hand-drawn "Painter" styles, each its own intensity: <b>contour veins</b> = constant-width elevation isolines; <b>ink</b> = pen outlines on landform edges; <b>hachure</b> = downslope hatching denser on steep ground; <b>watercolor</b> = pigment pooling + paper granulation; <b>cel/toon</b> = posterized flat colour bands; <b>engraving</b> = antique cross-hatch; <b>stipple</b> = pen dot-density shading; <b>sepia</b> = antique warm brown toning; <b>risograph</b> = indigo→amber duotone screen-print with halftone dots; <b>pointillism</b> = Seurat coloured-dot field. Land-only, seamless across tiles/bakes; all default off — stack them freely.</div>
+      </details><!-- end Painter advanced -->
+      <div class="sublabel-grp">Overlays</div>
+      <label class="chk"><input type="checkbox" id="iconsChk"> Stylized icons (mountains &middot; hills &middot; forest)</label>
+      <label class="chk"><input type="checkbox" id="wavesChk"> Coastal wave lines</label>
+      <div class="row"><label for="waveDistR">Wave reach</label><input type="range" id="waveDistR" min="25" max="300" step="5" value="100"><span class="val" id="waveDistV">1.00×</span></div>
+      <label class="chk"><input type="checkbox" id="waterAnimChk"> Animate water (flow map) — runs at ≤~1K working res</label>
+      <label class="chk"><input type="checkbox" id="scaleBarChk" checked> Scale bar</label>
+      <label class="chk"><input type="checkbox" id="landmassLabelChk"> Continent &amp; island names</label>
+      <label class="chk"><input type="checkbox" id="multiSun"> Multi-sun lighting (softer, painterly relief)</label>
+      <div class="hint">Parchment multiplies a paper-fibre grain and warm tint into the map colours. The icon layer finds ridgelines and forest cover and draws mountain, hill and tree glyphs over the relief &mdash; largest peaks claim the range spine first. Wave lines add concentric foam contours hugging the shore. All are render-only (PNG bakes/layer exports are unchanged) and work with zero assets.</div>
+    </div>
+    </details><!-- end Map style cat-acc -->
+
+
+    </div><!-- end genCarto -->
+
+    <!-- v1.15 (docs/SCULPT_EDITOR_INTEGRATION_PLAN.md): Sculpt — a full-fledged, stamp-based,
+         non-destructive landscape editor, replacing the old "Manual Terrain" accordion (plotline
+         feature brush + direct paint) with the fractal-geology PoC's architecture ported into the
+         engine. Painting here NEVER touches `field` — every stroke is a stamp on a session-scoped
+         stack (unlimited undo/redo/reorder/hide while drafting); Commit bakes the whole stack in
+         one pass, recomputes flow/climate once, and re-renders. Being on this tab is the deliberate
+         action (unlike the old accordion buried inside World) — no separate "enable" gate needed,
+         since nothing here is destructive until Commit. -->
+    <div id="genSculpt" style="display:none">
+
+    <div class="sec" id="sculptFinalizedNote" style="display:none;border-left:3px solid var(--accent)">
+      <div class="hint">🔒 World finalized — sculpting is locked. Un-finalize (Generate → World) to resume.</div>
+    </div>
+
+    <!-- v2.24: the feature picker moved to the conditional tool rail above the map (it is the
+         armed tool's own sub-palette, which is what that band is for). #sculptFeatureSeg and
+         #sculptFeatHint are populated and read by id, so nothing in sculptSyncUI() changed.
+         v2.72: on the desktop the rail's picker and hint are in the tool-options bar instead (Ruling
+         DZ), beside this panel's brush rows; a phone keeps the rail. Still read by id. Commit and
+         Discard stay below in this stage. -->
+
+    <div class="sec">
+      <h2>Presets</h2>
+      <div class="seg sm" id="sculptPresetSeg" style="flex-wrap:wrap"></div>
+      <div class="hint">One-click parameter seed for the matching feature above — pick one, then paint.</div>
+    </div>
+
+    <div class="sec">
+      <details class="acc" open>
+      <summary>Brush &amp; noise</summary>
+      <!-- v2.72: the three BRUSH rows (size, hardness, intensity) and the size's km readout are the sculpt
+           tool's own settings, so on the desktop they sit in the tool-options bar while Sculpt is armed
+           (Ruling DZ: "only keep the paint/sculpt brush settings here"). _dskPlace() moves these same
+           elements there; sculptSyncGlobalSliders() and the input handlers find them by id, as always.
+           The noise rows below are the stamp's procedural shape and stay in the dock. -->
+      <div class="row" id="sBrushRow" style="margin-top:8px"><label for="sBrush">Brush size</label><input type="range" id="sBrush" min="6" max="200" step="1"><span class="val" id="sBrushV"></span></div>
+      <div class="hint" id="sBrushKm" style="margin-top:-4px;margin-bottom:6px" title="The brush's radius in real kilometres — it stays this real-world size at any zoom">—</div>
+      <div class="row" id="sHardRow"><label for="sHard">Hardness</label><input type="range" id="sHard" min="0" max="100" step="1"><span class="val" id="sHardV"></span></div>
+      <div class="row" id="sIntenRow"><label for="sInten">Intensity</label><input type="range" id="sInten" min="0" max="150" step="1"><span class="val" id="sIntenV"></span></div>
+      <div class="row"><label for="sNoiseScale">Noise scale</label><input type="range" id="sNoiseScale" min="1" max="20" step="0.5"><span class="val" id="sNoiseScaleV"></span></div>
+      <div class="row"><label for="sOct">Octaves</label><input type="range" id="sOct" min="1" max="8" step="1"><span class="val" id="sOctV"></span></div>
+      <div class="row"><label for="sPers">Persistence</label><input type="range" id="sPers" min="20" max="90" step="1"><span class="val" id="sPersV"></span></div>
+      <div class="row"><label for="sLac">Lacunarity</label><input type="range" id="sLac" min="140" max="320" step="5"><span class="val" id="sLacV"></span></div>
+      <div class="row"><label for="sEdge">Edge noise</label><input type="range" id="sEdge" min="0" max="100" step="1"><span class="val" id="sEdgeV"></span></div>
+      <div class="seedrow" style="display:flex;gap:6px;align-items:center;margin-top:8px">
+        <input type="number" id="sSeed" step="1" style="flex:1;background:#10151c;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px">
+        <button id="sSeedRand" title="Randomize seed">🎲</button>
+      </div>
+      </details>
+    </div>
+
+    <div class="sec">
+      <h2 id="sculptFeatureControlsTitle">Feature parameters</h2>
+      <!-- v2.72: Freehand's sub-mode (Raise · Lower · Smooth · …) is the brush's MODE, so on the desktop
+           this strip joins the brush rows in the tool-options bar (_dskPlace); it is filled and shown
+           by sculptBuildFeatureControls() by id, wherever it sits. -->
+      <div id="sculptModeSeg" class="seg sm" style="display:none;flex-wrap:wrap;margin-bottom:8px"></div>
+      <div id="sculptFeatureControls"></div>
+    </div>
+
+    <div class="sec">
+      <h2>Stamp stack <span class="tag" id="sculptStampCount">0</span></h2>
+      <div id="sculptStampList"></div>
+      <div class="btnrow" style="margin-top:8px">
+        <button id="sculptDeselectBtn">Deselect</button>
+        <button id="sculptHideBtn">Hide/show</button>
+        <button id="sculptUpBtn">Move up</button>
+        <button id="sculptDownBtn">Move down</button>
+        <button id="sculptDeleteBtn" class="al-danger">Delete</button>
+      </div>
+      <div class="hint">Each stroke is a live procedural object — select one to re-tune its parameters or reorder it non-destructively. Nothing here touches the map's real geography until you Commit.</div>
+    </div>
+
+    <div class="sec">
+      <div class="btnrow">
+        <button id="sculptUndoBtn">↶ Undo</button>
+        <button id="sculptRedoBtn">↷ Redo</button>
+      </div>
+      <div class="btnrow" style="margin-top:8px">
+        <button class="accent" id="sculptCommitBtn">✓ Commit to map</button>
+        <button id="sculptDiscardBtn" class="al-danger">Discard draft</button>
+      </div>
+      <div class="hint">Commit bakes the whole stack into the real heightmap in one pass, recomputes rivers/climate once, and updates the map (and any open Lithology/Soil/Water/Resources/Carry Cap/Settlement view) immediately. Discard clears the draft with zero changes to the map.</div>
+    </div>
+
+    </div><!-- end genSculpt -->
+
+    </div><!-- end generatePanel -->
+
+    <!-- ══ EXPLORE ══ -->
+    <div id="explorePanel" style="display:none">
+
+    <!-- Polity/Settlements/Roads filters moved to a floating funnel button on the map (canvas-wrap,
+         #explFilterFab) — same element IDs, so all existing filter wiring is unchanged. v0.91:
+         Timeline is NOT in that funnel — see #explTimelineSection below, a plain always-visible sidebar
+         section like Info/Journeys, since it's an editing surface, not a filter. -->
+
+    <!-- v0.66: Explore is the planning/reading phase — its own tools are Info and Route
+         (same [data-civtool] wiring as the Generate branches' palettes). -->
+
+    <!-- v0.91 (owner request: "one home, real time-scale"; owner report: the funnel-hidden version
+         was "I dont see the timeline menu in explore" — moved out to a plain, always-visible sidebar
+         section, same footing as Info/Journeys below, not tucked behind the filter funnel icon).
+         Authoring (Add year/pills), scrubbing (slider+playback) and the collapse/recovery simulator
+         are ALL here now — no more switching to Generate → Civilization → Polity to run a sim, then
+         back to Explore to scrub it. The section itself is always visible (adding the first year has
+         to start somewhere); only the slider/playback row is gated on having ≥2 recorded years (see
+         _civBuildExploreTimelineUI). -->
+    <div class="sec" id="explTimelineSection">
+      <h2>Timeline</h2>
+      <!-- v2.72 (GUI_GAP_REGISTER.md CV-24, PC_SHELL_PROPOSAL.md §3.2; approved by Ruling DY, PQ2): on
+           the desktop the year itself — scrub, play, the recorded years, Add year and the three filters —
+           is the TIMELINE STRIP above the status bar, in every domain. These are the same elements,
+           moved there by _dskPlace(); the simulator and Journeys stay here. A phone keeps all of it in
+           this section exactly as v2.71 did, until stage 2. -->
+      <div class="hint dk-only">The year — scrub, play, the recorded years, <b>Add year</b> and the three filters — is the <b>timeline strip</b> above the status bar, in every domain (Window ▸ Timeline). The simulator below writes its steps into it.</div>
+      <div class="sublabel ph-only">Add year</div>
+      <div class="row ph-only">
+        <input id="civTlYear" type="number" min="-9999" max="9999" value="100" style="width:70px" aria-label="Timeline year">
+        <button id="civTlAddYearBtn" style="flex:1" title="Record this year: a snapshot of the territory paint plus which settlements and roads exist now. Negative years are BC.">Add year</button>
+      </div>
+      <div id="civTimelinePanel" style="margin-top:6px"></div>
+      <div class="hint ph-only">Each year stores a snapshot of the territory paint plus which settlements/roads existed then. Negative years are BC. Tap a pill (or its ✕) to jump to/remove that era.</div>
+
+      <!-- v0.91: real time-scale — min/max/value are actual years (not a snapshot-count index),
+           and the datalist gives proportional tick marks, so uneven gaps between recorded years
+           render as uneven gaps on the slider instead of evenly-spaced ticks (see _civWireYearSlider). -->
+      <div id="explTimelineSliderRow" style="display:none;margin-top:10px">
+        <div class="row">
+          <span id="explTlMinYear" style="font-size:.75rem;color:var(--muted)"></span>
+          <input id="explTimelineSlider" type="range" min="0" max="0" step="1" value="0" style="flex:1" list="explTimelineTicks" aria-label="Timeline year slider">
+          <datalist id="explTimelineTicks"></datalist>
+          <span id="explTlMaxYear" style="font-size:.75rem;color:var(--muted)"></span>
+        </div>
+        <div class="hint" style="margin-top:2px">Active year: <b id="explTlActiveYear">—</b></div>
+        <div class="btnrow" style="margin-top:6px"><button id="explTlPlayBtn">▶ Animate</button></div>
+      </div>
+
+      <!-- v2.72: one wrapper so the three filters move into the strip together (#tlFilters); each label
+           carries v2.71's sentence and the design's short form, and CSS shows the one that fits where
+           the wrapper sits. A wrapper is a plain block, so the phone's stacking is unchanged. -->
+      <div class="tl-filters" id="tlFilters" title="Ghost and highlight compare the selected year against the previous recorded year.">
+      <label class="chk" style="margin-top:8px"><input type="checkbox" id="explTlExistOnly"> <span class="tl-long">Show only objects existing in selected year</span><span class="tl-short">Exist only</span></label>
+      <label class="chk"><input type="checkbox" id="explTlGhost"> <span class="tl-long">Ghost removed objects</span><span class="tl-short">Ghost removed</span></label>
+      <label class="chk"><input type="checkbox" id="explTlHighlight"> <span class="tl-long">Highlight new objects</span><span class="tl-short">Highlight new</span></label>
+      </div>
+      <div class="hint ph-only">Ghost/highlight compare the selected year against the previous recorded year.</div>
+
+      <!-- v0.85: mechanistic collapse/recovery timeline (docs/research/collapse-timeline-dynamics.md).
+           Runs a year-stepped mortality+migration (or logistic regrowth) simulation and writes ONE
+           civTimeline entry per step — the pills/slider above and the existence filter + ghost/
+           highlight overlay work on the result with no changes, exactly as if each step had been
+           authored by hand via "Add year". Never touches state.places/civWays (same rule as every
+           other timeline entry — it writes history, not the live editable world). Tucked behind its
+           own disclosure so the common add/scrub/filter path stays uncluttered. -->
+      <details class="acc" style="margin-top:10px">
+      <summary>Simulate collapse / recovery</summary>
+      <div style="margin-top:6px">
+        <div class="row"><label for="civSimMode">Mode</label>
+          <select id="civSimMode" style="flex:1">
+            <option value="collapse" selected>Collapse (decline + migration)</option>
+            <option value="recovery">Recovery (regrowth)</option>
+          </select></div>
+        <div class="row" id="civSimCharRow"><label for="civSimCharacter">Character</label>
+          <select id="civSimCharacter" style="flex:1">
+            <option value="mixed" selected>Mixed (default)</option>
+            <option value="trade">Trade collapse — exchange hubs fall hardest</option>
+            <option value="disease">Disease — dense/connected settlements fall first</option>
+            <option value="conflict">Conflict — undefended settlements fall first</option>
+          </select></div>
+        <div class="row" id="civSimSeverityRow"><label for="civSimSeverity">Severity</label>
+          <input type="range" id="civSimSeverity" min="0" max="100" step="1" value="50"><span class="val" id="civSimSeverityV">50%</span></div>
+        <div class="row" id="civSimRateRow" style="display:none"><label for="civSimRate">Regrowth rate</label>
+          <input type="range" id="civSimRate" min="1" max="30" step="1" value="10"><span class="val" id="civSimRateV">1.0%/yr</span></div>
+        <div class="row"><label for="civSimStartYear">Start year</label>
+          <input type="number" id="civSimStartYear" value="0" style="flex:1" aria-label="Simulation start year"></div>
+        <div class="row"><label>Duration / step</label>
+          <input type="number" id="civSimDuration" min="1" value="100" style="flex:1;min-width:0" aria-label="Duration in years">
+          <input type="number" id="civSimStepYears" min="1" value="10" style="flex:1;min-width:0" aria-label="Step size in years"></div>
+        <div class="btnrow" style="margin-top:6px"><button id="civSimulateBtn" class="accent">Simulate</button></div>
+        <div class="hint" id="civSimOut" style="margin-top:2px">Runs a year-by-year simulation from the CURRENT settlements and writes one timeline entry per step, so you can scrub the collapse (or recovery) exactly like manually-authored history. <b>Collapse</b>: each settlement's stress (trade-network loss, density/connectivity exposure, or undefended exposure — set by <b>Character</b>) drives excess mortality and out-migration each step; survivors redistribute to reachable settlements by a gravity model (closer + more headroom + fortified = more attractive); a nucleus that shrinks below its tier's floor demotes (a city can collapse into a fortified village in its own ruins) or is abandoned outright. <b>Recovery</b>: logistic regrowth toward each settlement's full catchment capacity. See <code>docs/research/collapse-timeline-dynamics.md</code>.</div>
+      </div>
+      </details><!-- end Simulate acc -->
+    </div><!-- end explTimelineSection -->
+
+
+    <div class="sec">
+      <h2>Journeys</h2>
+      <div id="civJourneyList"><div class="hint">No journeys yet. Draw one with the <b>Route</b> tool and tap <b>✓ Commit route</b>.</div></div>
+    </div>
+
+    <!-- v1.44 (owner: "when clicking a route I wish it to open a full screen menu so we can properly
+         make edits"): the full party/results form now lives in #routeEditorModal — this stays a
+         compact, always-visible glance sourced from the exact same _jpPlan(jn), never a second
+         computation path. -->
+    <div class="sec" id="civPlannerSec" style="display:none">
+      <h2>Journey planner</h2>
+      <div id="jpSummary"><div class="hint">Select a journey above to plan it.</div></div>
+      <div class="btnrow" style="margin-top:6px"><button id="jpOpenEditorBtn">✎ Edit route…</button></div>
+    </div>
+
+    </div><!-- end explorePanel -->
+
+    <!-- v0.64 (§Stage 2): the Edit tab is retired — Tiles & LOD moved into Generate → World above,
+         Undo moved into the header (§4.8), and "Places & roads (terrain)" is retired outright in
+         favor of the one surviving road system (Civ → Infrastructure ways): the engine functions
+         (buildRoadsOp/clearRoads/clearPlaces) are untouched, only this duplicate UI is gone. -->
+
+    <!-- ══ EXPORT ══ -->
+    <!-- v0.65: Export moved to a header dropdown (§Stage 2 follow-up) — see #exportMenu -->
+
+    <!-- ══ ASSETS (Asset Library side panel) ══ -->
+    <div id="assetsPanel" style="display:none">
+    <div class="sec">
+      <h2>Asset pack</h2>
+      <div class="row"><label for="alPackName">Pack name</label><input type="text" id="alPackName" value="Custom Asset Pack" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:12px"></div>
+      <div class="row"><label for="alPackAuthor">Author</label><input type="text" id="alPackAuthor" value="" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:12px"></div>
+      <div class="row"><label for="alPackLicense">License</label><input type="text" id="alPackLicense" value="CC0" spellcheck="false" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:5px;padding:5px 7px;font-size:12px"></div>
+      <div class="readout" id="alStats">—</div>
+      <div class="hint">Assets live in the project: <b>Export .zip</b> (<b>File ▸ Export</b>) embeds them and <b>Load project .zip</b> restores them — no rebuilding from pack ZIPs.</div>
+    </div>
+    <div class="sec">
+      <h2>Build &amp; export</h2>
+      <div class="btnrow">
+        <button class="accent" id="alExportBtn">Export pack .zip</button>
+        <button id="alValidateBtn">Validate</button>
+      </div>
+      <div class="btnrow">
+        <button id="alApplyBtn" title="Compile the library and load it as the live map asset pack">Apply to map</button>
+        <button id="alImportPackBtn" title="Load an existing pack ZIP into the library for editing">Import pack…</button>
+      </div>
+      <div class="btnrow">
+        <button id="alClearBtn" class="al-danger">Clear library</button>
+      </div>
+      <div id="alValidation" class="hint"></div>
+      <div class="hint">Export writes <code>pack.json</code> (schema 2) + PNGs as a STORED zip — byte-compatible with the engine importer and Cartalith packs.</div>
+    </div>
+    </div><!-- end assetsPanel -->
+
+  </aside>
+
+  <!-- RIGHT DOCK — the INFORMATION PANE (owner, v2.24: "the right bar should be the information
+       pane, not Layers"). Everything here answers "what am I looking at": the selected object's
+       properties, and the Info tool's readout for a clicked cell. Layers describes the map VIEW, not
+       the selection, so it stayed on the map where it has always lived.
+       #inspector was previously hidden outright on World and Sculpt; it is persistent with an empty
+       state now, which is why _civClearInspectorIfStale() exists — the old hide cleared it for free.
+       v2.72 (desktop, PC_SHELL_PROPOSAL.md §3.3): the right dock is the CONTEXT PANEL. Its header names
+       the subject — read by _dskCtxSync from exactly what _civRenderInspector() renders from
+       (_civSelectedPlace, then _civSelectedLabel, then _iconSelected) — and the tab strip holds INSPECT
+       only, whose page is #inspector below, unchanged. Note and Ask are not drawn: this file has no note
+       editor (v2.11 shows a native-app save's vault links read-only, inside the place and faction
+       editors — _vaultLinksHtml) and no assistant. Back, forward and pin need a selection history
+       (stage 3). Window ▸ Context panel and the header's chevron hide it; a phone keeps v2.71's dock in
+       its drawer. -->
+  <aside class="dock dock-right" id="dockRight">
+    <div class="ctx-head dk-only" id="ctxHead">
+      <div class="ctx-k" id="ctxKind">Context</div>
+      <div class="ctx-name" id="ctxName">Nothing selected</div>
+      <div class="ctx-hint" id="ctxHint">Inspect a settlement, label or icon on the map, or a row in a list</div>
+      <button type="button" class="dh-btn" id="ctxHideBtn" title="Hide the Context panel (Window ▸ Context panel)" aria-label="Hide the Context panel">›</button>
+    </div>
+    <div class="ctx-tabs dk-only" role="tablist" aria-label="Context panel">
+      <button type="button" class="ctx-tab" id="ctxTabInspect" role="tab" aria-selected="true" aria-controls="inspector">Inspect</button>
+    </div>
+    <div class="sec" id="inspector">
+      <div class="sublabel">Properties</div>
+      <div id="inspectorBody"><div class="hint">Nothing selected. Pick the <b>Inspect</b> tool and click a label or icon on the map, or a row in a list — settlements and POIs open their editor in a pop-up on the map.</div></div>
+    </div>
+    <!-- The Info tool's own readout. It was inside the Explore palette, so a location you had
+         just clicked vanished the moment you changed domain; here it is information, beside the
+         properties of whatever is selected. _civSetTool still reveals/hides it by id. -->
+      <div class="sec" id="civInfoSec" style="display:none">
+        <h2>🔍 Info</h2>
+        <div id="civInfoPanel"><div class="hint">Click the map to inspect a location.</div></div>
+      </div>
+  </aside>
+    </div><!-- end dockwrap -->
+  </div><!-- end stage -->
+
+  <!-- ══ v2.72 TIMELINE STRIP (desktop) ══════════════════════════════════════════════════════════
+       GUI_GAP_REGISTER.md CV-24, "the year scrubber as program scope", which the owner held for a
+       design pass on 2026-09-03; PC_SHELL_PROPOSAL.md §3.2 is that design and Ruling DY (PQ2) approved
+       it. A band above the status bar in EVERY domain. Collapsed it is one line: TIMELINE · the active
+       year · play · the slider with a tick per recorded year · min/max. The chevron reveals the
+       recorded years (the pills, Add year) and the three filters. Every control is Explore's own
+       element, moved here by _dskPlace(), so _civBuildExploreTimelineUI / _civWireYearSlider /
+       civGotoYear drive it unchanged — and civGotoYear → civSnapshotLoad → drawCivLayerAuto has no
+       domain gate, so the slider moves the map wherever you are (checked at every reader, v2.72).
+       The simulator and Journeys stay in Explore. Showing, hiding and expanding it all call
+       _scheduleViewportRefit() (v2.24's rule for any band that resizes the viewport). -->
+  <div class="tl-strip dk-only" id="tlStrip">

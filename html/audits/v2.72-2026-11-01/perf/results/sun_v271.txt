@@ -1,0 +1,4 @@
+v271.html {"sunAzBefore":315,"sunAzAfter":45,"keyChanged":false,"pixelLoopRan":false,"mapChangedOnInput":false,"mapChangesWhenCacheCleared":true,"control_exagChangesMap":true,"stateHasSunProp":false}
+ok   positive control: the exag slider changes the map
+ok   the render depends on the sun azimuth (cache cleared)
+FAIL dragging the Sun slider changes the map

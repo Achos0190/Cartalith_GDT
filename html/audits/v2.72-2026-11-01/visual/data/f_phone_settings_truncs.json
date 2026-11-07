@@ -1,0 +1,10 @@
+[
+ {
+  "el": "nav#setNav",
+  "region": "settings",
+  "text": "Performance\nStorage & data\nAppearance\nWo",
+  "client": 410,
+  "scroll": 472,
+  "scroller": true
+ }
+]

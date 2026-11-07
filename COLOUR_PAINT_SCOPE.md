@@ -154,7 +154,9 @@ fall on water vanish under `land_only` (default) and reappear if land returns.
 Nothing is ever deleted by a regenerate. A different `map_width_km` keeps the
 kilometres, so the marks keep their ground size and move relative to the
 plate; CP-2 shows a one-line notice when a regenerate changes the map width
-while marks exist.
+while marks exist. The notice offers **Scale with the map** (Ruling EB item 7,
+2026-11-01): one undo step that rescales every mark to the new width (§17 Q5).
+Without that press the marks keep their kilometres.
 
 ## 6. Resolution independence
 
@@ -193,7 +195,8 @@ change and the reverse. A step is a whole document (marks are small: 5 000 ×
 40-point marks measure 3.98 MB as JSON, §9), held structurally shared where the
 shell can; the stack shares the app's undo budget (the oldest steps drop
 first). Labels: *Paint stroke*, *Fill*, *Erase stroke*, *Clear colour paint*,
-*Colour paint shown/hidden*.
+*Colour paint shown/hidden*, and *Scale paint with the map* (the map-width
+notice's button, Ruling EB item 7; §17 Q5).
 
 ## 9. Save format — `appearance_paint.json`, additive and optional
 
@@ -329,7 +332,9 @@ undoable like any stroke. Feasible.
   resizes the brush (not the map) with the ring shown; a long-press samples
   the colour under the finger (an eyedropper, which `spec/06-phone.md`'s
   long-press-pin conflicts with — the owner's MAP_CONTEXT F1 fork decides;
-  until then the eyedropper is a button).
+  until then the eyedropper is a button). *(2026-11-01: F1 had been settled
+  by Ruling AX on 2026-09-26, so a phone long-press drops the sample pin and
+  opens the verbs; Ruling EA item 15 drops §17 Q6.)*
 - **Picker as a bottom sheet** on phone (the existing picker inside the sheet,
   the gamut row under it, the swatch row above).
 - **Reachability**: arming Paint colour selects CARTO, whose phone sheet must
@@ -364,16 +369,114 @@ undoable like any stroke. Feasible.
 
 ## 17. Owner questions, with the defaults this scope builds unless told otherwise
 
+*Answered 2026-11-01 by Ruling EA item 15 ("Confirm as built"), except Q1,
+which Ruling CS answered. Q5's notice design asked one more question, answered
+by Ruling EB item 7 the same day. Each answer is marked below; the questions
+are kept as they were asked.*
+
 1. **Default mode** — Replace (measured, §3), not the brief's tint. Keep?
    **Answered (Ruling CS, 2026-10-19): Colour, and organise paint into layers** (§21).
+   **The layers reading was confirmed by Ruling EA item 15 (2026-11-01):** the
+   named layers as built (`PaintLayers`, §21: order, visibility, lock, rename,
+   per-layer clear and delete, up to `MAX_LAYERS` 32) satisfy *"use paint
+   layers"*. Lava, Embers and the two glows keep opening on Replace, because
+   on the Colour blend a lava crust would take the ground's lightness.
 2. **Saved looks carry paint?** — No (§7).
+   **Answered (Ruling EA item 15): confirmed as shipped.** Saved looks carry
+   no paint.
 3. **Export default** — with paint (§7).
+   **Answered (Ruling EA item 15): confirmed as shipped.** Exports include
+   paint.
 4. **Paint water by default?** — No: `land_only` on per mark, off by a toggle (§5).
+   **Answered (Ruling EA item 15): confirmed as shipped.** Land-only is per
+   mark.
 5. **Map-width change with marks** — keep kilometres, notify (§5).
+   **Answered (Ruling EA item 15): confirmed as shipped.** Paint keeps its
+   kilometres when the map changes size. The notice half is not built.
+   - **The notice's design (2026-11-01; drawn in the mobile mockup,
+     `design/mobile-shell-2026-10-31/`, and nothing of it built). Its question
+     was answered by Ruling EB item 7 the same day:**
+     - **When.** After a regenerate whose `map_width_km` differs from the one
+       the marks were painted at, while at least one mark exists. Never
+       otherwise: a regenerate at the same width moves no mark relative to the
+       plate.
+     - **The one line, at that moment:** a toast, for example *Map width 800 km
+       → 1,200 km · paint marks kept their real size*.
+     - **The one sentence that stays.** A warning row heads CARTO ▸ Style ▸
+       Colours, coloured `warn` (`dcc_theme.gd`: `#e0a840` dark, `#9a6a12`
+       light), until dismissed:
+
+       > Map width 800 km → 1,200 km: 17 paint marks kept their real size and
+       > position; 3 now on water are hidden, not deleted.
+
+       It is placed there because that is paint's home on every form: the
+       desktop and tablet dock, and the phone's CARTO sheet. It is not on the
+       tool bar, which holds tool settings only (Ruling DZ).
+     - **The words.**
+       - "Real size and position" says what §2 and §5 mean (kilometres from the
+         map's top-left edge, so the marks move relative to the plate), with no
+         unit in it.
+       - The widths are distances, so they follow `Preferences ▸ Units`, like
+         every distance in the shell (*497 mi → 746 mi*).
+       - The water count is the marks whose land-only coverage is now all
+         water. They are hidden by Land only and come back if land returns
+         (§5), so the notice says "not deleted".
+     - **Actions.**
+       - **Show marks** outlines every mark on the map once, so the user can
+         see where they now sit.
+       - **Scale with the map** (Ruling EB item 7) rescales every mark to the
+         new map width:
+         - Each mark's points and radius, in kilometres, are multiplied by new
+           width ÷ old width about the map's top-left edge, which is the
+           kilometre origin (§2). Each mark then keeps its place and size as a
+           share of the map.
+         - It is one undo step, *Scale paint with the map*, on paint's own stack
+           (§8). The notice goes once the marks are scaled.
+         - Undo puts every mark back at its kilometres and brings the notice
+           back, since what it says is true again. Redo scales them again.
+         - The ground under a scaled mark is still the new world's, so a mark
+           can land on other land, or on water, where Land only hides it (§5).
+       - **Dismiss** removes the row.
+
+       Show marks and Dismiss move and delete nothing. Scale with the map moves
+       every mark and deletes none. **The rule is unchanged:** marks keep their
+       real kilometres unless the user presses Scale with the map (Ruling EA
+       item 15, Q5).
+     - **In the mockup:** CARTO ▸ Style ▸ Colours ▸ *Simulate a regenerate at
+       another width*. It draws 17 sample marks where their kilometres fall on
+       the 1.5× wider map, and counts the hidden ones from those marks. The
+       mockup's Colour paint tool does not store strokes, so the sample is
+       what Scale with the map moves. The test `ea.js` checks:
+       - the sentence word for word, and its place at the head of the section;
+       - the three buttons;
+       - that Scale with the map moves every mark ×1.5 (1 200 ÷ 800), points
+         and radius, and removes the notice;
+       - that one undo restores both and a redo scales again, on the phone
+         (Undo, then a three-finger tap) and the desktop (the menu bar's undo
+         and redo);
+       - Dismiss, which moves no mark;
+       - the miles form on the desktop.
+
+       Captures: `ea-15-phone-paint-width.png`, `ea-15-phone-paint-scaled.png`,
+       `ea-15-desktop-paint-width.png` and `ea-15-desktop-paint-scaled.png`.
+     - **Owner question, with its default:** should Show marks also offer to
+       scale the marks with the map (one undo step)? Default: no. A
+       regenerate at another width is a different world, so neither choice
+       keeps a mark on the feature it was painted on, and the ruling keeps
+       kilometres. **Answered (Ruling EB item 7): "Offer 'scale with the
+       map'"**, against the default. The notice gets the button (Actions,
+       above). Marks keep their real kilometres unless the user presses it.
 6. **Long-press on phone** — button eyedropper until MAP_CONTEXT F1 is ruled (§14).
+   **Dropped (Ruling EA item 15):** the long-press it waited on was settled
+   by Ruling AX F1 on 2026-09-26, before this scope was written: a phone
+   long-press drops the sample pin and opens the verbs.
 7. **Lava defaults** (§18) — heat 0.75, plates medium (crack density 0.5,
    0.71 km top cell), halo 1.5 km, crust `34,33,38`, cooling along a stroke
-   0.6. Keep?
+   ~~0.6~~ 0.0. Keep?
+   **Answered (Ruling EA item 15): confirmed as shipped.** The premise is
+   corrected: cooling along a stroke ships at 0.0 (`colour_paint_tool.gd`,
+   `heat_along`), not the 0.6 this question first quoted. The 0.6 is the
+   CP-1M cost benchmark's setting (§18, *Cost*), which stays as measured.
 
 ## 18. Emissive materials — lava (CP-1M)
 
@@ -537,7 +640,8 @@ The owner's answer to §17 Q1 was *"1, but use paint layers"*, recorded as
 Ruling CS: the default blend is **Colour**, and paint is organised into
 **named layers** with order, visibility, lock, rename and per-layer clear,
 each holding marks, composited in order before the light. The layers
-interpretation was to be confirmed against this first build.
+interpretation was to be confirmed against this first build. *(Confirmed
+2026-11-01 by Ruling EA item 15; §17 Q1.)*
 
 **Engine** (`cartalith_spatial::colour_paint`): `PaintLayers` (the master
 `visible` plus `layers`, bottom first) of `PaintLayer` (`name`, `visible`,
@@ -615,6 +719,7 @@ pixel wide at x64, no blocks.
 
 **Not done, and why:** drag-to-reorder (the rows use up/down buttons, which
 work on glass without a drag gesture); per-layer opacity or blend (not in the
-ruling); the owner's confirmation of the layers interpretation against this
-build (Ruling CS says it is to be confirmed); phone reachability of CARTO ▸
+ruling); ~~the owner's confirmation of the layers interpretation against this
+build (Ruling CS says it is to be confirmed);~~ *(given 2026-11-01, Ruling EA
+item 15)*; phone reachability of CARTO ▸
 Colours on glass is still CP-4's.

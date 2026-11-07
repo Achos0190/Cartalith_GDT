@@ -397,6 +397,14 @@ exaggeration is a uniform shader scale taken from `Preferences ▸ Graphics ▸
 relief exaggeration` (`menus.gd::_build_relief_exag_menu`). **It never writes
 back into `WorldState`** (research §E: save, export and
 `get_map_height_km()` read the same field).
+*(Corrected 2026-11-01, after Ruling EB items 5 and 6: the 3D scale does not
+come from that 2D row. `menus.gd`'s comment on `_build_relief_exag_menu`
+says the 3D view does not read it. 3D opens at `Preferences ▸ Graphics ▸ 3D
+viewport defaults ▸ relief exaggeration`, which ranges from 1× to 4× and is
+written by the live slider (§7 Q4). Until it is set, that preference is Ruling
+CT's true scale, `View3D.VERTICAL_EXAGGERATION_DEFAULT` = 1.0. The
+shader-uniform design and the rule above stand: neither the slider nor the
+preference writes the world, its save or `WorldState`.)*
 
 ### 3.2 Geometry: a CDLOD quadtree on the pyramid's `ChunkId`
 
@@ -593,6 +601,14 @@ into tiles.
   two-finger vertical drag tilt. The gestures are arbitrated in the same place
   the slider and scroller arbitration lives (`MISTAKES.md`, gesture hazard
   rows).
+- **The touch control row's buttons** (Ruling EB item 4, *"Yes, same
+  buttons"*, 2026-11-01). From 3D-2, DS-13's − and + move the camera out and
+  in, and ⌖ frames the world (`MOBILE_SHELL_PROPOSAL.md` §2.5, item 7).
+  - They are the 2D row's own buttons. From 3D-2,
+    `viewport_host.gd::zoom_step()` and `reset_view()` ask `is_3d()` first.
+  - 3D-2 sets the camera's step.
+  - Today they move the hidden 2D camera while 3D shows, because neither
+    function asks `is_3d()` yet.
 
 ### 3.10 Picking: casting a ray onto the drawn surface
 
@@ -705,10 +721,17 @@ only what's visible" (2026-08-31, `LARGE_ITEM_RULINGS.md`):
   phone MORE ▸ Window), and rehoused the FAB as a `3D`/`2D` pill at the end of
   the phone navpad row. The pill is phone-only: on a tablet the map sits
   between two docks and a fifth pill pushed the row past the map's edge.)*
+  *(Confirmed by the owner 2026-11-01, Ruling EA item 14: both departures
+  stand. The approved PC menus keep `Window ▸ 3D view` as the menu home. The
+  phone-only pill is interim: the approved mobile shell moves it into the
+  phone's MAP view row (`MOBILE_SHELL_PROPOSAL.md`, the MAP tab's view row,
+  "2D/3D").)*
 - **Rows that become live.** These rows already exist and are disclosed as
   unavailable today:
   - `Preferences ▸ Graphics ▸ 3D viewport defaults` (relief exaggeration,
-    detail, light, flatten oceans; `menus.gd`);
+    detail, light, flatten oceans; `menus.gd`). Its relief exaggeration is
+    also what the live slider writes, so the last value set is the next
+    session's default (Ruling EB item 5; §7 Q4);
   - "Anti-aliasing · anisotropy" (MSAA 3D is supported under Compatibility,
     per the renderer docs);
   - the alternate-frame row.
@@ -843,7 +866,12 @@ the owner may move any of them:
 **The 6T's tier is unknown until 3D-0(c) runs.** Godot's documentation makes
 it a Mobile-class device (§2.3), and in the 2D app it holds 60 fps at the
 Performance tier (`ANDROID_BUILD_SCOPE.md`, "In-app Performance readout").
-Neither is a 3D measurement.
+Neither is a 3D measurement. *(Corrected 2026-11-01, after Ruling EA
+item 16: "In-app Performance readout" there is the app's performance
+readout (frame rate, memory, GPU stages), not the Performance quality tier,
+and it records no tier. Every device starts on the Quality tier: `WorldGen`'s
+`quality` starts as `QualityTier::Quality`, and `recommended_quality_tier` is
+applied nowhere.)*
 
 ---
 
@@ -916,6 +944,10 @@ ruling).
 - One 257² patch over a level-z world height texture, with the 2D colour
   texture as the drape. Camera-relative transforms from the start.
 - Orbit and top-down cameras, and the ground clamp.
+- DS-13's − | + and ⌖ drive this camera on touch (Ruling EB item 4; §3.9).
+- The mesh's vertical scale opens at `Preferences ▸ Graphics ▸ 3D viewport
+  defaults ▸ relief exaggeration`, which is 1× until set (§7 Q4). The live
+  slider that writes it is its own backlog row.
 
 **Acceptance:** B4 (no frame below the ground), B5 (depth), and Basic's frame
 bar on desktop.
@@ -1038,43 +1070,135 @@ The metrics are LOD-D0's wherever one exists.
 `Adreno` and `Aletsch`. Only the 2026-08-31 rows, Ruling K and Ruling AZ
 touch 3D, and none of them answers Q1 to Q10.
 
+*All ten are now answered, and each answer is marked below: Q10 by Ruling CS
+item 4 and Q4 by Ruling CT (both 2026-10-19), and the other eight by Ruling EA
+items 12 to 14 (2026-11-01), each at its default. The two questions of Q4's
+slider design were answered by Ruling EB items 5 and 6 (2026-11-01), both
+against their defaults. The questions are kept as they were asked.*
+
 1. **Q1. Which reading of "with vertices"?**
    - **Default: V1.** The display mesh is displaced from the raster's tiles
      and the simulation stays a raster (§1).
    - V3, a vertex world, would overturn the elevation-field architecture and
      the parity contract.
+   - **Answered (Ruling EA item 14, 2026-11-01): V1, the default.** It was
+     already recorded in `DECISIONS.md` §4a.
 2. **Q2. The renderer.**
    - **Default: stay on `gl_compatibility`.** Revisit only if 3D-0(a)
      attributes the device loss and it is fixed. GPU-driven culling stays
      deferred until then.
+   - **Answered (Ruling EA item 14, 2026-11-01): `gl_compatibility`, the
+     default.** It was already recorded in `DECISIONS.md` §4a.
 3. **Q3. Lit or map-shaded by default** (from Standard up).
    - **Default: lit**, with the 2D hillshade suppressed and "Map shading (as
      2D)" one toggle away.
    - Basic is always map-shaded.
+   - **Answered (Ruling EA item 12, 2026-11-01): "Lit, map shading a toggle
+     away", the default.** 3D-4 shows frames of both.
 4. **Q4. Vertical exaggeration.**
    - **Default:** the existing `Preferences ▸ Graphics ▸ relief exaggeration`
      value, with a live slider in 3D. The measure tools always report true
      values.
+   - **Answered (Ruling CT, 2026-10-19): true scale, 1.0×**, not 2D's 3.4×
+     relief default, which draws needles (§8.3). 3D-1 ships
+     `View3D.VERTICAL_EXAGGERATION_DEFAULT` = 1.0. Ruling CT did not cover the
+     live slider; Ruling EA item 14 (2026-11-01) made it a small backlog row
+     (`OUTSTANDING_WORK.md` §2.5).
+   - **The slider's design (2026-11-01; drawn in the mobile mockup,
+     `design/mobile-shell-2026-10-31/`, and nothing of it built). Its two
+     questions were answered by Ruling EB items 5 and 6 the same day:**
+     - **Range.** 1× to 4× in steps of 0.25 (Ruling EB item 6, *"Up to 4×"*,
+       against the default of 3×). It opens at the remembered value, which is 1×
+       until one is set. The 1× floor is Ruling CT's true scale and
+       `View3D.VERTICAL_EXAGGERATION_DEFAULT`. Below 1× would flatten real
+       relief, so it is not offered.
+       - **The cost, accepted by the owner:** spires on steep ground. On the raw
+         tile heights, §8.3 saw "spires everywhere" at 3.4×, the only value
+         above 1× it measured, and spiking coastal bluffs even at 1.0×. Nothing
+         between 1× and 3.4×, or above 3.4×, was measured. So 3.4× is where
+         spires were seen, not a measured threshold; the 3× ceiling of the first
+         design stayed under it, and 4× does not.
+       - **Revisited at 3D-3**, judged on frames, once the geometry is
+         low-passed (§8.3, candidate a).
+     - **Where, on the PC and the tablet:** a HEIGHT row in the 3D view's own
+       card (`view3d.gd::_build_card()`, top-left inside the safe insets). It
+       sits between the info line and the Back to 2D · Re-test 3D · Force tier
+       actions, and reads "HEIGHT · 1× IS TRUE SCALE" with the value as ×1.00.
+       The card is the one 3D surface every form already draws, and it is shown
+       exactly while the slider acts.
+     - **Where, on the phone:** a *Height exaggeration (3D)* row in MAP ▸ View,
+       under the 2D/3D switch, shown only while 3D is on. This is the phone's
+       home for view settings (`MOBILE_SHELL_PROPOSAL.md` §2.1 and §2.5). It
+       keeps the phone's 3D card, which already takes the top of a small screen,
+       from growing.
+     - **Live.** Dragging rescales the displayed mesh as it moves; from 3D-2,
+       the scale is the shader's uniform (§3.1). It never writes into
+       `WorldState`, and the measure tools keep reporting true values.
+     - **What it opens at, and what it writes** (Ruling EB item 5, *"Yes,
+       remember it"*, against the default).
+       - `Preferences ▸ Graphics ▸ 3D viewport defaults ▸ relief exaggeration`
+         (`menus.gd`, a disclosed `_todo` row today) is the value each entry to
+         3D starts at, 1.0× by Ruling CT until set.
+       - The slider writes that preference as it moves, so the last value set
+         is the next session's default, as if it had been set in Preferences.
+         It is per-install state in `DccSettings`
+         (`user://cartalith_settings.cfg`), like the other Graphics defaults,
+         never a world's.
+       - It never touches the world, its save or `WorldState`.
+       - Each form says so beside the slider: *Remembered in Preferences ▸ 3D
+         viewport defaults for the next session · never saved with the world*.
+     - **Touch:** the slider is 44 dp tall, as every touch target is. On the PC
+       it takes the card's own density.
+     - **In the mockup:** phone MAP ▸ View ▸ 3D; tablet and desktop Window ▸ 3D
+       view. The mockup keeps the remembered value in the browser's storage,
+       guarded, and works without it. The test `ea.js` checks:
+       - the range (1 to 4), the step and the default;
+       - the line saying where the value is kept;
+       - that a value set survives a reload;
+       - that with storage blocked the page still draws and starts at 1×;
+       - the row's place between the info line and the actions;
+       - that Back to 2D ends 3D.
+
+       Captures: `ea-14-phone-3d-height.png`, `ea-14-tablet-3d-card.png` and
+       `ea-14-desktop-3d-card.png`.
+     - **Owner questions, with defaults:**
+       - Should the live value be remembered as the next default? Default: no;
+         the Preferences row is the default. **Answered (Ruling EB item 5):
+         "Yes, remember it"**, against the default (above).
+       - Is 3× the right ceiling? Default: yes, re-judged at 3D-3. **Answered
+         (Ruling EB item 6): "Up to 4×"**, against the default; revisited at
+         3D-3 on frames (above).
 5. **Q5. The phone.**
    - **Default:** the gate decides. Expect Basic until 3D-7 measures.
    - "Off on every phone" is the other legitimate choice.
+   - **Answered (Ruling EA item 13, 2026-11-01): "Let the speed check
+     decide", the default.** The capability gate offers 3D on a phone only
+     where the device measures smooth enough. It is calibrated on the
+     OnePlus 6T in the owner's device pass (3D-7); the 6T has not been
+     measured in 3D yet.
 6. **Q6. Overlays in the first release.**
    - **Default:** settlements, icons and labels in 3D-6. Roads, borders and
      routes come in the same milestone, after them.
+   - **Answered (Ruling EA item 14, 2026-11-01): the default.**
 7. **Q7. Editing in 3D.**
    - **Default:** read-only tools only (context card, measure). Brushes and
      selections are disabled with a reason and filed as a later row.
+   - **Answered (Ruling EA item 14, 2026-11-01): the default.**
 8. **Q8. Rivers.**
    - **Default:** painted into the drape (Ruling BU). Ribbons only for a
      vector-line look, later.
+   - **Answered (Ruling EA item 14, 2026-11-01): the default.**
 9. **Q9. The entry camera.**
    - **Default:** top-down at the current 2D view, then tilt (Ruling K's
      top-down target). Orbit is the default mode after entry.
+   - **Answered (Ruling EA item 14, 2026-11-01): the default.**
 10. **Q10. Approving this scope, and `DECISIONS.md` §4.**
     - **Default:** on approval, record a new `DECISIONS.md` entry. It would say
       that §4's timing reason is satisfied, that its cost reason stands, and
       that it is paid by this staged, gated plan. 3D-0 is then scheduled.
     - Until approval, nothing is built and §4 stands.
+    - **Answered (Ruling CS item 4, 2026-10-19): approved**, with
+      `DECISIONS.md` §4a recorded beside §4 and 3D-0 scheduled.
 
 ---
 
