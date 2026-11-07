@@ -18,8 +18,8 @@ extends Node
 ##   2. OFFER: a Commands request offers `list_actions`, `search_actions`, `describe_action` and
 ##      `propose_actions` beside the existing tools, and the system prompt names them and carries the
 ##      capability map.
-##   3. BROWSE AND PROPOSE: a scripted list + search, then describe, then propose, produces a PREVIEW
-##      card (no Apply) for two actions, and NOTHING moves (layers, camera, windows, undo stack).
+##   3. BROWSE AND PROPOSE: a scripted list + search, then describe, then propose, produces a card
+##      for two actions, and NOTHING moves (layers, camera, windows, undo stack).
 ##   4. NOT RETURNED: proposing an id the model was never given (`menu:save`) is refused B6 with the
 ##      rule on the card, retried once, and changes nothing.
 ## Result: `RESULT: PASS|FAIL (<n> failed) checks=<n>`. Exit 0 pass, 1 fail, 2 bad argument/watchdog.
@@ -265,7 +265,7 @@ func _ready() -> void:
 		var info: Dictionary = card["info"]
 		var valid: Array = info.get("valid", [])
 		_ok(valid.size() == 2 and String((valid[0] as Dictionary)["id"]) == "view.layer.rivers", "the card holds the two validated actions (%d)" % valid.size())
-		_ok(card["apply"] == null, "the preview card has NO Apply button (running is AC-3)")
+		_ok(card["apply"] != null and not (card["apply"] as Button).disabled, "the card has an Apply button (AC-3 runs it; _ac3_probe presses it); here nothing is pressed")
 		_ok(bool((valid[0] as Dictionary)["args"].get("visible", true)) == false, "the layer argument is the typed false")
 	_ok(JSON.stringify(_snap()) == JSON.stringify(idle_digest), "NOTHING moved: layers, camera and world are as before the proposal")
 

@@ -111,6 +111,7 @@ use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_bl
 use cartalith_llm::params_flow::{IncomingCall, ParamsConversation, Step};
 use cartalith_llm::view_actions::{ViewCatalogue, ViewVerdict};
 use cartalith_llm::action_tools::{ActionVerdict, DESIGN_WINDOW_TOKENS, check_budget};
+use cartalith_llm::action_run::{ExecContext, ExecItem, check_card};
 use cartalith_llm::actions::{ActionCatalogue, ShellFacts};
 use cartalith_llm::edit_actions::{EditCatalogue, EditVerdict};
 use cartalith_llm::query::{EcologyFacts, Fact, NoWorld, SUMMARY_PERCENTILES, SampleFacts, SummaryFacts, WorldFacts};
@@ -505,7 +506,8 @@ fn action_verdict_dict(v: &ActionVerdict) -> VarDictionary {
         for (k, val) in &c.args {
             args.set(k.as_str(), &arg_variant(val));
         }
-        let mut e = vdict! { "id" => c.id.as_str(), "title" => c.title.as_str(), "kind" => c.kind.as_str(), "effect" => c.effect.as_str() };
+        let mut e = vdict! { "id" => c.id.as_str(), "title" => c.title.as_str(), "kind" => c.kind.as_str(), "effect" => c.effect.as_str(),
+            "route" => c.route.as_str(), "session_gated" => c.session_gated, "path" => c.path.as_str() };
         e.set("args", &args);
         if let Some(f) = &c.from {
             e.set("from", f.as_str());
@@ -1563,6 +1565,31 @@ impl LlmStream {
     #[func]
     fn apply_availability(&self, generating: bool, finalized: bool) -> GString {
         GString::from(apply_blocked(generating, finalized).unwrap_or(""))
+    }
+
+    /// AC-3: why Apply may not run a `propose_actions` card now, as an array of `{id?, rule, why}`; EMPTY means it
+    /// may. `valid` is the card's `valid` array (`action_verdict_dict`), read back by `cartalith_llm::action_run`,
+    /// the one copy of the rules. The shell passes a TYPED `Array[Dictionary]` (a plain `Array` is refused by the
+    /// engine at the boundary). A missing `route` counts as no route, a missing `session_gated` as gated, a
+    /// missing `id` as an empty one: an absent field is never read as permission. Decides only; runs nothing.
+    #[func]
+    fn action_exec_check(&self, valid: Array<VarDictionary>, session_mode: bool, generating: bool, finalized: bool) -> VarArray {
+        let items: Vec<ExecItem> = valid
+            .iter_shared()
+            .map(|d| {
+                let st = |k: &str| d.get(k).and_then(|x| x.try_to::<GString>().ok()).map(|g| g.to_string());
+                ExecItem::from_wire(st("id").as_deref(), st("route").as_deref(), d.get("session_gated").and_then(|x| x.try_to::<bool>().ok()))
+            })
+            .collect();
+        let mut out = VarArray::new();
+        for r in check_card(&items, &ExecContext { session_mode, generating, finalized }) {
+            let mut e = vdict! { "rule" => r.rule.id(), "why" => r.why.as_str() };
+            if let Some(i) = &r.id {
+                e.set("id", i.as_str());
+            }
+            out.push(&e.to_variant());
+        }
+        out
     }
 
     /// The response head arrived with `status`. A no-op with no prepared reply.

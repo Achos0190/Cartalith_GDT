@@ -181,6 +181,12 @@ fn run_one(addr: &str, model: &str, request: &str, cat_actions: &ActionCatalogue
             }
             Step::ActionProposal(v) => {
                 r.outcome = format!("PROPOSAL: {}", verdict_text(&v));
+                // AC-3: what Apply would be allowed to do with this card, idle and in Session mode.
+                let items: Vec<cartalith_llm::action_run::ExecItem> = v.valid.iter().map(|a| cartalith_llm::action_run::ExecItem::from_wire(Some(&a.id), Some(a.route.as_str()), Some(a.session_gated))).collect();
+                let ctx = cartalith_llm::action_run::ExecContext { session_mode: false, generating: false, finalized: false };
+                let idle: Vec<String> = cartalith_llm::action_run::check_card(&items, &ctx).iter().map(|x| x.rule.id().to_owned()).collect();
+                let sess: Vec<String> = cartalith_llm::action_run::check_card(&items, &cartalith_llm::action_run::ExecContext { session_mode: true, ..ctx }).iter().map(|x| format!("{}:{}", x.id.clone().unwrap_or_default(), x.rule.id())).collect();
+                r.log.push(format!("  AC-3 check_card idle: {idle:?}; in Session mode: {sess:?}; routes {:?}", v.valid.iter().map(|a| a.route.as_str()).collect::<Vec<_>>()));
                 return r;
             }
             Step::ActionRetry(v) => r.log.push(format!("  refused (retry): {}", verdict_text(&v))),
@@ -211,6 +217,10 @@ fn live_runs_with_the_real_local_model() {
     let model = std::env::var("AC2_LIVE_MODEL").unwrap_or_else(|_| "qwen3-14b".into());
     let cat = params_catalogue();
     let facts = ShellFacts::from_json_text(&fs::read_to_string(repo("crates/cartalith-llm/tests/fixtures/ac1_shell_facts_2026-10-31.json")).unwrap()).unwrap();
+    let mut facts = facts;
+    // The 2026-10-31 fixture predates the selection facts; a world of 212 settlements is what the AC-3 probe reports.
+    facts.settlements = Some(212);
+    facts.can_select_back = Some(true);
     let actions = ActionCatalogue::build(Some(&cat), Some(&view()), &facts);
     let prompts: Vec<String> = std::env::var("AC2_LIVE_PROMPTS")
         .map(|s| s.split('|').map(str::to_owned).collect())

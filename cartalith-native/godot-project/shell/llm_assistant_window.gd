@@ -213,6 +213,9 @@ func setup(a, b: EngineBridge) -> void:
 	run.edit_proposal.connect(_on_edit_proposal)
 	run.action_proposal.connect(_on_action_proposal)
 	run.sources_shown.connect(_on_sources)
+	## AC-3: Session mode refuses an action card's settings and WORLD tools, so its Apply follows the mode.
+	if a.has_signal("session_mode_changed"):
+		a.session_mode_changed.connect(func(_on): _refresh_cards())
 	## The view and layer facts are read from the live app every turn (LLM-6d).
 	run.view_source = func() -> String: return _VIEW.facts_json(app, bridge)
 	## The action catalogue's facts are read from the live app every turn too (AC-2).
@@ -1556,17 +1559,20 @@ func _card_text(parent: Control, text: String, token: String) -> Label:
 func _refresh_cards() -> void:
 	## A card whose widgets were freed (a rebuild that missed the array) is dropped, never read:
 	## belt and braces over `_rebuild`'s clear, so a stale entry cannot raise again.
-	cards = cards.filter(func(c): return is_instance_valid(c["box"]))
+	## A card is kept only while its box AND its Apply button (when it has one) are alive. The button is read
+	## untyped and tested, because `var b: Button = card["apply"]` on a freed instance is the "previously
+	## freed instance" error (the 2026-10-26 live comparison counted 132 to 437 of them per run): `open()`
+	## rebuilds the body, which frees the widgets a card holds, and a refresh that ran before the card list was
+	## cleared read them. Re-checked 2026-11-07 (AC-3): `_rebuild` clears `cards` first, so the path is shut
+	## there; this filter is the second wall.
+	cards = cards.filter(func(c): return is_instance_valid(c["box"]) and (c["apply"] == null or is_instance_valid(c["apply"])))
 	for card in cards:
-		var b: Button = card["apply"]
+		var b = card["apply"]
 		var rl: Label = card["reason"]
 		if card["state"] != "new":
 			continue
 		var kind := String(card.get("kind", "params"))
-		if kind == "actions":
-			## AC-2's preview card has no Apply, so nothing here can be blocked or unblocked.
-			continue
-		var why := _view_blocked(card["info"]) if kind == "view" else (_EDIT.blocked(bridge, card) if kind == "edit" else _apply_blocked())
+		var why := _view_blocked(card["info"]) if kind == "view" else (_EDIT.blocked(bridge, card) if kind == "edit" else (_actions_blocked(card) if kind == "actions" else _apply_blocked()))
 		if b != null:
 			b.disabled = why != ""
 			b.tooltip_text = why
@@ -1720,9 +1726,10 @@ func _on_view_proposal(info: Dictionary) -> void:
 	_scroll_to_end()
 
 
-## AC-2: the card for a `propose_actions` reply. A PREVIEW: it shows what the model chose, each action's
-## effect and old value, and the refused ones with their rule, but has NO Apply button, because running a
-## catalogue action through its existing click path is AC-3. Dismiss only. Builds widgets; applies nothing.
+## AC-2/AC-3: the card for a `propose_actions` reply. It shows what the model chose, each action's effect and
+## old value, and the refused ones with their rule, and (AC-3) an Apply that runs every action through the
+## click path of its kind, in ONE undo group (`llm_actions.gd::run_card`). Nothing runs before Apply
+## (scope bar 7). Builds widgets; applies nothing.
 func _on_action_proposal(info: Dictionary) -> void:
 	_drop_empty_reply()
 	var v: Dictionary = info.get("actions", {})
@@ -1732,12 +1739,13 @@ func _on_action_proposal(info: Dictionary) -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 4)
 	box.add_child(col)
-	var chip := DccTheme.label("MODEL PROPOSAL · ACTIONS (PREVIEW)", "warn", DccTheme.FS_MICRO)
-	chip.tooltip_text = "Proposed by a language model. Nothing has changed, and this preview cannot be applied yet: running these actions arrives in a later update."
+	var chip := DccTheme.label("MODEL PROPOSAL · ACTIONS", "warn", DccTheme.FS_MICRO)
+	chip.tooltip_text = "Proposed by a language model. Nothing has changed; review it and press Apply or Dismiss."
 	col.add_child(chip)
 	if v.has("summary"):
 		_card_text(col, "“%s”" % String(v["summary"]), "text_secondary")
 	var valid: Array = v.get("valid", [])
+	var n_undo := 0
 	for c in valid:
 		var cd: Dictionary = c
 		var line := "%s   (%s)" % [String(cd.get("title", cd.get("id", ""))), String(cd.get("effect", ""))]
@@ -1750,6 +1758,8 @@ func _on_action_proposal(info: Dictionary) -> void:
 				parts.append("%s = %s" % [String(k), str(a[k])])
 			line += "   " + ", ".join(parts)
 		_card_text(col, line, "text")
+		if String(cd.get("route", "")) == "param" or String(cd.get("id", "")) == "view.style_preset":
+			n_undo += 1
 		if cd.has("reason"):
 			_card_text(col, "    “%s”  (model's words)" % String(cd["reason"]), "text_dim")
 	var rejected: Array = v.get("rejected", [])
@@ -1763,17 +1773,96 @@ func _on_action_proposal(info: Dictionary) -> void:
 	if valid.is_empty():
 		_card_text(col, "Nothing could be proposed.", "warn")
 	else:
-		_card_text(col, "This is a preview. Run any of these yourself from its menu, tool or setting.", "text_secondary")
+		_card_text(col, _actions_effect_text(valid.size(), n_undo), "text_secondary")
+	var reason_l := _note_label(col, "", "warn")
+	reason_l.visible = false
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
 	row.alignment = BoxContainer.ALIGNMENT_END
 	col.add_child(row)
-	var card := {"info": v, "box": box, "apply": null, "dismiss": null, "reason": _note_label(col, "", "warn"), "state": "new", "kind": "actions", "group_id": 0}
-	(card["reason"] as Label).visible = false
+	var card := {"info": v, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "actions", "group_id": 0, "stale": false}
 	card["dismiss"] = _button(row, "Dismiss", func(): _dismiss_card(card))
+	if not valid.is_empty():
+		card["apply"] = _button(row, "Apply %d action%s" % [valid.size(), "" if valid.size() == 1 else "s"], func(): _apply_actions_card(card), true)
 	_msgs.add_child(box)
 	cards.append(card)
 	_refresh_cards()
 	_scroll_to_end()
+
+
+## The card's one effect line: what Apply does, and what Undo covers (the proposal's s.3.5).
+func _actions_effect_text(n: int, n_undo: int) -> String:
+	var t := "Apply runs all %d action%s together, the way a click would." % [n, "" if n == 1 else "s"]
+	if n_undo > 0:
+		t += " Edit ▸ Undo reverts the settings and the style in one step"
+		t += ("; the rest is session state (layers, the view, windows, the selection, the year, tools) and is not on the undo stack." if n_undo < n else ".")
+	else:
+		t += " None of it is on the undo stack: it is session state (layers, the view, windows, the selection, the year, tools)."
+	return t + " It does not rebuild the world."
+
+
+## Why an action card cannot be applied now, or "". Order: the card went stale (the world was replaced, or
+## preflight failed at the last click); the assistant is unavailable; then Rust's `check_card` (one copy of
+## the rules: the five-action cap, a running generation, Session mode, no click path, a finalized world),
+## its reasons joined with duplicates removed. Cheap: it reads flags, never builds the command index.
+func _actions_blocked(card: Dictionary) -> String:
+	if bool(card.get("stale", false)):
+		return String(card.get("stale_why", "The app changed since this was proposed. Ask again."))
+	if not run.available():
+		return "The assistant is not available in this version of Cartalith."
+	var session: bool = app.has_method("is_session_mode") and bool(app.is_session_mode())
+	## The engine takes a TYPED array: a plain `Array` is refused at the boundary ("expected array of type Untyped").
+	var items: Array[Dictionary] = []
+	items.assign(card["info"].get("valid", []))
+	var refusals: Array = run.stream.action_exec_check(items, session, bool(bridge.generating), bool(bridge.is_finalized()))
+	var lines: PackedStringArray = PackedStringArray()
+	for r in refusals:
+		var rd: Dictionary = r
+		var line := String(rd.get("why", ""))
+		if rd.has("id") and String(rd["id"]) != "":
+			line = "%s: %s" % [String(rd["id"]), line]
+		if not lines.has(line):
+			lines.append(line)
+	return " ".join(lines)
+
+
+## **The only runner of catalogue actions in this file**, reached only from an action card's Apply button.
+## Asks the rules first (`_actions_blocked`), then `llm_actions.gd::run_card`, which preflights against the
+## live app and runs every action through its kind's own click path inside ONE undo group. A preflight
+## refusal marks the card stale (Apply stays off) and changes nothing; a failure rolls the group back whole.
+func _apply_actions_card(card: Dictionary) -> void:
+	if card["state"] != "new":
+		return
+	var why := _actions_blocked(card)
+	if why != "":
+		_refresh_cards()
+		return
+	var info: Dictionary = card["info"]
+	var label := "Assistant: %s" % String(info.get("summary", "actions")).left(60)
+	var r: Dictionary = _ACTIONS.run_card(app, bridge, app.undo_groups, info.get("valid", []), label)
+	if not bool(r.get("ok", false)):
+		if bool(r.get("stale", false)):
+			card["stale"] = true
+			card["stale_why"] = String(r.get("reason", "The app changed since this was proposed."))
+			_refresh_cards()
+		else:
+			_close_card(card, "failed", String(r.get("reason", "Not applied.")), "block")
+		return
+	card["group_id"] = int(r.get("group_id", 0))
+	_watch_undo()
+	var n := int(r.get("applied", 0))
+	var text := "Applied %d action%s." % [n, "" if n == 1 else "s"]
+	if int(card["group_id"]) > 0:
+		text += " Edit ▸ Undo reverts the settings and the style in one step."
+	if int(r.get("session", 0)) > 0:
+		text += " The rest is session state and is not on the undo stack."
+	var failed: Array = r.get("failed", [])
+	if not failed.is_empty():
+		text += " Not applied: %s." % "; ".join(PackedStringArray(failed))
+	card["applied_text"] = text
+	_close_card(card, "applied", text, "warn" if not failed.is_empty() else "good")
+	if app.has_method("set_status"):
+		app.set_status("hint", "Assistant: %d action%s applied." % [n, "" if n == 1 else "s"])
 
 
 ## The refused actions or the structural failure, in one line.
@@ -1921,13 +2010,14 @@ func _sync_card_undo() -> void:
 			continue
 		var is_view := String(card.get("kind", "params")) == "view"
 		var is_edit := String(card.get("kind", "params")) == "edit"
+		var is_actions := String(card.get("kind", "params")) == "actions"
 		match String(ug.state_of(gid)):
 			"applied":
 				if st == "undone":
 					_close_card(card, "applied", String(card.get("applied_text", "Applied.")), "good")
 			"undone":
 				if st == "applied":
-					_close_card(card, "undone", ("Undone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it." if is_edit else "Undone with Edit ▸ Undo: the style is back as it was, and the map was redrawn, which re-fits the view. Layer, landmark and window changes were session state and stay as they were applied. Edit ▸ Redo re-applies the style." if is_view
+					_close_card(card, "undone", ("Undone with Edit ▸ Undo: the terrain is back as it was before this card (rivers and climate were re-run for the area when it was applied and are not re-run by the undo, like a sculpt undo). Edit ▸ Redo re-applies it." if is_edit else "Undone with Edit ▸ Undo: the settings and the style are back as they were before this card. The world was not rebuilt. Layers, windows, the selection, the year and tools were session state and stay as they were applied. Edit ▸ Redo re-applies the settings and the style." if is_actions else "Undone with Edit ▸ Undo: the style is back as it was, and the map was redrawn, which re-fits the view. Layer, landmark and window changes were session state and stay as they were applied. Edit ▸ Redo re-applies the style." if is_view
 						else "Undone with Edit ▸ Undo: the settings are back to what they were before this card. The world was not rebuilt; press Generate to rebuild it. Edit ▸ Redo re-applies the settings."), "text_dim")
 			_:
 				if st == "undone":
@@ -1944,6 +2034,13 @@ func _sync_card_undo() -> void:
 ## A world was generated or opened: the painted region belongs to the old one. Cleared, and the
 ## cached facts with it.
 func _on_world_replaced() -> void:
+	## AC-3: an action card proposed for the old world is STALE (a settlement number, a year, a layer fact
+	## named that world), so its Apply goes off with the reason; a model has to be asked again.
+	for card in cards:
+		if is_instance_valid(card["box"]) and card["state"] == "new" and String(card.get("kind", "")) == "actions":
+			card["stale"] = true
+			card["stale_why"] = "The world was replaced since this was proposed. Ask again."
+	_refresh_cards()
 	_REGION.on_world_changed(app)
 	_edit_key = ""
 	if visible and _task == "edit":

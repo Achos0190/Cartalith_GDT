@@ -251,6 +251,33 @@ static func apply(app, bridge, ug, valid: Array) -> Dictionary:
 	return {"ok": true, "reason": "", "applied": applied, "instant": instant, "group_id": group_id, "failed": failed}
 
 
+## AC-3: the label of the first change in `valid` whose value is not offered by facts read NOW, or "". The
+## public door to `_stale` for a caller that must check before it changes anything (`llm_actions.gd::
+## preflight`); the same check [`apply`] runs first.
+static func first_stale(app, bridge, valid: Array) -> String:
+	return _stale(facts(app, bridge), valid)
+
+
+## AC-3: applies the UNDOABLE members of `valid` (the style preset) into the caller's ALREADY OPEN undo
+## group, so a card that also changes settings is ONE undo step (`apply` opens a group of its own, and
+## groups do not nest). Opens, commits and aborts nothing: the caller owns the group and aborts it on
+## `ok` false. Returns `{ok, reason, applied}`. The instant members go through [`apply`] after the caller
+## commits (the style redraw re-fits the camera, so a camera move must come after it; `view_actions.rs`).
+static func apply_undoable_into_open_group(app, valid: Array) -> Dictionary:
+	var rw = app._render_workspace()
+	var applied := 0
+	for c in valid:
+		var cd: Dictionary = c
+		if not bool(cd.get("undoable", false)):
+			continue
+		var i := preset_index(String(cd["args"]["preset"]))
+		if i < 0 or rw == null:
+			return {"ok": false, "reason": "the style preset is not available", "applied": applied}
+		rw._apply_preset(i)
+		applied += 1
+	return {"ok": true, "reason": "", "applied": applied}
+
+
 ## The `DccMenus` command id behind curated window `id`, or -1.
 static func _window_menu(id: String) -> int:
 	for w in WINDOWS:

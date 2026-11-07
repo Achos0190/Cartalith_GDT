@@ -136,6 +136,50 @@ impl Effect {
     }
 }
 
+/// AC-3: which existing click path runs an entry. Derived from the id's family, so a new family cannot
+/// be run until it is named here; anything unnamed is [`Route::None`] and is refused at Apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// A generation setting, through `undo_group.write_param` (the `param:` id's key is the rest).
+    Param,
+    /// A view verb, through `LlmView.apply` (layers, the style preset, zoom, the landmark filter).
+    View,
+    /// A curated window, through `CommandIndex.run_row` (`window.<id>`).
+    Window,
+    /// A reviewed menu row, through `CommandIndex.run_row` (`menu:<name>`).
+    Menu,
+    /// The year cursor, through `DccShell.tl_set_year`.
+    Year,
+    /// A selection verb, through `DccApp.select`, `clear_selection` or `select_back`.
+    Select,
+    /// Arming a map tool, through `DccApp.arm_tool`.
+    Tool,
+    /// No click path from a proposal (context-card actions, unreviewed rows).
+    None,
+}
+
+impl Route {
+    /// The wire name the card carries.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Route::Param => "param",
+            Route::View => "view",
+            Route::Window => "window",
+            Route::Menu => "menu",
+            Route::Year => "year",
+            Route::Select => "select",
+            Route::Tool => "tool",
+            Route::None => "none",
+        }
+    }
+
+    /// The inverse of [`Route::as_str`]; anything else, including the empty string, is [`Route::None`]
+    /// (the refused route), never a plausible default.
+    pub fn parse(s: &str) -> Route {
+        [Route::Param, Route::View, Route::Window, Route::Menu, Route::Year, Route::Select, Route::Tool].into_iter().find(|r| r.as_str() == s).unwrap_or(Route::None)
+    }
+}
+
 /// Where a description came from (AC-5 reads this to find the work left).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DescSource {
@@ -272,6 +316,40 @@ pub struct ActionEntry {
 }
 
 impl ActionEntry {
+    /// The click path that runs this entry (AC-3). Reads the id's family and the entry's own effect: an
+    /// `Unreviewed` entry, a context action or an id of an unknown family is [`Route::None`].
+    pub fn route(&self) -> Route {
+        if self.effect == Effect::Unreviewed {
+            return Route::None;
+        }
+        let id = self.id.as_str();
+        if id.starts_with("param:") {
+            Route::Param
+        } else if id.starts_with("view.") {
+            Route::View
+        } else if id.starts_with("window.") {
+            Route::Window
+        } else if id.starts_with("menu:") {
+            Route::Menu
+        } else if id == "timeline.set_year" {
+            Route::Year
+        } else if id.starts_with("select.") {
+            Route::Select
+        } else if id.starts_with("tool.") {
+            Route::Tool
+        } else {
+            Route::None
+        }
+    }
+
+    /// Whether Session mode refuses this entry on a card (AC-3). Session mode "keeps generation out of
+    /// reach at the table" (`menus.gd::SESSION_MODE_TIP`) by hiding the WORLD domain, so a card may not
+    /// change a generation setting or arm a WORLD tool (sculpt, paint, region) while it is on. A labelled
+    /// judgement read from `SESSION_HIDDEN_DOMAINS` (`dcc_shell.gd`) and the tool homes in `statics`.
+    pub fn session_gated(&self) -> bool {
+        self.kind == ActionKind::Setting || self.path.starts_with("world/")
+    }
+
     /// The arguments as a JSON-schema object.
     pub fn args_schema(&self) -> Value {
         let props: Map<String, Value> = self.args.iter().map(|a| (a.name.clone(), a.schema())).collect();
@@ -331,6 +409,12 @@ pub struct ShellFacts {
     pub has_world: Option<bool>,
     /// The year cursor's track `(min, max)`, when there is one.
     pub years: Option<(i64, i64)>,
+    /// AC-3: how many settlements the open world holds, when the shell said (`bridge.settlements().size()`).
+    /// `None` is "not said": no selection entry is offered then, never `Some(0)` read as "none".
+    pub settlements: Option<i64>,
+    /// AC-3: whether `DccApp.select_back()` has an earlier selection to return to; `None` is "not said"
+    /// and offers no `select.back`.
+    pub can_select_back: Option<bool>,
 }
 
 impl ShellFacts {
@@ -357,7 +441,13 @@ impl ShellFacts {
             });
         }
         let years = o.get("timeline").and_then(Value::as_object).and_then(|t| Some((t.get("min")?.as_i64()?, t.get("max")?.as_i64()?)));
-        Ok(ShellFacts { menu_rows: rows, has_world: o.get("has_world").and_then(Value::as_bool), years })
+        Ok(ShellFacts {
+            menu_rows: rows,
+            has_world: o.get("has_world").and_then(Value::as_bool),
+            years,
+            settlements: o.get("settlements").and_then(Value::as_i64).filter(|n| *n >= 0),
+            can_select_back: o.get("can_select_back").and_then(Value::as_bool),
+        })
     }
 }
 
@@ -472,6 +562,9 @@ pub const CONTEXT_REVIEW: &[(&str, ActionKind, Effect, bool, &str)] = &[
     ("world.section_from", ActionKind::View, Effect::View, true, "Start a cross-section profile from a point."),
 ];
 
+/// Why a context-card action cannot be proposed yet (AC-3).
+pub const CONTEXT_NOT_RUNNABLE: &str = "It runs from the map's right-click card at a point; the assistant cannot run it from a proposal yet.";
+
 /// Curated tool descriptions: `(tool id, description)`. Each arming changes only the session (no
 /// world change until the user acts with the tool), so every tool's effect is [`Effect::View`].
 pub const TOOL_REVIEW: &[(&str, &str)] = &[
@@ -537,6 +630,7 @@ impl ActionCatalogue {
         }
         b.menu_rows(shell);
         b.statics(no_world, view);
+        b.selection(shell, no_world);
         if let Some((lo, hi)) = shell.years {
             b.push(ActionEntry {
                 id: "timeline.set_year".into(),
@@ -858,7 +952,11 @@ impl Builder {
             let title = label.replace('\u{2026}', "");
             let reviewed = CONTEXT_REVIEW.iter().find(|(i, ..)| *i == id);
             let (kind, effect, args, desc, src, avail, why) = match reviewed {
-                Some((_, k, e, pt, d)) => (*k, *e, if *pt { point_args() } else { vec![] }, (*d).to_owned(), DescSource::Curated, no_world.is_none(), no_world.unwrap_or("").to_owned()),
+                // AC-3: no click path exists to RUN a context-card action from a proposal (each is
+                // reached by a right-click at a point and the card's own handler), and the rule is that
+                // a card never offers what Apply would refuse. So they stay listed, searchable and
+                // describable, and `propose_actions` refuses them (B7) with this reason.
+                Some((_, k, e, pt, d)) => (*k, *e, if *pt { point_args() } else { vec![] }, (*d).to_owned(), DescSource::Curated, false, CONTEXT_NOT_RUNNABLE.to_owned()),
                 None => (
                     ActionKind::Edit,
                     Effect::Unreviewed,
@@ -917,6 +1015,57 @@ impl Builder {
                 source: "tool",
             });
         }
+    }
+}
+
+impl Builder {
+    /// AC-3: the selection verbs over `DccApp.select` (PC-1): `select.settlement`, `select.none`,
+    /// `select.back`. Offered only when the shell said the counts (`ShellFacts::settlements`,
+    /// `can_select_back`); a missing fact offers nothing. They are `Effect::View`: the selection is session
+    /// state with its own back history (Alt+Left), not on the undo stack. `select.none` is named for what
+    /// it does, never `clear` (a forbidden stem). Settlements are the only kind offered: `DccApp` records a
+    /// faction or landmark selection but shows it nowhere until PC-4.
+    fn selection(&mut self, shell: &ShellFacts, no_world: Option<&'static str>) {
+        let Some(n) = shell.settlements else { return };
+        let why_world = no_world.map(str::to_owned);
+        let has = n > 0;
+        let (avail, why) = match (&why_world, has) {
+            (Some(w), _) => (false, w.clone()),
+            (None, false) => (false, "This world has no settlements to select.".to_owned()),
+            (None, true) => (true, String::new()),
+        };
+        let mk = |id: &str, title: &str, desc: &str, args: Vec<ArgSpec>, available: bool, why: String, aliases: &str| ActionEntry {
+            id: id.into(),
+            title: title.into(),
+            desc: desc.into(),
+            desc_source: DescSource::Curated,
+            detail: None,
+            path: "map/selection".into(),
+            kind: ActionKind::Select,
+            effect: Effect::View,
+            args,
+            available,
+            why,
+            state: None,
+            aliases: aliases.into(),
+            source: "select",
+        };
+        self.push(mk(
+            "select.settlement",
+            "Select a settlement",
+            "Select one settlement by id (its position in the settlement list, from 0); the dock and CIVIL follow.",
+            vec![ArgSpec::new("id", ArgType::Int { min: 0, max: (n - 1).max(0) }, true)],
+            avail,
+            why.clone(),
+            "pick choose town city village inspect",
+        ));
+        self.push(mk("select.none", "Select nothing", "Drop the current selection; Previous selection brings it back.", vec![], no_world.is_none(), why_world.clone().unwrap_or_default(), "deselect unselect"));
+        let (bavail, bwhy) = match (&why_world, shell.can_select_back) {
+            (Some(w), _) => (false, w.clone()),
+            (None, Some(true)) => (true, String::new()),
+            (None, _) => (false, "There is no earlier selection to return to.".to_owned()),
+        };
+        self.push(mk("select.back", "Previous selection", "Return to the selection before this one, like a browser's Back.", vec![], bavail, bwhy, "back return earlier"));
     }
 }
 

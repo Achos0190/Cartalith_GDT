@@ -591,3 +591,175 @@ fn the_first_request_fits_an_8k_window_and_the_guard_says_so() {
     assert!(check_budget(&req, 8192).is_ok());
     assert!(check_budget(&req, 2048).is_err());
 }
+
+// ---------------------------------------------------------------------------------------------
+// AC-3: running a card (`cartalith_llm::action_run`, the rules the shell asks before it runs anything)
+// ---------------------------------------------------------------------------------------------
+
+use cartalith_llm::action_run::{ExecContext, ExecItem, check_card};
+
+/// The real catalogue with the AC-3 selection facts the 2026-10-31 fixture predates.
+fn real_catalogue_with_selection(settlements: Option<i64>, can_back: Option<bool>) -> ActionCatalogue {
+    let mut f = shell_facts();
+    f.settlements = settlements;
+    f.can_select_back = can_back;
+    ActionCatalogue::build(Some(&params_catalogue()), Some(&real_view()), &f)
+}
+
+/// Protects "a card never offers what Apply would refuse" over the REAL rows: every entry the validator
+/// would accept (available, reviewed) has a click path, and the families map to the paths the proposal
+/// names (settings -> write_param, views -> LlmView, windows and menu rows -> CommandIndex, the year ->
+/// tl_set_year, selection -> DccApp.select, tools -> arm_tool). The counts are literals (measured
+/// 2026-11-07 on the 114 registry rows, the 66 captured menu rows and the shell source's own layers,
+/// presets, windows, context actions and tools). MUTATION: delete the `window.` arm of
+/// `ActionEntry::route` and the window count goes to 0.
+#[test]
+fn ac3_every_proposable_entry_has_a_click_path_and_the_families_are_counted() {
+    let c = real_catalogue_with_selection(Some(40), Some(true));
+    let mut by: std::collections::BTreeMap<&'static str, usize> = Default::default();
+    for e in c.entries() {
+        let proposable = e.available && e.effect != Effect::Unreviewed;
+        if proposable {
+            assert_ne!(e.route(), Route::None, "{} is proposable but nothing can run it", e.id);
+            *by.entry(e.route().as_str()).or_default() += 1;
+        }
+    }
+    eprintln!("AC3 proposable by route: {by:?}");
+    assert_eq!(by.get("param"), Some(&114));
+    assert_eq!(by.get("window"), Some(&10));
+    assert_eq!(by.get("tool"), Some(&13));
+    assert_eq!(by.get("year"), Some(&1));
+    assert_eq!(by.get("select"), Some(&3));
+    assert_eq!(by.get("view"), Some(&12), "ten layers, the style preset and zoom; the landmark filter is withheld on this world");
+    assert!(by.get("menu").copied().unwrap_or(0) > 0, "the reviewed menu rows that are available");
+    let ctx: Vec<&ActionEntry> = c.entries().iter().filter(|e| e.source == "context").collect();
+    assert_eq!(ctx.len(), 23);
+    assert!(ctx.iter().all(|e| !e.available), "no context action can be proposed");
+    assert!(ctx.iter().filter(|e| e.effect != Effect::Unreviewed).all(|e| e.why == CONTEXT_NOT_RUNNABLE));
+}
+
+/// Protects the Session-mode scope with literals: every setting and the three WORLD tools are gated;
+/// windows, views, selection, the year and the other tools are not. MUTATION: drop the `world/` arm of
+/// `session_gated` and `tool.sculpt` goes red; drop the setting arm and the `param:` assertion goes red.
+#[test]
+fn ac3_session_mode_gates_settings_and_world_tools_only() {
+    let c = real_catalogue_with_selection(Some(40), Some(true));
+    let gated: Vec<&str> =
+        c.entries().iter().filter(|e| e.session_gated() && e.available && e.effect != Effect::Unreviewed && e.route() != Route::Param).map(|e| e.id.as_str()).collect();
+    assert_eq!(gated, ["tool.paint", "tool.region", "tool.sculpt"]);
+    assert!(c.entries().iter().filter(|e| e.route() == Route::Param).all(|e| e.session_gated()));
+    for id in ["view.layer.rivers", "view.style_preset", "view.zoom_to", "window.factions", "timeline.set_year", "select.settlement", "select.none", "tool.way", "tool.inspect"] {
+        assert!(!c.get(id).unwrap_or_else(|| panic!("{id}")).session_gated(), "{id}");
+    }
+}
+
+/// Protects the selection verbs: offered only when the shell said the counts; the id bound is the count
+/// less one (a literal 39); an empty world or no earlier selection makes the entry unavailable WITH a
+/// reason, not absent and not offered; `select.none` is not refused as `clear`. MUTATION: change `(n - 1)`
+/// to `n` in `selection()` and the bound goes red.
+#[test]
+fn ac3_selection_verbs_follow_the_shells_counts() {
+    let c = real_catalogue_with_selection(Some(40), Some(true));
+    let s = c.get("select.settlement").unwrap();
+    assert_eq!(s.args_schema()["properties"]["id"]["maximum"], json!(39));
+    assert!(s.available && c.get("select.none").unwrap().available && c.get("select.back").unwrap().available);
+    assert!(s.check_args(json!({"id": 39}).as_object().unwrap()).is_ok());
+    assert!(s.check_args(json!({"id": 40}).as_object().unwrap()).is_err());
+    assert!(s.check_args(json!({"id": -1}).as_object().unwrap()).is_err());
+    assert!(c.dropped.iter().all(|d| !d.id.starts_with("select.")), "no select verb was refused: {:?}", c.dropped);
+    let none = real_catalogue_with_selection(None, None);
+    assert!(none.entries().iter().all(|e| e.source != "select"), "not said, not offered");
+    let empty = real_catalogue_with_selection(Some(0), Some(false));
+    assert!(!empty.get("select.settlement").unwrap().available && empty.get("select.settlement").unwrap().why.contains("no settlements"));
+    assert!(!empty.get("select.back").unwrap().available && empty.get("select.back").unwrap().why.contains("earlier selection"));
+    assert!(empty.get("select.none").unwrap().available, "deselecting nothing is harmless");
+}
+
+type ExecRow = (String, Vec<ExecItem>, ExecContext, Vec<(String, String)>);
+
+fn exec_corpus() -> Vec<ExecRow> {
+    let doc: Value = serde_json::from_str(include_str!("../../cartalith-llm/tests/fixtures/hostile_corpus_exec_2026-11-07.json")).expect("valid JSON");
+    doc["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|r| {
+            let items = r["items"].as_array().unwrap().iter().map(|i| ExecItem::from_wire(i["id"].as_str(), i["route"].as_str(), i["gated"].as_bool())).collect();
+            let c = &r["ctx"];
+            let ctx = ExecContext {
+                session_mode: c["session"].as_bool().unwrap_or(false),
+                generating: c["generating"].as_bool().unwrap_or(false),
+                finalized: c["finalized"].as_bool().unwrap_or(false),
+            };
+            let expect = r["expect"].as_array().unwrap().iter().map(|e| (e[0].as_str().unwrap_or("<card>").to_owned(), e[1].as_str().unwrap().to_owned())).collect();
+            (r["id"].as_str().unwrap().to_owned(), items, ctx, expect)
+        })
+        .collect()
+}
+
+/// The hostile corpus for running a card (`hostile_corpus_exec_2026-11-07.json`, only grows). Protects the
+/// C-rules over every state a card can meet; every rule C1..C7 appears in some row, so a rule that stops
+/// firing cannot hide. MUTATION: delete the session test in `check_card` and X01 to X04 and X19 go red.
+#[test]
+fn ac3_the_hostile_corpus_for_running_a_card() {
+    let rows = exec_corpus();
+    assert!(rows.len() >= 19, "the corpus only grows: {}", rows.len());
+    let mut seen = std::collections::BTreeSet::new();
+    let mut rules_seen = std::collections::BTreeSet::new();
+    for (id, items, ctx, expect) in &rows {
+        assert!(seen.insert(id.clone()), "duplicate corpus id {id}");
+        let got: Vec<(String, String)> = check_card(items, ctx).into_iter().map(|r| (r.id.unwrap_or_else(|| "<card>".into()), r.rule.id().to_owned())).collect();
+        assert_eq!(&got, expect, "{id}");
+        rules_seen.extend(got.into_iter().map(|g| g.1));
+    }
+    assert_eq!(rules_seen.into_iter().collect::<Vec<_>>(), ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]);
+}
+
+/// End to end on the real catalogue: a model browses and proposes a mixed card (a setting, a layer, a
+/// window and a selection); the verdict carries the click path and the Session flag of each; `check_card`
+/// passes it when idle, refuses exactly the setting in Session mode, and refuses the card while generating.
+/// A context action never reaches `valid` (B7, with the right-click reason). Protects that the verdict's
+/// fields are the ones the rules read.
+#[test]
+fn ac3_a_proposed_mixed_card_is_checked_by_the_verdict_it_was_given() {
+    let cat = params_catalogue();
+    let acts = real_catalogue_with_selection(Some(40), Some(true));
+    let mut c = ParamsConversation::new(&cat, "make it so").unwrap().with_queries(&cat, true).with_actions(&cat, Some(acts));
+    let browse: Vec<IncomingCall> = vec![
+        call("search_actions", json!({"query": "peak altitude"})),
+        call("list_actions", json!({"path": "carto/layers"})),
+        call("list_actions", json!({"path": "window/records"})),
+        call("list_actions", json!({"path": "map/selection"})),
+    ];
+    assert!(matches!(c.on_reply(&cat, "", browse), Step::Continue));
+    let setting = c.action_ledger().knows("param:peak_m");
+    assert!(setting, "the search for peak height did not return the setting");
+    for id in ["view.layer.rivers", "window.factions", "select.settlement"] {
+        assert!(c.action_ledger().knows(id), "{id} was not returned; the test's browse is wrong");
+    }
+    let actions = json!([
+        {"id": "param:peak_m", "args": {"value": 9000}},
+        {"id": "view.layer.rivers", "args": {"visible": false}},
+        {"id": "window.factions"},
+        {"id": "select.settlement", "args": {"id": 7}},
+    ]);
+    let Step::ActionProposal(v) = c.on_reply(&cat, "", vec![call("propose_actions", json!({"summary": "mixed", "actions": actions}))]) else { panic!("expected a card") };
+    assert_eq!(v.valid.len(), 4, "{:?}", v.rejected);
+    let items: Vec<ExecItem> = v.valid.iter().map(|a| ExecItem::from_wire(Some(&a.id), Some(a.route.as_str()), Some(a.session_gated))).collect();
+    assert_eq!(items.iter().map(|i| i.route.as_str()).collect::<Vec<_>>(), ["param", "view", "window", "select"]);
+    let idle = ExecContext { session_mode: false, generating: false, finalized: false };
+    assert_eq!(check_card(&items, &idle), vec![]);
+    let session: Vec<(String, &str)> = check_card(&items, &ExecContext { session_mode: true, ..idle }).into_iter().map(|r| (r.id.unwrap(), r.rule.id())).collect();
+    assert_eq!(session, [("param:peak_m".to_owned(), "C4")]);
+    assert_eq!(check_card(&items, &ExecContext { generating: true, ..idle }).len(), 1);
+    // A context action is listed but never proposable.
+    let (mut c2, cat2) = conv();
+    assert!(matches!(c2.on_reply(&cat2, "", vec![call("list_actions", json!({"path": "civil/here"}))]), Step::Continue));
+    match c2.on_reply(&cat2, "", vec![call("propose_actions", json!({"actions": [{"id": "civ.start_way", "args": {"x": 1, "y": 1}}]}))]) {
+        Step::ActionRetry(v) => {
+            assert_eq!(v.rejected[0].rule.id(), "B7", "{v:?}");
+            assert!(v.rejected[0].why.contains("right-click"));
+        }
+        s => panic!("a context action must be refused: {s:?}"),
+    }
+}

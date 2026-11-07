@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value, json};
 
-use crate::actions::{ActionCatalogue, ActionEntry, ActionKind, Effect, MAX_DESC_CHARS, MAX_PATH_DEPTH};
+use crate::actions::{ActionCatalogue, ActionEntry, ActionKind, Effect, MAX_DESC_CHARS, MAX_PATH_DEPTH, Route};
 use crate::catalogue::{depth, inert_text};
 use crate::openai::{ChatRequest, ToolSpec, build_chat_request};
 
@@ -514,6 +514,12 @@ pub struct ActionChange {
     pub kind: ActionKind,
     /// What running it does.
     pub effect: Effect,
+    /// AC-3: the click path that runs it.
+    pub route: Route,
+    /// AC-3: whether Session mode refuses it ([`ActionEntry::session_gated`]).
+    pub session_gated: bool,
+    /// AC-3: its category path (a card groups and words by it).
+    pub path: String,
     /// The validated arguments exactly as written.
     pub args: Map<String, Value>,
     /// Its current state in words, when the app reported one (omitted otherwise, never a default).
@@ -642,6 +648,9 @@ impl ActionCatalogue {
                         title: entry.title.clone(),
                         kind: entry.kind,
                         effect: entry.effect,
+                        route: entry.route(),
+                        session_gated: entry.session_gated(),
+                        path: entry.path.clone(),
                         args,
                         from: entry.state.clone(),
                         reason: e.get("reason").and_then(Value::as_str).map(|s| inert_text(s, MAX_REASON_CHARS)).filter(|s| !s.is_empty()),

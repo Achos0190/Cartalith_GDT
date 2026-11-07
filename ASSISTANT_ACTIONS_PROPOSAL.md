@@ -264,6 +264,10 @@ so. It never truncates silently.
 | AC-6 | Fold the specialised tools in (optional) | Only if AC-0's numbers show no loss. The thirteen tools become catalogue entries plus packs |
 | AC-7 | The Ask tab's cards per kind | Setting, view, select, edit and window cards, as `PC_SHELL_PROPOSAL.md` §3.5 draws them |
 
+### Build notes for AC-3 (2026-11-07)
+
+Decisions where this document left a choice: the rules for whether a card may run live in Rust (`action_run::check_card`, C1 to C7) so the hostile corpus reaches them, and the shell asks them from the card's Apply; Session mode gates every setting and the WORLD tools (a labelled judgement from `SESSION_HIDDEN_DOMAINS`); the style preset joins the settings in one undo group, and everything else is session state, as the view card always said, so "one Undo reverts the card" means the settings and the style; a card never regenerates; context-card actions stay listed but unavailable until a click path exists; selection verbs cover settlements only (a faction or landmark selection is shown nowhere until PC-4); `select.none` is named so, since `clear` is a forbidden stem.
+
 ### Build notes for AC-1 and AC-2 (2026-11-07)
 
 What the build decided where this document left a choice, and what it found. Design notes, not a status column:
