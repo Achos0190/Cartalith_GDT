@@ -48,7 +48,7 @@ shows what v2.73 changed. `Cartalith v2.74 DCC test.html` started as a byte copy
 
 **Before stage 3, the owner's order** (Ruling EF, 2026-11-02: *"Fixes and feature ports first then stage 3"*), each
 one new file, its number confirmed free in Cartalith_RC when its lane starts:
-1. **v2.74 — the fix pass and the design alignment** (built): the plan's §5, the toll fix (Ruling EC item 6), the
+1. **v2.74 — the fix pass and the design alignment** (built in two lanes; its verification rounds are unfinished — `cartalith-native/docs/STATUS.md` says how far it has got, and `build-notes/v2.74/` holds the open review findings): the plan's §5, the toll fix (Ruling EC item 6), the
    rounded corners (item 7) and §8's V24 (the washed on-state and the dock's type), V25, V29 and V30.
 2. **v2.75 — the speed pass**: §6 (generate) and §7 (zoom, LOD, sliders, brush, the render tail), with the
    half-resolution slider preview (Ruling EC item 8). `hash_gen1` stays ALL IDENTICAL.

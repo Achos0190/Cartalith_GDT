@@ -60,8 +60,15 @@ the ruling.
 - **`MISTAKES.md`:** the audits' three candidates merged — a cache key part naming a field the state does not have
   (into "Add a capability, or write a staleness/cache key"), and `setTimeout(0)` as "the background" and the
   one-border-side active state (a new row).
-- **Built: nothing yet.** `html/Cartalith v2.74 DCC test.html` starts as a byte copy of v2.73; what it carries when
-  it closes is recorded here then.
+- **v2.74 is built but NOT verified (2026-11-02; recorded 2026-11-07).** Both build lanes finished in
+  `html/Cartalith v2.74 DCC test.html`: lane A (the plan's §5 fix pass and the toll fix) and lane B (rounded corners,
+  the washed on-states, V25, V29, V30), with `probe_fixpass.js`, `census_v274.js`, the changelog and the evidence.
+  Each lane's own checks on its own bytes passed (lane A: `run.sh` 1280/0, `run_um.sh` 882/0, `hash_gen1` against
+  v2.73 ALL IDENTICAL, the contrast census 0 runs below AA). The independent verification **did not finish**: the
+  weekly usage limit stopped it in round 1. The tester never answered; the design reviewer found **3 major and 10
+  minor defects, all unfixed** — touch pills losing their 44 px corner targets, the phone quick drawer's rows rounded
+  against the squared-rows rule, and P7's `sun_probe.js` not shipped among them. Its verdict, both lane reports and
+  the build log are in `html/build-notes/v2.74/`. Next: fix those, re-run both verifiers, then close v2.74 here.
 
 ### Reference: the DCC line's v2.71 copied into `reference/` (2026-11-01)
 
