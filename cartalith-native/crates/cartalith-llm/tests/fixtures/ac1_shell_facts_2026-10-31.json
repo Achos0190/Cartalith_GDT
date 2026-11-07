@@ -1,0 +1,481 @@
+{
+  "has_world": true,
+  "menu_rows": [
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "ap_export",
+      "title": "Export pack .zip",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "ap_pack_meta",
+      "title": "Pack metadata",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "ap_validate",
+      "title": "Validate pack",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "apply_library",
+      "title": "Apply library to map",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "asset_library",
+      "title": "⧉ Asset library",
+      "why": "",
+      "window": "asset_library"
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "clear_library",
+      "title": "Clear library   destructive",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "close",
+      "title": "Close project",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "compare_pack",
+      "title": "Compare pack with library",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Story",
+      "name": "conflicts_list",
+      "title": "Conflicts",
+      "why": "",
+      "window": "conflicts"
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "copy",
+      "title": "Copy",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "cut",
+      "title": "Cut",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "World",
+      "name": "data_manager",
+      "title": "⧉ Data manager",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "delete",
+      "title": "Delete",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "deselect",
+      "title": "Deselect",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "edit_reset_params",
+      "title": "Reset generation parameters",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "export_dm",
+      "title": "DM / full map",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "export_map_image",
+      "title": "Export map image",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "export_player",
+      "title": "Player map",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "World",
+      "name": "factions",
+      "title": "Factions",
+      "why": "",
+      "window": "factions"
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "find_on_map",
+      "title": "Find on map",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Preferences",
+      "name": "gfx_exag_engine",
+      "title": "Use the engine's own 3.4x",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Help",
+      "name": "help_about",
+      "title": "About",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Help",
+      "name": "help_credits",
+      "title": "Credits & academic principles",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Help",
+      "name": "help_docs",
+      "title": "Documentation",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Help",
+      "name": "help_gen_info",
+      "title": "Generation info",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Help",
+      "name": "help_report",
+      "title": "Save diagnostic report",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Help",
+      "name": "help_shortcuts",
+      "title": "Keyboard shortcuts",
+      "why": "",
+      "window": "shortcuts"
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "import_folder",
+      "title": "Import folder of art",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "import_image",
+      "title": "Import image",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "import_pack",
+      "title": "Import asset pack .zip",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Preferences",
+      "name": "lod_enter_now",
+      "title": "Enter deep detail now",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "new_world",
+      "title": "New world",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "new_world_from_selection",
+      "title": "New world from selection",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "open_pack_library",
+      "title": "Open pack in library",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "open_project",
+      "title": "Open project",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "pack_report",
+      "title": "Pack report",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "paste",
+      "title": "Paste",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "World",
+      "name": "places",
+      "title": "Places",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "World",
+      "name": "places_without_notes",
+      "title": "Places without notes",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Preferences",
+      "name": "pref_assistant",
+      "title": "Assistant",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Preferences",
+      "name": "pref_clear_caches",
+      "title": "Clear caches",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Preferences",
+      "name": "pref_quick_bar",
+      "title": "Quick bar",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Preferences",
+      "name": "pref_shortcuts",
+      "title": "Keyboard shortcuts",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Preferences",
+      "name": "pref_storage",
+      "title": "Storage locations",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "revert",
+      "title": "Revert to last save",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "save",
+      "title": "Save project",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "save_as",
+      "title": "Save as",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Story",
+      "name": "saved_journeys",
+      "title": "Saved journeys",
+      "why": "",
+      "window": "journeys_list"
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "select_all",
+      "title": "Select all",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "show_on_disk",
+      "title": "Show project on disk",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Assets",
+      "name": "slicer",
+      "title": "⧉ Sprite sheet slicer (▦)",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "File",
+      "name": "storage",
+      "title": "Change locations",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Story",
+      "name": "story_assistant",
+      "title": "Assistant panel",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Story",
+      "name": "story_draw_conflict",
+      "title": "Draw a conflict",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Story",
+      "name": "story_faction_history",
+      "title": "Faction history",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Story",
+      "name": "story_journey_planner",
+      "title": "Journey planner",
+      "why": "",
+      "window": "journey_planner"
+    },
+    {
+      "available": true,
+      "group": "Story",
+      "name": "story_timeline",
+      "title": "Timeline",
+      "why": "",
+      "window": "timeline"
+    },
+    {
+      "available": true,
+      "group": "Story",
+      "name": "travel_library",
+      "title": "Travel library",
+      "why": "",
+      "window": "travel_library"
+    },
+    {
+      "available": true,
+      "group": "Edit",
+      "name": "undo_history",
+      "title": "Undo history",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "World",
+      "name": "vault",
+      "title": "Markdown vault",
+      "why": "",
+      "window": "vault"
+    },
+    {
+      "available": true,
+      "group": "World",
+      "name": "vault_browse",
+      "title": "Browse & edit a note",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Window",
+      "name": "win_forget_layout",
+      "title": "Forget layout",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Window",
+      "name": "win_reset",
+      "title": "Reset layout",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "Window",
+      "name": "win_save_layout",
+      "title": "Save layout as",
+      "why": ""
+    },
+    {
+      "available": true,
+      "group": "World",
+      "name": "world_data",
+      "title": "World data tables",
+      "why": "",
+      "window": "world_data"
+    },
+    {
+      "available": true,
+      "group": "World",
+      "name": "world_timeline",
+      "title": "Timeline",
+      "why": ""
+    }
+  ],
+  "timeline": {
+    "max": 1200,
+    "min": -400
+  }
+}
