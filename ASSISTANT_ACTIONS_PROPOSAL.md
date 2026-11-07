@@ -264,6 +264,46 @@ so. It never truncates silently.
 | AC-6 | Fold the specialised tools in (optional) | Only if AC-0's numbers show no loss. The thirteen tools become catalogue entries plus packs |
 | AC-7 | The Ask tab's cards per kind | Setting, view, select, edit and window cards, as `PC_SHELL_PROPOSAL.md` §3.5 draws them |
 
+### Build notes for AC-1 and AC-2 (2026-11-07)
+
+What the build decided where this document left a choice, and what it found. Design notes, not a status column:
+`cartalith-native/docs/STATUS.md` says what is built.
+
+- **Where the generator lives.** `cartalith_llm::actions` builds the table from four inputs: the registry
+  catalogue (parameters), `ViewCatalogue` (layers, the style preset, zoom, the landmark filter, windows),
+  `ShellFacts` (the runnable `CommandIndex` rows, whether a world is open, the year track; read per request by
+  `shell/llm_actions.gd`), and a committed scan of the shell source for the context-card actions and the map
+  tools, which have no runtime registry (`data/action_static_sources.json`, with a test that fails when it
+  goes stale). Nothing is typed in parallel with a source.
+- **Menu-row ids are the `DccMenus` constant's name** (`menu:factions`), not the numeric `pin_key`, so an id
+  survives a renumbering. Two constants can share a value (`ID_DESELECT` and `ID_LOD_EXPORT_ATLAS`); the row's
+  title picks the name.
+- **`pinnable` was confirmed not to be a safety mark, on the 66 real rows**: Save, Save as, Close, New world,
+  Open project, Revert, three Exports, three Imports, Delete, Cut, Paste, Clear library, Clear caches and the
+  Reset rows are all pinnable. The catalogue drops every entry whose id or title names a forbidden word (the
+  view tool's own list plus six more) and records it; a row nobody reviewed is listed with effect `unreviewed`,
+  `available: false`, and cannot be proposed. The `effect` vocabulary has no `destructive` member.
+- **Windows are listed once.** A menu row that opens a curated window is merged into `window.<id>`.
+- **Refusals that cost a harmless entry** (found by the real-row run, kept because a false positive is cheaper
+  than a false negative): `Undo history`, `Undo last stamp` and `Undo` (the stem `undo`), `Start export
+  region here` (`export`), `Discard ... draft` and `Erase` (`discard`, `erase`). AC-0's task t24, "Undo that",
+  therefore has no offered action. A parameter's title is not checked (`carve_rivers` says "on generation"):
+  its id still is.
+- **`list_actions` and `search_actions` rows omit `available` when it is true** and carry `available: false`
+  only on an action that cannot run now. With the explicit field the worst search was 1 615 characters, 15 over
+  the 1 600 that 400 tokens is at AC-0's measured 4.0 characters a token.
+- **A `list_actions` page stops at 25 rows or 1 400 characters, whichever comes first.** 25 rows of the
+  `erosion` settings group were 2 086 characters (522 tokens) before the character cap.
+- **Search is BM25 over title and aliases (twice), id, path and description**, with a small curated alias table
+  for the two AC-0 misses ("road" now finds the Way tool, "mountains" finds Peak height).
+- **The guard** divides the request body by 3.4 characters a token (AC-0's worst measured ratio was 3.47) and
+  adds 8 tokens a message, then refuses when the prompt plus the request's own answer cap exceeds the window.
+  It applies only to a local endpoint and only when the catalogue tools are in the request; the window is the
+  8 192 of AQ6 unless the shell passes a context size.
+- **`propose_actions` produces a PREVIEW card with no Apply.** Running a card through each kind's click path is
+  AC-3. The selection verbs (`select`, `selection.back`) and `timeline.play`/`record_year` are not offered
+  because no entry exists for them yet (`DccApp.select` has since appeared with PC-1; `timeline.play` and `record_year` have no shell code); `timeline.set_year` is, over `tl_set_year`.
+
 ## 5. Owner questions
 
 **Answered: the design is approved and every default below is taken (Ruling DW, 2026-10-31), with AC-0 first.**

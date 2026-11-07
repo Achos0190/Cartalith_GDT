@@ -306,8 +306,8 @@ func _ready() -> void:
 		var r0: int = _server.requests.size() - nreq
 		var b1 := _body(r0)
 		var b2 := _body(r0 + 1)
-		_ok(_tool_names(b1, anth) == ["get_param_schema"] + QUERY_TOOLS, "%s: request 1 offers get_param_schema, the six read-only tools and the view tool, not the proposal tool: %s" % [wire, str(_tool_names(b1, anth))])
-		_ok(_tool_names(b2, anth) == ["get_param_schema", "set_generation_params"] + QUERY_TOOLS, "%s: request 2 adds the proposal tool to the same set" % wire)
+		_ok(_tool_names(b1, anth) == ["get_param_schema"] + QUERY_TOOLS + ["list_actions", "search_actions", "describe_action", "propose_actions"], "%s: request 1 offers get_param_schema, the six read-only tools and the view tool, not the proposal tool: %s" % [wire, str(_tool_names(b1, anth))])
+		_ok(_tool_names(b2, anth) == ["get_param_schema", "set_generation_params"] + QUERY_TOOLS + ["list_actions", "search_actions", "describe_action", "propose_actions"], "%s: request 2 adds the proposal tool to the same set" % wire)
 		_ok(_key_enum(b2, anth).size() == 34, "%s: the key enum is the 34 keys of weather + world + tectonics: %d" % [wire, _key_enum(b2, anth).size()])
 		_ok(not _key_enum(b2, anth).has("use_gpu") and not _key_enum(b2, anth).has("geology_model"), "%s: no excluded key is offered" % wire)
 		var replay := String(_server.requests[r0 + 1]["body"]) if r0 + 1 < _server.requests.size() else ""

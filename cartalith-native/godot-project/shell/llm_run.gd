@@ -69,6 +69,10 @@ signal view_proposal(info: Dictionary)
 ## The validated EDIT proposal (LLM-7, Rust's `edit_verdict_dict`) of an Edit request, whose only tool is
 ## `propose_edit_actions`. DATA: nothing is applied by this signal.
 signal edit_proposal(info: Dictionary)
+## The validated ACTION-CATALOGUE proposal (AC-2, Rust's `action_verdict_dict`), when a reply called
+## `propose_actions`. DATA: nothing is applied by this signal, and until AC-3 nothing can be: the card is
+## a preview of what the model chose.
+signal action_proposal(info: Dictionary)
 ## The model answered a setting request in words, without proposing (`text`).
 signal answered(text: String)
 ## The sources a knowledge-assisted reply drew on and the citations in it, checked by Rust against what
@@ -112,6 +116,9 @@ var params_source: Callable
 ## catalogue (LLM-6d); when invalid the first turn's facts are reused. Read from the live app each
 ## turn, like `params_source`, so a layer switched between turns is what the validator compares to.
 var view_source: Callable
+## Returns the CURRENT action-catalogue facts as JSON text (`llm_actions.gd::facts_json`) for the next turn
+## (AC-2); when invalid the first turn's are reused. Read fresh each turn, so availability is the state NOW.
+var actions_source: Callable
 ## Returns the CURRENT region facts as JSON text (`LlmRegion.facts_json`) for the next turn of an Edit
 ## request (LLM-7); when invalid the first turn's facts are reused. Read fresh each turn, like the others.
 var edit_source: Callable
@@ -288,6 +295,9 @@ func _dispatch(events: Array) -> void:
 			"edit_proposal":
 				var einfo: Dictionary = ev.duplicate()
 				_terminal(func(): edit_proposal.emit(einfo); finished.emit({}))
+			"action_proposal":
+				var ainfo: Dictionary = ev.duplicate()
+				_terminal(func(): action_proposal.emit(ainfo); finished.emit({}))
 			"params_answer":
 				var said := String(ev.get("text", ""))
 				if ev.has("sources"):
@@ -337,6 +347,10 @@ func _continue_after_join() -> void:
 		args["view"] = view_source.call()
 	elif Dictionary(_last["args"]).has("view"):
 		args["view"] = Dictionary(_last["args"])["view"]
+	if actions_source.is_valid():
+		args["actions"] = actions_source.call()
+	elif Dictionary(_last["args"]).has("actions"):
+		args["actions"] = Dictionary(_last["args"])["actions"]
 	## An Edit request (LLM-7) re-reads the region for every turn the same way.
 	if String(_last["capability"]) == "edit":
 		if edit_source.is_valid():

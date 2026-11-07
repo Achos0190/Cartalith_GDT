@@ -1,0 +1,39 @@
+### turn off the rivers layer
+requests 1, peak server prompt_tokens 2741, peak estimate 2975
+request 1: 10059 bytes, server prompt_tokens Some(2741), estimate 2975, completion Some(68), 15.4s; calls: propose_view_actions({"actions":[{"action":"set_layer_visible","args":{"layer":"rivers","visible":false},"reason":"The user wants to turn off the rivers layer."}],"summary":"Turning off the rivers layer."})
+OUTCOME: OTHER: ViewProposal(ViewVerdict { structural: None, summary: Some("Turning off the rivers layer."), valid: [ViewChange { action: "set_layer_visible", args: {"layer": String("rivers"), "visible": Bool(false)}, label: "rivers", from: Some("shown"), to: "hidden", undoable: false, note: None, reason: Some("The user wants to turn off the rivers layer.") }], rejected: [], noop: [] })
+
+### open the faction roster
+requests 3, peak server prompt_tokens 3061, peak estimate 3521
+request 1: 10057 bytes, server prompt_tokens Some(2740), estimate 2974, completion Some(56), 12.4s; calls: propose_actions({"actions":[{"id":"open_window_factions","reason":"To open the faction roster."}],"summary":"Opening the faction roster to view details about factions in the world."})
+  refused (retry): valid [] rejected [Some("open_window_factions") B6: that id was not returned by list_actions or search_actions in this request. Call] structural None
+request 2: 10914 bytes, server prompt_tokens Some(2898), estimate 3242, completion Some(21), 8.3s; calls: search_actions({"query":"faction roster"})
+  answer: {"matches":[{"desc":"Open the faction roster: every faction with its settlements and strength.","id":"window.factions","kind":"window","title":"Open Factions"},{"desc":"Raise: more factions share the land. Lower: fewer factions; at least 1.","id":"param:civ.factions","kind":"setting","title":"Factio
+request 3: 11808 bytes, server prompt_tokens Some(3061), estimate 3521, completion Some(55), 12.4s; calls: propose_actions({"actions":[{"id":"window.factions","reason":"To open the faction roster."}],"summary":"Opening the faction roster to view details about factions in the world."})
+OUTCOME: PROPOSAL: valid [window.factions {}] rejected [] structural None
+
+### what can I do with the vault?
+requests 2, peak server prompt_tokens 2874, peak estimate 3208
+request 1: 10063 bytes, server prompt_tokens Some(2744), estimate 2976, completion Some(20), 7.8s; calls: search_actions({"query":"vault"})
+  answer: {"matches":[{"desc":"Open the Markdown vault: the notes written about this world.","id":"window.vault","kind":"window","title":"Open Markdown vault"},{"desc":"Browse and edit a Markdown note in the vault.","id":"menu:vault_browse","kind":"window","title":"Browse & edit a note"},{"desc":"Open the lis
+request 2: 10798 bytes, server prompt_tokens Some(2874), estimate 3208, completion Some(93), 16.1s; calls: 
+OUTCOME: ANSWERED IN WORDS: You can do the following with the vault:
+
+1. **Open the Markdown vault**: This allows you to view notes written about this world.
+2. **Browse and edit a Markdown note in the vault**: You can explore and modify existing notes.
+3. **Open the list of places that have no vault note yet**: This shows loc
+
+### raise the sea level a bit
+requests 2, peak server prompt_tokens 3391, peak estimate 3759
+request 1: 10059 bytes, server prompt_tokens Some(2742), estimate 2975, completion Some(22), 8.3s; calls: get_param_schema({"groups":["world"]})
+  answer: {"groups":["world"],"settings":[{"current":false,"default":false,"desc":"On: the map is a whole planet that wraps east-west, pole to pole. Off: a framed region between two latitudes.","key":"world","label":"Whole world (wrap in longitude)","type":"bool"},{"current":0.42,"default":0.42,"desc":"Raise:
+request 2: 12669 bytes, server prompt_tokens Some(3391), estimate 3759, completion Some(79), 19.8s; calls: set_generation_params({"changes":[{"key":"sea_level","reason":"Raise the sea level by about 15-30 percent of its current value.","value":0.5}],"summary":"The sea level has been slightly raised to increase the amount of water coverage on the map."})
+OUTCOME: OTHER: Proposal(Verdict { structural: None, summary: Some("The sea level has been slightly raised to increase the amount of water coverage on the map."), valid: [Change { key: "sea_level", label: "Sea level", unit: "", kind: Float, old: Some(Num(0.42)), new: Num(0.5), default: Some(Num(0.42)), pct: Some(19.04761904761905), reason: Some("Raise the sea level by about 15-30 percent of its current val
+
+### let me draw a new road
+requests 1, peak server prompt_tokens 2742, peak estimate 2974
+request 1: 10056 bytes, server prompt_tokens Some(2742), estimate 2974, completion Some(55), 16.8s; calls: 
+OUTCOME: ANSWERED IN WORDS: I cannot directly draw roads on the map. However, I can propose actions to help you interact with Cartalith's tools for drawing or editing roads. Let me search for relevant actions. 
+
+Would you like me to look for actions related to drawing or modifying roads?
+

@@ -126,6 +126,8 @@ var _note_paths: PackedStringArray = PackedStringArray()
 ## LLM-6d: the shell half of the view and layer actions (`llm_view.gd`: the facts the validator is
 ## built from, and the one place a validated view change is applied). No `class_name` on purpose.
 const _VIEW := preload("res://shell/llm_view.gd")
+## AC-1: the shell half of the action catalogue (`llm_actions.gd`: the runnable index rows, the world flag, the year track).
+const _ACTIONS := preload("res://shell/llm_actions.gd")
 ## LLM-7: the edit card and its one writer (`llm_edit.gd`), and the region the user chose (`llm_region.gd`).
 const _EDIT := preload("res://shell/llm_edit.gd")
 const _REGION := preload("res://shell/llm_region.gd")
@@ -209,9 +211,12 @@ func setup(a, b: EngineBridge) -> void:
 	run.answered.connect(_on_answered)
 	run.view_proposal.connect(_on_view_proposal)
 	run.edit_proposal.connect(_on_edit_proposal)
+	run.action_proposal.connect(_on_action_proposal)
 	run.sources_shown.connect(_on_sources)
 	## The view and layer facts are read from the live app every turn (LLM-6d).
 	run.view_source = func() -> String: return _VIEW.facts_json(app, bridge)
+	## The action catalogue's facts are read from the live app every turn too (AC-2).
+	run.actions_source = func() -> String: return _ACTIONS.facts_json(app, bridge)
 	## The next turn of an edit request reads the region as it is THEN (LLM-7).
 	run.edit_source = func() -> String: return _REGION.facts_json(bridge)
 	## A region painted on one world means nothing on the next: a generate or an open drops it.
@@ -1269,6 +1274,7 @@ func _on_send() -> void:
 	if _task == "commands":
 		## LLM-6d: the live view facts (JSON text) and the groups the user ticked, if any.
 		args["view"] = _VIEW.facts_json(app, bridge)
+		args["actions"] = _ACTIONS.facts_json(app, bridge)
 		if not _chosen_groups.is_empty():
 			args["groups"] = PackedStringArray(_chosen_groups)
 	var r := run.begin(DccSettings.llm_gate_dict(), _capability(), DccSettings.llm_consented_origins(), args)
@@ -1557,6 +1563,9 @@ func _refresh_cards() -> void:
 		if card["state"] != "new":
 			continue
 		var kind := String(card.get("kind", "params"))
+		if kind == "actions":
+			## AC-2's preview card has no Apply, so nothing here can be blocked or unblocked.
+			continue
 		var why := _view_blocked(card["info"]) if kind == "view" else (_EDIT.blocked(bridge, card) if kind == "edit" else _apply_blocked())
 		if b != null:
 			b.disabled = why != ""
@@ -1707,6 +1716,62 @@ func _on_view_proposal(info: Dictionary) -> void:
 	_drop_empty_reply()
 	_draw_view_card(info.get("view", {}))
 	_watch_undo()
+	_refresh_cards()
+	_scroll_to_end()
+
+
+## AC-2: the card for a `propose_actions` reply. A PREVIEW: it shows what the model chose, each action's
+## effect and old value, and the refused ones with their rule, but has NO Apply button, because running a
+## catalogue action through its existing click path is AC-3. Dismiss only. Builds widgets; applies nothing.
+func _on_action_proposal(info: Dictionary) -> void:
+	_drop_empty_reply()
+	var v: Dictionary = info.get("actions", {})
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", DccWidgets.box("warn", "sunken", 8, 6))
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	box.add_child(col)
+	var chip := DccTheme.label("MODEL PROPOSAL · ACTIONS (PREVIEW)", "warn", DccTheme.FS_MICRO)
+	chip.tooltip_text = "Proposed by a language model. Nothing has changed, and this preview cannot be applied yet: running these actions arrives in a later update."
+	col.add_child(chip)
+	if v.has("summary"):
+		_card_text(col, "“%s”" % String(v["summary"]), "text_secondary")
+	var valid: Array = v.get("valid", [])
+	for c in valid:
+		var cd: Dictionary = c
+		var line := "%s   (%s)" % [String(cd.get("title", cd.get("id", ""))), String(cd.get("effect", ""))]
+		if cd.has("from"):
+			line += "   was: %s" % String(cd["from"])
+		var a: Dictionary = cd.get("args", {})
+		if not a.is_empty():
+			var parts: PackedStringArray = PackedStringArray()
+			for k in a.keys():
+				parts.append("%s = %s" % [String(k), str(a[k])])
+			line += "   " + ", ".join(parts)
+		_card_text(col, line, "text")
+		if cd.has("reason"):
+			_card_text(col, "    “%s”  (model's words)" % String(cd["reason"]), "text_dim")
+	var rejected: Array = v.get("rejected", [])
+	if v.has("structural") or not rejected.is_empty():
+		_card_text(col, "Not proposed:", "text_dim")
+		if v.has("structural"):
+			_card_text(col, "    %s: %s" % [String(v.get("structural_rule", "")), String(v["structural"])], "text_ghost")
+		for r in rejected:
+			var rd: Dictionary = r
+			_card_text(col, "    %s  %s: %s" % [String(rd.get("id", "(no id)")), String(rd["rule"]), String(rd["why"])], "text_ghost")
+	if valid.is_empty():
+		_card_text(col, "Nothing could be proposed.", "warn")
+	else:
+		_card_text(col, "This is a preview. Run any of these yourself from its menu, tool or setting.", "text_secondary")
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_END
+	col.add_child(row)
+	var card := {"info": v, "box": box, "apply": null, "dismiss": null, "reason": _note_label(col, "", "warn"), "state": "new", "kind": "actions", "group_id": 0}
+	(card["reason"] as Label).visible = false
+	card["dismiss"] = _button(row, "Dismiss", func(): _dismiss_card(card))
+	_msgs.add_child(box)
+	cards.append(card)
 	_refresh_cards()
 	_scroll_to_end()
 

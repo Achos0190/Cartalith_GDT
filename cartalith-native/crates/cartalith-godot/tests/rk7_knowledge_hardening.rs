@@ -291,6 +291,7 @@ fn run_row(row: &Row, only: bool) {
         Step::Proposal(v) | Step::Retry(v) => assert!(v.valid.is_empty(), "{}: an obeyed string produced a valid change {:?}", row.id, v.valid),
         Step::ViewProposal(_) | Step::ViewRetry(_) => panic!("{}: a view proposal came out of a knowledge row", row.id),
         Step::EditProposal(_) | Step::EditRetry(_) => panic!("{}: an edit proposal came out of a knowledge row (the edit tool is not offered here)", row.id),
+        Step::ActionProposal(_) | Step::ActionRetry(_) => panic!("{}: a catalogue proposal came out of a knowledge row (the catalogue tools are not offered here)", row.id),
         Step::Continue | Step::Answer(_) | Step::Failed(_) => {}
     }
     assert!(c.shown_groups().is_empty(), "{}", row.id);

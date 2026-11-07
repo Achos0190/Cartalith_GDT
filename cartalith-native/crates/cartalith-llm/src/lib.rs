@@ -44,6 +44,9 @@
 //! seed-deterministic path, and nothing here depends on any other workspace
 //! crate. Progress is in `cartalith-native/docs/STATUS.md`.
 
+pub mod action_tools;
+#[cfg(test)]
+mod action_tools_tests;
 pub mod actions;
 pub mod anthropic;
 pub mod catalogue;

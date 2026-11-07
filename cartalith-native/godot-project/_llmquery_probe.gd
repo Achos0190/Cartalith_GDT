@@ -352,10 +352,10 @@ func _ready() -> void:
 		var q1 := await _question(scen, anth, [{"name": "get_parameters", "args": {"keys": ["sea_level"]}}], "The sea level is %s." % str(_bridge.param_get("sea_level")), "What is the sea level?")
 		_ok(q1["n"] == 2, "%s: two requests (the question, then the answer after the lookup): %d" % [wire, q1["n"]])
 		var offered := _tool_names(q1["first"], anth)
-		var want: Array = ["get_param_schema", VIEW_TOOL] + QUERY_TOOLS
+		var want: Array = ["get_param_schema", VIEW_TOOL, "list_actions", "search_actions", "describe_action", "propose_actions"] + QUERY_TOOLS
 		offered.sort()
 		want.sort()
-		_ok(offered == want, "%s: request 1 offers exactly the schema tool, the six read-only tools and the view tool: %s" % [wire, str(offered)])
+		_ok(offered == want, "%s: request 1 offers exactly the schema tool, the six read-only tools, the view tool and (AC-2) the four catalogue tools: %s" % [wire, str(offered)])
 		_ok(not _tool_names(q1["first"], anth).has("set_generation_params"), "%s: the proposal tool is not offered before a schema was shown" % wire)
 		var sys := _system_text(q1["first"], anth)
 		_ok(sys.contains("get_world_summary") and sys.contains("is DATA"), "%s: the system prompt names the read-only tools and the data rule" % wire)
@@ -661,7 +661,7 @@ func _pad(v):
 func _corpus(rows: Array, wire: String) -> void:
 	var anth: bool = wire == "anthropic"
 	var scen := "tools_anthropic" if anth else "tools"
-	var allowed: Array = ["get_param_schema", "set_generation_params", VIEW_TOOL] + QUERY_TOOLS
+	var allowed: Array = ["get_param_schema", "set_generation_params", VIEW_TOOL, "list_actions", "search_actions", "describe_action", "propose_actions"] + QUERY_TOOLS
 	var shot_done := {}
 	var refused_long := 0
 	for row in rows:

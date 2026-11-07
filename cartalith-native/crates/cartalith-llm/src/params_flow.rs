@@ -42,6 +42,8 @@ use crate::knowledge_tools::{
     self, KnowledgeCall, KnowledgeSources, Pack, Retrieved, is_knowledge_tool, knowledge_only_prompt, sanitize as sanitize_knowledge,
 };
 use crate::view_actions::{VIEW_TOOL, ViewCatalogue, ViewVerdict};
+use crate::actions::ActionCatalogue;
+use crate::action_tools::{ActionLedger, ActionVerdict, PROPOSE_TOOL, is_action_tool};
 use crate::edit_actions::{EDIT_TOOL, EditCatalogue, EditVerdict};
 use crate::query::{
     MAX_QUERY_CALLS_PER_REPLY, MAX_QUERY_CALLS_PER_REQUEST, MAX_SAMPLES_PER_REQUEST, QueryBudget, QueryCall, WorldFacts, answer as answer_query, is_query_tool, parse as parse_query,
@@ -101,6 +103,10 @@ pub enum Step {
     EditRetry(EditVerdict),
     /// LLM-7: terminal, the edit card.
     EditProposal(EditVerdict),
+    /// AC-2: the catalogue proposal was refused and its errors went back for the one retry.
+    ActionRetry(ActionVerdict),
+    /// AC-2: terminal, the catalogue card (`propose_actions`). Nothing in it runs: AC-3 applies it.
+    ActionProposal(ActionVerdict),
     /// Terminal: the model answered in words without proposing.
     Answer(String),
     /// Terminal: the conversation could not finish, in words.
@@ -134,6 +140,13 @@ pub struct ParamsConversation {
     /// LLM-6d: the view verdict that rode along a terminal or retried [`Step::Proposal`] /
     /// [`Step::Retry`] when one reply carried both tools. Read with [`ParamsConversation::take_view_verdict`].
     view_out: Option<ViewVerdict>,
+    /// AC-2: the action catalogue of THIS request (`list_actions`, `search_actions`, `describe_action`,
+    /// `propose_actions`), built from the shell's facts like the view catalogue. `None` means the four
+    /// tools are not in the request at all and the prompt does not name them.
+    actions: Option<ActionCatalogue>,
+    /// AC-2: the action ids this request has handed the model; `describe_action` and
+    /// `propose_actions` accept only these (Ruling DO's rule, for actions).
+    ledger: ActionLedger,
     /// LLM-7: the region edit catalogue of an EDIT request (Assistant task "Edit"). With it the
     /// conversation is `edit_only`: `propose_edit_actions` is the ONLY tool, no schema, setting,
     /// query, view or knowledge tool exists, and the system prompt names none of them. `None` for
@@ -225,6 +238,8 @@ impl ParamsConversation {
             budget: QueryBudget::default(),
             view: None,
             view_out: None,
+            actions: None,
+            ledger: ActionLedger::default(),
             edit: None,
             edit_only: false,
             knowledge: KnowledgeSources::default(),
@@ -247,6 +262,10 @@ impl ParamsConversation {
             knowledge_only_prompt(self.knowledge_tools_on, self.pack_present)
         } else {
             let mut p = cat.system_prompt_full(self.queries, view_on);
+            if let Some(a) = self.actions.as_ref().filter(|a| !a.is_empty()) {
+                p.push_str("\n\n");
+                p.push_str(&a.prompt_paragraph());
+            }
             if self.knowledge.any() {
                 p.push_str("\n\n");
                 p.push_str(knowledge_tools::SOURCES_PARAGRAPH);
@@ -276,6 +295,7 @@ impl ParamsConversation {
         if self.knowledge_only {
             self.queries = false;
             self.view = None;
+            self.actions = None;
         }
         self.rebuild_prompt(cat);
         self
@@ -352,6 +372,35 @@ impl ParamsConversation {
         self
     }
 
+    /// AC-2: offer (or stop offering) the four catalogue tools for this request. Call it right after
+    /// [`ParamsConversation::new`], like [`ParamsConversation::with_view`]: it rewrites the system prompt so
+    /// the prompt names the tools exactly when they are offered. An empty catalogue offers nothing. Not
+    /// offered in a questions-only or an edit request (those requests have a fixed tool set by design).
+    pub fn with_actions(mut self, cat: &Catalogue, actions: Option<ActionCatalogue>) -> Self {
+        self.actions = if self.knowledge_only || self.edit_only { None } else { actions.filter(|a| !a.is_empty()) };
+        self.rebuild_prompt(cat);
+        self
+    }
+
+    /// AC-2: replace the action catalogue with this turn's facts (availability is read per turn, so a
+    /// layer or a world that changed in between is what the validator compares against). The ledger of
+    /// returned ids stays: an id returned earlier in the request is still returned.
+    pub fn set_actions(&mut self, actions: Option<ActionCatalogue>) {
+        if !self.knowledge_only && !self.edit_only {
+            self.actions = actions.filter(|a| !a.is_empty());
+        }
+    }
+
+    /// AC-2: true when the four catalogue tools are in this request.
+    pub fn actions_offered(&self) -> bool {
+        self.actions.is_some()
+    }
+
+    /// AC-2: the ids returned to the model so far this request.
+    pub fn action_ledger(&self) -> &ActionLedger {
+        &self.ledger
+    }
+
     /// LLM-7: make this an EDIT request: `propose_edit_actions` over the user's region is the only
     /// tool and the system prompt is the edit prompt (role, rules, the region block). Call right
     /// after [`ParamsConversation::new`]. A catalogue that offers nothing makes a request with NO
@@ -364,6 +413,7 @@ impl ParamsConversation {
         self.knowledge_tools_on = false;
         self.knowledge_only = false;
         self.pack_present = false;
+        self.actions = None;
         self.edit = Some(edit);
         self.edit_only = true;
         self.rebuild_prompt(cat);
@@ -565,6 +615,9 @@ impl ParamsConversation {
             if let Some(v) = self.view.as_ref().filter(|v| v.is_offered()) {
                 t.push(v.tool_spec());
             }
+            if let Some(a) = &self.actions {
+                t.extend(a.tool_specs());
+            }
         }
         if self.knowledge_tools_on {
             t.extend(knowledge_tools::tool_specs(self.knowledge));
@@ -661,6 +714,26 @@ impl ParamsConversation {
         // so a usable half is never thrown away because the other half was bad. With only
         // `set_generation_params` present this is the LLM-6b rule unchanged.
         let view_on = self.view.as_ref().is_some_and(ViewCatalogue::is_offered);
+        // AC-2: `propose_actions` ends the request like the other proposal tools, unless the same reply
+        // also carried a settings or view proposal (those win; the catalogue call is then answered as
+        // ignored if a retry is granted, and dropped if not, never half-applied).
+        if let (Some(a), Some(r)) = (self.actions.as_ref(), records.iter().find(|r| r.name == PROPOSE_TOOL)) {
+            let other = records.iter().any(|x| x.name == SET_PARAMS_TOOL || x.name == VIEW_TOOL);
+            if !other && !self.knowledge_only {
+                let av = a.validate(&r.arguments, &self.ledger);
+                let can_retry = av.wants_retry() && self.retries < MAX_PROPOSAL_RETRIES && self.turns < MAX_TURNS;
+                if !can_retry {
+                    return self.finish(Step::ActionProposal(av));
+                }
+                self.retries += 1;
+                let feedback = av.feedback().to_string();
+                for x in &records {
+                    let body = if x.name == PROPOSE_TOOL { feedback.clone() } else { json!({"error": "answer ignored: a proposal was made in the same turn"}).to_string() };
+                    self.messages.push(Message { role: Role::User, content: body, tool: Some(ToolTurn::Result { call_id: x.id.clone() }) });
+                }
+                return Step::ActionRetry(av);
+            }
+        }
         let params_rec = if self.knowledge_only { None } else { records.iter().find(|r| r.name == SET_PARAMS_TOOL) };
         let view_rec = if view_on { records.iter().find(|r| r.name == VIEW_TOOL) } else { None };
         if params_rec.is_some() || view_rec.is_some() {
@@ -724,6 +797,21 @@ impl ParamsConversation {
                     knowledge_tools::parse(&r.name, &r.arguments, self.knowledge)
                 };
                 self.pending.push(PendingQuery { id: r.id.clone(), name: r.name.clone(), call: PendingCall::Knowledge(call) });
+                continue;
+            }
+            if let (Some(a), true) = (self.actions.as_ref(), is_action_tool(&r.name)) {
+                // AC-2: the three catalogue reads are pure functions of the catalogue, so they are
+                // answered now (no world is read). They share the per-reply and per-request lookup caps.
+                query_calls_this_reply += 1;
+                let body = if query_calls_this_reply > MAX_QUERY_CALLS_PER_REPLY {
+                    json!({"error": format!("at most {MAX_QUERY_CALLS_PER_REPLY} lookups are answered per reply")})
+                } else if self.budget.calls >= MAX_QUERY_CALLS_PER_REQUEST {
+                    json!({"error": format!("that is the {MAX_QUERY_CALLS_PER_REQUEST} lookups this request may use; answer from what you have")})
+                } else {
+                    self.budget.calls += 1;
+                    a.answer(&r.name, &r.arguments, &mut self.ledger).unwrap_or_else(|| json!({"error": format!("unknown tool {}", r.name)}))
+                };
+                self.messages.push(Message { role: Role::User, content: body.to_string(), tool: Some(ToolTurn::Result { call_id: r.id.clone() }) });
                 continue;
             }
             let body = if r.name == GET_SCHEMA_TOOL && !self.knowledge_only {

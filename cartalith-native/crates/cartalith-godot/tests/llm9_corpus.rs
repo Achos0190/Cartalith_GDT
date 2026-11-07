@@ -475,6 +475,10 @@ fn run(row: &Row, wire: Wire, vector: Vector) -> Outcome {
                     // LLM-7: the edit tool exists only in an Edit request (`llm7_corpus.rs`); a settings
                     // conversation offering it would be a hole in the closed tool set.
                     Step::EditRetry(_) | Step::EditProposal(_) => panic!("{}: an edit proposal came out of a settings conversation", row.id),
+                    // AC-2: the catalogue tools are offered only when a conversation asks for them
+                    // (`with_actions`); this harness never does, so a catalogue proposal here would mean
+                    // the tools leaked into a request that did not enable them. `ac2_actions.rs` owns them.
+                    Step::ActionRetry(_) | Step::ActionProposal(_) => panic!("{}: a catalogue proposal came out of a conversation that never enabled the catalogue tools", row.id),
                     Step::Answer(a) => {
                         o.answered = Some(a);
                         o.last = "answer".into();

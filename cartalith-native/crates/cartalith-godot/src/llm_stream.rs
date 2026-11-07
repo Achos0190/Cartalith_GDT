@@ -110,6 +110,8 @@ use cartalith_llm::settings::{Authorized, Capability};
 use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_blocked};
 use cartalith_llm::params_flow::{IncomingCall, ParamsConversation, Step};
 use cartalith_llm::view_actions::{ViewCatalogue, ViewVerdict};
+use cartalith_llm::action_tools::{ActionVerdict, DESIGN_WINDOW_TOKENS, check_budget};
+use cartalith_llm::actions::{ActionCatalogue, ShellFacts};
 use cartalith_llm::edit_actions::{EditCatalogue, EditVerdict};
 use cartalith_llm::query::{EcologyFacts, Fact, NoWorld, SUMMARY_PERCENTILES, SampleFacts, SummaryFacts, WorldFacts};
 use cartalith_llm::{Event, LlmError, StreamSession};
@@ -484,6 +486,48 @@ fn arg_variant(v: &serde_json::Value) -> Variant {
     }
 }
 
+/// An action-catalogue verdict as the card reads it (AC-2). Every `valid` row passed B1-B9: its id was
+/// returned in this request, it is available and reviewed, and its `args` are inside the schema
+/// `describe_action` showed. An absent old value is OMITTED (never a default). Nothing here runs: AC-3
+/// applies a card through each kind's existing click path.
+fn action_verdict_dict(v: &ActionVerdict) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    if let Some((rule, why)) = &v.structural {
+        d.set("structural_rule", rule.id());
+        d.set("structural", why.as_str());
+    }
+    if let Some(s) = &v.summary {
+        d.set("summary", s.as_str());
+    }
+    let mut valid: Array<VarDictionary> = Array::new();
+    for c in &v.valid {
+        let mut args = VarDictionary::new();
+        for (k, val) in &c.args {
+            args.set(k.as_str(), &arg_variant(val));
+        }
+        let mut e = vdict! { "id" => c.id.as_str(), "title" => c.title.as_str(), "kind" => c.kind.as_str(), "effect" => c.effect.as_str() };
+        e.set("args", &args);
+        if let Some(f) = &c.from {
+            e.set("from", f.as_str());
+        }
+        if let Some(r) = &c.reason {
+            e.set("reason", r.as_str());
+        }
+        valid.push(&e);
+    }
+    d.set("valid", &valid);
+    let mut rejected: Array<VarDictionary> = Array::new();
+    for r in &v.rejected {
+        let mut e = vdict! { "rule" => r.rule.id(), "why" => r.why.as_str() };
+        if let Some(i) = &r.id {
+            e.set("id", i.as_str());
+        }
+        rejected.push(&e);
+    }
+    d.set("rejected", &rejected);
+    d
+}
+
 /// A view verdict as the view card reads it (LLM-6d). Every `valid` row passed A1-A9: it names
 /// an offered action and offered values. An absent old value is OMITTED (never a default), and
 /// `args` holds exactly the validated arguments the shell applies, so the shell never parses
@@ -623,6 +667,16 @@ fn params_step(p: &mut ParamsState) -> VarDictionary {
         Step::ViewProposal(v) => {
             let mut d = vdict! { "type" => "view_proposal", "turns" => turns };
             d.set("view", &view_verdict_dict(&v));
+            d
+        }
+        Step::ActionRetry(v) => {
+            let mut d = vdict! { "type" => "params_retry", "turns" => turns };
+            d.set("action_verdict", &action_verdict_dict(&v));
+            d
+        }
+        Step::ActionProposal(v) => {
+            let mut d = vdict! { "type" => "action_proposal", "turns" => turns };
+            d.set("actions", &action_verdict_dict(&v));
             d
         }
         Step::EditRetry(v) => {
@@ -833,6 +887,19 @@ impl LlmStream {
         // LLM-6d: the view and layer facts the shell read from the live app THIS turn (JSON text).
         // Absent, unreadable or with nothing offered, the tool is simply not in the request.
         let view = opt_text(args, "view").and_then(|t| ViewCatalogue::from_json_text(&t).ok()).filter(ViewCatalogue::is_offered);
+        // AC-2: the action catalogue (`list_actions`, `search_actions`, `describe_action`, `propose_actions`),
+        // built from the registry rows of this request, the view facts and the shell's facts (JSON text
+        // from `shell/llm_actions.gd`). Offered behind the same Commands switch as the other tools: only
+        // with the parameter source on, and absent (no tools, no prompt text) when the shell sent no
+        // `actions` facts, so a caller that does not know about them gets the request it always got.
+        let actions: Option<ActionCatalogue> = if params_on {
+            opt_text(args, "actions")
+                .and_then(|t| ShellFacts::from_json_text(&t).ok())
+                .map(|sf| ActionCatalogue::build(Some(&cat), view.as_ref(), &sf))
+                .filter(|a| !a.is_empty())
+        } else {
+            None
+        };
         let mut pack_info: Option<(i64, i64, String)> = None;
         let mut inner = self.lock();
         let (mut conv, max_tokens, include_usage) = if resume {
@@ -867,7 +934,7 @@ impl LlmStream {
             // always true; reading the flag here (not writing `true`) keeps the tools tied to the
             // checkbox if the refusal above is ever relaxed for settings-only proposals.
             let conv = match ParamsConversation::new(&cat, &text(args, "request")) {
-                Ok(c) => c.with_queries(&cat, params_on).with_view(&cat, if params_on { view.clone() } else { None }),
+                Ok(c) => c.with_queries(&cat, params_on).with_view(&cat, if params_on { view.clone() } else { None }).with_actions(&cat, actions.clone()),
                 Err(why) => return refuse("empty_request", why),
             };
             let mut conv = conv.with_knowledge(&cat, km.sources, km.tools, !params_on);
@@ -905,7 +972,19 @@ impl LlmStream {
             (conv, max_tokens, include_usage)
         };
         conv.set_view(view);
+        conv.set_actions(actions);
         let req = conv.request(&cat, &s.model, max_tokens, hints.max_tokens_field, include_usage && hints.include_usage, hints.no_thinking);
+        // AC-2's request-size guard: with the catalogue tools in the request, refuse (with the numbers,
+        // before anything is sent, never truncating) a request that would not fit a LOCAL model's window.
+        // A hosted model's window is far larger and its own server refuses an overlong one, so the guard
+        // is for the owner's local setups (AQ6: designed for 8 192). `context_tokens` comes from the shell
+        // when it knows the server's context; absent, the design window is assumed, not "unlimited".
+        if conv.actions_offered() && auth.local {
+            let window = args.get("context_tokens").and_then(|v| v.try_to::<i64>().ok()).filter(|w| *w > 0).map_or(DESIGN_WINDOW_TOKENS, |w| w.min(u32::MAX as i64) as u32);
+            if let Err(why) = check_budget(&req, window) {
+                return refuse("request_too_large", &why);
+            }
+        }
         let counted = counter().clone();
         let prepared =
             match prepare_authorized_chat(&s, Capability::Commands, &key_state, consented, &counted, key.as_ref(), &req) {

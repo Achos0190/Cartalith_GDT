@@ -425,7 +425,7 @@ func _ready() -> void:
 		var n := await _ask("tools_anthropic" if anth else "tools", [{"text": "Nothing to change."}], "What can you do to the map view?")
 		_ok(n == 1, "%s: one request (%d)" % [wire, n])
 		var b := _body(_server.requests.size() - 1)
-		_ok(_tool_names(b, anth).has(VIEW_TOOL) and _tool_names(b, anth).size() == 8, "%s: the view tool is offered beside the schema tool and the six lookups: %s" % [wire, str(_tool_names(b, anth))])
+		_ok(_tool_names(b, anth).has(VIEW_TOOL) and _tool_names(b, anth).size() == 12, "%s: the view tool is offered beside the schema tool, the six lookups and (AC-2) the four catalogue tools: %s" % [wire, str(_tool_names(b, anth))])
 		var en := _action_enum(b, anth)
 		var want_en: Array = ["set_layer_visible", "set_style_preset", "zoom_to", "open_window"]
 		_ok(en == want_en, "%s: the action enum is exactly what the live app can run now (no landmark filter yet): %s" % [wire, str(en)])
@@ -778,7 +778,7 @@ func _ready() -> void:
 	var rows := _load_corpus()
 	var wrows: Array = rows.filter(func(r): return String(r["id"]).begins_with("W"))
 	_ok(wrows.size() >= 15, "the corpus holds %d view-action rows (path %s)" % [wrows.size(), _corpus_path])
-	var allowed: Array = ["get_param_schema", "set_generation_params", VIEW_TOOL, "get_parameters", "get_changed_parameters", "describe_parameter", "get_ecology_summary", "sample_point", "get_world_summary"]
+	var allowed: Array = ["get_param_schema", "set_generation_params", VIEW_TOOL, "get_parameters", "get_changed_parameters", "describe_parameter", "get_ecology_summary", "sample_point", "get_world_summary", "list_actions", "search_actions", "describe_action", "propose_actions"]
 	for wire in ["openai", "anthropic"]:
 		var anth: bool = wire == "anthropic"
 		var scen := "tools_anthropic" if anth else "tools"
