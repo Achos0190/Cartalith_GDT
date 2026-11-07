@@ -494,6 +494,24 @@ func _walk(p: PopupMenu, path: String, out: Array) -> void:
 			out.append([acc, p.get_item_id(i), path + " > " + p.get_item_text(i)])
 
 
+## Every row id >= 900 under `p`, at every depth: id -> {title: true}.
+func _ids(p: PopupMenu, out: Dictionary) -> void:
+	for i in p.item_count:
+		if p.is_item_separator(i):
+			continue
+		var sub_name := p.get_item_submenu(i)
+		if sub_name != "":
+			var s := p.get_node_or_null(NodePath(sub_name)) as PopupMenu
+			if s != null:
+				_ids(s, out)
+			continue
+		var id := p.get_item_id(i)
+		if id >= 900:
+			if not out.has(id):
+				out[id] = {}
+			(out[id] as Dictionary)[p.get_item_text(i)] = true
+
+
 func _collisions() -> void:
 	print("== H. accelerator collisions ==")
 	var all: Array = []
@@ -512,6 +530,18 @@ func _collisions() -> void:
 			clashes.append("%s: %s" % [OS.get_keycode_string(k), str((by_key[k] as Dictionary).values())])
 	print("  info %d accelerator rows, %d distinct keys" % [all.size(), by_key.size()])
 	_ok(clashes.is_empty(), "no key is carried by two different commands (%s)" % str(clashes))
+	## Command ids from 900 up (PC-9's 910-934, the assistant's 900-903, MS-1's UI scale 930-933): one id,
+	## one command. Lower ids include run-time lists numbered from 0 (Open windows, recent projects),
+	## which reuse small ids by design. Caught a real clash on 2026-11-07 (930: Reset panel and UI scale).
+	var by_id := {}
+	for ch in _app.menu_bar_row.get_children():
+		if ch is MenuButton:
+			_ids((ch as MenuButton).get_popup(), by_id)
+	var id_clash: Array = []
+	for id in by_id:
+		if (by_id[id] as Dictionary).size() > 1:
+			id_clash.append("%d: %s" % [id, str((by_id[id] as Dictionary).keys())])
+	_ok(id_clash.is_empty(), "no command id from 900 up names two different rows (%s)" % str(id_clash))
 	for want in [KEY_MASK_CTRL | KEY_R, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_F, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_V,
 			KEY_MASK_SHIFT | KEY_F10, KEY_Q]:
 		_ok(by_key.has(want), "%s is bound on the bar" % OS.get_keycode_string(want))

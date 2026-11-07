@@ -60,7 +60,8 @@ const ID_WIN_CTX_MOD_HERE := 926  ## … ▸ Here (check); live with its module.
 const ID_WIN_CTX_MOD_ROUTES := 927  ## … ▸ Routes & journeys (check); live with its module.
 const ID_WIN_CTX_MOD_LINKS := 928  ## … ▸ Links (check); live with its module.
 const ID_WIN_CTX_MOD_RECENT := 929  ## … ▸ Recent & bookmarks (check); live with its module.
-const ID_WIN_CTX_RESET := 930  ## Window ▸ Context panel ▸ Reset panel (back to Inspect · Note · Ask); live from PC-4.
+## Shipped as 934 (2026-11-07): MS-1 took 930-933 for Preferences ▸ UI scale first.
+const ID_WIN_CTX_RESET := 934  ## Window ▸ Context panel ▸ Reset panel (back to Inspect · Note · Ask); live from PC-4.
 
 ## Whether the host (`DccApp`) has `method`, which is how a row tells whether the milestone that adds
 ## it has landed. The same question `_on_world()` and `_on_edit()` already ask before calling a host

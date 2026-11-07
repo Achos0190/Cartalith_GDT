@@ -387,7 +387,10 @@ const ID_WIN_CTX_MOD_HERE := 926  ## … ▸ Here (check); live with its module.
 const ID_WIN_CTX_MOD_ROUTES := 927  ## … ▸ Routes & journeys (check); live with its module.
 const ID_WIN_CTX_MOD_LINKS := 928  ## … ▸ Links (check); live with its module.
 const ID_WIN_CTX_MOD_RECENT := 929  ## … ▸ Recent & bookmarks (check); live with its module.
-const ID_WIN_CTX_RESET := 930  ## Window ▸ Context panel ▸ Reset panel (back to Inspect · Note · Ask); live from PC-4.
+## Was 930 in draft 01; MS-1 S5 shipped `ID_PREF_UI_SCALE_100` as 930 first (2026-11-07), so this row moved
+## to 934 before either id reached a user: free by `grep -rnE ':= 9[3-9][0-9]' shell/ drafts/` (930-933 are UI
+## scale's), and no rebind or pin can name it yet.
+const ID_WIN_CTX_RESET := 934  ## Window ▸ Context panel ▸ Reset panel (back to Inspect · Note · Ask); live from PC-4.
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
