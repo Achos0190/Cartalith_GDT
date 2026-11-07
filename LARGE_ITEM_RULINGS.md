@@ -3270,3 +3270,26 @@ tool-mode segments; Q6, the place popup's dark palette unchanged (its light them
 change to icons, fonts or the status-bar chips; Q9, the darker box behind the scale bar and legend; Q10(a)–(c) and
 (e), each built and shown to the owner; Q11, the view still resets on a domain switch; Q13(a), the port's CV-26
 relation weights, labelled as its judgement, without FH-R2's religion extension; Q13(b)–(d) and Q14, nothing built.
+
+## Ruling EG: tablets under 900 dp of shortest width use the phone GUI, sized by density (owner, 2026-11-07)
+
+MS-1 measured an 11-inch tablet at density 2: the desktop-parity shell leaves its map 346 dp wide beside two 400 dp
+docks (`MOBILE_SHELL_MS1_SPEC.md` B3, measured 2026-11-07). The owner answered: *"On 11" tablet we might just use the
+phone gui"*. Then, on how the phone GUI is sized there: *"Agreed on the density to prevent the blow up"*.
+
+1. **The line.** The owner's 900 dp shortest-width line (`design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3,
+   `MOBILE_SHELL_MS1_SPEC.md` §2.2) is now a ruling. Below 900 dp of shortest width a touch window gets the phone
+   shell, **at every aspect ratio**. The code applies the line only below aspect 0.6 today (`_is_tablet_sized()` sits
+   after the aspect test), so a 16:10 or 4:3 tablet under 900 dp is wrongly a tablet. That gate is the change.
+   At 900 dp and above, the tablet shell stays as built.
+2. **Density, not the short side.** On such a tablet the phone GUI is sized in dp from the display density, never by
+   the short side ÷ 412. A 2 400 px short side would give 5.8 by that rule, against a density of 2, and blow every
+   phone surface up nearly threefold. This is the multiplier MS-1 S2 already ships for phones,
+   `_phone_scale = min(density × ui_scale, short_px ÷ 412)`, at least 1. The extra room is then left empty or used by
+   the phone layout's own dp-native reflow (MS-2 to MS-6). It is never filled by magnification.
+3. **What it moves.** The class can now change on one device: a tablet near 900 dp crosses the line when it rotates
+   or is split-screened. So S4 (a class change without a restart, `MOBILE_SHELL_MS1_SPEC.md` §3.5) is no longer an
+   edge case on tablets, and MS-7 (the tablet docking rule) is measured above 900 dp only. The S4.0 inventory
+   (`cartalith-native/docs/evidence/ms1-2026-11-07/S4_INVENTORY.md`) carries the consequences.
+
+It changes no generated output and no save.
