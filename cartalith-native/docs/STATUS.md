@@ -82,6 +82,9 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 - **Mutation-tested** (Python, exact literal, restored and hash-checked): eight mutants of the new logic (File's Ctrl+R,
   `_generate_in_world`, the phone guard on the map rows, `switch_on_hover`, the alias skip, the WORLD context label,
   the typing guard, the Records title) each turned `_pc9menus_probe` red.
+- **After rebasing onto `bd784584` (MS-1 S1-S5):** Reset panel's id moved 930 → 934, because MS-1 shipped 930-933 for
+  Preferences ▸ UI scale; `_pc9menus_probe` re-run green at desktop (86), touch 1600×1000 (76), touch 1280×800 (76,
+  still the tablet form: Ruling EG is a ruling, not yet built) and phone (9).
 - **Not run:** the four `*_id_probe` capture/compare probes (they need two baseline captures); `cargo test` (no Rust
   change).
 
