@@ -136,10 +136,36 @@ class_name CommandIndex
 ## `ID_TABLET_TOGGLE_THEME` row, `Toggle theme`, which is a real, separately-
 ## indexed "menu" row on tablet already and needs no pointer of its own -- the
 ## gap is the WORD, not the command.
+##
+## **Four ALIAS rows added by PC-9 (`PC_SHELL_PROPOSAL.md` §3.8), the `alias`
+## key that came with them, and one POINTER row from Ruling DY.** "Import image" left Assets (it opened the Asset
+## library under a second name). "Notes for this place" becomes "Note for the
+## selection" when the Context panel gains its Note tab (PC-5), and "Right dock"
+## becomes "Context panel" when the panel exists (PC-4; on the phone too, where
+## it names the selection sheet, Ruling DX PQ13). "Run pipeline" became "Generate
+## world" on the narrow tablet (Ruling DX PQ11: one label on every form factor).
+## After each, a search for the old words finds nothing by title -- the defect
+## this table is for. `alias: true` makes `build()` skip the row while a live
+## menu row still carries that exact title (before the change that renames it),
+## so a pointer never sits beside the row it points away from. Renames whose old words still match the
+## new title ("political history", "assistant", "keyboard") and titles still on
+## the bar elsewhere ("Timeline", "Places without notes") need no alias. Counted
+## by TITLE, never by `search()`, which matches blurbs (`MISTAKES.md`, "Move a
+## command off the menu bar").
+## "Records (was World)" is a pointer row like `Theme`, not an alias: Ruling DY
+## (2026-11-01) renamed the World menu Records, and the index files each row under
+## its menu's name (`group`), so the WORD "world" stopped reaching the records
+## rows. It cannot be an alias titled "World": Window ▸ Workspace ▸ World is a
+## live row with that exact title, so `_has_menu_title()` would hide it forever.
 const EXTRAS: Array = [
 	{"title": "Zoom to fit", "blurb": "Frame the whole world in the viewport", "group": "View"},
 	{"title": "Point sample", "blurb": "Read elevation, biome and climate under one cell", "group": "View"},
 	{"title": "Theme", "blurb": "Dark, Light or Follow system. Preferences ▸ Theme -- ☰ ▸ Preferences ▸ Theme on tablet, which also has a one-tap dark/light flip at ☰ ▸ Toggle theme", "group": "Preferences"},
+	{"title": "Import image", "blurb": "Moved: Assets ▸ ⧉ Asset library (Shift+A; ☰ on a tablet) opens the library, and its own Import image… in the rail foot imports into the focused slot.", "group": "Assets", "alias": true},
+	{"title": "Notes for this place", "blurb": "Now Story ▸ Note for the selection (Ctrl+Shift+N): the Context panel's Note tab, for a place or anything else selected.", "group": "Story", "alias": true},
+	{"title": "Right dock", "blurb": "Now the Context panel: Window ▸ Context panel (☰ ▸ Window on a tablet; on a phone, the selection sheet) shows or hides it, and the submenu under it opens Inspect, Note and Ask (Ctrl+1, Ctrl+2, Ctrl+3).", "group": "Window", "alias": true},
+	{"title": "Run pipeline", "blurb": "Now Generate world (Ctrl+R): File ▸ Generate world, or World ▸ Generate world on a tablet whose bar has a World menu. The same command under one label (Ruling DX).", "group": "File", "alias": true},
+	{"title": "Records (was World)", "blurb": "The menu called World is Records now (Ruling DY): ⧉ Data manager, Factions… (Ctrl+Shift+F), Places…, Markdown vault… (Ctrl+Shift+V), Browse & edit a note…, Places without notes…, World data tables…, Import and Sources & validation. Generate world (Ctrl+R) is in File. On a tablet whose bar has a World menu, that menu holds the WORLD domain's own rows.", "group": "Records"},
 ]
 
 ## The index: one dictionary per entry (`title`, `blurb`, `group`, `kind`, `key`,
@@ -165,6 +191,8 @@ func build(app, bridge) -> void:
 	_add_menu_commands()
 	_disambiguate_pin_keys()
 	for e in EXTRAS:
+		if bool(e.get("alias", false)) and _has_menu_title(String(e.get("title", ""))):
+			continue
 		_rows.append({
 			"title": String(e.get("title", "")),
 			"blurb": String(e.get("blurb", "")),
@@ -177,6 +205,21 @@ func build(app, bridge) -> void:
 			"pinnable": false,
 			"why_not": "This is a search result, not a command, so it cannot be pinned.",
 		})
+
+## Whether a menu row titled `title` is in the index right now, compared the way `_walk_popup()` stores
+## titles (the ellipsis dropped, edges stripped) and without regard to case. Counts `menu` and
+## `readout` rows, and a `_todo` row too (it is a menu row whose command is not built): any of them
+## means the title is still on the bar, so an alias for it would sit beside it.
+##
+## Must run after `_add_menu_commands()`, which is the only thing that adds menu rows; `build()` calls
+## it in the `EXTRAS` loop, after that walk. Reads the index only.
+func _has_menu_title(title: String) -> bool:
+	var want := title.replace("…", "").strip_edges().to_lower()
+	for r in _rows:
+		var kind := String(r.get("kind", ""))
+		if (kind == "menu" or kind == "readout") and String(r.get("title", "")).to_lower() == want:
+			return true
+	return false
 
 ## Lower-case ASCII slug of a title: the stable half of an `extra:` pin key.
 ## Never used for a `menu:` key, which follows the persisted action id.

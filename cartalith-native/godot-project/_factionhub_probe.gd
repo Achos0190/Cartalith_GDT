@@ -724,8 +724,9 @@ func _run_entry_points(ids: Array) -> void:
 	# old Data rows are merged into the one World menu, so "World" holds this
 	# row on every form factor).
 	await _park(fb, park_tab)
-	var mb := _find_menu_button(_app, "World")
-	_ok("FH1 data: the World menu exists", mb != null)
+	## PC-9 / Ruling DY: Factions… is Records' row on every bar, the tablet's short bar included.
+	var mb := _find_menu_button(_app, "Records")
+	_ok("FH1 data: the Records menu exists", mb != null)
 	if mb != null:
 		var popup: PopupMenu = mb.get_popup()
 		var idx := -1

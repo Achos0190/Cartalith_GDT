@@ -32,7 +32,10 @@ func _init() -> void:
 	var idx = load("res://shell/command_index.gd").new()
 	idx.build(null, null)
 	## query -> how many `EXTRAS` titles must match it exactly.
-	var want := {"Journey planner": 0, "Theme": 1}
+	## PC-9 (`PC_SHELL_PROPOSAL.md` §3.8): the four aliases and Ruling DY's pointer. Built with no
+	## app, so no menu row hides an alias and each appears exactly once.
+	var want := {"Journey planner": 0, "Theme": 1, "Import image": 1, "Notes for this place": 1,
+		"Right dock": 1, "Run pipeline": 1, "Records (was World)": 1}
 	var rows: Array = idx._rows
 	var fail := 0
 	for w in want:

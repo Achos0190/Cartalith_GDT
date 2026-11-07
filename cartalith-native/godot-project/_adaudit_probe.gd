@@ -80,7 +80,7 @@ func _ready() -> void:
 	print("[BAR] ", names)
 
 	for b in buttons:
-		if b.text != "Assets" and b.text != "World":
+		if b.text != "Assets" and b.text != "Records":
 			continue
 		var pm: PopupMenu = b.get_popup()
 		print("\n########## MENU: %s ##########" % b.text)

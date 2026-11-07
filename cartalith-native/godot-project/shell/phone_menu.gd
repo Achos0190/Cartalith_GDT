@@ -1849,10 +1849,10 @@ func _fill_story(body: VBoxContainer, band: String) -> void:
 ## -- two routes to one menu, which is exactly the duplication this predicate
 ## exists to prevent.
 func _named_in_root(menu_title: String) -> bool:
-	## "World" was "Data" until SM-1 renamed the menu (Ruling CK); the `data`
+	## "Records" since Ruling DY; it was "Data" until SM-1, then "World"; the `data`
 	## screen still re-presents it.
 	## "Story" since SM-2: the root's STORY section re-presents it band by band.
-	if ["File", "World", "Story", "Preferences", "Assets", "Help"].has(menu_title):
+	if ["File", "Records", "Story", "Preferences", "Assets", "Help"].has(menu_title):
 		return true
 	for spec in ROOT_ROWS:
 		if String(spec.t) == "menu" and String(spec.id) == menu_title:
@@ -2044,10 +2044,10 @@ func _landmark_sub(sub: PopupMenu) -> String:
 ## says where the other exports went. No signpost -> the old fallback, an
 ## `Export` head at the end.
 func _fill_data(body: VBoxContainer) -> void:
-	var p := _menu_popup("World")
+	var p := _menu_popup("Records")
 	if p == null:
 		_add(body, _missing_row("Data manager",
-			"The World menu is not on this build's menu bar."))
+			"The Records menu is not on this build's menu bar."))
 		return
 	var cut := p.item_count - 1
 	var signposted := false

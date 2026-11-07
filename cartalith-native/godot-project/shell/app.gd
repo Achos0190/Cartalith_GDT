@@ -141,12 +141,6 @@ var last_open_refusal := ""
 var _workspaces: Array = []
 ## Region-visibility map from `DccMenus.ID_WIN_*` to the node whose `visible` is the whole truth (timeline and rail, plus the docks and status row where built); see its assignment.
 var _region_nodes: Dictionary = {}
-## The tool-options bar's staleness label; text is `generating…` while the engine is busy and empty afterwards.
-var _tool_options_stale: Label
-## The tool-options bar's copy of the WORLD dock's bake button. Rebuilt every
-## time `_tool_options_generate()` runs, so always reached through
-## `is_instance_valid`.
-var _tool_options_bake: Button
 
 # -- §4.5 Tool palette ---------------------------------------------------------
 #
@@ -515,14 +509,29 @@ func set_tool_options(build: Callable) -> void:
 ## tool-context key; it is a menu accelerator that lost its menu row when the
 ## Journey planner moved to the CIVIL rail on 2026-09-05, and this is where it
 ## landed so the shortcut did not die with the row.
+##
+## **Q and Shift+F10 left this function (PC_SHELL_PROPOSAL.md §3.9, finding
+## M8).** They are the accelerators of two menu rows now, Edit ▸ Cartwheel at
+## the pointer and Edit ▸ Context card (`menus.gd::_build_map_surface_rows()`),
+## so they are rebindable (`_bind_accelerator`) and listed by Help ▸ Keyboard
+## reference, which reads the live menus. Two halves stay here because no menu
+## accelerator can carry them: the cartwheel's key-UP (a hold-aim-release
+## gesture; a menu accelerator fires on the press only), which follows the
+## row's binding through `menus.cartwheel_keycode()`, and the Menu key, the
+## card's second key (a `PopupMenu` item holds one accelerator, the Ctrl+Y
+## precedent below), listed in `shortcuts_dialog.gd::UNLISTED`. Each row's
+## handler keeps this function's text-field guard (`menus._typed_into_field()`).
 func _unhandled_key_input(event: InputEvent) -> void:
 	## CM-3's Q: key-up matters as much as key-down (§6: "Q hold (key down ->
 	## aim -> key up) / Q tap"), so this one branch has to run before the
 	## function-wide `event.pressed` guard below rejects every key-up outright.
-	## Not gated on the ring already being open the way the press branch is --
-	## a key-up with no matching ring is a no-op in `context_broker.gd::
-	## ring_key_release()` regardless.
-	if event is InputEventKey and event.keycode == KEY_Q and not event.pressed:
+	## Not gated on the ring already being open -- a key-up with no matching
+	## ring is a no-op in `context_broker.gd::ring_key_release()` regardless.
+	## The PRESS is Edit ▸ Cartwheel at the pointer's accelerator since PC-9;
+	## the key is that row's binding (Q until rebound), read on every key-up so
+	## a rebind made in Preferences ▸ Keyboard shortcuts… applies at once.
+	if event is InputEventKey and not event.pressed \
+			and event.keycode == menus.cartwheel_keycode():
 		if context_broker != null and context_broker.ring_key_release():
 			get_viewport().set_input_as_handled()
 		return
@@ -539,16 +548,6 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			return
 		_escape_action()
 		get_viewport().set_input_as_handled()
-	elif event.keycode == KEY_Q and not event.echo:
-		## The same text-field guard Delete/Backspace/⇧J need below, and for
-		## the same reason: naming something starting with "q" must not pop a
-		## ring mid-keystroke.
-		var typing := get_viewport().gui_get_focus_owner()
-		if typing is LineEdit or typing is TextEdit or typing is SpinBox:
-			return
-		if context_broker != null and not context_broker.ring_is_open():
-			context_broker.ring_key_press(viewport.overlay.last_mouse_pos())
-			get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_BACKSPACE:
 		## Same text-field guard Delete needs below, and for the same reason:
 		## Backspace inside a `LineEdit` means "delete a character", never
@@ -581,22 +580,23 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if delete_selection():
 			get_viewport().set_input_as_handled()
 			return
-	elif event.keycode == KEY_MENU or (event.keycode == KEY_F10 and event.shift_pressed \
-			and not (event.ctrl_pressed or event.alt_pressed or event.meta_pressed)):
+	elif event.keycode == KEY_MENU:
 		## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §4.2, §6): "The Menu key /
 		## Shift+F10 opens the card for the current selection, anchored at the
 		## selection, or at the cursor when nothing is selected." This build has
 		## no persistent object *selection* separate from the pointer (settlement
 		## click selects for the dock, not for the card), so "the cursor" is the
-		## only anchor a keyboard press can offer -- `_open_context_card_from_keyboard()`
-		## falls back to the map's own centre when the cursor is off the plate,
-		## per this row's own brief. Neither keycode collides with anything else
-		## on this branch (`KEY_MENU` unused; `Shift+F10` unbound -- checked
-		## against every `elif` here and `DccSettings`' shortcut table).
+		## only anchor a keyboard press can offer -- `open_context_card()`
+		## falls back to the map's own centre when the cursor is off the plate.
+		## **Shift+F10 is Edit ▸ Context card's accelerator since PC-9** (rebindable,
+		## `menus.gd::_build_map_surface_rows()`); the Menu key stays here as its
+		## fixed second key, because a `PopupMenu` item holds one accelerator (the
+		## Ctrl+Y branch above is the same case), and `shortcuts_dialog.gd::
+		## UNLISTED` lists it. `KEY_MENU` is matched nowhere else in the project.
 		var typing := get_viewport().gui_get_focus_owner()
 		if typing is LineEdit or typing is TextEdit or typing is SpinBox:
 			return
-		_open_context_card_from_keyboard()
+		open_context_card()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_J and event.shift_pressed \
 			and not (event.ctrl_pressed or event.alt_pressed or event.meta_pressed):
@@ -611,10 +611,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		## **Two consequences, stated because they are real costs, not nits.**
 		## The key is no longer rebindable: `menus.gd::_shortcut_defaults` is
 		## filled only by `_bind_accelerator()`, which only menu rows reach. And
-		## it is no longer listed in `Help ▸ Keyboard shortcuts`, which reads the
-		## live menus -- it belongs in `shortcuts_dialog.gd::UNLISTED` beside
-		## Esc, Delete and Space, which is a one-line install in a file this lane
-		## does not own. Reported, not made.
+		## the walk of the live menus that Help ▸ Keyboard reference does cannot
+		## see it, so `shortcuts_dialog.gd::UNLISTED` lists it beside Esc, Delete
+		## and Space (its "Shift+J" row; this said "Reported, not made" until PC-9
+		## re-read the table, by which time the row had been installed).
 		##
 		## The text-field guard is Delete's and Backspace's, for the same reason:
 		## `_unhandled_key_input` still fires for a focused `LineEdit` on some
@@ -624,6 +624,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			return
 		open_journey_planner()
 		get_viewport().set_input_as_handled()
+
 
 ## Delete whatever is selected, in whichever workspace owns a selection.
 ##
@@ -734,6 +735,31 @@ func _open_context_card_from_keyboard() -> void:
 		req = overlay.request_at(overlay.size * 0.5, "keyboard")
 	if not req.is_empty():
 		context_broker.resolve(req)
+
+## Edit ▸ Context card (Shift+F10 until rebound) and the Menu key: opens the map's context card at the
+## pointer's last position over the map, or at its centre (`_open_context_card_from_keyboard()`, which
+## stays the body). A public name, so `menus.gd` calls a public method rather than reaching into a
+## private one. It opens at the pointer until §3.1's S3 anchors it at the selection; that change
+## belongs in the body, and `menus.gd::CONTEXT_CARD_TIP` must change with it.
+func open_context_card() -> void:
+	_open_context_card_from_keyboard()
+
+## Edit ▸ Cartwheel at the pointer (Q until rebound): opens the cartwheel where the pointer last was
+## over the map, through the same `context_broker.ring_key_press()` the `KEY_Q` press branch of
+## `_unhandled_key_input` called until PC-9, and, like that branch, does nothing while one is open.
+##
+## From the row's key, the key-UP of the hold-aim-release gesture arrives in `_unhandled_key_input`.
+## From a mouse click on the row no key-up comes, and none is needed: while the ring is open,
+## `map_overlay.gd` gives the next left press to `context_broker.ring_click()`, which re-aims at the
+## click and calls `radial_ring.gd::release()`, so clicking a slot picks it. Must not release here to
+## imitate a tap: telling a click from a key would need `Input.is_key_pressed()`, which a probe that
+## pushes events through `Viewport.push_input()` (`_ctxring_probe.gd`'s Q leg) never updates.
+func open_cartwheel_at_pointer() -> void:
+	if context_broker == null or viewport == null or viewport.overlay == null:
+		return
+	if context_broker.ring_is_open():
+		return
+	context_broker.ring_key_press(viewport.overlay.last_mouse_pos())
 
 ## Escape (and the phone's back once overlays are exhausted): first lets the armed
 ## tool's escape handler commit in-progress geometry; unless `force_disarm`, a
@@ -1378,9 +1404,7 @@ func _wire_status() -> void:
 		set_status("hint", "", "text_ghost")
 		_mid_stage = ""
 		_mid_running_stage = ""
-		_refresh_status_mid()
-		if is_instance_valid(_tool_options_stale):
-			_tool_options_stale.text = "generating…")
+		_refresh_status_mid())
 	bridge.generation_finished.connect(func(ok: bool):
 		## A new world (File > New world, heightmap import, region resample) is UNTITLED: it must
 		## not inherit the previous world's project file. Read-and-cleared here on every finish so
@@ -1417,8 +1441,6 @@ func _wire_status() -> void:
 		set_status("top_world", _world_pill_text() if ok else "—")
 		set_status("top_res", ("%d×%d working" % [g.x, g.y]) if ok else "")
 		set_status("top_mem", "%.1f GB" % (OS.get_static_memory_usage() / 1073741824.0))
-		if is_instance_valid(_tool_options_stale):
-			_tool_options_stale.text = ""
 		_refresh_rail_foot()
 		_refresh_world_dependent())
 	bridge.world_loaded.connect(func():
@@ -1913,16 +1935,6 @@ func resume_from_context_surface() -> void:
 	for ws in _workspaces:
 		if ws.has_method("resume_playback_for_context"):
 			ws.resume_playback_for_context()
-
-## Called by `world_workspace._refresh_finalize()`, the single owner of whether
-## baking is currently possible. See `_tool_options_generate()` for why the
-## header copy is pushed to rather than computed twice.
-func set_bake_shortcut(shown: bool, is_disabled: bool, tip: String) -> void:
-	if not is_instance_valid(_tool_options_bake):
-		return
-	_tool_options_bake.visible = shown
-	_tool_options_bake.disabled = is_disabled
-	_tool_options_bake.tooltip_text = tip
 
 ## Rewrites the status bar's `atlas` cell from `bridge.atlas_status()`: chunk
 ## count, deepest LOD, byte size, and a FINALIZED flag. Blank when there is no
@@ -3177,68 +3189,32 @@ func _place_timeline_head() -> void:
 	_tl_head.position = Vector2(_tl_track.size.x * f - 1.0, _tl_track.size.y * 0.5 - 6.5)
 	_tl_head.size = Vector2(2, 13)
 
-## §4's Generation Pipeline row, in its specified order: context label, the two
-## run actions, New seed, the stale-from readout, then the finalize action hard
-## right. Run/Finalize are disabled for the reasons §5.1 records -- the engine
-## is one-shot and there is no bake pipeline.
-## Matches the reference exactly rather than the DCC mockup's own prose, on
-## direct owner instruction (2026-08-19) after a live Playwright check of
-## `Cartalith Gen1 v2.10.html`: two global buttons (`#genBtn` "Generate
-## world", `#reseedBtn` "New seed"), no per-stage anything -- `grep`-checked,
-## zero buttons anywhere in the DOM match `/run stage|run \d+.*→/i`. The
-## mockup's "Run stage 04 · Run 04 → 10 · stale from 04 Tectonics" describes a
-## partial-recompute capability that exists in neither the reference app nor
-## this engine; building disabled buttons for it was clutter implying a
-## capability that will never exist, not honesty about a gap. Recorded as a
-## correction for the design end in `DCC_SHELL_SPEC.md`'s header, the same
-## treatment §5.2's stale commit-prose correction already got.
+## WORLD's idle hint in the tool-options bar, with a mouse and keyboard. A labelled judgement (Ruling DZ): with
+## no actions left on the bar, its one line says what a click and the two context gestures do. Q is the
+## cartwheel at the pointer and right-click the context card (`PC_SHELL_PROPOSAL.md` §3.9).
+## Must never name an action that is not on the map itself; the bar holds settings, not commands.
+const WORLD_IDLE_HINT_POINTER := "Click selects · right-click opens the card · Q opens the cartwheel"
+
+## The same line on a touch tablet. A 500 ms hold opens the cartwheel together with the context card (CM-3,
+## CM-4, kept as shipped by Ruling DY Q12).
+const WORLD_IDLE_HINT_TOUCH := "Tap selects · hold opens the cartwheel and the card"
+
+
+## WORLD's idle tool-options row (Ruling DZ, owner, 2026-11-01). The bar holds the armed tool's settings
+## only. So with no tool armed, WORLD shows its context name and one hint, built the way CIVIL's and CARTO's
+## idle rows already are (`_tool_options_simple()`). A sculpt or paint tool reclaims the bar with its brush
+## settings when it arms, as every workspace's tools already do.
+## Must never: build an action into this row. Generate world, New seed, Center landmasses and Bake ALL &
+## finalize live in the WORLD dock (`world_workspace.gd`), and Generate world also in File (Ctrl+R). The owner
+## removed this second copy. Keeping it in step had also needed the dock to push the bake button's state
+## into the bar on every refresh; that push went with it.
+## **Inventory note (`MISTAKES.md`, "Delete a surface"):** the bar's Center landmasses button carried
+## `CENTRE_TOOLTIP`, the full disclosure (cannot be undone, drops the civilisation layer, hand-placed
+## layers do not rotate). The WORLD dock's own button carried a shorter text, so that disclosure now
+## lives on the dock's button (`world_workspace.gd`), its one remaining home.
 func _tool_options_generate() -> void:
-	set_tool_options(func(row: HBoxContainer):
-		_tool_options_label(row, "GENERATE · WORLD", "accent")
-		DccWidgets.action(row, "Generate world", _run_pipeline, true)
-		DccWidgets.action(row, "New seed", _new_seed)
-		## The reference's third button in this same group (`#centerBtn`).
-		## Live since 2026-08-23 (`GUI_GAP_REGISTER.md` MS-01): the centring
-		## pass is a real, golden-verified port now
-		## (`cartalith_engine::center::center_landmasses`), so this calls it
-		## instead of disclosing its absence.
-		var centre := DccWidgets.action(row, "Center landmasses", _center_landmasses)
-		centre.tooltip_text = CENTRE_TOOLTIP
-		var busy := DccTheme.mono_label("", "text_ghost", DccTheme.FS_SMALL, 1)
-		_tool_options_stale = busy
-		row.add_child(busy)
-		row.add_child(DccTheme.spacer())
-		## §4's tool-options bar carries a second copy of the WORLD dock's bake
-		## control — `GUI_GAP_REGISTER.md` WW-01's own last open item, and until
-		## now a dead placeholder whose tooltip ("No bake/LOD pipeline exists
-		## yet") stopped being true the day WW-01 shipped.
-		##
-		## Wired as a *shortcut*, not a second source of truth: it presses the
-		## same `_on_bake_all` the dock foot does, and `_refresh_finalize()` —
-		## which already runs on every generate, bake, finalize and clear —
-		## pushes its enabled/visible state here through `set_bake_shortcut`.
-		## Two buttons with two independent state computations is exactly the
-		## drift this shell has been bitten by before.
-		var bake := DccWidgets.action(row, "Bake ALL & finalize", func():
-			var ws: WorldWorkspace = _world_workspace()
-			if ws != null:
-				ws.bake_and_finalize())
-		_tool_options_bake = bake
-		## **`Refine detail` moved back to `Preferences ▸ Tiles & LOD ▸ Atlas
-		## cache` 2026-09-21, owner Ruling U (`LARGE_ITEM_RULINGS.md`).** It sat
-		## here from 2026-09-05 (`LARGE_ITEM_RULINGS.md` item 4) until the
-		## 2026-09-07 design canvas stopped drawing it on this bar at all -- its
-		## GENERATE panel states atlas/LOD work belongs under Preferences ▸
-		## Tiles & LOD -- and the canvas postdates the ruling it revisits, so
-		## per this project's own newer-canvas-wins rule the owner has ruled to
-		## follow it. See `menus.gd::_build_atlas_cache_menu()` for the row's
-		## new (original) home; the pass itself (`refine_current_view()`) never
-		## moved.
-		var ws0: WorldWorkspace = _world_workspace()
-		if ws0 != null:
-			ws0.on_world_changed()
-		busy.text = "generating…" if bridge.generating else ""
-	)
+	_tool_options_simple("GENERATE · WORLD",
+		WORLD_IDLE_HINT_TOUCH if DccTheme.is_touch() else WORLD_IDLE_HINT_POINTER)
 
 ## Installs a minimal tool-options row: an accent `context` label, a ghost `note`
 ## and a spacer. For contexts with no controls of their own yet.
@@ -3276,10 +3252,11 @@ func _run_pipeline() -> void:
 		return
 	new_world_dialog.generate_checked()
 
-## One text for both buttons that raise this pass -- the tool-options row above
-## and `world_workspace.gd`'s WORLD-dock row, which calls straight into
-## `_center_landmasses()`. Two copies of a disclosure is two chances for one of
-## them to go stale.
+## The text of the button that raises this pass: `world_workspace.gd`'s WORLD-dock
+## row, which calls straight into `_center_landmasses()`. The tool-options row
+## carried a second button until Ruling DZ (2026-11-01) emptied that bar of actions;
+## until then the dock's button had a shorter, separate text, which is the drift a
+## second copy of a disclosure invites, so the dock reads this constant now.
 ##
 ## Everything after the first sentence is read off `lib.rs::center_landmasses`
 ## as it stands today, not off the design: it rotates ~20 grids in one pass and
@@ -4994,7 +4971,7 @@ func open_vault_browse() -> void:
 func open_gen_info() -> void:
 	gen_info_dialog.open()
 
-## `Help ▸ Keyboard shortcuts`. The dialog reads the accelerators off the live
+## `Help ▸ Keyboard reference`. The dialog reads the accelerators off the live
 ## menus every time it opens, so there is no table here to keep in step.
 func open_shortcuts() -> void:
 	shortcuts_dialog.open()
@@ -5053,8 +5030,8 @@ func open_asset_library(family_key: String = "", open_slicer: bool = false) -> v
 func open_travel_library(kind: String = "") -> void:
 	travel_library_window.open(kind)
 
-## SM-5 (`STORY_MENUS_PROPOSAL.md` §5, Ruling CK): World ▸ / Story ▸ Places
-## without notes…, the vault panel's overview scrolled to that section.
+## SM-5 (`STORY_MENUS_PROPOSAL.md` §5, Ruling CK): Records ▸ Places without
+## notes… (Story ▸ NOTES signposts it since PC-9), the vault panel's overview scrolled to that section.
 func open_places_without_notes() -> void:
 	vault_window.open_places_without_notes()
 

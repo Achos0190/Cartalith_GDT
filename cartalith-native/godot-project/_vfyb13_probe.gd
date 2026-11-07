@@ -89,7 +89,7 @@ func _menu_popup(title: String) -> PopupMenu:
 
 ## "World" was "Data" until SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK);
 ## "Story" is SM-2's eighth menu, re-presented by the MORE root's STORY section.
-const MENUS: Array = ["File", "Edit", "Assets", "World", "Story", "Preferences", "Window", "Help"]
+const MENUS: Array = ["File", "Edit", "Assets", "Records", "Story", "Preferences", "Window", "Help"]
 
 func _ready() -> void:
 	var wd := Timer.new()

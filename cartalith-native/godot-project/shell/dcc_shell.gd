@@ -1867,6 +1867,9 @@ func add_menu(title: String, on_built: Callable) -> MenuButton:
 	## `StyleBoxEmpty` with the canvas's padding, so nothing else changes.
 	mb.flat = false
 	mb.focus_mode = Control.FOCUS_NONE
+	## PC-9 (`PC_SHELL_PROPOSAL.md` §3.8): with one menu open, moving the pointer across the bar
+	## opens the menu under it, as every desktop menu bar does. Off on touch: there is no hover.
+	mb.switch_on_hover = not _touch
 	## Prose face, not Plex -- `<span style="padding:9px 11px">File</span>` sits
 	## inside a `font-size:11.5px;color:#a9adb0` run in the canvas, with no
 	## font-family of its own, so it inherits `'Helvetica Neue'` from the

@@ -105,7 +105,7 @@ func _ready() -> void:
 	for b in buttons:
 		if b.text == "Assets":
 			assets = b.get_popup()
-		elif b.text == "World":
+		elif b.text == "Records":
 			data = b.get_popup()
 
 	print("\n=== ASSETS top level ===")

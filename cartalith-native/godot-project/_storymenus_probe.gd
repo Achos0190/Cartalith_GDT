@@ -38,6 +38,13 @@ extends Node
 ##         peek sheet's chips in A8's order. Screenshots of the card / sheet.
 ##   SM-7  Ctrl+Shift+M is used once on the bar, by Window ▸ Session mode, and
 ##         is rebindable. The mode's behaviour is `_sessionmode_probe.gd`'s.
+##   PC-9  (`PC_SHELL_PROPOSAL.md` §3.8, Rulings DX and DY, 2026-11-01): the menu
+##         above is titled Records on every bar; its Timeline row is the signpost
+##         "Timeline is in Story ▸ Timeline" and Story's Places without notes is a
+##         signpost to Records. File's second row is Generate world on the desktop;
+##         the tablet's bar is ☰ · File · World · Records · Story, World holding
+##         only the WORLD domain's rows (Generate world first) and File no Generate
+##         world row. The SM-1/SM-2 lines above describe the bar before PC-9.
 ##
 ## The expected row lists are written here as literals (the proposal's §3
 ## tables), never read back from `menus.gd`, so a reordering or a dropped row
@@ -72,7 +79,7 @@ var world_p: PopupMenu
 ## World's rows below the head row, as the proposal's §3.2 table lists them
 ## (separators by caption). Travel library… closed RECORDS until SM-2 moved it.
 const WORLD_ROWS: Array = ["⧉ Data manager", "|RECORDS", "Factions…", "Places…",
-	"Markdown vault…", "Browse & edit a note…", "Places without notes…", "Timeline",
+	"Markdown vault…", "Browse & edit a note…", "Places without notes…", "Timeline is in Story ▸ Timeline",
 	"|TECHNICAL", "World data tables…", "Import", "Sources & validation",
 	"Export is in File ▸ Export"]
 
@@ -87,21 +94,23 @@ const FILE_EXPORT_ROWS: Array = ["|FOR THE TABLE", "Player map…", "DM / full m
 const STORY_ROWS: Array = ["|TIME", "Timeline", "Political history of this place…",
 	"Faction history…", "|JOURNEYS", "Journey planner", "Saved journeys…", "Travel library…",
 	"|CONFLICTS & CAMPAIGNS", "Conflicts…", "Draw a conflict", "Campaigns*",
-	"|NOTES", "Notes for this place", "Places without notes…", "Assistant panel…"]
+	"|NOTES", "Notes for this place", "Places without notes is in Records", "Assistant panel…"]
 ## The rows SM-2 drew disabled, built by SM-5/SM-6: row -> the id it must carry
 ## (written as literals, not read from `DccMenus`, so a renumbered id fails here).
-const STORY_BUILT: Dictionary = {"Saved journeys…": 732, "Conflicts…": 733,
-	"Places without notes…": 731}
+## PC-9: Story's Places without notes… is a signpost now; id 731 is Records' row (checked there).
+const STORY_BUILT: Dictionary = {"Saved journeys…": 732, "Conflicts…": 733}
 ## LLM-3's row in the NOTES band: the assistant panel (id 901, a literal so a renumbering fails here).
 const STORY_LLM3_ID := 901
 
 ## The tablet canvas's own World rows (`menus.gd::_world`), which must stay on
 ## top and unchanged (Q2: "nothing already in the tablet World menu moves").
-const TABLET_WORLD_HEAD: Array = ["Run pipeline", "|", "Reset generation parameters",
-	"Reset one stage", "|", "Generation pipeline", "Sculpt", "|", "Seed & size…", "|"]
+## PC-9 (Ruling DY): the tablet's World menu is these rows and nothing else; "Run pipeline" is
+## "Generate world" since Ruling DX PQ11.
+const TABLET_WORLD_HEAD: Array = ["Generate world", "|", "Reset generation parameters",
+	"Reset one stage", "|", "Generation pipeline", "Sculpt", "|", "Seed & size…"]
 
-const DESKTOP_TITLES: Array = ["File", "Edit", "Assets", "World", "Story", "Preferences", "Window", "Help"]
-const TABLET_TITLES: Array = ["☰", "File", "World", "Story"]
+const DESKTOP_TITLES: Array = ["File", "Edit", "Assets", "Records", "Story", "Preferences", "Window", "Help"]
+const TABLET_TITLES: Array = ["☰", "File", "World", "Records", "Story"]
 
 func _frames(n: int) -> void:
 	for i in n:
@@ -232,8 +241,9 @@ func _ready() -> void:
 					r.position.x >= 0.0 and r.end.x <= float(vw) and row_rect.encloses(r),
 					"rect=%s row=%s" % [str(r), str(row_rect)])
 
-	var world_mb := _menu_button("World")
-	_check("a World menu exists", world_mb != null)
+	## PC-9 / Ruling DY: the records menu is titled Records on every bar.
+	var world_mb := _menu_button("Records")
+	_check("a Records menu exists", world_mb != null)
 	if world_mb == null:
 		_finish()
 		return
@@ -241,12 +251,30 @@ func _ready() -> void:
 	world.about_to_popup.emit()
 	var rows := _rows(world)
 	if tablet:
-		var head := rows.slice(0, TABLET_WORLD_HEAD.size())
-		var head_norm := head.map(func(s): return "|" if String(s).begins_with("|") else s)
-		_check("tablet World keeps its pipeline rows on top, unchanged",
-			head_norm == TABLET_WORLD_HEAD, str(head))
-		rows = rows.slice(TABLET_WORLD_HEAD.size())
-	_check("World's rows are the proposal's §3.2 list, in order", rows == WORLD_ROWS, str(rows))
+		var wmb := _menu_button("World")
+		var wrows: Array = []
+		if wmb != null:
+			wmb.get_popup().about_to_popup.emit()
+			wrows = _rows(wmb.get_popup())
+		var head_norm := wrows.map(func(s): return "|" if String(s).begins_with("|") else s)
+		_check("tablet World holds the WORLD domain's rows and nothing else (Ruling DY)",
+			head_norm == TABLET_WORLD_HEAD, str(wrows))
+	_check("Records' rows are the proposal's §3.2 list, in order (PC-9 signpost)", rows == WORLD_ROWS, str(rows))
+	## Ruling DY: Generate world sits in File, directly after New world…, except on the
+	## tablet's short bar, whose World menu holds it.
+	var fmb := _menu_button("File")
+	var frows: Array = _rows(fmb.get_popup()) if fmb != null else []
+	if tablet:
+		_check("tablet File has no Generate world row (World holds it)", not frows.has("Generate world"), str(frows))
+	else:
+		var gi := frows.find("New world…")
+		_check("File's row after New world… is Generate world",
+			gi >= 0 and gi + 1 < frows.size() and frows[gi + 1] == "Generate world", str(frows.slice(0, 4)))
+		var gidx := _index_of(fmb.get_popup(), "Generate world")
+		_check("File ▸ Generate world is id 710 with Ctrl+R",
+			gidx >= 0 and fmb.get_popup().get_item_id(gidx) == 710
+				and fmb.get_popup().get_item_accelerator(gidx) == (KEY_MASK_CTRL | KEY_R),
+			"idx=%d" % gidx)
 
 	## Every Data-manager route exactly once, across World's two submenus and
 	## File ▸ Export ▸ (SM-3), each row's id naming ITS route: id 400+i must
@@ -295,11 +323,11 @@ func _ready() -> void:
 	_check("Places… switches to CIVIL", app.active_domain() == "civilization", app.active_domain())
 	app.select_domain("world")
 	await _frames(3)
-	world.id_pressed.emit(DccMenus.ID_WORLD_TIMELINE)
-	await _frames(4)
-	_check("Timeline switches to CIVIL", app.active_domain() == "civilization", app.active_domain())
-	if not DccTheme.is_phone():
-		_check("Timeline leaves the timeline bar shown", app.is_region_shown(DccMenus.ID_WIN_TIMELINE))
+	## PC-9 (finding M3): Records' Timeline row is a signpost; no row carries 722.
+	var tsi := _index_of(world, "Timeline is in Story ▸ Timeline")
+	_check("Records ▸ Timeline is a disabled signpost carrying no command id",
+		tsi >= 0 and world.is_item_disabled(tsi) and world.get_item_metadata(tsi) == DccMenus.META_SIGNPOST
+			and world.get_item_index(DccMenus.ID_WORLD_TIMELINE) < 0, "idx=%d" % tsi)
 	app.select_domain("world")
 	await _frames(3)
 
@@ -635,9 +663,9 @@ func _sm2() -> void:
 		ai >= 0 and not story.is_item_disabled(ai) and story.get_item_id(ai) == STORY_LLM3_ID
 			and story.get_item_tooltip(ai).contains("Optional"),
 		story.get_item_tooltip(ai) if ai >= 0 else "missing")
-	var world := _menu_button("World").get_popup()
+	var world := _menu_button("Records").get_popup()
 	world_p = world
-	_check("Travel library left World (SM-2 moved it to Story)",
+	_check("Travel library left Records, the old World (SM-2 moved it to Story)",
 		_index_of(world, "Travel library…") < 0)
 
 	## Accelerators: the two new ones are Ctrl+Shift+T / Ctrl+Shift+N, through
@@ -769,14 +797,13 @@ func _sm2() -> void:
 	_check("Travel library… opens its window", app.travel_library_window.visible)
 	app.travel_library_window.hide()
 	## SM-5 / SM-6: the three rows SM-2 drew disabled, pressed through.
-	story.id_pressed.emit(DccMenus.ID_PLACES_WITHOUT_NOTES)
-	await _frames(4)
-	_check("Story ▸ Places without notes… opens the vault panel on its section",
-		app.vault_window.visible and app.vault_window.find_child("PlacesWithoutNotes", true, false) != null)
-	app.vault_window.hide()
+	## PC-9: Story's row is a signpost to this one, so only Records' row is pressed.
+	var psi := _index_of(story, "Places without notes is in Records")
+	_check("Story ▸ Places without notes is a signpost (PC-9, finding M3)",
+		psi >= 0 and story.is_item_disabled(psi) and story.get_item_metadata(psi) == DccMenus.META_SIGNPOST)
 	world_p.id_pressed.emit(DccMenus.ID_PLACES_WITHOUT_NOTES)
 	await _frames(4)
-	_check("World ▸ Places without notes… opens the same section",
+	_check("Records ▸ Places without notes… opens the vault panel on its section",
 		app.vault_window.visible and app.vault_window.find_child("PlacesWithoutNotes", true, false) != null)
 	app.vault_window.hide()
 	story.id_pressed.emit(DccMenus.ID_SAVED_JOURNEYS)

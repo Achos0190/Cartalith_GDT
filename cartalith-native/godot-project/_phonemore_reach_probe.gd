@@ -65,7 +65,7 @@ const ROOT_REST_MUST: Array = ["Edit", "Window"]
 ## `data` screen re-presents `World`, which was the Data menu until SM-1
 ## (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK).
 const SCREEN_COVERS: Dictionary = {
-	"project": "File", "data": "World", "prefs": "Preferences",
+	"project": "File", "data": "Records", "prefs": "Preferences",
 }
 
 func _frames(n: int) -> void:

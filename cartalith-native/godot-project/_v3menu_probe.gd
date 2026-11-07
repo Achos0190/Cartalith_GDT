@@ -330,16 +330,16 @@ func _ready() -> void:
 		if idx < 0:
 			_fail_msg("World menu has no Markdown vault row")
 		elif data_popup.is_item_disabled(idx):
-			_fail_msg("World ▸ Markdown vault is disabled")
+			_fail_msg("Records ▸ Markdown vault is disabled")
 		else:
 			data_popup.id_pressed.emit(data_popup.get_item_id(idx))
 			await get_tree().process_frame
 			await get_tree().process_frame
 			if _app.vault_window.visible:
-				_ok("World ▸ Markdown vault opened the real vault window")
+				_ok("Records ▸ Markdown vault opened the real vault window")
 				_app.vault_window.hide()
 			else:
-				_fail_msg("World ▸ Markdown vault did not open the vault window")
+				_fail_msg("Records ▸ Markdown vault did not open the vault window")
 		## The 2026-09-21 fold: "Create a note from a template…" and "Vault
 		## index ▸ Backlinks · missing & orphan notes…" are RETIRED as menu rows
 		## -- their destinations moved in-panel (`vault_window.gd::_build_index()`
@@ -356,10 +356,10 @@ func _ready() -> void:
 			if id == DccMenus.ID_VAULT or id == DccMenus.ID_VAULT_BROWSE:
 				vault_rows += 1
 				if data_popup.is_item_disabled(i) or data_popup.get_item_tooltip(i).length() <= 40:
-					_fail_msg("World ▸ \"%s\" is not a live vault row (disabled=%s, tip=%d)"
+					_fail_msg("Records ▸ \"%s\" is not a live vault row (disabled=%s, tip=%d)"
 						% [t, data_popup.is_item_disabled(i), data_popup.get_item_tooltip(i).length()])
 		if vault_rows == 2:
-			_ok("World ▸ exactly two vault rows (Markdown vault…, Browse & edit a note…)")
+			_ok("Records ▸ exactly two vault rows (Markdown vault…, Browse & edit a note…)")
 		else:
 			_fail_msg("World: expected 2 vault rows total, found %d" % vault_rows)
 
@@ -491,7 +491,8 @@ func _button_exact(n: Node, text: String) -> Button:
 ## the same failure mode to a different string, so this keys on the menu
 ## bar's own title instead.
 func _data_popup() -> PopupMenu:
-	var mb := _find_menu_button(_app, "World")
+	## PC-9 / Ruling DY: the menu is titled Records on every bar.
+	var mb := _find_menu_button(_app, "Records")
 	return mb.get_popup() if mb != null else null
 
 ## `get_children(true)`, not `get_children()` -- see `_collect_popups` below

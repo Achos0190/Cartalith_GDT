@@ -3,8 +3,7 @@
  "applied": [
   {
    "draft": "pc-shell/01_menus_ids_helpers.gd",
-   "replaced": [],
-   "added": [
+   "replaced": [
     "ID_EDIT_SELECT_BACK",
     "ID_EDIT_SELECT_FORWARD",
     "ID_EDIT_CONTEXT_CARD",
@@ -29,28 +28,27 @@
     "_context_tab_ready",
     "_typed_into_field",
     "cartwheel_keycode"
-   ]
+   ],
+   "added": []
   },
   {
    "draft": "pc-shell/02_menus_world.gd",
    "replaced": [
-    "_data",
-    "_on_data"
-   ],
-   "added": [
     "_generate_in_world",
     "_build_generate_world_row",
     "RUN_PIPELINE_TIP",
     "FACTIONS_TIP",
     "FACTIONS_CURRENT_TIP",
     "TIMELINE_MOVED_SIGNPOST",
-    "_open_factions"
-   ]
+    "_open_factions",
+    "_data",
+    "_on_data"
+   ],
+   "added": []
   },
   {
    "draft": "pc-shell/03_menus_edit.gd",
-   "replaced": [],
-   "added": [
+   "replaced": [
     "DESELECT_TIP",
     "DESELECT_ONE_TIP",
     "SELECTION_HISTORY_TODO",
@@ -64,16 +62,12 @@
     "_build_selection_rows",
     "_build_map_surface_rows",
     "_on_edit_selection"
-   ]
+   ],
+   "added": []
   },
   {
    "draft": "pc-shell/04_menus_story.gd",
    "replaced": [
-    "_story",
-    "_refresh_story_menu",
-    "_on_story"
-   ],
-   "added": [
     "STORY_NO_SELECTION",
     "STORY_BUSY_SELECTION",
     "STORY_POLITICAL_SEL_TIP",
@@ -88,16 +82,16 @@
     "_story_forms",
     "_story_selection",
     "_story_political_tip",
-    "_story_note_tip"
-   ]
+    "_story_note_tip",
+    "_story",
+    "_refresh_story_menu",
+    "_on_story"
+   ],
+   "added": []
   },
   {
    "draft": "pc-shell/05_menus_window.gd",
    "replaced": [
-    "_refresh_open_windows",
-    "_on_open_window"
-   ],
-   "added": [
     "CONTEXT_PANEL_LABEL",
     "CTX_INSPECT_TODO",
     "CTX_NOTE_TODO",
@@ -127,41 +121,51 @@
     "_context_module_key",
     "_on_context_panel",
     "_visible_windows",
-    "_open_window_label"
-   ]
+    "_open_window_label",
+    "_refresh_open_windows",
+    "_on_open_window"
+   ],
+   "added": []
   },
   {
    "draft": "pc-shell/06_menus_help_assets.gd",
    "replaced": [
+    "HELP_KEYBOARD_REFERENCE_TIP",
     "_build_help_shortcuts_row"
    ],
-   "added": [
-    "HELP_KEYBOARD_REFERENCE_TIP"
-   ]
+   "added": []
   },
   {
-   "edit": "pc-shell 02 W2"
+   "edit": "pc-shell 02 W2",
+   "state": "shipped"
   },
   {
-   "edit": "pc-shell 02 W5"
+   "edit": "pc-shell 02 W5",
+   "state": "shipped"
   },
   {
-   "edit": "pc-shell 02 W6"
+   "edit": "pc-shell 02 W6",
+   "state": "shipped"
   },
   {
-   "edit": "pc-shell 02 W7"
+   "edit": "pc-shell 02 W7",
+   "state": "shipped"
   },
   {
-   "edit": "pc-shell 03 E1"
+   "edit": "pc-shell 03 E1",
+   "state": "shipped"
   },
   {
-   "edit": "pc-shell 03 E2"
+   "edit": "pc-shell 03 E2",
+   "state": "shipped"
   },
   {
-   "edit": "pc-shell 05 N1"
+   "edit": "pc-shell 05 N1",
+   "state": "shipped"
   },
   {
-   "edit": "pc-shell 06 A1"
+   "edit": "pc-shell 06 A1",
+   "state": "shipped"
   },
   {
    "draft": "mobile-shell/08_menus_tablet_bar.gd",

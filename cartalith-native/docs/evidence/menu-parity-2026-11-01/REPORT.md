@@ -12,7 +12,7 @@ Evidence only. It records what differs and why. It is not a status record: how f
   `tabletFileMenu()`, `tabletWorldMenu()` and `ctxModuleMenuItems()` from `design/mobile-shell-2026-10-31/Shell.dc.html`.
   Both mockup files were regenerated on 2026-11-01, after Ruling DY, with `node mockup_menus.js <Shell.dc.html>` and
   `--md`.
-- **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `4f3d904`, with these
+- **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `d2363949`, with these
   drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs (Ruling DY's W6 and W7 in 02 included);
   `drafts/mobile-shell/` 05, 08 and 09, with 09's EDIT G1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
   is in its `CONDITIONS` and `RUNTIME` tables (a fresh install, 8 logical cores). The interpreter left **0** conditions

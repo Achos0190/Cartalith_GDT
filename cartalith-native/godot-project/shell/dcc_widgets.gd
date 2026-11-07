@@ -1161,8 +1161,9 @@ static func action(parent: Control, text: String, on_press: Callable,
 	##
 	## **Only in a column, and this guard was added after measuring the damage
 	## without it.** `set_tool_options()` hands this factory the tool-options
-	## bar's own `HBoxContainer` (`app.gd::_tool_options_generate()` builds
-	## five buttons straight into `row`), and there a collapsed minimum is
+	## bar's own `HBoxContainer` (a tool row such as the Way, Route, Conflict,
+	## Territory or Lasso row builds `✓ Commit` and `Discard` straight into `row`;
+	## WORLD's idle row built five buttons there until Ruling DZ), and there a collapsed minimum is
 	## exactly the wrong answer: the row shares its width between children, so
 	## every label wrapped and the 40 px band grew to **265 px**, taking 225 px
 	## off the map on both WORLD modes. Measured, not reasoned -- the first

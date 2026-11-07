@@ -103,6 +103,28 @@ func _latent(root: Node, cap: float) -> Array:
 					(String(t).left(60) if t != null else "")])
 	return out
 
+## Ruling DZ: the band-height case with buttons in the bar. Arms CIVIL's Conflict tool (its row
+## builds Commit and Discard through `DccWidgets.action()`), checks that the row really holds a
+## Button (the positive control: without one the height check exercises nothing), measures the
+## band, then puts the tool down.
+func _armed_band(app: Node, tag: String, band_h: float) -> void:
+	app.select_domain("civilization")
+	await _frames(4)
+	app.arm_tool("conflict")
+	await _frames(12)
+	var row := app.get("tool_options_row") as Node
+	var buttons := 0
+	if row != null:
+		for c in row.find_children("*", "Button", true, false):
+			if (c as Control).is_visible_in_tree():
+				buttons += 1
+	_ok("%s conflict tool armed: the bar holds Buttons (positive control)" % tag, buttons > 0, true)
+	var band := app.get("tool_options_bar") as Control
+	if band != null:
+		_le("%s conflict tool armed: the tool-options band keeps its height" % tag, band.size.y, band_h)
+	app.arm_tool("inspect")
+	await _frames(4)
+
 func _sweep(app: Node, tag: String) -> void:
 	var shell: Node = app
 	var ld := shell.get("left_dock") as Control
@@ -112,10 +134,14 @@ func _sweep(app: Node, tag: String) -> void:
 	## The band above the docks. This one is here because the first version of
 	## this pass's own fix broke it: an unguarded `autowrap_mode` on
 	## `DccWidgets.action()` collapsed the minimum width of the five buttons
-	## `app.gd::_tool_options_generate()` builds straight into the bar's own
+	## `app.gd::_tool_options_generate()` built straight into the bar's own
 	## `HBoxContainer`, every label wrapped, and the 40 px band became 265 px.
-	## A dock-only assertion would not have seen it.
+	## A dock-only assertion would not have seen it. Since Ruling DZ WORLD's
+	## idle row holds no button, so the case is exercised after the sweep by
+	## arming the CIVIL Conflict tool, whose row carries `DccWidgets.action()`
+	## buttons (Commit, Discard), with a positive control that it does.
 	var band_h := float(DccTheme.role_px("h_tool_options"))
+	await _armed_band(app, tag, band_h)
 	for n in DccShell.RAIL_NODES:
 		if String(n.get("kind", "")) != "node":
 			continue

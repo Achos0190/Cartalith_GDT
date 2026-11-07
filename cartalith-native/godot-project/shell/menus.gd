@@ -51,6 +51,11 @@ const ID_SHOW_ON_DISK := 19  ## File ▸ Show project on disk.
 ## row the canvas draws moves. No canvas draws this one, and the owner's rule
 ## for that case is to derive from the canvases' own vocabulary -- the first
 ## File band is "get a world into the app", and this is a fourth way to.
+##
+## **Ruling DY (owner, 2026-11-01) then inserted Generate world under New world…**
+## (`_build_generate_world_row()`), which moves Open project… and Recent worlds down
+## one row: an owner decision is newer than a canvas. File's signpost now reads
+## "imports live under Records ▸ Import" (the menu was Data, then World).
 const ID_NEW_WORLD_FROM_SELECTION := 18
 ## `File ▸ Autosave interval` (§2.1: "Toggle + interval submenu (off, 1, 5,
 ## 15 min). Default 5 min."). `Off` writes `DccSettings.set_autosave_enabled
@@ -97,7 +102,7 @@ const UNDO_BUDGETS_MB: Array[int] = [64, 128, 256, 512, 1024]
 
 const ID_ASSET_LIBRARY := 30  ## Assets ▸ Asset library (Shift+A).
 const ID_SLICER := 31  ## Assets ▸ Sprite sheet slicer; opens the library window in slicer mode.
-const ID_IMPORT_IMAGE := 32  ## Assets ▸ Import image….
+const ID_IMPORT_IMAGE := 32  ## Retired by PC-9: the row opened the Asset library under a second name. Kept so 32 is never reissued.
 const ID_IMPORT_PACK := 33  ## Assets ▸ Import asset pack .zip…: onto the map AND into the library (AP-1, Ruling CQ Q1).
 const ID_OPEN_PACK_LIBRARY := 34  ## Assets ▸ Open pack in library…: into the library only (AP-1).
 const ID_PACK_REPORT := 35  ## Assets ▸ Pack report…: the Asset library's report card (AP-2).
@@ -109,7 +114,7 @@ const ID_AP_VALIDATE := 38  ## Assets ▸ Asset pack ▸ Validate pack.
 const ID_AP_EXPORT := 39  ## Assets ▸ Asset pack ▸ Export pack .zip… (Ctrl+Shift+P).
 const ID_AP_PACK_META := 49  ## Assets ▸ Asset pack ▸ Pack metadata….
 
-const ID_DATA_MANAGER := 40  ## World ▸ Data manager (the menu was "Data" until SM-1).
+const ID_DATA_MANAGER := 40  ## Records ▸ Data manager (the menu was "Data" until SM-1, then "World" until Ruling DY).
 ## 41 held `Journey planner… ⇧J` until 2026-09-05, when the owner's structural-
 ## move ruling (`LARGE_ITEM_RULINGS.md`, 2026-09-05 item 4) sent the planner to
 ## the CIVIL rail node `planner` -- `03-menu-bar.md` §6.4 draws the Data menu as
@@ -124,9 +129,9 @@ const ID_DATA_MANAGER := 40  ## World ▸ Data manager (the menu was "Data" unti
 ## than left dangling: an unused id in a menu file is how a row ends up wired
 ## to the wrong thing later. 41 is left out for the same reason.
 const ID_TRAVEL_LIBRARY := 48
-const ID_VAULT := 45  ## World ▸ Markdown vault… (overview, no entity scope).
-const ID_WORLD_DATA := 47  ## World ▸ World data tables….
-## SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK): World ▸ RECORDS ▸ Places…,
+const ID_VAULT := 45  ## Records ▸ Markdown vault… (overview, no entity scope; Ctrl+Shift+V since PC-9).
+const ID_WORLD_DATA := 47  ## Records ▸ World data tables….
+## SM-1 (`STORY_MENUS_PROPOSAL.md` §3.2, Ruling CK): Records ▸ RECORDS ▸ Places… (World ▸ until Ruling DY),
 ## which opens CIVIL ▸ Settlements (`DccShell.select_domain_category`). 721 and
 ## 722 were unused (`grep ":= 72"` over `shell/`, 2026-10-18).
 const ID_PLACES := 721
@@ -134,17 +139,19 @@ const ID_PLACES := 721
 ## (`_open_timeline()`). Its own id rather than Story's (`ID_STORY_TIMELINE`)
 ## because only Story's row carries the accelerator, and `_bind_accelerator`
 ## keys a rebind by id.
+## Retired by PC-9: the row is the signpost `TIMELINE_MOVED_SIGNPOST` now. Kept defined, never
+## reissued (`_storymenus_probe.gd` names it; a pin `menu:722` reads 'not in this build').
 const ID_WORLD_TIMELINE := 722
 ## SM-2 (`STORY_MENUS_PROPOSAL.md` §3.3, Ruling CK): the Story menu's command
 ## rows. 723-728 were unused (`grep -rn ":= 72"` over `shell/`, 2026-10-18,
 ## found only 720-722). The readout takes no id; the three rows SM-2 drew
 ## disabled got theirs when SM-5/SM-6 built them (731-733, below).
 const ID_STORY_TIMELINE := 723  ## Story ▸ TIME ▸ Timeline (Ctrl+Shift+T).
-const ID_STORY_POLITICAL := 724  ## Story ▸ Political history of this place….
+const ID_STORY_POLITICAL := 724  ## Story ▸ Political history of this place… (…of the selection once the Context panel has Inspect, PC-4).
 const ID_STORY_FACTION_HISTORY := 725  ## Story ▸ Faction history….
 const ID_STORY_JOURNEY_PLANNER := 726  ## Story ▸ JOURNEYS ▸ Journey planner (Shift+J is `app.gd`'s key).
 const ID_STORY_DRAW_CONFLICT := 727  ## Story ▸ CONFLICTS & CAMPAIGNS ▸ Draw a conflict.
-const ID_STORY_NOTES_HERE := 728  ## Story ▸ NOTES ▸ Notes for this place (Ctrl+Shift+N).
+const ID_STORY_NOTES_HERE := 728  ## Story ▸ NOTES ▸ Notes for this place (Ctrl+Shift+N; Note for the selection once the Context panel has Note, PC-5).
 ## SM-3 (`STORY_MENUS_PROPOSAL.md` §3.1, Ruling CK): File ▸ Export ▸ FOR THE
 ## TABLE's two presets over `export_dialog.gd`. 729 and 730 were unused
 ## (`grep -rn ":= 7[23]"` over `shell/`, 2026-10-18).
@@ -153,8 +160,9 @@ const ID_EXPORT_DM := 730  ## File ▸ Export ▸ DM / full map….
 ## SM-5 and SM-6 (`STORY_MENUS_PROPOSAL.md` §3.2, §3.3 and §5, Ruling CK): the
 ## three rows SM-1/SM-2 drew disabled. 731-733 were unused (`grep -rn ":= 73"`
 ## over `shell/`, 2026-10-18, found only 730). Places without notes… is one id
-## on two menus (World ▸ RECORDS and Story ▸ NOTES), one destination.
-const ID_PLACES_WITHOUT_NOTES := 731  ## World ▸ / Story ▸ Places without notes….
+## on Records ▸ RECORDS (World ▸ until Ruling DY); Story ▸ NOTES carries a signpost
+## to it since PC-9 (finding M3).
+const ID_PLACES_WITHOUT_NOTES := 731  ## Records ▸ Places without notes….
 const ID_SAVED_JOURNEYS := 732  ## Story ▸ JOURNEYS ▸ Saved journeys….
 const ID_CONFLICTS_LIST := 733  ## Story ▸ CONFLICTS & CAMPAIGNS ▸ Conflicts….
 ## SM-7 (`STORY_MENUS_PROPOSAL.md` §3.4, Ruling CK): Window ▸ Session mode
@@ -227,7 +235,7 @@ const EXPORT_MAP_IMAGE_BUSY := "A generation is running. The export snapshots a 
 const EXPORT_MAP_IMAGE_NO_API := "This version of the app can't do that yet -- an update is needed to add it (the engine has no export_session_begin)."
 
 const ID_WIN_LEFT := 60  ## Window region toggle: Left dock.
-const ID_WIN_RIGHT := 61  ## Window region toggle: Right dock.
+const ID_WIN_RIGHT := 61  ## Window region toggle: Right dock, titled Context panel on every form factor from PC-4 (`_region_label()`).
 const ID_WIN_TIMELINE := 62  ## Window region toggle: Timeline.
 const ID_WIN_STATUS := 63  ## Window region toggle: Status bar.
 const ID_WIN_RAIL := 64  ## Window region toggle: Domain rail.
@@ -258,7 +266,7 @@ const ID_LOD_CLEAR_ATLAS := 149  ## Atlas cache ▸ Clear atlas cache now….
 const ID_HELP_DOCS := 78  ## Help ▸ Documentation (opens `_docs_dir()` in the OS shell).
 const ID_HELP_CREDITS := 70  ## Help ▸ Credits & academic principles.
 const ID_HELP_ABOUT := 71  ## Help ▸ About.
-const ID_HELP_SHORTCUTS := 72  ## Help ▸ Keyboard shortcuts… (read-only list).
+const ID_HELP_SHORTCUTS := 72  ## Help ▸ Keyboard reference… (read-only; "Keyboard shortcuts…" until PC-9).
 const ID_HELP_GEN_INFO := 73  ## Help ▸ Generation info….
 ## `LARGE_ITEM_RULINGS.md`'s ruling on `Report an issue` -- see `_help()`
 ## below. Not slotted into 70-83 with its Help siblings: that neighbourhood is
@@ -333,7 +341,8 @@ const ID_PREF_SHORTCUTS := 605
 ## `Preferences ▸ Assistant…` (LLM-2, `LLM_ASSISTANT_SCOPE.md` s.6). 900 is free: grepped
 ## the whole file for every `ID_`/`_FIRST` value, the highest of which is 806 (the 3D tiers).
 const ID_PREF_ASSISTANT := 900
-## LLM-3: `Story ▸ NOTES ▸ Assistant panel…` opens the prose and Vault assistant (`LlmAssistantWindow`);
+## LLM-3: `Story ▸ NOTES ▸ Assistant panel…` opens the prose and Vault assistant (`LlmAssistantWindow`;
+## Ask the assistant about the selection, Ctrl+J, once the Context panel has Ask, PC-6);
 ## 900 above is its SETTINGS (Preferences ▸ Assistant…). 901 was unused (`grep -rn ":= 90"` over `shell/`, 2026-10-25).
 const ID_STORY_ASSISTANT := 901
 ## CQ-3: `Preferences ▸ Quick bar…` opens the Customise window for the pinned commands
@@ -342,6 +351,43 @@ const ID_PREF_QUICK_BAR := 902
 ## PW-1: `Preferences ▸ Open panels in their own window` (`POPOUT_WINDOWS_SCOPE.md` s.4, Ruling DK).
 ## 903 was unused (`grep -rn "903" shell/*.gd`, 2026-10-26).
 const ID_PREF_POPOUT := 903
+## PC-9's rows (`PC_SHELL_PROPOSAL.md` §3.8, §3.9; mockup `design/mobile-shell-2026-10-31/Shell.dc.html`'s
+## desktop menus). 910-918 were unused, measured 2026-11-01 at `a38e0ac`: no `ID_` constant in this
+## file is above 903 (`grep -n -E '^const ID_[A-Z_0-9]+ := 9[0-9]{2}' shell/menus.gd` lists 900-903
+## only), `grep -rn -E ':= 91[0-9]\b' shell/` finds nothing, and none of the generated spans that
+## `command_index.gd::_is_dynamic_id()` names reaches 900 (the highest is the layouts' 640-671).
+## Each is a command identity: a rebind (`DccSettings.shortcut_binding`) and a quick-bar pin
+## (`menu:<id>`) are keyed by it, so none may ever be reissued to a different command.
+const ID_EDIT_SELECT_BACK := 910  ## Edit ▸ Previous selection (Alt+←); live from PC-1.
+const ID_EDIT_SELECT_FORWARD := 911  ## Edit ▸ Next selection (Alt+→); live from PC-1.
+const ID_EDIT_CONTEXT_CARD := 912  ## Edit ▸ Context card (Shift+F10); the key moved here from `app.gd` (§3.9, M8).
+const ID_EDIT_CARTWHEEL := 913  ## Edit ▸ Cartwheel at the pointer (Q); the key moved here from `app.gd` (§3.9, M8).
+const ID_WIN_CTX_INSPECT := 914  ## Window ▸ Context panel ▸ Inspect (Ctrl+1); live from PC-4.
+const ID_WIN_CTX_NOTE := 915  ## Window ▸ Context panel ▸ Note (Ctrl+2); live from PC-5.
+const ID_WIN_CTX_ASK := 916  ## Window ▸ Context panel ▸ Ask (assistant) (Ctrl+3); live from PC-6.
+const ID_WIN_CTX_PIN := 917  ## Window ▸ Context panel ▸ Pin to the current subject; live from PC-4.
+const ID_WIN_CTX_FOLLOW := 918  ## Window ▸ Context panel ▸ Follow the selection; live from PC-4.
+
+## Ruling DY (owner, 2026-11-01; `PC_SHELL_PROPOSAL.md` PQ1 and its follow-up): the Context panel is modular,
+## "tabs you arrange", and these are the rows of Window ▸ Context panel ▸ MODULES, one per module the owner
+## chose, plus Reset panel (`05_menus_window.gd::CTX_MODULES`). 919 is mobile-shell draft 09's
+## (`ID_HELP_GESTURES`). 920-930 were unused, measured 2026-11-01 at `3099309`: `grep -n -E '^const
+## ID_[A-Z_0-9]+ := 9[0-9]{2}' shell/menus.gd` still lists 900-903 only, `grep -rn -E ':= 9[2-3][0-9]\b'
+## shell/ drafts/` finds nothing, and `command_index.gd::_is_dynamic_id()`'s spans end below 700. The same
+## rule as 910-918: a command identity, never reissued. Each module row is a check row once its module is built,
+## so `command_index.gd::_why_not_pinnable()` leaves it unpinnable ("A check or radio row …"); the ids are
+## still what a rebind is keyed by.
+const ID_WIN_CTX_MOD_HISTORY := 920  ## Window ▸ Context panel ▸ MODULES ▸ History (check); live with its module.
+const ID_WIN_CTX_MOD_ECONOMY := 921  ## … ▸ Economy (check); live with its module.
+const ID_WIN_CTX_MOD_MILITARY := 922  ## … ▸ Military (check); live with its module.
+const ID_WIN_CTX_MOD_FAITH := 923  ## … ▸ Faith, culture & relations (check); live with its module.
+const ID_WIN_CTX_MOD_TERRITORY := 924  ## … ▸ Territory (check); live with its module.
+const ID_WIN_CTX_MOD_CITY := 925  ## … ▸ City layout (check); live with its module.
+const ID_WIN_CTX_MOD_HERE := 926  ## … ▸ Here (check); live with its module.
+const ID_WIN_CTX_MOD_ROUTES := 927  ## … ▸ Routes & journeys (check); live with its module.
+const ID_WIN_CTX_MOD_LINKS := 928  ## … ▸ Links (check); live with its module.
+const ID_WIN_CTX_MOD_RECENT := 929  ## … ▸ Recent & bookmarks (check); live with its module.
+const ID_WIN_CTX_RESET := 930  ## Window ▸ Context panel ▸ Reset panel (back to Inspect · Note · Ask); live from PC-4.
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
@@ -594,11 +640,11 @@ var _gpu_retry_row := -1
 var _workspace_popup: PopupMenu
 ## `Window ▸ Open windows` submenu; items are index-parallel to `_open_windows`.
 var _windows_popup: PopupMenu
-var _open_windows: Array = []  ## the live `AcceptDialog`s behind `_windows_popup`, index-parallel to its items
+var _open_windows: Array = []  ## what each `_windows_popup` row raises, index-parallel to its items: an open `Window`, or `CONTEXT_PANEL_LABEL` (a String) for the Context panel
 
 ## Entry point, called once by `app.gd` after the shell exists: stores the shell, bridge
 ## and host, reads the STORED theme mode, adds the top-level menus (tablet: ☰ / File /
-## World, the old Data rows merged into World; PC and phone: File, Edit, Assets, World,
+## World / Records / Story, Ruling DY; PC and phone: File, Edit, Assets, Records, Story,
 ## Preferences, Window, Help, which the phone drill-down then re-presents as screens),
 ## and finally applies the theme.
 ## Must not be called twice on one shell (every menu would be added again), and must
@@ -631,9 +677,14 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	## changes and `_data()` builds the regrouped RECORDS / TECHNICAL rows. On
 	## tablet there was already a `World` menu (the pipeline rows of `_world()`),
 	## so the tablet does NOT get a second one: Q2's default merges Data's rows
-	## into it, below the pipeline rows (`_tablet_world()`), which drops the
+	## into it, below the pipeline rows (`_tablet_world()`), which dropped the
 	## tablet bar from ☰ · File · World · Data to ☰ · File · World. That is a
 	## departure from DS-03's "match the canvas 100%", taken by Ruling CK.
+	##
+	## **Ruling DY (owner, 2026-11-01, PQ6): the menu is `Records`** on every bar,
+	## and the tablet's short bar is ☰ · File · World · Records · Story: World is
+	## `_world()` alone (the WORLD domain's rows, Generate world first) and Records
+	## is the same `_data()` popup as everywhere else. `_tablet_world()` is retired.
 	##
 	## **SM-2 (§3.3, Q1's default): an eighth menu, Story**, after World on
 	## every form factor -- desktop File · Edit · Assets · World · Story ·
@@ -642,14 +693,17 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	## MORE screen's STORY section (A8).
 	if DccTheme.is_tablet():
 		shell.add_menu("☰", _overflow)
+		## Ruling DY (PQ6): this bar's World menu holds Generate world, so File leaves its own out.
+		_generate_in_world = true
 		shell.add_menu("File", _file)
-		shell.add_menu("World", _tablet_world)
+		shell.add_menu("World", _world)
+		shell.add_menu("Records", _data)
 		shell.add_menu("Story", _story)
 	else:
 		shell.add_menu("File", _file)
 		shell.add_menu("Edit", _edit)
 		shell.add_menu("Assets", _assets)
-		shell.add_menu("World", _data)
+		shell.add_menu("Records", _data)
 		shell.add_menu("Story", _story)
 		shell.add_menu("Preferences", _preferences)
 		shell.add_menu("Window", _window)
@@ -717,6 +771,74 @@ func _signpost(p: PopupMenu, text: String) -> int:
 ## `app.gd` reaches the same way (`bridge.world_gen.has_method(...)`).
 func _engine_has(method: String) -> bool:
 	return _bridge != null and _bridge.world_gen != null and _bridge.world_gen.has_method(method)
+
+## Whether the host (`DccApp`) has `method`, which is how a row tells whether the milestone that adds
+## it has landed. The same question `_on_world()` and `_on_edit()` already ask before calling a host
+## method another pass owns (`_host.has_method("open_find_on_map")`), named so that every form
+## decision in PC-9 reads alike.
+##
+## It answers for the METHOD, not for the work behind it: a placeholder body pasted early makes it
+## true. That is why `90_pc_milestone_stubs.gd` is a contract that is not pasted, and why
+## `check_symbols.sh` fails while any `STUB(PC-` marker is in the shipped tree. Must never be used to
+## hide a row: a row whose method is missing is built with `_todo()` and its reason, never left out.
+func _host_has(method: String) -> bool:
+	return _host != null and _host.has_method(method)
+
+## Whether the Context panel has the tab `tab` ("inspect", "note" or "ask") in this build:
+## `DccApp.context_tabs()` lists the tabs that exist, and PC-4, PC-5 and PC-6 each add one. Asked
+## per tab rather than "has the panel landed", because the three tabs land in three milestones and a
+## row for the Note tab must stay a `_todo` while only Inspect exists.
+##
+## Must never infer a tab from the panel's other methods: `open_context_tab()` existing says nothing
+## about which tabs it can open.
+func _context_tab_ready(tab: String) -> bool:
+	if not _host_has("context_tabs"):
+		return false
+	var tabs: PackedStringArray = _host.context_tabs()
+	return tabs.has(tab)
+
+## True when a text field has focus AND row `id`'s own key is down, i.e. this press came from the
+## row's accelerator while the user was typing, not from a click on the row.
+##
+## Why: Q and Shift+F10 used to be matched in `app.gd::_unhandled_key_input`, behind a guard that
+## ignored them while a `LineEdit`, `TextEdit` or `SpinBox` had focus. As menu accelerators they run
+## from `_shortcut_input`, after the focused control has had the key. A field consumes a printable Q
+## itself, but nothing guarantees it consumes Shift+F10, so the guard moves into the handler. Alt+← and
+## Alt+→ (Edit ▸ Previous / Next selection) take the same guard: Ruling DX, PQ12, says they must not act
+## while a text field has focus, and on Windows and Linux a field lets them through. Asking
+## the focus alone would also swallow a mouse click on the row while a field keeps focus (`MenuButton`
+## takes no focus), hence the key test. `Input.is_key_pressed` is true for the press being dispatched.
+##
+## Reads the binding through `DccSettings.shortcut_binding`, so a rebound key is the one tested.
+## Must never be used on a row whose key a text field needs (Ctrl+C, Delete): those rely on the field
+## consuming the key first, which this does not replace.
+##
+## **A probe cannot reach the guard through `Viewport.push_input()`**: `Input` learns of a key only
+## from `Input.parse_input_event()`, which real key presses go through and `push_input()` skips, so a
+## pushed press reads as "not held" and the row acts. A probe of the guard must use
+## `Input.parse_input_event()`.
+func _typed_into_field(id: int) -> bool:
+	if _host == null:
+		return false
+	var focus := (_host as Node).get_viewport().gui_get_focus_owner()
+	if not (focus is LineEdit or focus is TextEdit or focus is SpinBox):
+		return false
+	var accel := DccSettings.shortcut_binding(DccSettings.SHORTCUT_CONTEXT_MENU, id, shortcut_default(id))
+	if accel == KEY_NONE:
+		return false
+	return Input.is_key_pressed((accel & KEY_CODE_MASK) as Key)
+
+## The key the cartwheel answers to, without modifiers: Edit ▸ Cartwheel at the pointer's binding (Q
+## until the user rebinds it). `app.gd::_unhandled_key_input` matches the key-UP of the cartwheel's
+## hold-aim-release gesture against it, because a menu accelerator fires on the press only.
+##
+## The default comes from `shortcut_default()`, which only `_bind_accelerator` fills, so the
+## `KEY_Q` written on the row is the single source. Returns `KEY_NONE` where the row is not built
+## (the phone, `03_menus_edit.gd`), which matches no real key-up.
+func cartwheel_keycode() -> Key:
+	var accel := DccSettings.shortcut_binding(DccSettings.SHORTCUT_CONTEXT_MENU,
+		ID_EDIT_CARTWHEEL, shortcut_default(ID_EDIT_CARTWHEEL))
+	return (accel & KEY_CODE_MASK) as Key
 
 ## Why `File ▸ Export ▸ Export map image…` (and the two presets beside it) cannot open right now, or `""` when it can:
 ## the binary lacks the E4 session, a generation holds the engine, or no world
@@ -809,6 +931,8 @@ const REGION_NEW_WORLD_BUSY := "A generation is running. The engine object belon
 func _file(p: PopupMenu) -> void:
 	_live(p, "New world…", ID_NEW_WORLD, KEY_MASK_CTRL | KEY_N)
 	_session_gate_row(p, p.item_count - 1)
+	## Ruling DY (PQ6): Generate world, directly after New world…, unless this bar's World menu holds it.
+	_build_generate_world_row(p)
 	_live(p, "Open project…", ID_OPEN_PROJECT, KEY_MASK_CTRL | KEY_O)
 
 	## A real submenu, per §2.1: "last 10 projects, path shown as secondary
@@ -953,8 +1077,8 @@ func _file(p: PopupMenu) -> void:
 	## itself to its widest item, so as one row this sentence alone made the
 	## File menu 380 px wide against the canvas's 298. Two disabled rows are the
 	## canvas's own two lines, at the canvas's own width.
-	## "World", not "Data", since SM-1 renamed the menu (Ruling CK).
-	for line in ["imports live under World ▸ Import",
+	## "Records" since Ruling DY renamed the menu (it was "Data" until SM-1, then "World", Ruling CK).
+	for line in ["imports live under Records ▸ Import",
 			"asset packs under Assets"]:
 		_signpost(p, line)
 
@@ -1339,6 +1463,132 @@ func refresh_undo_rows() -> void:
 	for r in _undo_row_refreshers:
 		r.call()
 
+## Deselect's tooltip until PC-1: the shipped string, moved here unchanged.
+const DESELECT_TIP := "Clears the settlement, label or icon selection in the active domain. Not the same as Escape, which puts the tool down and deliberately leaves the selection alone."
+
+## Deselect's tooltip from PC-1, when `clear_selection()` clears the one shared selection
+## (`PC_SHELL_PROPOSAL.md` §3.1, finding S1). **Its last sentence is true until §3.9's Escape change**
+## ("With nothing open, it deselects"), which is not drafted here: that change must rewrite it.
+const DESELECT_ONE_TIP := "Clears the selection: everything that shows it empties together, and Previous selection (Alt+←) brings it back. Not the same as Escape, which puts the tool down and deliberately leaves the selection alone."
+
+## Why Previous / Next selection are disabled before PC-1. Checked 2026-11-01 at `a38e0ac`: the
+## shell holds three separate selections (`app.gd::clear_selection()`'s own header: "none of them
+## knew about the others"), and nothing in `shell/` records past ones (`grep -rn -i "selection
+## history\|select_back\|previous selection" shell/` finds nothing).
+const SELECTION_HISTORY_TODO := "Not built yet: each workspace keeps its own selection and nothing records the ones before, so there is nothing to step back or forward to. It arrives with the one shared selection (PC_SHELL_PROPOSAL.md §3.1, milestone PC-1)."
+
+## Previous selection's tooltip once it is live.
+const SELECT_BACK_TIP := "Selects what was selected before, like a browser's Back. Everything that shows the selection follows."
+## Next selection's tooltip once it is live.
+const SELECT_FORWARD_TIP := "Selects again what Previous selection stepped back from, like a browser's Forward."
+## Status line when Previous selection has nowhere to go. A statement about the history, never an
+## error: the row is enabled whenever PC-1 exists, and an empty history is an ordinary state.
+const SELECT_BACK_NONE := "No earlier selection to go back to."
+## Status line when Next selection has nowhere to go.
+const SELECT_FORWARD_NONE := "No later selection to go forward to."
+
+## Edit ▸ Context card's tooltip. What `app.gd::_open_context_card_from_keyboard()` does today, read at
+## the symbol: `request_at(last_mouse_pos(), "keyboard")`, and the map's centre when that request is
+## empty. **When §3.1's S3 lands (the card opens at the selection) this must change with it.**
+const CONTEXT_CARD_TIP := "Opens the map's context card at the pointer's last position over the map, or at the map's centre when the pointer is off it. The Menu key does the same."
+
+## Edit ▸ Cartwheel at the pointer's tooltip. The two gestures are `radial_ring.gd`'s: a key-up with no
+## slot under the pointer leaves the ring open ("sticky") for a click, a key-up over a slot picks it
+## (`release()`). Opened from the menu, a click on a slot picks it (`context_broker.gd::ring_click()`).
+const CARTWHEEL_TIP := "Opens the cartwheel where the pointer last was over the map. Tap the key to leave it open and click a slot; hold the key, aim at a slot and let go to pick it."
+
+## Deselect's tooltip for the form this build can honour: `DESELECT_ONE_TIP` once the host has the
+## selection history (PC-1's `select_back`), `DESELECT_TIP` before. The row's behaviour is
+## `app.gd::clear_selection()`'s in both forms; only the claim about it changes.
+func _deselect_tip() -> String:
+	return DESELECT_ONE_TIP if _host_has("select_back") else DESELECT_TIP
+
+## Edit ▸ Previous selection (Alt+←) and Next selection (Alt+→), after Deselect, in the mockup's
+## order (`design/mobile-shell-2026-10-31/Shell.dc.html`, the desktop Edit menu).
+##
+## Live only when the host has the method each row calls (PC-1's selection history); a `_todo` row
+## with `SELECTION_HISTORY_TODO` before that, so the menu never offers a step it cannot take.
+## Alt+← and Alt+→ were free: no row in this file binds an Alt chord, and the only Left/Right
+## handlers in the project belong to a surface that is open at the time (`context_card.gd::_key()`
+## while the card is open; `quick_bar_window.gd` uses Alt+Up/Down). `check_symbols.sh`, keys section.
+##
+## **Guarded against a focused text field (Ruling DX, PQ12: "no").** A menu accelerator runs after the
+## focused control has had the key. On macOS a `LineEdit` takes Alt+← as word-left first; on Windows and
+## Linux it does not, so the press reaches the row while the user types. `_on_edit_selection()` drops a
+## press that came from the key while a field has focus (`_typed_into_field()`), the guard the map rows
+## below use, and still acts on a click on the row.
+func _build_selection_rows(p: PopupMenu) -> void:
+	if _host_has("select_back"):
+		_live(p, "Previous selection", ID_EDIT_SELECT_BACK, KEY_MASK_ALT | KEY_LEFT)
+		p.set_item_tooltip(p.item_count - 1, SELECT_BACK_TIP)
+	else:
+		_todo(p, "Previous selection", SELECTION_HISTORY_TODO)
+	if _host_has("select_forward"):
+		_live(p, "Next selection", ID_EDIT_SELECT_FORWARD, KEY_MASK_ALT | KEY_RIGHT)
+		p.set_item_tooltip(p.item_count - 1, SELECT_FORWARD_TIP)
+	else:
+		_todo(p, "Next selection", SELECTION_HISTORY_TODO)
+
+## Edit ▸ Context card (Shift+F10) and Edit ▸ Cartwheel at the pointer (Q), after Find on map….
+##
+## **Why rows at all:** §3.9 makes the two keys rebindable and listed (finding M8). Both used to be
+## matched in `app.gd::_unhandled_key_input`, which `shortcuts_dialog.gd` cannot read and
+## `DccSettings`' shortcut store does not cover. A row's accelerator goes through `_bind_accelerator`,
+## so it is rebindable and the reference lists it with no table written anywhere.
+##
+## **What stays in `app.gd`** (`09_app_keys.gd`): the cartwheel's key-UP, which follows this row's
+## binding through `cartwheel_keycode()`, and the Menu key, the card's fixed second key (one `PopupMenu`
+## item holds one accelerator; `shortcuts_dialog.gd::UNLISTED` lists it). Each handler keeps the old
+## text-field guard (`_typed_into_field()`), so typing Q or Shift+F10 in a field opens nothing.
+##
+## **Not built on the phone** (Ruling DX, PQ10: a stated exception to the phone's row for row). The
+## phone's menu bar lives in a hidden model node
+## (`dcc_shell.gd`, `PhoneMenuModel`, `visible = false`), so no accelerator fires there, and both
+## surfaces are pointer surfaces: the cartwheel's touch scale is the tablet's (`radial_ring.gd::
+## _apply_touch_scale()`), and the phone opens the card by its own gesture (`MAP_CONTEXT_SCOPE.md`,
+## fork F1). A phone with a hardware keyboard loses Q and Shift+F10, which it has today through
+## `_unhandled_key_input`, and keeps the Menu key. That is a stated drop (README).
+##
+## Bare Q as a menu accelerator: a focused `LineEdit` or `TextEdit` consumes a printable key before
+## `_shortcut_input` runs, and no tool button uses Q (the tool letters are B F I L M R S T V W).
+## Behaviour change: Ctrl+Q and Shift+Q no longer open the cartwheel, which the old
+## `event.keycode == KEY_Q` test let them do; a menu accelerator matches its modifiers exactly.
+func _build_map_surface_rows(p: PopupMenu) -> void:
+	if DccTheme.is_phone():
+		return
+	_live(p, "Context card", ID_EDIT_CONTEXT_CARD, KEY_MASK_SHIFT | KEY_F10)
+	p.set_item_tooltip(p.item_count - 1, CONTEXT_CARD_TIP)
+	_live(p, "Cartwheel at the pointer", ID_EDIT_CARTWHEEL, KEY_Q)
+	p.set_item_tooltip(p.item_count - 1, CARTWHEEL_TIP)
+
+## The dispatcher for the four rows above, connected beside `_on_edit` by `_edit()`. Ignores every id
+## it does not own, like every dispatcher sharing a popup in this file.
+##
+## Previous / Next: their ids exist only on live rows, so the host has the method whenever one
+## arrives here; a `false` (nothing to step to) says so in the status line rather than doing nothing.
+## All four rows skip a press that came from the key while a text field has focus (for the map rows,
+## the guard `app.gd::_unhandled_key_input` used to apply; for Alt+← and Alt+→, Ruling DX PQ12), and run
+## on a click whatever has focus.
+func _on_edit_selection(id: int) -> void:
+	match id:
+		ID_EDIT_SELECT_BACK:
+			if _typed_into_field(id):
+				return
+			if not bool(_host.select_back()):
+				_host.set_status("hint", SELECT_BACK_NONE, "text_ghost")
+		ID_EDIT_SELECT_FORWARD:
+			if _typed_into_field(id):
+				return
+			if not bool(_host.select_forward()):
+				_host.set_status("hint", SELECT_FORWARD_NONE, "text_ghost")
+		ID_EDIT_CONTEXT_CARD:
+			if not _typed_into_field(id):
+				_host.open_context_card()
+		ID_EDIT_CARTWHEEL:
+			if not _typed_into_field(id):
+				_host.open_cartwheel_at_pointer()
+
+
 ## Cut / Copy / Paste / Delete / Select all / Deselect / Find on map -- what
 ## remains of Edit once Undo/Redo/Undo history promote to the tablet's ☰
 ## overflow and Reset generation parameters moves to the tablet's World menu
@@ -1444,8 +1694,8 @@ func _build_edit_actions(p: PopupMenu) -> void:
 	## domain-scoped by the workspace guard rather than by `_select_all()`'s
 	## own `match`.
 	_live(p, "Deselect", ID_DESELECT, KEY_MASK_CTRL | KEY_D)
-	p.set_item_tooltip(p.item_count - 1,
-		"Clears the settlement, label or icon selection in the active domain. Not the same as Escape, which puts the tool down and deliberately leaves the selection alone.")
+	p.set_item_tooltip(p.item_count - 1, _deselect_tip())
+	_build_selection_rows(p)
 	p.add_separator()
 	## §2.2: "Search places, labels, factions, routes; result pans the
 	## viewport." Both halves now exist: `PlaceSearch` (shell/place_search.gd)
@@ -1457,6 +1707,7 @@ func _build_edit_actions(p: PopupMenu) -> void:
 	## (`dcc_shell.gd`) is owned by a different pass and may not carry the
 	## method yet.
 	_live(p, "Find on map…", ID_FIND_ON_MAP, KEY_MASK_CTRL | KEY_F)
+	_build_map_surface_rows(p)
 	## The four clipboard rows, in their own function because the state
 	## they read is five questions deep and this lambda is already long.
 	p.about_to_popup.connect(func():
@@ -1510,6 +1761,7 @@ func _edit(p: PopupMenu, full: bool = true) -> void:
 		p.add_separator()
 		_build_reset_generation(p)
 	p.id_pressed.connect(_on_edit)
+	p.id_pressed.connect(_on_edit_selection)
 
 ## `WorldGen.reset_params`.
 const RESET_ALL_TIP := "Puts every generation parameter back to the app's own default. It does not regenerate: the settings are read once at the start of a run, so this changes what the next Generate builds and leaves the world on screen alone."
@@ -2148,18 +2400,19 @@ func _assets(p: PopupMenu, full: bool = true) -> void:
 	## every glyph elsewhere in this menu is plain text, never `add_icon_item`.
 	##
 	## The canvas runs these four as **one unbroken block** -- there is no rule
-	## between the slicer and Import image in `DCC shell 1920` -- and puts its
+	## between the slicer and Import image in `DCC shell 1920` (three rows since
+	## PC-9 removed Import image: Asset library, slicer, Import asset pack) -- and puts its
 	## only two rules after Texture sets and before Apply. The shell had three
 	## rules here and `Asset pack ▸` alone at the very foot, below Clear
 	## library…, where the canvas has it directly above Icon families.
 	if full:
 		_build_asset_library_row(p)
 	_live(p, "⧉ Sprite sheet slicer (▦)", ID_SLICER)
-	## `AssetDB::add_item`/`raster::decode_png` are real and bound now
-	## (`as_import_item`) -- the window's own slot grid is where a target
-	## slot gets focused, so this opens straight to it rather than
-	## duplicating slot-selection at the menu level.
-	_live(p, "Import image…", ID_IMPORT_IMAGE)
+	## PC-9 (`PC_SHELL_PROPOSAL.md` §3.8, finding M2): "Import image…" left
+	## this menu. It opened the Asset library under a second name (the same
+	## `open_asset_library()` as ⧉ Asset library); the import itself is the
+	## library's own "Import image…" chip, into the focused slot.
+	## `command_index.gd::EXTRAS` keeps the words findable.
 	_live(p, "Import asset pack .zip…", ID_IMPORT_PACK)
 	## AP-1 (`ASSET_PACK_TOOLS_PROPOSAL.md` §4, Ruling CQ Q1): the two rows do
 	## different things, so each says which in its tooltip.
@@ -2910,7 +3163,6 @@ func _on_assets(id: int) -> void:
 		ID_PACK_REPORT: _host.asset_library_window.report_now()
 		ID_IMPORT_FOLDER: _host.open_asset_folder_picker()
 		ID_COMPARE_PACK: _host.open_pack_compare_picker()
-		ID_IMPORT_IMAGE: _host.open_asset_library()
 		ID_ASSET_LIBRARY: _host.open_asset_library()
 		ID_SLICER: _host.open_asset_library("", true)
 		ID_APPLY_LIBRARY: _host.asset_library_window.apply_to_map_now()
@@ -3048,6 +3300,18 @@ func _on_assets(id: int) -> void:
 ## library has since moved on to Story, SM-2). Two rows
 ## are new over built targets (Places…, Timeline), and Places without notes…
 ## (drawn disabled until SM-5, 2026-10-18) opens the vault panel's view of it.
+##
+## **PC-9, `PC_SHELL_PROPOSAL.md` §3.8.** Two rows changed and none left. Factions… gained
+## Ctrl+Shift+F and opens on the current faction once the host can name one (`_open_factions()`,
+## finding W6). Markdown vault… gained Ctrl+Shift+V (`_build_vault_rows()`, finding M8). The Timeline
+## row is a signpost to Story ▸ Timeline (finding M3: two rows, one action), the mockup's wording.
+##
+## **Ruling DY (owner, 2026-11-01): this menu is titled `Records` on every bar** (`build()`), which
+## reopens Ruling CK Q3 ("World"): the audit behind `PC_SHELL_PROPOSAL.md` PQ6 found that name collided
+## with the WORLD domain, which means terrain. Its rows did not change. Generate world is not one of them:
+## it is File ▸ Generate world (`_build_generate_world_row()`) on the PC, the phone and the wide tablet, and
+## World ▸ Generate world on the tablet's short bar, whose World menu is `_world()` alone. The short bar
+## no longer merges this popup into World (`_tablet_world()`, Ruling CK Q2, retired by the same ruling).
 func _data(p: PopupMenu) -> void:
 	## The canvas's own head row: `⧉ DATA MANAGER`, the window this whole menu
 	## is a shortcut into. It had no row at all here -- the four group rows were
@@ -3056,15 +3320,20 @@ func _data(p: PopupMenu) -> void:
 
 	p.add_separator("RECORDS")
 	## FH-1: the Factions hub is a window over world data (a faction's identity,
-	## land, settlements, economy and military). No accelerator: a shortcut is a
-	## new binding the owner has not asked for, and the phone twin needs no row
-	## of its own -- `phone_menu.gd::_fill_data` draws this popup through
-	## `_rest_of`, so the row appears there by being here. It opens the hub with
-	## no faction and no tab, i.e. on the last-selected faction and tab.
-	_live(p, "Factions…", ID_FACTIONS)
+	## land, settlements, economy and military). The phone twin needs no row of
+	## its own -- `phone_menu.gd::_fill_data` draws this popup through
+	## `_rest_of`, so the row appears there by being here.
+	##
+	## **Ctrl+Shift+F since PC-9** (`PC_SHELL_PROPOSAL.md` §3.8 and §3.9, finding
+	## M8; PQ8 asks the owner for the whole key set). This said "No accelerator: a
+	## shortcut is a new binding the owner has not asked for"; the proposal asks
+	## for it now. Free: no row in this file binds it, and nothing else in the
+	## project matches a modified F (the Freehand tool's bare F is an exact-match
+	## `Shortcut`; `check_symbols.sh`, keys section). Where the window opens is
+	## `_open_factions()`'s decision, and the tooltip follows the same test.
+	_live(p, "Factions…", ID_FACTIONS, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_F)
 	p.set_item_tooltip(p.item_count - 1,
-		"Open the Factions window: each faction's identity, territory, "
-		+ "settlements, economy and military in one place.")
+		FACTIONS_CURRENT_TIP if _host_has("current_faction") else FACTIONS_TIP)
 	## SM-1: a new row over a built target -- the CIVIL dock's Settlements
 	## category (`civilization_workspace.gd`, `DccWidgets.category(self,
 	## "Settlements", ...)`), which `RAIL_NODES` lists under CIVIL's `owns`.
@@ -3074,11 +3343,16 @@ func _data(p: PopupMenu) -> void:
 		+ "filters and each place's editor.")
 	_build_vault_rows(p)
 	## SM-5: the vault panel's Places without notes section
-	## (`vault_window.gd::open_places_without_notes`).
+	## (`vault_window.gd::open_places_without_notes`). Story ▸ NOTES carried the
+	## same row until PC-9 made it a signpost to this one (finding M3), so this
+	## is the row, and the id the command index and a pin resolve to.
 	_live(p, "Places without notes…", ID_PLACES_WITHOUT_NOTES)
 	p.set_item_tooltip(p.item_count - 1, PLACES_WITHOUT_NOTES_TIP)
-	_live(p, "Timeline", ID_WORLD_TIMELINE)
-	p.set_item_tooltip(p.item_count - 1, TIMELINE_TIP)
+	## PC-9 (finding M3): SM-1's Timeline row here ran the same `_open_timeline()`
+	## as Story ▸ TIME ▸ Timeline, so it is a signpost now. Story's row keeps the
+	## accelerator (Ctrl+Shift+T) and the id the assistant's window list names
+	## (`llm_view.gd::WINDOWS`). `ID_WORLD_TIMELINE` is retired, never reissued.
+	_signpost(p, TIMELINE_MOVED_SIGNPOST)
 	## Travel library… (⇧L) closed this band until SM-2, which moved it to
 	## Story ▸ JOURNEYS (`_story()`), the same id and accelerator.
 
@@ -3093,7 +3367,75 @@ func _data(p: PopupMenu) -> void:
 	_signpost(p, "Export is in File ▸ Export")
 	p.id_pressed.connect(_on_data)
 
-## Tooltip of both Timeline rows (World ▸ RECORDS and, from SM-2, Story ▸ TIME):
+## True while `build()` builds a bar whose World menu is `_world()` (the WORLD domain's own rows, Generate
+## world first): the touch tablet's short bar, ☰ · File · World · Records · Story (Ruling DY). `_file()` then
+## leaves its own Generate world row out (`_build_generate_world_row()`): one row per command per bar, so the
+## command index never lists one command twice on one bar. Written only by `build()`, before it adds File,
+## and in both of its branches where `build()` can run again on one instance (MS-1's mount path rebuilds the
+## bar; `drafts/mobile-shell/08` sets it each time). Must never be read as "this is a tablet": a wide tablet
+## from MS-7 builds the PC's bar and leaves it false.
+var _generate_in_world := false
+
+## File ▸ Generate world (Ctrl+R), directly after New world… (Ruling DY: the owner chose "File, after New
+## world…"): the PC's, the phone's and the wide tablet's row for the one "regenerate the world" command.
+##
+## The SAME command as the short tablet bar's World ▸ Generate world (`_world()`, EDIT W5): one id
+## (`ID_WORLD_RUN_PIPELINE`, 710), one dispatcher arm (`_on_world()`, connected here), one guarded path
+## (`world_workspace.gd::_regenerate_live()`, which asks before discarding hand-authored work), one tooltip
+## (`RUN_PIPELINE_TIP`). One id is what keeps a rebind and a quick-bar pin (`menu:710`) the same command on
+## every form factor. Ctrl+R is the tablet's key already; on the PC nothing else binds it (`check_symbols.sh`,
+## keys section). Session mode disables the row (`_session_gate_row`), as it does New world….
+##
+## Why File: the owner's answer to where it goes once World became Records. File already holds the commands
+## that decide which world is open (New world…, Open project…, Recent worlds, New world from selection…).
+## Builds nothing when `_generate_in_world` is set, because that bar's World menu carries the row. Must never
+## be added to `_data()` (Records): the owner moved it out of that menu.
+func _build_generate_world_row(p: PopupMenu) -> void:
+	if _generate_in_world:
+		return
+	_live(p, "Generate world", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)
+	_session_gate_row(p, p.item_count - 1)
+	p.set_item_tooltip(p.item_count - 1, RUN_PIPELINE_TIP)
+	## `_on_file()` has no arm for 710 and `_on_world()` matches only 710-713, none of which is a File id,
+	## so the two dispatchers share File's popup the way `_overflow()`'s four do.
+	p.id_pressed.connect(_on_world)
+
+## The tooltip of the one "regenerate the world" command, on both of its rows: File ▸ Generate world
+## (`_build_generate_world_row()`: the PC, the phone, the wide tablet) and World ▸ Generate world on the
+## tablet's short bar (`_world()`; W5 gives it the same label, Ruling DX PQ11). One string, so the two rows
+## cannot come to describe the same command differently.
+## Same guarded path as `world_workspace.gd::_regenerate_live()`.
+## "The engine has no partial recompute" removed 2026-09-24 (ALIGNMENT_
+## AUDIT Part 2 B6): `recompute_stale_stages`/`recompute_civilisation`
+## exist; Generate itself always runs every stage.
+const RUN_PIPELINE_TIP := "Runs the whole generation pipeline -- the same path the WORLD dock's own Generate button uses: it asks first if the world holds hand-authored work (sculpt stamps, icons, labels, paint, routes, hand-drawn ways) a regenerate would discard. Every stage runs, from the start."
+
+## Records ▸ Factions…'s tooltip while the window opens on the last faction viewed (shipped
+## behaviour, until the host has `current_faction()`). The shipped string, moved here unchanged.
+const FACTIONS_TIP := "Open the Factions window: each faction's identity, territory, settlements, economy and military in one place."
+
+## Records ▸ Factions…'s tooltip once the host has `current_faction()` (PC-1, finding W6). Says what
+## `90_pc_milestone_stubs.gd::current_faction()`'s contract says, so the claim and the call agree.
+const FACTIONS_CURRENT_TIP := "Open the Factions window on the current faction: the selected faction, or the one that holds the selected place in the year the timeline shows; the last faction you viewed when nothing is selected. Each faction's identity, territory, settlements, economy and military in one place."
+
+## The signpost that replaces Records ▸ RECORDS ▸ Timeline (PC-9, finding M3), in the mockup's own
+## words (`design/mobile-shell-2026-10-31/Shell.dc.html`, the desktop menu). Prose, not a
+## command: `_signpost()` marks it, so the command index skips it and the probe that wants every
+## disabled row to state a reason does not read it as an undisclosed gap.
+const TIMELINE_MOVED_SIGNPOST := "Timeline is in Story ▸ Timeline"
+
+## Records ▸ Factions… and Story ▸ Faction history… (`tab = "history"`): opens the Factions window on
+## the current faction (finding W6) once the host can name one (`current_faction()`, PC-1), and on
+## the last faction viewed before that, which is what `open_faction_roster(-1, …)` has always done
+## and what `current_faction()` answers too when nothing is selected. Never guesses a faction: -1
+## is `open_faction_roster`'s own documented "none", not a plausible id.
+func _open_factions(tab: String = "") -> void:
+	var fid := -1
+	if _host_has("current_faction"):
+		fid = int(_host.current_faction())
+	_host.open_faction_roster(fid, tab)
+
+## Tooltip of Story ▸ TIME ▸ Timeline (Records' row is a signpost since PC-9):
 ## what `_open_timeline()` does, in the user's words.
 const TIMELINE_TIP := "Opens CIVIL ▸ Timeline -- the recorded year snapshots: add a year, go to one, compare two -- and shows the timeline bar if it is hidden."
 
@@ -3218,10 +3560,9 @@ func _on_file_export(id: int) -> void:
 		ID_EXPORT_DM: _host.open_export_dialog("dm")
 		_: _on_data(id)
 
-## The World menu's dispatcher, shared by the popup and its three route
-## submenus (and, on tablet, by the merged World popup beside `_on_world`).
-## Ignores every id it does not own, so a fan-out with other dispatchers on one
-## popup is safe.
+## The Records menu's dispatcher (the World menu until Ruling DY, the Data menu
+## until SM-1), shared by the popup and its three route submenus. Ignores every id
+## it does not own, so a fan-out with other dispatchers on one popup is safe.
 func _on_data(id: int) -> void:
 	## Bounded on BOTH ends. This used to be `if id >= ID_DATA_ROUTE_FIRST:
 	## ... return`, which swallowed every id at or above 400 whether or not
@@ -3236,15 +3577,19 @@ func _on_data(id: int) -> void:
 	match id:
 		ID_DATA_MANAGER: _host.open_data_manager()
 		ID_WORLD_DATA: _host.open_world_data()
-		ID_FACTIONS: _host.open_faction_roster()
+		## PC-9 (finding W6): through `_open_factions()`, which opens on the
+		## current faction once the host can name one.
+		ID_FACTIONS: _open_factions()
 		ID_PLACES: _shell.select_domain_category("civilization", "Settlements")
-		ID_WORLD_TIMELINE: _open_timeline()
+		## `ID_WORLD_TIMELINE` has no arm since PC-9: no row carries it (the row is
+		## a signpost), so an arm here could only ever be reached by a probe
+		## emitting the id by hand, and would make that probe pass on dead code.
 		ID_EXPORT_MAP_IMAGE: _host.open_export_dialog()
 		ID_VAULT: _host.open_vault_overview()
 		ID_VAULT_BROWSE: _host.open_vault_browse()
 		ID_PLACES_WITHOUT_NOTES: _host.open_places_without_notes()
 
-## Both Timeline rows' action: open CIVIL ▸ Timeline (the year snapshots,
+## Story ▸ TIME ▸ Timeline's action: open CIVIL ▸ Timeline (the year snapshots,
 ## `civilization_workspace.gd`'s `"Timeline"` category) and, on PC and tablet,
 ## show the timeline bar region if it is hidden -- `toggle_region` flips, so it
 ## is called only when `is_region_shown` says the bar is off. The phone has no
@@ -3256,17 +3601,6 @@ func _open_timeline() -> void:
 		return
 	if _host.has_method("is_region_shown") and not _host.is_region_shown(ID_WIN_TIMELINE):
 		_host.toggle_region(ID_WIN_TIMELINE)
-
-## The tablet's single World menu since SM-1 (Q2's default, Ruling CK): the
-## tablet canvas's own pipeline rows (`_world()`) first and unchanged, then the
-## old Data menu's rows (`_data()`) under a separator. Each builder connects its
-## own dispatchers and each dispatcher ignores ids it does not own, so the two
-## sit on one popup without interfering (their id sets are disjoint: 710-713 and
-## the reset-generation ids against 40-48, 400+, 716, 719-722).
-func _tablet_world(p: PopupMenu) -> void:
-	_world(p)
-	p.add_separator()
-	_data(p)
 
 # -- Story (SM-2, Ruling CK) ---------------------------------------------------
 
@@ -3297,19 +3631,25 @@ var _story_campaigns_idx := -1
 ##
 ## Every enabled row calls something already built; it is a new entry point,
 ## never a second implementation:
-##   TIME       Timeline (Ctrl+Shift+T, `_open_timeline()`, World's own row's
-##              action) · Political history of this place… (`place_editor_
-##              window.gd::open_for_tab(i, "political")`) · Faction history…
-##              (`app.open_faction_roster(-1, "history")`, FH-8's tab)
-##   JOURNEYS   Journey planner (`app.open_journey_planner()`) · Saved
+##   TIME       Timeline (Ctrl+Shift+T, `_open_timeline()`; Records' copy is a
+##              signpost since PC-9) · Political history of this place…
+##              (`place_editor_window.gd::open_for_tab(i, "political")`), or of
+##              the selection (PC-4: the Context panel's Inspect page) · Faction
+##              history… (`_open_factions("history")`, FH-8's tab; on the
+##              current faction from PC-1)
+##   JOURNEYS   Journey planner (`app.open_journey_planner()`; its own window on
+##              the desktop from PC-8, Ruling DY PQ4) · Saved
 ##              journeys… (SM-6, `saved_journeys_window.gd`) · Travel library…
-##              (⇧L, moved here from World by this milestone, same id)
+##              (⇧L, moved here from World, now Records, by this milestone, same id)
 ##   CONFLICTS  Conflicts… (SM-6, `conflicts_window.gd`) · Draw a conflict (arms CIVIL's
 ##   & CAMPAIGNS Conflict tool, SP-4) · Campaigns this year (a readout over
 ##              `conflict_campaigns(year)`, one row per active conflict)
 ##   NOTES      Notes for this place (Ctrl+Shift+N, `app.open_vault(
-##              "settlement", tid, name)`, the card's own call) · Places
-##              without notes… (SM-5, the same row and id as World's)
+##              "settlement", tid, name)`, the card's own call), or Note for the
+##              selection (PC-5: the Note tab) · a signpost to Records'
+##              Places without notes… (PC-9; SM-5 put a second row here) ·
+##              Assistant panel… (LLM-3), or Ask the assistant about the
+##              selection (Ctrl+J, PC-6: the Ask tab)
 ##
 ## **Journey planner carries no accelerator column, on purpose.** ⇧J is an
 ## `app.gd::_unhandled_key_input` key (it outlived the row Ruling 4 retired on
@@ -3327,26 +3667,56 @@ var _story_campaigns_idx := -1
 ## cursor's year, refreshed on every popup. Nothing is invented: before a world
 ## or during a generation it says which, and never prints a count it did not read.
 ##
+## **PC-9 (`PC_SHELL_PROPOSAL.md` §3.8): three rows have two forms**, decided
+## once here and recorded in `_story_forms`, so the label, the gate
+## (`_refresh_story_menu()`) and the handler (`_on_story()`) always agree about
+## which row is on the menu. Each keeps its id, so a rebind (keyed by id in
+## `DccSettings`) and a quick-bar pin (`menu:<id>`) follow it from one form to
+## the other:
+##   724  "Political history of this place…" (Place editor, a settlement only)
+##        → "Political history of the selection" (Inspect, any kind) once the
+##        Context panel has Inspect (PC-4)
+##   728  "Notes for this place" (vault window, a settlement only) → "Note for
+##        the selection" (the Note tab, any kind) once it has Note (PC-5);
+##        Ctrl+Shift+N in both
+##   901  "Assistant panel…" (its own window) → "Ask the assistant about the
+##        selection", Ctrl+J, once it has Ask (PC-6)
+## The shipped form stays until then because it works: a `_todo` in its place
+## would take away a working row and Ctrl+Shift+N (`MISTAKES.md`, "Delete a
+## surface"). The new labels drop the ellipsis, as the mockup does: they open a
+## tab of the panel, not a window. Places without notes… is a signpost to
+## Records from now (finding M3); the row and id 731 are Records'.
+##
 ## Must never call the engine while `bridge.generating` (the worker holds
 ## `WorldGen`): every refresh and handler asks `generating` first, which matters
 ## for `conflict_campaigns` in particular because its bridge wrapper has no
 ## gate of its own.
 func _story(p: PopupMenu) -> void:
 	_story_popup = p
+	_story_forms = {
+		"political": _context_tab_ready("inspect"),
+		"note": _context_tab_ready("note"),
+		"ask": _context_tab_ready("ask"),
+	}
 	p.add_separator("TIME")
 	_live(p, "Timeline", ID_STORY_TIMELINE, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_T)
 	p.set_item_tooltip(p.item_count - 1, TIMELINE_TIP)
-	_live(p, "Political history of this place…", ID_STORY_POLITICAL)
+	if bool(_story_forms["political"]):
+		_live(p, "Political history of the selection", ID_STORY_POLITICAL)
+	else:
+		_live(p, "Political history of this place…", ID_STORY_POLITICAL)
 	_story_political_idx = p.item_count - 1
-	p.set_item_tooltip(_story_political_idx, STORY_POLITICAL_TIP)
+	p.set_item_tooltip(_story_political_idx, _story_political_tip())
 	_live(p, "Faction history…", ID_STORY_FACTION_HISTORY)
 	p.set_item_tooltip(p.item_count - 1,
-		"Opens the Factions window on its History tab: each faction's recorded years, territory and conflicts.")
+		FACTION_HISTORY_CURRENT_TIP if _host_has("current_faction") else FACTION_HISTORY_TIP)
 
 	p.add_separator("JOURNEYS")
 	_live(p, "Journey planner", ID_STORY_JOURNEY_PLANNER)
+	## Ruling DY, PQ4: the window form's tooltip only where the host opens one (PC-8, the desktop).
+	var planner_window := _host_has("planner_in_window") and bool(_host.planner_in_window())
 	p.set_item_tooltip(p.item_count - 1,
-		"Opens the Journey planner (also the CIVIL rail's Journey planner node, or Shift+J anywhere on the map): party, season, carriage, stages and cost over a drawn route.")
+		STORY_PLANNER_WINDOW_TIP if planner_window else STORY_PLANNER_TIP)
 	_live(p, "Saved journeys…", ID_SAVED_JOURNEYS)
 	p.set_item_tooltip(p.item_count - 1,
 		"Lists every journey saved in this world (name, party, start year, length, mode); a row opens it in the Journey planner. Journeys are saved from the planner.")
@@ -3364,18 +3734,29 @@ func _story(p: PopupMenu) -> void:
 	_story_campaigns_idx = _readout(p, "Campaigns this year", "")
 
 	p.add_separator("NOTES")
-	_live(p, "Notes for this place", ID_STORY_NOTES_HERE, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N)
+	if bool(_story_forms["note"]):
+		_live(p, "Note for the selection", ID_STORY_NOTES_HERE, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N)
+	else:
+		_live(p, "Notes for this place", ID_STORY_NOTES_HERE, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N)
 	_story_notes_idx = p.item_count - 1
-	p.set_item_tooltip(_story_notes_idx, STORY_NOTES_TIP)
-	## The same row as World ▸ RECORDS (§3.3: "the same row as in World"):
-	## one id, one destination.
-	_live(p, "Places without notes…", ID_PLACES_WITHOUT_NOTES)
-	p.set_item_tooltip(p.item_count - 1, PLACES_WITHOUT_NOTES_TIP)
-	## LLM-3. Always enabled: the panel itself says why it cannot send (off, no provider, no
-	## consent), which is the `CommandIndex` rule -- a reason, never a dead row.
-	_live(p, "Assistant panel…", ID_STORY_ASSISTANT)
-	p.set_item_tooltip(p.item_count - 1,
-		"Optional language-model help with prose for a place, its story, or a Vault note. Off until you turn it on in Preferences ▸ Assistant; saved only when you click.")
+	p.set_item_tooltip(_story_notes_idx, _story_note_tip())
+	## PC-9 (finding M3): SM-2's second "Places without notes…" row
+	## (`STORY_MENUS_PROPOSAL.md` §3.3: "the same row as in World") is a
+	## signpost to that row now. Its id, 731, stays
+	## on Records ▸ RECORDS, which the command index already preferred (it walks
+	## Records, the old World, first and made this copy an unpinnable alias).
+	_signpost(p, PLACES_WITHOUT_NOTES_SIGNPOST)
+	## LLM-3. Always enabled, in both forms: the panel says why it cannot send
+	## (off, no provider, no consent), which is the `CommandIndex` rule -- a
+	## reason, never a dead row. Ctrl+J only with the Ask tab (PC-6): bound to
+	## the floating window it would open a fresh conversation on every press
+	## (`llm_assistant_window.gd::open` calls `_rebuild()`, finding A1).
+	if bool(_story_forms["ask"]):
+		_live(p, "Ask the assistant about the selection", ID_STORY_ASSISTANT, KEY_MASK_CTRL | KEY_J)
+		p.set_item_tooltip(p.item_count - 1, STORY_ASK_TIP)
+	else:
+		_live(p, "Assistant panel…", ID_STORY_ASSISTANT)
+		p.set_item_tooltip(p.item_count - 1, STORY_ASSISTANT_TIP)
 
 	_refresh_story_menu()
 	p.about_to_popup.connect(_refresh_story_menu)
@@ -3383,17 +3764,87 @@ func _story(p: PopupMenu) -> void:
 	## accelerator is skipped while its row is disabled, so a row left disabled
 	## after the menu closed would swallow Ctrl+Shift+N for good once the user
 	## had opened Story with nothing selected. Re-enabled on close; the handler
-	## re-checks (`_story_place()`) and says why in the status line instead.
+	## re-checks (`_story_place()`, or `_story_selection()` for a PC-4/PC-5 form)
+	## and says why in the status line instead.
 	p.popup_hide.connect(func() -> void:
 		for i in [_story_political_idx, _story_notes_idx]:
 			p.set_item_disabled(i, false))
 	p.id_pressed.connect(_on_story)
 
+## Why a PC-4/PC-5 form of a gated row is disabled: nothing is selected. Names what a selection is
+## made from rather than the right dock, because from PC-1 the dock reads the selection.
+const STORY_NO_SELECTION := "Nothing selected. Select a place, a faction or a conflict on the map or in a list first."
+## Why a PC-4/PC-5 form of a gated row is disabled while a generation runs: the Inspect page and the
+## note both read the engine, which the worker holds (the same gate as `STORY_BUSY`, worded for a
+## selection of any kind).
+const STORY_BUSY_SELECTION := "A generation is running. The selection is read when it finishes."
+## "Political history of the selection"'s tooltip (PC-4). What `PC_SHELL_PROPOSAL.md` §3.3 says
+## Inspect shows for each kind; the page itself is PC-4's to build.
+const STORY_POLITICAL_SEL_TIP := "Opens the Context panel's Inspect page on the selection, at its history: who held a place year by year, the places a faction held and its wars, a conflict's years and sides. Every name there selects it and every year moves the timeline."
+## "Note for the selection"'s tooltip (PC-5), from §3.4.
+const STORY_NOTE_SEL_TIP := "Opens the Context panel's Note tab on the selection's own note, found through its link rather than its name. With no note yet it offers to create one from the kind's template, already linked. The whole vault is Records ▸ Markdown vault… (Ctrl+Shift+V)."
+## "Ask the assistant about the selection"'s tooltip (PC-6), from §3.5. PQ5 is answered by Ruling DY
+## (2026-11-01): one conversation per session, kept across selections and cleared only by New, which is PC-6's
+## bar ("opening, closing or reselecting never empties the transcript"), so the tooltip says so. The same
+## answer adds an option to save the conversation inside the world file, off by default and asked at first
+## use; that needs a save slot nothing has built, so the tooltip does not claim it.
+const STORY_ASK_TIP := "Opens the Context panel's Ask tab with the cursor in its input. One conversation lasts the session: it stays while you select other things, and New starts another. The chips above the input show what goes with your next message (the selection, the year, its note), read when you press Send. Off until you turn it on in Preferences ▸ Assistant; nothing is sent until then."
+## "Assistant panel…"'s tooltip: the shipped string, moved here unchanged.
+const STORY_ASSISTANT_TIP := "Optional language-model help with prose for a place, its story, or a Vault note. Off until you turn it on in Preferences ▸ Assistant; saved only when you click."
+## Faction history…'s tooltip before PC-1: the shipped string, moved here unchanged.
+const FACTION_HISTORY_TIP := "Opens the Factions window on its History tab: each faction's recorded years, territory and conflicts."
+## Faction history…'s tooltip once the host has `current_faction()` (finding W6). Says what that
+## method's contract says (`90_pc_milestone_stubs.gd`).
+const FACTION_HISTORY_CURRENT_TIP := "Opens the Factions window on its History tab, on the current faction: the selected faction, or the one that holds the selected place in the year the timeline shows; the last faction you viewed when nothing is selected."
+## The signpost that replaces Story's second "Places without notes…" row (finding M3), in the
+## mockup's own words (`design/mobile-shell-2026-10-31/Shell.dc.html`, the desktop Story menu).
+const PLACES_WITHOUT_NOTES_SIGNPOST := "Places without notes is in Records"
+
+## Journey planner's tooltip while the planner replaces the view (shipped behaviour; the tablet and the phone
+## keep it after PC-8). The shipped string, moved here unchanged.
+const STORY_PLANNER_TIP := "Opens the Journey planner (also the CIVIL rail's Journey planner node, or Shift+J anywhere on the map): party, season, carriage, stages and cost over a drawn route."
+## Journey planner's tooltip once the host opens it in its own window (`planner_in_window()`, PC-8; Ruling DY,
+## PQ4: "a separate window that doesn't block the map"). Says only what `90_pc_milestone_stubs.gd`'s PC-8
+## contract requires that window to do: leave the map live, take its stops from the selection, and carry
+## Ruling DK's per-window Pop out button.
+const STORY_PLANNER_WINDOW_TIP := "Opens the Journey planner in its own window and leaves the map live: select a settlement to start, add a stop or end the journey there. Pop out moves the window out of Cartalith's, onto a second screen if you have one. Party, season, carriage, stages and cost over a drawn route; also the CIVIL rail's Journey planner node, or Shift+J anywhere on the map."
+
+## Which form each of Story's two-form rows was built in: `true` is PC-9's row, `false` the shipped
+## one. Written once by `_story()`; read by `_refresh_story_menu()` and `_on_story()`, so the label, the
+## gate and the handler cannot disagree about which row is on the menu. Never re-derived at press
+## time: the menu does not rebuild when a milestone's method appears, so asking again could pick a
+## form the row's label does not show.
+var _story_forms := {"political": false, "note": false, "ask": false}
+
+## The selection for the PC-4/PC-5 forms of Story's gated rows: the host's `selection` (`{kind, id}`,
+## PC-1), or `{why}` with the reason it cannot be used. Busy first, as `_story_place()` asks it, then no
+## world, then nothing selected. Returns a copy, so a caller can never edit the host's selection.
+## Reads `DccApp.selection` through `get()`, which answers null where the property does not exist, so
+## a host without PC-1 gets the "nothing selected" reason rather than an error.
+func _story_selection() -> Dictionary:
+	if bool(_bridge.generating):
+		return {"why": STORY_BUSY_SELECTION}
+	if not bool(_bridge.has_world):
+		return {"why": STORY_NO_WORLD}
+	var sel = _host.get("selection")
+	if typeof(sel) != TYPE_DICTIONARY or (sel as Dictionary).is_empty():
+		return {"why": STORY_NO_SELECTION}
+	return (sel as Dictionary).duplicate()
+
+## The political-history row's tooltip for the form `_story()` built.
+func _story_political_tip() -> String:
+	return STORY_POLITICAL_SEL_TIP if bool(_story_forms["political"]) else STORY_POLITICAL_TIP
+
+## The note row's tooltip for the form `_story()` built.
+func _story_note_tip() -> String:
+	return STORY_NOTE_SEL_TIP if bool(_story_forms["note"]) else STORY_NOTES_TIP
+
+
 ## Tooltip of Political history of this place… while a place is current.
 const STORY_POLITICAL_TIP := "Opens the Place editor on the selected settlement's Political history tab: who held it, year by year, with its conflicts lane."
 ## Tooltip of Notes for this place while a place is current.
 const STORY_NOTES_TIP := "Opens the selected settlement's linked vault note, or attaches one."
-## The Places without notes… tooltip, shared by World ▸ RECORDS and Story ▸ NOTES.
+## The Places without notes… tooltip (Records ▸ RECORDS; Story ▸ NOTES signposts it since PC-9).
 const PLACES_WITHOUT_NOTES_TIP := "Opens the Markdown vault panel on the places that have no linked note -- settlements, provinces, continents or factions -- each with New from template… and Attach existing…."
 
 ## The current place for the two "this place" rows: `{index, tid, name}`, or
@@ -3415,17 +3866,22 @@ func _story_place() -> Dictionary:
 	var s: Dictionary = all[idx]
 	return {"index": idx, "tid": int(s.get("tid", idx)), "name": String(s.get("name", "(unnamed)"))}
 
-## Refreshes the Story menu's live rows: the two "this place" rows (enabled,
-## and named, only while a settlement is current) and the campaigns readout.
+## Refreshes the Story menu's live rows: the two gated rows (enabled, and
+## tooltipped, only while their subject can be read: a settlement in the
+## shipped forms, anything selected in the PC-4/PC-5 forms; `_story_forms`
+## says which) and the campaigns readout.
 func _refresh_story_menu() -> void:
 	var p := _story_popup
 	if p == null:
 		return
 	var place := _story_place()
-	var ok := not place.has("why")
-	for pair in [[_story_political_idx, STORY_POLITICAL_TIP], [_story_notes_idx, STORY_NOTES_TIP]]:
-		p.set_item_disabled(int(pair[0]), not ok)
-		p.set_item_tooltip(int(pair[0]), String(pair[1]) if ok else String(place["why"]))
+	var subject := _story_selection()
+	for row in [[_story_political_idx, bool(_story_forms["political"]), _story_political_tip()],
+			[_story_notes_idx, bool(_story_forms["note"]), _story_note_tip()]]:
+		var gate: Dictionary = subject if bool(row[1]) else place
+		var ok := not gate.has("why")
+		p.set_item_disabled(int(row[0]), not ok)
+		p.set_item_tooltip(int(row[0]), String(row[2]) if ok else String(gate["why"]))
 	var text := "Campaigns this year"
 	var tip := ""
 	if bool(_bridge.generating):
@@ -3457,16 +3913,23 @@ func _refresh_story_menu() -> void:
 	p.set_item_text(_story_campaigns_idx, text)
 	p.set_item_tooltip(_story_campaigns_idx, tip)
 
-## The Story menu's dispatcher. Ignores every id it does not own.
+## The Story menu's dispatcher. Ignores every id it does not own. Each row
+## with two forms acts on the form `_story()` built (`_story_forms`), so the
+## handler cannot do something the row's label did not say.
 func _on_story(id: int) -> void:
 	match id:
 		ID_STORY_TIMELINE: _open_timeline()
-		ID_STORY_FACTION_HISTORY: _host.open_faction_roster(-1, "history")
+		ID_STORY_FACTION_HISTORY: _open_factions("history")
 		ID_STORY_JOURNEY_PLANNER: _host.open_journey_planner()
 		ID_TRAVEL_LIBRARY: _host.open_travel_library()
-		ID_PLACES_WITHOUT_NOTES: _host.open_places_without_notes()
+		## No `ID_PLACES_WITHOUT_NOTES` arm since PC-9: Story's row is a signpost,
+		## and Records' row is dispatched by `_on_data()`.
 		ID_SAVED_JOURNEYS: _host.open_saved_journeys()
-		ID_STORY_ASSISTANT: _host.open_assistant_panel()
+		ID_STORY_ASSISTANT:
+			if bool(_story_forms["ask"]):
+				_host.open_context_tab("ask")
+			else:
+				_host.open_assistant_panel()
 		ID_CONFLICTS_LIST: _host.open_conflicts_list()
 		ID_STORY_DRAW_CONFLICT:
 			if not bool(_bridge.has_world):
@@ -3474,11 +3937,21 @@ func _on_story(id: int) -> void:
 				return
 			## `select_domain` first: the Conflict tool belongs to the CIVIL
 			## workspace, whose `_on_civ_tool_armed` fills the options row
-			## only while CIVIL is the domain (`phone_menu.gd::_arm_civ_tool`
-			## does the same two calls in the same order).
+			## only while CIVIL is the domain (the phone's Civilization screen
+			## armed its tools with the same two calls, in the same order).
 			_shell.select_domain("civilization")
 			_host.arm_tool("conflict")
 		ID_STORY_POLITICAL, ID_STORY_NOTES_HERE:
+			if bool(_story_forms["political" if id == ID_STORY_POLITICAL else "note"]):
+				var subject := _story_selection()
+				if subject.has("why"):
+					_host.set_status("hint", String(subject["why"]), "text_ghost")
+					return
+				if id == ID_STORY_POLITICAL:
+					_host.open_context_tab("inspect", "history")
+				else:
+					_host.open_context_tab("note")
+				return
 			var place := _story_place()
 			if place.has("why"):
 				_host.set_status("hint", String(place["why"]), "text_ghost")
@@ -3487,6 +3960,7 @@ func _on_story(id: int) -> void:
 				_host.place_editor_window.open_for_tab(int(place["index"]), "political")
 			else:
 				_host.open_vault("settlement", int(place["tid"]), String(place["name"]))
+
 
 ## **The Markdown vault's program-scope entry point** (2026-08-24, `design/
 ## Cartalith Menu Structure v3.dc.html`).
@@ -3524,7 +3998,8 @@ func _on_story(id: int) -> void:
 ## Places without notes…), so the separator that used to open this block is
 ## gone -- the band's own labelled separator heads them.
 func _build_vault_rows(p: PopupMenu) -> void:
-	_live(p, "Markdown vault…", ID_VAULT)
+	## PC-9 (§3.8/§3.9, M8): Ctrl+Shift+V. Free: no row binds it; Paste is Ctrl+V.
+	_live(p, "Markdown vault…", ID_VAULT, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_V)
 	p.set_item_tooltip(p.item_count - 1,
 		"Connect or re-link a vault folder (any folder of .md files -- Obsidian is one, "
 		+ "and nothing here requires it), browse it, attach a settlement, province or "
@@ -5760,7 +6235,7 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 		return
 	if id == ID_PREF_SHORTCUTS:
 		## `_host` is `app.gd`'s `DccApp`, which already owns one
-		## `ShortcutsDialog` instance (`Help ▸ Keyboard shortcuts…` reaches
+		## `ShortcutsDialog` instance (`Help ▸ Keyboard reference…` reaches
 		## the same node through the `open_shortcuts()` wrapper, matched
 		## below in `_on_help`) -- reached directly through the field rather
 		## than a new `_host` wrapper method, the same way this file already
@@ -6021,7 +6496,7 @@ func _on_quality(id: int) -> void:
 # -- §2.6 Window --------------------------------------------------------------
 
 ## Fills the Window menu `p`: one check row per region in `WIN_REGION_IDS` (labels from
-## `WIN_REGION_LABELS`), kept in step with the real region state by `_sync_region_checks`, then the
+## `_region_label()`), kept in step with the real region state by `_sync_region_checks`, then the
 ## rows below them. Keeps `p` in `_window_popup` for `_capture_layout()` and `_apply_layout()`.
 # -- 3D-1: the 3D view's entry point and its capability gate -------------------
 
@@ -6115,8 +6590,12 @@ func _window(p: PopupMenu) -> void:
 	## it does. The five labels were written out inline here until 2026-09-06,
 	## which made the readout a second copy of them.
 	for rid in WIN_REGION_IDS:
-		p.add_check_item(String(WIN_REGION_LABELS[rid]), rid)
+		p.add_check_item(_region_label(rid), rid)
 		p.set_item_checked(p.item_count - 1, true)
+		## PC-9 (§3.3, §3.8): the Context panel's submenu sits directly under
+		## its region row, as the mockup draws it, on every form factor (Ruling DX PQ13).
+		if rid == ID_WIN_RIGHT:
+			_build_context_panel_menu(p)
 	## **Part A, 2026-09-13.** The five checks above are built once, true, and
 	## were otherwise only ever flipped LOCALLY by `id_pressed`
 	## (`_sync_region_checks()`) -- nothing read the real region state back
@@ -6142,7 +6621,7 @@ func _window(p: PopupMenu) -> void:
 	## `P_WIN`) draws it exactly there. A check row like the region toggles,
 	## because it is an on/off state the user reads back, and through
 	## `_bind_accelerator` so Ctrl+Shift+M is rebindable and listed by Help ▸
-	## Keyboard shortcuts (which reads the live menus). Ctrl+Shift+M was free:
+	## Keyboard reference (which reads the live menus). Ctrl+Shift+M was free:
 	## `grep -rn "KEY_M\b" shell/` had no hits and `shortcuts_dialog.gd`'s
 	## `UNLISTED` names no M (2026-10-18, the §3.5 check re-run).
 	p.add_check_item("Session mode", ID_WIN_SESSION_MODE)
@@ -6389,7 +6868,7 @@ const SESSION_LAYOUT := "Session"
 ## readouts; keep the map, notes, timeline bar and planner"), resolved to this
 ## shell's surfaces by `dcc_shell.gd`'s Session-mode block. `_sessionmode_probe`
 ## checks each named item against the live shell.
-const SESSION_MODE_TIP := "For running a game or a writing session at the table. Hides the WORLD domain -- its rail mark and the Generate and Sculpt nodes, its dock (Generate, Planet, Geology, Hydrology, Climate, Ecology, World data, Terrain, Biomes), its sculpt and paint tool palette and RUN bar, and the right dock's pipeline and sculpt-stack readouts -- and disables the rows that start or reshape a world: File ▸ New world… and New world from selection…, Edit ▸ Reset generation parameters and Reset one stage, Window ▸ Workspace ▸ World, and on a tablet World ▸ Run pipeline, Generation pipeline, Sculpt and Seed & size…; on a phone the GENERATE tab goes. Keeps the map, CIVIL and CARTO, the timeline bar, notes and the vault, the Journey planner and the Story menu. Switches to the layout named Session (seeded the first time) and back to the previous one when turned off; arrangement changes made meanwhile are kept as Session. The world, its generation settings and the undo history are not touched. Not remembered across restarts."
+const SESSION_MODE_TIP := "For running a game or a writing session at the table. Hides the WORLD domain -- its rail mark and the Generate and Sculpt nodes, its dock (Generate, Planet, Geology, Hydrology, Climate, Ecology, World data, Terrain, Biomes), its sculpt and paint tool palette and RUN bar, and the right dock's pipeline and sculpt-stack readouts -- and disables the rows that start or reshape a world: File ▸ New world… and New world from selection…, Edit ▸ Reset generation parameters and Reset one stage, Window ▸ Workspace ▸ World, File ▸ Generate world, and on a tablet whose bar has a World menu World ▸ Generate world, Generation pipeline, Sculpt and Seed & size…; on a phone the GENERATE tab goes. Keeps the map, CIVIL and CARTO, the timeline bar, notes and the vault, the Journey planner and the Story menu. Switches to the layout named Session (seeded the first time) and back to the previous one when turned off; arrangement changes made meanwhile are kept as Session. The world, its generation settings and the undo history are not touched. Not remembered across restarts."
 ## The reason every gated row carries while the mode is on.
 const SESSION_GATED_TIP := "Hidden by Session mode, which keeps generation out of reach at the table. Window ▸ Session mode, Ctrl+Shift+M, turns it off and brings this back."
 ## Refusal: a generation owns the engine. The draft check below reads the
@@ -6687,7 +7166,7 @@ func _layout_readout(parent: Control, snap: Dictionary) -> void:
 	var stats := DccWidgets.modal_inset(parent)
 	var regions: Dictionary = snap.get("regions", {})
 	for rid in WIN_REGION_IDS:
-		var label := String(WIN_REGION_LABELS[rid])
+		var label := _region_label(rid)
 		if regions.has(rid):
 			DccWidgets.modal_stat(stats, label, "shown" if bool(regions[rid]) else "hidden")
 		else:
@@ -6879,7 +7358,8 @@ func _prompt_forget_layout() -> void:
 const WIN_REGION_IDS: Array[int] = [ID_WIN_LEFT, ID_WIN_RIGHT, ID_WIN_TIMELINE,
 	ID_WIN_STATUS, ID_WIN_RAIL]
 
-## The wording of those five rows, in one place. `_window()` builds the check
+## The wording of those five rows, in one place (the one exception is
+## `_region_label()`, which renames the right dock once it is the Context panel). `_window()` builds the check
 ## items from it and `_layout_readout()` labels the save modal's rows from it,
 ## so the modal cannot describe a region the Window menu does not have.
 ##
@@ -6899,6 +7379,259 @@ const WIN_REGION_LABELS := {
 	ID_WIN_RAIL: "Domain rail",
 }
 
+## The name the right dock takes once it is the Context panel (`PC_SHELL_PROPOSAL.md` §3.3, PC-4),
+## used for its region row, its submenu and its Open windows row. One string, so the three cannot
+## drift apart.
+const CONTEXT_PANEL_LABEL := "Context panel"
+
+## Why Window ▸ Context panel ▸ Inspect is disabled before PC-4. Checked 2026-11-01 at `a38e0ac`:
+## `right_dock.gd` holds one `_context` at a time and builds no tabs (`grep -c 'TabBar\|TabContainer'
+## shell/right_dock.gd` is 0).
+const CTX_INSPECT_TODO := "Not built yet: the right dock shows one thing at a time and has no tabs. Inspect, Note and Ask arrive when it becomes the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4)."
+## Why Note is disabled before PC-5. Points at the row that does the nearest thing today, which is
+## Story's shipped form until PC-5 (`04_menus_story.gd`).
+const CTX_NOTE_TODO := "Not built yet: the Note tab arrives with milestone PC-5 (PC_SHELL_PROPOSAL.md §3.4). Meanwhile Story ▸ Notes for this place opens a settlement's note in the vault window."
+## Why Ask is disabled before PC-6. Points at Story's shipped assistant row.
+const CTX_ASK_TODO := "Not built yet: the Ask tab arrives with milestone PC-6 (PC_SHELL_PROPOSAL.md §3.5). Meanwhile Story ▸ Assistant panel… opens the assistant in its own window."
+## Why Pin is disabled before PC-4. `right_dock.gd` has no pinned state of its own: its "pin" words
+## are map pins and the settlement it shows, which every pick replaces.
+const CTX_PIN_TODO := "Not built yet: the right dock always shows the latest pick and cannot hold one subject while you select another. Pinning arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4)."
+## Why Follow is disabled before PC-4: with no pin there is nothing to release.
+const CTX_FOLLOW_TODO := "Not built yet: there is no pin to release, because the right dock always follows the latest pick. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4)."
+
+## The five rows' tooltips once each is live, from §3.3 and §3.5. `CTX_NOTE_TIP` follows Ruling DY's VQ4
+## (2026-11-01, "Open in Write"): a note opens in Write, with Preview a toggle. It said "in Preview", the
+## proposal's default before that ruling; if the Note tab is ruled to differ from the vault editor, this
+## string changes with it.
+const CTX_INSPECT_TIP := "Shows the Context panel's Inspect page: the selection, or what the panel is pinned to, with its facts and history. Every name there selects it; every year moves the timeline."
+const CTX_NOTE_TIP := "Shows the Context panel's Note tab: the subject's own note, open in Write as every note opens. Preview (Ctrl+E) renders it."
+const CTX_ASK_TIP := "Shows the Context panel's Ask tab with the cursor in its input. Off until you turn the assistant on in Preferences ▸ Assistant."
+const CTX_PIN_TIP := "Keeps the panel on what it shows now while you select other things. A banner then offers to pin it to the new selection or to follow again."
+const CTX_FOLLOW_TIP := "Releases a pin: the panel shows the selection again and follows each new one."
+## Status line when Pin finds nothing to hold (`pin_context_panel()` answered false).
+const CTX_PIN_NOTHING := "Nothing to pin: the panel is empty. Select something first."
+
+## **Ruling DY's modules** (owner, 2026-11-01): `[key, title, id]` for each of the ten the owner chose, in the
+## order the ruling lists them. The key is the module's id in the panel's registry and in the user's stored
+## arrangement (`DccApp.context_module_registry()`, `context_panel_modules()`, `90_pc_milestone_stubs.gd`),
+## the title is its row's and its tab's label, and the id is its row's (`01_menus_ids_helpers.gd`).
+## Append-only: a key, an id and a title's meaning are a module's identity (a rebind is keyed by the id, a
+## saved arrangement by the key), so none is ever reordered, reused or renamed in place. The registry must
+## use these keys and titles, never a second spelling of them. "Compare" was offered and not chosen.
+const CTX_MODULES: Array = [
+	["history", "History", ID_WIN_CTX_MOD_HISTORY],
+	["economy", "Economy", ID_WIN_CTX_MOD_ECONOMY],
+	["military", "Military", ID_WIN_CTX_MOD_MILITARY],
+	["faith", "Faith, culture & relations", ID_WIN_CTX_MOD_FAITH],
+	["territory", "Territory", ID_WIN_CTX_MOD_TERRITORY],
+	["city", "City layout", ID_WIN_CTX_MOD_CITY],
+	["here", "Here", ID_WIN_CTX_MOD_HERE],
+	["routes", "Routes & journeys", ID_WIN_CTX_MOD_ROUTES],
+	["links", "Links", ID_WIN_CTX_MOD_LINKS],
+	["recent", "Recent & bookmarks", ID_WIN_CTX_MOD_RECENT],
+]
+
+## Why a MODULES row is disabled before its module is built: `%s` is the module's title, then where that
+## content lives today (`CTX_MODULE_TODAY`), so the reason is a door, not only a "not yet".
+const CTX_MODULE_TODO := "Not built yet: %s arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). %s"
+
+## Where each module's content lives today, each read at its builder on 2026-11-01 at `3099309`
+## (`90_pc_milestone_stubs.gd::context_module_registry()` names the symbols). Recent & bookmarks has no
+## home today and says so; a "Meanwhile" that pointed nowhere would be a dead control's promise.
+const CTX_MODULE_TODAY: Dictionary = {
+	"history": "Meanwhile the Place editor's Timeline and Political history tabs, and the Factions window's History tab.",
+	"economy": "Meanwhile the Place editor's Economy & notables tab, and the Factions window's Economy tab.",
+	"military": "Meanwhile the Factions window's Military tab; a selected place's garrison is in the right dock.",
+	"faith": "Meanwhile the Factions window's Relations tab (relations and faith) and its Identity tab (culture).",
+	"territory": "Meanwhile the Factions window's Territory tab.",
+	"city": "Meanwhile the Place editor's Layout tab, and the City viewer.",
+	"here": "Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
+	"routes": "Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
+	"links": "Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
+	"recent": "Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+}
+
+## Each MODULES row's tooltip once its module is built: what the tab shows, in the words of the owner's
+## options (Ruling DY), so the row says what ticking it adds.
+const CTX_MODULE_TIPS: Dictionary = {
+	"history": "Adds a History tab: who held a place over time and its timeline, a faction's history, and the dated entries in the subject's note. Every year moves the timeline.",
+	"economy": "Adds an Economy tab: a place's economy and notables, or a faction's economy, currency and tariffs.",
+	"military": "Adds a Military tab: a faction's armies, garrisons and conflicts, or whether a place is fortified and its garrison.",
+	"faith": "Adds a Faith, culture & relations tab: a faction's relations, its faith and its culture.",
+	"territory": "Adds a Territory tab: a faction's claims, provinces and influence.",
+	"city": "Adds a City layout tab: a settlement's layout, as the City viewer draws it.",
+	"here": "Adds a Here tab: the terrain under the subject, or under the cursor while nothing is selected (elevation, climate, biome).",
+	"routes": "Adds a Routes & journeys tab: the roads from the subject, saved journeys through it, and Plan a journey from here.",
+	"links": "Adds a Links tab: the notes that link to the subject, and unlinked mentions with a one-click Link.",
+	"recent": "Adds a Recent & bookmarks tab: the selection history as a list, and the subjects you bookmark.",
+}
+
+## Why Reset panel is disabled before PC-4: there is no arrangement to reset.
+const CTX_RESET_TODO := "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4)."
+## Reset panel's tooltip once it is live.
+const CTX_RESET_TIP := "Puts the Context panel back to its three tabs, Inspect · Note · Ask, in that order. Added modules are removed; their content is not touched."
+## Status line when a module could not be added or removed (`set_context_module_shown()` answered false):
+## the one refusal its contract allows for a listed module, which is leaving the panel with no tab.
+const CTX_MODULE_REFUSED := "The Context panel keeps at least one tab. Add another before removing this one."
+
+## The suffix an Open windows row carries when its window is popped out into its own OS window
+## (`Window.is_embedded()` false). The `PREF_VALUE_SEP` spacing, the house way of adding a second
+## column a `PopupMenu` cannot draw.
+const OPEN_WINDOW_NATIVE_SUFFIX := "   own window"
+## Open windows' empty state. The shipped readout said "none of the dialogs this menu tracks is
+## open"; it tracks every window now.
+const OPEN_WINDOWS_NONE_TIP := "Nothing to raise: no window is open. It fills in as windows are opened, popped-out ones included, and picking a row brings that window to the front."
+
+## The label of region row `rid`: `WIN_REGION_LABELS`' wording, except that the right dock is called
+## the Context panel once it is one (PC-4), on every form factor: on the phone the row then names the
+## selection sheet (Ruling DX PQ13; it read "Right dock" there until that ruling). `_window()` and
+## `_layout_readout()` both read this, so the menu and the Save layout modal cannot name the region
+## differently. Must never rename a region the build does not have: the test is the panel's own Inspect
+## tab (on the phone, its route to the sheet), not the proposal.
+func _region_label(rid: int) -> String:
+	if rid == ID_WIN_RIGHT and _context_tab_ready("inspect"):
+		return CONTEXT_PANEL_LABEL
+	return String(WIN_REGION_LABELS[rid])
+
+## Window ▸ Context panel ▸ (§3.3, §3.8): Inspect, Note, Ask (assistant) with Ctrl+1/2/3, then Pin to
+## the current subject and Follow the selection, in the mockup's order and words. A submenu of its
+## own (node `ContextPanelMenu`, free in `shell/` at a38e0ac), so its ids never reach the Window popup's
+## `toggle_region` handler.
+##
+## Each row is live only when the panel has what it calls (`_context_tab_ready()`; Pin and Follow also
+## need the panel itself, so they test Inspect, the panel's first tab), and a `_todo` with its reason
+## otherwise. Ctrl+1, Ctrl+2 and Ctrl+3 were free: no row binds a digit, and the Layers popover's 1-8
+## answer only while it is open (`layers_popover.gd::_input` returns while hidden). **While the popover
+## is open, Ctrl+1-3 pick a layer**: its `is_action_pressed()` uses the default `exact_match = false`, so
+## an unmodified action matches a Ctrl chord too. That is the popover's own scope and is left alone.
+##
+## Built on every form factor. On the tablet below 1 180 dp it is ☰ ▸ Window ▸ Context panel ▸. On the
+## phone (Ruling DX PQ13) it is MENU ▸ Window ▸ Context panel ▸, its rows reaching the selection sheet, the
+## vault and the assistant through `open_context_tab()`'s phone contract, and its Ctrl+1/2/3 never fire
+## there (the phone's menu bar is a hidden model, so no accelerator does).
+##
+## **Ruling DY (2026-11-01): then a MODULES band** of ten rows (`CTX_MODULES`, `_build_context_module_row()`)
+## and Reset panel, on the desktop and the tablet only. Ctrl+1/2/3 stay on Inspect, Note and Ask whatever the
+## order of the tabs (the owner's "tabs you arrange" moves tabs, not keys); a module gets no default key, and
+## its row is rebindable by id like any other. The ticks are read on every popup
+## (`_refresh_context_modules()`), because the tab strip's own + and Remove change them while this menu is shut.
+func _build_context_panel_menu(p: PopupMenu) -> void:
+	var sub := PopupMenu.new()
+	sub.name = "ContextPanelMenu"
+	_shell.style_popup(sub)
+	p.add_child(sub)
+	p.add_submenu_item(CONTEXT_PANEL_LABEL, sub.name)
+	if _context_tab_ready("inspect"):
+		_live(sub, "Inspect", ID_WIN_CTX_INSPECT, KEY_MASK_CTRL | KEY_1)
+		sub.set_item_tooltip(sub.item_count - 1, CTX_INSPECT_TIP)
+	else:
+		_todo(sub, "Inspect", CTX_INSPECT_TODO)
+	if _context_tab_ready("note"):
+		_live(sub, "Note", ID_WIN_CTX_NOTE, KEY_MASK_CTRL | KEY_2)
+		sub.set_item_tooltip(sub.item_count - 1, CTX_NOTE_TIP)
+	else:
+		_todo(sub, "Note", CTX_NOTE_TODO)
+	if _context_tab_ready("ask"):
+		_live(sub, "Ask (assistant)", ID_WIN_CTX_ASK, KEY_MASK_CTRL | KEY_3)
+		sub.set_item_tooltip(sub.item_count - 1, CTX_ASK_TIP)
+	else:
+		_todo(sub, "Ask (assistant)", CTX_ASK_TODO)
+	sub.add_separator()
+	if _context_tab_ready("inspect") and _host_has("pin_context_panel"):
+		_live(sub, "Pin to the current subject", ID_WIN_CTX_PIN)
+		sub.set_item_tooltip(sub.item_count - 1, CTX_PIN_TIP)
+	else:
+		_todo(sub, "Pin to the current subject", CTX_PIN_TODO)
+	if _context_tab_ready("inspect") and _host_has("follow_selection"):
+		_live(sub, "Follow the selection", ID_WIN_CTX_FOLLOW)
+		sub.set_item_tooltip(sub.item_count - 1, CTX_FOLLOW_TIP)
+	else:
+		_todo(sub, "Follow the selection", CTX_FOLLOW_TODO)
+	## Ruling DY: the modules, on the desktop and the tablet. Not on the phone, which has no panel to add a
+	## tab to (§3.11, "the model, not the panel"); its five rows above are Ruling DX PQ13's and stay.
+	if not DccTheme.is_phone():
+		sub.add_separator("MODULES")
+		for m in CTX_MODULES:
+			_build_context_module_row(sub, m)
+		sub.add_separator()
+		if _host_has("reset_context_panel"):
+			_live(sub, "Reset panel", ID_WIN_CTX_RESET)
+			sub.set_item_tooltip(sub.item_count - 1, CTX_RESET_TIP)
+		else:
+			_todo(sub, "Reset panel", CTX_RESET_TODO)
+		sub.about_to_popup.connect(_refresh_context_modules.bind(sub))
+		_refresh_context_modules(sub)
+	sub.id_pressed.connect(_on_context_panel)
+
+## Whether module `key` is built in this host: `DccApp.context_module_registry()` lists an entry whose
+## "key" is `key`. Asked per module, as `_context_tab_ready()` asks per tab, because the ten modules are
+## extracted from their windows one by one and a row must stay a `_todo` until its own module exists.
+## Must never infer a module from the panel's other methods: a registry with three entries says nothing
+## about the other seven.
+func _context_module_ready(key: String) -> bool:
+	if not _host_has("context_module_registry"):
+		return false
+	for e in _host.context_module_registry():
+		if typeof(e) == TYPE_DICTIONARY and String((e as Dictionary).get("key", "")) == key:
+			return true
+	return false
+
+## One MODULES row, `m` being a `CTX_MODULES` entry: a check row with its tooltip once the module is built
+## (`_context_module_ready()`), otherwise a `_todo` whose reason names where that content lives today
+## (`CTX_MODULE_TODAY`). Its tick is not set here: `_refresh_context_modules()` reads it.
+func _build_context_module_row(sub: PopupMenu, m: Array) -> void:
+	var key := String(m[0])
+	var title := String(m[1])
+	if _context_module_ready(key):
+		sub.add_check_item(title, int(m[2]))
+		sub.set_item_tooltip(sub.item_count - 1, String(CTX_MODULE_TIPS[key]))
+	else:
+		_todo(sub, title, CTX_MODULE_TODO % [title, String(CTX_MODULE_TODAY[key])])
+
+## Ticks each built module's row when that module is in the user's panel (`context_panel_modules()`), on
+## every popup of the submenu and once at build. A row still a `_todo` has no item with the module's id
+## (`_todo()` adds by index), so `get_item_index()` answers -1 and it is skipped. Reads only; never adds or
+## removes a tab.
+func _refresh_context_modules(sub: PopupMenu) -> void:
+	if not _host_has("context_panel_modules"):
+		return
+	var shown: PackedStringArray = _host.context_panel_modules()
+	for m in CTX_MODULES:
+		var i := sub.get_item_index(int(m[2]))
+		if i >= 0 and sub.is_item_checkable(i):
+			sub.set_item_checked(i, shown.has(String(m[0])))
+
+## The `CTX_MODULES` key of row `id`, or "" when `id` is not a module row's.
+func _context_module_key(id: int) -> String:
+	for m in CTX_MODULES:
+		if int(m[2]) == id:
+			return String(m[0])
+	return ""
+
+## Window ▸ Context panel ▸'s dispatcher. Its ids are on live rows only, so the host has each method
+## whenever one arrives (a module row is live only once the registry lists it, and
+## `90_pc_milestone_stubs.gd` makes the registry, the arrangement and its setter land together). Pin's `false`
+## (nothing to hold) says so in the status line. A module row (Ruling DY) flips its module in or out of the
+## panel, reading the arrangement at the press, never a tick cached at build; a refusal (the panel's last
+## tab) says why in the status line.
+func _on_context_panel(id: int) -> void:
+	match id:
+		ID_WIN_CTX_INSPECT: _host.open_context_tab("inspect")
+		ID_WIN_CTX_NOTE: _host.open_context_tab("note")
+		ID_WIN_CTX_ASK: _host.open_context_tab("ask")
+		ID_WIN_CTX_PIN:
+			if not bool(_host.pin_context_panel()):
+				_host.set_status("hint", CTX_PIN_NOTHING, "text_ghost")
+		ID_WIN_CTX_FOLLOW: _host.follow_selection()
+		ID_WIN_CTX_RESET: _host.reset_context_panel()
+		_:
+			var key := _context_module_key(id)
+			if key == "":
+				return
+			var shown: PackedStringArray = _host.context_panel_modules()
+			if not bool(_host.set_context_module_shown(key, not shown.has(key))):
+				_host.set_status("hint", CTX_MODULE_REFUSED, "text_ghost")
+
 ## Moves Window-menu check marks to match a region toggle without waiting for the next
 ## popup: `ID_WIN_RESET` checks every region; a region id flips its own tick; any other id is
 ## ignored. Mirrors what a click on the row would have done.
@@ -6915,56 +7648,103 @@ func _sync_region_checks(p: PopupMenu, id: int) -> void:
 	if i >= 0:
 		p.set_item_checked(i, not p.is_item_checked(i))
 
-## `_host` is `DccApp` (`app.gd`); these **six** fields are its own public
-## `AcceptDialog`s, none reached through any new API. Grepped against
-## `app.gd` rather than trusted from memory -- the list has grown before,
-## and this sentence said "five" while the array below held six (counted
-## 2026-09-07: the `for entry in [...]` literal has six rows). `app.gd`
-## declares **twelve** public window fields; which of the other six belong
-## here is a product question this comment does not answer.
+## Every window open right now: each visible `AcceptDialog` anywhere under `DccApp`, docked or popped
+## out, in tree order. Walked rather than listed (finding W5): the six fields this menu named by hand
+## missed the faction roster, the Place editor, the vault, the City viewer, the assistant, Conflicts,
+## Saved journeys and every pop-out, and a hand list falls behind the next window someone adds.
+## `owned = false`, because windows built in code have no owner and the default would find none. A
+## pop-out is still a child of `DccApp` (`PopoutHost.prepare()` only sets `force_native`), so the walk
+## finds it like any other window.
+func _visible_windows() -> Array:
+	var out: Array = []
+	if _host == null:
+		return out
+	for n in (_host as Node).find_children("*", "AcceptDialog", true, false):
+		if (n as Window).visible:
+			out.append(n)
+	return out
+
+## The Open windows row for window `w`: its own title (most windows put their subject there,
+## "Place — Korrath", "Markdown vault — …"), or its `PopoutHost.key_for()` key made readable when the
+## title is empty (a borderless phone window draws its title in its own header instead), plus
+## `OPEN_WINDOW_NATIVE_SUFFIX` when it is popped out.
+func _open_window_label(w: Window) -> String:
+	var t := w.title.strip_edges()
+	if t == "":
+		t = PopoutHost.key_for(w).replace("_", " ").capitalize()
+	if not w.is_embedded():
+		t += OPEN_WINDOW_NATIVE_SUFFIX
+	return t
+
+## Window ▸ Open windows (WI-03), rebuilt on every popup because it changes between opens: the
+## Context panel first while it is shown (from PC-4; §3.6: "lists every open window, the Context panel
+## and pop-outs included"), then every window `_visible_windows()` finds. Rows are checked, as they
+## always were: an Open windows row is an open thing. Its empty state is a readout, never a silent dark
+## row (`_menuwire_probe.gd` checks that every disabled row states a reason).
+##
+## While an exclusive dialog is open the menu bar takes no input, so in practice this lists pop-outs
+## until the context windows stop being exclusive (PC-7, §3.6); the walk needs no change when they do.
+## The same test on every form factor (Ruling DX PQ13). On the phone it lists the selection sheet only
+## while that sheet is shown, which MENU's own opening ends (`DccShell._close_all_phone_overlays()`), so
+## the phone's list shows windows in practice.
 func _refresh_open_windows() -> void:
 	_windows_popup.clear()
 	_open_windows.clear()
-	for entry in [
-		["New world…", _host.new_world_dialog],
-		["World data tables", _host.world_data_window],
-		["Generation info", _host.gen_info_dialog],
-		["Data manager", _host.data_manager_window],
-		["Asset library", _host.asset_library_window],
-		["Travel library", _host.travel_library_window],
-	]:
-		var dlg: Window = entry[1]
-		if dlg != null and dlg.visible:
-			_windows_popup.add_check_item(String(entry[0]), _open_windows.size())
-			_windows_popup.set_item_checked(_open_windows.size(), true)
-			_open_windows.append(dlg)
+	if _context_tab_ready("inspect") and _host.is_region_shown(ID_WIN_RIGHT):
+		_windows_popup.add_check_item(CONTEXT_PANEL_LABEL, _open_windows.size())
+		_windows_popup.set_item_checked(_windows_popup.item_count - 1, true)
+		_open_windows.append(CONTEXT_PANEL_LABEL)
+	for w in _visible_windows():
+		_windows_popup.add_check_item(_open_window_label(w as Window), _open_windows.size())
+		_windows_popup.set_item_checked(_windows_popup.item_count - 1, true)
+		_open_windows.append(w)
 	if _open_windows.is_empty():
-		## The same empty state as `Open recent`'s "No recent projects", and
-		## built the same way: a readout, not a silent dark row. It said
-		## nothing at all until 2026-08-31, which `_menuwire_probe.gd` reported
-		## as the one genuine disabled-without-a-reason row left in the bar.
-		_readout(_windows_popup, "No windows open",
-			"Nothing to raise: none of the dialogs this menu tracks is open. "
-			+ "It fills in as they are opened, and picking a row brings that "
-			+ "window back to the front.")
+		_readout(_windows_popup, "No windows open", OPEN_WINDOWS_NONE_TIP)
 
-## Brings an already-open window to front. `popup_centered()` on a `Window`
-## that's already visible re-centres and raises it -- there is no separate
-## "just raise, don't move" call on `AcceptDialog`.
+## Brings the picked entry to the front. The Context panel: `open_context_tab("")`, which shows it on
+## the tab it already has. A docked window: `popup_centered()`, as shipped (on a visible
+## `AcceptDialog` it re-centres and raises it). A popped-out window: `grab_focus()` only, because a
+## window the user placed on a second screen must not be dragged back to the centre of the first.
+## Ignores an index past the list or a window freed since the menu was built.
 func _on_open_window(id: int) -> void:
-	if id >= 0 and id < _open_windows.size():
-		(_open_windows[id] as Window).popup_centered()
+	if id < 0 or id >= _open_windows.size():
+		return
+	var entry = _open_windows[id]
+	if typeof(entry) == TYPE_STRING:
+		_host.open_context_tab("")
+		return
+	if not is_instance_valid(entry):
+		return
+	var w := entry as Window
+	if w.is_embedded():
+		w.popup_centered()
+	else:
+		w.grab_focus()
+
 
 # -- §2.7 Help ----------------------------------------------------------------
 
-## The one-line "Keyboard shortcuts…" row (Help's read-only `ID_HELP_SHORTCUTS`),
+## Help ▸ Keyboard reference…'s tooltip: what it lists and where the editor is, so the two rows that
+## open one dialog say which way each opens it. Enabled rows' tooltips do not enter the command index
+## (its blurb for a live row is the menu's name), so this changes no search result.
+const HELP_KEYBOARD_REFERENCE_TIP := "Every keyboard shortcut, read from the menus each time it opens, and the keys no menu carries. Read-only: Preferences ▸ Keyboard shortcuts… changes them."
+
+## The one-line "Keyboard reference…" row (Help's read-only `ID_HELP_SHORTCUTS`),
 ## its own function since 2026-09-12 for the same reason as
 ## `_build_asset_library_row()`: the tablet's ☰ overflow and PC/phone's Help
 ## menu build the identical row from one source.
+##
+## **"Keyboard shortcuts…" until PC-9** (`PC_SHELL_PROPOSAL.md` §3.8, finding
+## M2). Preferences ▸ Keyboard shortcuts… is the editor (`ShortcutsDialog.
+## open_editable()`); this row opens the same dialog read-only
+## (`app.gd::open_shortcuts()` -> `ShortcutsDialog.open()`), so it is named for
+## what it opens. Same id: a quick-bar pin (`menu:72`) and the assistant's
+## window list (`llm_view.gd::WINDOWS`, entry "shortcuts") still name it.
 func _build_help_shortcuts_row(p: PopupMenu) -> void:
-	_live(p, "Keyboard shortcuts…", ID_HELP_SHORTCUTS)
+	_live(p, "Keyboard reference…", ID_HELP_SHORTCUTS)
+	p.set_item_tooltip(p.item_count - 1, HELP_KEYBOARD_REFERENCE_TIP)
 
-## `full=false` on the tablet omits Keyboard shortcuts and About, which the ☰
+## `full=false` on the tablet omits Keyboard reference and About, which the ☰
 ## overflow promotes to its own top level (`TABLET_UI_SPEC.md` §2.1's plain
 ## "Shortcuts…" and "About Cartalith" rows -- this is Help's READ-ONLY
 ## `ID_HELP_SHORTCUTS`, not Preferences' editable `ID_PREF_SHORTCUTS`, which
@@ -7461,7 +8241,7 @@ func _on_view(id: int) -> void:
 	if id == ID_TABLET_TOGGLE_THEME:
 		_on_toggle_theme()
 
-## Builds the tablet's World menu from its canvas: Run pipeline (Ctrl+R), Reset generation
+## Builds the tablet's World menu from its canvas: Generate world (Ctrl+R; "Run pipeline" until Ruling DX PQ11), Reset generation
 ## parameters, the Generation pipeline / Sculpt mode radios (ticked from the shell's active
 ## WORLD mode on popup) and Seed & size. `id_pressed` goes to `_on_edit` and `_on_world`,
 ## each ignoring ids it does not own. PC and phone have no such menu.
@@ -7478,14 +8258,9 @@ func _world(p: PopupMenu) -> void:
 	## already uses for File's `⌘S`. Missing entirely before 2026-09-13;
 	## `Ctrl+R` was free (grepped `KEY_R` across `shell/*.gd`, no hits) so
 	## this is a new binding, not a fix to an existing double one.
-	_live(p, "Run pipeline", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)
+	_live(p, "Generate world", ID_WORLD_RUN_PIPELINE, KEY_MASK_CTRL | KEY_R)
 	_session_gate_row(p, p.item_count - 1)
-	p.set_item_tooltip(p.item_count - 1,
-		## Same guarded path as `world_workspace.gd::_regenerate_live()`.
-		## "The engine has no partial recompute" removed 2026-09-24 (ALIGNMENT_
-		## AUDIT Part 2 B6): `recompute_stale_stages`/`recompute_civilisation`
-		## exist; Generate itself always runs every stage.
-		"Runs the whole generation pipeline -- the same path the WORLD dock's own Generate button uses: it asks first if the world holds hand-authored work (sculpt stamps, icons, labels, paint, routes, hand-drawn ways) a regenerate would discard. Every stage runs, from the start.")
+	p.set_item_tooltip(p.item_count - 1, RUN_PIPELINE_TIP)
 	p.add_separator()
 	_build_reset_generation(p)
 	p.add_separator()
@@ -7520,7 +8295,7 @@ func _world(p: PopupMenu) -> void:
 	p.id_pressed.connect(_on_edit)
 	p.id_pressed.connect(_on_world)
 
-## Dispatcher for the tablet World menu: Run pipeline calls the world workspace's guarded
+## Dispatcher for the tablet World menu and File ▸ Generate world: Generate world calls the world workspace's guarded
 ## `_regenerate_live()` (asks before discarding authored work); the mode rows select the
 ## WORLD domain's mode a or b; Seed and size opens New world. Calls are `has_method`-guarded.
 func _on_world(id: int) -> void:

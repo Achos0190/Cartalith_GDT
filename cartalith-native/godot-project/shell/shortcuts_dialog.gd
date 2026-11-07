@@ -1,7 +1,7 @@
 extends AcceptDialog
 class_name ShortcutsDialog
 
-## `Help ▸ Keyboard shortcuts`, which was a `_todo` reading *"No shortcut table
+## `Help ▸ Keyboard reference…` (titled Keyboard shortcuts… until PC-9), which was a `_todo` reading *"No shortcut table
 ## yet."* since the menu was built.
 ##
 ## **The table is not written down anywhere; it is read back off the live
@@ -39,7 +39,7 @@ class_name ShortcutsDialog
 ##   "Restore all to defaults" for the whole table.
 ##
 ## **What editable mode does NOT cover, and why**: `[UNLISTED]` below never
-## grows a rebind control, in either mode. Those rows (six at time of writing;
+## grows a rebind control, in either mode. Those rows (seven at time of writing;
 ## the first four are the ones this paragraph names) are real
 ## accelerators, but none of them are `menus.gd` accelerators -- the layer
 ## digits are an `InputMap` action (`layers_popover.gd`), Space is a held
@@ -56,8 +56,8 @@ class_name ShortcutsDialog
 ## Blender's rule over Photoshop's): rebinding a key already used by other
 ## rows in the SAME context (the only context this file can see -- see
 ## `_conflicts_within_menu()`) still applies the change and names **every**
-## other row now sharing it, not just the first one found. Eighteen actions
-## route through `DccMenus._bind_accelerator`, so three-way sharing is
+## other row now sharing it, not just the first one found. Every accelerator in `menus.gd`
+## routes through `DccMenus._bind_accelerator`, so three-way sharing is
 ## reachable in a handful of clicks, and a message naming one of two others
 ## is a list silently truncated to its first element -- the same shape as
 ## reporting a single sample as a measurement. A key already meaningful in a
@@ -110,6 +110,26 @@ var _capture_chips: Dictionary = {}
 ## owns the `dialog_close_on_escape` half of the same state.
 var _capturing_id := -1
 
+## The window's title when Help ▸ Keyboard reference… opened it (`open()`, read-only). The row's own
+## name without its ellipsis, so the window says what the user picked (finding M2).
+const TITLE_REFERENCE := "Keyboard reference"
+## The window's title when Preferences ▸ Keyboard shortcuts… opened it (`open_editable()`), and the
+## title `setup()` builds the phone head with before either has run.
+const TITLE_EDITOR := "Keyboard shortcuts"
+
+## The phone sheet's title `Label`, as `DccWidgets.phone_head()` returned it, so the title can follow
+## the mode; null on desktop and tablet, which use the window title bar. Written once by `setup()`.
+var _phone_title: Label
+
+## Titles the window for the mode it is opening in: `TITLE_EDITOR` when `editable`, `TITLE_REFERENCE`
+## otherwise, on the title bar and, on a phone, on the sheet's own head (upper-cased, as
+## `phone_head()` draws it). Called by `open()` and `open_editable()` before they rebuild, so the
+## title and the rows never disagree about the mode. Never reads or changes `_editable`.
+func _set_mode_title(editable: bool) -> void:
+	title = TITLE_EDITOR if editable else TITLE_REFERENCE
+	if _phone_title != null:
+		_phone_title.text = title.to_upper()
+
 ## Shortcuts that exist but have no menu row to read them from. The fourth
 ## column is where the row's action happens, in the user's own words -- it
 ## used to be the developer file name that owns the binding
@@ -126,6 +146,7 @@ const UNLISTED: Array = [
 	["Map view", "Space", "Hold to pan the map", "the map view"],
 	["Map view", "Esc", "Cancel the active tool or close the top sheet", "the main window"],
 	["Map view", "Delete / Backspace", "Remove the selected item", "the main window"],
+	["Map view", "Menu", "Open the context card: the same as Edit ▸ Context card, whose key can be rebound", "the main window"],
 	["Civilization", "Shift+J", "Open the Journey planner", "the main window"],
 	["Edit", "Ctrl+Y", "Redo (second accelerator beside Ctrl+Shift+Z)", "the main window"],
 ]
@@ -145,7 +166,7 @@ func setup(app: Node) -> void:
 	body.add_theme_constant_override("separation", 6)
 	add_child(body)
 	if _phone:
-		DccWidgets.phone_head(body, "Keyboard shortcuts", "read from the live menus")
+		_phone_title = DccWidgets.phone_head(body, TITLE_EDITOR, "read from the live menus")
 
 	var hint := DccWidgets.note(body,
 		"Read from the menus themselves each time this opens, so it cannot fall out of step with what the application does.")
@@ -193,12 +214,13 @@ func _present_phone_aware() -> void:
 	if not DccWidgets.phone_present(self, _app):
 		popup_centered()
 
-## `Help ▸ Keyboard shortcuts…` -- read-only, exactly as before this file
+## `Help ▸ Keyboard reference…` -- read-only, exactly as before this file
 ## grew an editable mode. Hides the edit chrome, rebuilds from the live menus,
 ## then presents. Must never leave `_editable` true from a previous
 ## `open_editable()`, or a read-only sheet would show rebind chips.
 func open() -> void:
 	_editable = false
+	_set_mode_title(false)
 	_edit_bar.visible = false
 	_status.visible = false
 	_rebuild()
@@ -208,6 +230,7 @@ func open() -> void:
 ## file's own header on why it is a mode of this dialog and not a second one.
 func open_editable() -> void:
 	_editable = true
+	_set_mode_title(true)
 	_edit_bar.visible = true
 	_status.visible = true
 	_status.text = ""

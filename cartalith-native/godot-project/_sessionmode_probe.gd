@@ -64,9 +64,9 @@ var _form := "desktop"
 ## (DS-03 / Ruling CK Q2); its Window menu is under ☰.
 const GATED_DESKTOP: Array = ["File > New world…", "File > New world from selection…",
 	"Edit > Reset generation parameters", "Edit > Reset one stage",
-	"Window > Workspace > World"]
+	"Window > Workspace > World", "File > Generate world"]
 const GATED_TABLET: Array = ["File > New world…", "File > New world from selection…",
-	"World > Run pipeline", "World > Reset generation parameters", "World > Reset one stage",
+	"World > Generate world", "World > Reset generation parameters", "World > Reset one stage",
 	"World > Generation pipeline", "World > Sculpt", "World > Seed & size…",
 	"☰ > Window > Workspace > World"]
 ## The reason every gated row must carry (a literal copy, so an edit to the

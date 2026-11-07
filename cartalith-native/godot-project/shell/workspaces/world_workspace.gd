@@ -945,7 +945,10 @@ func _build_generate_head(parent: Control) -> void:
 	## it also regenerated.
 	seed_btn.tooltip_text = "The reference's #reseedBtn. Rolls a new random seed into File ▸ New world's Seed field (and its preview); it does nothing while the seed is locked. It does not regenerate: press Generate world to build from the new seed."
 	var centre := DccWidgets.action(sec, "Center landmasses", func(): app._center_landmasses())
-	centre.tooltip_text = "The reference's #centerBtn. Rotates the world in longitude so the emptiest meridian sits at the map edge, then feathers the join it moved into the interior. Whole-world mode only; the outcome is reported in the status bar."
+	## Ruling DZ (2026-11-01): the tool-options bar's copy of this button is gone, and it carried
+	## the full disclosure (`DccApp.CENTRE_TOOLTIP`: cannot be undone, drops the civilisation layer,
+	## hand-placed layers do not rotate). This dock button is the pass's only home now, so it says it.
+	centre.tooltip_text = DccApp.CENTRE_TOOLTIP
 
 	_build_import(parent)
 
@@ -1116,7 +1119,7 @@ func _build_import(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Import")
 	var load_btn := DccWidgets.action(sec, "Load heightmap…",
 		func(): app.open_data_manager("Import"))
-	load_btn.tooltip_text = "The reference's #loadBtn. Opens World ▸ Import, whose Heightmaps route decodes a PNG, takes it as the elevation field and infers tectonics under it."
+	load_btn.tooltip_text = "The reference's #loadBtn. Opens Records ▸ Import, whose Heightmaps route decodes a PNG, takes it as the elevation field and infers tectonics under it."
 	var infer := DccWidgets.action(sec, "Infer tectonics from heightmap…",
 		func(): app.open_data_manager("Import"))
 	## Tectonics inference runs as part of the import (`cartalith_engine::import::infer_tectonics`);
@@ -1475,19 +1478,9 @@ func _on_bake_all() -> void:
 func on_world_changed() -> void:
 	_refresh_finalize()
 
-## The tool-options bar's copy of this control presses exactly this
-## (`app.gd:_tool_options_generate`). A method rather than exposing
-## `_bake_button` so the header cannot press a button this workspace considers
-## disabled.
-func bake_and_finalize() -> void:
-	if _bake_button == null or _bake_button.disabled or not bridge.has_world:
-		return
-	_on_bake_all()
-
 ## Re-syncs the Finalize section from `bridge.atlas_status()` and
 ## `bridge.bake_estimate()`: bake vs Un-finalize visibility, enabled state (no
-## world = disabled), the shared bake-depth setting, tile-count notes, and the
-## tool bar's bake shortcut. Safe before `_build_finalize` ran (returns when
+## world = disabled), the shared bake-depth setting, and tile-count notes. Safe before `_build_finalize` ran (returns when
 ## the button is null). Must not start a bake.
 func _refresh_finalize() -> void:
 	if _bake_button == null:
@@ -1515,11 +1508,6 @@ func _refresh_finalize() -> void:
 	_bake_button.visible = not finalized
 	_unfinalize_button.visible = finalized
 	_bake_button.disabled = not has_world
-	## The tool-options bar's copy mirrors this one rather than recomputing it.
-	if app != null and app.has_method("set_bake_shortcut"):
-		app.set_bake_shortcut(not finalized, not has_world,
-			_bake_button.tooltip_text if has_world
-			else "Generate a world before baking: the atlas is keyed to one.")
 	var est: Dictionary = bridge.bake_estimate(_bake_depth)
 	if not has_world:
 		_bake_status.text = "No world yet: generate one before baking."

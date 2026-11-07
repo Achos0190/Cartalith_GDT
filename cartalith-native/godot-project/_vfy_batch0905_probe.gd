@@ -140,8 +140,9 @@ func _ready() -> void:
 	# LANE A
 	# =====================================================================
 	## The Data menu is titled World since SM-1 (Ruling CK); same builder.
-	var data := _menu("World")
-	_ok("A: a World (was Data) menu exists at all", data != null)
+	## Records since Ruling DY (PC-9).
+	var data := _menu("Records")
+	_ok("A: a Records (was World, was Data) menu exists at all", data != null)
 	var data_rows := _rows_deep(data, [])
 	_ok("A1 gone: no `Journey planner` row anywhere under World (incl. submenus)",
 		_count_containing(data_rows, "Journey planner") == 0, str(data_rows))
@@ -151,7 +152,7 @@ func _ready() -> void:
 	## The whole MenuBar, deep. A row that moved to another menu instead of the
 	## rail would show up here and would NOT be a vanished command.
 	var all_menu_rows: Array = []
-	for t in ["File", "Edit", "View", "World", "Story", "Assets", "Generate", "Preferences", "Window", "Help"]:
+	for t in ["File", "Edit", "View", "World", "Records", "Story", "Assets", "Generate", "Preferences", "Window", "Help"]:
 		var m := _menu(t)
 		if m != null:
 			_rows_deep(m, all_menu_rows)
@@ -288,9 +289,11 @@ func _ready() -> void:
 	var refine := _button_named(app, "Refine detail")
 	_ok("A2 old home gone: no `Refine detail` button on the WORLD tool-options bar",
 		refine == null)
-	var bake := _button_named(app, "Bake ALL & finalize")
-	_ok("A2 control: Bake ALL & finalize is still on the WORLD tool-options bar",
-		bake != null)
+	## Ruling DZ (PC-11): the bar holds tool settings only; the bake lives in the dock.
+	var bake := _button_named(app.tool_options_row, "Bake ALL & finalize")
+	_ok("A2 DZ: no Bake ALL & finalize button on the WORLD tool-options bar", bake == null)
+	_ok("A2 DZ: the WORLD dock still holds Bake ALL levels & finalize",
+		_button_named(app, "Bake ALL levels & finalize") != null)
 
 	if atlas != null and refine_id >= 0:
 		app.set_status("hint", "", "text_dim")

@@ -134,8 +134,9 @@ func _ready() -> void:
 
 	## The Data menu is titled World since SM-1 (Ruling CK); same popup, same
 	## builder (`menus.gd::_data`).
-	var data := _menu("World")
-	_check("the World (was Data) menu is still there", data != null)
+	## Records since Ruling DY (PC-9).
+	var data := _menu("Records")
+	_check("the Records (was World, was Data) menu is still there", data != null)
 	if data != null:
 		_check("1a OLD HOME: World (was Data) has no Journey planner row",
 			not _has_row(data, "Journey planner"), "rows=%s" % [_rows(data)])
@@ -241,9 +242,12 @@ func _ready() -> void:
 	var refine := _button(app.tool_options_row, "Refine detail")
 	_check("2b OLD HOME GONE: no Refine detail button on the WORLD tool bar",
 		refine == null)
+	## Ruling DZ (PC-11): the bar holds tool settings only; the bake lives in the
+	## WORLD dock's Finalize foot.
 	var bake := _button(app.tool_options_row, "Bake ALL & finalize")
-	_check("2b control: Bake ALL & finalize is still on the WORLD bar",
-		bake != null)
+	_check("2b DZ: the WORLD bar holds no Bake ALL & finalize button", bake == null)
+	_check("2b DZ: the WORLD dock's Finalize foot holds Bake ALL levels & finalize",
+		_button(app, "Bake ALL levels & finalize") != null)
 
 	## SAME THING. At a fitted view the pyramid is not up, so the honest answer
 	## is the "nothing to refine at this zoom" refusal -- which is still proof

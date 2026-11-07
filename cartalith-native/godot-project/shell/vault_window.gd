@@ -3236,7 +3236,7 @@ var _pwn_section: Control
 ## dashed, not emptied"). Never read for anything but that state.
 var _pwn_last: Dictionary = {}
 
-## The menu entry (World ▸ RECORDS and Story ▸ NOTES, `menus.gd::ID_PLACES_
+## The menu entry (Records ▸ RECORDS, signposted from Story ▸ NOTES, `menus.gd::ID_PLACES_
 ## WITHOUT_NOTES`): the overview, scrolled to this section, at a width the
 ## table fits (A5's 720 px frame, never more than 90% of the screen).
 func open_places_without_notes() -> void:

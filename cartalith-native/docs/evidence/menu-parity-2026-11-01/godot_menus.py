@@ -355,6 +355,18 @@ def build_sources():
         menus, rep, add = apply_defs(menus, read(os.path.join(PCD, name)))
         applied.append({"draft": "pc-shell/" + name, "replaced": rep, "added": add})
     for label, old, new in PC_EDITS:
+        # PC-9 shipped (2026-11-07): drafts 01-09 are in `shell/` now, so an EDIT whose ADDED code lines
+        # (comments aside) are all already in the file is recorded as shipped, not applied. "Added" matters:
+        # several EDITs only insert after their old text, which therefore stays in the file, and applying them
+        # again would draw the inserted row twice. An EDIT none of whose added lines is present is applied as
+        # before, and its old text must still occur exactly once.
+        old_lines = set(old.split(chr(10)))
+        added = [l for l in new.split(chr(10))
+                 if l.strip() and not l.strip().startswith("##") and l not in old_lines]
+        # An EDIT that only deletes code (06 A1) is shipped when its old text is gone.
+        if (added and all(l in menus for l in added)) or (not added and menus.count(old) == 0):
+            applied.append({"edit": "pc-shell " + label, "state": "shipped"})
+            continue
         menus = edit(menus, old, new, label)
         applied.append({"edit": "pc-shell " + label})
     menus, rep, add = apply_defs(menus, read(os.path.join(MSD, "08_menus_tablet_bar.gd")))
