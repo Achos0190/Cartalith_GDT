@@ -1467,8 +1467,8 @@ func _build_tools() -> void:
 		app.timeline_changed.connect(refresh_conflicts)
 		## MM-8: Military's headcounts and garrisons follow the recorded year.
 		app.timeline_changed.connect(_on_military_cursor)
-		## The strip's scrub moves the cursor without passing through
-		## `_tl_goto_year`, so the Timeline's filters and marks listen here too.
+		## Every move of the year (since PC-2, CIVIL's own included) emits this, so the
+		## Timeline's filters, marks, territory and pills listen here.
 		app.timeline_changed.connect(_tl_on_cursor_moved)
 	app.register_tool_click_handler("settlement", func(gx, gy): _settlement_click(gx, gy))
 	app.register_tool_drag_handler("territory", func(gx, gy): _territory_drag(gx, gy))
@@ -1914,7 +1914,7 @@ func _tl_apply_filters(rows: Array) -> Array:
 	return rows.filter(func(r): return not r.has("tid") or present_set.has(int(r["tid"])))
 
 ## The shell's `timeline_changed` -- the strip's scrub, its transport, and every
-## other cursor move that does not pass through `_tl_goto_year`. Before
+## other cursor move, CIVIL's own since PC-2 (`_tl_goto_year` is a caller of the one writer). Before
 ## 2026-09-28 only the marks listened, so *Exist only* kept the previous year's
 ## filter after a strip scrub. With *Exist only* on, the filtered arrays
 ## themselves depend on the year, so the whole civ push re-runs (it ends in
@@ -1925,10 +1925,48 @@ func _tl_apply_filters(rows: Array) -> Array:
 func _tl_on_cursor_moved() -> void:
 	if app == null or app.viewport == null:
 		return
+	## Our own move (`_tl_goto_year`) does all of this itself, in full, after the writer returns.
+	if _tl_own_move:
+		return
+	## PC-2: the territory texture follows the claims the engine loaded, whichever surface moved
+	## the year. Only when the loaded year changed -- `civ_goto_year` reloads the territory from
+	## a recorded year's snapshot only on crossing one, and a texture rebuild per playback tick
+	## would pay for nothing. Before PC-2 only CIVIL's own pills repainted it, so a strip scrub
+	## across a recorded year left the claims drawn for the old one.
+	var terr: Dictionary = bridge.get_civ_territory_year()
+	var terr_key: Variant = int(terr["year"]) if terr.has("year") else null
+	if terr_key != _tl_last_territory_year:
+		_tl_last_territory_year = terr_key
+		_tl_refresh_territory_view()
 	if _tl_filter_exist_only:
 		_refresh_civ_data()
 	else:
 		_tl_push_marks()
+	## CIVIL > Timeline's pills and "Active year" show the year, so they redraw when the year was
+	## moved from anywhere else (T2). Skipped for our own moves (their callers rebuild), while the
+	## body is not on screen (a rebuild per strip playback tick would be wasted), and coalesced
+	## to one deferred call so a burst of ticks rebuilds once.
+	if not _tl_own_move and _tl_body != null and is_instance_valid(_tl_body) \
+			and _tl_body.is_visible_in_tree() and not _tl_rebuild_queued:
+		_tl_rebuild_queued = true
+		_tl_rebuild_deferred.call_deferred()
+
+## The deferred half of `_tl_on_cursor_moved()`'s pill redraw; clears the queue flag first so a
+## move landing during the rebuild queues another rather than being swallowed.
+func _tl_rebuild_deferred() -> void:
+	_tl_rebuild_queued = false
+	if _tl_body != null and is_instance_valid(_tl_body) and _tl_body.is_visible_in_tree():
+		_rebuild_timeline()
+
+## True while `_tl_goto_year()` is inside the writer, so `_tl_on_cursor_moved()` does not rebuild
+## the Timeline body under the caller that is about to rebuild it (or under a slider mid-drag).
+var _tl_own_move := false
+## True between `_tl_on_cursor_moved()` queueing a pill redraw and it running.
+var _tl_rebuild_queued := false
+## The recorded year the territory texture was last repainted for (`get_civ_territory_year()`'s
+## `year`), or `null` when the claims did not come from one -- not a year-shaped stand-in, because
+## `get_civ_territory_year()` answers `{}` for "none" and any int is a real year.
+var _tl_last_territory_year: Variant = null
 
 ## Pushes the Timeline's *Highlight new* and *Ghost removed* marks to the map
 ## (`map_overlay.gd::set_timeline_marks`), closing `GUI_GAP_REGISTER.md` CV-03
@@ -7631,9 +7669,24 @@ func _tl_refresh_territory_view() -> void:
 	if app != null and app.viewport != null and app.viewport.territory_view != null:
 		app.viewport.territory_view.texture = bridge.territory_texture()
 
-## Moves the Timeline cursor: `civ_goto_year`, repaints the territory texture and refreshes civ data (the "Exist only" filter is keyed to the active year).
+## Moves the Timeline cursor **through the one writer**, `DccShell.tl_set_year()` (PC-2, finding
+## T1), with `exact` because a pill or the scrub names a recorded year, which must not be clamped
+## to the strip's track. It must never call the engine directly.
+##
+## `_tl_own_move` tells `_tl_on_cursor_moved()` (reached by the writer's `timeline_changed`) that
+## this move is ours and it should do nothing: this function repaints the territory and refreshes
+## the civ data itself, as it always did, and the callers below rebuild the Timeline body
+## themselves -- a listener rebuild in the middle of the Scrub slider's drag would destroy the
+## slider being dragged.
 func _tl_goto_year(year: int) -> void:
-	bridge.civ_goto_year(year)
+	_tl_own_move = true
+	app.tl_set_year(year, true)
+	_tl_own_move = false
+	## What this function always did after its engine call, kept for our own moves (the listener
+	## skips them): repaint the territory and refresh the civ data unconditionally, since a
+	## caller such as the Timeline probes edits settlements and then jumps, relying on this push.
+	var terr: Dictionary = bridge.get_civ_territory_year()
+	_tl_last_territory_year = int(terr["year"]) if terr.has("year") else null
 	_tl_refresh_territory_view()
 	_refresh_civ_data()   ## "Exist only" is keyed to the active year -- see `_tl_apply_filters`.
 

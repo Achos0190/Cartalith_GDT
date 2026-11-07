@@ -348,6 +348,13 @@ func setup(a, b: EngineBridge) -> void:
 	## `_rebuilding` guard drops it instead.
 	bridge.generation_finished.connect(func(ok: bool): if ok and visible: _rebuild())
 	bridge.world_loaded.connect(func(): if visible: _rebuild())
+	## PC-2 (`PC_SHELL_PROPOSAL.md` §3.2, finding T2): the Timeline tab shows the cursor year and
+	## the Economy and Overview tabs read engine state keyed to it, so any move of the year --
+	## the strip's, CIVIL's, or this window's own chips -- redraws it while it is open. Like the
+	## two handlers above it is `_rebuild()`, never `open_for()`, so no focused field is committed
+	## against a year it was not typed for.
+	if app != null and app.has_signal("timeline_changed"):
+		app.timeline_changed.connect(func(): if visible and _index >= 0: _rebuild())
 
 
 ## `_civOpenPlacePopup`: opens on the settlement at `index` into
@@ -618,10 +625,9 @@ func _build_timeline(parent: Control) -> void:
 		row.add_theme_constant_override("separation", 4)
 		for y in years:
 			var on := int(y) == cursor
-			DccWidgets.chip(row, "y%d" % int(y), func():
-				bridge.civ_goto_year(int(y))
-				place_changed.emit()
-				_rebuild(), on)
+			## Through the one writer (PC-2): its `timeline_changed` redraws this window, the strip
+			## and CIVIL. `exact`: a recorded year is a value, not a point on the strip's track.
+			DccWidgets.chip(row, "y%d" % int(y), func(): app.tl_set_year(int(y), true), on)
 		sec.add_child(row)
 	DccWidgets.note(sec, "Cursor: year %d." % cursor)
 
@@ -633,10 +639,9 @@ func _build_timeline(parent: Control) -> void:
 		bridge.civ_add_year(_tl_target_year)
 		place_changed.emit()
 		_rebuild())
-	DccWidgets.action(btn_row, "Go to year", func():
-		bridge.civ_goto_year(_tl_target_year)
-		place_changed.emit()
-		_rebuild())
+	## Through the one writer (PC-2); `exact` because the field accepts +-100000 and the strip's
+	## track is -400..1200 -- clamping would load a different year's snapshot than was typed.
+	DccWidgets.action(btn_row, "Go to year", func(): app.tl_set_year(_tl_target_year, true))
 	DccWidgets.action(btn_row, "Remove", func():
 		bridge.civ_remove_year(_tl_target_year)
 		place_changed.emit()

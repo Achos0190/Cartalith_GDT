@@ -950,6 +950,18 @@ func refresh_settlement() -> void:
 		return
 	on_settlement_selected(live, _settlement_index)
 
+## PC-2 (`PC_SHELL_PROPOSAL.md` §3.2, finding T2): the year moved, from any surface. The two
+## contexts that read the cursor -- a settlement's Garrison row (`_build_settlement`) and a
+## conflict's siege garrison (`_build_siege_garrison`) -- redraw; every other context holds no
+## year-keyed row, so it is left alone (a rebuild per strip-playback tick would be wasted there).
+## A full `_rebuild()` and not `refresh_settlement()`: the year does not renumber the roster, and
+## `refresh_settlement()` closes the panel when it cannot find the place, which is not this
+## function's business. Connected by `app.gd` to `timeline_changed`. If a context that reads
+## `get_civ_year()` is added, add it here.
+func on_timeline_changed() -> void:
+	if _context == CTX_SETTLEMENT or _context == CTX_CONFLICT:
+		_rebuild()
+
 ## Sample panel's live path, called on every mouse motion over the viewport. Rewrites the
 ## coordinate rows, staleness footnote, Nearest, Elevation (also pushed to the collapsed dock via
 ## `app.set_dock_readout`) and every `SAMPLE_FIELDS` row **in place** from one `bridge.sample_cell()`

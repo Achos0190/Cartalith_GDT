@@ -1287,6 +1287,8 @@ func _ready() -> void:
 	add_child(right_dock_ctrl)
 	right_dock_ctrl.setup(self, bridge)
 	_workspaces.append(right_dock_ctrl)
+	## PC-2: the dock's Garrison row is read at the cursor year, so any move of the year redraws it.
+	timeline_changed.connect(right_dock_ctrl.on_timeline_changed)
 
 	## The cross-section strip. A second overlay child of `viewport_content`,
 	## added after `viewport` so it draws on top of the map, and after

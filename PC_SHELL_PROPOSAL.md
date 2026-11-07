@@ -585,6 +585,12 @@ missed); and the menu parity extractor had to learn that a draft's EDIT can alre
 `_pc9menus_probe`; PC-1's is `_pc1select_probe`. PC-1 applies settlement selections to the surfaces; the other kinds are
 recorded and wait for PC-4's Inspect builders. MS-1 shipped ids 930-933 first, so Reset panel is 934.
 
+PC-2 (2026-11-07) was built as specified: `tl_set_year` is the one writer, with an `exact` argument the bar did not
+name, because the CIVIL dock records years in -9999..9999 and the Place editor accepts +-100 000, and the strip's
+clamp to -400..1200 would have loaded the wrong year's snapshot for them (PC-3's range from the world retires the
+clamp's constant). The readers T2 lists that were missing were the right dock, the Place editor, CIVIL's pills and
+the territory texture; the assistant's context carries no year until PC-6. The probe is `_pc2year_probe`.
+
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes
 `popout_host.gd`, which Ruling DK's PW-2 built. PC-8 and PW-4 re-host the planner, so they are one change (§3.7).

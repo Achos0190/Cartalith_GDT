@@ -47,6 +47,38 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-2 built: one year (2026-11-07)
+
+`PC_SHELL_PROPOSAL.md` §2 rule 2, §3.2 (findings T1, T2), §5.
+
+- **Built:** `DccShell.tl_set_year(year, exact := false)` is the only function in `shell/` that calls
+  `bridge.civ_goto_year()`; it emits `timeline_changed`. `exact` skips the strip's -400..1200 clamp for a year that
+  is a value (a recorded year, a year typed in the Place editor), which the direct calls never clamped. The three
+  direct writers now call it: CIVIL ▸ Timeline's `_tl_goto_year` (pills, scrub, Step, Animate), and the Place
+  editor's recorded-year chips and Go to year. Readers that did not listen now do: the right dock redraws a
+  Settlement or Conflict context (`RightDock.on_timeline_changed`, connected in `app.gd`), the Place editor rebuilds
+  while open, CIVIL's pills and "Active year" redraw for a move that did not come from CIVIL (a deferred, coalesced
+  rebuild while the Timeline body is on screen), and the territory texture is repainted when the engine's territory
+  year changed, whichever surface moved the year (a strip scrub across a recorded year used to leave the old claims
+  drawn).
+- **Bar:** `grep -rn "civ_goto_year(" shell/` outside comments finds `engine_bridge.gd`'s wrapper and the one call in
+  `dcc_shell.gd::tl_set_year` (it found four code lines before: the writer, `_tl_goto_year`, two in the Place editor).
+- **Measured:** new `_pc2year_probe` (windowed, real clicks): a CIVIL pill, the strip's track and the Place editor's
+  chip and Go to year (5000, outside the track) each move the year; after each, the engine, the strip labels, CIVIL's
+  active pill and "Active year", the dock's Garrison row (rebuilt), the Place editor's Cursor line and the territory
+  year agree, and `timeline_changed` was emitted; controls (no write moves nothing; default write clamps to 1200,
+  `exact` does not) and a source scan of the writers. PASS 46/46 at 1600x1000 and at 1600x1000 touch, 0 SCRIPT ERROR
+  (the phone is not driven; its strip reaches the same writer). Eight mutants (CIVIL writing the engine directly, the
+  Place chip writing it directly, the dock not connected, the Place editor not listening, CIVIL pills not redrawn, the
+  writer always clamping, the territory not repainted, the writer not emitting) each turned it red. Re-run:
+  `_pc1select` 31/31, `_tlpins`, `_tlscrub`, `_pesibling`, `_petabstrip`, `_sp4conflict` green; `_tlfloor` and
+  `_mm8garrison` fail identically on origin/main (same FAIL lines).
+- **Not in PC-2, stated:** the assistant's context does not carry the year (PC-6 adds it; its tools read the engine,
+  which is the one year). One range from the world (finding T3), the strip in every domain and the strip's transport
+  merge are PC-3. A shipped fault found by the probe, not fixed: the collapsed strip is "the whole strip clickable"
+  (`app.gd::_build_timeline_collapsed`), but the row's `DccTheme.spacer()` is a Control with the default STOP filter and
+  swallows the click everywhere except over the words, so expanding it by a click in the middle does nothing.
+
 ### PC-1 built: one selection (2026-11-07)
 
 `PC_SHELL_PROPOSAL.md` §2 rule 1, §3.1, §5; the contract in `drafts/pc-shell/90_pc_milestone_stubs.gd`.

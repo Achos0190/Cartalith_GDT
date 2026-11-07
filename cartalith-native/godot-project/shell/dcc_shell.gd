@@ -5339,10 +5339,9 @@ const TL_LAYER_NOTE := "they record which layer you want; no layer renders yet"
 ## moves -- the one notification both views rebuild on, so neither has to know
 ## the other exists.
 ##
-## **`workspaces/civilization_workspace.gd` should connect to this too**: its
-## year pills and its `_refresh_civ_data()` are the third view of the same
-## cursor, and a scrub from the strip leaves them a frame behind until it does.
-## Named here rather than left silent; that file is not this pass's to edit.
+## `workspaces/civilization_workspace.gd` connects (`_tl_on_cursor_moved`), as do the Place editor
+## and the right dock (`on_timeline_changed`) -- PC-2. A reader that shows the year must connect
+## here, and a writer of the year must call `tl_set_year()`, which emits it.
 signal timeline_changed()
 
 var tl_speed := 10            ## `tlSpeed:'×10'`.
@@ -5373,15 +5372,28 @@ func tl_year() -> int:
 	var bridge := _find_engine_bridge()
 	return 0 if bridge == null else bridge.get_civ_year()
 
-## Move the cursor. Clamped to the track, because both canvases draw a fixed
-## -400..1200 axis and a playhead outside it has nowhere to be.
-func tl_set_year(year: int) -> void:
+## **The one writer of the year** (`PC_SHELL_PROPOSAL.md` PC-2, finding T1). Every move of
+## the cursor -- the strip's scrub, step and playback, CIVIL > Timeline's pills, scrub, Step and
+## Animate, the Place editor's year chips and Go to year -- comes through here, and this is the
+## only function in `shell/` that calls `bridge.civ_goto_year()` (`grep -rn "civ_goto_year(" shell/`
+## finds the wrapper's definition in `engine_bridge.gd` and this one call). It must never be
+## bypassed: the engine write alone moves no reader, and a surface that wrote the year itself
+## left the strip, the dock's garrison row and the journey markers on the old year.
+##
+## Clamped to the track by default, because both canvases draw a fixed -400..1200 axis and a
+## playhead outside it has nowhere to be. **`exact`** skips the clamp for a year that is a
+## *value* rather than a pointer on the track -- a recorded year (the CIVIL dock lets one be
+## added anywhere in -9999..9999) or a year typed in the Place editor (+-100000). Clamping those
+## would load the snapshot of the wrong year, which is what the pre-PC-2 direct calls never did.
+## The strip draws its playhead from `tl_year()` unclamped; PC-3 takes the range from the world
+## (finding T3).
+func tl_set_year(year: int, exact := false) -> void:
 	if not tl_available():
 		return
 	var bridge := _find_engine_bridge()
 	if bridge == null:
 		return
-	bridge.civ_goto_year(clampi(year, TL_YEAR_MIN, TL_YEAR_MAX))
+	bridge.civ_goto_year(year if exact else clampi(year, TL_YEAR_MIN, TL_YEAR_MAX))
 	timeline_changed.emit()
 
 ## Moves the year cursor one step in `direction` (-1 or +1) of `tl_speed` years; `tl_set_year()`
