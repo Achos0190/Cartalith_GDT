@@ -88,3 +88,17 @@ Built from draft 02's `_phone_scale_for()`, `_apply_unit()` and `_unit_factor()`
 - **B10, partly.** All 16 legacy touch captures (no `--density`) are byte-identical to the baseline. The 14 probe runs give the same results. `DccTheme.phone_scale()` now reads 1.0000 off the phone, where it read 2.6214 at 1920 × 1080.
 - **B7: pending the 6T.** At its quoted densities: 420 dpi gives `_phone_scale` = 2.6214, unchanged; 402 dpi gives 2.5125, every phone figure −4.1 %; 450 dpi gives 2.6214, held by the cap. At `--density 2.625` the desktop composition reads `phone_scale` 2.6214.
 - The regression runs above preceded one line added to `view3d.gd` afterwards: a deferred first `_fit_physical()`, without which the 3D `SubViewport` stayed in dp. That line was verified by the B3 re-run. The S3 run re-runs everything.
+
+## S3 results (live re-evaluation within a class)
+
+These are draft 02's S3 pieces: `_booted`, the 150 ms `_resize_timer`, `_on_window_resized()`, `_on_resize_settled()`, and `_request_class_swap()`, which only logs. One addition: when the class is unchanged, `_on_resize_settled()` publishes the new classification (`_layout`, `DccTheme.set_layout()`), as spec §3.4 says. The draft dropped it. The "decided once" prose on `_phone`, `_ready()`, `_on_window_resized()`, `_on_tablet_resized()` and `_process()` was rewritten. The comments in `DccTheme._elide_labels` and in `radial_ring.gd` stay true until S4 builds a swap.
+
+- **B4, `_ms1class_probe.gd --live`.**
+  - **Phone, `--vp 1080x2340 --density 2.625` rotated to 2340 × 1080.** The layout goes landscape and stays a phone. `_phone_root` keeps its instance id, so the composition was not rebuilt. The published width class is expanded, 891 dp. PASS, 4 checks.
+  - **Tablet, `--vp 2388x1668 --density 2`.** The left dock was set to 320 dp through `_left_width` and `_apply_dock_widths()`, which is what WI-04's drag writes, not a finger. It reads 320.00 dp both before and after a resize from 2388 to 2200 px. The unit follows the resize: the override goes from (1194, 834) to (1100, 834). PASS, 4 checks.
+  - **Before S3:** the phone leg passes, because the old handler already rotated the phone, so that leg guards rather than pins. The tablet leg **fails**: the override stays at (1194, 834).
+- **The class question (spec §3.4), `--live swap`, at 900 × 1 600 dp.**
+  - At 890 × 1 582 the window stays a tablet and nothing is requested (inside the band).
+  - At 880 × 1 564 the shell logs exactly one `size class change requested (phone=true, (880.0, 1564.0) dp); kept the boot class until MS-1 S4` and keeps the tablet composition.
+  - Before S3 the leg's checks pass, but no request line is logged.
+- **B10, partly, and B9.** All 18 identity captures are byte-identical to the S0 baseline. The 14 probe runs are unchanged. B3's six legs still pass.

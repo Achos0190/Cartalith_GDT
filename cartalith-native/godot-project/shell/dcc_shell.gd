@@ -493,8 +493,10 @@ var _dragging_dock := ""  ## "", "left" or "right" -- which handle (if any) owns
 # (`DccTheme.TABLET_MIN_DP`, owner answer `BUILD_ANSWERS.md` §2.3, applied only below
 # that aspect and only when the density is known). Both constants and their worked table
 # moved there from this file; `_compute_layout_mode()` is the shell's one caller.
-## True when the composition is the phone one. Decided once at boot (a device's form
-## factor does not change at runtime), mirrored into `DccTheme.set_phone`.
+## True when the composition is the phone one, mirrored into `DccTheme.set_phone`. Written by the boot
+## classification only (`_booted`, MS-1 S3): a resize that crosses the line requests a class swap
+## (`_request_class_swap()`) instead of flipping this flag under a composition built for the other class.
+## Until MS-1 S4 builds the swap, the request is logged and the boot class is kept.
 var _phone := false
 ## True while the viewport is wider than tall; unlike `_phone` it is re-decided on every
 ## resize.
@@ -854,10 +856,9 @@ func _ready() -> void:
 	ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(ground)
 
-	## Phone-vs-tablet is decided once, here, off the boot window size -- a
-	## device's own form factor is not something that changes at runtime.
-	## Orientation (`_landscape`) *is* re-decided on every resize below, which
-	## is the half of §13 that genuinely needs to react live.
+	## Phone-vs-tablet is decided here, off the boot window size. After boot a resize
+	## re-classifies (MS-1 S3, `_on_resize_settled()`); a changed class goes to the swap,
+	## never to this flag. Orientation (`_landscape`) is re-decided on every resize.
 	_compute_layout_mode()
 	## The narrower half of the same publication -- the 412 canvas asks for
 	## things a tablet must not get, and a static factory has no way to tell the
@@ -916,6 +917,8 @@ func _ready() -> void:
 	## still no-ops rather than erroring on a bare `DccShell` (every phone-chrome
 	## probe in this project), which has neither.
 	_refresh_viewport_context.call_deferred()
+	## MS-1 S3: from here on only a class swap may change `_phone` (see the field).
+	_booted = true
 
 ## The pointer-first / tablet composition: one continuous vertical stack of
 ## fixed-height bars around a horizontal row of rail/docks/viewport. This is
@@ -1122,19 +1125,20 @@ func _unit_factor() -> float:
 ## non-empty viewport and silently keeps the previous answer otherwise; must never be
 ## called with `_touch` unset expecting a phone result.
 ##
-## The phone/tablet decision is `DccTheme.classify()` over the host's physical size (MS-1 S1). It is
-## called with no `current` class, so no hysteresis applies yet: a resize answers exactly what a boot at
-## that size answers, which is today's behaviour on the phone (the only composition that re-runs this on
-## resize). Stage S3 feeds `_layout` back for the band.
+## The phone/tablet decision is `DccTheme.classify()` over the host's physical size (MS-1 S1), fed the
+## previous result for hysteresis (S3): at boot `_layout` is `{}` and the lines sit at their constants.
 func _compute_layout_mode() -> void:
 	var px := _host_px()
 	if px.x <= 0.0 or px.y <= 0.0:
 		return
 	var size: Vector2 = get_viewport_rect().size
 	var d := _density()
-	_layout = DccTheme.classify(px, float(d["value"]), _ui_scale(), _touch, bool(d["known"]))
+	_layout = DccTheme.classify(px, float(d["value"]), _ui_scale(), _touch, bool(d["known"]), _layout)
 	DccTheme.set_layout(_layout)
-	_phone = bool(_layout["phone"])
+	## Only the boot call writes `_phone` (MS-1 S3, draft 02): after it, a changed class goes to the swap
+	## (spec §3.5), never a flipped flag under a composition built for the other class.
+	if not _booted:
+		_phone = bool(_layout["phone"])
 	_landscape = bool(_layout["landscape"])
 	## MS-1 S2: the phone's unit from the density, 1.0 off the phone (draft 02's `_phone_scale_for()`).
 	_phone_scale = _phone_scale_for(px, float(d["value"]))
@@ -1183,42 +1187,77 @@ func _compute_layout_mode() -> void:
 	## portrait half of the canvas's 232/320 pair is taken.
 	##
 	## Runs from `_ready()`, and on a tablet once more per orientation flip --
-	## `_on_tablet_resized()` below, where that exception to the early return
-	## and its WI-04 constraint are argued.
+	## `_on_tablet_resized()` below, where its WI-04 constraint is argued.
 	if (_touch and not _phone) or DccTheme.is_laptop():
 		_left_width = float(DccTheme.role_px("w_left_dock"))
 		_right_width = float(DccTheme.role_px("w_right_dock"))
 
-## **The early return is deliberate, and it was audited rather than assumed**
-## (`GUI_GAP_REGISTER.md` §56). It reads as an asymmetry -- a shell that latched
-## tablet by mistake can never correct itself -- and the obvious fix, hoisting
-## `_compute_layout_mode()` above the guard, is the wrong one twice over:
+# ===================== MS-1 S3: live re-evaluation within a class (spec §3.4) =====================
+
+## True once `_ready()` has built the first composition. From then on only the swap (S4) changes `_phone`.
+var _booted := false
+## The class question's debounce: 150 ms, a labelled judgement to be revisited on glass. A child of the
+## shell itself, never of a composition, so a later swap (S4) cannot free it.
+const RESIZE_DEBOUNCE_S := 0.15
+var _resize_timer: Timer
+
+## Connected to `root.size_changed` in `_ready()` (draft 02, MS-1 S3). Pointer builds return at once, so
+## the PC is untouched (B9). On touch, today's in-class handling runs at once, so a rotation re-lays out
+## with no added delay; only the class question waits for the size to settle.
 ##
-## - There is nothing to correct. `_phone` needs `_touch`, which is fixed for
-##   the life of the process, and the aspect it tests is `min/max`, which a
-##   rotation cannot change. Measured on the OnePlus 6T over 52 cold starts:
-##   `get_viewport_rect()` reports the real 1080 x 2340 at the first sample
-##   inside `_ready()` and `root.size_changed` never fires at all. There is no
-##   provisional size for the decision to race against on this handset.
-## - Recomputing for tablets would *break* something real. The tablet branch of
-##   `_compute_layout_mode()` assigns `_left_width`/`_right_width`, so running
-##   it on every resize would reset a tablet user's dragged dock widths (WI-04)
-##   to `W_DOCK_TABLET` on every rotation.
+## The phone half is the old handler's: `_compute_layout_mode()` re-runs for its orientation. The tablet
+## half is still `_on_tablet_resized()`, which acts only on an orientation flip, so WI-04's dragged dock
+## widths survive a same-orientation resize (B4). The old comment here argued that re-classifying was
+## needless because the class could never change: true on the OnePlus 6T, where over 52 cold starts
+## `root.size_changed` never fired (`GUI_GAP_REGISTER.md` §56), but not for a resizable window, split
+## screen, a foldable or a UI-scale change, which is what MS-1 exists for.
 func _on_window_resized() -> void:
-	if not _phone:
+	if not _touch:
+		return
+	if _phone:
+		var was_landscape := _landscape
+		_compute_layout_mode()
+		if _landscape != was_landscape:
+			_apply_phone_orientation()
+	else:
 		_on_tablet_resized()
-		return  ## Desktop windows resizing is not this shell's concern.
-	var was_landscape := _landscape
-	_compute_layout_mode()
-	if _landscape != was_landscape:
-		_apply_phone_orientation()
+	if _resize_timer == null:
+		_resize_timer = Timer.new()
+		_resize_timer.one_shot = true
+		_resize_timer.wait_time = RESIZE_DEBOUNCE_S
+		_resize_timer.timeout.connect(_on_resize_settled)
+		add_child(_resize_timer)
+	_resize_timer.start()
+
+## The size has settled. Classify against the current class (hysteresis): a changed class goes to the
+## swap; otherwise the classification is published (its width class and dp, spec §3.4: an addition to
+## draft 02, which dropped it) and the unit is re-applied in case the density or the UI scale moved.
+func _on_resize_settled() -> void:
+	var px := _host_px()
+	if px.x <= 0.0 or px.y <= 0.0:
+		return
+	var d := _density()
+	var next := DccTheme.classify(px, float(d["value"]), _ui_scale(), _touch, bool(d["known"]), _layout)
+	if bool(next["phone"]) != _phone:
+		_request_class_swap(next)
+		return
+	_layout = next
+	DccTheme.set_layout(_layout)
+	_apply_unit(_unit_factor())
+
+## S4's entry point. Until the mount path exists (spec §3.5, after S4.0's inventory) it only says it was
+## asked: the shell keeps its boot class, which is the pre-MS-1 behaviour, and the log line lets a probe
+## see the request. It must never flip `_phone` itself.
+func _request_class_swap(next: Dictionary) -> void:
+	print("Cartalith: size class change requested (phone=%s, %s dp); kept the boot class until MS-1 S4" %
+		[str(next["phone"]), str(next["dp"])])
 
 ## The tablet's share of the resize handler, and it acts on exactly one event:
 ## an orientation flip. Added 2026-09-07 with the portrait dock fix.
 ##
-## **The early return above is not weakened.** Its purpose (WI-04, argued in the
-## comment on `_on_window_resized()`) is that a tablet user's dragged dock
-## widths survive a resize, and they still do: the flip test below reads the raw
+## **WI-04's dragged widths survive a same-orientation resize**, and MS-1 S3 keeps
+## that (B4): the class re-check runs from `_on_resize_settled()`, which re-applies
+## the unit but never the dock widths. Here: the flip test below reads the raw
 ## viewport size and returns *before* `_compute_layout_mode()` -- which is the
 ## call that would overwrite `_left_width`/`_right_width` -- so a same-orientation
 ## resize mutates nothing at all.
@@ -1466,8 +1505,8 @@ func _haptic(kind: String) -> void:
 ## the process and only the first two lines ever run.
 func _process(_delta: float) -> void:
 	## A one-time self-disable rather than a per-frame branch. `_phone` is fixed
-	## for the life of the process (`_on_window_resized()`'s early-return states
-	## the argument), and a display server either has an IME or never will --
+	## after boot (MS-1 S3: only the S4 swap may change it, and S4 is not built;
+	## when it is, the swap must re-enable this), and a display server either has an IME or never will --
 	## and polling one that does not pushes a "Virtual keyboard not supported"
 	## warning PER CALL, which at 60 fps buries every real message in the log.
 	## Found on the headless `_phonechrome_probe.gd` run, not reasoned about.

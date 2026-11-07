@@ -6,8 +6,18 @@ extends Node
 ##
 ##   godot --headless --path . _ms1class_probe.tscn -- --table
 ##
+## And the live legs (B4, and S3's class-change request), windowed with the lane's `override.cfg` and a
+## wiped user dir, booting the real shell in a `--vp` host:
+##   godot --path . _ms1class_probe.tscn -- --live phone  --force-touch --vp 1080x2340 --density 2.625
+##   godot --path . _ms1class_probe.tscn -- --live tablet --force-touch --vp 2388x1668 --density 2
+##   godot --path . _ms1class_probe.tscn -- --live swap   --force-touch --vp 1800x3200 --density 1
+## A live leg resizes its host `SubViewport` and emits `root.size_changed` itself, because a host resize
+## does not resize the root window, and the shell listens to the root (as on a device, where the root IS
+## its viewport).
+##
 ## Headless is correct here: nothing is drawn and nothing is timed; it is arithmetic on a pure function.
-## Arguments read: `--table`. Anything else aborts with exit 2 (`MISTAKES.md`, "Write a probe's usage
+## Arguments read: `--table`, `--live phone|tablet|swap`, `--vp WxH`, `--density D` (also the shell's),
+## `--force-touch` (the shell's). Anything else aborts with exit 2 (`MISTAKES.md`, "Write a probe's usage
 ## header").
 ##
 ## **Every expected value below is a literal written by hand from the spec's text**, never computed by the
@@ -60,13 +70,24 @@ func _wc(width_dp: float, want: String) -> void:
 
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
-	for a in args:
-		if a != "--table":
+	var i := 0
+	while i < args.size():
+		var a := String(args[i])
+		if a in ["--table", "--force-touch"]:
+			i += 1
+		elif a in ["--live", "--vp", "--density"]:
+			i += 2
+		else:
 			print("ABORT: unknown argument ", a)
 			get_tree().quit(2)
 			return
+	if "--live" in args:
+		await _live(String(args[args.find("--live") + 1]))
+		print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
+		get_tree().quit(0 if _fails == 0 else 1)
+		return
 	if not "--table" in args:
-		print("ABORT: pass --table")
+		print("ABORT: pass --table or --live <leg>")
 		get_tree().quit(2)
 		return
 	_T = load("res://shell/dcc_theme.gd")
@@ -191,3 +212,95 @@ func _ready() -> void:
 
 	print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
 	get_tree().quit(0 if _fails == 0 else 1)
+
+
+# ---- live legs (B4 and S3's swap request) ----------------------------------------------------------
+
+var _vp: SubViewport
+var _app: Node
+
+func _frames(n: int) -> void:
+	for k in n:
+		await get_tree().process_frame
+
+func _arg(name: String, dflt: String) -> String:
+	var args := OS.get_cmdline_user_args()
+	var k := args.find(name)
+	if k >= 0 and k + 1 < args.size():
+		return String(args[k + 1])
+	return dflt
+
+## Resizes the host and tells the shell, as a device's root resize would, then waits past the shell's
+## 150 ms debounce (0.4 s, so a settled result is read, not a mid-debounce one).
+func _resize(w: int, h: int) -> void:
+	_vp.size = Vector2i(w, h)
+	await _frames(2)
+	get_tree().root.size_changed.emit()
+	await get_tree().create_timer(0.4).timeout
+	await _frames(3)
+
+func _live(leg: String) -> void:
+	var parts := _arg("--vp", "").split("x")
+	if parts.size() != 2:
+		_ok(false, "--live needs --vp WxH")
+		return
+	var vw := int(parts[0])
+	var vh := int(parts[1])
+	DisplayServer.window_set_size(Vector2i(mini(vw, 1600), mini(vh, 1000)))
+	_vp = SubViewport.new()
+	_vp.size = Vector2i(vw, vh)
+	_vp.gui_embed_subwindows = true
+	_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_vp)
+	_app = load("res://shell/app.tscn").instantiate()
+	_vp.add_child(_app)
+	await get_tree().create_timer(1.6).timeout
+	if "open_project_dialog" in _app and _app.open_project_dialog != null:
+		_app.open_project_dialog.hide()
+	if "phone_project_picker" in _app and _app.phone_project_picker != null:
+		_app.phone_project_picker.hide()
+	await _frames(6)
+	match leg:
+		"phone":
+			## B4, phone half: rotating 1080 x 2340 at 2.625 gives the landscape layout without a rebuild.
+			_ok(DccTheme.is_phone() and _app._phone_root != null, "boots as a phone")
+			var id: int = _app._phone_root.get_instance_id() if _app._phone_root != null else 0
+			await _resize(2340, 1080)
+			_ok(_app._landscape and DccTheme.is_phone(), "rotated: landscape, still a phone")
+			_ok(_app._phone_root != null and _app._phone_root.get_instance_id() == id,
+				"the composition root is the same instance (no rebuild)")
+			## The published classification follows the rotation. Before S3 the phone's own re-run of
+			## `_compute_layout_mode()` already published it, so this check guards rather than pins.
+			_ok(String(DccTheme.layout().get("width_class", "")) == "expanded",
+				"published width class after rotation is 'expanded' (2340 / 2.625 = 891 dp); got '%s'" %
+				String(DccTheme.layout().get("width_class", "")))
+		"tablet":
+			## B4, tablet half: a dock dragged to 320 dp keeps it through a same-orientation resize.
+			_ok(DccTheme.is_tablet(), "boots as a tablet")
+			_app._left_width = 320.0
+			_app._apply_dock_widths()
+			await _frames(4)
+			var before: float = _app.left_dock.size.x
+			await _resize(2200, 1668)
+			var after: float = _app.left_dock.size.x
+			_ok(absf(before - 320.0) <= 0.5 and absf(after - 320.0) <= 0.5,
+				"left dock 320 dp before (%.2f) and after (%.2f) a 2388 -> 2200 px resize, +-0.5" % [before, after])
+			## S3: the unit is re-applied to the new size (fails before S3: the override keeps 1194 x 834).
+			_ok(_vp.size_2d_override == Vector2i(1100, 834),
+				"the unit follows the resize: override %s, want (1100, 834)" % str(_vp.size_2d_override))
+			_ok(String(DccTheme.layout().get("width_class", "")) == "expanded",
+				"published width class 'expanded' (1100 dp); got '%s'" % String(DccTheme.layout().get("width_class", "")))
+		"swap":
+			## S3's class question with B5's hysteresis walk, density 1 (900 x 1 600 dp). Until S4 the
+			## shell keeps its boot class and logs a request; the runner greps the log for it.
+			_ok(DccTheme.is_tablet(), "boots 900 x 1600 dp as a tablet")
+			await _resize(890, 1582)
+			_ok(not bool(DccTheme.layout().get("phone", true)) and DccTheme.is_tablet(),
+				"890 x 1582 stays a tablet (inside the 16 dp band), no request")
+			await _resize(880, 1564)
+			## The settled classification says phone; the published layout is not overwritten by a
+			## request, and the composition is still the boot class.
+			_ok(DccTheme.is_tablet(), "880 x 1564: still the boot composition (S4 not built)")
+			print("LIVE swap step 880x1564 done")
+		_:
+			_ok(false, "unknown --live leg " + leg)
