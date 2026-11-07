@@ -8518,6 +8518,11 @@ resolution, and the audit refuted the obvious placement for it too (below).
 
 ### DS-13: four high-severity refutations, and the canvas anchoring was wrong too
 
+**Design, 2026-11-01.** A design answering each refutation below, and the 2026-09-05 board's three open items, is
+in `MOBILE_SHELL_PROPOSAL.md` §2.5, drawn and checked in the mockup (`design/mobile-shell-2026-10-31/`, captures
+`ds13-*.png` in `cartalith-native/docs/evidence/mobile-shell-2026-10-31/`). It awaits the owner's approval;
+nothing of it is built.
+
 - **`tool_pan` is navigation after all.** The design removed it as "a tool
   toggle, not navigation", but `viewport_host.gd:457` is
   `elif mb.button_index == MOUSE_BUTTON_LEFT and _pan_mode:` — **no armed-tool

@@ -1,0 +1,8 @@
+GPU mode (both sides): R32F
+PASS  default  (rgba 3550882566)
+PASS  geoid  (rgba 3119268545)
+PASS  waves  (rgba 2993978743)
+PASS  ao  (rgba 2135733855)
+PASS  icons  (rgba 3703781313)
+
+ALL IDENTICAL

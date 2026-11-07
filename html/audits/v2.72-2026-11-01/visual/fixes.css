@@ -1,0 +1,72 @@
+/* The audit's proposed CSS, injected into a scratch page only (never the repo file), to check that the fixes
+   hold together. One block per finding id; values are the file's own tokens. */
+/* V02 native controls follow the theme */
+:root{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
+input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
+/* V08/V09 AA tokens */
+:root{--faint:#7d8285}
+:root[data-theme="light"]{--faint:#676762;--accent:#8b550d}
+.pill.on,.layers-fab .lp-item.on{color:var(--accInk)}
+/* V01 settlements table rows */
+#stSpacer > div{display:flex}
+/* V03 active states: underline / left bar only */
+.subtab.on{border:0;border-bottom:2px solid var(--accent);font-weight:inherit}
+.set-nav button.on{border:0;border-left:2px solid var(--accent);font-weight:inherit}
+@media (max-width:860px){ .set-nav button.on{border-left:0;border-bottom:2px solid var(--accent)} }
+/* V04 an armed header toggle is wash + edge */
+#assetsHeaderBtn.on,#settlementsHeaderBtn.on{background:var(--wash2);color:var(--accent);border-color:var(--accent)}
+/* V05 close buttons take the panel tokens */
+.cv-close,.re-close,.cfm-close{background:var(--panel2);color:var(--ink);border-color:var(--border)}
+/* V06 window content on a solid ground */
+.civ-factions-modal .cfm-body{background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border)}
+.route-editor-modal{background:var(--bg)}
+/* V07 empty asset slots are wells, not white squares */
+.al-card .al-thumb:has(> .al-empty){background:var(--ins)!important}
+.al-card .al-thumb .al-empty{color:var(--dim)}
+/* V10 Credits above Settings; V11 the loading scrim above the map controls */
+#creditsModal{z-index:76}
+.busy{z-index:30}
+/* V12 popup re-tokened (both themes), and its Name row */
+.place-edit-popup,.settle-info{background:var(--panel);color:var(--ink);border-color:var(--border)}
+.place-edit-popup .pe-h,.settle-info .si-h,.settle-info .si-h2,.settle-info .si-score{color:var(--accent)}
+.place-edit-popup .row label{color:var(--muted)}
+.place-edit-popup select,.place-edit-popup input[type=text],.place-edit-popup input[type=number]{background:var(--ins);border-color:var(--border);color:var(--ink)}
+.place-edit-popup .si-close,.settle-info .si-close{color:var(--dim)}
+.settle-info .si-grid b,.settle-info .si-res b{color:var(--ink)}
+.place-edit-popup .row input{min-width:0}
+/* V13 Export GeoJSON is a button */
+#mbExportPanel #exportGeoBtn{background:var(--panel2);border:1px solid var(--border);padding:7px 12px;width:auto;display:inline-block}
+/* V14 the readout drops whole chips: one that does not fit wraps onto the clipped second line */
+.status-bar .readout{flex-wrap:wrap;height:26px;align-content:flex-start;line-height:26px;row-gap:0}
+/* V17 New World: shape presets in three columns; the sticky actions meet the card's edge */
+#onboard #suArchSeg{display:grid;grid-template-columns:repeat(3,1fr)}
+#onboard .su-actions{bottom:-24px}
+/* V19 accordion arrows get a gap */
+details.cat-acc>summary::before{margin-right:8px}
+/* V20 the design's focus ring on every control */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* V21 text fields use the UI font, numerics stay mono */
+input,select,textarea{font-family:inherit}
+input[type=number],select{font-family:var(--mono)}
+input[type=text],input[type=search],input:not([type]){padding:5px 7px}
+/* V22 map overlays readable over any terrain */
+#scaleBar{background:rgba(10,12,16,.85)}
+.legend{background:rgba(10,12,17,.86);color:var(--muted)}
+/* V23 map chips one height */
+.map-tl .funnel-btn{width:32px;height:32px}
+/* V25 phone: faction names keep a width, the tags wrap */
+#civFactionList > div{flex-wrap:wrap}
+#civFactionList > div > b{flex:1 1 120px}
+@media not all and (max-width:860px){
+  /* V15 the sculpt picker gets row one to itself */
+  #toolOpts #sculptModeSeg{order:6}
+  #toolOpts .to-spacer{flex:0 0 0;min-width:0}
+  #toolOpts #sBrushRow,#toolOpts #sBrushKm,#toolOpts #sHardRow,#toolOpts #sIntenRow{order:7}
+  #toolOpts #sculptFeatHint{order:8}
+  #toolOpts #sBrushKm{max-width:11em}
+  /* V16 the popup fits between the bars */
+  .place-edit-popup{max-height:min(80vh,660px,calc(100vh - 232px));max-height:min(80dvh,660px,calc(100dvh - 232px))}
+  /* V18 CIVIL's five sub-tabs fit a 372px dock */
+  .subtab{letter-spacing:.02em;padding:9px 2px;min-width:0}
+}

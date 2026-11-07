@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cartalith mobile shell</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0a0b0c}
+.clr-tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.clr-btn{appearance:none;border:0;margin:0;font:inherit;color:inherit;background:none;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.clr-btn:active{filter:brightness(1.25)}
+.clr-btn:focus-visible{outline:2px solid #e0a34a;outline-offset:2px}
+.clr-rng{-webkit-appearance:none;appearance:none;height:var(--c44,44px);background:transparent;margin:0;flex:1;min-width:0}
+.clr-rng::-webkit-slider-runnable-track{height:4px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}
+.clr-rng::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:11px;background:var(--acc,#e0a34a);margin-top:-9px;border:2px solid var(--pan,#15171a)}
+.clr-rng::-moz-range-track{height:4px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}
+.clr-rng::-moz-range-thumb{width:20px;height:20px;border-radius:10px;background:var(--acc,#e0a34a);border:2px solid var(--pan,#15171a)}
+.clr-in{appearance:none;width:100%;box-sizing:border-box;min-height:var(--c44,44px);border-radius:12px;border:1px solid var(--hair);background:var(--chip);color:var(--ink);font:12px 'IBM Plex Mono',monospace;padding:0 12px;outline:none}
+.clr-in:focus{border-color:var(--acc)}
+.clr-scroll{overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:rgba(140,145,150,.35) transparent}
+.clr-scroll::-webkit-scrollbar{width:6px;height:6px}.clr-scroll::-webkit-scrollbar-thumb{background:rgba(140,145,150,.35);border-radius:3px}
+.clr-hscroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.clr-hscroll::-webkit-scrollbar{display:none}
+.md{font:14.5px/1.62 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);overflow-wrap:anywhere}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:600;color:var(--ink);scroll-margin-top:12px}
+.md h1{font-size:22px;line-height:1.3;margin:16px 0 8px}.md h2{font-size:18.5px;line-height:1.35;margin:18px 0 6px}.md h3{font-size:15.5px;margin:16px 0 4px}.md h4,.md h5,.md h6{font-size:14px;color:var(--sec);margin:14px 0 4px}
+.md>*:first-child{margin-top:0}
+.md p{margin:0 0 10px}.md ul,.md ol{margin:0 0 10px;padding-left:22px}.md li{margin:3px 0}
+.md li.md-task{list-style:none;margin-left:-22px;display:flex;gap:12px;align-items:flex-start;min-height:28px}
+.md .md-box{flex:none;position:relative;width:20px;height:20px;margin-top:1px;border-radius:6px;border:1.5px solid var(--bord);display:inline-flex;align-items:center;justify-content:center;font:600 12px 'IBM Plex Mono',monospace;color:var(--accInk);cursor:pointer}
+.md .md-box::after{content:'';position:absolute;inset:-12px}
+.md .md-box.on{background:var(--acc);border-color:var(--acc)}
+.md .md-done{color:var(--dim);text-decoration:line-through}
+.md a.md-link{color:var(--acc);text-decoration:none;border-bottom:1px solid var(--warnBord);cursor:pointer;padding:3px 0}
+.md a.md-ent{border-bottom-style:dotted}.md a.md-ent::before{content:'⌖ ';font-size:.85em}
+.md a.md-unres{color:var(--dim);border-bottom:1px dashed var(--dim)}
+.md a.md-ext{color:var(--water);cursor:pointer;text-decoration:none}
+.md .md-tag{display:inline-block;padding:1px 8px;border-radius:10px;background:var(--wash);color:var(--acc);font:12px 'IBM Plex Mono',monospace;cursor:pointer}
+.md mark{background:rgba(224,163,74,.28);color:inherit;padding:0 2px;border-radius:3px}
+.md code{font:12.5px 'IBM Plex Mono',monospace;background:var(--chip);padding:1px 5px;border-radius:5px}
+.md pre{background:var(--chip);padding:10px 12px;border-radius:10px;overflow-x:auto;margin:0 0 10px}.md pre code{background:none;padding:0}
+.md blockquote{margin:0 0 10px;padding:4px 0 4px 12px;border-left:3px solid var(--hair);color:var(--sec)}
+.md .md-callout{margin:0 0 12px;padding:10px 12px;border-radius:10px;background:var(--wash);border-left:3px solid var(--acc)}
+.md .md-co-t{font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc);margin-bottom:4px}
+.md .md-embed{display:block;margin:6px 0 10px;padding:12px;border-radius:10px;border:1px dashed var(--bord);color:var(--sec);font:12px 'IBM Plex Mono',monospace;cursor:pointer}
+.md .md-tablewrap{overflow-x:auto;margin:0 0 12px}.md table{border-collapse:collapse;font-size:13px;min-width:100%}
+.md th,.md td{border:1px solid var(--hair);padding:7px 10px;text-align:left;vertical-align:top}.md th{background:var(--chip);color:var(--ink);font-weight:600}
+.md hr{border:0;border-top:1px solid var(--hair);margin:14px 0}
+.md .md-fm{font:12px 'IBM Plex Mono',monospace;color:var(--dim);background:var(--chip);border-radius:10px;padding:8px 10px;margin-bottom:12px}
+.md-src{position:relative;font:13.5px/1.62 'IBM Plex Mono',monospace;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;tab-size:2;color:var(--body)}
+.md-src .hl-h{color:var(--ink);font-weight:500}.md-src .hl-mark{color:var(--dim)}.md-src .hl-link{color:var(--acc)}.md-src .hl-tag{color:var(--water)}.md-src .hl-code{color:var(--good)}.md-src b{font-weight:500;color:var(--ink)}
+.md .md-chronos{margin:0 0 12px;padding:10px 12px 6px;border-radius:12px;background:var(--chip);border:1px solid var(--hair)}
+.md .md-chr-axis{position:relative;height:18px;margin:6px 6px 8px;border-bottom:1px solid var(--bord)}
+.md .md-chr-dot{position:absolute;bottom:-5px;width:9px;height:9px;margin-left:-4.5px;border-radius:5px;background:var(--acc)}.md .md-chr-dot.marker{background:var(--water);height:16px;width:2px;margin-left:-1px;border-radius:1px}.md .md-chr-dot.point{background:var(--good)}
+.md .md-chr-per{position:absolute;bottom:-3px;height:6px;border-radius:3px;background:var(--water);opacity:.7}
+.md .md-chr-row{appearance:none;border:0;background:none;width:100%;min-height:var(--c44,44px);display:flex;align-items:center;gap:10px;padding:4px 2px;border-top:1px solid var(--hair2);text-align:left;cursor:pointer;color:inherit;font:inherit}
+.md .md-chr-y{flex:none;min-width:74px;font:12px 'IBM Plex Mono',monospace;color:var(--acc)}.md .md-chr-n{flex:1;min-width:0;font-size:13.5px;color:var(--ink)}.md .md-chr-d{color:var(--sec)}.md .md-chr-k{flex:none;font:10px 'IBM Plex Mono',monospace;color:var(--dim)}
+textarea.md-ta{position:absolute;left:0;top:0;width:100%;height:100%;box-sizing:border-box;resize:none;border:0;outline:none;margin:0;overflow:hidden;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--acc);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;tab-size:2;padding:inherit}
+textarea.md-ta::selection{background:rgba(224,163,74,.30)}
+.md .md-chr-row.now{background:var(--wash);box-shadow:inset 3px 0 0 var(--acc)}
+.ask-cite{appearance:none;border:1px solid rgba(224,163,74,.45);background:rgba(224,163,74,.10);color:var(--acc);border-radius:7px;padding:0 6px;margin:0 1px;font:12px/1.6 'IBM Plex Mono',monospace;cursor:pointer;white-space:nowrap}
+.ask-cite:hover{background:rgba(224,163,74,.22)}
+.clr-btn:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+@keyframes clDots{0%,80%,100%{opacity:.25}40%{opacity:1}}
+@keyframes clIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes clPop{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes clFade{from{opacity:0}to{opacity:1}}
+@keyframes clSlideL{from{transform:translateX(-24px);opacity:0}to{transform:none;opacity:1}}
+@keyframes clSlideR{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+@keyframes clRing{from{stroke-dashoffset:113}to{stroke-dashoffset:0}}
+@keyframes clPulse{0%{transform:scale(.6);opacity:.9}100%{transform:scale(1.8);opacity:0}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" style="position:relative;width:{{ W }}px;height:{{ H }}px;transform:scale({{ uiScale }});transform-origin:0 0;overflow:hidden;background:var(--sur);font:13px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);user-select:none;-webkit-user-select:none;{{ themeVars }}{{ densVars }}">
+
+<!-- ===================== MAP (shared by every form factor) ===================== -->
+<div ref="{{ mapRef }}" aria-label="{{ mapAria }}" style="position:absolute;left:{{ L.mapL }}px;top:{{ L.mapT }}px;right:{{ L.mapR }}px;bottom:{{ L.mapB }}px;touch-action:none;overflow:hidden;background:#17303f;cursor:{{ mapCursor }}">
+<canvas ref="{{ cvRef }}" style="position:absolute;left:0;top:0;width:100%;height:100%"></canvas>
+<sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:10.5px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#a9adb0;background:#101213">GENERATING MOCK WORLD…</div>
+</sc-if>
+
+<sc-if value="{{ press.show }}" hint-placeholder-val="{{ false }}">
+<svg width="56" height="56" viewBox="0 0 40 40" aria-hidden="true" style="position:absolute;left:{{ press.x }}px;top:{{ press.y }}px;margin:-28px 0 0 -28px;pointer-events:none;transform:rotate(-90deg)"><circle cx="20" cy="20" r="18" fill="rgba(0,0,0,.25)" stroke="#e0a34a" stroke-width="3" stroke-dasharray="113" stroke-dashoffset="113" style="animation:clRing .48s linear forwards"></circle></svg>
+</sc-if>
+</div>
+
+<!-- ===================== PHONE (portrait and landscape) ===================== -->
+<sc-if value="{{ isPhone }}" hint-placeholder-val="{{ true }}">
+
+<!-- top scrim so chrome reads over any map -->
+<div style="position:absolute;left:{{ L.mapL }}px;right:0;top:0;height:{{ L.scrimH }}px;background:linear-gradient(180deg,var(--scrim),transparent);pointer-events:none"></div>
+
+<!-- app bar -->
+<div style="position:absolute;left:{{ L.appL }}px;right:{{ L.appR }}px;top:{{ L.appT }}px;height:var(--c52,52px);display:flex;align-items:center;gap:8px;pointer-events:none">
+<button class="clr-btn" onClick="{{ hWorldPill }}" aria-label="world {{ world.name }}, open the File menu" style="pointer-events:auto;flex:1;min-width:0;height:var(--c48,48px);display:flex;flex-direction:column;justify-content:center;padding:0 16px;border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair)">
+<span style="font:500 11.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ world.name }}</span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ world.sub }}</span>
+</button>
+<button class="clr-btn" onPointerDown="{{ hUndoDown }}" onPointerUp="{{ hUndoUp }}" onPointerLeave="{{ hUndoLeave }}" aria-label="undo {{ undoLabel }}; hold for history" style="pointer-events:auto;position:relative;width:var(--c48,48px);height:var(--c48,48px);flex:none;border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:{{ undoCol }}">
+<svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4.5L2 7.5l3 3M2.5 7.5H10a3.5 3.5 0 0 1 0 7H8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span style="display:{{ undoDot }};position:absolute;top:9px;right:9px;min-width:14px;height:14px;padding:0 3px;box-sizing:border-box;border-radius:7px;background:var(--acc);color:var(--accInk);font:500 8.5px/14px 'IBM Plex Mono',monospace;text-align:center">{{ undoN }}</span>
+</button>
+<button class="clr-btn" onClick="{{ hSearch }}" aria-label="search places and commands" style="pointer-events:auto;width:var(--c48,48px);height:var(--c48,48px);flex:none;border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)">
+<svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM10.4 10.4L14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>
+</button>
+</div>
+
+<!-- compass: only when the map is rotated -->
+<sc-if value="{{ compass.show }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ hNorth }}" aria-label="rotate north up" style="position:absolute;right:{{ L.fabR }}px;top:{{ L.compT }}px;width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r22,22px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center">
+<svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true" style="transform:rotate({{ compass.deg }}deg)"><path d="M8 1.5l2.6 6.5H5.4Z" fill="#e0a34a"></path><path d="M5.4 8h5.2L8 14.5Z" fill="var(--sec)"></path></svg>
+</button>
+</sc-if>
+
+<!-- DS-13: the map's control row (MOBILE_SHELL_PROPOSAL.md §2.5). Bottom of the map on the dominant-hand side, outer end first: recentre, the zoom rocker, then the pan latch, shown only while a drawing tool is armed. 3D/2D lives in MAP ▸ View. -->
+<div role="toolbar" aria-label="map controls" data-mc="1" style="position:absolute;left:{{ mc.left }};right:{{ mc.right }};bottom:{{ mc.bottom }}px;display:{{ mc.disp }};flex-direction:{{ mc.dir }};gap:10px;align-items:center;z-index:4;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<sc-if value="{{ mc.panShow }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" data-mc-btn="pan" onClick="{{ mc.panTap }}" aria-label="{{ mc.panAria }}" aria-pressed="{{ mc.panOn }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:{{ mc.panBg }};border:1px solid {{ mc.panBorder }};display:flex;align-items:center;justify-content:center;color:{{ mc.panCol }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 8V3.6a1 1 0 0 1 2 0V7.4M7.5 7.2V2.6a1 1 0 0 1 2 0v4.7M9.5 7.3V3.8a1 1 0 0 1 2 0v5.3c0 2.9-2 4.9-4.6 4.9-1.7 0-2.9-.9-3.6-2.2L1.9 9.7a1 1 0 0 1 1.7-1.1l1.9 2.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-if>
+<div data-mc-btn="rocker" style="height:var(--c44,44px);flex:none;display:flex;flex-direction:row;align-items:center;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);overflow:hidden">
+<button class="clr-btn" data-mc-btn="zoomout" onClick="{{ mc.zoomOut }}" aria-label="zoom out" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<span style="width:1px;height:22px;background:var(--hair);flex:none"></span>
+<button class="clr-btn" data-mc-btn="zoomin" onClick="{{ mc.zoomIn }}" aria-label="zoom in" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+</div>
+<button class="clr-btn" data-mc-btn="fit" onClick="{{ mc.fit }}" aria-label="recentre: fit the whole world" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+</div>
+
+<!-- scale bar -->
+<div style="position:absolute;left:{{ fab.scaleLeft }};right:{{ fab.scaleRight }};bottom:{{ fab.scaleBottom }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:#f0f2f3;text-shadow:0 1px 2px #000,0 0 3px #000">{{ scale.label }}</span>
+<span style="width:{{ scale.px }}px;height:5px;border:1.5px solid #f0f2f3;border-top:0;box-shadow:0 1px 2px rgba(0,0,0,.6)"></span>
+</div>
+
+<!-- quick drawer: the pinned commands, on a grip at the side away from the dominant hand -->
+<sc-if value="{{ qd.show }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ qd.open }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ qd.hScrim }}" aria-hidden="true" style="position:absolute;left:{{ qd.scrimL }};right:{{ qd.scrimR }};top:{{ qd.top }}px;height:{{ qd.h }}px;background:rgba(0,0,0,{{ qd.scrimA }})"></div>
+<div role="dialog" aria-label="quick drawer: pinned commands" style="position:absolute;left:{{ qd.drawL }};right:{{ qd.drawR }};top:{{ qd.top }}px;width:{{ qd.w }}px;height:{{ qd.h }}px;display:flex;flex-direction:column;background:var(--pan);border:1px solid var(--hair);box-shadow:0 18px 50px rgba(0,0,0,.5);border-radius:{{ qd.drawRadius }};overflow:hidden">
+<div class="clr-scroll" style="flex:1;min-height:0;padding:6px 8px 10px"><dc-import name="Rows" rows="{{ qd.rows }}" hint-size="100%,300px"></dc-import></div>
+</div>
+</sc-if>
+<button class="clr-btn" aria-label="{{ qd.gripAria }}" onPointerDown="{{ qd.hGripDown }}" onPointerMove="{{ qd.hGripMove }}" onPointerUp="{{ qd.hGripUp }}" onPointerCancel="{{ qd.hGripUp }}" style="position:absolute;left:{{ qd.gripL }};right:{{ qd.gripR }};top:{{ qd.gripTop }}px;width:var(--c44,44px);height:{{ qd.gripH }}px;display:flex;align-items:center;justify-content:{{ qd.gripJustify }};touch-action:none;background:transparent"><span style="width:22px;height:72px;border-radius:{{ qd.gripRadius }};background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center"><span style="width:4px;height:34px;border-radius:2px;background:var(--acc);opacity:.8"></span></span></button>
+</sc-if>
+
+<!-- tool strip: what the armed tool needs, above the sheet (the phone's tool-options bar) -->
+<sc-if value="{{ strip.show }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:{{ L.stripL }}px;right:{{ L.stripR }}px;bottom:{{ strip.bottom }}px;transition:bottom .28s cubic-bezier(.3,.9,.3,1);animation:clIn .2s ease">
+<div style="display:flex;align-items:center;gap:8px;min-height:56px;padding:4px 6px 4px 6px;border-radius:28px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 8px 22px rgba(0,0,0,.35)">
+<button class="clr-btn" onPointerDown="{{ hToolDown }}" onPointerUp="{{ hToolUp }}" onPointerLeave="{{ hToolLeave }}" aria-label="{{ strip.toolLabel }}: tap for options, hold for the tool fan" style="height:var(--c48,48px);flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 0 10px;border-radius:var(--r24,24px);background:var(--wash);color:var(--acc)">
+<svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ strip.toolD }}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">{{ strip.toolShort }}</span>
+</button>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+<span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ strip.main }}</span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ strip.hint }}</span>
+</span>
+<sc-if value="{{ strip.field }}" hint-placeholder-val="{{ false }}">
+<input class="clr-in" type="text" value="{{ labelText }}" placeholder="label text…" onInput="{{ hLabelText }}" aria-label="label text" style="width:120px;flex:none">
+</sc-if>
+<sc-for list="{{ strip.acts }}" as="a" hint-placeholder-count="2">
+<button class="clr-btn" onClick="{{ a.tap }}" aria-label="{{ a.aria }}" style="height:var(--c44,44px);flex:none;padding:0 13px;border-radius:var(--r22,22px);background:{{ a.bg }};color:{{ a.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">{{ a.label }}</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<!-- the sheet: bottom sheet in portrait, side panel in landscape -->
+<div ref="{{ sheetRef }}" role="dialog" aria-label="{{ sheet.title }}" style="position:absolute;z-index:12;display:{{ sheet.disp }};flex-direction:column;background:var(--pan);box-shadow:var(--sheetShadow);{{ sheet.style }}">
+<div ref="{{ grabRef }}" style="flex:none;touch-action:none;cursor:grab">
+<div style="height:{{ sheet.handleH }}px;display:flex;align-items:center;justify-content:center"><span style="width:42px;height:4px;border-radius:2px;background:var(--bord);display:{{ sheet.handleDisp }}"></span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:0 10px 8px 12px;min-height:var(--c52,52px)">
+<sc-if value="{{ sheet.back }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ hBack }}" aria-label="back" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-if>
+<button class="clr-btn" onClick="{{ sheet.titleTap }}" aria-label="{{ sheet.titleAria }}" style="flex:1;min-width:0;min-height:var(--c44,44px);display:flex;flex-direction:column;justify-content:center;gap:1px;border-radius:12px;padding:0 4px">
+<span style="display:flex;align-items:center;gap:6px;min-width:0">
+<span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sheet.title }}</span>
+<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" style="flex:none;display:{{ sheet.caretDisp }}"><path d="M4 6l4 4 4-4" fill="none" stroke="var(--acc)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sheet.sub }}</span>
+</button>
+<sc-if value="{{ sheet.pinBtn }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ hSheetWide }}" aria-label="{{ sheet.wideAria }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ sheet.wideD }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-if>
+<button class="clr-btn" onClick="{{ hClose }}" aria-label="close panel" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+</div>
+<sc-if value="{{ sheet.hasChips }}" hint-placeholder-val="{{ true }}">
+<div class="clr-hscroll" role="tablist" aria-label="{{ sheet.chipsAria }}" style="display:flex;gap:6px;padding:0 12px 10px;border-bottom:1px solid var(--hair2)">
+<sc-for list="{{ sheet.chips }}" as="c" hint-placeholder-count="4">
+<button class="clr-btn" role="tab" aria-selected="{{ c.on }}" onClick="{{ c.tap }}" style="flex:none;min-height:var(--c44,44px);display:flex;align-items:center;gap:7px;padding:0 14px;border-radius:var(--r22,22px);border:1px solid {{ c.bord }};background:{{ c.bg }};color:{{ c.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;white-space:nowrap">
+<svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ c.iconDisp }}"><path d="M0 0{{ c.d }}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span>{{ c.label }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<div class="clr-scroll" ref="{{ bodyRef }}" style="flex:1;min-height:0;padding:6px 12px 28px">
+<dc-import name="Rows" rows="{{ sheet.rows }}" hint-size="100%,400px"></dc-import>
+</div>
+</div>
+
+<!-- navigation: bottom bar in portrait, rail in landscape -->
+<nav aria-label="main" style="position:absolute;z-index:14;display:flex;background:var(--pan2);{{ nav.style }}">
+<sc-for list="{{ nav.cells }}" as="n" hint-placeholder-count="4">
+<button class="clr-btn" data-navcell="{{ n.id }}" onPointerDown="{{ n.down }}" onPointerMove="{{ n.move }}" onPointerUp="{{ n.up }}" onPointerCancel="{{ n.cancel }}" onContextMenu="{{ noCtx }}" aria-label="{{ n.aria }}" aria-current="{{ n.on }}" style="position:relative;touch-action:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;{{ nav.cellStyle }}">
+<span style="display:{{ n.dotsDisp }};gap:4px;height:5px;align-items:center">
+<sc-for list="{{ n.dots }}" as="dt" hint-placeholder-count="3"><span style="width:5px;height:5px;border-radius:3px;background:{{ dt.c }}"></span></sc-for>
+</span>
+<span style="display:flex;align-items:center;justify-content:center;width:60px;height:32px;border-radius:16px;background:{{ n.pill }};color:{{ n.col }};position:relative">
+<svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ n.d }}" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<sc-if value="{{ n.holding }}" hint-placeholder-val="{{ false }}"><svg width="44" height="44" viewBox="0 0 40 40" aria-hidden="true" style="position:absolute;left:8px;top:-6px;transform:rotate(-90deg);pointer-events:none"><circle cx="20" cy="20" r="18" fill="none" stroke="#e0a34a" stroke-width="2.5" stroke-dasharray="113" stroke-dashoffset="113" style="animation:clRing .38s linear forwards"></circle></svg></sc-if>
+</span>
+<span style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:{{ n.col }};white-space:nowrap">{{ n.label }}</span>
+</button>
+</sc-for>
+</nav>
+<sc-if value="{{ nav.gesture }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;z-index:15;left:0;right:0;bottom:0;height:16px;display:flex;align-items:center;justify-content:center;pointer-events:none"><span style="width:112px;height:4px;border-radius:2px;background:var(--bord)"></span></div>
+</sc-if>
+
+<!-- coach mark for the hidden gesture -->
+<sc-if value="{{ coach.show }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;z-index:16;left:{{ coach.x }}px;top:{{ coach.y }}px;width:{{ coach.w }}px;animation:clIn .3s ease">
+<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 10px 12px 14px;border-radius:18px;background:var(--pan);border:1px solid var(--acc);box-shadow:0 10px 30px rgba(0,0,0,.45)">
+<span style="flex:1;font:10.5px/1.55 'IBM Plex Mono',monospace;color:var(--ink)">{{ coach.text }}</span>
+<button class="clr-btn" onClick="{{ hCoach }}" aria-label="dismiss tip" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r20,20px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+</div>
+<span style="display:block;width:14px;height:14px;margin:-8px 0 0 {{ coach.arrow }}px;transform:rotate(45deg);background:var(--pan);border-right:1px solid var(--acc);border-bottom:1px solid var(--acc)"></span>
+</div>
+</sc-if>
+
+</sc-if>
+
+<!-- ===================== TABLET (desktop parity, docks adapt to width) ===================== -->
+<sc-if value="{{ isTablet }}" hint-placeholder-val="{{ false }}">
+
+<!-- menu bar -->
+<div style="position:absolute;left:0;right:0;top:0;height:{{ T.menuH }}px;display:flex;align-items:center;gap:2px;padding:0 8px 0 14px;background:var(--pan2);border-bottom:1px solid var(--hair);box-sizing:border-box">
+<span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:var(--acc);padding-right:10px;flex:none">CARTALITH</span>
+<sc-if value="{{ T.ham }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ hHam }}" aria-label="more menus" aria-expanded="{{ T.hamOpen }}" style="width:var(--c48,48px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--body);background:{{ T.hamBg }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+</sc-if>
+<sc-for list="{{ T.menus }}" as="m" hint-placeholder-count="4">
+<button class="clr-btn" onClick="{{ m.tap }}" onMouseEnter="{{ m.enter }}" aria-haspopup="menu" aria-expanded="{{ m.on }}" style="height:var(--c44,44px);flex:none;padding:0 {{ T.menuPad }}px;border-radius:10px;font-size:{{ T.menuFont }}px;color:{{ m.col }};background:{{ m.bg }}">{{ m.label }}</button>
+</sc-for>
+<span style="flex:1;min-width:8px"></span>
+<button class="clr-btn" onClick="{{ hUndo }}" aria-label="undo {{ undoLabel }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:{{ undoCol }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4.5L2 7.5l3 3M2.5 7.5H10a3.5 3.5 0 0 1 0 7H8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<button class="clr-btn" onClick="{{ hRedo }}" aria-label="redo {{ redoLabel }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:{{ redoCol }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M11 4.5l3 3-3 3M13.5 7.5H6a3.5 3.5 0 0 0 0 7h2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<button class="clr-btn" onClick="{{ hSearch }}" aria-label="search places and commands" style="height:var(--c44,44px);flex:none;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 12px;margin:0 6px;border-radius:var(--r22,22px);border:1px solid var(--hair);background:var(--chip);color:var(--dim);font:10.5px 'IBM Plex Mono',monospace;width:{{ T.searchW }}px;box-sizing:border-box">
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM10.4 10.4L14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>
+<span style="display:{{ T.searchTextDisp }};white-space:nowrap;overflow:hidden">find places, commands…</span>
+</button>
+<span style="display:{{ T.sysDisp }};font:10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:var(--dim);white-space:nowrap;padding:0 6px">{{ T.sys }}</span>
+<span style="display:{{ T.readoutDisp }};font:10px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:var(--dim);white-space:nowrap;padding:0 6px">{{ world.name }} · seed {{ world.seed }} · {{ world.saved }}</span>
+</div>
+
+<!-- tool-options bar -->
+<div style="position:absolute;left:0;right:0;top:{{ T.menuH }}px;height:{{ T.toolH }}px;display:flex;align-items:center;gap:8px;padding:0 10px 0 14px;background:var(--pan2);border-bottom:1px solid var(--hair);box-sizing:border-box">
+<span style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc);white-space:nowrap;flex:none">{{ T.toolName }}</span>
+<div class="clr-hscroll" style="flex:1;min-width:0;display:flex;align-items:center;gap:6px">
+<sc-for list="{{ T.toolChips }}" as="c" hint-placeholder-count="3">
+<button class="clr-btn" onClick="{{ c.tap }}" aria-pressed="{{ c.on }}" style="flex:none;height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid {{ c.bord }};background:{{ c.bg }};color:{{ c.col }};font:10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ c.label }}</button>
+</sc-for>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;padding-left:6px">{{ T.toolHint }}</span>
+</div>
+<sc-for list="{{ T.toolActs }}" as="a" hint-placeholder-count="1">
+<button class="clr-btn" onClick="{{ a.tap }}" style="flex:none;height:var(--c44,44px);padding:0 16px;border-radius:var(--r22,22px);background:{{ a.bg }};color:{{ a.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">{{ a.label }}</button>
+</sc-for>
+<span aria-hidden="true" style="flex:none;width:1px;height:24px;background:var(--hair);margin:0 2px"></span>
+<sc-for list="{{ T.quick }}" as="q" hint-placeholder-count="2">
+<button class="clr-btn" onClick="{{ q.tap }}" aria-label="{{ q.aria }}" style="flex:none;height:var(--c44,44px);min-width:var(--c44,44px);padding:0 12px;border-radius:var(--r22,22px);border:1px solid var(--hair);background:var(--chip);color:var(--body);display:flex;align-items:center;justify-content:center;gap:6px;font:10.5px 'IBM Plex Mono',monospace;white-space:nowrap"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ q.iconDisp }}"><path d="{{ q.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>{{ q.label }}</span></button>
+</sc-for>
+</div>
+
+<!-- domain rail -->
+<div role="tablist" aria-orientation="vertical" aria-label="domains" style="position:absolute;left:0;top:{{ T.bodyT }}px;bottom:{{ T.bodyB }}px;width:{{ T.railW }}px;display:flex;flex-direction:column;align-items:stretch;background:var(--pan2);border-right:1px solid var(--hair);box-sizing:border-box;z-index:6">
+<sc-for list="{{ T.rail }}" as="d" hint-placeholder-count="3">
+<button class="clr-btn" role="tab" aria-selected="{{ d.on }}" onClick="{{ d.tap }}" aria-label="{{ d.label }} domain" style="position:relative;height:{{ d.h }}px;display:flex;align-items:center;justify-content:center;background:{{ d.bg }};border-left:3px solid {{ d.edge }}">
+<span style="transform:rotate(-90deg);font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.24em;color:{{ d.col }};white-space:nowrap">{{ d.label }}</span>
+</button>
+<sc-if value="{{ d.on }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0 10px;border-bottom:1px solid var(--hair2)">
+<sc-for list="{{ d.nodes }}" as="nd" hint-placeholder-count="2">
+<button class="clr-btn" onClick="{{ nd.tap }}" aria-label="{{ nd.label }}" aria-pressed="{{ nd.on }}" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:12px;display:flex;align-items:center;justify-content:center;background:{{ nd.bg }};color:{{ nd.col }}"><svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ nd.d }}" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-for>
+</div>
+</sc-if>
+</sc-for>
+<span style="flex:1"></span>
+<button class="clr-btn" onClick="{{ hLeftDock }}" aria-label="{{ T.ldockAria }}" style="height:var(--c52,52px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2.5h12v11H2ZM6 2.5v11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg></button>
+</div>
+
+<!-- left dock: docked, or an overlay drawer when the map would get too narrow -->
+<sc-if value="{{ T.ldock.show }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;left:{{ T.railW }}px;top:{{ T.bodyT }}px;bottom:{{ T.bodyB }}px;width:{{ T.ldock.w }}px;display:flex;flex-direction:column;background:var(--pan);border-right:1px solid var(--hair);box-shadow:{{ T.ldock.shadow }};z-index:{{ T.ldock.z }};animation:clSlideL .22s ease">
+<div style="flex:none;display:flex;align-items:center;gap:8px;min-height:var(--c52,52px);padding:0 6px 0 14px;border-bottom:1px solid var(--hair2)">
+<span style="flex:1;min-width:0;display:flex;flex-direction:column">
+<span style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ T.ldock.title }}</span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ T.ldock.sub }}</span>
+</span>
+<sc-if value="{{ T.ldock.canPin }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ hPinLeft }}" aria-label="{{ T.ldock.pinAria }}" aria-pressed="{{ T.ldock.pinned }}" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:12px;display:flex;align-items:center;justify-content:center;color:{{ T.ldock.pinCol }}"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6ZM8 8.5V14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-if>
+<button class="clr-btn" onClick="{{ hLeftDock }}" aria-label="hide panel" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</div>
+<div class="clr-hscroll" role="tablist" style="flex:none;display:flex;gap:6px;padding:10px 12px;border-bottom:1px solid var(--hair2)">
+<sc-for list="{{ T.ldock.chips }}" as="c" hint-placeholder-count="3">
+<button class="clr-btn" role="tab" aria-selected="{{ c.on }}" onClick="{{ c.tap }}" style="flex:none;min-height:var(--c44,44px);padding:0 13px;border-radius:var(--r22,22px);border:1px solid {{ c.bord }};background:{{ c.bg }};color:{{ c.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.08em;white-space:nowrap">{{ c.label }}</button>
+</sc-for>
+</div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:6px 12px 24px">
+<dc-import name="Rows" rows="{{ T.ldock.rows }}" hint-size="100%,400px"></dc-import>
+</div>
+</div>
+</sc-if>
+
+<!-- right dock: the Context panel. One subject (the selection, or what the panel is pinned to) feeds three tabs:
+     Inspect (every name a link), Note (the subject's own note, read or written here) and Ask (the assistant). -->
+<sc-if value="{{ T.rdock.show }}" hint-placeholder-val="{{ false }}">
+<div role="complementary" aria-label="context panel" style="position:absolute;right:0;top:{{ T.bodyT }}px;bottom:{{ T.bodyB }}px;width:{{ T.rdock.w }}px;display:flex;flex-direction:column;background:var(--pan);border-left:1px solid var(--hair);box-shadow:{{ T.rdock.shadow }};z-index:{{ T.rdock.z }};animation:clSlideR .22s ease">
+<div style="flex:none;display:flex;align-items:center;gap:2px;min-height:var(--c52,52px);padding:4px 4px 4px 4px;border-bottom:1px solid var(--hair2)">
+<button class="clr-btn" onClick="{{ hSelBack }}" aria-label="previous selection (Alt+Left)" title="Previous selection · Alt+←" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:{{ T.rdock.backCol }}"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<button class="clr-btn" onClick="{{ hSelFwd }}" aria-label="next selection (Alt+Right)" title="Next selection · Alt+→" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:{{ T.rdock.fwdCol }}"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<span aria-hidden="true" style="width:28px;height:28px;flex:none;border-radius:8px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--acc);margin-left:2px"><svg width="15" height="15" viewBox="0 0 16 16"><path d="M0 0{{ T.rdock.d }}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;padding-left:8px">
+<span style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ T.rdock.kind }} <span style="color:{{ T.rdock.followCol }}">· {{ T.rdock.follow }}</span></span>
+<span style="font-size:14px;line-height:1.3;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ T.rdock.name }}</span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ T.rdock.sub }}</span>
+</span>
+<sc-if value="{{ T.rdock.canPin }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" onClick="{{ hCtxPin }}" aria-label="{{ T.rdock.pinAria }}" aria-pressed="{{ T.rdock.pinned }}" title="{{ T.rdock.pinTitle }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:{{ T.rdock.pinCol }};background:{{ T.rdock.pinBg }}"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6ZM8 8.5V14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-if>
+<button class="clr-btn" onClick="{{ hRightDock }}" aria-label="hide the context panel" title="Hide · Window ▸ Context panel" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</div>
+<sc-if value="{{ T.rdock.diverged }}" hint-placeholder-val="{{ false }}">
+<div role="status" style="flex:none;display:flex;align-items:center;gap:6px;padding:4px 6px 4px 12px;background:var(--wash);border-bottom:1px solid var(--hair2)">
+<span style="flex:1;min-width:0;font:10px 'IBM Plex Mono',monospace;color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">selection is now {{ T.rdock.divName }}</span>
+<button class="clr-btn" onClick="{{ T.rdock.divShow }}" style="height:var(--c44,44px);padding:0 10px;border-radius:var(--r20,20px);border:1px solid var(--hair);background:var(--chip);font:10px 'IBM Plex Mono',monospace;color:var(--body)">PIN TO IT</button>
+<button class="clr-btn" onClick="{{ T.rdock.divFollow }}" style="height:var(--c44,44px);padding:0 10px;border-radius:var(--r20,20px);border:1px solid var(--acc);background:transparent;font:10px 'IBM Plex Mono',monospace;color:var(--acc)">FOLLOW</button>
+</div>
+</sc-if>
+<!-- the tabs are the person's modules (Ruling DY, PQ1: "Tabs you arrange"): drag to move (pointer), right-click or
+     hold for the tab's menu, + to add. A module that does not fit the subject is hidden, never removed. -->
+<div style="flex:none;display:flex;align-items:flex-start;border-bottom:1px solid var(--hair2)">
+<div role="tablist" aria-label="context panel" style="flex:1;min-width:0;display:flex;flex-wrap:wrap">
+<sc-for list="{{ T.rdock.tabs }}" as="t" hint-placeholder-count="3"><button class="clr-btn" role="tab" aria-selected="{{ t.on }}" onClick="{{ t.tap }}" onPointerDown="{{ t.down }}" onPointerMove="{{ t.move }}" onPointerUp="{{ t.up }}" onPointerCancel="{{ t.cancel }}" onContextMenu="{{ t.menu }}" data-ctxtab="{{ t.id }}" aria-label="{{ t.aria }}" title="{{ t.title }}" style="flex:1 0 auto;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 10px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;white-space:nowrap;color:{{ t.col }};border-bottom:2px solid {{ t.edge }};box-shadow:{{ t.drop }};opacity:{{ t.op }};touch-action:none">{{ t.label }}</button></sc-for>
+</div>
+<button class="clr-btn" onClick="{{ T.rdock.addTap }}" aria-label="add a module to the panel" aria-expanded="{{ T.rdock.addOpen }}" title="{{ T.rdock.addTitle }}" style="flex:none;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 6px;display:flex;align-items:center;justify-content:center;gap:2px;color:{{ T.rdock.addCol }};background:{{ T.rdock.addBg }};border-left:1px solid var(--hair2)"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg><span style="display:{{ T.rdock.hiddenDisp }};font:9px 'IBM Plex Mono',monospace;color:var(--dim)">{{ T.rdock.hiddenN }}</span></button>
+</div>
+<div style="position:relative;flex:none;height:0;z-index:21">
+<sc-if value="{{ T.rdock.add.show }}" hint-placeholder-val="{{ false }}">
+<div role="dialog" aria-label="add a module" style="position:absolute;right:6px;top:4px;width:{{ T.rdock.add.w }}px;max-height:{{ T.rdock.add.maxH }}px;display:flex;flex-direction:column;border-radius:14px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 40px rgba(0,0,0,.5);animation:clPop .14s ease">
+<div style="flex:none;display:flex;align-items:center;padding:6px 6px 0 12px"><span style="flex:1;font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc)">CONTEXT PANEL · MODULES</span><button class="clr-btn" onClick="{{ T.rdock.closePops }}" aria-label="close the module list" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r20,20px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button></div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:0 8px 10px"><dc-import name="Rows" rows="{{ T.rdock.add.rows }}" hint-size="100%,300px"></dc-import></div>
+</div>
+</sc-if>
+<sc-if value="{{ T.rdock.tabMenu.show }}" hint-placeholder-val="{{ false }}">
+<div role="menu" aria-label="tab: {{ T.rdock.tabMenu.title }}" style="position:absolute;left:{{ T.rdock.tabMenu.x }}px;top:4px;width:260px;display:flex;flex-direction:column;border-radius:12px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 40px rgba(0,0,0,.5);animation:clPop .12s ease">
+<div style="flex:none;display:flex;align-items:center;padding:4px 4px 0 12px"><span style="flex:1;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ T.rdock.tabMenu.title }}</span><button class="clr-btn" onClick="{{ T.rdock.closePops }}" aria-label="close the tab menu" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r20,20px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button></div>
+<div style="padding:0 6px 8px"><dc-import name="Rows" rows="{{ T.rdock.tabMenu.rows }}" hint-size="100%,160px"></dc-import></div>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ T.rdock.isRows }}" hint-placeholder-val="{{ true }}">
+<div class="clr-scroll" style="flex:1;min-height:0;padding:6px 12px 24px"><dc-import name="Rows" rows="{{ T.rdock.rows }}" hint-size="100%,300px"></dc-import></div>
+</sc-if>
+<sc-if value="{{ T.rdock.isNote }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-height:0;display:flex;flex-direction:column">
+<sc-if value="{{ T.rdock.note.has }}" hint-placeholder-val="{{ true }}">
+<div role="toolbar" aria-label="note view" style="flex:none;display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--hair2)">
+<button class="clr-btn" onClick="{{ T.rdock.note.modeRead }}" aria-pressed="{{ T.rdock.note.isRead }}" title="Preview · Ctrl+E in the editor" style="height:var(--c44,44px);padding:0 12px;border-radius:var(--r20,20px);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:{{ T.rdock.note.readCol }};background:{{ T.rdock.note.readBg }}">PREVIEW</button>
+<button class="clr-btn" onClick="{{ T.rdock.note.modeWrite }}" aria-pressed="{{ T.rdock.note.isWrite }}" title="Write the Markdown here · autosaves" style="height:var(--c44,44px);padding:0 12px;border-radius:var(--r20,20px);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:{{ T.rdock.note.writeCol }};background:{{ T.rdock.note.writeBg }}">WRITE</button>
+<span style="flex:1;min-width:0;font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:6px" title="{{ T.rdock.note.path }}">{{ T.rdock.note.words }} · {{ T.rdock.note.saved }}</span>
+<sc-if value="{{ T.rdock.note.canRevert }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ T.rdock.note.revert }}" title="{{ T.rdock.note.revertTitle }}" aria-label="revert to opened…" style="height:var(--c44,44px);flex:none;padding:0 10px;border-radius:var(--r20,20px);font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--sec)">REVERT…</button></sc-if>
+<button class="clr-btn" onClick="{{ T.rdock.note.openVault }}" aria-label="open this note in the vault window" title="Open in the vault window (split view, outline, backlinks)" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</div>
+<sc-if value="{{ T.rdock.note.isRead }}" hint-placeholder-val="{{ true }}"><div class="clr-scroll" style="flex:1;min-height:0"><div ref="{{ dockReadRef }}" class="md" style="padding:10px 16px 36px;font-size:13.5px"></div></div></sc-if>
+<sc-if value="{{ T.rdock.note.isWrite }}" hint-placeholder-val="{{ false }}"><div class="clr-scroll" style="flex:1;min-height:0"><div class="md-src" style="padding:12px 14px 40px;min-height:100%;box-sizing:border-box"><div ref="{{ dockMirrorRef }}" aria-hidden="true"></div><textarea ref="{{ dockTaRef }}" class="md-ta" value="{{ T.rdock.note.text }}" onInput="{{ hDnInput }}" onKeyDown="{{ hDnKey }}" onClick="{{ hDnClick }}" onSelect="{{ hDnSel }}" title="{{ T.rdock.note.taTitle }}" spellcheck="false" aria-label="note text, Markdown (Ctrl+B bold, Ctrl+I italic, Ctrl+K link, Ctrl+E preview)"></textarea></div></div></sc-if>
+<sc-if value="{{ T.rdock.note.chip }}" hint-placeholder-val="{{ false }}"><div style="flex:none;display:flex;justify-content:flex-end;padding:4px 8px;border-top:1px solid var(--hair2)"><button class="clr-btn" onMouseDown="{{ swallow }}" onClick="{{ T.rdock.note.chipTap }}" style="height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ T.rdock.note.chipLabel }}</button></div></sc-if>
+</sc-if>
+<sc-if value="{{ T.rdock.note.none }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center">
+<span style="font-size:13.5px;color:var(--body)">No note for {{ T.rdock.name }} yet.</span>
+<button class="clr-btn" onClick="{{ T.rdock.note.create }}" style="min-height:var(--c44,44px);padding:0 18px;border-radius:var(--r22,22px);background:var(--acc);color:var(--accInk);font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.08em">{{ T.rdock.note.createLabel }}</button>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);max-width:280px">{{ T.rdock.note.createSub }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ T.rdock.note.nothing }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;font-size:13px;color:var(--sec)">Select a place, faction, landmark or conflict to read or write its note here. Every note is in Records ▸ Markdown vault (Ctrl+Shift+V).</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ T.rdock.isAsk }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-height:0;display:flex;flex-direction:column">
+<sc-if value="{{ T.rdock.ask.off }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center">
+<span style="font-size:13.5px;color:var(--body)">The assistant is off. While it is off nothing is sent anywhere, and a world generates the same with it or without it.</span>
+<button class="clr-btn" onClick="{{ hAskOn }}" style="min-height:var(--c44,44px);padding:0 18px;border-radius:var(--r22,22px);background:var(--acc);color:var(--accInk);font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.08em">TURN IT ON (MOCKUP)</button>
+<button class="clr-btn" onClick="{{ hAskSettings }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid var(--hair);background:var(--chip);color:var(--body);font:10.5px 'IBM Plex Mono',monospace">Preferences ▸ Assistant…</button>
+</div>
+</sc-if>
+<sc-if value="{{ T.rdock.ask.on }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;display:flex;align-items:center;gap:6px;padding:6px 8px 4px 12px">
+<span style="flex:1;min-width:0;font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="Preferences ▸ Assistant">{{ T.rdock.ask.prov }}</span>
+<span title="{{ T.rdock.ask.saveTitle }}" style="flex:none;font:9.5px 'IBM Plex Mono',monospace;color:{{ T.rdock.ask.saveCol }};white-space:nowrap">{{ T.rdock.ask.saveLabel }}</span>
+<button class="clr-btn" onClick="{{ hAskClear }}" title="Start a new conversation" style="height:var(--c44,44px);padding:0 10px;border-radius:var(--r20,20px);font:10px 'IBM Plex Mono',monospace;color:var(--sec)">NEW</button>
+<button class="clr-btn" onClick="{{ hAskSettings }}" aria-label="assistant settings" title="Preferences ▸ Assistant…" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg></button>
+</div>
+<div aria-label="context sent with the next message" style="flex:none;display:flex;flex-wrap:wrap;gap:6px;padding:2px 12px 8px;border-bottom:1px solid var(--hair2)">
+<sc-for list="{{ T.rdock.ask.chips }}" as="k" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ k.tap }}" aria-label="{{ k.aria }}" aria-pressed="{{ k.off }}" title="{{ k.title }}" style="min-height:var(--c44,44px);padding:0 10px;border-radius:var(--r20,20px);border:1px solid var(--hair);background:var(--chip);display:flex;align-items:center;gap:6px;opacity:{{ k.op }};font:10.5px 'IBM Plex Mono',monospace;color:var(--body);text-decoration:{{ k.deco }}"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ k.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>{{ k.label }}</button></sc-for>
+</div>
+<div ref="{{ askScrollRef }}" class="clr-scroll" aria-live="polite" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:12px 12px 16px">
+<sc-if value="{{ T.rdock.ask.empty }}" hint-placeholder-val="{{ false }}"><div style="font-size:13px;line-height:1.5;color:var(--sec)">Ask about what is selected. The chips above are everything that goes with your message: they follow the panel, and a click leaves one out. Answers link back: a name selects it, a year moves the timeline, a note opens in Note. Nothing changes until you press Apply on a card.</div></sc-if>
+<sc-for list="{{ T.rdock.ask.msgs }}" as="m" hint-placeholder-count="2">
+<div style="display:flex;flex-direction:column;gap:6px;align-items:{{ m.align }}">
+<div style="max-width:94%;padding:9px 12px;border-radius:12px;background:{{ m.bg }};border:1px solid {{ m.bord }};font:13px/1.6 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text"><sc-if value="{{ m.thinking }}" hint-placeholder-val="{{ false }}"><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">reading the world <span style="animation:clDots 1.2s infinite">●</span><span style="animation:clDots 1.2s .2s infinite">●</span><span style="animation:clDots 1.2s .4s infinite">●</span></span></sc-if><sc-for list="{{ m.parts }}" as="p" hint-placeholder-count="2"><sc-if value="{{ p.isText }}" hint-placeholder-val="{{ true }}"><span>{{ p.s }}</span></sc-if><sc-if value="{{ p.isCite }}" hint-placeholder-val="{{ false }}"><button class="ask-cite" onClick="{{ p.tap }}" title="{{ p.title }}">{{ p.s }}</button></sc-if></sc-for></div>
+<span style="display:{{ m.ctxDisp }};font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ m.ctxLine }}</span>
+<span style="display:{{ m.toolsDisp }};max-width:94%;font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);overflow-wrap:anywhere">{{ m.tools }}</span>
+<span style="display:{{ m.srcsDisp }};max-width:94%;font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ m.srcs }}</span>
+<sc-for list="{{ m.acts }}" as="a" hint-placeholder-count="1">
+<div style="width:94%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid var(--bord);background:var(--pan2)">
+<div style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc)">{{ a.kindLabel }}</div>
+<div style="font-size:13.5px;color:var(--ink);margin-top:2px">{{ a.title }}</div>
+<div style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);margin-top:2px">{{ a.sub }}</div>
+<pre style="display:{{ a.prevDisp }};margin:8px 0 0;padding:8px 10px;border-radius:8px;background:var(--sur);border:1px solid var(--hair2);font:11px/1.5 'IBM Plex Mono',monospace;color:var(--body);white-space:pre-wrap">{{ a.preview }}</pre>
+<sc-if value="{{ a.open }}" hint-placeholder-val="{{ true }}"><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button class="clr-btn" onClick="{{ a.discard }}" style="height:var(--c44,44px);padding:0 14px;border-radius:var(--r20,20px);border:1px solid var(--hair);background:var(--chip);color:var(--body);font:10.5px 'IBM Plex Mono',monospace">Discard</button><button class="clr-btn" onClick="{{ a.apply }}" style="height:var(--c44,44px);padding:0 16px;border-radius:var(--r20,20px);background:var(--acc);color:var(--accInk);font:500 10.5px 'IBM Plex Mono',monospace">Apply</button></div></sc-if>
+<div style="display:{{ a.stateDisp }};margin-top:8px;font:10px 'IBM Plex Mono',monospace;color:var(--sec)">{{ a.state }}</div>
+</div>
+</sc-for>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ T.rdock.ask.savePrompt }}" hint-placeholder-val="{{ false }}">
+<div role="group" aria-label="save this conversation with the world?" style="flex:none;margin:6px 12px 2px;padding:10px 12px;border-radius:12px;border:1px solid var(--acc);background:var(--wash)">
+<div style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc)">FIRST USE · ONE QUESTION</div>
+<div style="font-size:13px;line-height:1.5;color:var(--ink);margin-top:4px">Save this conversation with the world? It is stored inside the world file and travels with it when you share it.</div>
+<div style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);margin-top:4px">Off unless you say so. One conversation per session; New clears it. Preferences changes this later.</div>
+<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button class="clr-btn" onClick="{{ T.rdock.ask.saveNo }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r20,20px);border:1px solid var(--hair);background:var(--chip);color:var(--body);font:10.5px 'IBM Plex Mono',monospace">Not now</button><button class="clr-btn" onClick="{{ T.rdock.ask.saveYes }}" style="min-height:var(--c44,44px);padding:0 16px;border-radius:var(--r20,20px);background:var(--acc);color:var(--accInk);font:500 10.5px 'IBM Plex Mono',monospace">Save with the world</button></div>
+</div>
+</sc-if>
+<div class="clr-hscroll" style="flex:none;display:flex;gap:6px;padding:8px 12px 4px;border-top:1px solid var(--hair2)">
+<sc-for list="{{ T.rdock.ask.prompts }}" as="q" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ q.tap }}" style="flex:none;min-height:var(--c44,44px);padding:0 12px;border-radius:var(--r20,20px);border:1px solid var(--hair);background:var(--chip);color:var(--body);font-size:12px;white-space:nowrap">{{ q.label }}</button></sc-for>
+</div>
+<div style="flex:none;display:flex;align-items:flex-end;gap:8px;padding:6px 12px 10px">
+<textarea ref="{{ askInRef }}" class="clr-in" value="{{ T.rdock.ask.draft }}" onInput="{{ hAskInput }}" onKeyDown="{{ hAskKey }}" rows="2" placeholder="Ask about {{ T.rdock.name }}…" aria-label="message to the assistant" style="flex:1;min-width:0;resize:none;min-height:var(--c44,44px);max-height:120px;padding:9px 12px;border-radius:12px;border:1px solid var(--bord);background:var(--sur);color:var(--ink);font:13px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;box-sizing:border-box;user-select:text;-webkit-user-select:text"></textarea>
+<button class="clr-btn" onClick="{{ hAskSend }}" aria-label="send (Enter)" title="Send · Enter" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:{{ T.rdock.ask.sendBg }};color:{{ T.rdock.ask.sendCol }};display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</div>
+<div style="flex:none;padding:0 12px 8px;font:9px 'IBM Plex Mono',monospace;color:var(--dim)">{{ T.rdock.ask.hint }}</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ T.rtab }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" onClick="{{ hRightDock }}" aria-label="show the context panel" style="position:absolute;right:0;top:{{ T.bodyT }}px;bottom:{{ T.bodyB }}px;width:{{ T.rtabW }}px;background:var(--pan2);border-left:1px solid var(--hair);display:flex;align-items:center;justify-content:center;z-index:5">
+<span style="transform:rotate(90deg);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.24em;color:{{ T.rtabCol }};white-space:nowrap">{{ T.rtabLabel }}</span>
+</button>
+</sc-if>
+
+<!-- map furniture on tablet -->
+<div style="position:absolute;left:{{ T.mapL }}px;top:{{ T.furnT }}px;display:{{ T.v3.furnDisp }};gap:8px;z-index:4">
+<button class="clr-btn" onClick="{{ hLayersPop }}" aria-label="layers" aria-expanded="{{ T.layersOpen }}" style="height:var(--c44,44px);display:flex;align-items:center;gap:8px;padding:0 14px 0 12px;border-radius:var(--r22,22px);background:var(--pill);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6 3.5-6 3.5-6-3.5ZM2 8.5L8 12l6-3.5M2 11.5L8 15l6-3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg>{{ T.baseLabel }}</button>
+</div>
+<!-- Ruling EA 14 on the desktop and the tablet: the 3D view's live height-exaggeration slider, as a row in the 3D view's own card. The card stands in for view3d.gd::_build_card() as shipped by 3D-1: top-left inside the map at CARD_INSET 12, at most CARD_MAX_W 460 wide, panel with a line border; title, tier disclosure, info line, then Back to 2D, Re-test 3D and Force tier. The new HEIGHT row sits between the info line and the actions. In the build the 3D view covers the 2D map and its furniture, so the layers button is hidden here while 3D is on. 1× is true scale (Ruling CT); the range is 1× to 4× (Ruling EB item 6), and the value is the preference Preferences ▸ 3D viewport defaults, remembered for the next session and never saved with the world (Ruling EB item 5; v3ExagSet in d_screens.js). On the phone the row is in MAP ▸ View instead (MOBILE_SHELL_PROPOSAL.md §2.5). -->
+<div role="group" aria-label="3D view" data-v3="1" style="position:absolute;left:{{ T.v3.left }}px;top:{{ T.v3.top }}px;width:{{ T.v3.w }}px;display:{{ T.v3.disp }};flex-direction:column;gap:8px;padding:12px;box-sizing:border-box;border-radius:8px;background:var(--pan);border:1px solid var(--hair);z-index:4">
+<span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)">3D VIEW</span>
+<span style="font:13px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Basic tier, as measured on this device.</span>
+<span style="font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--dim)">Terrain is not drawn in 3D yet (mock: the stand-in map stays 2D). When it is, it is drawn at the height below.</span>
+<div style="display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--dim)">HEIGHT · 1× IS TRUE SCALE</span><span style="font:500 13px 'IBM Plex Mono',monospace;color:var(--ink)">{{ T.v3.label }}</span></div>
+<input type="range" min="{{ T.v3.min }}" max="{{ T.v3.max }}" step="{{ T.v3.step }}" value="{{ T.v3.val }}" onInput="{{ T.v3.onIn }}" aria-label="{{ T.v3.aria }}" style="width:100%;height:var(--c44,44px);accent-color:var(--acc);margin:0">
+<span data-v3-where="1" style="font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--dim)">{{ T.v3.where }}</span>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<button class="clr-btn" onClick="{{ T.v3.back }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--acc);color:var(--pan);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">BACK TO 2D</button>
+<button class="clr-btn" onClick="{{ T.v3.retest }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--chip);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">RE-TEST 3D</button>
+<button class="clr-btn" onClick="{{ T.v3.force }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--chip);border:1px solid var(--hair);color:var(--body);font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em">FORCE TIER…</button>
+</div>
+</div>
+<sc-if value="{{ T.ptrNav }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;right:{{ T.furnR }}px;bottom:{{ T.furnB }}px;display:flex;flex-direction:column;gap:10px;z-index:4">
+<button class="clr-btn" onClick="{{ h3D }}" aria-label="{{ fab.dimAria }}" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);font:500 12px 'IBM Plex Mono',monospace;color:var(--acc)">{{ fab.dimLabel }}</button>
+<button class="clr-btn" onClick="{{ hFit }}" aria-label="fit the whole world" style="width:var(--c48,48px);height:var(--c48,48px);border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+<div style="width:var(--c48,48px);display:flex;flex-direction:column;border-radius:var(--r24,24px);background:var(--pill);border:1px solid var(--hair);overflow:hidden">
+<button class="clr-btn" onClick="{{ hZoomIn }}" aria-label="zoom in" style="height:var(--c48,48px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<span style="height:1px;background:var(--hair)"></span>
+<button class="clr-btn" onClick="{{ hZoomOut }}" aria-label="zoom out" style="height:var(--c48,48px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ T.touchNav }}" hint-placeholder-val="{{ true }}">
+<div role="toolbar" aria-label="map controls" data-mc="1" style="position:absolute;left:{{ T.mc.left }};right:{{ T.mc.right }};bottom:{{ T.mc.bottom }}px;display:{{ T.mc.disp }};flex-direction:{{ T.mc.dir }};gap:10px;align-items:center;z-index:4;transition:bottom .28s cubic-bezier(.3,.9,.3,1)">
+<sc-if value="{{ T.mc.panShow }}" hint-placeholder-val="{{ true }}">
+<button class="clr-btn" data-mc-btn="pan" onClick="{{ T.mc.panTap }}" aria-label="{{ T.mc.panAria }}" aria-pressed="{{ T.mc.panOn }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:{{ T.mc.panBg }};border:1px solid {{ T.mc.panBorder }};display:flex;align-items:center;justify-content:center;color:{{ T.mc.panCol }}"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 8V3.6a1 1 0 0 1 2 0V7.4M7.5 7.2V2.6a1 1 0 0 1 2 0v4.7M9.5 7.3V3.8a1 1 0 0 1 2 0v5.3c0 2.9-2 4.9-4.6 4.9-1.7 0-2.9-.9-3.6-2.2L1.9 9.7a1 1 0 0 1 1.7-1.1l1.9 2.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</sc-if>
+<div data-mc-btn="rocker" style="height:var(--c44,44px);flex:none;display:flex;flex-direction:row;align-items:center;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);overflow:hidden">
+<button class="clr-btn" data-mc-btn="zoomout" onClick="{{ T.mc.zoomOut }}" aria-label="zoom out" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+<span style="width:1px;height:22px;background:var(--hair);flex:none"></span>
+<button class="clr-btn" data-mc-btn="zoomin" onClick="{{ T.mc.zoomIn }}" aria-label="zoom in" style="width:var(--c44,44px);height:var(--c44,44px);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button>
+</div>
+<button class="clr-btn" data-mc-btn="fit" onClick="{{ T.mc.fit }}" aria-label="recentre: fit the whole world" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--navpill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+</div>
+</sc-if>
+<div style="position:absolute;left:{{ T.scaleLeft }};right:{{ T.scaleRight }};bottom:{{ T.scaleB }}px;display:{{ scale.disp }};flex-direction:column;gap:3px;pointer-events:none;z-index:4">
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:#f0f2f3;text-shadow:0 1px 2px #000,0 0 3px #000">{{ scale.label }}</span>
+<span style="width:{{ scale.px }}px;height:5px;border:1.5px solid #f0f2f3;border-top:0"></span>
+</div>
+<sc-if value="{{ compass.show }}" hint-placeholder-val="{{ false }}">
+<button class="clr-btn" onClick="{{ hNorth }}" aria-label="rotate north up" style="position:absolute;right:{{ T.furnR }}px;top:{{ T.furnT }}px;width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r22,22px);background:var(--pill);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;z-index:4"><svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true" style="transform:rotate({{ compass.deg }}deg)"><path d="M8 1.5l2.6 6.5H5.4Z" fill="#e0a34a"></path><path d="M5.4 8h5.2L8 14.5Z" fill="var(--sec)"></path></svg></button>
+</sc-if>
+
+<!-- layers popover -->
+<sc-if value="{{ T.layersOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:{{ T.mapL }}px;top:{{ T.layersT }}px;width:340px;max-height:{{ T.popMaxH }}px;display:flex;flex-direction:column;border-radius:18px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 40px rgba(0,0,0,.5);z-index:20;animation:clPop .18s ease">
+<div style="flex:none;display:flex;align-items:center;padding:12px 8px 6px 16px"><span style="flex:1;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc)">MAP · VIEW &amp; LAYERS</span><button class="clr-btn" onClick="{{ hLayersPop }}" aria-label="close layers" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r20,20px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button></div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:0 10px 14px"><dc-import name="Rows" rows="{{ T.layerRows }}" hint-size="100%,300px"></dc-import></div>
+</div>
+</sc-if>
+
+<!-- timeline strip and status bar -->
+<div style="position:absolute;left:0;right:0;bottom:{{ T.statusH }}px;height:{{ T.tlH }}px;display:flex;flex-direction:column;background:var(--pan2);border-top:1px solid var(--hair);box-sizing:border-box;z-index:7">
+<div style="height:{{ T.tlBarH }}px;flex:none;display:flex;align-items:center;gap:10px;padding:0 10px 0 14px">
+<button class="clr-btn" onClick="{{ hTimeline }}" aria-expanded="{{ T.tlOpen }}" style="height:var(--c44,44px);display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:10px;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--sec)"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" style="transform:rotate({{ T.tlRot }}deg)"><path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>TIMELINE</button>
+<span style="font:11px 'IBM Plex Mono',monospace;color:var(--ink);min-width:72px">YEAR {{ year }}</span>
+<button class="clr-btn" onClick="{{ hPlay }}" aria-label="{{ playAria }}" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ playD }}" fill="currentColor"></path></svg></button>
+<div style="position:relative;flex:1;min-width:120px;display:flex;align-items:center"><input class="clr-rng" type="range" min="{{ yrMin }}" max="{{ yrMax }}" step="1" value="{{ year }}" onInput="{{ hYear }}" aria-label="timeline year" style="flex:1;width:100%"><div aria-hidden="true" style="position:absolute;left:10px;right:10px;bottom:1px;height:10px;pointer-events:none"><sc-for list="{{ ticks }}" as="tk" hint-placeholder-count="4"><span style="position:absolute;left:{{ tk.left }}%;width:{{ tk.w }}%;min-width:2px;bottom:0;height:{{ tk.h }}px;border-radius:1px;background:{{ tk.col }};opacity:{{ tk.op }}"></span></sc-for></div></div>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap">{{ yearEvent }}</span>
+</div>
+<sc-if value="{{ T.tlOpen }}" hint-placeholder-val="{{ false }}">
+<div class="clr-hscroll" role="toolbar" aria-label="timeline controls" style="flex:none;display:flex;gap:6px;align-items:center;padding:0 14px 6px">
+<span style="flex:none;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--dim)">RECORDED</span>
+<sc-for list="{{ tlc.rec }}" as="ry" hint-placeholder-count="4"><button class="clr-btn" onClick="{{ ry.tap }}" aria-label="{{ ry.aria }}" style="flex:none;min-height:var(--c44,44px);min-width:var(--c44,44px);padding:0 10px;border-radius:var(--r22,22px);border:1px solid {{ ry.bord }};background:{{ ry.bg }};color:{{ ry.col }};font:10.5px 'IBM Plex Mono',monospace">{{ ry.label }}</button></sc-for>
+<button class="clr-btn" onClick="{{ tlc.addTap }}" style="flex:none;min-height:var(--c44,44px);padding:0 12px;border-radius:var(--r22,22px);background:{{ tlc.addBg }};color:{{ tlc.addCol }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.08em">{{ tlc.addLabel }}</button>
+<span aria-hidden="true" style="flex:none;width:1px;height:20px;background:var(--hair);margin:0 4px"></span>
+<sc-for list="{{ tlc.filt }}" as="tf" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ tf.tap }}" aria-pressed="{{ tf.on }}" title="{{ tf.title }}" style="flex:none;min-height:var(--c44,44px);padding:0 12px;border-radius:var(--r22,22px);border:1px solid {{ tf.bord }};background:{{ tf.bg }};color:{{ tf.col }};font:10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ tf.label }}</button></sc-for>
+<span aria-hidden="true" style="flex:none;width:1px;height:20px;background:var(--hair);margin:0 4px"></span>
+<sc-for list="{{ tlc.sp }}" as="sp" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ sp.tap }}" aria-pressed="{{ sp.on }}" style="flex:none;min-height:var(--c44,44px);min-width:var(--c44,44px);padding:0 8px;border-radius:var(--r22,22px);border:1px solid {{ sp.bord }};background:{{ sp.bg }};color:{{ sp.col }};font:10.5px 'IBM Plex Mono',monospace">{{ sp.label }}</button></sc-for>
+</div>
+<div class="clr-hscroll" style="flex:1;display:flex;gap:8px;align-items:center;padding:0 14px 8px">
+<sc-for list="{{ events }}" as="ev" hint-placeholder-count="4">
+<button class="clr-btn" onClick="{{ ev.tap }}" style="flex:none;min-height:var(--c52,52px);display:flex;flex-direction:column;justify-content:center;gap:1px;padding:0 14px;border-radius:14px;border:1px solid {{ ev.bord }};background:{{ ev.bg }}"><span style="font:10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ ev.y }}</span><span style="font-size:12px;color:var(--ink);white-space:nowrap">{{ ev.t }}</span></button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:{{ T.statusH }}px;display:flex;align-items:center;gap:14px;padding:0 14px;background:var(--pan2);border-top:1px solid var(--hair2);font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;box-sizing:border-box;z-index:7">
+<span style="color:var(--acc)">{{ status.left }}</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis">{{ status.mid }}</span><span>{{ status.right }}</span>
+</div>
+
+<!-- menu dropdown (drill-in submenus; touch-sized rows) -->
+<sc-if value="{{ T.dd.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hDdScrim }}" style="position:absolute;inset:0;z-index:52"></div>
+<div role="menu" aria-label="{{ T.dd.title }}" style="position:absolute;left:{{ T.dd.x }}px;top:{{ T.menuH }}px;width:{{ T.dd.w }}px;max-height:{{ T.dd.maxH }}px;display:flex;flex-direction:column;border-radius:0 0 16px 16px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 18px 44px rgba(0,0,0,.55);z-index:53;animation:clFade .12s ease">
+<div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 8px 4px 10px">
+<sc-if value="{{ T.dd.back }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hDdBack }}" aria-label="back" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r20,20px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></sc-if>
+<span style="flex:1;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);padding-left:4px">{{ T.dd.title }}</span>
+</div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:0 8px 10px"><dc-import name="Rows" rows="{{ T.dd.rows }}" hint-size="100%,300px"></dc-import></div>
+</div>
+</sc-if>
+
+<!-- desktop menus: the open menu and each submenu side by side, so a path is visible at once -->
+<sc-if value="{{ T.ddCols.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hDdScrim }}" style="position:absolute;inset:0;top:{{ T.menuH }}px;z-index:52"></div>
+<div role="menubar" style="position:absolute;left:{{ T.ddCols.x }}px;top:{{ T.menuH }}px;display:flex;align-items:flex-start;z-index:53;animation:clFade .1s ease">
+<sc-for list="{{ T.ddCols.cols }}" as="col" hint-placeholder-count="2">
+<div role="menu" aria-label="{{ col.title }}" style="width:{{ T.ddCols.cw }}px;max-height:{{ T.ddCols.maxH }}px;display:flex;flex-direction:column;margin-right:-1px;border-radius:0 0 10px 10px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 36px rgba(0,0,0,.5)">
+<div style="flex:none;padding:7px 12px 3px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc)">{{ col.title }}</div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:0 6px 8px"><dc-import name="Rows" rows="{{ col.rows }}" hint-size="100%,300px"></dc-import></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<!-- context card on long-press (tablet form of the map context card) -->
+<sc-if value="{{ T.ctx.show }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:{{ T.ctx.x }}px;top:{{ T.ctx.y }}px;width:320px;max-height:{{ T.ctx.maxH }}px;display:flex;flex-direction:column;border-radius:18px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 18px 44px rgba(0,0,0,.55);z-index:22;animation:clPop .18s ease">
+<div style="flex:none;display:flex;align-items:center;padding:12px 8px 4px 16px"><span style="flex:1;display:flex;flex-direction:column"><span style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc)">{{ T.ctx.title }}</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ T.ctx.sub }}</span></span><button class="clr-btn" onClick="{{ hCtxClose }}" aria-label="close card" style="width:var(--c44,44px);height:var(--c44,44px);border-radius:var(--r20,20px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button></div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:0 10px 12px"><dc-import name="Rows" rows="{{ T.ctx.rows }}" hint-size="100%,260px"></dc-import></div>
+</div>
+</sc-if>
+
+<!-- the cartwheel: a 500 ms hold opens it with the card; slide to a slot and lift, or tap a slot -->
+<sc-if value="{{ T.ring.show }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:{{ T.ring.left }}px;top:{{ T.ring.top }}px;width:{{ T.ring.size }}px;height:{{ T.ring.size }}px;z-index:12;pointer-events:none">
+<div aria-hidden="true" style="position:absolute;inset:0;border-radius:50%;background:var(--pan);opacity:.95;border:1px solid var(--hair);box-shadow:0 24px 60px rgba(0,0,0,.5);pointer-events:auto"></div>
+<sc-for list="{{ T.ring.items }}" as="it" hint-placeholder-count="8">
+<button class="clr-btn" onClick="{{ it.tap }}" aria-label="{{ it.aria }}" style="pointer-events:auto;position:absolute;left:{{ it.left }}px;top:{{ it.top }}px;width:{{ it.size }}px;height:{{ it.size }}px;border-radius:50%;border:1px solid {{ it.bord }};background:{{ it.bg }};color:{{ it.col }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px;box-sizing:border-box"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" style="display:{{ it.iconDisp }}"><path d="{{ it.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font:500 9.5px/1.2 'IBM Plex Mono',monospace;letter-spacing:.03em;text-align:center">{{ it.label }}</span></button>
+</sc-for>
+<button class="clr-btn" onClick="{{ T.ring.hCentre }}" aria-label="{{ T.ring.centreAria }}" style="pointer-events:auto;position:absolute;left:{{ T.ring.centreOff }}px;top:{{ T.ring.centreOff }}px;width:{{ T.ring.centreSize }}px;height:{{ T.ring.centreSize }}px;border-radius:50%;border:1px solid var(--hair);background:var(--pill);color:var(--sec);font:500 18px 'IBM Plex Mono',monospace">{{ T.ring.centreLabel }}</button>
+<div style="position:absolute;left:-60px;right:-60px;top:{{ T.ring.captionTop }}px;display:flex;justify-content:center"><span style="padding:7px 14px;border-radius:14px;background:var(--pill);border:1px solid var(--hair);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc);white-space:nowrap">{{ T.ring.caption }}</span></div>
+<sc-if value="{{ T.ring.dockShow }}" hint-placeholder-val="{{ false }}">
+<div role="toolbar" aria-label="ring dock: pinned commands" style="position:absolute;left:-60px;right:-60px;top:{{ T.ring.dockTop }}px;display:flex;justify-content:center;gap:{{ T.ring.dockGap }}px">
+<sc-for list="{{ T.ring.dock }}" as="dk" hint-placeholder-count="2">
+<button class="clr-btn" onClick="{{ dk.tap }}" aria-label="{{ dk.aria }}" style="pointer-events:auto;width:{{ T.ring.dockW }}px;height:{{ T.ring.dockH }}px;border-radius:14px;border:1px solid var(--hair);background:var(--pill);color:var(--body);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="{{ dk.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font:9.5px 'IBM Plex Mono',monospace">{{ dk.label }}</span></button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+</sc-if>
+
+<!-- ===================== SHARED OVERLAYS ===================== -->
+
+<!-- fan: long-press domain switch (and the tool fan) -->
+<sc-if value="{{ fan.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hFanScrim }}" style="position:absolute;inset:0;z-index:40;background:rgba(0,0,0,.45);animation:clFade .15s ease"></div>
+<div role="menu" aria-label="{{ fan.title }}" style="position:absolute;z-index:41;left:{{ fan.x }}px;top:{{ fan.y }}px;width:{{ fan.w }}px;display:flex;flex-direction:column;gap:8px;animation:clPop .18s ease">
+<span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#e8ebec;padding:0 6px;text-shadow:0 1px 3px #000">{{ fan.title }}</span>
+<sc-for list="{{ fan.items }}" as="f" hint-placeholder-count="3">
+<button class="clr-btn" data-fan="{{ f.i }}" role="menuitemradio" aria-checked="{{ f.on }}" onClick="{{ f.tap }}" style="display:flex;align-items:center;gap:12px;min-height:64px;padding:8px 14px;border-radius:18px;border:1.5px solid {{ f.bord }};background:{{ f.bg }};box-shadow:0 10px 26px rgba(0,0,0,.4);transform:scale({{ f.scale }});transition:transform .1s,background .1s">
+<span style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r20,20px);display:flex;align-items:center;justify-content:center;background:{{ f.iconBg }};color:{{ f.iconCol }}"><svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0{{ f.d }}" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;pointer-events:none">
+<span style="font:500 11.5px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:{{ f.col }}">{{ f.label }}</span>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.sub }}</span>
+</span>
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none;opacity:{{ f.checkOp }}"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="var(--acc)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+</sc-for>
+<span style="align-self:flex-start;font:9.5px 'IBM Plex Mono',monospace;color:var(--sec);padding:6px 12px;border-radius:14px;background:var(--pan);border:1px solid var(--hair)">{{ fan.hint }}</span>
+</div>
+</sc-if>
+
+<!-- undo history -->
+<sc-if value="{{ hist.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hHistClose }}" style="position:absolute;inset:0;z-index:42"></div>
+<div role="menu" aria-label="edit history" style="position:absolute;z-index:43;right:{{ hist.r }}px;top:{{ hist.t }}px;width:260px;border-radius:16px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 14px 34px rgba(0,0,0,.5);padding:4px 0;animation:clPop .15s ease">
+<div style="padding:10px 14px 6px;font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--dim)">EDIT HISTORY · TAP A STEP TO ROLL BACK</div>
+<sc-for list="{{ hist.rows }}" as="hr" hint-placeholder-count="3">
+<button class="clr-btn" onClick="{{ hr.tap }}" style="display:flex;align-items:center;gap:10px;width:100%;min-height:var(--c44,44px);padding:0 14px;box-sizing:border-box;font:10.5px 'IBM Plex Mono',monospace;color:{{ hr.col }}"><span style="width:18px;color:var(--dim)">{{ hr.n }}</span><span style="flex:1">{{ hr.label }}</span><span style="font-size:9px;color:var(--dim)">{{ hr.kind }}</span></button>
+</sc-for>
+<div style="display:flex;gap:8px;padding:8px 10px 6px">
+<button class="clr-btn" onClick="{{ hRedo }}" style="flex:1;min-height:var(--c44,44px);border-radius:var(--r22,22px);background:var(--chip);color:{{ redoCol }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-align:center">REDO {{ redoN }}</button>
+</div>
+</div>
+</sc-if>
+
+<!-- search: places, factions, labels, routes, landmarks and every menu command -->
+<sc-if value="{{ srch.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hSearchClose }}" style="position:absolute;inset:0;z-index:50;background:rgba(0,0,0,.4);animation:clFade .12s ease"></div>
+<div role="dialog" aria-label="search" style="position:absolute;z-index:51;left:{{ srch.x }}px;top:{{ srch.y }}px;width:{{ srch.w }}px;max-height:{{ srch.maxH }}px;display:flex;flex-direction:column;border-radius:var(--r20,20px);background:var(--pan);border:1px solid var(--bord);box-shadow:0 16px 40px rgba(0,0,0,.55);animation:clPop .16s ease">
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border-bottom:1px solid var(--hair2)">
+<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" style="flex:none;color:var(--dim)"><path d="M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM10.4 10.4L14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>
+<input ref="{{ searchRef }}" type="text" value="{{ q }}" onInput="{{ hQ }}" placeholder="places, factions, routes, commands…" aria-label="search" style="flex:1;min-width:0;height:var(--c44,44px);border:0;outline:none;background:transparent;color:var(--ink);font:13px 'IBM Plex Mono',monospace">
+<button class="clr-btn" onClick="{{ hSearchClose }}" aria-label="close search" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+</div>
+<div class="clr-hscroll" role="tablist" aria-label="search scope" style="flex:none;display:flex;gap:6px;padding:10px 12px;border-bottom:1px solid var(--hair2)">
+<sc-for list="{{ srch.scopes }}" as="s" hint-placeholder-count="5">
+<button class="clr-btn" role="tab" aria-selected="{{ s.on }}" onClick="{{ s.tap }}" style="flex:none;min-height:var(--c44,44px);padding:0 12px;border-radius:var(--r22,22px);border:1px solid {{ s.bord }};background:{{ s.bg }};color:{{ s.col }};font:10px 'IBM Plex Mono',monospace;white-space:nowrap">{{ s.label }} <span style="color:var(--dim)">{{ s.n }}</span></button>
+</sc-for>
+</div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:4px 8px 10px">
+<sc-for list="{{ srch.results }}" as="r" hint-placeholder-count="5">
+<button class="clr-btn" onClick="{{ r.tap }}" style="display:flex;align-items:center;gap:12px;width:100%;min-height:var(--c52,52px);padding:4px 10px;box-sizing:border-box;border-radius:12px">
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none;color:var(--acc)"><path d="M0 0{{ r.d }}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.label }}</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span></span>
+<span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap">{{ r.kind }}</span>
+</button>
+</sc-for>
+<sc-if value="{{ srch.empty }}" hint-placeholder-val="{{ false }}"><div style="padding:18px 10px;font:10.5px/1.6 'IBM Plex Mono',monospace;color:var(--dim)">{{ srch.emptyText }}</div></sc-if>
+</div>
+</div>
+</sc-if>
+
+<!-- window: a desktop window (data manager, vault, preferences…) as a full sheet on phone or a dialog on tablet -->
+<sc-if value="{{ win.show }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ win.modal }}" hint-placeholder-val="{{ true }}"><div onClick="{{ hWinClose }}" style="position:absolute;inset:0;z-index:46;background:rgba(0,0,0,.45);animation:clFade .12s ease"></div></sc-if>
+<div role="dialog" aria-modal="{{ win.modal }}" aria-label="{{ win.title }}" style="position:absolute;z-index:47;left:{{ win.x }}px;top:{{ win.y }}px;width:{{ win.w }}px;height:{{ win.h }}px;display:flex;flex-direction:column;border-radius:{{ win.radius }};background:var(--pan);border:1px solid var(--bord);box-shadow:{{ win.shadow }};animation:clPop .18s ease">
+<div onPointerDown="{{ hWinDragDown }}" onPointerMove="{{ hWinDragMove }}" onPointerUp="{{ hWinDragUp }}" style="flex:none;display:flex;align-items:center;gap:8px;padding:10px 8px 8px 12px;border-bottom:1px solid var(--hair2);cursor:{{ win.grab }};touch-action:none">
+<sc-if value="{{ win.back }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hWinBack }}" aria-label="back" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--body)"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></sc-if>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;padding-left:4px"><span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:var(--acc);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ win.title }}</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ win.sub }}</span></span>
+<sc-if value="{{ win.canFollow }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hWinFollow }}" aria-pressed="{{ win.follow }}" aria-label="{{ win.followAria }}" title="{{ win.followAria }}" style="height:var(--c44,44px);flex:none;padding:0 10px;border-radius:var(--r20,20px);border:1px solid var(--hair);display:flex;align-items:center;gap:6px;background:{{ win.followBg }};color:{{ win.followCol }};font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6ZM8 8.5V14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>{{ win.followLabel }}</button></sc-if>
+<sc-if value="{{ win.popout }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hWinPop }}" aria-label="{{ win.popAria }}" title="{{ win.popAria }} (Ruling DK)" style="height:var(--c44,44px);flex:none;padding:0 10px;border-radius:var(--r20,20px);border:1px solid var(--hair);font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--body)">{{ win.popLabel }}</button></sc-if>
+<button class="clr-btn" onClick="{{ hWinClose }}" aria-label="close window" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg></button>
+</div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:6px 12px 24px"><div style="display:flex;gap:18px;align-items:flex-start">
+<sc-if value="{{ win.twoCol }}" hint-placeholder-val="{{ false }}"><div style="flex:0 0 {{ win.leftW }}px;min-width:0;position:sticky;top:0"><dc-import name="Rows" rows="{{ win.left }}" hint-size="100%,400px"></dc-import></div></sc-if>
+<div style="flex:1;min-width:0"><dc-import name="Rows" rows="{{ win.rows }}" hint-size="100%,400px"></dc-import></div>
+</div></div>
+</div>
+</sc-if>
+
+
+<!-- one confirm card for the shell (Ruling DY): Revert to opened… (VQ6) and the create card for a link to nothing (VQ2) -->
+<sc-if value="{{ cfm.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ cfm.cancel }}" style="position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.5);animation:clFade .12s ease"></div>
+<div role="alertdialog" aria-modal="true" aria-label="{{ cfm.title }}" style="position:absolute;z-index:61;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 32px));box-sizing:border-box;padding:16px;border-radius:var(--r20,20px);background:var(--pan);border:1px solid var(--bord);box-shadow:0 30px 80px rgba(0,0,0,.55);animation:clPop .16s ease">
+<div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc);margin-bottom:8px">{{ cfm.title }}</div>
+<div style="font:13.5px/1.5 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);margin-bottom:12px">{{ cfm.text }}</div>
+<sc-if value="{{ cfm.hasOpts }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"><sc-for list="{{ cfm.opts }}" as="o" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ o.tap }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid var(--bord);background:var(--chip);color:var(--body);font:11px 'IBM Plex Mono',monospace">{{ o.label }}</button></sc-for></div></sc-if>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<button class="clr-btn" onClick="{{ cfm.cancel }}" style="min-height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--sec)">CANCEL</button>
+<sc-if value="{{ cfm.hasOk }}" hint-placeholder-val="{{ true }}"><button class="clr-btn" onClick="{{ cfm.run }}" style="min-height:var(--c44,44px);padding:0 16px;border-radius:var(--r22,22px);background:{{ cfm.okBg }};color:{{ cfm.okCol }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em">{{ cfm.ok }}</button></sc-if>
+</div>
+</div>
+</sc-if>
+
+<!-- the busy overlay: the shipped loading screen and UI guard, on every form factor (busy_overlay.gd) -->
+<sc-if value="{{ busy.show }}" hint-placeholder-val="{{ false }}">
+<div role="alertdialog" aria-modal="true" aria-busy="true" aria-label="generating the world" onPointerDown="{{ swallow }}" onClick="{{ swallow }}" style="position:absolute;inset:0;z-index:90;background:rgba(8,9,10,.78);display:flex;align-items:center;justify-content:center;animation:clFade .15s ease">
+<div style="width:{{ busy.w }}px;box-sizing:border-box;padding:20px;border-radius:16px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 24px 70px rgba(0,0,0,.6)">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="flex:1;font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:var(--acc)">{{ busy.title }}</span><span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim)">{{ busy.pct }}</span></div>
+<div aria-hidden="true" style="position:relative;height:78px;margin:14px 0 10px"><svg viewBox="0 0 520 78" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><path d="M0 72H520" stroke="var(--hair)" stroke-dasharray="4 4"></path><path d="M0 0{{ busy.fill }}" fill="rgba(224,163,74,.14)"></path><path d="M0 0{{ busy.line }}" fill="none" stroke="var(--acc)" stroke-width="1.6" stroke-linejoin="round"></path></svg><sc-for list="{{ busy.ticks }}" as="tk" hint-placeholder-count="9"><span style="position:absolute;left:{{ tk.pct }}%;bottom:2px;width:1px;height:8px;background:var(--bord)"></span></sc-for><span style="position:absolute;left:{{ busy.hxp }}%;top:{{ busy.hyp }}%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 4px rgba(224,163,74,.25)"></span></div>
+<div style="font:11px 'IBM Plex Mono',monospace;color:var(--ink)">{{ busy.stage }}</div>
+<div style="font-size:13.5px;line-height:1.5;color:var(--body);margin-top:6px;min-height:42px">{{ busy.msg }}</div>
+<div style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim);margin-top:10px">{{ busy.foot }}</div>
+</div>
+</div>
+</sc-if>
+
+<!-- ===================== VAULT: the notes, their editor and their links ===================== -->
+<sc-if value="{{ vt.show }}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{ vt.scrim }}" hint-placeholder-val="{{ false }}"><div onClick="{{ hVaultClose }}" style="position:absolute;inset:0;z-index:48;background:var(--scrim);animation:clFade .12s ease"></div></sc-if>
+<div role="dialog" aria-label="vault" style="position:absolute;z-index:48;left:{{ vt.frame.x }}px;top:{{ vt.frame.y }}px;width:{{ vt.frame.w }}px;height:{{ vt.frame.h }}px;border-radius:{{ vt.frame.r }}px;background:var(--pan);border:1px solid var(--hair);overflow:hidden;display:flex;box-shadow:0 30px 80px rgba(0,0,0,.5)">
+<sc-if value="{{ vt.sideOn }}" hint-placeholder-val="{{ true }}">
+<div style="width:{{ vt.sideW }}px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--hair);background:var(--pan2);padding-top:{{ vt.padT }}px">
+<div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 8px 4px 6px">
+<button class="clr-btn" onClick="{{ hVaultClose }}" aria-label="close the vault" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:var(--ink)">VAULT</span><span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim)">~/Cartalith/Vault · {{ vt.count }}</span></span>
+<button class="clr-btn" onClick="{{ hNoteNew }}" aria-label="new note" style="height:var(--c44,44px);padding:0 14px;flex:none;border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">＋ NEW</button>
+</div>
+<div style="flex:none;padding:4px 10px 6px"><input class="clr-in" type="search" value="{{ vt.q }}" onInput="{{ hVaultQ }}" placeholder="search names, text, #tags…" aria-label="search the vault"></div>
+<div class="clr-hscroll" style="flex:none;display:flex;gap:6px;padding:2px 10px 8px">
+<sc-for list="{{ vt.filters }}" as="f" hint-placeholder-count="4"><button class="clr-btn" onClick="{{ f.tap }}" style="flex:none;height:36px;padding:0 12px;border-radius:18px;border:1px solid {{ f.bord }};background:{{ f.bg }};color:{{ f.col }};font:10.5px 'IBM Plex Mono',monospace;white-space:nowrap;position:relative"><span style="position:absolute;inset:-4px 0"></span>{{ f.label }}</button></sc-for>
+</div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:0 8px 16px">
+<sc-for list="{{ vt.groups }}" as="g" hint-placeholder-count="3">
+<div style="display:flex;justify-content:space-between;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);padding:12px 6px 6px"><span>{{ g.label }}</span><span>{{ g.n }}</span></div>
+<sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ r.tap }}" aria-current="{{ r.on }}" style="width:100%;min-height:var(--c52,52px);display:flex;align-items:center;gap:12px;padding:6px 12px;border-radius:12px;background:{{ r.bg }};color:var(--body)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="{{ r.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font:14px/1.3 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.label }}</span><span style="font:10.5px/1.35 'IBM Plex Mono',monospace;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.sub }}</span></span><sc-if value="{{ r.lock }}" hint-placeholder-val="{{ false }}"><span aria-label="private" style="font:11px 'IBM Plex Mono',monospace;color:var(--warnText)">PRIVATE</span></sc-if><span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:var(--acc)">{{ r.right }}</span></button></sc-for>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.noteShow }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;position:relative;padding-top:{{ vt.padT }}px">
+<div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 8px 2px 6px">
+<sc-if value="{{ vt.canBack }}" hint-placeholder-val="{{ true }}"><button class="clr-btn" onClick="{{ vt.back }}" aria-label="back" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></sc-if>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;padding-left:6px"><span style="font:600 16px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ vt.n.title }}</span><span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ vt.n.path }}</span></span>
+<div role="group" aria-label="view" style="flex:none;display:flex;gap:4px">
+<sc-for list="{{ vt.n.modes }}" as="mo" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ mo.tap }}" aria-label="{{ mo.aria }}" style="height:var(--c44,44px);padding:0 12px;border-radius:var(--r22,22px);border:1px solid {{ mo.bord }};background:{{ mo.bg }};color:{{ mo.col }};font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em">{{ mo.label }}</button></sc-for>
+</div>
+<button class="clr-btn" onClick="{{ hNotePanel }}" aria-label="{{ vt.panelAria }}" style="width:var(--c44,44px);height:var(--c44,44px);flex:none;border-radius:var(--r22,22px);display:flex;align-items:center;justify-content:center;color:var(--sec)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="M3 3h10v10H3ZM10 3v10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</div>
+<div class="clr-hscroll" style="flex:none;display:flex;gap:6px;padding:6px 12px 8px">
+<sc-for list="{{ vt.n.chips }}" as="ch" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ ch.tap }}" style="flex:none;height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--hair);background:var(--chip);font:11px 'IBM Plex Mono',monospace;color:var(--acc);white-space:nowrap;cursor:{{ ch.cur }};position:relative"><span style="position:absolute;inset:-6px 0"></span><span style="color:var(--dim)">{{ ch.key }}</span> {{ ch.label }}</button></sc-for>
+</div>
+<sc-if value="{{ vt.n.conflict }}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="flex:none;margin:0 12px 8px;padding:10px 12px;border-radius:12px;border:1px solid var(--warnBord);background:rgba(224,168,64,.10);display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span style="flex:1 1 200px;font:12.5px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--warnText)">This note changed outside Cartalith while it was open. Nothing has been overwritten.</span>
+<button class="clr-btn" onClick="{{ hConflictReload }}" style="height:var(--c40,40px);padding:0 12px;border-radius:var(--r20,20px);background:var(--chip);font:500 10px 'IBM Plex Mono',monospace;color:var(--body)">RELOAD</button><button class="clr-btn" onClick="{{ hConflictKeep }}" style="height:var(--c40,40px);padding:0 12px;border-radius:var(--r20,20px);background:var(--wash);font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">KEEP MINE</button></div>
+</sc-if>
+<sc-if value="{{ vt.toolsTop }}" hint-placeholder-val="{{ false }}"><div role="toolbar" aria-label="formatting" class="clr-hscroll" style="flex:none;display:flex;gap:2px;padding:2px 8px 6px;border-bottom:1px solid var(--hair2)"><sc-if value="{{ vt.chip }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onMouseDown="{{ vt.keep }}" onClick="{{ vt.chipTap }}" aria-label="{{ vt.chipAria }}" style="flex:none;height:var(--c44,44px);padding:0 14px;margin-right:6px;border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ vt.chipLabel }}</button></sc-if><sc-for list="{{ vt.tools }}" as="t" hint-placeholder-count="8"><button class="clr-btn" onMouseDown="{{ t.keep }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.aria }}" style="flex:none;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 8px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 13px 'IBM Plex Mono',monospace;color:var(--body)">{{ t.glyph }}</button></sc-for></div></sc-if>
+<sc-if value="{{ vt.acTop }}" hint-placeholder-val="{{ false }}"><div role="listbox" aria-label="link suggestions" style="position:absolute;z-index:3;left:16px;top:{{ vt.acTopY }}px;width:min(420px,calc(100% - 32px));max-height:300px;overflow:auto;padding:6px;border-radius:14px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 18px 40px rgba(0,0,0,.45)"><sc-for list="{{ vt.ac.items }}" as="a" hint-placeholder-count="3"><button class="clr-btn" onMouseDown="{{ a.keep }}" onClick="{{ a.tap }}" style="width:100%;min-height:var(--c48,48px);display:flex;align-items:center;gap:10px;padding:4px 12px;border-radius:10px;background:{{ a.bg }}"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="{{ a.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font:13.5px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.label }}</span><span style="font:10.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.sub }}</span></span></button></sc-for></div></sc-if>
+<div style="flex:1;min-height:0;display:flex">
+<sc-if value="{{ vt.n.write }}" hint-placeholder-val="{{ false }}">
+<div ref="{{ noteWriteScrollRef }}" class="clr-scroll" style="flex:1;min-width:0;border-right:1px solid {{ vt.splitLine }}">
+<div class="md-src" style="padding:14px 18px 40px;min-height:100%;box-sizing:border-box"><div ref="{{ noteMirrorRef }}" aria-hidden="true"></div><textarea ref="{{ noteTaRef }}" class="md-ta" value="{{ vt.n.text }}" onInput="{{ hNeInput }}" onSelect="{{ hNeSel }}" onKeyDown="{{ hNeKey }}" onClick="{{ hNeClick }}" title="{{ vt.taTitle }}" spellcheck="false" aria-label="note text, Markdown"></textarea></div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.n.read }}" hint-placeholder-val="{{ true }}">
+<div ref="{{ noteReadScrollRef }}" class="clr-scroll" style="flex:1;min-width:0">
+<div ref="{{ noteReadRef }}" class="md" style="padding:14px 20px 18px"></div>
+<sc-if value="{{ vt.linksBelow }}" hint-placeholder-val="{{ false }}"><div style="margin:4px 14px 28px;padding-top:12px;border-top:1px solid var(--hair)"><sc-if value="{{ vt.true }}" hint-placeholder-val="{{ true }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:4px 2px 8px">LINKED MENTIONS · {{ vt.n.nLinks }}</div><sc-for list="{{ vt.n.links }}" as="L" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ L.tap }}" style="width:100%;min-height:var(--c52,52px);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip);margin-bottom:6px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--acc)">{{ L.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ L.sub }}</span></button></sc-for><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">UNLINKED MENTIONS · {{ vt.n.nUnlinked }}</div><sc-for list="{{ vt.n.unlinked }}" as="U" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><button class="clr-btn" onClick="{{ U.tap }}" style="flex:1;min-width:0;min-height:var(--c52,52px);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">{{ U.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ U.sub }}</span></button><button class="clr-btn" onClick="{{ U.link }}" aria-label="link this mention" style="flex:none;min-width:64px;height:var(--c44,44px);border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-align:center">LINK</button></div></sc-for><sc-if value="{{ vt.n.hasEnt }}" hint-placeholder-val="{{ false }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">ON THE MAP</div><button class="clr-btn" onClick="{{ vt.n.ent.map }}" style="width:100%;min-height:var(--c52,52px);display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">⌖ {{ vt.n.entName }}</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">{{ vt.n.entSub }}</span></span><span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--acc)">CENTRE ON MAP</span></button></sc-if></sc-if><sc-if value="{{ vt.false }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.heads }}" as="h" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ h.tap }}" style="width:100%;min-height:var(--c44,44px);display:flex;align-items:center;padding:0 12px 0 {{ h.pad }};border-radius:10px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)"><span style="padding-left:12px">{{ h.label }}</span></button></sc-for></sc-if><sc-if value="{{ vt.false }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.props }}" as="pp" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;min-height:var(--c40,40px);padding:6px 4px;border-bottom:1px solid var(--hair2)"><span style="flex:none;width:92px;font:10.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ pp.k }}</span><span style="flex:1;min-width:0;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);overflow-wrap:anywhere">{{ pp.v }}</span></div></sc-for><button class="clr-btn" onClick="{{ vt.n.privTog.tap }}" aria-pressed="{{ vt.n.privTog.on }}" style="width:100%;min-height:var(--c52,52px);display:flex;align-items:center;gap:10px;padding:8px 4px;margin-top:6px"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">Private note</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">kept out of exports and the assistant</span></span><span style="font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ vt.n.privLabel }}</span></button><button class="clr-btn" onClick="{{ hNoteRename }}" style="width:100%;min-height:var(--c48,48px);padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Rename…</button><button class="clr-btn" onClick="{{ hNoteConflict }}" style="width:100%;min-height:var(--c48,48px);padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Simulate an edit made outside Cartalith</button></sc-if></div></sc-if>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ vt.acBottom }}" hint-placeholder-val="{{ false }}"><div role="listbox" aria-label="link suggestions" style="flex:none;max-height:240px;overflow:auto;padding:6px 8px;border-top:1px solid var(--hair);background:var(--pan2)"><sc-for list="{{ vt.ac.items }}" as="a" hint-placeholder-count="3"><button class="clr-btn" onMouseDown="{{ a.keep }}" onClick="{{ a.tap }}" style="width:100%;min-height:var(--c48,48px);display:flex;align-items:center;gap:10px;padding:4px 12px;border-radius:10px;background:{{ a.bg }}"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true" style="flex:none"><path d="{{ a.d }}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font:13.5px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.label }}</span><span style="font:10.5px 'IBM Plex Mono',monospace;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.sub }}</span></span></button></sc-for></div></sc-if>
+<sc-if value="{{ vt.toolsBottom }}" hint-placeholder-val="{{ false }}"><div role="toolbar" aria-label="formatting" class="clr-hscroll" style="flex:none;display:flex;gap:2px;padding:4px 6px;border-top:1px solid var(--hair);background:var(--pan2)"><sc-if value="{{ vt.chip }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onMouseDown="{{ vt.keep }}" onClick="{{ vt.chipTap }}" aria-label="{{ vt.chipAria }}" style="flex:none;height:var(--c44,44px);padding:0 14px;margin-right:6px;border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10.5px 'IBM Plex Mono',monospace;white-space:nowrap">{{ vt.chipLabel }}</button></sc-if><sc-for list="{{ vt.tools }}" as="t" hint-placeholder-count="8"><button class="clr-btn" onMouseDown="{{ t.keep }}" onClick="{{ t.tap }}" aria-label="{{ t.aria }}" title="{{ t.aria }}" style="flex:none;min-width:var(--c44,44px);height:var(--c44,44px);padding:0 8px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 13px 'IBM Plex Mono',monospace;color:var(--body)">{{ t.glyph }}</button></sc-for><button class="clr-btn" onClick="{{ hNeDone }}" aria-label="done: preview the note" style="flex:none;height:var(--c44,44px);padding:0 14px;margin-left:4px;border-radius:var(--r22,22px);background:var(--acc);color:var(--accInk);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em">DONE</button></div></sc-if>
+<div style="flex:none;display:flex;justify-content:space-between;gap:8px;padding:6px 14px calc(6px + {{ vt.padB }}px);font:10px 'IBM Plex Mono',monospace;color:var(--dim);border-top:1px solid var(--hair2)"><span>{{ vt.n.words }} · {{ vt.n.outgoingLabel }}</span><span>{{ vt.n.saved }}</span></div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.empty }}" hint-placeholder-val="{{ false }}"><div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--dim);text-align:center">Pick a note, or search the vault. Notes link with [[double brackets]] to other notes and to places on the map.</div></sc-if>
+<sc-if value="{{ vt.panelOn }}" hint-placeholder-val="{{ false }}">
+<div style="width:{{ vt.panelW }}px;flex:none;display:flex;flex-direction:column;border-left:1px solid var(--hair);background:var(--pan2)">
+<div style="flex:none;display:flex;gap:6px;padding:10px 10px 8px"><sc-for list="{{ vt.n.panelTabs }}" as="pt" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ pt.tap }}" style="flex:1;height:var(--c40,40px);padding:0 6px;border-radius:var(--r20,20px);border:1px solid {{ pt.bord }};background:{{ pt.bg }};color:{{ pt.col }};font:10px 'IBM Plex Mono',monospace;text-align:center;white-space:nowrap;position:relative"><span style="position:absolute;inset:-2px 0"></span>{{ pt.label }}</button></sc-for></div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:4px 10px 16px"><sc-if value="{{ vt.panelIs.links }}" hint-placeholder-val="{{ true }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:4px 2px 8px">LINKED MENTIONS · {{ vt.n.nLinks }}</div><sc-for list="{{ vt.n.links }}" as="L" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ L.tap }}" style="width:100%;min-height:var(--c52,52px);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip);margin-bottom:6px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--acc)">{{ L.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ L.sub }}</span></button></sc-for><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">UNLINKED MENTIONS · {{ vt.n.nUnlinked }}</div><sc-for list="{{ vt.n.unlinked }}" as="U" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><button class="clr-btn" onClick="{{ U.tap }}" style="flex:1;min-width:0;min-height:var(--c52,52px);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">{{ U.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ U.sub }}</span></button><button class="clr-btn" onClick="{{ U.link }}" aria-label="link this mention" style="flex:none;min-width:64px;height:var(--c44,44px);border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-align:center">LINK</button></div></sc-for><sc-if value="{{ vt.n.hasEnt }}" hint-placeholder-val="{{ false }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">ON THE MAP</div><button class="clr-btn" onClick="{{ vt.n.ent.map }}" style="width:100%;min-height:var(--c52,52px);display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">⌖ {{ vt.n.entName }}</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">{{ vt.n.entSub }}</span></span><span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--acc)">CENTRE ON MAP</span></button></sc-if></sc-if><sc-if value="{{ vt.panelIs.outline }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.heads }}" as="h" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ h.tap }}" style="width:100%;min-height:var(--c44,44px);display:flex;align-items:center;padding:0 12px 0 {{ h.pad }};border-radius:10px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)"><span style="padding-left:12px">{{ h.label }}</span></button></sc-for></sc-if><sc-if value="{{ vt.panelIs.props }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.props }}" as="pp" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;min-height:var(--c40,40px);padding:6px 4px;border-bottom:1px solid var(--hair2)"><span style="flex:none;width:92px;font:10.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ pp.k }}</span><span style="flex:1;min-width:0;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);overflow-wrap:anywhere">{{ pp.v }}</span></div></sc-for><button class="clr-btn" onClick="{{ vt.n.privTog.tap }}" aria-pressed="{{ vt.n.privTog.on }}" style="width:100%;min-height:var(--c52,52px);display:flex;align-items:center;gap:10px;padding:8px 4px;margin-top:6px"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">Private note</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">kept out of exports and the assistant</span></span><span style="font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ vt.n.privLabel }}</span></button><button class="clr-btn" onClick="{{ hNoteRename }}" style="width:100%;min-height:var(--c48,48px);padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Rename…</button><button class="clr-btn" onClick="{{ hNoteConflict }}" style="width:100%;min-height:var(--c48,48px);padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Simulate an edit made outside Cartalith</button></sc-if></div>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ vt.sheetOpen }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hNoteSheetClose }}" style="position:absolute;inset:0;z-index:49;background:rgba(0,0,0,.45)"></div>
+<div role="dialog" aria-label="links, outline and properties" style="position:absolute;z-index:49;left:0;right:0;bottom:0;max-height:72%;display:flex;flex-direction:column;border-radius:var(--r22,22px) 22px 0 0;background:var(--pan);border-top:1px solid var(--hair);animation:clIn .18s ease;padding-bottom:{{ vt.padB }}px">
+<div style="flex:none;display:flex;gap:6px;padding:12px 12px 8px"><sc-for list="{{ vt.n.panelTabs }}" as="pt" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ pt.tap }}" style="flex:1;height:var(--c44,44px);border-radius:var(--r22,22px);border:1px solid {{ pt.bord }};background:{{ pt.bg }};color:{{ pt.col }};font:10.5px 'IBM Plex Mono',monospace;text-align:center;white-space:nowrap">{{ pt.label }}</button></sc-for></div>
+<div class="clr-scroll" style="flex:1;min-height:0;padding:4px 12px 16px"><sc-if value="{{ vt.sheetIs.links }}" hint-placeholder-val="{{ true }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:4px 2px 8px">LINKED MENTIONS · {{ vt.n.nLinks }}</div><sc-for list="{{ vt.n.links }}" as="L" hint-placeholder-count="2"><button class="clr-btn" onClick="{{ L.tap }}" style="width:100%;min-height:var(--c52,52px);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip);margin-bottom:6px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--acc)">{{ L.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ L.sub }}</span></button></sc-for><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">UNLINKED MENTIONS · {{ vt.n.nUnlinked }}</div><sc-for list="{{ vt.n.unlinked }}" as="U" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><button class="clr-btn" onClick="{{ U.tap }}" style="flex:1;min-width:0;min-height:var(--c52,52px);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">{{ U.label }}</span><span style="font:12px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--sec)">{{ U.sub }}</span></button><button class="clr-btn" onClick="{{ U.link }}" aria-label="link this mention" style="flex:none;min-width:64px;height:var(--c44,44px);border-radius:var(--r22,22px);background:var(--wash);color:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-align:center">LINK</button></div></sc-for><sc-if value="{{ vt.n.hasEnt }}" hint-placeholder-val="{{ false }}"><div style="font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:var(--dim);margin:14px 2px 8px">ON THE MAP</div><button class="clr-btn" onClick="{{ vt.n.ent.map }}" style="width:100%;min-height:var(--c52,52px);display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--chip)"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:500 13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">⌖ {{ vt.n.entName }}</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">{{ vt.n.entSub }}</span></span><span style="font:500 9.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:var(--acc)">CENTRE ON MAP</span></button></sc-if></sc-if><sc-if value="{{ vt.sheetIs.outline }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.heads }}" as="h" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ h.tap }}" style="width:100%;min-height:var(--c44,44px);display:flex;align-items:center;padding:0 12px 0 {{ h.pad }};border-radius:10px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)"><span style="padding-left:12px">{{ h.label }}</span></button></sc-for></sc-if><sc-if value="{{ vt.sheetIs.props }}" hint-placeholder-val="{{ false }}"><sc-for list="{{ vt.n.props }}" as="pp" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;min-height:var(--c40,40px);padding:6px 4px;border-bottom:1px solid var(--hair2)"><span style="flex:none;width:92px;font:10.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ pp.k }}</span><span style="flex:1;min-width:0;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink);overflow-wrap:anywhere">{{ pp.v }}</span></div></sc-for><button class="clr-btn" onClick="{{ vt.n.privTog.tap }}" aria-pressed="{{ vt.n.privTog.on }}" style="width:100%;min-height:var(--c52,52px);display:flex;align-items:center;gap:10px;padding:8px 4px;margin-top:6px"><span style="flex:1;display:flex;flex-direction:column;gap:2px"><span style="font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">Private note</span><span style="font:11px 'IBM Plex Mono',monospace;color:var(--dim)">kept out of exports and the assistant</span></span><span style="font:500 10px 'IBM Plex Mono',monospace;color:var(--acc)">{{ vt.n.privLabel }}</span></button><button class="clr-btn" onClick="{{ hNoteRename }}" style="width:100%;min-height:var(--c48,48px);padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Rename…</button><button class="clr-btn" onClick="{{ hNoteConflict }}" style="width:100%;min-height:var(--c48,48px);padding:0 4px;font:13px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body)">Simulate an edit made outside Cartalith</button></sc-if></div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.dlg.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hNoteDlgClose }}" style="position:absolute;inset:0;z-index:49;background:rgba(0,0,0,.5)"></div>
+<div role="dialog" aria-label="{{ vt.dlg.title }}" style="position:absolute;z-index:49;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,calc(100% - 32px));padding:16px;border-radius:var(--r20,20px);background:var(--pan);border:1px solid var(--bord);box-shadow:0 30px 80px rgba(0,0,0,.55);animation:clPop .16s ease">
+<div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--acc);margin-bottom:8px">{{ vt.dlg.title }}</div>
+<div style="font:13.5px/1.5 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);margin-bottom:12px">{{ vt.dlg.text }}</div>
+<sc-if value="{{ vt.dlg.isRename }}" hint-placeholder-val="{{ false }}"><input class="clr-in" type="text" value="{{ vt.dlg.value }}" onInput="{{ hNoteRenameInput }}" aria-label="new note name" style="margin-bottom:12px"></sc-if>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"><sc-for list="{{ vt.dlg.opts }}" as="o" hint-placeholder-count="3"><button class="clr-btn" onClick="{{ o.tap }}" style="height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);border:1px solid {{ o.bord }};background:{{ o.bg }};color:{{ o.col }};font:11px 'IBM Plex Mono',monospace">{{ o.label }}</button></sc-for></div>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+<sc-if value="{{ vt.dlg.hasMap }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ vt.dlg.map }}" style="height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);background:var(--chip);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--body)">CENTRE ON MAP</button></sc-if>
+<sc-if value="{{ vt.dlg.isRename }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ hNoteRenameDo }}" style="height:var(--c44,44px);padding:0 16px;border-radius:var(--r22,22px);background:var(--acc);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--accInk)">RENAME</button></sc-if>
+<button class="clr-btn" onClick="{{ hNoteDlgClose }}" style="height:var(--c44,44px);padding:0 14px;border-radius:var(--r22,22px);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--sec)">CANCEL</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{ vt.peek.show }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ hPeekClose }}" style="position:absolute;inset:0;z-index:49"></div>
+<div role="dialog" aria-label="link preview" style="position:absolute;z-index:49;left:{{ vt.peek.x }}px;top:{{ vt.peek.y }}px;width:300px;padding:14px;border-radius:16px;background:var(--pan);border:1px solid var(--bord);box-shadow:0 20px 50px rgba(0,0,0,.55);animation:clPop .14s ease">
+<div style="font:600 14px 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--ink)">{{ vt.peek.title }}</div>
+<div style="font:10.5px 'IBM Plex Mono',monospace;color:var(--dim);margin:2px 0 8px">{{ vt.peek.kind }}</div>
+<div style="font:12.5px/1.5 'Helvetica Neue',Helvetica,Arial,sans-serif;color:var(--body);margin-bottom:10px">{{ vt.peek.body }}</div>
+<div style="display:flex;gap:6px;justify-content:flex-end"><sc-if value="{{ vt.peek.hasMap }}" hint-placeholder-val="{{ false }}"><button class="clr-btn" onClick="{{ vt.peek.map }}" style="height:var(--c40,40px);padding:0 12px;border-radius:var(--r20,20px);background:var(--chip);font:500 10px 'IBM Plex Mono',monospace;color:var(--body)">CENTRE ON MAP</button></sc-if><button class="clr-btn" onClick="{{ vt.peek.open }}" style="height:var(--c40,40px);padding:0 14px;border-radius:var(--r20,20px);background:var(--acc);font:500 10px 'IBM Plex Mono',monospace;color:var(--accInk)">{{ vt.peek.openLabel }}</button></div>
+</div>
+</sc-if>
+</sc-if>
+
+<!-- picker: worlds on this device -->
+<sc-if value="{{ picker.show }}" hint-placeholder-val="{{ false }}">
+<div class="clr-scroll" style="position:absolute;inset:0;z-index:50;background:var(--sur);padding:{{ picker.pad }};box-sizing:border-box">
+<div style="max-width:{{ picker.maxW }}px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+<span style="font:500 14px 'IBM Plex Mono',monospace;letter-spacing:.3em;color:var(--ink);padding-top:8px">CARTALITH</span>
+<span style="font:10px 'IBM Plex Mono',monospace;color:var(--dim);margin-top:-8px">worlds on this device · ~/Cartalith/Worlds</span>
+<div style="display:grid;grid-template-columns:repeat({{ picker.cols }},minmax(0,1fr));gap:12px">
+<sc-for list="{{ picker.worlds }}" as="pw" hint-placeholder-count="3">
+<button class="clr-btn" onClick="{{ pw.tap }}" style="display:flex;flex-direction:column;border-radius:18px;border:1px solid var(--hair);overflow:hidden;background:var(--pan)">
+<span style="height:96px;display:block;background:{{ pw.grad }};position:relative"><span style="position:absolute;left:12px;bottom:10px;font:9.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:{{ pw.badgeCol }};background:rgba(13,14,15,.7);border-radius:10px;padding:4px 9px">{{ pw.badge }}</span></span>
+<span style="display:flex;align-items:center;gap:10px;padding:12px 14px;min-height:56px;box-sizing:border-box"><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--ink)">{{ pw.name }}</span><span style="font:9.5px 'IBM Plex Mono',monospace;color:var(--dim)">{{ pw.sub }}</span></span><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="var(--dim)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+</button>
+</sc-for>
+</div>
+<button class="clr-btn" onClick="{{ hNewWorld }}" style="min-height:56px;border-radius:18px;border:1px dashed var(--acc);color:var(--acc);font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.2em;text-align:center">＋ NEW WORLD</button>
+<button class="clr-btn" onClick="{{ hOpenZip }}" style="min-height:var(--c52,52px);border-radius:26px;background:var(--chip);color:var(--sec);font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.16em;text-align:center">OPEN PROJECT .ZIP…</button>
+</div>
+</div>
+</sc-if>
+
+<!-- toasts -->
+<div aria-live="polite" style="position:absolute;z-index:70;left:0;right:0;{{ toastPos }};display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;padding:0 16px">
+<sc-for list="{{ toasts }}" as="t" hint-placeholder-count="1">
+<div style="max-width:min(86%,520px);padding:10px 16px;border-radius:16px;background:var(--pill);border:1px solid var(--bord);font:10.5px/1.5 'IBM Plex Mono',monospace;color:var(--ink);text-align:center;animation:clIn .25s ease;box-shadow:0 8px 24px rgba(0,0,0,.35)">{{ t.text }}</div>
+</sc-for>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"w":{"editor":"int","default":412,"min":320,"max":2600,"section":"Device"},"h":{"editor":"int","default":892,"min":320,"max":2000,"section":"Device"},"light":{"editor":"boolean","default":false,"section":"Device"},"startIn":{"editor":"enum","options":["map","picker"],"default":"map","section":"Device"},"coach":{"editor":"boolean","default":true,"section":"Device"},"onLayout":{"editor":null},"$preview":{"width":412,"height":892}}'>
+/*__SCRIPT__*/
+</script>
+</body>
+</html>

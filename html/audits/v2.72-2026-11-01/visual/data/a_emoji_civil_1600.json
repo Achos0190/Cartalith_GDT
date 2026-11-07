@@ -1,0 +1,38 @@
+[
+ {
+  "el": "button#settlementsHeaderBtn",
+  "region": "toolopts",
+  "glyphs": "🏘",
+  "text": "🏘️ Settlements"
+ },
+ {
+  "el": "button#assetsHeaderBtn",
+  "region": "toolopts",
+  "glyphs": "🎨",
+  "text": "🎨 Assets"
+ },
+ {
+  "el": "button#bakeAllBtn",
+  "region": "dock-left",
+  "glyphs": "🔒",
+  "text": "🔒 Bake ALL levels & finalize world"
+ },
+ {
+  "el": "button#tlStripToggle span.tl-chev",
+  "region": "timeline",
+  "glyphs": "⌃",
+  "text": "⌃"
+ },
+ {
+  "el": "div#civTimelinePanel span",
+  "region": "timeline",
+  "glyphs": "✕",
+  "text": "✕"
+ },
+ {
+  "el": "div#civTimelinePanel span",
+  "region": "timeline",
+  "glyphs": "✕",
+  "text": "✕"
+ }
+]

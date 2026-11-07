@@ -1375,7 +1375,9 @@ thread (not timed separately).
 by default. `LodBudget::ef9_refine` is `true` on Balanced, Quality and Ultra and
 `false` on Performance (the Android tier): Q5's recorded default keeps that tier
 off until a phone shows no frame over one vsync per level change, and no phone
-timing exists, so this is a labelled judgement, not a measurement. The two items
+timing exists, so this is a labelled judgement, not a measurement. *(Corrected
+2026-11-01, Ruling EA item 16: no device starts on Performance, so it is not
+the Android tier; see Q5 in §8.6.)* The two items
 this section left open are closed as follows.
 
 - **The boost field's first build** was timed (`_ef9firstbuild_probe.gd`, debug
@@ -1432,6 +1434,12 @@ this section left open are closed as follows.
      change. That is LOD-D3's own phone budget.
    - **Answered 2026-10-18 (Ruling CL):** ship on. Built as the tier default:
      on for Balanced, Quality and Ultra, off for Performance (no phone timing).
+   - **Answered 2026-11-01 (Ruling EA item 16, "Keep it off on
+     Performance"):** Performance stays the cheap tier for good. The premise
+     is corrected: Performance is not the Android tier. Every device starts
+     on Quality (`quality: QualityTier::Quality`) and
+     `recommended_quality_tier` is applied nowhere, so the 6T already runs
+     EF-9, and the 6T timing in the owner's device pass is on Quality.
 6. **Q6. Where the plan lives.**
    - **Default:** here, for the reasons in §8's opening paragraph.
    - A separate scope file only if EF-9.4's display work grows past this

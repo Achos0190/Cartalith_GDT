@@ -1,0 +1,23 @@
+{
+ "truncs": [
+  {
+   "el": "div#placeEditPopup",
+   "region": "map",
+   "text": "×\nEdit settlement\n⤢ Open city view\nName\n🎲\nCategory\nSettleme",
+   "client": 278,
+   "scroll": 289,
+   "ell": false
+  }
+ ],
+ "off": [
+  {
+   "el": "button#_civPeConnect",
+   "r": [
+    726,
+    1075,
+    980,
+    1106
+   ]
+  }
+ ]
+}

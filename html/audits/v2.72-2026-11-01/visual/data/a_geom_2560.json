@@ -1,0 +1,13 @@
+{
+ "truncs": [
+  {
+   "el": "div#ctxHint",
+   "region": "context",
+   "text": "Inspect a settlement, label or icon on the map, or a row in ",
+   "client": 273,
+   "scroll": 397,
+   "ell": true
+  }
+ ],
+ "off": []
+}

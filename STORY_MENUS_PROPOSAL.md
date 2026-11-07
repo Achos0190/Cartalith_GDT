@@ -348,6 +348,13 @@ Later rows, not scheduled by this proposal: a per-item DM-only mark (Rust and
 the save format); free timeline events (a new store); print and VTT writers; and
 the CIVIL ▸ Settlements node (a fifth mode id, plan C1).
 
+**Answered by Ruling EA item 7 (owner, 2026-11-01): "None for now".** All four
+later rows stay unscheduled. Recorded with the answer:
+- The Player map export still includes a secret place whenever its layer is
+  on, because nothing marks a place DM-only (§7, risk 7).
+- Free events can already be written as chronos lines in a place's note
+  (Ruling AM).
+
 ## 9. Owner questions, with recommended defaults
 
 | # | Question | Recommended default | Why |

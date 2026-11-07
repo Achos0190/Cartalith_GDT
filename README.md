@@ -152,7 +152,7 @@ choose from; not a scope, no status column).
 | Path | What it is |
 |---|---|
 | `cartalith-native/` | the Cargo workspace and the Godot project |
-| `reference/` | two frozen snapshots: `Cartalith Gen1 v2.10.html` + `FUNCTION_INDEX.md` — since 2026-08-23 a full checklist: every user-facing control (with backing functions) and a one-line purpose for all 1094 functions — and, since 2026-09-02 (`45b368d`), `Cartalith Gen1 v2.11.html` + `FUNCTION_INDEX_v2.11.md`, a byte copy of the v2.11 still at this repository's root. Scope-document line ranges resolve against v2.10; `REFERENCE_DRIFT_v2.10_to_v2.11.md` maps between them. Re-freezing to the DCC line's newer versions is open work (`OUTSTANDING_WORK.md` §2.8) |
+| `reference/` | two frozen snapshots: `Cartalith Gen1 v2.10.html` + `FUNCTION_INDEX.md` — since 2026-08-23 a full checklist: every user-facing control (with backing functions) and a one-line purpose for all 1094 functions — and, since 2026-09-02 (`45b368d`), `Cartalith Gen1 v2.11.html` + `FUNCTION_INDEX_v2.11.md`, a byte copy of the v2.11 still at this repository's root. Scope-document line ranges resolve against v2.10; `REFERENCE_DRIFT_v2.10_to_v2.11.md` maps between them. Since 2026-11-01 also `Cartalith v2.71 DCC test.html`, the DCC line's v2.71, copied byte for byte from `Cartalith_RC` (`ed6b3d9`); its function index and drift file are open work (`OUTSTANDING_WORK.md` §2.8) |
 | `docs/` | **the source project's own documentation**, kept as provenance — see `docs/README.md`; two filenames collide with the port's |
 | `design/` | owner-supplied UI mockups and handoff specs, imported verbatim |
 | `skills/` | the vendored Claude Code skills this project uses |

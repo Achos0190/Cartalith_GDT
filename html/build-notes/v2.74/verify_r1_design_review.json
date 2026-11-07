@@ -1,0 +1,110 @@
+{
+ "lens": "Design and code reviewer: git diff dfa97d2 -- html/ against PLAN.md §5 and §8, F06, Rulings EC/EF and the HTML rules, verification round 1 (reviewed bytes md5 bc0559a4…, unchanged by checkpoint de9ecc9)",
+ "checks_run": "Read PLAN.md §0, §2, §3, §5, §8 and the F06 row, Rulings EC and EF, the MISTAKES preflight column, CLAUDE_v2.72/73, CHANGELOG/CLAUDE_v2.74 and README, the RC CLAUDE.md DCC rules and the top of its CHANGELOG, and the whole HTML diff (1 688 lines). Every scratch file below is under /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/v274-review/.\n\nGates and parsing:\n- node --check passes on all 4 script blocks. Block 3 (the UM engine) is byte-identical to v2.73.\n- hash_gen1.js v2.73→v2.74 prints ALL IDENTICAL on all 5 configs (hash_gen1.out).\n- Replicas of RC's run.sh and run_um.sh, run in scratch instead of /tmp: 1280/0 and 882/0 (suite/run_v274.out, suite/um_v274.out).\n- census_v274.js on v2.74: 0 of 2 414 runs below AA. On v2.73: 561 of 2 494 (census74.out, census73.out).\n- The audit's sun_probe.js passes 3/3 on v2.74 and 2/3 on v2.73.\n- RC's probe_assetsbtn gives 13/1 and probe_cogmodal 33/0 on both versions.\n- Page errors: 0. Duplicate ids: none. Element counts are equal on both versions (2 865 desktop, 2 866 phone).\n\nToll fix (toll.js, toll4.js): measured on v2.73 vs v2.74, seeds 12345 and 777 at grid 256, on the audit's journey pairs. One run used a pinned Math.random and two used none; all gave identical results.\n\nCorners:\n- I classified every one of the 101 silenced radius declarations myself (radcount.py and radlist.py).\n- Desktop surface census (surfaces.js) and phone census (census_div.js, census_phone2.js, surfaces_phone.js).\n- Fill census of armed controls (fills.js).\n- Hit tests 4px in from each corner (corners.js, corners_phone.js, corners_strip.js) on v2.73 and v2.74, plus ds13.js.\n\nOther checks:\n- focusseg.js: Tab onto a segmented control and capture the ring.\n- floatbusy.js: busy overlay over a floating dock. failload.js: a failed load from the gate.\n- segclip.js: clipped segments on tablet 1194 and desktop 1366. freehand.js: sculpt features hidden with Freehand armed. explorectx.js.\n- Recomputed every contrast figure the comments and changelog quote. Grepped every backticked symbol in the three docs. Checked the design radii in d_vals.js, shell.tpl.html, d_ring.js and dcc_theme.gd.\n\nScreenshots opened: all 16 v2.74 captures, v2.73's desktop1366, tablet1194_sculpt_bar and the phone map/drawer, the design's Desktop/Live renders and the audit's d3_timeline_expanded and d_frame_1600_light, plus my own crops in shots/.\n\nThe machine was shared: another agent's probe_fixpass was running, so I relied on deterministic counters. I did not re-run probe_fixpass, probe_mobileshell or probe_desktopshell.\n\nNeeds a person: native select popups and spinners per theme, Segoe and Consolas widths, a screen reader over the strip chips, and real fingers on the touch pills.",
+ "defects": [
+  {
+   "severity": "major",
+   "title": "At touch, pill controls lose their 44px corners as tap targets; only DS-13 got the ::after fix, and the changelog says the guarantee holds",
+   "evidence": "The test: on a fresh world (seed 12345, grid 256), tap 4px in from each corner and read elementFromPoint.\n\nTablet 1194×834 (corners.js, corners_strip.js):\n- v2.73: every control below hits itself at all corners (0px radius).\n- v2.74 misses all 4 corners of: #pinSave, #settlementsHeaderBtn, #assetsHeaderBtn, #pinPlanner (999px, 44px tall; hit lands on #toolOptsPins), #layersBtn (lands on #layersFab), the 3D button in #viewDimSeg (clipped by the seg's 999px overflow; lands on #mapBR), #findInput (lands on #findWrap), the strip's two year pills (68×44) and its three filter chips (88–108×44).\n\nPhone 412×915 (corners_phone.js):\n- v2.74: #findInput (346×44) misses 4 of 4 corners; #viewDimSeg's two end buttons each miss their two outer corners. All were ok on v2.73.\n\nWhy this contradicts the docs:\n- CHANGELOG justifies the 12px touch radius with: \"hit-testing follows border-radius, so a 44px pill loses its corners as targets, and v2.73's guarantee that a finger 4px in from a 44px control's corner still meets it … holds at 12\".\n- It then keeps these controls as pills (\"Pills that stay pills at touch (.pill, the pins, the Base map chip, the 2D/3D square, DS-13)\"; the search field is not even listed).\n- Only `#zoomOverlay .zbtn::after` restores the box (ds13.js: all DS-13 corners hit).\n- probe_fixpass's corner leg (~lines 655–664) presses only zoomOut, zoomIn, zoomReset, dockLeftCollapse, reseedBtn, genBtn and undoBtn, so it cannot see this.",
+   "fix": "Give each touch pill the DS-13 treatment: an empty, unclipped `::after{inset:0}` on the positioned control. For #viewDimSeg, put the target on the container or drop its overflow clip at touch. Or let these controls take the 12px touch radius. Then add every touch pill (pins, #layersBtn, #viewDimSeg, #findInput, the strip's .pill and filter chips) to probe_fixpass's corner leg and confirm that leg fails on today's bytes."
+  },
+  {
+   "severity": "major",
+   "title": "The phone's quick-drawer rows are rounded 12px and their dividers curl at both ends, contrary to \"rows … are squared by one rule\"",
+   "evidence": "drawer.js, 412×915 touch, drawer opened from the grip:\n- #pinSave, #settlementsHeaderBtn, #assetsHeaderBtn and #pinPlanner (all in span#slotPhDrawer) measure 319×56 with border-radius 12px and borders 0/0/1/0 (top/right/bottom/left).\n- On v2.73 the same rows are 0px.\n- shots/drawer_crop_l_v74.png and drawer_crop_r_v74.png show each row's 1px bottom divider curving up at both ends.\n\nThe squaring rule (`.mb-row,.mb-panel > button,.layers-fab .lp-item,…,.civ-ctx button{border-radius:0}`) does not name the drawer rows, so they fall to `button{border-radius:var(--r-btn)}` (12px at touch).\n\nThe CHANGELOG says: \"rows, tabs and the rail are squared by one rule, since a rounded full-width row curves its own divider\". The CLAUDE paste says the same.",
+   "fix": "Add the drawer's rows to the squaring rule, scoped to the phone, e.g. `:where(html[data-shell=\"phone\"]) #slotPhDrawer > button{border-radius:0}`. Add the drawer to probe_fixpass's square-row checks, alongside MENU's rows and .ph-tab."
+  },
+  {
+   "severity": "major",
+   "title": "P7 bar not met: sun_probe.js is not shipped for RC's tests/perf, and the probe headers call it \"RC's\"",
+   "evidence": "PLAN §5 P7 bars: \"sun_probe.js passes 3 of 3 and is added to RC's tests/perf.\"\n\nWhat ships:\n- html/tests/perf holds census_v274.js, probe_fixpass.js, probe_v274fix.js and shots_v274.js. There is no sun_probe.js.\n- README's 'Moving it' list does not mention it, and the CHANGELOG never mentions it or gives a reason for the change.\n- probe_fixpass.js:24 and probe_v274fix.js:19 say \"as RC's sun_probe.js did\", but RC's tests/perf has no sun_probe.js. It exists only at html/audits/v2.72-2026-11-01/perf/scripts/sun_probe.js.\n\nThe fix itself holds. I ran that script:\n- v2.74: 3/3 ok.\n- v2.73: FAIL \"dragging the Sun slider changes the map\".",
+   "fix": "Either copy sun_probe.js into html/tests/perf with a README row and a 'Moving it' entry, or state in the CHANGELOG that probe_fixpass's P7 section replaces it and why. Correct \"RC's sun_probe.js\" to the audit's script."
+  },
+  {
+   "severity": "minor",
+   "title": "Phone MAP page: the full-width 2D/3D pill cuts its own armed chip's ring",
+   "evidence": "On the phone's MAP sheet page, #viewDimSeg is 380×46 with radius 999px (rule `.to-pins button,#layersBtn,#findInput,.seg.viewdim{border-radius:var(--r-pill)}`).\n\nThe armed chip `.seg button.on::before{inset:2px;border-radius:calc(var(--r-btn) - 2px)}` is 10px at touch. The container's ~23px curve clips it. shots/viewdim_crop.png shows the accent edge broken at the chip's corners on the armed \"2D\".\n\n#modeSeg directly below is 12px and its chip is intact (shots/modeseg_crop.png).\n\nThis is the clipping the CHANGELOG says drawing the chip inset avoids.",
+   "fix": "Keep the 999px radius for the single round 3D square in the map corner (desktop and tablet), and let the phone's full-width 2D/3D take --r-btn like #modeSeg. Alternatively, derive the chip's radius from its container."
+  },
+  {
+   "severity": "minor",
+   "title": "The new 2px focus ring is invisible on segmented buttons, so \"the design's focus ring on every control\" is overstated",
+   "evidence": "focusseg.js at 1600×900: Tab onto WORLD's GENERATE segment.\n- Computed style: `outline: solid 2px rgb(224,163,74)`, offset 2px, `:focus-visible` true.\n- shots/focusseg_v74_x3.png shows no ring at all. `.seg{overflow:hidden}` clips the top, bottom and left; the next segment, a later z-index:0 sibling, paints over the right.\n\nThe V19 bar's six controls are not segments, so they pass. But the CHANGELOG and CLAUDE paste say \"The design's focus ring on every control\". Segments are the dock's most common control (26).\n\nv2.73's Chrome auto ring was also faint, so the regression is small; the claim is what is wrong.",
+   "fix": "Draw the segment ring inside, e.g. `.seg button:focus-visible{outline-offset:-2px}` or an inset box-shadow, as the menu rows already do. Add one segment to probe_fixpass's V19 leg."
+  },
+  {
+   "severity": "minor",
+   "title": "Stale or false comments (Ruling BK)",
+   "evidence": "1. `_civBakeKey` comment: \"(the LOD tile key, _lodViewKey's sibling above, has always carried it)\". `_lodViewKey` exists nowhere; grep finds only this comment. The key is `_lodRenderKey`, which is in the file's first script block, not \"above\". The CHANGELOG names it correctly.\n2. Radius block comment: \"(the phone's app bar keeps its 44px Undo/Redo round, --r-btn, as the design's app bar does)\". On the phone #undoBtn, #redoBtn and #phSearchBtn measure 44×44 at 12px, and probe_fixpass itself asserts \"phone: the app bar's Undo takes the touch radius\" (12px). The design's (Live.dc.html) are circles.\n3. The accelerator comment above `if(_dskV(()=>_busyDepth,0)>0) return;` says \"The overlay covers the map only, so a click on the dock's own Generate can still queue one, exactly as in v2.71\". floatbusy.js at 900×800, with the left dock floating and open plus showBusy(): #genBtn is pressable on v2.73 and \"covered by busy\" on v2.74. The CHANGELOG's V11 bullet says both \"a floating dock\" (covered) and \"It covers the map only\".\n4. renderNow: `_bootRenderPending=false;   /* v2.74 (P4): … */` is a comment appended after code; the RC style is one comment per line, on its own line.\n5. probe_fixpass.js header lists \"the touch radii 24/20px\" among the literals it uses, but none appears; its touch literals are 12px.",
+   "fix": "Correct each comment:\n1. Name `_lodRenderKey` and its location.\n2. Say \"12px rounded squares, a stated departure from the design's circles\".\n3. Say a floating dock is covered and a docked dock is not.\n4. Move the renderNow comment onto its own line.\n5. Fix the probe header's literal list.\nAlso reconcile the V11 bullet's two statements."
+  },
+  {
+   "severity": "minor",
+   "title": "Superseded probe html/tests/perf/probe_v274fix.js is shipped but listed nowhere",
+   "evidence": "probe_v274fix.js is 568 lines: lane A's first probe, whose header says it takes one file and covers fix-pass findings only. It sits in the folder the owner moves from. README's table and 'Moving it' list name only probe_fixpass.js and census_v274.js, and the CHANGELOG never mentions it. probe_fixpass.js covers the same sections and more, so two probes of the same findings will drift apart.",
+   "fix": "Delete probe_v274fix.js, or list it in README with what it adds over probe_fixpass.js."
+  },
+  {
+   "severity": "minor",
+   "title": "Toll-fix disclosure mixes two measures of journey length without labelling them",
+   "evidence": "toll4.js, v2.73 vs v2.74, the audit's pairs. Every count in the CHANGELOG reproduces exactly:\n- sea cells read as claimed: 0 of 12 258 and 0 of 10 939;\n- unclaimed land read as claimed: 0 of 152 and 0 of 7 235;\n- 12 of 77 and 41 of 84 stages change tier, all Coastal Waters or Sheltered Bay, Sparse Settlements → Ruined Region, with no land stage changed;\n- all six of seed 777's journeys go from 0 to 1 border and from 0 to 6 toll.\n\nThe seed-12345 day list \"12.7 → 14.1, 14.3 → 14.9, 16.6 → 16.8, 17.6 → 17.8, 19.8 → 20.3, 18.3 → 18.5\" mixes two measures:\n- the first is totalDays (travel time 10.7 → 12.1, plus rest days);\n- the other five are the travel days of journeys whose plan is impassable: jpJourneyCost returns null and totalDays is null.\n\nSeed 777's six figures are totalDays. Nothing in the text says which is which, or that five routes are impassable.",
+   "fix": "Label the figures as total-trip or travel days, and state that five of seed 12345's six audit routes are impassable, which is why they have no cost and no toll."
+  },
+  {
+   "severity": "minor",
+   "title": "Wrapped sculpt presets: the first line's last segment doubles the container's rounded edge",
+   "evidence": "In v274_sculpt_freehand_1366.png (crop: shots/presets_crop.png), Sculpt's eight presets wrap onto two lines; the CHANGELOG lists this wrap.\n- \"Volcanic Isle\" ends the first line but keeps its 1px border-right against the container's 16px-curved right edge, so the line is doubled inside the curve.\n- There is no divider between the two lines.\n\nv2.74 fixed this for New World's grid (`#suArchSeg button:nth-child(3n){border-right:0}`) but not for a `.seg` that wraps by flex-wrap. This is the same class as V26's re-check of `.seg.grid` borders.",
+   "fix": "Give the presets row explicit columns (a grid with nth-child border resets) or keep it to one line. Extend probe_fixpass's V26 border check to wrapping segments."
+  },
+  {
+   "severity": "minor",
+   "title": "\"Where this departs from the design\" leaves out two departures",
+   "evidence": "MISTAKES ('Write \"it matches the design\"') requires the whole departures list, not the rows that agree. Two are missing:\n- The design draws the timeline's play control as a round button (the audit's V29 text and d3_timeline_expanded.png; Desktop.dc.html). v2.74 draws a labelled washed pill \"▶ ANIMATE\".\n- The design's scale bar is boxless text with a halo (Desktop.dc.html \"200 km\"). v2.74 draws Q9's .85 box.\n\nThe owner defaults justify both, but neither appears in the list.",
+   "fix": "Add both as departure rows, with the reason for each (the label kept, and Q9's default)."
+  },
+  {
+   "severity": "minor",
+   "title": "README marks v2.74 \"(built)\": a status claim outside STATUS.md, made before verification",
+   "evidence": "html/README.md's stage plan reads \"1. **v2.74 — the fix pass and the design alignment** (built)\".\n\nThe root CLAUDE.md makes STATUS.md the single source of truth, and its html/ row says \"How far it has got is STATUS.md's answer\". The stage 1 and stage 2 lines carry no status word. The checkpoint commits, de9ecc9 included, say \"not yet verified\".",
+   "fix": "Drop \"(built)\". Return the STATUS.md text for the main loop to record once the verifiers pass."
+  },
+  {
+   "severity": "minor",
+   "title": "Two documentation overstatements",
+   "evidence": "1. The CLAUDE_v2.74 file-table row says \"**#assetsPanel reachable in Assets mode**\" without qualification. On a phone the panel is still unreachable:\n   - the CSS is keyed on `html:not([data-shell=\"phone\"])`;\n   - the `_findPanelOwners` owner skips `_shell==='phone'`;\n   - the CHANGELOG itself says \"Not on a phone\".\n2. The CHANGELOG's V18 bullet ends \"Measured with Inter; a person re-checks Segoe UI\". The design alignment then sets the sub-tabs in mono (`.subtab,.subtab.on{font-family:var(--mono)…}`), so the font to re-check is the mono stack. Its own 'What needs a person' list already says \"CIVIL's mono sub-tabs\".",
+   "fix": "Add \"(desktop and tablet)\" to the table row. Reword V18's note to name the mono stack: Cascadia or Consolas on Windows."
+  },
+  {
+   "severity": "minor",
+   "title": "Evidence covers 1920 and 2560 in the dark theme only",
+   "evidence": "evidence/v2.74 has 1366 and 1600 in both themes, but 1920 and 2560 in dark only.\n\nPLAN §2 'Visual checks' asks for before and after screenshots at 1366, 1600, 1920 and 2560 in both themes. §8's gate, which v2.74 now carries, asks for the four desktop sizes in both themes, looked at.\n\nevidence/v2.73 has no desktop captures at matching states; its set is mostly phone and tablet.",
+   "fix": "Add 1920 and 2560 light captures with shots_v274.js, take matching v2.73 captures for before/after, and look at them."
+  }
+ ],
+ "confirmed_claims": [
+  "hash_gen1.js v2.73→v2.74 prints ALL IDENTICAL on default, geoid, waves, ao and icons (I ran it).",
+  "Engine suites: 1280 passed, 0 failed; UM suite 882 passed, 0 failed (scratch replicas of RC's run.sh and run_um.sh). The UM script block is byte-identical to v2.73.",
+  "Contrast gate (census_v274.js): v2.74 has 2 414 text runs and 0 enabled runs below AA. v2.73 has 2 494 runs and 561 below AA. Both match the CHANGELOG.",
+  "The toll fix is exactly `civTerritory[yi*GW+xi]>=0` → `>0` in _jpClaimedAt, the same as cartalith-civ jp_claimed_at (`t[...] > 0`). The native jp_journey_cost counts borders the same way (`(w[0] > 0.5) != (w[1] > 0.5)`).",
+  "Planner strings are updated: the party-form hint (\"never reads below Sparse Settlements, while unclaimed land and water can read lower\") and the cost hint (\"one levy each time the route passes between a faction's land and unclaimed land or water\"). Stale planner prose: none found. RC test pinning the old output: only smoke_gen1.js, which builds fixed stages.",
+  "Every claimed-cell, tier and toll count in the CHANGELOG reproduces on v2.73 vs v2.74 at seeds 12345 and 777 (grid 256).",
+  "v2.23's `*{border-radius:0 !important}` and the joystick's !important re-assertion are gone, and no !important radius remains.",
+  "Radius bookkeeping: 101 declarations (66 in the stylesheet, 7 in the markup, 28 in JS); my per-declaration classification reconciles exactly with Kept 26, Token 10, Removed 65 (26 controls, 39 surfaces).",
+  "Both stale comments are corrected: the theme layer's rule 1 and the D-block's \"flat; radius 0\".",
+  "Each radius token traces to a source: d_vals.js densVars (--r24 16px, --r22 15px, --r20 14px), shell.tpl.html .clr-in 12px, d_ring.js gripRadius 0 14px 14px 0, and dcc_theme.gd btn_radius [8, 12].",
+  "Desktop surface census: no rounded panel, band, menu, popover, card or window; only segment containers and a textarea are rounded.",
+  "Owner defaults are followed:\n- Q3: light accent #8b550d.\n- Q5: an accent fill on an armed control remains only on [data-civtool] and #sculptFeatureSeg buttons, by fill census across desktop's four domains, sculpt and the tablet; primary .accent buttons are filled by design.\n- Q6: the dark place popup and settle-info literals are unchanged, and the light rules carry tokens only (no literal colours in _civPopulatePlaceEditor).\n- Q7 and Q8: no icon, font or status-chip change.\n- Q9: .85 and .86 boxes.\n- Q10(a): BOOT_OCEAN fill and Skip renders.\n- Q10(b): .busy at z-index 30.\n- Q11: _applyDomainUI still ends in _scheduleViewportRefit(), so P8 is not built.",
+  "One element per control: there are no duplicate ids; element counts are identical on v2.73 and v2.74; the diff adds no element, clone or createElement. The new Find owner presses the real #assetsHeaderBtn.",
+  "Every contrast figure quoted in the comments and CHANGELOG recomputes exactly. Examples: dark faint 4.97/4.79/4.54/4.86 and wash 4.17/3.63; light faint 5.09/5.00/5.45/4.52; #8b550d 5.52/5.42/5.91/4.90, wash 4.93, wash2 4.52, accInk 5.91; × buttons 14.72 and 16.67; scale bar 8.82/9.89 (was 2.91/4.19); legend 6.01/6.68 (was 2.77/3.47); old pill inks 3.73→2.85 and 3.92→3.00.",
+  "P7: the cache key now reads state.sunAz, state.shadeHypso and state.showRivers; all are in the state literal. The audit's sun_probe.js passes 3/3 on v2.74 and fails 1 on v2.73. There are 47 render-calling controls by the probe's own regexes (36 bind() plus 11 change listeners). _lodRenderKey indeed lacks bioBlend.",
+  "V15: with Freehand armed, v2.73 hides 8 features (plus 1 partly) at 1600 and 10 (plus 1) at 1366; v2.74 hides 0 at 1600 and has 1 partly at 1366.",
+  "No newly clipped dock segmented control at tablet 1194 or desktop 1366.",
+  "DS-13's ::after hit boxes work: every corner hits on the tablet and the phone.",
+  "The z-indexes the changelog cites are as stated: menu panels 45/46, place popup 61, Settings 74, Credits 76, context menu and Find 80, gate 90.",
+  "AL_STAGE_MIN = 190 + 300 + 334 = 824, read from .al-rail, .al-insp and .al-grid.",
+  "A failed project load from the gate still renders (renderPixelLoop +1), so no flat backdrop is left behind.",
+  "The Explore Context panel's header-versus-body mismatch also exists on v2.73, so it is not v2.74's.",
+  "v2.74 started as a byte copy of v2.73 at dfa97d2 (same md5). v2.72, v2.73, reference/ and audits/ are untouched.",
+  "RC's probe_assetsbtn (13/1) and probe_cogmodal (33/0) give the same results on v2.73 and v2.74."
+ ]
+}

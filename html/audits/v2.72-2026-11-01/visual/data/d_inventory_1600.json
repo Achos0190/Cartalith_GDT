@@ -1,0 +1,650 @@
+[
+ {
+  "t": "1366 × 768",
+  "a": null,
+  "x": 202,
+  "y": 10,
+  "w": 98,
+  "h": 28
+ },
+ {
+  "t": "1600 × 900",
+  "a": null,
+  "x": 306,
+  "y": 10,
+  "w": 98,
+  "h": 28
+ },
+ {
+  "t": "1920 × 1080",
+  "a": null,
+  "x": 410,
+  "y": 10,
+  "w": 105,
+  "h": 28
+ },
+ {
+  "t": "2560 × 1440",
+  "a": null,
+  "x": 521,
+  "y": 10,
+  "w": 105,
+  "h": 28
+ },
+ {
+  "t": "THEME · DARK",
+  "a": null,
+  "x": 639,
+  "y": 10,
+  "w": 112,
+  "h": 28
+ },
+ {
+  "t": "File",
+  "a": null,
+  "x": 122,
+  "y": 48,
+  "w": 39,
+  "h": 30
+ },
+ {
+  "t": "Edit",
+  "a": null,
+  "x": 163,
+  "y": 48,
+  "w": 41,
+  "h": 30
+ },
+ {
+  "t": "Assets",
+  "a": null,
+  "x": 206,
+  "y": 48,
+  "w": 58,
+  "h": 30
+ },
+ {
+  "t": "Records",
+  "a": null,
+  "x": 266,
+  "y": 48,
+  "w": 67,
+  "h": 30
+ },
+ {
+  "t": "Story",
+  "a": null,
+  "x": 336,
+  "y": 48,
+  "w": 50,
+  "h": 30
+ },
+ {
+  "t": "Preferences",
+  "a": null,
+  "x": 388,
+  "y": 48,
+  "w": 91,
+  "h": 30
+ },
+ {
+  "t": "Window",
+  "a": null,
+  "x": 481,
+  "y": 48,
+  "w": 67,
+  "h": 30
+ },
+ {
+  "t": "Help",
+  "a": null,
+  "x": 549,
+  "y": 48,
+  "w": 46,
+  "h": 30
+ },
+ {
+  "t": "",
+  "a": "undo nothing",
+  "x": 996,
+  "y": 48,
+  "w": 30,
+  "h": 30
+ },
+ {
+  "t": "",
+  "a": "redo nothing",
+  "x": 1027,
+  "y": 48,
+  "w": 30,
+  "h": 30
+ },
+ {
+  "t": "find places, commands…",
+  "a": "search places and commands",
+  "x": 1065,
+  "y": 48,
+  "w": 256,
+  "h": 30
+ },
+ {
+  "t": "Assistant",
+  "a": "Assistant (pinned)",
+  "x": 1060,
+  "y": 85,
+  "w": 101,
+  "h": 30
+ },
+ {
+  "t": "Save",
+  "a": "Save (pinned)",
+  "x": 1169,
+  "y": 85,
+  "w": 70,
+  "h": 30
+ },
+ {
+  "t": "Player map",
+  "a": "Player map (pinned)",
+  "x": 1247,
+  "y": 85,
+  "w": 107,
+  "h": 30
+ },
+ {
+  "t": "Planner",
+  "a": "Planner (pinned)",
+  "x": 1362,
+  "y": 85,
+  "w": 89,
+  "h": 30
+ },
+ {
+  "t": "Vault",
+  "a": "Vault (pinned)",
+  "x": 1459,
+  "y": 85,
+  "w": 76,
+  "h": 30
+ },
+ {
+  "t": "＋",
+  "a": "pin a command to the quick bar",
+  "x": 1543,
+  "y": 85,
+  "w": 36,
+  "h": 30
+ },
+ {
+  "t": "WORLD",
+  "a": "WORLD domain",
+  "x": 13,
+  "y": 120,
+  "w": 46,
+  "h": 83
+ },
+ {
+  "t": "",
+  "a": "WORLD ▸ Generate",
+  "x": 20,
+  "y": 209,
+  "w": 32,
+  "h": 32
+ },
+ {
+  "t": "",
+  "a": "WORLD ▸ Sculpt",
+  "x": 20,
+  "y": 244,
+  "w": 32,
+  "h": 32
+ },
+ {
+  "t": "CIVIL",
+  "a": "CIVIL domain",
+  "x": 13,
+  "y": 286,
+  "w": 46,
+  "h": 83
+ },
+ {
+  "t": "CARTO",
+  "a": "CARTO domain",
+  "x": 13,
+  "y": 369,
+  "w": 46,
+  "h": 83
+ },
+ {
+  "t": "",
+  "a": "hide the left panel",
+  "x": 13,
+  "y": 843,
+  "w": 46,
+  "h": 33
+ },
+ {
+  "t": "",
+  "a": "hide panel",
+  "x": 340,
+  "y": 122,
+  "w": 30,
+  "h": 30
+ },
+ {
+  "t": "GENERATE",
+  "a": null,
+  "x": 72,
+  "y": 164,
+  "w": 81,
+  "h": 30
+ },
+ {
+  "t": "SCULPT",
+  "a": null,
+  "x": 159,
+  "y": 164,
+  "w": 68,
+  "h": 30
+ },
+ {
+  "t": "Inspect\nV",
+  "a": "Inspect (V)",
+  "x": 72,
+  "y": 251,
+  "w": 68,
+  "h": 63
+ },
+ {
+  "t": "Measure\nM",
+  "a": "Measure (M)",
+  "x": 146,
+  "y": 251,
+  "w": 68,
+  "h": 63
+ },
+ {
+  "t": "Region\nR",
+  "a": "Region (R)",
+  "x": 221,
+  "y": 251,
+  "w": 68,
+  "h": 63
+ },
+ {
+  "t": "GENERATE\nresolved",
+  "a": null,
+  "x": 72,
+  "y": 328,
+  "w": 292,
+  "h": 33
+ },
+ {
+  "t": "483920",
+  "a": null,
+  "x": 76,
+  "y": 426,
+  "w": 284,
+  "h": 30
+ },
+ {
+  "t": "GENERATE WORLD",
+  "a": null,
+  "x": 72,
+  "y": 469,
+  "w": 292,
+  "h": 32
+ },
+ {
+  "t": "NEW SEED",
+  "a": null,
+  "x": 72,
+  "y": 512,
+  "w": 134,
+  "h": 32
+ },
+ {
+  "t": "CENTER LANDMASSES",
+  "a": null,
+  "x": 214,
+  "y": 512,
+  "w": 150,
+  "h": 32
+ },
+ {
+  "t": "LOAD HEIGHTMAP…",
+  "a": null,
+  "x": 72,
+  "y": 625,
+  "w": 141,
+  "h": 32
+ },
+ {
+  "t": "INFER TECTONICS…",
+  "a": null,
+  "x": 221,
+  "y": 625,
+  "w": 143,
+  "h": 32
+ },
+ {
+  "t": "LOD 0–0",
+  "a": null,
+  "x": 76,
+  "y": 1188,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "LOD 0–1",
+  "a": null,
+  "x": 159,
+  "y": 1188,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "LOD 0–2",
+  "a": null,
+  "x": 243,
+  "y": 1188,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "LOD 0–3",
+  "a": null,
+  "x": 76,
+  "y": 1223,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "LOD 0–4",
+  "a": null,
+  "x": 159,
+  "y": 1223,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "LOD 0–5",
+  "a": null,
+  "x": 243,
+  "y": 1223,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "LOD 0–6",
+  "a": null,
+  "x": 76,
+  "y": 1259,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "LOD 0–7",
+  "a": null,
+  "x": 159,
+  "y": 1259,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "LOD 0–8",
+  "a": null,
+  "x": 243,
+  "y": 1259,
+  "w": 77,
+  "h": 30
+ },
+ {
+  "t": "BAKE ALL LEVELS & FINALIZE",
+  "a": null,
+  "x": 72,
+  "y": 1337,
+  "w": 292,
+  "h": 32
+ },
+ {
+  "t": "UN-FINALIZE",
+  "a": null,
+  "x": 72,
+  "y": 1381,
+  "w": 142,
+  "h": 32
+ },
+ {
+  "t": "CLEAR ATLAS",
+  "a": null,
+  "x": 222,
+  "y": 1381,
+  "w": 142,
+  "h": 32
+ },
+ {
+  "t": "PLANET\n12 params",
+  "a": null,
+  "x": 72,
+  "y": 1511,
+  "w": 292,
+  "h": 33
+ },
+ {
+  "t": "GEOLOGY\n35 params",
+  "a": null,
+  "x": 72,
+  "y": 1552,
+  "w": 292,
+  "h": 33
+ },
+ {
+  "t": "HYDROLOGY\n32 params",
+  "a": null,
+  "x": 72,
+  "y": 1593,
+  "w": 292,
+  "h": 33
+ },
+ {
+  "t": "CLIMATE\n21 params",
+  "a": null,
+  "x": 72,
+  "y": 1635,
+  "w": 292,
+  "h": 33
+ },
+ {
+  "t": "ECOLOGY\n0 params",
+  "a": null,
+  "x": 72,
+  "y": 1676,
+  "w": 292,
+  "h": 33
+ },
+ {
+  "t": "WORLD DATA",
+  "a": null,
+  "x": 72,
+  "y": 1718,
+  "w": 292,
+  "h": 33
+ },
+ {
+  "t": "",
+  "a": "previous selection (Alt+Left)",
+  "x": 1219,
+  "y": 130,
+  "w": 30,
+  "h": 30
+ },
+ {
+  "t": "",
+  "a": "next selection (Alt+Right)",
+  "x": 1250,
+  "y": 130,
+  "w": 30,
+  "h": 30
+ },
+ {
+  "t": "",
+  "a": "hide the context panel",
+  "x": 1555,
+  "y": 130,
+  "w": 30,
+  "h": 30
+ },
+ {
+  "t": "INSPECT",
+  "a": "inspect tab (Ctrl+1)",
+  "x": 1215,
+  "y": 170,
+  "w": 133,
+  "h": 30
+ },
+ {
+  "t": "NOTE",
+  "a": "note tab (Ctrl+2)",
+  "x": 1348,
+  "y": 170,
+  "w": 110,
+  "h": 30
+ },
+ {
+  "t": "ASK",
+  "a": "ask tab (Ctrl+3)",
+  "x": 1457,
+  "y": 170,
+  "w": 102,
+  "h": 30
+ },
+ {
+  "t": "",
+  "a": "add a module to the panel",
+  "x": 1559,
+  "y": 170,
+  "w": 30,
+  "h": 30
+ },
+ {
+  "t": "Orentamwash\nMonarchy · The Old Rite",
+  "a": null,
+  "x": 1227,
+  "y": 324,
+  "w": 351,
+  "h": 41
+ },
+ {
+  "t": "Sevjuni League\nMerchant republic · Lante",
+  "a": null,
+  "x": 1227,
+  "y": 367,
+  "w": 351,
+  "h": 41
+ },
+ {
+  "t": "Korrath\nTribal confederacy · Ancestor cu",
+  "a": null,
+  "x": 1227,
+  "y": 410,
+  "w": 351,
+  "h": 41
+ },
+ {
+  "t": "Mirzafir Reach\nTheocracy · The Old Rite",
+  "a": null,
+  "x": 1227,
+  "y": 454,
+  "w": 351,
+  "h": 41
+ },
+ {
+  "t": "War of the Split\nyears 206–214 · Korrath",
+  "a": null,
+  "x": 1227,
+  "y": 533,
+  "w": 351,
+  "h": 41
+ },
+ {
+  "t": "Sevjuni campaign\nyears 398–404 · front ·",
+  "a": null,
+  "x": 1227,
+  "y": 576,
+  "w": 351,
+  "h": 41
+ },
+ {
+  "t": "Korrath raids\nyears 401–409 · 3 raids · ",
+  "a": null,
+  "x": 1227,
+  "y": 620,
+  "w": 351,
+  "h": 41
+ },
+ {
+  "t": "BASE MAP",
+  "a": "layers",
+  "x": 375,
+  "y": 132,
+  "w": 110,
+  "h": 30
+ },
+ {
+  "t": "3D",
+  "a": "switch to 3D",
+  "x": 1169,
+  "y": 714,
+  "w": 32,
+  "h": 32
+ },
+ {
+  "t": "",
+  "a": "fit the whole world",
+  "x": 1169,
+  "y": 755,
+  "w": 32,
+  "h": 32
+ },
+ {
+  "t": "",
+  "a": "zoom in",
+  "x": 1170,
+  "y": 798,
+  "w": 32,
+  "h": 32
+ },
+ {
+  "t": "",
+  "a": "zoom out",
+  "x": 1170,
+  "y": 830,
+  "w": 32,
+  "h": 32
+ },
+ {
+  "t": "TIMELINE",
+  "a": null,
+  "x": 27,
+  "y": 879,
+  "w": 99,
+  "h": 30
+ },
+ {
+  "t": "",
+  "a": "play",
+  "x": 216,
+  "y": 879,
+  "w": 30,
+  "h": 30
+ },
+ {
+  "t": "412",
+  "a": "timeline year",
+  "x": 255,
+  "y": 879,
+  "w": 1297,
+  "h": 30
+ }
+]

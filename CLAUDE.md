@@ -95,9 +95,9 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 
 ## Constraints
 
-- **`reference/` holds two frozen snapshots. Do not edit either.** Re-freezing
-  to a newer version is fine — regenerate the index in the same pass, so the two
-  never drift.
+- **`reference/` holds frozen snapshots. Do not edit any of them.** Re-freezing
+  to a newer version is fine — regenerate the index in the same pass, so a
+  snapshot and its index never drift.
 
   - **`Cartalith Gen1 v2.10.html`**, indexed by `FUNCTION_INDEX.md`. **Every
     line range in every scope document resolves against this file.** Do not
@@ -107,6 +107,11 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
     read this one when you are reading the reference. It is a byte copy of the
     v2.11 the owner committed at this repository's root on 2026-08-26
     (`4b2c95a`, `b576d56`), which stays there too.
+  - **`Cartalith v2.71 DCC test.html`** — the DCC line's v2.71, which the port
+    follows (Ruling AP), copied byte for byte from `Cartalith_RC` (`ed6b3d9`) on
+    2026-11-01 at the owner's request (*"Just copy it into the reference
+    folder"*). Its function index and its drift file are `OUTSTANDING_WORK.md`
+    §2.8's open steps; until they exist, follow line ranges into v2.10 as above.
   - **`REFERENCE_DRIFT_v2.10_to_v2.11.md`** — at the repository root, not in
     `reference/` — maps between them: the exact line-offset segments, the 14
     functions added, and the changes that carry porting consequences. Follow a
@@ -262,6 +267,8 @@ got. Status for everything below is in `STATUS.md`.
 | `VOLCANO_APPEARANCE_NOTE_2026-10-19.md` | **an owner note filed for later** (2026-10-19): volcano colour and form by type, shape and age (green and overgrown versus an active caldera), and what determines shape, size and look. A note, not a scope; the intended path is a research file, then a scope with owner questions |
 | `VOLCANO_APPEARANCE_RESEARCH.md` | **agent-produced 2026-10-19**, from the owner note above: what determines volcano shape, size and colour (cited sources, evidence-tagged), what the engine models today read at its symbols, a type x age x activity x climate classification with a palette table, milestones VA-0 to VA-7 with bars at x1/x4/x16/x64 and nine owner questions with defaults. Research, not a scope; no status column |
 | `RIVER_GATE_MEASUREMENTS.md` | Ruling CF item 6's measure-first report on the order-versus-discharge river gate and River Transport discharge gate, with an after-the-fix section. Data only |
+| `MAP_INTERACTION_RESEARCH.md` | **agent-produced 2026-11-01**, from the owner's answer to DS13-Q1/Q2 ("Research how other mapping apps have their interface for map interactions", Ruling EB item 1): how navigation maps, map-drawing apps and painting apps share one finger between panning and drawing (five patterns), the one-handed zoom's slide direction (down zooms in on Google Maps and Android, up on Apple Maps), touch-target, WCAG 2.5.1/2.5.7 and reach guidance, Krita's multi-finger stray-stroke guard, and what it means for `MOBILE_SHELL_PROPOSAL.md` §2.5. Sources cited, unconfirmed claims marked. Research, not a scope; no status column |
+| `STYLUS_HAPTICS_RESEARCH.md` | **agent-produced 2026-11-01; fact-checked, and a second copy's supplement verified and merged, 2026-11-02**, from the owner's request that the OnePlus Pad 3's stylus and its haptics be "fully utilised" so the terrain's relief can be "felt", scoped by the owner to the Godot version: the Pad 3's panel and its layout class at any density; whether its body has a vibration motor at all (§1.4, unresolved; one `adb` command settles it); the OnePlus Stylo 2 (no barrel button, a motor only OnePlus's service drives, whether its double-tap sends a key unmeasured); Android's input and haptic APIs by level; what Godot 4.7.2's Android port passes to scripts and drops (source read); the Android preset's missing VIBRATE permission, which silences every shipped haptic; app practice (Krita, Infinite Painter, Procreate, Drawpile); a relief design that ticks on the drawn contours, with a fallback ladder; milestones SH-0…SH-12 and owner questions Q1–Q13 with defaults. AI-written sources are named and not used as evidence. Research, not a scope; no status column |
 | `LAKE_FILL_RESEARCH.md` | read-only external research on depression filling and lake placement (Priority-Flood and others) against how this engine places lakes, 2026-10-10 |
 | `NEW_WORLD_PREVIEW_PROPOSAL.md` | **a proposal of 2026-10-11**: a crude plate-based preview on the New World screen, milestones NWP-1…NWP-4, owner request verbatim. No status column |
 | `RELIGION_GOVERNMENT_EXPANSION_RESEARCH.md` | the owner's Claude Docs research document, imported verbatim 2026-10-12 under Ruling CG item 3; the source for `FH_R2_PLAN.md` |
@@ -289,7 +296,8 @@ got. Status for everything below is in `STATUS.md`.
 | `cartalith-native/` | the Cargo workspace and the Godot project (`ls cartalith-native/crates` for the crates; `ARCHITECTURE.md` for what each is) |
 | `cartalith-native/docs/` | **`STATUS.md`** — the single source of truth for progress. Also the **retired** `CHANGELOG.md` (frozen 2026-08-31, history only) and `3D_TERRAIN_RENDER_RESEARCH.md` |
 | `cartalith-native/drafts/` | **GDScript drafts that Godot never loads** (outside `godot-project/`), written for a later PC session to paste in. `mobile-shell/` holds the mobile shell's menus and MS-1's foundation (written 2026-10-31 at the owner's request). `pc-shell/` holds the PC menus and keys of `PC_SHELL_PROPOSAL.md` §3.8–§3.9 (written 2026-11-01 at the owner's request), with stubs for the methods its milestones add. Neither set is parse-checked. Each README says what each draft replaces, the order, what blocks it, and how to verify it; each `check_symbols.sh` greps the shipped tree for every symbol the drafts call. Implementing them is a row in `OUTSTANDING_WORK.md`. Not a status record |
-| `reference/` | the two frozen HTML snapshots (v2.10, v2.11) and their function indexes |
+| `reference/` | the frozen HTML snapshots: v2.10 and v2.11 with their function indexes, and the DCC line's v2.71 (`Cartalith v2.71 DCC test.html`, copied 2026-11-01; its index is §2.8's) |
+| `html/` | **a working copy of the source HTML's DCC line**, upgraded in stages to the new shell design at the owner's request (2026-11-01: *"Can we upgrade the layout in the html with the new design?"*, then "A working copy in this repo" and "Everything, staged"): the desktop shell, then the phone and tablet, then the Context modules and the planner window. Each stage is a new `Cartalith v2.NN DCC test.html`, as Cartalith_RC names them, for the owner to move there; its `README.md` says how. Not a frozen snapshot (that is `reference/`), and not this port's code. How far it has got is `STATUS.md`'s answer |
 | `docs/` | **the source project's** documentation — see `docs/README.md` |
 | `design/` | owner-supplied UI mockups and design canvases, imported verbatim |
 | `skills/` | vendored project skills (installed, with third-party ones, under `.claude/skills/`) |

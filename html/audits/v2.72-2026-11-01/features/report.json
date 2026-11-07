@@ -1,0 +1,231 @@
+{
+ "method": "Read-only. I wrote nothing in the repository. The two files `git status` shows modified (html/CHANGELOG_v2.73.md, html/README.md) belong to the concurrent stage-2 lane, not to me.\n\n1. **Preflight.** Read the MISTAKES.md preflight rows that apply to an audit: re-open a row at its symbol; search for the concept, not one string; change generated output; enumerate a surface; cite a document as authority for an absence; quote counts with the command that produced them.\n\n2. **Sources.**\n   - PORT_ONLY_FEATURES.md, both copies: this repository's, and Cartalith_RC's corrected copy.\n   - FUNCTIONAL_CONTRACT.md: its coverage table and its modernise-over-port section.\n   - cartalith-native/docs/STATUS.md: the HTML stage entries, the milestone ledger rows, and every \"built\" entry title.\n   - PC_SHELL_PROPOSAL.md \u00a71\u2013\u00a73.12 and \u00a76, and MOBILE_SHELL_PROPOSAL.md \u00a72.1 and \u00a72.4.\n   - html/CLAUDE_v2.72.md (all of it), html/README.md, CHANGELOG_v2.72.md and CHANGELOG_v2.73.md. The \"Not in this build\" tables in the two changelogs were the best lead list: they record design rows left out because the HTML had nothing behind them.\n   - From the RC clone: the CLAUDE.md section list, the back-port changelog entries v2.12\u2013v2.22, and docs/GUI_DCC_ALIGNMENT_PROPOSAL.md Stage 8 and \u00a75.\n\n3. **Per candidate.**\n   - Opened the Godot symbol (shell/*.gd or crates/*/src/*.rs).\n   - Grepped v2.72 by concept under several spellings, and named either the v2.72 symbol or the placeholder text the HTML prints.\n   - Checked v2.73 at the interim commit dfc38b2.\n   - Checked that the v2.72 file's md5 (57e6628a\u2026) matches the one STATUS.md records.\n\n4. **Earlier back-ports.** RC already back-ported part of PORT_ONLY_FEATURES as v2.12\u2013v2.22 and v2.41. Each of these was confirmed present in v2.72 by symbol, so none is shortlisted:\n   - redoLast, autosaveNow, _setupSkipped (v2.12\u2013v2.15);\n   - currentTravelCost, currentRouteCorridors, _umWallTowers (v2.13);\n   - unified search (_findControlIndex, _findMapIndex);\n   - state.passes, civManpowerModel, currentLandmasses, _civTradeNetwork, crater.physical, hydro.integrate.\n\n5. **Hash rule.** RC tests/perf/hash_gen1.js hashes only field, tempField, rainField, flowField and the vctx RGBA. Features that draw on the civ layer or overlays, or that only read data, cannot move it. Anything that touches those fields or the default vctx output is flagged.\n\n6. **Measurements.** One scratch Playwright probe, run read-only against v2.72: `node /tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-features/probe_audit.js \"<v2.72>\" 12345 777`. Output is in `/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-features/probe_v272.json`. It measures:\n   - Find over seven command names;\n   - `_jpClaimedAt` on every cell, at 256 px, on two seeds, after auto-populate and Auto polity;\n   - tolls and infrastructure tiers on 12 inter-faction journeys, as shipped and with the fixed predicate swapped in on the page only.\n\n   A second probe tested whether file:// pages share localStorage in Chromium 153 (`/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-features/ls_probe.js`).\n\n7. **Counts.** Every count quoted comes from a grep or the probe, and the finding names which.",
+ "findings": [
+  {
+   "id": "F01",
+   "title": "Measure tool: Distance, Bearing, Area, Radius, Cross-section, \u0394 vertical",
+   "evidence": "Godot: cartalith-native/godot-project/shell/global_tools.gd::MEASURE_MODES (distance, bearing, area [closed ring, true-surface area, water inside subtracted], radius, section, vertical); crates/cartalith-spatial/src/measure.rs (`cell_km` = map_width_km/grid_w, wrap-aware `measure`); crates/cartalith-godot/src/measure_bridge.rs (1 185 lines); shell/section_strip.gd (elevation profile strip); saved readings in `annotations/measurements.json` (SAVEFILE_COMPAT.md \u00a711.4, `_measurestore_probe.gd`). v2.72: NO measure tool \u2014 the distinct map tools are exactly 9 (`grep -o 'data-civtool=\"[a-z_]*\"' | sort -u`: draw_way icon info inspect label place place_poi route territory; same 9 in v2.73). RC CHANGELOG v2.15 says measure was 'deliberately NOT in this version' because the shell redesign might reposition it; RC docs/GUI_DCC_ALIGNMENT_PROPOSAL.md Stage 8 plans it in JS. The shell redesign has now landed (v2.72/v2.73). MOBILE_SHELL_PROPOSAL \u00a72.1 puts 'the six Measure modes' on the phone's MAP page; \u00a72.4's cartwheel has 'Measure \u25b8'. Building blocks already in v2.72: `elevM`, `metersPerUnit`, `state.mapWidthKm/GW`, `state.world` (wrap), `currentWaterBodies()`, `_distDisp`/`_distUnit`, the profile renderer `_civDrawProfile` + `#reProfileCv`; the save tree already writes `annotations/labels.json|icons.json|regions.json`.",
+   "impact": "high",
+   "effort": "medium",
+   "proposal": "Has it: no (no symbol; RC deferred it on purpose). Value: high \u2014 distances, areas and climbs are what map makers and GMs ask of a map, and the HTML's own planner already works in km. Feasibility: pure JS over existing helpers; the cross-section strip reuses `_civDrawProfile`'s drawing. Size: M, ~500\u2013800 lines (Distance/Bearing/Radius/\u0394vertical small; Area with water subtraction and Cross-section the bulk). Save readings as `annotations/measurements.json` in the port's exact schema so a project carries them in both apps. Generated output: none (overlay on the civ/overlay canvas; hash_gen1 reads `vctx` only). Stage 2: add the tool to v2.73's `_tchPlaceTool()` (a measure point is a placing tap; MOBILE_SHELL_PROPOSAL \u00a74 says a double-tap would place before it could zoom) and give its mode picker a `_SHELL_SLOTS` row (desktop bar / tablet / phone strip or MAP page). Stage 3: the context card's GO/MEASURE rows ('Measure from here') hang off it. Build it right after stage 2 lands.",
+   "risk": "Arming must call `_dskToolOptsSync()` (v2.72 rule) and its labelled settings need a `_findPanelOwners` owner or Find lists them but cannot reveal them; one element per control across the three shells (slot row, never a clone); a reading with no single number omits value/unit (never 0.0 km); world-mode seam; probe must fail on v2.73; touch on glass needs a person."
+  },
+  {
+   "id": "F02",
+   "title": "Export map image (standalone PNG), then overlays",
+   "evidence": "Godot: shell/export_dialog.gd \u2014 File \u25b8 Export \u25b8 Export map image\u2026 plus Player map\u2026 / DM / full map\u2026 presets (`PRESETS`), PNG/JPEG at ladder widths, overlay layers `LAYERS` = rivers, ways, labels, icons, territory (borders), routes (off); shell/export_overlay.gd; STATUS EXP-E5 'partial \u2014 first slice 2026-10-13; JPEG built 2026-10-18'. v2.72: `bakeSingle(W,onP)` already renders the map to a PNG Blob at `#bakeRes` (2K/4K/8K) but only `exportZip` uses it, writing `map.png` inside the project zip; CHANGELOG_v2.72 'Not in this build': 'no standalone image: the rendered map is written only inside the project .zip (exportZip)'. The bake is terrain only (`bakePixel` \u2192 landColorCore + river blend); no civ layer. Offscreen civ precedent exists: `_v3dRenderCivOffscreen()` swaps `civCanvas`/`civCtx` and calls `drawCivLayer(undefined,{noText:true})`; `_civSyncCanvas` caps at 4096. On a finalized world `exportZip` skips the flat bake (`skippedFlatBake=!!state.finalized`).",
+   "impact": "high",
+   "effort": "medium",
+   "proposal": "Has it: the renderer yes (`bakeSingle`), the command no. Value: high \u2014 a picture of the map is the most common output, and today it means unzipping a project. Slice 1 (small, ~40\u201380 lines): File \u25b8 Export \u25b8 Export map image\u2026 \u2192 `withBusy` + `bakeSingle(+#bakeRes)` \u2192 download, with a `_DSK_CMDS` row pressing one new button beside `#exportBtn`. Slice 2 (medium): overlays composited from an offscreen `drawCivLayer` at export scale with per-layer toggles over `state.mapFilter`, and the Player/DM presets (Player can only hide whole layers \u2014 Godot's own note says nothing marks a place DM-only). Generated output: none (export only). Stage 2: none \u2014 MENU on a phone mirrors File row for row. Stage 3: none.",
+   "risk": "An 8192\u00d74096 canvas exceeds some mobile browsers' canvas limits \u2014 offer the existing tiles path (`#bakeTiles`) there rather than failing; the 4096 cap and zoom-tier filtering in `drawCivLayer` decide which villages/labels draw at export scale \u2014 choose and state it, never clip silently; say what a finalized world exports (it skips the flat bake today); the busy overlay must cover the long bake."
+  },
+  {
+   "id": "F03",
+   "title": "Find lists and runs menu commands (command palette)",
+   "evidence": "Godot: shell/command_index.gd (every generation parameter, menu command and extra action; an unavailable row says why), `DccQuickBar.run_pin_on`; PC_SHELL_PROPOSAL \u00a73.8 'Desktop search runs commands'. v2.72: `_findRun` = `_findControlIndex()` (labelled `label[for]` controls) + `_findMapIndex()` (settlements, POIs, labels, landmasses, factions, named ways). Measured by the scratch probe on v2.72: `_findRun` for 'generate', 'save', 'credits', 'diagnostics', 'factions', 'asset library', 'timeline' returns 0 results each; the page has 42 `.mb-row[data-cmd]` rows and 43 `_DSK_CMDS` entries, none indexed (index kinds at boot: control, faction). v2.73 changes Find's homes and CSS but not `_findRun`/`_findMapIndex` (checked in `git diff 61ccab5`).",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Has it: partly \u2014 controls and map entities, not commands. Value: medium-high \u2014 one box reaches every menu command by name, which every later port also benefits from. Feasibility: index `.mb-row[data-cmd]` text (minus `.mb-k`) with its menu path; a hit runs `_dskRun(cmd)`; a row whose `enabled()` is false is shown dim with the reason. Size: S, ~40\u201380 lines in `_findRun`/`_findGo`/`_findRender`. Generated output: none. Stage 2: v2.73's phone Find opens the page that holds a control; a command row just runs and closes the search row. Stage 3: none.",
+   "risk": "Check/radio rows show `checked()` read at render time, never a stored copy (MISTAKES 'second route to a control'); a disabled command must say why instead of doing nothing; the command row is a pointer to `_DSK_CMDS`, never a second implementation."
+  },
+  {
+   "id": "F04",
+   "title": "Faction relations (fills the HTML's 'Diplomatic relations \u2014 not yet implemented')",
+   "evidence": "Godot: crates/cartalith-civ/src/relations.rs::civ_faction_relations (CV-26; new, no reference ancestor): one symmetric value per faction pair from culture (+0.30), religion (\u00b10.20), trade complement (+0.25) and friction (\u22120.55 \u00d7 shared border \u00d7 (0.35+0.65\u00b7rivalry)), stances allied/friendly/neutral/wary/hostile at \u00b10.15/\u00b10.45, each term shown; shell/faction_roster_window.gd::_build_tab_relations. v2.72: `_civPopulateFactionEditor` prints 'Diplomacy \u2014 Diplomatic relations \u2014 not yet implemented.' (its comment: 'Diplomatic relations has no backing model yet, so it's an explicit placeholder row'). Every input exists: `civTerritory`, `civFactionCulture`, `civFactionReligion`, `_civFactionAggregates()` imports/exports/power.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Has it: no \u2014 a placeholder row. Value: medium-high for worldbuilders; it shows its own working. Feasibility: one O(cells) 4-neighbour border pass, cached on the existing `_civAggGen`/`_civTerrGen` counters, plus the term arithmetic; ~150\u2013200 lines with the readout. Generated output: none (derived on demand, never stored). Stage 3: PC_SHELL \u00a73.3's 'Faith, culture & relations' module re-hosts this same builder ('one builder, two hosts'), so building it before stage 3 turns that module into re-hosting.",
+   "risk": "The weights and thresholds are the port's labelled judgements, not reference parity; say so in the readout. Port the CV-26 base: FH-R2 later extended the religion term in the port. Faction 0 'Unclaimed' is never a party. Owner awareness that the HTML gains a derived diplomacy model."
+  },
+  {
+   "id": "F05",
+   "title": "Political history of a settlement (holders by recorded year, with go-to-year links)",
+   "evidence": "Godot: crates/cartalith-civ/src/timeline.rs::civ_settlement_ownership_periods (walks every sorted snapshot so a gap is seen), shell/place_editor_window.gd::_build_political, Story \u25b8 Political history of the selection. v2.72: CHANGELOG 'Story \u25b8 Political history of the selection, Faction history\u2026 \u2014 The recorded years are world-level snapshots (civTimeline); there is no per-entity history view'; the City Viewer's History section ends 'Detailed event timeline (wars, sieges, plagues) \u2014 not yet modeled.' The data is there: `civSnapshotSave` stores `{...p}` copies with `tid` (`_civAssignTid`) and `faction` (and `pop`) per recorded year; `civGotoYear` is the year's writer that the v2.72 strip already uses.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Has it: no view; the snapshots hold the data. Value: medium-high for storytelling \u2014 who held a town when, read straight from the recorded years. Feasibility: ~80\u2013150 lines; collapse runs of the same faction into periods (a missing year ends a period) and make each year a link through `civGotoYear`, so the strip and the map follow. Show it in the place popup and the City Viewer's History. Optionally add the population per recorded year from the same copies. Generated output: none. Stage 3: the History module re-hosts it.",
+   "risk": "Places in old saves with no `tid` cannot be followed: dash them with the reason. Go through `civGotoYear`, because a second year writer is exactly finding T1 of PC \u00a73.2. Follow the gap rule exactly as Godot does."
+  },
+  {
+   "id": "F06",
+   "title": "Journey planner: `_jpClaimedAt` reads every cell as claimed \u2014 tolls never fire (needs an owner ruling)",
+   "evidence": "Godot: crates/cartalith-civ/src/lib.rs::jp_claimed_at uses `> 0`; its doc says the reference's `>= 0` on a `Uint8Array` is true for every cell. v2.72: `_jpClaimedAt` returns `civTerritory[yi*GW+xi]>=0`, and `CIV_FACTIONS[0]` is 'Unclaimed' (0 = unclaimed). It feeds `c.claimedFrac`, which drives the `_jpStageInfra` floor and `jpJourneyCost`'s tolls (`JP_COST_TOLL_PER_BORDER=6`). Measured by the scratch probe on v2.72, 256 px, after `_civIterativeAutoWorld(3)` and `_civAutoPolity()`:\n- Every cell reads claimed. Seed 12345: 152 of 152 unclaimed land cells and 12 258 of 12 258 sea cells. Seed 777: 7 235 of 7 235 unclaimed land cells and 10 939 of 10 939 sea cells.\n- With the `>0` predicate swapped in on the page, 0 of each read claimed.\n- Tolls and borders are 0 on all 7 priced journeys. With the fix, all 6 of seed 777's journeys gain 1 frontier (6 day-wages).\n- Infrastructure tiers move from Sparse Settlements to Ruined Region on 12 of 77 stages (seed 12345) and 41 of 84 stages (seed 777).\n- Before Auto polity there is no raster, and the guard returns false everywhere.",
+   "impact": "high",
+   "effort": "small",
+   "proposal": "Has it: the feature exists but is broken. The fix is one character, the same as Godot's. Value: high for planner users: a priced cost line that has never been non-zero, and a claimed-land floor that applies even on open sea. Generated output: world generation is untouched (not in hash_gen1), but Journey Planner results change. Put it to the owner now, as its own question: 'apply Godot's `>0`?' Show the tier knock-on above with it. No RC test pins tolls (`grep tolls|claimedFrac|_jpClaimedAt` over tests/test_tail.js and tests/perf/*.js finds nothing), so the build needs a probe that fails on v2.72. Stage 2/3: none.",
+   "risk": "The territory raster is land-only, so coastal, bay and river stages over water never count as claimed and lose the floor. Unclaimed wilderness is labelled 'Ruined Region', both here and in Godot. The owner should see both before ruling. The planner's day counts move wherever the tier moves."
+  },
+  {
+   "id": "F07",
+   "title": "Map card story verbs: 'Plan journey from here' and 'Journey to here'",
+   "evidence": "Godot: STATUS SM-4 (Ruling CK), `civilization_workspace.gd::_story_ctx_rows`. 'Plan journey from here' arms Route with this cell as the first stop. 'Journey to here' adds the stop, commits and opens the planner. v2.73 (dfc38b2): `_civCtxItems` holds Edit, Move viewer to, Delete, Drop settlement, Drop POI and Info here, and no journey verb. The right-click and the 480/500 ms long-press share this one item list. Building blocks in v2.72: `_civSetTool('route')`, `_civWaypoints`, `_civCommitRoute()` (builds the journey and selects it), `_civOpenRouteEditor(idx)`. PC_SHELL_PROPOSAL \u00a73.7 adds Start here, Add as stop and End here in the stage-3 planner window, and keeps the card's two verbs.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Has it: no. Value: high for planners, because it joins the map selection to the planner (PC flow F2). It replaces a manual sequence: arm Route, click, click, press Esc. Feasibility: two rows in `_civCtxItems`, ~30\u201350 lines, calling only the existing route functions. Generated output: none. Stage 2: depends on v2.73's `_civCtxItems` and its 'swallow the lift click' rule. Stage 3: build it with the planner window (PC-8), since 'Journey to here' should open that window. Building it earlier means re-pointing one call site.",
+   "risk": "No second route builder. A disabled 'Journey to here' (no start yet) must say why. The journey naming mismatch PC \u00a73.7 records (finding M2) should be settled in the same change."
+  },
+  {
+   "id": "F08",
+   "title": "Per-settlement garrisons (fills 'Not modelled: per-settlement garrisons')",
+   "evidence": "Godot: crates/cartalith-civ/src/garrison.rs::civ_garrisons (Ruling AW; exposure scale Ruling AZ): weight = pop \u00d7 (1 + 0.35/0.45\u00b7walled + 0.20/0.45\u00b7capital\u00b7tier/5) \u00d7 (1 + scale \u00d7 border exposure), then a largest-remainder split of the rounded standing army; a place with no reading is None, never 0. v2.72: `_civFactionMilitaryHtml` says 'Not modelled: per-settlement garrisons (which town holds which part of a standing army is a placement rule nothing here implies), campaigns, unit movement and combat \u2026 and change over time'; the City Viewer's Military section shows faction-level power only. Inputs exist: `civManpowerModel(...).standingArmy`, `p.umWalls`/`_umInferWalls(p)`, the aggregate's capital, `civTerritory` for frontier exposure. v2.72's manpower still uses flat `MANPOWER_SOLDIER_UPKEEP=3.0`; the port moved to per-bracket upkeep (Ruling AI(c)) and later terms (Rulings DE, DL).",
+   "impact": "medium",
+   "effort": "medium",
+   "proposal": "Has it: no (explicitly 'not modelled'). Value: medium \u2014 a number per town for storytellers and GMs. Feasibility: ~120\u2013180 lines (the exposure pass is the bulk), shown in the place popup, the City Viewer's Military section and the faction military block. Generated output: none (it splits an existing number). Stage 3: the Military module re-hosts it.",
+   "risk": "It splits the HTML's own, older standing army, so totals will not match Godot's and must not claim to. The placement rule is a port ruling (AW/AZ); adopting it in the HTML is the owner's call. Dash places with no reading, with the reason."
+  },
+  {
+   "id": "F09",
+   "title": "Session mode (Window \u25b8 Session mode)",
+   "evidence": "Godot: STATUS SM-7 (Ruling CK): `menus.gd` `ID_WIN_SESSION_MODE` (Ctrl+Shift+M), `dcc_shell.gd::set_session_gate`/`session_hides_domain`. It hides the WORLD domain and disables New world\u2026, both resets and Workspace \u25b8 World with a reason. It is refused while generating or with a draft uncommitted, and is not persisted (`_sessionmode_probe.gd`). v2.72: CHANGELOG 'Window \u25b8 Session mode, 3D capability \u2014 None exist'; `grep -i 'session mode\\|sessionMode'` \u2192 0. The nearest thing is the persistent finalize lock (`[data-genlock]`, `_stampGenLock`), which is a different, saved state.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Has it: no. Value: medium \u2014 a GM at the table cannot regenerate or sculpt the world by accident. Feasibility: a body class, `_DSK_CMDS.generate`/`domWorld` returning `enabled:false` with a reason, the WORLD rail button hidden, and Ctrl+R refused through the existing `refused` path. ~80\u2013150 lines. Generated output: none. Stage 2: must also hide WORLD in v2.73's domain tab, `#phFan`, the swipe and the narrow bar's World menu (`#mbWorldWrap`), so build it after stage 2. Stage 3: none.",
+   "risk": "Find must not reveal a WORLD control while it is on (or must say why). Not persisted, like Godot. Refuse while `_busyDepth>0` or a sculpt draft is open."
+  },
+  {
+   "id": "F10",
+   "title": "Undo history list (an honest ledger)",
+   "evidence": "Godot: crates/cartalith-godot/src/undo.rs::HistoryLedger with EntryKind HeightSnapshot (revertable), Recorded(reason) (it happened and cannot be undone; the row says why), Floor (generate or load), WayDelete and WayDrag (revertable); app.gd::open_undo_history; right_dock.gd::show_history. Godot records civil edits such as 'Settlement dropped' as Recorded, not reversible. v2.72 (the `pushUndo()` call sites counted by grep):\n- `MAX_UNDO=5` unlabelled field snapshots.\n- `pushUndo()` has 11 call sites: `sculptCommit` and 10 erosion/coast buttons.\n- There is no list; `#undoMem`'s text rides on the Undo tooltip.\n- Civil edits have no undo at all. Edit \u25b8 Delete selected place = `_civDeleteSelectedPlace()`, 'no confirm, no undo'.\n- v2.73's long-press card adds another Delete row without confirm or undo.\n- CHANGELOG_v2.72 lists Edit \u25b8 Undo history\u2026 as left out; v2.73 lists 'Holding Undo for its history' as left out.",
+   "impact": "medium",
+   "effort": "medium",
+   "proposal": "Has it: undo and redo, but no history. Value: medium. Feasibility: label each `pushUndo(label)`, record civil operations as rows with their reason (exactly the Godot ledger's honesty), and offer 'revert to here' on height rows. ~120\u2013250 lines. A real undo for place delete (re-insert at its index) would go beyond Godot, which records civil edits as not reversible except ways; it is worth proposing because the touch card makes accidental deletes likelier. Generated output: none. Stage 2: the phone's 'hold Undo for history' (MOBILE_SHELL \u00a72.1). Stage 3: none.",
+   "risk": "Never imply a Recorded row can be reverted. `clearUndoHistory()` stays the floor on generate and load. Memory: 5 full field copies, as today."
+  },
+  {
+   "id": "F11",
+   "title": "Reset generation parameters (all / one section)",
+   "evidence": "Godot: `menus.gd::_build_reset_generation` and `_on_reset_stage` over `engine_bridge.gd::reset_params(keys)` (Edit \u25b8 Reset generation parameters; Reset one stage, ten stages). Neither regenerates, and neither touches the seed (RESET_ALL_TIP). v2.72: none \u2014 CHANGELOG 'No reset-to-defaults and no ten-stage pipeline; `#resetBtn` is erosion's Reset'; v2.73 'World \u203a Reset generation parameters, Reset one stage \u2014 Neither exists'. In the HTML a parameter change regenerates at once (`tparam()` \u2192 `withBusy('generating\u2026',generate)`). The pasted-settings path `parseGenerationInfo(text,state)` behind `#genInfoApplyBtn` (v2.54) already confirms, calls `confirmRegenerate()`, regenerates and keeps world content (`restoreWorldContentScaled`).",
+   "impact": "medium",
+   "effort": "medium",
+   "proposal": "Has it: no. Value: medium \u2014 a way back after much tinkering. Feasibility: capture the boot defaults as a generation-info dump before any load or import, then apply that dump (seed excluded) through `parseGenerationInfo`'s own confirm-and-regenerate path. That is one implementation, and it is honest to the HTML's model, where a parameter change regenerates (unlike Godot's 'next Generate'). The per-section reset maps the WORLD dock's sections to their keys. ~80\u2013200 lines. Generated output: none in the hash sense (same parameters give the same world). Stage 2: the tablet narrow bar's World menu holds 'the two resets' per the design.",
+   "risk": "Must not capture the live state as 'defaults'. It must respect `[data-genlock]` on a finalized world and Session mode (F09). State in the menu row that it regenerates."
+  },
+  {
+   "id": "F12",
+   "title": "More style presets (the data-only subset)",
+   "evidence": "Godot: `render_workspace.gd::STYLE_PRESETS` \u2014 15 tiles after Ruling BI (Atlas, Imhof relief, Blueprint, Ink wash, Woodcut, Vintage atlas, Nautical, Night joined the original seven), plus Tanaka relief and Cel/Toon (17 per STATUS ET-F2), each with Dark/Light/Pastel variants. v2.72: `STYLE_PRESETS` has 6 \u2014 default, antique, ink, watercolor, print, village. `_applyStylePreset` zeroes `STYLE_MANAGED_NUM`/`STYLE_MANAGED_BOOL` and then applies the preset (an absolute bundle), so Default stays bit-identical.",
+   "impact": "medium",
+   "effort": "small",
+   "proposal": "Has it: 6 of 17. Value: medium \u2014 visual variety for map makers at almost no risk. Feasibility: only recipes that map onto knobs `state.viz` already has (contours, contourM, hachure, ink, watercolor, cel, crosshatch, sepia, parchment, multiSun, shadows, ao\u2026). Recipes that need a named elevation ramp (Blueprint, Ink wash, Night, Vintage atlas, Nautical's sea ramp) wait for an editable ramp (see C-1). ~10\u201320 lines per preset plus tuning. Generated output: Default unchanged, so hash_gen1 stays ALL IDENTICAL; a picked preset changes the render, as any preset does. Stage 2/3: none.",
+   "risk": "Godot's numbers do not transfer, because render.rs is a port with additions: re-tune each recipe by eye on two seeds and look at every screenshot. Godot's 'overlays follow the preset' (inks for roads and labels) is not in the HTML."
+  },
+  {
+   "id": "F13",
+   "title": "Customisable quick pins",
+   "evidence": "Godot: `shell/quick_bar.gd` (DccQuickBar): a pin stores only a `pin_key` into `CommandIndex` and runs the menu row's own handler; an overflow \u22ef menu; a Customise window (`quick_bar_window.gd`); a ring dock; a phone list; stored per user, never in the world (CQ-0 to CQ-7 built). Tools and check/radio rows are not pinnable (Ruling DH Q8, Q10). v2.72: four fixed pins (`#pinSave`, `#settlementsHeaderBtn`, `#assetsHeaderBtn`, `#pinPlanner`); CHANGELOG_v2.72 lists 'customisable pins' among the known cuts. v2.73 draws the same four in the quick drawer (`#phDrawer`) and at the tablet bar's end.",
+   "impact": "medium",
+   "effort": "medium",
+   "proposal": "Has it: four fixed pins. Value: medium. Feasibility: pins as `_DSK_CMDS` keys in localStorage behind try/catch (a per-viewer convenience \u2014 the allowed use; the page works without it), with a Customise list of the menu rows. ~200\u2013300 lines. Generated output: none. Stage 2: three homes after v2.73 (desktop bar end, tablet bar, `#phDrawer`), so build after stage 2.",
+   "risk": "A pin chip is a pointer that runs `_dskRun`, never a clone of a control. The two header toggles are controls themselves (v2.46/v2.63) and keep one element. A pin whose command is gone stays greyed with its reason."
+  },
+  {
+   "id": "F14",
+   "title": "Keyboard reference (Help \u25b8 Keyboard reference\u2026, read-only)",
+   "evidence": "Godot: `shell/shortcuts_dialog.gd` (read-only list from the live menu bar plus `UNLISTED` rows; `_shortcuts_probe.gd`); PC_SHELL \u00a73.8 renames it 'Keyboard reference\u2026'. v2.72: none \u2014 CHANGELOG 'No shortcut list (the menus print their keys)'. These keys appear in no menu:\n- `LAYER_HOTKEYS` {0,B,T,F,S,W,R};\n- Ctrl+Z / Ctrl+Shift+Z and Ctrl+K;\n- Space-hold pan, Shift+D, Delete, Esc.\n`_DSK_KEYS` has 5 rows; `grep -c \"addEventListener('keydown'|\u2026|onkeydown\"` = 15 listeners to walk. RC's GUI_DCC_ALIGNMENT_PROPOSAL \u00a75 already says to show the keys the app can honour rather than port rebinding.",
+   "impact": "low",
+   "effort": "small",
+   "proposal": "Has it: no. Value: low-medium (it makes the layer letters and Space-pan discoverable). Feasibility: build it from `_DSK_KEYS` (labels read from the menu rows) plus one stated list for the other handlers. ~60\u2013120 lines. Generated output: none. Stage 2: desktop and tablet only \u2014 no accelerator fires on a phone (Ruling DX PQ10).",
+   "risk": "The hand-kept list can drift, so put it beside the handlers or test it. List only keys the page really honours, never browser-owned ones."
+  },
+  {
+   "id": "F15",
+   "title": "Theme \u25b8 Follow system, and Units \u25b8 Nautical miles",
+   "evidence": "Godot: `dcc_settings.gd::THEME_MODES` [\"dark\",\"light\",\"system\"], `menus.gd` `ID_PREF_THEME_SYSTEM`; `dcc_units.gd` km/mi/nmi. v2.72: a two-state theme (`#themeToggleBtn`, localStorage `cartalith_theme`; `grep prefers-color-scheme` \u2192 0); units `_units` is km|mi only (`_setUnits` refuses anything else), through the helpers `_isMi`, `_distDisp`, `_distToKm`, `_altDisp`, `_altToM`, `_distUnit`/`_altUnit`. CHANGELOG_v2.72 lists both rows as left out.",
+   "impact": "low",
+   "effort": "small",
+   "proposal": "Has it: 2 of 3 states each. Value: low-medium \u2014 nautical miles suit the sea lanes and vessels the planner models; Follow system suits phones in dark mode. Feasibility: matchMedia for the theme (~15 lines); a third unit value in the six helpers and the three unit segments (`#suUnitSeg`, `#suUnitSeg2`, `#calUnitSeg`). Generated output: none (display only). Stage 2: the Preferences rows on every shell.",
+   "risk": "Pick an altitude unit for nmi (m or ft). Every segment home must gain the third button."
+  },
+  {
+   "id": "REC-1",
+   "title": "Recommendation: the first five to port, in this order",
+   "evidence": "Dependencies taken from the findings above. v2.72 stays as it is ('old versions are never edited', html/README.md), so every port lands in v2.74 or later, after stage 2.",
+   "impact": "high",
+   "effort": "medium",
+   "proposal": "1. F02, Export map image: slice 1 (terrain PNG through `bakeSingle`) first. It has no stage coupling, it is small, and it is the most-wanted output. Overlays follow.\n2. F03, Find runs commands: small, no stage coupling, and it makes every later port reachable by name.\n3. F04, Faction relations, and 4. F05, Political history: build both before or at the start of stage 3. Each fills a placeholder the HTML prints today, and stage 3's modules can then re-host existing builders instead of growing new code.\n5. F01, Measure: the largest value, built immediately after stage 2 lands, because it must be a placing tool in v2.73's touch layer.\n\nIn parallel, put F06 (`_jpClaimedAt`) to the owner now as its own question, with the measured knock-on; the fix is one character. F07 belongs inside stage 3's planner-window work.",
+   "risk": "Re-check each cited symbol on the then-current version before starting: v2.73 is mid-build."
+  },
+  {
+   "id": "NP-1",
+   "title": "Do not port: the LLM assistant (Ask tab, cartalith-llm, cartalith-knowledge)",
+   "evidence": "Godot's assistant keeps keys in the operating system's key store (Credential Manager on Windows, Android Keystore). LLM_ASSISTANT_SCOPE's security bars include 'key never in save/log/export' and 'zero sockets when off'. Measured with `/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-features/ls_probe.js` in headless Chromium 153: a localStorage value written by a file:// page in one folder was read by a file:// page in another folder (origin 'file://' in both). A key the HTML stored would therefore be readable by every local HTML file opened in that browser profile. v2.72 has no assistant, and its CHANGELOG leaves Ask out.",
+   "impact": "medium",
+   "effort": "large",
+   "proposal": "Do not port. If the owner ever wants it, it is a new design (a session-only key held in memory, never persisted, and a consent card), not a port. Its size (XL) and its network surface outweigh its value in a zero-dependency file:// page.",
+   "risk": "Firefox's file:// origin rules differ and were not measured."
+  },
+  {
+   "id": "NP-2",
+   "title": "Do not port (as a port): the Markdown vault",
+   "evidence": "Godot: cartalith-vault, `vault_bridge.rs` (55 functions), `vault_window.gd`, write-back with conflict detection, SAF on Android. v2.72 already shows a native save's vault links read-only (`_vaultLinksHtml`, `_vaultSummaryHtml`) and has a per-place free-text note, `p.history` (v0.62). That note is saved with places and shown in the City Viewer's History section.",
+   "impact": "medium",
+   "effort": "large",
+   "proposal": "Do not port the vault. A file:// page has no persistent cross-browser folder access (the File System Access API is Chromium-only and asks again each session). A 'notes lite' \u2014 Markdown in the project zip, `[[name]]` links that select, faction and landmass notes \u2014 is an owner design decision for stage 3's Note tab, ideally written in a layout Godot can import.",
+   "risk": "A second, incompatible notes format would strand notes between the apps; decide the format first."
+  },
+  {
+   "id": "NP-3",
+   "title": "Do not port now: generation and terrain features that move generated output",
+   "evidence": "Causal landmarks (`cartalith-civ/src/landmark.rs` 10 515 lines plus `landmark/` 1 349); volcano appearance VA-*; lava flows (Ruling DB); geology-first GF-*; orogen relief (Ruling CU); LOD detail and EF; GPU, multithreading and memory work. Each changes `field`, climate, the default vctx render or the civ layer's content. Several overlap the DCC line's own parallel work in the HTML: rivers as water (v2.60\u2013v2.62), real-km crater and height work (v2.47\u2013v2.55). RC_ENGINE_CHANGES.md documents the other direction.",
+   "impact": "medium",
+   "effort": "large",
+   "proposal": "Not now. Each needs its own owner ruling. If one is wanted, ship it behind a default-off switch in the `state.passes`/`state.hydro` convention, so `hash_gen1.js` stays ALL IDENTICAL until the owner re-baselines.",
+   "risk": "Sizes run L\u2013XL, and parity with Godot's numbers would need a golden plan of its own."
+  },
+  {
+   "id": "NP-4",
+   "title": "Do not port now: the manpower recalibration and governments G1",
+   "evidence": "The port moved past the HTML's v2.19 model: per-bracket soldier upkeep (Ruling AI(c)), land per person normalised to the world (AI(b)), the ecological army term (DE), the industrial levy (DL), and six plus two government forms (CZ). v2.72 still uses `MANPOWER_SOLDIER_UPKEEP=3.0`. RC's `tests/perf/probe_manpower.js` pins the specification's worked examples.",
+   "impact": "medium",
+   "effort": "medium",
+   "proposal": "Not now. Each moves every manpower readout and needs the owner's ruling. F08 (garrisons) can still be built, splitting the HTML's own standing army, and says so.",
+   "risk": "Porting it piecemeal would leave the HTML's manpower between two calibrations."
+  },
+  {
+   "id": "NP-5",
+   "title": "Do not port: browser-owned or browser-impossible items",
+   "evidence": "Recent worlds, Storage locations, Save as, Revert and Close project (no file paths: CHANGELOG_v2.72; RC GUI_DCC_ALIGNMENT \u00a75). Rebindable shortcuts (browsers keep Ctrl+N, Ctrl+T, Ctrl+W and Ctrl+1\u20139). Haptics and system Back (CHANGELOG_v2.73). Multi-GPU, VRAM budget, quality tiers, Display P3, colour grade and per-layer adjustment stacks (Godot's `render.rs::finish_rgb` pipeline).",
+   "impact": "low",
+   "effort": "large",
+   "proposal": "Do not port. The browser's own equivalents (the file picker, IndexedDB autosave snapshots, the Preferences pages) are the right answer. Godot-pipeline render passes would cost main-thread time, and they would move vctx hashes if switched on by default.",
+   "risk": "None."
+  },
+  {
+   "id": "NP-6",
+   "title": "Not ports at all: bookmarks, selection history, the Context modules and the planner window",
+   "evidence": "Godot ships none of them yet. Selection history and the 'Recent & bookmarks' module exist only in `cartalith-native/drafts/pc-shell/` (`ID_EDIT_SELECT_BACK`/`FORWARD`, `ID_WIN_CTX_MOD_RECENT`), which Godot never loads; `grep -i bookmark` over shell/ and crates/ finds nothing. PC-1, PC-4, PC-8 and PC-10 are design milestones, and html/README.md already schedules them as stage 3.",
+   "impact": "medium",
+   "effort": "large",
+   "proposal": "Build them as stage 3 from PC_SHELL_PROPOSAL \u00a73.1, \u00a73.3 and \u00a73.7, not as ports. Bookmarks belong in the world file (Ruling DY); the recent list is session-only.",
+   "risk": "Do not cite Godot as their reference implementation: there is none yet."
+  },
+  {
+   "id": "NP-7",
+   "title": "Do not port now: pop-out windows, the New World seed preview, and three render items RC declined",
+   "evidence": "Pop-outs PW-1\u2026PW-3: a `window.open` from file:// would have to adopt live nodes, which breaks the 'one control, one element' homes and listeners. The New World preview (NWP-1\u2026NWP-3): the HTML engine runs on module globals (`allocate()`, `GW`/`GH`), so a preview run risks mutating the open world. RC v2.13 declined three render items with reasons: the flow-wetness halo (duplicates `state.viz.wetness`), local contrast (tile seams) and the neatline (a DOM scale bar never reaches the export).",
+   "impact": "low",
+   "effort": "large",
+   "proposal": "Later, and only as owner questions. Stage 3's non-blocking in-page planner window meets the second-screen need first. Revisit the neatline only inside F02's overlay export.",
+   "risk": "None."
+  },
+  {
+   "id": "C-1",
+   "title": "Considered, not shortlisted (worth a later look)",
+   "evidence": "Each was confirmed built in Godot and absent from v2.72 by concept grep:\n- Help \u25b8 Save diagnostic report (`diagnostic_report.gd`; S; support value);\n- coach marks for v2.73's hold and grip (`app.gd::_maybe_show_coach_marks`; S);\n- trade flows drawn on the map (IN-13, `map_overlay.gd`, `trade_store.gd`; M; the HTML already has the supply match);\n- an editable elevation ramp with presets (`render.rs::ElevationRamp`, `ramp_bar.gd`; M; must keep `hypso()` by control flow);\n- colour paint (CP-1\u2026CP-7; M\u2013L; it must reach `landColorCore`'s four call sites);\n- look history (`look_history.gd`; M);\n- GeoJSON import (`geojson_import.rs`; M);\n- the travel library (`travel_library.rs`, 1 800 lines; M);\n- conflicts and campaigns (SP-4/MM-7; L; fills the City Viewer's 'wars, sieges \u2026 not yet modeled');\n- journey progression by day (SP-2; M\u2013L);\n- asset-pack tools AP-1\u2026AP-10 (M; first fix that `#assetsPanel` has been unreachable in Assets mode since v2.24);\n- the reorderable layer stack (FUNCTIONAL_CONTRACT's modernise item 2).",
+   "impact": "medium",
+   "effort": "medium",
+   "proposal": "Revisit after the first five. Conflicts and campaigns are the strongest of these for storytellers, but they are large and want stage 3's year and selection model first.",
+   "risk": "Sizes are estimates."
+  },
+  {
+   "id": "DOC-1",
+   "title": "Proposed report text for the guarded docs (not written)",
+   "evidence": "`OUTSTANDING_WORK.md` already has 'Found in the HTML by stage 1, both from before it'. The `_jpClaimedAt` defect is a third pre-existing finding of the same kind.",
+   "impact": "low",
+   "effort": "small",
+   "proposal": "For `OUTSTANDING_WORK.md`, 'The HTML working copy':\n\n- Add to 'Found in the HTML': \"`_jpClaimedAt` tests `>=0` on the `Uint8Array` territory raster, so every cell, open sea included, reads as claimed once territory exists. Tolls are therefore always 0 and the claimed-land floor applies everywhere. The port's `jp_claimed_at` uses `> 0`. Measured 2026-11-01 on seeds 12345 and 777: the fix adds one frontier toll to 6 of 6 journeys and moves 12 of 77 and 41 of 84 stages from Sparse Settlements to Ruined Region. Changes planner results: owner ruling.\"\n- Add a 'Godot feature ports' row naming the shortlist F01\u2013F15 and the first five (REC-1).\n\n`STATUS.md` needs no change: nothing was built.",
+   "risk": "The main loop owns those files; wording is a suggestion."
+  }
+ ],
+ "limits": "1. **v2.73 was read mid-build** (interim commit dfc38b2). The stage-2 symbols cited may change before stage 2 closes: `_civCtxItems`, `_tchPlaceTool`, `_ds13DrawKey`, `#phDrawer`, `#phFan`, `#mbWorldWrap`.\n\n2. **Nothing was built.** Every size is an estimate, from the Godot implementation's size and the HTML symbols a port would reuse.\n\n3. **What was measured:**\n   - Find, on v2.72 only.\n   - `_jpClaimedAt` on every cell of two 256 px worlds (seeds 12345 and 777).\n   - Tolls on the 7 journeys that priced. On seed 12345, 5 of the 6 journeys returned no cost (`jpJourneyCost` null), so tolls were measured on 1 + 6 journeys.\n   - Infrastructure tiers on all 12 journeys.\n\n   The tier knock-on was read from the stage objects, not checked against the planner's travel times.\n\n4. **The localStorage test** ran in headless Chromium 153 only. Firefox and Safari file:// origin rules were not measured.\n\n5. **Godot features were taken as built where STATUS and the code agree.** Rows whose own text says \"pending independent verification\", such as `jp_claimed_at`, were opened at the symbol but not re-run.\n\n6. **No touch, WebGL or real-device behaviour was tested.** These need a person:\n   - F01 on glass;\n   - F02's large exports on phones;\n   - F09 and F13 on the v2.73 surfaces.\n\n7. **The candidate list is not exhaustive.** It was assembled from these sources:\n   - PORT_ONLY_FEATURES;\n   - the \"not in this build\" tables in CHANGELOG_v2.72 and CHANGELOG_v2.73;\n   - PC_SHELL \u00a73;\n   - the titles of STATUS's built entries and its ledger rows.\n\n   I did not walk all 157 shell files. Godot features with no menu row, ledger row or STATUS entry could be missed.\n\n8. **Scratch files:**\n   - `/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-features/probe_audit.js`\n   - `/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-features/probe_v272.json`\n   - `/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-features/ls_probe.js`\n   - `/tmp/claude-0/-home-user-Cartalith-GDT/9bb82d91-f6d5-50c4-b743-a54d60b8e9ff/scratchpad/audit-features/v272_funcs.txt`, an index of v2.72's function names.\n\n9. **The two modified files in the working tree are not mine.** `html/CHANGELOG_v2.73.md` and `html/README.md` show as modified in `git status`; they belong to the concurrent stage-2 work. I wrote nothing in the repository."
+}

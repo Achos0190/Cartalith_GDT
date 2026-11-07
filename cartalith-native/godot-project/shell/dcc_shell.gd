@@ -1357,8 +1357,9 @@ func _safe_side() -> int:
 ##
 ## `BUILD_ANSWERS.md` §4's one table, transcribed whole: sample 12 ms · detent
 ## 8 ms · tool arm 10 ms · verdict `[14, 40, 14]` · back 6 ms · blocked
-## `[20, 60, 20]`. All six are defined even though only three have call sites in
-## this shell today, because the table is the specification and a
+## `[20, 60, 20]`. All six are defined even though only four have call sites in
+## this shell today (back, detent, sample, tool_arm: `grep -rno '_haptic("[a-z_]*")'`,
+## 2026-11-02), because the table is the specification and a
 ## half-transcribed table is exactly the thing the next person re-derives
 ## wrongly. Odd-indexed entries are the gaps BETWEEN buzzes -- the Android
 ## `vibrate(long[])` convention minus its leading delay, which is always 0 here.
@@ -1370,6 +1371,11 @@ const _HAPTIC_MS := {
 ## `Input.vibrate_handheld()` is already a no-op off Android/iOS, but the
 ## feature test is made here rather than trusted: without it the multi-pulse
 ## kinds would still spend a `SceneTreeTimer` per gap on every desktop press.
+## On Android it needs `permissions/vibrate=true` in `export_presets.cfg`'s Android
+## preset. Until 2026-11-02 that key was missing, and Godot documents that the call
+## then has no effect, so every haptic here was silent on a device (Ruling ED;
+## `STYLUS_HAPTICS_RESEARCH.md`). Must never be the only cue: a device may have no
+## vibrator at all (research §1.4).
 func _haptic(kind: String) -> void:
 	if not OS.has_feature("mobile"):
 		return

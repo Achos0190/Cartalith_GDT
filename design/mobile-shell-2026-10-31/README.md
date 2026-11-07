@@ -73,6 +73,26 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
   the map's left edge (the right edge when Handedness is Left) for the quick drawer. The Assistant chip
   comes first while Preferences ▸ Assistant is on.
 - In the lab: rotate the 6T to landscape, pick TABLET 800 (the panels float), 4K ×1, or drag the grip.
+- **The map's control row** (DS-13, `MOBILE_SHELL_PROPOSAL.md` §2.5; Ruling EB answered Q3 to Q5, and Q1 and Q2
+  await the owner). It sits at the bottom of the map on the dominant hand's side, with ⌖ recentre at the outer end,
+  then − | +, which step by 1.35 (Ruling EB item 2). It moves to the other side with MENU ▸ Preferences ▸ Handedness,
+  and the scale bar swaps sides with it. Arm a drawing tool (Region, a brush, Way): ✋ appears at the inner end, and
+  while it is on, one finger pans instead of drawing. With Inspect, a drag already pans, so there is no ✋. 2D/3D is
+  in MAP ▸ View now. The touch tablet has the same row, without 3D.
+- **The double-tap and thumb zoom** (Ruling EB item 3). Double-tap the map to zoom in ×1.7 at the finger. Double-tap,
+  keep the finger down and slide: down zooms in, up zooms out, about the finger. With a drawing tool armed both are
+  off, labelled "pending DS13-Q1" (MENU ▸ Preferences ▸ Touch & gestures), because that case waits on the owner.
+- **A journey saved before a regenerate** (Ruling EA 10): MENU ▸ Story ▸ Saved journeys…, the third journey. The
+  planner opens with a notice naming the leg change it dropped, with Show stage 3 and Dismiss.
+- **3D height** (Ruling EA 14; Ruling EB items 5 and 6): MAP ▸ View ▸ 3D, then the *Height exaggeration (3D)* row,
+  from 1× (true scale, Ruling CT) to 4× in steps of 0.25. On a tablet: Window ▸ 3D view, then the HEIGHT row in the
+  3D card at the map's top-left. The value is remembered for the next session as Preferences ▸ 3D viewport
+  defaults, here in this browser's storage; reload and it is still there.
+- **Colour paint after the map changes width** (Ruling EA 15; Ruling EB item 7): CARTO ▸ Style ▸ Colours ▸
+  *Simulate a regenerate at another width*. It draws 17 sample marks where their kilometres fall on the wider map,
+  and one sentence heads the section with Show marks, Scale with the map and Dismiss. Scale with the map moves every
+  mark back to its share of the map and removes the sentence, as one undo step; undo brings both back. The widths
+  follow Preferences ▸ Units.
 - **On a tablet narrower than 1 180 dp** the bar is ☰ · File · World · Records · Story (Ruling DY). World there holds
   only the WORLD domain's rows (Generate world, the two resets, Pipeline/Sculpt, Seed & size…); Records is the desktop's
   Records menu. Measured at 600, 768, 1 024 and 1 179 dp: the four menus end 31 dp before Undo at 600 dp.
@@ -118,6 +138,13 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
   hint. New seed, Center landmasses, Bake ALL & finalize and GENERATE are gone from it, and each stays in the WORLD
   dock (Generate world also in File, Ctrl+R). Arm Freehand or Paint and the bar shows that brush's settings with
   Commit and Discard. The quick-bar pins stay at its right end.
+- **Ruling EA's three small designs:**
+  - Story ▸ Saved journeys… ▸ the third journey opens the planner window with the stale-leg notice (EA 10).
+  - Window ▸ 3D view shows the 3D view's card at the map's top-left, with a HEIGHT row between its info line and Back
+    to 2D (EA 14), from 1× to 4×, remembered across a reload (Ruling EB items 5 and 6).
+  - CARTO ▸ Style ▸ Colours ▸ *Simulate a regenerate at another width* shows colour paint's notice (EA 15), with
+    Scale with the map (Ruling EB item 7); the menu bar's undo and redo arrows take it back and forth, one step
+    each.
 - **Menus** open as side-by-side columns, above any open window, and hovering across the bar switches menus. Right-click the map for the
   card; Q opens the cartwheel at the pointer. Both keys also have Edit rows, Context card and Cartwheel at the pointer,
   so they can be rebound (`PC_SHELL_PROPOSAL.md` PQ10). The menus are checked row by row against the Godot drafts in
@@ -131,7 +158,17 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
 - Windows (Data manager, Factions, Vault, Asset library and the rest) show their frame and their main
   sections, not their whole contents. They keep their implementations; only the frame they open in
   changes.
-- 3D is a toggle label; the stand-in map stays 2D.
+- 3D is a toggle label; the stand-in map stays 2D. On the desktop and the tablet the 3D card stands in for the card
+  that `view3d.gd` ships (3D-1), with Ruling EA 14's HEIGHT row added; its tier line is a stand-in.
+- The desktop frame still draws a pointer column (3D, ⌖, +, −) at the map's bottom right. The shipped desktop builds
+  no such column (`viewport_host.gd::_build_navpad()` is touch-only), and Ruling EA 14 keeps the 3D pill off it. It
+  is left for the PC pass; DS-13 covers touch only. Its + and − step by 1.35 like the touch rocker (Ruling EB item
+  2); they stepped by 1.6 before.
+- The row's 3D meanings (Ruling EB item 4: from 3D-2, − and + move the 3D camera and ⌖ frames the world) are not
+  drawn, because 3D here is a label; the row still moves the 2D map.
+- The 17 colour-paint marks are a sample the simulation draws; the mockup's Colour paint tool does not store the
+  strokes you drag. The stand-in map does not change with the width, so scaled marks land back where they were
+  painted. On a real regenerate the ground under them is new.
 - The lab's readout applies the proposal's phone line, under 600 dp wide. The owner chose that line under Ruling DY
   (MQ-1 of `MOBILE_SHELL_MS1_SPEC.md`), to land with MS-7; MS-1 itself ships today's rule.
 - The modules' figures that the stand-in world does not hold (economy and army sizes, provinces, claims, a layout's
@@ -142,4 +179,6 @@ is not duplicated here: copy `design/support.js` beside the files to open them f
   of call the shipped assistant would make; it is illustration, not the shipped tool list.
 - Measured in Chromium (Playwright) at 360 × 780, 412 × 892, 780 × 360, 1194 × 834, the lab presets and the
   desktop at 1600 × 900; Ruling DY's changes also at 1366, 1920 and 2560 wide and the narrow tablet bar at 600, 768,
-  1 024 and 1 179 dp. Not run on a device.
+  1 024 and 1 179 dp. DS-13's row was measured at 412 × 892, 892 × 412 and 1194 × 834 in both hands, and Ruling EA's
+  three designs on the phone, the tablet and the desktop. Ruling EB's changes were driven there too, the gestures as
+  synthetic touch pointer events on the map. Not run on a device.

@@ -1,0 +1,21 @@
+{
+ "truncs": [
+  {
+   "el": "div#dockWrap aside.dock.dock-left",
+   "region": "dock-left",
+   "text": "CIVIL\n‹\nTOOLS\nInspect\n⌂ Settlement\n◈ POI",
+   "client": 371,
+   "scroll": 387,
+   "scroller": true
+  },
+  {
+   "el": "div#ctxHint",
+   "region": "context",
+   "text": "Inspect a settlement, label or icon on the map, or a row in ",
+   "client": 249,
+   "scroll": 397,
+   "ell": true
+  }
+ ],
+ "off": []
+}

@@ -167,6 +167,47 @@ profile band and map, and offers its resolutions inline (turn off closures, re-r
 land-only, depart earlier). Strain — load above ~90% of capacity, a supply gap longer than
 the carry, a confidence band widening past a season change — is warned but not blocking.
 
+## 9a · Stale overrides (Ruling EA 10)
+
+*Added 2026-11-01. A design for the owner's approval, drawn in the mobile mockup
+(`design/mobile-shell-2026-10-31/`); nothing of it is built. The build row is `OUTSTANDING_WORK.md`'s "A saved
+journey's per-leg overrides can land on a different leg".*
+
+**Ruling EA item 10, "Detect, drop and tell me":**
+- each override saves a fingerprint of the leg it was set on;
+- an override whose leg no longer matches is dropped, with a notice naming it;
+- nothing is ever applied to a different leg.
+
+The fingerprint is the build's to define. This section designs the notice.
+
+- **When.** The notice appears only when something was dropped, at the recompute that dropped it. That happens on
+  opening a saved journey after a regenerate, a sculpt or an engine change, or when one of those happens while the
+  planner is open. A one-line toast says it at that moment, for example *1 leg change dropped: stage 3 was rebuilt
+  after the regenerate*.
+- **Where.** At the top of the planner, above the selection rows and the verdict card, in every form:
+  - the desktop's planner window (Ruling DY, PQ4);
+  - the touch tablet's CIVIL ▸ Journeys dock;
+  - the phone's STORY ▸ Journeys.
+- **What it says.** One warning row, coloured `warn` (`dcc_theme.gd`: `#e0a840` dark, `#9a6a12` light), naming each
+  dropped change by stage, its leg's two ends and the field:
+
+  > 1 leg change no longer fits this world and was dropped: stage 3, Thornwood → High Saddle (pace override "forced
+  > march"). The legs were rebuilt after the world changed; nothing was applied to a different leg.
+
+  Several drops are listed in one row, separated by semicolons, with "N leg changes … were dropped".
+- **Actions.**
+  - **Show stage N** opens the first named stage's inspector (§6), so the user can set the value again on the leg
+    they mean.
+  - **Dismiss** removes the notice.
+
+  Neither restores anything: a dropped override is gone, which is the ruling.
+- **Not a blocked state.** The verdict and the stages are computed without the dropped override, and nothing is
+  coloured as blocked (§9). The notice reports what the planner did; it does not stop the journey.
+- **In the mockup:** Story ▸ Saved journeys… ▸ the third journey ("before the regenerate"), on the desktop and the
+  phone. The test `ea.js` checks the text word for word, the two actions, the notice's place at the top and that
+  Dismiss removes it. Its captures are `ea-10-desktop-planner-stale.png` (desktop-shell evidence) and
+  `ea-10-phone-planner-stale.png` (mobile-shell evidence).
+
 ## 10 · Still to build
 
 Light theme, blocked-stage inspector state, journey list/picker, and the 2560 tablet
