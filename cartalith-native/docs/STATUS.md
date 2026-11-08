@@ -47,6 +47,63 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-10 built: the Context panel's ten modules, as tabs the user arranges (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.3 ("Modules: tabs you arrange"), §6 (PC-10 and its build note); Ruling DY (PQ1); the contract
+in `drafts/pc-shell/90_pc_milestone_stubs.gd`. *Re-opened at the symbols first:* `app.gd`'s PC-4 stubs
+(`context_module_registry()` returned `[]`), `menus.gd::_build_context_panel_menu` / `CTX_MODULES`, `right_dock.gd`'s
+header and `show_tab()`, `context_window.gd`, and every builder §3.3's table names.
+
+- **Built.** `shell/context_modules.gd` (registry and the ten builders), `shell/context_module_window.gd` (a module in a
+  PC-7 window). `DccApp`: the registry, the arrangement (`context_panel_modules()`, `set_context_module_shown()`,
+  `move_context_tab()`, `reset_context_panel()`, `open_context_tab()` taking a module and re-adding a removed tab),
+  `open_context_tab_window()`, bookmarks. `RightDock`: the strip is the arrangement, a module that does not fit the
+  subject is hidden (kept in the arrangement), `+` lists every tab with a tick, a tab's menu (right press, or a 500 ms
+  hold on touch) has Move left, Move right, Open in a window (desktop) and Remove (not on Inspect), and tabs drag.
+  The ten MODULES rows of Window ▸ Context panel are live check rows. **One builder, two hosts:** every window-backed
+  module calls that window's builder on a detached instance of the window's script (a hidden child of the module's
+  box), and `place_editor_window.gd::_build_tab_political` and `faction_roster_window.gd::_build_tab_economy` were
+  lifted out of their tab dispatch so each is one call; `grep` gives each reused builder two call sites (the window
+  and `context_modules.gd`; `_build_culture_card` three). **The store** is `[context_panel]` in
+  `cartalith_settings.cfg` (`DccSettings.context_panel_read()` / `set_context_panel_tabs()`), never the world file.
+  A newer or malformed section falls back to Inspect · Note · Ask with a status-line notice, after the settings file is
+  copied to `cartalith_settings.context_panel.bak.cfg`; the bad section is left as it is until the user arranges the
+  panel. A settings file that does not parse is copied to `cartalith_settings.unreadable.bak.cfg` before any write
+  (`DccSettings._ensure_loaded()`, a change for every setting). **Bookmarks** are a new caller-owned slot,
+  `annotations/bookmarks.json` (`cartalith_io::DOCUMENT_SLOTS`, `SAVEFILE_COMPAT.md`), written only when there is one;
+  the selection history the Recent list shows is session-only.
+- **Found while building and fixed:** a window builder laid out for its window's width widened the dock on the touch
+  tablet (the City layout page pushed it over most of the map, measured through `_pc10modules_probe`'s coverage
+  diagnostics), so a module page sits in its own sideways-scrolling box (`CtxModuleScroll`), and the probe checks the
+  dock's width is unchanged by every module page on both forms.
+- **Verified (2026-11-08, this Windows machine; DLL rebuilt after the one Rust change).** `cargo test --workspace
+  --no-fail-fast` (own target dir): 265 result lines, **7 773 passed, 0 failed, 144 ignored**; again after rebasing onto `0186f40b`: 265 lines, 7 775 passed, 0 failed, with `_pc10modules_probe` (main desktop and touch, restart, a malformed store), `_pc4context`, `_pc6ask`, `_pc7windows` and `_pc9menus` re-run green there. Every touched `.gd` and
+  `shell/app.gd` parse-checked. New `_pc10modules_probe` (windowed, real clicks, drags and keys, wiped `APPDATA` per
+  run): **main 233/233 desktop and 227/227 touch at 1600×1000**; **restart 3/3 on both** (the arrangement `main` left,
+  read back in order after a fresh boot with the same user dir); **corrupt store 9/9 malformed, 9/9 newer, 7/7
+  unreadable, 9/9 malformed on touch**. Legs: defaults and the ten live MODULES rows; every module added through `+`
+  with real keys; the strip for a settlement, a faction (reached by the holder link) and nothing selected equals §3.3's
+  table (literal lists); every page draws and keeps the dock's width; each window-backed module draws every § section
+  its window's own tab draws for the same subject (Place editor: political, economy, layout; Factions window: history,
+  economy, military, relations, territory); follow and pin for each of the eight settlement modules by real map
+  clicks; a real drag, Move left / Move right / Remove through the tab menu, no Remove on Inspect, the MODULES tick,
+  Reset panel; Ctrl+3 re-adds a removed Ask, Ctrl+1 reaches Inspect dragged to the end; Open in a window follows a map
+  click until its chip pins it (desktop), and is not offered on touch; a bookmark made by a real click is saved inside
+  the `.zip` (`annotations/bookmarks.json` listed, no member holds the arrangement) and survives a reopen while the
+  recent list is empty. On the pristine `origin/main` tree the same probe fails (179 of 210 checks failed: the registry is empty there). **Twelve literal mutants, all killed** (Territory's kinds, the 500 ms hold, Remove on Inspect, the newer-version test, both backups, the bookmarks slot write, unknown-key order, Move right, Ctrl+3's re-add, the Economy module's builder, the module window's follow).
+  Regression, each compared with `origin/main` where it failed: `_pc1select`, `_pc2year`, `_pc3strip`, `_pc4context`,
+  `_pc6ask`, `_pc7windows`, `_pc8planner`, `_quickbar_ring`, `_rd3ctx`, `_rdappend`, `_rdb18` (desktop),
+  `_rdconform` (desktop), `_rdrefresh`, `_rdway` pass on desktop and touch; `_pc9menus` passes after its Context panel
+  check was moved to PC-10's form (the modules live); `_rdb18` touch (C2, body minimum 304 > 260) and `_rdconform`
+  touch (59 failures) fail identically on `origin/main`. Phone (§3.11, unchanged): `_pc4context --phone` and
+  `_pc3phone` captures at 393×852 equal the pristine tree's except the status-bar clock and the launch card's build
+  hash.
+- **Not done, stated:** Note (PC-5; its key is kept second in the stored default); Pop out for a module window (not one
+  of `PopoutHost.LIVE_KEYS`); a module's own key; History for a landmark is a sentence (the chronos index reads
+  settlement and faction notes only); no producer selects a culture, so the culture branches of Faith and Links are
+  reached only by code; "roads from here" are roads ending within two cells (`ROAD_END_CELLS`, judgement); a generate
+  drops the bookmarks. Not run: a device.
+
 ### PC-8 and PW-4 built: the Journey planner in its own window on the desktop, with Pop out (2026-11-08)
 
 `PC_SHELL_PROPOSAL.md` §3.7, §6 (PC-8 and its build note); `POPOUT_WINDOWS_SCOPE.md` PW-4 and §12; Ruling DY (PQ4),

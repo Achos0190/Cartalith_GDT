@@ -161,6 +161,10 @@ var bridge: EngineBridge
 ## reads it); reset to 1 in `_on_world_changed`. No source found for the default 1 at the
 ## declaration.
 var _selected := 1
+## PC-10. Set only on a detached instance that builds a Context panel module (`context_modules.gd`):
+## what `_rebuild()`, `_rebuild_overview()`, `_rebuild_list()` and `_rebuild_inspector()` run instead
+## of redrawing this window. Invalid (the default) on the window itself.
+var module_refresh: Callable
 ## The roster list's `VBoxContainer`, created in `setup`.
 var _list_body: VBoxContainer
 ## The inspector pane's `VBoxContainer`, created in `setup`; the selected faction's tabs are
@@ -774,6 +778,10 @@ func _commit_focused_field() -> void:
 ## list and the selected faction's inspector. The full-refresh entry point; the
 ## narrower `_rebuild_*` calls exist for edits that cannot move the others.
 func _rebuild() -> void:
+	## PC-10: on a detached module host the panel redraws instead (`module_refresh`).
+	if module_refresh.is_valid():
+		module_refresh.call()
+		return
 	_rebuild_overview()
 	_rebuild_list()
 	_rebuild_inspector()
@@ -857,6 +865,10 @@ func _year_refresh() -> void:
 ## then shows a dash plus `NO_CLAIM_GRID` rather than a sum of the rows that carry it. With no world it
 ## shows a "Generate a world" prompt.
 func _rebuild_overview() -> void:
+	## PC-10: on a detached module host the panel redraws instead (`module_refresh`).
+	if module_refresh.is_valid():
+		module_refresh.call()
+		return
 	var factions := bridge.get_factions()
 	if factions.is_empty():
 		_overview.text = "Generate a world to see a faction summary here."
@@ -902,6 +914,10 @@ func _rebuild_overview() -> void:
 ## clears the marked pair, rebuilds list and inspector and, on phone, navigates to the inspector. An empty
 ## world shows a note pointing at `DccShell.new_world_route()`.
 func _rebuild_list() -> void:
+	## PC-10: on a detached module host the panel redraws instead (`module_refresh`).
+	if module_refresh.is_valid():
+		module_refresh.call()
+		return
 	_clear(_list_body)
 	var factions := bridge.get_factions()
 	if factions.is_empty():
@@ -975,6 +991,10 @@ func _rebuild_list() -> void:
 ## previous faction's pane. It is also what a probe or a caller means by "redraw
 ## the inspector"; it never builds a tab that is not on screen.
 func _rebuild_inspector() -> void:
+	## PC-10: on a detached module host the panel redraws instead (`module_refresh`).
+	if module_refresh.is_valid():
+		module_refresh.call()
+		return
 	_clear(_inspector_body)
 	_tab_panes.clear()
 	_show_active_tab()
@@ -1024,10 +1044,7 @@ func _build_tab_pane(id: String, d: Dictionary) -> VBoxContainer:
 		"settlements":
 			_build_settlement_sublist(pane)
 		"economy":
-			_build_economy_readout(pane)
-			_build_currency(pane)
-			_build_tariffs(pane)
-			_build_gaps(pane)
+			_build_tab_economy(pane)
 		"military":
 			_build_military_block(pane)
 		"relations":
@@ -1037,6 +1054,16 @@ func _build_tab_pane(id: String, d: Dictionary) -> VBoxContainer:
 	if pane.get_child_count() == 0:
 		DccWidgets.note(pane, "Nothing to show for this faction on this tab.")
 	return pane
+
+
+## The Economy tab's content: the readout, the currency, the tariffs and the gaps. One function
+## because two hosts call it: this window's `_build_tab_pane()` and the Context panel's Economy module
+## (`context_modules.gd::build_economy`, PC-10).
+func _build_tab_economy(pane: Control) -> void:
+	_build_economy_readout(pane)
+	_build_currency(pane)
+	_build_tariffs(pane)
+	_build_gaps(pane)
 
 
 ## The Identity tab: the faction's banner and name, then the five identity

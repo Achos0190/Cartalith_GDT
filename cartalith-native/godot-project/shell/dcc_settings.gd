@@ -144,9 +144,44 @@ static func _ensure_loaded() -> void:
 		return
 	_loaded = true
 	_cfg = ConfigFile.new()
-	## A missing/corrupt file is the expected first-run state, not an error
-	## worth surfacing -- every read below falls back to `_default_root`.
-	_cfg.load(CONFIG_PATH)
+	## A missing file is the expected first-run state, not an error worth surfacing -- every
+	## read below falls back to its default.
+	var err := _cfg.load(CONFIG_PATH)
+	## PC-10 (2026-11-08): a file that EXISTS and does not parse is not a first run. Every read
+	## then falls back as before, but the next `_save()` from any setter would write this
+	## session's few values over the user's whole file, so the unreadable bytes are copied aside
+	## first (`UNREADABLE_BACKUP_PATH`) and `load_problem` says so for a surface to show (the
+	## Context panel does, `DccApp._context_panel_notice()`). Never deletes or repairs the file.
+	if err != OK and err != ERR_FILE_NOT_FOUND and FileAccess.file_exists(CONFIG_PATH):
+		_cfg = ConfigFile.new()
+		load_problem = "Your settings file (%s) could not be read (error %d), so the defaults are in use. It was copied to %s before anything was written over it." % [
+			ProjectSettings.globalize_path(CONFIG_PATH), err,
+			ProjectSettings.globalize_path(UNREADABLE_BACKUP_PATH)]
+		if not _copy_file(CONFIG_PATH, UNREADABLE_BACKUP_PATH):
+			load_problem = "Your settings file (%s) could not be read (error %d), so the defaults are in use, and it could not be copied aside: change nothing in Preferences if you mean to repair it by hand." % [
+				ProjectSettings.globalize_path(CONFIG_PATH), err]
+
+## PC-10. Where `_ensure_loaded()` copies a settings file that exists and does not parse, before
+## any write can replace it. One fixed name: a second unreadable file in a later session replaces
+## the copy, which is a labelled judgement (the copy is of the newest bytes the user had).
+const UNREADABLE_BACKUP_PATH := "user://cartalith_settings.unreadable.bak.cfg"
+
+## PC-10. A sentence for the user when `CONFIG_PATH` existed and could not be parsed this session,
+## else "". Written only by `_ensure_loaded()`.
+static var load_problem := ""
+
+## PC-10. Copies the bytes of `from` to `to` (both `user://` paths). False when `from` cannot be
+## read or `to` cannot be written; never touches `from`.
+static func _copy_file(from: String, to: String) -> bool:
+	var src := FileAccess.get_file_as_bytes(from)
+	if src.is_empty() and FileAccess.get_open_error() != OK:
+		return false
+	var f := FileAccess.open(to, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_buffer(src)
+	f.close()
+	return true
 
 ## Writes `_cfg` back to `CONFIG_PATH`. Callers must have run
 ## `_ensure_loaded()` first (`_cfg` is null otherwise). The save result is not
@@ -1694,3 +1729,100 @@ static func set_popout_geometry(window_key: String, geo: Dictionary) -> bool:
 	var g: Dictionary = popout_value("geometry")
 	g[window_key] = _clean_geometry_entry(geo)
 	return set_popout_value("geometry", g)
+
+# -- The Context panel's arrangement (PC_SHELL_PROPOSAL.md s.3.3, milestone PC-10, Ruling DY) ----
+
+## The `[context_panel]` section: which tabs the user keeps in the Context panel, in strip order
+## (Ruling DY, PQ1: "Tabs you arrange", "saved with your settings, not in the world file").
+## **Per user and never in a world**: it is how this person likes the panel, not a fact about
+## the world, so no project save reads or writes it. Written only through
+## `set_context_panel_tabs()`, the `[quick_bar]` pattern (`_SEC_QUICK_BAR`).
+const _SEC_CONTEXT_PANEL := "context_panel"
+## The schema version this build writes. A stored `version` above it (a newer build's file) is
+## read as "not usable here" and is NOT rewritten until the user next arranges the panel, so a
+## downgrade does not destroy a newer build's arrangement unasked.
+const CONTEXT_PANEL_VERSION := 1
+## The most tab keys the section may hold. Three core tabs and ten modules are 13 today; 32 is a
+## labelled judgement that leaves room for modules a later build adds, and still refuses a
+## runaway hand edit.
+const CONTEXT_PANEL_MAX_TABS := 32
+## Where the settings file is copied when its `[context_panel]` section cannot be used (a newer
+## version, or a value of the wrong shape), before the defaults are shown, so the user's
+## arrangement is never lost silently. One fixed name, rewritten by the next such fallback.
+const CONTEXT_PANEL_BACKUP_PATH := "user://cartalith_settings.context_panel.bak.cfg"
+
+## The stored arrangement, as `{"tabs": PackedStringArray, "stored": bool, "problem": String,
+## "backup": String}`.
+## - `stored` false and `problem` "" : nothing stored (a first run, or a file from before PC-10);
+##   the caller shows its defaults. Not an error and not reported.
+## - `problem` non-empty: something was stored and this build cannot use it (`"newer"`: a version
+##   above `CONTEXT_PANEL_VERSION`; `"malformed"`: a version or a `tabs` value of the wrong shape,
+##   an empty or repeated key, or too many keys; `"unreadable"`: the whole settings file did not
+##   parse, `load_problem`). `tabs` is then EMPTY, never a repaired guess (`MISTAKES.md`: never
+##   encode "no value" as a plausible value), and `backup` names where the file was copied.
+## - otherwise `tabs` is the stored list exactly, keys this build does not know included (a
+##   newer build's module, or a core tab not built yet), so the caller decides what to draw.
+static func context_panel_read() -> Dictionary:
+	_ensure_loaded()
+	var out := {"tabs": PackedStringArray(), "stored": false, "problem": "", "backup": ""}
+	## Once the user arranges the panel this session the section exists in `_cfg` again, and is read.
+	if load_problem != "" and not _cfg.has_section(_SEC_CONTEXT_PANEL):
+		out["problem"] = "unreadable"
+		out["backup"] = ProjectSettings.globalize_path(UNREADABLE_BACKUP_PATH)
+		return out
+	if not _cfg.has_section(_SEC_CONTEXT_PANEL):
+		return out
+	out["stored"] = true
+	var problem := ""
+	if _cfg.has_section_key(_SEC_CONTEXT_PANEL, "version"):
+		var v = _cfg.get_value(_SEC_CONTEXT_PANEL, "version")
+		if typeof(v) != TYPE_INT or int(v) < 1:
+			problem = "malformed"
+		elif int(v) > CONTEXT_PANEL_VERSION:
+			problem = "newer"
+	var tabs := PackedStringArray()
+	if problem == "":
+		var raw = _cfg.get_value(_SEC_CONTEXT_PANEL, "tabs", null)
+		if not _context_tabs_valid(raw):
+			problem = "malformed"
+		else:
+			for k in raw:
+				tabs.append(String(k))
+	if problem != "":
+		out["problem"] = problem
+		if _copy_file(CONFIG_PATH, CONTEXT_PANEL_BACKUP_PATH):
+			out["backup"] = ProjectSettings.globalize_path(CONTEXT_PANEL_BACKUP_PATH)
+		return out
+	out["tabs"] = tabs
+	return out
+
+## True when `raw` is an Array (or PackedStringArray) of 1..`CONTEXT_PANEL_MAX_TABS` non-empty
+## Strings with no key repeated. The read side and the write side share it, so a list this build
+## writes is always one it reads back.
+static func _context_tabs_valid(raw) -> bool:
+	if typeof(raw) != TYPE_ARRAY and typeof(raw) != TYPE_PACKED_STRING_ARRAY:
+		return false
+	var n: int = raw.size()
+	if n < 1 or n > CONTEXT_PANEL_MAX_TABS:
+		return false
+	var seen := {}
+	for k in raw:
+		if typeof(k) != TYPE_STRING or String(k) == "" or seen.has(String(k)):
+			return false
+		seen[String(k)] = true
+	return true
+
+## Stores the arrangement and saves. Refuses (false, nothing written) a list
+## `_context_tabs_valid()` rejects. A section this build could not use is replaced whole: the
+## user has arranged the panel here, and `context_panel_read()` already copied the old file
+## aside. Never called on a read.
+static func set_context_panel_tabs(tabs: PackedStringArray) -> bool:
+	if not _context_tabs_valid(tabs):
+		return false
+	_ensure_loaded()
+	if _cfg.has_section(_SEC_CONTEXT_PANEL):
+		_cfg.erase_section(_SEC_CONTEXT_PANEL)
+	_cfg.set_value(_SEC_CONTEXT_PANEL, "version", CONTEXT_PANEL_VERSION)
+	_cfg.set_value(_SEC_CONTEXT_PANEL, "tabs", Array(tabs))
+	_save()
+	return true

@@ -8283,7 +8283,7 @@ mod tests {
     }
 
     /// Protects: every slot registered in `cartalith-io` is exactly one of engine-owned (refused
-    /// to callers) or caller-owned, and the caller-owned set is exactly the six named, so a
+    /// to callers) or caller-owned, and the caller-owned set is exactly the nine named, so a
     /// mis-classified new slot fails here.
     #[test]
     fn the_document_channel_partitions_every_registered_slot() {
@@ -8328,6 +8328,9 @@ mod tests {
             callers,
             vec![
                 "annotations/measurements.json",
+                // PC-10 (2026-11-08): the Context panel's bookmarks, GDScript state saved
+                // "In the world file" (Ruling DY).
+                "annotations/bookmarks.json",
                 "library/assets.json",
                 "library/travel.json",
                 "library/settlement_types.json",

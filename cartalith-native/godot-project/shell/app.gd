@@ -805,9 +805,15 @@ func context_tabs() -> PackedStringArray:
 ## PC-6: "ask" shows the Ask tab with the cursor in its input (§3.5, "Ctrl+J opens Ask from anywhere
 ## and focuses the input"); the conversation is the session's and is never rebuilt by an open
 ## (`LlmAssistantWindow.present_in()`). "inspect" switches back to Inspect. `""` keeps the tab shown.
+##
+## PC-10 (Ruling DY, "tabs you arrange"): `tab` may also be a module's key (desktop and tablet). A tab
+## the user removed from the strip is put back at its end first and the arrangement saved, so Ctrl+1,
+## Ctrl+2 and Ctrl+3 reach Inspect, Note and Ask wherever they sit and re-add one that was removed
+## (§3.3, "Keys"), and `+` adds a module by showing it.
 func open_context_tab(tab: String, section: String = "") -> bool:
 	if tab != "" and not context_tabs().has(tab):
-		return false
+		if is_phone() or ContextModulesScript.spec(tab).is_empty():
+			return false
 	if is_phone():
 		if tab == "ask":
 			## The sheet: `open()` takes its phone branch, never this function again.
@@ -819,6 +825,8 @@ func open_context_tab(tab: String, section: String = "") -> bool:
 		(_region_nodes[DccMenus.ID_WIN_RIGHT] as CanvasItem).visible = true
 	if is_dock_collapsed("right"):
 		_toggle_dock(false)
+	if tab != "" and not context_panel_modules().has(tab):
+		set_context_module_shown(tab, true)
 	if right_dock_ctrl != null and tab != "":
 		right_dock_ctrl.show_tab(tab)
 	if right_dock_ctrl != null and section != "":
@@ -838,53 +846,303 @@ func follow_selection() -> void:
 	if right_dock_ctrl != null:
 		right_dock_ctrl.follow()
 
-## PC-4 (Ruling DY). The modules this build can show. **Empty in PC-4, and that is the contract**:
-## a module is listed only once its builder is lifted out of its window so both hosts call one
-## function, which is PC-10's work (`PC_SHELL_PROPOSAL.md` §6). Empty keeps every MODULES row in
-## Window ▸ Context panel a `_todo` naming where its content lives today (`menus.gd::CTX_MODULE_TODAY`),
-## rather than a check over nothing.
+## PC-10 (Ruling DY). The modules this build can show: `context_modules.gd::registry()`, one Dictionary
+## per module (key, title, kinds, without_selection, builder, empty; the contract in
+## `drafts/pc-shell/90_pc_milestone_stubs.gd`). Every module is listed only because its builder exists
+## and both hosts call it (the panel's tab and its own window), so `menus.gd::_context_module_ready()`
+## lights exactly the rows that work. Built once per session (`_context_modules`).
 func context_module_registry() -> Array:
-	return []
+	if _context_modules == null:
+		_context_modules = ContextModulesScript.new(self)
+	return _context_modules.registry()
 
-## PC-4 (Ruling DY). The panel's tabs in strip order: the default arrangement (Inspect · Note · Ask)
-## filtered to the tabs and modules this build has, so `["inspect", "ask"]` since PC-6. **Nothing is
-## stored yet**, because nothing can change it: Inspect cannot be removed (a judgement in Ruling DY),
-## Ask has no Remove until the arrangement exists (PC-10), Note does not exist, and no module is
-## registered. PC-10 adds the per-user `[context_panel]` store
-## (`DccSettings`, the `[quick_bar]` pattern) with the first arrangement a user can make; never the
-## world file.
+## PC-10. The modules' builder object (`context_modules.gd`), made on first use.
+var _context_modules = null
+## PC-10. `context_modules.gd`, preloaded (no `class_name`, so it needs no `--headless --import` pass).
+const ContextModulesScript := preload("res://shell/context_modules.gd")
+## PC-10. A module tab's own window (`context_module_window.gd`, §3.6), preloaded for the same reason.
+const ContextModuleWindowScript := preload("res://shell/context_module_window.gd")
+
+## PC-10 (Ruling DY). The arrangement the panel starts with and Reset panel returns to: Inspect · Note ·
+## Ask (§3.3). Filtered to the tabs this build has wherever it is read.
+const CONTEXT_PANEL_DEFAULT := ["inspect", "note", "ask"]
+
+## PC-10. The stored arrangement as `DccSettings.context_panel_read()` answered it this session, read
+## once (`_context_arrangement()`): the keys exactly as stored, unknown ones included, or the defaults.
+var _context_stored: PackedStringArray = PackedStringArray()
+## PC-10. Whether `_context_stored` has been read yet.
+var _context_stored_ready := false
+## PC-10. The sentence the panel owes the user about a stored arrangement it could not use (a newer
+## version, a malformed value, an unreadable settings file), with where the file was copied; "" when
+## there is none or it was shown. Shown once, on the status line (`_context_panel_notice()`).
+var _context_notice := ""
+
+## PC-10. Reads the stored arrangement once. A first run, or a settings file from before PC-10, has no
+## section and gets the defaults, silently: nothing was lost. A section this build cannot use gets the
+## defaults too, and a notice naming the backup (`DccSettings.CONTEXT_PANEL_BACKUP_PATH`, or the
+## unreadable file's copy): the stored text is left untouched until the user arranges the panel, so a
+## newer build's arrangement survives a session in an older one. Never crashes on a bad value.
+func _context_arrangement() -> PackedStringArray:
+	if _context_stored_ready:
+		return _context_stored
+	_context_stored_ready = true
+	var got: Dictionary = DccSettings.context_panel_read()
+	var problem := String(got.get("problem", ""))
+	if problem == "":
+		_context_stored = got["tabs"] if bool(got.get("stored", false)) else PackedStringArray(CONTEXT_PANEL_DEFAULT)
+		if not _context_stored.has("inspect"):
+			## A stored list without Inspect is one this build would draw with no anchor (Inspect cannot
+			## be removed, Ruling DY's judgement); it is shown as the defaults, said so, and kept on disk.
+			problem = "malformed"
+			got["backup"] = ""
+	if problem != "":
+		_context_stored = PackedStringArray(CONTEXT_PANEL_DEFAULT)
+		var why: String = {
+			"newer": "was saved by a newer version of Cartalith",
+			"malformed": "could not be read",
+			"unreadable": "is in a settings file that could not be read",
+		}.get(problem, "could not be read")
+		var where := String(got.get("backup", ""))
+		_context_notice = "Your Context panel arrangement %s, so the panel shows Inspect · Note · Ask. %s" % [why,
+			("Your settings file was copied to %s before anything changed; arranging the panel saves a new arrangement." % where)
+			if where != "" else "It is left as it is in the settings file until you arrange the panel."]
+		if problem == "unreadable" and DccSettings.load_problem != "":
+			_context_notice = DccSettings.load_problem
+	return _context_stored
+
+## PC-10. The last notice `_context_panel_notice()` showed, "" when none was: what the status line said,
+## kept because a later status message replaces the line (read by `_pc10modules_probe`).
+var context_notice_shown := ""
+
+## PC-10. Says `_context_notice` once, on the status line and in the log, then forgets it. Called when
+## the panel is first drawn after boot (`_ready()`'s deferred call).
+func _context_panel_notice() -> void:
+	_context_arrangement()
+	if _context_notice == "":
+		return
+	push_warning(_context_notice)
+	set_status("hint", _context_notice, "warn")
+	context_notice_shown = _context_notice
+	_context_notice = ""
+
+## PC-10. The keys this build can draw: `context_tabs()` (Inspect, Ask, Note once built) and the
+## registry's modules.
+func _context_known() -> PackedStringArray:
+	var out := context_tabs()
+	for e in context_module_registry():
+		out.append(String(e["key"]))
+	return out
+
+## PC-4 (Ruling DY), PC-10. The panel's tabs in strip order: the user's stored arrangement
+## (`[context_panel]` in `DccSettings`, never the world file), or Inspect · Note · Ask, filtered to the
+## keys this build has. A module that does not fit the subject is still listed: the strip hides it, the
+## arrangement keeps it (§3.3, "Fit"). On the phone, which has no strip (§3.11), the core tabs only.
 func context_panel_modules() -> PackedStringArray:
 	var out := PackedStringArray()
-	var built := context_tabs()
-	for key in ["inspect", "note", "ask"]:
-		if built.has(key):
+	var known := _context_known()
+	var stored := PackedStringArray(CONTEXT_PANEL_DEFAULT) if is_phone() else _context_arrangement()
+	for key in stored:
+		if known.has(key):
 			out.append(key)
 	return out
 
-## PC-4 (Ruling DY). Adds or removes tab `key`. Until PC-10 there is nothing it can do, so it refuses
-## every change and returns false (the menu then says why, `menus.gd::CTX_MODULE_REFUSED`): Inspect is
-## the panel's anchor and cannot be removed, Ask (PC-6) stays until the arrangement can drop it,
-## adding either again changes nothing, and no other tab or module exists. No caller can reach it
-## today: the MODULES rows are `_todo` while `context_module_registry()` is empty. PC-10 writes its
-## real body.
-func set_context_module_shown(key: String, shown: bool) -> bool:
-	if (key == "inspect" or key == "ask") and shown:
-		return true
-	return false
+## PC-10. Writes the arrangement: `visible` (the keys this build draws, in their new order) with every
+## stored key this build does not know put back at its stored position, so a module from a newer build,
+## or Note before PC-5 (the default's second tab), survives an edit here where it was. Then redraws the strip and refreshes the menu ticks' source. False when
+## `DccSettings` refused the list (it is checked before the write).
+func _write_context_arrangement(visible: PackedStringArray) -> bool:
+	var known := _context_known()
+	var out := visible.duplicate()
+	var stored := _context_arrangement()
+	for i in stored.size():
+		var key := stored[i]
+		if not known.has(key) and not out.has(key):
+			out.insert(mini(i, out.size()), key)
+	if not DccSettings.set_context_panel_tabs(out):
+		return false
+	_context_stored = out
+	if right_dock_ctrl != null:
+		right_dock_ctrl._rebuild()
+	return true
 
-## PC-4 (Ruling DY). Window ▸ Context panel ▸ Reset panel: the arrangement back to Inspect · Note ·
-## Ask. In PC-4 the arrangement is already that (`context_panel_modules()`), so the reset is what is
-## left of it: the panel is shown (unhidden and uncollapsed) on Inspect, at the top of its page. The
-## pin is not touched: a pin is a subject, not an arrangement. A labelled judgement (PC-4, 2026-11-08):
-## showing the panel makes a reset visible, where a hidden panel's reset would be a no-op. Desktop
-## and tablet only, as its row is.
+## PC-4 (Ruling DY), PC-10. Adds (at the end of the strip) or removes tab `key`, saves the arrangement
+## and returns true. Called by Window ▸ Context panel ▸ MODULES' rows, the strip's `+` menu and a tab's
+## Remove. Takes the core tabs and the modules alike. Returns false and changes nothing for a key this
+## build does not have, for removing Inspect (the panel's anchor, a judgement in Ruling DY), and on the
+## phone (no strip, §3.11). Adding a tab already there, or removing one that is not, is a no-op that
+## answers true. Removing the tab on screen shows Inspect.
+func set_context_module_shown(key: String, shown: bool) -> bool:
+	if is_phone() or not _context_known().has(key):
+		return false
+	if key == "inspect" and not shown:
+		return false
+	var cur := context_panel_modules()
+	if shown == cur.has(key):
+		return true
+	if shown:
+		cur.append(key)
+	else:
+		cur.remove_at(cur.find(key))
+	if not _write_context_arrangement(cur):
+		return false
+	if not shown and right_dock_ctrl != null and right_dock_ctrl._tab == key:
+		right_dock_ctrl.show_tab("inspect")
+	return true
+
+## PC-10. Moves tab `key` to position `to` in the strip (clamped to the ends), saves and returns true;
+## false for a key not in the arrangement. Dragging a tab, and its menu's Move left and Move right, call
+## it. Moving a tab to where it already is answers true and writes nothing.
+func move_context_tab(key: String, to: int) -> bool:
+	var cur := context_panel_modules()
+	var at := cur.find(key)
+	if at < 0 or is_phone():
+		return false
+	to = clampi(to, 0, cur.size() - 1)
+	if to == at:
+		return true
+	cur.remove_at(at)
+	cur.insert(to, key)
+	return _write_context_arrangement(cur)
+
+## PC-10. A tab's menu ▸ Open in a window (desktop only, §3.11; never Inspect or Ask, which have their
+## own window paths): module `key` in a §3.6 window (`context_module_window.gd`) that follows the
+## selection until pinned. One window per module, raised if it is open. False on the tablet and the
+## phone, and for a key that is not a module.
+func open_context_tab_window(key: String) -> bool:
+	if not CONTEXT_WINDOW.applies(self) or ContextModulesScript.spec(key).is_empty():
+		return false
+	var w: AcceptDialog = _module_windows.get(key)
+	if w == null or not is_instance_valid(w):
+		w = ContextModuleWindowScript.new()
+		add_child(w)
+		w.setup(self, key)
+		_module_windows[key] = w
+	w.open()
+	return true
+
+## PC-10. The open module windows by key (`open_context_tab_window()`).
+var _module_windows: Dictionary = {}
+
+## PC-10. An edit made through a module's controls (a detached window instance's `module_refresh`), a
+## bookmark toggled, or a world change: redraws the panel when a module tab is on screen and every open
+## module window. Deferred and coalesced to once a frame, because a builder's own control may be the
+## caller and a rebuild frees it.
+func refresh_context_modules() -> void:
+	if _context_refresh_queued:
+		return
+	_context_refresh_queued = true
+	_do_refresh_context_modules.call_deferred()
+
+## PC-10. Whether `refresh_context_modules()` has a redraw queued.
+var _context_refresh_queued := false
+
+## PC-10. `refresh_context_modules()`'s deferred body.
+func _do_refresh_context_modules() -> void:
+	_context_refresh_queued = false
+	if right_dock_ctrl != null and not (right_dock_ctrl.current_tab() in ["inspect", "ask"]):
+		right_dock_ctrl._rebuild()
+	for k in _module_windows:
+		var w = _module_windows[k]
+		if is_instance_valid(w) and w.visible:
+			w.rebuild()
+
+## PC-4 (Ruling DY), PC-10. Window ▸ Context panel ▸ Reset panel: the arrangement back to Inspect ·
+## Note · Ask (filtered to the tabs built), saved; the added modules leave the strip and nothing they
+## showed is touched (a module is a view). Then the panel is shown on Inspect at the top of its page.
+## The pin is not touched: a pin is a subject, not an arrangement. Desktop and tablet only, as its row is.
 func reset_context_panel() -> void:
 	if is_phone():
 		return
+	var d := PackedStringArray()
+	for key in CONTEXT_PANEL_DEFAULT:
+		if context_tabs().has(key):
+			d.append(key)
+	_write_context_arrangement(d)
 	open_context_tab("inspect")
 	if _right_dock_scroll != null:
 		_right_dock_scroll.scroll_vertical = 0
-	set_status("hint", "Context panel reset: Inspect.", "text_dim")
+	set_status("hint", "Context panel reset: %s." % " · ".join(Array(d).map(func(k): return String(k).capitalize())), "text_dim")
+
+# -- PC-10: bookmarks, saved in the world file (Ruling DY: "In the world file") ---------------------
+
+## PC-10. The world-file slot the bookmarks are saved in (`cartalith_io::DOCUMENT_SLOTS`, caller-owned,
+## registered 2026-11-08; `SAVEFILE_COMPAT.md`). Omitted when there is no bookmark, so an untouched
+## project's archive is unchanged.
+const BOOKMARKS_SLOT := "annotations/bookmarks.json"
+## PC-10. The format version `bookmarks_document()` writes and `restore_bookmarks_document()` reads.
+const BOOKMARKS_VERSION := 1
+## PC-10. The most bookmarks one world keeps. A labelled judgement: a list a person scans in the
+## Recent & bookmarks tab; a hand-edited file holding more is cut to it on read, with a note.
+const BOOKMARKS_MAX := 200
+
+## PC-10. This world's bookmarks, oldest first: `{"kind": String, "id": int, "name": String}`, `name`
+## being the subject's name when it was bookmarked (shown if the subject is gone). Saved inside the
+## world file (`BOOKMARKS_SLOT`); dropped with the world (a generate, an open of another project).
+var context_bookmarks: Array = []
+
+## PC-10. Whether `subject` (a `selection` value) is bookmarked.
+func is_bookmarked(subject: Dictionary) -> bool:
+	return _bookmark_index(subject) >= 0
+
+## PC-10. The index of `subject` in `context_bookmarks`, or -1.
+func _bookmark_index(subject: Dictionary) -> int:
+	for i in context_bookmarks.size():
+		var b: Dictionary = context_bookmarks[i]
+		if String(b["kind"]) == String(subject.get("kind", "")) and int(b["id"]) == int(subject.get("id", -2)):
+			return i
+	return -1
+
+## PC-10. Bookmarks `subject`, or removes its bookmark, and refreshes the modules. A change to the
+## world, so the project is marked unsaved. A no-op for `{}` and once `BOOKMARKS_MAX` is reached (said).
+func toggle_bookmark(subject: Dictionary) -> void:
+	if subject.is_empty():
+		return
+	var i := _bookmark_index(subject)
+	if i >= 0:
+		context_bookmarks.remove_at(i)
+	elif context_bookmarks.size() >= BOOKMARKS_MAX:
+		set_status("hint", "This world holds %d bookmarks, the most it keeps. Remove one first." % BOOKMARKS_MAX, "warn")
+		return
+	else:
+		context_bookmarks.append({"kind": String(subject["kind"]), "id": int(subject["id"]),
+			"name": String(right_dock_ctrl.subject_name(subject)) if right_dock_ctrl != null else ""})
+	bridge.mark_world_dirty()
+	refresh_context_modules()
+
+## PC-10. The `BOOKMARKS_SLOT` document, or "" when there is no bookmark (so no member is written).
+func bookmarks_document() -> String:
+	if context_bookmarks.is_empty():
+		return ""
+	return JSON.stringify({"version": BOOKMARKS_VERSION, "bookmarks": context_bookmarks}, "", true)
+
+## PC-10. Replaces the bookmarks with those in `text` (the slot's content, "" when the project has
+## none: then there are none, and the outgoing world's are dropped). Returns "" or one sentence for the
+## open's notes when the slot could not be used (not JSON, a newer version) or held malformed entries,
+## which are dropped, never repaired into a plausible bookmark.
+func restore_bookmarks_document(text: String) -> String:
+	context_bookmarks = []
+	refresh_context_modules()
+	if text == "":
+		return ""
+	var parsed = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return "The bookmarks in this project could not be read"
+	var v = (parsed as Dictionary).get("version")
+	if typeof(v) != TYPE_FLOAT and typeof(v) != TYPE_INT or int(v) < 1:
+		return "The bookmarks in this project could not be read"
+	if int(v) > BOOKMARKS_VERSION:
+		return "The bookmarks in this project were saved by a newer version of Cartalith"
+	var dropped := 0
+	for e in (parsed as Dictionary).get("bookmarks", []):
+		if typeof(e) != TYPE_DICTIONARY or typeof((e as Dictionary).get("kind")) != TYPE_STRING \
+				or not (typeof((e as Dictionary).get("id")) in [TYPE_FLOAT, TYPE_INT]) \
+				or context_bookmarks.size() >= BOOKMARKS_MAX:
+			dropped += 1
+			continue
+		var b := {"kind": String(e["kind"]), "id": int(e["id"]), "name": String((e as Dictionary).get("name", ""))}
+		if _bookmark_index(b) < 0:
+			context_bookmarks.append(b)
+	return "" if dropped == 0 else "%d bookmark%s in this project could not be read" % [dropped, "" if dropped == 1 else "s"]
 
 ## PC-1. A generate or a load replaces the world, and a settlement index then names a different town
 ## (`tid` is re-issued too), so the selection and both histories are dropped, with no history step and
@@ -2269,6 +2527,14 @@ func _wire_selection() -> void:
 	## PC-1: a new world renumbers settlements, so the selection and its history go with the old one.
 	bridge.generation_finished.connect(func(_ok: bool): _reset_selection())
 	bridge.world_loaded.connect(_reset_selection)
+	## PC-10: a generated world is a new world, and a bookmark names a subject by its index in the old
+	## one, so the bookmarks go with it (an open restores the project's own, `_restore_project_documents()`).
+	bridge.generation_finished.connect(func(ok: bool):
+		if ok and not context_bookmarks.is_empty():
+			context_bookmarks = []
+			refresh_context_modules())
+	## PC-10: a notice about a stored arrangement this build could not use, once the shell is drawn.
+	_context_panel_notice.call_deferred()
 	## Ruling AL: a landmark click, fanned out the same way. Emitted after
 	## `settlement_selected` for the same click (`map_overlay.gd`'s order).
 	## **PC-4: a producer of the one selection** when the same click hit no settlement (the
@@ -4103,6 +4369,12 @@ func _restore_project_documents() -> PackedStringArray:
 	## the reader into a project that never had it.
 	SettlementTypeStore.restore_document(String(docs.get("library/settlement_types.json", "")))
 
+	## PC-10: the bookmarks, called unconditionally for the measurements slot's reason: an absent slot
+	## is "this project has none" and must drop the outgoing world's.
+	var bnote := restore_bookmarks_document(String(docs.get(BOOKMARKS_SLOT, "")))
+	if bnote != "":
+		notes.append("%s, so they were left as they are in the file" % bnote)
+
 	var travel := String(docs.get("library/travel.json", ""))
 	if travel != "":
 		var tr: Dictionary = bridge.travel_library_restore_document(travel)
@@ -4801,6 +5073,10 @@ func _project_documents() -> Dictionary:
 		var meas := String(right_dock_ctrl.measurements_document())
 		if meas != "":
 			documents["annotations/measurements.json"] = meas
+	## PC-10: the Context panel's bookmarks (Ruling DY: "In the world file"); omitted when there are none.
+	var bm := bookmarks_document()
+	if bm != "":
+		documents[BOOKMARKS_SLOT] = bm
 	## `lazy-riding-piglet.md` Batch D. `SettlementTypeStore` is a static
 	## store (`trade_store.gd`'s own shape), so this reads it directly rather
 	## than through the window -- the library survives the window being

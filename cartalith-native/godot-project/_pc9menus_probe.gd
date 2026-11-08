@@ -416,9 +416,12 @@ func _window() -> void:
 		"History", "Economy", "Military", "Faith, culture & relations", "Territory", "City layout", "Here",
 		"Routes & journeys", "Links", "Recent & bookmarks", "Reset panel"]
 	_ok(_texts(sub) == want, "Context panel's rows are the mockup's five, ten modules and Reset panel (got %s)" % str(_texts(sub)))
-	## PC-4 built Inspect, Pin, Follow and Reset panel and PC-6 Ask: live, each with its tooltip. Every
-	## other row waits for its milestone (Note PC-5, the modules PC-10) and states why.
-	var live_rows := ["Inspect", "Ask (assistant)", "Pin to the current subject", "Follow the selection", "Reset panel"]
+	## PC-4 built Inspect, Pin, Follow and Reset panel, PC-6 Ask and PC-10 the ten modules: live, each with
+	## its tooltip (a module row is a check row; `_pc10modules_probe` drives them). Note waits for PC-5 and
+	## states why.
+	var live_rows := ["Inspect", "Ask (assistant)", "Pin to the current subject", "Follow the selection",
+		"History", "Economy", "Military", "Faith, culture & relations", "Territory", "City layout", "Here",
+		"Routes & journeys", "Links", "Recent & bookmarks", "Reset panel"]
 	var silent: Array = []
 	for i in sub.item_count:
 		if sub.is_item_separator(i):
@@ -427,7 +430,7 @@ func _window() -> void:
 		var want_live := live_rows.has(t)
 		if sub.is_item_disabled(i) == want_live or sub.get_item_tooltip(i).strip_edges() == "":
 			silent.append(t)
-	_ok(silent.is_empty(), "Context panel: the PC-4 and PC-6 rows are live and every other row is disabled with a reason (offenders %s)" % str(silent))
+	_ok(silent.is_empty(), "Context panel: the PC-4, PC-6 and PC-10 rows are live and every other row is disabled with a reason (offenders %s)" % str(silent))
 	var has_modules := false
 	for i in sub.item_count:
 		if sub.is_item_separator(i) and sub.get_item_text(i) == "MODULES":

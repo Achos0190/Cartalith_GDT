@@ -998,9 +998,18 @@ var _pin_subject: Dictionary = {}
 ## PC-5's and joins in the change that builds it.
 const TAB_INSPECT := "inspect"
 const TAB_ASK := "ask"
+## PC-10. The ten modules' specs and builders (`context_modules.gd`; preloaded, no `class_name`, so it
+## needs no `--headless --import` pass).
+const ContextModules := preload("res://shell/context_modules.gd")
+## PC-10. PC-7's window rules: `applies()` says whether a tab's "Open in a window" exists (the desktop).
+const ContextWindow := preload("res://shell/context_window.gd")
 
 ## PC-6. The tab the panel shows. Written only by `show_tab()` and `_show_reading()`; Inspect at boot.
-## Session state, never saved (the per-user arrangement store is PC-10's).
+## Session state, never saved: the per-user store (PC-10, `DccSettings.context_panel_read()`) keeps
+## which tabs the strip holds, not which one is open.
+## PC-10: it can also be a module's key (`context_modules.gd`). A module that does not fit the subject
+## shown is hidden from the strip and Inspect is drawn in its place (`_effective_tab()`), but `_tab`
+## keeps the user's choice, so the module returns when a subject it fits is shown (§3.3, "Fit").
 var _tab := TAB_INSPECT
 
 ## PC-6. The Ask tab's frame: a sibling of the dock's scroll in the dock column (`dcc_shell.gd`'s
@@ -1168,17 +1177,38 @@ func subject_name(subj: Dictionary) -> String:
 	var txt := _subject_text(subj)
 	return "" if String(txt[1]) == _GONE_FACTS else String(txt[0])
 
-## PC-6. The tab the panel shows ("inspect" or "ask"). Read by `DccApp`, the probes and the menus.
+## PC-6. The tab the panel shows ("inspect", "ask" or, since PC-10, a module's key): the tab drawn,
+## which is Inspect while the chosen module does not fit the subject (`_effective_tab()`). Read by
+## `DccApp`, the probes and the menus.
 func current_tab() -> String:
+	return _effective_tab()
+
+## PC-10. The tab drawn now: `_tab`, or Inspect when `_tab` is a module that is not in the user's
+## arrangement any more or does not fit the subject shown (`ContextModules.fits()`).
+func _effective_tab() -> String:
+	if _tab == TAB_INSPECT or _tab == TAB_ASK or app == null:
+		return _tab
+	if not app.context_panel_modules().has(_tab) or not ContextModules.fits(_tab, _module_subject()):
+		return TAB_INSPECT
 	return _tab
 
-## PC-6. Shows tab `tab` ("inspect" or "ask") and returns true; false, and nothing changes, for any other
-## key and on the phone, whose sheet has no tabs (§3.11). Ask hides Inspect's scroll and shows the Ask
+## PC-10. The subject a module tab is built for: what the panel holds when pinned, else what it shows.
+func _module_subject() -> Dictionary:
+	return _pin_subject if _pinned else shown_subject()
+
+## PC-6. Shows tab `tab` ("inspect", "ask", or since PC-10 a module in the user's arrangement) and
+## returns true; false, and nothing changes, for any other key and on the phone, whose sheet has no tabs
+## (§3.11). Ask hides Inspect's scroll and shows the Ask
 ## frame, with the panel header redrawn above the conversation; Inspect does the reverse. Neither
 ## rebuilds Inspect's body, which stays built (and live) underneath, so switching back costs nothing
 ## and a reading being drawn there is not lost.
 func show_tab(tab: String) -> bool:
-	if not _panel_chrome() or app == null or not (tab in [TAB_INSPECT, TAB_ASK]):
+	if not _panel_chrome() or app == null:
+		return false
+	## PC-10: a module is shown only while the user's arrangement holds it (`DccApp.open_context_tab()`
+	## adds it first); Inspect and Ask as before.
+	if not (tab in [TAB_INSPECT, TAB_ASK]) and not (app.context_panel_modules().has(tab)
+			and not ContextModules.spec(tab).is_empty()):
 		return false
 	_tab = tab
 	_apply_tab()
@@ -1209,6 +1239,7 @@ func _apply_tab() -> void:
 		refresh_ask(true)
 	else:
 		## The Inspect header's tab strip shows which tab is on; it is in the body, so redraw it.
+		## PC-10: a module tab is drawn in the same body, by the same rebuild.
 		_rebuild()
 
 ## PC-6. The Ask frame, added once to the dock column right after the scroll (see `_ask_frame`).
@@ -1340,7 +1371,8 @@ func _header_button(parent: Control, node_name: String, text: String, on_press: 
 ##   row 2  the subject's one line of facts;
 ##   banner while pinned and the selection is something else: "Selection is now X" with PIN TO IT
 ##          and FOLLOW (§3.3, flow F8);
-##   tabs   Inspect (PC-4) and Ask (PC-6, `show_tab()`); Note is PC-5's and absent until then.
+##   tabs   the user's arrangement (PC-10, `_build_tab_strip()`): Inspect (PC-4), Ask (PC-6) and the
+##          modules added, in strip order; Note is PC-5's and absent until then.
 ## Hiding the panel stays the dock's own collapse button and Window ▸ Context panel's check.
 ## Must never change `_context` or the selection: it only reads them.
 func _build_context_header(body: Control) -> void:
@@ -1402,23 +1434,281 @@ func _build_context_header(body: Control) -> void:
 		_header_button(banner, "CtxFollow", "FOLLOW", follow,
 			"Release the pin: the panel shows the selection and follows each new one.")
 
-	var tabs := HBoxContainer.new()
-	tabs.name = "CtxTabs"
-	tabs.add_theme_constant_override("separation", 4)
-	box.add_child(tabs)
-	var inspect := DccWidgets.segment(tabs, "INSPECT", func(): app.open_context_tab(TAB_INSPECT))
-	inspect.name = "CtxTabInspect"
-	inspect.tooltip_text = "Inspect (Ctrl+1): the subject's facts. Every name selects it."
-	DccWidgets.set_segment_on(inspect, _tab == TAB_INSPECT)
-	## PC-6: Ask, the assistant docked (§3.5), drawn only when the app lists it (`DccApp.context_tabs()`).
-	if app != null and app.context_tabs().has(TAB_ASK):
-		var ask := DccWidgets.segment(tabs, "ASK", func(): app.open_context_tab(TAB_ASK))
-		ask.name = "CtxTabAsk"
-		ask.tooltip_text = "Ask (Ctrl+3): the assistant, about the subject and the year shown. One conversation lasts the session."
-		DccWidgets.set_segment_on(ask, _tab == TAB_ASK)
-		if DccTheme.is_tablet():
-			ask.custom_minimum_size.y = maxf(ask.custom_minimum_size.y, DccTheme.role_px("row_min_h"))
+	_build_tab_strip(box)
 	body.add_child(DccTheme.rule())
+
+## PC-10 (§3.3, "Arranging the tabs"; Ruling DY "Tabs you arrange"). The tab strip: one tab per key of
+## the user's arrangement (`DccApp.context_panel_modules()`) in its order, a module that does not fit
+## the subject hidden (never removed, `ContextModules.fits()`), then `+`, which lists every tab and
+## module with a check on the ones in the panel. Each tab:
+##   press         shows it (`DccApp.open_context_tab()`);
+##   right press   (or a press held `TAB_HOLD_MS`, the only path on touch) opens its menu: Move left,
+##                 Move right, Open in a window (desktop only, §3.11), Remove (every tab but Inspect);
+##   drag          onto another tab moves it to that tab's place (`set_drag_forwarding`).
+## Inspect keeps the node name `CtxTabInspect` and Ask `CtxTabAsk` (the PC-4 and PC-6 probes find them);
+## a module's tab is `CtxTab_<key>`. `+` sits outside `CtxTabs`, so the strip holds tabs only. Built on
+## every rebuild, so each control is floored here on both axes on the tablet (`MISTAKES.md`, "Floor a
+## control that a rebuild creates"). Must never write the arrangement except through `DccApp`.
+func _build_tab_strip(box: Control) -> void:
+	var tablet := DccTheme.is_tablet()
+	var row := HBoxContainer.new()
+	row.name = "CtxTabRow"
+	row.add_theme_constant_override("separation", 4)
+	box.add_child(row)
+	var tabs := HFlowContainer.new()
+	tabs.name = "CtxTabs"
+	tabs.add_theme_constant_override("h_separation", 4)
+	tabs.add_theme_constant_override("v_separation", 4)
+	tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(tabs)
+	var eff := _effective_tab()
+	var subj := _module_subject()
+	var keys: PackedStringArray = app.context_panel_modules()
+	for key in keys:
+		if key != TAB_INSPECT and key != TAB_ASK and not ContextModules.fits(key, subj):
+			continue
+		var b := DccWidgets.segment(tabs, _tab_label(key), _on_tab_pressed.bind(key))
+		b.name = _tab_node_name(key)
+		b.tooltip_text = _tab_tip(key)
+		b.set_meta("ctx_tab", key)
+		DccWidgets.set_segment_on(b, eff == key)
+		if tablet:
+			var t := float(DccTheme.role_px("row_min_h"))
+			b.custom_minimum_size = Vector2(maxf(b.custom_minimum_size.x, t), maxf(b.custom_minimum_size.y, t))
+		b.gui_input.connect(_on_tab_input.bind(b, key))
+		b.button_down.connect(_on_tab_down.bind(b, key))
+		b.set_drag_forwarding(_tab_drag_data.bind(b, key), _tab_can_drop.bind(key), _tab_drop.bind(key))
+	var add := DccWidgets.segment(row, "+", _open_add_menu)
+	add.name = "CtxTabAdd"
+	add.tooltip_text = "Add a tab: the modules this panel can show, each checked when it is already here. The arrangement is saved with your settings, never in the world file."
+	add.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	if tablet:
+		var t := float(DccTheme.role_px("row_min_h"))
+		add.custom_minimum_size = Vector2(t, t)
+
+## PC-10. A tab's label: the core tabs in capitals as PC-4 drew them, a module by its
+## `DccMenus.CTX_MODULES` title in capitals.
+func _tab_label(key: String) -> String:
+	match key:
+		TAB_INSPECT: return "INSPECT"
+		TAB_ASK: return "ASK"
+		"note": return "NOTE"
+	return ContextModules._title(key).to_upper()
+
+## PC-10. The tab's node name (see `_build_tab_strip()`).
+func _tab_node_name(key: String) -> String:
+	match key:
+		TAB_INSPECT: return "CtxTabInspect"
+		TAB_ASK: return "CtxTabAsk"
+	return "CtxTab_" + key
+
+## PC-10. A tab's tooltip: the core tabs' PC-4 and PC-6 wording; a module's `DccMenus.CTX_MODULE_TIPS`
+## text, which describes what the tab shows, plus how to arrange it.
+func _tab_tip(key: String) -> String:
+	match key:
+		TAB_INSPECT: return "Inspect (Ctrl+1): the subject's facts. Every name selects it."
+		TAB_ASK: return "Ask (Ctrl+3): the assistant, about the subject and the year shown. One conversation lasts the session."
+	return String(DccMenus.CTX_MODULE_TIPS.get(key, "")) + " Right-click it (or hold it) for Move, Open in a window and Remove; drag it to reorder."
+
+## PC-10. How long a press on a tab is held before its menu opens. 500 ms is the shell's own hold
+## (`radial_ring.gd` opens the cartwheel at 500 ms, `MAP_CONTEXT_SCOPE.md` §7.1), so a tab holds as the
+## map does.
+const TAB_HOLD_MS := 500
+
+## PC-10. A tab's press shows it, unless the press was a hold that opened the tab's menu or the start of
+## a drag (`_on_tab_down()`, `_tab_drag_data()` set the metas); either way the metas are cleared.
+func _on_tab_pressed(key: String) -> void:
+	var b := app.right_dock_body.find_child(_tab_node_name(key), true, false) as Button
+	if b != null and (b.has_meta("_ctx_held") or b.has_meta("_ctx_dragging")):
+		b.remove_meta("_ctx_held")
+		b.remove_meta("_ctx_dragging")
+		return
+	app.open_context_tab(key)
+
+## PC-10. A right press on a tab opens its menu; accepted, so the tab does not also activate.
+func _on_tab_input(ev: InputEvent, b: Button, key: String) -> void:
+	var mb := ev as InputEventMouseButton
+	if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+		b.accept_event()
+		_open_tab_menu(b, key)
+
+## PC-10. A press starts the hold timer: still held after `TAB_HOLD_MS` and not dragging, the tab's
+## menu opens and the coming release is swallowed (`_on_tab_pressed()`). The same gesture with a mouse
+## and a finger, and touch's only way to the menu (it has no right press).
+func _on_tab_down(b: Button, key: String) -> void:
+	## By instance id, not a captured reference: a press usually rebuilds the strip before the timer
+	## fires, and a lambda whose captured button was freed logs an error when it runs.
+	app.get_tree().create_timer(TAB_HOLD_MS / 1000.0).timeout.connect(_on_tab_hold.bind(b.get_instance_id(), key))
+
+## PC-10. The hold timer's end (`_on_tab_down()`): the tab, if it still exists, is still held and is not
+## being dragged, so its menu opens and the coming release is swallowed.
+func _on_tab_hold(id: int, key: String) -> void:
+	var b := instance_from_id(id) as Button
+	if b != null and b.is_pressed() and not b.has_meta("_ctx_dragging"):
+		b.set_meta("_ctx_held", true)
+		_open_tab_menu(b, key)
+
+## PC-10. A tab's menu, under the tab: Move left, Move right, Open in a window (desktop only, and not for
+## Ask, whose window is the assistant's own Open in a window), Remove (not on Inspect). A move that
+## cannot happen (the first tab left) is disabled. Built on each open, so it reads the arrangement now.
+func _open_tab_menu(b: Button, key: String) -> void:
+	var keys: PackedStringArray = app.context_panel_modules()
+	var at := keys.find(key)
+	var pm := PopupMenu.new()
+	pm.name = "CtxTabMenu"
+	app.style_popup(pm)
+	pm.add_item("Move left", 0)
+	pm.set_item_disabled(pm.get_item_index(0), at <= 0)
+	pm.add_item("Move right", 1)
+	pm.set_item_disabled(pm.get_item_index(1), at < 0 or at >= keys.size() - 1)
+	if ContextWindow.applies(app) and key != TAB_ASK and key != TAB_INSPECT:
+		pm.add_item("Open in a window", 2)
+	if key != TAB_INSPECT:
+		pm.add_item("Remove", 3)
+	pm.id_pressed.connect(_on_tab_menu.bind(key, at))
+	pm.popup_hide.connect(pm.queue_free, CONNECT_DEFERRED)
+	app.add_child(pm)
+	var r := b.get_global_rect()
+	pm.popup(Rect2i(Vector2i(int(r.position.x), int(r.end.y)), Vector2i.ZERO))
+
+## PC-10. `+`'s menu: Ask (and Note, once built), then the ten modules, each a check row ticked when it is
+## in the panel. Picking an unticked row adds it at the end of the strip and shows it; a ticked one
+## removes it. Inspect is not listed: it cannot be removed (a judgement in Ruling DY).
+func _open_add_menu() -> void:
+	var pm := PopupMenu.new()
+	pm.name = "CtxAddMenu"
+	app.style_popup(pm)
+	var keys: PackedStringArray = app.context_panel_modules()
+	var rows: Array = []
+	for core in ["note", TAB_ASK]:
+		if app.context_tabs().has(core):
+			rows.append([core, "Note" if core == "note" else "Ask (assistant)"])
+	for e in app.context_module_registry():
+		rows.append([String(e["key"]), String(e["title"])])
+	for i in rows.size():
+		pm.add_check_item(String(rows[i][1]), i)
+		pm.set_item_checked(i, keys.has(String(rows[i][0])))
+		pm.set_item_tooltip(i, String(DccMenus.CTX_MODULE_TIPS.get(String(rows[i][0]), "")))
+	pm.id_pressed.connect(_on_add_menu.bind(rows))
+	pm.popup_hide.connect(pm.queue_free, CONNECT_DEFERRED)
+	app.add_child(pm)
+	var add := app.right_dock_body.find_child("CtxTabAdd", true, false) as Control
+	var r := add.get_global_rect() if add != null else Rect2()
+	pm.popup(Rect2i(Vector2i(int(r.position.x), int(r.end.y)), Vector2i.ZERO))
+
+## PC-10. A tab menu's row `id` for tab `key` at strip position `at` (`_open_tab_menu()`'s ids).
+func _on_tab_menu(id: int, key: String, at: int) -> void:
+	match id:
+		0:
+			app.move_context_tab(key, at - 1)
+		1:
+			app.move_context_tab(key, at + 1)
+		2:
+			app.open_context_tab_window(key)
+		3:
+			if not app.set_context_module_shown(key, false):
+				app.set_status("hint", DccMenus.CTX_MODULE_REFUSED, "text_ghost")
+
+## PC-10. `+`'s row `id` of `rows` (`[key, title]`, `_open_add_menu()`): a tab in the panel is removed,
+## any other is added and shown.
+func _on_add_menu(id: int, rows: Array) -> void:
+	var k := String(rows[id][0])
+	if app.context_panel_modules().has(k):
+		if not app.set_context_module_shown(k, false):
+			app.set_status("hint", DccMenus.CTX_MODULE_REFUSED, "text_ghost")
+	else:
+		app.open_context_tab(k)
+
+## PC-10. Drag source: a preview of the tab's label, and the payload `{"ctx_tab": key}`.
+func _tab_drag_data(_at: Vector2, b: Button, key: String) -> Variant:
+	b.set_meta("_ctx_dragging", true)
+	b.set_drag_preview(DccTheme.label(b.text, "accent", DccTheme.FS_TINY))
+	return {"ctx_tab": key}
+
+## PC-10. A tab accepts another tab dropped on it.
+func _tab_can_drop(_at: Vector2, data: Variant, key: String) -> bool:
+	return data is Dictionary and (data as Dictionary).has("ctx_tab") \
+		and String((data as Dictionary)["ctx_tab"]) != key
+
+## PC-10. A tab dropped on tab `key` takes `key`'s place in the strip (`DccApp.move_context_tab()`).
+func _tab_drop(_at: Vector2, data: Variant, key: String) -> void:
+	var moving := String((data as Dictionary)["ctx_tab"])
+	app.move_context_tab(moving, app.context_panel_modules().find(key))
+
+## PC-10. A module tab's page, in a box named `CtxModule_<key>` where Inspect's page goes.
+##
+## The page sits in its own horizontally scrolling box (`CtxModuleScroll`), because a window's builder is
+## laid out for the window's width: measured on the touch tablet at 1600x1000 (`_pc10modules_probe`),
+## the City layout page's minimum width, folded up through the dock's scroll (whose horizontal axis is
+## disabled, `MISTAKES.md` "Read a layout that overflows the screen"), widened the dock over most of the
+## map. Here a wider page scrolls sideways inside the dock instead, and the dock keeps its width.
+func _build_module_tab(body: Control, key: String) -> void:
+	var pad := DccWidgets.pad(body, 0, 0, 0, 0)
+	var sc := ScrollContainer.new()
+	sc.name = "CtxModuleScroll"
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_theme_stylebox_override("panel", DccTheme.empty())
+	pad.add_child(sc)
+	var box := VBoxContainer.new()
+	box.name = "CtxModule_" + key
+	box.add_theme_constant_override("separation", 4)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(box)
+	build_module_into(box, key, _module_subject())
+
+## PC-10. Runs module `key`'s builder (its `DccApp.context_module_registry()` entry, the one Callable
+## both hosts call: this dock's tab and `context_module_window.gd`) into `box` for `subject` at the
+## strip's year. A builder that drew nothing gets the module's `empty` sentence, never a blank tab.
+## Returns false when `key` is not a registered module.
+func build_module_into(box: Control, key: String, subject: Dictionary) -> bool:
+	for e in app.context_module_registry():
+		if String(e["key"]) == key:
+			(e["builder"] as Callable).call(box, subject, int(app.tl_year()))
+			## Controls only: a module's detached window host is a hidden `Window` child of `box`.
+			if box.get_children().filter(func(c): return c is Control).is_empty():
+				DccWidgets.note(box, String(e["empty"]))
+			return true
+	return false
+
+## PC-10. The Here module's body (`context_modules.gd::build_here`): the Sample section this dock draws,
+## filled at `subject`'s cell (a settlement's or a landmark's position) and then left as it is, or, with
+## no subject, left live on the cursor exactly as Inspect's Sample is (`on_cursor_sampled()`). After a
+## subject fill, or in a window, the dock's own live rows are put back, so a Here built for a subject or
+## in a window never takes the cursor readout from the panel.
+func build_here(parent: Control, subject: Dictionary) -> void:
+	var keep := [_sample_pos, _sample_cell, _sample_elev, _sample_nearest, _sample_stale_note,
+		_sample_rows.duplicate()]
+	var in_window: bool = parent.has_meta("ctx_module_window")
+	_build_sample(parent)
+	var at := _subject_cell(subject)
+	if at != Vector2.INF:
+		_fill_sample(at.x, at.y, true, false)
+	elif in_window:
+		DccWidgets.note(parent, "Nothing is selected: the Context panel's Here tab reads the cursor live. Select a place or a landmark for this window to read it.")
+	if at != Vector2.INF or in_window:
+		_sample_pos = keep[0]
+		_sample_cell = keep[1]
+		_sample_elev = keep[2]
+		_sample_nearest = keep[3]
+		_sample_stale_note = keep[4]
+		_sample_rows = keep[5]
+
+## PC-10. The grid cell a subject sits on: a settlement's or a landmark's `x`, `y`; `Vector2.INF` for any
+## other kind, a gone index or no subject (never a plausible (0, 0)).
+func _subject_cell(subject: Dictionary) -> Vector2:
+	var id := int(subject.get("id", -1))
+	match String(subject.get("kind", "")):
+		"settlement":
+			var all: Array = bridge.settlements()
+			if id >= 0 and id < all.size():
+				return Vector2(float((all[id] as Dictionary).get("x", 0)), float((all[id] as Dictionary).get("y", 0)))
+		"landmark":
+			var lms: Array = bridge.landmarks()
+			if id >= 0 and id < lms.size() and (lms[id] as Dictionary).has("x"):
+				return Vector2(float(lms[id]["x"]), float(lms[id]["y"]))
+	return Vector2.INF
 
 ## PC-4 (§3.3, "Every name is a link"). A key/value row like `_field()` whose value is a link that
 ## selects `kind`/`id` through `DccApp.select()`, the one selection path, so it honours the pin and
@@ -1497,9 +1787,20 @@ func _settlement_index_of_tid(tid: int) -> int:
 func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	if _context != CTX_SAMPLE:
 		return
+	## PC-10: only the two tabs that draw the cursor readout read it (Inspect's Sample, and the Here
+	## module with nothing selected); another module tab has no Sample rows, and rebuilding it on every
+	## mouse motion would only redraw the same module.
+	if _panel_chrome() and not (_effective_tab() in [TAB_INSPECT, "here"]):
+		return
 	if _sample_pos == null:
 		_rebuild()
 		return
+	_fill_sample(gx, gy, valid)
+
+## The Sample rows' fill for cell (`gx`, `gy`): the cursor's, from `on_cursor_sampled()`, or a subject's,
+## from `build_here()` (PC-10's Here module, `readout` false: the collapsed dock's number stays the
+## cursor's). Writes only into the `_sample_*` handles the last `_build_sample()` set.
+func _fill_sample(gx: float, gy: float, valid: bool, readout := true) -> void:
 	var coord := _coord_texts(gx, gy, valid)
 	_sample_pos.text = coord[0]
 	_sample_cell.text = coord[1]
@@ -1536,7 +1837,7 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	## a full `_rebuild()` on every mouse-motion event would be needless
 	## churn, and the collapsed dock's one number is this same elevation
 	## reading, not a stale one from the moment the dock last rebuilt.
-	if app != null:
+	if app != null and readout:
 		app.set_dock_readout("right", _sample_elev.text)
 	for f in SAMPLE_FIELDS:
 		var row: Label = _sample_rows.get(f["label"])
@@ -2005,7 +2306,13 @@ func _rebuild() -> void:
 		_build_context_header(body)
 	## The selection, then the armed tool below it, then Layers below that.
 	## The order is the whole of the owner's ruling -- see `_append_tool()`.
-	_dispatch(body)
+	## PC-10: a module tab draws its module where Inspect's page goes; the armed tool and Layers still
+	## append below it, so a tool armed while a module is open still answers (the ruling's order).
+	var eff := _effective_tab() if _panel_chrome() else TAB_INSPECT
+	if eff != TAB_INSPECT and eff != TAB_ASK:
+		_build_module_tab(body, eff)
+	else:
+		_dispatch(body)
 	_append_tool(body)
 	## **After** the dispatch, deliberately -- see `_append_layers()`.
 	_append_layers(body)

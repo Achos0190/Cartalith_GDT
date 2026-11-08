@@ -150,6 +150,10 @@ var bridge: EngineBridge
 ## Index of the open place (settlement) in the engine's list, -1 for none; set by `open_for` and
 ## reset to -1 when the place is deleted.
 var _index := -1
+## PC-10. Set only on a detached instance that builds a Context panel module (`context_modules.gd`):
+## what `_rebuild()` runs instead of redrawing this window's form. Invalid (the default) on the
+## window itself, which rebuilds as it always has.
+var module_refresh: Callable
 ## The `VBoxContainer` the editor's tab content is rebuilt into; created in `setup`.
 var _body: VBoxContainer
 ## The name `LineEdit` made on the Overview tab (`open_for` grabs its focus); nulled when the
@@ -487,6 +491,11 @@ func _settlement() -> Dictionary:
 ## it shows a note and resets `_index` to -1. Must not commit the focused field
 ## first (see `setup`'s RF-02 note).
 func _rebuild() -> void:
+	## PC-10: a detached instance building a Context panel module (`context_modules.gd`) has no form
+	## of its own on screen, so an edit made through the module's controls refreshes the panel instead.
+	if module_refresh.is_valid():
+		module_refresh.call()
+		return
 	_clear()
 	var s := _settlement()
 	if s.is_empty():
@@ -518,11 +527,7 @@ func _rebuild() -> void:
 		"timeline":
 			_build_timeline(tab_content)
 		"political":
-			_build_timeline_strip(tab_content, s)
-			_build_political(tab_content, s)
-			_build_authored_events(tab_content, s)
-			_build_journey_passes(tab_content, s)
-			_build_conflicts_here(tab_content, s)
+			_build_tab_political(tab_content, s)
 		"vault":
 			_build_knowledge(tab_content, s)
 		"layout":
@@ -540,6 +545,17 @@ func _rebuild() -> void:
 	## is idempotent (`DccShell.phone_fit`'s own meta-flag).
 	if _phone:
 		app.phone_fit(self, 1.0)
+
+
+## The Political history tab's content: the timeline strip, holders by period, the authored events,
+## the journeys passing and the conflicts here. One function because two hosts call it: this window's
+## `_rebuild()` and the Context panel's History module (`context_modules.gd::build_history`, PC-10).
+func _build_tab_political(parent: Control, s: Dictionary) -> void:
+	_build_timeline_strip(parent, s)
+	_build_political(parent, s)
+	_build_authored_events(parent, s)
+	_build_journey_passes(parent, s)
+	_build_conflicts_here(parent, s)
 
 
 # -- Tab strip ----------------------------------------------------------------

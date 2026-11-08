@@ -698,6 +698,39 @@ title. Not built, stated: one route name everywhere (finding M2: the card's "Jou
 opened the new route); the tablet and the phone are unchanged (§3.11), proved by pixel identity at 393 × 852. The
 probe is `_pc8planner_probe`.
 
+PC-10 (2026-11-08) builds the ten modules as tabs of the Context panel, on the desktop and the tablet. The registry
+is `shell/context_modules.gd` (preloaded, no `class_name`); `DccApp.context_module_registry()` answers it, so the ten
+MODULES rows of Window ▸ Context panel are live check rows from the first boot. **One builder, two hosts, as the bar
+asks:** each window-backed module calls its window's own builder on a detached instance of the window's script whose
+subject is the panel's (the instance is a hidden child of the module's box, freed with it; an edit through its
+controls refreshes the module through a `module_refresh` hook both windows read first in their rebuild paths, and their
+signals are forwarded to the real window's, so CIVIL's listeners hear the edit). Two window tab bodies were lifted into
+named functions so the call is one call, not a copy: `place_editor_window.gd::_build_tab_political` and
+`faction_roster_window.gd::_build_tab_economy`; every reused builder has exactly two call sites (the window and
+`context_modules.gd`; `_build_culture_card` three, the Identity tab and the module's two kinds). The arrangement is
+`[context_panel]` in `cartalith_settings.cfg` (`DccSettings.context_panel_read()` / `set_context_panel_tabs()`, the
+`[quick_bar]` pattern), never in the world file. Departures and judgements found while building: (1) **a stored
+arrangement this build cannot use falls back to Inspect · Note · Ask with a notice**, and the settings file is first
+copied to `cartalith_settings.context_panel.bak.cfg`; the bad section stays as it is until the user arranges the
+panel. A settings file that does not parse at all is copied to `cartalith_settings.unreadable.bak.cfg` before any
+write can replace it (`DccSettings._ensure_loaded()`; that is a change for every setting, made here because a corrupt
+file used to be overwritten silently by the next save). (2) **Keys a build does not know are kept where they were**:
+Note's key, which the default holds before PC-5 builds the tab, stays second, and a newer build's module survives an
+edit here. (3) **Ask can be removed** (Ctrl+3 puts it back, as §3.3 says); Inspect cannot. (4) **Open in a window is
+on module tabs only**, not on Inspect or Ask (Ask has its own window); a module window is a PC-7 window
+(`shell/context_module_window.gd`) without Ruling DK's Pop out button, because it is not one of `PopoutHost.LIVE_KEYS`.
+(5) **The hold that opens a tab's menu is 500 ms**, the cartwheel's. (6) **Military for a settlement** shows the Place
+editor's Walls override and the garrison at the shown year (`CivilizationWorkspace.garrison_row`), not "a fortified
+flag": the settlement record has none. (7) **Routes' "roads from the subject" are the roads whose first or last point
+lies within two cells of it** (`ROAD_END_CELLS`, a labelled judgement: `bridge.roads()` carries no endpoint
+settlement). (8) **History for a landmark is a sentence**: the chronos index reads settlement and faction notes only.
+(9) **Bookmarks are a new caller-owned slot, `annotations/bookmarks.json`** (`SAVEFILE_COMPAT.md`), written only when
+there is one; a generate drops them, an open restores the project's. (10) A window builder laid out for its window's width could widen the dock: measured on the touch tablet, the City
+layout page pushed the dock over most of the map, so a module page sits in its own sideways-scrolling box
+(`CtxModuleScroll`). (11) No producer selects a culture yet, so the culture branches of Faith and Links are reached
+only by code. Not built, stated: Note (PC-5); Pop out for module
+windows; a module's own key. The probe is `_pc10modules_probe`.
+
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes
 `popout_host.gd`, which Ruling DK's PW-2 built. PC-8 and PW-4 re-host the planner, so they are one change (§3.7).

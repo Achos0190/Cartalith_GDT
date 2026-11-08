@@ -7435,8 +7435,10 @@ const CTX_MODULES: Array = [
 	["recent", "Recent & bookmarks", ID_WIN_CTX_MOD_RECENT],
 ]
 
-## Why a MODULES row is disabled before its module is built (PC-10; PC-4 built the panel, not its modules): `%s` is the module's title, then where that
-## content lives today (`CTX_MODULE_TODAY`), so the reason is a door, not only a "not yet".
+## Why a MODULES row is disabled when its module is not in this build's registry: `%s` is the module's title,
+## then where that content lives (`CTX_MODULE_TODAY`), so the reason is a door, not only a "not yet". Since
+## PC-10 (2026-11-08) every module is registered (`DccApp.context_module_registry()`), so no row takes this
+## form in a shipped build; it stays as the row's form should a module ever be withdrawn from the registry.
 const CTX_MODULE_TODO := "Not built yet: %s arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-10). %s"
 
 ## Where each module's content lives today, each read at its builder on 2026-11-01 at `3099309`

@@ -583,6 +583,17 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// project), so older archives and untouched projects carry no such member and
 /// stay byte-identical.
 ///
+/// # `annotations/bookmarks.json` is caller-owned
+///
+/// Registered 2026-11-08 (`PC_SHELL_PROPOSAL.md` §3.3, milestone PC-10; Ruling
+/// DY: bookmarks are saved "In the world file"). The payload is the Context
+/// panel's bookmarks, `{"version":1,"bookmarks":[{"kind":..,"id":..,"name":..}]}`,
+/// held in GDScript (`app.gd::bookmarks_document()`), which the engine never
+/// reads, so it stays caller-owned like the measurements slot. Additive: the
+/// shell writes it only when there is at least one bookmark, so older archives
+/// and untouched projects carry no such member and stay byte-identical, and a
+/// project without it opens with no bookmarks.
+///
 /// # `appearance_paint.json` is engine-owned
 ///
 /// Registered 2026-10-18 (`COLOUR_PAINT_SCOPE.md` CP-3, Ruling CN). The
@@ -609,6 +620,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "annotations/icons.json",
     "annotations/regions.json",
     "annotations/measurements.json",
+    "annotations/bookmarks.json",
     "library/assets.json",
     "library/travel.json",
     "library/settlement_types.json",
