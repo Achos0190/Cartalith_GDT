@@ -430,16 +430,15 @@ func _leg_g() -> void:
 # -- H ------------------------------------------------------------------------------
 
 func _leg_h() -> void:
-	var b: Button = vp._view3d_btn
+	## MS-5 (item 1): the 3D / 2D pill LEFT the row (MAP's own row and `Window > 3D view` are the doors now), so
+	## this leg no longer presses a pill: it checks the row holds none and then enters 3D through `set_3d()`,
+	## the call both doors make, and keeps every card check it had.
+	var pills: Array = vp._navpad.find_children("", "Button", true, false).filter(
+		func(x): return x.text == "3D" or x.text == "2D")
+	_ok("H: the navpad has no 3D pill", pills.is_empty(), "")
 	if not DccTheme.is_phone():
-		## The pill is phone-only; a tablet composition must not grow the
-		## navpad past the map between its docks (the reason in `_build_navpad`).
-		_ok("H: no 3D pill on the tablet composition", b == null)
 		var row: Rect2 = vp._navpad.get_global_rect()
 		_ok("H: the navpad stays inside the map", row.position.x >= vp.global_position.x, "row x %.0f, map x %.0f" % [row.position.x, vp.global_position.x])
-		return
-	_ok("H: the navpad has a 3D pill", b != null and b.is_visible_in_tree(), "")
-	if b == null:
 		return
 	## The floor at this composition's own density: `_touch_scale` is what the
 	## navpad itself was scaled by (phone: `phone_scale()`; tablet: 1.0).
@@ -448,11 +447,9 @@ func _leg_h() -> void:
 	await _frames(3)
 	for c in vp._navpad.find_children("", "Button", true, false):
 		print("NAVPAD %-12s size=%s min=%s" % [(c as Button).tooltip_text, (c as Button).size, (c as Button).custom_minimum_size])
-	_ok("H: the pill clears the touch floor on both axes", b.size.x >= floor_px and b.size.y >= floor_px, "%s vs %d" % [b.size, floor_px])
-	_ok("H: it reads 3D in 2D", b.text == "3D")
-	b.pressed.emit()
+	vp.set_3d(true)
 	await _wait_idle(vp.view3d())
-	_ok("H: pressing it opens 3D and relabels it 2D", vp.is_3d() and b.text == "2D")
+	_ok("H: set_3d(true) opens 3D", vp.is_3d())
 	var img := await _shot("07_touch_3d.png")
 	_ok("H: the 3D card is on screen on touch", _ink(img, vp.view3d()._status.get_global_rect()) > 50)
 	## Not covered by the app bar: the card's top is inside the host's safe
@@ -462,6 +459,6 @@ func _leg_h() -> void:
 		"title y %.0f, inset top %.0f" % [vp.view3d()._title.get_global_rect().position.y, vp.global_position.y + float(vp._safe_insets.get("top", 0.0))])
 	var back: Button = vp.view3d()._back_btn
 	_ok("H: card buttons clear the touch floor", back.size.x >= floor_px and back.size.y >= floor_px, "%s" % back.size)
-	b.pressed.emit()
+	vp.set_3d(false)
 	await _frames(3)
-	_ok("H: pressing it again returns to 2D", not vp.is_3d() and b.text == "3D")
+	_ok("H: set_3d(false) returns to 2D", not vp.is_3d())

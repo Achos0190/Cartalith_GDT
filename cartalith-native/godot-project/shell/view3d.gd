@@ -4,8 +4,8 @@ extends Control
 
 ## **The 3D view mode, empty** (`3D_VIEWPORT_SCOPE.md` §5, milestone 3D-1).
 ##
-## What it is: the viewport mode `Window ▸ 3D view` and the touch navpad's
-## 3D pill switch to (§3.14). A `SubViewport` holding a `Camera3D` over an empty
+## What it is: the viewport mode `Window ▸ 3D view` and MAP's "2D / 3D" button
+## switch to (§3.14; the navpad's own 3D pill left the row in MS-5). A `SubViewport` holding a `Camera3D` over an empty
 ## world, plus a status card that says which 3D tier this device runs and why,
 ## with the numbers the capability gate (`view3d_gate.gd`) measured (§4.3).
 ## It draws **no terrain**: that is 3D-2. It exists first so "3D unavailable,

@@ -189,6 +189,24 @@ var _escape_handlers: Dictionary = {}
 ## key path would be a second place to look when one of them stops working.
 var _backspace_handlers: Dictionary = {}
 
+## MS-5: how the armed tool treats a one-finger drag on a touch map, as `ViewportHost.TOOL_*`.
+##   - `TOOL_NONE` (Inspect): the drag pans, a tap selects, and double-tap and thumb zoom are on.
+##   - `TOOL_PLACING` (Measure, Settlement, Label, Icon, Conflict, Route): a tap places something, so a drag pans
+##     but double-tap and thumb zoom stay off (a double tap would place twice; Ruling EC item 4).
+##   - `TOOL_DRAWING` (sculpt, paint, colour paint, Region, Territory, Lasso, Way, and every id this table does not
+##     name): one finger draws, the pan latch appears, and the gestures work only while it is on.
+## `MOBILE_SHELL_PROPOSAL.md` section 2.5 names the seven tap tools; the table is that list. An id it does not
+## know is a DRAWING tool, never a tap tool: that is today's behaviour (the finger belongs to the tool), so a
+## tool added later keeps its drag until someone classifies it, and the failure is a visible latch, not a drag that
+## silently stops reaching the tool.
+static func tool_kind(id: String) -> int:
+	match id:
+		"inspect":
+			return ViewportHost.TOOL_NONE
+		"measure", "settlement", "label", "icon", "conflict", "route":
+			return ViewportHost.TOOL_PLACING
+	return ViewportHost.TOOL_DRAWING
+
 ## Arms tool `id` globally -- the one entry every palette cell, key, menu row and
 ## workspace funnels through (`DccWidgets.tool_strip()`, `global_tools.gd`,
 ## `journey_planner_view.gd`). No-op when `id` is already armed, so callers that
@@ -215,6 +233,12 @@ func arm_tool(id: String) -> void:
 	if armed_tool == id:
 		return
 	armed_tool = id
+	## MS-5 (`MOBILE_SHELL_PROPOSAL.md` section 2.5, items 3 and 4): the map's touch routing and its pan latch
+	## follow the armed tool. Pushed HERE, at the root and before the engine-busy branch below, because
+	## `armed_tool` changes at once while the `tool_armed` emit may be deferred -- a finger that lands while a
+	## generation runs must already be routed by the tool the user has just chosen.
+	if viewport != null:
+		viewport.set_tool_kind(tool_kind(id))
 	## `BUILD_ANSWERS.md` §4's "tool arm", 10 ms. Inside the early-return guard
 	## on purpose: re-arming the tool already armed is a no-op everywhere else
 	## in this function and buzzing for it would be the one part that fired.

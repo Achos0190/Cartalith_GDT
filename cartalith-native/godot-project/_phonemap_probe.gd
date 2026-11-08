@@ -204,7 +204,9 @@ func _controls(label: String) -> void:
 		items.append(["layers button", layers])
 	print("controls: ", items.map(func(e): return e[0]))
 	if label != "full":
-		_ok(nav_btns.size() == 5, "%s: the zoom row is shown with its five buttons (%d)" % [label, nav_btns.size()])
+		## MS-5 (item 1): the 3D / 2D pill left the row and the latch is drawn only while a drawing tool is armed
+		## (this probe has Inspect armed), so the row is three buttons: zoom out, zoom in, recentre.
+		_ok(nav_btns.size() == 3, "%s: the zoom row is shown with its three buttons (%d)" % [label, nav_btns.size()])
 	_ok(pill != null and pill.is_visible_in_tree(), "%s: the armed-tool pill is shown" % label)
 	# 1. pairwise overlap
 	for a in items.size():
@@ -253,13 +255,8 @@ func _functional() -> void:
 		if zout != null:
 			await _click_at((zout as Control).get_global_rect().get_center())
 			_ok(absf(_vh._zoom - z0) < 0.01, "a real click on Zoom out brings it back (%.3f)" % _vh._zoom)
-	var v3: Button = _vh._view3d_btn
-	if v3 != null:
-		var before: bool = _vh.is_3d()
-		await _click_at(v3.get_global_rect().get_center())
-		_ok(_vh.is_3d() != before, "a real click on 3D toggles the view (3D now %s)" % _vh.is_3d())
-		await _click_at(v3.get_global_rect().get_center())
-		_ok(_vh.is_3d() == before, "a second click toggles it back")
+	## MS-5 (item 1): the 3D / 2D pill left the row, so there is nothing here to click; the row holding none is
+	## `_ms5_probe`'s check, and MAP's own "2D / 3D" button is `_ms3b_probe`'s.
 	var pill: Control = _app._tool_fan._pill
 	if pill != null:
 		var zc: float = _vh._zoom

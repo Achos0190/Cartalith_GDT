@@ -200,10 +200,14 @@ var _navpad: HBoxContainer
 ## The navpad's pan-mode (hand) button; `set_pan_mode()` syncs its pressed state without emitting
 ## and repaints it via `_navpad_paint`.
 var _pan_btn: Button
-## 3D-1: the navpad's `3D` / `2D` text pill (phone composition only; null on
-## tablet and desktop, where `Window ▸ 3D view` is the entry point). See
-## `_build_navpad()`.
-var _view3d_btn: Button
+## MS-5 (item 1): the navpad's rocker (`-` | `+`) and recentre, kept so `_apply_hand()` can put them in the
+## order Handedness asks for. The 3D/2D pill that stood here left the row: 3D is reached from MAP's own row
+## (`DccShell._refresh_phone_map_row()`, MS-3) and from `Window ▸ 3D view`.
+var _rocker: HBoxContainer
+var _recentre_btn: Button
+## The hand the row was last laid out for (`"left"` or `"right"`), so a change in Preferences ▸ Handedness is
+## noticed by the next safe-inset pass and the row mirrors without a restart. Empty until the first pass.
+var _applied_hand := ""
 ## 3D-1: the 3D view mode (`view3d.gd`), created on first entry by `set_3d()`
 ## and kept for the session. **Null until the user first opens 3D**, which is
 ## what keeps a 2D-only session byte-identical to before this milestone.
@@ -306,6 +310,65 @@ var _pan_last_screen := Vector2.ZERO
 ## pointerdown to the pan drag (9623) and suppresses the armed tool
 ## (13924) -- both of which fall out of `_panning` below for free.
 var _pan_mode := false
+
+# -- MS-5: touch routing by the armed tool (`MOBILE_SHELL_PROPOSAL.md` section 2.5, items 3 to 6) ----------
+#
+# One finger on a touch map used to do exactly one thing: belong to the armed tool, unless the latch was on.
+# That left a phone with no one-finger pan at all while Inspect was armed (`phone_menu.gd::GESTURES` claimed
+# one) and no double-tap. These constants and the `_tp_*` state below are the routing that replaces it; every
+# line of it is gated on `_touch`, so a mouse run is byte-for-byte what it was.
+
+## How the armed tool treats a one-finger drag (`DccApp.tool_kind()` classifies every tool id).
+const TOOL_NONE := 0      ## Inspect: the drag pans; double-tap and thumb zoom are on.
+const TOOL_PLACING := 1   ## A tap places something: the drag pans; double-tap and thumb zoom are off.
+const TOOL_DRAWING := 2   ## One finger draws; the latch appears and turns the gestures on.
+## A second tap within this many ms of the first one's lift is a double-tap. 300 ms is Android's
+## `ViewConfiguration.getDoubleTapTimeout()` (AOSP, `ViewConfiguration.DOUBLE_TAP_TIMEOUT`), the figure
+## the proposal cites; `06-phone.md` section 7 states the same 300 ms. Glass-tuned in MS-10.
+const DOUBLE_TAP_MS := 300
+## ... and within this many physical px of it: `06-phone.md` section 7's 34 px. A labelled design figure, not
+## Android's (`ViewConfiguration.getScaledDoubleTapSlop()` is 100 dp, far looser than a thumb's wobble).
+const DOUBLE_TAP_PX := 34.0
+## The double-tap's zoom, a factor: section 4 and `06-phone.md` section 7 give x1.7.
+const DOUBLE_TAP_ZOOM := 1.7
+## ... eased over this many ms (`06-phone.md` section 7's 240 ms).
+const DOUBLE_TAP_ANIM_MS := 240
+## Thumb zoom's rate: one doubling of the zoom per this fraction of the viewport's height of slide. A labelled
+## judgement, not a measurement: a thumb's one-handed reach is a fraction of the screen, so the rate scales with
+## it rather than with density; 0.15 puts roughly seven doublings across a full-height slide. Sliding DOWN zooms
+## IN (Ruling EB item 3, Google Maps and Android's own quick scale; `MAP_INTERACTION_RESEARCH.md` section 2).
+const THUMB_DOUBLING_FRAC := 0.15
+
+## The one-finger machine's states. IDLE: no finger. CANDIDATE: down, not yet a tap or a drag, the overlay holds
+## its press back. DRAW: down with a drawing tool, which owns the finger. PANLATCH: down with the latch on, so
+## the existing `_pan_mode` branch owns it. PANNING: a tap-or-place tool's drag, past the slop. THUMB: the
+## second press of a double-tap. IGNORE: a second finger has landed, so this finger's events end here. HELD: the
+## hold fired, so the card or ring owns the finger.
+const _TP_IDLE := 0
+const _TP_CANDIDATE := 1
+const _TP_DRAW := 2
+const _TP_PANLATCH := 3
+const _TP_PANNING := 4
+const _TP_THUMB := 5
+const _TP_IGNORE := 6
+const _TP_HELD := 7
+
+var _tool_kind := TOOL_NONE
+var _tp := _TP_IDLE
+var _tp_origin := Vector2.ZERO
+var _tp_last := Vector2.ZERO
+var _tp_ms := 0
+var _tp_travel := 0.0
+var _tp_zoomed := false
+## Touch indices of the fingers that went down on the map (not on a dock, the sheet or the row), and whether two
+## or more have been down since the last time none was: the stray-stroke guard's latch (Ruling EC item 3).
+var _fingers: Dictionary = {}
+var _multi_touch := false
+## The last tap's `{pos, ms}`, or empty; consumed by the double-tap that matches it.
+var _last_tap: Dictionary = {}
+var _dt_tween: Tween
+var _dt_prev := 0.0
+var _dt_at := Vector2.ZERO
 
 # -- Deep-zoom tile compositing (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1) ---
 #
@@ -1126,6 +1189,9 @@ func _input(event: InputEvent) -> void:
 	## branch below exactly as before.
 	if _view3d != null and _view3d.visible:
 		return
+	## MS-5: touch routing runs first and may consume a finger's emulated mouse events; a mouse never enters.
+	if _touch and _touch_input(event):
+		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		var over_map := get_global_rect().has_point(mb.position)
@@ -1189,8 +1255,11 @@ func _input(event: InputEvent) -> void:
 		else:
 			_pan_last_screen = mm.position
 	elif event is InputEventMagnifyGesture:
-		## Two-finger pinch, synthesized by the platform on touch. Single-
-		## finger drag-to-pan is deliberately not wired on touch: it would
+		## Two-finger pinch, synthesized by the platform on touch. **MS-5 note:** the one-finger pan this
+		## paragraph says is "deliberately not wired" is wired since 2026-11-08, for Inspect and the placing
+		## tools only (`_touch_motion()`); a DRAWING tool still keeps the finger, for the reason below, and the
+		## latch is its one-finger way to move the map. Single-
+		## finger drag-to-pan is not wired for a drawing tool: it would
 		## collide with an armed tool's own drag the same way bare LMB-drag
 		## would on desktop, and the reference makes exactly the same call --
 		## its own touch handler comments *"one finger keeps painting/drawing"*
@@ -1325,6 +1394,235 @@ func set_pan_mode(on: bool) -> void:
 func pan_mode() -> bool:
 	return _pan_mode
 
+## MS-5 items 3 and 4: the armed tool changed (`DccApp.arm_tool()` pushes it, with `DccApp.tool_kind()`'s answer).
+## Clears the latch -- "it clears when a tool is armed or disarmed" -- drops a pending double-tap, and shows or
+## hides the latch: drawn only while the tool draws, because with any other tool a drag already pans and a latch
+## would be a control that changes nothing. The one-finger pan that makes hiding it safe is `_touch_input()`'s,
+## and it ships in this same change, so no build hides the latch before the drag pans.
+func set_tool_kind(kind: int) -> void:
+	_tool_kind = kind
+	_last_tap = {}
+	set_pan_mode(false)
+	_sync_pan_btn()
+
+## The armed tool's kind, `TOOL_*`; the getter for `set_tool_kind()`.
+func tool_kind() -> int:
+	return _tool_kind
+
+## Shows the latch only while the armed tool draws, then re-runs the safe-inset pass so the row's width follows
+## (the row is right-anchored on the dominant hand's side, so the latch, at the inner end, grows it inward and
+## moves nothing else). A no-op off touch.
+func _sync_pan_btn() -> void:
+	if _pan_btn == null:
+		return
+	_pan_btn.visible = _tool_kind == TOOL_DRAWING
+	if _layers_btn != null:
+		_apply_safe_insets()
+
+## Whether double-tap and thumb zoom are on right now: with no tool armed beyond Inspect, or while the latch
+## says "the finger moves the map" (Ruling EC item 4: off with a drawing or placing tool unless the latch is on,
+## so the latch has one meaning and a tap with such a tool acts at once, un-delayed).
+func _gestures_on() -> bool:
+	return _tool_kind == TOOL_NONE or _pan_mode
+
+## Whether a screen point belongs to the map: inside this node and not under the navpad row. `_input` sees
+## every event wherever it lands, so this is the same guard the latch branch applies.
+func _on_map(pos: Vector2) -> bool:
+	if not get_global_rect().has_point(pos):
+		return false
+	return not (_navpad != null and _navpad.visible and _navpad.get_global_rect().has_point(pos))
+
+## A mouse event that is really a finger: Godot's emulation stamps `device = DEVICE_ID_EMULATION` (-1), and a
+## mobile build counts every mouse event as touch, the same two-part test `map_overlay.gd` uses for the same
+## reason. A pen or a real mouse on Windows is neither, so it never enters the routing below -- the stylus
+## draws, which is Ruling EE's "pen draws" half (the "finger pans" setting, SH-3, is not built).
+func _is_touch_mouse(ev: InputEventMouse) -> bool:
+	return ev.device < 0 or OS.has_feature("mobile")
+
+## The touch router. Returns true when it consumed `event`. ScreenTouch and ScreenDrag are only OBSERVED (they
+## keep `_fingers` and the multi-touch latch); the finger's emulated LEFT press, motion and release are where
+## decisions are made, because those are what `map_overlay.gd` and the existing latch branch act on. The state
+## machine is the `_TP_*` block above.
+func _touch_input(event: InputEvent) -> bool:
+	if event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.pressed and not st.canceled:
+			_finger_down(st.index, st.position)
+		else:
+			_finger_up(st.index)
+		return false
+	if event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		if _fingers.has(sd.index):
+			_fingers[sd.index] = sd.position
+		return false
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT or not _is_touch_mouse(mb):
+			return false
+		return _touch_press(mb) if mb.pressed else _touch_release(mb)
+	if event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		if not _is_touch_mouse(mm):
+			return false
+		return _touch_motion(mm)
+	return false
+
+## A finger landed. A finger that began off the map (a dock, the sheet, the row) is not the map's and is not
+## tracked. The SECOND tracked finger is the stray-stroke guard's trigger (Ruling EC item 3, Krita's fix): it
+## latches `_multi_touch` until every finger is up, drops a pending double-tap, hands the view to pinch, and asks
+## the overlay to end whatever the first finger was doing (`cancel_touch_gesture()`: a withheld press is
+## discarded, a live stroke is closed at its last point). From then on this finger's events end in `_touch_*`
+## and never reach the tool, so lifting one finger after a pinch cannot draw.
+func _finger_down(index: int, pos: Vector2) -> void:
+	if not _on_map(pos):
+		return
+	_fingers[index] = pos
+	if _fingers.size() < 2:
+		return
+	_multi_touch = true
+	_last_tap = {}
+	_kill_tap_zoom()
+	match _tp:
+		_TP_CANDIDATE, _TP_DRAW:
+			if overlay.cancel_touch_gesture():
+				_tp = _TP_IGNORE
+		_TP_PANNING, _TP_THUMB, _TP_PANLATCH:
+			## One finger had the camera (or the zoom). Two fingers pan and zoom through the platform's gesture
+			## events, so the one-finger drag stops here -- left running it would pan twice.
+			_panning = false
+			_tp = _TP_IGNORE
+
+func _finger_up(index: int) -> void:
+	_fingers.erase(index)
+	if _fingers.is_empty():
+		_multi_touch = false
+
+func _touch_press(mb: InputEventMouseButton) -> bool:
+	if not _on_map(mb.position):
+		_tp = _TP_IDLE
+		return false
+	var now := Time.get_ticks_msec()
+	_kill_tap_zoom()
+	## The stray finger: a second finger is already down, so this press is not a stroke. Consumed, so neither
+	## the tool nor the latch's pan sees it.
+	if _multi_touch:
+		_tp = _TP_IGNORE
+		get_viewport().set_input_as_handled()
+		return true
+	_tp_origin = mb.position
+	_tp_last = mb.position
+	_tp_ms = now
+	_tp_travel = 0.0
+	_tp_zoomed = false
+	if _gestures_on() and not _last_tap.is_empty() \
+			and now - int(_last_tap["ms"]) <= DOUBLE_TAP_MS \
+			and mb.position.distance_to(_last_tap["pos"]) <= DOUBLE_TAP_PX:
+		## The second press of a double-tap. Consumed outright: the overlay never sees it, so no hold timer
+		## arms and no card opens however long this finger stays down ("the second press's hold belongs to
+		## thumb zoom"), and the tool is not clicked a second time.
+		_last_tap = {}
+		_tp = _TP_THUMB
+		get_viewport().set_input_as_handled()
+		return true
+	_last_tap = {}
+	if _pan_mode:
+		_tp = _TP_PANLATCH
+	elif _tool_kind == TOOL_DRAWING:
+		_tp = _TP_DRAW
+	else:
+		_tp = _TP_CANDIDATE
+	return false
+
+func _touch_motion(mm: InputEventMouseMotion) -> bool:
+	if (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) == 0:
+		return false
+	var handled := true
+	match _tp:
+		_TP_IGNORE:
+			pass
+		_TP_THUMB:
+			if not _tp_zoomed:
+				if mm.position.distance_to(_tp_origin) <= OVERLAY_SCRIPT.TOUCH_SLOP:
+					get_viewport().set_input_as_handled()
+					return true
+				## Past the slop: a slide. Zoom starts from HERE, so the first sample is not a jump.
+				_tp_zoomed = true
+				_tp_last = mm.position
+			var dy := mm.position.y - _tp_last.y
+			_tp_last = mm.position
+			if size.y > 0.0:
+				_zoom_at(_tp_origin - global_position, pow(2.0, dy / (size.y * THUMB_DOUBLING_FRAC)))
+		_TP_CANDIDATE, _TP_PANNING:
+			if _tp == _TP_CANDIDATE:
+				if Time.get_ticks_msec() - _tp_ms >= overlay.touch_hold_ms():
+					## The hold fired (the card on a phone, the ring on a tablet): the finger is theirs.
+					_tp = _TP_HELD
+					return false
+				if mm.position.distance_to(_tp_origin) <= OVERLAY_SCRIPT.TOUCH_SLOP:
+					## Inside the slop the finger is still a tap. Consumed, so a wobble of a few pixels reaches no
+					## tool as a drag: the overlay used to forward every such sample as `map_dragged` with no
+					## click before it, to a tool that had not yet been pressed.
+					get_viewport().set_input_as_handled()
+					return true
+				## A drag past the slop with a tap-or-place tool: a camera pan, not a press released to the
+				## tool. The overlay's withheld press is dropped without emitting, so a Settlement is not
+				## dropped by a pan; the pan starts from the press point, so the map stays under the finger.
+				overlay.discard_touch_press()
+				_tp = _TP_PANNING
+				_tp_last = _tp_origin
+			_camera.position += mm.position - _tp_last
+			_tp_last = mm.position
+			_update_lod()
+		_:
+			_tp_travel = maxf(_tp_travel, mm.position.distance_to(_tp_origin))
+			handled = false
+	if handled:
+		get_viewport().set_input_as_handled()
+	return handled
+
+func _touch_release(mb: InputEventMouseButton) -> bool:
+	var prior := _tp
+	_tp = _TP_IDLE
+	match prior:
+		_TP_IGNORE, _TP_PANNING:
+			get_viewport().set_input_as_handled()
+			return true
+		_TP_THUMB:
+			if not _tp_zoomed:
+				_double_tap_zoom(_tp_origin)
+			get_viewport().set_input_as_handled()
+			return true
+		_TP_CANDIDATE, _TP_PANLATCH:
+			## A tap: short, still, and shorter than the hold that would have opened the card. It is only
+			## remembered here -- it still reaches the tool or the latch's pan exactly as before.
+			_tp_travel = maxf(_tp_travel, mb.position.distance_to(_tp_origin))
+			var now := Time.get_ticks_msec()
+			if _gestures_on() and _tp_travel <= OVERLAY_SCRIPT.TOUCH_SLOP \
+					and now - _tp_ms < overlay.touch_hold_ms():
+				_last_tap = {"pos": mb.position, "ms": now}
+	return false
+
+## The double-tap's zoom: x1.7 about the finger over 240 ms, ease-out. Driven as a tween of a 0..1 progress that
+## `_dt_step()` turns into an incremental factor through `_zoom_at()`, so it is the same zoom path (readout, pin
+## compensation, deep-zoom tiles) as the wheel and the pinch, and a new press or a second finger kills it.
+func _double_tap_zoom(at_global: Vector2) -> void:
+	_kill_tap_zoom()
+	_dt_prev = 0.0
+	_dt_at = at_global - global_position
+	_dt_tween = create_tween()
+	_dt_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_dt_tween.tween_method(_dt_step, 0.0, 1.0, float(DOUBLE_TAP_ANIM_MS) / 1000.0)
+
+func _dt_step(t: float) -> void:
+	_zoom_at(_dt_at, pow(DOUBLE_TAP_ZOOM, t - _dt_prev))
+	_dt_prev = t
+
+func _kill_tap_zoom() -> void:
+	if _dt_tween != null and _dt_tween.is_valid():
+		_dt_tween.kill()
+	_dt_tween = null
+
 ## `_civMoveViewTo(x, y)` -- the reference's context-menu "📍 Move viewer to"
 ## op and the Faction Roster's "(focus camera)" link. Centres grid cell
 ## `(gx, gy)` in the viewport at the current zoom; no zoom change, matching
@@ -1444,22 +1742,13 @@ func set_3d(on: bool) -> void:
 		v.visible = true
 		if _panning:
 			_panning = false
-		_sync_view3d_btn()
 		view_mode_changed.emit(true)
 		v.entered()
 	else:
 		if _view3d == null:
 			return
 		_view3d.visible = false
-		_sync_view3d_btn()
 		view_mode_changed.emit(false)
-
-## The pill reads `2D` while 3D is shown (the mode a press goes to), `3D`
-## otherwise -- §6.2's own two labels.
-func _sync_view3d_btn() -> void:
-	if _view3d_btn != null:
-		_view3d_btn.text = "2D" if is_3d() else "3D"
-		_view3d_btn.tooltip_text = "Back to the 2D map" if is_3d() else "3D view"
 
 func reset_view() -> void:
 	var cover := 1.0
@@ -1809,18 +2098,6 @@ func _apply_touch_scale(scale: float) -> void:
 	## own "size by group rather than by child" flag asks for -- the rocker's own
 	## width is then two hits plus the rule, with nothing setting it directly.
 	for child in _navpad.find_children("", "Button", true, false):
-		if child.has_meta(NAVPAD_TEXT_META):
-			## 3D-1's text pill: the same target and capsule as the glyph pills,
-			## with its label scaled instead of an icon.
-			var tb := child as Button
-			tb.custom_minimum_size = Vector2(hit, hit)
-			tb.add_theme_font_size_override("font_size",
-				maxi(1, int(round(NAVPAD_TEXT_PX * scale))))
-			for state in ["normal", "hover", "pressed", "hover_pressed"]:
-				var tsb: StyleBox = tb.get_theme_stylebox(state)
-				if tsb is StyleBoxFlat:
-					_pill_corners(tsb as StyleBoxFlat, int(hit / 2.0), PILL_FULL)
-			continue
 		if not child.has_meta(NAVPAD_GLYPH_META):
 			continue
 		var b := child as Button
@@ -1875,17 +2152,35 @@ func _apply_safe_insets() -> void:
 	var tick := float(DccTheme.role_px("h_scale_tick")) if _scale_rule.visible else 0.0
 	var stack := tick + (float(SCALE_BAR_GAP) if _scale_rule.visible else 0.0)
 
+	## MS-5 item 2: for a left-handed user the row takes the left edge, so the scale bar and the coordinate
+	## readout swap sides with it ("the scale bar takes the other side; the coordinate readout stays under the
+	## row"). Only on touch: the desktop has no row, so its corners never move.
+	_apply_hand()
+	var left_hand := _touch and _applied_hand == "left"
+	if _touch:
+		_set_anchor_side(_scale_rule, left_hand)
+		_set_anchor_side(_scale_label, left_hand)
+		_set_anchor_side(_coords_label, not left_hand)
+
 	var bar_w := float(DccTheme.role_px("w_scale_bar"))
 	_scale_rule.custom_minimum_size = Vector2(bar_w, tick)
-	_scale_rule.offset_left = l
-	_scale_rule.offset_right = l + bar_w
+	if left_hand:
+		_scale_rule.offset_left = -r - bar_w
+		_scale_rule.offset_right = -r
+	else:
+		_scale_rule.offset_left = l
+		_scale_rule.offset_right = l + bar_w
 	_scale_rule.offset_top = -b - tick
 	_scale_rule.offset_bottom = -b
 	_scale_rule.queue_redraw()
 
 	var scale_size := _scale_label.get_minimum_size()
-	_scale_label.offset_left = l
-	_scale_label.offset_right = l + scale_size.x
+	if left_hand:
+		_scale_label.offset_right = -r
+		_scale_label.offset_left = -r - scale_size.x
+	else:
+		_scale_label.offset_left = l
+		_scale_label.offset_right = l + scale_size.x
 	_scale_label.offset_top = -b - stack - scale_size.y
 	_scale_label.offset_bottom = -b - stack
 
@@ -1896,8 +2191,12 @@ func _apply_safe_insets() -> void:
 	_readout_label.offset_bottom = t + readout_size.y
 
 	var coords_size := _coords_label.get_minimum_size()
-	_coords_label.offset_right = -r
-	_coords_label.offset_left = -r - coords_size.x
+	if left_hand:
+		_coords_label.offset_left = l
+		_coords_label.offset_right = l + coords_size.x
+	else:
+		_coords_label.offset_right = -r
+		_coords_label.offset_left = -r - coords_size.x
 	_coords_label.offset_top = -b - coords_size.y
 	_coords_label.offset_bottom = -b
 
@@ -1967,7 +2266,13 @@ func _apply_safe_insets() -> void:
 		## zoom rocker sat on top of INSPECT (owner finding 2026-10-26). Lifting the row by the pill's band is
 		## the whole fix; the pill, the sheet and the detent budget are untouched.
 		var floor_y := maxf(coords_size.y, _pill_reserve())
-		_navpad.position = Vector2(size.x - maxf(r, float(NAVPAD_EDGE)) - pad.x,
+		var navpad_x := size.x - maxf(r, float(NAVPAD_EDGE)) - pad.x
+		if left_hand:
+			## MS-5 item 2: `maxf(l, NAVPAD_EDGE)`, the same floor `_layers_btn` takes on this edge, so the
+			## two float at one edge distance and a portrait phone's `left = 0` does not leave the row tangent
+			## to the bezel.
+			navpad_x = maxf(l, float(NAVPAD_EDGE))
+		_navpad.position = Vector2(navpad_x,
 			size.y - b - floor_y - float(NAVPAD_GAP) - pad.y)
 		## **Hidden when the band it would occupy is not there.** The board hides
 		## the whole cluster at the `full` detent, where §5.2 leaves 96 dp of map
@@ -1991,6 +2296,37 @@ func _apply_safe_insets() -> void:
 		## to undo it.
 		_navpad.visible = size.y <= 0.0 \
 			or (size.y - t - b) >= (floor_y + float(NAVPAD_GAP) + pad.y)
+
+## MS-5 item 1: arranges the row from the outer edge inward -- recentre, rocker, latch -- for the dominant
+## hand's side. Right-handed (the default) reads left to right as latch, rocker, recentre, so the recentre
+## stays at the right edge where the thumb learned it, and the latch, the only member that comes and goes
+## (`_sync_pan_btn()`), is at the inner end: its arrival moves nothing else. Left-handed is the mirror: recentre,
+## rocker, latch. The rocker keeps `-` then `+` left to right either way (the stepper pair's own order).
+## Reads `DccSettings.dominant_hand()` and re-arranges only when it changed, so calling it from every safe-inset
+## pass costs a string compare. A no-op off touch, where there is no row.
+func _apply_hand() -> void:
+	if _navpad == null or _pan_btn == null:
+		return
+	var hand := DccSettings.dominant_hand()
+	if hand == _applied_hand:
+		return
+	_applied_hand = hand
+	if hand == "left":
+		_navpad.move_child(_recentre_btn, 0)
+		_navpad.move_child(_rocker, 1)
+		_navpad.move_child(_pan_btn, 2)
+	else:
+		_navpad.move_child(_pan_btn, 0)
+		_navpad.move_child(_rocker, 1)
+		_navpad.move_child(_recentre_btn, 2)
+
+## Re-anchors a chrome control to the map's right edge (`right` true) or left edge, bottom either way, keeping
+## the growth direction that matches, so `_apply_safe_insets()` can set its offsets from either side.
+func _set_anchor_side(c: Control, right: bool) -> void:
+	var a := 1.0 if right else 0.0
+	c.anchor_left = a
+	c.anchor_right = a
+	c.grow_horizontal = Control.GROW_DIRECTION_BEGIN if right else Control.GROW_DIRECTION_END
 
 ## The phone's armed-tool pill band (device px), found by capability so this node stays ignorant of the shell
 ## (the same pattern as `_announce_pan_mode`); 0 when no ancestor offers it (desktop, tablet, a lone probe scene).
@@ -2045,11 +2381,9 @@ func _raster() -> TextureRect:
 ## Recentre is absorbed -- same anchor, same `view_fill` glyph, same
 ## `reset_view()`. The 3D/2D FAB was **removed, not rehoused**, at DS-13, when
 ## `DECISIONS.md` §4 kept v1 2D and there was no viewport to toggle to.
-## **3D-1 (2026-10-19, `DECISIONS.md` §4a) rehoused it** as this row's fourth
-## pill, `_view3d_btn`, at the far right of the same band: §6.2's anchor is this
-## cluster now, so the FAB joins it rather than claiming the anchor back. It
-## carries §6.2's own `2D`/`3D` text label, and it switches a real viewport
-## rather than "a label only".
+## 3D-1 (2026-10-19, `DECISIONS.md` §4a) rehoused it as this row's fourth pill; **MS-5 (2026-11-08,
+## `MOBILE_SHELL_PROPOSAL.md` section 2.5 item 1) took it out again**, for MAP's own 2D / 3D row (Ruling EA 14
+## called the pill interim) and `Window ▸ 3D view`. The row is recentre, rocker and latch, and nothing phone-only.
 ## The half of it that is real did land -- `menus.gd::_build_relief_exag_menu()`
 ## builds Preferences ▸ Graphics ▸ Relief exaggeration as a live submenu over
 ## `DccSettings.RELIEF_EXAG_CHOICES` (1x / 2x / 4x) today. 48 dp leaves with the
@@ -2118,12 +2452,6 @@ const NAVPAD_SHAPE_META := "dcc_navpad_shape"
 ## draws -- a scrim the map shows through, not an opaque disc. See
 ## `_navpad_paint()` for what painting it fully opaque cost.
 const NAVPAD_ALPHA := 0.92
-## 3D-1: marks the navpad's one text pill (`_view3d_btn`), whose font, not an
-## icon, is what `_apply_touch_scale()` must scale.
-const NAVPAD_TEXT_META := "dcc_navpad_text"
-## §6.2's FAB label size, `12.5px mono`, rounded to a whole dp (Godot font
-## sizes are integers).
-const NAVPAD_TEXT_PX := 13
 
 ## Build the touch navpad -- a bottom thumb-reach row of the zoom rocker, the Hand latch and
 ## recentre. Does nothing on desktop (`_touch` false). See the block above for the design and the
@@ -2142,9 +2470,9 @@ func _build_navpad() -> void:
 	## written in. Its own `separation` is 0 -- the two halves must touch, with
 	## the hairline the only thing between them.
 	var rocker := HBoxContainer.new()
+	_rocker = rocker
 	rocker.add_theme_constant_override("separation", 0)
 	rocker.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_navpad.add_child(rocker)
 	rocker.add_child(_navpad_button("zoom_out", "Zoom out",
 		func(): zoom_step(1.0 / ZOOM_BUTTON_STEP), PILL_LEFT))
 	_zoom_rule = ColorRect.new()
@@ -2166,29 +2494,20 @@ func _build_navpad() -> void:
 	## would re-enter this handler -- it uses `set_pressed_no_signal()` for
 	## exactly that, and this stays the only caller that comes from a finger.
 	_pan_btn.toggled.connect(set_pan_mode)
+
+	_recentre_btn = _navpad_button("view_fill", "Reset view", reset_view)
+
+	## MS-5 item 1: the children are added in a fixed order and then ARRANGED by `_apply_hand()`, which puts
+	## the recentre at the outer edge, the rocker next and the latch at the inner end -- from whichever edge
+	## the dominant hand is on. So a new child here would have to be placed there too; none is expected, because
+	## the 3D/2D pill that was the row's fourth member has left it (see `_rocker`'s comment).
 	_navpad.add_child(_pan_btn)
-
-	_navpad.add_child(_navpad_button("view_fill", "Reset view", reset_view))
-
-	## 3D-1: §6.2's 3D/2D FAB, rehoused here (see this section's header). A
-	## text pill, not a glyph: §6.2 draws it as the label `3D` / `2D` in mono.
-	## `NAVPAD_TEXT_META` marks it so `_apply_touch_scale()` scales its font,
-	## which the glyph loop below that meta cannot do.
-	##
-	## **Phone composition only.** §6.2 is the phone spec; the tablet canvas
-	## draws no FAB, and on a tablet the map sits between two docks: a fifth
-	## pill pushed the row 21 px past the map's left edge at 1080 x 2340
-	## (`_view3d_probe.gd` capture), clipping Zoom out. The tablet reaches 3D
-	## through ☰ ▸ Window ▸ 3D view, the same row as every other composition.
-	if DccTheme.is_phone():
-		_view3d_btn = _navpad_button("", "3D view", func(): set_3d(not is_3d()))
-		_view3d_btn.set_meta(NAVPAD_TEXT_META, true)
-		_view3d_btn.text = "3D"
-		_view3d_btn.add_theme_font_override("font", DccTheme.mono(0, true))
-		_view3d_btn.add_theme_font_size_override("font_size", NAVPAD_TEXT_PX)
-		for st in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
-			_view3d_btn.add_theme_color_override(st, DccTheme.c("accent"))
-		_navpad.add_child(_view3d_btn)
+	_navpad.add_child(rocker)
+	_navpad.add_child(_recentre_btn)
+	_apply_hand()
+	_sync_pan_btn()
+	## Handedness changes in Preferences take effect on the row at once, not at the next resize.
+	DccSettings.on_hand_changed(_apply_safe_insets)
 
 	## Connected here rather than in `_ready()` so the announcement exists on
 	## exactly the compositions the latch does.
@@ -2236,8 +2555,7 @@ func _navpad_button(glyph: String, tip: String, on_press: Callable,
 	## nowhere. Caught by screenshot -- the first cut was flat, and the pills
 	## were invisible over the terrain with only their glyphs showing.
 	b.focus_mode = Control.FOCUS_NONE
-	## An empty glyph is 3D-1's text pill, which carries a label instead
-	## (`NAVPAD_TEXT_META`); asking `DccIcons` for "" would push an error.
+	## Every caller passes a glyph; the guard keeps an empty one from asking `DccIcons` for "", which pushes an error.
 	if glyph != "":
 		b.set_meta(NAVPAD_GLYPH_META, glyph)
 		b.icon = DccIcons.get_icon(glyph, 17)

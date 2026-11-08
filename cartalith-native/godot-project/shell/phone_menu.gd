@@ -1684,11 +1684,11 @@ func _glyph(ch: String) -> Label:
 ##     tool options bar and it has no "gone" state on the other two form
 ##     factors.
 ##
-## **Two more of the nine do not exist and are drawn as absent, not omitted:**
-## there is no double-tap handler on the map (`viewport_host.gd` has no
-## `double_click` branch at all), and no edge-swipe inspector — the only edge
-## swipe this shell reads is Android's own back gesture, which
-## `DccShell._phone_back()` handles and which is listed here as itself.
+## **One more of the nine does not exist and is drawn as absent, not omitted:**
+## no edge-swipe inspector — the only edge swipe this shell reads is Android's
+## own back gesture, which `DccShell._phone_back()` handles and which is listed
+## here as itself. (The double-tap was absent here until MS-5 built it, with
+## thumb zoom beside it; both are `GESTURES` rows now.)
 ##
 ## Every row below names the symbol it was checked at, in its second line, so
 ## the next reader can re-check it rather than believing this list.
@@ -1696,8 +1696,21 @@ func _glyph(ch: String) -> Label:
 ## location it was checked against is noted in the comment above that entry,
 ## for a future engineer re-verifying this list, not for the on-screen text.
 const GESTURES: Array = [
-	## Checked at `viewport_host.gd`'s pan branch of `_input()`.
-	["Drag", "Pans the map.", "Confirmed in this build."],
+	## Checked at `viewport_host.gd`'s `_touch_motion()` (the `_TP_CANDIDATE` branch: a drag past
+	## `map_overlay.gd::TOUCH_SLOP` with Inspect or a placing tool pans) and `_input()`'s latch branch (with a drawing
+	## tool armed, one finger draws and the latch hands it to the map). MS-5.
+	["Drag", "Pans the map with Inspect or a placing tool. With a drawing tool armed one "
+		+ "finger draws, and the hand button gives it to the map.",
+		"Confirmed in this build."],
+	## Checked at `viewport_host.gd`'s `_touch_press()` / `_touch_release()` / `_double_tap_zoom()` (MS-5):
+	## x1.7 about the finger over 240 ms, on with Inspect or the hand button, off with a placing or drawing tool.
+	["Double-tap", "Zooms in about the finger. On with Inspect, or with a drawing tool while "
+		+ "the hand button is on; off with a placing tool, where a tap places.",
+		"Confirmed in this build."],
+	## Checked at `viewport_host.gd`'s `_touch_motion()` `_TP_THUMB` branch (MS-5, Ruling EB item 3).
+	["Double-tap, hold, slide", "Zooms about the finger with one thumb: slide down to zoom in, "
+		+ "up to zoom out. Lift to stop. The held press opens no card.",
+		"Confirmed in this build."],
 	## Checked at `viewport_host.gd`'s `InputEventMagnifyGesture` handling.
 	["Pinch", "Zooms at the pinch centre.",
 		"Confirmed in this build."],
@@ -1728,13 +1741,10 @@ const GESTURES: Array = [
 		"Confirmed in this build."],
 ]
 
-## The two §6.6 rows this build does not have. Drawn, with the true reason,
-## rather than dropped: a gesture reference that silently omits two of the nine
+## The §6.6 row this build does not have. Drawn, with the true reason,
+## rather than dropped: a gesture reference that silently omits one of the nine
 ## a user may have read about elsewhere teaches them the list is complete.
 const GESTURES_ABSENT: Array = [
-	## Checked at `viewport_host.gd` — there is no `double_click` branch.
-	["Double-tap", "No double-tap handler exists on the map. "
-		+ "Pinch and the zoom buttons are the zoom paths instead."],
 	["Edge-swipe inspector", "No inspector drawer is bound to an edge swipe. The "
 		+ "right dock is a sheet reached from the bottom bar, and the only edge "
 		+ "swipe this shell reads is Android's back gesture, listed above."],

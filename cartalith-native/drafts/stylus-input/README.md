@@ -87,14 +87,18 @@ build them against the live branches.
 **SH-3 — pen draws, finger pans (Ruling EC).** When the setting
 `DccSettings.pen_draws_finger_pans` (draft `01`) is on and the touch is a finger,
 a drag pans the camera instead of reaching the tool.
-- **The mechanism exists:** `viewport_host.gd` already pans the camera on a
-  one-finger left drag while `_pan_mode` (the ✋ latch) is on — `_pan_mode`,
-  `_pan_last_screen`, `_camera.position += mm.position - _pan_last_screen` (lines
-  ~1145–1179). SH-3 reuses that path; it does not write a second pan.
-- **Blocker 1 — Ruling EC is not built.** DS13-Q2 (one finger pans with a tap-only
-  tool, without the ✋ latch) is the camera-pan trigger SH-3 needs, and it is an
-  open shell row (`OUTSTANDING_WORK.md`, the DS-13 / Ruling EC rows). SH-3 lands
-  **with or after** that input-routing change, not before it.
+- **The mechanism exists:** `viewport_host.gd` pans the camera on a one-finger
+  drag in two places — while `_pan_mode` (the ✋ latch) is on, and, since MS-5
+  (2026-11-08), for a tap-only tool, in `_touch_motion()`'s `_TP_CANDIDATE`
+  branch (`overlay.discard_touch_press()`, then `_camera.position += ...`).
+  SH-3 reuses that path; it does not write a second pan.
+- **Blocker 1 — cleared by MS-5.** DS13-Q2 (one finger pans with a tap-only
+  tool, without the ✋ latch) is built, with the routing it needs: `_touch_press()`
+  already chooses between `_TP_DRAW` (a drawing tool keeps the finger) and
+  `_TP_CANDIDATE` (the drag pans). SH-3 is one more condition there — a finger
+  (not a pen) with `pen_draws_finger_pans` on goes to `_TP_CANDIDATE` even with a
+  drawing tool armed — plus the ✋ latch hidden by `_sync_pan_btn()` while the
+  setting is on (proposal section 2.5 item 3). The remaining blocker is 2.
 - **Blocker 2 — reliable finger-vs-pen at press.** Routing a finger to pan and a
   pen to the tool needs to know which it is at the moment of the drag.
   `_stroke_pen_seen` only resolves mid-stroke, and the research found Godot 4.7.2

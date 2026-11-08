@@ -128,6 +128,9 @@ func _ready() -> void:
 	add_child(app)
 	await get_tree().create_timer(1.2).timeout
 	vp = app.viewport
+	## MS-5 (item 3): the latch is drawn only while a drawing tool is armed, and this probe measures it, so arm one.
+	app.arm_tool("sculpt")
+	await _frames(6)
 	var scr: Vector2 = get_viewport().get_visible_rect().size
 	var pscale: float = float(app.get("_phone_scale"))
 	var ppmm: float = (510.0 / 25.4) if scr.x >= 1400.0 else (395.0 / 25.4)
@@ -201,8 +204,10 @@ func _ready() -> void:
 			"gap=%.1f  rule w=%.1f" % [hi.position.x - lo.end.x, rr.size.x])
 		_ok_true("rule is vertically inset inside the pill", rr.size.y < lo.size.y,
 			"rule h=%.0f  pill h=%.0f" % [rr.size.y, lo.size.y])
-	var gap_pan: float = (btns["tool_pan"] as Button).get_global_rect().position.x - hi.end.x
-	print("  info rocker->pan gap=%.1f px (NAVPAD_GAP 10 x %.4f = %.1f)"
+	## MS-5 (item 1): the row reads latch, rocker, recentre from the left for a right-handed user, so the gap
+	## between the groups is the one between the latch's right edge and the rocker's left edge.
+	var gap_pan: float = lo.position.x - (btns["tool_pan"] as Button).get_global_rect().end.x
+	print("  info pan->rocker gap=%.1f px (NAVPAD_GAP 10 x %.4f = %.1f)"
 		% [gap_pan, pscale, 10.0 * pscale])
 	_ok_true("the three groups are separated, the two halves are not",
 		gap_pan > (rule.size.x if rule != null else 1.0) * 3.0, "%.1f px" % gap_pan)
@@ -322,11 +327,9 @@ func _ready() -> void:
 	## toggle to. 3D-1 rehoused §6.2's FAB as one `3D` text pill at the end of
 	## this cluster, on the phone composition only; it must be exactly that
 	## node, inside the navpad, and nothing else may carry a bare 3D/2D label.
-	var want_pills := 1 if DccTheme.is_phone() else 0
-	_ok("3D/2D toggles in the shell (the navpad pill on phone, none elsewhere)", threed.size(), want_pills)
-	if want_pills == 1 and threed.size() == 1:
-		_ok_true("the one 3D toggle is the navpad's own pill", threed[0] == vp.get("_view3d_btn") and pad.is_ancestor_of(threed[0]),
-			"node=%s" % threed[0].name)
+	## **Changed again by MS-5 (2026-11-08, item 1):** the pill left the row for MAP's own "2D / 3D" button, so
+	## no node anywhere in the shell's phone chrome may carry a bare 3D/2D label inside the navpad.
+	_ok("3D/2D pills inside the navpad (none since MS-5)", threed.filter(func(n): return pad.is_ancestor_of(n)).size(), 0)
 	_ok_true("recentre absorbed into the cluster", btns.has("view_fill"),
 		"tooltip=%s" % (btns["view_fill"] as Button).tooltip_text)
 	var want_exag: Array[float] = [1.0, 2.0, 4.0]

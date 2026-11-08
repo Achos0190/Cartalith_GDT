@@ -597,6 +597,16 @@ static func dominant_hand() -> String:
 	var h := String(_cfg.get_value(_SEC_HANDEDNESS, "hand", "right"))
 	return h if HANDS.has(h) else "right"
 
+## Callables told after the dominant hand is stored (MS-5: the map's control row mirrors live). Each is called
+## with no argument; a freed owner's Callable is skipped rather than called. Never a second store of the hand --
+## listeners re-read `dominant_hand()`.
+static var _hand_listeners: Array[Callable] = []
+
+## Registers `cb` to run after every `set_dominant_hand()` that stored a value.
+static func on_hand_changed(cb: Callable) -> void:
+	if not _hand_listeners.has(cb):
+		_hand_listeners.append(cb)
+
 ## Stores the dominant hand and saves. An unknown value is ignored, not stored.
 static func set_dominant_hand(hand: String) -> void:
 	if not HANDS.has(hand):
@@ -604,6 +614,11 @@ static func set_dominant_hand(hand: String) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_HANDEDNESS, "hand", hand)
 	_save()
+	for cb in _hand_listeners.duplicate():
+		if cb.is_valid():
+			cb.call()
+		else:
+			_hand_listeners.erase(cb)
 
 # -- MS-1 S5: UI scale ----------------------------------------------------------
 

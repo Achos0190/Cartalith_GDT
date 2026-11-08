@@ -1179,11 +1179,16 @@ const _TOUCH_HOLD_MS := 500
 ## `DccTheme.is_tablet()`, the same test that already chooses which of the two
 ## gestures a still hold becomes.
 const _PHONE_TOUCH_HOLD_MS := 480
-## Physical pixels, not dp: this control is laid out in the main viewport,
-## which carries no content scale. 28 px is ~10 dp on a 400 ppi handset, which
-## is a finger's idle wobble and comfortably under the distance a deliberate
-## drag covers in half a second.
+## Physical SCREEN pixels, not dp and not this control's local units: this control is laid out in the main
+## viewport, which carries no content scale, and the camera's zoom is divided out where it is compared (the slop
+## branch of `_gui_input()`). 28 px is ~10 dp on a 400 ppi handset (Android's own touch slop is 8 dp,
+## `ViewConfiguration.getScaledTouchSlop()`), which is a finger's idle wobble and comfortably under the distance a
+## deliberate drag covers in half a second.
 const _TOUCH_SLOP := 28.0
+## MS-5: `_TOUCH_SLOP` under a public name, read by `viewport_host.gd` so the host's one-finger pan, its
+## tap-versus-drag test and this control's withheld-press release all share ONE figure -- two figures would let
+## a drag be a pan to one of them and a tap to the other. Not a second value: the same constant.
+const TOUCH_SLOP := _TOUCH_SLOP
 
 var _touch_armed := false        ## a withheld press is outstanding
 var _touch_swallow_up := false   ## the hold fired; the coming lift is not a release
@@ -1197,6 +1202,15 @@ var _touch_ring_active := false
 var _touch_ms := 0
 var _touch_pos := Vector2.ZERO
 var _touch_press: Dictionary = {}
+## MS-5 (Ruling EC item 3, `MAP_INTERACTION_RESEARCH.md` section 4, Krita's stray-stroke fix): a touch finger is
+## down on this control. Set by every LMB press and release that came from a touch (`device < 0`, or a mobile
+## build), so `cancel_touch_gesture()` can tell a live stroke from no stroke. Must never be left true after the
+## finger is gone: `discard_touch_press()` and `cancel_touch_gesture()` both clear it, because the host swallows
+## the lift they would otherwise see.
+var _touch_down := false
+## The last grid point a stroke reported (`{gx, gy, valid}`), so a stroke the second finger ends is ended AT the
+## last point the tool saw. Empty until a touch press has been released to the tool.
+var _last_stroke_pt: Dictionary = {}
 
 ## CM-5's sample pin (`MAP_CONTEXT_SCOPE.md` §8.1): `{gx, gy}` in GRID space,
 ## empty when no pin is down. Grid space, not a screen point, so the pin
@@ -8051,7 +8065,11 @@ func _gui_input(event: InputEvent) -> void:
 		## let it through *before* the first `map_dragged`, so a stroke's origin
 		## is the point the finger went down on rather than wherever it had got
 		## to by the time the slop was exceeded.
-		if _touch_armed and mouse.distance_to(_touch_pos) > _TOUCH_SLOP:
+		## MS-5: `mouse` and `_touch_pos` are in THIS control's local space, which the camera scales by
+		## `_camera_zoom`, so a bare local distance made the slop `_TOUCH_SLOP * zoom` screen pixels: 64 px at the
+		## phone's cover zoom of 2.3, where a 40 px stroke never started. Scaled back to screen pixels, the figure
+		## means what `_TOUCH_SLOP`'s own comment says and what the host's tap-versus-drag test (screen space) uses.
+		if _touch_armed and mouse.distance_to(_touch_pos) * _camera_zoom > _TOUCH_SLOP:
 			_release_touch_press()
 		## CM-5: the pin is being dragged (§8.1.4); it tracks the finger and
 		## nothing else sees this motion as a drag (armed tool, ring) while it
@@ -8067,6 +8085,7 @@ func _gui_input(event: InputEvent) -> void:
 		## above already forwarded the same motion to the ring's own slide.
 		if p["valid"] and not _touch_ring_active and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 			_emit_stroke_sample(mm, p["gx"], p["gy"])
+			_last_stroke_pt = {"gx": p["gx"], "gy": p["gy"], "valid": true}
 			map_dragged.emit(p["gx"], p["gy"])
 
 	elif event is InputEventMouseButton:
@@ -8147,6 +8166,10 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		var interior := _interior_rect(rect)
 		_stroke_pen_seen = false   ## ET-D2: every press and release starts a stroke afresh.
+		if mb.device < 0 or OS.has_feature("mobile"):
+			_touch_down = mb.pressed
+			if mb.pressed:
+				_last_stroke_pt = {}
 		if mb.pressed:
 			## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1.4): a touch that lands on the
 			## sample pin drags it instead of arming the ordinary hold sequence --
@@ -8263,7 +8286,49 @@ func _release_touch_press() -> void:
 	ihit = ihit if ihit < _manual_icons.size() else -1
 	icon_selected.emit(_manual_icons[ihit] if ihit != -1 else null, ihit)
 	if bool(p.get("valid", false)):
+		_last_stroke_pt = {"gx": p["gx"], "gy": p["gy"], "valid": true}
 		map_clicked.emit(p["gx"], p["gy"])
+
+## MS-5: the hold this control uses right now, in milliseconds -- the phone's 480 or the tablet's 500, picked by
+## the same `DccTheme.is_tablet()` test `_process()` uses. Public so the host's double-tap detector can call a
+## press a TAP only while it is shorter than the hold that would have opened the card; a second figure there
+## would let a press be a card to this control and a tap to the host.
+func touch_hold_ms() -> int:
+	return _TOUCH_HOLD_MS if DccTheme.is_tablet() else _PHONE_TOUCH_HOLD_MS
+
+## MS-5 (item 5, the one-finger pan): the host has decided this withheld press is a camera drag, so drop it
+## WITHOUT emitting anything -- no `settlement_selected`, no `map_clicked`, no `map_released`. Releasing it
+## instead (what the slop branch does for a drag) would hand a tap-only tool a click at the drag's origin: a
+## Settlement dropped by a pan. Clears the arming and the touch-down latch; the host swallows the lift, so
+## nothing else here ever sees it. Idempotent.
+func discard_touch_press() -> void:
+	_touch_armed = false
+	_touch_down = false
+	set_process(false)
+
+## MS-5 (Ruling EC item 3): a second finger has landed, so whatever the first finger was doing is no longer a
+## one-finger gesture. Returns true when this control ended a gesture and the host should swallow the rest of
+## that finger's events, false when it left the gesture alone.
+##   - a withheld press: discarded, never emitted (a pinch must not tap);
+##   - a live stroke: ENDED with `map_released` at its last point, so a latched origin (Region's marquee, a
+##     Way's draft) clears, and the stroke it already drew stays -- it is not undone, only closed;
+##   - the tablet's ring/card gesture or a pin drag: left alone (false), because their lift is their own
+##     release decision and swallowing it would strand the ring open.
+## `_touch_swallow_up` (the hold already opened the card): also false -- nothing is outstanding.
+func cancel_touch_gesture() -> bool:
+	if _touch_ring_active or _pin_drag_active or _touch_swallow_up:
+		return false
+	if _touch_armed:
+		discard_touch_press()
+		return true
+	if _touch_down:
+		_touch_down = false
+		var p: Dictionary = _last_stroke_pt
+		if p.is_empty():
+			p = _touch_press.get("point", {})
+		map_released.emit(float(p.get("gx", 0.0)), float(p.get("gy", 0.0)), bool(p.get("valid", false)))
+		return true
+	return false
 
 ## Runs only while a touch press is outstanding (`set_process` is turned on by
 ## the press and off by every one of the four exits), so this costs nothing on
@@ -8777,6 +8842,7 @@ const EXPORT_STATE_SKIP := [
 	"_ring_click_cb", "_ring_open_check", "_ring_touch_open_cb",
 	"_last_mouse_local", "_touch_armed", "_touch_swallow_up", "_touch_ring_active",
 	"_touch_ms", "_touch_pos", "_touch_press", "_pin_drag_active", "_stroke_pen_seen",
+	"_touch_down", "_last_stroke_pt",
 	"_rmb_press",
 	"_content_gen", "_layers", "_dyn", "_build_budget_us", "_last_pump_us",
 	"_frame_used_us", "_starved_frames", "_live_zoom", "_bounds_cache", "_cv",
