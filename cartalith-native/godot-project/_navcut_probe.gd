@@ -240,7 +240,7 @@ func _ready() -> void:
 	_measure_generate_segment("S1 boot/peek", app, accent)
 
 	# -- Scenario 2: one tap lifts peek -> half --------------------------------
-	app._pick_phone_tab("gen")
+	app._switch_domain_from_tab("world")
 	await get_tree().create_timer(0.4).timeout
 	await _frames(3)
 	_measure_generate_segment("S2 tap->half", app, accent)

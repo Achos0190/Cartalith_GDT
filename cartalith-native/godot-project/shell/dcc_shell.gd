@@ -7057,128 +7057,155 @@ func _build_phone_menu_bar() -> Control:
 	## than a destination. `docs/ANDROID_UI_SPEC.md` replaces them with four
 	## task tabs, and CIVIL moves under MORE, which that spec states
 	## explicitly ("MORE: Project, Civilization ..., Data manager, ...").
+	## MS-2 (draft 03): `_build_phone_tab_cell()` builds each cell, and no tab registers in `_domain_buttons` /
+	## `_domain_marks` any more: the old GENERATE and MAP cells were the only phone entries, and the one domain
+	## cell stands for three domains, so `_refresh_phone_tabs()` lights and captions every cell itself.
+	## MENU is `cells`' own second child (the place MORE had, which `Window ▸ Domain rail` never hides);
+	## every other tab goes in the box that row hides.
 	for t in PHONE_TABS:
-		var cell := _phone_bar_cell(String(t.caption), String(t.glyph), String(t.tip),
-			_pick_phone_tab.bind(String(t.id)))
+		var cell := _build_phone_tab_cell(t)
 		var key := String(t.id)
 		_phone_tab_cells[key] = cell
-		if String(t.domain) != "":
-			_domain_buttons[String(t.domain)] = cell["button"]
-			_domain_marks[String(t.domain)] = {"label": cell["label"], "icon": cell["icon"],
-				"off": "text_dim", "box": false}
-		## MORE is `cells`' own second child; every other tab goes in the box
-		## `Window ▸ Domain rail` hides.
-		(cells if key == "more" else dests).add_child(cell["button"] as Control)
+		(cells if key == "menu" else dests).add_child(cell["button"] as Control)
 	return bar
 
-## The phone's four task tabs (`docs/ANDROID_UI_SPEC.md`: "bottom bar, task tabs
-## MAP · GENERATE · PLAN · MORE").
+## The phone's four tabs (`MOBILE_SHELL_PROPOSAL.md` section 2.1; Rulings DT and DU): `MAP · <domain> · STORY ·
+## MENU`, replacing `MAP · GENERATE · PLAN · MORE`. Built from `drafts/mobile-shell/03` (MS-2).
 ##
-## `domain` is the desktop workspace a tab selects, or `""` for a tab that is
-## not a workspace at all. Two of the four map straight onto existing domains;
-## PLAN opens the journey planner, and MORE is the overflow screen.
+## The domain tab stands for WORLD, CIVIL and CARTO: its caption and glyph follow the current domain
+## (`DOMAIN_TAB`), a tap opens that domain's sheet, a hold opens the domain fan, a sideways swipe cycles
+## (`_on_domain_cell_input()`). STORY opens `PhoneMenu` on its Story screen (the four bands; JOURNEYS holds
+## the journey planner the PLAN tab opened). MENU is the old MORE overlay (`_toggle_overflow()`).
+## MAP still selects CARTOGRAPHY until MS-3 builds its own sheet.
 ##
-## `civilization` is deliberately absent as a *tab* and still fully reachable --
-## the planner selects it, and MORE lists it. The spec moved it there rather
-## than dropping it.
+## **Where the old tabs' targets went (MISTAKES.md, "Delete a surface")**: GENERATE is the domain tab while
+## the domain is WORLD; PLAN's planner is STORY ▸ Journeys ▸ Journey planner; CIVIL, which had no tab, is the
+## domain tab's second stop; MORE is MENU. Nothing is dropped.
 ##
-## **`glyph` is literal text, not an icon key -- 2026-09-13, was `icon`.** The
-## canvas draws each tab's glyph as plain 14 px IBM Plex Mono text off its own
-## `tabs=[{id:'map',g:'▤'},{id:'gen',g:'⌗'},{id:'plan',g:'➔'},{id:'more',g:'⋯'}]`
-## (`Cartalith Android.dc.html`, grep `g:'▤'`), never an SVG. This file used to
-## route MAP/GENERATE through `DccIcons.rect("domain_carto"/"domain_world",
-## ...)` -- real, registered vector icons (`dcc_icons.gd` has both), just not
-## the canvas's own two glyphs, which those SVGs do not resemble (a layered-map
-## compass and a globe, against the canvas's hatched-square and hash mark).
-## PLAN's `tool_route` (a curved path) and MORE's `nav_more` (three dots)
-## happened to already read close to the canvas's `➔`/`⋯` in general shape,
-## which is the only sense in which they "agreed" with anything -- all four
-## are the literal canvas characters now, on the one mechanism the canvas
-## itself uses (`_phone_bar_cell()`, below, renders `glyph` as a mono `Label`
-## instead of calling `DccIcons.rect()`).
-## `tip` is byte-for-byte the canvas's own static header subtitle for MAP and
-## MORE's root (`AND:1466`'s `titles.map[1]` and `AND:1208`'s `_moreTitle()`
-## `root` entry) as of 2026-09-13 -- both were paraphrases before ("Layers,
-## style and annotation", "Project, Civilization, Data, Assets, Preferences,
-## Help") and `_refresh_phone_sheet_header()` prints them verbatim as the
-## sheet header, not only as a nav-bar tooltip, so the paraphrase was a visible
-## divergence from the design, not decoration. PLAN's stays a paraphrase
-## deliberately: the canvas's own subtitle there ("journey · Vhal Serai → Port
-## Amre") is that mock's DEMO data for a specific planned trip, and this port
-## has no public read of the live planner's selected journey to substitute a
-## real one (`_refresh_phone_sheet_header()`'s own doc comment below, gate S2)
-## -- printing the sample names as if they were real would be worse than the
-## honest paraphrase they replace.
+## `glyph` is literal text, not an icon key (2026-09-13): the canvas draws each tab's glyph as plain mono text
+## (`Cartalith Android.dc.html`), rendered by `_phone_bar_cell()`. The older notes in this file that say
+## "four task tabs MAP · GENERATE · PLAN · MORE" describe the bar before MS-2.
+##
+## `tip` is the sheet header's subtitle for MAP (byte-for-byte the canvas's `titles.map[1]`) and the tab's
+## tooltip; the domain tab's tip is its tooltip only, the sheet header reading `DOMAIN_TAB`.
+## The four tabs (Ruling DT Q1 and Q2). The domain tab's caption and glyph follow the current domain
+## (`DOMAIN_TAB`), so its row carries neither.
 const PHONE_TABS: Array = [
-	{"id": "map", "caption": "MAP", "glyph": "▤", "domain": "cartography",
-		"tip": "layers · style · annotation"},
-	{"id": "gen", "caption": "GENERATE", "glyph": "⌗", "domain": "world",
-		"tip": "The generation pipeline, and Sculpt"},
-	{"id": "plan", "caption": "PLAN", "glyph": "➔", "domain": "",
-		"tip": "Journey planner"},
-	{"id": "more", "caption": "MORE", "glyph": "⋯", "domain": "",
-		"tip": "program · data · preferences"},
+	## `tip` stays the canvas's own `titles.map[1]` until MS-3 builds MAP's sheet (draft 03 had "View · fields ·
+	## layers", the proposal's wording for that future sheet; `_detent_probe` pins the canvas string).
+	{"id": "map", "caption": "MAP", "glyph": "▤", "tip": "layers · style · annotation"},
+	{"id": "domain", "caption": "", "glyph": "",
+		"tip": "The current domain. Hold, or swipe sideways, to switch WORLD · CIVIL · CARTO"},
+	{"id": "story", "caption": "STORY", "glyph": "➔", "tip": "Time · Journeys · Conflicts · Notes"},
+	## `tip` says what the root holds today (the MORE root, retitled); MS-4 replaces it with the eight desktop menus
+	## and this line with "The eight desktop menus, Quick and Status" (draft 03's text).
+	{"id": "menu", "caption": "MENU", "glyph": "☰", "tip": "program · data · preferences"},
 ]
+## What the domain tab says for each domain (Ruling DT Q3: GENERATE while WORLD is the domain). `fan` is
+## the caption in the domain fan and the sheet title. The glyphs are ones the shell already draws (`⌗` the
+## old GENERATE tab, `◍` the old Civilization row, `▦` the asset library row), so none is new to the font.
+const DOMAIN_TAB: Dictionary = {
+	"world": {"caption": "GENERATE", "glyph": "⌗", "fan": "WORLD · GENERATE",
+		"sub": "The generation pipeline, and Sculpt"},
+	"civilization": {"caption": "CIVIL", "glyph": "◍", "fan": "CIVIL",
+		"sub": "settlements · territory · ways · conflicts"},
+	"cartography": {"caption": "CARTO", "glyph": "▦", "fan": "CARTO",
+		"sub": "layers · style · annotation"},
+}
+## Swipe order: left goes to the next, right to the previous. The ids are `DOMAINS`' own.
+const DOMAIN_ORDER: Array = ["world", "civilization", "cartography"]
+## The hold that opens the domain fan. It is the mockup's `NAV_HOLD_MS` (`design/mobile-shell-2026-10-31`), a
+## design figure, revisited on glass in MS-10. The tool fan's own hold is 260 ms (`ToolFan.FAN_HOLD_MS`).
+const DOMAIN_HOLD_MS := 380
+## Sideways travel that counts as a swipe, in phone units (scaled by `_pscale`). A labelled judgement: past
+## the 12-unit tap slop the tool fan uses, short of anything a sheet drag would need.
+const DOMAIN_SWIPE_UNITS := 48.0
 
-## Bottom-bar tab cells keyed by `PHONE_TABS` key; restyled by the tab-highlight refresh.
+## Draft 04, loaded by path so no new `class_name` (and no import pass) is needed.
+const _PhoneDomainFan := preload("res://shell/phone_domain_fan.gd")
+var _domain_fan: Control
+## The domain tab's gesture: `{g0, token, fan, used}` while a press is down, `{}` otherwise. `used` means the
+## press became a swipe or a fan pick, so the Button's own `pressed` (a release inside it) must be skipped.
+var _dom_gesture: Dictionary = {}
+var _dom_token := 0
+
+## Builds one bar cell. The bar builder's loop calls this instead of `_phone_bar_cell()` directly:
+##     for t in PHONE_TABS:
+##         var cell := _build_phone_tab_cell(t)
+##         var key := String(t.id)
+##         _phone_tab_cells[key] = cell
+##         (cells if key == "menu" else dests).add_child(cell["button"] as Control)
+## MENU takes the place MORE had (`cells`, which `Window ▸ Domain rail` never hides). The domain cell is
+## no longer registered in `_domain_buttons` / `_domain_marks`: one cell stands for three domains, so it is
+## lit and captioned by `_refresh_phone_tabs()` instead (see the addition below).
+func _build_phone_tab_cell(t: Dictionary) -> Dictionary:
+	var id := String(t.id)
+	if id != "domain":
+		return _phone_bar_cell(String(t.caption), String(t.glyph), String(t.tip),
+			_pick_phone_tab.bind(id))
+	var dt: Dictionary = DOMAIN_TAB.get(_active_domain, DOMAIN_TAB["world"])
+	var cell := _phone_bar_cell(String(dt["caption"]), String(dt["glyph"]), String(t.tip),
+		_on_domain_cell_pressed)
+	var b := cell["button"] as Button
+	b.gui_input.connect(_on_domain_cell_input.bind(b))
+	return cell
+
+
+## Bottom-bar tab cells keyed by `PHONE_TABS` id; restyled by the tab-highlight refresh.
 var _phone_tab_cells: Dictionary = {}
-var _phone_tab := "gen"   ## Which of `PHONE_TABS` is lit.
+## Which of `PHONE_TABS` is lit. Starts on the domain tab: WORLD is the first domain, and was GENERATE.
+var _phone_tab := "domain"
 
-## One tab press. A workspace tab selects its domain; the two that are not
-## workspaces do their own thing.
-func _pick_phone_tab(id: String) -> void:
-	## SM-7: the GENERATE tab is hidden in Session mode, but a tab can still be
-	## picked by code; refuse before `_phone_tab` is written, or the bar would
-	## light a tab whose domain `_select_domain()` then refuses.
-	for t in PHONE_TABS:
-		if String(t.id) == id and String(t.domain) != "" and _session_refuses(String(t.domain)):
-			return
+## Every tab. `toggle` is false when a domain switch re-picks the domain tab: the sheet then stays open
+## (or opens to half from peek) instead of folding to peek as a second tap on the same tab does.
+##
+## Only MAP and the domain tab drive the sheet's detent ("tab tap opens half", `docs/ANDROID_UI_SPEC.md`;
+## re-tapping the lit one folds it to peek, for the reason `_on_phone_sheet_grab_input()` sets out: this sheet
+## is the tool options bar and has no "gone" state). STORY and MENU open `PhoneMenu` over it, a full overlay,
+## so lifting a peeking sheet behind it would only surface after the overlay closed.
+func _pick_phone_tab(id: String, toggle: bool = true) -> void:
+	## SM-7: Session mode refuses a domain, and a tab can still be picked by code; refuse before `_phone_tab`
+	## is written, or the bar would light a tab whose domain `_select_domain()` then refuses. MAP selects
+	## CARTOGRAPHY (MS-3 builds its own sheet), so it is refused with it. Departure from draft 03, which
+	## guarded only the domain tab: the shipped loop guarded MAP too.
+	if id == "domain" and _session_refuses(_active_domain):
+		return
+	if id == "map" and _session_refuses("cartography"):
+		return
 	var was_tab := _phone_tab
 	_phone_tab = id
 	match id:
-		"more":
+		"menu":
 			_toggle_overflow()
-		"plan":
+		"story":
+			## A second tap on the lit STORY tab closes it, as MENU's does (a departure from draft 03, which
+			## only opened). `_close_all_phone_overlays()` first, as `_toggle_overflow()` does, so no dock
+			## sheet is left behind it.
+			var story_was_open: bool = _phone_menu != null and _phone_menu.is_open() and was_tab == "story"
+			_close_all_phone_overlays()
+			if _phone_menu != null and not story_was_open:
+				_phone_menu.open_story()
+		"map":
 			if _phone_menu != null and _phone_menu.is_open():
 				_phone_menu.close()
-			## `DccApp extends DccShell`, so `self` is the app; the planner
-			## opener lives on the subclass. Guarded rather than assumed,
-			## because `DccShell` is also instantiated bare by probes.
-			if has_method("open_journey_planner"):
-				call("open_journey_planner")
-		_:
+			## MS-3 builds the MAP sheet: view, fields and layers (proposal section 5). Until it lands, MAP
+			## keeps the shipped behaviour of selecting CARTOGRAPHY, which the old `map` row did.
+			_pick_bar_domain("cartography")
+		"domain":
 			if _phone_menu != null and _phone_menu.is_open():
 				_phone_menu.close()
-			for t in PHONE_TABS:
-				if String(t.id) == id and String(t.domain) != "":
-					_pick_bar_domain(String(t.domain))
-	## "tab tap opens half" (`docs/ANDROID_UI_SPEC.md`). The prototype's `hTab`
-	## is `{tab:t, detent: s.detent==='peek' ? 'half' : s.detent}` -- a tap
-	## *lifts* a peeking sheet to half and leaves half and full where the user
-	## put them, so switching tabs never shrinks a sheet someone has just pulled
-	## open. Re-tapping the lit tab closes it there; here it collapses to peek
-	## instead, for the reason `_on_phone_sheet_grab_input()` sets out at
-	## length: this sheet is the tool options bar, and it has no "gone" state on
-	## the other two form factors.
-	##
-	## Only the two *workspace* tabs drive the detent. In the prototype all four
-	## tabs fill the one sheet, so all four move it; here PLAN opens the journey
-	## planner and MORE opens `PhoneMenu`, both full overlays over the sheet
-	## rather than content inside it. Lifting a peeking sheet behind an overlay
-	## the user cannot see through would only surface after they closed it
-	## again, as a sheet that had grown while they were elsewhere.
+			_pick_bar_domain(_active_domain)
 	if _phone_tab_drives_sheet(id):
-		if was_tab == id and _phone_detent != "peek":
+		if toggle and was_tab == id and _phone_detent != "peek":
 			_set_phone_detent("peek")
 		elif _phone_detent == "peek":
 			_set_phone_detent("half")
 	_sync_phone_quick_row()
 	_refresh_phone_tabs()
 	_refresh_phone_sheet_header()
-	## After the detent, not before: `_refresh_phone_gen_panel()` fills a
-	## scroller whose height the detent has just set, and a fill against the
-	## old height leaves the column measured for the wrong box on its first
-	## frame.
+	## After the detent, not before: `_refresh_phone_gen_panel()` fills a scroller whose height the detent has
+	## just set, and a fill against the old height leaves the column measured for the wrong box on its
+	## first frame.
 	_refresh_phone_gen_panel()
 
 ## `sheetTitle`/`sheetSub` (`AND:181-182`) for whichever tab is lit -- the
@@ -7244,7 +7271,7 @@ func _pick_phone_tab(id: String) -> void:
 func _refresh_phone_sheet_header() -> void:
 	if _phone_sheet_title == null or not is_instance_valid(_phone_sheet_title):
 		return
-	if _phone_tab == "gen":
+	if _phone_gen_tab_on():
 		_phone_sheet_title.text = "GENERATE"
 		## Mode `b` holds BOTH Sculpt and Paint, so `active_mode()` cannot tell
 		## them apart; the world workspace's sheet column is what knows which one
@@ -7264,7 +7291,13 @@ func _refresh_phone_sheet_header() -> void:
 				_phone_sheet_subtitle.text = ("pipeline · seed " + seed_str) \
 					if seed_str != "" else "pipeline · no world yet"
 		return
-	if _phone_tab == "plan":
+	## MS-2: the PLAN tab is gone and its planner is STORY ▸ Journeys, so the PLAN header (title "PLAN" /
+	## "PLAN · STAGE n", subtitle "journey · A → B" or "Journey planner") belongs to the STORY tab while the
+	## planner is what is on screen (`armed_tool == "journey"`: the planner is a tool and swaps the main view
+	## on the phone). With the planner closed the STORY tab reads "STORY". A departure from draft 03, which
+	## did not mention this branch; dropping it would have orphaned `JourneyPlannerView.phone_header_info()`
+	## and the PLAN header probes (`_detent_probe`, `_stagetitle_probe`, `_plansubtitle_probe`).
+	if _phone_tab == "story" and String(get("armed_tool")) == "journey":
 		## `get("journey_planner_view")`, not `.journey_planner_view` --
 		## that property lives on `DccApp` (`app.gd`), which EXTENDS this
 		## class rather than the reverse, so `self` here has no static
@@ -7285,8 +7318,17 @@ func _refresh_phone_sheet_header() -> void:
 				_phone_sheet_title.text = ("PLAN · STAGE %d" % stage) if stage > 0 else "PLAN"
 				_phone_sheet_subtitle.text = "journey · %s → %s" % [from_name, to_name]
 				return
-		## Else: no live planner to read, or nothing planned yet -- fall
-		## through to PHONE_TABS' static "PLAN" / "Journey planner".
+		## Else: no live planner to read, or nothing planned yet -- the planner's own static header.
+		_phone_sheet_title.text = "PLAN"
+		_phone_sheet_subtitle.text = "Journey planner"
+		return
+	## The domain tab on CIVIL or CARTO: the domain's own caption and one-line subtitle (`DOMAIN_TAB`). WORLD
+	## returned above. The subtitles are labelled judgements (the Android canvas has no CIVIL or CARTO sheet).
+	if _phone_tab == "domain":
+		var dt: Dictionary = DOMAIN_TAB.get(_active_domain, DOMAIN_TAB["world"])
+		_phone_sheet_title.text = String(dt["fan"])
+		_phone_sheet_subtitle.text = String(dt["sub"])
+		return
 	for t in PHONE_TABS:
 		if String(t.id) == _phone_tab:
 			_phone_sheet_title.text = String(t.caption)
@@ -7309,23 +7351,158 @@ func _phone_gen_seed_text(bridge: EngineBridge) -> String:
 		return ""
 	return str(int(bridge.world_gen.get_seed()))
 
-## Which of `PHONE_TABS` a domain lights. A domain with no tab of its own lives
-## under MORE and lights MORE -- except when the tab already lit is itself not a
-## workspace, which means THAT tab is what opened this domain (PLAN selects
-## Civilization) and re-pointing the bar at MORE would name a screen the user is
-## not on.
+## Which of `PHONE_TABS` a domain lights. Every domain lives on the one domain tab, except that the MAP tab
+## keeps itself lit while it is what selected CARTOGRAPHY, and a tab that opens an overlay (STORY, MENU)
+## stays lit when the domain changes under it (the planner selects CIVIL from STORY ▸ Journeys; MENU ▸ Window ▸
+## Workspace picks any): re-pointing the bar then would name a screen the user is not on. Departure from
+## draft 03, which returned "domain" unconditionally and would have un-lit MAP on its own press
+## (`_pick_phone_tab("map")` calls `_select_domain()`, which calls this) and STORY on the planner's.
 func _phone_tab_for_domain(id: String) -> String:
-	for t in PHONE_TABS:
-		if String(t.domain) == id:
-			return String(t.id)
-	return "more" if _phone_tab_drives_sheet(_phone_tab) else _phone_tab
+	if _phone_tab == "map" and id == "cartography":
+		return "map"
+	if _phone_tab == "story" or _phone_tab == "menu":
+		return _phone_tab
+	return "domain"
 
-## Whether a tab's destination is the tool sheet itself. `domain` is `""` for
-## exactly the two tabs that open an overlay instead -- see `PHONE_TABS`.
+## MAP and the domain tab drive the bottom sheet; STORY and MENU open PhoneMenu over it.
 func _phone_tab_drives_sheet(id: String) -> bool:
-	for t in PHONE_TABS:
-		if String(t.id) == id:
-			return String(t.domain) != ""
+	return id == "map" or id == "domain"
+
+## True when the sheet shows WORLD's generation panel: the domain tab is lit and the domain is WORLD (what
+## `_phone_tab == "gen"` meant before the domain tab).
+func _phone_gen_tab_on() -> bool:
+	return _phone_tab == "domain" and _active_domain == "world"
+
+## Called at the end of `_refresh_phone_tabs()` (MS-2): the domain cell's caption and glyph follow `_active_domain`.
+## Its lit state comes from the existing loop, because its key is "domain" and `_phone_tab` is "domain"
+## whenever a domain sheet is up.
+func _refresh_domain_tab_caption() -> void:
+	var dcell: Dictionary = _phone_tab_cells.get("domain", {})
+	if dcell.is_empty():
+		return
+	var dt: Dictionary = DOMAIN_TAB.get(_active_domain, DOMAIN_TAB["world"])
+	var lbl := dcell.get("label") as Label
+	var ic := dcell.get("icon") as Label
+	if lbl != null and is_instance_valid(lbl):
+		lbl.text = String(dt["caption"])
+	if ic != null and is_instance_valid(ic):
+		ic.text = String(dt["glyph"])
+
+## A plain tap on the domain tab. Skipped when the same press already became a swipe or a fan pick: the
+## Button emits `pressed` on a release inside it, after `gui_input` has seen that release.
+func _on_domain_cell_pressed() -> void:
+	var skip := bool(_dom_gesture.get("used", false))
+	_dom_gesture.clear()
+	if skip:
+		return
+	_pick_phone_tab("domain")
+
+## The domain tab's gestures, from the same mouse and touch events the tool fan's pill reads
+## (`tool_fan.gd`), converted to canvas coordinates the same way. With mouse emulation on (the project's
+## default), one finger arrives twice, so a second press while a gesture is live is ignored.
+func _on_domain_cell_input(event: InputEvent, b: Button) -> void:
+	var pos := Vector2.ZERO
+	var kind := ""
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		pos = mb.position
+		kind = "press" if mb.pressed else "release"
+	elif event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		pos = st.position
+		kind = "press" if st.pressed else "release"
+	elif event is InputEventMouseMotion:
+		pos = (event as InputEventMouseMotion).position
+		kind = "move"
+	elif event is InputEventScreenDrag:
+		pos = (event as InputEventScreenDrag).position
+		kind = "move"
+	else:
+		return
+	var g: Vector2 = b.get_global_transform_with_canvas() * pos
+	match kind:
+		"press":
+			if not _dom_gesture.is_empty():
+				return
+			_dom_token += 1
+			_dom_gesture = {"g0": g, "token": _dom_token, "fan": false, "used": false}
+			get_tree().create_timer(DOMAIN_HOLD_MS / 1000.0).timeout.connect(
+				_on_domain_hold.bind(_dom_token, b))
+		"move":
+			if _dom_gesture.is_empty():
+				return
+			if bool(_dom_gesture["fan"]):
+				_domain_fan.call("pointer", g)
+			elif not bool(_dom_gesture["used"]):
+				var dx: float = g.x - (_dom_gesture["g0"] as Vector2).x
+				if absf(dx) >= float(_pscale(DOMAIN_SWIPE_UNITS)):
+					_dom_gesture["used"] = true
+					_cycle_domain(1 if dx < 0.0 else -1)
+		"release":
+			if _dom_gesture.is_empty():
+				return
+			if bool(_dom_gesture["fan"]):
+				_dom_gesture["used"] = true
+				var picked := String(_domain_fan.call("release_at", g))
+				if picked != "":
+					_switch_domain_from_tab(picked)
+			if bool(_dom_gesture["used"]):
+				## The Button may or may not emit `pressed` (only when the release is inside it), so the
+				## gesture is cleared after this frame's input either way.
+				_clear_dom_gesture.call_deferred(int(_dom_gesture["token"]))
+			else:
+				_dom_gesture.clear()
+
+## Clears the gesture left by a swipe or a fan pick, unless a newer press has started since.
+func _clear_dom_gesture(token: int) -> void:
+	if not _dom_gesture.is_empty() and int(_dom_gesture["token"]) == token:
+		_dom_gesture.clear()
+
+## The hold timer. It only acts on the press that started it, and only if that press is still down and has
+## not become a swipe.
+func _on_domain_hold(token: int, b: Button) -> void:
+	if _dom_gesture.is_empty() or int(_dom_gesture["token"]) != token or bool(_dom_gesture["used"]):
+		return
+	if _domain_fan == null:
+		_domain_fan = _PhoneDomainFan.new()
+		_domain_fan.call("setup", self)
+		_phone_root.add_child(_domain_fan)
+	_dom_gesture["fan"] = true
+	_haptic("sample")
+	var entries: Array = []
+	for id in DOMAIN_ORDER:
+		var dt: Dictionary = DOMAIN_TAB[id]
+		entries.append({"id": id, "caption": String(dt["fan"]), "glyph": String(dt["glyph"]),
+			"refused": _session_refuses(String(id))})
+	## In landscape the bar is a left rail (`_apply_phone_nav_orientation()`), so the fan opens to the right into
+	## the map instead of upward over the other cells (departure from draft 03; see `phone_domain_fan.gd`).
+	_domain_fan.call("open_above", b.get_global_rect(), _active_domain, entries,
+		Vector2.RIGHT if _landscape else Vector2.UP)
+
+## Swipe: the next or previous domain in `DOMAIN_ORDER`.
+func _cycle_domain(step: int) -> void:
+	var i := DOMAIN_ORDER.find(_active_domain)
+	if i < 0:
+		i = 0
+	_switch_domain_from_tab(String(DOMAIN_ORDER[posmod(i + step, DOMAIN_ORDER.size())]))
+
+## The one way the domain tab changes the domain: through `_pick_bar_domain()`, as the old GENERATE and MAP
+## tabs did, then re-picking the domain tab without the second-tap fold. Session mode's refusal is honoured.
+func _switch_domain_from_tab(id: String) -> void:
+	if _session_refuses(id):
+		return
+	_haptic("tool_arm")
+	_pick_bar_domain(id)
+	_pick_phone_tab("domain", false)
+
+## Called first in the phone's system-back chain, before the sheet levels: an open domain fan closes first
+## (proposal §4's order: window, fan, quick drawer, cartwheel, …).
+func _close_domain_fan_for_back() -> bool:
+	if _domain_fan != null and bool(_domain_fan.call("is_open")):
+		_domain_fan.call("close")
+		return true
 	return false
 
 ## The active tab wears the candidate's own pill -- `padding:5px 16px;
@@ -7333,6 +7510,7 @@ func _phone_tab_drives_sheet(id: String) -> bool:
 ## (`candidates/Android Chrome B.dc.html`). Lighting only the caption, which is
 ## what the old bar did, left the row reading as four labels of equal weight.
 func _refresh_phone_tabs() -> void:
+	_refresh_domain_tab_caption()
 	for key in _phone_tab_cells.keys():
 		var cell: Dictionary = _phone_tab_cells[key]
 		var on: bool = (String(key) == _phone_tab)
@@ -7341,6 +7519,11 @@ func _refresh_phone_tabs() -> void:
 		if lbl != null and is_instance_valid(lbl):
 			(lbl as Label).add_theme_color_override("font_color",
 				DccTheme.c("accent" if on else "text_dim"))
+		## The glyph's ink moved here with the domain cells' registration in `_domain_marks` (MS-2): the
+		## old `_select_domain()` loop tinted it only for cells registered there.
+		var gly := cell.get("icon") as CanvasItem
+		if gly != null and is_instance_valid(gly):
+			gly.modulate = DccTheme.c("accent" if on else "text_dim")
 		if pill != null and is_instance_valid(pill):
 			## **`.14` and radius `13`, from `AND:600` + `AND:1460` + `AND:31`,
 			## not the `.16` / `14` this took from a candidate.** NOT the
@@ -7878,7 +8061,7 @@ func _build_phone_tool_sheet() -> PanelContainer:
 func _refresh_phone_gen_panel() -> void:
 	if _phone_gen_scroll == null or not is_instance_valid(_phone_gen_scroll):
 		return
-	var on: bool = _phone and _phone_tab == "gen"
+	var on: bool = _phone and _phone_gen_tab_on()
 	var ws: Node = _workspace_panels.get("world")
 	if on and (ws == null or not ws.has_method("build_phone_generate")):
 		on = false
@@ -10187,12 +10370,12 @@ func _position_phone_toast(wrap: Control, near: Control) -> void:
 ## anchored, that is a `viewport_host.gd` change (a public rect getter),
 ## made by whoever owns that file, not a reach-around from this one.
 const _COACH_MARKS := [
-	## Rewritten against `PHONE_TABS`, which is what the bar has actually drawn
+	## Rewritten for MS-2's bar (MAP · domain · STORY · MENU), against `PHONE_TABS`, which is what the bar draws
 	## since the tab migration. The old text named WORLD/CIVIL/CARTO and PANELS
 	## -- three captions the bar no longer carries and one that was never a tab
 	## at all -- and so pointed a first-run hint at a bar that does not exist.
 	{"id": "bottombar_tabs",
-		"text": "MAP · GENERATE · PLAN switch tasks here — MORE reaches everything else."},
+		"text": "MAP · domain · STORY switch tasks here — hold the domain tab to change domain, MENU reaches everything else."},
 	{"id": "sheet_handle", "text": "Drag this handle to expand tool options."},
 	## Shown last (after the two that already existed) rather than first: the
 	## nav-bar and sheet-handle hints are about controls that are on screen the
@@ -10489,6 +10672,10 @@ func _notification(what: int) -> void:
 	var top := _topmost_subwindow(get_tree().root)
 	if top != null:
 		top.hide()
+		_haptic("back")
+		return
+	## MS-2 (draft 03): an open domain fan closes first (proposal section 4's order: window, fan, ...).
+	if _close_domain_fan_for_back():
 		_haptic("back")
 		return
 	if _phone_menu != null and _phone_menu.go_back():

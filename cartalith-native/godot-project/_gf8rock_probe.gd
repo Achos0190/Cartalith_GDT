@@ -107,7 +107,7 @@ func _show_paint(app, ws) -> void:
 	await _frames(6)
 	if _form == "phone":
 		if app.has_method("_pick_phone_tab"):
-			app._pick_phone_tab("gen")
+			app._switch_domain_from_tab("world")
 		await _frames(6)
 		ws._pg_set_mode("paint")
 		await _frames(8)

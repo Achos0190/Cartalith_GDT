@@ -272,7 +272,7 @@ func _ready() -> void:
 	app.tool_bar._select_mode("paint")
 	app.tool_bar._on_paint_layer("biome")
 	await _frames(SETTLE)
-	if phone and app._phone_tab == "gen":
+	if phone and app._phone_tab == "domain":
 		## Arming Paint selects the WORLD domain, which lights GENERATE and swaps
 		## the options row for the generation column, so THIS bar's own row is
 		## hidden on a phone. A thumb now reaches Paint's options through the

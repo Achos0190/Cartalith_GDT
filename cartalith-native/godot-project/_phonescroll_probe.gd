@@ -606,7 +606,7 @@ func _surfaces() -> Array:
 	var out: Array = []
 	out.append(["phone tab MAP half", func(): a._pick_phone_tab("map"); a.set_phone_detent("half")])
 	out.append(["phone tab MAP full", func(): a._pick_phone_tab("map"); a.set_phone_detent("full")])
-	out.append(["phone tab GENERATE full", func(): a._pick_phone_tab("gen"); a.set_phone_detent("full")])
+	out.append(["phone tab GENERATE full", func(): a._switch_domain_from_tab("world"); a.set_phone_detent("full")])
 	for dom in ["world", "civilization", "cartography"]:
 		var d: String = dom
 		out.append(["left sheet domain " + d + " full", func(): a._pick_bar_domain(d); a.set_phone_detent("full")])

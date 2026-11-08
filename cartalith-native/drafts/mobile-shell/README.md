@@ -22,6 +22,22 @@ godot --headless --path cartalith-native/godot-project --check-only --script res
 Then parse-check `shell/app.gd` as well. Re-run the parse check after every edit, not once per file. A failed script load makes
 `--headless` hang rather than exit (`MISTAKES.md`).
 
+## Transplanted (a pointer; `STATUS.md` holds the state)
+
+Drafts 1 and 2 landed with MS-1 (S1 to S3). **Drafts 3 and 4 landed with MS-2** (2026-11-08), as `shell/dcc_shell.gd`
+(`PHONE_TABS`, `DOMAIN_TAB`, `_build_phone_tab_cell()`, `_pick_phone_tab()`, the domain tab's gesture handlers) and the new
+`shell/phone_domain_fan.gd`, with **draft 5's STORY half only** (`PhoneMenu.open_story()`, the `story-root` screen and
+`_fill_story_rows()`): draft 3 calls `open_story()`. The rest of draft 5 (MENU's root, `_fill_popup()`, the fourteen
+unreachable screens and their sixteen probes) is MS-4 and is **not** landed; MENU is still the old MORE root, retitled
+"Menu". Departures from the drafts as pasted, each commented where it lives: `_phone_tab_for_domain()` keeps MAP and the
+overlay tabs lit (the draft's `"domain"` for everything would un-light MAP on its own press); `_pick_phone_tab()` also
+refuses MAP under Session mode (the shipped loop did) and a second tap on a lit STORY closes it; `DOMAIN_TAB` gained a
+`sub` line for the sheet header; `_refresh_phone_tabs()` tints the glyph (it moved out of `_select_domain()`'s registry
+loop with the cells); the PLAN header's live "journey A to B" now belongs to STORY while the planner is on screen. The
+coach mark (H2) reads "MAP · domain · STORY switch tasks here — hold the domain tab to change domain, MENU reaches
+everything else.", with `_coachcoldboot_probe.gd` and `_pandraghint_probe.gd` re-pinned. `check_symbols.sh` no longer
+anchors draft 03's coach-mark text (replaced); its "TAKEN" lines for MS-1's and MS-2's names are expected now that drafts 1 to 4 are in.
+
 ## Order of work
 
 | # | Draft | Milestone | Target | Replaces / adds | Blocked by |
@@ -29,8 +45,8 @@ Then parse-check `shell/app.gd` as well. Re-run the parse check after every edit
 | 0 | `check_symbols.sh` | — | — | re-checks the drafts against the current tree | nothing; run it first |
 | 1 | `01_dcc_theme_classify.gd` | MS-1 S1 | `shell/dcc_theme.gd` | adds `classify()`, `width_class_of()`, `layout()`; takes over `_PHONE_ASPECT_MAX` and `_TABLET_MIN_DP` from the shell | nothing |
 | 2 | `02_dcc_shell_density_unit.gd` | MS-1 S1, S2, S3 | `shell/dcc_shell.gd` | replaces `_compute_layout_mode()`, `_is_tablet_sized()` and `_on_window_resized()`; adds `_density()`, `--density`, `--ui-scale`, `_apply_unit()` and the resize debounce | S0's measurements before S2 (spec §4.1); MQ-2 and MQ-3 before S2 |
-| 3 | `03_dcc_shell_phone_tabs.gd` | MS-2 | `shell/dcc_shell.gd` | replaces `PHONE_TABS`, `_pick_phone_tab()`, `_phone_tab_for_domain()` and `_phone_tab_drives_sheet()`; adds the domain tab's tap, hold and swipe; flags the coach mark that still names the old tabs (H2, added 2026-11-01; H1 withdrawn by Ruling DX Q13) | drafts 4 and 5 |
-| 4 | `04_phone_domain_fan.gd` | MS-2 | new `shell/phone_domain_fan.gd` | the domain fan: WORLD · GENERATE, CIVIL, CARTO | nothing |
+| 3 | `03_dcc_shell_phone_tabs.gd` | MS-2 (**landed**) | `shell/dcc_shell.gd` | replaces `PHONE_TABS`, `_pick_phone_tab()`, `_phone_tab_for_domain()` and `_phone_tab_drives_sheet()`; adds the domain tab's tap, hold and swipe; flags the coach mark that still names the old tabs (H2, added 2026-11-01; H1 withdrawn by Ruling DX Q13) | drafts 4 and 5 |
+| 4 | `04_phone_domain_fan.gd` | MS-2 (**landed**) | new `shell/phone_domain_fan.gd` | the domain fan: WORLD · GENERATE, CIVIL, CARTO | nothing |
 | 5 | `05_phone_menu_root.gd` | MS-4, MS-6 | `shell/phone_menu.gd` | replaces `_fill_root()` (the eight menus row for row, Ruling DX Q13), `_fill_story_section()` (the STORY tab's four band rows, without the old root's "Story" and "World" heads) and `_fill_popup()` (a leading captioned separator is kept as a band); adds `_menu_root_row()`, the `story-root` screen, `open_story()` and `open_screen()`; retires `ROOT_ROWS`, `ROOT_REST`, `_named_in_root()` and leaves fourteen screens unreachable (the inventory below) | nothing |
 | 6 | `06_quick_drawer.gd` | MS-11 | new `shell/quick_drawer.gd` | the phone's side drawer of pinned commands | Q10 and Q11 (proposal §7) |
 | 7 | `07_quick_bar_phone_drawer_patch.gd` | MS-11 | `shell/quick_bar_phone.gd`, `shell/dcc_shell.gd` | replaces `QuickBarPhone.refresh()`; adds `set_phone_quick_drawer()` and the back hook | draft 6 |

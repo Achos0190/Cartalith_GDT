@@ -412,9 +412,9 @@ func _run_leg(theme: String) -> void:
 	for attempt in 3:
 		await _tap(gen_cell.get_global_rect().get_center())
 		await _sheet_settled()
-		if String(app._phone_tab) == "gen" and scroll.get_global_rect().size.y >= 300.0:
+		if String(app._phone_tab) == "domain" and scroll.get_global_rect().size.y >= 300.0:
 			break
-	_check(String(app._phone_tab) == "gen" and scroll.visible, "[%s] tapping GENERATE shows the sheet column" % theme)
+	_check(String(app._phone_tab) == "domain" and scroll.visible, "[%s] tapping GENERATE shows the sheet column" % theme)
 	_check(String(app.phone_detent()) != "peek" and scroll.get_global_rect().size.y >= 300.0,
 		"[%s] at a usable detent (%s), the sheet MEASURES %.0f px tall, not a peek strip" % [theme, app.phone_detent(), scroll.get_global_rect().size.y])
 
@@ -675,12 +675,12 @@ func _run_leg(theme: String) -> void:
 	await _tap(gen_cell.get_global_rect().get_center())
 	_check("SEED" in _texts() and not ("TARGET FIELD" in _texts()),
 		"[%s] re-tapping GENERATE does not clobber the user's PIPELINE choice with Paint" % theme)
-	for cap in ["MAP", "PLAN", "MORE"]:
+	for cap in ["MAP", "STORY", "MENU"]:
 		var cell := _nav_cell(cap)
 		_check(cell != null, "[%s] a bottom-nav cell reads %s" % [theme, cap])
 		if cell != null:
 			await _tap(cell.get_global_rect().get_center())
-			_check(not scroll.visible or String(app._phone_tab) == "gen",
+			_check(not scroll.visible or String(app._phone_tab) == "domain",
 				"[%s] %s takes the GENERATE column away (tab=%s)" % [theme, cap, app._phone_tab])
 	app.arm_tool("inspect")   ## slate reset for the next palette's leg, as at step 0
 	await _frames(SETTLE)

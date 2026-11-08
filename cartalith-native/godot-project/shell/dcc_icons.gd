@@ -141,7 +141,7 @@ const PATHS := {
 	## PANELS and MORE, which is how these two entries came to be drawn. Both
 	## are now (per `PHONE_TABS` in `dcc_shell.gd`, and `_pick_phone_tab()`'s
 	## own header) collapsed into the shipped `docs/ANDROID_UI_SPEC.md` four-
-	## tab bar -- MAP · GENERATE · PLAN · MORE -- whose glyphs are 2026-09-13
+	## tab bar -- MAP · GENERATE · PLAN · MORE then, MAP · domain · STORY · MENU since MS-2 -- whose glyphs are 2026-09-13
 	## the canvas's own **literal text characters** (`▤ ⌗ ➔ ⋯`,
 	## `Cartalith Android.dc.html`'s `tabs=[{id:'map',g:'▤'},...]`), rendered by
 	## a mono `Label` in `_phone_bar_cell()`, not by either SVG below. Kept

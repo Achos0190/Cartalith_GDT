@@ -161,7 +161,7 @@ func _ready() -> void:
 	# -- Q1: is any PhoneMenu Range ever in the tree? --------------------------
 	var pm := _phone_menu()
 	_log("Q1 PhoneMenu instance in tree at boot: %s" % str(pm != null))
-	if await _tap_caption("MORE"):
+	if await _tap_caption("MENU"):
 		pm = _phone_menu()
 		_log("Q1 after MORE: PhoneMenu=%s visible=%s" %
 			[str(pm != null), str(pm != null and (pm as Control).is_visible_in_tree())])

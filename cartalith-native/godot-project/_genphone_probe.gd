@@ -270,7 +270,7 @@ func _ready() -> void:
 	## take the first arm and drop it straight back -- measured, after this
 	## probe briefly tapped twice and reported the lift broken.
 	await _tap(r.get_center())
-	_check(String(app._phone_tab) == "gen", "the tap selected the GENERATE tab")
+	_check(String(app._phone_tab) == "domain", "the tap selected the GENERATE tab")
 	_check(String(app.active_domain()) == "world", "and the WORLD domain with it")
 	_check(app._phone_gen_scroll != null and app._phone_gen_scroll.visible,
 		"the GENERATE column is up")

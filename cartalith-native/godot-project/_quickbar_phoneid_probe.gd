@@ -151,7 +151,15 @@ static func _bbox(a: Image, b: Image) -> Rect2i:
 func _show(tab: String, det: String) -> void:
 	if _app._phone_menu != null and _app._phone_menu.is_open():
 		_app._phone_menu.close()
-	_app._pick_phone_tab(tab)
+	## MS-2: the probe's legacy tab names ("gen", "more") map onto the new bar (GENERATE is the domain tab while
+	## WORLD is the domain; MORE is MENU).
+	match tab:
+		"gen":
+			_app._switch_domain_from_tab("world")
+		"more":
+			_app._pick_phone_tab("menu")
+		_:
+			_app._pick_phone_tab(tab)
 	_app.set_phone_detent(det)
 	await get_tree().create_timer(0.6).timeout
 	await _settle(4)
@@ -241,7 +249,7 @@ func _ready() -> void:
 	await _show("gen", "full")
 	await _grab("gen_full")
 	await _show("map", "peek")
-	_app._pick_phone_tab("more")
+	_app._pick_phone_tab("menu")
 	await get_tree().create_timer(0.6).timeout
 	await _settle(4)
 	await _grab("more_root")

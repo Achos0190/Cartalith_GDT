@@ -68,7 +68,7 @@ func _check(ok: bool, what: String) -> void:
 	_log("  %-4s %s" % ["OK" if ok else "FAIL", what])
 
 const HINT_TEXT := "A one-finger drag only moves the map while Pan (✋) is armed."
-const BOTTOMBAR_TEXT := "MAP · GENERATE · PLAN switch tasks here — MORE reaches everything else."
+const BOTTOMBAR_TEXT := "MAP · domain · STORY switch tasks here — hold the domain tab to change domain, MENU reaches everything else."
 const SHEETHANDLE_TEXT := "Drag this handle to expand tool options."
 
 ## `is_visible_in_tree()`, not just a text match on the node -- MISTAKES.md

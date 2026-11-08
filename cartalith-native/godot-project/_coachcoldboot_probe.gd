@@ -51,7 +51,7 @@ extends Node
 ##         COACHCOLDBOOT_SHOT_DIR is set and non-empty, `_shot()` does extra work for each tag
 ##         (empty or unset: it returns at once).
 
-const BOTTOMBAR_TEXT := "MAP · GENERATE · PLAN switch tasks here — MORE reaches everything else."
+const BOTTOMBAR_TEXT := "MAP · domain · STORY switch tasks here — hold the domain tab to change domain, MENU reaches everything else."
 const SHEETHANDLE_TEXT := "Drag this handle to expand tool options."
 const HINT_TEXT := "A one-finger drag only moves the map while Pan (✋) is armed."
 const COACH_TEXTS := [BOTTOMBAR_TEXT, SHEETHANDLE_TEXT, HINT_TEXT]

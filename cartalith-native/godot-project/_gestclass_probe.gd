@@ -785,9 +785,9 @@ func _ready() -> void:
 	if _flag("--census-only") and app.is_phone():
 		app._set_sheet_open("left", false)
 		await _frames(4)
-		if await _tap_caption("PLAN"):
+		if await _tap_caption("STORY"):
 			_census("after tapping PLAN (the planner form now exists)")
-		if await _tap_caption("MORE"):
+		if await _tap_caption("MENU"):
 			_census("after tapping MORE")
 		if await _tap_caption("Simulation"):
 			_census("MORE > Simulation")
@@ -817,7 +817,7 @@ func _ready() -> void:
 			_census("WORLD LOADED, left sheet open")
 			app._set_sheet_open("left", false)
 			await _frames(4)
-			if await _tap_caption("MORE"):
+			if await _tap_caption("MENU"):
 				if await _tap_caption("Simulation"):
 					_census("WORLD LOADED, MORE > Simulation")
 		else:
@@ -921,7 +921,7 @@ func _ready() -> void:
 			if app.asset_library_window != null and app.asset_library_window.visible:
 				app.asset_library_window.hide()
 				await _frames(6)
-			if await _tap_caption("PLAN"):
+			if await _tap_caption("STORY"):
 				await _frames(20)
 				app._set_sheet_open("left", true)
 				await _frames(10)

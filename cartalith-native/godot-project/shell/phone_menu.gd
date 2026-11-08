@@ -162,7 +162,11 @@ class _Step:
 ## no tool for -- see `_fill_civ()`, which draws that absence as a row rather
 ## than quietly shortening the promise.
 const SCREEN_TITLES: Dictionary = {
-	"more": ["More", "program · data · preferences"],
+	## MS-2 (Ruling DT Q2): the bar's last tab is MENU now. The key stays `more` so `open()` and every
+	## probe that pushes it keep working (draft 05's note); the root is still the shipped one until MS-4.
+	"more": ["Menu", "program · data · preferences"],
+	## MS-2: the STORY tab's screen (draft 05's `story-root`), the four `STORY_ROWS` bands.
+	"story-root": ["Story", "time · journeys · conflicts · notes"],
 	"project": ["Project", "files · autosave · storage"],
 	"civ": ["Civilization", "settlement · POI · way tools"],
 	"data": ["Data manager", "import · export · sources · validation"],
@@ -1615,6 +1619,7 @@ func _missing_row(label: String, why: String) -> Control:
 func _fill_screen(body: VBoxContainer, id: String, arg: String = "") -> void:
 	match id:
 		"more": _fill_root(body)
+		"story-root": _fill_story_rows(body)
 		"project": _fill_project(body)
 		"civ": _fill_civ(body)
 		"data": _fill_data(body)
@@ -1795,11 +1800,30 @@ func _story_row(band: String) -> Dictionary:
 ## row drills into `_fill_story(band)`.
 func _fill_story_section(body: VBoxContainer) -> void:
 	_head(body, "Story")
+	_fill_story_rows(body)
+	_head(body, "World")
+
+## MS-2 (draft 05's `_fill_story_section()` body, split out): the four band rows alone, with neither the
+## root's "Story" head nor its closing "World" head. The `story-root` screen draws these under its own
+## title. `_fill_story_section()` above keeps the old root's heads until MS-4 replaces that root.
+func _fill_story_rows(body: VBoxContainer) -> void:
 	for r in STORY_ROWS:
 		var band := String(r["band"])
 		_add(body, _row(String(r["label"]), String(r["sub"]), null, _chevron(),
 			func(): _push_screen("story", band), false, _glyph(String(r["glyph"]))))
-	_head(body, "World")
+
+## The STORY tab (Ruling DT Q1; draft 05). Opens this sheet on the Story screen, or straight on one band
+## ("TIME", "JOURNEYS", "CONFLICTS & CAMPAIGNS" or "NOTES", the `STORY_ROWS` bands). System back from a band
+## returns to the Story screen, and from there closes the sheet. Does not close other overlays; the shell
+## does that first. Must never leave the planner unreachable: JOURNEYS holds it (the PLAN tab's old door).
+func open_story(band: String = "") -> void:
+	_stack.clear()
+	_stack.append(_Step.new(null, _screen_title("story-root"), "", 2, "story-root"))
+	visible = true
+	if band != "":
+		_push_screen("story", band)
+	else:
+		_render()
 
 ## One Story band as a screen: the `Story` popup's rows between the separator
 ## captioned `band` and the next separator, drawn by `_rest_of()` in the popup's

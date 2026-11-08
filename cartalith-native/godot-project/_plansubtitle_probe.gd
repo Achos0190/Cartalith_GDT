@@ -134,7 +134,11 @@ func _ready() -> void:
 	# calls `_refresh_phone_sheet_header()` -- so the header is correct here
 	# ON ENTRY regardless of this row's bug. The bug is what happens next,
 	# with the tab left alone.
-	app._pick_phone_tab("plan")
+	app._pick_phone_tab("story")
+	## MS-2: the PLAN tab is gone; the planner is STORY > Journeys > Journey planner, which closes the menu and
+	## opens the planner. Driven here by its end points (the tab, then the opener the row calls).
+	app._phone_menu.close()
+	app.open_journey_planner()
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -142,7 +146,7 @@ func _ready() -> void:
 	if jp == null or not is_instance_valid(jp):
 		get_tree().quit(_fail("app.journey_planner_view missing after PLAN tab pick"))
 		return
-	if String(app._phone_tab) != "plan":
+	if String(app._phone_tab) != "story":
 		get_tree().quit(_fail("PLAN tab pick left _phone_tab=%s" % app._phone_tab))
 		return
 
@@ -168,7 +172,7 @@ func _ready() -> void:
 	jp._compute()
 	await get_tree().process_frame
 
-	if String(app._phone_tab) != "plan":
+	if String(app._phone_tab) != "story":
 		get_tree().quit(_fail("something re-routed off the PLAN tab mid-probe"))
 		return
 

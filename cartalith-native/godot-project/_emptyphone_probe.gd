@@ -384,7 +384,17 @@ func _ready() -> void:
 	## different defect from a map with nothing in it.
 	var tab := _arg("--tab", "")
 	if tab != "":
-		app._pick_phone_tab(tab)
+		## MS-2: legacy `--tab` names map onto the new bar ("gen" is the domain tab on WORLD, "plan" is STORY,
+		## "more" is MENU).
+		match tab:
+			"gen":
+				app._switch_domain_from_tab("world")
+			"plan":
+				app._pick_phone_tab("story")
+			"more":
+				app._pick_phone_tab("menu")
+			_:
+				app._pick_phone_tab(tab)
 		await get_tree().create_timer(1.0).timeout
 		await _frames(6)
 		tag += " · tab=" + tab

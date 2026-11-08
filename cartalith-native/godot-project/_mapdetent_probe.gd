@@ -59,7 +59,7 @@ func _ready() -> void:
 		100.0 * (1.0 - map_content_noworld / flat_half)])
 
 	# -- GEN, no world, unaffected regression check ---------------------------
-	app._pick_phone_tab("gen")
+	app._switch_domain_from_tab("world")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
 	var gen_half := float(app._phone_detent_height("half"))
@@ -85,7 +85,7 @@ func _ready() -> void:
 		100.0 * (1.0 - map_content_world / flat_half)])
 
 	# -- GEN again, world loaded, still unaffected -----------------------------
-	app._pick_phone_tab("gen")
+	app._switch_domain_from_tab("world")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
 	var gen_half_world := float(app._phone_detent_height("half"))
@@ -96,7 +96,7 @@ func _ready() -> void:
 	app.set_phone_detent("peek")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
-	app._pick_phone_tab("more")
+	app._pick_phone_tab("menu")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
 	print("MORE: detent=%s (must stay peek, MORE doesn't drive the sheet)  %s" % [

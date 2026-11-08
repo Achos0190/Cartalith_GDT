@@ -530,7 +530,7 @@ func _ready() -> void:
 	if app.is_phone():
 		app._set_sheet_open("left", false)
 		await _frames(4)
-		if await _tap_caption("PLAN"):
+		if await _tap_caption("STORY"):
 			_census("after tapping PLAN")
 			## The planner's form is the shell's densest `SpinBox` population and
 			## the only one reachable without opening a window, so the SpinBox
@@ -545,7 +545,7 @@ func _ready() -> void:
 				await _spinbox_leg()
 				app._set_sheet_open("left", false)
 				await _frames(4)
-		if await _tap_caption("MORE"):
+		if await _tap_caption("MENU"):
 			_census("after tapping MORE")
 		## `Simulation` is a MORE drill row -- the caption is read off `ROOT_ROWS`
 		## rather than guessed, because the first cut of this line hunted

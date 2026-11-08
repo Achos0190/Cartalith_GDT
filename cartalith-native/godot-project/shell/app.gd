@@ -6158,7 +6158,7 @@ func reveal_on_disk(path: String) -> bool:
 ## planner's home, per `00-REPLACEMENT-PLAN.md` §1.1 and v3. What calls this now:
 ##
 ##   - the rail node (`dcc_shell.gd::_on_rail_node_pressed()`), desktop and phone
-##   - the phone PLAN tab (`dcc_shell.gd::PHONE_TABS`)
+##   - the phone STORY tab's Journeys band (`dcc_shell.gd::PHONE_TABS`; the PLAN tab it replaced, MS-2)
 ##   - `right_dock.gd`'s `Logistics` and `Plan a journey` actions
 ##   - `infrastructure_workspace.gd`'s `Open Journey Planner`
 ##   - `⇧J`, now bound in `_unhandled_key_input()` below rather than as a menu

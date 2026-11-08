@@ -168,9 +168,9 @@ time. Menus overlay the tool options bar — they never push layout.
   tablet, by title and occurrence count.
 - **Phone reorganises rather than truncates.** Docks become full-height sheets,
   tool options becomes a bottom sheet, and **all five disclosure levels survive
-  inside them**. Bottom bar is four task tabs: `MAP · GENERATE · PLAN · MORE`.
-  *(Ruling DT, 2026-10-31, decides the next tabs: `MAP · GENERATE/CIVIL/CARTO · STORY · MENU`, as
-  `MOBILE_SHELL_PROPOSAL.md` describes. The shipped shell still has the four named above.)*
+  inside them**. Bottom bar is four task tabs: `MAP · <domain> · STORY · MENU` (Ruling DT, 2026-10-31; built as
+  MS-2, 2026-11-08). The domain tab reads GENERATE / CIVIL / CARTO and switches on hold or swipe, as
+  `MOBILE_SHELL_PROPOSAL.md` describes. *(It was `MAP · GENERATE · PLAN · MORE` until MS-2.)*
 
 **Minimum touch target 44 px, measured inside the safe area, no exceptions.**
 Android's own minimum is 48 dp and the two specs are on record as disagreeing;

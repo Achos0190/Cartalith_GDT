@@ -51,7 +51,7 @@ free dcc_shell.gd phone_open_menu_screen
 # 3. Every quoted text an edit lands on must be there exactly once, or the edit has nothing to land on:
 #    draft 03's H2 (the coach mark) and draft 09's G1-G3 (added 2026-11-01).
 anchor() { c=$(grep -cF -- "$2" "$1"); [ "$c" = 1 ] || echo "ANCHOR in $1: found $c times: $2"; }
-anchor dcc_shell.gd '"text": "MAP · GENERATE · PLAN switch tasks here — MORE reaches everything else."},'
+# (draft 03's H2 anchor, the old coach-mark text, was removed when MS-2 landed on 2026-11-08: the text is replaced.)
 anchor menus.gd "$(printf '\t\tID_HELP_ABOUT: _host.open_about()')"
 anchor menus.gd "$(printf '\t_shell.select_domain_category("civilization", "Landmarks")')"
 anchor menus.gd "$(printf '\t_live(p, "Credits & academic principles", ID_HELP_CREDITS)')"

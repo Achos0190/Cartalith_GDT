@@ -115,6 +115,9 @@ tabs = [{id:'map',g:'▤',label:'MAP'}, {id:'gen',g:'⌗',label:'GENERATE'},
         {id:'plan',g:'➔',label:'PLAN'}, {id:'more',g:'⋯',label:'MORE'}]
 ```
 
+*(The 2026-09-07 canvas's tab list. Ruling DT replaced it and MS-2 built the replacement on 2026-11-08:
+`MAP · <domain> · STORY · MENU`, the domain tab reading GENERATE, CIVIL or CARTO. The row geometry below is unchanged.)*
+
 Row `height:84px`, `background:var(--pan2)`, `border-top:1px solid var(--hair2)`,
 `padding:4px 6px 0`. Each cell: glyph in `padding:4px 16px; border-radius:13px`
 with `background: var(--wash)` when on, caption

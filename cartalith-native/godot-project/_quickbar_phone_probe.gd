@@ -189,7 +189,15 @@ func _sheet_h() -> float:
 func _show(tab: String, det: String) -> void:
 	if _app._phone_menu != null and _app._phone_menu.is_open():
 		_app._phone_menu.close()
-	_app._pick_phone_tab(tab)
+	## MS-2: the probe's legacy tab names ("gen", "more") map onto the new bar (GENERATE is the domain tab while
+	## WORLD is the domain; MORE is MENU).
+	match tab:
+		"gen":
+			_app._switch_domain_from_tab("world")
+		"more":
+			_app._pick_phone_tab("menu")
+		_:
+			_app._pick_phone_tab(tab)
 	_app.set_phone_detent(det)
 	await _wait(0.6)
 
@@ -559,7 +567,7 @@ func _map_row() -> void:
 	var tabs := PackedStringArray()
 	for t in _app.PHONE_TABS:
 		tabs.append(String(t["caption"]))
-	_ok(tabs == PackedStringArray(["MAP", "GENERATE", "PLAN", "MORE"]), "PHONE_TABS is unchanged: %s" % str(tabs))
+	_ok(tabs == PackedStringArray(["MAP", "", "STORY", "MENU"]), "PHONE_TABS is MAP, the domain tab (caption from DOMAIN_TAB), STORY, MENU: %s" % str(tabs))
 
 
 func _count_toasts() -> int:

@@ -312,7 +312,7 @@ func _ready() -> void:
 	await _frames(2)
 
 	## Tab route: a workspace tab lifts peek -> half; re-tapping it drops to peek.
-	app._pick_phone_tab("gen")
+	app._switch_domain_from_tab("world")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
 	_log("  tab tap gen              detent=%s h=%.1f" % [
@@ -346,7 +346,8 @@ func _ready() -> void:
 		_check(sheet_half.intersection(sr_h).size.y < 1.0 or sheet_half.intersection(sr_h).size.x < 1.0,
 			"S-HALF: half does not cover the scale label -- the insets pass keeps it clear")
 
-	app._pick_phone_tab("gen")
+	## A re-tap of the lit tab (the domain tab, WORLD already the domain): the fold-to-peek toggle.
+	app._pick_phone_tab("domain")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
 	_log("  re-tap gen               detent=%s h=%.1f" % [
@@ -354,14 +355,14 @@ func _ready() -> void:
 	_check(String(app.phone_detent()) == "peek", "re-tap drops to peek")
 
 	## MORE: the tab that does NOT drive the sheet.
-	app._pick_phone_tab("more")
+	app._pick_phone_tab("menu")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
 	_log("  tab tap more             detent=%s h=%.1f menu_open=%s" % [
 		String(app.phone_detent()), _sheet_h(),
 		str(app._phone_menu != null and app._phone_menu.is_open())])
 	_check(String(app.phone_detent()) == "peek", "MORE leaves the detent alone")
-	app._pick_phone_tab("gen")
+	app._switch_domain_from_tab("world")
 	app.set_phone_detent("peek")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
@@ -538,7 +539,7 @@ func _ready() -> void:
 	## (`AND:1466`) and `_moreTitle()` (`AND:1208`) -- quoted in full in
 	## `_refresh_phone_sheet_header()`'s own doc comment.
 	app.select_domain_mode("world", "a")
-	app._pick_phone_tab("gen")
+	app._switch_domain_from_tab("world")
 	await _frames(2)
 	_log("  [gen/pipe]   title=%s  sub=%s" % [
 		app._phone_sheet_title.text, app._phone_sheet_subtitle.text])
@@ -563,14 +564,14 @@ func _ready() -> void:
 	_check(String(app._phone_sheet_subtitle.text) == "layers · style · annotation",
 		"MAP subtitle matches AND:1466's map row verbatim")
 
-	app._pick_phone_tab("more")
+	app._pick_phone_tab("menu")
 	await _frames(2)
 	_log("  [more]       title=%s  sub=%s  menu_open=%s" % [
 		app._phone_sheet_title.text, app._phone_sheet_subtitle.text,
 		str(app._phone_menu != null and app._phone_menu.is_open())])
-	_check(String(app._phone_sheet_title.text) == "MORE", "MORE title matches AND:1208 root")
+	_check(String(app._phone_sheet_title.text) == "MENU", "MENU title is the tab caption (MS-2; was MORE)")
 	_check(String(app._phone_sheet_subtitle.text) == "program · data · preferences",
-		"MORE subtitle matches _moreTitle()'s root entry verbatim (AND:1208)")
+		"MENU subtitle matches _moreTitle()'s root entry verbatim (AND:1208)")
 
 	## PLAN's header, 2026-09-13: `journey_planner_view.gd::phone_header_info()`
 	## is new, closing the gap this exact per-tab section's neighbourhood
@@ -587,7 +588,10 @@ func _ready() -> void:
 		"journey_planner_view exposes phone_header_info()")
 	if jp != null:
 		var prior_tab: String = app._phone_tab
-		app._phone_tab = "plan"
+		var prior_tool: String = app.armed_tool
+		## MS-2: PLAN's header now belongs to the STORY tab while the planner is the armed tool.
+		app._phone_tab = "story"
+		app.armed_tool = "journey"
 		jp._last_result = {}
 		jp._isolated_stage = -1
 		app._refresh_phone_sheet_header()
@@ -624,8 +628,9 @@ func _ready() -> void:
 		jp._last_result = {}
 		jp._isolated_stage = -1
 		app._phone_tab = prior_tab
+		app.armed_tool = prior_tool
 
-	app._pick_phone_tab("gen")
+	app._switch_domain_from_tab("world")
 	app.set_phone_detent("peek")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)

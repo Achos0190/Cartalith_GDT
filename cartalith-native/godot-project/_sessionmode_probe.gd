@@ -414,8 +414,11 @@ func _ready() -> void:
 	var world_path := _norm(str(app.get_path_to(world_btn))) if world_btn != null else ""
 	var sep: Control = app._rail_seps.get("civilization")
 	var sep_path := _norm(str(app.get_path_to(sep))) if sep != null else "-"
-	_check("control state: the WORLD mark is drawn with the gate down (positive control)",
-		vis_a.has(world_path), world_path)
+	## MS-2: the phone has no per-domain mark (its GENERATE cell is the domain tab now, which names whichever domain
+	## is current and stays drawn); the gate's refusal of WORLD there is the fan's dim target, driven by `_ms2_probe`.
+	if not phone:
+		_check("control state: the WORLD mark is drawn with the gate down (positive control)",
+			vis_a.has(world_path), world_path)
 	## Back to the prior arrangement, and prove the restore helper got there,
 	## so the real toggle starts from exactly `before`.
 	for id in before_modes:
@@ -442,7 +445,12 @@ func _ready() -> void:
 		if int(vis_a.get(k, 0)) < int(vis_b[k]):
 			appeared.append(k)
 	var stray := gone.filter(func(k): return not _under(String(k), [world_path, sep_path]))
-	_check("the gate hides the WORLD mark", gone.has(world_path), world_path)
+	if phone:
+		var dom_btn: Control = (app._phone_tab_cells.get("domain", {}) as Dictionary).get("button")
+		var dom_path := _norm(str(app.get_path_to(dom_btn))) if dom_btn != null else ""
+		_check("phone: the gate leaves the domain tab drawn", dom_path != "" and not gone.has(dom_path), dom_path)
+	else:
+		_check("the gate hides the WORLD mark", gone.has(world_path), world_path)
 	if not phone:
 		_check("the gate hides the hairline that would lead the rail", gone.has(sep_path), sep_path)
 	_check("the gate hides nothing else (%d controls gone)" % gone.size(), stray.is_empty(), str(stray.slice(0, 12)))
@@ -481,10 +489,13 @@ func _ready() -> void:
 		not app.new_world_dialog.visible, _status())
 	if phone:
 		var was_tab := String(app._phone_tab)
-		app._pick_phone_tab("gen")
+		var was_dom := String(app.active_domain())
+		app._switch_domain_from_tab("world")
 		await _frames(3)
-		_check("refused: the GENERATE tab, which is also not drawn", String(app._phone_tab) == was_tab
-			and not (app._phone_tab_cells["gen"]["button"] as Control).visible, String(app._phone_tab))
+		## MS-2: GENERATE is the domain tab now, which stays drawn (it names CIVIL or CARTO); what Session mode
+		## refuses is the WORLD pick (the fan draws that target dim), so the tab and the domain must not move.
+		_check("refused: the domain tab's WORLD pick", String(app._phone_tab) == was_tab
+			and String(app.active_domain()) == was_dom, String(app._phone_tab) + " / " + String(app.active_domain()))
 	## A popup's own refresher must not undo the gate.
 	for title in ["☰", "File", "Edit", "World", "Window"]:
 		var mb := _menu_button(title)
@@ -520,7 +531,9 @@ func _ready() -> void:
 	if not phone:
 		_menu_button("Story").get_popup().id_pressed.emit(DccMenus.ID_STORY_JOURNEY_PLANNER)
 	else:
-		app._pick_phone_tab("plan")
+		app._pick_phone_tab("story")
+		app._phone_menu.close()
+		app.open_journey_planner()
 	await _frames(6)
 	_check("kept: the Journey planner opens", String(app.armed_tool) == "journey", String(app.armed_tool))
 	await _shot("on_planner")
@@ -558,7 +571,8 @@ func _ready() -> void:
 	_check("the generation parameters are untouched", JSON.stringify(bridge.params_snapshot()) == before_params)
 	_check("the undo ledger is untouched", JSON.stringify(bridge.undo_ledger()) == before_ledger)
 	var vis_after := _visible()
-	_check("off: the WORLD mark is drawn again", vis_after.has(world_path))
+	if not phone:
+		_check("off: the WORLD mark is drawn again", vis_after.has(world_path))
 	await _shot("off")
 	var sess: Dictionary = DccSettings.layout("Session")
 	_check("the table-side change persisted as the Session layout (status bar hidden)",
