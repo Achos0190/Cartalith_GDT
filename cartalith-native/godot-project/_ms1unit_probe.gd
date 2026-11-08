@@ -2,11 +2,17 @@ extends Node
 ## MS-1 unit probe (`MOBILE_SHELL_MS1_SPEC.md` §5, bar B3): boots the real shell in a `--vp`-sized host
 ## `SubViewport` with a real density, and measures the dp unit in PHYSICAL px.
 ##
-##   tablet: godot --path . _ms1unit_probe.tscn -- --force-touch --vp 2388x1668 --density 2 --leg tablet
+##   tablet: godot --path . _ms1unit_probe.tscn -- --force-touch --vp 3392x2400 --density 2 --leg tablet
+##           (and 2400x3392: the OnePlus Pad 3 in both orientations, 1 696 x 1 200 dp)
 ##   phone:  godot --path . _ms1unit_probe.tscn -- --force-touch --vp 1440x3120 --density 3 --leg phone
+##   11-inch: godot --path . _ms1unit_probe.tscn -- --force-touch --vp 2388x1668 --density 2 --leg phone
+##           (1 194 x 834 dp: a phone under Ruling EG, sized by the density, 2.0, never short / 412 = 4.05)
 ##   map:    godot --path . _ms1unit_probe.tscn -- --force-touch --vp 2388x1668 --density 1 --leg map
 ##           godot --path . _ms1unit_probe.tscn -- --force-touch --vp 2388x1668 --density 2 --leg map
-##   pad3:   godot --path . _ms1unit_probe.tscn -- --force-touch --vp 3392x2400 --density 2 --leg tablet
+##   uiscale: godot --path . _ms1unit_probe.tscn -- --force-touch --vp 4000x2800 --density 2 --leg uiscale
+##           (2 000 x 1 400 dp; at 150 % 1 333 x 933 dp, still a tablet under Ruling EG's 900 dp line)
+##           godot --path . _ms1unit_probe.tscn -- --force-touch --vp 3840x2160 --density 2 --leg uiscale
+## Until Ruling EG (2026-11-07) the tablet and uiscale legs ran at 2388 x 1668 @2, which is now a phone.
 ##
 ## **Windowed, never `--headless`** (`MISTAKES.md`, "Run a pixel probe"); run with the lane's
 ## `override.cfg` `config/name` and its app_userdata wiped. Arguments read by THIS file: `--vp WxH`,

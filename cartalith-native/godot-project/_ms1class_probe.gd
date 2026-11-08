@@ -2,14 +2,17 @@ extends Node
 ## MS-1 classifier probe (`MOBILE_SHELL_MS1_SPEC.md` §5, bar B1): calls `DccTheme.classify()` and
 ## `DccTheme.width_class_of()` directly, without booting a shell, over §2.2's fourteen windows in both
 ## orientations at UI scale 1.0 and 1.25, the OnePlus Pad 3 (owner request, 2026-11-07), and boundary rows
-## at 899/900/901 dp and aspect 0.599/0.600/0.601, each approached from both sides (the hysteresis band).
+## at 899/900/901 dp (at aspect 0.5625 and, for Ruling EG's every-aspect line, at 0.9) and aspect
+## 0.599/0.600/0.601 (the legacy figure's line), each approached from both sides (the hysteresis band).
 ##
 ##   godot --headless --path . _ms1class_probe.tscn -- --table
 ##
 ## And the live legs (B4, and S3's class-change request), windowed with the lane's `override.cfg` and a
 ## wiped user dir, booting the real shell in a `--vp` host:
 ##   godot --path . _ms1class_probe.tscn -- --live phone  --force-touch --vp 1080x2340 --density 2.625
-##   godot --path . _ms1class_probe.tscn -- --live tablet --force-touch --vp 2388x1668 --density 2
+##   godot --path . _ms1class_probe.tscn -- --live tablet --force-touch --vp 3392x2400 --density 2
+## (The tablet leg ran at 2388 x 1668 @2 until Ruling EG made that 1 194 x 834 dp window a phone; it now
+## runs on the OnePlus Pad 3, 1 696 x 1 200 dp, resized to 3100 x 2400 px = 1 550 x 1 200 dp.)
 ##   godot --path . _ms1class_probe.tscn -- --live swap   --force-touch --vp 1800x3200 --density 1
 ## A live leg resizes its host `SubViewport` and emits `root.size_changed` itself, because a host resize
 ## does not resize the root window, and the shell listens to the root (as on a device, where the root IS
@@ -107,21 +110,23 @@ func _ready() -> void:
 	# 480 x 1 040 dp, 1 440 x 3 120 px at 3.
 	_row("480x1040dp @3 portrait", Vector2(1440, 3120), 3.0, 1.0, true, true, "", true, false, "compact")
 	_row("480x1040dp @3 landscape", Vector2(3120, 1440), 3.0, 1.0, true, true, "", true, true, "expanded")
-	# Foldable inner screen 673 x 841 dp, aspect 0.80, 1 346 x 1 682 px at 2: a tablet today.
-	_row("foldable 673x841dp portrait", Vector2(1346, 1682), 2.0, 1.0, true, true, "", false, false, "medium")
-	_row("foldable 841x673dp landscape", Vector2(1682, 1346), 2.0, 1.0, true, true, "", false, true, "expanded")
-	# TABLET 800: 1 600 x 2 560 px at 2, aspect 0.625: a tablet today.
-	_row("TABLET 800 portrait", Vector2(1600, 2560), 2.0, 1.0, true, true, "", false, false, "medium")
-	_row("TABLET 800 landscape", Vector2(2560, 1600), 2.0, 1.0, true, true, "", false, true, "large")
+	# Foldable inner screen 673 x 841 dp, aspect 0.80, 1 346 x 1 682 px at 2: short 673 < 900, a phone under
+	# Ruling EG (a tablet before it, when the aspect test gated the line).
+	_row("foldable 673x841dp portrait", Vector2(1346, 1682), 2.0, 1.0, true, true, "", true, false, "medium")
+	_row("foldable 841x673dp landscape", Vector2(1682, 1346), 2.0, 1.0, true, true, "", true, true, "expanded")
+	# TABLET 800: 1 600 x 2 560 px at 2, aspect 0.625: short 800 < 900, a phone under Ruling EG.
+	_row("TABLET 800 portrait", Vector2(1600, 2560), 2.0, 1.0, true, true, "", true, false, "medium")
+	_row("TABLET 800 landscape", Vector2(2560, 1600), 2.0, 1.0, true, true, "", true, true, "large")
 	# 16:9, 1 080 x 1 920 px at 1.25 = 864 x 1 536 dp: aspect 0.5625 and short 864 < 900, a phone.
 	_row("16:9 864dp portrait", Vector2(1080, 1920), 1.25, 1.0, true, true, "", true, false, "expanded")
 	_row("16:9 864dp landscape", Vector2(1920, 1080), 1.25, 1.0, true, true, "", true, true, "large")
-	# 1 600 x 2 560 px at 1.8 = 888.9 x 1 422 dp, aspect 0.625: a tablet today.
-	_row("889dp portrait", Vector2(1600, 2560), 1.8, 1.0, true, true, "", false, false, "expanded")
-	_row("889dp landscape", Vector2(2560, 1600), 1.8, 1.0, true, true, "", false, true, "large")
-	# 11-inch class 2 388 x 1 668 px at 2 = 1 194 x 834 dp.
-	_row("11in landscape", Vector2(2388, 1668), 2.0, 1.0, true, true, "", false, true, "expanded")
-	_row("11in portrait", Vector2(1668, 2388), 2.0, 1.0, true, true, "", false, false, "medium")
+	# 1 600 x 2 560 px at 1.8 = 888.9 x 1 422 dp, aspect 0.625: short 889 < 900, a phone under Ruling EG.
+	_row("889dp portrait", Vector2(1600, 2560), 1.8, 1.0, true, true, "", true, false, "expanded")
+	_row("889dp landscape", Vector2(2560, 1600), 1.8, 1.0, true, true, "", true, true, "large")
+	# 11-inch class 2 388 x 1 668 px at 2 = 1 194 x 834 dp: the owner's case for Ruling EG ("On 11" tablet
+	# we might just use the phone gui"), a phone in both orientations.
+	_row("11in landscape", Vector2(2388, 1668), 2.0, 1.0, true, true, "", true, true, "expanded")
+	_row("11in portrait", Vector2(1668, 2388), 2.0, 1.0, true, true, "", true, false, "medium")
 	# 13-inch class 2 732 x 2 048 px at 2 = 1 366 x 1 024 dp.
 	_row("13in landscape", Vector2(2732, 2048), 2.0, 1.0, true, true, "", false, true, "large")
 	_row("13in portrait", Vector2(2048, 2732), 2.0, 1.0, true, true, "", false, false, "expanded")
@@ -143,9 +148,9 @@ func _ready() -> void:
 	_row("4K @2 x1.25 portrait", Vector2(2160, 3840), 2.0, 1.25, true, true, "", true, false, "expanded")
 	# 4K at 1.5 x 1.25 = 2 048 x 1 152 dp: still a tablet.
 	_row("4K @1.5 x1.25 landscape", Vector2(3840, 2160), 1.5, 1.25, true, true, "", false, true, "xl")
-	# 11-inch at 2 x 1.25 = 955.2 x 667.2 dp: aspect 0.70, a tablet whatever its size.
-	_row("11in x1.25 landscape", Vector2(2388, 1668), 2.0, 1.25, true, true, "", false, true, "expanded")
-	_row("11in x1.25 portrait", Vector2(1668, 2388), 2.0, 1.25, true, true, "", false, false, "medium")
+	# 11-inch at 2 x 1.25 = 955.2 x 667.2 dp: short 667 < 900, a phone under Ruling EG.
+	_row("11in x1.25 landscape", Vector2(2388, 1668), 2.0, 1.25, true, true, "", true, true, "expanded")
+	_row("11in x1.25 portrait", Vector2(1668, 2388), 2.0, 1.25, true, true, "", true, false, "medium")
 	# 6T x 1.25 = 329.1 x 713.1 dp: a phone.
 	_row("6T x1.25 portrait", Vector2(1080, 2340), 2.625, 1.25, true, true, "", true, false, "compact")
 	_row("6T x1.25 landscape", Vector2(2340, 1080), 2.625, 1.25, true, true, "", true, true, "medium")
@@ -172,6 +177,18 @@ func _ready() -> void:
 	_row("899x1600 from tablet", Vector2(899, 1600), 1.0, 1.0, true, true, "tablet", false, false, "expanded")
 	_row("900x1600 from phone", Vector2(900, 1600), 1.0, 1.0, true, true, "phone", true, false, "expanded")
 	_row("901x1600 from phone", Vector2(901, 1600), 1.0, 1.0, true, true, "phone", true, false, "expanded")
+	print("-- Ruling EG: the size line at a squarer aspect (0.899 .. 0.901 at 1 000 dp tall), density known")
+	# Before Ruling EG the aspect test (>= 0.6) made all three tablets; now only the size decides.
+	_row("899x1000 boot", Vector2(899, 1000), 1.0, 1.0, true, true, "", true, false, "expanded")
+	_row("900x1000 boot", Vector2(900, 1000), 1.0, 1.0, true, true, "", false, false, "expanded")
+	_row("901x1000 boot", Vector2(901, 1000), 1.0, 1.0, true, true, "", false, false, "expanded")
+	_row("899x1000 from tablet", Vector2(899, 1000), 1.0, 1.0, true, true, "tablet", false, false, "expanded")
+	_row("901x1000 from phone", Vector2(901, 1000), 1.0, 1.0, true, true, "phone", true, false, "expanded")
+	# A 16:10 tablet of 1 600 x 1 000 dp shrunk past the band: 1 430 x 894 stays (894 >= 900 - 16), and
+	# 1 400 x 875 becomes a phone, the case the aspect gate used to hide.
+	_row("16:10 1600x1000 boot", Vector2(1600, 1000), 1.0, 1.0, true, true, "", false, true, "xl")
+	_row("16:10 1430x894 from tablet", Vector2(1430, 894), 1.0, 1.0, true, true, "tablet", false, true, "large")
+	_row("16:10 1400x875 from tablet", Vector2(1400, 875), 1.0, 1.0, true, true, "tablet", true, true, "large")
 	print("-- the aspect line: 0.599 / 0.600 / 0.601, legacy density (aspect only), from both sides")
 	_row("aspect .599 boot", Vector2(599, 1000), 1.0, 1.0, true, false, "", true, false, "compact")
 	_row("aspect .600 boot", Vector2(600, 1000), 1.0, 1.0, true, false, "", false, false, "medium")
@@ -275,21 +292,22 @@ func _live(leg: String) -> void:
 				"published width class after rotation is 'expanded' (2340 / 2.625 = 891 dp); got '%s'" %
 				String(DccTheme.layout().get("width_class", "")))
 		"tablet":
-			## B4, tablet half: a dock dragged to 320 dp keeps it through a same-orientation resize.
+			## B4, tablet half: a dock dragged to 320 dp keeps it through a same-orientation resize
+			## (3392 -> 3100 px wide at density 2: 1 696 -> 1 550 dp, a tablet on both sides of it).
 			_ok(DccTheme.is_tablet(), "boots as a tablet")
 			_app._left_width = 320.0
 			_app._apply_dock_widths()
 			await _frames(4)
 			var before: float = _app.left_dock.size.x
-			await _resize(2200, 1668)
+			await _resize(3100, 2400)
 			var after: float = _app.left_dock.size.x
 			_ok(absf(before - 320.0) <= 0.5 and absf(after - 320.0) <= 0.5,
-				"left dock 320 dp before (%.2f) and after (%.2f) a 2388 -> 2200 px resize, +-0.5" % [before, after])
-			## S3: the unit is re-applied to the new size (fails before S3: the override keeps 1194 x 834).
-			_ok(_vp.size_2d_override == Vector2i(1100, 834),
-				"the unit follows the resize: override %s, want (1100, 834)" % str(_vp.size_2d_override))
-			_ok(String(DccTheme.layout().get("width_class", "")) == "expanded",
-				"published width class 'expanded' (1100 dp); got '%s'" % String(DccTheme.layout().get("width_class", "")))
+				"left dock 320 dp before (%.2f) and after (%.2f) a 3392 -> 3100 px resize, +-0.5" % [before, after])
+			## S3: the unit is re-applied to the new size (fails before S3: the override keeps 1696 x 1200).
+			_ok(_vp.size_2d_override == Vector2i(1550, 1200),
+				"the unit follows the resize: override %s, want (1550, 1200)" % str(_vp.size_2d_override))
+			_ok(String(DccTheme.layout().get("width_class", "")) == "large",
+				"published width class 'large' (1550 dp); got '%s'" % String(DccTheme.layout().get("width_class", "")))
 		"swap":
 			## S3's class question with B5's hysteresis walk, density 1 (900 x 1 600 dp). Until S4 the
 			## shell keeps its boot class and logs a request; the runner greps the log for it.

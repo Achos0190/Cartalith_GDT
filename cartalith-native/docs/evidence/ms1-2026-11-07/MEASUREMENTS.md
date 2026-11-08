@@ -113,6 +113,37 @@ There is no draft for S5; it follows spec §3.6. `DccSettings.ui_scale()` and `s
   - **At UI scale 125 %, 4K at density 2 is 1 536 × 864 dp.** A cold boot (`--ui-scale 1.25`) gets the **phone** composition with `phone_scale` 2.0, which is MQ-1's current rule. Pressing 125 % on a running 4K tablet logs `size class change requested (phone=true, (1536.0, 864.0) dp)` and keeps the tablet. B6's "that swap meets B5" waits on S4.
 - **B9 and B10, partly.** All 18 identity captures are byte-identical to the S0 baseline, and the 14 probe runs are unchanged. B3 and B4 still pass.
 
+## Ruling EG, 2026-11-08: the 900 dp line at every aspect
+
+`DccTheme.classify()` now reads `phone = touch and (short_dp < 900 if density_known else aspect < 0.6)`. With a
+known density (a device, or `--density`) the 900 dp shortest-width line alone decides; the aspect line applies
+only to the legacy figure, so every run without `--density` keeps its pre-EG class. The phone's unit was already
+S2's `min(density x ui_scale, short / 412)` (EG item 2), so nothing else changed. Measured on `996cb307` plus the
+change, against a pristine worktree of `996cb307`, both windowed, each user dir wiped.
+
+- **B1.** `_ms1class_probe.gd --table`: PASS, 81 checks. The changed rows are the foldable, `TABLET 800`, the
+  889 dp panel and the 11-inch class (both orientations, and the 11-inch at 125 %), now phones; new rows pin the
+  line at aspect 0.9 (899 / 900 / 901 dp, both sides) and a 16:10 tablet of 1 600 x 1 000 dp shrunk past the band
+  (1 430 x 894 stays a tablet, 1 400 x 875 becomes a phone). On the pre-EG tree **13 of 81 fail**. Mutation (Python,
+  exact literal replace, restored in a `finally`, hash checked): 8 of 8 killed, `TABLET_MIN_DP` 899 and 901,
+  `PHONE_ASPECT_MAX` 0.59 and 0.61, `BAND_DP` 0, `BAND_ASPECT` 0, the aspect gate put back on the dp line, and
+  the legacy branch given the dp line.
+- **B2, B9 and B10's class.** All 18 `_ms1ident_probe.gd` captures (the same sizes as S1, no `--density`) are
+  byte-identical to the pristine tree and print the same class: legacy runs are untouched by construction.
+- **The 11-inch window under EG** (`_ms1unit_probe.gd --vp 2388x1668 --density 2 --leg phone`): the phone
+  composition, `phone_scale` **2.0000** (the density; short / 412 would be 4.05), the undo chip 96 px, every
+  visible button at least 88 px on both axes (30 walked). On the pre-EG tree: FAIL, 3 of 3 (a tablet).
+- **Re-measured at sizes that stay tablets** (the old legs ran at 2 388 x 1 668 @2, now a phone): B3 on the
+  OnePlus Pad 3 (3 392 x 2 400 and 2 400 x 3 392 @2) PASS, 7 checks each; B4's tablet leg resized 3 392 -> 3 100
+  px @2: the 320 dp dock reads 320.00 before and after, the override follows to (1550, 1200), width class large;
+  B6 at 4 000 x 2 800 @2: menu bar 104 px, 156 px at 150 % (1 333 x 933 dp, still a tablet), 104 px restored;
+  at 4K @2, 125 % still logs the class-change request at 1 536 x 864 dp.
+- **Regression, base against EG:** the other MS-1 legs (phone rotation, the swap request, the 1 440 x 3 120 @3
+  phone, `_ms1s0_probe`) and the PC and VE probes at desktop, tablet and phone (`_pc1select`, `_pc4context`,
+  `_pc6ask`, `_pc7windows`, `_pc8planner`, `_pc9menus`, `_ve5`: 19 runs) give the same result line on both trees,
+  each with 0 `SCRIPT ERROR` lines. None of them passes `--density`, so EG cannot reach them.
+- No Rust changed; `cargo test` was not run.
+
 ## S4: not built; the S4.0 census
 
 S4 (spec §3.5) needs the full S4.0 inventory first: an action for each item (rebuilt, survives, reset, freed, or re-presented), and per window, the state its re-present path must carry (MQ-5, Ruling DY). That inventory was **not written** in this pass. This is the census it starts from, measured 2026-11-07 on the S5 tree:
@@ -131,7 +162,7 @@ S4 (spec §3.5) needs the full S4.0 inventory first: an action for each item (re
 
 | Bar | State |
 |---|---|
-| B1 | **met** (S1) |
+| B1 | **met** (S1); re-pinned for Ruling EG (2026-11-08), 81 checks, 8 of 8 mutants killed |
 | B2 | **met at 18 sizes** (S1) |
 | B3 | **met for tablet, Pad 3 and phone.** The map leg **does not hold as written**: 2 steps apart, a layout effect that waits on MS-7. |
 | B4 | **met** (S3) |

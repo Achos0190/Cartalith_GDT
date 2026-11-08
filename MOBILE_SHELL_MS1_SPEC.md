@@ -16,12 +16,20 @@ move it. The shipped code, in turn, applies that answer only to screens narrower
 specified so it can be built without settling this. It keeps today's line exactly, makes it one row of one table, and
 asks the owner where the line should end up (MQ-1, §8).
 
+**Superseded on the line itself by Ruling EG** (owner, 2026-11-07, and its 2026-11-08 addendum, `LARGE_ITEM_RULINGS.md`):
+with a known density, a touch window under **900 dp of shortest width is a phone at every aspect ratio**, sized by
+density, and EG (not MQ-1 (c)'s 600 dp width line) decides phone versus tablet. **Built 2026-11-08**: `DccTheme.classify()`
+no longer gates the dp line on aspect 0.6; the aspect line now applies only to the legacy figure (no known density, §3.2),
+so every probe without `--density` keeps its class (B10). It moves four of §2.2's rows from tablet to phone (the column
+added there). Where the sections below say "today's rule", they describe the rule before EG.
+
 ## 0. In short
 
 - MS-1 replaces *"phone or tablet, decided once at boot from the aspect ratio, then scaled by the short side ÷ 412"*
   with one classifier over the window's size in dp, re-run on every resize, and a real dp unit in both touch
   compositions. The PC composition is not touched.
-- It moves no device between phone and tablet. Whether and when the line moves is MQ-1.
+- It moves no device between phone and tablet. Whether and when the line moves is MQ-1. *(Ruling EG moved it on
+  2026-11-08: see the note above.)*
 - Six stages, each landing on its own: **S0** measure (no product change) · **S1** the classifier (no behaviour change)
   · **S2** the dp unit · **S3** live re-evaluation within a class · **S4** a class change without a restart · **S5** UI
   scale.
@@ -111,22 +119,25 @@ Four consequences:
 
 Fourteen windows under the three candidate rules. Sizes are in dp, portrait first. The pixel sizes are dp × density.
 
-| Window (dp) | Example | Aspect | Today's code, on a device | §2.3 as written | Proposal §3 |
-|---|---|---|---|---|---|
-| 360 × 780 | 720 × 1 560 px at 2 | 0.46 | phone | phone | phone |
-| 411 × 891 | OnePlus 6T, 1 080 × 2 340 px at 2.625 | 0.46 | phone | phone | phone |
-| 891 × 411 | the 6T in landscape | 0.46 | phone, landscape | phone, landscape | phone landscape |
-| 480 × 1 040 | 1 440 × 3 120 px at 3 | 0.46 | phone | phone | phone |
-| 673 × 841 | foldable, inner screen | 0.80 | **tablet** | phone | tablet, medium |
-| 800 × 1 280 | `TABLET 800`, 1 600 × 2 560 px at 2 | 0.625 | **tablet** | phone | tablet, medium |
-| 864 × 1 536 | 16:9, 1 080 × 1 920 px at 1.25 | 0.5625 | phone | phone | **tablet, expanded** |
-| 889 × 1 422 | 1 600 × 2 560 px at 1.8 | 0.625 | **tablet** | phone | tablet, expanded |
-| 1 194 × 834 | 11-inch class, 2 388 × 1 668 px at 2 | 0.70 | **tablet** | phone | tablet, expanded |
-| 1 366 × 1 024 | 13-inch class, 2 732 × 2 048 px at 2 | 0.75 | tablet | tablet | tablet, large |
-| 1 600 × 1 000 | 2 560 × 1 600 px at 1.6 | 0.625 | tablet | tablet | extra-large |
-| 1 920 × 1 080 | 4K at 2 | 0.5625 | tablet | tablet | extra-large |
-| 2 560 × 1 440 | 4K at 1.5 | 0.5625 | tablet | tablet | extra-large |
-| 3 840 × 2 160 | 4K at 1 | 0.5625 | tablet | tablet | extra-large |
+| Window (dp) | Example | Aspect | Today's code, on a device (before EG) | §2.3 as written | Proposal §3 | Ruling EG, built 2026-11-08 |
+|---|---|---|---|---|---|---|
+| 360 × 780 | 720 × 1 560 px at 2 | 0.46 | phone | phone | phone | phone |
+| 411 × 891 | OnePlus 6T, 1 080 × 2 340 px at 2.625 | 0.46 | phone | phone | phone | phone |
+| 891 × 411 | the 6T in landscape | 0.46 | phone, landscape | phone, landscape | phone landscape | phone, landscape |
+| 480 × 1 040 | 1 440 × 3 120 px at 3 | 0.46 | phone | phone | phone | phone |
+| 673 × 841 | foldable, inner screen | 0.80 | **tablet** | phone | tablet, medium | **phone** |
+| 800 × 1 280 | `TABLET 800`, 1 600 × 2 560 px at 2 | 0.625 | **tablet** | phone | tablet, medium | **phone** |
+| 864 × 1 536 | 16:9, 1 080 × 1 920 px at 1.25 | 0.5625 | phone | phone | **tablet, expanded** | phone |
+| 889 × 1 422 | 1 600 × 2 560 px at 1.8 | 0.625 | **tablet** | phone | tablet, expanded | **phone** |
+| 1 194 × 834 | 11-inch class, 2 388 × 1 668 px at 2 | 0.70 | **tablet** | phone | tablet, expanded | **phone** |
+| 1 366 × 1 024 | 13-inch class, 2 732 × 2 048 px at 2 | 0.75 | tablet | tablet | tablet, large | tablet |
+| 1 600 × 1 000 | 2 560 × 1 600 px at 1.6 | 0.625 | tablet | tablet | extra-large | tablet |
+| 1 920 × 1 080 | 4K at 2 | 0.5625 | tablet | tablet | extra-large | tablet |
+| 2 560 × 1 440 | 4K at 1.5 | 0.5625 | tablet | tablet | extra-large | tablet |
+| 3 840 × 2 160 | 4K at 1 | 0.5625 | tablet | tablet | extra-large | tablet |
+
+The last column is `BUILD_ANSWERS.md` §2.3 as written, which is what Ruling EG adopted: it equals the §2.3 column row for
+row. B1 (`_ms1class_probe.gd --table`) pins it with literal rows; on the pre-EG tree 13 of its 81 checks fail.
 
 Five of the fourteen rows differ between at least two rules, and every one of them has a shortest side from 600 to
 899 dp. Today's code and §2.3 differ in four of them; today's code and the proposal in one, the 16:9 tablet.
@@ -241,8 +252,10 @@ static func classify(px: Vector2, density: float, ui_scale: float, touch: bool,
   - `width_class`: `compact` below 600, `medium` 600–839, `expanded` 840–1 199, `large` 1 200–1 599, `xl` from 1 600.
     These are the proposal's §3 names. In MS-1 nothing consumes `width_class` except its probe; MS-7 (the docking rule)
     is the first real consumer.
-- **The line is one row of a threshold table.** In MS-1 the row is today's rule exactly (MQ-1's default):
-  `phone = touch and aspect < 0.6 and (not density_known or short_dp < 900)`. `_PHONE_ASPECT_MAX`, `_TABLET_MIN_DP`
+- **The line is one row of a threshold table.** In MS-1 the row was today's rule exactly (MQ-1's default):
+  `phone = touch and aspect < 0.6 and (not density_known or short_dp < 900)`. **Since Ruling EG (built 2026-11-08)
+  it is** `phone = touch and (short_dp < 900 if density_known else aspect < 0.6)`: the dp line at every aspect, and the
+  aspect line for the legacy figure only. `_PHONE_ASPECT_MAX`, `_TABLET_MIN_DP`
   and their comments move from `DccShell` to `DccTheme` with it, and the worked table is corrected in the move (§2.2).
 - **Hysteresis.** A class is left only when the size is past its line by a band: 16 dp for a dp line, 0.01 for the
   aspect line. Both are labelled judgements, to be revisited with S3's numbers.
@@ -435,7 +448,9 @@ The bars:
     test with a maximum adjacent-pixel |ΔLum| of at least 0.9. HD-01 measured 0.98 for a native control and 0.27 for a
     magnified raster; 0.9 is a labelled judgement between them. *As built, that figure is taken as a share of the glyph box's own
     luminance range. HD-01's figures were white on black, and the theme's 12 px label reads 0.579 raw even at
-    factor 1.*
+    factor 1.* *Since Ruling EG, 2 388 × 1 668 at density 2 (1 194 × 834 dp) is a phone, so the tablet figures are
+    measured on the OnePlus Pad 3 (`--vp 3392x2400` and `2400x3392 --density 2`, 1 696 × 1 200 dp), and the 11-inch
+    window gets the phone leg: `phone_scale` 2.0 (the density, never 1 668 ÷ 412 = 4.05), a 96 px undo chip.*
   - Phone, `--force-touch --vp 1440x3120 --density 3`: a 48 dp pill is 144 px tall, and every tap target is at least
     132 px on both axes (44 dp). The walk is by target, not by height.
   - Map: the zoom at which `_lod_active` first turns true is the same at `--density 1` and `--density 2`, within one
@@ -447,7 +462,8 @@ The bars:
 - **B4 — live within a class (S3).** Rotating `--vp 1080x2340 --density 2.625` to 2 340 × 1 080 gives the phone's
   landscape layout without a rebuild: the composition root's instance id is unchanged. A tablet dock dragged away from
   its default width (to 320 dp, say, if WI-04's range allows it) keeps that width (±0.5 dp) through a same-orientation
-  resize from 2 388 to 2 200 px wide at `--density 2`.
+  resize from 2 388 to 2 200 px wide at `--density 2`. *Since Ruling EG that window is a phone; the leg resizes the
+  OnePlus Pad 3 from 3 392 to 3 100 px wide at `--density 2` (1 696 → 1 550 dp) instead.*
 - **B5 — a class change without a restart (S4).** The §1 sequence. After each step it checks:
   - the class, from `classify()`;
   - the composition: phone ⇔ `_phone_root` is valid; tablet ⇔ both docks are valid;
@@ -473,6 +489,8 @@ The bars:
   Timing: a swap costs less than a cold boot at the same size, both measured as the median (min..max) of five serial
   runs, run alone. If it does not, a restart would be the better design, and this file says so.
 - **B6 — UI scale (S5).** `--vp 2388x1668 --density 2 --ui-scale 1.5` gives a 156 px menu bar (52 dp × 2 × 1.5).
+  *Since Ruling EG that window is a phone at any UI scale; the leg runs at `--vp 4000x2800 --density 2` (2 000 × 1 400 dp,
+  1 333 × 933 dp at 150 %, a tablet either way).*
   Pressing `Preferences ▸ UI scale ▸ 150 %` through the visible menu, not by calling a function, writes 1.5 to the
   settings file and gives the same drawn heights. The setting is restored afterwards. At UI scale 125 %,
   `--vp 3840x2160 --density 2` classifies as MQ-1's rule says (a phone under today's), and that swap meets B5.
@@ -599,6 +617,10 @@ before MS-7, (b) is one row and can land straight after S1.
 > **Answered (Ruling DY): (c), "Width: under 600 dp = phone", landing with MS-7.** MS-1 still ships (a) and moves no
 > device. This settles what the top of this file left open, where the line ends up, and supersedes §2.3's 900 dp
 > line as the target.
+>
+> **Superseded by Ruling EG** (2026-11-07; its 2026-11-08 addendum answers `S4_INVENTORY.md` Q-S4-1): option (b),
+> §2.3 as written, decides phone versus tablet, and (c)'s width classes stay layout classes inside the tablet shell for
+> MS-7. Built 2026-11-08 (§2.2's last column).
 
 **MQ-2. If the 6T's platform density cannot be read from GDScript, accept `screen_get_dpi() ÷ 160`, and with it the
 change S0 measures on the 6T?** By §2.4's figures that change lies between −4.1 % and +7.3 %. Default: yes, recorded in

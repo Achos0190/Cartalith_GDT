@@ -488,11 +488,12 @@ var _dragging_dock := ""  ## "", "left" or "right" -- which handle (if any) owns
 #
 # `_touch` alone can't tell a tablet from a phone -- both are touch devices.
 # The classifier is `DccTheme.classify()` (MS-1 stage S1, `MOBILE_SHELL_MS1_SPEC.md`
-# §3.1), which owns the line and its argument: the aspect half (`DccTheme.PHONE_ASPECT_MAX`,
-# order-independent, so a rotation cannot flip it) and the 900 dp size half
-# (`DccTheme.TABLET_MIN_DP`, owner answer `BUILD_ANSWERS.md` §2.3, applied only below
-# that aspect and only when the density is known). Both constants and their worked table
-# moved there from this file; `_compute_layout_mode()` is the shell's one caller.
+# §3.1), which owns the line and its argument: with a known density, 900 dp of shortest
+# width at every aspect ratio (`DccTheme.TABLET_MIN_DP`, owner answer `BUILD_ANSWERS.md` §2.3,
+# made Ruling EG on 2026-11-07); with the legacy figure only, the aspect line
+# (`DccTheme.PHONE_ASPECT_MAX`). Both are order-independent, so a rotation cannot flip either.
+# Both constants and their worked table moved there from this file; `_compute_layout_mode()`
+# is the shell's one caller.
 ## True when the composition is the phone one, mirrored into `DccTheme.set_phone`. Written by the boot
 ## classification only (`_booted`, MS-1 S3): a resize that crosses the line requests a class swap
 ## (`_request_class_swap()`) instead of flipping this flag under a composition built for the other class.
@@ -2683,7 +2684,9 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 ##
 ## **The gap this closes, measured before the change** -- `--force-touch --vp
 ## 800x1280`, which `_compute_layout_mode()` classifies `phone=false
-## tablet=true` (aspect .625, over `DccTheme.PHONE_ASPECT_MAX`):
+## tablet=true` (aspect .625, over `DccTheme.PHONE_ASPECT_MAX`; that is the legacy
+## off-device rule, which still holds without `--density`, while on a device Ruling EG
+## makes 800 x 1280 dp a phone):
 ##
 ## | probe | at boot | what it means on glass |
 ## |---|---|---|
