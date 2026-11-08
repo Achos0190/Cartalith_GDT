@@ -1353,7 +1353,12 @@ mod tests {
     /// [`HAND`] at `Locations/Nareth.md`, unique per test (`tag` plus this
     /// process's id) so parallel tests never collide.
     fn scratch(tag: &str) -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("cartalith-vault-it-{tag}-{}", std::process::id()));
+        // The directory is unique per CALL, not per tag: two tests once shared the tag "rename",
+        // so one's `remove_dir_all` deleted the other's tree mid-run (SourceMissing, or "Access is
+        // denied (os error 5)" on Windows where the other test held files open). Found 2026-11-08.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let p = std::env::temp_dir().join(format!("cartalith-vault-it-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(p.join("Locations")).unwrap();
         std::fs::write(p.join("Locations/Nareth.md"), HAND).unwrap();

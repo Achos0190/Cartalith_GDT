@@ -7924,6 +7924,25 @@ func vault_create_from_template(template_rel: String, rel: String, name: String)
 		return {"ok": false, "error": "this engine build has no note creator"}
 	return world_gen.vault_create_from_template(template_rel, rel, name)
 
+## Which note `target`, written in the note at `source`, names (`WorldGen.vault_resolve_link`, the one
+## resolver backlinks and broken links also use): `{ok, status}` with `status` `unique` (plus `path`),
+## `ambiguous` (plus `candidates`) or `none`. Answers `{ok: false, error}` while `generating`, without a
+## vault bound, or on a build without it -- callers must read `ok` before `status`, never default it.
+func vault_resolve_link(source: String, target: String) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_resolve_link"):
+		return {"ok": false, "error": "this engine build has no link resolver"}
+	return world_gen.vault_resolve_link(source, target)
+
+## The link under character `offset` of `text` (`WorldGen.vault_link_at`): `{found: true, target?, heading?,
+## alias?, syntax, external, start, end, line}` or `{found: false}`. Pure over `text`, so it is not gated.
+func vault_link_at(text: String, offset: int) -> Dictionary:
+	if not _has("vault_link_at"):
+		return {"found": false}
+	return world_gen.vault_link_at(text, offset)
+
 ## Headings of file `rel` as `{level, title}` (`WorldGen.vault_file_headings`). `[]`
 ## for an unreadable file, which callers read as "whole document only".
 func vault_file_headings(rel: String) -> Array:

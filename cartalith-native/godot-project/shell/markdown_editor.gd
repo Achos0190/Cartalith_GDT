@@ -36,6 +36,13 @@ extends VBoxContainer
 ## embedded note or image -- disclosed, not hidden. A callout is drawn in one
 ## colour whatever its type; Obsidian varies colour and icon by type.
 ## **Ctrl+E** flips Write / Preview, as Obsidian's reading-view toggle does.
+##
+## ## Links (VE-1, `VAULT_EDITOR_PROPOSAL.md`)
+##
+## The editor knows no vault. The host sets `link_info`, `link_at` and `peek_source` before `setup()`;
+## Preview then draws each link by kind and a click emits `link_followed`, as does Ctrl/Cmd-click in
+## Write. A hover (650 ms) or a finger hold (500 ms) shows a peek card. The Back button only emits
+## `back_requested`; the host owns the trail. Nothing here opens, creates or saves a file.
 ## **Insert template** puts one of the vault's templates at the caret, filled
 ## and with its properties merged (`cartalith_vault::template::insert`, reached
 ## through the `template_inserter` the host passes to `setup`).
@@ -59,6 +66,34 @@ signal reload_requested
 signal edited
 ## Emitted when Write / Preview flips, so a host that rebuilds can keep it.
 signal mode_changed(mode: String)
+## A link was followed (VE-1): a click on a rendered link in Preview, or Ctrl/Cmd-click on one in
+## Write. `target` is the link's own text -- `Note`, `Note#Heading`, `Folder/Note` -- exactly as
+## written between the brackets (alias dropped); the host resolves it and decides what following
+## means. Nothing here opens a file or creates one.
+signal link_followed(target: String)
+## A rendered external link (`http`, `https` or `mailto`) was clicked. Separate from `link_followed`
+## because an external address is never resolved against the vault.
+signal external_link_followed(url: String)
+## The Back button was pressed (VE-1): return to the note the last followed link came from.
+signal back_requested
+
+## Host hooks for links (VE-1), plain vars set between `new()` and `setup()` so a note that opens in
+## Preview already draws its links by kind. The editor holds no vault knowledge of its own.
+## `link_info(target: String) -> Dictionary` answers `{kind}` with `note`, `entity` (a world entity
+## with no note) or `unresolved`; without it every link draws as a note link and nothing is classed.
+var link_info: Callable = Callable()
+## `link_at(text: String, offset: int) -> Dictionary`, the Rust `vault_link_at` (`{found, target?}`);
+## Ctrl/Cmd-click in Write needs it.
+var link_at: Callable = Callable()
+## `peek_source(target: String) -> String`: BBCode for the peek card, or `""` for none (an
+## unresolved link has nothing to show).
+var peek_source: Callable = Callable()
+
+## Pointer hover dwell before a peek shows (`VAULT_EDITOR_PROPOSAL.md` s.3.2: 650 ms), and the hold
+## that stands in for it under a finger (500 ms; `_ve0_measure_probe.gd` Q2: a still finger produces
+## no motion event, so Godot never starts a hover for it). Both are labelled judgements.
+const PEEK_HOVER_SEC := 0.65
+const PEEK_HOLD_SEC := 0.5
 
 ## Bold face for rendered bold and for the toolbar's `B` glyph (the project's Fira Sans file;
 ## `style_rendered()` also uses it for bold-italic, as there is no separate face).
@@ -102,6 +137,16 @@ var _phone := false
 var _saved_text := ""
 ## The note-link picker `PopupMenu` (named "EditorLinkPicker"), created in `_build_toolbar`.
 var _link_popup: PopupMenu
+## Back button in the header (VE-1); hidden until the host has somewhere to go back to.
+var _back_button: Button
+## The peek card, its dwell timer, the link it is for, and whether a finger's hold produced it (the
+## release that ends such a hold must not also follow the link).
+var _peek: PanelContainer
+var _peek_label: RichTextLabel
+var _peek_timer: Timer
+var _peek_target := ""
+var _peek_by_hold := false
+var _swallow_click := false
 ## Paths listed by the link picker, refilled by `_open_link_picker`; a picked popup id indexes it.
 var _link_files: PackedStringArray = PackedStringArray()
 ## The "Reload from disk" button made in `setup`, hidden until needed.
@@ -199,7 +244,8 @@ func set_mode(m: String) -> void:
 	text_edit.visible = writing
 	preview.visible = not writing
 	if not writing:
-		preview.text = to_bbcode(text_edit.text)
+		preview.text = to_bbcode(text_edit.text, "", "", link_info)
+	_hide_peek()
 	if had_focus:
 		(text_edit if writing else preview).grab_focus.call_deferred()
 	for k in ["write", "preview"]:
@@ -233,6 +279,10 @@ func _build_header(file_label: String) -> void:
 	else:
 		add_child(row)
 		row.add_child(title)
+	_back_button = DccWidgets.action(row, "‹ Back", func(): back_requested.emit())
+	_back_button.name = "EditorBack"
+	_back_button.tooltip_text = "Returns to the note you followed the last link from."
+	_back_button.visible = false
 	## Write / Preview as a lit segment pair -- the DCC vocabulary's "one of a
 	## set is lit" control (`DccWidgets.segment`).
 	buttons["write"] = DccWidgets.segment(row, "Write", func(): set_mode("write"))
@@ -421,7 +471,14 @@ func _build_body(initial: String) -> void:
 	preview.visible = false
 	preview.focus_mode = Control.FOCUS_ALL
 	preview.gui_input.connect(_on_preview_input)
+	## Classed links draw their own underline (a note link underlined, the others not), so the
+	## label's blanket meta underline is off whenever the host classes links.
+	preview.meta_underlined = not link_info.is_valid()
+	preview.meta_clicked.connect(_on_meta_clicked)
+	preview.meta_hover_started.connect(_on_meta_hover_started)
+	preview.meta_hover_ended.connect(_on_meta_hover_ended)
 	add_child(preview)
+	_build_peek()
 
 
 ## The rendered-Markdown look, shared with the vault window's read-only note
@@ -613,9 +670,139 @@ static func anchor_rect(c: Control) -> Rect2:
 	return r
 
 
+## Shows or hides the header's Back button (VE-1). The host owns the history; this is only the
+## button.
+func set_back_visible(on: bool) -> void:
+	if _back_button != null:
+		_back_button.visible = on
+
+
+## Re-renders Preview from the source with the current `link_info` (a host whose answers changed,
+## say after a note was created, calls this). No effect in Write.
+func refresh_preview() -> void:
+	if preview != null and _mode == "preview":
+		preview.text = to_bbcode(text_edit.text, "", "", link_info)
+
+
+# -- Links: follow and peek (VE-1) ---------------------------------------------
+
+## A rendered link was clicked. The meta is `wiki:<target>` or `ext:<url>` (see `_inline_text`);
+## anything else -- a plain `[url=...]` from a caller that did not class links -- is ignored rather
+## than guessed at. A click that ends a finger's peek hold is swallowed once.
+func _on_meta_clicked(meta: Variant) -> void:
+	if _swallow_click:
+		_swallow_click = false
+		return
+	var m := str(meta)
+	_hide_peek()
+	if m.begins_with("wiki:"):
+		link_followed.emit(m.substr(5))
+	elif m.begins_with("ext:"):
+		external_link_followed.emit(m.substr(4))
+
+
+## The pointer (or a held finger, see `_on_preview_input`) is over a link: start the dwell that
+## shows the peek. Only `wiki:` links peek; an external address has nothing in the vault to show.
+func _on_meta_hover_started(meta: Variant) -> void:
+	var m := str(meta)
+	if not m.begins_with("wiki:") or not peek_source.is_valid():
+		return
+	_peek_target = m.substr(5)
+	_peek_timer.start(PEEK_HOLD_SEC if _peek_by_hold else PEEK_HOVER_SEC)
+
+
+func _on_meta_hover_ended(_meta: Variant) -> void:
+	if _peek_by_hold:
+		return
+	_hide_peek()
+
+
+func _build_peek() -> void:
+	_peek_timer = Timer.new()
+	_peek_timer.one_shot = true
+	_peek_timer.timeout.connect(_show_peek)
+	add_child(_peek_timer)
+	_peek = PanelContainer.new()
+	_peek.name = "LinkPeek"
+	_peek.top_level = true
+	_peek.visible = false
+	_peek.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_peek.custom_minimum_size = Vector2(300, 0)
+	## A hairline-outlined card on the panel ground, so it reads as floating above the note rather than
+	## as more of it (a `field_box` here was the same colour as the page and showed no edge).
+	var card := DccTheme.panel("panel", {"left": 1, "right": 1, "top": 1, "bottom": 1})
+	card.content_margin_left = 12
+	card.content_margin_right = 12
+	card.content_margin_top = 8
+	card.content_margin_bottom = 8
+	_peek.add_theme_stylebox_override("panel", card)
+	_peek_label = RichTextLabel.new()
+	_peek_label.bbcode_enabled = true
+	_peek_label.fit_content = true
+	_peek_label.scroll_active = false
+	_peek_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	style_rendered(_peek_label)
+	_peek.add_child(_peek_label)
+	add_child(_peek)
+
+
+## Fills and places the peek card beside the pointer, clamped to the editor's own rect so it never
+## leaves the window. Nothing to show (`peek_source` returned `""`) shows nothing.
+func _show_peek() -> void:
+	if _peek_target == "" or not peek_source.is_valid():
+		return
+	var body := String(peek_source.call(_peek_target))
+	if body == "":
+		return
+	_peek_label.text = body
+	## A fit-content label reports its height only after a layout pass at its real width, and a
+	## top-level panel keeps whatever size it was last given (seen in the first capture: a card
+	## stretched to the window's foot). So: show it transparent, let one frame lay it out, shrink it
+	## to its content, then place it and make it opaque.
+	_peek.modulate.a = 0.0
+	_peek.size = Vector2(300, 0)
+	_peek.visible = true
+	await get_tree().process_frame
+	if not _peek.visible or _peek_target == "":
+		return
+	_peek.reset_size()
+	var r := get_global_rect()
+	var at := get_global_mouse_position() + Vector2(14, 18)
+	at.x = clampf(at.x, r.position.x, maxf(r.position.x, r.end.x - _peek.size.x))
+	at.y = clampf(at.y, r.position.y, maxf(r.position.y, r.end.y - _peek.size.y))
+	_peek.global_position = at
+	_peek.modulate.a = 1.0
+
+
+func _hide_peek() -> void:
+	if _peek_timer != null:
+		_peek_timer.stop()
+	if _peek != null:
+		_peek.visible = false
+	_peek_target = ""
+	_peek_by_hold = false
+
+
 ## Ctrl+E from the rendered view goes back to the source (Obsidian's
-## reading-view toggle is the same key both ways).
+## reading-view toggle is the same key both ways). A finger pressed on the rendered text also
+## arrives here as an emulated left button: a hold on a link is the touch peek, so the press sends
+## the one motion Godot would otherwise never produce for a still finger (`PEEK_HOLD_SEC`).
 func _on_preview_input(ev: InputEvent) -> void:
+	var mb := ev as InputEventMouseButton
+	if mb != null and mb.button_index == MOUSE_BUTTON_LEFT:
+		if mb.pressed and mb.device == InputEvent.DEVICE_ID_EMULATION:
+			_peek_by_hold = true
+			var mm := InputEventMouseMotion.new()
+			mm.position = mb.global_position
+			mm.global_position = mb.global_position
+			mm.relative = Vector2(1, 0)
+			preview.get_viewport().push_input.call_deferred(mm)
+		elif not mb.pressed and _peek_by_hold:
+			## The hold ends. If it had produced the card, the release must not also follow the link.
+			_swallow_click = _peek != null and _peek.visible
+			_hide_peek()
+			if _swallow_click:
+				get_tree().create_timer(0.2).timeout.connect(func(): _swallow_click = false)
 	var k := ev as InputEventKey
 	if k == null or not k.pressed or k.echo:
 		return
@@ -628,6 +815,20 @@ func _on_preview_input(ev: InputEvent) -> void:
 ## any other key, any Alt or Shift combination, and key repeats fall through untouched. Accepts the
 ## event only for the keys it handled.
 func _on_source_input(ev: InputEvent) -> void:
+	var mb := ev as InputEventMouseButton
+	if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT \
+			and (mb.ctrl_pressed or mb.meta_pressed) and link_at.is_valid():
+		## Ctrl/Cmd-click follows the link under the pointer (VE-1; Obsidian's gesture in its source
+		## view). The caret has not moved yet, so the position is read from the click itself.
+		var line := text_edit.get_line_column_at_pos(Vector2i(mb.position))
+		var info: Dictionary = link_at.call(text_edit.text, _offset(line.y, line.x))
+		if bool(info.get("found", false)) and info.has("target") and not bool(info.get("external", false)):
+			var t := String(info["target"])
+			if info.has("heading"):
+				t += "#" + String(info["heading"])
+			link_followed.emit(t)
+			text_edit.accept_event()
+		return
 	var k := ev as InputEventKey
 	if k == null or not k.pressed or k.echo:
 		return
@@ -1032,7 +1233,29 @@ static func _esc(s: String) -> String:
 ## placeholder, `#tags` and `[text](url)` links. It is a reading view, not a
 ## CommonMark renderer; anything it does not recognise is shown as the text it
 ## is. `accent_hex`/`dim_hex` default to the theme's; a probe passes literals.
-static func to_bbcode(md: String, accent_hex: String = "", dim_hex: String = "") -> String:
+##
+## `link_info` (VE-1) is the host's classifier, `(target: String) -> {kind}` with `note`, `entity` or
+## `unresolved`. With it, every wikilink is drawn by kind and carries a `wiki:<target>` meta that
+## `_on_meta_clicked` follows: a note link accent and underlined; a link to a world entity with no
+## note accent, not underlined, with a leading `\u2316`; an unresolved link dim and italic. Without it
+## the output is exactly what it was before VE-1 (`[url=<target>]`, one colour), which
+## `_mdedit_probe.gd` pins. BBCode has no dotted or dashed underline, so the three kinds differ by
+## colour, underline, italic and glyph rather than by line style (disclosed against
+## `VAULT_EDITOR_PROPOSAL.md` s.3.2's table).
+static func to_bbcode(md: String, accent_hex: String = "", dim_hex: String = "", link_info: Callable = Callable()) -> String:
+	_link_ctx = link_info
+	var out := _to_bbcode(md, accent_hex, dim_hex)
+	_link_ctx = Callable()
+	return out
+
+
+## The classifier `to_bbcode` is rendering under, set for the duration of one call so the inline
+## renderer needs no extra parameter threaded through its many call sites. Single-threaded: the
+## shell renders on the main thread only.
+static var _link_ctx: Callable = Callable()
+
+
+static func _to_bbcode(md: String, accent_hex: String, dim_hex: String) -> String:
 	var accent := accent_hex if accent_hex != "" else DccTheme.c("accent").to_html(false)
 	var dim := dim_hex if dim_hex != "" else DccTheme.c("text_dim").to_html(false)
 	var out := PackedStringArray()
@@ -1150,6 +1373,32 @@ static func _wiki_shown(target: String, alias: String) -> String:
 	return sub if note == "" else "%s > %s" % [note, sub]
 
 
+## One link as BBCode. Without a classifier this is the pre-VE-1 form. With one: a Markdown link
+## whose address has a URL scheme is external (`ext:` meta, accent, underlined); any other address
+## is a note path (percent-decoded, `.md` dropped) and, like a wikilink, is classed and given a
+## `wiki:` meta. `target` is the text between the brackets, `#heading` included; classing looks at
+## the note part only.
+static func _link_bbcode(target: String, shown: String, accent_hex: String, is_markdown_link: bool) -> String:
+	if not _link_ctx.is_valid():
+		return "[color=#%s][url=%s]%s[/url][/color]" % [accent_hex, _esc(target), _esc(shown)]
+	if is_markdown_link and RegEx.create_from_string("^[A-Za-z][A-Za-z0-9+.-]*:").search(target) != null:
+		return "[color=#%s][u][url=ext:%s]%s[/url][/u][/color]" % [accent_hex, _esc(target), _esc(shown)]
+	var t := target.uri_decode() if is_markdown_link else target
+	if is_markdown_link and t.to_lower().ends_with(".md"):
+		t = t.substr(0, t.length() - 3)
+	var note_part := t.get_slice("#", 0).get_slice("^", 0)
+	## A same-note link (`[[#Heading]]`) has no note part: it is always this note.
+	var info: Dictionary = {"kind": "note"} if note_part == "" else _link_ctx.call(note_part)
+	var dim := DccTheme.c("text_dim").to_html(false)
+	match String(info.get("kind", "unresolved")):
+		"note":
+			return "[color=#%s][u][url=wiki:%s]%s[/url][/u][/color]" % [accent_hex, _esc(t), _esc(shown)]
+		"entity":
+			return "[color=#%s][url=wiki:%s]\u2316 %s[/url][/color]" % [accent_hex, _esc(t), _esc(shown)]
+		_:
+			return "[color=#%s][i][url=wiki:%s]%s[/url][/i][/color]" % [dim, _esc(t), _esc(shown)]
+
+
 ## Render one line's inline marks as BBCode: embeds, wikilinks and Markdown links are lifted out
 ## into numbered placeholders first (so their inner brackets or marks are not re-read), the rest is
 ## escaped, then tags, highlight, bold-italic, bold, italic, strike and underline are substituted,
@@ -1169,11 +1418,11 @@ static func _inline_text(s: String, accent_hex: String) -> String:
 		k += 1
 	for m in wiki.search_all(s):
 		var shown := _wiki_shown(m.get_string(1), m.get_string(2))
-		links.append("[color=#%s][url=%s]%s[/url][/color]" % [accent_hex, _esc(m.get_string(1)), _esc(shown)])
+		links.append(_link_bbcode(m.get_string(1), shown, accent_hex, false))
 		s = s.replace(m.get_string(0), "\u0001%d\u0001" % k)
 		k += 1
 	for m in md_link.search_all(s):
-		links.append("[color=#%s][url=%s]%s[/url][/color]" % [accent_hex, _esc(m.get_string(2)), _esc(m.get_string(1))])
+		links.append(_link_bbcode(m.get_string(2), m.get_string(1), accent_hex, true))
 		s = s.replace(m.get_string(0), "\u0001%d\u0001" % k)
 		k += 1
 	s = _esc(s)

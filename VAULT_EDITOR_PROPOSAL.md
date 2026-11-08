@@ -358,6 +358,15 @@ a note.
 Each closes with `cargo test --workspace` green and every touched `.gd` parse-checked, plus `shell/app.gd`
 (`MISTAKES.md`).
 
+## 7a. Build notes
+
+*What was built is `cartalith-native/docs/STATUS.md`'s answer ("VE-0 and VE-1 built"); this records what the build learned that the design should carry.*
+
+- **VE-0's answers.** (1) A `SyntaxHighlighter` honours colour only, so Live Preview stays out of scope and §3.1's substitute stands. (2) A still finger sends no motion event, so `meta_hover_started` does not fire under touch; the touch peek is a 500 ms hold the editor builds (§3.2, §5). (3) Android folder access on the 6T was not measured (no device); the question stays open and `move` in `vault_saf.rs` is still needed.
+- **VE-1 departs from §3.2's table in one way:** BBCode has no dotted or dashed underline, so the three link kinds differ by colour, underline, italic and a glyph. A live-drawn dotted line would need a custom draw; not scheduled.
+- **Following a link from a note with unsaved edits asks first** (the existing Discard / Cancel card). It does not save for the user; that is VE-4's autosave.
+- **Create from a link is a menu row, never a side effect** (VQ2, VQ5). Its template choice is VE-1's minimum; VE-6 still owns the `KnowledgeLink` and a proper chooser.
+
 ## 8. Owner questions, with defaults
 
 **All answered by Ruling DY** (owner, 2026-11-01, `LARGE_ITEM_RULINGS.md`).

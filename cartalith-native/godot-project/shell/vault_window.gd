@@ -160,6 +160,15 @@ var _editor: Control
 ## `_close_editor`.
 var _editor_mode := "write"
 
+## The notes a followed link was followed FROM, most recent last (VE-1): Back pops one. Cleared when
+## a note is picked from the tree, searched for or opened from the map, because those start a new
+## trail rather than continuing one.
+var _link_back: Array = []
+## Lower-cased entity name -> `{kind, id}` for the four kinds `_entity_list` can list; built on the
+## first link classed after a rebuild (`_clear` empties it). Culture and landmark names are not in
+## it -- this window cannot look them up (`_resolve_entity`) -- so a link to one reads as unresolved.
+var _ent_names: Dictionary = {}
+
 ## The "Attach to…" picker (`_build_attach_picker`): open or not, the kind it
 ## lists, and its name filter.
 var _attach_open := false
@@ -400,6 +409,7 @@ func _on_size_changed() -> void:
 
 ## The editor, picker and link state every entry point starts from.
 func _reset_note_state() -> void:
+	_link_back.clear()
 	_reader_link = ""
 	_pick_file = ""
 	_pick_heading = ""
@@ -479,6 +489,7 @@ func _clear() -> void:
 	_reader_edit = null
 	_browse_edit = null
 	_editor = null
+	_ent_names = {}
 	_attach_list = null
 	## Nulled, not left dangling: `_fill_search_results()` can be reached from a
 	## callback that outlives the rebuild that freed the box it was writing into.
@@ -1169,6 +1180,7 @@ func _select_file(rel: String) -> void:
 	if rel == _pick_file:
 		return
 	_guard_dirty(func():
+		_link_back.clear()
 		_pick_file = rel
 		_pick_heading = ""
 		_reader_link = ""
@@ -1559,6 +1571,198 @@ func _faction_name(fid: int) -> String:
 	return "faction %d (not in the roster)" % fid
 
 
+# -- Links: classing, following, Back, peek (VE-1) ------------------------------
+
+## What a link `note_part` (the text before any `#heading` or `^block`) written in the note at
+## `from_rel` names, as `{kind}`: `note` (plus `path`, or `candidates` when more than one note could
+## mean it), `entity` (a settlement, province, continent or faction of this world that has no note
+## by that name; plus `ent_kind` and `id`), `unresolved` (nothing by that name), or `unknown` (the
+## resolver could not answer -- generating, or no vault bound -- plus `why`). `unknown` is its own
+## answer on purpose: reading a failed lookup as `unresolved` would offer to CREATE a note that may
+## well exist (`MISTAKES.md`: never encode "no value" as a plausible value).
+func _link_kind(from_rel: String, note_part: String) -> Dictionary:
+	var r := bridge.vault_resolve_link(from_rel, note_part)
+	if not bool(r.get("ok", false)):
+		return {"kind": "unknown", "why": String(r.get("error", "the vault could not be read"))}
+	match String(r.get("status", "")):
+		"unique":
+			return {"kind": "note", "path": String(r.get("path", ""))}
+		"ambiguous":
+			return {"kind": "note", "candidates": r.get("candidates", [])}
+	var e: Dictionary = _entity_names().get(note_part.strip_edges().to_lower(), {})
+	if not e.is_empty():
+		return {"kind": "entity", "ent_kind": String(e["kind"]), "id": int(e["id"]), "name": String(e["name"])}
+	return {"kind": "unresolved"}
+
+
+## `_ent_names`, built on first use. The first entity of a name wins (names are not unique across
+## kinds; a note link would be unambiguous, an entity link is only a courtesy).
+func _entity_names() -> Dictionary:
+	if _ent_names.is_empty():
+		for kind in ["settlement", "province", "continent", "faction"]:
+			for ent in _entity_list(kind):
+				var n := String((ent as Dictionary).get("name", "")).strip_edges()
+				var key := n.to_lower()
+				if n != "" and n != "?" and not _ent_names.has(key):
+					_ent_names[key] = {"kind": kind, "id": int((ent as Dictionary).get("id", 0)), "name": n}
+	return _ent_names
+
+
+## Follows `target` (the text between the brackets, `#heading` included) written in `from_rel`.
+## A link to a note opens it in Write (Ruling DY, VQ4) and pushes the current note onto the Back
+## trail; one that could mean several notes asks which; a link to a world entity with no note, and a
+## link to nothing, only OFFER to create a note (VQ2, VQ5): creating is a menu item the user picks,
+## never a side effect of following. `anchor` is the control the menu opens beside.
+func _follow_link(from_rel: String, target: String, anchor: Control) -> void:
+	var note_part := target.get_slice("#", 0).get_slice("^", 0).strip_edges()
+	if note_part == "":
+		app.set_status("hint", "That link points at a heading in this note; jumping to it comes with the outline.", "text_ghost")
+		return
+	var info := _link_kind(from_rel, note_part)
+	match String(info["kind"]):
+		"note":
+			if info.has("path"):
+				_open_linked(String(info["path"]))
+			else:
+				var items: Array = []
+				for c in info.get("candidates", []):
+					var path := String(c)
+					items.append({"label": path, "call": func(): _open_linked(path)})
+				_show_link_menu("%s could mean several notes" % note_part, items, anchor)
+		"entity":
+			var ent := _resolve_entity(String(info["ent_kind"]), int(info["id"]))
+			var items2: Array = _create_items(String(info["name"]), bridge.vault_suggested_path(String(info["ent_kind"]), String(info["name"])))
+			if ent.has("x") and ent.has("y"):
+				items2.append({"label": "Centre on map", "call": func():
+					app.viewport.move_view_to(float(ent["x"]), float(ent["y"]))})
+			_show_link_menu("%s is a %s with no note yet" % [info["name"], info["ent_kind"]], items2, anchor)
+		"unresolved":
+			var rel := note_part if note_part.ends_with(".md") else note_part + ".md"
+			_show_link_menu("No note called %s" % note_part, _create_items(note_part.get_file().trim_suffix(".md"), rel), anchor)
+		_:
+			app.set_status("hint", "Cannot follow that link now: %s" % String(info.get("why", "")), "accent")
+
+
+## Menu rows that create the note `rel` from each of the vault's templates (the creator never
+## overwrites). With no templates the row is present but disabled, naming why, rather than absent.
+func _create_items(name: String, rel: String) -> Array:
+	var items: Array = []
+	for t in bridge.vault_templates():
+		var td: Dictionary = t
+		var trel := String(td.get("rel", ""))
+		items.append({"label": "Create %s from %s" % [rel, String(td.get("label", trel))], "call": func():
+			var r := bridge.vault_create_from_template(trel, rel, name)
+			if bool(r.get("ok", false)):
+				_open_linked(String(r.get("path", rel)))
+			else:
+				app.set_status("hint", "Create refused: %s" % String(r.get("error", "")), "accent")})
+	if items.is_empty():
+		items.append({"label": "Create %s (this vault has no templates)" % rel, "disabled": true, "call": Callable()})
+	return items
+
+
+## Opens `path` in Write, from a link. A dirty editor asks first (`_guard_dirty`), so following a
+## link never discards typing; keeping the edits leaves everything as it was.
+func _open_linked(path: String) -> void:
+	_guard_dirty(func():
+		if _pick_file != "" and _pick_file != path:
+			_link_back.append(_pick_file)
+		_enter_note(path))
+
+
+## Back to the note the last followed link came from. Asks first if there are unsaved edits.
+func _go_back() -> void:
+	if _link_back.is_empty():
+		return
+	var prev := String(_link_back.back())
+	_guard_dirty(func():
+		_link_back.pop_back()
+		_enter_note(prev))
+
+
+## Makes `path` the picked note and opens it in the editor, in Write (the reader pane is skipped:
+## Ruling DY, VQ4). Unguarded -- callers have dealt with unsaved edits.
+func _enter_note(path: String) -> void:
+	_pick_file = path
+	_pick_heading = ""
+	_reader_link = ""
+	_attach_open = false
+	_browse_path = ""
+	_browse_phone_pane = "preview"
+	_open_editor()
+
+
+## An external link is handed to the operating system, for the schemes a note can reasonably hold.
+## Anything else (`file:`, `javascript:`, a custom scheme) is refused and said so.
+func _open_external(url: String) -> void:
+	var low := url.to_lower()
+	if low.begins_with("http://") or low.begins_with("https://") or low.begins_with("mailto:"):
+		OS.shell_open(url)
+	else:
+		app.set_status("hint", "Not opened: only http, https and mailto links leave the app.", "accent")
+
+
+## BBCode for the peek card of link `target` written in `from_rel`: the note's name and its first
+## lines (frontmatter skipped, at most `PEEK_LINES` non-empty lines and `PEEK_CHARS` characters), or
+## a one-line description for a world entity or an ambiguous name; `""` when there is nothing to
+## show (an unresolved link), so no card appears for it.
+func _peek_for(from_rel: String, target: String) -> String:
+	var note_part := target.get_slice("#", 0).get_slice("^", 0).strip_edges()
+	if note_part == "":
+		return ""
+	var info := _link_kind(from_rel, note_part)
+	match String(info["kind"]):
+		"note":
+			if not info.has("path"):
+				return "[b]%s[/b]\nCould mean %d notes." % [note_part, (info.get("candidates", []) as Array).size()]
+			var path := String(info["path"])
+			var text := MdEditor.strip_frontmatter(bridge.vault_read_file(path))
+			var lines := PackedStringArray()
+			var chars := 0
+			for ln in text.split("\n"):
+				if ln.strip_edges() == "":
+					continue
+				lines.append(ln)
+				chars += ln.length()
+				if lines.size() >= PEEK_LINES or chars >= PEEK_CHARS:
+					break
+			return MdEditor.to_bbcode("\n".join(lines))
+		"entity":
+			return "[b]%s[/b]\nA %s of this world with no note yet." % [info["name"], info["ent_kind"]]
+	return ""
+
+
+## Peek card limits: a labelled judgement (enough to recognise a note, short enough to read in the
+## second the card is up).
+const PEEK_LINES := 8
+const PEEK_CHARS := 420
+
+
+## Opens a menu of `items` (`[{label, call, disabled?}]`) beside `anchor`, under `heading` as a
+## disabled first row. A row's `call` runs when it is chosen; dismissing the menu runs nothing.
+func _show_link_menu(heading: String, items: Array, anchor: Control) -> void:
+	var pm := PopupMenu.new()
+	pm.name = "LinkMenu"
+	pm.add_item(heading)
+	pm.set_item_disabled(0, true)
+	pm.add_separator()
+	for i in items.size():
+		var it: Dictionary = items[i]
+		pm.add_item(String(it["label"]), i)
+		if bool(it.get("disabled", false)):
+			pm.set_item_disabled(pm.item_count - 1, true)
+	pm.id_pressed.connect(func(id: int):
+		var c: Callable = (items[id] as Dictionary)["call"]
+		if c.is_valid():
+			c.call())
+	pm.popup_hide.connect(pm.queue_free, CONNECT_DEFERRED)
+	add_child(pm)
+	var r := MdEditor.anchor_rect(anchor)
+	r.size = Vector2(24, 24)
+	r.position += Vector2(48, 48)
+	DccWidgets.popup_anchored(pm, r, 360)
+
+
 # -- The editor (Ruling BE) -----------------------------------------------------
 
 ## Reads the whole file (`vault_read_file_for_edit`, which returns its hash)
@@ -1599,6 +1803,12 @@ func _build_editor_pane(parent: Control) -> void:
 	## `{{title}}` is this note's own name, as Obsidian's is. It writes
 	## nothing; the result waits in the editor for Save's hash-guarded write.
 	var note_title := self_rel.get_file().get_basename()
+	## Links (VE-1): the editor holds no vault knowledge, so it is handed the classifier, the
+	## link-under-the-caret reader and the peek text. `_browse_path` is read at call time, so a link in
+	## whichever note is open is resolved from THAT note.
+	ed.link_info = func(t: String) -> Dictionary: return _link_kind(_browse_path, t)
+	ed.link_at = func(text: String, offset: int) -> Dictionary: return bridge.vault_link_at(text, offset)
+	ed.peek_source = func(t: String) -> String: return _peek_for(_browse_path, t)
 	var templates_source := func() -> Array: return bridge.vault_templates()
 	var inserter := func(rel: String, text: String, caret: int) -> Dictionary:
 		return bridge.vault_insert_template(rel, text, caret, note_title)
@@ -1606,6 +1816,10 @@ func _build_editor_pane(parent: Control) -> void:
 		templates_source, inserter)
 	_editor = ed
 	_browse_edit = ed.text_edit
+	ed.set_back_visible(not _link_back.is_empty())
+	ed.link_followed.connect(func(t: String): _follow_link(_browse_path, t, ed))
+	ed.external_link_followed.connect(_open_external)
+	ed.back_requested.connect(_go_back)
 	ed.edited.connect(func(): _browse_text = ed.text_edit.text)
 	ed.mode_changed.connect(func(m: String): _editor_mode = m)
 	ed.save_requested.connect(_save_note)
@@ -2086,7 +2300,17 @@ func _build_browse_preview(parent: Control, data: Dictionary) -> void:
 		edge.content_margin_top = 4
 		edge.content_margin_bottom = 4
 		body.add_theme_stylebox_override("normal", edge)
-		body.text = MdEditor.to_bbcode(MdEditor.strip_frontmatter(String(read.get("text", ""))))
+		## Links (VE-1): classed by kind and followable, like the editor's Preview.
+		var from_rel := _pick_file
+		body.meta_underlined = false
+		body.text = MdEditor.to_bbcode(MdEditor.strip_frontmatter(String(read.get("text", ""))), "", "",
+			func(t: String) -> Dictionary: return _link_kind(from_rel, t))
+		body.meta_clicked.connect(func(meta: Variant):
+			var m := str(meta)
+			if m.begins_with("wiki:"):
+				_follow_link(from_rel, m.substr(5), body)
+			elif m.begins_with("ext:"):
+				_open_external(m.substr(4)))
 		g.add_child(body)
 
 
