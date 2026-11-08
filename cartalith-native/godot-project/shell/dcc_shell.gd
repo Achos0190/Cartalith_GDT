@@ -910,6 +910,31 @@ func _ready() -> void:
 	## The six timeline layer toggles, before either composition builds a view
 	## of them -- see the §10a block.
 	_tl_load_layers()
+	## MS-1 S4.2: the composition is built by `_mount_composition()`, the one path a cold boot and (from
+	## S4.4) a class swap both take, so a swap cannot diverge from a boot. Everything class-independent
+	## (the classification above, the resize connection below, `_booted`) stays here.
+	_mount_composition()
+	get_tree().root.size_changed.connect(_on_window_resized)
+	## MS-1 S3: from here on only a class swap may change `_phone` (see the field).
+	_booted = true
+
+## MS-1 S4.2 (`MOBILE_SHELL_MS1_SPEC.md` section 3.5, `S4_INVENTORY.md` sections 2.1, 3 and 11): builds the
+## composition for the class `_phone` and `DccTheme` name, hooks it, and selects the active domain. This is the
+## block `_ready()` held between the classification and the resize connection; moving it changes no node and no
+## connection of the shell's own, and one order: the root's `size_changed` is now connected after
+## `_select_domain()` instead of before it, and nothing in the build or in `_select_domain()` connects to or emits
+## that signal (`S4_INVENTORY.md` section 15.2, O8). The application's half moved too, and what that changed is
+## measured there: `DccApp._mount_app_composition()`.
+##
+## Everything it connects to a long-lived emitter is guarded by `is_connected()`, so a second mount (the
+## round trip of `_ms1swap_probe.gd --leg roundtrip`, and from S4.4 a swap) adds no second connection. The
+## connections that belong to one class (`_on_tablet_node_added`, `_on_phone_node_added`) are made by the
+## builders and undone by `_unmount_composition()`.
+##
+## Must be called only with no composition present (boot, or after `_unmount_composition()`), and only after
+## `DccTheme` has been told the class: the builders read `is_tablet()` and the phone scale at build time.
+## It must never free or rebuild a survivor (the bridge, the viewport and its overlays, the timers).
+func _mount_composition() -> void:
 	if _phone:
 		_build_phone_shell()
 	else:
@@ -922,16 +947,17 @@ func _ready() -> void:
 	## panel, all of which arrive later.
 	if left_dock != null and right_dock != null:
 		_run_dock_fit()
-		get_tree().node_added.connect(_on_dock_node_added)
+		if not get_tree().node_added.is_connected(_on_dock_node_added):
+			get_tree().node_added.connect(_on_dock_node_added)
 	## **Windows are walked too.** Only docks were: `phone_fit()` / `tablet_arbitrate()` reach a
 	## window only where the window's own file calls them, and `quick_bar_window.gd` (an
 	## `ItemList` catalogue), `gen_info_dialog.gd` (a `TextEdit`) and the credits and roster
 	## windows never did, so none of the central touch-scroll fixes reached them (measured:
 	## `_phonescroll_probe.gd --only Customise`, 0 px). One hook, every touch composition.
 	if _phone or DccTheme.is_tablet():
-		get_tree().node_added.connect(_on_window_node_added)
+		if not get_tree().node_added.is_connected(_on_window_node_added):
+			get_tree().node_added.connect(_on_window_node_added)
 
-	get_tree().root.size_changed.connect(_on_window_resized)
 	_select_domain(_active_domain)
 	## Deferred, and it has to be: this function runs as `super._ready()` from
 	## `DccApp._ready()`, which only creates `EngineBridge` and `ViewportHost` on
@@ -940,8 +966,156 @@ func _ready() -> void:
 	## still no-ops rather than erroring on a bare `DccShell` (every phone-chrome
 	## probe in this project), which has neither.
 	_refresh_viewport_context.call_deferred()
-	## MS-1 S3: from here on only a class swap may change `_phone` (see the field).
-	_booted = true
+
+## MS-1 S4.2 (`S4_INVENTORY.md` sections 2.1, 3, 4 and 11): the inverse of `_mount_composition()`. Frees the
+## composition (`_phone_root` or `_desktop_root`, which hold every node the builders made, plus the phone's
+## `ToolFan`, a plain `Node` child of the app), disconnects the connections the builders made for one class,
+## kills what outlives a freed node (the sheet's `Tween`; a `Tween` is not a `Node`), nulls every field that
+## pointed into the composition and clears every dictionary and array that held its nodes, and drops the
+## composition's entries from `DccTheme`'s registries.
+##
+## What it does not touch, because it survives: the bridge, the timers, `_active_domain` and `_domain_mode`, the
+## dock widths and collapse flags, `_phone`, `_landscape` and `_phone_scale` (a swap republishes those before the
+## mount), the timeline's playback state, every `is_connected()`-guarded connection of `_mount_composition()`,
+## the debounce timers and the lazily built desktop search dialog.
+##
+## The caller detaches the survivors that live inside the composition (the viewport and its overlays, under
+## `viewport_content`) BEFORE this runs: `DccApp._unmount_app_composition()` does, then calls this. Freed with
+## `free()`, not `queue_free()`, so a mount straight after finds no half-dead node of the same class; call it
+## from an idle point, never from a signal the composition itself is emitting. Test-only until S4.4 wires it to
+## a class change (`_ms1swap_probe.gd --leg roundtrip` proves it leaves no orphan and no extra connection).
+func _unmount_composition() -> void:
+	var tree := get_tree()
+	## Class-specific connections (inventory section 3.1 rows 3 and 4, section 3.2), and the debounce flags a
+	## disconnected hook would otherwise leave true for the next class's pass.
+	if tree.node_added.is_connected(_on_tablet_node_added):
+		tree.node_added.disconnect(_on_tablet_node_added)
+	if tree.node_added.is_connected(_on_phone_node_added):
+		tree.node_added.disconnect(_on_phone_node_added)
+	if timeline_changed.is_connected(_refresh_phone_sim_strip):
+		timeline_changed.disconnect(_refresh_phone_sim_strip)
+	_tablet_arb_pending = false
+	_phone_fit_pending = false
+	_dock_fit_pending = false
+	## A `Tween` is not a `Node`: freeing the sheet would leave it running.
+	if _phone_sheet_tween != null and _phone_sheet_tween.is_valid():
+		_phone_sheet_tween.kill()
+	_phone_sheet_tween = null
+	_phone_sheet_drag = {}
+	_dom_gesture = {}
+	if _tool_fan != null and is_instance_valid(_tool_fan):
+		_tool_fan.teardown()
+		_tool_fan.free()
+	_tool_fan = null
+	for root in [_phone_root, _desktop_root]:
+		if root != null and is_instance_valid(root):
+			(root as Node).free()
+	_phone_root = null
+	_desktop_root = null
+	## The nodes the builders made are gone; every handle to one is now null or empty.
+	menu_bar_row = null
+	tool_options_row = null
+	tool_options_bar = null
+	rail_column = null
+	left_dock = null
+	left_dock_title = null
+	left_dock_body = null
+	viewport_area = null
+	viewport_content = null
+	right_dock = null
+	right_dock_title = null
+	right_dock_body = null
+	timeline_bar = null
+	timeline_row = null
+	status_row = null
+	rail_foot = null
+	_rail_foot_stack = null
+	_rail_foot_run = null
+	_rail_foot_total = null
+	_rail_region = null
+	_rail_exp_column = null
+	_rail_chevron = null
+	_menu_undo_btn = null
+	_menu_redo_btn = null
+	_domain_buttons.clear()
+	_domain_marks.clear()
+	_rail_seps.clear()
+	_rail_exp_heads.clear()
+	_rail_node_rows.clear()
+	_status_labels.clear()
+	_status_cells.clear()
+	_status_rules.clear()
+	_status_dot = null
+	_status_tail = null
+	_collapse_buttons.clear()
+	_dock_readouts.clear()
+	_workspace_panels.clear()
+	_left_dock_scroll = null
+	_right_dock_scroll = null
+	_left_dock_mode_switch = null
+	_left_dock_col = null
+	_dock_in_sheet = false
+	_mode_switch_row = null
+	_mode_switch_pill = null
+	_mode_switch_buttons.clear()
+	_mode_switch_domain = ""
+	_command_index = null
+	## The phone's composition.
+	_phone_top_safe = null
+	_phone_side_safe = null
+	_phone_chrome_margin = null
+	_phone_content_gap = null
+	_phone_tool_sheet = null
+	_phone_tool_scroll = null
+	_phone_sheet_col = null
+	_phone_quick_row = null
+	_phone_gen_scroll = null
+	_phone_gen_col = null
+	_phone_dom_host = null
+	_phone_dom_back_row = null
+	_phone_dom_journeys_row = null
+	_phone_map_row = null
+	_phone_app_bar = null
+	_phone_gesture_inset = null
+	_phone_sheet_grab = null
+	_phone_sheet_title = null
+	_phone_sheet_subtitle = null
+	_phone_chrome_col = null
+	_phone_bar_row = null
+	_phone_bar_domains = null
+	_phone_bar_cells = null
+	_phone_bar_dests = null
+	_phone_clock_label = null
+	_phone_battery_label = null
+	_phone_side_clock_label = null
+	_phone_side_battery_label = null
+	_phone_menu_bar = null
+	_phone_menu = null
+	_phone_search_overlay = null
+	_phone_search_field = null
+	_phone_search_results = null
+	_phone_search_chips = null
+	_phone_search_count = null
+	_phone_undo_chip = null
+	_phone_undo_pop = null
+	_phone_sim_strip = null
+	_phone_sim_year = null
+	_phone_sim_slider = null
+	_phone_sim_play = null
+	_phone_sim_speeds.clear()
+	_phone_sim_transport.clear()
+	_phone_overflow_pop = null
+	_phone_overflow_saved = null
+	_phone_overflow_theme = null
+	_phone_tab_cells.clear()
+	_domain_fan = null
+	_phone_detent = "peek"
+	_left_sheet_open = false
+	_right_sheet_open = false
+	_undo_chip_down = false
+	_undo_chip_hold_fired = false
+	_coach_marks_wait_for_picker = false
+	DccTheme.clear_composition_registries()
 
 ## The pointer-first / tablet composition: one continuous vertical stack of
 ## fixed-height bars around a horizontal row of rail/docks/viewport. This is
@@ -952,6 +1126,7 @@ func _build_desktop_shell() -> void:
 	shell.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shell.add_theme_constant_override("separation", 0)
 	add_child(shell)
+	_desktop_root = shell
 
 	shell.add_child(_build_menu_bar())
 	shell.add_child(_build_tool_options_bar())
@@ -998,6 +1173,10 @@ func _build_desktop_shell() -> void:
 	if DccTheme.is_tablet():
 		tablet_arbitrate(self)
 		get_tree().node_added.connect(_on_tablet_node_added)
+
+## MS-1 S4.2: the root of the pointer-first / tablet composition (`_build_desktop_shell()`'s vertical stack), null
+## on the phone, where `_phone_root` is the root. `_unmount_composition()` frees whichever one exists.
+var _desktop_root: Control
 
 ## Scales a fixed desktop pixel height for the current form factor: raw on a pointer
 ## build, the `DccTheme.TABLET` table entry (or a 44 px-floored `TOUCH_SCALE` multiple) on
@@ -1941,20 +2120,30 @@ func _menu_bar_redo() -> void:
 ## until the next idle frame. The four signals are that function's four, chosen
 ## the same way -- a commit to the height field can arrive through any of them,
 ## and none of the others moves the undo stack.
+var _menu_squares_wired := false
+## Same once-guards for the phone's two build-time wirings (`_wire_phone_undo_chip()`, `_wire_phone_overflow()`).
+var _phone_undo_wired := false
+var _phone_overflow_wired := false
+
 func _wire_menu_squares() -> void:
 	(func() -> void:
 		var bridge := _find_engine_bridge()
 		if bridge == null:
 			return
-		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
-			bridge.connect(sig, func(_a = null): _refresh_menu_squares())
-		## The shared look history (Ruling BY item 2, `DccApp.look_history`) emits
-		## `changed` on every commit, undo, redo and clear, so a look-only edit
-		## lights the squares without polling. A bare `DccShell` has no such
-		## property and skips this.
-		var lh = get("look_history")
-		if lh != null and lh.has_signal("changed"):
-			lh.changed.connect(_refresh_menu_squares)
+		## MS-1 S4.2: connected once for the life of the shell. The lambdas read the squares through
+		## `_refresh_menu_squares()` at call time, so a rebuilt menu bar is served by the same connections, and
+		## a second mount does not double them (`S4_INVENTORY.md` section 15.1).
+		if not _menu_squares_wired:
+			_menu_squares_wired = true
+			for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
+				bridge.connect(sig, func(_a = null): _refresh_menu_squares())
+			## The shared look history (Ruling BY item 2, `DccApp.look_history`) emits
+			## `changed` on every commit, undo, redo and clear, so a look-only edit
+			## lights the squares without polling. A bare `DccShell` has no such
+			## property and skips this.
+			var lh = get("look_history")
+			if lh != null and lh.has_signal("changed"):
+				lh.changed.connect(_refresh_menu_squares)
 		_refresh_menu_squares()
 	).call_deferred()
 
@@ -4355,7 +4544,16 @@ func _select_domain(id: String) -> void:
 	## `super._ready()`, before `app.gd` builds it); the deferred call at the foot
 	## of `_ready()` is what draws it the first time.
 	_refresh_viewport_context()
-	workspace_changed.emit(id)
+	## MS-1 S4.2: not while a composition is being mounted. `_mount_composition()` calls `_select_domain()` before
+	## the app's workspaces and right dock exist, and a boot has no listener yet; a remount has them all (the app's
+	## `_on_workspace_changed()` reads `right_dock_ctrl`), so the mount holds the signal back and the caller makes
+	## the one call the listeners need once everything is built (`DccApp._remount_composition_for_test()`).
+	if not _mounting_composition:
+		workspace_changed.emit(id)
+
+## True from after `_unmount_composition()` to the end of the mount: `_select_domain()` then does not emit
+## `workspace_changed`. Written only by a remount (boot never sets it: nothing listens that early).
+var _mounting_composition := false
 
 ## The active mode of one domain -- `worldMode` / `cc()` / `ct()` behind one
 ## accessor, since this shell has no reason to keep three names for one question.
@@ -6311,6 +6509,7 @@ func set_status(slot: String, text: String, token: String = "") -> void:
 		return
 	var ink: String = token if token != "" else _status_default_token(slot)
 	var l: Label = _status_labels[slot]
+	_status_tokens[slot] = token
 	l.text = text
 	l.add_theme_color_override("font_color", DccTheme.c(ink))
 	if slot == "autosave":
@@ -6372,6 +6571,26 @@ func _paint_status_dot(token: String) -> void:
 ## been set, and for one that does not exist -- callers here are building a
 ## list, and an unset readout is a row that should simply not appear, not an
 ## error to push.
+## MS-1 S4.2: the token each slot was last written with (`""` means the slot's default ink), so a rebuilt status
+## bar can be refilled exactly: `status_snapshot()` and `restore_status()`. Survives a composition, like the text it
+## accompanies is carried across it (`S4_INVENTORY.md` section 15.5).
+var _status_tokens: Dictionary = {}
+
+## Every status slot's text and the token it was last written with, as `{slot: {"text", "token"}}`. Read before
+## `_unmount_composition()`, because the labels hold the only copy of the text.
+func status_snapshot() -> Dictionary:
+	var out := {}
+	for slot in _status_labels:
+		out[slot] = {"text": (_status_labels[slot] as Label).text, "token": String(_status_tokens.get(slot, ""))}
+	return out
+
+## Writes a `status_snapshot()` back through `set_status()` (so the omission rule, the autosave dot and the tail fit
+## all run), in the slot order the snapshot has. A slot the new bar does not have is skipped, never an error.
+func restore_status(snap: Dictionary) -> void:
+	for slot in snap:
+		if _status_labels.has(slot):
+			set_status(String(slot), String(snap[slot]["text"]), String(snap[slot]["token"]))
+
 func status_slot_text(slot: String) -> String:
 	if not _status_labels.has(slot):
 		return ""
@@ -9028,8 +9247,9 @@ func _set_phone_overflow_open(open: bool) -> void:
 func _wire_phone_overflow() -> void:
 	(func() -> void:
 		var bridge := _find_engine_bridge()
-		if bridge == null:
+		if bridge == null or _phone_overflow_wired:
 			return
+		_phone_overflow_wired = true
 		bridge.project_saved.connect(func(_path: String):
 			_phone_saved_at = Time.get_time_string_from_system().substr(0, 5))
 	).call_deferred()
@@ -9908,14 +10128,17 @@ func _wire_phone_undo_chip() -> void:
 		## generate merely beginning commits nothing, so `can_undo()` cannot
 		## have changed yet; NOT `project_saved` -- writing a `.zip` reads the
 		## height field, it does not touch the undo stack.
-		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
-			bridge.connect(sig, func(_a = null): _refresh_phone_undo_chip())
-		## The shared look history emits `changed` on every commit, undo, redo and clear (the
-		## same hook `_wire_menu_squares()` uses), so a look-only edit shows the chip too
-		## (OUTSTANDING_WORK "phone undo chip answers only bridge.can_undo()", 2026-10-12).
-		var lh = get("look_history")
-		if lh != null and lh.has_signal("changed"):
-			lh.changed.connect(_refresh_phone_undo_chip)
+		## MS-1 S4.2: connected once (`_phone_undo_wired`); the lambdas read the chip at call time.
+		if not _phone_undo_wired:
+			_phone_undo_wired = true
+			for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
+				bridge.connect(sig, func(_a = null): _refresh_phone_undo_chip())
+			## The shared look history emits `changed` on every commit, undo, redo and clear (the
+			## same hook `_wire_menu_squares()` uses), so a look-only edit shows the chip too
+			## (OUTSTANDING_WORK "phone undo chip answers only bridge.can_undo()", 2026-10-12).
+			var lh = get("look_history")
+			if lh != null and lh.has_signal("changed"):
+				lh.changed.connect(_refresh_phone_undo_chip)
 		_refresh_phone_undo_chip()
 	).call_deferred()
 

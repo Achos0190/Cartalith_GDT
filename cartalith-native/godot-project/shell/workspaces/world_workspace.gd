@@ -4876,7 +4876,20 @@ func _paint_stroke_forget() -> void:
 ## Focus loss ends an open stroke: the button-up may be delivered to another
 ## window and never reach the map, which would leave the stroke open forever. The
 ## remainder of that gesture then paints nothing (`_paint_stroke_aborted`).
+##
+## MS-1 S4.2: also frees the tablet slider rows' UNMOUNTED shape when this workspace is freed. Each reflow entry
+## (`_slider_reflow_entries`) keeps both its `wide` and its `compact` container and the `spacer` only `wide` holds,
+## and only one shape is ever a child of the dock; the other is an orphan that no parent will free. A class swap frees the whole workspace
+## (`S4_INVENTORY.md` section 15.4), so without this every tablet mount leaked about 140 orphan nodes
+## (measured by `_ms1swap_probe.gd --leg roundtrip` at 1800 x 3200 dp: 568 orphans after three round trips
+## against 142 at boot).
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		for entry in _slider_reflow_entries:
+			for k in ["wide", "compact", "spacer"]:
+				var shape = (entry as Dictionary).get(k)
+				if shape is Node and is_instance_valid(shape) and (shape as Node).get_parent() == null:
+					(shape as Node).free()
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
 		if _paint_stroke_open:
 			_paint_stroke_finish()

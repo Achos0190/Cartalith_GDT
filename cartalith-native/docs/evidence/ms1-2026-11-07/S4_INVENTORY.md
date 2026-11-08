@@ -691,3 +691,117 @@ side panel (`vault_side_panel.gd`, its selected `tab` and `_tag_open`).
   into five slots. The inventory's §2.2 row for `journey_planner_view` (rebuilt) now has a window to rebuild into.
 - `vault_side_panel.gd` (VE-5): `phone` is set at `setup()` and read by the panel's build, so it is one more
   piece of the vault window's re-present path (§5.3's `VaultWindow` row).
+
+## 15. Addendum, 2026-11-08: S4.2, the mount path (what `_ready()` builds now, and the ordering it kept)
+
+Written for stage S4.2 against `5c1d178f` (PC-1 to PC-10, VE-0 to VE-7, MS-2 to MS-4 and MS-3's remainder landed
+since §2), read at the symbols named. Verified against a structure and connection dump of the real shell
+(`_ms1swap_probe.gd --leg dump`, below), not against this prose.
+
+### 15.1 What `_ready()` builds now that §2 does not list
+
+- `DccShell._ready()` also connects `_on_window_node_added` (the touch-scroll pass over every window), and only
+  `if _phone or DccTheme.is_tablet()`. It is not undone by `_unmount_composition()` (it is class-agnostic once
+  connected), so S4.4 owns the disconnect when a swap lands on the desktop and the connect when it leaves it. S4.2 guards
+  the connect with `is_connected()` so a second mount adds nothing.
+- New composition fields (MS-3, MS-2): `_phone_dom_host`, `_left_dock_mode_switch`, `_left_dock_col`, `_dock_in_sheet`,
+  `_phone_dom_back_row`, `_phone_dom_journeys_row`, `_phone_map_row`, `_domain_fan` (built lazily under `_phone_root`),
+  `_dom_gesture`. Nulled or reset by `_unmount_composition()`. `_dock_in_sheet` true at unmount time is harmless: the dock
+  pieces that were reparented into the sheet are freed with the sheet, and the left dock itself with the root.
+- Fields §2.2 lists that no longer exist: `_tool_options_stale` and `_tool_options_bake` (PC-11 removed the tool-options
+  row's buttons). `_stale_recompute` still exists and is nulled.
+- Nodes that are children of the app and not of the composition, built by `DccApp._ready()` and freed explicitly by
+  `_unmount_app_composition()`: `right_dock_ctrl` (a `Node`; PC-4's Context panel, PC-5's Note tab, PC-6's Ask frame and
+  PC-10's modules live under `right_dock_body` and go with the dock), `journey_planner_view` (PC-8's planner window is
+  parented by it), `phone_project_picker`, and the phone's `ToolFan` and its overlay (`ToolFan.teardown()`, new).
+- **Connections a build makes to a survivor with a lambda the shell owns**, which §3.2 did not list and which a second
+  mount would double (found by the round trip's connection counts, see §15.4): `_wire_menu_squares()` (four bridge signals and
+  `look_history.changed`, from `_build_menu_bar()`), `_wire_phone_undo_chip()` (the same five, phone), `_wire_phone_overflow()`
+  (`bridge.project_saved`, phone). `_wire_status_progress()` already carries a once-guard (`_status_wired`).
+
+### 15.2 The ordering dependencies, and what S4.2 did with each
+
+`DccApp._ready()` interleaves composition-dependent steps (C) with class-independent ones (I). The mount call replaces C
+steps scattered between I steps; these are the dependencies that decided what could move.
+
+| # | Dependency | Verdict |
+|---|---|---|
+| O1 | **The workspaces connect to the Place editor and the Factions window while they build** (`civilization_workspace.gd`: `place_editor_window.place_changed`, `faction_roster_window.roster_changed`, ...), and read `new_world_dialog` and `layers_popover` in handlers. | The windows must be set up before `_register_workspaces()`. So the C block cannot move ahead of the windows; the windows' `setup()` calls stay where they were and the **mount call sits after `layers_popover.setup()`**. |
+| O2 | No window's `setup()` reads `menus`, `_quick_bar`, `left_dock`, `tool_options_bar` or `timeline_row` (grepped over all twenty; the one reader, `ShortcutsDialog`, reads `_app.menus` when it opens). `QuickBarMenuPin.setup()` hooks every popup already in the tree and then every later `node_added` (`hook()` is idempotent). | **`menus.build()` may move after the windows.** Its popups are then hooked by the `node_added` branch instead of the walk. |
+| O3 | `_install_tool_palette_bar()` connects the `workspace_changed` lambda that rebuilds the tool strip. Order of `workspace_changed` receivers is `palette lambda`, `RightDock`'s, `_on_workspace_changed`, the planner's. | Kept: the palette still precedes all three (it moved from before the bridge to after the windows; nothing connects to `workspace_changed` in between: grepped). `_quick_bar.setup.call_deferred()` still lands after `_ready()` returns, by which time the menus exist. |
+| O4 | The bridge lambdas that refresh the quick bar were connected only `if _quick_bar != null`, which was true only because the palette was built before the bridge. | The palette is now built after them, so the guard would have skipped them on every class. They are connected unconditionally and call `_refresh_quick_bar_deferred()`, which reads `_quick_bar` at call time and is null-safe. Phone gains two no-op connections (`world_loaded`, `generation_finished`); desktop and tablet keep their count. |
+| O5 | `viewport` and `resource_overlay` are made and added to `viewport_content` before `viewport.setup(bridge)` between the two repaint-bracket probes (`_repaintbracket_probe.gd` walks `generation_finished`'s connections in order). | They stay where they are: survivors are created once, at boot, in `_ready()`. `_attach_survivors()` re-parents them on a remount and does nothing at boot. `section_strip` likewise (after the mount, before `_wire_status()`). |
+| O6 | `_wire_status()`, `_wire_selection()`, `GlobalTools.install()`, `PaintOriginal` and `DccToolBar.install()` come after the workspaces and before `workspace_changed` is connected; the Paint row reads `WorldWorkspace`'s brush dictionary. | Not in the mount: they connect once to survivors (`_wire_status()` has no guard) or build survivor objects. A remount refreshes what they painted (§15.5), it does not call them again. |
+| O7 | `workspace_changed.connect(_on_workspace_changed)` precedes the planner (its class comment). | Kept. `_mount_journey_planner()` is the planner's builder, called from `_ready()` in the same place and from the round trip. |
+| O8 | `DccShell._ready()`'s root `size_changed` connection used to sit between the dock hooks and `_select_domain()`. | It now follows `_mount_composition()`. Nothing the build or `_select_domain()` does connects to or emits that signal, and the dump shows the root's `size_changed` list unchanged. |
+
+**What moved, measured:** with the pre-split tree (`5c1d178f`) and this tree each booted four times (desktop 1600 x 1000,
+touch tablet 1800 x 3200 at density 1, phone 1080 x 2340 at 2.8125, tablet 2388 x 1668 at 2) and dumped (class, script,
+visibility and rect of every node under the app; every signal's receivers in connection order), the two runs of one tree
+are byte-equal and the trees differ in exactly three ways: (1) `menus.gd`'s lambdas on `bridge.generation_finished` and
+`world_loaded` sit after the windows' instead of before them (O2); (2) on the phone, the picker window is the app's child
+after `layers_popover` instead of before `vault_window`, and the insets relay is last on `phone_insets_changed` (the
+mount); (3) the phone's two no-op quick-bar connections (O4). The structure is otherwise identical line for line.
+
+### 15.3 What S4.2 built
+
+- `DccShell._mount_composition()` and `_unmount_composition()` (`dcc_shell.gd`). `_ready()` keeps the classification, the
+  resize connection and `_booted`, and calls the mount, so a cold boot takes the path a swap will. The unmount frees
+  `_phone_root` or `_desktop_root` (new field), the `ToolFan` and its overlay (`ToolFan.teardown()`), disconnects
+  `_on_tablet_node_added`, `_on_phone_node_added` and `_refresh_phone_sim_strip`, kills the sheet's `Tween`, nulls every
+  field into the composition and clears every dictionary and array of its nodes (§2.1's *freed* and *reset* rows, plus
+  the MS-2 and MS-3 fields of §15.1), and calls `DccTheme.clear_composition_registries()` (new: empties
+  `_portrait_watchers`, prunes freed labels from `_elide_labels`).
+- `DccApp._mount_app_composition()`, `_unmount_app_composition()`, `_attach_survivors()` and
+  `_mount_journey_planner()` (`app.gd`); the order is §15.2's. The unmount detaches the survivors first, drops the
+  connections the old `DccMenus` and the Cartography workspace's `ColourPaintTool` made to survivors
+  (`_drop_connections_to()`, a walk over every signal of each emitter, so no list of what they connected is kept;
+  `DccMenus.release_survivor_connections()` for the one lambda whose receiver reads as a script), frees the planner,
+  `RightDock` and the picker, and clears the six handler dictionaries, `_domain_tools` and the timeline handles.
+- `_remount_composition_for_test()`: unmount, mount, and the boot steps a fresh composition needs. **Test-only: nothing
+  calls it but `_ms1swap_probe.gd --leg roundtrip`.** It republishes no class flag, restores no per-class state and
+  re-presents no window; that is S4.3 to S4.5.
+- Small changes the round trip forced, each a bug a second mount would have shipped: `_select_domain()` does not emit
+  `workspace_changed` while a mount is running (`_mounting_composition`; the app's handler read a `right_dock_ctrl`
+  that did not exist yet); the palette bar's `workspace_changed` relay is a field that is disconnected on unmount;
+  `_wire_menu_squares()`, `_wire_phone_undo_chip()` and `_wire_phone_overflow()` connect once (§15.1);
+  `JourneyPlannerView._exit_tree()` frees the window and the layer popup it parented to the app;
+  `WorldWorkspace` frees the tablet slider rows' unmounted shapes when it is freed (568 orphan nodes after three round
+  trips at 1 800 x 3 200 dp against 142 at boot); `_build_stale_recompute()` is split from `_setup_staleness()`;
+  `status_snapshot()` and `restore_status()` carry the status text and ink across (`set_status()` now remembers the
+  token it was last given).
+
+### 15.4 What the round trip measured
+
+`_ms1swap_probe.gd --leg roundtrip` (windowed, wiped user dir): three unmount and mount rounds at the same class, then
+11 checks. Expected values are literals or the boot's own figures; positive controls assert that the old docks,
+`RightDock` and root were freed and that the survivors are the same instances. Desktop 1 600 x 1 000, the tablet
+(`--force-touch --vp 1800x3200 --density 1`) and the phone (`--vp 1080x2340 --density 2.8125`) all pass:
+
+| Check | Bar |
+|---|---|
+| orphan nodes after three round trips | equal to boot's (0, 0, 1) |
+| node count (the phone picker's lazily built content left out) | equal to boot's |
+| receivers of every signal of the tree, the root, the app, the bridge and the viewport | the same multiset; order discarded, a rebuilt receiver comes last |
+| `DccTheme._portrait_watchers` and `_elide_labels` | the same size (1 and 98 on the tablet) |
+| the composition's structure: class, script, visibility and rect of each visible control, as a sorted multiset | equal to boot's |
+
+What it found, in the order it found it (every one fixed above): `workspace_changed` emitted into a half-built shell, an
+app-owned lambda that survived the bar it captured, five lambdas the shell connects to the bridge on every build, one
+on `viewport.view_mode_changed` and nine on bridge signals from `DccMenus`, three planner popups and windows parented to
+the app, 426 orphan slider rows on the tablet, and a status bar and stale button that were not refilled.
+
+### 15.5 What S4.4 must still do (not built; the round trip does not hide it)
+
+- **Re-derive survivor-driven state after the mount**: only the status text is carried (`status_snapshot()`). The tool-options
+  row (`set_tool_options()` from `armed_tool`), the Edit menu's undo rows, the Window menu's checked states, the
+  domain rail's selection, the phone's sheet detent and tab, the timeline's expanded state and the right dock's
+  selection replay all read survivors and are rebuilt to their boot defaults today.
+- **Per-class widths and collapse flags** (§2.1), the swap's `DccTheme` republication before the mount, `_apply_unit()`,
+  `set_process(true)` on a tablet to phone swap, and the `_on_window_node_added` disconnect or connect.
+- **The probe cannot see a first-run surface** (the phone's coach toasts, the picker's opened content): the leg waits the
+  toasts out and leaves the picker's subtree out of the comparison. A real swap must decide whether a toast in flight
+  is quiescence (§8) or is dropped.
+- **Rows of §2.2 not exercised by a same-class round trip**: the phone to tablet half of the palette bar, the picker
+  and the insets relay (each is built or freed only when the class differs); the mutation harness proves the
+  disconnects on the class that has them.

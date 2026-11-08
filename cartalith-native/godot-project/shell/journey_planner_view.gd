@@ -471,6 +471,14 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	bridge.generation_finished.connect(func(ok: bool): if ok: _clear_stops())
 	bridge.world_loaded.connect(func(): _clear_stops())
 
+## MS-1 S4.2: the planner's window and its route-map layer popup are children of the APP, not of this view, so
+## freeing the view (`DccApp._unmount_app_composition()`) would leave both behind, one more of each per mount.
+## `queue_free()`, because the tree is locked while this runs.
+func _exit_tree() -> void:
+	for n in [_window, _route_map_layer_popup]:
+		if n != null and is_instance_valid(n) and (n as Node).get_parent() != null:
+			(n as Node).queue_free()
+
 ## PC-8: builds the planner's window and moves both panels into it. Called once, from `setup()`, only where
 ## `DccApp.planner_in_window()` is true. The panels were built into the left dock and the map's place by
 ## their builders (which the tablet and the phone still use), and are reparented here, so neither builder

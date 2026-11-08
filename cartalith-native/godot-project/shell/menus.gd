@@ -1459,6 +1459,20 @@ func _build_undo_redo(p: PopupMenu) -> void:
 			_bridge.connect(sig, func(_a = null): refresh_undo_rows())
 	refresh_undo_rows()
 
+## The Window ▸ 3D capability menu's relay on `ViewportHost.view_mode_changed` and the viewport it is on
+## (`_build_view3d_rows()`), held so a class swap can undo it (`S4_INVENTORY.md` section 15.4).
+var _view3d_mode_relay: Callable
+var _view3d_viewport: ViewportHost
+
+## MS-1 S4.2: disconnects what this object connected to a survivor that `DccApp._drop_connections_to()` cannot
+## find by receiver (see `_view3d_mode_relay`). Called by `DccApp._unmount_app_composition()` on the old object
+## before it is replaced; harmless on one that never built.
+func release_survivor_connections() -> void:
+	if _view3d_viewport != null and is_instance_valid(_view3d_viewport) and _view3d_mode_relay.is_valid() 			and _view3d_viewport.view_mode_changed.is_connected(_view3d_mode_relay):
+		_view3d_viewport.view_mode_changed.disconnect(_view3d_mode_relay)
+	_view3d_mode_relay = Callable()
+	_view3d_viewport = null
+
 ## Re-evaluate the enabled state, label and tooltip of every built Edit ▸ Undo /
 ## Redo row against `DccApp.can_undo_any()` routing. Must be called whenever a
 ## history changes (the look history and the engine signals are wired to it in
@@ -6580,10 +6594,16 @@ func _build_view3d_rows(p: PopupMenu) -> void:
 	cap.about_to_popup.connect(refresh)
 	var vp0: ViewportHost = _host.viewport if "viewport" in _host else null
 	if vp0 != null:
-		vp0.view_mode_changed.connect(func(_on):
+		## MS-1 S4.2: kept in `_view3d_mode_relay` so `release_survivor_connections()` can disconnect it. The
+		## lambda is defined in a function whose owner `Callable.get_object()` reports as the script, not this
+		## object, so `DccApp._drop_connections_to(menus)` cannot find it by receiver; and its `refresh`
+		## captures popups that are freed with the bar it was built for.
+		_view3d_mode_relay = func(_on):
 			refresh.call()
 			if vp0.view3d() != null and not vp0.view3d().state_changed.is_connected(refresh):
-				vp0.view3d().state_changed.connect(refresh))
+				vp0.view3d().state_changed.connect(refresh)
+		_view3d_viewport = vp0
+		vp0.view_mode_changed.connect(_view3d_mode_relay)
 	p.id_pressed.connect(func(id: int):
 		if id == ID_WIN_VIEW_3D and vp0 != null:
 			vp0.set_3d(not vp0.is_3d()))

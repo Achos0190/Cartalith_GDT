@@ -127,6 +127,16 @@ func setup(app_ref) -> void:
 	_refresh_pill_text()
 
 
+## MS-1 S4.2: frees what `setup()` parented onto the app outside the phone composition, the top-level overlay.
+## The pill goes with `_phone_content_gap`, which `DccShell._unmount_composition()` frees as part of `_phone_root`.
+## `ToolFan` is a plain `Node` child of the app, so freeing the phone root does not reach it: the caller frees this
+## node after calling this. Its `tool_armed` lambda is owned by this node, so freeing it disconnects it.
+func teardown() -> void:
+	if is_instance_valid(_overlay):
+		_overlay.free()
+	_overlay = null
+
+
 ## Called once by `DccShell._build_phone_shell()`, after `_phone_content_gap`
 ## exists. Not folded into `setup()`: `_pill` needs a real parent with a real
 ## size before its anchors mean anything, the same ordering

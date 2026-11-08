@@ -1661,6 +1661,23 @@ static func set_portrait(v: bool) -> void:
 			_elide_labels.remove_at(j)
 		j -= 1
 
+## MS-1 S4.2: the part of this file's state that belongs to a composition, dropped by
+## `DccShell._unmount_composition()` (`S4_INVENTORY.md` section 4). `_portrait_watchers` holds only
+## `WorldWorkspace._build()`'s watcher, which the rebuilt workspace registers again, so it is emptied
+## outright: `set_portrait()` prunes lazily and only when the axis flips, and a swap that does not flip it
+## would otherwise leave the dead callable beside the new one. `_elide_labels` is pruned of freed labels
+## and NOT emptied, because a long-lived window's header may have registered there too and is not part of
+## any composition; the freed composition's labels are exactly the invalid ones when this runs after the
+## free. Never call it before the composition is freed. Does not touch the class flags (`_phone_mode`,
+## `_touch`, ...): a swap republishes those itself, before the mount (inventory section 4).
+static func clear_composition_registries() -> void:
+	_portrait_watchers.clear()
+	var j := _elide_labels.size() - 1
+	while j >= 0:
+		if not is_instance_valid(_elide_labels[j]):
+			_elide_labels.remove_at(j)
+		j -= 1
+
 ## Registers `cb` to run whenever `set_portrait()` changes the axis (never on
 ## a same-value call -- a resize that does not flip orientation costs every
 ## watcher nothing). Additive only; see `set_portrait()`'s own doc for how a

@@ -127,7 +127,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   MS-10's glass pass (the 380 ms hold, the 48-unit swipe and the fan's reach are design figures). MS-3 is built except the node chips and tool palette atop the domain sheet and MAP's remaining content (the CIVIL and CARTO sheets host the dock, WORLD's ALL segment mounts it, CIVIL ▸ Journeys opens STORY, MAP has a row; `STATUS.md` has the state and the retire-the-column question),
   **MS-5's first step is built (2026-11-08; `STATUS.md`): the map's control row and its gestures (DS-13 items 1 to 6). Left of MS-5: the tool strip (name, hint, chips, Commit / Discard, above the sheet), the tool fan on a hold of its chip, and the context card's per-domain verbs (proposal section 2.1); the pill and per-tool phone bars (`tool_fan.gd`, `tool_bar.gd`) are what they replace.**
   and **MS-4 is built (2026-11-08; `STATUS.md`)**: MENU's root is the eight desktop menus row for row, the fourteen screens it left unreachable are deleted with the eight probes that only drove them, and nine more probes are re-pointed. MS-6, MS-7's menu bar and MS-11 are next in the drafts' order.
-  What is left of MS-1 (S4.1, quiescence, is built): S4.2…S4.6 (the mount path, the rebuild with a state bag, the swap, the window re-present path, the ring and B5),
+  What is left of MS-1 (S4.1, quiescence, and S4.2, the mount path, are built): S4.3…S4.6 (the rebuild with a state bag, the swap, the window re-present path, the ring and B5),
   in `S4_INVENTORY.md` §11's order, and the device rows (S0, B7).
   Its owner questions MQ-1…MQ-5
   are all answered (Ruling DY, 2026-11-01):

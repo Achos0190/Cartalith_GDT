@@ -331,6 +331,8 @@ var _quick_rule: Control
 ## `tool_options_bar`, from here rather than from `dcc_shell.gd`'s desktop
 ## composition because the palette's buttons join `tool_group` and arm through
 ## `arm_tool()`, both of which live on this class.
+var _palette_workspace_relay: Callable
+
 func _install_tool_palette_bar() -> void:
 	if is_phone() or tool_options_bar == null:
 		return
@@ -356,9 +358,13 @@ func _install_tool_palette_bar() -> void:
 	_quick_bar = DccQuickBar.new()
 	_tool_palette_row.add_child(_quick_bar)
 	_quick_bar.setup.call_deferred(self)
-	workspace_changed.connect(func(_id: String):
+	## MS-1 S4.2: a field, so `_unmount_app_composition()` can disconnect exactly this one (an app-owned lambda
+	## outlives the bar it captured), and null-safe for the window between an unmount and the next mount.
+	_palette_workspace_relay = func(_id: String):
 		_rebuild_tool_strip()
-		_quick_bar.refresh())
+		if _quick_bar != null:
+			_quick_bar.refresh()
+	workspace_changed.connect(_palette_workspace_relay)
 	_rebuild_tool_strip()
 
 ## The 1 px rule between the palette cells and the quick cluster: the same mark
@@ -1430,7 +1436,6 @@ func _ready() -> void:
 	get_tree().node_added.connect(_watch_dialog)
 	_enable_idle_mode()
 	tool_armed.connect(_sync_tool_strip)
-	_install_tool_palette_bar()
 
 	bridge = EngineBridge.new()
 	bridge.name = "EngineBridge"
@@ -1463,9 +1468,13 @@ func _ready() -> void:
 	## CQ-2: a chip's greyed/live state is read from the menus' built state, which a new world
 	## changes (Save, Export...), so re-derive the chips after a load or a generate. Deferred,
 	## so no listener of the same signal sees a half-updated cluster. Null on the phone (no bar).
-	if _quick_bar != null:
-		bridge.world_loaded.connect(func(): _quick_bar.refresh.call_deferred())
-		bridge.generation_finished.connect(func(_ok: bool): _quick_bar.refresh.call_deferred())
+	## MS-1 S4.2: connected on every class, and the lambdas read `_quick_bar` at call time through
+	## `_refresh_quick_bar_deferred()` (a null-safe method), because the bar is now built by
+	## `_mount_app_composition()` after these two lines run and a class swap builds or frees it later. Before
+	## S4.2 they were connected only `if _quick_bar != null`, so a phone boot had none; the two it now has
+	## are no-ops there (`S4_INVENTORY.md` section 3.2).
+	bridge.world_loaded.connect(func(): _refresh_quick_bar_deferred())
+	bridge.generation_finished.connect(func(_ok: bool): _refresh_quick_bar_deferred())
 	bridge.landmark_finished.connect(func(_r: Dictionary): _flush_deferred_arm.call_deferred())
 	bridge.landmark_refine_finished.connect(func(_r: Dictionary): _flush_deferred_arm.call_deferred())
 	bridge.generation_finished.connect(func(ok: bool): if ok: TradeStore.clear())
@@ -1568,11 +1577,8 @@ func _ready() -> void:
 	## when `phone_content_insets()` reads its real height
 	## (`_phone_bottom_reserve()`); `phone_insets_changed` covers every later
 	## change (rotation, and a domain switch resizing the sheet).
-	if _phone:
-		(func(): viewport.set_safe_insets(phone_content_insets())).call_deferred()
-		phone_insets_changed.connect(func(): viewport.set_safe_insets(phone_content_insets()))
-
-	menus.build(self, bridge, self)
+	## MS-1 S4.2: the safe-insets relay and `menus.build()` moved to `_mount_app_composition()`, after the
+	## windows below (their order there is documented in `S4_INVENTORY.md` section 15).
 
 	new_world_dialog = NewWorldDialog.new()
 	add_child(new_world_dialog)
@@ -1673,17 +1679,6 @@ func _ready() -> void:
 	add_child(open_project_dialog)
 	open_project_dialog.setup(self)
 
-	## Phone only, and not merely hidden the rest of the time -- see
-	## `phone_project_picker.gd`'s own header for why the node not existing at
-	## all is load-bearing rather than a style choice. `is_phone()` is already
-	## final by this point: `super._ready()` two lines into this function ran
-	## `DccShell._ready()`, which calls `_compute_layout_mode()` before
-	## returning.
-	if is_phone():
-		phone_project_picker = PhoneProjectPicker.new()
-		add_child(phone_project_picker)
-		phone_project_picker.setup(self)
-
 	## The Markdown Vault panel (`MARKDOWN_VAULT_SCOPE.md` milestone 1).
 	## Long-lived like its neighbours: it holds an entity scope, an open
 	## reader and a checkbox set worth keeping between opens, and it is
@@ -1719,18 +1714,8 @@ func _ready() -> void:
 	add_child(layers_popover)
 	layers_popover.setup(bridge, viewport)
 
-	_register_workspaces()
-
-	## Owns `right_dock_body`'s content (`DCC_SHELL_SPEC.md` §6, `right_dock.gd`).
-	## Appended to `_workspaces` so `_wire_selection`'s existing forwarding loop
-	## reaches it too -- it implements `on_settlement_selected`/`on_cursor_sampled`
-	## exactly like a workspace does, without needing a rail button of its own.
-	right_dock_ctrl = RightDock.new()
-	add_child(right_dock_ctrl)
-	right_dock_ctrl.setup(self, bridge)
-	_workspaces.append(right_dock_ctrl)
-	## PC-2: the dock's Garrison row is read at the cursor year, so any move of the year redraws it.
-	timeline_changed.connect(right_dock_ctrl.on_timeline_changed)
+	## MS-1 S4.2: everything in this function that depends on the composition's class, in one call.
+	_mount_app_composition()
 
 	## The cross-section strip. A second overlay child of `viewport_content`,
 	## added after `viewport` so it draws on top of the map, and after
@@ -1753,21 +1738,6 @@ func _ready() -> void:
 	paint_original.setup(self, bridge)
 	tool_bar = DccToolBar.install(self, bridge)
 
-	## The three regions that ARE a node whose `visible` is the whole truth, in
-	## every composition. The other two are phone-conditional and live in
-	## `toggle_region()` instead -- see its own header for why writing
-	## `node.visible` was wrong for both of them on a handset.
-	_region_nodes = {
-		DccMenus.ID_WIN_TIMELINE: timeline_row.get_parent().get_parent(),
-		## Named, not walked to: the phone bottom bar nests differently and
-		## wants a different node hidden -- see `DccShell.rail_region()`.
-		DccMenus.ID_WIN_RAIL: rail_region(),
-	}
-	if not is_phone():
-		_region_nodes[DccMenus.ID_WIN_LEFT] = left_dock
-		_region_nodes[DccMenus.ID_WIN_RIGHT] = right_dock
-		_region_nodes[DccMenus.ID_WIN_STATUS] = status_row.get_parent().get_parent()
-
 	workspace_changed.connect(_on_workspace_changed)
 	_on_workspace_changed(active_domain())
 
@@ -1778,9 +1748,7 @@ func _ready() -> void:
 	## handlers run in connection order -- so this must connect after
 	## `_on_workspace_changed` for its own re-application to win rather than
 	## be immediately overwritten by `_on_workspace_changed`'s INFRA branch.
-	journey_planner_view = JourneyPlannerView.new()
-	add_child(journey_planner_view)
-	journey_planner_view.setup(self, bridge)
+	_mount_journey_planner()
 
 	_setup_autosave()
 	## The busy overlay (owner, 2026-10-11): mounted after every other child so its `_input`
@@ -1823,6 +1791,214 @@ func _ready() -> void:
 	## for the one-line branch.
 	if not bridge.has_world:
 		_open_welcome_when_drawn()
+
+## MS-1 S4.2 (`MOBILE_SHELL_MS1_SPEC.md` section 3.5; `S4_INVENTORY.md` sections 2.2, 3, 11 and 15): the part of the
+## application's build that depends on the composition's class, in the order it ran inside `_ready()` before the
+## split, minus the windows that sat between its first and last step (they now run ahead of it; section 15 lists
+## each ordering dependency and why none of them can read the difference). In order:
+##   1. `_attach_survivors()`: the viewport and its overlays under the new `viewport_content` (a no-op at boot,
+##      where each was parented when it was made);
+##   2. `_install_tool_palette_bar()` (desktop and tablet only; it connects `workspace_changed`, which must come
+##      before `RightDock`'s and `_on_workspace_changed`'s, so it stays ahead of both);
+##   3. the safe-insets relay (phone only), stored in `_phone_insets_relay` so a swap can disconnect it;
+##   4. `menus.build()` (a different bar per class);
+##   5. the phone project picker (phone only; the node not existing elsewhere is load-bearing, its header);
+##   6. `_register_workspaces()` and `right_dock_ctrl` (the three workspaces bake the class into their rows);
+##   7. `_region_nodes` (composition nodes by `ID_WIN_*`).
+## Call it with a composition present (`DccShell._mount_composition()` has run) and every window already set up:
+## the workspaces connect to the Place editor and the Factions window at build. Boot calls it once, from
+## `_ready()`; `_remount_composition_for_test()` calls it again after `_unmount_app_composition()`. It must not
+## create a survivor or connect to a long-lived emitter without a guard (the round trip counts connections).
+func _mount_app_composition() -> void:
+	_attach_survivors()
+	_install_tool_palette_bar()
+	if _phone:
+		(func(): viewport.set_safe_insets(phone_content_insets())).call_deferred()
+		_phone_insets_relay = func(): viewport.set_safe_insets(phone_content_insets())
+		phone_insets_changed.connect(_phone_insets_relay)
+
+	menus.build(self, bridge, self)
+
+	## Phone only, and not merely hidden the rest of the time -- see
+	## `phone_project_picker.gd`'s own header for why the node not existing at
+	## all is load-bearing rather than a style choice. `is_phone()` is already
+	## final by this point: `super._ready()` ran `DccShell._ready()`, which calls
+	## `_compute_layout_mode()` before building anything.
+	if is_phone():
+		phone_project_picker = PhoneProjectPicker.new()
+		add_child(phone_project_picker)
+		phone_project_picker.setup(self)
+
+	_register_workspaces()
+
+	## Owns `right_dock_body`'s content (`DCC_SHELL_SPEC.md` §6, `right_dock.gd`).
+	## Appended to `_workspaces` so `_wire_selection`'s existing forwarding loop
+	## reaches it too -- it implements `on_settlement_selected`/`on_cursor_sampled`
+	## exactly like a workspace does, without needing a rail button of its own.
+	right_dock_ctrl = RightDock.new()
+	add_child(right_dock_ctrl)
+	right_dock_ctrl.setup(self, bridge)
+	_workspaces.append(right_dock_ctrl)
+	## PC-2: the dock's Garrison row is read at the cursor year, so any move of the year redraws it.
+	timeline_changed.connect(right_dock_ctrl.on_timeline_changed)
+
+	## The three regions that ARE a node whose `visible` is the whole truth, in
+	## every composition. The other two are phone-conditional and live in
+	## `toggle_region()` instead -- see its own header for why writing
+	## `node.visible` was wrong for both of them on a handset.
+	_region_nodes = {
+		DccMenus.ID_WIN_TIMELINE: timeline_row.get_parent().get_parent(),
+		## Named, not walked to: the phone bottom bar nests differently and
+		## wants a different node hidden -- see `DccShell.rail_region()`.
+		DccMenus.ID_WIN_RAIL: rail_region(),
+	}
+	if not is_phone():
+		_region_nodes[DccMenus.ID_WIN_LEFT] = left_dock
+		_region_nodes[DccMenus.ID_WIN_RIGHT] = right_dock
+		_region_nodes[DccMenus.ID_WIN_STATUS] = status_row.get_parent().get_parent()
+
+## The relay `_mount_app_composition()` connects to `phone_insets_changed` on the phone. A field, not a bare
+## lambda, so `_unmount_app_composition()` can disconnect exactly this one (`S4_INVENTORY.md` section 3.1 row 6).
+var _phone_insets_relay: Callable
+
+## Attaches the survivors that live inside the composition (`viewport_content`'s three children) in their
+## draw order: the map, then the resource HUD, then the section strip. At boot each is already parented there (it
+## was added when it was made) and this does nothing; after `_unmount_app_composition()` detached them it puts them
+## under the new `viewport_content`. Never frees or recreates one: the camera, zoom and overlays live in them.
+func _attach_survivors() -> void:
+	if viewport_content == null:
+		return
+	for n in [viewport, resource_overlay, section_strip]:
+		if n == null or not is_instance_valid(n) or (n as Node).get_parent() == viewport_content:
+			continue
+		if (n as Node).get_parent() != null:
+			(n as Node).get_parent().remove_child(n)
+		viewport_content.add_child(n)
+
+## The journey planner, built last and after `workspace_changed` is connected to `_on_workspace_changed`, so its
+## own handler runs after that one and wins (its class comment; `S4_INVENTORY.md` section 3.2).
+func _mount_journey_planner() -> void:
+	journey_planner_view = JourneyPlannerView.new()
+	add_child(journey_planner_view)
+	journey_planner_view.setup(self, bridge)
+
+## The quick bar's deferred refresh, null-safe: the bar exists on the desktop and the tablet only, and a class
+## swap builds or frees it. Replaces the two `if _quick_bar != null` lambdas `_ready()` used to connect.
+func _refresh_quick_bar_deferred() -> void:
+	if _quick_bar != null and is_instance_valid(_quick_bar):
+		_quick_bar.refresh.call_deferred()
+
+## MS-1 S4.2: the inverse of `_mount_app_composition()` plus the planner, then `DccShell._unmount_composition()`.
+## Order matters: detach the survivors first (they must not be freed with the composition), free the nodes that
+## are children of the app and not of the composition (the planner, `RightDock`, the phone picker), drop every
+## handle and registry that pointed into the composition (`S4_INVENTORY.md` section 2.2's *reset* rows), then free
+## the composition itself. A rebuilt workspace replaces only the handler ids it registers again, so the six handler
+## dictionaries are cleared whole (an id it does not re-register would keep a `Callable` to a freed object).
+## `menus` is replaced by a fresh `DccMenus`: it holds the freed popups. Test-only until S4.4.
+func _unmount_app_composition() -> void:
+	if _phone_insets_relay.is_valid() and phone_insets_changed.is_connected(_phone_insets_relay):
+		phone_insets_changed.disconnect(_phone_insets_relay)
+	_phone_insets_relay = Callable()
+	if _palette_workspace_relay.is_valid() and workspace_changed.is_connected(_palette_workspace_relay):
+		workspace_changed.disconnect(_palette_workspace_relay)
+	_palette_workspace_relay = Callable()
+	for n in [viewport, resource_overlay, section_strip]:
+		if n != null and is_instance_valid(n) and (n as Node).get_parent() != null:
+			(n as Node).get_parent().remove_child(n)
+	## RefCounted objects the composition owned that connected lambdas to survivors: a RefCounted is not freed with
+	## the nodes, and its lambdas stay connected. `DccMenus` and the Cartography workspace's `ColourPaintTool`.
+	for ws in _workspaces:
+		var cp = ws.get("colour_paint")
+		if cp is Object:
+			_drop_connections_to(cp)
+	_drop_connections_to(menus)
+	menus.release_survivor_connections()
+	for n in [journey_planner_view, right_dock_ctrl, phone_project_picker]:
+		if n != null and is_instance_valid(n):
+			(n as Node).free()
+	journey_planner_view = null
+	right_dock_ctrl = null
+	phone_project_picker = null
+	_workspaces.clear()
+	_region_nodes = {}
+	_click_handlers.clear()
+	_drag_handlers.clear()
+	_release_handlers.clear()
+	_escape_handlers.clear()
+	_backspace_handlers.clear()
+	_domain_tools.clear()
+	tool_palette_bar = null
+	_tool_palette_row = null
+	_tool_strip_row = null
+	_quick_bar = null
+	_quick_rule = null
+	_stale_recompute = null
+	_reset_timeline_handles()
+	menus = DccMenus.new()
+	_unmount_composition()
+
+## Disconnects every connection from a survivor's signal whose receiver is `target`. For a `RefCounted` that built
+## into the composition and wired lambdas to the bridge, the viewport, the app or the look history: when it is
+## replaced those lambdas would otherwise stay connected (a lambda keeps its owner reachable), doubling every
+## handler on the next build. Walks every signal of each emitter, so it needs no list of what `target` connected.
+func _drop_connections_to(target: Object) -> void:
+	var emitters: Array = [bridge, viewport, self, get_tree(), get_tree().root, look_history, resource_overlay, section_strip]
+	if viewport != null and is_instance_valid(viewport) and viewport.has_method("view3d") and viewport.view3d() != null:
+		emitters.append(viewport.view3d())
+	for e in emitters:
+		if e == null or not is_instance_valid(e):
+			continue
+		for sig in (e as Object).get_signal_list():
+			var sname := String(sig["name"])
+			for c in (e as Object).get_signal_connection_list(sname):
+				var cb: Callable = c["callable"]
+				if cb.get_object() == target:
+					(e as Object).disconnect(sname, cb)
+
+## Nulls every handle into the timeline strip (`timeline_row` is rebuilt, and `_repaint_timeline()` rebuilds the
+## strip when its handles are gone). The state flags (`_tl_expanded`, `_tl_scrubbing`) survive.
+func _reset_timeline_handles() -> void:
+	_tl_year_labels.clear()
+	_tl_state_label = null
+	_tl_play_button = null
+	_tl_fwd_button = null
+	_tl_speed_segments.clear()
+	_tl_track = null
+	_tl_head = null
+	_tl_phone_button = null
+	_tl_status_labels.clear()
+	_tl_detail_label = null
+	_tl_detail_dot = null
+	_tl_count_row = null
+	_tl_count_parts.clear()
+	_tl_bubble = null
+	_tl_min_label = null
+	_tl_max_label = null
+	_tl_end_hint = null
+	_tl_collapsed_dot = null
+	_tl_transport.clear()
+	_tl_day_slider = null
+	_tl_date_label = null
+
+## TEST-ONLY (`_ms1swap_probe.gd --leg roundtrip`) until S4.4 wires a class change: unmounts the whole composition
+## and mounts it again at the SAME class, so the probe can prove the pair leaves no orphan and no extra
+## connection. Not the swap: it republishes no class flag, restores no per-class state and re-presents no window.
+## After the mount it runs the steps boot runs after `_mount_app_composition()` that a freshly built composition
+## needs: the active domain's workspace reaction (which also fills the empty timeline strip, as at boot: a second
+## `_repaint_timeline()` would run the world gate and hide labels boot leaves showing), the planner, the stale
+## button, and the status bar's text and ink, which the old labels held the only copy of (`status_snapshot()`
+## before, `restore_status()` after).
+func _remount_composition_for_test() -> void:
+	var status := status_snapshot()
+	_unmount_app_composition()
+	_mounting_composition = true
+	_mount_composition()
+	_mount_app_composition()
+	_mounting_composition = false
+	_on_workspace_changed(active_domain())
+	_mount_journey_planner()
+	_build_stale_recompute()
+	restore_status(status)
 
 ## **The busy overlay and UI guard** (`busy_overlay.gd`; owner 2026-10-11: loading lines per step
 ## over a relief-trace bar, "That way we can block/save guard the UI"). Its own `CanvasLayer`
@@ -2329,6 +2505,12 @@ func _setup_staleness() -> void:
 	add_child(_stale_timer)
 	_stale_timer.start()
 
+	_build_stale_recompute()
+
+## MS-1 S4.2: the status bar's "Recompute" button, split out of `_setup_staleness()` so a rebuilt status bar can be
+## given one again (the poll timer and its connection are made once; the button lives in `status_row`, which is
+## rebuilt with the composition). Called by `_setup_staleness()` at boot and by `_remount_composition_for_test()`.
+func _build_stale_recompute() -> void:
 	_stale_recompute = DccWidgets.action(status_row, "Recompute", _recompute_stale)
 	_stale_recompute.visible = false
 	## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 3): it cited "UNIFIED_TOOL_PLAN.md
