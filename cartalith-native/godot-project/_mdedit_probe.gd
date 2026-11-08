@@ -162,12 +162,15 @@ func _init() -> void:
 	_check("render: tasks, open and done",
 		ED.to_bbcode("- [ ] buy\n- [x] sold", "abcdef", "123456"),
 		"  ☐  buy\n  ☑  [color=#123456][s]sold[/s][/color]")
+	## VE-7: a callout is drawn in its TYPE's colour (the dark palette's `warn` #e0a840 and `good` #6fae7d, the
+	## values `DccTheme` holds, already above the 4.5:1 floor so `legible` leaves them), with a bar and a glyph; the
+	## accent argument no longer colours it. `_ve7_probe.gd` pins every type's family.
 	_check("render: a callout with a title, its body, then ordinary text",
 		ED.to_bbcode("> [!warning] Mind\n> the **gap**\nafter", "abcdef", "123456"),
-		"[indent][color=#abcdef][b]Mind[/b][/color][/indent]\n[indent]the [b]gap[/b][/indent]\nafter")
+		"[indent][color=#e0a840]▎ ⚠ [b]Mind[/b][/color][/indent]\n[indent][color=#e0a840]▎[/color] the [b]gap[/b][/indent]\nafter")
 	_check("render: a callout with no title shows its type, fold marker dropped",
 		ED.to_bbcode("> [!tip]-\n> body", "abcdef", "123456"),
-		"[indent][color=#abcdef][b]Tip[/b][/color][/indent]\n[indent]body[/indent]")
+		"[indent][color=#6fae7d]▎ ✦ [b]Tip[/b][/color][/indent]\n[indent][color=#6fae7d]▎[/color] body[/indent]")
 	_check("render: a plain quote is still a quote",
 		ED.to_bbcode("> said", "abcdef", "123456"),
 		"[indent][color=#123456][i]said[/i][/color][/indent]")

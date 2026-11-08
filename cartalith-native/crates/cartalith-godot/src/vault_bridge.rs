@@ -1694,6 +1694,134 @@ impl WorldGen {
         }
     }
 
+    /// What the embed whose inner text is `inner` (the text between `![[` and `]]`, or a Markdown
+    /// image's address) turns into when drawn in the note `from` inside the chain `stack` (VE-7;
+    /// `cartalith_vault::embed`). `stack` is the notes already being drawn, the open note first.
+    ///
+    /// `{ok, kind, ...}` where `kind` is `note` (`path`, `text` the excerpt, `truncated`, `heading`),
+    /// `image` (`path`, `stamp`, `width` or absent), `missing`, `ambiguous` (`candidates`), `cycle`
+    /// (`path`, `chain`), `toodeep` (`path`, `limit`), `fragment` (`path`, `fragment`), `escape`,
+    /// `unsupported` (`why`) or `toolarge` (`path`, `bytes`, `limit`); each also carries `target`
+    /// where it has one. `{ok: false, error}` with no vault bound. Reads, writes nothing.
+    #[func]
+    fn vault_embed_open(&self, from: GString, inner: GString, stack: PackedStringArray) -> VarDictionary {
+        use cartalith_vault::embed::Embed;
+        let stack: Vec<String> = stack.as_slice().iter().map(|s| s.to_string()).collect();
+        let e = match self.vault.embed_open(&from.to_string(), &inner.to_string(), &stack) {
+            Ok(e) => e,
+            Err(e) => return err(e),
+        };
+        let mut d = ok();
+        match e {
+            Embed::Note { path, excerpt } => {
+                d.set("kind", "note");
+                d.set("path", path);
+                d.set("text", excerpt.text);
+                d.set("truncated", excerpt.truncated);
+                if let Some(h) = excerpt.heading {
+                    d.set("heading", h);
+                }
+            }
+            Embed::Image { path, stamp, width } => {
+                d.set("kind", "image");
+                d.set("path", path);
+                d.set("stamp", stamp);
+                if let Some(w) = width {
+                    d.set("width", w as i64);
+                }
+            }
+            Embed::Missing { target } => {
+                d.set("kind", "missing");
+                d.set("target", target);
+            }
+            Embed::Ambiguous { target, candidates } => {
+                d.set("kind", "ambiguous");
+                d.set("target", target);
+                let c: PackedStringArray = candidates.iter().map(|s| GString::from(s.as_str())).collect();
+                d.set("candidates", &c);
+            }
+            Embed::Cycle { path, chain } => {
+                d.set("kind", "cycle");
+                d.set("path", path);
+                let c: PackedStringArray = chain.iter().map(|s| GString::from(s.as_str())).collect();
+                d.set("chain", &c);
+            }
+            Embed::TooDeep { path, limit } => {
+                d.set("kind", "toodeep");
+                d.set("path", path);
+                d.set("limit", limit as i64);
+            }
+            Embed::FragmentMissing { path, fragment } => {
+                d.set("kind", "fragment");
+                d.set("path", path);
+                d.set("fragment", fragment);
+            }
+            Embed::Escape { target } => {
+                d.set("kind", "escape");
+                d.set("target", target);
+            }
+            Embed::Unsupported { target, why } => {
+                d.set("kind", "unsupported");
+                d.set("target", target);
+                d.set("why", why);
+            }
+            Embed::TooLarge { path, bytes, limit } => {
+                d.set("kind", "toolarge");
+                d.set("path", path);
+                d.set("bytes", bytes as i64);
+                d.set("limit", limit as i64);
+            }
+        }
+        d
+    }
+
+    /// The bytes of an image inside the vault, for Preview (`rel` as `vault_embed_open` returned it;
+    /// checked again for a safe path, a drawable extension, containment under the vault root and the
+    /// size cap). Empty on any refusal: a caller reads emptiness as "not drawn" and has already been
+    /// told why by `vault_embed_open`.
+    #[func]
+    fn vault_read_image(&self, rel: GString) -> PackedByteArray {
+        match self.vault.read_image(&rel.to_string()) {
+            Ok(b) => PackedByteArray::from(b.as_slice()),
+            Err(_) => PackedByteArray::new(),
+        }
+    }
+
+    /// The Chronos events in the ` ```chronos ` blocks of `text` (`cartalith_vault::chronos::parse`,
+    /// pure): `{ok, blocks, events: [{kind, start, end?, name, color?, group?, description?}],
+    /// skipped: [line]}`. `events` is in source order; a line that did not parse is in `skipped`, never
+    /// dropped. Writes nothing.
+    #[func]
+    fn vault_note_chronos(&self, text: GString) -> VarDictionary {
+        let c = cartalith_vault::chronos::parse(&text.to_string());
+        let events: Array<VarDictionary> = c
+            .events
+            .iter()
+            .map(|e| {
+                let mut d = vdict! { "kind" => e.kind.as_str(), "start" => e.start, "name" => e.name.as_str() };
+                if let Some(v) = e.end {
+                    d.set("end", v);
+                }
+                if let Some(v) = &e.color {
+                    d.set("color", v.as_str());
+                }
+                if let Some(v) = &e.group {
+                    d.set("group", v.as_str());
+                }
+                if let Some(v) = &e.description {
+                    d.set("description", v.as_str());
+                }
+                d
+            })
+            .collect();
+        let skipped: PackedStringArray = c.skipped.iter().map(|s| GString::from(s.as_str())).collect();
+        let mut d = ok();
+        d.set("blocks", c.blocks as i64);
+        d.set("events", &events);
+        d.set("skipped", &skipped);
+        d
+    }
+
     /// Every tag in `text`: `[{tag, start, end, line, frontmatter}]`, `tag`
     /// without its `#`, `frontmatter` true for the `tags` property's values.
     /// Code, links, headings' own `#` and URL fragments are not tags.

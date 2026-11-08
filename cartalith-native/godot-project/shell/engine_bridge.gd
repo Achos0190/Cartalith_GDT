@@ -7998,6 +7998,44 @@ func vault_note_headings(text: String) -> Array:
 		return []
 	return world_gen.vault_note_headings(text)
 
+## Ticks or unticks the task on 0-based `line` of `text`, as clicking its box does (`WorldGen.vault_toggle_task`,
+## pure): `{ok, text, checked}`, or `{ok: false, error}` when the line is not a task, or sits in code or the
+## properties. Writes nothing; the caller puts `text` back through the editor and the one autosave writer.
+func vault_toggle_task(text: String, line: int) -> Dictionary:
+	if not _has("vault_toggle_task"):
+		return {"ok": false, "error": "this build cannot tick a task"}
+	return world_gen.vault_toggle_task(text, line)
+
+## What an embed turns into (`WorldGen.vault_embed_open`, VE-7): `inner` is the text between `![[` and `]]`
+## (or a Markdown image's address), `from` the note it is written in, `stack` the notes already being drawn
+## (the open note first). `{ok, kind, ...}`, `kind` one of note, image, missing, ambiguous, cycle, toodeep,
+## fragment, escape, unsupported, toolarge (the field list is the Rust function's). Reads, writes nothing.
+## `{ok: false}` with no vault or on a build without it, which Preview draws as "could not be read", never as
+## a missing note.
+func vault_embed_open(from: String, inner: String, stack: PackedStringArray) -> Dictionary:
+	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_embed_open"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_embed_open(from, inner, stack)
+
+## The bytes of a vault image for Preview (`WorldGen.vault_read_image`, VE-7). Empty on any refusal.
+func vault_read_image(rel: String) -> PackedByteArray:
+	if generating:
+		return PackedByteArray()
+	if not _has("vault_read_image"):
+		return PackedByteArray()
+	return world_gen.vault_read_image(rel)
+
+## The Chronos events in the ```chronos blocks of `text` (`WorldGen.vault_note_chronos`, pure, VE-7):
+## `{ok, blocks, events: [{kind, start, end?, name, color?, group?, description?}], skipped: [line]}`.
+## `{ok: false}` on a build without it.
+func vault_note_chronos(text: String) -> Dictionary:
+	if not _has("vault_note_chronos"):
+		return {"ok": false, "error": "this build cannot read a chronos block"}
+	return world_gen.vault_note_chronos(text)
+
 ## Every whole-word, case-insensitive mention of `name` in `text` that is not inside a link, code, the
 ## properties or a URL (`WorldGen.vault_mention_spans`, pure): `[{start, end, line, text}]`, offsets in
 ## characters, `line` 0-based. `[]` on a build without it (read as "no mention", which only hides a button).

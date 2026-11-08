@@ -60,6 +60,7 @@
 pub mod backlinks;
 pub mod block;
 pub mod chronos;
+pub mod embed;
 pub mod export;
 pub mod frontmatter;
 pub mod links;

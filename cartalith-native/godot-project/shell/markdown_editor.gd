@@ -32,10 +32,10 @@ extends VBoxContainer
 ## `[[note]]` / `[[note|shown text]]`, `#tag`, `- [ ] ` tasks and
 ## `> [!note]` callouts. Underline stays `<u>…</u>` because Obsidian has none of
 ## its own. Preview reads the same set plus `[[note#heading]]` (shown as
-## "note > heading", as Obsidian's reading view shows it) and `![[embed]]`,
-## which is drawn as a labelled placeholder ("embedded: name"), **not** the
-## embedded note or image -- disclosed, not hidden. A callout is drawn in one
-## colour whatever its type; Obsidian varies colour and icon by type.
+## "note > heading", as Obsidian's reading view shows it) and `![[embed]]`.
+## With no host hooks an embed is the labelled placeholder ("embedded: name"); with them (VE-7, below)
+## it is the embedded note, picture or a notice saying why not. A callout is drawn in its type's colour
+## with a glyph and a bar (VE-7, `callout_style`).
 ## **Ctrl+E** flips Write / Preview, as Obsidian's reading-view toggle does.
 ##
 ## ## Links (VE-1, `VAULT_EDITOR_PROPOSAL.md`)
@@ -84,6 +84,27 @@ extends VBoxContainer
 ##   and reopen or a rebuild; neither keeps a `TextEdit`'s own history. The status line reads
 ##   `editing…` / `saved · time` (`mark_saved`).
 ##
+## ## Tables, pictures, embeds, task ticking and chronos in Preview (VE-7)
+##
+## - **Tables** (GFM pipe tables: a header row, a delimiter row of the same width, then rows) draw as a `[table]`
+##   with the header bold and washed and each column aligned as its delimiter said (`table_aligns`,
+##   `split_table_row`; no host needed).
+## - **Embeds** go through the host's `embed_source` (the crate's `vault_embed_open`, which owns every rule:
+##   a cycle, the depth cap, a path that leaves the vault). A note embed shows its first section (or the
+##   `#Heading` or `#^block` it names) under a header, collapsed past `EMBED_COLLAPSED_LINES` lines with a
+##   click to expand, read-only (its tasks are not clickable, and it is edited by opening it). A picture draws as
+##   `[img]` at its own width, or the `|N` the note asked for, capped at `IMG_MAX_PX`. Anything else (missing,
+##   ambiguous, a cycle, too deep, outside the vault, unsupported, too large) is ONE warn-coloured line saying
+##   why: never blank, never a dialog. `EMBED_HARD_LIMIT` is a backstop under the crate's rule so a wrong hook cannot
+##   make Preview recurse without end. A picture in a sentence stays in it; a note in a sentence is a link.
+## - **Task ticking.** With a `task_toggler`, the box of a task in the open note is a link; a click asks the
+##   crate to flip that line and writes the result back as ONE undo step through `replace_whole_text`. The editor
+##   still never writes a file: the host's autosave does, through the one writer.
+## - **Chronos.** A ` ```chronos ` block (parsed by the crate through `chronos_source`) draws as a timeline: a count, a
+##   text axis (`chronos_axis`), then one row per entry in year order. A click on a row emits
+##   `chronos_year_requested(year)`; the host moves the shell's year (`tl_set_year`). Lines the block could not
+##   read are listed, never dropped.
+##
 ## Every transform is a `static func` over a plain `String` and two character
 ## offsets, returning `{"text", "from", "to"}`. That is what lets
 ## `_mdedit_probe.gd` pin each one with exact strings and no UI at all, and it
@@ -112,6 +133,9 @@ signal link_followed(target: String)
 ## A rendered external link (`http`, `https` or `mailto`) was clicked. Separate from `link_followed`
 ## because an external address is never resolved against the vault.
 signal external_link_followed(url: String)
+## A chronos row in Preview was clicked (VE-7): the host moves Cartalith's year to `year` through the shell's one
+## writer (`tl_set_year`, PC-2), which clamps it to the world's range (PC-3). The editor moves nothing itself.
+signal chronos_year_requested(year: int)
 ## The Back button was pressed (VE-1): return to the note the last followed link came from.
 signal back_requested
 
@@ -144,6 +168,22 @@ var link_counter: Callable = Callable()
 ## Host hook: `link_spans(line: String) -> Array`, `vault_link_spans`' rows for one line, so the
 ## highlighter colours links from the crate and not from a second parser here.
 var link_spans: Callable = Callable()
+
+## Host hooks for what Preview draws beyond text (VE-7), set between `new()` and `setup()` like the link hooks.
+## `note_path` is the open note's vault path (the root of the embed chain); `embed_source(inner, stack) ->
+## Dictionary` is the crate's `vault_embed_open` for the note at `stack.back()`; `embed_image(result) ->
+## {src, w, h}` decodes and registers a picture (`{}` when it cannot); `chronos_source(text) -> Dictionary` is
+## `vault_note_chronos`; `task_toggler(text, line) -> Dictionary` is `vault_toggle_task`. Without `embed_source`
+## or `note_path` embeds stay the labelled placeholder; without `chronos_source` a chronos block stays code;
+## without `task_toggler` a task's box is not clickable.
+var note_path := ""
+var embed_source: Callable = Callable()
+var embed_image: Callable = Callable()
+var chronos_source: Callable = Callable()
+var task_toggler: Callable = Callable()
+## Embed keys the user expanded (key -> true), kept across re-renders; the keys come from the last render.
+var _embeds_open := {}
+var _last_embed_keys: Array = []
 
 ## Narrowest editor, in dp, at which Split is offered (`VAULT_EDITOR_PROPOSAL.md` s.3.1, s.4). The
 ## editor's width in control units IS dp: a window's `content_scale_factor` is already divided out.
@@ -587,9 +627,31 @@ func set_mode(m: String) -> void:
 func _render_preview() -> void:
 	var bar := preview.get_v_scroll_bar()
 	var keep := bar.value if bar != null else 0.0
-	preview.text = to_bbcode(text_edit.text, "", "", link_info)
+	preview.text = _render_text()
 	if bar != null and keep > 0.0:
 		bar.set_deferred("value", keep)
+
+
+## The hooks `to_bbcode` renders under, from the host's callables (VE-7). An embed needs a vault
+## (`note_path` set, and `embed_source`); a task is clickable only with a toggler.
+func _render_hooks() -> Dictionary:
+	var h := {"open": _embeds_open, "stack": [note_path] if note_path != "" else []}
+	if embed_source.is_valid() and note_path != "":
+		h["embed"] = embed_source
+		h["image"] = embed_image
+	if chronos_source.is_valid():
+		h["chronos"] = chronos_source
+	if task_toggler.is_valid():
+		h["ticks"] = true
+	return h
+
+
+## The source rendered as BBCode under the host's hooks; remembers which note embeds it drew, so a click on one
+## (`embed:<n>`) names the right key.
+func _render_text() -> String:
+	var t := to_bbcode(text_edit.text, "", "", link_info, _render_hooks())
+	_last_embed_keys = embed_keys.duplicate()
+	return t
 
 
 ## Split's Preview follows the source a moment after typing stops.
@@ -1045,7 +1107,7 @@ func set_back_visible(on: bool) -> void:
 ## say after a note was created, calls this). No effect in Write.
 func refresh_preview() -> void:
 	if preview != null and _mode == "preview":
-		preview.text = to_bbcode(text_edit.text, "", "", link_info)
+		preview.text = _render_text()
 
 
 # -- Links: follow and peek (VE-1) ---------------------------------------------
@@ -1059,10 +1121,32 @@ func _on_meta_clicked(meta: Variant) -> void:
 		return
 	var m := str(meta)
 	_hide_peek()
-	if m.begins_with("wiki:"):
+	if m.begins_with("task:"):
+		_tick_task(int(m.substr(5)))
+	elif m.begins_with("year:"):
+		chronos_year_requested.emit(int(m.substr(5)))
+	elif m.begins_with("embed:"):
+		var n := int(m.substr(6))
+		if n >= 0 and n < _last_embed_keys.size():
+			var key := String(_last_embed_keys[n])
+			_embeds_open[key] = not bool(_embeds_open.get(key, false))
+			_render_preview()
+	elif m.begins_with("wiki:"):
 		link_followed.emit(m.substr(5))
 	elif m.begins_with("ext:"):
 		external_link_followed.emit(m.substr(4))
+
+
+## Ticks or unticks the task on 0-based `line` of the source, from a click on its box in Preview (VE-7). The
+## crate decides what a task is (`task_toggler`); the text goes back as ONE undo step through `replace_whole_text`,
+## so Ctrl+Z un-ticks it, and the host's autosave writes it like any edit. A line that is no longer a task (the
+## text moved since the render) is left alone and Preview is simply redrawn.
+func _tick_task(line: int) -> void:
+	if task_toggler.is_valid():
+		var r: Dictionary = task_toggler.call(text_edit.text, line)
+		if bool(r.get("ok", false)):
+			replace_whole_text(String(r["text"]))
+	_render_preview()
 
 
 ## The pointer (or a held finger, see `_on_preview_input`) is over a link: start the dwell that
@@ -1978,10 +2062,16 @@ static func _esc(s: String) -> String:
 ## `_mdedit_probe.gd` pins. BBCode has no dotted or dashed underline, so the three kinds differ by
 ## colour, underline, italic and glyph rather than by line style (disclosed against
 ## `VAULT_EDITOR_PROPOSAL.md` s.3.2's table).
-static func to_bbcode(md: String, accent_hex: String = "", dim_hex: String = "", link_info: Callable = Callable()) -> String:
+static func to_bbcode(md: String, accent_hex: String = "", dim_hex: String = "", link_info: Callable = Callable(), hooks: Dictionary = {}) -> String:
 	_link_ctx = link_info
+	_hooks = hooks
+	_embed_stack = (hooks.get("stack", []) as Array).duplicate()
+	_readonly = 0
+	embed_keys = []
 	var out := _to_bbcode(md, accent_hex, dim_hex)
 	_link_ctx = Callable()
+	_hooks = {}
+	_embed_stack = []
 	return out
 
 
@@ -1990,32 +2080,384 @@ static func to_bbcode(md: String, accent_hex: String = "", dim_hex: String = "",
 ## shell renders on the main thread only.
 static var _link_ctx: Callable = Callable()
 
+## The host hooks `to_bbcode` is rendering under (VE-7), set and cleared like `_link_ctx`. Keys, all
+## optional: `embed` (`(inner, stack) -> Dictionary`, the crate's `vault_embed_open`), `image`
+## (`(embed_result) -> {src, w, h}`, or `{}` when the picture cannot be drawn), `chronos`
+## (`(block_text) -> Dictionary`, `vault_note_chronos`), `ticks` (true when a task's box may be
+## clicked), `stack` (the notes being drawn, the open note first) and `open` (embed key -> expanded).
+## With none of them the output is what it was before VE-7 for everything but the new block kinds
+## (tables, callout colours), which need no host.
+static var _hooks: Dictionary = {}
+## The notes being drawn, outermost first. An embed's excerpt is rendered with its note pushed, so a
+## note embedded inside itself is the crate's `cycle` answer and not an endless render.
+static var _embed_stack: Array = []
+## Above 0 while an embedded excerpt is rendered: an embed is a READ-ONLY view, so a task's box in it
+## is not a link (ticking it would edit a note the user did not open).
+static var _readonly := 0
+## The keys of the note embeds the last `to_bbcode` drew, by the number carried in their `embed:<n>`
+## meta; the editor reads it right after rendering to know which embed a click names.
+static var embed_keys: Array = []
+
+## Longest run of an embedded note's lines shown before it is collapsed behind a toggle (a labelled
+## judgement: enough to recognise the note, short enough that three embeds still fit a screen).
+const EMBED_COLLAPSED_LINES := 6
+## Widest a picture is drawn, in pixels (a labelled judgement: the Preview column is about this wide
+## on the narrowest Split; a wider picture would scroll the label sideways). A `|N` size is honoured up
+## to this and no further.
+const IMG_MAX_PX := 560
+## A backstop under the crate's own cap (`cartalith_vault::embed::MAX_EMBED_DEPTH`, 3): if a host hook ever answers `note`
+## for a chain this long, the renderer stops anyway. It is not the rule, only the guarantee that a wrong hook cannot
+## make Preview recurse without end.
+const EMBED_HARD_LIMIT := 8
+## Width of the timeline's text axis, in characters (labelled judgement: fits a phone's Preview).
+const CHRONOS_AXIS_WIDTH := 36
+
+
+## `rrggbb` (no `#`) of a theme token held to 4.5:1 against the field ground, as the Write colouring
+## does, so a callout or a notice reads on either palette.
+static func _tok_hex(token: String) -> String:
+	return Highlighter.legible(DccTheme.c(token), DccTheme.c("sunken"), 4.5).to_html(false)
+
+
+## Obsidian's callout types, grouped (https://help.obsidian.md/callouts, the built-in list and its
+## aliases), each group given one theme token and one glyph. Obsidian colours by type; the tokens
+## here are the palette's nearest semantic ones (water = information, good = success and advice,
+## warn = a question or a caution, block = failure or danger, accent = an example, text_secondary =
+## a quote). An unknown type reads as a note, as Obsidian draws it. Pure: `_ve7_probe.gd` pins
+## every row.
+static func callout_style(type_name: String) -> Dictionary:
+	match type_name.strip_edges().to_lower():
+		"abstract", "summary", "tldr":
+			return {"token": "water", "glyph": "≡"}
+		"info", "todo":
+			return {"token": "water", "glyph": "ⓘ"}
+		"tip", "hint", "important":
+			return {"token": "good", "glyph": "✦"}
+		"success", "check", "done":
+			return {"token": "good", "glyph": "✔"}
+		"question", "help", "faq":
+			return {"token": "warn", "glyph": "?"}
+		"warning", "caution", "attention":
+			return {"token": "warn", "glyph": "⚠"}
+		"failure", "fail", "missing", "danger", "error", "bug":
+			return {"token": "block", "glyph": "✖"}
+		"example":
+			return {"token": "accent", "glyph": "▤"}
+		"quote", "cite":
+			return {"token": "text_secondary", "glyph": "❝"}
+	return {"token": "water", "glyph": "✎"}
+
+
+## The cells of one table row: split at `|` that is not escaped as `\|`, the row's own outer pipes
+## dropped, each cell trimmed and its `\|` made a `|`. `a | b` and `| a | b |` both give two cells.
+static func split_table_row(line: String) -> PackedStringArray:
+	var s := line.strip_edges()
+	var cells := PackedStringArray()
+	var cur := ""
+	var i := 0
+	while i < s.length():
+		var c := s[i]
+		if c == "\\" and i + 1 < s.length() and s[i + 1] == "|":
+			cur += "|"
+			i += 2
+			continue
+		if c == "|":
+			cells.append(cur)
+			cur = ""
+		else:
+			cur += c
+		i += 1
+	cells.append(cur)
+	if s.begins_with("|"):
+		cells.remove_at(0)
+	if s.ends_with("|") and not s.ends_with("\\|") and cells.size() > 0:
+		cells.remove_at(cells.size() - 1)
+	for k in cells.size():
+		cells[k] = cells[k].strip_edges()
+	return cells
+
+
+## The alignments of a table's delimiter row (`|---|:-:|--:|`): one of `l`, `c`, `r` or `""` per
+## column, or `[]` when the line is not a delimiter row. Every cell must be dashes with an optional
+## colon at either end; a line with no pipe needs two columns (a lone `---` is a rule, not a table).
+static func table_aligns(line: String) -> Array:
+	var cells := split_table_row(line)
+	if cells.is_empty() or (cells.size() < 2 and not line.contains("|")):
+		return []
+	var rx := RegEx.create_from_string("^(:?)-+(:?)$")
+	var out: Array = []
+	for c in cells:
+		var m := rx.search(c)
+		if m == null:
+			return []
+		var l := m.get_string(1) == ":"
+		var r := m.get_string(2) == ":"
+		out.append("c" if l and r else ("l" if l else ("r" if r else "")))
+	return out
+
+
+## One table as BBCode: a `[table]` with a bold, washed header row, a thin border, cells padded to
+## the header's column count (a short row is padded with empty cells, a long one cut), and each
+## column aligned as the delimiter row said.
+static func _table_bbcode(header: PackedStringArray, aligns: Array, rows: Array, accent: String, dim: String) -> String:
+	var n := aligns.size()
+	var out := "[table=%d]" % n
+	for r in range(-1, rows.size()):
+		var cells: PackedStringArray = header if r < 0 else rows[r]
+		for c in n:
+			var txt := inline_bbcode(String(cells[c]) if c < cells.size() else "", accent)
+			if r < 0:
+				txt = "[b]%s[/b]" % txt
+			match String(aligns[c]):
+				"c":
+					txt = "[center]%s[/center]" % txt
+				"r":
+					txt = "[right]%s[/right]" % txt
+			var bg := " bg=#%s26" % accent if r < 0 else ""
+			out += "[cell border=#%s%s padding=6,3,6,3]%s[/cell]" % [dim, bg, txt]
+	return out + "[/table]"
+
+
+## The timeline's text axis: `lo ├──●━━●─┤ hi` over `width` cells, one `●` per event's start (and
+## end), `━` along a period between them. `""` when fewer than two distinct years are in play
+## (there is no axis to draw on one point). `events` are the crate's rows (`start`, optional `end`).
+static func chronos_axis(events: Array, width: int = CHRONOS_AXIS_WIDTH) -> String:
+	var lo := 0
+	var hi := 0
+	var seen := false
+	for e in events:
+		for k in ["start", "end"]:
+			if (e as Dictionary).has(k):
+				var y := int((e as Dictionary)[k])
+				lo = y if not seen else mini(lo, y)
+				hi = y if not seen else maxi(hi, y)
+				seen = true
+	if not seen or hi == lo:
+		return ""
+	var cells: Array = []
+	for _i in width:
+		cells.append("─")
+	var at := func(y: int) -> int:
+		return clampi(roundi(float(y - lo) * float(width - 1) / float(hi - lo)), 0, width - 1)
+	for e in events:
+		var d: Dictionary = e
+		if d.has("end"):
+			for i in range(int(at.call(int(d["start"]))), int(at.call(int(d["end"]))) + 1):
+				cells[i] = "━"
+	for e in events:
+		var d: Dictionary = e
+		cells[int(at.call(int(d["start"])))] = "●"
+		if d.has("end"):
+			cells[int(at.call(int(d["end"])))] = "●"
+	return "%d ├%s┤ %d" % [lo, "".join(PackedStringArray(cells)), hi]
+
+
+## `1200` or `1200–1245`: the years an entry covers.
+static func chronos_years(e: Dictionary) -> String:
+	if e.has("end") and int(e["end"]) != int(e["start"]):
+		return "%d–%d" % [int(e["start"]), int(e["end"])]
+	return str(int(e["start"]))
+
+
+## One ` ```chronos ` block as a timeline (`VAULT_EDITOR_PROPOSAL.md` s.3.4): a heading with the entry
+## count, the axis, then one row per entry in year order. A row (years, name, group, description) is a link `year:<start>`: clicking it
+## emits `chronos_year_requested`, and the host moves Cartalith's year there (the note's history and the
+## map's timeline stay one thing, Ruling AM). A line the block could not read is listed, never dropped. With no
+## `chronos` hook, or when it cannot answer, the block is drawn as the code it is.
+static func _chronos_bbcode(block_lines: PackedStringArray, accent: String, dim: String) -> String:
+	var hook: Callable = _hooks.get("chronos", Callable())
+	var r: Dictionary = {}
+	if hook.is_valid():
+		r = hook.call("```chronos\n" + "\n".join(block_lines) + "\n```")
+	if not bool(r.get("ok", false)):
+		return "[code]" + _esc("\n".join(block_lines)) + "[/code]"
+	var events: Array = (r.get("events", []) as Array).duplicate()
+	var order: Array = []
+	for i in events.size():
+		order.append(i)
+	## Year order, ties by the order written: the sort key carries the index, so it is stable by construction.
+	order.sort_custom(func(a, b) -> bool:
+		var ya := int((events[a] as Dictionary)["start"])
+		var yb := int((events[b] as Dictionary)["start"])
+		return a < b if ya == yb else ya < yb)
+	var skipped: Array = r.get("skipped", [])
+	var out := PackedStringArray()
+	out.append("[indent][b]Timeline[/b] [color=#%s]· %s[/color]" % [dim, "empty" if events.is_empty() else "%d %s" % [events.size(), "entry" if events.size() == 1 else "entries"]])
+	var ax := chronos_axis(events)
+	if ax != "":
+		out.append("[color=#%s][code]%s[/code][/color]" % [dim, ax])
+	var glyph := {"event": "●", "period": "▬", "point": "◆", "marker": "┃"}
+	var hex_rx := RegEx.create_from_string("^[0-9a-fA-F]{6}$")
+	for i in order:
+		var e: Dictionary = events[i]
+		var gcol := accent
+		var c := String(e.get("color", ""))
+		if hex_rx.search(c) != null:
+			gcol = c
+		var row := "[color=#%s]%s[/color] [url=year:%d][color=#%s]%s[/color]  [b]%s[/b]" % [
+			gcol, glyph.get(String(e.get("kind", "event")), "●"), int(e["start"]), accent, chronos_years(e), _esc(String(e["name"]))]
+		if e.has("group"):
+			row += " [color=#%s]{%s}[/color]" % [dim, _esc(String(e["group"]))]
+		if e.has("description"):
+			row += " [color=#%s]— %s[/color]" % [dim, _esc(String(e["description"]))]
+		## The whole row after its glyph is the link, so a finger has a line's height and the row's width to land on.
+		out.append(row + "[/url]")
+	var warn := _tok_hex("warn")
+	for l in skipped:
+		out.append("[color=#%s]✖ not read: %s[/color]" % [warn, _esc(String(l))])
+	return "\n".join(out) + "[/indent]"
+
+
+## Placeholder text for an embed that cannot be drawn: one warn-coloured line saying why, never blank, never
+## an error dialog. `r` is the crate's `vault_embed_open` answer.
+static func _embed_notice(r: Dictionary, inner: String) -> String:
+	var name := inner.get_slice("|", 0).strip_edges()
+	var msg := ""
+	if not bool(r.get("ok", false)):
+		msg = "Embed could not be read: %s" % String(r.get("error", "no vault"))
+	else:
+		match String(r.get("kind", "")):
+			"missing":
+				msg = "Embed not found: %s" % name
+			"ambiguous":
+				msg = "Embed %s could mean %d notes" % [name, (r.get("candidates", []) as Array).size()]
+			"cycle":
+				var names := PackedStringArray()
+				for p in (r.get("chain", []) as Array):
+					names.append(String(p).get_file().get_basename())
+				msg = "Embed skipped, it would repeat itself: %s" % " → ".join(names)
+			"toodeep":
+				msg = "Embed skipped, more than %d levels deep: %s" % [int(r.get("limit", 0)), name]
+			"fragment":
+				msg = "%s has nothing at %s" % [String(r.get("path", name)).get_file().get_basename(), String(r.get("fragment", ""))]
+			"escape":
+				msg = "Embed refused, outside this vault: %s" % name
+			"unsupported":
+				msg = "Embed not drawn: %s" % String(r.get("why", name))
+			"toolarge":
+				msg = "Image too large to show (%d MB, limit %d MB): %s" % [int(r.get("bytes", 0)) / 1048576, int(r.get("limit", 0)) / 1048576, name]
+			_:
+				msg = "Embed not drawn: %s" % name
+	return "[color=#%s][i]⚠ %s[/i][/color]" % [_tok_hex("warn"), _esc(msg)]
+
+
+## An image embed as `[img]`, or a notice when the host cannot decode it. The width is the picture's own
+## unless the note asked for one (`|300`, which Obsidian also takes as the width, larger or smaller), and
+## never more than `IMG_MAX_PX`.
+static func _embed_image(r: Dictionary, inner: String) -> String:
+	var img_hook: Callable = _hooks.get("image", Callable())
+	var got: Dictionary = img_hook.call(r) if img_hook.is_valid() else {}
+	if String(got.get("src", "")) == "":
+		return "[color=#%s][i]⚠ Image could not be read: %s[/i][/color]" % [_tok_hex("warn"), _esc(inner.get_slice("|", 0).strip_edges())]
+	var w := int(got.get("w", IMG_MAX_PX))
+	if r.has("width"):
+		w = int(r["width"])
+	return "[img width=%d]%s[/img]" % [clampi(w, 1, IMG_MAX_PX), String(got["src"])]
+
+
+## A note embed as a block: a header (`▸` name, a toggle when there is more than the collapsed
+## lines, and `open ›` to follow it), then the excerpt rendered read-only inside the chain with this
+## note pushed. The crate already refused a cycle and a runaway chain before this is reached.
+static func _embed_note_block(r: Dictionary, inner: String, accent: String, dim: String) -> String:
+	var path := String(r["path"])
+	var lines := String(r.get("text", "")).split("\n")
+	var key := "%s>%s" % ["|".join(PackedStringArray(_embed_stack)), inner]
+	embed_keys.append(key)
+	var n := embed_keys.size() - 1
+	var open := bool((_hooks.get("open", {}) as Dictionary).get(key, false))
+	var long := lines.size() > EMBED_COLLAPSED_LINES or bool(r.get("truncated", false))
+	var shown: Array = Array(lines)
+	if long and not open:
+		shown = shown.slice(0, EMBED_COLLAPSED_LINES)
+	var title := path.get_file().get_basename()
+	if r.has("heading"):
+		title += " › " + String(r["heading"])
+	var mark := ("▾" if open else "▸") if long else "▪"
+	var head := "[color=#%s]%s [url=embed:%d]%s[/url]   [url=wiki:%s]open ›[/url][/color]" % [
+		dim, mark, n, _esc(title), _esc(path.trim_suffix(".md"))]
+	_embed_stack.append(path)
+	_readonly += 1
+	var body := _to_bbcode("\n".join(PackedStringArray(shown)), accent, dim)
+	_readonly -= 1
+	_embed_stack.pop_back()
+	var tail := ""
+	if long and not open:
+		tail = "\n[color=#%s]… more in this note[/color]" % dim
+	elif bool(r.get("truncated", false)):
+		tail = "\n[color=#%s]… the rest is in the note[/color]" % dim
+	return "%s\n[indent]%s%s[/indent]" % [head, body, tail]
+
+
+## An embed standing alone on its line, with every kind drawn in full. Only called with an `embed` hook.
+static func _embed_block(inner: String, accent: String, dim: String) -> String:
+	var hook: Callable = _hooks["embed"]
+	if _embed_stack.size() > EMBED_HARD_LIMIT:
+		return _embed_notice({"ok": true, "kind": "toodeep", "limit": EMBED_HARD_LIMIT}, inner)
+	var r: Dictionary = hook.call(inner, _embed_stack)
+	if bool(r.get("ok", false)):
+		match String(r.get("kind", "")):
+			"note":
+				return _embed_note_block(r, inner, accent, dim)
+			"image":
+				return _embed_image(r, inner)
+	return _embed_notice(r, inner)
+
+
+## An embed in the middle of a line: a picture stays where it is; a note shrinks to a link to it (a whole
+## note cannot sit inside a sentence); anything else is its notice.
+static func _embed_inline(inner: String, accent: String) -> String:
+	var hook: Callable = _hooks["embed"]
+	var r: Dictionary = hook.call(inner, _embed_stack)
+	if bool(r.get("ok", false)):
+		match String(r.get("kind", "")):
+			"note":
+				return "[color=#%s][u][url=wiki:%s]▪ %s[/url][/u][/color]" % [
+					accent, _esc(String(r["path"]).trim_suffix(".md")), _esc(String(r["path"]).get_file().get_basename())]
+			"image":
+				return _embed_image(r, inner)
+	return _embed_notice(r, inner)
+
 
 static func _to_bbcode(md: String, accent_hex: String, dim_hex: String) -> String:
 	var accent := accent_hex if accent_hex != "" else DccTheme.c("accent").to_html(false)
 	var dim := dim_hex if dim_hex != "" else DccTheme.c("text_dim").to_html(false)
 	var out := PackedStringArray()
 	var in_code := false
+	var code_lang := ""
 	var in_callout := false
+	var callout_col := accent
 	var code_buf := PackedStringArray()
 	var bullet := RegEx.create_from_string("^(\\s*)[-*+] (.*)$")
 	var number := RegEx.create_from_string("^(\\s*)(\\d+)[.)] (.*)$")
 	var task := RegEx.create_from_string("^(\\s*)[-*+] \\[(.)\\] (.*)$")
 	var callout_head := RegEx.create_from_string(_CALLOUT_RE)
+	var embed_line := RegEx.create_from_string("^\\s*!\\[\\[([^\\]]+)\\]\\]\\s*$")
 	md = md.replace("\r\n", "\n")
 	## A leading YAML block is data, not prose: shown dim and monospaced, as
 	## written, rather than as two rules around a paragraph.
+	var base := 0
 	var body := strip_frontmatter(md)
 	if body != md:
-		var fm := md.substr(0, md.length() - body.length()).strip_edges()
+		var removed := md.substr(0, md.length() - body.length())
+		base = removed.count("\n")
+		var fm := removed.strip_edges()
 		out.append("[color=#%s][code]%s[/code][/color]" % [dim, _esc(fm)])
 		md = body
-	for raw in md.split("\n"):
-		var line := String(raw)
+	var lines := md.split("\n")
+	var skip_to := 0
+	for i in lines.size():
+		if i < skip_to:
+			continue
+		var line := String(lines[i])
 		if line.strip_edges().begins_with("```"):
 			if in_code:
-				out.append("[code]" + _esc("\n".join(code_buf)) + "[/code]")
+				if code_lang == "chronos":
+					out.append(_chronos_bbcode(code_buf, accent, dim))
+				else:
+					out.append("[code]" + _esc("\n".join(code_buf)) + "[/code]")
 				code_buf = PackedStringArray()
+			else:
+				code_lang = line.strip_edges().trim_prefix("```").strip_edges().to_lower()
 			in_code = not in_code
 			continue
 		if in_code:
@@ -2023,17 +2465,40 @@ static func _to_bbcode(md: String, accent_hex: String, dim_hex: String) -> Strin
 			continue
 		## A callout: the header line names its type and optional title (the
 		## `+`/`-` fold marker is dropped -- there is nothing to fold here), and
-		## the `>` lines under it are its body, drawn as prose, not as a quote.
+		## the `>` lines under it are its body, drawn as prose, not as a quote. The
+		## type picks the colour and glyph (`callout_style`, VE-7); the bar `▎` repeats on
+		## every body line so the block reads as one box.
 		var ch := callout_head.search(line)
 		if ch != null:
 			var title := ch.get_string(3).strip_edges()
 			if title == "":
 				title = ch.get_string(1).strip_edges().capitalize()
-			out.append("[indent][color=#%s][b]%s[/b][/color][/indent]" % [accent, inline_bbcode(title, accent)])
+			var cs := callout_style(ch.get_string(1))
+			callout_col = _tok_hex(String(cs["token"]))
+			out.append("[indent][color=#%s]▎ %s [b]%s[/b][/color][/indent]" % [callout_col, cs["glyph"], inline_bbcode(title, accent)])
 			in_callout = true
 			continue
 		if not line.begins_with(">"):
 			in_callout = false
+		## A table: a row, then a delimiter row of the same width, then rows until a line without a pipe.
+		if line.contains("|") and i + 1 < lines.size():
+			var al := table_aligns(String(lines[i + 1]))
+			var head_cells := split_table_row(line)
+			if not al.is_empty() and head_cells.size() == al.size():
+				var rows: Array = []
+				var j := i + 2
+				while j < lines.size() and String(lines[j]).contains("|") and String(lines[j]).strip_edges() != "":
+					rows.append(split_table_row(String(lines[j])))
+					j += 1
+				skip_to = j
+				out.append(_table_bbcode(head_cells, al, rows, accent, dim))
+				continue
+		## An embed alone on its line is drawn as a block; anywhere else it is handled inline.
+		if _hooks.has("embed"):
+			var em := embed_line.search(line)
+			if em != null:
+				out.append(_embed_block(em.get_string(1), accent, dim))
+				continue
 		var hp := _heading_prefix(line)
 		if hp.x > 0:
 			out.append("[font_size=%d][b]%s[/b][/font_size]" % [HEADING_PX[hp.x], inline_bbcode(line.substr(hp.y), accent)])
@@ -2043,18 +2508,25 @@ static func _to_bbcode(md: String, accent_hex: String, dim_hex: String) -> Strin
 			if q.begins_with(" "):
 				q = q.substr(1)
 			if in_callout:
-				out.append("[indent]%s[/indent]" % inline_bbcode(q, accent))
+				out.append("[indent][color=#%s]▎[/color] %s[/indent]" % [callout_col, inline_bbcode(q, accent)])
 			else:
 				out.append("[indent][color=#%s][i]%s[/i][/color][/indent]" % [dim, inline_bbcode(q, accent)])
 			continue
-		## Before the bullet test, which a task line also matches.
+		## Before the bullet test, which a task line also matches. A box is a link (`task:<line>`)
+		## only when the host can tick it and this is the open note itself, not an embedded view of
+		## another; the line number is in the WHOLE text, front matter counted (`base`).
 		var mt := task.search(line)
 		if mt != null:
 			var tdepth := mt.get_string(1).length() / 2
+			var ticking: bool = bool(_hooks.get("ticks", false)) and _readonly == 0
+			var box_open := "[url=task:%d]" % (base + i) if ticking else ""
+			## The link starts at the item's indent and runs through the box and the two spaces after it, so a
+			## finger has a target of about 40 px, not the glyph's 14.
+			var box_close := "[/url]" if ticking else ""
 			if mt.get_string(2) == " ":
-				out.append("%s  ☐  %s" % ["    ".repeat(tdepth), inline_bbcode(mt.get_string(3), accent)])
+				out.append("%s%s  ☐  %s%s" % ["    ".repeat(tdepth), box_open, box_close, inline_bbcode(mt.get_string(3), accent)])
 			else:
-				out.append("%s  ☑  [color=#%s][s]%s[/s][/color]" % ["    ".repeat(tdepth), dim, inline_bbcode(mt.get_string(3), accent)])
+				out.append("%s%s  ☑  %s[color=#%s][s]%s[/s][/color]" % ["    ".repeat(tdepth), box_open, box_close, dim, inline_bbcode(mt.get_string(3), accent)])
 			continue
 		var mb := bullet.search(line)
 		if mb != null:
@@ -2072,7 +2544,10 @@ static func _to_bbcode(md: String, accent_hex: String, dim_hex: String) -> Strin
 			continue
 		out.append(inline_bbcode(line, accent))
 	if in_code:
-		out.append("[code]" + _esc("\n".join(code_buf)) + "[/code]")
+		if code_lang == "chronos":
+			out.append(_chronos_bbcode(code_buf, accent, dim))
+		else:
+			out.append("[code]" + _esc("\n".join(code_buf)) + "[/code]")
 	return "\n".join(out)
 
 
@@ -2145,11 +2620,23 @@ static func _inline_text(s: String, accent_hex: String) -> String:
 	var embed := RegEx.create_from_string("!\\[\\[([^\\]|]+)(?:\\|([^\\]]+))?\\]\\]")
 	var wiki := RegEx.create_from_string("\\[\\[([^\\]|]+)(?:\\|([^\\]]+))?\\]\\]")
 	var md_link := RegEx.create_from_string("\\[([^\\]]+)\\]\\(([^)\\s]+)\\)")
+	var md_image := RegEx.create_from_string("!\\[([^\\]]*)\\]\\(([^)\\s]+)(?:\\s+\"[^\"]*\")?\\)")
 	var k := 0
+	## `![alt](path)` (VE-7): with the host's `embed` hook it is a picture (or a note, or a notice) drawn
+	## through the same crate decision as `![[...]]`, its address percent-decoded. Without the hook it
+	## stays what it was, a link with a stray `!`.
+	if _hooks.has("embed"):
+		for m in md_image.search_all(s):
+			links.append(_embed_inline(m.get_string(2).uri_decode(), accent_hex))
+			s = s.replace(m.get_string(0), "\u0001%d\u0001" % k)
+			k += 1
 	## `![[embed]]` first -- `[[…]]` inside it would otherwise read as a link.
 	## Drawn as a labelled placeholder, not the embedded note or image.
 	for m in embed.search_all(s):
-		links.append("[color=#%s][i]embedded: %s[/i][/color]" % [accent_hex, _esc(m.get_string(1))])
+		if _hooks.has("embed"):
+			links.append(_embed_inline(m.get_string(1) + ("|" + m.get_string(2) if m.get_string(2) != "" else ""), accent_hex))
+		else:
+			links.append("[color=#%s][i]embedded: %s[/i][/color]" % [accent_hex, _esc(m.get_string(1))])
 		s = s.replace(m.get_string(0), "\u0001%d\u0001" % k)
 		k += 1
 	for m in wiki.search_all(s):
@@ -2173,6 +2660,7 @@ static func _inline_text(s: String, accent_hex: String) -> String:
 			["\\*\\*(.+?)\\*\\*", "[b]$1[/b]"],
 			["__(.+?)__", "[b]$1[/b]"],
 			["(?<![\\*\\w])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![\\*\\w])", "[i]$1[/i]"],
+			["(?<![_\\w])_(?![\\s_])(.+?)(?<![\\s_])_(?![_\\w])", "[i]$1[/i]"],
 			["~~(.+?)~~", "[s]$1[/s]"],
 			["<u>(.+?)</u>", "[u]$1[/u]"]]:
 		s = RegEx.create_from_string(String(pair[0])).sub(s, String(pair[1]), true)

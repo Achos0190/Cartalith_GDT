@@ -382,8 +382,9 @@ func _ready() -> void:
 	_ok("Ctrl+E (desktop) / Preview (phone) shows the rendering", pv.visible and not te.visible)
 	var bb := String(pv.text)
 	_ok("Preview renders the callout's title as its header", bb.find("[b]Low bridge[/b]") >= 0, bb)
-	_ok("... and its body as prose, not an italic quote", bb.find("[indent]Barges lower their masts.[/indent]") >= 0)
-	_ok("Preview renders the open and the done task", bb.find("☐  pay the toll") >= 0 and bb.find("☑  ") >= 0 and bb.find("[s]cross[/s]") >= 0)
+	_ok("... and its body as prose, not an italic quote", bb.find("▎[/color] Barges lower their masts.[/indent]") >= 0)  ## VE-7: a callout body line carries its type colour and bar, still prose and not an italic quote
+	## VE-7: a task box is a link (`[url=task:N]`) that runs through the box and its two spaces.
+	_ok("Preview renders the open and the done task", bb.find("☐  [/url]pay the toll") >= 0 and bb.find("☑  [/url]") >= 0 and bb.find("[s]cross[/s]") >= 0)
 	_ok("Preview renders the highlight", bb.find("[bgcolor=#") >= 0 and bb.find("]salt[/bgcolor]") >= 0)
 	_ok("Preview renders the tag", bb.find("]#trade[/color]") >= 0)
 	await _shot("6_preview.png")

@@ -681,6 +681,7 @@ func _build_connection(info: Dictionary) -> void:
 		var dis := DccWidgets.action(sec, "Disconnect", func():
 			bridge.vault_disconnect()
 			_hist.clear()
+			_img_cache.clear()
 			_rename_last = {}
 			store_changed.emit()
 			_rebuild())
@@ -746,6 +747,7 @@ func _browse_vault() -> void:
 		"Cartalith reads .md files from this folder and writes only where you tell it to.",
 		func(path: String):
 			_hist.clear()
+			_img_cache.clear()
 			_rename_last = {}
 			var r := bridge.vault_connect(path, "")
 			if not bool(r.get("ok", false)):
@@ -2017,6 +2019,74 @@ func _peek_for(from_rel: String, target: String) -> String:
 	return ""
 
 
+## Where a decoded vault picture is registered so a Preview `[img]` can find it by name (VE-7). `BBCode`'s `[img]`
+## loads a path through the resource cache, and `Resource.take_over_path` puts a texture in that cache under a path
+## no file needs to exist at. The name carries the file's stamp, so a changed picture is a new name, never a stale hit.
+const IMG_REG_PREFIX := "res://__vault_embed__/"
+## Decoded pictures by vault path: `{stamp, src, w, h, tex}`. Held so the texture stays alive (the cache is weak) and so
+## Split's re-render every 0.2 s does not decode the file again. Memory only.
+var _img_cache: Dictionary = {}
+
+
+## A picture of the vault for Preview: the crate's `vault_embed_open` answer `r` (kind `image`) in, `{src, w, h}` out,
+## or `{}` when the bytes cannot be read or decoded (Preview then says so). The crate re-checks the path, the
+## extension, containment under the vault folder and the size cap inside `vault_read_image`.
+func _embed_image(r: Dictionary) -> Dictionary:
+	var rel := String(r.get("path", ""))
+	var stamp := String(r.get("stamp", ""))
+	var hit: Variant = _img_cache.get(rel)
+	if hit != null and String((hit as Dictionary)["stamp"]) == stamp:
+		return {"src": hit["src"], "w": hit["w"], "h": hit["h"]}
+	var bytes: PackedByteArray = bridge.vault_read_image(rel)
+	if bytes.is_empty():
+		return {}
+	var img := Image.new()
+	var ok := false
+	## The extension's decoder first, then the others: a `.png` that is really a JPEG still draws.
+	var ext := rel.get_extension().to_lower()
+	var order: Array = ["png", "jpg", "webp", "bmp", "svg"]
+	if ext == "jpeg":
+		ext = "jpg"
+	if order.has(ext):
+		order.erase(ext)
+		order.push_front(ext)
+	for kind in order:
+		var e := ERR_FILE_UNRECOGNIZED
+		match String(kind):
+			"png": e = img.load_png_from_buffer(bytes)
+			"jpg": e = img.load_jpg_from_buffer(bytes)
+			"webp": e = img.load_webp_from_buffer(bytes)
+			"bmp": e = img.load_bmp_from_buffer(bytes)
+			"svg": e = img.load_svg_from_buffer(bytes)
+		if e == OK and not img.is_empty():
+			ok = true
+			break
+	if not ok:
+		return {}
+	var tex := ImageTexture.create_from_image(img)
+	var src := "%s%s_%s.png" % [IMG_REG_PREFIX, rel.md5_text(), stamp.replace(":", "_")]
+	tex.take_over_path(src)
+	_img_cache[rel] = {"stamp": stamp, "src": src, "w": img.get_width(), "h": img.get_height(), "tex": tex}
+	return {"src": src, "w": img.get_width(), "h": img.get_height()}
+
+
+## A chronos row was clicked in Preview (VE-7): move Cartalith's year to the row's through the shell's one writer,
+## `tl_set_year` (PC-2), which clamps to the world's own range (`tl_range`, PC-3). Says what happened: no world,
+## or a year past the range and where it went instead. Nothing here writes the note or the world.
+func _on_chronos_year(year: int) -> void:
+	if app == null or not app.has_method("tl_set_year"):
+		return
+	if not app.tl_available():
+		app.set_status("hint", "Generate a world first: the year belongs to a world, and there is none to move.", "accent")
+		return
+	app.tl_set_year(year)
+	var now: int = app.tl_year()
+	if now == year:
+		app.set_status("hint", "Timeline moved to year %d." % year, "accent")
+	else:
+		app.set_status("hint", "Year %d is outside this world's range; the timeline went to %d." % [year, now], "accent")
+
+
 ## Peek card limits: a labelled judgement (enough to recognise a note, short enough to read in the
 ## second the card is up).
 const PEEK_LINES := 8
@@ -2266,6 +2336,17 @@ func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 	ed.link_info = func(t: String) -> Dictionary: return _link_kind(_browse_path, t)
 	ed.link_at = func(text: String, offset: int) -> Dictionary: return bridge.vault_link_at(text, offset)
 	ed.peek_source = func(t: String) -> String: return _peek_for(_browse_path, t)
+	## VE-7: what Preview draws beyond text. The crate decides every embed (`vault_embed_open`: a cycle, the
+	## depth cap, a path that leaves the vault); this only reads through it. The chain starts at the open
+	## note, and each embedded note is resolved from itself (`stack.back()`).
+	ed.note_path = self_rel
+	ed.embed_source = func(inner: String, stack: Array) -> Dictionary:
+		var from := String(stack.back()) if not stack.is_empty() else _browse_path
+		return bridge.vault_embed_open(from, inner, PackedStringArray(stack))
+	ed.embed_image = func(r: Dictionary) -> Dictionary: return _embed_image(r)
+	ed.chronos_source = func(t: String) -> Dictionary: return bridge.vault_note_chronos(t)
+	ed.task_toggler = func(t: String, line: int) -> Dictionary: return bridge.vault_toggle_task(t, line)
+	ed.chronos_year_requested.connect(_on_chronos_year)
 	ed.suggest_source = func(mode: String, note: String, query: String, limit: int) -> Array:
 		return _suggest_rows(mode, note, query, limit)
 	## VE-3: the colouring's links and the footer's counts come from the crate through the bridge, so
@@ -3059,6 +3140,7 @@ func _build_more(parent: Control) -> void:
 	var dis := DccWidgets.action(vs, "Disconnect", func():
 		bridge.vault_disconnect()
 		_hist.clear()
+		_img_cache.clear()
 		_rename_last = {}
 		store_changed.emit()
 		_rebuild())
