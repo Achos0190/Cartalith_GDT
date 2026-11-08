@@ -3426,6 +3426,24 @@ func _build_claims_block(parent: Control, d: Dictionary) -> void:
 	var cap_name: String = String(cap.get("name", "")) if not cap.is_empty() else "none"
 	DccWidgets.note(sec, "Capital: %s   ·   Settlements: %d   ·   Settled population: %s" % [
 		cap_name, int(d.get("settlement_count", 0)), _thousands(int(d.get("population", 0)))])
+	## PC-7 follow-up (`PC_SHELL_PROPOSAL.md` 3.6, flow F3: "Capital: X is a link that selects it"): the
+	## capital is a link, through the one selection path. The note above keeps its text (probes read it);
+	## the link is the row beneath it, drawn only when the faction holds a settlement. It pans to the place
+	## as every other roster row does, selects it, and closes the window only where the window is modal
+	## (the tablet and phone): the desktop's context window stays open and follows the selection.
+	var cap_idx := _capital_index(_selected)
+	if cap_idx >= 0:
+		var cap_link := DccWidgets.text_button(sec, "Capital: %s ›" % cap_name, func() -> void:
+			var s: Dictionary = bridge.settlements()[cap_idx]
+			app.viewport.move_view_to(float(int(s.get("x", 0))), float(int(s.get("y", 0))))
+			app.select("settlement", cap_idx)
+			if not ContextWindow.applies(app):
+				hide())
+		cap_link.name = "CapitalLink"
+		cap_link.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		cap_link.add_theme_color_override("font_color", DccTheme.c("accent"))
+		cap_link.tooltip_text = "Select %s, this faction's capital, and show it on the map." % cap_name
+		cap_link.set_meta("ctx_target", {"kind": "settlement", "id": cap_idx})
 	var line: Label
 	if not stats.is_empty():
 		line = DccWidgets.note(sec, "Territory: %s km² over %d claimed cells (%d contested)" % [
@@ -4119,21 +4137,28 @@ func _fit_for(fid: int) -> Dictionary:
 ## kind. Returns `{}` for a faction with no settlements. There is no override
 ## field to read; the result is always computed from kind and population.
 func _capital_of(fid: int) -> Dictionary:
-	## `_civFactionCapital`: the highest-pop capital/metropolis, else the
-	## highest-pop settlement of any kind -- fully derived from kind/pop, no
-	## override field, exactly as the reference derives it.
-	var best := {}
+	var i := _capital_index(fid)
+	return (bridge.settlements()[i] as Dictionary) if i >= 0 else {}
+
+
+## The index in `bridge.settlements()` of faction `fid`'s capital, or -1 when it holds no settlement (never 0 as
+## a stand-in: PC-7 follow-up, `MISTAKES.md`, "no value as a plausible value"). `_civFactionCapital`: the
+## highest-pop capital/metropolis, else the highest-pop settlement of any kind -- fully derived from kind/pop,
+## no override field, exactly as the reference derives it. `_capital_of()` is this function's row.
+func _capital_index(fid: int) -> int:
+	var best := -1
 	var best_pop := -1
 	var best_seat := false
-	for s in bridge.settlements():
-		var d: Dictionary = s
+	var all := bridge.settlements()
+	for i in all.size():
+		var d: Dictionary = all[i]
 		if int(d.get("faction", 0)) != fid:
 			continue
 		var kind := String(d.get("kind", ""))
 		var seat := kind == "capital" or kind == "metropolis"
 		var pop := int(d.get("population", 0))
 		if (seat and not best_seat) or (seat == best_seat and pop > best_pop):
-			best = d
+			best = i
 			best_pop = pop
 			best_seat = seat
 	return best

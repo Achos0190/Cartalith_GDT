@@ -677,8 +677,9 @@ non-Button holder because `AcceptDialog` resets the minimum width of every Butto
 out lays out at 81 px and not the 84 its builder asks. (5) **Saved journeys
 has no chip**: it lists every journey and nothing in it depends on the year; a row closed it while the planner replaced the map; since PC-8 it stays open (see PC-8's note). (6) Conflicts stays open when a row is pressed, and marks the selected conflict.
 (7) The roster, the City viewer and Conflicts now redraw on a year move (one redraw per frame); the City viewer keeps the
-user's zoom. Every open follows again. Not built, stated: §3.6's one host with a back stack (finding W2), the roster's
-"Capital: X" as a link (flow F3), the refresh items (finding W7), and Find drawing above an open window (Ctrl+F works
+user's zoom. Every open follows again. Not built, stated: §3.6's one host with a back stack (finding W2), ~~the roster's
+"Capital: X" as a link (flow F3)~~ (built 2026-11-08: the Territory tab's "Capital: X ›" row selects the capital; the
+note above it keeps its text, and the link closes the window only where it is modal), the refresh items (finding W7), and Find drawing above an open window (Ctrl+F works
 from a window; whether Find's results draw above a window that overlaps them was not measured). The assistant's window is not one of the five and stays
 exclusive, so PC-6's "close that window to bring it back" still holds; the vault, the Data manager and the rest stay
 modal. The probe is `_pc7windows_probe`.

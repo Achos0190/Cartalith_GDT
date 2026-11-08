@@ -47,6 +47,25 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-7 follow-up built: the roster's "Capital: X" is a link that selects it (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.6 flow F3, §6 (PC-7 note). *Re-opened at the symbols first:* `faction_roster_window.gd`
+(`_build_claims_block`, `_capital_of`, `_open_place`, the Settlements sublist rows), `context_window.gd` (`applies`).
+
+- **Built.** `_capital_index(fid)` (the old `_capital_of` rule, unchanged, now returning the index in
+  `bridge.settlements()`, -1 for a faction with no settlement) feeds `_capital_of` and a "Capital: X ›" link row under the
+  Territory tab's note (node `CapitalLink`; also drawn by the Territory module, one builder). The link pans to the
+  place, selects it through `DccApp.select("settlement", i)` and closes the window only where it is modal (the tablet
+  and phone: `ContextWindow.applies()` false); on the desktop the context window stays open and follows. The note keeps
+  its text, because `_factionhub_probe` and `_claimsabsent_probe` read "Capital:" in it. A faction with no settlement
+  draws no link and "Capital: none".
+- **Measured.** New `_capitallink_probe` (windowed, a real click): 12 checks, 0 failed at 1600x1000 desktop and touch.
+  Five literal mutants (id off by one, no select, hide always, hide never, none as 0), each killed by its own checks;
+  source restored byte-identical. Re-run: `_claimsabsent` (54, green), `_pc7windows` (138) and `_pc10modules` (233)
+  green; `_factionhub` fails 3 checks identically on origin/main (RF03 precondition among them).
+- **Not done, stated:** the link is not on the phone's own surfaces beyond the same Factions window row; PC-7's other
+  leftovers (the one host with a back stack, W7's refresh items, Find above an open window) are unchanged.
+
 ### PC-4 follow-up built: cultures are selectable from the GUI (2026-11-08)
 
 Closes the owner's item "Culture selection is unreachable from the GUI" (`OUTSTANDING_WORK.md`, PC row, removed).
@@ -273,7 +292,8 @@ of `_undo_last_impl`/`_redo_last_impl`), `popout_host.gd::LIVE_KEYS`, `saved_jou
   `_wiredfix` (2, Pack metadata… and the Asset Library). Updated to PC-7's form: `_storylists` (a Conflicts row press
   keeps the window open on the desktop; 21 green; it failed that one check before the update, by design).
   `cargo test --workspace --no-fail-fast` (no Rust changed): 265 result lines, 7 770 passed, 0 failed, 144 ignored.
-- **Not in PC-7, stated:** §3.6's one host with a back stack (W2); the roster's "Capital: X" as a link (F3); the
+- **Not in PC-7, stated:** §3.6's one host with a back stack (W2); *(the roster's "Capital: X" as a link, F3, is built:
+  see "PC-7 follow-up" above)*; the
   refresh items (W7); whether Find's results draw above a window that overlaps them (Ctrl+F itself works from a window).
   The assistant's window, the vault and every other window stay modal (the assistant is not in §3.6's list, so PC-6's
   "close that window to bring it back" still holds).
