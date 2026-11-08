@@ -65,6 +65,22 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
 - **Retrieval:** RK-8 to RK-11. `RAG_KNOWLEDGE_BASE_RESEARCH.md`.
 
 **Phone and touch** (`ANDROID_BUILD_SCOPE.md` 3.12, 3.13; `GUI_GAP_REGISTER.md`)
+- **Performance pass across devices** (owner, 2026-11-08: *"Maybe we should just wait until all outstanding work is
+  done and start thinking about improving performance across devices."*). It is scheduled **after** the rest of this
+  list, by the owner's order. It starts with three owner reports from the OnePlus Pad 3 (APK `e02fadcb`):
+  - **Menus are "hella slow" on the tablet.** Not yet measured.
+  - **The welcome / New world screen waits for a touch, and start-up feels slow.** Measured with adb on the Pad 3:
+    the shell is up 1.8 s after the engine, but the welcome card was still absent 30 s later, untouched. Likely
+    cause, read at the symbol: `app.gd::_open_welcome_when_drawn()` awaits `RenderingServer.frame_post_draw` after
+    `_enable_idle_mode()` has turned on `OS.low_processor_usage_mode`, so no frame comes until input. Candidate fix,
+    **unverified on a device and not committed**: hold idle mode off across that wait and restore it, as
+    `view3d_gate.gd` does. That is four lines; the patch was kept in the 2026-11-08 session's scratchpad
+    (`welcome_idle_fix.patch`).
+  - **The phone GUI opened on the tablet.** At the 2026-11-08 22:40 launch the shell came up as the tablet
+    composition. Its display then read 2400 x 3392 at an override density of 356 (2.225), about 1 078 dp of
+    shortest width, so it should be a tablet under Ruling EG. Re-measure the density Godot reads on the Pad 3
+    (`screen_get_dpi()`, which on the 6T matched `wm density`) and the class `classify()` returns, at the owner's
+    current Display size, before changing anything.
 - **Central touch-scroll fix: built 2026-11-08 (`STATUS.md`); the handset check is open.** Cards, lists, read-only text
   boxes, popup lists and windows are covered and probed. The owner's reported symptoms "generation parameters scrolling
   degrades as sections expand" and "settings scroll once then dead" still do NOT reproduce (before or after the fix);
