@@ -3541,8 +3541,8 @@ func phone_scale() -> float:
 ## (`_emptyphone_probe.tscn -- --force-touch --dismiss --tab more`): that row
 ## read `Next / File ▸ New world… to begin` on a screen whose own list has no
 ## File in it. The replacement is checked at the screen rather than derived --
-## `--screen project` draws `New world…` as the third row of PROJECT, from
-## `phone_menu.gd::_fill_project()`'s `_act(body, p, DccMenus.ID_NEW_WORLD, …)`.
+## MS-4 replaced that screen: the phone's route is now MENU ▸ File ▸ New world…, the File popup's first row
+## (`phone_menu.gd::_fill_popup()`), and `new_world_route()` says so.
 ##
 ## `static`, and off `DccTheme.is_phone()` rather than this instance's
 ## `_phone`, for the reason `DccTheme.set_phone()`'s own comment gives: the
@@ -3556,7 +3556,7 @@ func phone_scale() -> float:
 ## reachable: both windows call `DccWidgets.phone_present()`. Kept in one place
 ## so a seventh cannot drift; callers append their own trailing clause.
 static func new_world_route() -> String:
-	return "MORE ▸ Project ▸ New world…" if DccTheme.is_phone() \
+	return "MENU ▸ File ▸ New world…" if DccTheme.is_phone() \
 		else "File ▸ New world…"
 
 ## The node `Window ▸ Domain rail` shows and hides, for `DccApp`'s region map.
@@ -7314,7 +7314,7 @@ func _refresh_phone_sheet_header() -> void:
 		## class rather than the reverse, so `self` here has no static
 		## member of that name to read. The same dynamic reach `phone_menu.gd`
 		## already uses for the identical cross-file shape
-		## (`_load_preset_into_planner()`'s own `_shell.get(...)`).
+		## (the deleted `_load_preset_into_planner()`'s own `_shell.get(...)`, MS-4).
 		var jp = get("journey_planner_view")
 		if jp != null and is_instance_valid(jp) and jp.has_method("phone_header_info"):
 			var info: Dictionary = jp.phone_header_info()
@@ -8013,7 +8013,7 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## which decides what the LEFT DOCK would show; on a phone `left_dock` is a
 	## sheet with `visible = false` and the only two openers are
 	## `DccApp.toggle_region(ID_WIN_LEFT)` (MORE ▸ Window) and
-	## `PhoneMenu._open_left_sheet()`. The bottom bar reaches neither, so the
+	## `PhoneMenu._open_left_sheet() (deleted by MS-4)`. The bottom bar reaches neither, so the
 	## generation parameters were unreachable by tapping.
 	##
 	## Fixed here rather than by teaching GENERATE to open the left sheet,
@@ -8675,7 +8675,7 @@ func _phone_list_row(title: String, subtitle: String, on_press: Callable) -> Con
 ## `_set_sheet_open()` is untouched by either deletion and still has **seven**
 ## call sites in three files -- `grep -rn "_set_sheet_open(" --include=*.gd
 ## shell/ | grep -v "func _set_sheet_open" | grep -v ":[0-9]*:##"`, 2026-09-06:
-## the two sheet close buttons here, `PhoneMenu._open_left_sheet()`, and four
+## the two sheet close buttons here, `PhoneMenu._open_left_sheet() (deleted by MS-4)`, and four
 ## in `DccApp.toggle_region()` (its `ID_WIN_RESET` branch closes both sheets,
 ## and its two phone rows toggle one each).
 
@@ -10092,8 +10092,8 @@ func _do_phone_undo() -> void:
 # `app.gd`'s desktop strip agreeing; neither holds a year of its own.
 #
 # **Two ways in, and `phone_menu.gd` is one of them.** This block used to say
-# there was *no* entry point there; opened 2026-09-06, `_fill_sim()`'s first
-# row is a `Transport strip on map` switch whose handler `_toggle_sim_strip()`
+# there was *no* entry point there; opened 2026-09-06, the deleted `_fill_sim()`'s first
+# row is a `Transport strip on map` switch whose handler `phone_menu.gd::_toggle_sim_strip()` (deleted by MS-4)
 # calls `set_phone_sim_strip_open()` and then closes the sheet -- because the
 # strip draws over the map that sheet covers, which is §6.6's own toast ("close
 # this sheet to scrub") carried out rather than printed. The other way in is
@@ -10637,6 +10637,15 @@ func phone_present_popup(popup: PopupMenu, title: String, trail: String) -> bool
 	_close_all_phone_overlays()
 	_phone_menu.open_sheet(popup, title, trail)
 	return true
+
+## Opens the phone's MENU with screen `id` pushed over its root (`PhoneMenu.open_screen()`), after closing every
+## other phone overlay, as every phone overlay opens. For a program-menu row whose content is a phone screen: Help ▸
+## Gesture reference… (`menus.gd`, MS-4). Does nothing off the phone, where no such row is built.
+func phone_open_menu_screen(id: String) -> void:
+	if not _phone or _phone_menu == null:
+		return
+	_close_all_phone_overlays()
+	_phone_menu.open_screen(id)
 
 ## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1): the map context menu's OWN phone
 ## presentation since CM-5 -- peek (chip row) / half (the full sectioned

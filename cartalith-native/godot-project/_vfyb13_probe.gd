@@ -126,17 +126,9 @@ func _ready() -> void:
 	# ---- 1. the union of every string the phone MORE surface can draw --------
 	var union: Array = []
 	var body_min: Dictionary = {}
-	## **`assets` and `help` added 2026-10-18.** They are `phone_menu.gd`
-	## `ROOT_ROWS` screens (`_fill_assets`, `_fill_help`) that carry the whole
-	## Assets and Help popups (`_rest_of()`, see that file's coverage table), but
-	## this list predated them, so the exhaustive check below reported 15 real,
-	## drawn rows as undrawn -- probe stale, not the shell. Derived from
-	## `ROOT_ROWS` rather than a second written list so the next screen cannot
-	## be missed the same way; `more` is the root itself.
+	## MS-4: the bespoke ROOT_ROWS screens are deleted; the surface is MENU's root (`more`) plus every menu popup
+	## below, derived from the live menu bar (`_menu_buttons()`), never a written list.
 	var screens: Array = ["more"]
-	for spec in pm.ROOT_ROWS:
-		if String(spec["t"]) == "screen":
-			screens.append(String(spec["id"]))
 	for s in screens:
 		pm.open()
 		if s != "more":
@@ -158,20 +150,12 @@ func _ready() -> void:
 		union.append_array(st0)
 		body_min["story:" + String(r["band"])] = pm._screen_body.get_combined_minimum_size()
 
-	## Every menu drill **the root actually routes to**, pushed for real.
-	##
-	## Derived from the live `ROOT_ROWS` / `ROOT_REST`, NOT from a written list
-	## of the seven menus. The first version of this probe pushed all seven
-	## unconditionally, which made the union include a menu the root no longer
-	## linked to -- a check that could not fail. Caught by mutating `ROOT_REST`
-	## to drop `Window`: the reachability assertion stayed green with Window
-	## unreachable. Same shape as MISTAKES.md's non-discriminating-check row.
+	## Every menu drill **the root actually routes to**: MENU's root draws one row per menu-bar button
+	## (`_fill_root()`), so the routed set is read off the live bar. (Before MS-4 this was derived from `ROOT_ROWS` /
+	## `ROOT_REST`, after a mutation of `ROOT_REST` showed a written list could not fail.)
 	var routed: Array = []
-	for spec in pm.ROOT_ROWS:
-		if String(spec["t"]) == "menu":
-			routed.append(String(spec["id"]))
-	for m in pm.ROOT_REST:
-		routed.append(String(m))
+	for mb in pm._menu_buttons():
+		routed.append(String((mb as MenuButton).text))
 	print("VFY root routes to these menus: [%s]" % ", ".join(routed))
 	for m in routed:
 		var p := _menu_popup(String(m))
@@ -254,7 +238,9 @@ func _ready() -> void:
 		missing_deep.is_empty(), ", ".join(missing_deep))
 
 	# ---- 4. the destinations HEAD's root action rows reached -----------------
-	for label in ["Civilization dock", "Open journey planner", "Travel library"]:
+	## MS-4: the three rows of the deleted Civilization and Travel screens keep a home in the menus
+	## (Window ▸ Left dock, Story ▸ Journey planner, Story ▸ Travel library…).
+	for label in ["Left dock", "Journey planner", "Travel library…"]:
 		_check("HEAD-era destination still on the surface: '%s'" % label,
 			_has(union, String(label)))
 

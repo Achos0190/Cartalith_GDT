@@ -394,56 +394,37 @@ func _texts_of(n: Node) -> Array:
 			out.append(String((c as Label).text))
 	return out
 
-## Desktop: the CIVIL domain's tool strip, the drawn "Way" button pressed by a real click.
-## Phone: the phone menu's CIVIL screen, its drawn "Way" row tapped the way a finger does
-## (the `_phonemore_act_probe` route).
+## The CIVIL domain's TOOLS block, the drawn "Way" button pressed by a real click. On the phone (MS-4) the
+## Civilization screen this used to tap is deleted; the same block is the CIVIL dock, which Window ▸ Left dock
+## shows in the left sheet (`_set_sheet_open("left", true)`), so the probe opens that sheet and clicks the same
+## drawn button the desktop path clicks. Window ▸ Left dock is the route the drafts README names as the home of
+## the six civilization tool rows.
 func _reach_way() -> bool:
 	app.arm_tool("inspect")
 	await _frames(SETTLE)
-	if not _phone:
-		app.select_domain("civilization")
-		await _frames(SETTLE)
-		var btn: Button = null
-		for c in _visible(app):
-			if c is Button and String((c as Button).get_meta(DccWidgets.TOOL_ID_META, "")) == "way":
-				btn = c
-				break
-		if btn == null:
-			_log("DIAG _reach_way: no visible Way tool button")
+	app.select_domain("civilization")
+	await _frames(SETTLE)
+	if _phone:
+		if app.get("_phone_menu") == null:
+			_log("DIAG _reach_way: no phone menu (run with -- --force-touch)")
 			return false
-		await _tap(btn.get_global_rect().get_center())
-		return app.armed_tool == "way"
-	var pm = app.get("_phone_menu")
-	if pm == null:
-		_log("DIAG _reach_way: no phone menu (run with -- --force-touch)")
+		app._set_sheet_open("left", true)
+		await _frames(SETTLE)
+	var btn: Button = null
+	for c in _visible(app):
+		if c is Button and String((c as Button).get_meta(DccWidgets.TOOL_ID_META, "")) == "way":
+			btn = c
+			break
+	if btn == null:
+		_log("DIAG _reach_way: no visible Way tool button")
 		return false
-	pm.open()
-	pm._push_screen("civ")
-	await _frames(2)
-	var rows: Array = []
-	_all(pm._screen_body, rows)
-	var row: PanelContainer = null
-	for c in rows:
-		if c is PanelContainer:
-			var t := _texts_of(c)
-			if not t.is_empty() and String(t[0]).strip_edges() == "Way":
-				row = c
-				break
-	if row == null:
-		_log("DIAG _reach_way: no Way row on the phone civ screen")
-		return false
-	var down := InputEventMouseButton.new()
-	down.button_index = MOUSE_BUTTON_LEFT
-	down.pressed = true
-	down.position = row.size * 0.5
-	row.gui_input.emit(down)
-	var up := InputEventMouseButton.new()
-	up.button_index = MOUSE_BUTTON_LEFT
-	up.pressed = false
-	up.position = row.size * 0.5
-	row.gui_input.emit(up)
-	await _frames(4)
-	return app.armed_tool == "way"
+	await _tap(btn.get_global_rect().get_center())
+	var armed: bool = app.armed_tool == "way"
+	if _phone:
+		## The left sheet covers the band of map the fixture search reads; the tool stays armed without it.
+		app._set_sheet_open("left", false)
+		await _frames(SETTLE)
+	return armed
 
 # -- Main ----------------------------------------------------------------------------------------
 

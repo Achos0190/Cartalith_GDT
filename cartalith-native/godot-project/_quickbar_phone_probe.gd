@@ -298,7 +298,7 @@ func _empty() -> void:
 	var rows: Array = pm.find_children("QuickRow_*", "", true, false)
 	_ok(rows.is_empty(), "MORE has no Quick row with an empty bar")
 	_ok(not _labels_text(pm).has("QUICK"), "MORE has no QUICK band with an empty bar")
-	pm._push_screen("prefs")
+	pm._push(pm._menu_popup("Preferences", false), "Preferences", pm.SCREEN_LEVEL)
 	await _settle(6)
 	var texts := _labels_text(pm)
 	var has_row := false
@@ -355,10 +355,10 @@ func _first_pin() -> void:
 	var vault := idx.find_pin("menu:45")
 	var planner := idx.find_pin("menu:726")
 	_ok(not vault.is_empty() and bool(vault["pinnable"]) and not planner.is_empty() and bool(planner["pinnable"]), "Markdown vault (menu:45) and Journey planner (menu:726) are pinnable on the phone")
-	## reach the window the way a user with nothing pinned does: MORE > Preferences > Quick bar…
+	## reach the window the way a user with nothing pinned does: MENU > Preferences > Quick bar…
 	await _show("more", "peek")
 	var pm = _app._phone_menu
-	pm._push_screen("prefs")
+	pm._push(pm._menu_popup("Preferences", false), "Preferences", pm.SCREEN_LEVEL)
 	await _settle(6)
 	var target: Control = null
 	for n in pm.find_children("*", "Label", true, false):

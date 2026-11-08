@@ -547,7 +547,7 @@ func _ready() -> void:
 				await _frames(4)
 		if await _tap_caption("MENU"):
 			_census("after tapping MORE")
-		## `Simulation` is a MORE drill row -- the caption is read off `ROOT_ROWS`
+		## (Historical, before MS-4 deleted the Simulation screen:) `Simulation` was a MORE drill row -- the caption was read off `ROOT_ROWS`
 		## rather than guessed, because the first cut of this line hunted
 		## "Simulate", found nothing and reported the screen unreached.
 		##

@@ -2655,7 +2655,7 @@ func _wire_selection() -> void:
 ## `_select_domain()` (`dcc_shell.gd`) emits `workspace_changed` unconditionally
 ## on every call, including a bare re-entry that changes neither the domain nor
 ## its remembered mode -- a redundant `select_domain(id)` (Window ▸ Workspace,
-## `phone_menu.gd::_go_civilization()`), a redundant `select_domain_mode(id,
+## `phone_menu.gd::_go_civilization() (deleted by MS-4)`), a redundant `select_domain_mode(id,
 ## mode)` naming the mode already active, or a rail-node re-click on the node
 ## already lit. `_on_workspace_changed()` below has no other way to tell that
 ## apart from a genuine navigation -- `active_domain()`/`_domain_mode` have
@@ -6617,7 +6617,7 @@ func _present_credits() -> void:
 
 ## The second instance of `open_storage_locations()`'s defect, in the same file
 ## and reached the same way: MORE ▸ Help & about ▸ About, which
-## `phone_menu.gd::_fill_help()` draws through `_rest_of()` over the real Help
+## `phone_menu.gd::_fill_help() (deleted by MS-4)` draws through `_rest_of()` over the real Help
 ## popup. Measured on glass before the fix (`_dlgscale_probe.gd`): a 270 x 100
 ## window, `content_scale_factor` 1.0000, `OK` **29 physical px** against the
 ## same 115 px floor.
@@ -6726,7 +6726,7 @@ func toggle_region(id: int) -> void:
 ## build time and only ever flipped that shadow locally, in
 ## `_sync_region_checks()`, on a press of the SAME row -- it never read the
 ## real state back, so a region opened or closed any other way (the phone
-## sheets' own close button, `phone_menu.gd::_open_left_sheet()` from the
+## sheets' own close button, `phone_menu.gd::_open_left_sheet() (deleted by MS-4)` from the
 ## CIVIL/Simulation rows, `Reset layout`'s phone branch, a restored layout)
 ## left the checkmark stale until restart. `_leftdockcheck_probe.gd`
 ## reproduces it at boot: Left dock reads checked while `_left_sheet_open` is

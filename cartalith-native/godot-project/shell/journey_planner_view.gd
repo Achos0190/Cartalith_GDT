@@ -885,8 +885,8 @@ func open() -> void:
 	## **`phone_menu.gd` already states the rule** in `_go_civilization()`'s
 	## header -- "on a phone the dock is a sheet that is closed -- so a bare
 	## `select_domain()` ... is a menu row that appears to do nothing" -- and
-	## both it and `_go_simulation()` call `_open_left_sheet()`.
-	## `_go_journey_planner()` and `dcc_shell.gd::_pick_phone_tab()`'s `plan`
+	## both it and `_go_simulation()` (both deleted by MS-4) called `_open_left_sheet()`.
+	## `_go_journey_planner()` (also deleted) and `dcc_shell.gd::_pick_phone_tab()`'s `plan`
 	## branch are the two routes that never did.
 	##
 	## **Here rather than in either caller, and here rather than in `_show()`.**
@@ -1005,7 +1005,7 @@ func _recompute_visibility() -> void:
 	## `app.gd`'s own `tool_armed` header): `select_domain_category(
 	## "civilization", "Landmarks"/"Factions"/"Military"/"Simulation")`
 	## (`menus.gd`, `faction_roster_window.gd`, `cartography_workspace.gd`,
-	## `phone_menu.gd::_go_simulation()`) all write a mode other than "planner"
+	## `phone_menu.gd::_go_simulation() (deleted by MS-4)`) all write a mode other than "planner"
 	## and none of them touch `armed_tool`. Mode is the one signal that always
 	## moves on a real destination change within CIVIL -- `_on_rail_node_
 	## pressed()` disarms to "inspect" for exactly this reason on its own three
@@ -1027,7 +1027,7 @@ func _recompute_visibility() -> void:
 		## instead, into `_hide()`, below) -- so a reassert here only ever fires
 		## while the planner truly is still the destination: a redundant
 		## `select_domain("civilization")` (Window ▸ Workspace,
-		## `phone_menu.gd::_go_civilization()`) or `select_domain_mode(
+		## `phone_menu.gd::_go_civilization() (deleted by MS-4)`) or `select_domain_mode(
 		## "civilization", "planner")` (a Journey layout, or a rail re-click)
 		## that `_select_domain()` (`dcc_shell.gd`) answered by unconditionally
 		## repainting `_workspace_panels["civilization"].visible = true` again,

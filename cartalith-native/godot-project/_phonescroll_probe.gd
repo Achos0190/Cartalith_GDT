@@ -623,6 +623,10 @@ func _surfaces() -> Array:
 	for id in a._phone_menu.SCREEN_TITLES.keys():
 		var sid: String = String(id)
 		out.append(["MORE screen " + sid, func(): a._phone_menu.open(); a._phone_menu._push_screen(sid)])
+	## MS-4: MENU's eight menus are the screens now (`_fill_popup()`), read off the live menu bar.
+	for mb in a._phone_menu._menu_buttons():
+		var mtitle: String = String((mb as MenuButton).text)
+		out.append(["MENU " + mtitle, func(): a._phone_menu.open(); a._phone_menu._push((mb as MenuButton).get_popup(), mtitle, a._phone_menu.SCREEN_LEVEL)])
 	out.append(["Assistant settings", func(): a.open_assistant_settings()])
 	out.append(["Assistant panel", func(): a.open_assistant_panel()])
 	out.append(["Customise / quick bar window", func(): a.open_quick_bar_window()])

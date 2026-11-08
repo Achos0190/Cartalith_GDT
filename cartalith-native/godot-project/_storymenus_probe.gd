@@ -374,13 +374,16 @@ func _ready() -> void:
 			pm.open()
 			await _frames(4)
 			await _shot("more")
-			## SM-2: the root carries a STORY head and its four band rows.
+			## MS-4: the four STORY band rows are the STORY tab's screen (`open_story()`), not MENU's root.
+			pm.open_story()
+			await _frames(4)
 			var root_txt: Array = []
 			_labels(pm._screen_body, root_txt)
 			for r in pm.STORY_ROWS:
-				_check("phone MORE root draws the STORY row '%s'" % r["label"],
+				_check("the STORY screen draws the row '%s'" % r["label"],
 					root_txt.has(String(r["label"])), str(root_txt))
-			pm._push_screen("data")
+			pm.open()
+			pm._push(pm._menu_popup("Records", false), "Records", pm.SCREEN_LEVEL)
 			await _frames(4)
 			await _shot("more_data")
 			## Every Story row lands on its band's screen.

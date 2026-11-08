@@ -119,16 +119,47 @@ row of those screens was read at its builder in `shell/phone_menu.gd` (`_fill_pr
 | Story band rows (Timeline, Journeys, Conflicts & campaigns, Notes) | the STORY tab (`open_story()`); MENU ▸ Story is the Story popup row for row |
 | "Not on the MORE list": Edit, Window | MENU ▸ Edit and MENU ▸ Window, in menu-bar order, as every menu is now |
 
-**Unreachable after draft 5**, and to be deleted in the same change: the screens `project`, `civ`, `data`, `data-tiles`,
-`sim`, `prefs`, `assets`, `assets-grid`, `asset-slot`, `travel`, `travel-item`, `landmarks`, `lm-fam` and `help`, with their
-`SCREEN_TITLES` entries and helpers. Their only doors were the retired root and each other: `grep -n '_push_screen("'
-shell/phone_menu.gd` lists every one. `gestures` (draft 9) and `story` (the STORY tab) keep theirs. Sixteen probes push
-or read those screens or `ROOT_ROWS`, found with `grep -ln '_push_screen\|ROOT_ROWS' cartalith-native/godot-project/*.gd`:
-`_chipink_probe.gd`, `_emptyphone_probe.gd`, `_etd4_probe.gd`, `_phonemore2_probe.gd`, `_phonemore_act_probe.gd`,
-`_phonemore_reach_probe.gd`, `_phonescroll_probe.gd`, `_phonetiles_probe.gd`, `_prefchip_probe.gd`,
-`_quickbar_phone_probe.gd`, `_quickbar_phoneid_probe.gd`, `_rangeswipe_probe.gd`, `_storymenus_probe.gd`,
-`_vfyb13_probe.gd`, `_vfybold_probe.gd`, `_vfychip_probe.gd`. Each is re-pointed at the menu row that replaced its screen,
-or retired with it. That is a reading of their file names and a grep, not a run (no Godot here).
+**Unreachable after draft 5, and deleted by MS-4** (2026-11-08, in the same change as the transplant): the screens
+`project`, `civ`, `data`, `data-tiles`, `sim`, `prefs`, `assets`, `assets-grid`, `asset-slot`, `travel`, `travel-item`,
+`landmarks`, `lm-fam` and `help`, with their `SCREEN_TITLES` entries and every helper only they reached. `gestures`
+(draft 09) and `story` (the STORY tab) keep their doors. The probe inventory below was a reading of file names and a
+grep when the drafts were written; MS-4 re-did it against the built tree with `grep -ln '_push_screen\|ROOT_ROWS'`, which
+found seventeen files (the sixteen below and `_pc9menus_probe.gd`, which pushed the `data` screen). What became of each:
+
+| Probe | Fate |
+|---|---|
+| `_phonemore2`, `_phonemore_act`, `_phonemore_reach` | **retired** with the nine and five screens they drove (assets, travel, landmarks, help, civ rows, the sim and prefs controls); `_ms4_probe.gd` re-proves reachability row for row against a desktop dump, and taps the new homes |
+| `_phonetiles` | **retired** with `data-tiles`; the pyramid's archive is covered by `_slippy_probe.gd` and `cartalith-io`'s `slippy` tests, the row's home is File ▸ Export ▸ Maps (tiles) (`_ms4_probe.gd` taps it and checks the command id) |
+| `_chipink`, `_prefchip`, `_vfychip`, `_vfybold` | **retired** with the Preferences screen's inline chip rows, whose builders (`_chips`, `_chip`, `_expand_sub`, `_expandable`, `_unstamped`, `_chip_box`, `NO_EXPAND`, `_find_sub`) only that screen and Story's no-submenu popup reached; a radio submenu is an ordinary drill row now |
+| `_emptyphone`, `_etd4`, `_pc9menus`, `_phonescroll`, `_quickbar_phone`, `_quickbar_phoneid`, `_rangeswipe`, `_storymenus`, `_vfyb13` | **re-pointed** at the menu popup that replaced the screen (`--screen File`, MENU ▸ Preferences ▸ Quick bar…, the Records popup, the live menu bar instead of `ROOT_ROWS`) or, for `_etd4`, at the CIVIL dock's Way button through Window ▸ Left dock |
+
+## MS-4: departures from drafts 05 and 09 (2026-11-08)
+
+Each is also a comment at its symbol.
+
+- **Draft 05's `_fill_story_section()` was already replaced** by MS-2's `_fill_story_rows()`; MS-4 deleted the old function
+  and kept the MS-2 body. `open_story()` was MS-2's.
+- **More deleted than the draft's list.** Beyond the fourteen screens, MS-4 deleted what only they reached, found by a
+  reference sweep that ignores comments (every candidate re-read before it went): the chip machinery named in the table
+  above, `_info`, `_engine`, `_busy_why`, `_engine_idle`, `_act`, `_inline_sub`, `_slider_row`, `_find_id`, `_badge`, the
+  `_dt_*` state, the `_lm_*`, `_travel_*` and `_asset_*` helpers, `_go_civilization`, `_go_simulation`, `_go_journey_planner`,
+  `_open_left_sheet`, `_load_preset_into_planner`, `_toggle_sim_*`. `_rest_of()` stays (Story's bands) and lost its chip branch.
+  `_PEEK_CARD_MIN_DRAG_DP`, an unrelated constant nothing reads, is untouched.
+- **`_fill_status()`'s Recompute help sentence** names "the Civilization dock's Recompute civilisation" where the draft kept
+  "Civilization ▸ Settlements ▸ …" (the screen that sentence pointed through is gone).
+- **`DccShell.new_world_route()`** reads `MENU ▸ File ▸ New world…` on the phone (it read `MORE ▸ Project ▸ New world…`);
+  `_emptyphone_probe.gd` expects it.
+- **Draft 09 as drafted**, with the Gesture row's placement note moved to the function's header, so that
+  `docs/evidence/menu-parity-2026-11-01/godot_menus.py` (which re-applies draft 09's EDIT G1 in memory) still finds G1's
+  new text exactly. That tool now skips an EDIT whose old text is gone and whose new text is present (the drafts are built);
+  its output on this tree equals `origin/main`'s, apart from the list of applied drafts.
+- **Platform differences the walk allows**, each a cited decision in `menus.gd`, listed as literals in `_ms4_probe.gd`
+  (`DESKTOP_ONLY`, `PHONE_ONLY`): Edit has no Context card or Cartwheel on the phone (Ruling DX PQ10); Preferences has no
+  "Open panels in their own window" and gains "UI scale" (PW-1; MS-1 S5); Window ▸ Context panel has no MODULES band or Reset
+  panel (Ruling DY); Help gains Gesture reference… (draft 09). Counts of live lists (GPU devices, open windows) and the
+  working-set readout are compared as live state.
+- **The old root's quirks are gone with the root**: the "World" head, the "Not on the MORE list" band, and the Edit and Window
+  fallback rows. MENU's root is Quick, the MENUS band, the eight menus, Status.
 
 **Mockup rows this needs**: none new. Gesture reference… is already the mockup's (Help, `mobile`). The one row the owner
 might add is the optional "Timeline layers" above.
@@ -167,7 +198,7 @@ a usage header that names exactly the arguments it reads. Every new probe must f
   - Under mouse emulation, one finger produces one gesture, not two.
   - The fan's targets are at least 44 × 44 dp, and a Session-mode refusal draws dim and cannot be picked.
   - The six `for t in PHONE_TABS` loops are re-read.
-- **Draft 5:**
+- **Draft 5** (MS-4's own bars are `_ms4_probe.gd`'s: a desktop dump compared with every menu and submenu the phone draws, by real taps, at five sizes):
   - MENU's root lists Quick, then the MENUS band with File · Edit · Assets · Records · Story · Preferences · Window · Help in the menu bar's order, then Status.
   - MENU ▸ File's second row is Generate world (Ruling DY), and MENU ▸ Records is the records menu row for row.
   - Each menu opens its popup row for row, under the menu's own name: the same rows, order, bands and submenus as the desktop popup, File ▸ Export's FOR THE TABLE band included. `cartalith-native/docs/evidence/menu-parity-2026-11-01/` checks this statically against the mockup.

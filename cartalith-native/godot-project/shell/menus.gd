@@ -268,6 +268,7 @@ const ID_HELP_CREDITS := 70  ## Help ▸ Credits & academic principles.
 const ID_HELP_ABOUT := 71  ## Help ▸ About.
 const ID_HELP_SHORTCUTS := 72  ## Help ▸ Keyboard reference… (read-only; "Keyboard shortcuts…" until PC-9).
 const ID_HELP_GEN_INFO := 73  ## Help ▸ Generation info….
+const ID_HELP_GESTURES := 919  ## Help ▸ Gesture reference… (phone only; MS-4, Ruling DX Q13, mobile-shell draft 09). 919 is free in `shell/`.
 ## `LARGE_ITEM_RULINGS.md`'s ruling on `Report an issue` -- see `_help()`
 ## below. Not slotted into 70-83 with its Help siblings: that neighbourhood is
 ## already fully booked (`74-76` are the LOD-debug trio, `77`/`80-83` belong to
@@ -2802,6 +2803,12 @@ func _on_landmarks(id: int) -> void:
 ## registration is.
 func _open_landmark_dock(family: String) -> void:
 	_shell.select_domain_category("civilization", "Landmarks")
+	## MS-4 (Ruling DX Q13): on the phone the CIVIL dock is the left sheet, closed until something opens it, so
+	## switching the category alone left the row looking dead (the reason the deleted
+	## `phone_menu.gd::_go_civilization()` gave). Deferred past `PhoneMenu._activate()`'s close. This is the phone's
+	## door to the landmark caps and spacing that the deleted Civilization screen's "Landmark generation" row was.
+	if DccTheme.is_phone():
+		_shell.call_deferred("_set_sheet_open", "left", true)
 	if family.is_empty():
 		return
 	var ws := _shell.find_child("CivilizationWorkspace", true, false)
@@ -3326,7 +3333,7 @@ func _data(p: PopupMenu) -> void:
 	p.add_separator("RECORDS")
 	## FH-1: the Factions hub is a window over world data (a faction's identity,
 	## land, settlements, economy and military). The phone twin needs no row of
-	## its own -- `phone_menu.gd::_fill_data` draws this popup through
+	## its own -- `phone_menu.gd::_fill_data (deleted by MS-4)` draws this popup through
 	## `_rest_of`, so the row appears there by being here.
 	##
 	## **Ctrl+Shift+F since PC-9** (`PC_SHELL_PROPOSAL.md` §3.8 and §3.9, finding
@@ -6604,7 +6611,7 @@ func _window(p: PopupMenu) -> void:
 	## were otherwise only ever flipped LOCALLY by `id_pressed`
 	## (`_sync_region_checks()`) -- nothing read the real region state back
 	## into them, so a region opened or closed by any other route (the phone
-	## sheets' own close button, `phone_menu.gd::_open_left_sheet()` from the
+	## sheets' own close button, `phone_menu.gd::_open_left_sheet() (deleted by MS-4)` from the
 	## CIVIL/Simulation rows, `Reset layout`'s phone branch, a restored
 	## layout) left this popup showing the opposite of the truth until the
 	## next press of the SAME row. `_leftdockcheck_probe.gd` reproduces it:
@@ -7738,6 +7745,23 @@ func _on_open_window(id: int) -> void:
 ## (its blurb for a live row is the menu's name), so this changes no search result.
 const HELP_KEYBOARD_REFERENCE_TIP := "Every keyboard shortcut, read from the menus each time it opens, and the keys no menu carries. Read-only: Preferences ▸ Keyboard shortcuts… changes them."
 
+## Help ▸ Gesture reference…'s tooltip, which the phone draws as the row's second line. Says what the screen is,
+## in the words its own header uses (`phone_menu.gd::SCREEN_TITLES`' "the touch vocabulary this build has").
+const HELP_GESTURES_TIP := "The touch vocabulary this build has: every gesture the map and the sheets answer to, each checked against the code that answers it."
+
+## Help ▸ Gesture reference…, on the phone only (MS-4; mobile-shell draft 09): opens `PhoneMenu`'s `gestures`
+## screen through `DccShell.phone_open_menu_screen()`. It is the mockup's own row (`Shell.dc.html`, Help,
+## `mobile: true`), and since MS-4 it is that screen's only door: MENU no longer opens the Preferences and Help
+## screens that carried it. The row sits third, the mockup's order (Documentation, Keyboard reference…, Gesture
+## reference…, Credits…). Not built on the tablet shell or the desktop, whose rows have no surface to open (the
+## gesture screen is `PhoneMenu`'s, and only the phone builds one). Must never be built where
+## `phone_open_menu_screen()` does nothing, or the row would be a dead control.
+func _build_gesture_reference_row(p: PopupMenu) -> void:
+	if not DccTheme.is_phone():
+		return
+	_live(p, "Gesture reference…", ID_HELP_GESTURES)
+	p.set_item_tooltip(p.item_count - 1, HELP_GESTURES_TIP)
+
 ## The one-line "Keyboard reference…" row (Help's read-only `ID_HELP_SHORTCUTS`),
 ## its own function since 2026-09-12 for the same reason as
 ## `_build_asset_library_row()`: the tablet's ☰ overflow and PC/phone's Help
@@ -7781,6 +7805,7 @@ func _help(p: PopupMenu, full: bool = true) -> void:
 	## and reports what it finds, so the list cannot disagree with the app.
 	if full:
 		_build_help_shortcuts_row(p)
+	_build_gesture_reference_row(p)
 	_live(p, "Credits & academic principles", ID_HELP_CREDITS)
 	## `PARITY_AUDIT.md` §5 item 6: the reference's ℹ️ `#genInfoBtn` --
 	## dumps every generation parameter as plain text, a bug-report
@@ -8133,6 +8158,8 @@ func _on_help(id: int) -> void:
 		## `DiagnosticReviewDialog` calls it once the user has seen the rows.
 		ID_HELP_REPORT: DiagnosticReviewDialog.open(_host, _bridge)
 		ID_HELP_ABOUT: _host.open_about()
+		## Deferred: `PhoneMenu._activate()` closes MENU once this returns; the screen opens after it.
+		ID_HELP_GESTURES: _shell.call_deferred("phone_open_menu_screen", "gestures")
 
 # -- Tablet only: the ☰ overflow and the World menu ---------------------------
 #

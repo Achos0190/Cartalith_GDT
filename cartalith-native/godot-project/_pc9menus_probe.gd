@@ -708,12 +708,12 @@ func _phone() -> void:
 			labels.append((b as Button).text)
 		var joined := " | ".join(PackedStringArray(labels))
 		print("  info MORE root: ", joined.substr(0, 600))
-		## The root's own section captions (its "WORLD" band over Data manager, Asset library, Travel
-		## library, Simulation) are `phone_menu.gd`'s, not a menu title; mobile draft 05 retires them.
-		## What PC-9 changed here is the `data` screen's lookup of the menu by title (EDIT W8).
+		## MS-4: MENU's root is the eight desktop menus, so the old "WORLD" band over Data manager, Asset library,
+		## Travel library and Simulation is gone. What PC-9 changed here is the lookup of the menu by title
+		## (EDIT W8), now read off the Records popup MENU opens.
 		_ok(not joined.contains("World ▸"), "the MORE root names no World ▸ path")
 		await _shot("more_root")
-		pm._push_screen("data")
+		pm._push(pm._menu_popup("Records", false), "Records", pm.SCREEN_LEVEL)
 		await _settle(6)
 		var data_txt: Array = []
 		for l in pm._screen_body.find_children("*", "Label", true, false):
@@ -722,7 +722,7 @@ func _phone() -> void:
 			data_txt.append((b as Button).text)
 		var dj := " | ".join(PackedStringArray(data_txt))
 		print("  info MORE data screen: ", dj.substr(0, 600))
-		_ok(not dj.contains("is not on this build's menu bar"), "the data screen finds the Records menu (EDIT W8)")
+		_ok(not dj.contains("is not on this build's menu bar"), "MENU's Records popup finds the Records menu (EDIT W8)")
 		_ok(dj.contains("Factions"), "the data screen draws Records' rows (Factions…)")
 		await _shot("more_data")
 		pm.close()

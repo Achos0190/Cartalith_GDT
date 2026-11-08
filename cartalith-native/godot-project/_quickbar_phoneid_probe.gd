@@ -253,7 +253,7 @@ func _ready() -> void:
 	await get_tree().create_timer(0.6).timeout
 	await _settle(4)
 	await _grab("more_root")
-	_app._phone_menu._push_screen("prefs")
+	_app._phone_menu._push(_app._phone_menu._menu_popup("Preferences", false), "Preferences", _app._phone_menu.SCREEN_LEVEL)
 	await _settle(6)
 	await _grab("more_prefs")
 	_app._phone_menu.close()

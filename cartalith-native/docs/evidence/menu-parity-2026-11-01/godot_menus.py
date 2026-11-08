@@ -281,6 +281,10 @@ def apply_defs(target, draft):
 
 def edit(text, old, new, label):
     n = text.count(old)
+    if n == 0 and text.count(new) >= 1:
+        # MS-4 (2026-11-08): the draft's EDIT is already in the shipped file (mobile-shell draft 09 was transplanted),
+        # so it must not be applied twice. Any other count still stops the run.
+        return text
     if n != 1:
         raise SystemExit("EDIT %s: its old text occurs %d times, want 1: %r" % (label, n, old[:90]))
     return text.replace(old, new)

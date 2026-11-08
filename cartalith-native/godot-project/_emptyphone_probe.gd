@@ -27,8 +27,8 @@ extends Node
 ##
 ##   Then optionally one of:
 ##     --tab ID     press a bottom-nav tab first: map · gen · plan · more
-##     --screen ID  open MORE and push one `PhoneMenu.ROOT_ROWS` screen:
-##                  project · civ · data · assets · travel · sim · prefs · help
+##     --screen NAME open MENU and push one of the desktop menus' popups (MS-4 deleted the `ROOT_ROWS`
+##                  screens): File · Edit · Assets · Records · Story · Preferences · Window · Help
 ##     --pressgen   press the tool sheet's `GENERATE WORLD` and assert a world
 ##                  appears; asserts instead of censusing, then exits
 ##
@@ -313,7 +313,7 @@ func _ready() -> void:
 	var hint: String = app.status_slot_text("hint")
 	var route: String = DccShell.new_world_route()
 	print("hint=", hint, "   new_world_route=", route, "   is_phone=", app.is_phone())
-	var want := "MORE ▸ Project ▸ New world…" if app.is_phone() else "File ▸ New world…"
+	var want := "MENU ▸ File ▸ New world…" if app.is_phone() else "File ▸ New world…"
 	if hint != want + " to begin" or route != want:
 		print("FAIL: empty-session hint should be '", want, " to begin'")
 		get_tree().quit(1)
@@ -399,14 +399,15 @@ func _ready() -> void:
 		await _frames(6)
 		tag += " · tab=" + tab
 
-	## One of `PhoneMenu.ROOT_ROWS`' eight ids, pushed on top of MORE. This is
-	## the brief's second category -- "a whole panel that is meaningless without
+	## One of the eight menus (`--screen File`), pushed on top of MENU the way a tap on its root row does
+	## (`_menu_root_row()`). This is the brief's second category -- "a whole panel that is meaningless without
 	## a world" -- and it can only be answered one screen at a time.
 	var screen := _arg("--screen", "")
 	if screen != "":
 		app._phone_menu.open()
 		await _frames(2)
-		app._phone_menu._push_screen(screen)
+		var _mp: PopupMenu = app._phone_menu._menu_popup(screen, false)
+		app._phone_menu._push(_mp, screen, app._phone_menu.SCREEN_LEVEL)
 		await get_tree().create_timer(0.8).timeout
 		await _frames(6)
 		tag += " · MORE/" + screen
