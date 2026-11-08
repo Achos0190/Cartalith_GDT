@@ -292,11 +292,16 @@ func _ready() -> void:
 			## folder still gone, is let through, so a vault that can never be written cannot make the app
 			## un-closeable.
 			_ok("a second close request is allowed through while the folder is still gone", app._vault_safe_to_exit())
-			dirs.rename(gone.get_file(), _root.get_file())
-			_ok("the folder is back and THEIR file was never touched", _disk("Qalpha.md") == "# Qalpha
-
-THEIRS
-")
+			## Windows can refuse a rename for a moment while something (an indexer, a scanner) holds the
+			## folder: retry, and make the result itself a check so a failure here is named, not silent.
+			var back_ok := false
+			for _try in 30:
+				if dirs.rename(gone.get_file(), _root.get_file()) == OK:
+					back_ok = true
+					break
+				await _wait(150)
+			_ok("CONTROL: the vault folder was put back", back_ok)
+			_ok("the folder is back and THEIR file was never touched", _disk("Qalpha.md") == "# Qalpha" + char(10) + char(10) + "THEIRS" + char(10), "got %s; exists=%s" % [JSON.stringify(_disk("Qalpha.md")), FileAccess.file_exists(_root + "/Qalpha.md")])
 			app._close_requested()
 		"dirty":
 			## The world's unsaved mark: a note autosave is not a world edit. `has_world` is set only for

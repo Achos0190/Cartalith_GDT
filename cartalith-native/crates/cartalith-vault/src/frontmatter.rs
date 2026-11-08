@@ -282,6 +282,54 @@ pub fn aliases(text: &str) -> Vec<String> {
     out
 }
 
+/// One top-level property as the Properties form shows it (VE-5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Property {
+    /// The key as written, quotes removed.
+    pub key: String,
+    /// `true` for a block list (`key:` then `- item` lines) or an inline `[a, b]` list; the form then
+    /// edits it as items. `false` for a scalar, whose `values` holds the one text (or nothing, for a
+    /// bare `key:`).
+    pub list: bool,
+    /// The scalar's text, or the list's items in order, quotes removed.
+    pub values: Vec<String>,
+}
+
+/// Every top-level property of the note's frontmatter, in file order, for the Properties form.
+///
+/// `None` when the note has no frontmatter block. `Some((props, editable))` otherwise, where
+/// `editable` is false when the block is malformed or holds a key twice: the form then lists what it
+/// could read and offers no edit, because [`frontmatter_set`] / [`frontmatter_remove`] would refuse
+/// (the same refusal as everywhere here: never guess). A scalar is read WHOLE (a `,` in `title: A, B`
+/// is not a list separator); only a block list or a `[...]` list is split into items.
+pub fn properties(text: &str) -> Option<(Vec<Property>, bool)> {
+    let Found::Block(b) = find(text) else { return None };
+    let mut out: Vec<Property> = Vec::new();
+    for p in &b.props {
+        let inline = {
+            let v = strip_comment(text, p.value.clone());
+            let s = &text[v];
+            s.len() >= 2 && s.starts_with('[') && s.ends_with(']')
+        };
+        if !p.items.is_empty() || inline {
+            out.push(Property { key: p.key.clone(), list: true, values: values(text, p, false).into_iter().map(|(v, _)| v).collect() });
+        } else {
+            let v = value_at(text, strip_comment(text, p.value.clone())).map(|(v, _)| v);
+            out.push(Property { key: p.key.clone(), list: false, values: v.into_iter().collect() });
+        }
+    }
+    let mut seen: Vec<String> = Vec::new();
+    let mut dup = false;
+    for p in &out {
+        let k = p.key.to_lowercase();
+        if seen.contains(&k) {
+            dup = true;
+        }
+        seen.push(k);
+    }
+    Some((out, !b.malformed && !dup))
+}
+
 /// The tags written in the frontmatter (`tags`/`tag`, case-insensitive), as
 /// `(tag without '#', byte range as written)`. A space separates tags in
 /// the scalar and inline-list forms, as Obsidian has always read them.
@@ -461,6 +509,57 @@ mod tests {
         assert_eq!(aliases("---\nalias: Single\n---\n"), vec!["Single"]);
         assert!(aliases("---\naliases: Kelv\n").is_empty(), "unterminated: not frontmatter");
         assert!(aliases("# Kelvhold\naliases: Kelv\n").is_empty(), "no frontmatter");
+    }
+
+    /// Protects (VE-5): the Properties form's read. Scalars are read whole (a comma in `title` is not a
+    /// separator, a quoted value loses its quotes, a bare `key:` is an empty scalar), block and inline
+    /// lists are items, file order is kept, a note with no frontmatter is `None`, and a malformed block
+    /// or a repeated key lists what it can but is not editable.
+    #[test]
+    fn properties_are_listed_for_the_form() {
+        let t = "---
+title: A, B
+status: \"draft\" # c
+empty:
+tags:
+  - town
+  - 'old port'
+aliases: [Kelv, \"G, P\"]
+---
+body
+";
+        let (p, ok) = properties(t).unwrap();
+        assert!(ok);
+        let got: Vec<(&str, bool, Vec<&str>)> = p.iter().map(|x| (x.key.as_str(), x.list, x.values.iter().map(String::as_str).collect())).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("title", false, vec!["A, B"]),
+                ("status", false, vec!["draft"]),
+                ("empty", false, vec![]),
+                ("tags", true, vec!["town", "old port"]),
+                ("aliases", true, vec!["Kelv", "G, P"]),
+            ]
+        );
+        assert!(properties("# no frontmatter
+").is_none());
+        assert!(properties("---
+unterminated: x
+").is_none(), "an unterminated block is not frontmatter");
+        let (_, ok) = properties("---
+a: 1
+A: 2
+---
+").unwrap();
+        assert!(!ok, "a repeated key (case-insensitively) is not editable");
+        let (p, ok) = properties("---
+a: 1
+not a pair
+b: 2
+---
+").unwrap();
+        assert!(!ok, "a line that is not key: value makes the block not editable");
+        assert_eq!(p.len(), 2, "...but the readable properties are still listed");
     }
 
     /// Protects: frontmatter tags in the scalar (space- and comma-separated),

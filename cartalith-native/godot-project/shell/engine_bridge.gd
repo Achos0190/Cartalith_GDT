@@ -7998,6 +7998,54 @@ func vault_note_headings(text: String) -> Array:
 		return []
 	return world_gen.vault_note_headings(text)
 
+## Every whole-word, case-insensitive mention of `name` in `text` that is not inside a link, code, the
+## properties or a URL (`WorldGen.vault_mention_spans`, pure): `[{start, end, line, text}]`, offsets in
+## characters, `line` 0-based. `[]` on a build without it (read as "no mention", which only hides a button).
+func vault_mention_spans(text: String, name: String) -> Array:
+	if not _has("vault_mention_spans"):
+		return []
+	return world_gen.vault_mention_spans(text, name)
+
+## **Link it** (`WorldGen.vault_link_mention`, pure): replaces characters `start..end` of `text` with
+## `[[target]]` (or `[[target|as written]]`); `{ok, text, caret}` or `{ok: false, error}`. Writes nothing.
+func vault_link_mention(text: String, start: int, end: int, target: String) -> Dictionary:
+	if not _has("vault_link_mention"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_link_mention(text, start, end, target)
+
+## The note's properties for the Properties form (`WorldGen.vault_note_properties`, pure):
+## `{present, editable, properties: [{key, list, values}]}`. On a build without it: no properties, not
+## editable, so the form offers nothing it cannot do.
+func vault_note_properties(text: String) -> Dictionary:
+	if not _has("vault_note_properties"):
+		return {"present": false, "editable": false, "properties": []}
+	return world_gen.vault_note_properties(text)
+
+## Sets one property in `text` (`WorldGen.vault_frontmatter_set`, pure): `{ok, text}` or `{ok: false,
+## error}`. `value` is a String (one scalar) or a PackedStringArray / Array (a list). Writes nothing;
+## the caller puts the text in the editor and the autosave writes it.
+func vault_frontmatter_set(text: String, key: String, value: Variant) -> Dictionary:
+	if not _has("vault_frontmatter_set"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_frontmatter_set(text, key, value)
+
+## Removes one property from `text` (`WorldGen.vault_frontmatter_remove`, pure): `{ok, removed, text?}`
+## or `{ok: false, error}`.
+func vault_frontmatter_remove(text: String, key: String) -> Dictionary:
+	if not _has("vault_frontmatter_remove"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_frontmatter_remove(text, key)
+
+## Every tag in the vault with the notes carrying it (`WorldGen.vault_tag_index`): `{ok, tags: [{tag,
+## notes}], scanned, total}`. `scanned < total` means the scan was capped at `max_reads` notes and the
+## counts are low. Refused while `generating` (the worker holds `WorldGen`; see `settlements()`).
+func vault_tag_index(max_reads: int) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_tag_index"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_tag_index(max_reads)
+
 ## Headings of file `rel` as `{level, title}` (`WorldGen.vault_file_headings`). `[]`
 ## for an unreadable file, which callers read as "whole document only".
 func vault_file_headings(rel: String) -> Array:

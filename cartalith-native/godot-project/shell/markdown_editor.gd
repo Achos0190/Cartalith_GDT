@@ -223,6 +223,9 @@ var _phone := false
 var _saved_text := ""
 ## Back button in the header (VE-1); hidden until the host has somewhere to go back to.
 var _back_button: Button
+## The header row (title, Back, Write / Split / Preview, Revert, Save), kept so the host can add a button
+## to it (`add_header_button`).
+var _header_row: HFlowContainer
 ## The peek card, its dwell timer, the link it is for, and whether a finger's hold produced it (the
 ## release that ends such a hold must not also follow the link).
 var _peek: PanelContainer
@@ -343,6 +346,63 @@ func setup(file_label: String, initial: String, saved: String, phone: bool,
 	set_mode(mode)
 	_refresh_heading_lights()
 	_refresh_footer()
+
+
+## Adds a button to the header, just before Revert to opened… (VE-5: the host's side-panel toggle). It
+## is the host's button and the host owns what it does; the editor only gives it a place and the touch
+## floor. Returns it.
+func add_header_button(text: String, tip: String, on_press: Callable) -> Button:
+	var b := DccWidgets.action(_header_row, text, on_press)
+	b.tooltip_text = tip
+	_header_row.move_child(b, revert_button.get_index())
+	_touch_floor(b)
+	return b
+
+
+## Brings 0-based `line` into view and puts the caret at its start (VE-5: a backlink's link, an
+## unlinked mention, an outline heading). In Write and Split the caret moves and the line is centred a
+## frame later (the `TextEdit` has no layout until it has been drawn once, so centring now would use a
+## zero-height viewport). In Preview and Split the preview is scrolled to `heading`'s own line when a
+## heading text is given: the preview keeps no line map, so the heading is found by its text at the
+## start of a rendered line, counting how many identical headings come before it in the source, and
+## nothing scrolls if the rendered text does not contain it (a heading with inline markup), rather
+## than scrolling somewhere wrong.
+func goto_line(line: int, heading: String = "") -> void:
+	if text_edit == null:
+		return
+	var m := mode()
+	if m != "preview":
+		var l := clampi(line, 0, text_edit.get_line_count() - 1)
+		text_edit.deselect()
+		text_edit.set_caret_line(l)
+		text_edit.set_caret_column(0)
+		text_edit.grab_focus()
+	if m != "write" and heading != "" and preview != null:
+		var k := 0
+		var lines := text_edit.text.split("\n")
+		for i in mini(line, lines.size()):
+			if lines[i].strip_edges().lstrip("#").strip_edges() == heading:
+				k += 1
+		var parsed := preview.get_parsed_text()
+		var from := 0
+		var hit := -1
+		var seen := 0
+		while true:
+			var idx := parsed.find(heading, from)
+			if idx < 0:
+				break
+			from = idx + maxi(heading.length(), 1)
+			if idx == 0 or parsed[idx - 1] == "\n":
+				if seen == k:
+					hit = idx
+					break
+				seen += 1
+		if hit >= 0:
+			preview.scroll_to_line(preview.get_character_line(hit))
+	if m != "preview":
+		await get_tree().process_frame
+		if is_instance_valid(text_edit):
+			text_edit.center_viewport_to_caret()
 
 
 ## Whether the source differs from the text last read or written (`_saved_text`). False before
@@ -561,9 +621,13 @@ func _on_resized() -> void:
 func _build_header(file_label: String) -> void:
 	var title := DccTheme.mono_label("EDITING  %s" % file_label, "text_dim", DccTheme.FS_SMALL, 1)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var row := HBoxContainer.new()
+	## An `HFlowContainer` since VE-5: the side-panel toggle made the row wider than a 1000 px window's
+	## editor column (Save was cut off); a flow wraps its last buttons to a second line instead.
+	var row := HFlowContainer.new()
 	row.name = "EditorHeader"
-	row.add_theme_constant_override("separation", 8)
+	_header_row = row
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 6)
 	if _phone:
 		title.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 		title.custom_minimum_size.x = 120

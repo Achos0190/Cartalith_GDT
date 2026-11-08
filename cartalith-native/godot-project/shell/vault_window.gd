@@ -99,6 +99,14 @@ class_name VaultWindow
 ## The shared Markdown editor script (`markdown_editor.gd`): `_build_editor_pane` instantiates it
 ## and `_build_browse_preview` uses its `style_rendered`.
 const MdEditor := preload("res://shell/markdown_editor.gd")
+## The side panel (VE-5): Links, Outline, Properties, Tags. Held without a `class_name`, as the editor is.
+const SidePanel := preload("res://shell/vault_side_panel.gd")
+## The window width from which the side panel sits to the RIGHT of the editor (px of the window, which
+## are dp here). Below it the panel sits BELOW the editor, the "end of the note" form of the proposal's
+## s.4. A labelled judgement: the editor wants 760 for Split, the tree column takes 220-300, so a 280
+## panel beside a Split-capable editor needs about 1 300; 1 100 keeps Write comfortable (about 540) and
+## gives up Split only on the narrower side of the line.
+const SIDE_RIGHT_MIN_W := 1100
 
 var app                       ## `DccApp`
 ## The `EngineBridge` given to `setup()`; every `vault_*` call in this window goes through it.
@@ -156,6 +164,14 @@ var _browse_edit: TextEdit
 var _browse_saved := ""
 ## The Markdown editor control built in `_build_editor_pane`; nulled by `_clear`.
 var _editor: Control
+## The side panel beside / below the editor and the header button that shows or hides it; nulled with the
+## editor. `_side_user` is the person's choice (`-1` none yet: open on a wide window, closed otherwise,
+## `0` closed, `1` open), kept across rebuilds. `_goto_pending` is a 0-based line the next editor built
+## should scroll to (a backlink opened at its link), `-1` for none.
+var _side_panel: Control
+var _side_toggle: Button
+var _side_user := -1
+var _goto_pending := -1
 ## "write" or "preview" (see the comment above); reset to "write" by `_reset_note_state` and
 ## `_close_editor`.
 var _editor_mode := "write"
@@ -541,6 +557,8 @@ func _clear() -> void:
 	_reader_edit = null
 	_browse_edit = null
 	_editor = null
+	_side_panel = null
+	_side_toggle = null
 	_ent_names = {}
 	_attach_list = null
 	## Nulled, not left dangling: `_fill_search_results()` can be reached from a
@@ -1790,7 +1808,7 @@ func _info_row(msg: String) -> Dictionary:
 func _follow_link(from_rel: String, target: String, anchor: Control) -> void:
 	var note_part := target.get_slice("#", 0).get_slice("^", 0).strip_edges()
 	if note_part == "":
-		app.set_status("hint", "That link points at a heading in this note; jumping to it comes with the outline.", "text_ghost")
+		_jump_to_heading(target.get_slice("#", 1).get_slice("^", 0).strip_edges())
 		return
 	var info := _link_kind(from_rel, note_part)
 	match String(info["kind"]):
@@ -1817,6 +1835,20 @@ func _follow_link(from_rel: String, target: String, anchor: Control) -> void:
 			app.set_status("hint", "Cannot follow that link now: %s" % String(info.get("why", "")), "accent")
 
 
+## `[[#Heading]]` in the open note: moves the editor to that heading (VE-5's outline). The match is
+## case-insensitive on the heading text the crate reports; no heading of that name says so and moves nothing.
+func _jump_to_heading(name: String) -> void:
+	if _editor == null or not is_instance_valid(_editor):
+		return
+	var want := name.to_lower()
+	for h in bridge.vault_note_headings(_live_text()):
+		var hd: Dictionary = h
+		if String(hd.get("text", "")).strip_edges().to_lower() == want and want != "":
+			_editor.goto_line(int(hd.get("line", 0)), String(hd.get("text", "")))
+			return
+	app.set_status("hint", "No heading called \"%s\" in this note." % name, "accent")
+
+
 ## Menu rows that create the note `rel` from each of the vault's templates (the creator never
 ## overwrites). With no templates the row is present but disabled, naming why, rather than absent.
 func _create_items(name: String, rel: String) -> Array:
@@ -1837,10 +1869,12 @@ func _create_items(name: String, rel: String) -> Array:
 
 ## Opens `path` in Write, from a link. A dirty editor asks first (`_guard_dirty`), so following a
 ## link never discards typing; keeping the edits leaves everything as it was.
-func _open_linked(path: String) -> void:
+func _open_linked(path: String, line: int = -1) -> void:
 	_guard_dirty(func():
 		if _pick_file != "" and _pick_file != path:
 			_link_back.append(_pick_file)
+		## Set only once the guard has let this through, so a cancelled open leaves no stale line behind.
+		_goto_pending = line
 		_enter_note(path))
 
 
@@ -1970,9 +2004,18 @@ func _open_editor() -> void:
 ## itself, its result waits in the editor for the hash-guarded autosave. Shows "editing…" if the session
 ## is already dirty, and the banner again if a save is being refused.
 func _build_editor_pane(parent: Control) -> void:
+	## VE-5: the editor and its side panel share one host, side by side on a wide window and stacked on a
+	## narrow one (`SIDE_RIGHT_MIN_W`). The host fills the pane exactly as the bare editor did.
+	var wide := (not _phone) and size.x >= SIDE_RIGHT_MIN_W
+	var host: BoxContainer = HBoxContainer.new() if wide else VBoxContainer.new()
+	host.name = "VaultEditorHost"
+	host.add_theme_constant_override("separation", 10)
+	host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parent.add_child(host)
 	var ed = MdEditor.new()
 	ed.name = "VaultMarkdownEditor"
-	parent.add_child(ed)
+	host.add_child(ed)
 	var self_rel := _browse_path
 	## The note-link picker's list is gone (VE-2): `[[` suggestions come from `_suggest_rows`, ranked and
 	## capped, so nothing here lists the vault for the editor any more.
@@ -2016,12 +2059,93 @@ func _build_editor_pane(parent: Control) -> void:
 	ed.save_requested.connect(_save_note)
 	ed.revert_requested.connect(_on_revert_requested)
 	ed.banner_choice.connect(_on_banner_choice)
+	_build_side_panel(host, ed, wide)
 	if not _save_block.is_empty():
 		_show_block()
 	elif _is_dirty():
 		ed.set_status("editing…", false)
 	elif _saved_stamp != "":
 		ed.set_status("saved · %s" % _saved_stamp, false)
+
+
+## Builds the side panel into `host` beside / below `ed` and the header button that shows it (VE-5).
+## Everything it needs from this window is a Callable, so the panel knows neither the window nor the
+## editor. It is built hidden-or-shown per `_side_wanted`; its content is drawn only while it is shown.
+func _build_side_panel(host: BoxContainer, ed, wide: bool) -> void:
+	var panel = SidePanel.new()
+	panel.bridge = bridge
+	panel.phone = _phone
+	panel.live_text = func() -> String: return _live_text()
+	panel.note_rel = func() -> String: return _browse_path
+	## On the phone the panel REPLACES the editor (a sheet over the note, `_set_side`): anything that takes the
+	## person back to text (a backlink, a heading) closes it first.
+	panel.open_note = func(rel: String, line: int):
+		_set_side(false)
+		_open_linked(rel, line)
+	panel.jump_to = func(line: int, heading: String):
+		_set_side(false)
+		ed.goto_line(line, heading)
+	panel.on_close = func(): _set_side(false)
+	panel.apply_text = func(t: String): ed.replace_whole_text(t)
+	panel.say = func(msg: String): app.set_status("hint", msg, "text_ghost")
+	if wide:
+		panel.custom_minimum_size.x = 300
+		panel.size_flags_horizontal = Control.SIZE_FILL
+	else:
+		## Narrow window: below the editor. Phone: instead of the editor (it would not fit under it).
+		panel.custom_minimum_size.y = 0 if _phone else 240
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL if (wide or _phone) else Control.SIZE_FILL
+	host.add_child(panel)
+	panel.setup()
+	_side_panel = panel
+	panel.visible = _side_wanted()
+	ed.visible = not (_phone and panel.visible)
+	_side_toggle = ed.add_header_button("Panel", "Shows or hides the panel of backlinks, outline, properties and tags.", _toggle_side_panel)
+	_side_toggle.name = "SidePanelToggle"
+	if panel.visible:
+		panel.rebuild()
+	if _goto_pending >= 0:
+		var l := _goto_pending
+		_goto_pending = -1
+		ed.goto_line.call_deferred(l)
+
+
+## Whether the side panel is shown: the person's last choice, else open on a wide window only.
+func _side_wanted() -> bool:
+	if _side_user >= 0:
+		return _side_user == 1
+	return (not _phone) and size.x >= SIDE_RIGHT_MIN_W
+
+
+func _toggle_side_panel() -> void:
+	_set_side(not _side_wanted())
+
+
+## Shows or hides the side panel and remembers the choice. On the phone the editor is hidden while the
+## panel is shown (the panel is a sheet over the note, with a "Note" button back).
+func _set_side(on: bool) -> void:
+	_side_user = 1 if on else 0
+	if _side_panel == null or not is_instance_valid(_side_panel):
+		return
+	_side_panel.visible = on
+	if _editor != null and is_instance_valid(_editor):
+		_editor.visible = not (_phone and on)
+	if on:
+		_side_panel.rebuild()
+		if _phone and _editor != null and is_instance_valid(_editor):
+			_editor.text_edit.release_focus()
+
+
+## After a note was written: the backlink index follows (only if it was built -- a first build is a
+## whole-vault read and is the person's to ask for), then the panel redraws. Deferred so a keystroke
+## pause is never what waits for it. "The index refreshes on save and on rename, not only on a manual
+## Refresh" (proposal s.3.2).
+func _after_save() -> void:
+	if bool(bridge.vault_backlink_stats().get("built", false)):
+		bridge.vault_refresh_backlinks(2000)
+	if _side_panel != null and is_instance_valid(_side_panel):
+		_side_panel.on_saved()
 
 
 ## Ctrl+S and the Save now button: the user's own save, answered by the same path as the autosave
@@ -2081,6 +2205,7 @@ func _write_now() -> bool:
 		if _editor != null:
 			_editor.hide_banner()
 			_editor.mark_saved(text, _saved_stamp)
+		_after_save.call_deferred()
 		return true
 	_save_block = {"kind": String(r.get("kind", "io")), "error": String(r.get("error", "")), "actual": String(r.get("actual", ""))}
 	_show_block()
@@ -2138,6 +2263,8 @@ func surface_for_exit() -> void:
 ## writing again would only be refused again, and the banner is already asking.
 func _on_editor_edited(ed) -> void:
 	_browse_text = ed.text_edit.text
+	if _side_panel != null and is_instance_valid(_side_panel):
+		_side_panel.on_text_changed()
 	if _browse_text == _browse_saved:
 		_autosave_timer.stop()
 		if _save_block.is_empty():

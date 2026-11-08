@@ -1727,6 +1727,65 @@ impl WorldGen {
         packed(&cartalith_vault::frontmatter::aliases(&text.to_string()))
     }
 
+    /// The note's properties for the Properties form (VE-5): `{present, editable, properties: [{key,
+    /// list, values}]}`. `present` is false when the note has no frontmatter block (then `properties` is
+    /// empty and `editable` is true: setting a key creates the block). `editable` is false when the block
+    /// is malformed or repeats a key: the form lists what it could read and offers no edit.
+    /// `cartalith_vault::frontmatter::properties` says how a scalar and a list are read.
+    #[func]
+    fn vault_note_properties(&self, text: GString) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        match cartalith_vault::frontmatter::properties(&text.to_string()) {
+            None => {
+                d.set("present", false);
+                d.set("editable", true);
+                d.set("properties", &Array::<VarDictionary>::new());
+            }
+            Some((props, editable)) => {
+                d.set("present", true);
+                d.set("editable", editable);
+                let rows: Array<VarDictionary> = props
+                    .into_iter()
+                    .map(|p| {
+                        let mut row = vdict! { "key" => p.key.as_str(), "list" => p.list };
+                        row.set("values", &packed(&p.values));
+                        row
+                    })
+                    .collect();
+                d.set("properties", &rows);
+            }
+        }
+        d
+    }
+
+    /// Every tag in the vault with the notes that carry it (VE-5's Tags index):
+    /// `{ok, tags: [{tag, notes: [rel]}], scanned, total}`, most-used first. Opens at most `max_reads`
+    /// notes (`<= 0` means 2 000), so `scanned < total` means the index is partial and the caller says
+    /// so. `{ok: false, error}` with no vault bound.
+    #[func]
+    fn vault_tag_index(&self, max_reads: i64) -> VarDictionary {
+        let cap = if max_reads > 0 { max_reads as usize } else { 2000 };
+        match self.vault.tag_index(cap) {
+            Ok(ix) => {
+                let mut d = ok();
+                let rows: Array<VarDictionary> = ix
+                    .tags
+                    .iter()
+                    .map(|t| {
+                        let mut row = vdict! { "tag" => t.tag.as_str() };
+                        row.set("notes", &packed(&t.notes));
+                        row
+                    })
+                    .collect();
+                d.set("tags", &rows);
+                d.set("scanned", ix.scanned as i64);
+                d.set("total", ix.total as i64);
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
     /// Sets one property, as Obsidian's Properties panel does, leaving every
     /// other line byte-identical: `{ok, text}` or `{ok: false, error}`.
     /// `value` may be a String (written as one scalar; `null` writes an empty
@@ -1885,16 +1944,21 @@ fn strings_of(v: &Variant) -> Vec<String> {
 /// value, not a made-up one), anything else its text.
 fn frontmatter_value(v: &Variant) -> cartalith_vault::frontmatter::FrontmatterValue {
     use cartalith_vault::frontmatter::FrontmatterValue;
-    if v.is_nil() {
-        return FrontmatterValue::Text(String::new());
+    // Dispatched on the Variant's TYPE, not by trying conversions: `try_to::<PackedStringArray>()` on a
+    // String Variant SUCCEEDS with an empty array, so the old try-in-order version wrote every scalar
+    // as `key: []` (found by `_ve5_probe.gd`'s first property edit, 2026-11-08).
+    match v.get_type() {
+        VariantType::NIL => FrontmatterValue::Text(String::new()),
+        VariantType::PACKED_STRING_ARRAY => {
+            let p = v.to::<PackedStringArray>();
+            FrontmatterValue::List(p.as_slice().iter().map(|g| g.to_string()).collect())
+        }
+        VariantType::ARRAY => {
+            let a = v.to::<VarArray>();
+            FrontmatterValue::List(a.iter_shared().map(|x| x.to_string()).collect())
+        }
+        _ => FrontmatterValue::Text(v.to_string()),
     }
-    if let Ok(p) = v.try_to::<PackedStringArray>() {
-        return FrontmatterValue::List(p.as_slice().iter().map(|g| g.to_string()).collect());
-    }
-    if let Ok(a) = v.try_to::<VarArray>() {
-        return FrontmatterValue::List(a.iter_shared().map(|x| x.to_string()).collect());
-    }
-    FrontmatterValue::Text(v.to_string())
 }
 
 /// Sort key for a link's status where the *loudest* state must win: lower is

@@ -209,6 +209,26 @@ pub type FieldFillPreview = (String, String, Vec<(String, FieldOutcome)>);
 /// non-positive limit) follow this constant.
 pub const LIST_CAP: usize = 12_000;
 
+/// One tag of the vault and the notes carrying it ([`VaultSession::tag_index`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagEntry {
+    /// The tag without its `#`, as first spelled.
+    pub tag: String,
+    /// The notes (vault-relative paths, listing order) that carry it, each once.
+    pub notes: Vec<String>,
+}
+
+/// What [`VaultSession::tag_index`] found, and how much of the vault it looked at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagIndex {
+    /// Most-used first, then by name.
+    pub tags: Vec<TagEntry>,
+    /// Notes actually opened.
+    pub scanned: usize,
+    /// Notes the vault lists (up to [`LIST_CAP`]); `scanned < total` means the index is partial.
+    pub total: usize,
+}
+
 // ---------------------------------------------------------------- searching
 
 /// One note a search matched.
@@ -611,6 +631,44 @@ impl VaultSession {
     /// **Rebuild**.
     pub fn rebuild_backlinks(&mut self) {
         self.backlinks.clear();
+    }
+
+    // ------------------------------------------------------- tags (VE-5)
+
+    /// Every tag in the vault and the notes that carry it, for the editor's Tags index: a tag is read
+    /// by [`noteedit::tags`] (frontmatter `tags` and inline `#tag`, code and links skipped), tags are
+    /// grouped case-insensitively (Obsidian's rule; the first spelling met is shown), a note is listed
+    /// once per tag however often it says it, and the result is most-used first, then by name.
+    ///
+    /// **Bounded and honest, as [`Self::search`] is:** it opens at most `max_reads` notes (the listing
+    /// itself is capped at [`LIST_CAP`]) and says how many it opened ([`TagIndex::scanned`]) of how many
+    /// exist ([`TagIndex::total`]), so the caller can say "scanned 300 of 1 200" and never present a
+    /// partial count as the whole. Notes that cannot be read are skipped and not counted as scanned.
+    pub fn tag_index(&self, max_reads: usize) -> Result<TagIndex, Error> {
+        let paths = self.list(LIST_CAP)?;
+        let total = paths.len();
+        let mut scanned = 0usize;
+        let mut groups: Vec<(String, TagEntry)> = Vec::new();
+        for rel in paths.iter().take(max_reads) {
+            let Ok(text) = self.read(rel) else { continue };
+            scanned += 1;
+            for t in noteedit::tags(&text) {
+                let key = t.tag.to_lowercase();
+                let i = match groups.iter().position(|(k, _)| *k == key) {
+                    Some(i) => i,
+                    None => {
+                        groups.push((key, TagEntry { tag: t.tag.clone(), notes: Vec::new() }));
+                        groups.len() - 1
+                    }
+                };
+                if !groups[i].1.notes.contains(rel) {
+                    groups[i].1.notes.push(rel.clone());
+                }
+            }
+        }
+        let mut tags: Vec<TagEntry> = groups.into_iter().map(|(_, e)| e).collect();
+        tags.sort_by(|a, b| b.notes.len().cmp(&a.notes.len()).then_with(|| a.tag.to_lowercase().cmp(&b.tag.to_lowercase())));
+        Ok(TagIndex { tags, scanned, total })
     }
 
     // ------------------------------------------- links and rename (VE-6)
@@ -2597,6 +2655,41 @@ rows
     /// `KnowledgeLink` follows and stays `Connected` (a note moved outside
     /// Cartalith reads `Missing`); the preview's counts match what happened;
     /// and the backlink index already knows the new path. Also that
+    /// Protects (VE-5): the Tags index counts notes, not mentions; groups spellings case-insensitively;
+    /// reads frontmatter and inline tags and ignores code; orders by use then name; and reports a partial
+    /// scan as partial (`scanned` < `total`) instead of as the whole.
+    #[test]
+    fn the_tag_index_counts_notes_groups_spellings_and_admits_a_partial_scan() {
+        let root = scratch("tags");
+        let put = |rel: &str, text: &str| std::fs::write(root.join(rel), text).unwrap();
+        put("A.md", "---
+tags: [Town, port]
+---
+#town again #town
+```
+#incode
+```
+");
+        put("B.md", "A #town and a #River.
+");
+        put("C.md", "#river #Rapids
+");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let ix = s.tag_index(100).unwrap();
+        assert_eq!((ix.scanned, ix.total), (4, 4), "A, B, C and the fixture's Locations/Nareth.md");
+        let got: Vec<(String, usize)> = ix.tags.iter().map(|t| (t.tag.clone(), t.notes.len())).collect();
+        assert_eq!(
+            got,
+            vec![("River".into(), 2), ("Town".into(), 2), ("port".into(), 1), ("Rapids".into(), 1), ("worldbuilding".into(), 1)],
+            "most-used first, ties by name (river before town); Town (A and B), River (B and C); #incode is code"
+        );
+        assert_eq!(ix.tags[1].notes, vec!["A.md".to_string(), "B.md".to_string()]);
+        assert_eq!(ix.tags[0].notes, vec!["B.md".to_string(), "C.md".to_string()]);
+        let part = s.tag_index(1).unwrap();
+        assert_eq!((part.scanned, part.total), (1, 4), "a capped scan says it is partial");
+    }
+
     /// `resolve_link` and `note_candidates` read the same vault, the latter
     /// offering an alias from the index.
     #[test]
