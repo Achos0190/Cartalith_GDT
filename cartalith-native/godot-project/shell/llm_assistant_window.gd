@@ -156,6 +156,8 @@ var _note_paths: PackedStringArray = PackedStringArray()
 const _VIEW := preload("res://shell/llm_view.gd")
 ## AC-1: the shell half of the action catalogue (`llm_actions.gd`: the runnable index rows, the world flag, the year track).
 const _ACTIONS := preload("res://shell/llm_actions.gd")
+## AC-7: the words of an action card, per kind (reads the app, builds nothing, runs nothing).
+const _CARDS := preload("res://shell/llm_action_cards.gd")
 ## LLM-7: the edit card and its one writer (`llm_edit.gd`), and the region the user chose (`llm_region.gd`).
 const _EDIT := preload("res://shell/llm_edit.gd")
 const _REGION := preload("res://shell/llm_region.gd")
@@ -2143,29 +2145,28 @@ func _on_action_proposal(info: Dictionary) -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 4)
 	box.add_child(col)
-	var chip := DccTheme.label("MODEL PROPOSAL · ACTIONS", "warn", DccTheme.FS_MICRO)
+	var valid: Array = v.get("valid", [])
+	## AC-7: one section per KIND (setting, edit, view, select, window), worded by `llm_action_cards.gd`, which
+	## builds no widgets and runs nothing. Apply below is unchanged: `_apply_actions_card` -> `run_card`.
+	var secs: Array = _CARDS.sections(valid, app, bridge)
+	var chip := DccTheme.label(_CARDS.chip_text(secs), "warn", DccTheme.FS_MICRO)
 	chip.tooltip_text = "Proposed by a language model. Nothing has changed; review it and press Apply or Dismiss."
 	col.add_child(chip)
 	if v.has("summary"):
 		_card_text(col, "“%s”" % String(v["summary"]), "text_secondary")
-	var valid: Array = v.get("valid", [])
 	var n_undo := 0
-	for c in valid:
-		var cd: Dictionary = c
-		var line := "%s   (%s)" % [String(cd.get("title", cd.get("id", ""))), String(cd.get("effect", ""))]
-		if cd.has("from"):
-			line += "   was: %s" % String(cd["from"])
-		var a: Dictionary = cd.get("args", {})
-		if not a.is_empty():
-			var parts: PackedStringArray = PackedStringArray()
-			for k in a.keys():
-				parts.append("%s = %s" % [String(k), str(a[k])])
-			line += "   " + ", ".join(parts)
-		_card_text(col, line, "text")
-		if String(cd.get("route", "")) == "param" or String(cd.get("id", "")) == "view.style_preset":
-			n_undo += 1
-		if cd.has("reason"):
-			_card_text(col, "    “%s”  (model's words)" % String(cd["reason"]), "text_dim")
+	for sec in secs:
+		var sd: Dictionary = sec
+		n_undo += int(sd["undoable"])
+		if secs.size() > 1:
+			col.add_child(DccTheme.label(String(sd["label"]), "text_dim", DccTheme.FS_MICRO))
+		for rw in sd["rows"]:
+			var rd0: Dictionary = rw
+			_card_text(col, String(rd0["text"]), "text")
+			if rd0.has("reason"):
+				_card_text(col, "    “%s”  (model's words)" % String(rd0["reason"]), "text_dim")
+		if String(sd["note"]) != "":
+			_card_text(col, String(sd["note"]), "text_ghost")
 	var rejected: Array = v.get("rejected", [])
 	if v.has("structural") or not rejected.is_empty():
 		_card_text(col, "Not proposed:", "text_dim")

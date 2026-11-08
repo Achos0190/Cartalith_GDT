@@ -15,8 +15,8 @@ extends Node
 ##      `<context kind="actions" origin="pack">` block naming the eight pack ids, the system prompt names the
 ##      block, and a model that proposes a pack id WITHOUT any list or search call gets a valid card in ONE
 ##      request (the ids count as returned). A guessed destructive id is still refused (B6).
-##   2. PRE-RETRIEVAL IS OFF BY DEFAULT: the setting reads false, the block's origin is `pack`, and no
-##      "Looked up" line is shown. Switched on, the block's origin is `search+pack`, its first action is the
+##   2. PRE-RETRIEVAL IS ON BY DEFAULT (2026-11-08): the setting reads true and a default request's block has
+##      origin `search+pack`. Switched off, the origin is `pack` and no "Looked up" line is shown. Switched on again, the block's origin is `search+pack`, its first action is the
 ##      one the words name, the user's words are NOT inside the block, and the panel says how many it found.
 ##   3. THE OTHER BUTTONS PRELOAD NOTHING: a Story request carries no actions block and no tool.
 ##   4. UNDO (AC-5): `facts` reports the undo step; the pack names `edit.undo` with the step's label while a
@@ -235,7 +235,15 @@ func _ready() -> void:
 	# ---------------------------------------------------------------- 1. the Commands button's pack
 	print("== 1. the Commands button preloads its pack ==")
 	var pack_ids := ["view.layer.territory", "view.style_preset", "timeline.set_year", "select.settlement", "window.factions", "view.zoom_to", "tool.way"]
-	_ok(DccSettings.llm_value("actions_pre") == false, "pre-retrieval of actions is OFF by default")
+	_ok(DccSettings.llm_value("actions_pre") == true, "pre-retrieval of actions is ON by default (AC-4, 2026-11-08)")
+	var i_def: int = _server.requests.size()
+	await _ask([{"text": "ok"}], "make the map look like an old antique map")
+	_ok(_user_text(_body(i_def)).begins_with("<context kind=\"actions\" origin=\"search+pack\">"), "with the default, the block's origin is search+pack")
+	## The transcript keeps this request's "Looked up" line, so the off and on legs below count occurrences against it.
+	var looked_default := _text_of(_win._msgs).count("Looked up")
+	_ok(looked_default > 0, "the default request showed the panel's 'Looked up' line")
+	## The pack-only sections below are about the pack, so the switch is turned off for them (and for section 2's off leg).
+	DccSettings.set_llm_value("actions_pre", false)
 	var A = load("res://shell/llm_actions.gd")
 	var facts: Dictionary = A.facts(_app, _bridge)
 	_ok(facts.has("undo") and bool((facts["undo"] as Dictionary).get("available", true)) == (String(_app.undo_target_label()) != "" or bool(_app.can_undo_any())), "the facts carry the undo step Edit > Undo would take (%s)" % str(facts.get("undo", "absent")))
@@ -256,7 +264,7 @@ func _ready() -> void:
 	var card := _action_card()
 	_ok(not card.is_empty() and (card["info"].get("valid", []) as Array).size() == 1 and card["apply"] != null, "the pack id was accepted: a valid card with Apply")
 	var shown := _text_of(_win._msgs)
-	_ok(not shown.contains("Looked up"), "no 'Looked up' line with pre-retrieval off")
+	_ok(shown.count("Looked up") == looked_default, "no new 'Looked up' line with pre-retrieval off")
 	_ok(await _click(card.get("apply")) and int(_app.tl_year()) == 398, "Apply moved the year to 398 through the same click path as AC-3")
 	n = await _ask([{"name": "propose_actions", "args": {"summary": "save", "actions": [{"id": "menu:save"}]}}], "save the project")
 	var cd := _action_card()
@@ -278,7 +286,7 @@ func _ready() -> void:
 	_ok(ids2.size() > 0 and ids2[0] == "view.style_preset" and ids2.size() <= 8, "the first action is the one the words name (%s), at most eight" % ", ".join(PackedStringArray(ids2)))
 	var blk_end := u2.find("</context>")
 	_ok(blk_end > 0 and not u2.substr(0, blk_end).contains("antique map") and u2.ends_with(antique), "the user's words are NOT inside the block; they follow it")
-	_ok(_text_of(_win._msgs).contains("Looked up"), "the panel says how many matching actions it looked up")
+	_ok(_text_of(_win._msgs).count("Looked up") > looked_default, "the panel says how many matching actions it looked up")
 	DccSettings.set_llm_value("actions_pre", false)
 
 	# ---------------------------------------------------------------- 3. the other buttons

@@ -1045,10 +1045,12 @@ const LLM_DEFAULTS := {
 	"rag_tools": true,         ## offer the model the three search tools (K6); only matters when a source is ticked
 	## AC-4 (`ASSISTANT_ACTIONS_PROPOSAL.md` s.3.4, AQ4): before the first turn of a Commands request the app
 	## searches the action catalogue for the user's words and puts the top five hits, already described, in
-	## the message. OFF by default: it stays off until the owner's own model run shows it raises the score
-	## (`STATUS.md`'s AC-4 entry says what was and was not measured).
-	## Not a profile key: a profile switch never turns it on.
-	"actions_pre": false,
+	## the message. ON by default (2026-11-08, `tests/ac4_live.rs` on a local qwen3-14b: on the 20 AC-0 tasks the
+	## catalogue can answer, the Commands pack alone scored 11 and 12 of 20 in two runs and pack plus
+	## pre-retrieval 16 and 17; `ASSISTANT_ACTIONS_PROPOSAL.md`'s AC-4 notes and `STATUS.md` carry the table).
+	## It sends catalogue text only, never the world, and a person can turn it off in Assistant settings.
+	## Not a profile key: a profile switch never changes it.
+	"actions_pre": true,
 	## The model's context window in tokens, for the request-size guard (`action_tools::check_budget`): 0 means
 	## "not set", and Rust then assumes the 8 192 design window (AQ6), never "unlimited". There is no control for
 	## it yet; a profile that runs smaller sets it here (`_ac4_probe.gd` does, to exercise the guard).

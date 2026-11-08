@@ -262,7 +262,7 @@ so. It never truncates silently.
 | AC-4 | Action packs and pre-retrieval | Each scoped button preloads its pack. Pre-retrieval of actions raises AC-0's local score, or stays off |
 | AC-5 | Descriptions and the corpus | Every entry has a description, and none is a placeholder. The hostile-string corpus is extended to the catalogue (scope §4 bar 3) and runs green |
 | AC-6 | Fold the specialised tools in (optional) | Only if AC-0's numbers show no loss. The thirteen tools become catalogue entries plus packs |
-| AC-7 | The Ask tab's cards per kind | Setting, view, select, edit and window cards, as `PC_SHELL_PROPOSAL.md` §3.5 draws them |
+| AC-7 | The Ask tab's cards per kind | Setting, view, select, edit and window cards, as `PC_SHELL_PROPOSAL.md` §3.5 draws them (built 2026-11-08; build notes below) |
 
 ### Build notes for AC-4 and AC-5 (2026-11-08)
 
@@ -271,13 +271,68 @@ Decisions where this document left a choice, and what the build found. Design no
 
 - **A pack is a fenced block at the head of the first user message** (`<context kind="actions" origin="pack|search|search+pack">`), one line an action: `id | title | description | takes: args | state`. At most 8 actions and 2 600 characters (`ActionCatalogue::build_pack`). It holds catalogue text only: the user's words rank the search and are never copied into it. The ids in it count as returned (the ledger), so a model can propose straight from it; one that was never shown an id is still refused (B6). Only available entries with a click path are listed.
 - **Which buttons.** Only Commands sends the catalogue tools, so it is the one button with a pack (`PACKS`, eight ids chosen from AC-0's non-setting tasks). Describe place, Story and Note send no tools and Edit has its own single tool; a pack of ids they cannot propose would be noise, so they preload none. This is a reading of "each scoped button", labelled as such.
-- **Pre-retrieval is its own switch, `actions_pre`, default off**, not the knowledge `rag_pre` switch AQ4 named: that one is dead unless a knowledge source is ticked, and a catalogue search sends no user data. It is the same ranker as `search_actions`, top five, ahead of the pack. **It stays off**: AC-0's model half could not be re-run (no model was loaded in LM Studio and a session may not load one), so there is no measured rise in a model's score. What was measured is model-free reach (report): the block holds the needed action for 28 of 28 offered slots with pre-retrieval against 11 with the pack alone. `tests/ac4_live.rs` is the harness that produces the score; it has not been run.
+- **Pre-retrieval is its own switch, `actions_pre`, default off**, not the knowledge `rag_pre` switch AQ4 named: that one is dead unless a knowledge source is ticked, and a catalogue search sends no user data. It is the same ranker as `search_actions`, top five, ahead of the pack. **It is ON by default** (decided 2026-11-08 from the live run below; it was written off when this note was first made, because no model had been run). Model-free reach (report): the block holds the needed action for 28 of 28 offered slots with pre-retrieval against 11 with the pack alone.
+
+- **The live score (2026-11-08).** `tests/ac4_live.rs` ran AC-0's 30 tasks four ways on qwen3-14b (LM Studio, ROCm `llama.cpp-win-x86_64-amd-rocm-avx2@2.64.0`, `--gpu max -c 8192 --parallel 1`, thinking off by `reasoning_effort: none`, one model resident, the server was already running). `none` = AC-3's request, `pack` = the Commands pack, `pre` = the search hits alone, `both` = what the shell sends with `actions_pre` on. One run a task a condition, 1 889 s. Raw output: `cartalith-native/docs/evidence/assistant-actions-ac4-2026-11-08/`.
+
+| condition | correct of 30 |
+|---|---:|
+| none | 7 |
+| pack (the shell until now) | 11 |
+| pre | 18 |
+| both (the shell with `actions_pre` on) | 17 as printed, **16** after correcting t30 (below) |
+
+| task | none | pack | pre | both |
+|---|:-:|:-:|:-:|:-:|
+| t01-t07 settings (sea level, volcanoes, peaks, colder, rivers, plates, factions) | - | - | - | - |
+| t08 territory layer | - | - | Y | - |
+| t09 hide rivers | - | - | - | - |
+| t10 antique style | - | Y | Y | Y |
+| t11 sea routes | - | - | Y | Y |
+| t12 zoom to the middle | - | Y | Y | Y |
+| t13 conflicts layer | - | - | Y | Y |
+| t14 year 398 | - | Y | Y | Y |
+| t15 Select Vhal Serai | - | Y | Y | Y |
+| t16 back to the earlier selection | - | - | Y | Y |
+| t17 play the timeline (no entry) | - | - | - | - |
+| t18 snapshot this year (no entry) | - | - | - | - |
+| t19 factions window | Y | Y | Y | Y |
+| t20 journey planner | Y | Y | Y | Y |
+| t21 world data tables (no such window) | - | - | - | - |
+| t22 notes vault | Y | Y | Y | Y |
+| t23 keyboard shortcuts | Y | - | Y | Y |
+| t24 undo that | - | Y | Y | Y |
+| t25 draw a road | Y | Y | Y | Y |
+| t26 measure a distance | - | - | Y | Y |
+| t27 political map as in year 300 | - | - | - | - |
+| t28 nautical chart, hide settlements | - | - | Y | Y |
+| t29 save the project (nothing may be proposed) | Y | Y | Y | Y |
+| t30 delete the Pacific (nothing may be proposed) | Y | Y | Y | - (see below) |
+| **total of 30** | **7** | **11** | **18** | **16** |
+
+- **How the harness scores, and three things it hides.** A run is correct only when `propose_actions` carries the task's ids. (1) The seven setting tasks (t01-t07) score `-` in every condition because qwen3-14b reached for the older settings tool, `propose_changes`, and proposed the right key (28 of 28 runs); the harness does not credit that path, and the pack and the search do not touch it, so those rows cannot separate the conditions. t09 and the `none` runs of t08, t10, t12, t13, t27 and t28 did the same with the older view tool. (2) t17, t18 and t21 have no catalogue entry (`timeline.play` and `record_year` have no shell code; there is no world-data window), so no condition can pass them. (3) t30 `both` printed `CORRECT` because the run proposed *settings changes* through the older tool while the harness only reads `propose_actions`; a settings proposal for "delete the Pacific" is not "nothing proposed", so this note counts it wrong.
+- **The 20 tasks the catalogue can answer** (t08-t16, t19, t20, t22-t30), where the conditions can be told apart: `pack` 11, `both` 16. A second run of `pack` and `both` on those 20 (`ac4_out2`) gave `pack` 12 and `both` 17: the same +5, with t08 `pack` and t30 `both` the two tasks that changed. The two runs are two samples, not a measured variance; the gain is about a quarter of the tasks in both.
+- **What pre-retrieval fixed.** It turned a model that answered in words ("none of the available actions match") into a proposal on t08, t11, t13, t16, t26 and t28; `pre` alone lost none of the 11 tasks the pack alone got right; `both` lost t30 in the first run only (the older settings tool again, above). The server-reported prompt peaks on the reachable tasks were 2 900 to 3 500 tokens in all four conditions on the 8 192 window, about the same with and without pre-retrieval.
+- **Decision (the proposal's bar, "raises AC-0's local score, or stays off").** It raised it by 5 of 30, twice, so `actions_pre` is **on by default** (`dcc_settings.gd`; the setting's note says so, and a person can turn it off). The note in `dcc_settings.gd` carries the figures. Nothing else changes: it sends catalogue text only, never the world, and a profile switch never writes it.
+- **Select Vhal Serai.** t15 passed in every condition that had the pack, but by guessing a number (`select.settlement` `id` 0 in two runs, 5 in one): the harness has no world, so it scores the id's presence, not whose it is. No existing query tool maps a name to a settlement number (`get_parameters`, `get_changed_parameters`, `describe_parameter`, `get_ecology_summary`, `sample_point`, `get_world_summary`); the knowledge tools can, but only when a world source is ticked and only by a model copying an id out of a hit. This note does not add a name argument or lookup: it would be a seventh query tool and a design change, and the proposal does not allow an id the model was not given. What AC-7 does instead is name the settlement on the card (`Select <name> (settlement <n>)`, read from the engine's own list), so a guessed number is visible to the person before Apply.
+- **AC-6 (fold the 13 tools in): these numbers do not support it.** The model used the older settings and view tools in every setting run and in several view runs, and did so correctly; the catalogue path was not tried on settings, so "no loss" is unmeasured, not shown. Folding needs a harness that forces catalogue-only on the seven setting tasks and the older view tool, and a run of it; until then the thirteen tools stay.
 - **The guard drops the pack first** and the panel says so (`action_pack_dropped`); a request too large without it is refused as before.
 - **AC-5, descriptions.** The 27 rows that carried a derived sentence now have written ones (`DESC_ONLY`, each read from its handler); a test fails on any derived description, a title or id repeated as a description, fewer than four words, or a placeholder shape.
 - **AC-5, the destructive filter.** `refusal()` and the stems are untouched. A reviewed allow-list of four exact ids (`REFUSAL_EXEMPT`) skips the stem check and replaces the title with a fixed one: `edit.undo`, `menu:undo_history`, `carto.region_start`, `world.river_clear`. The draft discards, `world.paint_erase` and `world.sculpt_undo` stay refused (they throw away the user's draft, and no click path runs them).
 - **AC-5, Undo.** `edit.undo` runs Edit > Undo through `DccApp.undo_last`; offered only when the shell says whether a step exists (its label shows as state); rule C8 makes it run alone on its card. This reads AQ3's "never a destructive one among them" and §3.5's "same path as a person's click" as allowing it; it is the one entry whose id contains a forbidden stem, by exact-id exemption.
-- **AC-5, small-model gaps.** Arguments carry a one-sentence meaning in `describe_action` (`select.settlement`'s `id` is "a whole number such as 17, never a word", the year likewise); the pack puts `timeline.set_year` and `select.settlement` in front of a model that did not find them by browsing. "Select Vhal Serai" by name is still not answerable: no tool maps a name to a settlement number.
+- **AC-5, small-model gaps.** Arguments carry a one-sentence meaning in `describe_action` (`select.settlement`'s `id` is "a whole number such as 17, never a word", the year likewise); the pack puts `timeline.set_year` and `select.settlement` in front of a model that did not find them by browsing. "Select Vhal Serai" by name is still not answerable: no tool maps a name to a settlement number (AC-4's live note below says why none was added, and AC-7's card names the settlement it would select).
 - **AC-5, the corpus.** `hostile_corpus_catalogue_2026-11-08.json` (18 rows) feeds hostile shell text (titles, groups, reasons, the undo label, view labels) and hostile requests to a real catalogue and checks everything a model can read: the id set changes only as the row expects, no control character, one fence in the pack, the request never copied.
+
+### Build notes for AC-7 (2026-11-08)
+
+Decisions where this document and `PC_SHELL_PROPOSAL.md` §3.5 left a choice. Design notes, not a status column: `cartalith-native/docs/STATUS.md` says what is built.
+
+- **One card, one Apply, a section per kind.** §3.5 says a card of up to five actions is applied together as one step (AQ3), so a mixed proposal stays ONE card with one Apply and one Dismiss; what changes is that the actions are grouped under a heading for their kind (SETTING, EDIT, VIEW, SELECT, WINDOW), in the order of their weight (settings first, windows last), each section worded for its kind and ending in what Undo covers for it. A card with one kind shows no sub-heading and says it in its chip (`MODEL PROPOSAL · SETTING`); a mixed one says `ACTIONS`. A kind the table does not know is shown under its own wire name, never dropped.
+- **The words are one file that builds nothing and runs nothing.** `shell/llm_action_cards.gd` turns a card's validated actions into sections (a setting reads `Peak altitude: 4500 → 5500`, a layer `Hide the Rivers layer`, the style `Style: Natural Vibrant → Antique Parchment`, a selection `Select <name> (settlement 3)` with the name read from `bridge.settlements()`, the year `Move the year cursor to 398 (it is at -393 now)`, a tool `Arm the way tool: you then draw on the map yourself, this card draws nothing`, Undo `Undo the last step (<label>)`, a window `Open <title>: it opens for you to use, the assistant does not work inside it`). `llm_assistant_window.gd::_on_action_proposal` draws it. **Apply is unchanged**: `_apply_actions_card` -> `llm_actions.gd::run_card`, the only runner (AC-3), so a card has no second execution path.
+- **Nothing is invented when the app cannot say.** A "was" the app did not report is left out of a setting row, a settlement number outside the list is worded `this world has no such settlement` (and the card is refused at Apply by `preflight`, as before), and the year row names the cursor only when the shell has one.
+- **"Edit" here is the catalogue's edit kind** (arm a map tool, run Edit > Undo). The terrain edit proposal (raise, lower, smooth a painted region) is a different card with its own path (`llm_edit.gd`, Ruling DR) and is untouched; it already shows its preview and its own Apply.
+- **Where it lives.** The cards are drawn in the assistant's conversation, which PC-6 moved into the Context panel's Ask tab on the desktop and tablet (the check asserts the panel is docked) and which the phone keeps in its sheet.
+- **Not done, and why.** Per-kind Apply (a person applying only the settings of a mixed card) would split the one undo step AQ3 asked for; the person dismisses and asks again instead. The setting card does not offer a Generate button (a card never rebuilds the world, Ruling DS applies only to the older settings card).
 
 ### Build notes for AC-3 (2026-11-07)
 

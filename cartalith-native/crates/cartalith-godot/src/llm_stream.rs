@@ -963,8 +963,8 @@ impl LlmStream {
             }
             // AC-4: the preloaded action block. The scope pack is the scoped button's (`args.action_pack`, a
             // `PACKS` key; an unknown name adds nothing); pre-retrieval is the app-side search over the
-            // user's words and runs only when the `actions_pre` setting is on (default off until AC-0's
-            // tasks showed a gain). Both are catalogue text only: the request is used to rank and is never
+            // user's words and runs only when the `actions_pre` setting is on (default ON since 2026-11-08: the
+            // live run of AC-0's tasks showed a gain, `ASSISTANT_ACTIONS_PROPOSAL.md`'s AC-4 notes). Both are catalogue text only: the request is used to rank and is never
             // copied into the block. Attached after the knowledge calls so a questions-only request (which
             // drops the catalogue tools) never carries a block it cannot use.
             if conv.actions_offered() {
