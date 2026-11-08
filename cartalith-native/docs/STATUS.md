@@ -140,8 +140,10 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
   fixed axis. Re-run green: `_pc2year` 46/46 (desktop and touch; adapted to the new range), `_pc1select` 31/31,
   `_pc9menus` 86/86, `_ac3` 48/48 (desktop and touch), `_tlpins` 50/50, `_tlheight`, `_tlfloor --pointer`.
   `_tlscrub` assumed the fixed axis and was adapted (recorded years now set the track). `_tlfloor --tablet`,
-  `_simscrub`, `_jump` and `_phonemore_act` fail identically on origin/main. `_pc3phone_probe` captures the phone for a
-  byte comparison against origin/main.
+  `_simscrub`, `_jump` and `_phonemore_act` fail identically on origin/main. `_pc3phone_probe` (393x852, touch) took WORLD, CIVIL, CARTO and CIVIL with the sim strip open: two
+  captures from origin/main and the PC-3 build are byte-identical with no year recorded (`--norecord`); with a recorded year
+  only the sim strip differs, because its slider now follows the world's range. The strip stays CIVIL-only on the phone.
+  Re-run after rebasing onto PC-4 (`2f2af9e9`): all of the above green, `_pc4context` 152/152.
 - **Not built, stated:** CV-24's collapsed line with a play button, slider and ticks (the collapsed strip is the shipped
   one, now fully clickable); "earliest founding" as a range source (the engine records none); one undo step for + Record
   year (the engine keeps none, here or in the dock); a conflict row selecting the conflict (PC-4's Inspect); the event

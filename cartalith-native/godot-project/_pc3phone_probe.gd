@@ -9,6 +9,8 @@ extends Node
 ## and to these), because only a build without PC-3 can say what "unchanged" is.
 ## Exit 0 captures taken, 2 bad argument, watchdog or not the phone.
 var _shots := ""
+## `--norecord`: no year is recorded, so the world has no range and the phone slider keeps the fixed axis.
+var _norecord := false
 var _app: Node
 var _bridge
 
@@ -30,6 +32,8 @@ func _ready() -> void:
 	while k < args.size():
 		if args[k] == "--force-touch":
 			pass
+		elif args[k] == "--norecord":
+			_norecord = true
 		elif args[k] == "--shots" and k + 1 < args.size():
 			k += 1
 			_shots = args[k]
@@ -64,7 +68,8 @@ func _ready() -> void:
 	while bool(_bridge.generating) and Time.get_ticks_msec() - t0 < 240000:
 		await _settle(10)
 	await _settle(30)
-	_bridge.civ_add_year(100)
+	if not _norecord:
+		_bridge.civ_add_year(100)
 	_app.tl_set_year(100, true)
 	for d in ["world", "civilization", "cartography"]:
 		_app.select_domain(d)
