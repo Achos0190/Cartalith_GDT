@@ -66,7 +66,9 @@ Drafts 3 to 9 do not depend on MS-1's unit; they size themselves through the she
   nothing to transplant, and the owner's *rebuilding is nonsense* rules out a second copy of the dock): `_mount_dock_in_sheet()` reparents
   the left dock's mode switch and category scroller into the phone tool sheet for CIVIL and CARTO (`_refresh_phone_gen_panel()` decides),
   and `_set_sheet_open("left", true)` returns them. WORLD keeps `build_phone_generate()`'s column, and MAP keeps the tool row and still
-  selects CARTOGRAPHY (draft 3 says where); both are MS-3's remainder, listed in `STATUS.md`.
+  selects CARTOGRAPHY (draft 3 says where). The remainder (2026-11-08, also without a draft): WORLD's column gains a fourth segment, ALL, that
+  mounts the same dock nodes; a CIVIL row opens STORY ▸ Journeys; the MAP tab gains a row (Layers & fields, Fit world, 2D / 3D). What is still
+  open of MS-3 is in `STATUS.md`.
 - **MS-5** (tool strip, tool fan, context card verbs), **MS-8** (New World auto-populate), **MS-9** (search runs every command) and
   **MS-10** (device passes) are not menus.
 

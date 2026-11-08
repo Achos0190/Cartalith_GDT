@@ -3730,10 +3730,15 @@ func _on_tool_armed(id: String) -> void:
 	## refills the sheet -- the refill must already know which column to draw.
 	## Only these two edges move `_pg_mode`: arming anything else leaves the
 	## user's PIPELINE / SCULPT / PAINT choice exactly as they made it.
+	var was_all := _pg_mode == "all"
 	if id == "paint":
 		_pg_mode = "paint"
 	elif id == "sculpt" and _pg_mode == "paint":
 		_pg_mode = "sculpt"
+	## MS-3: arming Paint while the dock is showing (ALL) returns the sheet to the Paint column.
+	if was_all and _pg_mode != "all" and app != null and app.has_method("_refresh_phone_gen_panel"):
+		app.call("_refresh_phone_gen_panel")
+		app.call("_refresh_phone_sheet_header")
 	if id != "sculpt":
 		_sculpt_abandon_stroke()
 	if id != "sculpt" and id != "paint":
@@ -5002,7 +5007,9 @@ const PHONE_GEN_ABSENT: Array = [
 ## the rest closed (byte 77 286); index 0 is that same first group.
 var _pg_open: Dictionary = {0: true}
 var _pg_host: VBoxContainer          ## The sheet column this workspace fills.
-## `pipe` | `sculpt` | `paint`. The first two are the canvas's `genMode`; `paint`
+## `pipe` | `sculpt` | `paint` | `all`. The first two are the canvas's `genMode`; `all` is MS-3's fourth
+## segment (the left dock's own accordions, mounted by `DccShell._mount_dock_in_sheet()`; the column is hidden
+## and not rebuilt while it is chosen); `paint`
 ## is this port's own third segment (OUTSTANDING_WORK.md "Phone: the Paint tool
 ## bar cannot be reached by thumb"), because the phone's GENERATE tab hides the
 ## tool-options row that is the only other place Paint's Size / Erase / Original
@@ -5148,6 +5155,9 @@ func _pg_rebuild(at_start: bool = false) -> void:
 	## worker owns while generating; a GENERATE-tab tap or a `world_loaded` landing
 	## mid-run reaches here. The Pipeline column reads only the cached `param_get`, so
 	## it is not gated. Replayed by `_flush_generating_deferred`.
+	## MS-3: the ALL segment shows the dock, not this column; nothing to rebuild until the user leaves it.
+	if _pg_mode == "all":
+		return
 	if bridge.generating and _pg_mode != "pipe" and not at_start:
 		_pg_rebuild_deferred = true
 		return
@@ -5242,7 +5252,10 @@ func _pg_mode_segment(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", _pg_px(8))
 	parent.add_child(row)
-	for entry in [["pipe", "PIPELINE"], ["sculpt", "SCULPT"], ["paint", "PAINT"]]:
+	## MS-3: ALL is the fourth cell. It mounts the desktop dock's own nine WORLD categories (Generate, Planet,
+	## Geology, Hydrology, Climate, Ecology, World data, Terrain, Biomes) in this sheet, so none of them is
+	## reachable only through Window > Left dock. The three columns stay: they are the phone's curated views.
+	for entry in [["pipe", "PIPELINE"], ["sculpt", "SCULPT"], ["paint", "PAINT"], ["all", "ALL"]]:
 		var id := String(entry[0])
 		var on: bool = _pg_mode == id
 		var b := Button.new()
@@ -5284,6 +5297,14 @@ func _pg_set_mode(id: String) -> void:
 	if _pg_mode == id:
 		return
 	_pg_mode = id
+	if id == "all":
+		## MS-3: the dock takes the sheet; the column is neither rebuilt nor shown (the shell hides it).
+		## The mode stays `a`, the node whose `shows` lists the seven stage categories, and the dock's own
+		## mode switch picks Sculpt (`b`) from inside the sheet.
+		if app != null and app.has_method("_refresh_phone_gen_panel"):
+			app.call("_refresh_phone_gen_panel")
+			app.call("_refresh_phone_sheet_header")
+		return
 	if app != null and app.has_method("select_domain_mode"):
 		## `RAIL_NODES`' own mode ids for WORLD are `a` and `b`, not the words --
 		## `railFoot`'s binding is `wm==='b' ? 'SCULPT' : ...`. Paint's own

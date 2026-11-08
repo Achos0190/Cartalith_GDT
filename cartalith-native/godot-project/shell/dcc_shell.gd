@@ -545,6 +545,12 @@ var _phone_dom_host: VBoxContainer
 var _left_dock_mode_switch: Control
 var _left_dock_col: VBoxContainer
 var _dock_in_sheet := false
+## MS-3: the rows the domain sheet carries above the dock's own pieces, built lazily on first need (so the
+## `_on_phone_node_added()` hook that fits them is the real path, not a build-time accident):
+## WORLD's way back to the three columns, CIVIL's door to STORY > Journeys, and the MAP sheet's row.
+var _phone_dom_back_row: Control
+var _phone_dom_journeys_row: Control
+var _phone_map_row: Control
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
 	## `phone_content_insets()` reads its real height rather than recomputing it.
 var _phone_gesture_inset: Control
@@ -7371,7 +7377,9 @@ func _refresh_phone_sheet_header() -> void:
 		## is on screen (`WorldWorkspace.phone_sheet_mode()`).
 		var world_ws: Node = _workspace_panels.get("world")
 		var sheet_mode: String = String(world_ws.call("phone_sheet_mode")) if world_ws != null and world_ws.has_method("phone_sheet_mode") else ""
-		if active_mode("world") == "b" and sheet_mode == "paint":
+		if sheet_mode == "all":
+			_phone_sheet_subtitle.text = "all categories · the dock"
+		elif active_mode("world") == "b" and sheet_mode == "paint":
 			_phone_sheet_subtitle.text = "paint · draft cells"
 		elif active_mode("world") == "b":
 			_phone_sheet_subtitle.text = "sculpt · draft stamps"
@@ -8165,14 +8173,19 @@ func _refresh_phone_gen_panel() -> void:
 	var ws: Node = _workspace_panels.get("world")
 	if on and (ws == null or not ws.has_method("build_phone_generate")):
 		on = false
+	## MS-3: WORLD's fourth segment (ALL) shows the dock's nine categories, not the column.
+	var world_all: bool = on and _world_sheet_mode() == "all"
+	if world_all:
+		on = false
 	## MS-3: CIVIL and CARTO on the domain tab show the DOCK in the sheet instead of the one-line tool row.
 	## WORLD keeps its phone GENERATE column (departure from the proposal, recorded in the drafts README:
 	## replacing it by the dock's accordions is MS-3's remainder). MAP keeps the tool row (MS-3's MAP sheet
 	## is a separate build).
-	var dom: bool = _phone and _phone_tab == "domain" and _active_domain != "world" \
+	var dom: bool = _phone and _phone_tab == "domain" and (_active_domain != "world" or world_all) \
 		and not _left_sheet_open and _phone_dom_host != null and left_dock_body != null \
 		and _left_dock_scroll != null
 	_mount_dock_in_sheet(dom)
+	_refresh_phone_map_row()
 	_phone_gen_scroll.visible = on
 	if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll):
 		_phone_tool_scroll.visible = not on and not dom
@@ -8198,6 +8211,77 @@ func _mount_dock_in_sheet(on: bool) -> void:
 	_left_dock_mode_switch.reparent(target, false)
 	_left_dock_scroll.reparent(target, false)
 	_phone_dom_host.visible = on
+	if on:
+		_ensure_dom_rows()
+	if _phone_dom_back_row != null:
+		_phone_dom_back_row.visible = on and _active_domain == "world"
+	if _phone_dom_journeys_row != null:
+		_phone_dom_journeys_row.visible = on and _active_domain == "civilization"
+
+## MS-3: the world workspace's sheet column (`pipe` | `sculpt` | `paint` | `all`), or "".
+func _world_sheet_mode() -> String:
+	var ws: Node = _workspace_panels.get("world")
+	return String(ws.call("phone_sheet_mode")) if ws != null and ws.has_method("phone_sheet_mode") else ""
+
+## MS-3: builds, once, the two rows that sit above the dock's pieces inside `_phone_dom_host` and moves
+## them to the front (`reparent()` appended the dock's pieces first). Both are plain `DccWidgets.action()`
+## buttons, so `phone_fit()` (through `_on_phone_node_added()`'s `_phone_dom_host` clause) sizes them to
+## the 44 dp floor like every dock control. They are doors, not copies: each calls an existing entry point.
+## - WORLD's back row returns the sheet to the three curated columns (`WorldWorkspace._pg_set_mode("pipe")`).
+## - CIVIL's journeys row opens STORY > Journeys (`PhoneMenu.open_story("JOURNEYS")`), the proposal's
+##   "CIVIL > Journeys opens STORY > Journeys rather than a second planner".
+func _ensure_dom_rows() -> void:
+	if _phone_dom_back_row == null:
+		_phone_dom_back_row = DccWidgets.action(_phone_dom_host, "Back to Pipeline · Sculpt · Paint", func():
+			var ws: Node = _workspace_panels.get("world")
+			if ws != null:
+				ws.call("_pg_set_mode", "pipe"))
+		_phone_dom_back_row.name = "DomBackRow"
+		_phone_dom_host.move_child(_phone_dom_back_row, 0)
+	if _phone_dom_journeys_row == null:
+		_phone_dom_journeys_row = DccWidgets.action(_phone_dom_host, "Journeys ▸ planner, saved journeys (STORY)", func():
+			_pick_phone_tab("story")
+			if _phone_menu != null:
+				_phone_menu.open_story("JOURNEYS"))
+		_phone_dom_journeys_row.name = "DomJourneysRow"
+		_phone_dom_host.move_child(_phone_dom_journeys_row, 0)
+
+## MS-3: the MAP sheet's own row (proposal section 5: view, fields, layers): Layers & fields (the Layers
+## popover, which on the phone is already a full sheet holding the view field, every analysis field with its
+## opacity, and the visibility rows), Fit world and 2D / 3D. Shown on the MAP tab above the tool row, which
+## stays (the quick pins and the tool options are still its content until MS-5). Reuses
+## `LayersPopover.open()` and `ViewportHost.reset_view()` / `set_3d()`; nothing is copied.
+func _refresh_phone_map_row() -> void:
+	## Not at peek: the row is a 44 dp control in the sheet's own column, and the sheet's minimum height is the
+	## sum of its children's, so a visible row would lift the peek detent above its 66 dp
+	## (`_quickbar_phone_probe`: "the empty peek is 66 dp"). The peek shows the header only, as before.
+	var show: bool = _phone and _phone_tab == "map" and _phone_detent != "peek"
+	if show and _phone_map_row == null and _phone_dom_host != null and _phone_dom_host.get_parent() != null:
+		var row := HBoxContainer.new()
+		row.name = "MapRow"
+		row.add_theme_constant_override("separation", _pscale(8))
+		var b1 := DccWidgets.action(row, "Layers & fields", func():
+			var lp = get("layers_popover")
+			if lp != null:
+				lp.open())
+		b1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var b2 := DccWidgets.action(row, "Fit world", func():
+			var vp = get("viewport")
+			if vp != null:
+				vp.reset_view())
+		b2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var b3 := DccWidgets.action(row, "2D / 3D", func():
+			var vp = get("viewport")
+			if vp != null:
+				vp.set_3d(not vp.is_3d()))
+		b3.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var holder: Node = _phone_dom_host.get_parent()
+		holder.add_child(row)
+		holder.move_child(row, _phone_dom_host.get_index())
+		_phone_map_row = row
+		phone_fit(row, _phone_scale)
+	if _phone_map_row != null:
+		_phone_map_row.visible = show
 
 ## The sheet surface. Portrait: `background:#15171a; border-radius:22px 22px 0 0`
 ## (`candidates/Android Chrome B.dc.html`, and the prototype's own
@@ -8449,6 +8533,7 @@ func _set_phone_detent(det: String, animate: bool = true) -> void:
 	## anything.
 	if animate:
 		_haptic("detent")
+	_refresh_phone_map_row()
 	_snap_phone_sheet(animate)
 
 ## The prototype's `_snapSheet()`: writes the current detent's height onto the
