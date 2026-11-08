@@ -154,6 +154,9 @@ pub enum Route {
     Select,
     /// Arming a map tool, through `DccApp.arm_tool`.
     Tool,
+    /// AC-5: Edit > Undo, through `DccApp.undo_last` (the one entry point Ctrl+Z, the Edit row and the
+    /// toolbar square all use). It runs alone on its card (rule C8).
+    Undo,
     /// No click path from a proposal (context-card actions, unreviewed rows).
     None,
 }
@@ -169,6 +172,7 @@ impl Route {
             Route::Year => "year",
             Route::Select => "select",
             Route::Tool => "tool",
+            Route::Undo => "undo",
             Route::None => "none",
         }
     }
@@ -176,7 +180,7 @@ impl Route {
     /// The inverse of [`Route::as_str`]; anything else, including the empty string, is [`Route::None`]
     /// (the refused route), never a plausible default.
     pub fn parse(s: &str) -> Route {
-        [Route::Param, Route::View, Route::Window, Route::Menu, Route::Year, Route::Select, Route::Tool].into_iter().find(|r| r.as_str() == s).unwrap_or(Route::None)
+        [Route::Param, Route::View, Route::Window, Route::Menu, Route::Year, Route::Select, Route::Tool, Route::Undo].into_iter().find(|r| r.as_str() == s).unwrap_or(Route::None)
     }
 }
 
@@ -223,21 +227,49 @@ pub struct ArgSpec {
     pub ty: ArgType,
     /// Whether the call must carry it.
     pub required: bool,
+    /// AC-5: one sentence on what the value MEANS, shown in `describe_action`'s schema as its
+    /// `description`. A small local model given only `{"type":"integer"}` for `select.settlement`'s `id`
+    /// wrote the words `number` and `n` (the 2026-11-07 qwen3-14b run, AC-3's known gap); the hint says
+    /// what the number is and that a word is never one. Fixed text written here, never from the world.
+    pub hint: Option<&'static str>,
 }
 
 impl ArgSpec {
     fn new(name: &str, ty: ArgType, required: bool) -> Self {
-        ArgSpec { name: name.to_owned(), ty, required }
+        ArgSpec { name: name.to_owned(), ty, required, hint: None }
+    }
+
+    /// This argument with its meaning sentence (see [`ArgSpec::hint`]).
+    fn hint(mut self, h: &'static str) -> Self {
+        self.hint = Some(h);
+        self
     }
 
     /// This argument as a JSON-schema property.
     pub fn schema(&self) -> Value {
-        match &self.ty {
+        let mut v = match &self.ty {
             ArgType::Bool => json!({"type": "boolean"}),
             ArgType::Int { min, max } => json!({"type": "integer", "minimum": min, "maximum": max}),
             ArgType::Num { min, max } => json!({"type": "number", "minimum": min, "maximum": max}),
             ArgType::Choice(c) => json!({"type": "string", "enum": c}),
+        };
+        if let Some(h) = self.hint {
+            v["description"] = json!(h);
         }
+        v
+    }
+
+    /// The argument in one short phrase for a preloaded pack (AC-4): `year (whole number -400..1200)`.
+    /// A choice lists at most six values, then says how many more, so a pack stays small.
+    pub fn brief(&self) -> String {
+        let ty = match &self.ty {
+            ArgType::Bool => "true or false".to_owned(),
+            ArgType::Int { min, max } => format!("whole number {min}..{max}"),
+            ArgType::Num { min, max } => format!("number {min}..{max}"),
+            ArgType::Choice(c) if c.len() <= 6 => format!("one of {}", c.join("/")),
+            ArgType::Choice(c) => format!("one of {} (and {} more)", c[..6].join("/"), c.len() - 6),
+        };
+        format!("{} ({}{})", self.name, ty, if self.required { "" } else { ", optional" })
     }
 
     /// A format example value (not a recommendation): `true`, the lowest allowed number, the first choice.
@@ -337,6 +369,8 @@ impl ActionEntry {
             Route::Select
         } else if id.starts_with("tool.") {
             Route::Tool
+        } else if id == "edit.undo" {
+            Route::Undo
         } else {
             Route::None
         }
@@ -415,6 +449,18 @@ pub struct ShellFacts {
     /// AC-3: whether `DccApp.select_back()` has an earlier selection to return to; `None` is "not said"
     /// and offers no `select.back`.
     pub can_select_back: Option<bool>,
+    /// AC-5: whether Edit > Undo has a step to take and what it would take (`DccApp.can_undo_any`,
+    /// `undo_target_label`); `None` is "not said" and offers no `edit.undo`, never "nothing to undo".
+    pub undo: Option<UndoFact>,
+}
+
+/// What the shell says about Edit > Undo right now (see [`ShellFacts::undo`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoFact {
+    /// Whether an undo step exists.
+    pub available: bool,
+    /// The step's label ("Sculpt stamp"), already inert; empty when `available` is false or the app named none.
+    pub label: String,
 }
 
 impl ShellFacts {
@@ -447,6 +493,9 @@ impl ShellFacts {
             years,
             settlements: o.get("settlements").and_then(Value::as_i64).filter(|n| *n >= 0),
             can_select_back: o.get("can_select_back").and_then(Value::as_bool),
+            undo: o.get("undo").and_then(Value::as_object).and_then(|u| {
+                Some(UndoFact { available: u.get("available")?.as_bool()?, label: inert_text(u.get("label").and_then(Value::as_str).unwrap_or(""), 60) })
+            }),
         })
     }
 }
@@ -500,6 +549,36 @@ pub const EXTRA_STEMS: [&str; 6] = ["wipe", "purge", "discard", "overwrite", "pi
 /// Whole-word forbidden stems (see [`refusal`]).
 pub const EXTRA_WORDS: [&str; 6] = ["cut", "paste", "exit", "restart", "run", "regen"];
 
+/// AC-5: the REVIEWED allow-list of ids that [`refusal`] would drop although they do nothing
+/// destructive: `(exact id, fixed title, why it is safe)`. The guard itself ([`refusal`], its stems and
+/// the view tool's [`FORBIDDEN_STEMS`]) is untouched; this list is consulted only by [`Builder::push`], by
+/// EXACT id (never by stem or prefix), and it also REPLACES the entry's title with the fixed one here, so
+/// a shell row that reuses the id under a hostile title keeps no hostile title. Found by the 2026-11-07
+/// real-row run (AC-3's known gap: "Undo that" had no offered action): each row below was dropped for a
+/// word in its LABEL that describes a harmless thing. Reviewed 2026-11-08 by reading each row's handler:
+///
+/// * `edit.undo` is Edit > Undo itself, the existing undo path (`DccApp.undo_last`, the one entry point
+///   Ctrl+Z, the Edit row and the toolbar square share). It reverts the newest step and Redo brings it
+///   back; it runs ALONE on its card (rule C8), so a card never undoes a step it just made.
+/// * `menu:undo_history` opens the dock's History panel (`DccApp.open_undo_history` ->
+///   `right_dock_ctrl.show_history`): a read-only list, it reverts nothing.
+/// * `carto.region_start` arms the Region tool's first corner; "export" is the box's PURPOSE and nothing
+///   is exported or written.
+/// * `world.river_clear` removes a temporary highlight drawn over the map; no world data changes.
+///
+/// NOT here, on purpose: the draft discards (`civ.territory_discard`, `world.paint_discard`,
+/// `world.sculpt_discard`), `world.paint_erase` and `world.sculpt_undo`. Each throws away the user's
+/// unsaved draft or stamp, which is the kind of thing the stems exist to keep from a model; no click path
+/// runs them from a proposal either, so listing them would only invite a model to propose what Apply must
+/// refuse. Adding a row here needs a reason in this table and the test
+/// `the_refusal_allow_list_is_exact_reviewed_and_no_wider`.
+pub const REFUSAL_EXEMPT: &[(&str, &str, &str)] = &[
+    ("edit.undo", "Undo the last change", "Edit > Undo through DccApp.undo_last; Redo reverses it; alone on its card"),
+    ("menu:undo_history", "Undo history", "opens the History panel; a read-only list"),
+    ("carto.region_start", "Start export region here", "arms the Region box's first corner; nothing is exported"),
+    ("world.river_clear", "Clear river highlight", "removes a temporary highlight; no world data changes"),
+];
+
 /// Reviewed menu rows: `(constant name, kind, effect, path, description)`. A labelled judgement
 /// from reading each row's handler and title on 2026-10-31: every one opens a window or panel and
 /// changes no world data. The test `every_review_row_names_a_real_menu_constant` checks each name
@@ -518,6 +597,7 @@ pub const MENU_REVIEW: &[(&str, ActionKind, Effect, &str, &str)] = &[
     ("pref_quick_bar", ActionKind::Window, Effect::OpensWindow, "window/preferences", "Open the settings for the buttons pinned to the top bar."),
     ("pref_storage", ActionKind::Window, Effect::OpensWindow, "window/preferences", "Show where Cartalith keeps its files."),
     ("pref_shortcuts", ActionKind::Window, Effect::OpensWindow, "window/preferences", "Open the list of keyboard shortcuts."),
+    ("undo_history", ActionKind::Window, Effect::OpensWindow, "window/edit", "Show the undo ledger in the right dock: the steps that can be undone."),
     ("slicer", ActionKind::Window, Effect::OpensWindow, "window/assets", "Open the sprite-sheet slicer for cutting art into assets."),
     ("help_credits", ActionKind::Window, Effect::OpensWindow, "window/help", "Show the credits and the academic principles behind the generator."),
     ("help_about", ActionKind::Window, Effect::OpensWindow, "window/help", "Show the version and what Cartalith is."),
@@ -544,6 +624,8 @@ pub const WINDOW_REVIEW: &[(&str, &str, &str)] = &[
 /// finds (a draft's commit or discard, a radius, a class) is listed `unreviewed`.
 pub const CONTEXT_REVIEW: &[(&str, ActionKind, Effect, bool, &str)] = &[
     ("global.centre", ActionKind::View, Effect::View, true, "Centre the map view on a point."),
+    ("carto.region_start", ActionKind::Edit, Effect::View, true, "Arm the Region tool and start a box at a point; drag to the opposite corner."),
+    ("world.river_clear", ActionKind::View, Effect::View, false, "Remove the river highlight drawn over the map; no world data changes."),
     ("global.measure_from", ActionKind::View, Effect::View, true, "Start a measurement from a point."),
     ("global.copy_coordinate", ActionKind::View, Effect::View, true, "Copy a point's coordinate to the clipboard."),
     ("civ.info_here", ActionKind::Query, Effect::Read, true, "Read the settlement and ecology at a point."),
@@ -561,6 +643,66 @@ pub const CONTEXT_REVIEW: &[(&str, ActionKind, Effect, bool, &str)] = &[
     ("world.river_catchment", ActionKind::Query, Effect::Read, true, "Show the catchment area that drains to a point."),
     ("world.section_from", ActionKind::View, Effect::View, true, "Start a cross-section profile from a point."),
 ];
+
+/// AC-5: the descriptions of rows and context actions that are LISTED but not reviewed to run
+/// (`Effect::Unreviewed`): `(id, description)`. Each was written 2026-11-08 from reading the row's
+/// handler (named in the comment beside it), so a model reading the catalogue learns what the thing is
+/// even though it cannot propose it. A description here makes NO claim that the row is safe to run:
+/// that is what [`MENU_REVIEW`] and [`CONTEXT_REVIEW`] decide. The test
+/// `ac5_no_entry_has_a_derived_description_on_the_real_rows` fails when a real row is missing here, and
+/// `ac5_descriptions_are_real_sentences` fails on a placeholder shape.
+pub const DESC_ONLY: &[(&str, &str)] = &[
+    // menus.gd: ID_AP_PACK_META -> _open_pack_metadata (name, author, licence fields; written to pack.json on export).
+    ("menu:ap_pack_meta", "Edit the asset pack's name, author and licence; they are written into pack.json on the next pack export."),
+    // asset_library_window.gd::_on_validate (AssetValidator's ordered warning list).
+    ("menu:ap_validate", "Check the asset pack for problems and show the ordered list of warnings."),
+    // asset_library_window.gd::_on_apply_to_map (installs the library as the map's art).
+    ("menu:apply_library", "Install the asset library as the map's art, as the library's Apply to map button does."),
+    // app.gd::open_pack_compare_picker (AP-9's diff card with its three merge choices).
+    ("menu:compare_pack", "Pick an asset pack and see how it differs from the library, with three ways to merge it."),
+    // app.gd::open_pack_in_library_picker (AP-1: into the library only, the map is left as it is).
+    ("menu:open_pack_library", "Pick an asset pack and add it to the library only; the map is left as it is."),
+    // asset_library_window.gd::report_now (AP-2's report card).
+    ("menu:pack_report", "Open the asset library and show its report card for the current pack."),
+    // menus.gd::_copy_selection (snapshots the label and icon selection; never changes the map).
+    ("menu:copy", "Copy the selected map labels and icons to the app's clipboard; nothing on the map changes."),
+    // menus.gd: ID_DESELECT -> _host.clear_selection().
+    ("menu:deselect", "Drop the current selection on the map; Previous selection brings it back."),
+    // menus.gd::_select_all (scoped to the active domain).
+    ("menu:select_all", "Select everything selectable in the active domain."),
+    // app.gd::show_project_on_disk (reveals the project file in the file manager; a no-op unsaved or on touch).
+    ("menu:show_on_disk", "Reveal the project file in the computer's file manager; nothing is changed or written."),
+    // app.gd::open_storage_locations.
+    ("menu:storage", "Open the dialog that shows, and changes, where Cartalith keeps its files."),
+    // menus.gd: ID_HELP_DOCS (opens _docs_dir() in the OS shell).
+    ("menu:help_docs", "Open Cartalith's documentation folder in the operating system's file manager."),
+    // menus.gd::_on_relief_exag (forgets the stored value; applies on the NEXT Generate, nothing regenerates).
+    ("menu:gfx_exag_engine", "Forget the stored relief exaggeration and use the engine's own value from the next Generate."),
+    // menus.gd: ID_LOD_ENTER_NOW -> viewport request_lod_entry.
+    ("menu:lod_enter_now", "Switch the map to deep-detail tiles now, if you are zoomed in far enough."),
+    // menus.gd: ID_STORY_DRAW_CONFLICT (selects CIVIL and arms the Conflict tool).
+    ("menu:story_draw_conflict", "Go to the CIVIL domain and arm the Conflict tool to draw a conflict on the map."),
+    // menus.gd::_prompt_forget_layout (asks which saved layout, then a confirmation).
+    ("menu:win_forget_layout", "Ask which saved window layout to forget, and delete it after a confirmation."),
+    // app.gd::open_data_manager (DataManagerWindow.ROUTES: Import and Export groups).
+    ("menu:data_manager", "Open the Data manager: import and export routes for maps, heightmaps, GIS data and world data."),
+    // retired id 722; the row survives in older captures and opens the same timeline as window.timeline.
+    ("menu:world_timeline", "Open the timeline: years, events and who held what."),
+    // cartography_workspace.gd context rows.
+    ("carto.style_preset", "Pick a style preset from the context card's submenu; it changes the map's whole look."),
+    ("carto.view_field", "Choose which data field the map displays, from the context card's submenu."),
+    // civilization_workspace.gd context rows.
+    ("civ.open_city_layout", "Open the city viewer for the settlement under the pointer."),
+    ("civ.settlement_class", "Step the settlement class that the Settlement tool will place next."),
+    ("civ.territory_commit", "Write the territory outline being drawn into the territory map."),
+    // world_workspace.gd context row (shown while the Paint tool is armed).
+    ("world.paint_radius", "Step the Paint tool's brush radius, in cells."),
+];
+
+/// The [`DESC_ONLY`] description of `id`, when there is one.
+fn desc_only(id: &str) -> Option<&'static str> {
+    DESC_ONLY.iter().find(|(i, _)| *i == id).map(|(_, d)| *d)
+}
 
 /// Why a context-card action cannot be proposed yet (AC-3).
 pub const CONTEXT_NOT_RUNNABLE: &str = "It runs from the map's right-click card at a point; the assistant cannot run it from a proposal yet.";
@@ -631,6 +773,7 @@ impl ActionCatalogue {
         b.menu_rows(shell);
         b.statics(no_world, view);
         b.selection(shell, no_world);
+        b.history(shell);
         if let Some((lo, hi)) = shell.years {
             b.push(ActionEntry {
                 id: "timeline.set_year".into(),
@@ -641,7 +784,7 @@ impl ActionCatalogue {
                 path: "story/time".into(),
                 kind: ActionKind::Select,
                 effect: Effect::View,
-                args: vec![ArgSpec::new("year", ArgType::Int { min: lo, max: hi }, true)],
+                args: vec![ArgSpec::new("year", ArgType::Int { min: lo, max: hi }, true).hint("The year to go to, as a whole number such as 398 (never a word).")],
                 available: no_world.is_none(),
                 why: no_world.unwrap_or("").into(),
                 state: None,
@@ -706,7 +849,11 @@ impl Builder {
         // found it refused on its title). The id is still checked; every action-like source is checked
         // on its title too.
         let title = if e.source == "params" { "" } else { e.title.as_str() };
-        if let Some(s) = refusal(&e.id, title) {
+        // AC-5: an id on the reviewed allow-list skips the stem check, by exact id only, and takes the
+        // fixed title from that list (so the title the stem check would have read is not the shell's).
+        if let Some((_, fixed, _)) = REFUSAL_EXEMPT.iter().find(|(i, ..)| *i == e.id) {
+            e.title = (*fixed).to_owned();
+        } else if let Some(s) = refusal(&e.id, title) {
             drop(format!("contains the forbidden word '{s}'"));
             return;
         }
@@ -806,7 +953,7 @@ impl Builder {
                 "Switch the map's whole look to a named preset; Edit > Undo reverts it.",
                 "carto/style",
                 Effect::Undoable,
-                vec![ArgSpec::new("preset", ArgType::Choice(preset_ids), true)],
+                vec![ArgSpec::new("preset", ArgType::Choice(preset_ids), true).hint("The look to switch to; one of the listed values exactly.")],
                 "set_style_preset",
                 !f.presets.is_empty(),
             ));
@@ -820,9 +967,9 @@ impl Builder {
                 "map/view",
                 Effect::View,
                 vec![
-                    ArgSpec::new("x", ArgType::Num { min: 0.0, max: f64::from(w.saturating_sub(1)) }, true),
-                    ArgSpec::new("y", ArgType::Num { min: 0.0, max: f64::from(h.saturating_sub(1)) }, true),
-                    ArgSpec::new("zoom", ArgType::Num { min: lo, max: hi }, false),
+                    ArgSpec::new("x", ArgType::Num { min: 0.0, max: f64::from(w.saturating_sub(1)) }, true).hint("The grid column to centre on, from 0 at the west edge."),
+                    ArgSpec::new("y", ArgType::Num { min: 0.0, max: f64::from(h.saturating_sub(1)) }, true).hint("The grid row to centre on, from 0 at the north edge."),
+                    ArgSpec::new("zoom", ArgType::Num { min: lo, max: hi }, false).hint("The zoom factor; 1 is the whole map."),
                 ],
                 "zoom_to",
                 f.camera.is_some(),
@@ -901,8 +1048,10 @@ impl Builder {
                     ActionKind::View,
                     Effect::Unreviewed,
                     format!("more/{}", if group.is_empty() { "menus".to_owned() } else { group.replace(|c: char| !c.is_ascii_alphanumeric(), "_") }),
-                    format!("{} menu: {}.", if r.group.is_empty() { "App" } else { &r.group }, r.title),
-                    DescSource::Derived,
+                    // AC-5: a written description when there is one; the derived sentence is only the
+                    // fallback for a row that appears after the last review (the real-row test fails on it).
+                    desc_only(&id).map_or_else(|| format!("{} menu: {}.", if r.group.is_empty() { "App" } else { &r.group }, r.title), str::to_owned),
+                    if desc_only(&id).is_some() { DescSource::Curated } else { DescSource::Derived },
                 ),
             };
             let (available, why) = if effect == Effect::Unreviewed {
@@ -961,8 +1110,8 @@ impl Builder {
                     ActionKind::Edit,
                     Effect::Unreviewed,
                     vec![],
-                    format!("Context-card action: {title}."),
-                    DescSource::Derived,
+                    desc_only(id).map_or_else(|| format!("Context-card action: {title}."), str::to_owned),
+                    if desc_only(id).is_some() { DescSource::Curated } else { DescSource::Derived },
                     false,
                     "Not yet reviewed for assistant use; the user can run it from the context card.".to_owned(),
                 ),
@@ -1054,7 +1203,8 @@ impl Builder {
             "select.settlement",
             "Select a settlement",
             "Select one settlement by id (its position in the settlement list, from 0); the dock and CIVIL follow.",
-            vec![ArgSpec::new("id", ArgType::Int { min: 0, max: (n - 1).max(0) }, true)],
+            vec![ArgSpec::new("id", ArgType::Int { min: 0, max: (n - 1).max(0) }, true)
+                .hint("The settlement's position in the world's settlement list, counting from 0: a whole number such as 17, never a word. If the user named a place and you do not know its number, say so instead of proposing.")],
             avail,
             why.clone(),
             "pick choose town city village inspect",
@@ -1066,6 +1216,34 @@ impl Builder {
             (None, _) => (false, "There is no earlier selection to return to.".to_owned()),
         };
         self.push(mk("select.back", "Previous selection", "Return to the selection before this one, like a browser's Back.", vec![], bavail, bwhy, "back return earlier"));
+    }
+}
+
+impl Builder {
+    /// AC-5: `edit.undo`, offered only when the shell said whether an undo step exists
+    /// ([`ShellFacts::undo`]); a missing fact offers nothing. Effect [`Effect::Undoable`] (it changes the
+    /// project, and Redo reverts it). `available` is the shell's answer now, with the step's label in
+    /// `state` so the card can say what it would revert.
+    fn history(&mut self, shell: &ShellFacts) {
+        let Some(u) = &shell.undo else { return };
+        self.push(ActionEntry {
+            id: "edit.undo".into(),
+            title: "Undo the last change".into(),
+            desc: "Undo the newest step, exactly as Edit > Undo does; Redo brings it back.".into(),
+            desc_source: DescSource::Curated,
+            detail: Some("Runs alone on its card. It reverts whatever the newest undo step is, which the state field names when the app said.".into()),
+            path: "edit/history".into(),
+            kind: ActionKind::Edit,
+            effect: Effect::Undoable,
+            args: vec![],
+            available: u.available,
+            why: if u.available { String::new() } else { "There is nothing to undo.".into() },
+            state: (u.available && !u.label.is_empty()).then(|| format!("would undo: {}", u.label)),
+            // Search words (a labelled judgement): "undo that" must put THIS entry above `menu:undo_history`,
+            // whose title also says undo; the repeated words are the weight, as the other alias rows have.
+            aliases: "undo undo that revert take back last mistake".into(),
+            source: "history",
+        });
     }
 }
 

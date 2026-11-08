@@ -432,7 +432,7 @@ fn starts_a_context_tag(rest: &[char]) -> bool {
 /// those forms now gets a backslash after it, which keeps the text readable and breaks the tag.
 /// This is a request to the model, not a defence by itself (scope s.5b.6); the defences are
 /// that the prose path offers no tools and that writing a reply anywhere is the user's click.
-fn defuse_fence(text: &str) -> String {
+pub(crate) fn defuse_fence(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len() + 8);
     for (i, &c) in chars.iter().enumerate() {

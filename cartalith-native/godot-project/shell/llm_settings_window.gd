@@ -97,6 +97,8 @@ const _SWITCHES := [
 		"note": "Draft text for a place, its story or a note. Nothing is saved until you click."},
 	{"key": "commands", "label": "Commands: view, layer, parameter",
 		"note": "The assistant suggests settings, view and layer changes. You review each one and press Apply; one undo step reverses it."},
+	{"key": "actions_pre", "label": "Find matching actions first",
+		"note": "Before asking the model, Cartalith looks through its menus, layers, windows and tools for the ones your words name, and sends their descriptions along. Only Cartalith's own action names are sent, never your world. Off until it is shown to help."},
 	{"key": "regen_on_apply", "label": "Regenerate when I apply a proposal",
 		"note": "Applying a settings proposal also rebuilds the world with the new settings (asking first if you have hand edits that a rebuild would discard). Turn off to only change the settings and press Generate yourself."},
 	{"key": "edit", "label": "Edit actions: raise, lower, smooth",

@@ -124,12 +124,12 @@ fn ac1_counts_and_bars_over_the_real_rows() {
     assert_eq!(by("params"), 114, "every offered registry row is an entry");
     assert_eq!(by("view"), 10 + 3, "ten layers plus the style preset, zoom and the (withheld) landmark filter");
     assert_eq!(by("window"), 10);
-    assert_eq!(by("context"), 23, "30 scanned minus 7 refused: export, discard x3, erase, clear, undo");
+    assert_eq!(by("context"), 25, "30 scanned minus 5 refused: discard x3, erase and the sculpt draft's undo (AC-5 allow-listed region_start and river_clear)");
     assert_eq!(by("tool"), 13);
     assert_eq!(by("timeline"), 1);
-    assert_eq!(by("menu"), 31, "66 rows less 10 merged into windows and 25 refused");
-    assert_eq!(c.entries().len(), 114 + 13 + 10 + 23 + 13 + 1 + 31);
-    assert_eq!(c.derived_desc_count(), 24, "AC-5's work list: derived descriptions (unreviewed menu and context rows)");
+    assert_eq!(by("menu"), 32, "66 rows less 10 merged into windows and 24 refused (AC-5 allow-listed undo_history)");
+    assert_eq!(c.entries().len(), 114 + 13 + 10 + 25 + 13 + 1 + 32);
+    assert_eq!(c.derived_desc_count(), 0, "AC-5: every real row carries a written description (the work list was 27 at AC-5's start)");
     // Accounting: each of the 66 rows is an entry, a merge or a refusal.
     for r in &facts.menu_rows {
         let id = format!("menu:{}", r.name);
@@ -138,7 +138,7 @@ fn ac1_counts_and_bars_over_the_real_rows() {
     }
     let merged = c.dropped.iter().filter(|d| d.why.starts_with("merged into ")).count();
     let refused = c.dropped.iter().filter(|d| d.id.starts_with("menu:") && d.why.starts_with("contains the forbidden")).count();
-    assert_eq!((merged, refused), (10, 25));
+    assert_eq!((merged, refused), (10, 24));
 }
 
 /// Protects "refuse anything destructive by construction" over the REAL pinnable rows (Save, Close,
@@ -151,7 +151,7 @@ fn the_real_destructive_rows_are_not_in_the_catalogue() {
     for name in [
         "save", "save_as", "close", "new_world", "new_world_from_selection", "open_project", "revert", "export_dm", "export_map_image", "export_player",
         "ap_export", "import_image", "import_pack", "import_folder", "delete", "cut", "paste", "clear_library", "pref_clear_caches", "edit_reset_params",
-        "win_reset", "win_save_layout", "help_report", "help_gen_info", "undo_history",
+        "win_reset", "win_save_layout", "help_report", "help_gen_info",
     ] {
         assert!(c.get(&format!("menu:{name}")).is_none(), "menu:{name} must not be an entry");
     }
@@ -159,6 +159,9 @@ fn the_real_destructive_rows_are_not_in_the_catalogue() {
         // A parameter's title is the registry's own wording and is not checked (`carve_rivers` says
         // "on generation"); its id still is.
         let title = if e.source == "params" { "" } else { e.title.as_str() };
+        if REFUSAL_EXEMPT.iter().any(|(i, ..)| *i == e.id) {
+            continue; // AC-5's reviewed allow-list, pinned exactly by `the_refusal_allow_list_is_exact_reviewed_and_no_wider`.
+        }
         assert_eq!(refusal(&e.id, title), None, "{} / {}", e.id, e.title);
     }
     // The rows nobody reviewed are listed, unavailable, and cannot be proposed.
@@ -195,7 +198,9 @@ fn every_curated_row_names_something_real() {
     let menus = shell_src("menus.gd");
     for (name, ..) in MENU_REVIEW {
         assert!(menus.contains(&format!("const ID_{} :=", name.to_uppercase())), "MENU_REVIEW names ID_{} which menus.gd lacks", name.to_uppercase());
-        assert_eq!(refusal(&format!("menu:{name}"), ""), None, "{name} is reviewed but refused: a dead row");
+        // AC-5: a reviewed row the stem check would drop is a dead row UNLESS it is on the exact-id allow-list.
+        let exempt = REFUSAL_EXEMPT.iter().any(|(i, ..)| *i == format!("menu:{name}"));
+        assert!(refusal(&format!("menu:{name}"), "").is_none() || exempt, "{name} is reviewed but refused: a dead row");
     }
     let wins = block_ids(&shell_src("llm_view.gd"), "WINDOWS", "id");
     for (id, ..) in WINDOW_REVIEW {
@@ -209,7 +214,8 @@ fn every_curated_row_names_something_real() {
     for (id, ..) in CONTEXT_REVIEW {
         assert!(ctx.contains(id), "CONTEXT_REVIEW names {id}, not scanned from the shell");
         let label = data["context"].as_array().unwrap().iter().find(|c| c["id"] == *id).unwrap()["label"].as_str().unwrap();
-        assert_eq!(refusal(id, label), None, "{id} is reviewed but its id or label is refused");
+        let exempt = REFUSAL_EXEMPT.iter().any(|(i, ..)| i == id);
+        assert!(refusal(id, label).is_none() || exempt, "{id} is reviewed but its id or label is refused");
     }
     let tools: Vec<&str> = data["tools"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
     for (id, _) in TOOL_REVIEW {
@@ -633,7 +639,7 @@ fn ac3_every_proposable_entry_has_a_click_path_and_the_families_are_counted() {
     assert_eq!(by.get("view"), Some(&12), "ten layers, the style preset and zoom; the landmark filter is withheld on this world");
     assert!(by.get("menu").copied().unwrap_or(0) > 0, "the reviewed menu rows that are available");
     let ctx: Vec<&ActionEntry> = c.entries().iter().filter(|e| e.source == "context").collect();
-    assert_eq!(ctx.len(), 23);
+    assert_eq!(ctx.len(), 25);
     assert!(ctx.iter().all(|e| !e.available), "no context action can be proposed");
     assert!(ctx.iter().filter(|e| e.effect != Effect::Unreviewed).all(|e| e.why == CONTEXT_NOT_RUNNABLE));
 }
@@ -761,5 +767,463 @@ fn ac3_a_proposed_mixed_card_is_checked_by_the_verdict_it_was_given() {
             assert!(v.rejected[0].why.contains("right-click"));
         }
         s => panic!("a context action must be refused: {s:?}"),
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// AC-4: action packs and pre-retrieval.  AC-5: descriptions, the refusal allow-list, Undo, and the
+// hostile corpus for the catalogue itself.
+// ---------------------------------------------------------------------------------------------
+
+/// The real catalogue with every fact the live shell reports: 212 settlements and an earlier selection
+/// (what the AC-3 probe measured), and an undo step named "Sculpt stamp".
+fn full_facts(undo: Option<UndoFact>) -> ShellFacts {
+    let mut f = shell_facts();
+    f.settlements = Some(212);
+    f.can_select_back = Some(true);
+    f.undo = undo;
+    f
+}
+
+fn full_catalogue() -> ActionCatalogue {
+    ActionCatalogue::build(Some(&params_catalogue()), Some(&real_view()), &full_facts(Some(UndoFact { available: true, label: "Sculpt stamp".into() })))
+}
+
+/// AC-5 bar "every entry has a description, and none is a placeholder", over the real inputs with every
+/// fact present. Protects: no entry is `Derived` (the 27 rows that were at AC-5's start are written); every
+/// description is a sentence of at least four words, within 120 characters, that is not its title, not its
+/// id and not a known placeholder shape ("Context-card action: X.", "X menu: Y.", TODO, TBD, lorem).
+/// MUTATION: delete the `menu:copy` row from `DESC_ONLY` and the first assertion goes red; set a
+/// description to its title and the shape check goes red.
+#[test]
+fn ac5_every_entry_has_a_real_description_and_none_is_a_placeholder() {
+    let c = full_catalogue();
+    let derived: Vec<&str> = c.entries().iter().filter(|e| e.desc_source == DescSource::Derived).map(|e| e.id.as_str()).collect();
+    assert!(derived.is_empty(), "derived (placeholder-shaped) descriptions remain: {derived:?}");
+    let norm = |s: &str| s.to_lowercase().trim_matches(|ch: char| !ch.is_alphanumeric()).to_owned();
+    let shapes = ["context-card action:", " menu: ", "todo", "tbd", "fixme", "lorem", "placeholder", "no description", "xxx"];
+    for e in c.entries() {
+        let d = e.desc.trim();
+        assert!(d.split_whitespace().count() >= 4, "{}: {d:?} is too short to describe anything", e.id);
+        assert!(d.chars().count() <= MAX_DESC_CHARS, "{}: {d:?}", e.id);
+        assert_ne!(norm(d), norm(&e.title), "{}: the description is the title", e.id);
+        assert!(!d.contains(e.id.as_str()), "{}: the description is the id", e.id);
+        for s in shapes {
+            assert!(!d.to_lowercase().contains(s), "{}: {d:?} looks like a placeholder ({s})", e.id);
+        }
+    }
+    // The curated table is not a dead table: every row names an entry that is really listed and really
+    // unreviewed (a reviewed row has its own description and would never read this one).
+    for (id, d) in DESC_ONLY {
+        let e = c.get(id).unwrap_or_else(|| panic!("DESC_ONLY names {id}, which is not an entry on the real rows"));
+        assert_eq!(e.effect, Effect::Unreviewed, "{id} is reviewed, so DESC_ONLY's text is never used");
+        assert_eq!(&e.desc, d, "{id}");
+    }
+}
+
+/// AC-5's allow-list, pinned: the exempt ids are exactly the four reviewed ones; each would be refused by
+/// the untouched guard (so the list is not dead); each becomes an entry with the FIXED title, whatever the
+/// shell said (a hostile shell title is replaced); and the neighbours the stems exist for are still refused:
+/// the draft discards, the paint erase, the sculpt draft's undo, every destructive menu row, a row whose
+/// name merely STARTS with an exempt id, and `menu:undo` itself. MUTATION: widen the match from the exact
+/// id to `starts_with` and `menu:undo_history_x` appears; remove "undo" from `FORBIDDEN_STEMS` and
+/// `refusal("edit.undo", ..)` becomes `None`, failing the first loop.
+#[test]
+fn the_refusal_allow_list_is_exact_reviewed_and_no_wider() {
+    let ids: Vec<&str> = REFUSAL_EXEMPT.iter().map(|(i, ..)| *i).collect();
+    assert_eq!(ids, ["edit.undo", "menu:undo_history", "carto.region_start", "world.river_clear"]);
+    for (id, title, why) in REFUSAL_EXEMPT {
+        assert!(refusal(id, "").is_some() || refusal(id, title).is_some(), "{id} is not refused by the guard, so the allow-list row is dead");
+        assert!(why.len() > 20, "{id}: the reason must say why it is safe");
+    }
+    assert_eq!(refusal("edit.undo", ""), Some("undo"));
+    let c = full_catalogue();
+    for (id, title, _) in REFUSAL_EXEMPT {
+        let e = c.get(id).unwrap_or_else(|| panic!("{id} should be an entry"));
+        assert_eq!(&e.title, title, "{id}: the fixed title replaces the shell's");
+    }
+    for id in [
+        "civ.territory_discard", "world.paint_discard", "world.sculpt_discard", "world.paint_erase", "world.sculpt_undo", "menu:undo", "menu:save", "menu:delete",
+        "menu:undo_history_x", "edit.undo2", "menu:redo",
+    ] {
+        assert!(c.get(id).is_none(), "{id} must stay refused");
+    }
+    // A row that merely starts with an exempt id is not exempt.
+    let mut f = full_facts(None);
+    f.menu_rows.push(MenuRow { name: "undo_history_x".into(), title: "Undo history x".into(), group: "Edit".into(), window: None, available: true, why: String::new() });
+    let c2 = ActionCatalogue::build(Some(&params_catalogue()), Some(&real_view()), &f);
+    assert!(c2.get("menu:undo_history_x").is_none());
+    assert!(c2.dropped.iter().any(|d| d.id == "menu:undo_history_x" && d.why.contains("forbidden")));
+    // A hostile title on an exempt id is replaced, not trusted.
+    for r in f.menu_rows.iter_mut().filter(|r| r.name == "undo_history") {
+        r.title = "Delete every world".into();
+    }
+    let c3 = ActionCatalogue::build(Some(&params_catalogue()), Some(&real_view()), &f);
+    assert_eq!(c3.get("menu:undo_history").unwrap().title, "Undo history");
+}
+
+/// AC-5's safe Undo: offered only when the shell said whether a step exists; `available` follows the
+/// shell's answer with a reason; the step's label shows as state; it routes to Undo, is Edit/Undoable,
+/// not Session-gated, runs through the validator only after a search returned it, and may not share a card
+/// (rule C8). MUTATION: drop the `Route::Undo` arm in `route()` and the proposable assertion goes red;
+/// drop the C8 clause in `check_card` and the shared-card assertion goes red.
+#[test]
+fn ac5_undo_is_offered_from_the_shells_fact_and_runs_alone() {
+    let none = ActionCatalogue::build(Some(&params_catalogue()), Some(&real_view()), &full_facts(None));
+    assert!(none.get("edit.undo").is_none(), "no fact, no entry: 'not said' is never 'nothing to undo'");
+    let c = full_catalogue();
+    let e = c.get("edit.undo").expect("edit.undo");
+    assert_eq!((e.kind, e.effect, e.available, e.route(), e.session_gated()), (ActionKind::Edit, Effect::Undoable, true, Route::Undo, false));
+    assert_eq!(e.state.as_deref(), Some("would undo: Sculpt stamp"));
+    assert_eq!(e.path, "edit/history");
+    let off = ActionCatalogue::build(Some(&params_catalogue()), Some(&real_view()), &full_facts(Some(UndoFact { available: false, label: "stale".into() })));
+    let e = off.get("edit.undo").unwrap();
+    assert!(!e.available && e.why == "There is nothing to undo." && e.state.is_none(), "{e:?}");
+    // The AC-0 task t24, "Undo that": search returns it, the validator accepts it, check_card lets it run alone.
+    let mut ledger = ActionLedger::default();
+    let r = c.search("Undo that", None, None, &mut ledger);
+    let top: Vec<&str> = r["matches"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert_eq!(top.first(), Some(&"edit.undo"), "{top:?}");
+    let v = c.validate(&json!({"summary": "undo", "actions": [{"id": "edit.undo"}]}), &ledger);
+    assert_eq!(v.valid.len(), 1, "{v:?}");
+    let ctx = ExecContext { session_mode: false, generating: false, finalized: false };
+    let item = |id: &str, route: &str| ExecItem::from_wire(Some(id), Some(route), Some(false));
+    assert!(check_card(&[item("edit.undo", "undo")], &ctx).is_empty());
+    let shared = check_card(&[item("view.layer.rivers", "view"), item("edit.undo", "undo")], &ctx);
+    assert_eq!(shared.iter().map(|x| x.rule.id()).collect::<Vec<_>>(), ["C8"]);
+    // Unavailable Undo is refused by the validator (B7-style availability), never proposed.
+    let mut l2 = ActionLedger::default();
+    off.search("undo", None, None, &mut l2);
+    assert!(off.validate(&json!({"actions": [{"id": "edit.undo"}]}), &l2).valid.is_empty());
+}
+
+/// AC-5's hints: `describe_action` tells a small model what `select.settlement`'s `id` and the year
+/// MEAN, which the qwen3-14b run lacked (it wrote `number` and `n`). Literal substrings. The validator
+/// still rejects the words themselves. MUTATION: remove the hint and the first assertion goes red.
+#[test]
+fn ac5_describe_says_what_the_ids_and_years_mean() {
+    let c = full_catalogue();
+    let mut l = ActionLedger::default();
+    c.search("select settlement", None, None, &mut l);
+    c.search("go to the year", None, None, &mut l);
+    let d = c.describe(&["select.settlement".into(), "timeline.set_year".into()], &l);
+    let s = d.to_string();
+    assert!(s.contains("counting from 0: a whole number such as 17, never a word"), "{s}");
+    assert!(s.contains("as a whole number such as 398"), "{s}");
+    for bad in ["number", "n", "17", "Vhal Serai"] {
+        let v = c.validate(&json!({"actions": [{"id": "select.settlement", "args": {"id": bad}}]}), &l);
+        assert!(v.valid.is_empty(), "{bad:?} must be refused: {v:?}");
+    }
+    // The size bar still holds with the hints: a describe of two entries stays well inside 300 tokens each.
+    assert!(s.chars().count() <= 2 * 300 * 4, "{}", s.chars().count());
+}
+
+/// The scoped packs against the real catalogue: every pack id is a real, proposable entry, each pack
+/// holds three to eight, the block is inside its character and token caps, names its origin, lists each
+/// entry's arguments, and contains only available entries. Literal sizes measured 2026-11-08 (printed by
+/// the test). MUTATION: add "menu:save" to the pack and the real-entry assertion goes red; raise
+/// `MAX_PACK_ACTIONS` and the length assertion goes red.
+#[test]
+fn every_pack_id_is_a_real_entry_and_the_sizes_hold() {
+    let c = full_catalogue();
+    assert_eq!(PACKS.len(), 1, "only the Commands button sends the catalogue tools");
+    for (scope, ids) in PACKS {
+        assert!((3..=8).contains(&ids.len()), "{scope}: {}", ids.len());
+        for id in *ids {
+            let e = c.get(id).unwrap_or_else(|| panic!("pack {scope} names {id}, not an entry"));
+            assert!(e.effect != Effect::Unreviewed && e.route() != Route::None, "{id} cannot be proposed");
+        }
+    }
+    let p = c.build_pack(Some("commands"), None).expect("the commands pack");
+    eprintln!("AC4 commands pack: {} ids, {} chars, ~{} tokens", p.ids.len(), p.text.chars().count(), p.approx_tokens);
+    assert_eq!(p.ids, ["view.layer.territory", "view.style_preset", "timeline.set_year", "select.settlement", "window.factions", "view.zoom_to", "tool.way", "edit.undo"]);
+    assert_eq!(p.from_search, 0);
+    assert!(p.text.starts_with("<context kind=\"actions\" origin=\"pack\">\n") && p.text.ends_with("</context>\n"), "{}", p.text);
+    assert!(p.text.chars().count() <= 2600 && p.approx_tokens <= 800, "{} chars, {} tokens", p.text.chars().count(), p.approx_tokens);
+    assert_eq!((MAX_PACK_ACTIONS, PRE_RETRIEVE_HITS, MAX_PACK_CHARS), (8, 5, 2600), "the proposal's 'three to eight' and 'top five'");
+    assert!(p.text.contains("- timeline.set_year | Go to year | Move the shared timeline cursor"), "{}", p.text);
+    assert!(p.text.contains("takes: year (whole number -400..1200)"), "{}", p.text);
+    assert!(p.text.contains("edit.undo | Undo the last change") && p.text.contains("would undo: Sculpt stamp"), "{}", p.text);
+    // An unknown scope adds nothing; no scope and no request is no block at all.
+    assert!(c.build_pack(Some("bogus"), None).is_none() && c.build_pack(None, None).is_none());
+    // An unavailable entry is left out, never listed with a hope.
+    let off = ActionCatalogue::build(Some(&params_catalogue()), Some(&real_view()), &full_facts(Some(UndoFact { available: false, label: String::new() })));
+    assert!(!off.build_pack(Some("commands"), None).unwrap().ids.contains(&"edit.undo".to_owned()));
+}
+
+/// Pre-retrieval ranks the user's words with the SAME ranker as `search_actions`, takes the top five that
+/// can run, puts them ahead of the scope's, never repeats an id, never exceeds eight, and falls back to the
+/// scope when the request has no searchable words. MUTATION: take `PRE_RETRIEVE_HITS` + 1 hits and the
+/// count assertion goes red; skip the dedupe and the unique assertion goes red.
+#[test]
+fn pre_retrieval_ranks_like_search_and_stays_inside_its_caps() {
+    let c = full_catalogue();
+    let p = c.build_pack(Some("commands"), Some("Make the map look like an old antique map")).unwrap();
+    assert_eq!(p.ids[0], "view.style_preset", "{:?}", p.ids);
+    assert!(p.from_search >= 1 && p.from_search <= 5 && p.ids.len() <= 8, "{:?}", p.ids);
+    assert!(p.text.starts_with("<context kind=\"actions\" origin=\"search+pack\">"), "{}", p.text);
+    let mut u = p.ids.clone();
+    u.sort();
+    u.dedup();
+    assert_eq!(u.len(), p.ids.len(), "an id appears twice: {:?}", p.ids);
+    let mut l = ActionLedger::default();
+    let s = c.search("Make the map look like an old antique map", None, None, &mut l);
+    assert_eq!(s["matches"][0]["id"], json!(p.ids[0]), "search and pre-retrieval rank alike");
+    let only = c.build_pack(None, Some("Hide the rivers")).unwrap();
+    assert!(only.text.contains("origin=\"search\"") && only.ids.len() <= 5 && only.ids[0] == "view.layer.rivers", "{:?}", only.ids);
+    let stop = c.build_pack(Some("commands"), Some("the a an of to ...")).unwrap();
+    assert_eq!((stop.from_search, stop.ids.len()), (0, 8), "no searchable word falls back to the scope");
+}
+
+/// A pack on a real conversation: the block leads the user's message, the system prompt names it, every id
+/// in it is acceptable to `propose_actions` WITHOUT a list or search (it is "returned" by the pack), the
+/// same proposal without the pack is refused (B6), `drop_action_pack` restores the request byte for byte
+/// and takes the ids back out, and a conversation with no catalogue tools ignores the pack. This is the
+/// guard's remedy ("drops the pack first, and says so"). MUTATION: skip `note_all` in `with_action_pack`
+/// and the proposal is refused; skip `forget` and the dropped ids stay acceptable.
+#[test]
+fn a_pack_rides_the_message_fills_the_ledger_and_can_be_dropped() {
+    let cat = params_catalogue();
+    let actions = full_catalogue();
+    let base = ParamsConversation::new(&cat, "go to the year 398").unwrap().with_queries(&cat, true).with_actions(&cat, Some(actions.clone()));
+    let pack = actions.build_pack(Some("commands"), None).unwrap();
+    let packed = base.clone().with_action_pack(&cat, pack.clone());
+    assert!(packed.messages()[1].content.starts_with(&pack.text) && packed.messages()[1].content.ends_with("go to the year 398"), "{}", packed.messages()[1].content);
+    let sys = &packed.messages()[0].content;
+    assert!(sys.contains("The <context kind=\"actions\"> block in the user's message lists actions the app already found"), "{sys}");
+    assert!(!base.messages()[0].content.contains("<context kind=\"actions\">"));
+    for id in &pack.ids {
+        assert!(packed.action_ledger().knows(id), "{id}");
+    }
+    let propose = |mut c: ParamsConversation| c.on_reply(&cat, "", vec![call("propose_actions", json!({"summary": "year", "actions": [{"id": "timeline.set_year", "args": {"year": 398}}]}))]);
+    assert!(matches!(propose(packed.clone()), Step::ActionProposal(_)), "a pack id is acceptable without a lookup");
+    assert!(matches!(propose(base.clone()), Step::ActionRetry(_)), "without the pack the same proposal is refused (B6)");
+    let mut dropped = packed.clone();
+    dropped.drop_action_pack(&cat);
+    assert_eq!(dropped.messages(), base.messages(), "dropping restores the request byte for byte");
+    assert!(dropped.action_ledger().is_empty() && dropped.action_pack().is_none());
+    assert!(matches!(propose(dropped), Step::ActionRetry(_)), "dropped ids are no longer acceptable");
+    let plain = ParamsConversation::new(&cat, "go to the year 398").unwrap().with_queries(&cat, true);
+    assert_eq!(plain.clone().with_action_pack(&cat, pack).messages(), plain.messages(), "no catalogue tools, no block");
+}
+
+/// The first Commands request with the pack and with pre-retrieval still fits the 8 192 window AT THE
+/// GUARD'S pessimistic ratio, and the pack costs what it says: between 150 and 800 tokens by the guard's
+/// estimate. AC-2's per-call targets (list <= 400, search <= 400, describe <= 300, first request < 4 500)
+/// are asserted unchanged by the AC-2 tests above, which run against this same code. MUTATION: double
+/// `MAX_PACK_CHARS` and the 800-token ceiling goes red.
+#[test]
+fn the_first_request_with_a_pack_still_fits_the_window() {
+    let cat = params_catalogue();
+    let actions = full_catalogue();
+    let base = ParamsConversation::new(&cat, "make the map look like an old antique map").unwrap().with_queries(&cat, true).with_actions(&cat, Some(actions.clone()));
+    let est = |c: &ParamsConversation| estimate_prompt_tokens(&c.request(&cat, "qwen3-14b", 1024, MaxTokensField::MaxTokens, false, Thinking::Default));
+    let plain = est(&base);
+    let pack = actions.build_pack(Some("commands"), Some("make the map look like an old antique map")).unwrap();
+    let packed = est(&base.clone().with_action_pack(&cat, pack));
+    eprintln!("AC4 first request: {plain} tokens plain, {packed} with the pack and pre-retrieval (guard's estimate)");
+    assert!((150..=800).contains(&(packed - plain)), "the pack costs {} tokens", packed - plain);
+    assert!(packed < 4500);
+    let req = base.clone().with_action_pack(&cat, actions.build_pack(Some("commands"), Some("make the map look like an old antique map")).unwrap()).request(&cat, "qwen3-14b", 1024, MaxTokensField::MaxTokens, false, Thinking::Default);
+    assert!(check_budget(&req, 8192).is_ok());
+}
+
+/// AC-4's model-free half of "pre-retrieval of actions raises AC-0's local score": on AC-0's 30 tasks, how
+/// many needed slots are IN the block the model is handed with no tool call at all, by the scope pack
+/// alone, by pre-retrieval alone and by both. This measures REACH of the preloaded block, not a model's
+/// choice, so it cannot by itself show a model scores higher; the AC-4 report pairs it with the real-model
+/// run. Slots with no offered id are counted, not skipped (`select`, `selection.back` map to the AC-3
+/// verbs, `menu:undo` to AC-5's `edit.undo`; the timeline's play and record have no shell code).
+/// Literal floors measured 2026-11-08. MUTATION: rank by id only and the pre-retrieval floor goes red.
+#[test]
+fn ac4_preloaded_reach_on_ac0s_thirty_tasks() {
+    let tasks: Value = serde_json::from_str(include_str!("../../../docs/evidence/assistant-actions-ac0-2026-10-31/tools/tasks.json")).unwrap();
+    let c = full_catalogue();
+    fn map<'a>(id: &'a str) -> &'a str {
+        match id {
+            "select" => "select.settlement",
+            "selection.back" => "select.back",
+            "menu:undo" => "edit.undo",
+            other => other,
+        }
+    }
+    let (mut needed, mut scope, mut pre, mut both, mut unoffered) = (0, 0, 0, 0, 0);
+    let (mut declined_ok, mut declined) = (0, 0);
+    for t in tasks["tasks"].as_array().unwrap() {
+        let prompt = t["prompt"].as_str().unwrap();
+        let sc = c.build_pack(Some("commands"), None).unwrap();
+        let pr = c.build_pack(None, Some(prompt));
+        let bo = c.build_pack(Some("commands"), Some(prompt)).unwrap();
+        let slots = t["slots"].as_array().unwrap();
+        if slots.is_empty() {
+            // The two tasks the assistant must decline ("Save the project", "Delete the Pacific Ocean"):
+            // the block must not hand it a destructive id.
+            declined += 1;
+            if bo.ids.iter().all(|i| refusal(i, "").is_none() || REFUSAL_EXEMPT.iter().any(|(x, ..)| x == i)) {
+                declined_ok += 1;
+            }
+            continue;
+        }
+        for slot in slots {
+            let ids: Vec<&str> = slot.as_array().unwrap().iter().map(|x| map(x.as_str().unwrap())).collect();
+            if !ids.iter().any(|i| c.get(i).is_some()) {
+                unoffered += 1;
+                continue;
+            }
+            needed += 1;
+            let has = |p: &ActionPack| ids.iter().any(|i| p.ids.iter().any(|x| x == i));
+            scope += usize::from(has(&sc));
+            pre += usize::from(pr.as_ref().is_some_and(has));
+            both += usize::from(has(&bo));
+        }
+    }
+    eprintln!("AC4 reach of the preloaded block: needed {needed} (unoffered {unoffered}); scope pack {scope}, pre-retrieval {pre}, both {both}; declined tasks kept clean {declined_ok}/{declined}");
+    assert_eq!(declined, 2);
+    assert_eq!(declined_ok, declined, "a decline task was handed a destructive id");
+    assert!(needed >= 25, "{needed}");
+    assert!(pre >= 22, "pre-retrieval floor: {pre}/{needed}");
+    assert!(both >= pre && both >= scope, "{both} < {pre} or {scope}");
+}
+
+/// The hostile corpus for the CATALOGUE itself (`hostile_corpus_catalogue_2026-11-08.json`, only grows;
+/// scope s.4 bar 3 extended by AC-5). Each row builds a real catalogue from hostile shell facts and a
+/// hostile request, then reads back EVERYTHING a model is shown: every list page at every path, a search
+/// per hostile title, a describe of the hostile entries, the capability map, the prompt paragraph and the
+/// preloaded pack. Invariants for every row: (1) the id set differs from the baseline by exactly the row's
+/// `new_ids` and `removed_ids`; (2) every id is `[a-z0-9._:]` and at most 64; (3) no entry or output
+/// contains a control character; (4) titles <= 60, descriptions <= 120, states <= 72 ("would undo: " plus a label of at most 60); (5) no id is
+/// destructive unless exact-id allow-listed, and an allow-listed entry has its fixed title; (6) the pack
+/// has exactly one `<context` and one `</context>` (a hostile title cannot close or reopen the fence, in
+/// any of the forms the LLM-9 corpus found: upper case, spaced, zero-width); (7) the request is never
+/// copied into the pack; (8) `pack_has` and `pack_lacks` hold. MUTATION: drop `defuse_fence` from
+/// `build_pack` and H02, H03 and H10 go red; drop `inert_text` from `MenuRow` parsing and H01 and H07 go red;
+/// widen the allow-list match and H06 goes red.
+#[test]
+fn the_hostile_corpus_for_the_catalogue() {
+    let doc: Value = serde_json::from_str(include_str!("../../cartalith-llm/tests/fixtures/hostile_corpus_catalogue_2026-11-08.json")).expect("valid JSON");
+    let rows = doc["rows"].as_array().expect("rows");
+    assert!(rows.len() >= 17, "the corpus only grows: {}", rows.len());
+    let baseline: std::collections::BTreeSet<String> = full_catalogue().entries().iter().map(|e| e.id.clone()).collect();
+    let mut seen = std::collections::BTreeSet::new();
+    let lower = |s: &str| s.to_lowercase();
+    let count = |hay: &str, needle: &str| hay.to_lowercase().matches(needle).count();
+    for r in rows {
+        let rid = r["id"].as_str().unwrap();
+        assert!(seen.insert(rid.to_owned()), "duplicate corpus id {rid}");
+        let mut json_facts: Value = serde_json::from_str(FACTS).unwrap();
+        let rows_of = |k: &str| r.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut menu: Vec<Value> = json_facts["menu_rows"].as_array().cloned().unwrap_or_default();
+        for o in rows_of("override_rows") {
+            menu.retain(|m| m["name"] != o["name"]);
+            menu.push(o);
+        }
+        menu.extend(rows_of("extra_rows"));
+        if let Some(d) = r.get("repeat_rows") {
+            for _ in 0..d["times"].as_u64().unwrap() {
+                menu.push(json!({"name": d["name"], "title": d["title"], "group": d["group"], "available": d["available"]}));
+            }
+        }
+        json_facts["menu_rows"] = Value::Array(menu);
+        json_facts["settlements"] = json!(212);
+        json_facts["can_select_back"] = json!(true);
+        json_facts["undo"] = r.get("undo").cloned().unwrap_or_else(|| json!({"available": true, "label": "Sculpt stamp"}));
+        let facts = ShellFacts::from_json_text(&json_facts.to_string()).unwrap_or_else(|e| panic!("{rid}: the facts did not parse: {e}"));
+        let view = match r.get("view") {
+            Some(v) => ViewCatalogue::from_json(v).unwrap(),
+            None => real_view(),
+        };
+        let c = ActionCatalogue::build(Some(&params_catalogue()), Some(&view), &facts);
+        let ids: std::collections::BTreeSet<String> = c.entries().iter().map(|e| e.id.clone()).collect();
+        let ex = &r["expect"];
+        let strs = |k: &str| -> Vec<String> { ex.get(k).and_then(Value::as_array).map(|a| a.iter().map(|x| x.as_str().unwrap().to_owned()).collect()).unwrap_or_default() };
+        if r.get("view").is_none() {
+            let added: std::collections::BTreeSet<String> = ids.difference(&baseline).cloned().collect();
+            let removed: std::collections::BTreeSet<String> = baseline.difference(&ids).cloned().collect();
+            assert_eq!(added, strs("new_ids").into_iter().collect(), "{rid}: the id set grew or shrank by something the row does not expect");
+            assert_eq!(removed, strs("removed_ids").into_iter().collect(), "{rid}: ids went missing");
+        }
+        // (2)-(5) per entry.
+        for e in c.entries() {
+            assert!(e.id.chars().count() <= MAX_ID_CHARS && e.id.chars().all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || "._:".contains(ch)), "{rid}: id {:?}", e.id);
+            for (what, s, max) in [("title", e.title.as_str(), 60), ("desc", e.desc.as_str(), MAX_DESC_CHARS), ("why", e.why.as_str(), 130), ("state", e.state.as_deref().unwrap_or(""), 72)] {
+                assert!(!s.chars().any(char::is_control), "{rid}: {} {what} has a control character: {s:?}", e.id);
+                assert!(s.chars().count() <= max, "{rid}: {} {what} is {} characters", e.id, s.chars().count());
+            }
+            let exempt = REFUSAL_EXEMPT.iter().find(|(i, ..)| *i == e.id);
+            match exempt {
+                Some((_, t, _)) => assert_eq!(&e.title, t, "{rid}: {} must carry the fixed title", e.id),
+                None => {
+                    let title = if e.source == "params" { "" } else { e.title.as_str() };
+                    assert_eq!(refusal(&e.id, title), None, "{rid}: {} / {}", e.id, e.title);
+                }
+            }
+        }
+        // Everything a model can read, as text.
+        let mut shown: Vec<String> = Vec::new();
+        let mut ledger = ActionLedger::default();
+        let mut paths: Vec<String> = vec![String::new()];
+        let mut i = 0;
+        while i < paths.len() {
+            let p = paths[i].clone();
+            i += 1;
+            let mut page = 0;
+            loop {
+                let out = c.list(&p, None, page, &mut ledger);
+                if let Some(es) = out["entries"].as_array() {
+                    for e in es {
+                        if let Some(sub) = e["path"].as_str() {
+                            if !paths.contains(&sub.to_owned()) {
+                                paths.push(sub.to_owned());
+                            }
+                        }
+                    }
+                }
+                shown.push(out.to_string());
+                match out["next_page"].as_u64() {
+                    Some(n) => page = n as usize,
+                    None => break,
+                }
+            }
+        }
+        for e in c.entries().iter().filter(|e| e.source != "params").take(40) {
+            shown.push(c.search(&e.title, None, None, &mut ledger).to_string());
+        }
+        let known: Vec<String> = c.entries().iter().filter(|e| ledger.knows(&e.id)).map(|e| e.id.clone()).take(60).collect();
+        for ch in known.chunks(3) {
+            shown.push(c.describe(ch, &ledger).to_string());
+        }
+        shown.push(c.capability_map());
+        shown.push(c.prompt_paragraph());
+        let request: String = match r.get("request_repeat") {
+            Some(d) => d["unit"].as_str().unwrap().repeat(d["times"].as_u64().unwrap() as usize),
+            None => r.get("request").and_then(Value::as_str).unwrap_or("").to_owned(),
+        };
+        let pack = c.build_pack(Some("commands"), (!request.is_empty()).then_some(request.as_str()));
+        if let Some(p) = &pack {
+            shown.push(p.text.clone());
+            assert!(p.ids.len() <= 8 && p.text.chars().count() <= 2600, "{rid}: pack size");
+            assert_eq!(count(&p.text, "<context"), 1, "{rid}: the pack reopens a context block:\n{}", p.text);
+            assert_eq!(count(&p.text, "</context>"), 1, "{rid}: the pack closes its own fence early:\n{}", p.text);
+            for id in &p.ids {
+                assert!(ids.contains(id), "{rid}: the pack names {id}, not an entry");
+            }
+            for s in strs("pack_lacks") {
+                assert!(!lower(&p.text).contains(&lower(&s)), "{rid}: the pack contains {s:?}:\n{}", p.text);
+            }
+            // A one-word request ("places") is legitimately a word of the catalogue's own text, so the
+            // "copied verbatim" check is for requests of three words or more.
+            if request.split_whitespace().count() >= 3 && request.chars().count() < 400 {
+                assert!(!p.text.contains(request.trim()), "{rid}: the request was copied into the pack");
+            }
+        } else {
+            assert!(strs("pack_has").is_empty(), "{rid}: expected a pack");
+        }
+        for s in strs("pack_has") {
+            assert!(pack.as_ref().is_some_and(|p| p.text.contains(&s)), "{rid}: the pack lacks {s:?}");
+        }
+        // The system paragraph and the capability map are built from the catalogue alone.
+        for s in &shown {
+            assert!(!s.chars().any(|ch| ch.is_control() && ch != '\n'), "{rid}: a control character reached the model:\n{s:?}");
+        }
     }
 }

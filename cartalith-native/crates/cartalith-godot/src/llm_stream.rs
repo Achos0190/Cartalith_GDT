@@ -903,6 +903,8 @@ impl LlmStream {
             None
         };
         let mut pack_info: Option<(i64, i64, String)> = None;
+        // AC-4: what the preloaded action block carried, for the panel (`action_pack_*` keys below).
+        let mut action_pack_info: Option<(Vec<String>, usize, usize, bool)> = None;
         let mut inner = self.lock();
         let (mut conv, max_tokens, include_usage) = if resume {
             match inner.params.take() {
@@ -959,6 +961,20 @@ impl LlmStream {
                     }
                 }
             }
+            // AC-4: the preloaded action block. The scope pack is the scoped button's (`args.action_pack`, a
+            // `PACKS` key; an unknown name adds nothing); pre-retrieval is the app-side search over the
+            // user's words and runs only when the `actions_pre` setting is on (default off until AC-0's
+            // tasks showed a gain). Both are catalogue text only: the request is used to rank and is never
+            // copied into the block. Attached after the knowledge calls so a questions-only request (which
+            // drops the catalogue tools) never carries a block it cannot use.
+            if conv.actions_offered() {
+                let scope = opt_text(args, "action_pack");
+                let request_words = flag(settings, "actions_pre").then(|| text(args, "request"));
+                if let Some(pack) = actions.as_ref().and_then(|a| a.build_pack(scope.as_deref(), request_words.as_deref())) {
+                    action_pack_info = Some((pack.ids.clone(), pack.approx_tokens, pack.from_search, false));
+                    conv = conv.with_action_pack(&cat, pack);
+                }
+            }
             // "Choose groups" (scope s.5b.1 fallback): the USER ticked groups, so the app does
             // step one itself. The same validation as a model's call; a bad list is refused
             // with the reason and nothing is sent.
@@ -980,7 +996,7 @@ impl LlmStream {
         };
         conv.set_view(view);
         conv.set_actions(actions);
-        let req = conv.request(&cat, &s.model, max_tokens, hints.max_tokens_field, include_usage && hints.include_usage, hints.no_thinking);
+        let mut req = conv.request(&cat, &s.model, max_tokens, hints.max_tokens_field, include_usage && hints.include_usage, hints.no_thinking);
         // AC-2's request-size guard: with the catalogue tools in the request, refuse (with the numbers,
         // before anything is sent, never truncating) a request that would not fit a LOCAL model's window.
         // A hosted model's window is far larger and its own server refuses an overlong one, so the guard
@@ -988,8 +1004,21 @@ impl LlmStream {
         // when it knows the server's context; absent, the design window is assumed, not "unlimited".
         if conv.actions_offered() && auth.local {
             let window = args.get("context_tokens").and_then(|v| v.try_to::<i64>().ok()).filter(|w| *w > 0).map_or(DESIGN_WINDOW_TOKENS, |w| w.min(u32::MAX as i64) as u32);
-            if let Err(why) = check_budget(&req, window) {
-                return refuse("request_too_large", &why);
+            if let Err(first) = check_budget(&req, window) {
+                // AC-4 (proposal s.3.6): "drops the pack first, and says so". The preloaded block is the one
+                // part that is a convenience, so it goes before the request is refused; the panel is told
+                // (`action_pack_dropped`). Nothing is ever truncated.
+                if !conv.action_pack().is_some() {
+                    return refuse("request_too_large", &first);
+                }
+                conv.drop_action_pack(&cat);
+                if let Some(info) = action_pack_info.as_mut() {
+                    info.3 = true;
+                }
+                req = conv.request(&cat, &s.model, max_tokens, hints.max_tokens_field, include_usage && hints.include_usage, hints.no_thinking);
+                if let Err(why) = check_budget(&req, window) {
+                    return refuse("request_too_large", &why);
+                }
             }
         }
         let counted = counter().clone();
@@ -1036,6 +1065,15 @@ impl LlmStream {
             if !why.is_empty() {
                 d.set("pack_note", why.as_str());
             }
+        }
+        // AC-4: the preloaded action block: its ids, its size, how many came from the search over the
+        // request, and whether the guard took it out again. Absent when no block was built.
+        if let Some((ids, tokens, searched, dropped)) = action_pack_info {
+            let ids: PackedStringArray = ids.iter().map(|i| GString::from(i.as_str())).collect();
+            d.set("action_pack_ids", &ids);
+            d.set("action_pack_tokens", tokens as i64);
+            d.set("action_pack_searched", searched as i64);
+            d.set("action_pack_dropped", dropped);
         }
         if !km.blocked.is_empty() {
             d.set("knowledge_note", km.blocked.as_str());

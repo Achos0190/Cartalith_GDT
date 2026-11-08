@@ -6,7 +6,7 @@
 //! through the existing click path of its [`Route`]. Keeping the decision here is what lets the hostile
 //! corpus reach it (a Godot probe cannot loop over hundreds of rows), and keeps ONE copy of the rules.
 //!
-//! ## The rules (numbered `C1`..`C7`, like the validators' `A`, `B` and `V` rules)
+//! ## The rules (numbered `C1`..`C8`, like the validators' `A`, `B` and `V` rules)
 //!
 //! | Rule | Refuses | Scope |
 //! |---|---|---|
@@ -17,6 +17,7 @@
 //! | `C5` | an action with no click path ([`Route::None`]: context actions, unreviewed rows, an unknown route) or no id | action |
 //! | `C6` | the same id twice (the validator's `B9`, repeated because a card dictionary crosses the Godot boundary) | action |
 //! | `C7` | a setting while the world is finalized (its settings are locked) | action |
+//! | `C8` | AC-5: `edit.undo` on a card with any other action. Undo reverts the NEWEST undo step, which on a card that also changes settings would be the step the same card just made | action |
 //!
 //! Nothing destructive can reach here: the catalogue has no destructive entry and `propose_actions`
 //! refuses anything unavailable or unreviewed. A refusal list is the WHOLE answer: Apply runs only on an
@@ -80,6 +81,8 @@ pub enum ExecRule {
     C6,
     /// A setting on a finalized world.
     C7,
+    /// AC-5: Undo is not alone on its card.
+    C8,
 }
 
 impl ExecRule {
@@ -93,6 +96,7 @@ impl ExecRule {
             ExecRule::C5 => "C5",
             ExecRule::C6 => "C6",
             ExecRule::C7 => "C7",
+            ExecRule::C8 => "C8",
         }
     }
 }
@@ -138,6 +142,10 @@ pub fn check_card(items: &[ExecItem], ctx: &ExecContext) -> Vec<ExecRefusal> {
         }
         if it.route == Route::None {
             refuse(ExecRule::C5, "The assistant has no way to run this from a card; run it yourself from its menu or the map.".into());
+            continue;
+        }
+        if it.route == Route::Undo && items.len() > 1 {
+            refuse(ExecRule::C8, "Undo takes a card to itself: it reverts the newest step, and beside other actions that could be a step this card just made. Ask for it on its own.".into());
             continue;
         }
         if ctx.session_mode && it.session_gated {
@@ -223,11 +231,24 @@ mod tests {
         assert_eq!(rules(&check_card(&[ExecItem::from_wire(Some("window.vault"), None, Some(false))], &idle())), ["C5"]);
     }
 
+    /// Protects rule C8: Undo alone passes (idle and in Session mode, where it is not gated), Undo beside
+    /// anything is refused on the Undo action only, and a card of other actions is untouched. Literals.
+    /// MUTATION: drop the `items.len() > 1` clause and the second assertion goes red.
+    #[test]
+    fn undo_runs_only_alone_on_its_card() {
+        assert!(check_card(&[item("edit.undo", Route::Undo, false)], &idle()).is_empty());
+        assert!(check_card(&[item("edit.undo", Route::Undo, false)], &ExecContext { session_mode: true, ..idle() }).is_empty());
+        let both = check_card(&[item("view.layer.rivers", Route::View, false), item("edit.undo", Route::Undo, false)], &idle());
+        assert_eq!(rules(&both), ["C8"]);
+        assert_eq!(both[0].id.as_deref(), Some("edit.undo"));
+        assert!(check_card(&[item("view.layer.rivers", Route::View, false), item("window.factions", Route::Window, false)], &idle()).is_empty());
+    }
+
     /// Protects the wire names of the routes the shell switches on: a rename here without the shell goes
     /// red. Literals on purpose.
     #[test]
     fn route_names_are_the_shells_words() {
-        let all = [(Route::Param, "param"), (Route::View, "view"), (Route::Window, "window"), (Route::Menu, "menu"), (Route::Year, "year"), (Route::Select, "select"), (Route::Tool, "tool"), (Route::None, "none")];
+        let all = [(Route::Param, "param"), (Route::View, "view"), (Route::Window, "window"), (Route::Menu, "menu"), (Route::Year, "year"), (Route::Select, "select"), (Route::Tool, "tool"), (Route::Undo, "undo"), (Route::None, "none")];
         for (r, s) in all {
             assert_eq!(r.as_str(), s);
             assert_eq!(Route::parse(s), r);

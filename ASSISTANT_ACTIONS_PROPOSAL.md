@@ -264,6 +264,21 @@ so. It never truncates silently.
 | AC-6 | Fold the specialised tools in (optional) | Only if AC-0's numbers show no loss. The thirteen tools become catalogue entries plus packs |
 | AC-7 | The Ask tab's cards per kind | Setting, view, select, edit and window cards, as `PC_SHELL_PROPOSAL.md` §3.5 draws them |
 
+### Build notes for AC-4 and AC-5 (2026-11-08)
+
+Decisions where this document left a choice, and what the build found. Design notes, not a status column:
+`cartalith-native/docs/STATUS.md` says what is built and the sizes measured.
+
+- **A pack is a fenced block at the head of the first user message** (`<context kind="actions" origin="pack|search|search+pack">`), one line an action: `id | title | description | takes: args | state`. At most 8 actions and 2 600 characters (`ActionCatalogue::build_pack`). It holds catalogue text only: the user's words rank the search and are never copied into it. The ids in it count as returned (the ledger), so a model can propose straight from it; one that was never shown an id is still refused (B6). Only available entries with a click path are listed.
+- **Which buttons.** Only Commands sends the catalogue tools, so it is the one button with a pack (`PACKS`, eight ids chosen from AC-0's non-setting tasks). Describe place, Story and Note send no tools and Edit has its own single tool; a pack of ids they cannot propose would be noise, so they preload none. This is a reading of "each scoped button", labelled as such.
+- **Pre-retrieval is its own switch, `actions_pre`, default off**, not the knowledge `rag_pre` switch AQ4 named: that one is dead unless a knowledge source is ticked, and a catalogue search sends no user data. It is the same ranker as `search_actions`, top five, ahead of the pack. **It stays off**: AC-0's model half could not be re-run (no model was loaded in LM Studio and a session may not load one), so there is no measured rise in a model's score. What was measured is model-free reach (report): the block holds the needed action for 28 of 28 offered slots with pre-retrieval against 11 with the pack alone. `tests/ac4_live.rs` is the harness that produces the score; it has not been run.
+- **The guard drops the pack first** and the panel says so (`action_pack_dropped`); a request too large without it is refused as before.
+- **AC-5, descriptions.** The 27 rows that carried a derived sentence now have written ones (`DESC_ONLY`, each read from its handler); a test fails on any derived description, a title or id repeated as a description, fewer than four words, or a placeholder shape.
+- **AC-5, the destructive filter.** `refusal()` and the stems are untouched. A reviewed allow-list of four exact ids (`REFUSAL_EXEMPT`) skips the stem check and replaces the title with a fixed one: `edit.undo`, `menu:undo_history`, `carto.region_start`, `world.river_clear`. The draft discards, `world.paint_erase` and `world.sculpt_undo` stay refused (they throw away the user's draft, and no click path runs them).
+- **AC-5, Undo.** `edit.undo` runs Edit > Undo through `DccApp.undo_last`; offered only when the shell says whether a step exists (its label shows as state); rule C8 makes it run alone on its card. This reads AQ3's "never a destructive one among them" and §3.5's "same path as a person's click" as allowing it; it is the one entry whose id contains a forbidden stem, by exact-id exemption.
+- **AC-5, small-model gaps.** Arguments carry a one-sentence meaning in `describe_action` (`select.settlement`'s `id` is "a whole number such as 17, never a word", the year likewise); the pack puts `timeline.set_year` and `select.settlement` in front of a model that did not find them by browsing. "Select Vhal Serai" by name is still not answerable: no tool maps a name to a settlement number.
+- **AC-5, the corpus.** `hostile_corpus_catalogue_2026-11-08.json` (18 rows) feeds hostile shell text (titles, groups, reasons, the undo label, view labels) and hostile requests to a real catalogue and checks everything a model can read: the id set changes only as the row expects, no control character, one fence in the pack, the request never copied.
+
 ### Build notes for AC-3 (2026-11-07)
 
 Decisions where this document left a choice: the rules for whether a card may run live in Rust (`action_run::check_card`, C1 to C7) so the hostile corpus reaches them, and the shell asks them from the card's Apply; Session mode gates every setting and the WORLD tools (a labelled judgement from `SESSION_HIDDEN_DOMAINS`); the style preset joins the settings in one undo group, and everything else is session state, as the view card always said, so "one Undo reverts the card" means the settings and the style; a card never regenerates; context-card actions stay listed but unavailable until a click path exists; selection verbs cover settlements only (a faction or landmark selection is shown nowhere until PC-4); `select.none` is named so, since `clear` is a forbidden stem.
@@ -291,7 +306,7 @@ What the build decided where this document left a choice, and what it found. Des
 - **Refusals that cost a harmless entry** (found by the real-row run, kept because a false positive is cheaper
   than a false negative): `Undo history`, `Undo last stamp` and `Undo` (the stem `undo`), `Start export
   region here` (`export`), `Discard ... draft` and `Erase` (`discard`, `erase`). AC-0's task t24, "Undo that",
-  therefore has no offered action. A parameter's title is not checked (`carve_rivers` says "on generation"):
+  therefore had no offered action (AC-5 allow-listed `Undo history` and `Start export region here` by exact id and added `edit.undo`; the draft discards and `Erase` stay refused). A parameter's title is not checked (`carve_rivers` says "on generation"):
   its id still is.
 - **`list_actions` and `search_actions` rows omit `available` when it is true** and carry `available: false`
   only on an action that cannot run now. With the explicit field the worst search was 1 615 characters, 15 over

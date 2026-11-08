@@ -177,6 +177,10 @@ pub struct ParamsConversation {
     /// [`crate::prompt::SHOWN_PARAGRAPH`] to the system prompt. False keeps the request byte-identical
     /// to one built before PC-6.
     selection_year_present: bool,
+    /// AC-4: the preloaded action block that rides in the user's message, when there is one. Kept whole so
+    /// the request-size guard can take it out again ([`ParamsConversation::drop_action_pack`]) and so the
+    /// system prompt names the block exactly when it is present.
+    action_pack: Option<crate::action_tools::ActionPack>,
 }
 
 /// What a batch of waiting query calls needs read from the world.
@@ -254,6 +258,7 @@ impl ParamsConversation {
             retrieved: Vec::new(),
             mentioned: Vec::new(),
             selection_year_present: false,
+            action_pack: None,
         })
     }
 
@@ -285,6 +290,14 @@ impl ParamsConversation {
         if self.pack_present && !self.knowledge_only && !self.edit_only {
             p.push_str("\n\nSources for this request are in the <context> block of the user's message.");
         }
+        // AC-4: only when the four catalogue tools are in the request (a block of actions the model cannot
+        // propose would be noise) and a pack was attached.
+        if self.action_pack.is_some() && self.actions.is_some() && !self.knowledge_only && !self.edit_only {
+            p.push_str(
+                "\n\nThe <context kind=\"actions\"> block in the user's message lists actions the app already found for this request, fully described. \
+When one fits, propose it directly with propose_actions. When none fits, browse or search as above.",
+            );
+        }
         // PC-6: never on an edit request, whose prompt names the region block only (`with_shown`).
         if self.selection_year_present && !self.edit_only {
             p.push_str("\n\n");
@@ -307,6 +320,7 @@ impl ParamsConversation {
             self.queries = false;
             self.view = None;
             self.actions = None;
+            self.action_pack = None;
         }
         self.rebuild_prompt(cat);
         self
@@ -413,6 +427,48 @@ impl ParamsConversation {
         self
     }
 
+    /// AC-4: attach a preloaded action block (the scope's pack and, when pre-retrieval is on, the search
+    /// hits over the request) to the user's message and make its ids acceptable to `propose_actions`, as if
+    /// a list or search had returned them. Call once, after [`ParamsConversation::with_actions`] and
+    /// before the first request. Ignored (nothing changes) unless the catalogue tools are offered, so a
+    /// pack never rides in a request that cannot use it.
+    pub fn with_action_pack(mut self, cat: &Catalogue, pack: crate::action_tools::ActionPack) -> Self {
+        if self.actions.is_none() || self.knowledge_only || self.edit_only || self.action_pack.is_some() {
+            return self;
+        }
+        if let Some(m) = self.messages.get_mut(1) {
+            m.content = format!("{}\n{}", pack.text, m.content);
+        }
+        self.ledger.note_all(&pack.ids);
+        self.action_pack = Some(pack);
+        self.rebuild_prompt(cat);
+        self
+    }
+
+    /// AC-4: take the preloaded block out again (the request-size guard's first remedy: "drops the pack
+    /// first, and says so", proposal s.3.6). The ids leave the ledger with it, so a model that was never
+    /// shown them cannot propose them. A no-op without a pack.
+    pub fn drop_action_pack(&mut self, cat: &Catalogue) {
+        let Some(pack) = self.action_pack.take() else { return };
+        if let Some(m) = self.messages.get_mut(1) {
+            let want = format!("{}\n", pack.text);
+            if let Some(rest) = m.content.strip_prefix(&want) {
+                m.content = rest.to_owned();
+            } else if let Some(i) = m.content.find(&want) {
+                m.content.replace_range(i..i + want.len(), "");
+            }
+        }
+        for id in &pack.ids {
+            self.ledger.forget(id);
+        }
+        self.rebuild_prompt(cat);
+    }
+
+    /// AC-4: the attached pack, when there is one (the shell reports its ids and size to the panel).
+    pub fn action_pack(&self) -> Option<&crate::action_tools::ActionPack> {
+        self.action_pack.as_ref()
+    }
+
     /// AC-2: replace the action catalogue with this turn's facts (availability is read per turn, so a
     /// layer or a world that changed in between is what the validator compares against). The ledger of
     /// returned ids stays: an id returned earlier in the request is still returned.
@@ -445,6 +501,7 @@ impl ParamsConversation {
         self.knowledge_only = false;
         self.pack_present = false;
         self.actions = None;
+        self.action_pack = None;
         self.edit = Some(edit);
         self.edit_only = true;
         self.rebuild_prompt(cat);

@@ -1038,6 +1038,9 @@ func _gate() -> Dictionary:
 ## own getter; the snapshot while a generate runs). Rust builds the catalogue from these.
 func _params_args(request: String) -> Dictionary:
 	var a := {"request": request, "current": bridge.param_snapshot(), "max_tokens": _reply_cap(REPLY_MAX_TOKENS), "include_usage": true}
+	## AC-4: the window the guard checks against, when one was set (0 = the 8 192 design window).
+	if int(DccSettings.llm_value("context_tokens")) > 0:
+		a["context_tokens"] = int(DccSettings.llm_value("context_tokens"))
 	## PC-6: the selection and the year ride with a Commands request too (questions about the world).
 	a.merge(_shown_args())
 	return a
@@ -1643,6 +1646,9 @@ func _on_send() -> void:
 		## LLM-6d: the live view facts (JSON text) and the groups the user ticked, if any.
 		args["view"] = _VIEW.facts_json(app, bridge)
 		args["actions"] = _ACTIONS.facts_json(app, bridge)
+		## AC-4: the Commands button's action pack (Rust's `PACKS` key). Describe place, Story and Note send
+		## no catalogue tools and Edit has its own single tool, so they preload none.
+		args["action_pack"] = "commands"
 		if not _chosen_groups.is_empty():
 			args["groups"] = PackedStringArray(_chosen_groups)
 	var r := run.begin(DccSettings.llm_gate_dict(), _capability(), DccSettings.llm_consented_origins(), args)
@@ -1657,6 +1663,13 @@ func _on_send() -> void:
 				_add_msg("", "Searching your sources first: %s" % String(r["pack_note"]), "text_ghost")
 			else:
 				_add_msg("", "Searched your sources first and sent %d excerpt%s (about %d tokens). Sources are listed under the answer." % [int(r["pack_hits"]), "" if int(r["pack_hits"]) == 1 else "s", int(r["pack_tokens"])], "text_ghost")
+		## AC-4: say what the app put in front of the model, in plain words (the K8 habit).
+		if r.has("action_pack_ids"):
+			var n := (r["action_pack_ids"] as PackedStringArray).size()
+			if bool(r.get("action_pack_dropped", false)):
+				_add_msg("", "The preloaded action list was left out because it would not fit the model's window. The assistant can still browse and search.", "text_ghost")
+			elif int(r.get("action_pack_searched", 0)) > 0:
+				_add_msg("", "Looked up %d matching action%s first (about %d tokens)." % [n, "" if n == 1 else "s", int(r["action_pack_tokens"])], "text_ghost")
 		if String(r.get("knowledge_note", "")) != "":
 			_add_msg("", String(r["knowledge_note"]), "warn")
 		_input.text = ""

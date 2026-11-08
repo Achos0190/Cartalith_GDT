@@ -1043,6 +1043,16 @@ const LLM_DEFAULTS := {
 	"ctx_rag_vault": false,    ## context source: Vault notes found by search
 	"rag_pre": "auto",         ## search before the model call: "auto" (on for a local endpoint), "on" or "off" (K6)
 	"rag_tools": true,         ## offer the model the three search tools (K6); only matters when a source is ticked
+	## AC-4 (`ASSISTANT_ACTIONS_PROPOSAL.md` s.3.4, AQ4): before the first turn of a Commands request the app
+	## searches the action catalogue for the user's words and puts the top five hits, already described, in
+	## the message. OFF by default: it stays off until the owner's own model run shows it raises the score
+	## (`STATUS.md`'s AC-4 entry says what was and was not measured).
+	## Not a profile key: a profile switch never turns it on.
+	"actions_pre": false,
+	## The model's context window in tokens, for the request-size guard (`action_tools::check_budget`): 0 means
+	## "not set", and Rust then assumes the 8 192 design window (AQ6), never "unlimited". There is no control for
+	## it yet; a profile that runs smaller sets it here (`_ac4_probe.gd` does, to exercise the guard).
+	"context_tokens": 0,
 	## Ruling DQ (profiles): the live values a profile writes. They are ordinary settings, so every
 	## existing reader keeps working; the active profile mirrors them (`LlmProfiles`).
 	"thinking": "default",     ## "default" sends nothing extra; "none" asks a reasoning model not to think (the preset's known field only)
@@ -1155,7 +1165,7 @@ static func llm_gate_dict() -> Dictionary:
 	var d := {}
 	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed",
 			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params", "ctx_region", "thinking", "key_account",
-			"ctx_rag_world", "ctx_rag_vault", "rag_pre", "rag_tools", "ctx_selection"]:
+			"ctx_rag_world", "ctx_rag_vault", "rag_pre", "rag_tools", "ctx_selection", "actions_pre"]:
 		d[k] = llm_value(k)
 	## The hosted endpoints the user allowed knowledge search for (K2); Rust compares the endpoint's
 	## origin with this list and uses no source for a hosted endpoint that is not in it.

@@ -17,6 +17,7 @@ extends RefCounted
 ##   * which of those rows open a curated window (`llm_view.gd::WINDOWS`, the single table), so Rust
 ##     lists the window once, not twice;
 ##   * whether a world is open, and the year cursor's track (`DccShell.tl_range()`, the world's own range since PC-3).
+##   * AC-5: whether Edit > Undo has a step (`DccApp.can_undo_any`) and its label (`undo_target_label`).
 ##
 ## The view verbs, the windows and the parameters are NOT read here: `llm_view.gd::facts` and the
 ## registry already supply them to the same request, and a second reader would be a second source.
@@ -123,6 +124,15 @@ static func facts(app, bridge) -> Dictionary:
 	## AC-3: the selection verbs' bounds. Both keys are ABSENT when the app cannot say (no world, or
 	## `DccApp` without PC-1's selection), never `0` / `false`: Rust offers no selection entry for an absent
 	## fact. `bridge.settlements()` is an engine read, so it is skipped while a generation owns the engine.
+	## AC-5: Undo. Both keys come from the one answer the Edit row and the toolbar square read; absent when
+	## the app has no such method (a probe's stand-in), never `available: false` for "could not ask".
+	if app != null and app.has_method("can_undo_any") and app.has_method("undo_target_label"):
+		## `can_undo_any()` alone misses a grouped step (an Apply card's undo group is not in the look or
+		## height histories it reads), so the label that `undo_last()` actually routes by decides too
+		## (found by `_ac4_probe.gd`: after a settings card it reported nothing to undo).
+		var ulabel: String = String(app.undo_target_label())
+		var can: bool = ulabel != "" or bool(app.can_undo_any())
+		f["undo"] = {"available": can, "label": ulabel}
 	if bridge != null and bool(bridge.has_world) and not bool(bridge.generating) and app != null and app.has_method("select"):
 		f["settlements"] = (bridge.settlements() as Array).size()
 		var back = app.get("_selection_back")
@@ -270,6 +280,9 @@ static func preflight(app, bridge, valid: Array) -> String:
 			"tool":
 				if not app.has_method("arm_tool"):
 					why.append("tools cannot be armed here")
+			"undo":
+				if not app.has_method("undo_last") or not app.has_method("undo_target_label") or String(app.undo_target_label()) == "":
+					why.append("there is nothing to undo")
 			_:
 				why.append("%s has no way to run from a card" % title)
 	if not views.is_empty():
@@ -380,6 +393,16 @@ static func run_card(app, bridge, ug, valid: Array, label: String) -> Dictionary
 				app.arm_tool(tid)
 				if String(app.armed_tool) != tid:
 					bad = "the %s tool was not armed" % tid
+			"undo":
+				## AC-5: Edit > Undo's own entry point (Ctrl+Z, the Edit row, the toolbar square). Rule C8 made
+				## sure it is alone on its card, so there is no group of this card's own to collide with. A
+				## generation refuses inside `undo_last` with a status line; `check_card` (C3) stopped that
+				## earlier, so the call below only runs on an idle engine. Redo (Edit > Redo) reverses it.
+				var before: String = app.undo_target_label()
+				if before == "":
+					bad = "there was nothing to undo"
+				else:
+					app.undo_last()
 			_:
 				bad = "%s has no way to run" % String(cd["title"])
 		if bad == "":
