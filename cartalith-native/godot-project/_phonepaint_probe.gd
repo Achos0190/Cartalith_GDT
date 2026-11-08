@@ -683,4 +683,9 @@ func _run_leg(theme: String) -> void:
 			_check(not scroll.visible or String(app._phone_tab) == "domain",
 				"[%s] %s takes the GENERATE column away (tab=%s)" % [theme, cap, app._phone_tab])
 	app.arm_tool("inspect")   ## slate reset for the next palette's leg, as at step 0
+	## MS-2's bar has a DOMAIN tab, not a GENERATE tab: it reads GENERATE only while the domain is WORLD, and the MAP
+	## tap above selected CARTOGRAPHY (the old bar's MAP did not change what the GENERATE tab read). The slate
+	## reset therefore has to put the domain back, or the next leg finds a tab reading CARTO. Probe-side only: the
+	## shell behaves as MS-2 designed (`_ms2_probe`: the tab reads its domain).
+	app._select_domain("world")
 	await _frames(SETTLE)
