@@ -7943,6 +7943,32 @@ func vault_link_at(text: String, offset: int) -> Dictionary:
 		return {"found": false}
 	return world_gen.vault_link_at(text, offset)
 
+## Ranks the vault's notes against `query` for the editor's `[[` suggestions (`WorldGen.vault_suggest_notes`):
+## `[{name, path, kind, match, matched}]` plus `alias` when an alias matched, best first, at most `limit`.
+## Aliases appear only once the backlink index has been built. `[]` while `generating`, with no vault
+## bound, or on a build without it -- all read by the caller as "nothing to suggest", which is the truth.
+func vault_suggest_notes(query: String, limit: int) -> Array:
+	if generating:
+		return []
+	if not _has("vault_suggest_notes"):
+		return []
+	return world_gen.vault_suggest_notes(query, limit)
+
+## Ranks the caller's own `candidates` (`[{name, path?, kind?, aliases?}]`) against `query`
+## (`WorldGen.vault_suggest`, pure): `[{index, name, match, matched}]` plus `path`, `kind`, `alias`
+## only when they apply. Not gated: it reads no world state.
+func vault_suggest(query: String, candidates: Array, limit: int) -> Array:
+	if not _has("vault_suggest"):
+		return []
+	return world_gen.vault_suggest(query, candidates, limit)
+
+## The headings of `text` (`WorldGen.vault_note_headings`, pure): `[{level, text, line, start, end}]`,
+## code fences and frontmatter skipped.
+func vault_note_headings(text: String) -> Array:
+	if not _has("vault_note_headings"):
+		return []
+	return world_gen.vault_note_headings(text)
+
 ## Headings of file `rel` as `{level, title}` (`WorldGen.vault_file_headings`). `[]`
 ## for an unreadable file, which callers read as "whole document only".
 func vault_file_headings(rel: String) -> Array:

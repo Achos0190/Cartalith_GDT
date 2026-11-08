@@ -1608,6 +1608,119 @@ func _entity_names() -> Dictionary:
 	return _ent_names
 
 
+## The order the Rust ranker's classes sort in (`suggest::MatchKind`), for merging notes and places
+## into one list. Index = rank; an unknown class sorts last rather than first.
+const _MATCH_ORDER := ["exact", "prefix", "word_start", "substring", "subsequence"]
+
+
+## The editor's `[[` suggestions (VE-2): ranked rows for `mode` `note` (notes by name and alias, then the
+## world's places that have no note, then "Link to new note") or `heading` (the headings of `note`, or of
+## this note when `note` is empty). At most `limit` rows, never the whole vault. A row is `{kind, label,
+## insert, detail?, alias?, enabled?}`; a line that only explains (`kind` `info`, disabled) stands in for
+## an answer the vault could not give, rather than an empty card that reads as "nothing".
+func _suggest_rows(mode: String, note: String, query: String, limit: int) -> Array:
+	if mode == "heading":
+		return _suggest_headings(note.strip_edges(), query.strip_edges(), limit)
+	var q := query.strip_edges()
+	var ranked: Array = []
+	var seen_names := {}
+	## The notes, with headroom: a second note of the same name ranks next to the first, so asking for
+	## three times the rows is how a duplicate is seen without a resolver call per row (each of which
+	## would list the vault again).
+	var notes: Array = bridge.vault_suggest_notes(q, limit * 3)
+	var dup := {}
+	for n in notes:
+		var k := String((n as Dictionary).get("name", "")).to_lower()
+		dup[k] = int(dup.get(k, 0)) + 1
+	for n in notes:
+		var d: Dictionary = n
+		var path := String(d.get("path", ""))
+		if path == _browse_path:
+			continue
+		var name := String(d.get("name", ""))
+		seen_names[name.to_lower()] = true
+		## A name shared by two notes is written as its path, so the link names one of them.
+		var target := name if int(dup.get(name.to_lower(), 0)) < 2 else path.trim_suffix(".md")
+		var row := {"kind": "note", "insert": target, "label": name,
+			"detail": path.get_base_dir() if path.get_base_dir() != "" else "",
+			"cls": _MATCH_ORDER.find(String(d.get("match", ""))), "sort": String(d.get("matched", name)).to_lower(), "tie": 0}
+		if d.has("alias"):
+			row["label"] = "%s  →  %s" % [String(d["alias"]), name]
+			row["alias"] = String(d["alias"])
+		ranked.append(row)
+	var cands: Array = []
+	for e in _entity_names().values():
+		cands.append({"name": String((e as Dictionary)["name"]), "kind": String((e as Dictionary)["kind"])})
+	for s in bridge.vault_suggest(q, cands, limit * 3):
+		var sd: Dictionary = s
+		var ename := String(sd.get("name", ""))
+		if seen_names.has(ename.to_lower()):
+			continue
+		ranked.append({"kind": "entity", "insert": ename, "label": ename,
+			"detail": "%s, no note yet" % String(sd.get("kind", "place")),
+			"cls": _MATCH_ORDER.find(String(sd.get("match", ""))), "sort": String(sd.get("matched", ename)).to_lower(), "tie": 1})
+	ranked.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ca := int(a["cls"]) if int(a["cls"]) >= 0 else 99
+		var cb := int(b["cls"]) if int(b["cls"]) >= 0 else 99
+		if ca != cb:
+			return ca < cb
+		## Within a class a note comes before a place with no note (the places are the second source,
+		## and an empty query would otherwise open on whichever world names sort first), then by name.
+		if int(a["tie"]) != int(b["tie"]):
+			return int(a["tie"]) < int(b["tie"])
+		return String(a["sort"]) < String(b["sort"]))
+	var exact := false
+	for r in ranked:
+		if q != "" and int((r as Dictionary)["cls"]) == 0:
+			exact = true
+	var make_new := q != "" and not exact
+	var keep := limit - (1 if make_new else 0)
+	var rows: Array = ranked.slice(0, maxi(keep, 0))
+	if make_new:
+		rows.append({"kind": "create", "insert": q, "label": "Link to new note “%s”" % q})
+	return rows
+
+
+## Heading rows for `[[note#query`: the headings of the note `note` names (this note when empty), ranked.
+## A note that cannot be read, is ambiguous or does not exist answers with one disabled line saying so.
+func _suggest_headings(note: String, q: String, limit: int) -> Array:
+	var text := _browse_text
+	var shown := "this note"
+	if note != "":
+		shown = note
+		var r := bridge.vault_resolve_link(_browse_path, note)
+		if not bool(r.get("ok", false)):
+			return [_info_row("Cannot list headings now: %s" % String(r.get("error", "the vault could not be read")))]
+		match String(r.get("status", "")):
+			"unique":
+				text = bridge.vault_read_file(String(r.get("path", "")))
+			"ambiguous":
+				return [_info_row("%s could mean several notes; write its folder too" % note)]
+			_:
+				return [_info_row("No note called %s" % note)]
+	var cands: Array = []
+	for h in bridge.vault_note_headings(text):
+		cands.append({"name": String((h as Dictionary).get("text", "")), "kind": "heading"})
+	if cands.is_empty():
+		return [_info_row("No headings in %s" % shown)]
+	var rows: Array = []
+	for s in bridge.vault_suggest(q, cands, limit):
+		var name := String((s as Dictionary).get("name", ""))
+		## `[ ] | # ^` end or split a link; Obsidian writes them as spaces in a heading link.
+		var safe := name
+		for ch in ["[", "]", "|", "#", "^"]:
+			safe = safe.replace(ch, " ")
+		rows.append({"kind": "heading", "label": name, "insert": " ".join(safe.split(" ", false))})
+	if rows.is_empty():
+		return [_info_row("No heading in %s matches “%s”" % [shown, q])]
+	return rows
+
+
+## A suggestion line that only says something (`enabled` false).
+func _info_row(msg: String) -> Dictionary:
+	return {"kind": "info", "label": msg, "insert": "", "enabled": false}
+
+
 ## Follows `target` (the text between the brackets, `#heading` included) written in `from_rel`.
 ## A link to a note opens it in Write (Ruling DY, VQ4) and pushes the current note onto the Back
 ## trail; one that could mean several notes asks which; a link to a world entity with no note, and a
@@ -1783,8 +1896,8 @@ func _open_editor() -> void:
 
 ## Builds the Markdown editor (`MdEditor`) for the open note into `parent` and
 ## wires its signals: edits mirror into `_browse_text`, Save goes to `_save_note`,
-## Cancel discards, Reload re-reads from disk. The note-link picker lists every
-## other note in the vault; the template inserter writes nothing itself, its
+## Cancel discards, Reload re-reads from disk. `[[` suggestions are ranked and capped by
+## `_suggest_rows` (VE-2); the template inserter writes nothing itself, its
 ## result waits in the editor for Save's hash-guarded write. Shows "Unsaved
 ## edits." if the session is already dirty.
 func _build_editor_pane(parent: Control) -> void:
@@ -1792,13 +1905,8 @@ func _build_editor_pane(parent: Control) -> void:
 	ed.name = "VaultMarkdownEditor"
 	parent.add_child(ed)
 	var self_rel := _browse_path
-	## The note-link picker's list: every other note in the vault.
-	var others_source := func() -> PackedStringArray:
-		var others := PackedStringArray()
-		for f in bridge.vault_list_files(2000):
-			if String(f) != self_rel:
-				others.append(String(f))
-		return others
+	## The note-link picker's list is gone (VE-2): `[[` suggestions come from `_suggest_rows`, ranked and
+	## capped, so nothing here lists the vault for the editor any more.
 	## Insert template (Ruling BF): the vault's templates, and an inserter whose
 	## `{{title}}` is this note's own name, as Obsidian's is. It writes
 	## nothing; the result waits in the editor for Save's hash-guarded write.
@@ -1809,10 +1917,12 @@ func _build_editor_pane(parent: Control) -> void:
 	ed.link_info = func(t: String) -> Dictionary: return _link_kind(_browse_path, t)
 	ed.link_at = func(text: String, offset: int) -> Dictionary: return bridge.vault_link_at(text, offset)
 	ed.peek_source = func(t: String) -> String: return _peek_for(_browse_path, t)
+	ed.suggest_source = func(mode: String, note: String, query: String, limit: int) -> Array:
+		return _suggest_rows(mode, note, query, limit)
 	var templates_source := func() -> Array: return bridge.vault_templates()
 	var inserter := func(rel: String, text: String, caret: int) -> Dictionary:
 		return bridge.vault_insert_template(rel, text, caret, note_title)
-	ed.setup(_browse_path, _browse_text, _browse_saved, _phone, others_source, _editor_mode,
+	ed.setup(_browse_path, _browse_text, _browse_saved, _phone, Callable(), _editor_mode,
 		templates_source, inserter)
 	_editor = ed
 	_browse_edit = ed.text_edit

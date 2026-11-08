@@ -138,8 +138,33 @@ scene path in the preset command line; the main scene belongs in `project.godot`
 New world inherited the previous world's project path, so the first Save overwrote that world (fixed in `5585284e`).
 Rule: any "new" action resets every identity field (path, name, dirty flag), tested by Save-after-New.
 
+## 20. A SubViewport routes pointer motion only after `NOTIFICATION_VP_MOUSE_ENTER`
+
+- **Preflight trigger:** *Drive hover or motion in a probe that hosts the app in a `SubViewport`*
+- **Root cause:** a `SubViewport` never receives the pointer-entered notification a window gets, so `push_input` motion events are not routed to controls until the probe sends `NOTIFICATION_VP_MOUSE_ENTER` itself. Without it every "hover shows X" assertion fails, and worse, every "hover leaves it hidden" assertion passes vacuously.
+- **Rule:** send `_vp.notification(Node.NOTIFICATION_VP_MOUSE_ENTER)` after the app is up, and begin every negative hover assertion with a positive control that hovers a known target and sees the effect.
+- **How to verify:** remove the notification from the probe; the positive control must go red, not the negative assertion alone.
+- **Session:** the VE-0/VE-1 build, commit `bec744b5`. **[verified]**: the measurement is in `cartalith-native/godot-project/_ve0_measure_probe.gd` and the note is in the header of `_ve0_probe.gd` ("Pointer note").
+
+## 21. Test scratch directories must be unique per call, not per tag
+
+- **Preflight trigger:** *Give a parallel Rust test a scratch directory named from a tag*
+- **Root cause:** two `cartalith-vault` tests shared the tag `rename`; one test's `remove_dir_all` deleted the other's tree mid-run (`SourceMissing`, or "Access is denied (os error 5)" on Windows where the other test held files open). `cargo test -p cartalith-vault` was flaky until it was fixed.
+- **Rule:** a scratch path is `tag + process id + a per-call counter`; "unique per test" by tag is a claim about the callers, not a property of the helper.
+- **How to verify:** run the crate's suite three times; mutation: drop the counter and give two tests one tag, the suite must fail.
+- **Session:** the VE-0/VE-1 build, commit `bec744b5`. **[verified]**: the diff of `cartalith-vault/src/lib.rs` (`scratch`) carries the explanation.
+
+## 22. A script error inside an `await` hangs a probe
+
+- **Preflight trigger:** *Write a windowed probe that awaits between steps*
+- **Root cause:** an error raised in a coroutine after an `await` ends that coroutine silently; the `_ready` that was awaiting it never resumes, `_finish()` is never reached and the run hangs until its timeout (holding `C:/cw/.win_lock` if no `finally` releases it). Typically a null control: a button or node a previous failed step should have produced.
+- **Rule:** after each step that later steps depend on, assert the control exists and call `_finish()` with the failure on record when it does not; never index into a node found by a search without a null check; hard timeout on every run.
+- **How to verify:** make a control missing on purpose; the probe must end with a named failure, not hang.
+- **Session:** the VE-0/VE-1 build, commit `bec744b5`. **[reported by agent]** (the `_ve0_probe.gd` comment "a script error inside an `await` never returns" is the writer's own note, not a reproduction here).
+
 ## Suggested handling
 
 - Entry 6 merges into an existing row; the rest are new triggers.
+- Entries 20 and 21 are verified at a named place; entry 22 carries **[reported by agent]**.
 - Entries 1, 4, 5, 7, 8, 9 and 10 carry **[reported by agent]**: confirm each (one reproduction apiece) before adding, or add them with that tag visible.
 - Entries 2 and 3 are partly backed by repository text, noted above.

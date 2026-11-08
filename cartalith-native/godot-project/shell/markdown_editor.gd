@@ -43,6 +43,16 @@ extends VBoxContainer
 ## Preview then draws each link by kind and a click emits `link_followed`, as does Ctrl/Cmd-click in
 ## Write. A hover (650 ms) or a finger hold (500 ms) shows a peek card. The Back button only emits
 ## `back_requested`; the host owns the trail. Nothing here opens, creates or saves a file.
+##
+## ## `[[` suggestions (VE-2)
+##
+## Typing `[[` auto-pairs to `[[]]` and opens a suggestion card at the caret (`suggest_context`,
+## `suggest_apply`: pure, probe-pinned). The editor holds no vault; the host's `suggest_source` returns
+## the ranked rows (notes by name and alias, world entities with no note, headings after `#`, a "link to
+## new note" row). The card is never the whole vault: at most `SUGGEST_ROWS` rows (`SUGGEST_ROWS_PHONE`
+## on the phone), re-ranked on every keystroke. Up / Down move, Enter or Tab accept, Escape closes the
+## card (not the window), a click or tap on a row accepts. Rows are 44 px on touch. Accepting writes
+## the link text and nothing else: it creates no note and saves nothing (VQ2; autosave is VE-4).
 ## **Insert template** puts one of the vault's templates at the caret, filled
 ## and with its properties merged (`cartalith_vault::template::insert`, reached
 ## through the `template_inserter` the host passes to `setup`).
@@ -77,6 +87,15 @@ signal external_link_followed(url: String)
 ## The Back button was pressed (VE-1): return to the note the last followed link came from.
 signal back_requested
 
+## Host hook for `[[` suggestions (VE-2): `suggest_source(mode, note, query, limit) -> Array`.
+## `mode` is `note` (`query` is the text after `[[`) or `heading` (`note` is the target written before
+## `#`, `""` for this note; `query` is the text after it). Each row is a Dictionary:
+## `{label, insert, kind, detail?, alias?, enabled?}` -- `insert` is the text written as the link's
+## target (or the heading), `alias` the shown text to append as `|alias` when an alias matched, `kind`
+## one of `note`, `entity`, `heading`, `create`, `info`. A row with `enabled` false is shown and
+## cannot be accepted (an honest "nothing here" line). Without it nothing is suggested.
+var suggest_source: Callable = Callable()
+
 ## Host hooks for links (VE-1), plain vars set between `new()` and `setup()` so a note that opens in
 ## Preview already draws its links by kind. The editor holds no vault knowledge of its own.
 ## `link_info(target: String) -> Dictionary` answers `{kind}` with `note`, `entity` (a world entity
@@ -94,6 +113,16 @@ var peek_source: Callable = Callable()
 ## no motion event, so Godot never starts a hover for it). Both are labelled judgements.
 const PEEK_HOVER_SEC := 0.65
 const PEEK_HOLD_SEC := 0.5
+
+## Rows the suggestion card shows at most, desktop and phone (labelled judgements: eight 28 px rows
+## are about a quarter of a 1000 px window; six 44 px rows fit above a soft keyboard). This cap is
+## what keeps the card from ever being the whole vault.
+const SUGGEST_ROWS := 8
+const SUGGEST_ROWS_PHONE := 6
+## Row height in px on pointer and on touch. 44 is the touch-target floor the shell's own touch
+## audits use (`MOBILE_SHELL_PROPOSAL.md`); 28 is a labelled judgement for a pointer.
+const SUGGEST_ROW_PX := 28
+const SUGGEST_ROW_TOUCH_PX := 44
 
 ## Bold face for rendered bold and for the toolbar's `B` glyph (the project's Fira Sans file;
 ## `style_rendered()` also uses it for bold-italic, as there is no separate face).
@@ -124,8 +153,8 @@ var cancel_button: Button
 ## presses the real button through this map.
 var buttons := {}
 
-## Callable given to `setup` that returns the vault's note paths; `_open_link_picker` calls it to
-## fill `_link_files`.
+## Callable given to `setup` that returns the vault's note paths. Kept for hosts that still pass it;
+## VE-2's suggestions come from `suggest_source`, which the host ranks itself.
 var _files_source: Callable
 ## "write" or "preview"; any value other than "preview" given to `set_mode` becomes "write", and
 ## `mode()` returns it.
@@ -135,8 +164,6 @@ var _phone := false
 ## The text the file held when last read or written, given to `setup`; the dirty check measures
 ## against it.
 var _saved_text := ""
-## The note-link picker `PopupMenu` (named "EditorLinkPicker"), created in `_build_toolbar`.
-var _link_popup: PopupMenu
 ## Back button in the header (VE-1); hidden until the host has somewhere to go back to.
 var _back_button: Button
 ## The peek card, its dwell timer, the link it is for, and whether a finger's hold produced it (the
@@ -147,8 +174,21 @@ var _peek_timer: Timer
 var _peek_target := ""
 var _peek_by_hold := false
 var _swallow_click := false
-## Paths listed by the link picker, refilled by `_open_link_picker`; a picked popup id indexes it.
-var _link_files: PackedStringArray = PackedStringArray()
+## The suggestion card (VE-2): a top-level panel named `EditorSuggest` holding one button per row,
+## the rows last shown, the highlighted one, the context they answer, and whether a `[[` edit opened
+## it (a caret move alone never opens it, only keeps or closes an open one).
+var _sg_panel: PanelContainer
+var _sg_box: VBoxContainer
+var _sg_items: Array = []
+var _sg_index := 0
+var _sg_ctx: Dictionary = {}
+var _sg_active := false
+## Character count after the previous edit; a +1 step is how a typed `[` is told from a paste (and
+## from the editor's own multi-character writes, which Godot reports to `text_changed` later, in a
+## deferred call -- so a flag held while writing would already be cleared).
+var _last_len := 0
+## Whether the last pointer input was a finger (an emulated mouse) -- sizes the rows.
+var _touch_seen := false
 ## The "Reload from disk" button made in `setup`, hidden until needed.
 var _reload_button: Button
 ## Callable given to `setup` that returns the template choices; `template_choices` calls it.
@@ -165,7 +205,8 @@ var _template_rels: PackedStringArray = PackedStringArray()
 
 ## `initial` is the working text; `saved` is what the file held when it was
 ## last read or written (the dirty check compares against it). `files_source`
-## returns the vault's `.md` paths for the note-link picker.
+## is no longer read (VE-2 replaced the note-link picker with `suggest_source`); it stays in the
+## signature so existing callers keep working.
 ## `templates_source` returns the vault's templates (`[{rel, label}]`) and
 ## `template_inserter(rel, text, caret)` returns `{ok, text, caret}` or
 ## `{ok: false, error}`; without both, Insert template says so when pressed.
@@ -246,6 +287,7 @@ func set_mode(m: String) -> void:
 	if not writing:
 		preview.text = to_bbcode(text_edit.text, "", "", link_info)
 	_hide_peek()
+	_sg_hide()
 	if had_focus:
 		(text_edit if writing else preview).grab_focus.call_deferred()
 	for k in ["write", "preview"]:
@@ -350,18 +392,10 @@ func _build_toolbar() -> void:
 	_sep(bar)
 	_tool(bar, "code", "`code`", "Inline code -- `…`", func(): apply_inline("`", "`"))
 	_tool(bar, "code_block", "```", "Code block -- fences the selected lines.", func(): apply_code_block())
-	_tool(bar, "link", "[[ ]]", "Link to another note in this vault -- pick one from the list.", func(): _open_link_picker())
+	_tool(bar, "link", "[[ ]]", "Link -- writes [[ ]] at the caret (around the selection as the shown text) and suggests notes, headings and places as you type.", func(): apply_link())
 	_tool(bar, "tag", "#", "Tag -- #tag. Obsidian's tags hold no spaces, so a selected phrase is hyphenated.", func(): apply_tag())
 	_sep(bar)
 	_tool(bar, "template", "Insert template", "Insert one of this vault's templates at the caret, as Obsidian's Insert template does: {{title}}, {{date}} and {{time}} filled, its properties merged into this note's.", func(): _open_template_picker())
-
-	_link_popup = PopupMenu.new()
-	_link_popup.name = "EditorLinkPicker"
-	DccWidgets.style_popup(_link_popup)
-	_link_popup.id_pressed.connect(func(id: int):
-		if id >= 0 and id < _link_files.size():
-			insert_note_link(_link_files[id]))
-	add_child(_link_popup)
 
 	_template_popup = PopupMenu.new()
 	_template_popup.name = "EditorTemplatePicker"
@@ -453,10 +487,13 @@ func _build_body(initial: String) -> void:
 	text_edit.add_theme_color_override("selection_color", Color(DccTheme.c("accent"), 0.30))
 	text_edit.add_theme_color_override("current_line_color", Color(0, 0, 0, 0))
 	text_edit.add_theme_constant_override("line_spacing", 5)
-	text_edit.text_changed.connect(func(): edited.emit())
-	text_edit.caret_changed.connect(_refresh_heading_lights)
+	text_edit.text_changed.connect(_on_text_changed)
+	text_edit.caret_changed.connect(_on_caret_changed)
+	text_edit.focus_exited.connect(_sg_hide)
 	text_edit.gui_input.connect(_on_source_input)
 	add_child(text_edit)
+	_last_len = initial.length()
+	_build_suggest()
 
 	preview = RichTextLabel.new()
 	preview.name = "EditorPreview"
@@ -583,8 +620,9 @@ func apply_code_block() -> void:
 	_commit(code_block(text_edit.text, s.x, s.y))
 
 
-## Write a `[[note]]` link to the vault file `rel` at the selection through `note_link()`; called
-## by the link picker.
+## Write a `[[note]]` link to the vault file `rel` at the selection through `note_link()`. Nothing in
+## the shell calls it since VE-2 (the link button opens `[[` suggestions instead); the transform and
+## this entry point stay because `_mdedit_probe.gd` pins `note_link()`.
 func insert_note_link(rel: String) -> void:
 	var s := selection_offsets()
 	_commit(note_link(text_edit.text, s.x, s.y, rel))
@@ -641,19 +679,6 @@ func _open_template_picker() -> void:
 		_template_rels.append(String(d.get("rel", "")))
 		_template_popup.add_item(String(d.get("label", d.get("rel", "?"))), i)
 	DccWidgets.popup_anchored(_template_popup, anchor_rect(buttons["template"]), 320)
-
-
-## Fill and show the note-link popup from `_files_source` (the vault's `.md` paths), with a
-## disabled placeholder when there are none, keeping the list in `_link_files` for the id lookup.
-func _open_link_picker() -> void:
-	_link_files = _files_source.call() if _files_source.is_valid() else PackedStringArray()
-	_link_popup.clear()
-	if _link_files.is_empty():
-		_link_popup.add_item("No other notes in this vault")
-		_link_popup.set_item_disabled(0, true)
-	for i in _link_files.size():
-		_link_popup.add_item(String(_link_files[i]), i)
-	DccWidgets.popup_anchored(_link_popup, anchor_rect(buttons["link"]), 320)
 
 
 ## `c`'s rect in the space its popups open in. A popup under an embedded
@@ -783,6 +808,320 @@ func _hide_peek() -> void:
 	_peek_by_hold = false
 
 
+# -- `[[` suggestions (VE-2) ---------------------------------------------------
+
+## Where the caret sits relative to an open `[[` on one line, as a pure function (probe-pinned):
+## `{}` when it is not inside one, else `{mode, open, qstart, note, query}`. `open` is the column just
+## after `[[`; `mode` is `note` (the text after `[[` is the query, `qstart == open`), `heading` (after
+## `Note#`: `note` is the target written before the `#`, `qstart` the column after it) or `alias`
+## (after `|`, or after `^` for a block: free text, nothing to suggest). A `]` between `[[` and the
+## caret closes the link, so a caret after a finished link is outside it.
+static func suggest_context(line: String, col: int) -> Dictionary:
+	var prefix := line.substr(0, col)
+	var i := prefix.rfind("[[")
+	if i < 0:
+		return {}
+	var inner := prefix.substr(i + 2)
+	if inner.contains("]") or inner.contains("["):
+		return {}
+	var open := i + 2
+	if inner.contains("|") or inner.contains("^"):
+		return {"mode": "alias", "open": open, "qstart": col, "note": inner, "query": ""}
+	var h := inner.find("#")
+	if h >= 0:
+		return {"mode": "heading", "open": open, "qstart": open + h + 1,
+			"note": inner.substr(0, h), "query": inner.substr(h + 1)}
+	return {"mode": "note", "open": open, "qstart": open, "note": "", "query": inner}
+
+
+## Writes a chosen suggestion into `line` for the context `ctx` (from `suggest_context`) with the
+## caret at `col`: `{line, caret}`. The target (`insert`, plus `|alias` when `alias` is given and the
+## link has no shown text yet) replaces everything from `qstart` up to the link's own `|` or `]]`; a
+## `]]` already after the caret (the auto-pair's, or a link being edited) is kept and the caret goes
+## after it, otherwise `]]` is added. Never touches another line.
+static func suggest_apply(line: String, col: int, ctx: Dictionary, insert: String, alias: String = "") -> Dictionary:
+	var qstart := int(ctx["qstart"])
+	var after := line.substr(col)
+	var c := after.find("]]")
+	var mid := insert
+	if c >= 0 and not after.substr(0, c).contains("[["):
+		var pipe := after.substr(0, c).find("|")
+		var seg_end := col + (pipe if pipe >= 0 else c)
+		if pipe < 0 and alias != "" and String(ctx["mode"]) == "note":
+			mid += "|" + alias
+		var closer_end := col + c + 2
+		return {"line": line.substr(0, qstart) + mid + line.substr(seg_end),
+			"caret": qstart + mid.length() + (closer_end - seg_end)}
+	if alias != "" and String(ctx["mode"]) == "note":
+		mid += "|" + alias
+	return {"line": line.substr(0, qstart) + mid + "]]" + after, "caret": qstart + mid.length() + 2}
+
+
+## The link button's transform: no selection writes `[[]]` with the caret between; a one-line
+## selection becomes the link's shown text, `[[|selected]]`, with the caret before the `|`.
+## A selection that spans lines is left alone and `[[]]` is written at its start (an alias cannot
+## hold a line break).
+static func link_wrap(text: String, from: int, to: int) -> Dictionary:
+	var sel := text.substr(from, to - from)
+	if from == to or sel.contains("\n"):
+		return {"text": text.substr(0, from) + "[[]]" + text.substr(from), "from": from + 2, "to": from + 2}
+	return {"text": text.substr(0, from) + "[[|" + sel + "]]" + text.substr(to), "from": from + 2, "to": from + 2}
+
+
+## Toolbar action: write a link (see `link_wrap`) and open its suggestions.
+func apply_link() -> void:
+	var s := selection_offsets()
+	_commit(link_wrap(text_edit.text, s.x, s.y))
+
+
+func _sg_limit() -> int:
+	return SUGGEST_ROWS_PHONE if _phone else SUGGEST_ROWS
+
+
+## Whether the card is on screen.
+func _sg_visible() -> bool:
+	return _sg_panel != null and _sg_panel.visible
+
+
+## The card: a hairline panel, top-level so it floats over the note and is placed in window
+## coordinates. Created hidden; rows are rebuilt on every keystroke by `_sg_render`.
+func _build_suggest() -> void:
+	_sg_panel = PanelContainer.new()
+	_sg_panel.name = "EditorSuggest"
+	_sg_panel.top_level = true
+	_sg_panel.visible = false
+	_sg_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var card := DccTheme.panel("panel", {"left": 1, "right": 1, "top": 1, "bottom": 1})
+	card.content_margin_left = 4
+	card.content_margin_right = 4
+	card.content_margin_top = 4
+	card.content_margin_bottom = 4
+	_sg_panel.add_theme_stylebox_override("panel", card)
+	_sg_box = VBoxContainer.new()
+	_sg_box.add_theme_constant_override("separation", 0)
+	_sg_panel.add_child(_sg_box)
+	add_child(_sg_panel)
+
+
+## Typing: a lone `[` that made `[[` auto-pairs to `[[]]` (caret kept between), then the card is
+## brought up to date. Paste and every other multi-character edit change the length by more than
+## one and are left alone, as is a third `[`.
+func _on_text_changed() -> void:
+	edited.emit()
+	var n := text_edit.text.length()
+	var typed_one := n == _last_len + 1
+	_last_len = n
+	if _mode != "write":
+		return
+	if typed_one and not text_edit.has_selection():
+		var cl := text_edit.get_caret_line()
+		var col := text_edit.get_caret_column()
+		var line := text_edit.get_line(cl)
+		if col >= 2 and line.substr(col - 2, 2) == "[[" and not (col >= 3 and line.substr(col - 3, 1) == "[") \
+				and line.substr(col, 2) != "]]":
+			text_edit.insert_text_at_caret("]]")
+			text_edit.set_caret_column(col)
+			_last_len += 2
+	_sg_update(true)
+
+
+func _on_caret_changed() -> void:
+	_refresh_heading_lights()
+	_sg_update(false)
+
+
+## Re-reads the context at the caret and refreshes (or closes) the card. `from_edit` is true for a
+## typed or written change, the only thing that opens the card; a caret move only keeps or closes an
+## open one, so clicking into a finished link does not pop suggestions up over it.
+func _sg_update(from_edit: bool) -> void:
+	if text_edit == null or _mode != "write" or not suggest_source.is_valid():
+		_sg_hide()
+		return
+	if not from_edit and not _sg_active:
+		return
+	var ctx := suggest_context(text_edit.get_line(text_edit.get_caret_line()), text_edit.get_caret_column())
+	if ctx.is_empty() or String(ctx["mode"]) == "alias":
+		_sg_hide()
+		return
+	var items: Array = suggest_source.call(String(ctx["mode"]), String(ctx["note"]), String(ctx["query"]), _sg_limit())
+	if items.is_empty():
+		_sg_hide()
+		return
+	if items.size() > _sg_limit():
+		items = items.slice(0, _sg_limit())
+	_sg_ctx = ctx
+	_sg_active = true
+	_sg_items = items
+	_sg_index = 0
+	_sg_render()
+	_sg_place()
+
+
+func _sg_hide() -> void:
+	_sg_active = false
+	_sg_items = []
+	if _sg_panel != null:
+		_sg_panel.visible = false
+	var w := get_window()
+	if w != null and _sg_esc_saved:
+		w.set("dialog_close_on_escape", true)
+		_sg_esc_saved = false
+
+
+## True while the card has taken over the window's Escape: the vault window is an `AcceptDialog`,
+## and Escape would close it before the editor saw the key.
+var _sg_esc_saved := false
+
+
+func _sg_row_px() -> int:
+	return SUGGEST_ROW_TOUCH_PX if (_touch_seen or _phone) else SUGGEST_ROW_PX
+
+
+## Row text by kind: a note is its name and where it lives; an entity carries the pin glyph the
+## link renderer uses for "a place with no note"; a heading a `#`; the new-note row a `+`.
+static func _sg_text(it: Dictionary) -> String:
+	var label := String(it.get("label", ""))
+	var detail := String(it.get("detail", ""))
+	var t := label
+	match String(it.get("kind", "")):
+		"entity":
+			t = "⌖ " + label
+		"heading":
+			t = "# " + label
+		"create":
+			t = "+ " + label
+	if detail != "":
+		t += "   · " + detail
+	return t
+
+
+func _sg_render() -> void:
+	for c in _sg_box.get_children():
+		_sg_box.remove_child(c)
+		c.queue_free()
+	var px := _sg_row_px()
+	for i in _sg_items.size():
+		var it: Dictionary = _sg_items[i]
+		var b := Button.new()
+		b.name = "SuggestRow%d" % i
+		## Not `flat`: a flat button draws no stylebox, and the highlight IS a stylebox.
+		b.focus_mode = Control.FOCUS_NONE
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		b.custom_minimum_size = Vector2(0, px)
+		b.text = _sg_text(it)
+		b.disabled = not bool(it.get("enabled", true))
+		b.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+		for col in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			b.add_theme_color_override(col, DccTheme.c("text_bright"))
+		b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+		b.pressed.connect(_sg_accept.bind(i))
+		b.mouse_entered.connect(_sg_hover.bind(i))
+		_sg_box.add_child(b)
+	_sg_style()
+
+
+## Marks the highlighted row (the one Enter takes).
+func _sg_style() -> void:
+	for i in _sg_box.get_child_count():
+		var b := _sg_box.get_child(i) as Button
+		var on := i == _sg_index
+		for st in ["normal", "hover", "pressed", "disabled"]:
+			b.add_theme_stylebox_override(st, DccTheme.flat(Color(DccTheme.c("accent"), 0.24 if on else 0.0), 4))
+
+
+func _sg_hover(i: int) -> void:
+	if i != _sg_index and i < _sg_items.size():
+		_sg_index = i
+		_sg_style()
+
+
+## Sizes the card from its row count (no layout frame to wait for) and puts it under the caret,
+## flipping above when it would run past the bottom of the window (less the soft keyboard on the
+## phone), clamped sideways into the window.
+func _sg_place() -> void:
+	var w := clampi(int(text_edit.size.x) - 16, 200, 400)
+	var h := _sg_items.size() * _sg_row_px() + 10
+	_sg_panel.custom_minimum_size = Vector2(w, h)
+	_sg_panel.size = Vector2(w, h)
+	var rect := Rect2(text_edit.get_rect_at_line_column(text_edit.get_caret_line(), text_edit.get_caret_column()))
+	if rect.position.x < 0:
+		rect = Rect2(text_edit.get_caret_draw_pos(), Vector2(0, 20))
+	var base := text_edit.get_global_rect().position + rect.position
+	var vp := get_viewport().get_visible_rect()
+	var bottom := vp.end.y
+	if _phone:
+		bottom -= float(DisplayServer.virtual_keyboard_get_height()) / maxf(get_window().content_scale_factor, 0.01)
+	var y := base.y + rect.size.y + 4
+	if y + h > bottom:
+		y = maxf(vp.position.y + 2, base.y - h - 4)
+	_sg_panel.global_position = Vector2(clampf(base.x, vp.position.x + 4, maxf(vp.position.x + 4, vp.end.x - w - 4)), y)
+	_sg_panel.visible = true
+	var win := get_window()
+	if win != null and not _sg_esc_saved and "dialog_close_on_escape" in win:
+		_sg_esc_saved = true
+		win.set("dialog_close_on_escape", false)
+
+
+## Writes row `i` as the link (see `suggest_apply`) in ONE undo step, closes the card and returns
+## focus to the text. A disabled row is a statement ("no headings"), not a choice, and does nothing.
+func _sg_accept(i: int) -> void:
+	if i < 0 or i >= _sg_items.size():
+		return
+	var it: Dictionary = _sg_items[i]
+	if not bool(it.get("enabled", true)):
+		return
+	var cl := text_edit.get_caret_line()
+	var line := text_edit.get_line(cl)
+	var res := suggest_apply(line, text_edit.get_caret_column(), _sg_ctx, String(it.get("insert", "")), String(it.get("alias", "")))
+	_sg_hide()
+	text_edit.begin_complex_operation()
+	text_edit.remove_text(cl, 0, cl, line.length())
+	text_edit.insert_text(String(res["line"]), cl, 0)
+	text_edit.set_caret_line(cl)
+	text_edit.set_caret_column(int(res["caret"]))
+	text_edit.end_complex_operation()
+	_last_len = text_edit.text.length()
+	text_edit.grab_focus()
+
+
+## Keys for the open card, and the pair-delete: Up / Down move, Enter or Tab accept, Escape closes the
+## card. Backspace between an empty `[[|]]` removes the whole pair. Also notes whether the last
+## pointer was a finger. True when the event was used.
+func _sg_input(ev: InputEvent) -> bool:
+	var mb := ev as InputEventMouseButton
+	if mb != null and mb.pressed:
+		_touch_seen = mb.device == InputEvent.DEVICE_ID_EMULATION
+	elif ev is InputEventScreenTouch:
+		_touch_seen = true
+	var k := ev as InputEventKey
+	if k == null or not k.pressed or k.ctrl_pressed or k.meta_pressed or k.alt_pressed:
+		return false
+	if _sg_visible():
+		match k.keycode:
+			KEY_DOWN, KEY_UP:
+				_sg_index = posmod(_sg_index + (1 if k.keycode == KEY_DOWN else -1), _sg_items.size())
+				_sg_style()
+				return true
+			KEY_ENTER, KEY_KP_ENTER, KEY_TAB:
+				if not k.echo:
+					_sg_accept(_sg_index)
+				return true
+			KEY_ESCAPE:
+				_sg_hide()
+				return true
+	if k.keycode == KEY_BACKSPACE and not text_edit.has_selection():
+		var cl := text_edit.get_caret_line()
+		var col := text_edit.get_caret_column()
+		var line := text_edit.get_line(cl)
+		if col >= 2 and line.substr(col - 2, 2) == "[[" and line.substr(col, 2) == "]]":
+			text_edit.remove_text(cl, col - 2, cl, col + 2)
+			text_edit.set_caret_column(col - 2)
+			return true
+	return false
+
+
 ## Ctrl+E from the rendered view goes back to the source (Obsidian's
 ## reading-view toggle is the same key both ways). A finger pressed on the rendered text also
 ## arrives here as an emulated left button: a hold on a link is the touch peek, so the press sends
@@ -815,6 +1154,9 @@ func _on_preview_input(ev: InputEvent) -> void:
 ## any other key, any Alt or Shift combination, and key repeats fall through untouched. Accepts the
 ## event only for the keys it handled.
 func _on_source_input(ev: InputEvent) -> void:
+	if _sg_input(ev):
+		text_edit.accept_event()
+		return
 	var mb := ev as InputEventMouseButton
 	if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT \
 			and (mb.ctrl_pressed or mb.meta_pressed) and link_at.is_valid():
