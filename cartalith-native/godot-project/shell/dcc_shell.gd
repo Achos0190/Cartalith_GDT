@@ -9280,13 +9280,10 @@ func _search_result_set(raw: String) -> Dictionary:
 ## reusing the phone row on desktop is deliberate here, not an oversight), with
 ## a band header wherever the ranking's own three bands change over.
 ##
-## **A `.` command row is drawn inert, and that is the code's state, not a
-## styling choice.** A `CommandIndex` row is `{title, blurb, group, kind,
-## available, why, key}` -- no popup, no item id, no `Callable`, and no `x`/`y`
-## -- so nothing in this shell can dispatch a menu command from one, the way
-## `_select_search_hit()` can pan to a place. The row therefore says where the
-## command lives (its `group`, i.e. the menu it is under) and, when it is
-## unavailable, `why`; it does not offer a press that would do nothing.
+## **A `.` command row runs** (phone since 2026-10-26, desktop since PC-9's finding S4):
+## a press goes to `_run_search_command()`, which runs a pinnable row through
+## `CommandIndex.run_row()` and otherwise says why it cannot. The second line says where the
+## command lives (its `group`, the menu it is under) or, when unavailable, `why`.
 func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: Callable) -> void:
 	for child in container.get_children():
 		child.queue_free()
@@ -9320,11 +9317,9 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 			## from here (the index's own `why_not`, or the row's `why` when it is unavailable) and stays open.
 			var cmd := _phone_list_row(String(d.get("title", "")), line2, _run_search_command.bind(d, close_fn))
 			(cmd as Button).accessibility_description = 				"%s. Lives under the %s menu. Tap to run it." % [line2, String(d.get("group", ""))]
-			if not _phone:
-				## The desktop dialog keeps its disabled readout: it has no toast to say why a row will not run,
-				## and Edit ▸ Find on map's commands are reached from the menus beside it.
-				(cmd as Button).disabled = true
-				(cmd as Button).accessibility_description = 					"%s. Lives under the %s menu." % [line2, String(d.get("group", ""))]
+			## PC-9 (`PC_SHELL_PROPOSAL.md` s.3.8, finding S4): the desktop dialog's rows run too, through
+			## the same `_run_search_command()`. Until 2026-11-08 it drew them as a disabled readout
+			## because it had no toast to say why a row would not run; it says it in its count line now.
 			## CQ-6 (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.2): a pinnable command gets a star beside its row, the phone's
 			## equivalent of Blender's right-click ▸ Add to Quick Favorites. Only on a row the index calls
 			## pinnable, so a reason-bearing row keeps its reason and gains no control.
@@ -9348,19 +9343,31 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 			_select_search_hit.bind(d, close_fn)))
 
 ## A tap on a `.` command row (phone and desktop dialog alike): run it when the index calls it pinnable, close
-## the surface that opened it, else say why not in a toast near the row's panel and stay open.
+## the surface that opened it, else say why not and stay open. **One path:** the run is
+## `DccQuickBar.run_pin_on()`, which resolves a fresh `CommandIndex` row and calls
+## `CommandIndex.run_row()` (the owning popup's own `id_pressed`), the code a quick-bar chip and a
+## menu click share; this never emits a menu id itself. The reason is a toast on the phone and the
+## dialog's count line on the desktop, which has no toast and keeps the dialog's own text field.
 func _run_search_command(d: Dictionary, close_fn: Callable) -> void:
 	var key := String(d.get("pin_key", ""))
 	if key != "" and bool(d.get("pinnable", false)) and String(d.get("why", "")) == "":
 		close_fn.call()
 		var why := DccQuickBar.run_pin_on(self, key)
 		if why != "":
-			phone_toast(why)
+			_say_search_reason(why)
 		return
 	var reason := String(d.get("why", ""))
 	if reason == "":
 		reason = String(d.get("why_not", "This command cannot be run from search."))
-	phone_toast(reason)
+	_say_search_reason(reason)
+
+## Where `_run_search_command()` says why a row did not run: the phone's toast, or the desktop
+## Find dialog's count line (which the next keystroke rewrites, so it never goes stale).
+func _say_search_reason(text: String) -> void:
+	if _phone:
+		phone_toast(text)
+	elif _desktop_search_count != null and is_instance_valid(_desktop_search_count):
+		_desktop_search_count.text = text
 
 ## The pin / unpin star beside a pinnable command in the phone's `.` search results (CQ-6). 48 dp square (the
 ## quick bar's chip size, floor 44), `★` when the command is pinned and `☆` when not; a tap toggles it through

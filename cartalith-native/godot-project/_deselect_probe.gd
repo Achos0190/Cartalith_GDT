@@ -10,8 +10,9 @@ extends Node
 ##
 ## The row was disabled with the reason *"no shared way to clear them: Escape
 ## disarms the active tool without touching what is selected"*. Both clauses
-## were true. The second still is, and that is asserted here too — Escape and
-## Deselect must NOT have become the same key.
+## were true. Since PC-9 (`PC_SHELL_PROPOSAL.md` s.3.9) the second holds only while a tool is
+## armed: Escape puts the tool down and leaves the selection, and an Escape with Inspect already
+## armed clears it (`_pc9esc_probe.gd` covers the rest). Section 6 asserts both halves.
 ##
 ## Result: `[BOOT] shell up`, sections `=== 0 ===` to `=== 6 ===` with `  ok|FAIL  <name>  got= want=` and `  info`
 ## lines, and a final `_deselect_probe: PASS` or `<n> FAILURE(S)`; exit 1 on any failure, on
@@ -36,7 +37,8 @@ func _find_menu_item(app: Node, id: int) -> PopupMenu:
 		var n: Node = stack.pop_back()
 		for c in n.get_children(true):
 			stack.append(c)
-			if c is PopupMenu and (c as PopupMenu).get_item_index(id) >= 0:
+			if c is PopupMenu and (c as PopupMenu).get_item_index(id) >= 0 \
+					and (c as PopupMenu).get_item_text((c as PopupMenu).get_item_index(id)) == "Deselect":
 				return c as PopupMenu
 	return null
 
@@ -128,20 +130,26 @@ func _ready() -> void:
 	_ok("pressing the row cleared it", bridge.label_get_selected(), -1)
 
 	print("")
-	print("=== 6: Escape is still a DIFFERENT act ===")
+	print("=== 6: Escape puts a tool down first, and only then clears ===")
 	## The row's original reason said Escape "disarms the active tool without
-	## touching what is selected". That is deliberate and must survive: Escape
-	## means put the tool down, Deselect means forget what it pointed at. If a
-	## later change makes Escape clear the selection too, this fails and the
-	## menu row's tooltip becomes a lie.
+	## touching what is selected". That still holds while a tool is armed (Measure has an
+	## escape handler): the first Escape leaves the selection. With Inspect armed, §3.9's
+	## "with nothing open, it deselects" clears it.
 	bridge.label_select(lidx)
 	_ok("selected once more", bridge.label_get_selected() >= 0, true)
+	app.arm_tool("measure")
+	await _frames(2)
 	var ev := InputEventKey.new()
 	ev.keycode = KEY_ESCAPE
 	ev.pressed = true
 	app._unhandled_key_input(ev)
 	await _frames(4)
-	_ok("Escape left the selection alone", bridge.label_get_selected() >= 0, true)
+	_ok("Escape with Measure armed left the selection alone", bridge.label_get_selected() >= 0, true)
+	app.arm_tool("inspect")
+	await _frames(2)
+	app._unhandled_key_input(ev)
+	await _frames(4)
+	_ok("Escape with Inspect armed cleared it", bridge.label_get_selected(), -1)
 
 	print("")
 	print("_deselect_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")

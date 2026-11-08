@@ -144,7 +144,7 @@ func _set_mode_title(editable: bool) -> void:
 const UNLISTED: Array = [
 	["Map view", "1 – 8", "Switch the active layer", "Layers popover"],
 	["Map view", "Space", "Hold to pan the map", "the map view"],
-	["Map view", "Esc", "Cancel the active tool or close the top sheet", "the main window"],
+	["Map view", "Esc", "Cancel the active tool or close the top sheet; with nothing open, clear the selection", "the main window"],
 	["Map view", "Delete / Backspace", "Remove the selected item", "the main window"],
 	["Map view", "Menu", "Open the context card: the same as Edit ▸ Context card, whose key can be rebound", "the main window"],
 	["Civilization", "Shift+J", "Open the Journey planner", "the main window"],

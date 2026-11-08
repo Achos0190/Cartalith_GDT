@@ -753,6 +753,28 @@ of `_undo_last_impl`/`_redo_last_impl`), `popout_host.gd::LIVE_KEYS`, `saved_jou
 - **Not run:** the four `*_id_probe` capture/compare probes (they need two baseline captures); `cargo test` (no Rust
   change).
 
+### PC-9's Escape and desktop search built (2026-11-08)
+
+Two of the "left" items in `OUTSTANDING_WORK.md`'s PC-9 row, read and built at their symbols (`PC_SHELL_PROPOSAL.md`
+§3.9 and finding S4):
+
+- **Escape deselects.** `app.gd::_unhandled_key_input`'s Escape branch: after the ring has had it and the armed tool's
+  escape handler or the put-down-the-tool step has run, an Escape that found **Inspect already armed with no handler
+  of its own** calls `clear_selection()`, unless a `LineEdit`, `TextEdit` or `SpinBox` holds focus. Popups, exclusive
+  windows (the Find dialog) and text fields take Escape before the app sees it, so none is stolen from. The phone's back
+  (`_escape_action(true)`) does not deselect. `menus.gd::DESELECT_ONE_TIP` and the Keyboard reference's Esc row say so.
+- **Desktop search runs commands.** `dcc_shell.gd::_fill_search_results()` no longer draws the desktop dialog's `.`
+  rows as disabled readouts; a press goes to `_run_search_command()` (the phone's path), which is
+  `DccQuickBar.run_pin_on()` and so `CommandIndex.run_row()`, never a second route. The reason a row cannot run is the
+  dialog's count line on the desktop (`_say_search_reason()`), a toast on the phone.
+- **Measured:** new `_pc9esc_probe` (windowed, real key events, wiped user dir): PASS 18 checks at 1600×1000 desktop
+  and touch. Mutants killed (Python, exact literal, hash-restored): the `idle` gate dropped, the `typing` guard dropped
+  (it needed a direct-call check, since a focused `LineEdit` swallows Escape itself and left that mutant alive until the
+  probe handed the app the event directly), the `clear_selection()` call removed, the count-line reason removed, the run
+  restricted to the phone. `_deselect_probe` section 6 now asserts both halves (Measure armed: kept; Inspect armed:
+  cleared) and its menu finder takes the popup whose row is titled Deselect (id 82 is also an Atlas row).
+- **Left in that row:** §3.8's three-level flattening (M7), CIVIL ▸ Open factions… on `current_faction()`.
+
 ---
 
 ### The HTML's next versions ordered (Ruling EF), and the v2.72 audits filed; v2.74 begun (2026-11-02)

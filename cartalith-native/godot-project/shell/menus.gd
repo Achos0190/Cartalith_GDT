@@ -1472,9 +1472,9 @@ func refresh_undo_rows() -> void:
 const DESELECT_TIP := "Clears the settlement, label or icon selection in the active domain. Not the same as Escape, which puts the tool down and deliberately leaves the selection alone."
 
 ## Deselect's tooltip from PC-1, when `clear_selection()` clears the one shared selection
-## (`PC_SHELL_PROPOSAL.md` §3.1, finding S1). **Its last sentence is true until §3.9's Escape change**
-## ("With nothing open, it deselects"), which is not drafted here: that change must rewrite it.
-const DESELECT_ONE_TIP := "Clears the selection: everything that shows it empties together, and Previous selection (Alt+←) brings it back. Not the same as Escape, which puts the tool down and deliberately leaves the selection alone."
+## (`PC_SHELL_PROPOSAL.md` §3.1, finding S1). **Its last sentence says what Escape does since §3.9's Escape change**
+## ("With nothing open, it deselects", `app.gd::_unhandled_key_input`).
+const DESELECT_ONE_TIP := "Clears the selection: everything that shows it empties together, and Previous selection (Alt+←) brings it back. Escape does the same once nothing else has a use for it: it closes or puts down what is open first, then clears the selection."
 
 ## Why Previous / Next selection are disabled before PC-1. Checked 2026-11-01 at `a38e0ac`: the
 ## shell holds three separate selections (`app.gd::clear_selection()`'s own header: "none of them

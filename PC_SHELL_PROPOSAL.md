@@ -432,7 +432,8 @@ a surface").
 - where the code and this section disagreed. Those are corrected here.
 
 **Desktop search runs commands.** The phone already runs a pinnable row through `DccQuickBar.run_pin_on`; the desktop
-draws the same rows disabled (finding S4). They become runnable on the desktop too.
+draws the same rows disabled (finding S4). They become runnable on the desktop too. *(Built 2026-11-08:
+`dcc_shell.gd::_run_search_command()` is shared; the reason a row cannot run is the dialog's count line.)*
 
 ### 3.9 Keys
 
@@ -457,7 +458,9 @@ The owner took all of them (Ruling DY, PQ8).
   - Ctrl+1, Ctrl+2 and Ctrl+3 pick a layer while the Layers popover is open, because its key match ignores modifiers.
   - On Windows and Linux, Alt+← and Alt+→ reach the menu while a text field has focus (PQ12).
 - **Esc** closes the topmost transient: a menu, the card, the ring, Find, the topmost window, the edit mode. With
-  nothing open, it deselects.
+  nothing open, it deselects. *(Built 2026-11-08 in `app.gd::_unhandled_key_input`: Escape reaches the selection only
+  when Inspect was already armed with no escape handler and no text field has focus; menus, the ring and windows take
+  it first because they consume it before the app's unhandled-key path. The phone's back does not deselect.)*
 
 ### 3.10 The loading screen, on every form factor
 

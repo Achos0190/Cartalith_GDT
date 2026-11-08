@@ -264,9 +264,9 @@ Each was read at its own lines; none was run (no Godot here).
   separators first, and the owner has to say what each third level becomes.
 - **§3.9's Escape** ("closes the topmost transient … With nothing open, it deselects"): a change to
   `app.gd::_escape_action()` and a transient stack, not a menu row, and the deselect half is PC-1's. `DESELECT_ONE_TIP`
-  says Escape leaves the selection alone, which stays true until that lands.
+  says Escape leaves the selection alone, which stays true until that lands. *(Built 2026-11-08: `app.gd::_unhandled_key_input`; the tooltip was rewritten with it.)*
 - **§3.8's "Desktop search runs commands"** (finding S4): the search list's code (`dcc_shell.gd`'s command bands), not
-  a menu.
+  a menu. *(Built 2026-11-08: `_run_search_command()` serves the desktop dialog too.)*
 - **CIVIL ▸ Open factions… on the current faction** (W6's third entry point): `civilization_workspace.gd`, not a menu.
   It should call the same `current_faction()`.
 - **`assistant_chip.gd::open_panel` and the ring-dock assistant item → the Ask tab** (A4): not menus; PC-6's.

@@ -548,7 +548,17 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			context_broker.ring_close()
 			get_viewport().set_input_as_handled()
 			return
+		## PC-9 (`PC_SHELL_PROPOSAL.md` §3.9): "With nothing open, it deselects". Everything that has a use
+		## for Escape has already had it by the time this runs (a popup, an exclusive window, the ring above, a
+		## draft or armed tool's escape handler, a tool to put down), so the key reaches the selection only when
+		## Inspect was already armed with no handler of its own, and never from a text field, whose Escape is not
+		## ours to spend. The phone's back gesture runs `_escape_action(true)` directly and does not deselect.
+		var idle := armed_tool == "inspect" and not _escape_handlers.has("inspect")
+		var focus := get_viewport().gui_get_focus_owner()
+		var typing: bool = focus is LineEdit or focus is TextEdit or focus is SpinBox
 		_escape_action()
+		if idle and not typing:
+			clear_selection()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_BACKSPACE:
 		## Same text-field guard Delete needs below, and for the same reason:
