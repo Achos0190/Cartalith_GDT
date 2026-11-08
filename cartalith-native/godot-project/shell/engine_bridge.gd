@@ -7854,9 +7854,10 @@ func vault_info() -> Dictionary:
 ## read, which callers already read as "unbound" via `.get("bound", false)`.
 var _vault_info_seen: Dictionary = {}
 
-## Markdown files in the bound vault, sorted, capped at `limit` (`WorldGen.vault_list_files`).
-## Empty for an unbound vault or no API.
-func vault_list_files(limit: int = 2000) -> PackedStringArray:
+## Markdown files in the bound vault, sorted, capped at `limit` (`WorldGen.vault_list_files`). `limit <= 0`
+## (the default, VE-9) means the crate's own `cartalith_vault::LIST_CAP`: no shell-side cap stands between the
+## crate and the browser. Empty for an unbound vault or no API.
+func vault_list_files(limit: int = 0) -> PackedStringArray:
 	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
 	if generating:
 		return PackedStringArray()
@@ -8437,9 +8438,10 @@ func undo_revert_to(seq: int) -> int:
 
 
 ## Refreshes the backlink index, the only operation that scans the vault
-## (`WorldGen.vault_refresh_backlinks`, capped at `limit`). Reply `{ok, error, ...}`.
+## (`WorldGen.vault_refresh_backlinks`, capped at `limit`; `limit <= 0`, the default since VE-9, is the crate's
+## `cartalith_vault::LIST_CAP`). Reply `{ok, error, ...}`.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
-func vault_refresh_backlinks(limit: int = 2000) -> Dictionary:
+func vault_refresh_backlinks(limit: int = 0) -> Dictionary:
 	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}

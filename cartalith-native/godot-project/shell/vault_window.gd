@@ -711,7 +711,7 @@ func _build_connection(info: Dictionary) -> void:
 ## every word on screen rather than shrinking type until it happens to fit.
 func _build_connection_header(info: Dictionary) -> void:
 	var name := String(info.get("display_name", ""))
-	var count := bridge.vault_list_files(2000).size()
+	var count := bridge.vault_list_files().size()
 	var head_text := "%s · %d note%s" % [
 		name if name != "" else "vault", count, "" if count == 1 else "s"]
 	## Opened from an entity (Ruling BE): say which, in the header's own
@@ -1069,7 +1069,7 @@ func _build_create(parent: Control, open: bool = false) -> void:
 ## is built client-side from `vault_list_files()`'s flat paths, split on `/`.
 func _build_browse() -> void:
 	var sec := DccWidgets.section(_body, "Browse a note" if _kind == "" else "Notes")
-	var files := bridge.vault_list_files(2000)
+	var files := bridge.vault_list_files()
 	if files.is_empty():
 		DccWidgets.note(sec, "No .md files found in this vault folder.")
 		return
@@ -1596,9 +1596,16 @@ func _frontmatter_entity(fm: Dictionary) -> Dictionary:
 ## present only when this world actually has it (`x`/`y` a map position,
 ## `index` an index into `bridge.settlements()` for the place editor). `{}` when
 ## nothing by that id exists -- which is also the answer for a kind this window
-## does not look up (culture, landmark), and the callers say which.
+## does not look up (landmark: a landmark has no name to be linked by, VE-9), and the callers say which.
 func _resolve_entity(kind: String, id: int) -> Dictionary:
 	match kind:
+		"culture":
+			## VE-9. A culture is addressed by its `CIV_CULTURES` index (`get_cultures`' `id`), has no map
+			## position (so no Centre on map), and its name is the title-cased key the engine gives it.
+			for c in bridge.get_cultures():
+				var d: Dictionary = c
+				if int(d.get("id", -1)) == id:
+					return {"name": String(d.get("name", ""))}
 		"settlement":
 			var ss := bridge.settlements()
 			for i in ss.size():
@@ -1654,6 +1661,10 @@ func _entity_list(kind: String) -> Array:
 		"faction":
 			for f in bridge.get_factions():
 				out.append({"id": int((f as Dictionary).get("id", 0)), "name": String((f as Dictionary).get("name", "?"))})
+		"culture":
+			## VE-9: the seven cultures of `CIV_CULTURES`, which exist before any world does.
+			for c in bridge.get_cultures():
+				out.append({"id": int((c as Dictionary).get("id", 0)), "name": String((c as Dictionary).get("name", "?"))})
 	return out
 
 
@@ -1674,8 +1685,8 @@ func _faction_name(fid: int) -> String:
 
 ## What a link `note_part` (the text before any `#heading` or `^block`) written in the note at
 ## `from_rel` names, as `{kind}`: `note` (plus `path`, or `candidates` when more than one note could
-## mean it), `entity` (a settlement, province, continent or faction of this world that has no note
-## by that name; plus `ent_kind` and `id`), `unresolved` (nothing by that name), or `unknown` (the
+## mean it), `entity` (a settlement, province, continent, faction or culture of this world that has no note
+## by that name; plus `ent_kind` and `id`; cultures since VE-9), `unresolved` (nothing by that name), or `unknown` (the
 ## resolver could not answer -- generating, or no vault bound -- plus `why`). `unknown` is its own
 ## answer on purpose: reading a failed lookup as `unresolved` would offer to CREATE a note that may
 ## well exist (`MISTAKES.md`: never encode "no value" as a plausible value).
@@ -1698,7 +1709,9 @@ func _link_kind(from_rel: String, note_part: String) -> Dictionary:
 ## kinds; a note link would be unambiguous, an entity link is only a courtesy).
 func _entity_names() -> Dictionary:
 	if _ent_names.is_empty():
-		for kind in ["settlement", "province", "continent", "faction"]:
+		## Cultures last (VE-9): a culture is a generic word ("Highland"), so a settlement, province, continent or
+		## faction of that name must win the link. Landmarks are not here: they carry no name to link by.
+		for kind in ["settlement", "province", "continent", "faction", "culture"]:
 			for ent in _entity_list(kind):
 				var n := String((ent as Dictionary).get("name", "")).strip_edges()
 				var key := n.to_lower()
@@ -2506,7 +2519,7 @@ func _set_side(on: bool) -> void:
 func _after_save() -> void:
 	dock_saved.emit()
 	if bool(bridge.vault_backlink_stats().get("built", false)):
-		bridge.vault_refresh_backlinks(2000)
+		bridge.vault_refresh_backlinks()
 	if _side_panel != null and is_instance_valid(_side_panel):
 		_side_panel.on_saved()
 
@@ -3189,7 +3202,7 @@ func _refresh_browse_tree() -> void:
 	for c in _browse_tree_col.get_children():
 		_browse_tree_col.remove_child(c)
 		c.queue_free()
-	_build_browse_tree(_browse_tree_col, bridge.vault_list_files(2000))
+	_build_browse_tree(_browse_tree_col, bridge.vault_list_files())
 	if _phone:
 		app.phone_fit(_browse_tree_col, 1.0)
 
@@ -5106,11 +5119,11 @@ func _build_index(parent: Control) -> void:
 
 ## Refreshes the backlink index (stats every note, re-reads only changed ones),
 ## saves it through `VaultStore`, records a one-line outcome in `_index_feedback`
-## (or the engine's error), and rebuilds the window. Reads at most 2000 notes (a
-## cap chosen here to match the 2000 passed to `vault_list_files`; a labelled
-## judgement, not an engine limit) and never writes to the vault.
+## (or the engine's error), and rebuilds the window. Reads at most the crate's `LIST_CAP`
+## notes (12 000; VE-9, Ruling DY VQ7: it was a shell-side 2 000 chosen to match the list calls) and never
+## writes to the vault.
 func _refresh_index() -> void:
-	var r := bridge.vault_refresh_backlinks(2000)
+	var r := bridge.vault_refresh_backlinks()
 	if bool(r.get("ok", false)):
 		VaultStore.save_index_from(bridge)
 		_index_feedback = "Index: %d notes seen, %d re-read, %d dropped%s." % [

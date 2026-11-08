@@ -303,7 +303,7 @@ func _build_links() -> void:
 	if not bool(stats.get("built", false)):
 		_note("The link index has not been built, so backlinks and mentions are unknown (not zero).")
 		var b := DccWidgets.action(_body, "Build the index", func():
-			bridge.vault_refresh_backlinks(2000)
+			bridge.vault_refresh_backlinks()
 			rebuild())
 		b.name = "SideBuildIndex"
 		_floor(b)
@@ -416,7 +416,7 @@ func link_mention(source: String) -> Dictionary:
 	if not bool(w.get("ok", false)):
 		_say("Not linked: %s was not written (%s). Nothing was changed." % [source, String(w.get("error", ""))])
 		return {"ok": false, "error": String(w.get("error", ""))}
-	bridge.vault_refresh_backlinks(2000)
+	bridge.vault_refresh_backlinks()
 	_say("Linked in %s." % source)
 	rebuild()
 	return {"ok": true, "rel": source, "line": int(sp.get("line", 0))}
