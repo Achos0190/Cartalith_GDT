@@ -811,8 +811,21 @@ Two of the "left" items in `OUTSTANDING_WORK.md`'s PC-9 row, read and built at t
   probe handed the app the event directly), the `clear_selection()` call removed, the count-line reason removed, the run
   restricted to the phone. `_deselect_probe` section 6 now asserts both halves (Measure armed: kept; Inspect armed:
   cleared) and its menu finder takes the popup whose row is titled Deselect (id 82 is also an Atlas row).
-- **Left in that row:** §3.8's three-level flattening for Assets ▸ Landmark types (below), CIVIL ▸ Open factions… on
-  `current_faction()`.
+- **Left in that row:** §3.8's three-level flattening for Assets ▸ Landmark types (below). (CIVIL ▸ Open factions… on
+  `current_faction()` was built later the same day: next entry.)
+
+### CIVIL ▸ Open factions… opens on the current faction (2026-11-08, finding W6's third entry point)
+
+`civilization_workspace.gd::_open_roster_on_current()` (re-opened at its symbol: the row's lambda called
+`app.open_faction_roster()` with no faction): it asks `app.current_faction()` (PC-1) and passes the answer, so the
+Factions window opens on the selected faction, or on the holder of the selected settlement; with nothing selected the
+answer is `-1`, `open_faction_roster()`'s own "none", and the window reopens on the last faction viewed, as before. The
+call goes through `has_method`, as `DccMenus._open_factions()` does for Records ▸ Factions… and Story ▸ Faction history….
+- **Measured:** new `_pc1roster_probe` (windowed, wiped user dir, the row pressed through its own `pressed` signal, so
+  it is a desktop regression and not proof that a finger reaches the row): PASS 7 checks at 1600×1000 desktop and at
+  1280×800 `--force-touch`. The two factions are read from the engine's settlement list and asserted different, so a
+  roster stuck on one faction cannot pass. Literal mutant killed (`app.current_faction()` replaced by `-1`: 4 of 7
+  checks fail, exit 1; Python, exact literal, hash-restored).
 
 ### PC-9's three-level flattening, four of five submenus (2026-11-08, finding M7)
 

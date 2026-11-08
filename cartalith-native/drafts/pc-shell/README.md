@@ -268,7 +268,7 @@ Each was read at its own lines; none was run (no Godot here).
 - **§3.8's "Desktop search runs commands"** (finding S4): the search list's code (`dcc_shell.gd`'s command bands), not
   a menu. *(Built 2026-11-08: `_run_search_command()` serves the desktop dialog too.)*
 - **CIVIL ▸ Open factions… on the current faction** (W6's third entry point): `civilization_workspace.gd`, not a menu.
-  It should call the same `current_faction()`.
+  It should call the same `current_faction()`. *(Built 2026-11-08: `civilization_workspace.gd::_open_roster_on_current()`.)*
 - **`assistant_chip.gd::open_panel` and the ring-dock assistant item → the Ask tab** (A4): not menus; PC-6's.
 - **§3.1's S3, the card at the selection:** `app.gd::_open_context_card_from_keyboard()`'s body, at PC-1.
   `CONTEXT_CARD_TIP` says "at the pointer" and must change with it.

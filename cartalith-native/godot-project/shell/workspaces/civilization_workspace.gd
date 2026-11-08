@@ -2256,6 +2256,20 @@ func _build_factions() -> void:
 	_factions_body = DccWidgets.category(self, "Factions", categories)
 	_fill_factions(_factions_body)
 
+## CIVIL ▸ Factions ▸ Open factions…: opens the Factions window on the current faction when the one
+## selection names one (`DccApp.current_faction()`, PC-1: the selected faction, or the holder of a
+## selected settlement), and otherwise exactly as before -- on the last faction viewed.
+## `PC_SHELL_PROPOSAL.md` §3.6 ("Opening on the right subject", finding W6) lists this row beside
+## Records ▸ Factions… and Story ▸ Faction history…, which `DccMenus._open_factions()` already
+## routes this way. `-1` is `open_faction_roster()`'s own documented "none" (it then reopens on the
+## last faction viewed), never a guessed id, so an empty selection changes nothing. Looked up through
+## `has_method` the way `DccMenus._host_has()` does, so a host without PC-1 keeps the old call.
+func _open_roster_on_current() -> void:
+	var fid := -1
+	if app.has_method("current_faction"):
+		fid = int(app.current_faction())
+	app.open_faction_roster(fid)
+
 ## Fills CIVIL ▸ Factions: the door to the Factions hub (`open_faction_roster`), the Settlement types library door and a by-province-count list whose rows
 ## open the hub's Territory tab. Faction colour editing lives in the hub, not here; this must never write or tint a faction colour.
 func _fill_factions(parent: Control) -> void:
@@ -2267,7 +2281,7 @@ func _fill_factions(parent: Control) -> void:
 	## profiles… row: its content is the Identity tab's Culture profile card.
 	## The Settlement types… row below stays as the library door: FH-3 moved the
 	## per-faction default into the hub's Identity tab and left only the library here.
-	var roster_btn := DccWidgets.action(sec, "Open factions…", func(): app.open_faction_roster(), true)
+	var roster_btn := DccWidgets.action(sec, "Open factions…", _open_roster_on_current, true)
 	roster_btn.tooltip_text = "The Factions window (the reference's Faction Roster, grown into tabs): world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
 
 	## `lazy-riding-piglet.md` Batch D, artboard 1f. Beside the roster because the
