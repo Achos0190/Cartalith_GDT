@@ -2553,6 +2553,41 @@ func _family_by_key(key: String) -> Dictionary:
 			return fam
 	return {}
 
+# -- CQ-8: where a pinnable check or radio row's on/off state really lives ------------------------
+#
+# `CUSTOM_QUICK_BAR_SCOPE.md` Q8 / Ruling EH item 3. A chip for a toggle must show its LIVE state, "read from
+# the command's own state source, never a mirrored copy". The menu's own check marks are not that source: most
+# are refreshed only in an `about_to_popup` handler (which the index must never fire, `command_index.gd`'s
+# header), so a chip reading them would show the state of the last time the menu was opened. Each row below
+# instead names the store the menu's own refresh reads from. A row NOT listed stays unpinnable, with its reason.
+
+## The getter (`func() -> bool`) for the on/off state of action `id`, or an invalid `Callable` when none is
+## registered. Called by `CommandIndex` once per index build and then polled by the chip, so it must be cheap
+## and read-only. The ids are this file's own constants, so a renumber cannot desynchronise them.
+func state_source(id: int) -> Callable:
+	if WIN_REGION_IDS.has(id):
+		return func() -> bool: return _host != null and _host.is_region_shown(id)
+	match id:
+		ID_AUTOSAVE:
+			return func() -> bool: return DccSettings.autosave_enabled()
+		ID_PREF_THEME_DARK:
+			return func() -> bool: return DccSettings.theme_mode() == "dark"
+		ID_PREF_THEME_LIGHT:
+			return func() -> bool: return DccSettings.theme_mode() == "light"
+		ID_PREF_THEME_SYSTEM:
+			return func() -> bool: return DccSettings.theme_mode() == "system"
+		ID_PREF_POPOUT:
+			return func() -> bool: return DccSettings.popout_enabled()
+		ID_WIN_SESSION_MODE:
+			return func() -> bool: return _shell != null and _shell.is_session_mode()
+		ID_WIN_DIAG_OVERLAY:
+			return func() -> bool: return _host != null and _host.resource_overlay != null and _host.resource_overlay.visible
+		ID_WIN_VIEW_3D:
+			return func() -> bool:
+				var vp = _host.viewport if _host != null and "viewport" in _host else null
+				return vp != null and vp.is_3d()
+	return Callable()
+
 # -- §2.3 Assets ▸ Landmark types… -------------------------------------------
 #
 # **Ruling EH item 2 (owner, 2026-11-08): the cascade is a window.** `Assets ▸ Landmark types ▸ <family> ▸

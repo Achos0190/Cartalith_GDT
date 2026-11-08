@@ -35,6 +35,21 @@ class_name DccQuickBar
 ## search and the reasons for the rest, so keeping both would be two ways to do one thing. A
 ## chip's right-click menu still removes or moves it in place.
 ##
+## ## CQ-8 (Ruling EH item 3): per-domain pins, toggle chips, tool chips
+##
+## * **Per-domain visibility.** The store is still ONE pin list; a pin may be limited to chosen domains
+##   (`DccSettings.quick_bar_pins_for`). `refresh()` draws only the pins of the ACTIVE domain, and the shell
+##   already calls it on every workspace change. A stored pin with an unreadable domain list is shown in every
+##   domain and the user is told once (`DccSettings.quick_bar_notices`, spoken from `refresh()`).
+## * **Toggle chips.** A pin whose index row carries `toggle` (a registered check or radio row, or a tool) shows
+##   `●` when on and `○` when off, and lights like the palette's armed cell. The state is read by calling the
+##   getter the index row carries (`DccMenus.state_source`, `armed_tool`) -- the command's own source, never a
+##   copy of the menu's check mark and never a value stored here beyond the last answer used to decide whether
+##   to repaint. A cheap poll (`POLL_SECONDS`) repaints a chip whose answer changed, so a change made from the
+##   menu, a shortcut, another window or a script shows within a quarter of a second without a hook per command.
+## * **Tool chips.** `tool:<id>` pins (Inspect, Measure, Region select) arm through `DccApp.arm_tool`, the
+##   palette button's own call (`CommandIndex.run_row`).
+##
 ## ## What is not here (the milestones after it)
 ##
 ## The ring dock and the shared sub-rings are `quick_bar_ring.gd`'s (CQ-4); it reuses `run_pin_on`,
@@ -66,6 +81,12 @@ const ID_ASSISTANT_HIDE := 1002
 ## Ruling DQ: the Assistant chip's menu lists the profiles; row `i` carries id `ID_PROFILE_BASE + i`.
 ## Above every other id in this file and well below Godot's menu id limits; 16 profiles at most.
 const ID_PROFILE_BASE := 1100
+## How often a toggle chip's state is re-read, in seconds. A labelled judgement: short enough that a change
+## made elsewhere shows before the user looks back at the bar, long enough that up to 24 getters cost nothing.
+const POLL_SECONDS := 0.25
+## Marks a toggle chip's state in its label (`CUSTOM_QUICK_BAR_SCOPE.md` Q8): filled when on, hollow when off.
+const MARK_ON := "● "
+const MARK_OFF := "○ "
 ## Reference to the owning `DccApp` for `bridge` and the menu walk; untyped for a harness stub.
 var _app
 ## Pinned chips in pin order, one per stored pin (hidden ones are overflow).
@@ -92,6 +113,10 @@ var _shown := 0
 var _index: CommandIndex
 ## Milliseconds the last index build took (reported by `_quickbar_probe.gd`).
 var last_index_ms := 0.0
+## Seconds since the toggle chips were last re-read (`_process`).
+var _poll := 0.0
+## True once this bar has spoken the store's notices, so a refresh per workspace change does not repeat them.
+var _notices_said := false
 
 ## Emitted whenever the stored pin list changed through this node.
 signal pins_changed
@@ -125,6 +150,7 @@ func _init() -> void:
 ## Binds the owning app and draws the pins. Call once, after the shell is built.
 func setup(app) -> void:
 	_app = app
+	set_process(false)
 	## Follow the settings that decide the Assistant chip (CQ-7). Connected once; the hub is a static
 	## on `DccSettings`, so a connection to a freed bar is dropped by the engine.
 	if not DccSettings.assistant_hub.changed.is_connected(refresh_assistant):
@@ -211,13 +237,18 @@ func refresh() -> void:
 		remove_child(c)
 		c.queue_free()
 	_chips.clear()
-	var pins: Array = DccSettings.quick_bar_value("bar")
+	## CQ-8: only the pins shown in the ACTIVE domain get a chip; the cap and the `＋` tooltip speak of the
+	## whole stored list, because that is what the cap limits.
+	var stored: Array = DccSettings.quick_bar_value("bar")
+	var pins: Array = DccSettings.quick_bar_pins_for("bar", current_domain())
 	for p in pins:
 		_chips.append(_chip_for(String(p["k"]), String(p["t"])))
-	var full := pins.size() >= DccSettings.QUICK_BAR_MAX_BAR
+	set_process(_has_toggle_chip())
+	_say_notices_once()
+	var full := stored.size() >= DccSettings.QUICK_BAR_MAX_BAR
 	_plus.disabled = false
-	_plus.tooltip_text = ("Customise the quick bar. It is full (%d / %d): remove a pin to add another." % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]) if full \
-		else "Customise the quick bar: pin a command (%d / %d)" % [pins.size(), DccSettings.QUICK_BAR_MAX_BAR]
+	_plus.tooltip_text = ("Customise the quick bar. It is full (%d / %d): remove a pin to add another." % [stored.size(), DccSettings.QUICK_BAR_MAX_BAR]) if full \
+		else "Customise the quick bar: pin a command (%d / %d)" % [stored.size(), DccSettings.QUICK_BAR_MAX_BAR]
 	refresh_assistant()
 	update_minimum_size()
 	queue_sort()
@@ -274,7 +305,76 @@ func _chip_for(pin_key: String, stored_title: String) -> Button:
 	if not usable:
 		tip += " -- unavailable: " + String(row.get("why_not", ""))
 	b.tooltip_text = tip
+	## CQ-8: a toggle chip carries the getter the index row held (the command's own state source) and is
+	## painted from its answer now and again whenever the poll sees it change.
+	if usable and bool(row.get("toggle", false)) and (row.get("_state") as Callable).is_valid():
+		b.set_meta("state_fn", row["_state"])
+		b.set_meta("base_tip", tip)
+		b.set_meta("base_label", label_for(title))
+		_paint_toggle(b)
 	return b
+
+## The current domain id, `""` when the app cannot say (a stub), which the store reads as "no filter".
+func current_domain() -> String:
+	if _app != null and _app.has_method("active_domain"):
+		return String(_app.active_domain())
+	return ""
+
+## True while at least one chip is a toggle (the poll runs only then, so an ordinary bar costs nothing).
+func _has_toggle_chip() -> bool:
+	for c in _chips:
+		if c.has_meta("state_fn"):
+			return true
+	return false
+
+## Reads a toggle chip's state from its getter and paints it: `●`/`○` in the label, the accent ink and wash
+## when on, and "On"/"Off" in the tooltip. Remembers only the last answer (`on` meta), to know whether the next
+## poll changed anything. A getter that has become invalid (its owner was freed) leaves the chip as it was.
+func _paint_toggle(b: Button) -> void:
+	var fn: Callable = b.get_meta("state_fn")
+	if not fn.is_valid():
+		return
+	var on := bool(fn.call())
+	if b.has_meta("on") and bool(b.get_meta("on")) == on and b.has_meta("painted"):
+		return
+	b.set_meta("on", on)
+	b.set_meta("painted", true)
+	b.text = (MARK_ON if on else MARK_OFF) + String(b.get_meta("base_label"))
+	b.tooltip_text = String(b.get_meta("base_tip")) + ("  [on]" if on else "  [off]")
+	var tablet := DccTheme.is_tablet()
+	var px := DccTheme.role_px("chip_pad_x") if tablet else 8
+	var py := DccTheme.role_px("chip_pad_y") if tablet else 3
+	var token := "accent" if on else "border"
+	var rest := DccWidgets.box(token, "accent_wash" if on else "", px, py)
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("pressed", rest)
+	b.add_theme_color_override("font_color", DccTheme.c("accent") if on else DccTheme.c("text"))
+	update_minimum_size()
+	queue_sort()
+
+## Re-reads every toggle chip's state on a timer (see `POLL_SECONDS`).
+func _process(delta: float) -> void:
+	_poll += delta
+	if _poll < POLL_SECONDS:
+		return
+	_poll = 0.0
+	poll_toggles()
+
+## One re-read of every toggle chip now (the poll's body, public so a probe need not wait for the timer).
+func poll_toggles() -> void:
+	for c in _chips:
+		if c.has_meta("state_fn"):
+			_paint_toggle(c)
+
+## Says the store's notices (corrupt entries, a newer file) once per process, in the status line's hint slot.
+func _say_notices_once() -> void:
+	if _notices_said:
+		return
+	var n: Array = DccSettings.quick_bar_notices()
+	if n.is_empty():
+		return
+	_notices_said = true
+	_say("Quick bar: " + " ".join(PackedStringArray(n)))
 
 ## The accelerator the menu row currently shows ("Ctrl+S"), or "". Read from the popup, which
 ## `menus.gd` binds from `DccSettings.shortcut_binding`, so a rebind shows here. Static since CQ-4
@@ -451,7 +551,8 @@ func _chip_input(ev: InputEvent, chip: Button, pin_key: String) -> void:
 ## through a real right-click on the chip and also assert its rows.
 func open_chip_menu(chip: Button, pin_key: String) -> void:
 	_chip_menu_key = pin_key
-	var pins: Array = DccSettings.quick_bar_value("bar")
+	## CQ-8: the neighbours that matter are the pins shown in this domain, which is what the user sees.
+	var pins: Array = DccSettings.quick_bar_pins_for("bar", current_domain())
 	var at := -1
 	for i in pins.size():
 		if String(pins[i]["k"]) == pin_key:
@@ -476,9 +577,9 @@ func _on_chip_menu_item(id: int) -> void:
 		0:
 			ok = DccSettings.quick_bar_remove("bar", _chip_menu_key)
 		1:
-			ok = DccSettings.quick_bar_move("bar", _chip_menu_key, -1)
+			ok = DccSettings.quick_bar_move_visible("bar", _chip_menu_key, -1, current_domain())
 		2:
-			ok = DccSettings.quick_bar_move("bar", _chip_menu_key, 1)
+			ok = DccSettings.quick_bar_move_visible("bar", _chip_menu_key, 1, current_domain())
 	if ok:
 		refresh()
 		pins_changed.emit()

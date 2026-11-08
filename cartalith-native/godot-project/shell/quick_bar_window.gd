@@ -52,6 +52,17 @@ class_name QuickBarWindow
 ##    instead of guessing). A diagonal that is a single tool (CARTO Label, CIVIL Route) is listed
 ##    disabled with the reason it cannot share.
 ##
+## ## CQ-8 (Ruling EH item 3): per-domain visibility, toggles and tools
+##
+## On the Bar and Ring dock tabs a pin has a `Shown in` row of three check boxes (World, Civilization,
+## Cartography) under the pins list, acting on the selected pin through `DccSettings.quick_bar_set_domains`
+## (which refuses an empty selection with its reason: a pin shown nowhere cannot be seen, so Remove is the way
+## to hide one). A restricted pin's row in the list says where it shows. The catalogue gains a `Tools` group
+## (Inspect, Measure, Region select) and lists the toggle rows the menus registered a live state source for;
+## both pin like any command. A banner under the lead line repeats the store's notices
+## (`DccSettings.quick_bar_notices`: an unreadable entry skipped, a pin whose domain list was unreadable and now
+## shows everywhere, a newer file) so nothing the user pinned is lost silently.
+##
 ## ## The phone layout (CQ-6)
 ##
 ## On a phone the window fills the screen (`DccWidgets.phone_window` / `phone_present`) and lays out in dp. The
@@ -122,6 +133,11 @@ var _assistant_chk: CheckBox
 var _assistant_note: Label
 ## The dialog's content column, kept so the Assistant switch can be added on first open (below).
 var _root_box: VBoxContainer
+## CQ-8: the `Shown in` row (a label and one check box per domain), built on the first open (the phone lesson in
+## `_ensure_assistant_switch`), and the banner that carries the store's notices.
+var _dom_row: HBoxContainer
+var _dom_checks: Dictionary = {}
+var _notice: Label
 ## The inset container holding everything; sized by `_fit_content`.
 var _content: MarginContainer
 ## Row dictionaries parallel to `_catalogue`'s items (`{}` for a placeholder line).
@@ -409,6 +425,7 @@ func open() -> void:
 		DccSettings.assistant_hub.changed.connect(_sync_assistant_switch)
 	_ensure_assistant_switch()
 	_sync_assistant_switch()
+	_ensure_domain_row()
 	_ensure_phone_layout()
 	_rebuild_all()
 	## A phone fills the screen (`phone_present` opens the window itself); desktop and tablet centre it.
@@ -449,6 +466,88 @@ func _ensure_assistant_switch() -> void:
 	## Directly under the lead paragraph (child 0), above the tabs.
 	_root_box.move_child(_assistant_chk, 1)
 	_root_box.move_child(_assistant_note, 2)
+
+## Builds the `Shown in` row (above the Reset button) and the notices banner (under the Assistant note) on the
+## FIRST `open()`, for the reason `_ensure_assistant_switch` gives. The row exists on every form factor; it is
+## shown only for the Bar and Ring dock tabs (`_sync_domain_row`).
+func _ensure_domain_row() -> void:
+	if _dom_row != null:
+		return
+	_dom_row = HBoxContainer.new()
+	_dom_row.name = "ShownIn"
+	_dom_row.add_theme_constant_override("separation", 10)
+	var lbl := DccTheme.mono_label("SHOWN IN", "text_dim", DccTheme.FS_SMALL, 1)
+	_dom_row.add_child(lbl)
+	for dom in DccSettings.QUICK_BAR_DOMAINS:
+		var c := CheckBox.new()
+		c.name = "Dom_" + String(dom)
+		c.text = String(QuickBarRing.DOMAIN_NAMES.get(dom, dom))
+		c.focus_mode = Control.FOCUS_ALL
+		c.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+		c.tooltip_text = "Show the selected pin while the %s domain is active. A pin must stay in at least one domain." % String(QuickBarRing.DOMAIN_NAMES.get(dom, dom))
+		c.toggled.connect(func(on: bool): _on_domain_toggled(String(dom), on))
+		_dom_row.add_child(c)
+		_dom_checks[String(dom)] = c
+	_right.add_child(_dom_row)
+	_right.move_child(_dom_row, _reset_btn.get_index())
+	_notice = DccTheme.label("", "warn", DccTheme.FS_SMALL)
+	_notice.name = "StoreNotice"
+	_notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_notice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_notice.custom_minimum_size = Vector2(320, 0)
+	_notice.visible = false
+	_root_box.add_child(_notice)
+	_root_box.move_child(_notice, 3)
+
+## Shows or hides the `Shown in` row and fills it from the selected pin: visible on the Bar and Ring dock tabs only,
+## enabled when a pin is selected, each box on when the pin is shown in that domain.
+func _sync_domain_row() -> void:
+	if _dom_row == null:
+		return
+	var applies := _target == "bar" or _target == "dock"
+	_dom_row.visible = applies
+	if not applies:
+		return
+	var i := _selected_pin_index()
+	var pin: Dictionary = {}
+	if i >= 0 and i < _pin_keys.size():
+		for p in _pins_now():
+			if String(p["k"]) == String(_pin_keys[i]):
+				pin = p
+	var doms: Array = DccSettings.quick_bar_pin_domains(pin) if not pin.is_empty() else []
+	for dom in _dom_checks:
+		var c: CheckBox = _dom_checks[dom]
+		c.disabled = pin.is_empty()
+		c.set_pressed_no_signal(doms.has(dom))
+
+## A `Shown in` box was toggled: store the new set for the selected pin, or refuse with the store's reason and
+## put the box back.
+func _on_domain_toggled(_dom: String, _on: bool) -> void:
+	var i := _selected_pin_index()
+	if i < 0:
+		return
+	var key := String(_pin_keys[i])
+	var want: Array = []
+	for dom in DccSettings.QUICK_BAR_DOMAINS:
+		if (_dom_checks[dom] as CheckBox).button_pressed:
+			want.append(dom)
+	var why := DccSettings.quick_bar_set_domains(_target, key, want)
+	if why != "":
+		_say(why)
+		_sync_domain_row()
+		return
+	_say("", "text_secondary")
+	_changed(key)
+
+## `Quick bar ▸` text for where a pin shows, `""` when it shows everywhere (the list stays short for the common case).
+static func domain_suffix(pin: Dictionary) -> String:
+	var doms: Array = DccSettings.quick_bar_pin_domains(pin)
+	if doms.size() >= DccSettings.QUICK_BAR_DOMAINS.size():
+		return ""
+	var names: Array = []
+	for d in doms:
+		names.append(String(QuickBarRing.DOMAIN_NAMES.get(d, d)))
+	return "  ·  only in " + ", ".join(PackedStringArray(names))
 
 ## Applies the phone layout once, on the first `open()` on a phone (module header, "The phone layout"):
 ## restacks the two columns under a `Commands` / `Pinned` strip, hides the ring tabs the phone cannot use,
@@ -560,6 +659,10 @@ func _fit_content() -> void:
 func _rebuild_all() -> void:
 	_idx = CommandIndex.new()
 	_idx.build(app, app.bridge)
+	if _notice != null:
+		var notes: Array = DccSettings.quick_bar_notices()
+		_notice.text = " ".join(PackedStringArray(notes))
+		_notice.visible = not notes.is_empty()
 	_render_diagonals()
 	_apply_target_chrome()
 	_render_catalogue()
@@ -748,7 +851,7 @@ func _render_pins(select_key: String = "") -> void:
 	for p in pins:
 		var k := String(p["k"])
 		var row := _idx.find_pin(k)
-		var i := _pins_list.add_item(pin_text(row, String(p["t"]), k))
+		var i := _pins_list.add_item(pin_text(row, String(p["t"]), k) + (domain_suffix(p) if _target != "share" else ""))
 		_pin_keys.append(k)
 		if not row.is_empty() and bool(row.get("pinnable", false)):
 			_pins_list.set_item_tooltip(i, String(row.get("blurb", "")))
@@ -790,6 +893,7 @@ func _selected_pin_index() -> int:
 ## even when the bar is full or the row is pinned: pressing it then SAYS why it did not add
 ## (scope s.3.5: "refused with the reason, not silently dropped"), which a greyed button cannot.
 func _sync_buttons() -> void:
+	_sync_domain_row()
 	var row := _selected_row()
 	_add_btn.disabled = row.is_empty() or not bool(row.get("pinnable", false))
 	var i := _selected_pin_index()

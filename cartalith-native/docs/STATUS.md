@@ -47,6 +47,14 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Ruling EH item 3 built: CQ-8's per-domain pins, toggle pins and tool pins (2026-11-08)
+
+`CUSTOM_QUICK_BAR_SCOPE.md` Q1, Q8 and Q10, now section 17 of the scope (design, rules and measurements are there; this entry is the pointer). Read and changed at `dcc_settings.gd` (`QUICK_BAR_DOMAINS`, `_scan_pins`, `quick_bar_pins_for`, `quick_bar_set_domains`, `quick_bar_move_visible`, `quick_bar_notices`), `command_index.gd` (`_add_tools`, toggle rows carrying `_state`), `menus.gd` (`state_source`), `quick_bar.gd` (domain filter, `_paint_toggle`, poll, notices), `quick_bar_ring.gd`, `quick_bar_phone.gd`, `quick_bar_window.gd` (`Shown in` row, banner).
+- **Per-domain.** One global list; `d` is omitted while a pin is unrestricted, so pre-CQ-8 pins need no migration; the schema stays 1. A corrupt `d` or entry never crashes and is never silent: the pin is kept and shown everywhere, and a notice names it (status line once, Customise banner).
+- **Toggles.** Pinnable only where the menu owner registered the real state source (13 rows: Autosave, Theme x3, Window regions x5, Session mode, Diagnostics overlay, 3D view, Open panels in their own window); the chip polls the getter, so it follows changes from the menu, a shortcut or the palette.
+- **Tools.** Inspect, Measure and Region select pin as `tool:<id>` and arm through `DccApp.arm_tool`, the palette button's own call. A domain's own tools are not offered (their controls live in their domain).
+- **Run and killed:** `_cq8_probe` 55 / 55 / 31 (desktop, tablet, phone), 8 of 8 mutants killed; regression and the `_cmdindex_probe` assertion change are listed in the scope's section 17. Not run on a device.
+
 ### Ruling EH item 2 built: Assets ▸ Landmark types is one row that opens a window (2026-11-08)
 
 The last three-level menu path (finding M7) is gone. Read at `menus.gd`: `_build_landmark_types_row()`, `_open_landmark_types()`, `ID_LM_TYPES` 503 (a fresh id: a saved pin stores the action id, so a retired one was not reused); new `shell/landmark_types_window.gd` (`row_text()`, `family_text()`, `model()`); `command_index.gd` `EXTRAS`. The window is non-blocking on the desktop (`ContextWindow.make_context(..., false)`, no FOLLOW chip: it has no subject), modal on the tablet, a full-screen sheet on the phone (`phone_present` / `phone_fit`). It lists no placed landmarks (only per-type counts), so Ruling EI's naming does not apply to it.

@@ -1274,6 +1274,13 @@ const QUICK_BAR_VERSION := 1
 const QUICK_BAR_MAX_BAR := 24
 const QUICK_BAR_MAX_DOCK := 4
 const QUICK_BAR_MAX_SHARE := 9
+## The domains a `bar` or `dock` pin may be limited to (CQ-8, Ruling EH item 3, scope Q1): the shell's own
+## domain ids, in the order the window lists them. A pin with NO `d` key is shown in all of them -- which is
+## exactly what every pin stored before CQ-8 meant, so there is nothing to migrate and no value invented:
+## `d` is OMITTED while a pin is unrestricted (`MISTAKES.md`, "Return, marshal or default a value that can
+## be absent") and is stored only as a non-empty proper subset. Schema version stays 1: `d` is additive, and
+## a build without CQ-8 reads the pin as unrestricted (it drops `d` on its next write; the pin itself is kept).
+const QUICK_BAR_DOMAINS := ["world", "civilization", "cartography"]
 ## Every `[quick_bar]` key that may exist, with its shipped default. **This table is the
 ## whole allow-list**, as `LLM_DEFAULTS` is for `[llm]`: `quick_bar_value()` answers only
 ## these and `set_quick_bar_value()` writes only the four user-settable ones (`version` is
@@ -1310,23 +1317,64 @@ static func _quick_bar_readable() -> bool:
 ## a plausible value); a pin whose command no longer exists is NOT malformed and is kept --
 ## the chip then shows "not in this build" and the user's pin survives a build that lacks
 ## the menu row. A missing or non-string `t` reads as "" (no title recorded).
-static func _clean_pins(raw, cap: int) -> Array:
+## `with_domains` keeps a pin's valid `d` (CQ-8); the `share` map passes false (its diagonal already names
+## its domain). The dropped and the repaired are COUNTED by `_scan_pins`, never silent (`quick_bar_notices`).
+static func _clean_pins(raw, cap: int, with_domains: bool = true) -> Array:
+	return _scan_pins(raw, cap, with_domains)["pins"]
+
+## True when `d` is a usable per-domain list: a non-empty Array of distinct ids from `QUICK_BAR_DOMAINS`.
+## A list naming all three is valid on read and is stored as no `d` at all (`_scan_pins`).
+static func _domains_valid(d) -> bool:
+	if typeof(d) != TYPE_ARRAY or (d as Array).is_empty():
+		return false
+	var seen := {}
+	for x in d:
+		if typeof(x) != TYPE_STRING or not QUICK_BAR_DOMAINS.has(String(x)) or seen.has(String(x)):
+			return false
+		seen[String(x)] = true
+	return true
+
+## `d` in `QUICK_BAR_DOMAINS` order (so equal sets compare equal).
+static func _domains_sorted(d: Array) -> Array:
 	var out: Array = []
+	for dom in QUICK_BAR_DOMAINS:
+		if d.has(dom):
+			out.append(dom)
+	return out
+
+## The body of `_clean_pins`, also reporting what it had to do: `{pins, dropped, bad_domains}` where `dropped`
+## is how many entries were unusable and left out (not a dictionary, no key, a repeated key) and
+## `bad_domains` the titles (else keys) of pins whose `d` was present but unreadable (wrong type, empty,
+## an unknown or repeated id) and so were kept as UNRESTRICTED pins -- the choice that can show a pin too
+## widely but never hide the user's pin from every domain. A `d` naming all three domains is normalised to no `d`.
+static func _scan_pins(raw, cap: int, with_domains: bool = true) -> Dictionary:
+	var out: Array = []
+	var dropped := 0
+	var bad: Array = []
 	if typeof(raw) != TYPE_ARRAY:
-		return out
+		return {"pins": out, "dropped": 0, "bad_domains": bad}
 	var seen := {}
 	for e in raw:
 		if out.size() >= cap:
 			break
 		if typeof(e) != TYPE_DICTIONARY:
+			dropped += 1
 			continue
 		var k = (e as Dictionary).get("k")
 		if typeof(k) != TYPE_STRING or String(k) == "" or seen.has(String(k)):
+			dropped += 1
 			continue
 		var t = (e as Dictionary).get("t", "")
 		seen[String(k)] = true
-		out.append({"k": String(k), "t": String(t) if typeof(t) == TYPE_STRING else ""})
-	return out
+		var pin := {"k": String(k), "t": String(t) if typeof(t) == TYPE_STRING else ""}
+		if with_domains and (e as Dictionary).has("d"):
+			var d = (e as Dictionary)["d"]
+			if not _domains_valid(d):
+				bad.append(String(pin["t"]) if String(pin["t"]) != "" else String(pin["k"]))
+			elif (d as Array).size() < QUICK_BAR_DOMAINS.size():
+				pin["d"] = _domains_sorted(d)
+		out.append(pin)
+	return {"pins": out, "dropped": dropped, "bad_domains": bad}
 
 ## True when `key` is a `share` key: `<domain>.<DIR>` with a lowercase domain id and one of
 ## the four diagonals (the cardinals are global and fixed, scope s.4.2).
@@ -1347,7 +1395,7 @@ static func _clean_share(raw) -> Dictionary:
 	for k in raw:
 		if not _is_share_key(k):
 			continue
-		var pins := _clean_pins(raw[k], QUICK_BAR_MAX_SHARE)
+		var pins := _clean_pins(raw[k], QUICK_BAR_MAX_SHARE, false)
 		if not pins.is_empty():
 			out[String(k)] = pins
 	return out
@@ -1428,6 +1476,9 @@ static func _pins_valid(raw, cap: int) -> bool:
 		var t = (e as Dictionary).get("t")
 		if typeof(k) != TYPE_STRING or String(k) == "" or typeof(t) != TYPE_STRING or seen.has(String(k)):
 			return false
+		## CQ-8: a `d` that is present must be usable (all three is accepted and written as no `d`).
+		if (e as Dictionary).has("d") and not _domains_valid(e["d"]):
+			return false
 		seen[String(k)] = true
 	return true
 
@@ -1435,9 +1486,11 @@ static func _pins_valid(raw, cap: int) -> bool:
 ## was refused (shown to the user verbatim, scope s.3.5: "refused with the reason, not
 ## silently dropped"). `title` is the command's title at pin time, the display fallback for
 ## a pin whose command is gone.
-static func quick_bar_add(list: String, pin_key: String, title: String) -> String:
+static func quick_bar_add(list: String, pin_key: String, title: String, domains: Array = []) -> String:
 	if list != "bar" and list != "dock":
 		return "Unknown list '%s'." % list
+	if not domains.is_empty() and not _domains_valid(domains):
+		return "A pin can be shown only in the World, Civilization and Cartography domains, at least one."
 	if pin_key == "":
 		return "Nothing to pin."
 	var cur: Array = quick_bar_value(list)
@@ -1447,7 +1500,10 @@ static func quick_bar_add(list: String, pin_key: String, title: String) -> Strin
 	var cap := QUICK_BAR_MAX_BAR if list == "bar" else QUICK_BAR_MAX_DOCK
 	if cur.size() >= cap:
 		return "The %s holds at most %d pins; remove one first." % ["quick bar" if list == "bar" else "ring dock", cap]
-	cur.append({"k": pin_key, "t": title})
+	var pin := {"k": pin_key, "t": title}
+	if not domains.is_empty() and domains.size() < QUICK_BAR_DOMAINS.size():
+		pin["d"] = _domains_sorted(domains)
+	cur.append(pin)
 	return "" if set_quick_bar_value(list, cur) else "Could not store the pin."
 
 ## Removes `pin_key` from `list` and saves (the empty list included). False when it was not there.
@@ -1477,6 +1533,101 @@ static func quick_bar_move(list: String, pin_key: String, delta: int) -> bool:
 			cur.insert(j, e)
 			return set_quick_bar_value(list, cur)
 	return false
+
+# -- Per-domain visibility (CQ-8, Ruling EH item 3, scope Q1) ----------------------------------
+#
+# There is still ONE global pin list per surface; each pin may be limited to chosen domains. A pin with no
+# `d` shows everywhere (see `QUICK_BAR_DOMAINS`).
+
+## The domains `pin` (one entry of a cleaned `bar`/`dock` list) is shown in: its `d`, else all of them.
+static func quick_bar_pin_domains(pin: Dictionary) -> Array:
+	if pin.has("d") and _domains_valid(pin["d"]):
+		return _domains_sorted(pin["d"])
+	return QUICK_BAR_DOMAINS.duplicate()
+
+## The pins of `list` (`"bar"` or `"dock"`) shown in `domain`, in list order. An unknown `domain` (a stub app
+## with no active domain, `""`) answers every pin: with nothing to filter by, hiding pins would be the
+## harm, showing them the safe reading.
+static func quick_bar_pins_for(list: String, domain: String) -> Array:
+	var all: Array = quick_bar_value(list)
+	if not QUICK_BAR_DOMAINS.has(domain):
+		return all
+	var out: Array = []
+	for p in all:
+		if quick_bar_pin_domains(p).has(domain):
+			out.append(p)
+	return out
+
+## Limits `pin_key` of `list` to `domains` (all three clears the restriction) and saves. Answers "" on success,
+## else the sentence to show: an empty or unknown selection is REFUSED -- a pin shown in no domain is a pin
+## the user cannot see, so the way to hide a pin everywhere is Remove.
+static func quick_bar_set_domains(list: String, pin_key: String, domains: Array) -> String:
+	if list != "bar" and list != "dock":
+		return "Unknown list '%s'." % list
+	if not _domains_valid(domains):
+		return "A pin must be shown in at least one domain (World, Civilization or Cartography). To hide it everywhere, remove it."
+	var cur: Array = quick_bar_value(list)
+	for i in cur.size():
+		if String(cur[i]["k"]) == pin_key:
+			if domains.size() >= QUICK_BAR_DOMAINS.size():
+				(cur[i] as Dictionary).erase("d")
+			else:
+				cur[i]["d"] = _domains_sorted(domains)
+			return "" if set_quick_bar_value(list, cur) else "Could not store the change."
+	return "That command is not pinned."
+
+## Moves `pin_key` one step among the pins visible in `domain` (`delta` -1 or +1): it takes the place of the
+## next VISIBLE neighbour in that direction, so a chip moves on screen even when hidden pins sit between.
+## False when it has no visible neighbour that way. An unknown `domain` moves among all pins.
+static func quick_bar_move_visible(list: String, pin_key: String, delta: int, domain: String) -> bool:
+	if list != "bar" and list != "dock":
+		return false
+	var cur: Array = quick_bar_value(list)
+	var at := -1
+	for i in cur.size():
+		if String(cur[i]["k"]) == pin_key:
+			at = i
+	if at < 0 or delta == 0:
+		return false
+	var step := 1 if delta > 0 else -1
+	var j := at + step
+	while j >= 0 and j < cur.size():
+		if not QUICK_BAR_DOMAINS.has(domain) or quick_bar_pin_domains(cur[j]).has(domain):
+			var e = cur[at]
+			cur.remove_at(at)
+			cur.insert(j, e)
+			return set_quick_bar_value(list, cur)
+		j += step
+	return false
+
+## What the user must be told about the stored quick bar, as sentences (empty when all is well). Computed
+## from the file on every call, so it holds no state to go stale. **Nothing the user pinned is lost without
+## a line here** (CQ-8: "a corrupt entry falls back with a notice, never crashes or silently drops"):
+##  * a newer build's section is read as empty and is not rewritten (the file keeps their pins);
+##  * entries that could not be read at all are skipped, counted;
+##  * a pin whose `d` was unreadable is kept and shown in every domain, named.
+static func quick_bar_notices() -> Array:
+	_ensure_loaded()
+	var out: Array = []
+	if not _cfg.has_section(_SEC_QUICK_BAR):
+		return out
+	if not _quick_bar_readable():
+		out.append("The saved quick bar was written by a newer version of the app, so it is not shown. Your pins stay in the file until you change the bar here.")
+		return out
+	for list in ["bar", "dock"]:
+		if not _cfg.has_section_key(_SEC_QUICK_BAR, list):
+			continue
+		var cap := QUICK_BAR_MAX_BAR if list == "bar" else QUICK_BAR_MAX_DOCK
+		var rep := _scan_pins(_cfg.get_value(_SEC_QUICK_BAR, list), cap)
+		var where := "quick bar" if list == "bar" else "ring dock"
+		var n := int(rep["dropped"])
+		if n > 0:
+			out.append("%d unreadable entr%s in the %s %s skipped." % [n, "y" if n == 1 else "ies", where, "was" if n == 1 else "were"])
+		var bad: Array = rep["bad_domains"]
+		if not bad.is_empty():
+			out.append("The %s pin%s with an unreadable domain setting %s kept and shown in every domain: %s." % [
+				where, "" if bad.size() == 1 else "s", "was" if bad.size() == 1 else "were", ", ".join(PackedStringArray(bad))])
+	return out
 
 # -- Pins appended to a shared sub-ring (CQ-4, scope s.4.3) -------------------------------
 #

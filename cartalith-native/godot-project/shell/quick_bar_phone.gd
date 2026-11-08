@@ -59,6 +59,10 @@ var _list: QuickBarPhoneList
 func setup(app) -> void:
 	_app = app
 	_ensure_hub()
+	## CQ-8: the row follows the active domain. A bare signal connection creates no node (the identity bar
+	## above); `refresh()` itself does nothing while nothing is pinned and nothing is mounted.
+	if app != null and app.has_signal("workspace_changed") and not app.workspace_changed.is_connected(_on_workspace):
+		app.workspace_changed.connect(_on_workspace)
 
 ## What the phone should draw right now, in order: the Assistant chip when its rule shows it, then the
 ## stored pins. Each entry is `{kind: "assistant" | "pin", key, title, label, live, reason, group}`.
@@ -75,7 +79,9 @@ static func entries(app) -> Array:
 			"label": AssistantChip.LABEL, "live": String(st["state"]) == AssistantChip.LIVE,
 			"reason": "" if String(st["state"]) == AssistantChip.LIVE else AssistantChip.tooltip_for(st),
 			"group": ""})
-	var pins: Array = DccSettings.quick_bar_value("bar")
+	## CQ-8: the pins shown in the active domain; no known domain, no filter.
+	var dom := String(app.active_domain()) if app.has_method("active_domain") else ""
+	var pins: Array = DccSettings.quick_bar_pins_for("bar", dom)
 	if pins.is_empty():
 		return out
 	var idx := CommandIndex.new()
@@ -97,8 +103,14 @@ static func pin_entry(row: Dictionary, pin_key: String, stored_title: String) ->
 		reason = "Not in this build. The pin is kept; remove it in Customise."
 	elif not live:
 		reason = "Unavailable: " + String(row.get("why_not", ""))
-	return {"kind": "pin", "key": pin_key, "title": title, "label": DccQuickBar.label_for(title),
-		"live": live, "reason": reason, "group": String(row.get("group", ""))}
+	var label := DccQuickBar.label_for(title)
+	## CQ-8: a toggle pin shows its state as the desktop chip does, read from the row's getter when the entry is
+	## built (the phone redraws on every refresh: a pin change, a workspace change, a world load).
+	var toggle := live and bool(row.get("toggle", false)) and (row.get("_state") as Callable).is_valid()
+	if toggle:
+		label = (DccQuickBar.MARK_ON if bool((row["_state"] as Callable).call()) else DccQuickBar.MARK_OFF) + label
+	return {"kind": "pin", "key": pin_key, "title": title, "label": label,
+		"live": live, "reason": reason, "group": String(row.get("group", "")), "toggle": toggle}
 
 ## One tap on an entry. A live Assistant entry opens the panel; a live pin runs its command; anything
 ## else (a pin that cannot run, a greyed Assistant) says why in a toast, so a tap is never silent
@@ -129,6 +141,11 @@ static func press(app, entry: Dictionary, near: Control = null) -> void:
 	var why := DccQuickBar.run_pin_on(app, String(entry.get("key", "")))
 	if why != "":
 		say(app, why, near)
+	elif bool(entry.get("toggle", false)):
+		## CQ-8: a toggle's chip must show the new state at once; the phone redraws on refresh, not on a poll.
+		var q = app.get("phone_quick")
+		if q != null:
+			q.refresh.call_deferred()
 
 ## A short sentence on the phone: the shell's toast, or the status line where there is no toast.
 static func say(app, text: String, near: Control = null) -> void:
@@ -177,6 +194,10 @@ func refresh() -> void:
 func _ensure_hub() -> void:
 	if not DccSettings.assistant_hub.changed.is_connected(refresh):
 		DccSettings.assistant_hub.changed.connect(refresh)
+
+## CQ-8: a domain change re-derives the row (per-domain pins).
+func _on_workspace(_id: String) -> void:
+	refresh()
 
 ## Opens the `All...` list sheet on the current entries.
 func open_list() -> void:

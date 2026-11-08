@@ -193,6 +193,7 @@ func build(app, bridge) -> void:
 	_rows.clear()
 	_add_parameters()
 	_add_menu_commands()
+	_add_tools()
 	_disambiguate_pin_keys()
 	for e in EXTRAS:
 		if bool(e.get("alias", false)) and _has_menu_title(String(e.get("title", ""))):
@@ -267,6 +268,53 @@ func _add_parameters() -> void:
 			"pin_key": "param:" + String(key),
 			"pinnable": false,
 			"why_not": "A generation parameter applies on a Generate and has its own dock control; a chip would only duplicate it.",
+		})
+
+## CQ-8: the state getter `DccMenus.state_source(id)` registered for action `id`, or an invalid `Callable`
+## (the row then stays unpinnable, with its reason). Reads the live menus object off the app, so a stub app
+## without one has no toggles.
+func _state_source_for(id: int) -> Callable:
+	if _app == null:
+		return Callable()
+	var menus = _app.get("menus")
+	if menus == null or not menus.has_method("state_source"):
+		return Callable()
+	return menus.state_source(id)
+
+## CQ-8 (Ruling EH item 3, scope Q10): the palette's global tools as pinnable `tool` rows -- Inspect, Measure
+## and Region select (`DccWidgets.GLOBAL_TOOL_ENTRIES`, the same table the palette draws, so a tool added there
+## is pinnable here with no second list). A domain's own tools are not offered: they exist only in their
+## domain's palette and their controls live in that domain's dock, so a chip that armed one from another
+## domain would arm a tool with nothing to control it. A tool row is a toggle whose state is "this tool is
+## armed" (`armed_tool`, the shell's own variable, read live).
+func _add_tools() -> void:
+	if _app == null or not _app.has_method("arm_tool"):
+		return
+	for e in DccWidgets.GLOBAL_TOOL_ENTRIES:
+		if (e as Dictionary).has("legend"):
+			continue
+		var tid := String(e["id"])
+		## "Measure (M)" -> "Measure": the key letter is the palette's tooltip, not the command's name.
+		var title := String(e["label"])
+		var paren := title.find(" (")
+		if paren > 0:
+			title = title.substr(0, paren)
+		var app = _app
+		_rows.append({
+			"title": title,
+			"blurb": "Arms the %s tool, exactly as its palette button does" % title,
+			"group": "Tools",
+			"kind": "tool",
+			"key": "",
+			"available": true,
+			"why": "",
+			"pin_key": "tool:" + tid,
+			"pinnable": true,
+			"why_not": "",
+			"_tool": tid,
+			"toggle": true,
+			"_state": func() -> bool: return String(app.armed_tool) == tid,
+			"refreshes_on_open": false,
 		})
 
 ## Every menu row, walked off the live MenuBar. A `_todo` row is disabled and
@@ -349,7 +397,11 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 		## came for, in its own title. `why` stays empty for the same reason —
 		## there is nothing being withheld to explain.
 		var id := popup.get_item_id(i)
-		var why_not := _why_not_pinnable(popup, i, id, is_readout, menu_name)
+		## CQ-8 (Ruling EH item 3, scope Q8): a check or radio row is pinnable as a TOGGLE only when the menu
+		## owner registered where its on/off state really lives (`DccMenus.state_source`); every other one
+		## keeps its reason. `_state` is that getter itself, never a copy of its answer.
+		var state_fn := _state_source_for(id) if popup.is_item_checkable(i) and not is_readout else Callable()
+		var why_not := _why_not_pinnable(popup, i, id, is_readout, menu_name, state_fn.is_valid())
 		_rows.append({
 			"title": text.replace("…", "").strip_edges(),
 			"blurb": tip if (disabled and tip != "") else (menu_name + " menu"),
@@ -372,6 +424,10 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 			## True when the popup refreshes row state on open, so `available` here
 			## is the BUILT state and a chip must not copy it (scope s.3.3).
 			"refreshes_on_open": not _open_handlers(popup).is_empty(),
+			## CQ-8: present only on a toggle row. `toggle` says the chip shows on/off; `_state` is the
+			## getter a chip polls (no key at all on any other row: omit rather than default).
+			"toggle": state_fn.is_valid(),
+			"_state": state_fn,
 		})
 
 ## Id spans that are generated per item (a ladder, a list), never a fixed command.
@@ -434,15 +490,15 @@ func _open_handlers(popup: PopupMenu) -> Array:
 ## whose only open-time handlers just refresh enabled state (Story, World, Edit...)
 ## stays pinnable: the chip then stays enabled and the shared handler reports
 ## "nothing to do" itself (CUSTOM_QUICK_BAR_SCOPE.md s.3.3, availability).
-func _why_not_pinnable(popup: PopupMenu, i: int, id: int, is_readout: bool, menu_name: String) -> String:
+func _why_not_pinnable(popup: PopupMenu, i: int, id: int, is_readout: bool, menu_name: String, has_state: bool = false) -> String:
 	if menu_name == "":
 		return "Not an app menu: an embedded control's own popup (a ColorPicker's presets)."
 	if is_readout:
 		return "A readout shows a value; there is nothing to run."
 	if popup.is_item_disabled(i):
 		return "Not available yet: " + popup.get_item_tooltip(i)
-	if popup.is_item_checkable(i):
-		return "A check or radio row mirrors state a chip cannot read without opening the menu."
+	if popup.is_item_checkable(i) and not has_state:
+		return "A check or radio row mirrors state a chip cannot read without opening the menu, and no live state source is registered for this one."
 	if _is_dynamic_id(id) or _is_index_popup(popup):
 		return "A generated row (a ladder or list); its meaning changes with the data."
 	for h in _open_handlers(popup):
@@ -486,6 +542,13 @@ func _disambiguate_pin_keys() -> int:
 func run_row(row: Dictionary) -> bool:
 	if not bool(row.get("pinnable", false)):
 		return false
+	## CQ-8 (scope Q10): a TOOL row arms through `DccApp.arm_tool`, the very call the palette's button makes
+	## (`DccWidgets._tool_entry`: `func(): app.arm_tool(e["id"])`) -- never a second Measure.
+	if String(row.get("kind", "")) == "tool":
+		if _app == null or not _app.has_method("arm_tool"):
+			return false
+		_app.arm_tool(String(row["_tool"]))
+		return true
 	var popup = row.get("_popup")
 	if popup == null or not is_instance_valid(popup):
 		return false

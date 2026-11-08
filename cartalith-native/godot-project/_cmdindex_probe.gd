@@ -191,6 +191,7 @@ func _cq0(app: Node, idx: CommandIndex) -> void:
 	## check/radio filter is weakened (mutation-tested 2026-10-25).
 	var checkable_pinned := 0
 	var checkable_seen := 0
+	var untoggled := 0
 	for r in idx.all():
 		var pp = r.get("_popup")
 		if pp == null or String(r["group"]) == "":
@@ -200,9 +201,15 @@ func _cq0(app: Node, idx: CommandIndex) -> void:
 			checkable_seen += 1
 			if bool(r["pinnable"]):
 				checkable_pinned += 1
+				if not (bool(r.get("toggle", false)) and (r.get("_state") as Callable).is_valid()):
+					untoggled += 1
 	print("  info real (non-ColorPicker) check/radio rows: ", checkable_seen)
 	_ok("there ARE check/radio rows to refuse", checkable_seen > 20, true)
-	_ok("no check/radio row is pinnable", checkable_pinned, 0)
+	## CQ-8 (Ruling EH item 3) changed CQ-0's "none": a check or radio row is pinnable exactly when `DccMenus.state_source`
+	## registered where its state lives. Literal 13: Autosave (1), Theme Dark/Light/Follow system (3), the five Window
+	## region toggles (5), Session mode, Diagnostics overlay, 3D view, Open panels in their own window (4).
+	_ok("exactly the 13 registered toggles among the check/radio rows are pinnable", checkable_pinned, 13)
+	_ok("...and each carries `toggle` and a valid state getter", untoggled, 0)
 	_ok("every unpinnable row has a non-empty why_not", no_reason, 0)
 	for r in pins:
 		print("  pin  %-34s %-18s %s" % [String(r["pin_key"]), String(r["group"]), String(r["title"])])

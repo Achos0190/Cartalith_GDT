@@ -61,6 +61,10 @@ static func _item(app, idx: CommandIndex, pin: Dictionary) -> Dictionary:
 	if title == "":
 		title = key
 	var out := {"pin_key": key, "title": title, "label": DccQuickBar.label_for(title), "shortcut": ""}
+	## CQ-8: a toggle pin's ring row carries its state as the chip does. The ring is built on every arm, so the
+	## getter's answer is current when the ring opens.
+	if not row.is_empty() and bool(row.get("toggle", false)) and (row.get("_state") as Callable).is_valid():
+		out["label"] = (DccQuickBar.MARK_ON if bool((row["_state"] as Callable).call()) else DccQuickBar.MARK_OFF) + String(out["label"])
 	if row.is_empty():
 		out["enabled"] = false
 		out["reason"] = "Not in this build"
@@ -90,7 +94,10 @@ static func dock_items(app) -> Array:
 	var chip := assistant_item(app)
 	if not chip.is_empty():
 		out.append(chip)
-	var pins: Array = DccSettings.quick_bar_value("dock")
+	## CQ-8: the dock shows the pins of the domain the ring was armed in (`app.active_domain()`; no domain
+	## known, no filter).
+	var dom := String(app.active_domain()) if app != null and app.has_method("active_domain") else ""
+	var pins: Array = DccSettings.quick_bar_pins_for("dock", dom)
 	if pins.is_empty():
 		return out
 	var idx := CommandIndex.new()
