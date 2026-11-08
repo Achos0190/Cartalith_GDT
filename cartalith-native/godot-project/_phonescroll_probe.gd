@@ -609,7 +609,14 @@ func _surfaces() -> Array:
 	out.append(["phone tab GENERATE full", func(): a._switch_domain_from_tab("world"); a.set_phone_detent("full")])
 	for dom in ["world", "civilization", "cartography"]:
 		var d: String = dom
+		## MS-3: on the domain tab this is the DOMAIN SHEET (CIVIL and CARTO host the dock, `_mount_dock_in_sheet()`), not the
+		## left sheet its name used to claim; before MS-3 it measured the one-line tool row. The name keeps the old prefix so the
+		## survey lines stay comparable.
 		out.append(["left sheet domain " + d + " full", func(): a._pick_bar_domain(d); a.set_phone_detent("full")])
+	## MS-3: leave the domain tab. The mounted dock is an overflowing scroller that every later surface would otherwise
+	## find covered by an opaque page (right sheet, search, MORE) and report as unscrollable: the same state the old loop
+	## ended in (CARTOGRAPHY on a tool row), reached by the MAP tab.
+	out.append(["phone tab MAP after the domain sheets", func(): a._pick_phone_tab("map"); a.set_phone_detent("half")])
 	out.append(["right sheet", func(): a.phone_show_right_sheet()])
 	out.append(["search results", func(): a.open_find_on_map(); a._phone_search_field.text = "a"; a._refresh_phone_search()])
 	out.append(["MORE root", func(): a._phone_menu.open()])

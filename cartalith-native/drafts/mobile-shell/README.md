@@ -61,8 +61,12 @@ Drafts 3 to 9 do not depend on MS-1's unit; they size themselves through the she
 - **MS-1 S4, a class change without a restart.** It starts with an inventory (spec §3.5, S4.0) of every field, hook and once-only
   `setup()` the two compositions own. A draft written before that inventory would be a guess.
   `_request_class_swap()` (draft 2) is its entry point and logs until then.
-- **MS-3, the domain sheet from the dock builders.** It needs the dock category builders read one by one. Until it lands, MAP keeps
-  selecting CARTOGRAPHY, as shipped (draft 3 says where).
+- **MS-3, the domain sheet from the dock builders.** It had no draft, because it needs the dock builders read one by one. Its first step
+  landed 2026-11-08 without one, as new code in `shell/dcc_shell.gd` (a departure from this README's plan of transplanting: there was
+  nothing to transplant, and the owner's *rebuilding is nonsense* rules out a second copy of the dock): `_mount_dock_in_sheet()` reparents
+  the left dock's mode switch and category scroller into the phone tool sheet for CIVIL and CARTO (`_refresh_phone_gen_panel()` decides),
+  and `_set_sheet_open("left", true)` returns them. WORLD keeps `build_phone_generate()`'s column, and MAP keeps the tool row and still
+  selects CARTOGRAPHY (draft 3 says where); both are MS-3's remainder, listed in `STATUS.md`.
 - **MS-5** (tool strip, tool fan, context card verbs), **MS-8** (New World auto-populate), **MS-9** (search runs every command) and
   **MS-10** (device passes) are not menus.
 

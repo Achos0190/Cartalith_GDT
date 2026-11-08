@@ -536,6 +536,15 @@ var _phone_quick_row: Control
 var _phone_gen_scroll: ScrollContainer
 ## The GENERATE column inside `_phone_gen_scroll`.
 var _phone_gen_col: VBoxContainer
+## MS-3: the domain sheet's host inside the phone tool sheet, and the three pieces of the LEFT dock that
+## move into it while a CIVIL or CARTO domain sheet is up (`_mount_dock_in_sheet()`). The dock is the
+## builder (`_build_left_dock()`, `register_workspace()`, `apply_mode()`), so nothing is rebuilt for the
+## phone: the mode switch and the category scroller are the same nodes, reparented, and returned to the
+## dock's own column when the sheet leaves (so Window > Left dock keeps working).
+var _phone_dom_host: VBoxContainer
+var _left_dock_mode_switch: Control
+var _left_dock_col: VBoxContainer
+var _dock_in_sheet := false
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
 	## `phone_content_insets()` reads its real height rather than recomputing it.
 var _phone_gesture_inset: Control
@@ -3366,7 +3375,7 @@ func _on_phone_node_added(node: Node) -> void:
 	## and every panel is several levels down.
 	var p: Node = node.get_parent()
 	while p != null:
-		if p == left_dock or p == right_dock:
+		if p == left_dock or p == right_dock or p == _phone_dom_host:
 			_phone_fit_pending = true
 			_run_phone_dock_fit.call_deferred()
 			return
@@ -3376,7 +3385,7 @@ func _on_phone_node_added(node: Node) -> void:
 ## `phone_fit()` over both docks at the current `_phone_scale`.
 func _run_phone_dock_fit() -> void:
 	_phone_fit_pending = false
-	for dock in [left_dock, right_dock]:
+	for dock in [left_dock, right_dock, _phone_dom_host]:
 		if dock != null:
 			phone_fit(dock, _phone_scale)
 
@@ -4641,7 +4650,9 @@ func _build_left_dock(as_sheet: bool = false) -> Control:
 	## `04-left-dock.md` §2.1's band 2 -- pinned above the scroll body, exactly
 	## where the canvas puts it, so the one control that can put a hidden block
 	## back never scrolls away from the body it is hiding.
-	col.add_child(_build_mode_switch())
+	_left_dock_mode_switch = _build_mode_switch()
+	col.add_child(_left_dock_mode_switch)
+	_left_dock_col = col
 
 	var scroll := _scroll()
 	_left_dock_scroll = scroll
@@ -8041,6 +8052,13 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	_phone_gen_col.add_theme_constant_override("separation", _pscale(12))
 	gen_pad.add_child(_phone_gen_col)
 	col.add_child(_phone_gen_scroll)
+	## MS-3: the domain sheet's host (see `_phone_dom_host`). Empty and hidden until a CIVIL or CARTO domain
+	## sheet is lit; `separation 0` and a full-height expand so the dock's own scroller fills the sheet.
+	_phone_dom_host = VBoxContainer.new()
+	_phone_dom_host.add_theme_constant_override("separation", 0)
+	_phone_dom_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_phone_dom_host.visible = false
+	col.add_child(_phone_dom_host)
 	## CQ-6: a quick row handed over BEFORE this sheet existed (pins stored on disk and refreshed at boot) is
 	## mounted now, directly under the header. `set_phone_quick_row` does the same when the sheet is already built.
 	if _phone_quick_row != null and is_instance_valid(_phone_quick_row) and _phone_quick_row.get_parent() == null:
@@ -8065,15 +8083,39 @@ func _refresh_phone_gen_panel() -> void:
 	var ws: Node = _workspace_panels.get("world")
 	if on and (ws == null or not ws.has_method("build_phone_generate")):
 		on = false
+	## MS-3: CIVIL and CARTO on the domain tab show the DOCK in the sheet instead of the one-line tool row.
+	## WORLD keeps its phone GENERATE column (departure from the proposal, recorded in the drafts README:
+	## replacing it by the dock's accordions is MS-3's remainder). MAP keeps the tool row (MS-3's MAP sheet
+	## is a separate build).
+	var dom: bool = _phone and _phone_tab == "domain" and _active_domain != "world" \
+		and not _left_sheet_open and _phone_dom_host != null and left_dock_body != null \
+		and _left_dock_scroll != null
+	_mount_dock_in_sheet(dom)
 	_phone_gen_scroll.visible = on
 	if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll):
-		_phone_tool_scroll.visible = not on
+		_phone_tool_scroll.visible = not on and not dom
 	if not on:
 		return
 	if _phone_gen_col.get_child_count() == 0:
 		ws.call("build_phone_generate", _phone_gen_col)
 	else:
 		ws.call("refresh_phone_generate")
+
+## MS-3: moves the dock's mode switch and category scroller into the phone tool sheet (`on`) or back into the
+## left dock's own column (`not on`). Reparenting, not rebuilding: `register_workspace()` attached every
+## workspace panel to `left_dock_body` once, and `apply_mode()` / `_refresh_mode_switch()` keep working on the
+## same nodes wherever they sit. Order is kept (mode switch, then scroller) because `reparent()` appends.
+## Must never run with the left sheet showing: `_set_sheet_open("left", true)` calls this with `false`
+## first, or Window > Left dock would open an empty sheet.
+func _mount_dock_in_sheet(on: bool) -> void:
+	if on == _dock_in_sheet or _phone_dom_host == null or _left_dock_col == null \
+			or _left_dock_scroll == null or _left_dock_mode_switch == null:
+		return
+	_dock_in_sheet = on
+	var target: Control = _phone_dom_host if on else _left_dock_col
+	_left_dock_mode_switch.reparent(target, false)
+	_left_dock_scroll.reparent(target, false)
+	_phone_dom_host.visible = on
 
 ## The sheet surface. Portrait: `background:#15171a; border-radius:22px 22px 0 0`
 ## (`candidates/Android Chrome B.dc.html`, and the prototype's own
@@ -10735,6 +10777,9 @@ func _set_sheet_open(side: String, open: bool) -> void:
 	if open:
 		_close_all_phone_overlays()
 	if side == "left":
+		## MS-3: hand the dock's body back before the left sheet shows (see `_mount_dock_in_sheet()`).
+		if open:
+			_mount_dock_in_sheet(false)
 		_left_sheet_open = open
 		left_dock.visible = open
 		if open:
