@@ -3307,3 +3307,29 @@ DY MQ-1 (c)'s 600 dp width line decides phone versus tablet (`S4_INVENTORY.md` X
 - **Correction to item 3.** Rotation does not cross a shortest-width line, because min(width, height) is the same either
   way (found by the S4.0 inventory). What crosses it is split screen, a freeform window, a fold, Display size or UI
   scale. S4 is still needed on tablets for those.
+
+## Ruling EH: the phone's GENERATE column retires; Landmark types moves to a window; CQ-8's three extensions are built (owner, 2026-11-08)
+
+Three answers, given together:
+
+1. **Retire the phone's GENERATE column.** MS-3 kept it (`82234124`), because its touch tuning was set on glass and
+   many probes pin it, and added an ALL segment that mounts the full WORLD dock. The owner chose the proposal's
+   form: the WORLD sheet becomes the dock's own categories (Generate, Planet, Geology, Hydrology, Climate, Ecology,
+   World data, Terrain, Biomes), and the parallel GENERATE column is removed. The `MISTAKES.md` "Delete a surface"
+   row applies in full. Every route into the column, and every function only it reaches, gets a new home proven by
+   real taps before it goes; the probes that pin it are re-pointed or retired with that proof. Its glass-set touch
+   figures are re-measured on the 6T, not assumed to carry over.
+2. **Assets ▸ Landmark types moves to a window.** It was the last three-level menu path (finding M7; `5c1d178f`
+   flattened the other four). Its roughly 49 type rows are read-only engine state whose per-family ids collide in
+   one popup. The submenu tree is replaced by one `Landmark types…` row that opens a browsable list window. Nothing it
+   shows may be lost. The phone MENU follows through MS-4's generated walk, so `_ms4_probe`'s computed count moves.
+3. **CQ-8: all three extensions are built** (`CUSTOM_QUICK_BAR_SCOPE.md` Q1, Q8, Q10):
+   - **Per-domain visibility.** There is still one global pin list, and each pin may be shown only in chosen domains
+     (WORLD, CIVIL, CARTO).
+   - **Toggle pins.** Check and radio rows (layers, autosave, theme) can be pinned as chips that show their live
+     on or off state, read from the command's own state source, never a mirrored copy.
+   - **Pin tools.** A tool (Measure, Region…) can be pinned as well as menu commands. It arms through the palette's
+     own path, never a second Measure implementation.
+
+None of this changes generated output or the save format. The quick-bar pins stay per-user (`[quick_bar]`), out of
+world saves.
