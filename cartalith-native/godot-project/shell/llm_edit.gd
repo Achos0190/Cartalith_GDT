@@ -209,10 +209,8 @@ static func draw_card(w, v: Dictionary) -> void:
 		w._card_text(col, "No preview could be made: %s" % String(p.get("reason", "unknown reason")), "warn")
 	var reason_l: Label = w._note_label(col, "", "warn")
 	reason_l.visible = false
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.alignment = BoxContainer.ALIGNMENT_END
-	col.add_child(row)
+	## PC-6: the window's own card row (a flow when docked in the Context panel, so it cannot widen it).
+	var row: Container = w.card_row(col)
 	var card := {"info": v, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "edit", "group_id": 0, "preview": p}
 	card["dismiss"] = w._button(row, "Dismiss", func(): w._dismiss_card(card))
 	if not valid.is_empty():

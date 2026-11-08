@@ -160,7 +160,7 @@ static func _context_sources() -> String:
 	if bool(DccSettings.llm_value("ctx_entity")):
 		on.append("current entity")
 	if bool(DccSettings.llm_value("ctx_selection")):
-		on.append("selection")
+		on.append("selection and year")
 	if bool(DccSettings.llm_value("ctx_notes")):
 		on.append("named Vault notes")
 	if bool(DccSettings.llm_value("ctx_params")):

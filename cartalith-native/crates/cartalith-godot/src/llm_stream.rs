@@ -104,7 +104,7 @@ use cartalith_llm::openai::ChatRequest;
 use cartalith_llm::prepare::{PrepareError, prepare_authorized_chat};
 use cartalith_llm::presets::request_hints;
 use cartalith_llm::retry::{MAX_AUTOMATIC_RETRIES, RetryBudget};
-use cartalith_llm::prompt::{Context, PlaceContext, PromptError, Task, build_messages};
+use cartalith_llm::prompt::{Context, PlaceContext, PromptError, Shown, Task, build_messages};
 use cartalith_llm::knowledge_tools::{self as kt, KnowledgeSources, Retrieved, build_pack, extract_citations};
 use cartalith_llm::settings::{Authorized, Capability};
 use cartalith_llm::catalogue::{Catalogue, Kind, PValue, Regen, Verdict, apply_blocked};
@@ -936,7 +936,12 @@ impl LlmStream {
             // always true; reading the flag here (not writing `true`) keeps the tools tied to the
             // checkbox if the refusal above is ever relaxed for settings-only proposals.
             let conv = match ParamsConversation::new(&cat, &text(args, "request")) {
-                Ok(c) => c.with_queries(&cat, params_on).with_view(&cat, if params_on { view.clone() } else { None }).with_actions(&cat, actions.clone()),
+                // PC-6: the selection and the year, gated by its own source like every context.
+                Ok(c) => c
+                    .with_queries(&cat, params_on)
+                    .with_view(&cat, if params_on { view.clone() } else { None })
+                    .with_actions(&cat, actions.clone())
+                    .with_shown(&cat, shown_from(args, flag(settings, "ctx_selection")).as_ref()),
                 Err(why) => return refuse("empty_request", why),
             };
             let mut conv = conv.with_knowledge(&cat, km.sources, km.tools, !params_on);
@@ -1112,6 +1117,9 @@ fn sent_dict(s: &cartalith_llm::prompt::SentSummary) -> VarDictionary {
         "vault_chars" => s.vault_chars as i64,
         "vault_withheld" => s.vault_withheld as i64,
         "vault_allowed" => s.vault_allowed,
+        // PC-6: the selection and the year (the `shown` block), so the line names them when sent.
+        "shown" => s.shown,
+        "shown_chars" => s.shown_chars as i64,
     }
 }
 
@@ -1135,6 +1143,20 @@ fn string_array(v: &[String]) -> PackedStringArray {
 /// Parse the optional `place_bundle` argument (the JSON `LlmStream.place_bundle` returned). A
 /// bundle that is present but malformed is an error the caller turns into a refusal: it is never
 /// ignored, because silently dropping the facts would send ungrounded prose.
+/// PC-6 (`PC_SHELL_PROPOSAL.md` §3.5): the selection and the year the shell read at Send, from
+/// `args.shown_selection` (the chip's text, kind first) and `args.shown_year` (an int). Each is
+/// absent when the shell left it out (its chip off, nothing selected, no world with a timeline), and
+/// absent is never filled in. `allowed` is the user's "Send: selection and year" source
+/// (`ctx_selection`, off by default, scope s.4 rule 5); false sends nothing whatever `args` carry,
+/// so a shell that forgot to drop the keys still sends nothing (the shell drops them too).
+fn shown_from(args: &VarDictionary, allowed: bool) -> Option<Shown> {
+    if !allowed {
+        return None;
+    }
+    let s = Shown { selection: opt_text(args, "shown_selection"), year: args.get("shown_year").and_then(|v| v.try_to::<i64>().ok()) };
+    (!s.is_empty()).then_some(s)
+}
+
 fn place_context(args: &VarDictionary) -> Result<Option<PlaceContext>, VarDictionary> {
     match opt_text(args, "place_bundle") {
         None => Ok(None),
@@ -1284,6 +1306,7 @@ impl LlmStream {
         if let Some(p) = &pack {
             pack_info = Some((p.retrieved.len() as i64, p.approx_tokens as i64, String::new()));
         }
+        let shown = shown_from(&args, flag(&settings, "ctx_selection"));
         let ctx = Context {
             entity_label: entity_label.as_deref(),
             entity_fields: entity_fields.as_deref(),
@@ -1292,6 +1315,7 @@ impl LlmStream {
             note_text: note_text.as_deref(),
             place: place.as_ref(),
             knowledge: pack.as_ref(),
+            shown: shown.as_ref(),
         };
         let prompt = match build_messages(task, &text(&args, "request"), &ctx) {
             Ok(p) => p,
@@ -1402,6 +1426,9 @@ impl LlmStream {
             Ok(p) => p,
             Err(r) => return r,
         };
+        // PC-6: preview has no settings; the shell passes the two `shown_*` keys only while the
+        // "Send: selection and year" source is on, as it does for `prepare`.
+        let shown = shown_from(&args, true);
         let ctx = Context {
             entity_label: entity_label.as_deref(),
             entity_fields: entity_fields.as_deref(),
@@ -1410,6 +1437,7 @@ impl LlmStream {
             note_text: note_text.as_deref(),
             place: place.as_ref(),
             knowledge: None,
+            shown: shown.as_ref(),
         };
         match build_messages(task, &text(&args, "request"), &ctx) {
             Ok(p) => {
@@ -1550,12 +1578,19 @@ impl LlmStream {
         }
         let request = text(&args, "request");
         match ParamsConversation::new(&cat, &request) {
-            Ok(_) => vdict! {
-                "ok" => true,
-                "request_chars" => request.trim().chars().count() as i64,
-                "offered" => cat.rows.len() as i64,
-                "groups" => cat.groups.len() as i64,
-            },
+            Ok(_) => {
+                let mut d = vdict! {
+                    "ok" => true,
+                    "request_chars" => request.trim().chars().count() as i64,
+                    "offered" => cat.rows.len() as i64,
+                    "groups" => cat.groups.len() as i64,
+                };
+                // PC-6: the `shown` block's size, present only when the shell passed it (its source on).
+                if let Some(b) = shown_from(&args, true).as_ref().and_then(cartalith_llm::prompt::shown_block) {
+                    d.set("shown_chars", b.chars().count() as i64);
+                }
+                d
+            }
             Err(why) => refuse("empty_request", why),
         }
     }

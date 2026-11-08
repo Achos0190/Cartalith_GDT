@@ -47,6 +47,70 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-6 built (its core): the assistant docked as the Context panel's Ask tab, with the selection and the year (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.5, §6 (PC-6 and its build note); Rulings DY (PQ5), DX; `LLM_ASSISTANT_SCOPE.md`'s source and consent rules.
+
+- **Built:** the Context panel gains the ASK tab (`right_dock.gd`: `show_tab()`, `current_tab()`, a frame beside
+  Inspect's scroll holding the panel header and the conversation; Inspect stays built underneath). The assistant is the
+  shipped `LlmAssistantWindow`, its content built ONCE per session and moved, not rebuilt (`present_in()`), so the
+  transcript, the typed draft, the cards and their Apply state survive closing and reopening, hiding the panel,
+  switching tabs and reselecting (finding A1); **New** is the one thing that clears it. `DccApp.context_tabs()` =
+  `["inspect", "ask"]`; `open_context_tab("ask")` shows the tab with the cursor in the input. Every entry point now opens
+  the tab on the desktop and tablet: Story ▸ Ask the assistant about the selection (Ctrl+J, its PC-6 form), Window ▸
+  Context panel ▸ Ask (Ctrl+3), the ASK tab, the quick bar's Assistant chip and the ring dock's row (both through
+  `open_assistant_panel()`). The phone keeps its sheet (§3.11). **Open in a window** (desktop) moves the same
+  conversation into the dialog, where Ruling DK's Pop out applies; closing it brings it back.
+- **The context at Send** (finding A2): a new `shown` block (`cartalith_llm::prompt::shown_block`, `Shown`,
+  `SHOWN_PARAGRAPH`; `ParamsConversation::with_shown`; `llm_stream.rs::shown_from`) carries "selected: <kind> <name>" and
+  "year shown on the timeline: <year>" in its own fenced, attribute-cleaned block on the prose and Commands paths (never
+  Edit). It is gated by the existing "Send: selection" source (`ctx_selection`, off by default, which nothing read
+  before; now labelled "Send: selection and year"), re-checked in Rust. Two chips above the input (Selection, Year)
+  leave a half out; each sent message records what went with it ("Sent with: …"); the "this will send" line names both
+  with Rust's character count. An absent half is absent (no world: no year line; nothing selected: no selection line).
+- **Also:** a verified world citation in a sources card is a link that selects (settlement by `tid`, faction, landmark);
+  a reading that is not a selection (route, river, measurement, region, ecoregion, history ledger, icon) switches the
+  panel to Inspect; card button rows, long message headings, the facts, token and Save rows flow in the 304 px dock
+  (they had widened it to 362–490 px, measured), and the tab scrolls when its content is taller than the dock (the touch
+  tablet).
+- **Measured:** new `_pc6ask_probe` (windowed, real clicks and keys, wiped user dir, no socket outside its `--live` leg,
+  `LlmWire.connect_attempts` asserted unchanged): PASS 74/74 at 1600×1000 and 70/70 at 1600×1000 touch, 0 SCRIPT
+  ERROR; on the pre-PC-6 shell its phone leg fails 5 of 7 checks (no Ask route; its desktop legs were not run there
+  ). The request Send would make is built by `LlmStream.prepare()` (bytes only) and read: it carries the year and the
+  place, drops the year when its chip is off, drops both when the source is off, and Rust drops forced keys with the
+  source off. 11 literal GDScript mutants (no Ask tab, a rebuild on every open, no year, context moves not followed, a
+  dead chip, a citation off by one, Inspect's scroll never hidden, a reading keeping Ask, New not rebuilding,
+  `open_context_tab` not switching, no input focus) each turned it red; 4 literal Rust mutants (selection not cleaned,
+  no year line, no prompt sentence, the Commands path not prepended) each turned `cargo test -p cartalith-llm` or
+  `llm9_corpus` red. New Rust tests: three in `prompt.rs`, one in `params_flow.rs`, and the hostile corpus run through
+  the `shown` block on both paths (`llm9_corpus.rs::the_shown_block_keeps_its_fence_for_every_row`, every row). **Live:**
+  one real request through the docked tab to LM Studio at 127.0.0.1:1234 with a place selected and the year at 37:
+  "It's year **37** on the timeline, and you have the settlement **Crungarnridge** selected." (28 s). It ran on
+  **qwen3.8-27b**, the model LM Studio had loaded; qwen3-14b was listed but not loaded, and the run did not load,
+  unload or rebind anything. Phone, 393×852 touch: the launch and selection-sheet captures against two runs of the
+  pre-PC-6 shell (identical to each other): the sheet is pixel-identical, the launch card differs only in its
+  project-name path and build hash.
+- **Re-run, windowed, at 1600×1000, against origin/main's shell (a464cee7) in the same session:** green on both:
+  `_pc4context` (152, desktop and touch), `_pc1select` 31, `_pc2year` 46, `_pc9menus` 86 and phone 9, `_ac2` 24,
+  `_ac3` 48 (desktop and touch), `_quickbar_ring` 164, `_llmprofiles` both phases, `_llmview` 382, `_llmparams` 159,
+  `_storymenus` 88. Updated to PC-6's forms (each failed on this tree before the update, by design): `_pc4context` and
+  `_pc9menus` (Ask live, two tabs, arrangement Inspect · Ask), `_storymenus` (the row's PC-6 title), `_llmview` and
+  `_llmparams` (the panel's rect is the Ask frame's; a wire starts with New; reopening keeps the cards and New clears
+  them), `_llmpanel` and `_llmprofiles` (they drive the window form, `open_window()`, whose layout and close-cancels
+  bars they hold), `_popout_windows` (the same; not re-run here, its assistant leg needs a model). `_llmpanel` failed one
+  check ("the panel says it is trying once more") in 2 of 5 runs on this tree and passed the other 3 (the last two after
+  the rebase onto `bec744b5`); origin/main passed it once: not attributed. `cargo test --workspace --no-fail-fast` before
+  the rebase: 265 result lines, one failure, `cartalith-vault`'s `a_rename_moves_the_note…` (the Windows failure entry
+  AC-3 below names); after the rebase onto `bec744b5`, which made the vault tests' scratch dirs unique, `cargo test -p
+  cartalith-vault` passes 195/195 and `-p cartalith-llm -p cartalith-godot` 81 result lines, 4 059 passed, 0 failed.
+  Final windowed runs on the rebased tree, debug DLL rebuilt after the rebase: `_pc6ask` 74/74, touch 70/70, phone
+  7/7; `_pc4context` 152; `_llmpanel` twice green.
+- **Not in PC-6, stated:** the save preference, its first-use card and the world-file slot (PQ5; `SAVEFILE_COMPAT.md`
+  unchanged); a note card going to the subject's linked note; names and years in an answer as links; a Vault citation
+  opening the Note tab (PC-5); per-subject task chips; "Ask about this" on Inspect pages and the context card; the note
+  chip (PC-5). The window form is still an exclusive dialog (PC-7). A Rust mutant of the source gate in
+  `llm_stream.rs::shown_from` was not run (it needs a DLL rebuild per mutant); the probe's forced-keys check covers it.
+
 ### VE-2 built: `[[` suggestions with headings, aliases and places, and auto-pair (2026-11-08)
 
 `VAULT_EDITOR_PROPOSAL.md` s.7 (VE-2), s.3.2, Ruling DY. GDScript only: the Rust ranking (`cartalith_vault::suggest`, `noteedit::headings`) and its three `vault_*` bridge functions already existed from the crate upgrade and are now called for the first time. *Re-opened at the symbols first:* `markdown_editor.gd` (`_build_toolbar`, `_open_link_picker`, `_on_source_input`), `vault_window.gd` (`_build_editor_pane`, `_entity_names`, `_link_kind`), `engine_bridge.gd`, `vault_bridge.rs` (`vault_suggest_notes`, `vault_suggest`, `vault_note_headings`).

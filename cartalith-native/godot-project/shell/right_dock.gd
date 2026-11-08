@@ -994,6 +994,28 @@ var _pinned := false
 ## so the dock keeps no copy of the selection itself (§2: "No surface keeps a copy").
 var _pin_subject: Dictionary = {}
 
+## PC-6. The Context panel's tabs this build draws (§3.3): Inspect (PC-4) and Ask (PC-6). Note is
+## PC-5's and joins in the change that builds it.
+const TAB_INSPECT := "inspect"
+const TAB_ASK := "ask"
+
+## PC-6. The tab the panel shows. Written only by `show_tab()` and `_show_reading()`; Inspect at boot.
+## Session state, never saved (the per-user arrangement store is PC-10's).
+var _tab := TAB_INSPECT
+
+## PC-6. The Ask tab's frame: a sibling of the dock's scroll in the dock column (`dcc_shell.gd`'s
+## `_build_right_dock()` builds that column), so the assistant's own transcript scroll and input row
+## fill the dock's height instead of scrolling inside Inspect's scroll. Built on first use; holds
+## `_ask_head` (the panel header, drawn by the same `_build_context_header()` Inspect uses) and
+## `_ask_body` (where `LlmAssistantWindow.present_in()` puts the conversation). Desktop and tablet.
+var _ask_frame: VBoxContainer
+var _ask_head: VBoxContainer
+var _ask_body: VBoxContainer
+## PC-6. Scrolls `_ask_body` when the conversation's minimum height exceeds the dock's (measured on the
+## touch tablet at 1600x1000: its 44 px rows put the chips below the window's edge). When it fits, the
+## body fills the height (expand), so the transcript's own scroll takes the slack.
+var _ask_scroll: ScrollContainer
+
 ## PC-4. The landmark the Landmark context shows, as an index into `bridge.landmarks()` (the
 ## selection's id for kind "landmark"), or -1 when it was shown by a path that carries no index.
 var _landmark_index := -1
@@ -1134,6 +1156,129 @@ func focus_section(section: String) -> void:
 ## PC-4. The node name of the Inspect section `focus_section("history")` scrolls to.
 const INSPECT_HISTORY_NODE := "InspectHistory"
 
+## PC-6. The facts line `_subject_text()` gives a subject whose index the live lists no longer hold.
+const _GONE_FACTS := "no longer in this world"
+
+## PC-6. The subject's name as the header draws it, or "" for no subject and for one the live lists
+## no longer hold (`_GONE_FACTS`). Read by the assistant's context chip and its `shown` block, so the
+## chip, the header and the model name the same thing. Never writes state.
+func subject_name(subj: Dictionary) -> String:
+	if String(subj.get("kind", "")) == "":
+		return ""
+	var txt := _subject_text(subj)
+	return "" if String(txt[1]) == _GONE_FACTS else String(txt[0])
+
+## PC-6. The tab the panel shows ("inspect" or "ask"). Read by `DccApp`, the probes and the menus.
+func current_tab() -> String:
+	return _tab
+
+## PC-6. Shows tab `tab` ("inspect" or "ask") and returns true; false, and nothing changes, for any other
+## key and on the phone, whose sheet has no tabs (§3.11). Ask hides Inspect's scroll and shows the Ask
+## frame, with the panel header redrawn above the conversation; Inspect does the reverse. Neither
+## rebuilds Inspect's body, which stays built (and live) underneath, so switching back costs nothing
+## and a reading being drawn there is not lost.
+func show_tab(tab: String) -> bool:
+	if not _panel_chrome() or app == null or not (tab in [TAB_INSPECT, TAB_ASK]):
+		return false
+	_tab = tab
+	_apply_tab()
+	return true
+
+## PC-6. A reading the user asked this dock for (a route row, a river, a measurement, a region, an
+## ecoregion, the history ledger, an icon: each a context that is not a selection) is drawn in Inspect,
+## so the panel switches there and releases a pin (`_release_pin()`, PC-4's judgement). A labelled
+## judgement (PC-6, 2026-11-08): a tool that answered into a hidden tab would look like one that
+## stopped answering. A selection does NOT switch tabs: Ask follows the selection where it is.
+func _show_reading() -> void:
+	_release_pin()
+	if _tab != TAB_INSPECT and _panel_chrome():
+		_tab = TAB_INSPECT
+		_apply_tab()
+
+## PC-6. Makes the drawn state match `_tab`. Builds the Ask frame on first use.
+func _apply_tab() -> void:
+	var scroll: Control = app.get("_right_dock_scroll")
+	if scroll == null:
+		return
+	if _tab == TAB_ASK:
+		_ensure_ask_frame(scroll)
+	if _ask_frame != null:
+		_ask_frame.visible = _tab == TAB_ASK
+	scroll.visible = _tab != TAB_ASK
+	if _tab == TAB_ASK:
+		refresh_ask(true)
+	else:
+		## The Inspect header's tab strip shows which tab is on; it is in the body, so redraw it.
+		_rebuild()
+
+## PC-6. The Ask frame, added once to the dock column right after the scroll (see `_ask_frame`).
+func _ensure_ask_frame(scroll: Control) -> void:
+	if _ask_frame != null:
+		return
+	_ask_frame = VBoxContainer.new()
+	_ask_frame.name = "ContextAskFrame"
+	_ask_frame.add_theme_constant_override("separation", 0)
+	_ask_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_ask_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ask_head = VBoxContainer.new()
+	_ask_head.name = "ContextAskHead"
+	_ask_head.add_theme_constant_override("separation", 0)
+	_ask_frame.add_child(_ask_head)
+	_ask_scroll = ScrollContainer.new()
+	_ask_scroll.name = "ContextAskScroll"
+	_ask_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_ask_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_ask_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ask_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	## Focus in the input (Ctrl+J, Ctrl+3) scrolls it into view when the conversation is taller than the dock.
+	_ask_scroll.follow_focus = true
+	_ask_frame.add_child(_ask_scroll)
+	_ask_body = VBoxContainer.new()
+	_ask_body.name = "ContextAskBody"
+	_ask_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_ask_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ask_scroll.add_child(_ask_body)
+	var col := scroll.get_parent()
+	col.add_child(_ask_frame)
+	col.move_child(_ask_frame, scroll.get_index() + 1)
+
+## PC-6. Redraws the Ask tab: the panel header (the subject, the pin, the tabs) and the conversation,
+## which `LlmAssistantWindow.present_in()` moves here without rebuilding it. While the conversation is
+## in its own window ("Open in a window") the tab says so: closing that window brings it back. No button
+## here does it, because the window is exclusive until PC-7 (§3.6) and a click on the dock would not
+## reach one (measured in `_pc6ask_probe`, 2026-11-08). A no-op unless
+## the Ask tab is the one shown. Called on every `_rebuild()` (the header follows the selection and
+## the pin; the conversation, already here, is left alone) and by the assistant when its window
+## closes. `present` (a tab switch, an open) also refreshes the conversation from the live app and
+## puts the cursor in its input (`LlmAssistantWindow.present_in()`).
+func refresh_ask(present := false) -> void:
+	if _tab != TAB_ASK or _ask_frame == null:
+		return
+	for c in _ask_head.get_children():
+		_ask_head.remove_child(c)
+		c.queue_free()
+	_build_context_header(_ask_head)
+	var aw = app.get("assistant_window")
+	if aw == null:
+		return
+	for c in _ask_body.get_children():
+		if c.name == "AskInWindow":
+			_ask_body.remove_child(c)
+			c.queue_free()
+	if not present and not aw.visible and aw.is_docked() and aw.get("_host") != null 			and (aw.get("_host") as Node).get_parent() == _ask_body:
+		return
+	if not aw.present_in(_ask_body):
+		var pad := DccWidgets.pad(_ask_body, 10, 10, 10, 10)
+		pad.name = "AskInWindow"
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 6)
+		pad.add_child(col)
+		var l := DccTheme.label("The conversation is open in its own window. Close that window to bring it back here; a reply still running is stopped, as closing the window always does.", "text_secondary", DccTheme.FS_SMALL)
+		l.name = "AskInWindowNote"
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size.x = 160
+		col.add_child(l)
+
 ## PC-4. The header's name and one line of facts for the subject `subj`, as `[name, facts]`. Read
 ## fresh from the bridge; a subject the lists no longer hold names itself by kind and id rather than
 ## a neighbour. Never writes state.
@@ -1171,7 +1316,7 @@ func _subject_text(subj: Dictionary) -> Array:
 					String(lm.get("class", "")).capitalize()]
 	if kind == "":
 		return ["Nothing selected", ""]
-	return ["%s #%d" % [kind.capitalize(), id], "no longer in this world"]
+	return ["%s #%d" % [kind.capitalize(), id], _GONE_FACTS]
 
 ## PC-4. The header button factory: a `DccWidgets.chip()`, floored to the touch row on the tablet on
 ## both axes (`MISTAKES.md`, "Floor a control that a rebuild creates": this is built on every rebuild,
@@ -1193,7 +1338,7 @@ func _header_button(parent: Control, node_name: String, text: String, on_press: 
 ##   row 2  the subject's one line of facts;
 ##   banner while pinned and the selection is something else: "Selection is now X" with PIN TO IT
 ##          and FOLLOW (§3.3, flow F8);
-##   tabs   Inspect, the only tab PC-4 builds (Note is PC-5's, Ask PC-6's; absent until then).
+##   tabs   Inspect (PC-4) and Ask (PC-6, `show_tab()`); Note is PC-5's and absent until then.
 ## Hiding the panel stays the dock's own collapse button and Window ▸ Context panel's check.
 ## Must never change `_context` or the selection: it only reads them.
 func _build_context_header(body: Control) -> void:
@@ -1259,10 +1404,18 @@ func _build_context_header(body: Control) -> void:
 	tabs.name = "CtxTabs"
 	tabs.add_theme_constant_override("separation", 4)
 	box.add_child(tabs)
-	var inspect := DccWidgets.segment(tabs, "INSPECT", func(): pass)
+	var inspect := DccWidgets.segment(tabs, "INSPECT", func(): app.open_context_tab(TAB_INSPECT))
 	inspect.name = "CtxTabInspect"
 	inspect.tooltip_text = "Inspect (Ctrl+1): the subject's facts. Every name selects it."
-	DccWidgets.set_segment_on(inspect, true)
+	DccWidgets.set_segment_on(inspect, _tab == TAB_INSPECT)
+	## PC-6: Ask, the assistant docked (§3.5), drawn only when the app lists it (`DccApp.context_tabs()`).
+	if app != null and app.context_tabs().has(TAB_ASK):
+		var ask := DccWidgets.segment(tabs, "ASK", func(): app.open_context_tab(TAB_ASK))
+		ask.name = "CtxTabAsk"
+		ask.tooltip_text = "Ask (Ctrl+3): the assistant, about the subject and the year shown. One conversation lasts the session."
+		DccWidgets.set_segment_on(ask, _tab == TAB_ASK)
+		if DccTheme.is_tablet():
+			ask.custom_minimum_size.y = maxf(ask.custom_minimum_size.y, DccTheme.role_px("row_min_h"))
 	body.add_child(DccTheme.rule())
 
 ## PC-4 (§3.3, "Every name is a link"). A key/value row like `_field()` whose value is a link that
@@ -1408,8 +1561,8 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 ## clicked. `kind` is `"road"` or `"sea"` -- the two calls this dock's Route
 ## context actually has (`bridge.roads()` / `bridge.sea_routes()`).
 func show_route(entry: Dictionary, kind: String) -> void:
-	## PC-4: a route is not a selection; asking for it releases a pin (`_release_pin()`).
-	_release_pin()
+	## PC-4: a route is not a selection; asking for it releases a pin and shows Inspect (`_show_reading()`).
+	_show_reading()
 	_context = CTX_ROUTE
 	_route_entry = entry
 	_route_kind = kind
@@ -1461,8 +1614,8 @@ func landmark_index_of(data: Variant) -> int:
 func on_icon_selected(data: Variant, index: int) -> void:
 	if not (data is Dictionary) or index < 0:
 		return
-	## PC-4: an icon is not a selection, so asking for it releases a pin (`_release_pin()`).
-	_release_pin()
+	## PC-4: an icon is not a selection, so asking for it releases a pin and shows Inspect (`_show_reading()`).
+	_show_reading()
 	_context = CTX_ICON
 	_icon_index = index
 	_icon_data = data
@@ -1489,7 +1642,7 @@ func show_conflict(id: int) -> void:
 ## Pins one `river_at()` entity as the dock's River context and rebuilds. Selection state
 ## only; the engine is not written.
 func show_river(entity: Dictionary) -> void:
-	_release_pin()  ## PC-4: not a selection (`_release_pin()`).
+	_show_reading()  ## PC-4/PC-6: not a selection (`_show_reading()`).
 	_context = CTX_RIVER
 	_river = entity
 	_rebuild()
@@ -1529,7 +1682,7 @@ func show_faction(faction_id: int, pair_with: int = -1) -> void:
 ## title, their own readout branch and their own dispatch arm for what is one
 ## selection with six presentations.
 func show_measure(result: Dictionary, mode: String = "distance") -> void:
-	_release_pin()  ## PC-4: not a selection (`_release_pin()`).
+	_show_reading()  ## PC-4/PC-6: not a selection (`_show_reading()`).
 	_context = CTX_MEASURE
 	_measure_result = result
 	_measure_mode = mode
@@ -1538,7 +1691,7 @@ func show_measure(result: Dictionary, mode: String = "distance") -> void:
 ## Called by `GlobalTools` when a Region marquee commits -- `result` is
 ## `region_get()`'s own dict.
 func show_region(result: Dictionary) -> void:
-	_release_pin()  ## PC-4: not a selection (`_release_pin()`).
+	_show_reading()  ## PC-4/PC-6: not a selection (`_show_reading()`).
 	_context = CTX_REGION
 	_region_result = result
 	_rebuild()
@@ -1557,7 +1710,7 @@ func show_wildlife(rec: Dictionary) -> void:
 		_wildlife_show_all = false
 	_wildlife_region = rec
 	if not rec.is_empty():
-		_release_pin()  ## PC-4: not a selection (`_release_pin()`).
+		_show_reading()  ## PC-4/PC-6: not a selection (`_show_reading()`).
 	elif _pinned and _panel_chrome():
 		## PC-4: a Wildlife click that missed every marker clears the roster, never a pin.
 		_rebuild()
@@ -1628,7 +1781,7 @@ func leave_sculpt_context() -> void:
 ## `show_sculpt_stack()` uses, because the answer changes on every commit and
 ## a cached copy would be one more thing to invalidate.
 func show_history() -> void:
-	_release_pin()  ## PC-4: not a selection (`_release_pin()`).
+	_show_reading()  ## PC-4/PC-6: not a selection (`_show_reading()`).
 	_context = CTX_HISTORY
 	_rebuild()
 
@@ -1862,6 +2015,8 @@ func _rebuild() -> void:
 	## draft clause), so a rebuild that drew no stack still answered the
 	## question and still has to say so.
 	_sculpt_drawn_stamps = bridge.sculpt_stamp_count() if bridge != null else -1
+	## PC-6: the Ask tab draws the same header above the conversation, so it follows this rebuild too.
+	refresh_ask()
 
 ## `_build_settlement` falls back to `_build_sample()` when its own data is
 ## missing (a settlement deselected out from under the dock) -- mirrored here

@@ -172,6 +172,11 @@ pub struct ParamsConversation {
     /// RK-6: world ids the retrieved text NAMES that the index holds but that were not retrieved
     /// themselves (a citation of one is "named, not read").
     mentioned: Vec<String>,
+    /// PC-6: whether the `shown` block (the selection and the year the timeline shows,
+    /// [`crate::prompt::shown_block`]) rides with the user's message; adds
+    /// [`crate::prompt::SHOWN_PARAGRAPH`] to the system prompt. False keeps the request byte-identical
+    /// to one built before PC-6.
+    selection_year_present: bool,
 }
 
 /// What a batch of waiting query calls needs read from the world.
@@ -248,6 +253,7 @@ impl ParamsConversation {
             pack_present: false,
             retrieved: Vec::new(),
             mentioned: Vec::new(),
+            selection_year_present: false,
         })
     }
 
@@ -278,6 +284,11 @@ impl ParamsConversation {
         };
         if self.pack_present && !self.knowledge_only && !self.edit_only {
             p.push_str("\n\nSources for this request are in the <context> block of the user's message.");
+        }
+        // PC-6: never on an edit request, whose prompt names the region block only (`with_shown`).
+        if self.selection_year_present && !self.edit_only {
+            p.push_str("\n\n");
+            p.push_str(crate::prompt::SHOWN_PARAGRAPH);
         }
         if let Some(m) = self.messages.first_mut() {
             m.content = std::mem::take(&mut p);
@@ -310,6 +321,26 @@ impl ParamsConversation {
         self.pack_present = true;
         self.note_retrieved(&pack.retrieved);
         self.note_mentioned(&pack.mentioned);
+        self.rebuild_prompt(cat);
+        self
+    }
+
+    /// PC-6 (`PC_SHELL_PROPOSAL.md` §3.5): put the `shown` block (what is selected and the year the
+    /// timeline shows, read by the shell at Send) ahead of the user's words, and name it in the system
+    /// prompt. `None` (nothing allowed, or both halves absent) changes nothing. Call once, before the
+    /// first request; later turns replay the same message, so the model keeps the year it was asked
+    /// in. Ignored on an edit request (LLM-7's prompt and its one tool stay exactly as they were).
+    pub fn with_shown(mut self, cat: &Catalogue, shown: Option<&crate::prompt::Shown>) -> Self {
+        if self.edit_only {
+            return self;
+        }
+        let Some(block) = shown.and_then(crate::prompt::shown_block) else {
+            return self;
+        };
+        if let Some(m) = self.messages.get_mut(1) {
+            m.content = format!("{block}\n{}", m.content);
+        }
+        self.selection_year_present = true;
         self.rebuild_prompt(cat);
         self
     }
@@ -1614,5 +1645,29 @@ mod tests {
             last = loops.on_reply(&cat, "", vec![call(Some(&format!("c{i}")), "regenerate", json!({}))]);
         }
         assert!(matches!(last, Step::Failed(_)));
+    }
+
+    /// Protects PC-6 on the Commands path: `with_shown` puts the selection and year block ahead of the
+    /// user's words in the first user message (literal text), adds `SHOWN_PARAGRAPH` to the system prompt
+    /// and changes no tool; `None`, an empty `Shown`, and an edit request each leave the conversation
+    /// byte-identical. MUTATION: skip the prepend, or the prompt sentence, or apply it on an edit request,
+    /// and this goes red.
+    #[test]
+    fn with_shown_names_the_selection_and_the_year() {
+        let cat = fixture();
+        let plain = ParamsConversation::new(&cat, "what year is it?").unwrap();
+        let shown = crate::prompt::Shown { selection: Some("settlement Veldmark".into()), year: Some(412) };
+        let on = ParamsConversation::new(&cat, "what year is it?").unwrap().with_shown(&cat, Some(&shown));
+        assert_eq!(on.messages()[1].content, "<context kind=\"shown\">\nselected: settlement Veldmark\nyear shown on the timeline: 412\n</context>\n\nwhat year is it?");
+        assert_eq!(on.messages()[0].content, format!("{}\n\n{}", plain.messages()[0].content, crate::prompt::SHOWN_PARAGRAPH));
+        let names = |c: &ParamsConversation| c.tools(&cat).into_iter().map(|t| t.name).collect::<Vec<_>>();
+        assert_eq!(names(&on), names(&plain));
+        let none = ParamsConversation::new(&cat, "what year is it?").unwrap().with_shown(&cat, None);
+        let empty = ParamsConversation::new(&cat, "what year is it?").unwrap().with_shown(&cat, Some(&crate::prompt::Shown::default()));
+        assert_eq!(none.messages(), plain.messages());
+        assert_eq!(empty.messages(), plain.messages());
+        let edit_plain = ParamsConversation::new(&cat, "ridge").unwrap().with_edit(&cat, edit_cat());
+        let edit_on = ParamsConversation::new(&cat, "ridge").unwrap().with_edit(&cat, edit_cat()).with_shown(&cat, Some(&shown));
+        assert_eq!(edit_on.messages(), edit_plain.messages());
     }
 }

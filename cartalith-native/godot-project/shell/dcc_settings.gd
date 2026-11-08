@@ -1120,7 +1120,7 @@ static func llm_gate_dict() -> Dictionary:
 	var d := {}
 	for k in ["enabled", "prose", "commands", "edit", "local_allowed", "remote_allowed",
 			"preset_id", "base_url", "model", "key_source", "env_var", "token_cap", "ctx_params", "ctx_region", "thinking", "key_account",
-			"ctx_rag_world", "ctx_rag_vault", "rag_pre", "rag_tools"]:
+			"ctx_rag_world", "ctx_rag_vault", "rag_pre", "rag_tools", "ctx_selection"]:
 		d[k] = llm_value(k)
 	## The hosted endpoints the user allowed knowledge search for (K2); Rust compares the endpoint's
 	## origin with this list and uses no source for a hosted endpoint that is not in it.

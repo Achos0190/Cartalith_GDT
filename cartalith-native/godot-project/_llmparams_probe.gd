@@ -337,8 +337,11 @@ func _ready() -> void:
 		## minimum width into every ancestor (`MISTAKES.md`), which pushed Send off a phone sheet.
 		var srect: Rect2 = (_c("send") as Button).get_global_rect()
 		var crect: Rect2 = (card["box"] as Control).get_global_rect()
-		var wsz := Vector2(_win.size)
-		_ok(srect.end.x <= wsz.x + 0.5 and crect.end.x <= wsz.x + 0.5, "%s: with the card shown, Send %s and the card %s stay inside the window width %.0f" % [wire, srect, crect, wsz.x])
+		## PC-6: on the desktop the panel is the Context panel's Ask tab, so "inside" is its frame's rect on
+		## screen; in the window form it is the window's own rect.
+		var hrect: Rect2 = (_app.right_dock_ctrl.get("_ask_frame") as Control).get_global_rect() if _win.is_docked() else Rect2(Vector2.ZERO, Vector2(_win.size))
+		_ok(srect.position.x >= hrect.position.x - 0.5 and srect.end.x <= hrect.end.x + 0.5 and crect.position.x >= hrect.position.x - 0.5 and crect.end.x <= hrect.end.x + 0.5,
+			"%s: with the card shown, Send %s and the card %s stay inside the panel %s" % [wire, srect, crect, hrect])
 		_ok(_digest() == d_before, "%s: NOTHING was written before the click (world digest unchanged)" % wire)
 		_ok(_gen_started == g0, "%s: no generation started" % wire)
 		if not anth:
@@ -450,23 +453,32 @@ func _ready() -> void:
 	_ok(not _text_of(_win).contains(SECRET), "the key is in no label or tooltip of the panel")
 	await _shot("8_dismissed")
 
-	print("== 9. Reopening the panel with cards present (REPORT.md Defects 2) ==")
-	## Two cards (one new, one dismissed) exist; reopen TWICE. Before the fix `cards` kept the
-	## freed buttons and `_refresh_cards` raised "previously freed instance" on the next refresh;
-	## the runner greps the log for SCRIPT ERROR, and the checks below assert the array is
-	## cleared, a note says a waiting card was dropped, and a card made AFTER the reopen is
-	## fully live: Apply is disabled with the reason while a world generates.
+	print("== 9. Reopening the panel with cards present, then New (REPORT.md Defects 2; PC-6) ==")
+	## Two cards (one new, one dismissed) exist. Since PC-6 a reopen keeps the conversation (Ruling DY,
+	## PQ5), so reopening TWICE must keep both cards, live; then New, pressed TWICE, is what clears them.
+	## Before the Defects 2 fix a rebuild left `cards` holding freed buttons and `_refresh_cards` raised
+	## "previously freed instance"; the runner greps the log for SCRIPT ERROR, and the checks below
+	## assert the array is cleared, a note says a waiting card was dropped (once), and a card made AFTER
+	## New is fully live: Apply is disabled with the reason while a world generates.
 	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": WORKED}], "drier again")
 	var c9 := _last_card()
 	_ok(not c9.is_empty() and c9["state"] == "new" and _win.cards.size() >= 2, "9: a waiting card and an older one exist before the reopen (%d cards)" % _win.cards.size())
+	var n_cards: int = _win.cards.size()
 	for n in 2:
 		_win.open()
 		await _settle(4)
 		_win._refresh()
 		await _settle(2)
-		_ok(_win.controls.has("cleared_note") == (n == 0), "9: reopen %d: the cleared-proposal note shows once, on the reopen that dropped a waiting card" % (n + 1))
-		_ok(_win.cards.is_empty(), "9: reopen %d clears the cards array (was holding freed buttons)" % (n + 1))
-		_ok(not is_instance_valid(c9["box"]) or not c9["box"].is_inside_tree(), "9: reopen %d: the old card's widgets are gone from the panel" % (n + 1))
+		_ok(_win.cards.size() == n_cards and c9["state"] == "new" and is_instance_valid(c9["box"]) and c9["box"].is_inside_tree() and not (c9["apply"] as Button).disabled,
+			"9: reopen %d keeps the cards, the waiting one live (PC-6)" % (n + 1))
+	for n in 2:
+		await _click(_c("new"))
+		await _settle(4)
+		_win._refresh()
+		await _settle(2)
+		_ok(_win.controls.has("cleared_note") == (n == 0), "9: New %d: the cleared-proposal note shows once, on the New that dropped a waiting card" % (n + 1))
+		_ok(_win.cards.is_empty(), "9: New %d clears the cards array (was holding freed buttons)" % (n + 1))
+		_ok(not is_instance_valid(c9["box"]) or not c9["box"].is_inside_tree(), "9: New %d: the old card's widgets are gone from the panel" % (n + 1))
 	await _ask("tools", [SCHEMA3, {"name": "set_generation_params", "args": WORKED}], "drier after reopen")
 	var c9b := _last_card()
 	_ok(not c9b.is_empty() and c9b.get("apply") != null and not (c9b["apply"] as Button).disabled, "9: a card made after the reopen has an enabled Apply")

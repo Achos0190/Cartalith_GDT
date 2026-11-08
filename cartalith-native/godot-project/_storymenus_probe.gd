@@ -92,10 +92,11 @@ const FILE_EXPORT_ROWS: Array = ["|FOR THE TABLE", "Player map…", "DM / full m
 ## Story's rows, the proposal's §3.3 table in the mockup's (A2) order. The
 ## campaigns row is a live readout; its text is normalised to `Campaigns*`.
 ## PC-4: the political row is "…of the selection" once the Context panel has Inspect.
+## PC-6: the assistant row is "Ask the assistant about the selection" once the panel has Ask.
 const STORY_ROWS: Array = ["|TIME", "Timeline", "Political history of the selection",
 	"Faction history…", "|JOURNEYS", "Journey planner", "Saved journeys…", "Travel library…",
 	"|CONFLICTS & CAMPAIGNS", "Conflicts…", "Draw a conflict", "Campaigns*",
-	"|NOTES", "Notes for this place", "Places without notes is in Records", "Assistant panel…"]
+	"|NOTES", "Notes for this place", "Places without notes is in Records", "Ask the assistant about the selection"]
 ## The rows SM-2 drew disabled, built by SM-5/SM-6: row -> the id it must carry
 ## (written as literals, not read from `DccMenus`, so a renumbered id fails here).
 ## PC-9: Story's Places without notes… is a signpost now; id 731 is Records' row (checked there).
@@ -659,10 +660,10 @@ func _sm2() -> void:
 			i >= 0 and not story.is_item_disabled(i) and story.get_item_id(i) == int(STORY_BUILT[t])
 				and story.get_item_tooltip(i) != "" and story.get_item_tooltip(i).findn("Not built") < 0,
 			story.get_item_tooltip(i) if i >= 0 else "missing")
-	var ai := _index_of(story, "Assistant panel…")
-	_check("Story ▸ Assistant panel… (LLM-3) is enabled with id 901 and a tooltip that says it is optional",
+	var ai := _index_of(story, "Ask the assistant about the selection")
+	_check("Story ▸ Ask the assistant about the selection (LLM-3's id 901, PC-6's form) is enabled with a tooltip that names the Ask tab and says it is off until turned on",
 		ai >= 0 and not story.is_item_disabled(ai) and story.get_item_id(ai) == STORY_LLM3_ID
-			and story.get_item_tooltip(ai).contains("Optional"),
+			and story.get_item_tooltip(ai).contains("Ask tab") and story.get_item_tooltip(ai).contains("Off until"),
 		story.get_item_tooltip(ai) if ai >= 0 else "missing")
 	var world := _menu_button("Records").get_popup()
 	world_p = world

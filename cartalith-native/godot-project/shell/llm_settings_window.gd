@@ -108,7 +108,9 @@ const _SWITCHES := [
 ## The context sources (scope s.5: "none; per source"), each its own switch.
 const _CONTEXT := [
 	{"key": "ctx_entity", "label": "Send: current entity"},
-	{"key": "ctx_selection", "label": "Send: selection"},
+	## PC-6: what is selected and the year the timeline shows, as the Ask tab's two chips name them
+	## (`llm_assistant_window.gd::_shown_args`). Off by default, like every source (scope s.4 rule 5).
+	{"key": "ctx_selection", "label": "Send: selection and year"},
 	{"key": "ctx_notes", "label": "Send: named Vault notes"},
 	## Ruling DI P3: generation parameters are their own source, off until ticked. A setting
 	## proposal shows the model each offered setting's current value, so it needs this.

@@ -624,6 +624,24 @@ the conflict**: a conflict is a selection kind only PC-4's Inspect shows. The st
 nearest the cursor. The phone keeps its CIVIL-only strip. The probe is `_pc3strip_probe`; the phone guard is
 `_pc3phone_probe`.
 
+PC-6 (2026-11-08) docks the shipped assistant, not a rebuilt one: `LlmAssistantWindow` keeps every rule and owns the
+content, built once per session, and `present_in()` moves it into the Context panel's Ask tab (`RightDock.show_tab()`,
+a frame beside Inspect's scroll, so Inspect stays built underneath). `open()` routes every entry point to
+`DccApp.open_context_tab("ask")` on the desktop and tablet; the phone keeps its sheet (§3.11). Departures and
+judgements found while building: (1) **the selection and the year ride as a `shown` block in their own fence**
+(`cartalith_llm::prompt::shown_block`, on the prose and Commands paths, never on Edit), gated by the existing,
+previously unread "Send: selection" source (`ctx_selection`, off by default, now labelled "Send: selection and year"),
+which Rust re-checks; the proposal's chips sit on that source rather than replacing it, so the scope's opt-in per
+source holds. (2) **Two chips, not three**: the note chip waits for PC-5's Note tab. (3) **New** clears the
+conversation; on the phone it joins the status row so the sheet gains no row. (4) **Open in a window** (desktop) is the
+dialog form, where Ruling DK's Pop out still applies; the dialog is still exclusive (PC-7), so the tab says "close that
+window to bring it back" instead of offering a button a click could not reach. (5) A reading that is not a selection
+(a route, a river, a measurement, a region, an ecoregion, the history ledger, an icon) switches the panel to Inspect;
+a selection does not. (6) A verified world citation selects what it names (settlements by `tid`, factions, landmarks);
+Vault citations stay text until PC-5. Not built, stated: the save preference, its first-use card and the world-file
+slot (PQ5); a note card going to the subject's linked note; names and years in an answer as links; per-subject task
+chips; "Ask about this" on Inspect pages and the context card. The probe is `_pc6ask_probe`.
+
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes
 `popout_host.gd`, which Ruling DK's PW-2 built. PC-8 and PW-4 re-host the planner, so they are one change (§3.7).

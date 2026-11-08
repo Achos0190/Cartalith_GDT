@@ -242,7 +242,7 @@ func _build_specs() -> void:
 		{"name": "vault", "key": "vault_window", "win": _app.vault_window,
 			"open": func() -> void: _app.vault_window.open_browse(), "mutate": _mut_vault, "snap": _snap_vault, "text": true},
 		{"name": "assistant", "key": "llm_assistant_window", "win": _app.assistant_window,
-			"open": func() -> void: _app.assistant_window.open(), "mutate": _mut_assistant, "snap": _snap_assistant, "text": true},
+			"open": func() -> void: _app.assistant_window.open_window(), "mutate": _mut_assistant, "snap": _snap_assistant, "text": true},
 	]
 
 
@@ -1198,7 +1198,8 @@ func _assistant() -> void:
 	## PC-1: the assistant's place is the one selection's; select through `select()`, not a dock-only pin.
 	_app.select("settlement", 0)
 	await _settle(4)
-	a.open()
+	## PC-6: on the desktop open() shows the Ask tab; the window form is Open in a window.
+	a.open_window()
 	await _settle(12)
 	a._pick_task("prose")
 	await _settle(3)
@@ -1270,7 +1271,8 @@ func _assistant() -> void:
 	await _settle(6)
 
 	print("-- 10e. the off-gate and a forced Send --")
-	a.open()
+	## PC-6: on the desktop open() shows the Ask tab; the window form is Open in a window.
+	a.open_window()
 	await _settle(10)
 	if a.is_embedded():
 		await PopoutHost.toggle(a)

@@ -889,3 +889,51 @@ fn the_grounded_place_path_keeps_its_fences() {
     assert_eq!(built, rows().len());
     assert!(built >= 43);
 }
+
+/// Protects PC-6's `shown` block (the selection and the year, `PC_SHELL_PROPOSAL.md` §3.5) for every
+/// corpus string used as the selection's name, on the prose path and the settings path: the string
+/// cannot close or reopen a `<context>` fence (one `shown` block, opened and closed once, next to the
+/// subject's own blocks), it cannot add a line to the block (control characters are dropped, so the
+/// block is always its fence, one `selected:` line and one year line), the year line is the literal
+/// app value, the system prompt is byte-identical to the one a benign name builds, and no tool is added.
+/// MUTATION: build the selection line without `attr` (prompt.rs `shown_block`), and the fence or line
+/// count reds this.
+#[test]
+fn the_shown_block_keeps_its_fence_for_every_row() {
+    use cartalith_llm::prompt::{Shown, shown_block};
+    let benign = Shown { selection: Some("settlement Veldmark".into()), year: Some(412) };
+    fn ctx(s: &Shown) -> Context<'_> {
+        Context { entity_label: Some("Veldmark"), entity_fields: Some("a: b"), shown: Some(s), ..Context::default() }
+    }
+    let reference = build_messages(Task::Prose, "Do the task.", &ctx(&benign)).unwrap();
+    let cat = catalogue();
+    let ref_conv = ParamsConversation::new(&cat, "what is selected?").unwrap().with_shown(&cat, Some(&benign));
+    let mut built = 0;
+    for row in rows() {
+        let shown = Shown { selection: Some(format!("settlement {}", row.text)), year: Some(412) };
+        let squash = |t: &str| -> String {
+            t.to_lowercase()
+                .chars()
+                .filter(|c| !c.is_whitespace() && !matches!(c, '\u{00ad}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{feff}' | '\u{e0000}'..='\u{e007f}'))
+                .collect()
+        };
+        let block = shown_block(&shown).unwrap_or_else(|| panic!("{}: a hostile name emptied the block", row.id));
+        let sq = squash(&block);
+        assert_eq!(sq.matches("</context").count(), 1, "{}: hostile text closed the shown fence: {block}", row.id);
+        assert_eq!(sq.matches("<context").count(), 1, "{}: hostile text opened a fence: {block}", row.id);
+        assert_eq!(block.lines().count(), 4, "{}: hostile text added a line to the shown block: {block}", row.id);
+        assert!(block.contains("\nyear shown on the timeline: 412\n"), "{}: the year line moved: {block}", row.id);
+        // The prose path: the system prompt does not depend on the text, two entity blocks plus shown.
+        let p = build_messages(Task::Prose, "Do the task.", &ctx(&shown)).unwrap_or_else(|e| panic!("{}: {e:?}", row.id));
+        assert_eq!(p.messages[0], reference.messages[0], "{}: the system prompt must not depend on the text", row.id);
+        assert_eq!(squash(&p.messages[1].content).matches("</context").count(), 2, "{}: the prose request's fences", row.id);
+        // The settings path: the same block, the same tools as with a benign name.
+        let conv = ParamsConversation::new(&cat, "what is selected?").unwrap().with_shown(&cat, Some(&shown));
+        assert_eq!(conv.messages()[0], ref_conv.messages()[0], "{}: the settings prompt must not depend on the text", row.id);
+        let names = |c: &ParamsConversation| c.tools(&cat).into_iter().map(|t| t.name).collect::<Vec<_>>();
+        assert_eq!(names(&conv), names(&ref_conv), "{}: a hostile name changed the tool set", row.id);
+        built += 1;
+    }
+    assert_eq!(built, rows().len());
+    assert!(built >= 43);
+}

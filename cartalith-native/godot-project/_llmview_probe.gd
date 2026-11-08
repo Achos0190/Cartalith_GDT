@@ -481,8 +481,11 @@ func _ready() -> void:
 		_ok((card["apply"] as Button).text == "Apply 4 view changes" and not (card["apply"] as Button).disabled, "%s: 'Apply 4 view changes' is enabled" % wire)
 		var srect: Rect2 = (_c("send") as Button).get_global_rect()
 		var crect: Rect2 = (card["box"] as Control).get_global_rect()
-		var wsz := Vector2(_win.size)
-		_ok(srect.end.x <= wsz.x + 0.5 and crect.end.x <= wsz.x + 0.5, "%s: Send %s and the card %s stay inside the window width %.0f" % [wire, srect, crect, wsz.x])
+		## PC-6: on the desktop the panel is the Context panel's Ask tab, so "inside" is its frame's rect on
+		## screen; in the window form it is the window's own rect.
+		var hrect: Rect2 = (_app.right_dock_ctrl.get("_ask_frame") as Control).get_global_rect() if _win.is_docked() else Rect2(Vector2.ZERO, Vector2(_win.size))
+		_ok(srect.position.x >= hrect.position.x - 0.5 and srect.end.x <= hrect.end.x + 0.5 and crect.position.x >= hrect.position.x - 0.5 and crect.end.x <= hrect.end.x + 0.5,
+			"%s: Send %s and the card %s stay inside the panel %s" % [wire, srect, crect, hrect])
 		var snap1 := _snap()
 		_ok(snap1["layers"] == snap0["layers"] and snap1["zoom"] == snap0["zoom"] and snap1["cam"] == snap0["cam"] and snap1["preset"] == pre0 and snap1["windows"] == snap0["windows"] and snap1["groups"] == snap0["groups"] and snap1["digest"] == snap0["digest"] and snap1["gen"] == snap0["gen"], "%s: NOTHING moved before the click (layers, camera, style, windows, undo stack, digest)" % wire)
 		_ok(not _app.shortcuts_dialog.visible, "%s: the shortcuts window is not open yet" % wire)
@@ -674,6 +677,9 @@ func _ready() -> void:
 		_configure({"preset_id": "custom_anthropic" if anth else "ollama"})
 		_win.open()
 		await _settle(8)
+		## PC-6: an open keeps the conversation (and the groups row as left), so each wire starts with New.
+		await _click(_c("new"))
+		await _settle(4)
 		_win._pick_task("commands")
 		await _settle(2)
 		var toggle := _c("groups_toggle") as Button

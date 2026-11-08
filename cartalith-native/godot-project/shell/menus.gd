@@ -341,8 +341,9 @@ const ID_PREF_SHORTCUTS := 605
 ## `Preferences ▸ Assistant…` (LLM-2, `LLM_ASSISTANT_SCOPE.md` s.6). 900 is free: grepped
 ## the whole file for every `ID_`/`_FIRST` value, the highest of which is 806 (the 3D tiers).
 const ID_PREF_ASSISTANT := 900
-## LLM-3: `Story ▸ NOTES ▸ Assistant panel…` opens the prose and Vault assistant (`LlmAssistantWindow`;
-## Ask the assistant about the selection, Ctrl+J, once the Context panel has Ask, PC-6);
+## LLM-3: Story ▸ NOTES' assistant row opens the prose and Vault assistant (`LlmAssistantWindow`): "Ask the
+## assistant about the selection", Ctrl+J, the Context panel's Ask tab, since PC-6 built it ("Assistant panel…"
+## before);
 ## 900 above is its SETTINGS (Preferences ▸ Assistant…). 901 was unused (`grep -rn ":= 90"` over `shell/`, 2026-10-25).
 const ID_STORY_ASSISTANT := 901
 ## CQ-3: `Preferences ▸ Quick bar…` opens the Customise window for the pinned commands
@@ -3752,9 +3753,8 @@ func _story(p: PopupMenu) -> void:
 	_signpost(p, PLACES_WITHOUT_NOTES_SIGNPOST)
 	## LLM-3. Always enabled, in both forms: the panel says why it cannot send
 	## (off, no provider, no consent), which is the `CommandIndex` rule -- a
-	## reason, never a dead row. Ctrl+J only with the Ask tab (PC-6): bound to
-	## the floating window it would open a fresh conversation on every press
-	## (`llm_assistant_window.gd::open` calls `_rebuild()`, finding A1).
+	## reason, never a dead row. Ctrl+J only with the Ask tab (PC-6), whose
+	## conversation lasts the session (an open never rebuilds it, finding A1).
 	if bool(_story_forms["ask"]):
 		_live(p, "Ask the assistant about the selection", ID_STORY_ASSISTANT, KEY_MASK_CTRL | KEY_J)
 		p.set_item_tooltip(p.item_count - 1, STORY_ASK_TIP)
@@ -3792,7 +3792,7 @@ const STORY_NOTE_SEL_TIP := "Opens the Context panel's Note tab on the selection
 ## bar ("opening, closing or reselecting never empties the transcript"), so the tooltip says so. The same
 ## answer adds an option to save the conversation inside the world file, off by default and asked at first
 ## use; that needs a save slot nothing has built, so the tooltip does not claim it.
-const STORY_ASK_TIP := "Opens the Context panel's Ask tab with the cursor in its input. One conversation lasts the session: it stays while you select other things, and New starts another. The chips above the input show what goes with your next message (the selection, the year, its note), read when you press Send. Off until you turn it on in Preferences ▸ Assistant; nothing is sent until then."
+const STORY_ASK_TIP := "Opens the Context panel's Ask tab with the cursor in its input. One conversation lasts the session: it stays while you select other things, and New starts another. The chips above the input show what goes with your next message (the selection and the year), read when you press Send; tick Send: selection and year in Preferences ▸ Assistant to send them. Off until you turn the assistant on there; nothing is sent until then."
 ## "Assistant panel…"'s tooltip: the shipped string, moved here unchanged.
 const STORY_ASSISTANT_TIP := "Optional language-model help with prose for a place, its story, or a Vault note. Off until you turn it on in Preferences ▸ Assistant; saved only when you click."
 ## Faction history…'s tooltip before PC-1: the shipped string, moved here unchanged.

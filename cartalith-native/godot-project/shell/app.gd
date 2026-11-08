@@ -33,7 +33,9 @@ var quick_bar_menu_pin: QuickBarMenuPin
 ## The phone's quick bar (CQ-6): its MAP-sheet chip row, MORE section source and `All...` list. A plain
 ## controller that creates nothing until a pin or the Assistant chip is wanted (`quick_bar_phone.gd`).
 var phone_quick: QuickBarPhone
-## LLM-3: the prose and Vault assistant panel (`Story ▸ NOTES ▸ Assistant panel…`).
+## LLM-3: the prose and Vault assistant (`Story ▸ Ask the assistant about the selection`). Since PC-6 its
+## content is the Context panel's Ask tab on the desktop and tablet, and this dialog the window form and
+## the phone's sheet (`LlmAssistantWindow.open()`).
 var assistant_window: LlmAssistantWindow
 ## The journey planner view (`JourneyPlannerView`).
 var journey_planner_view: JourneyPlannerView
@@ -783,30 +785,42 @@ func current_faction() -> int:
 # ── PC-4: the Context panel (`PC_SHELL_PROPOSAL.md` §3.3, §3.8; the contract in
 #    `drafts/pc-shell/90_pc_milestone_stubs.gd`) ───────────────────────────────────────────────
 
-## PC-4. The Context panel's tabs that exist in this build, in order. PC-4 builds Inspect; Note is
-## PC-5's and Ask PC-6's, and each appends its key in the change that builds it. On the phone
-## (Ruling DX PQ13, §3.11) "inspect" is listed too, because its route exists: the selection sheet
-## (`open_context_tab()`). `menus.gd::_context_tab_ready()` asks it once per row at build time, so a
-## row goes live on the next boot after its tab is built and never before.
+## PC-4. The Context panel's tabs that exist in this build, in order. PC-4 built Inspect and PC-6 Ask
+## (the assistant docked, §3.5); Note is PC-5's and appends its key in the change that builds it. On
+## the phone (Ruling DX PQ13, §3.11) both are listed too, because their routes exist: the selection
+## sheet and the assistant's sheet (`open_context_tab()`). `menus.gd::_context_tab_ready()` asks it
+## once per row at build time, so a row goes live on the next boot after its tab is built and never
+## before.
 func context_tabs() -> PackedStringArray:
-	return PackedStringArray(["inspect"])
+	return PackedStringArray(["inspect", "ask"])
 
 ## PC-4. Shows the Context panel on `tab` and returns true; returns false, and changes nothing, for a
 ## tab `context_tabs()` does not list. `""` keeps the tab shown. Shows the panel first when it is
 ## hidden (Window ▸ Context panel's check off) or collapsed (the dock's chevron). `section` scrolls
 ## Inspect to a part of its page (`RightDock.focus_section()`: "history" is a place's holders, a
 ## faction's wars, a conflict's years). On the phone, "inspect" and `""` show the selection sheet
-## (`phone_show_right_sheet()`), the phone's form of the panel (Ruling DX PQ13).
+## (`phone_show_right_sheet()`), the phone's form of the panel (Ruling DX PQ13), and "ask" the
+## assistant's sheet (§3.11: "Ask opens the assistant's sheet").
+##
+## PC-6: "ask" shows the Ask tab with the cursor in its input (§3.5, "Ctrl+J opens Ask from anywhere
+## and focuses the input"); the conversation is the session's and is never rebuilt by an open
+## (`LlmAssistantWindow.present_in()`). "inspect" switches back to Inspect. `""` keeps the tab shown.
 func open_context_tab(tab: String, section: String = "") -> bool:
 	if tab != "" and not context_tabs().has(tab):
 		return false
 	if is_phone():
-		phone_show_right_sheet()
+		if tab == "ask":
+			## The sheet: `open()` takes its phone branch, never this function again.
+			assistant_window.open()
+		else:
+			phone_show_right_sheet()
 		return true
 	if _region_nodes.has(DccMenus.ID_WIN_RIGHT):
 		(_region_nodes[DccMenus.ID_WIN_RIGHT] as CanvasItem).visible = true
 	if is_dock_collapsed("right"):
 		_toggle_dock(false)
+	if right_dock_ctrl != null and tab != "":
+		right_dock_ctrl.show_tab(tab)
 	if right_dock_ctrl != null and section != "":
 		right_dock_ctrl.focus_section(section)
 	return true
@@ -833,9 +847,10 @@ func context_module_registry() -> Array:
 	return []
 
 ## PC-4 (Ruling DY). The panel's tabs in strip order: the default arrangement (Inspect · Note · Ask)
-## filtered to the tabs and modules this build has, so `["inspect"]` in PC-4. **Nothing is stored
-## yet**, because nothing can change it: Inspect cannot be removed (a judgement in Ruling DY), Note
-## and Ask do not exist, and no module is registered. PC-10 adds the per-user `[context_panel]` store
+## filtered to the tabs and modules this build has, so `["inspect", "ask"]` since PC-6. **Nothing is
+## stored yet**, because nothing can change it: Inspect cannot be removed (a judgement in Ruling DY),
+## Ask has no Remove until the arrangement exists (PC-10), Note does not exist, and no module is
+## registered. PC-10 adds the per-user `[context_panel]` store
 ## (`DccSettings`, the `[quick_bar]` pattern) with the first arrangement a user can make; never the
 ## world file.
 func context_panel_modules() -> PackedStringArray:
@@ -846,13 +861,14 @@ func context_panel_modules() -> PackedStringArray:
 			out.append(key)
 	return out
 
-## PC-4 (Ruling DY). Adds or removes tab `key`. In PC-4 there is nothing it can do, so it refuses
-## every key and returns false (the menu then says why, `menus.gd::CTX_MODULE_REFUSED`): Inspect is
-## the panel's anchor and cannot be removed, adding it again changes nothing, and no other tab or
-## module exists. No caller can reach it today: the MODULES rows are `_todo` while
-## `context_module_registry()` is empty. PC-10 writes its real body.
+## PC-4 (Ruling DY). Adds or removes tab `key`. Until PC-10 there is nothing it can do, so it refuses
+## every change and returns false (the menu then says why, `menus.gd::CTX_MODULE_REFUSED`): Inspect is
+## the panel's anchor and cannot be removed, Ask (PC-6) stays until the arrangement can drop it,
+## adding either again changes nothing, and no other tab or module exists. No caller can reach it
+## today: the MODULES rows are `_todo` while `context_module_registry()` is empty. PC-10 writes its
+## real body.
 func set_context_module_shown(key: String, shown: bool) -> bool:
-	if key == "inspect" and shown:
+	if (key == "inspect" or key == "ask") and shown:
 		return true
 	return false
 
@@ -5472,8 +5488,10 @@ func open_assistant_settings() -> void:
 func open_quick_bar_window() -> void:
 	quick_bar_window.open()
 
-## `Story ▸ NOTES ▸ Assistant panel…`: the prose and Vault assistant (LLM-3). Opening it contacts
-## nothing; only Send does, and only through the gate.
+## `Story ▸ Ask the assistant about the selection` (Ctrl+J), the quick bar's chip and the ring dock:
+## the prose and Vault assistant (LLM-3), which since PC-6 is the Context panel's Ask tab on the
+## desktop and tablet and the sheet on the phone (`LlmAssistantWindow.open()` decides). Opening it
+## contacts nothing; only Send does, and only through the gate.
 func open_assistant_panel() -> void:
 	assistant_window.open()
 

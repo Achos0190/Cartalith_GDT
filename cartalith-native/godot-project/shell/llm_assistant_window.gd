@@ -9,11 +9,27 @@ class_name LlmAssistantWindow
 ## Design: `design/llm-assistant-2026-10-25/index.html` (LLM-0, owner-approved): mode chips, a
 ## prompt box, Send / Stop, a token counter that says "no cap", a status line naming the
 ## endpoint, model-generated messages carrying the amber chip, and a disabled reason beside
-## every disabled control. **Two labelled deviations from the mock**, both because the
-## surrounding shell is not built for them yet: the mock draws a *docked* panel and a settings
-## tab, whereas this ships as a floating window (the right dock is context-specific and owns
-## its own tabs) with a "Settings..." button that opens `LlmSettingsWindow`; and the mock's
-## "Proposed actions" list is the proposal CARD of LLM-6b (below), drawn in the message list.
+## every disabled control. **One labelled deviation from the mock remains**: the mock's
+## settings tab is a "Settings..." button that opens `LlmSettingsWindow`, and its "Proposed
+## actions" list is the proposal CARD of LLM-6b (below), drawn in the message list.
+##
+## ## Where it lives: the Context panel's Ask tab (PC-6, `PC_SHELL_PROPOSAL.md` §3.5)
+##
+## * **Desktop and tablet: docked.** The mock's docked panel is the Context panel's Ask tab. This
+##   node keeps every rule below and owns the content (`_host`, built ONCE by `_rebuild()`), and
+##   `present_in()` re-parents that content into the tab (`RightDock.show_tab("ask")`). The dialog
+##   itself is not shown there; `open()` routes to `DccApp.open_context_tab("ask")`, so every entry
+##   point (Story's row, Ctrl+J, Ctrl+3, the quick bar's chip, the ring dock) opens the tab.
+## * **"Open in a window"** (desktop only) moves the same content into this dialog, where Ruling
+##   DK's Pop out still applies (PW-3); closing the window brings it back to the tab.
+## * **Phone: the sheet**, as shipped (§3.11: "Ask opens the assistant's sheet").
+## * **One conversation per session** (Ruling DY, PQ5; finding A1). Opening, closing, switching tabs
+##   and selecting other things never rebuild the content, so the transcript, the typed draft, the
+##   cards and their Apply state stay. Only **New** starts another (`_on_new()`).
+## * **The context is read at Send** (finding A2): the selection (`DccApp.selection`, PC-1) and the
+##   year (`DccShell.tl_year()`, PC-2's one year) go as the `shown` block when "Send: selection and
+##   year" is ticked, each with a chip the user can switch off for the next messages
+##   (`_shown_args()`); the line under each sent message says what went with it.
 ##
 ## ## Commands: generation-setting proposals (LLM-6a/6b, scope s.5b)
 ##
@@ -66,7 +82,10 @@ class_name LlmAssistantWindow
 ##   set one, is checked in Rust before every request; here it is only displayed.
 ## * **Holds no key.** The key is resolved inside `LlmStream.prepare` and never returned to
 ##   this window; the status line shows the endpoint, not a secret.
-## * **No thread outlives the window.** Closing it cancels a running reply and joins the worker.
+## * **No thread outlives the panel.** Closing the window form or the phone sheet cancels a running
+##   reply and joins the worker, as before. Docked, switching tabs or hiding the Context panel does
+##   not: the reply goes on streaming into the transcript and Stop ends it (PC-6, one conversation
+##   per session); `DccApp._exit_tree()` and `LlmRun._exit_tree()` join every worker at exit.
 ##
 ## One script, three densities (pointer window, tablet touch floors, phone full-height sheet),
 ## like `LlmSettingsWindow`. `controls` maps a stable name to each control for the probes.
@@ -86,6 +105,15 @@ var run: LlmRun
 var last_consent: Dictionary = {}
 
 var _phone := false
+## PC-6: the content root (status, chips, transcript, input, Save), built once and moved between the
+## Ask tab (`present_in()`) and this dialog (`open_window()`). Never freed while the app runs.
+var _host: VBoxContainer
+## PC-6: true once `_rebuild()` has built the content; `open()` and `present_in()` build it only then.
+var _built := false
+## PC-6: the context chips the user switched off ("selection", "year" -> true when left out). Kept for
+## the session, like the conversation; the source itself is Preferences ▸ Assistant's "Send: selection
+## and year" (`ctx_selection`), which these never override.
+var _left_out := {"selection": false, "year": false}
 var _body: VBoxContainer
 var _task := "prose"
 var _note_action := "note_summarise"
@@ -143,9 +171,6 @@ var _groups_flow: HFlowContainer
 ## Most groups one request may open: the catalogue's `MAX_SCHEMA_GROUPS`, restated because the
 ## chip row must stop a fourth tick before Rust would refuse it (a labelled copy; Rust re-checks).
 const MAX_CHOSEN_GROUPS := 3
-## The prompt text typed before the window hid itself to let the user paint a region (`open()` rebuilds
-## the window, which would lose it). Empty when there is none.
-var _pending_input := ""
 ## The region facts as last read from the engine (`{world, region}` or `{withheld}`) with the key they
 ## were read for, so a keystroke does not re-rasterise the region. Send and Apply always re-read.
 var _edit_facts: Dictionary = {}
@@ -233,8 +258,17 @@ func setup(a, b: EngineBridge) -> void:
 	## The model's knowledge lookups (RK-5) are executed against the in-memory index by `LlmKnowledge`,
 	## under a plan Rust re-decides for EVERY turn (the checkboxes and the hosted opt-in may have changed).
 	run.knowledge_source = func(needs: Dictionary) -> Dictionary: return LlmKnowledge.run(bridge, LlmKnowledge.plan(run.stream, "commands"), needs)
+	## PC-6: the context is read at Send, but the chips and the "this will send" line show it before;
+	## both follow the one selection and the one year as they move.
+	if a.has_signal("selection_changed"):
+		a.selection_changed.connect(func(_cur): _on_context_moved())
+	if a.has_signal("timeline_changed"):
+		a.timeline_changed.connect(_on_context_moved)
 	var host := VBoxContainer.new()
 	host.add_theme_constant_override("separation", 0)
+	host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_host = host
 	add_child(host)
 	if _phone:
 		DccWidgets.phone_head(host, "Assistant", "optional · your model")
@@ -254,13 +288,44 @@ func setup(a, b: EngineBridge) -> void:
 	## reply that is streaming -- the whole point of a second monitor is to watch it run. `is_moving()` is
 	## true only inside that call. Any other hide (Close, Escape, the title bar's X, a native window's X)
 	## still cancels and joins exactly as before (the LLM-3 cancel bar, re-run with the window native).
+	## PC-6: closing the window form ("Open in a window") hands the conversation back to the Ask tab,
+	## which redraws on the next frame (deferred: the content is still this dialog's child here).
 	visibility_changed.connect(func():
 		if not visible and run != null and not PopoutHost.is_moving(self):
-			run.shutdown())
+			run.shutdown()
+			if not _phone and app.get("right_dock_ctrl") != null:
+				app.right_dock_ctrl.refresh_ask.call_deferred())
 
 
+## PC-6. Every entry point's one door (Story's row, Ctrl+J, Ctrl+3, the quick bar's chip and its
+## menu, the ring dock, the phone's quick bar). Desktop and tablet: the Context panel's Ask tab, with
+## the cursor in the input (`DccApp.open_context_tab("ask")`, which calls `present_in()`). Phone: the
+## sheet. **Never rebuilds**: the conversation is the session's (finding A1).
 func open() -> void:
-	_rebuild()
+	if not _phone and app.has_method("open_context_tab") and app.context_tabs().has("ask"):
+		app.open_context_tab("ask")
+		return
+	_ensure_built()
+	_on_reopen()
+	_show_dialog()
+
+
+## PC-6. The desktop's "Open in a window": the same content in this dialog (Ruling DK's Pop out
+## applies there, PW-3). Also the shipped window path for a build without the Ask tab. Closing the
+## window cancels a running reply, as it always did, and the content goes back to the tab.
+func open_window() -> void:
+	_ensure_built()
+	if _host.get_parent() != self:
+		_host.get_parent().remove_child(_host)
+		add_child(_host)
+	_on_reopen()
+	_show_dialog()
+	if app.get("right_dock_ctrl") != null:
+		app.right_dock_ctrl.refresh_ask.call_deferred()
+
+
+## Shows this dialog: the phone's sheet, or a centred window (the pre-PC-6 `open()`, unchanged).
+func _show_dialog() -> void:
 	if _phone:
 		app.phone_fit(self, 1.0)
 	if not DccWidgets.phone_present(self, app):
@@ -273,7 +338,75 @@ func open() -> void:
 	_relayout_phone.call_deferred()
 
 
-## **Re-fit one frame after opening.** A dialog sizes its child from the content's minimum on the
+## PC-6. Puts the content into `parent` (the Ask tab's body) and refreshes it from the live app; the
+## cursor goes to the input (§3.5: "Ctrl+J opens Ask from anywhere and focuses the input"). Builds the
+## content the first time only. While the window form is open the content stays there and this
+## returns false; the tab then says so (`RightDock.refresh_ask()`).
+func present_in(parent: Control) -> bool:
+	if visible:
+		return false
+	_ensure_built()
+	if _host.get_parent() != parent:
+		_host.get_parent().remove_child(_host)
+		parent.add_child(_host)
+	_on_reopen()
+	if _input != null:
+		_input.grab_focus.call_deferred()
+	return true
+
+
+## PC-6. True when the content is drawn somewhere the user can see: the window or sheet, or the Ask
+## tab. For probes and the menus.
+func is_open() -> bool:
+	return visible or (_host != null and _host.get_parent() != self and _host.is_visible_in_tree())
+
+
+## PC-6. True when the content is in the Ask tab rather than this dialog.
+func is_docked() -> bool:
+	return _host != null and _host.get_parent() != self
+
+
+## PC-6. Builds the content once per session (`_rebuild()`); New builds it again.
+func _ensure_built() -> void:
+	if _built:
+		return
+	_rebuild()
+	_built = true
+
+
+## PC-6. What an open does now that it no longer rebuilds: read the selection again (the place the
+## chips and the place entry name), relist the Vault's notes (a note created since keeps the picked
+## one selected, `_fill_notes()`), and redraw. Nothing in the transcript, the input or the cards moves.
+func _on_reopen() -> void:
+	if not _built or not bridge.llm_api:
+		return
+	_place = _current_place()
+	if controls.has("note"):
+		_fill_notes()
+	_refresh()
+
+
+## PC-6. The selection or the year moved: the place, the chips and the "this will send" line follow.
+## Never touches the transcript, the input or a card.
+func _on_context_moved() -> void:
+	if not _built or not bridge.llm_api:
+		return
+	_place = _current_place()
+	_refresh()
+
+
+## PC-6. New: a fresh conversation, the only thing that clears one (Ruling DY, PQ5). Disabled while a
+## reply runs. A card still waiting is dropped with a note saying nothing was applied (`_rebuild()`).
+func _on_new() -> void:
+	if run.busy():
+		return
+	_rebuild()
+	_built = true
+	if _input != null and _host.is_visible_in_tree():
+		_input.grab_focus.call_deferred()
+
+
+## **Re-fit one frame after opening the window form.** A dialog sizes its child from the content's minimum on the
 ## first layout, when wrapped labels have not yet been given a width, and a child rect set from that
 ## measurement (a tower several thousand px tall, measured 5 317) is not recomputed when the labels
 ## settle -- the input row and the Save row then sit below the window's edge. `LlmConsent.present`
@@ -344,10 +477,11 @@ func _rebuild() -> void:
 	## and its buttons; the array that indexes them must go in the same breath, or the next
 	## `_refresh_cards` reads `card["apply"]` off a freed instance ("previously freed instance",
 	## 132 to 437 times per arm log in the live comparison of 2026-10-26, REPORT.md Defects 2).
-	## Decision: a reopened panel starts a fresh conversation (the transcript is rebuilt empty
-	## too), so the cards are CLEARED, not re-created; the note below says so for any card that
-	## was still waiting, because a silently vanished proposal would look like a lost change.
-	## Nothing is applied or undone by this.
+	## Since PC-6 this runs once per session and again only on **New** (Ruling DY, PQ5: an open no
+	## longer rebuilds), so New is the one thing that empties the transcript; the cards go with it,
+	## CLEARED, not re-created, and the note below says so for any card that was still waiting,
+	## because a silently vanished proposal would look like a lost change. Nothing is applied or
+	## undone by this.
 	var dropped := 0
 	for card in cards:
 		if card["state"] == "new" and card["apply"] != null:
@@ -375,8 +509,27 @@ func _rebuild() -> void:
 	_status_text.custom_minimum_size.x = WRAP_MIN_W
 	top.add_child(_status_text)
 	controls["status"] = _status_text
-	var settings_btn := _button(top, "Settings…", _open_settings)
+	## PC-6: New (the one way to clear the conversation) and, docked on the desktop, Open in a window.
+	## On a second row in the docked panel with Settings…, because the 304 px dock cannot hold the status
+	## line and a button (measured: that row alone was 287 px of minimum); on the phone New joins the
+	## status row instead, so the sheet gains no row (its Send and Save rows were measured at the sheet's
+	## edge, 2026-10-26).
+	var top2: Container = top
+	if not _phone:
+		top2 = HFlowContainer.new()
+		top2.add_theme_constant_override("h_separation", 6)
+		top2.add_theme_constant_override("v_separation", 6)
+		_body.add_child(top2)
+		controls["top2"] = top2
+	var settings_btn := _button(top2, "Settings…", _open_settings)
 	controls["settings"] = settings_btn
+	var new_btn := _button(top2, "New", _on_new)
+	new_btn.tooltip_text = "Start a new conversation. The one you have stays until you press this: closing the panel, switching tabs and selecting other things keep it."
+	controls["new"] = new_btn
+	if not _phone and not DccTheme.is_tablet():
+		var win_btn := _button(top2, "Open in a window", open_window)
+		win_btn.tooltip_text = "Show this conversation in its own window, which can pop out to a second screen. Closing the window brings it back to the Ask tab; a reply still running is stopped."
+		controls["open_window"] = win_btn
 	## Ruling DQ: the profile switch (Local / External / the user's own). Applies a whole profile at once;
 	## disabled while a reply runs (a switch mid-stream would describe a different endpoint than the one
 	## answering).
@@ -458,7 +611,10 @@ func _rebuild() -> void:
 	controls["place"] = place_l
 	## Grounded prose (LLM-11): the facts sent for the chosen place are viewable before and after
 	## sending. Local only: this button shows the text, it sends nothing.
-	var facts_row := HBoxContainer.new()
+	## PC-6: in the docked panel (304 px) the status line takes its own line and the two buttons the
+	## next; one row of a 160 px label and two buttons widened the dock to 490 px (measured 2026-11-08).
+	## `facts_row` holds both lines there, so hiding it hides both. The phone keeps its one row.
+	var facts_row: BoxContainer = HBoxContainer.new() if _phone else VBoxContainer.new()
 	facts_row.add_theme_constant_override("separation", 6)
 	_body.add_child(facts_row)
 	controls["facts_row"] = facts_row
@@ -468,10 +624,15 @@ func _rebuild() -> void:
 	facts_l.custom_minimum_size.x = WRAP_MIN_W
 	facts_row.add_child(facts_l)
 	controls["facts_status"] = facts_l
-	var facts_btn := _button(facts_row, "View facts", _on_view_facts)
+	var facts_btns: BoxContainer = facts_row
+	if not _phone:
+		facts_btns = HBoxContainer.new()
+		facts_btns.add_theme_constant_override("separation", 6)
+		facts_row.add_child(facts_btns)
+	var facts_btn := _button(facts_btns, "View facts", _on_view_facts)
 	facts_btn.tooltip_text = "Show the generated data and Vault notes that will be sent with a place entry. Nothing is sent by this."
 	controls["facts_view"] = facts_btn
-	var facts_re := _button(facts_row, "Refresh", _on_refresh_facts)
+	var facts_re := _button(facts_btns, "Refresh", _on_refresh_facts)
 	facts_re.tooltip_text = "Read the place's data and notes again (it is also read fresh at every Send)."
 	controls["facts_refresh"] = facts_re
 
@@ -510,7 +671,10 @@ func _rebuild() -> void:
 	## container's: `_note_label` sets one).
 	var sent_scroll := ScrollContainer.new()
 	sent_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sent_scroll.custom_minimum_size.y = 64 if _phone else 80
+	## PC-6: docked, 48 px (it scrolls); the 80 of the 800 px window put Send below a 1000 px desktop's dock
+	## together with the transcript's 160 (measured in `_llmparams_probe`, 2026-11-08: Send at y 958 under a
+	## dock ending at 950). The phone keeps its 64.
+	sent_scroll.custom_minimum_size.y = 64 if _phone else 48
 	sent_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_body.add_child(sent_scroll)
 	_sent_label = _note_label(sent_scroll, "", "text_secondary")
@@ -522,7 +686,8 @@ func _rebuild() -> void:
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_scroll.custom_minimum_size.y = 100 if _phone else 160
+	## PC-6: docked, the transcript's floor is 80 px (it expands into every free pixel, see above).
+	_scroll.custom_minimum_size.y = 100 if _phone else 80
 	_body.add_child(_scroll)
 	_msgs = VBoxContainer.new()
 	_msgs.add_theme_constant_override("separation", 6)
@@ -530,11 +695,41 @@ func _rebuild() -> void:
 	_scroll.add_child(_msgs)
 	controls["messages"] = _msgs
 	if dropped > 0:
-		var gone := _note_label(_msgs, "%d proposal%s from before the panel was reopened %s cleared. Nothing was applied; ask again to get a new one." % [dropped, "" if dropped == 1 else "s", "was" if dropped == 1 else "were"], "text_dim")
+		var gone := _note_label(_msgs, "%d proposal%s from before New %s cleared. Nothing was applied; ask again to get a new one." % [dropped, "" if dropped == 1 else "s", "was" if dropped == 1 else "were"], "text_dim")
 		controls["cleared_note"] = gone
 	_reply = ""
 	_reply_label = null
 	_add_msg("", "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.", "text_ghost")
+
+	# -- context chips (PC-6, §3.5) ----------------------------------------------------------
+	## What goes with the next message: the selection and the year, each a chip the user can switch off.
+	## Desktop and tablet only; the phone sheet has no row to spare (measured 2026-10-26), and there the
+	## "this will send" line names them instead. Text and state are `_refresh_chips()`'s.
+	## Two lines: the caption and the year, then the selection across the full width, cut with an
+	## ellipsis (a long place name in a flow row widened the 304 px dock; the full name is the tooltip's
+	## first line). The selection chip has no sibling on its line, so its ellipsis cannot collapse it
+	## (`MISTAKES.md`, "Add clip_text / ellipsis to a Label").
+	if not _phone:
+		var crow := VBoxContainer.new()
+		crow.add_theme_constant_override("separation", 4)
+		_body.add_child(crow)
+		controls["chips_row"] = crow
+		var line1 := HBoxContainer.new()
+		line1.add_theme_constant_override("separation", 6)
+		crow.add_child(line1)
+		var clab := DccTheme.label("WITH YOUR NEXT MESSAGE", "text_dim", DccTheme.FS_MICRO)
+		clab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		clab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		line1.add_child(clab)
+		var cy := DccWidgets.segment(line1, "", func(): _toggle_chip("year"))
+		cy.custom_minimum_size.y = maxi(int(cy.custom_minimum_size.y), _field_h())
+		controls["chip_year"] = cy
+		var cs := DccWidgets.segment(crow, "", func(): _toggle_chip("selection"))
+		cs.custom_minimum_size.y = maxi(int(cs.custom_minimum_size.y), _field_h())
+		cs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cs.clip_text = true
+		cs.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		controls["chip_selection"] = cs
 
 	# -- input ------------------------------------------------------------------------------
 	_input = TextEdit.new()
@@ -545,22 +740,30 @@ func _rebuild() -> void:
 	_input.text_changed.connect(_refresh)
 	_body.add_child(_input)
 	controls["input"] = _input
-	if _pending_input != "":
-		_input.text = _pending_input
-		_pending_input = ""
 
 	_reason_label = _note_label(_body, "", "warn")
 	controls["reason"] = _reason_label
 
-	var ctl := HBoxContainer.new()
+	## PC-6: docked, the token line is its own line and the buttons flow (Send reads "Turn on Assistant
+	## enabled" while the switch is off, wider than the dock beside Reset); the phone keeps its one row.
+	var ctl: Container = HBoxContainer.new()
+	if not _phone:
+		ctl = HFlowContainer.new()
+		ctl.add_theme_constant_override("h_separation", 8)
+		ctl.add_theme_constant_override("v_separation", 6)
+		ctl.alignment = FlowContainer.ALIGNMENT_END
 	ctl.add_theme_constant_override("separation", 8)
-	_body.add_child(ctl)
 	_tok_label = DccTheme.label("", "text_dim", DccTheme.FS_SMALL)
 	_tok_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tok_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_tok_label.custom_minimum_size.x = WRAP_MIN_W
 	_tok_label.tooltip_text = "No spend limit is enforced unless you set a cap in Settings. Counts are what servers reported."
-	ctl.add_child(_tok_label)
+	if _phone:
+		_body.add_child(ctl)
+		ctl.add_child(_tok_label)
+	else:
+		_body.add_child(_tok_label)
+		_body.add_child(ctl)
 	controls["tokens"] = _tok_label
 	_tok_reset = _button(ctl, "Reset", _on_reset_counter)
 	_tok_reset.tooltip_text = "Zero the counter for this session. It does not change any cap setting."
@@ -570,8 +773,10 @@ func _rebuild() -> void:
 	_send = _button(ctl, "Send", _on_send, true)
 	controls["send"] = _send
 
-	var save_row := HBoxContainer.new()
+	## PC-6: docked, Save and its reason flow (one row of both measured 287 px against the 304 px dock).
+	var save_row: Container = HBoxContainer.new() if _phone else HFlowContainer.new()
 	save_row.add_theme_constant_override("separation", 8)
+	save_row.add_theme_constant_override("h_separation", 8)
 	_body.add_child(save_row)
 	_save = _button(save_row, "Save to note", _on_save)
 	controls["save"] = _save
@@ -694,7 +899,113 @@ func _args(request: String) -> Dictionary:
 		if bool(DccSettings.llm_value("ctx_notes")) and not _note.is_empty():
 			a["note_path"] = String(_note["rel"])
 			a["note_text"] = String(_note["text"])
+	a.merge(_shown_args())
 	return a
+
+
+# ---------------------------------------------------------------------------
+# PC-6: the selection and the year (the `shown` context)
+# ---------------------------------------------------------------------------
+
+## The selection as its chip names it, kind first ("settlement Veldmark", "faction Vael"), or "" when
+## nothing is selected, the world is being replaced, or the selected index no longer names anything.
+## The name is the Context panel's own (`RightDock.subject_name()`), so the chip, the panel's header
+## and the model read the same words. Never a stand-in such as "none".
+func _shown_selection_text() -> String:
+	if bridge.generating or not bridge.has_world:
+		return ""
+	var sel = app.get("selection")
+	if typeof(sel) != TYPE_DICTIONARY or (sel as Dictionary).is_empty():
+		return ""
+	var dock = app.get("right_dock_ctrl")
+	if dock == null or not dock.has_method("subject_name"):
+		return ""
+	var nm: String = dock.subject_name(sel)
+	return "" if nm == "" else "%s %s" % [String((sel as Dictionary).get("kind", "")), nm]
+
+
+## Whether the year can be stated: a world with a timeline is open and not being replaced. With no
+## world `tl_year()` reads 0, which is the engine's init value, not a year (`dcc_shell.gd::tl_year`).
+func _year_known() -> bool:
+	return not bridge.generating and app.has_method("tl_available") and bool(app.tl_available())
+
+
+## The two `shown_*` request keys for this Send, each present only when its source is ticked
+## (Preferences ▸ Assistant, "Send: selection and year", `ctx_selection`), its chip is on and its value
+## exists. Absent is absent: no key at all, never an empty name or a year of 0 (`MISTAKES.md`). Rust
+## re-checks the source (`llm_stream.rs::shown_from`). Not for an Edit request, whose context is the
+## region alone (LLM-7).
+func _shown_args() -> Dictionary:
+	var out := {}
+	if _task == "edit" or not bool(DccSettings.llm_value("ctx_selection")):
+		return out
+	var sel := _shown_selection_text()
+	if sel != "" and not bool(_left_out["selection"]):
+		out["shown_selection"] = sel
+	if _year_known() and not bool(_left_out["year"]):
+		out["shown_year"] = int(app.tl_year())
+	return out
+
+
+## The chips' line under a sent message: what went with it, in the chips' words; "" when nothing did.
+func _shown_sent_with(args: Dictionary) -> String:
+	var parts := PackedStringArray()
+	if args.has("shown_selection"):
+		parts.append(String(args["shown_selection"]))
+	if args.has("shown_year"):
+		parts.append("year %d" % int(args["shown_year"]))
+	return "" if parts.is_empty() else "Sent with: " + " · ".join(parts)
+
+
+## The "this will send" line's words for the `shown` block this Send would carry, from the same keys.
+func _shown_words() -> String:
+	var a := _shown_args()
+	var parts := PackedStringArray()
+	if a.has("shown_selection"):
+		parts.append("what is selected (%s)" % String(a["shown_selection"]))
+	if a.has("shown_year"):
+		parts.append("the year the timeline shows (%d)" % int(a["shown_year"]))
+	return " and ".join(parts)
+
+
+## A chip press: leaves that half out of the next messages, or puts it back. Session state only.
+func _toggle_chip(key: String) -> void:
+	_left_out[key] = not bool(_left_out[key])
+	_refresh()
+
+
+## The chips' text, state and reason, from the live selection, year and source. A chip is pressed in
+## ("on") when its half will be sent; disabled, with the reason as its tooltip, when the source is off
+## or the value does not exist.
+func _refresh_chips(busy: bool) -> void:
+	if not controls.has("chip_selection"):
+		return
+	var src := bool(DccSettings.llm_value("ctx_selection"))
+	var sel := _shown_selection_text()
+	var year_ok := _year_known()
+	var cs := controls["chip_selection"] as Button
+	var cy := controls["chip_year"] as Button
+	cs.text = "Selection: %s" % (sel if sel != "" else "nothing selected")
+	cy.text = "Year: %s" % (str(int(app.tl_year())) if year_ok else "no world open")
+	var off_tip := "Off: tick \"Send: selection and year\" in Settings to send it with your messages."
+	for pair in [[cs, "selection", sel != ""], [cy, "year", year_ok]]:
+		var b: Button = pair[0]
+		var key: String = pair[1]
+		var have: bool = pair[2]
+		var on: bool = src and have and not bool(_left_out[key])
+		DccWidgets.set_segment_on(b, on)
+		b.disabled = busy or not src or not have
+		if not src:
+			b.tooltip_text = off_tip
+		elif not have:
+			b.tooltip_text = "Nothing to send: select something on the map." if key == "selection" else "Nothing to send: open or generate a world first."
+		elif on:
+			b.tooltip_text = "Sent with your next message. Press to leave it out."
+		else:
+			b.tooltip_text = "Left out of your messages. Press to send it again."
+		## The selection chip may be cut with an ellipsis: its tooltip leads with the whole text.
+		if key == "selection" and have:
+			b.tooltip_text = "%s\n%s" % [sel, b.tooltip_text]
 
 
 func _task_id() -> String:
@@ -726,7 +1037,10 @@ func _gate() -> Dictionary:
 ## The arguments of a setting request: the user's words and the CURRENT settings (the engine's
 ## own getter; the snapshot while a generate runs). Rust builds the catalogue from these.
 func _params_args(request: String) -> Dictionary:
-	return {"request": request, "current": bridge.param_snapshot(), "max_tokens": _reply_cap(REPLY_MAX_TOKENS), "include_usage": true}
+	var a := {"request": request, "current": bridge.param_snapshot(), "max_tokens": _reply_cap(REPLY_MAX_TOKENS), "include_usage": true}
+	## PC-6: the selection and the year ride with a Commands request too (questions about the world).
+	a.merge(_shown_args())
+	return a
 
 
 ## The reply cap for a request: the active profile's pinned reply cap when it has one (Ruling DQ;
@@ -792,6 +1106,10 @@ func _refresh() -> void:
 	(controls["note_reload"] as Button).disabled = busy or _note.is_empty()
 	_stop.visible = busy
 	_send.visible = true
+	## PC-6: New waits for a running reply (Stop first), and the chips follow the live context.
+	(controls["new"] as Button).disabled = busy
+	(controls["new"] as Button).tooltip_text = "Wait for the reply to finish, or press Stop." if busy else "Start a new conversation. The one you have stays until you press this: closing the panel, switching tabs and selecting other things keep it."
+	_refresh_chips(busy)
 
 	## Grounded prose: make sure the facts for the chosen place are gathered (cached by place,
 	## picked note and Vault setting; Send always regathers).
@@ -837,7 +1155,10 @@ func _refresh() -> void:
 			sent_text = "This will send: your request (%d characters); then, for the setting groups the model asks for (at most 3 of %d), each setting's name, range, description and current value. %s If you ask a question, it can also read any setting's value, whole-world figures (sea level, land fraction, elevation percentiles, mean rainfall and temperature, productivity) and up to 8 single map cells. Reading changes nothing." % [int(pp["request_chars"]), int(pp["groups"]), _view_sent_text()]
 			if not _chosen_groups.is_empty():
 				sent_text += " You chose the %s group%s, so those settings are sent with the first request." % [", ".join(PackedStringArray(_chosen_groups)), "" if _chosen_groups.size() == 1 else "s"]
-		else:
+		if bool(pp.get("ok", false)) and pp.has("shown_chars"):
+			## PC-6: Rust's count of the selection-and-year block, which the shell passed above.
+			sent_text += " With it: %s (%d characters)." % [_shown_words(), int(pp["shown_chars"])]
+		elif not bool(pp.get("ok", false)):
 			reason = String(pp.get("reason", "Unavailable."))
 	else:
 		var pv: Dictionary = run.stream.preview(_args(request)) if run.available() else {"ok": false, "reason": "The assistant is not available in this version of Cartalith."}
@@ -908,6 +1229,8 @@ func _sent_text(s: Dictionary) -> String:
 		parts.append("the place's timeline events (%d characters)" % int(s["events_chars"]))
 	if bool(s["note"]):
 		parts.append("the note's text (%d characters)" % int(s["note_chars"]))
+	if bool(s.get("shown", false)):
+		parts.append("%s (%d characters)" % [_shown_words(), int(s["shown_chars"])])
 	var t := "This will send: " + ", ".join(parts) + "."
 	if bool(s["truncated"]):
 		t += " A source is long and will be cut."
@@ -1215,7 +1538,20 @@ func _on_sources(info: Dictionary) -> void:
 	for c in cits:
 		var cd: Dictionary = c
 		if bool(cd.get("verified", false)):
-			_card_text(col, "[%s]  %s" % [String(cd.get("label", "")), String(cd.get("title", cd.get("id", "")))], "text")
+			var ctext := "[%s]  %s" % [String(cd.get("label", "")), String(cd.get("title", cd.get("id", "")))]
+			var target := _citation_target(String(cd.get("id", "")))
+			if target.is_empty() or _phone:
+				_card_text(col, ctext, "text")
+			else:
+				## PC-6 (§3.5, finding A3): a verified world citation selects what it names, through the
+				## one selection path, so the map, the Context panel and these chips follow. Only VERIFIED
+				## ids (retrieved by the app this request) become links; the rest stay text, as before.
+				var link := DccWidgets.text_button(col, ctext, func(): app.select(String(target["kind"]), int(target["id"])))
+				link.add_theme_color_override("font_color", DccTheme.c("accent"))
+				link.alignment = HORIZONTAL_ALIGNMENT_LEFT
+				link.tooltip_text = "Select %s on the map." % String(cd.get("title", cd.get("id", "")))
+				link.set_meta("cite_target", target)
+				link.custom_minimum_size.y = maxi(int(link.custom_minimum_size.y), _field_h())
 		elif bool(cd.get("mentioned", false)):
 			## Not retrieved itself, but a source that WAS sent names it and the app knows it exists.
 			_card_text(col, "NAMED, NOT READ  %s  (a source that was sent names it; its own text was not sent, so this is not verified)" % String(cd.get("id", "")), "text_secondary")
@@ -1224,6 +1560,29 @@ func _on_sources(info: Dictionary) -> void:
 	_msgs.add_child(box)
 	source_cards.append({"info": info, "box": box})
 	_scroll_to_end()
+
+
+## PC-6. The selection a world citation id names (`cartalith_knowledge::model`: `W:<kind>:<key>`), or `{}`.
+## A settlement's key is its `tid` (`knowledge_bridge.rs`), so it is looked up in the live list for the
+## index `select()` takes; a faction's key is its id and a landmark's its index. Any other kind (a trade
+## flow, a river, a province, a culture, a Vault note) is not a selection this build can show, so `{}`.
+func _citation_target(id: String) -> Dictionary:
+	var parts := id.split(":")
+	if parts.size() != 3 or parts[0] != "W" or not parts[2].is_valid_int():
+		return {}
+	var key := int(parts[2])
+	match parts[1]:
+		"settlement":
+			var all: Array = bridge.settlements()
+			for i in all.size():
+				if int((all[i] as Dictionary).get("tid", -1)) == key:
+					return {"kind": "settlement", "id": i}
+		"faction":
+			return {"kind": "faction", "id": key}
+		"landmark":
+			if key >= 0 and key < (bridge.landmarks() as Array).size():
+				return {"kind": "landmark", "id": key}
+	return {}
 
 
 ## Send: the gate, then the stream. A `consent_needed` gate turns the button into the consent card.
@@ -1259,10 +1618,16 @@ func _on_send() -> void:
 			_add_msg("", "The place's data could not be read, so no entry was requested. %s" % String(_facts.get("bundle", {}).get("reason", "")), "block")
 			_refresh()
 			return
-	_add_msg("You", request, "text")
+	var args: Dictionary = _edit_args(request) if _task == "edit" else (_params_args(request) if _task == "commands" else _args(request))
+	var you := _add_msg("You", request, "text")
+	## PC-6 (§3.5): "Each sent message records the chips it went with."
+	var with_text := _shown_sent_with(args)
+	if with_text != "":
+		controls["last_sent_with"] = _note_label(you.get_parent(), with_text, "text_dim")
+	else:
+		controls.erase("last_sent_with")
 	_reply = ""
 	_reply_label = _add_msg("Assistant", "", "text_secondary", true)
-	var args: Dictionary = _edit_args(request) if _task == "edit" else (_params_args(request) if _task == "commands" else _args(request))
 	_sources_seen = false
 	## RK-6: the pre-retrieval search, run HERE (the shell holds the engine) only when Rust's plan for
 	## this endpoint and these settings asks for it. For a place the place's name is added to the
@@ -1366,7 +1731,14 @@ func _add_msg(who: String, text: String, token: String, model_marked: bool = fal
 	if who != "":
 		var head := HBoxContainer.new()
 		head.add_theme_constant_override("separation", 6)
-		head.add_child(DccTheme.label(who, "text_dim", DccTheme.FS_MICRO))
+		var who_l := DccTheme.label(who, "text_dim", DccTheme.FS_MICRO)
+		## PC-6: docked, a long heading ("Facts for X (shown to you; ...)", 290 px) wraps instead of
+		## widening the 304 px panel; the phone's sheet keeps its one-line heading.
+		if not _phone:
+			who_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			who_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			who_l.custom_minimum_size.x = WRAP_MIN_W - 60
+		head.add_child(who_l)
 		if model_marked:
 			var chip := DccTheme.label("MODEL-GENERATED", "warn", DccTheme.FS_MICRO)
 			chip.tooltip_text = "Written by a language model. Check it before you rely on it."
@@ -1524,10 +1896,7 @@ func _on_proposal(info: Dictionary) -> void:
 	## folds that width into every ancestor (measured: Send pushed off screen on the phone).
 	reason_l = _note_label(col, "", "warn")
 	reason_l.visible = false
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.alignment = BoxContainer.ALIGNMENT_END
-	col.add_child(row)
+	var row := card_row(col)
 	var card := {"info": info, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "params", "group_id": 0}
 	var dismiss_b := _button(row, "Dismiss", func(): _dismiss_card(card))
 	card["dismiss"] = dismiss_b
@@ -1545,6 +1914,28 @@ func _on_proposal(info: Dictionary) -> void:
 
 
 ## One wrapped line of card text.
+## PC-6. A card's button row (Dismiss, Apply), right-aligned, added to `col`. Docked it is a flow, so a
+## two-button row wraps instead of widening the 304 px Context panel (measured: Dismiss and "Apply 1 view
+## change" side by side were 261 px against 245 px inside the docked transcript, and the dock grew to
+## 362 px); in the phone's sheet it stays the row it was. Called by every card builder here and by
+## `llm_edit.gd::draw_card`.
+func card_row(col: Control) -> Container:
+	var row: Container
+	if _phone:
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 8)
+		hb.alignment = BoxContainer.ALIGNMENT_END
+		row = hb
+	else:
+		var fl := HFlowContainer.new()
+		fl.add_theme_constant_override("h_separation", 8)
+		fl.add_theme_constant_override("v_separation", 6)
+		fl.alignment = FlowContainer.ALIGNMENT_END
+		row = fl
+	col.add_child(row)
+	return row
+
+
 func _card_text(parent: Control, text: String, token: String) -> Label:
 	var l := DccTheme.label(text, token, DccTheme.FS_SMALL)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1776,10 +2167,7 @@ func _on_action_proposal(info: Dictionary) -> void:
 		_card_text(col, _actions_effect_text(valid.size(), n_undo), "text_secondary")
 	var reason_l := _note_label(col, "", "warn")
 	reason_l.visible = false
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.alignment = BoxContainer.ALIGNMENT_END
-	col.add_child(row)
+	var row := card_row(col)
 	var card := {"info": v, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "actions", "group_id": 0, "stale": false}
 	card["dismiss"] = _button(row, "Dismiss", func(): _dismiss_card(card))
 	if not valid.is_empty():
@@ -1932,10 +2320,7 @@ func _draw_view_card(v: Dictionary) -> void:
 		_card_text(col, "Applying changes how the map is shown. It does not change the world or its settings.", "text_secondary")
 	var reason_l := _note_label(col, "", "warn")
 	reason_l.visible = false
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.alignment = BoxContainer.ALIGNMENT_END
-	col.add_child(row)
+	var row := card_row(col)
 	var card := {"info": v, "box": box, "apply": null, "dismiss": null, "reason": reason_l, "state": "new", "kind": "view", "group_id": 0}
 	card["dismiss"] = _button(row, "Dismiss", func(): _dismiss_card(card))
 	if not valid.is_empty():
@@ -2100,7 +2485,7 @@ func _refresh_region(busy: bool) -> void:
 	var can := bridge.has_world and not bridge.generating and not busy
 	var paint := controls["region_paint"] as Button
 	paint.disabled = not can or _phone
-	paint.tooltip_text = "Painting a region needs a pointer or the tablet layout for now; on a phone use a box." if _phone else ("Hide this window and paint on the map; press Done to come back." if can else "Open a world first (and wait for a generation to finish).")
+	paint.tooltip_text = "Painting a region needs a pointer or the tablet layout for now; on a phone use a box." if _phone else (("Hide this window and paint on the map; press Done to come back." if visible else "Paint the region on the map; press Done in the tool bar when it is right.") if can else "Open a world first (and wait for a generation to finish).")
 	var use_box := controls["region_box"] as Button
 	use_box.disabled = not can
 	use_box.tooltip_text = "Use the box you drew with Region select (R) as the region." if can else "Open a world first."
@@ -2108,14 +2493,15 @@ func _refresh_region(busy: bool) -> void:
 	(controls["region_view"] as Button).disabled = busy or _REGION.is_empty() or _edit_region_reason() != ""
 
 
-## Paint: this window hides, the brush is armed, the bar's Done brings it back on the Edit task with the
-## prompt as the user left it.
+## Paint: the brush is armed (the window form hides so the map is reachable; docked, the map already is),
+## and the bar's Done brings the panel back on the Edit task. The prompt stays as the user left it,
+## because nothing rebuilds the content any more (PC-6).
 func _on_region_paint() -> void:
 	if run.busy() or _phone:
 		return
-	_pending_input = _input.text
 	_REGION.begin_paint(app, func(): _after_paint())
-	hide()
+	if visible:
+		hide()
 
 
 func _after_paint() -> void:

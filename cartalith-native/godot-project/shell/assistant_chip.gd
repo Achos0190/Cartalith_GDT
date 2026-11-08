@@ -99,8 +99,8 @@ static func tooltip_for(st: Dictionary) -> String:
 		return "Open the assistant panel"
 	return "Assistant unavailable: %s" % String(st.get("reason", NO_REASON))
 
-## Opens the panel through the app, the one method the menu row (`Story ▸ NOTES ▸ Assistant panel…`) also
-## calls. A refused state opens nothing; the chip is disabled then, so this is a second line of defence
+## Opens the panel through the app, the one method the menu row (`Story ▸ Ask the assistant about the
+## selection`) also calls: the Context panel's Ask tab on the desktop and tablet, the sheet on the phone (PC-6). A refused state opens nothing; the chip is disabled then, so this is a second line of defence
 ## for a caller that bypasses the button. Returns whether it opened.
 static func open_panel(app) -> bool:
 	if app == null or String(state_for_app(app)["state"]) != LIVE:

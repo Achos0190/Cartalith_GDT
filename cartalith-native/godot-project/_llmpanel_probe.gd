@@ -310,8 +310,11 @@ func _ready() -> void:
 
 	# ------------------------------------------------------------------ 1. OFF
 	print("== 1. feature off ==")
-	var row := _find_row(_app, "Assistant panel…")
-	_ok(not row.is_empty(), "Story ▸ NOTES carries 'Assistant panel…'")
+	## PC-6: the row is "Ask the assistant about the selection" and opens the Context panel's Ask tab on
+	## the desktop and tablet (the sheet on the phone). The legs below drive the WINDOW form (`open_window()`,
+	## the desktop's Open in a window), whose close-cancels and fits-the-window bars are LLM-3's.
+	var row := _find_row(_app, "Ask the assistant about the selection")
+	_ok(not row.is_empty(), "Story ▸ NOTES carries 'Ask the assistant about the selection'")
 	if row.is_empty():
 		_finish()
 		return
@@ -320,8 +323,8 @@ func _ready() -> void:
 	_ok(not pm.is_item_disabled(row[1]), "the row is enabled (the panel itself says why it cannot send)")
 	pm.id_pressed.emit(pm.get_item_id(row[1]))
 	await _settle(10)
-	_ok(_win.visible, "the row opens the panel")
-	var wr := Rect2(Vector2(_win.position), Vector2(_win.size))
+	_ok(_win.is_open(), "the row opens the panel")
+	var wr := (_app.right_dock_ctrl.get("_ask_frame") as Control).get_global_rect() if _win.is_docked() else Rect2(Vector2(_win.position), Vector2(_win.size))
 	_ok(wr.position.x >= -0.5 and wr.position.y >= -0.5 and wr.end.x <= vp.x + 0.5 and wr.end.y <= vp.y + 0.5, "the window %s is inside the viewport %s" % [wr, vp])
 	_ok((_c("status") as Label).text.begins_with("The assistant is off"), "status: '%s'" % (_c("status") as Label).text.left(90))
 	await _type("Describe the port.")
@@ -357,7 +360,7 @@ func _ready() -> void:
 	# ------------------------------------------------------------------ 2. sources
 	print("== 2. sources ==")
 	_configure({"ctx_entity": false})
-	_win.open()
+	_win.open_window()
 	await _settle(8)
 	await _type("Describe the port.")
 	_ok((_c("place") as Label).text == "Place: %s" % place_name, "the place line names the selected settlement: '%s'" % (_c("place") as Label).text)
@@ -560,7 +563,7 @@ func _ready() -> void:
 
 	# ------------------------------------------------------------------ 7b. LLM-4: counter, cap, retry
 	print("== 7b. counter, cap and retry (LLM-4) ==")
-	_win.open()
+	_win.open_window()
 	await _settle(8)
 	_configure({"preset_id": "custom_anthropic", "token_cap": 0})
 	_server.scenario = "anthropic"
@@ -613,7 +616,7 @@ func _ready() -> void:
 
 	# ------------------------------------------------------------------ 8. touch and layout
 	print("== 8. density ==")
-	_win.open()
+	_win.open_window()
 	await _settle(8)
 	var floor_px := 0.0
 	if _mode == "phone":

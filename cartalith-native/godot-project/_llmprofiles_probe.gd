@@ -1,7 +1,8 @@
 extends Node
 ## Probe for the ASSISTANT PROFILES (`shell/llm_profiles.gd`, `shell/llm_profile_switch.gd`, their homes in
 ## the settings window, the panel header and the Assistant chip's menu) -- `LLM_ASSISTANT_SCOPE.md` s.5g,
-## Ruling DQ, inside the real shell. Two phases, because "persists across a restart" needs two processes:
+## Ruling DQ, inside the real shell (PC-6: in the panel's window form, `open_window()`, whose layout bars these
+## are; on the desktop `open()` now shows the Context panel's Ask tab, `_pc6ask_probe.gd`). Two phases, because "persists across a restart" needs two processes:
 ##
 ##   desktop: godot --path . --resolution 1600x1000 _llmprofiles_probe.tscn -- --shots <dir>
 ##            godot --path . --resolution 1600x1000 _llmprofiles_probe.tscn -- --phase 2     (SAME user dir)
@@ -318,7 +319,7 @@ func _phase1(vp: Vector2) -> void:
 		_ok(not bool(loc["live"][k]) and not bool(ext["live"][k]), "both shipped profiles have '%s' OFF" % k)
 	await _shot("1_fresh_settings")
 	_set.hide()
-	_panel.open()
+	_panel.open_window()
 	await _settle(8)
 	var popt := _p("profile") as OptionButton
 	_ok(popt != null and _items(popt) == _items(opt), "the panel header has the same switch: %s" % str(_items(popt) if popt != null else []))
@@ -393,7 +394,7 @@ func _phase1(vp: Vector2) -> void:
 	_ok(int(_live()["max_tokens"]) == 300 and String(_live()["thinking"]) == "none", "Local's own cap pin (300) and thinking (off) came back")
 	## A forced Send with the feature off is refused and opens no connection.
 	_set.hide()
-	_panel.open()
+	_panel.open_window()
 	await _settle(6)
 	(_p("input") as TextEdit).text = "Describe the port."
 	_panel._on_send()
@@ -411,7 +412,7 @@ func _phase1(vp: Vector2) -> void:
 	DccSettings.set_llm_value("key_source", "env")
 	DccSettings.set_llm_value("env_var", KEYVAR)
 	OS.set_environment(KEYVAR, SECRET)
-	_panel.open()
+	_panel.open_window()
 	await _settle(8)
 	var consent0 := DccSettings.llm_consented_origins().size()
 	_ok(consent0 == 0, "no consent is recorded yet")
@@ -740,7 +741,7 @@ func _phase1(vp: Vector2) -> void:
 
 	# ------------------------------------------------------------------ 12. density
 	print("== 12. density and layout ==")
-	_panel.open()
+	_panel.open_window()
 	await _settle(10)
 	var floor_px := 0.0
 	if _mode == "phone":
@@ -815,7 +816,7 @@ func _panel_to_place() -> void:
 	## PC-1: the assistant's place is the one selection's; select through `select()`, not a dock-only pin.
 	_app.select("settlement", 0)
 	await _settle(4)
-	_panel.open()
+	_panel.open_window()
 	await _settle(8)
 	_panel._pick_task("prose")
 	await _settle(4)

@@ -15,7 +15,7 @@ extends Node
 ## 256 x 192, as `_pc1select_probe.gd`) and one conflict is drawn between two factions, attached to a
 ## settlement. Then:
 ##   A. PANEL: the header (back, forward, name, FOLLOWING) and a tab strip of exactly one tab,
-##      INSPECT (Note and Ask are PC-5's and PC-6's and must be absent).
+##      INSPECT and ASK (Note is PC-5's and must be absent; Ask is PC-6's, `_pc6ask_probe.gd` drives it).
 ##   B. SETTLEMENT by a real map click: the selection, the header name and the panel's subject agree.
 ##   C. LINKS: on the settlement page, then the faction page, then the conflict page, every link
 ##      Inspect drew that names a subject is scrolled into view and clicked (a real click, its
@@ -31,7 +31,7 @@ extends Node
 ##      shows the selection again. The menu's Pin and Follow rows do the same.
 ##   G. TOOL: with a settlement shown, arming Territory appends its section BELOW the subject.
 ##   H. MENUS: Window's region row reads "Context panel"; its submenu's Inspect, Pin, Follow and Reset
-##      panel are live with tooltips and Note and Ask are disabled with reasons; Ctrl+1 (a real key)
+##      panel and (since PC-6) Ask are live with tooltips and Note is disabled with a reason; Ctrl+1 (a real key)
 ##      shows a hidden panel; Reset panel shows a hidden and collapsed panel on Inspect; Story ▸
 ##      Political history of the selection opens Inspect at its history section.
 ##   P. PHONE (`--phone`): no header and no links in the selection sheet; two captures (launch, and
@@ -338,7 +338,7 @@ func _leg_desktop() -> void:
 	await _settle(8)
 
 	print("== A. the panel ==")
-	_ok(_app.context_tabs() == PackedStringArray(["inspect"]), "context_tabs() is [inspect] (got %s)" % str(_app.context_tabs()))
+	_ok(_app.context_tabs() == PackedStringArray(["inspect", "ask"]), "context_tabs() is [inspect, ask] since PC-6 (got %s)" % str(_app.context_tabs()))
 	for nm in ["ContextHeader", "CtxBack", "CtxForward", "CtxName", "CtxPin", "CtxTabs"]:
 		_ok(_hdr(nm) != null, "the header has %s" % nm)
 	var tabs := _hdr("CtxTabs")
@@ -346,7 +346,7 @@ func _leg_desktop() -> void:
 	if tabs != null:
 		for b in tabs.find_children("*", "Button", true, false):
 			tab_texts.append((b as Button).text)
-	_ok(tab_texts == ["INSPECT"], "the tab strip holds exactly INSPECT (got %s)" % str(tab_texts))
+	_ok(tab_texts == ["INSPECT", "ASK"], "the tab strip holds exactly INSPECT and ASK (got %s)" % str(tab_texts))
 	_ok(_hdr("CtxName") != null and (_hdr("CtxName") as Label).text == "Nothing selected", "with nothing selected the header says so")
 	_ok(_hdr("CtxPin") != null and (_hdr("CtxPin") as Button).disabled, "with nothing shown the pin is disabled")
 
@@ -734,8 +734,8 @@ func _leg_menus(a: int) -> void:
 	if sub == null:
 		_ok(false, "Window ▸ Context panel exists")
 		return
-	var want_live := ["Inspect", "Pin to the current subject", "Follow the selection", "Reset panel"]
-	var want_off := ["Note", "Ask (assistant)"]
+	var want_live := ["Inspect", "Ask (assistant)", "Pin to the current subject", "Follow the selection", "Reset panel"]
+	var want_off := ["Note"]
 	for i in sub.item_count:
 		if sub.is_item_separator(i):
 			continue
@@ -761,7 +761,7 @@ func _leg_menus(a: int) -> void:
 	await _settle(6)
 	_ok(rnode.visible and not _app.is_dock_collapsed("right") and _hdr("CtxTabInspect") != null,
 		"Reset panel shows the panel, uncollapsed, on Inspect")
-	_ok(_app.context_panel_modules() == PackedStringArray(["inspect"]), "the arrangement is Inspect (got %s)" % str(_app.context_panel_modules()))
+	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "ask"]), "the arrangement is Inspect · Ask (got %s)" % str(_app.context_panel_modules()))
 	## Story ▸ Political history of the selection: Inspect at its history section.
 	var story: PopupMenu = null
 	for ch in _app.menu_bar_row.get_children():
