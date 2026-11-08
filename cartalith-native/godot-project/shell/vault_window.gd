@@ -386,6 +386,9 @@ func setup(a, b: EngineBridge) -> void:
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll = scroll
+	## VE-8: with the soft keyboard up the window is only the part above it, so a field the person taps lower in the
+	## page (the sheet's properties, a rename box) must be scrolled into view rather than left under the keys.
+	scroll.follow_focus = true
 	root.add_child(scroll)
 	if _phone:
 		_phone_title = DccWidgets.phone_head(root, "Markdown vault", "linked notes")
@@ -1903,6 +1906,15 @@ func _create_items(name: String, rel: String, entity: Dictionary = {}) -> Array:
 	return items
 
 
+## Hides (or shows) this dialog's own button bar (VE-8). On the phone the editor pins its keyboard row to the
+## window's bottom edge, which is where the bar sits; Godot picks the bar's internal controls before any content, so
+## a bar left in place would take the touches meant for the row (a Close under a finger meant for Bold).
+func _set_bar_hidden(on: bool) -> void:
+	var ok := get_ok_button()
+	if ok != null and ok.get_parent() is Control:
+		(ok.get_parent() as Control).visible = not on
+
+
 ## Opens `path` in Write, from a link. A dirty editor asks first (`_guard_dirty`), so following a
 ## link never discards typing; keeping the edits leaves everything as it was.
 ##
@@ -2285,8 +2297,10 @@ func _load_note_state(rel: String) -> bool:
 		return false
 	_browse_path = rel
 	var raw := String(r.get("text", ""))
-	_eol_crlf = raw.contains("
-")
+	## Line endings (VE-4): a CRLF note stays CRLF on write. This was `raw.contains("<LF>")` (a real line break
+	## inside the quotes, from a tool that rewrote the escape), which is true for any note of two lines and
+	## converted every LF note to CRLF on its first autosave; it is the escape again.
+	_eol_crlf = raw.contains("\r\n")
 	_browse_text = _norm_eol(raw)
 	_browse_saved = _browse_text
 	_browse_hash = String(r.get("hash", ""))
@@ -2335,6 +2349,16 @@ func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 	## whichever note is open is resolved from THAT note.
 	ed.link_info = func(t: String) -> Dictionary: return _link_kind(_browse_path, t)
 	ed.link_at = func(text: String, offset: int) -> Dictionary: return bridge.vault_link_at(text, offset)
+	## VE-8: the soft keyboard's height for the phone's keyboard row. The shell polls it once
+	## (`DccShell._process` keeps `_phone_kb_height`, which is what already sizes this window above the
+	## keyboard); this reads that cache so there is no second `virtual_keyboard_get_height()` poll. -1 is
+	## "this display has no soft keyboard to ask", never 0: the editor then falls back to the text's focus.
+	ed.keyboard_mode_changed.connect(_set_bar_hidden)
+	ed.keyboard_height = func() -> int:
+		if not DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
+			return -1
+		var kb = app.get("_phone_kb_height")
+		return -1 if kb == null else int(kb)
 	ed.peek_source = func(t: String) -> String: return _peek_for(_browse_path, t)
 	## VE-7: what Preview draws beyond text. The crate decides every embed (`vault_embed_open`: a cycle, the
 	## depth cap, a path that leaves the vault); this only reads through it. The chain starts at the open
@@ -2404,6 +2428,12 @@ func _build_side_panel(host: BoxContainer, ed, wide: bool) -> void:
 	var panel = SidePanel.new()
 	panel.bridge = bridge
 	panel.phone = _phone
+	panel.keyboard_height = func() -> int:
+		if not DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
+			return -1
+		var kb = app.get("_phone_kb_height")
+		return -1 if kb == null else int(kb)
+	panel.keyboard_mode_changed.connect(_set_bar_hidden)
 	panel.live_text = func() -> String: return _live_text()
 	panel.note_rel = func() -> String: return _browse_path
 	## On the phone the panel REPLACES the editor (a sheet over the note, `_set_side`): anything that takes the

@@ -359,6 +359,10 @@ func _ready() -> void:
 	var names := ["bold", "italic", "underline", "strike", "h0", "h1", "h2", "h3",
 		"bullet", "number", "quote", "code", "code_block", "link", "write", "preview"]
 	var missing: Array = []
+	## VE-8: the phone's four text-size chips are ONE `heading` chip (tap steps, hold lists the four).
+	if ed._phone:
+		names = names.filter(func(k): return not (k in ["h0", "h1", "h2", "h3"]))
+		names.append("heading")
 	for k in names:
 		if not (ed.buttons as Dictionary).has(k):
 			missing.append(k)

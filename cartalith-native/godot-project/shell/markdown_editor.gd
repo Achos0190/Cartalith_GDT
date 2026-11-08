@@ -84,6 +84,27 @@ extends VBoxContainer
 ##   and reopen or a rebuild; neither keeps a `TextEdit`'s own history. The status line reads
 ##   `editing…` / `saved · time` (`mark_saved`).
 ##
+## ## The phone's editing form (VE-8, `VAULT_EDITOR_PROPOSAL.md` s.3.3 and s.4)
+##
+## - **The toolbar is a keyboard accessory on the phone.** The scrolling row moves to the bottom of the
+##   editor (`EditorKeyboardDock`, the last child, under the footer), which is where the soft keyboard
+##   starts: the host's window is already sized above the keyboard (`DccWidgets.phone_present`), so the
+##   row rides on top of it with nothing computed here. It shows while the text has focus or the keyboard
+##   is up, never in Preview, and its **Done** (keyboard up only) puts the keyboard away and leaves the note
+##   in Write. The keyboard comes up only when the text is tapped: opening a note never takes focus on the
+##   phone. What the keyboard's height is comes from the host's `keyboard_height` hook, which answers -1 for
+##   "this display has no soft keyboard to ask": unknown is never read as 0 (hidden).
+## - **`Open ›`** is a chip at the row's left that shows while the caret sits in a link (`link_at`, debounced),
+##   and follows it exactly as Ctrl-click does. Joplin's discoverable form of a gesture Obsidian hides.
+## - **Long-press variants.** A hold (`PEEK_HOLD_SEC`) on a button that has them opens a card of choices
+##   instead of firing the tap: the phone's single **H** chip (tap cycles Normal, H1, H2, H3; hold lists them)
+##   and **Table** on every form (tap writes a 2 x 2, hold offers 3 x 3 and 4 x 4).
+## - **Table, Rule, Undo and Redo** buttons (VE-3 deferred them). A table or a rule is written on its own lines,
+##   after the caret's line, with the blank line a rule needs so it is never read as an underline (`---`
+##   under text is a heading). Neither deletes any text.
+## - While the keyboard is up on the phone the header and footer fold away (`_compact`), because a landscape
+##   phone has about 190 dp left above the keyboard and the dock and the text need it.
+##
 ## ## Tables, pictures, embeds, task ticking and chronos in Preview (VE-7)
 ##
 ## - **Tables** (GFM pipe tables: a header row, a delimiter row of the same width, then rows) draw as a `[table]`
@@ -138,6 +159,11 @@ signal external_link_followed(url: String)
 signal chronos_year_requested(year: int)
 ## The Back button was pressed (VE-1): return to the note the last followed link came from.
 signal back_requested
+## The phone's keyboard row appeared (`on`) or went (VE-8). The row is pinned to the bottom of the window, which is
+## where the host's dialog keeps its button bar, and Godot picks that bar's controls before any content: the host
+## hides it for as long as the row is up and shows it again on `false`. Also emitted `false` when an editor with
+## its row up is freed, so a rebuild can never leave the host's bar hidden.
+signal keyboard_mode_changed(on: bool)
 
 ## Host hook for `[[` suggestions (VE-2): `suggest_source(mode, note, query, limit) -> Array`.
 ## `mode` is `note` (`query` is the text after `[[`) or `heading` (`note` is the target written before
@@ -203,6 +229,20 @@ const OUTDENT_SPACES := 4
 ## no motion event, so Godot never starts a hover for it). Both are labelled judgements.
 const PEEK_HOVER_SEC := 0.65
 const PEEK_HOLD_SEC := 0.5
+## How long the caret rests before the phone's `Open ›` chip is recomputed (labelled judgement: a crate call
+## over the whole note must not run on every key of a burst; 100 ms is below what a thumb notices).
+const OPEN_CHIP_DEBOUNCE_SEC := 0.1
+## The most columns or body rows a table button may write: a guard against a wrong call (2..4 are offered).
+const TABLE_MAX := 8
+## The phone's text area is at least this tall in the page (labelled judgement, was a literal in `_build_body`), and
+## only this tall while the keyboard is up and the editor is an overlay (a landscape phone has about 110 dp for it
+## between the top of the screen and the dock; 60 dp is four lines).
+const PAGE_TEXT_MIN_PX := 360
+const COMPACT_TEXT_MIN_PX := 60
+## One choice's width in the variants card (labelled judgement: "Normal" and "4 x 4" at the body size, 44 dp tall).
+const VARIANT_W_PX := 76
+## The overlay's z (above the window's own page and its Close button, below nothing the editor itself opens).
+const OVERLAY_Z := 20
 
 ## Rows the suggestion card shows at most, desktop and phone (labelled judgements: eight 28 px rows
 ## are about a quarter of a 1000 px window; six 44 px rows fit above a soft keyboard). This cap is
@@ -246,8 +286,9 @@ var _banner_row: HFlowContainer
 
 ## Every toolbar control, by key -- `bold`, `italic`, `underline`, `strike`,
 ## `highlight`, `h0`..`h3`, `bullet`, `number`, `task`, `quote`, `callout`,
-## `code`, `code_block`, `link`, `tag`, `template`, `write`, `preview`. A probe
-## presses the real button through this map.
+## `code`, `code_block`, `link`, `tag`, `template`, `write`, `preview`; and, since VE-8, `table`, `rule`, `undo`,
+## `redo`, `find`, and on the phone one `heading` chip in place of `h0`..`h3`. A probe presses the real button
+## through this map.
 var buttons := {}
 
 ## Callable given to `setup` that returns the vault's note paths. Kept for hosts that still pass it;
@@ -329,6 +370,30 @@ var _template_popup: PopupMenu
 ## indexes it.
 var _template_rels: PackedStringArray = PackedStringArray()
 
+## VE-8. `keyboard_height() -> int`: the soft keyboard's height in pixels as the host knows it, **-1 when the
+## display has no soft keyboard to ask** (a desktop, a probe). -1 is "unknown", never 0 ("hidden"): with
+## it the dock falls back to the text's focus. Set by the host before `setup()`.
+var keyboard_height: Callable = Callable()
+## The phone's keyboard accessory row: its panel, the `Open ›` chip, `Done`, and the toolbar's scroller.
+var _dock: PanelContainer
+var _open_chip: Button
+var _done_button: Button
+var _dock_scroll: ScrollContainer
+## What the chip would follow: `{"target": ..., "external": bool}`, or empty while the caret is in no link.
+var _open_info: Dictionary = {}
+var _open_timer: Timer
+## The two things the dock's visibility is derived from last frame, so a change is noticed (and refreshed) once.
+var _dock_key := ""
+## True while the header and footer are folded for the keyboard (phone only).
+var _compact := false
+var _status_row: HBoxContainer
+var _title_label: Label
+## The long-press variants card (a floating panel, like the suggestion card, so it takes no keyboard focus)
+## and the button whose hold opened it; `_hold_for` swallows that button's own tap when the finger lifts.
+var _vc_panel: PanelContainer
+var _vc_box: HBoxContainer
+var _hold_for: Button = null
+
 
 ## `initial` is the working text; `saved` is what the file held when it was
 ## last read or written (the dirty check compares against it). `files_source`
@@ -370,6 +435,17 @@ func setup(file_label: String, initial: String, saved: String, phone: bool,
 	_footer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	status_row.add_child(_footer_label)
 	add_child(status_row)
+	_status_row = status_row
+	## VE-8: the phone's toolbar rides on the keyboard, so it is the LAST child, under the footer.
+	if _phone:
+		_open_timer = Timer.new()
+		_open_timer.one_shot = true
+		_open_timer.wait_time = OPEN_CHIP_DEBOUNCE_SEC
+		_open_timer.timeout.connect(_refresh_open_chip)
+		add_child(_open_timer)
+		set_process(true)
+	else:
+		set_process(false)  ## the keyboard row is the phone's; nothing to poll elsewhere
 
 	_split_timer = Timer.new()
 	_split_timer.one_shot = true
@@ -382,6 +458,9 @@ func setup(file_label: String, initial: String, saved: String, phone: bool,
 	_footer_timer.timeout.connect(_refresh_footer)
 	add_child(_footer_timer)
 	resized.connect(_on_resized)
+	## The keyboard row goes last of all, after every timer and card this setup adds (VE-8).
+	if _phone:
+		move_child(_dock, get_child_count() - 1)
 
 	set_mode(mode)
 	_refresh_heading_lights()
@@ -416,7 +495,10 @@ func goto_line(line: int, heading: String = "") -> void:
 		text_edit.deselect()
 		text_edit.set_caret_line(l)
 		text_edit.set_caret_column(0)
-		text_edit.grab_focus()
+		## Not on the phone (VE-8): focus would raise the soft keyboard over a note the user only meant to
+		## jump to; the keyboard comes up when the text is tapped.
+		if not _phone:
+			text_edit.grab_focus()
 	if m != "write" and heading != "" and preview != null:
 		var k := 0
 		var lines := text_edit.text.split("\n")
@@ -619,6 +701,11 @@ func set_mode(m: String) -> void:
 		if k in ["write", "split", "preview"]:
 			continue
 		(buttons[k] as Button).disabled = not writing
+	_refresh_undo_state()
+	_dock_key = ""
+	_hide_variants()
+	if _phone:
+		_refresh_dock()
 	mode_changed.emit(_mode)
 
 
@@ -682,6 +769,7 @@ func _on_resized() -> void:
 ## density, and an `HBoxContainer` never wraps a sibling on its own.
 func _build_header(file_label: String) -> void:
 	var title := DccTheme.mono_label("EDITING  %s" % file_label, "text_dim", DccTheme.FS_SMALL, 1)
+	_title_label = title
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	## An `HFlowContainer` since VE-5: the side-panel toggle made the row wider than a 1000 px window's
 	## editor column (Save was cut off); a flow wraps its last buttons to a second line instead.
@@ -718,28 +806,32 @@ func _build_header(file_label: String) -> void:
 	save_button.tooltip_text = "The note saves itself about a second after you stop typing. This writes it at once (Ctrl+S). Refuses, and writes nothing, if the file changed on disk since it was opened here."
 
 
-## Build the formatting toolbar (one scrolling row on a phone, a wrapping flow on desktop) and the
-## two pickers. Every button is registered in `buttons` by key and calls a thin `apply_*`; keep the
+## Build the formatting toolbar (on the phone one scrolling row inside the keyboard dock, `_build_dock`; a
+## wrapping flow under the header elsewhere) and the two pickers and the long-press variants card. Every button is registered in `buttons` by key and calls a thin `apply_*`; keep the
 ## keys in step with that map's doc, which the probe relies on.
 func _build_toolbar() -> void:
 	var bar: Container
 	if _phone:
 		## A horizontally scrolling row on the phone -- the ruling's "scrollable
 		## row". Vertical scrolling is off, which folds the row's height into the
-		## scroller (the height is wanted); horizontal is AUTO, so the row's
+		## scroller (the height is wanted); horizontal never DISABLES, so the row's
 		## width never propagates up the tree (`MISTAKES.md`'s disabled-axis
 		## row is about exactly that).
 		var sc := ScrollContainer.new()
 		sc.name = "EditorToolbarScroll"
 		sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		## It scrolls by finger and shows no bar: a bar drawn over the row's buttons is what the first windowed
+		## run showed, and a finger needs no handle. (SHOW_NEVER still scrolls, and unlike DISABLED it does not
+		## fold the row's width into its ancestors' minimum, `MISTAKES.md`.)
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
 		sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		add_child(sc)
+		_dock_scroll = sc
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 6)
 		hb.name = "EditorToolbarRow"
 		sc.add_child(hb)
 		bar = hb
+		_build_dock(sc)
 	else:
 		var fl := HFlowContainer.new()
 		fl.add_theme_constant_override("h_separation", 4)
@@ -762,10 +854,20 @@ func _build_toolbar() -> void:
 	_sep(bar)
 	## The "text size" picker. Markdown stores no font size, so size is the
 	## heading level of the caret's line.
-	_tool(bar, "h0", "Normal", "Body text -- removes the line's # prefix.", func(): apply_heading(0))
-	_tool(bar, "h1", "H1", "Heading 1 -- the largest size.", func(): apply_heading(1))
-	_tool(bar, "h2", "H2", "Heading 2", func(): apply_heading(2))
-	_tool(bar, "h3", "H3", "Heading 3", func(): apply_heading(3))
+	if _phone:
+		## VE-8: one chip for the heading level. A tap steps Normal, H1, H2, H3, Normal; a hold lists the four.
+		var hb_ := _tool(bar, "heading", "H", "Heading level: a tap steps Normal, H1, H2, H3; hold for the list.",
+			func(): _tapped("heading", _cycle_heading))
+		_wire_hold(hb_, func() -> Array: return [
+			{"label": "Normal", "cb": func(): apply_heading(0)},
+			{"label": "H1", "cb": func(): apply_heading(1)},
+			{"label": "H2", "cb": func(): apply_heading(2)},
+			{"label": "H3", "cb": func(): apply_heading(3)}])
+	else:
+		_tool(bar, "h0", "Normal", "Body text -- removes the line's # prefix.", func(): apply_heading(0))
+		_tool(bar, "h1", "H1", "Heading 1 -- the largest size.", func(): apply_heading(1))
+		_tool(bar, "h2", "H2", "Heading 2", func(): apply_heading(2))
+		_tool(bar, "h3", "H3", "Heading 3", func(): apply_heading(3))
 	_sep(bar)
 	_tool(bar, "bullet", "• List", "Bulleted list -- every selected line.", func(): apply_lines("bullet"))
 	_tool(bar, "number", "1. List", "Numbered list -- every selected line.", func(): apply_lines("number"))
@@ -777,8 +879,20 @@ func _build_toolbar() -> void:
 	_tool(bar, "code_block", "```", "Code block -- fences the selected lines.", func(): apply_code_block())
 	_tool(bar, "link", "[[ ]]", "Link -- writes [[ ]] at the caret (around the selection as the shown text) and suggests notes, headings and places as you type.", func(): apply_link())
 	_tool(bar, "tag", "#", "Tag -- #tag. Obsidian's tags hold no spaces, so a selected phrase is hyphenated.", func(): apply_tag())
+	## VE-8 (deferred from VE-3): a table and a rule, after the caret's line. The table's hold offers bigger ones.
+	_tool(bar, "table", "Table", "Table -- a 2 x 2 after this line. Hold for 3 x 3 or 4 x 4.",
+		func(): _tapped("table", func(): apply_table(2, 2)))
+	_wire_hold(buttons["table"], func() -> Array: return [
+		{"label": "2 x 2", "cb": func(): apply_table(2, 2)},
+		{"label": "3 x 3", "cb": func(): apply_table(3, 3)},
+		{"label": "4 x 4", "cb": func(): apply_table(4, 4)}])
+	_tool(bar, "rule", "Rule", "Horizontal rule -- --- on its own line after this one, with the blank line it needs.",
+		func(): apply_rule())
 	_sep(bar)
 	_tool(bar, "template", "Insert template", "Insert one of this vault's templates at the caret, as Obsidian's Insert template does: {{title}}, {{date}} and {{time}} filled, its properties merged into this note's.", func(): _open_template_picker())
+	_sep(bar)
+	_tool(bar, "undo", "Undo", "Undo (Ctrl+Z). The session undo reaches back to the note as first opened.", func(): _undo_redo(true))
+	_tool(bar, "redo", "Redo", "Redo (Ctrl+Shift+Z).", func(): _undo_redo(false))
 	_sep(bar)
 	_tool(bar, "find", "Find", "Find in this note (Ctrl+F). Ctrl+H, or Replace… in the bar, adds replace.", func(): _find_open_bar(false))
 
@@ -789,6 +903,7 @@ func _build_toolbar() -> void:
 		if id >= 0 and id < _template_rels.size():
 			insert_template(_template_rels[id]))
 	add_child(_template_popup)
+	_build_variants()
 
 
 ## Add one toolbar chip: a segment button with tooltip and a 28 px minimum width (a labelled
@@ -845,6 +960,329 @@ func _sep(bar: Control) -> void:
 	bar.add_child(r)
 
 
+# -- The phone's keyboard row (VE-8) ---------------------------------------
+
+## The dock: `Open ›` (only while the caret is in a link), the scrolling toolbar, `Done` (only while the keyboard
+## is up). It is added as a child of the editor by `setup` and moved to the bottom; it starts hidden and
+## `_refresh_dock` shows it. Every button here refuses focus, so pressing one never takes the keyboard's input
+## away from the text (a `TextEdit` that loses focus hides the soft keyboard on Android).
+func _build_dock(sc: ScrollContainer) -> void:
+	_dock = PanelContainer.new()
+	_dock.name = "EditorKeyboardDock"
+	_dock.visible = false
+	_dock.top_level = true  ## pinned to the window's bottom by `_layout_overlays`, not laid out in the page
+	_dock.z_index = OVERLAY_Z + 1
+	_dock.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"top": 1}))
+	var hb := HBoxContainer.new()
+	hb.name = "EditorDockRow"
+	hb.add_theme_constant_override("separation", 6)
+	_dock.add_child(hb)
+	## Chips, not `action()` pills: `phone_fit` would swap an `action()` for a 48 dp pill as wide as its label and
+	## the first windowed run drew Done past the screen's right edge. Lit (accent) so they read as the row's
+	## two calls to action.
+	_open_chip = DccWidgets.segment(hb, "Open ›", _on_open_chip)
+	DccWidgets.set_segment_on(_open_chip, true)
+	_open_chip.name = "EditorOpenChip"
+	_open_chip.tooltip_text = "Follows the link the caret is in (Ctrl-click does the same)."
+	_open_chip.visible = false
+	_open_chip.focus_mode = Control.FOCUS_NONE
+	_touch_floor(_open_chip)
+	hb.add_child(sc)
+	_done_button = DccWidgets.segment(hb, "Done", _on_done)
+	DccWidgets.set_segment_on(_done_button, true)
+	_done_button.custom_minimum_size.x = 72.0
+	_done_button.name = "EditorDone"
+	_done_button.tooltip_text = "Puts the keyboard away and leaves the note in Write."
+	_done_button.visible = false
+	_done_button.focus_mode = Control.FOCUS_NONE
+	_touch_floor(_done_button)
+	add_child(_dock)
+
+
+## Soft keyboard state as the host reports it: -1 unknown (no hook, or a display with no soft keyboard), else
+## pixels (0 hidden). Kept apart from every "is it up" test so the unknown case cannot be read as hidden.
+func _kb() -> int:
+	return int(keyboard_height.call()) if keyboard_height.is_valid() else -1
+
+
+## Whether the soft keyboard is KNOWN to be up: its height is above 0. An unknown height (-1) is neither up nor
+## hidden, so it answers false here and `_refresh_dock` lets the text's focus decide, which is what raises the
+## keyboard on a phone.
+func _keyboard_up() -> bool:
+	return _kb() > 0
+
+
+## Polled each frame on the phone (`set_process` in `setup`) because nothing announces the keyboard: the shell
+## polls `DisplayServer.virtual_keyboard_get_height()` itself and Godot raises no signal. Change-gated by a key
+## of the three inputs, so a quiet frame costs a string compare.
+func _process(_delta: float) -> void:
+	if not _phone or text_edit == null:
+		return
+	var key := "%d|%s|%s|%s" % [_kb(), text_edit.has_focus(), _mode, get_viewport().get_visible_rect().size]
+	if key == _dock_key:
+		return
+	_dock_key = key
+	_refresh_dock()
+
+
+## Shows or hides the dock and folds the header and footer. Visible in Write and Split while the text has focus or
+## the keyboard is up (a hardware keyboard, or the system Back that put the soft one away, leaves focus and no
+## height: the row stays, with its Done). Never in Preview, where the formatting buttons are off.
+func _refresh_dock() -> void:
+	if _dock == null:
+		return
+	var writing := _mode != "preview"
+	var up := _keyboard_up()
+	var show := writing and (up or text_edit.has_focus())
+	var was_shown := _dock.visible
+	_dock.visible = show
+	## Done is there whenever the row is: it ends the editing (focus released, keyboard put away), which is also
+	## the way back to the window's own Close bar while the row has it hidden, with a hardware keyboard too.
+	_done_button.visible = show
+	## Folded only while the soft keyboard is KNOWN to be up: an unknown height (-1) gives nothing back, and
+	## a focused field with the keyboard hidden (a hardware keyboard) has the room already.
+	_compact = show and _kb() > 0
+	_apply_compact()
+	_layout_overlays()
+	if show != was_shown:
+		keyboard_mode_changed.emit(show)
+	_refresh_open_chip()
+
+
+## Hides the title line, the header row and the footer while compact, restoring them after. The save banner is
+## left alone: a refused save must stay visible.
+func _apply_compact() -> void:
+	if _header_row != null:
+		_header_row.visible = not _compact
+	if _title_label != null:
+		_title_label.visible = not _compact
+	if _status_row != null:
+		_status_row.visible = not _compact
+	## The text's own minimum height (360 on the phone) is what would push the dock below the screen on a
+	## landscape phone with the keyboard up; while compact it is only a floor.
+	if text_edit != null:
+		text_edit.custom_minimum_size.y = float(COMPACT_TEXT_MIN_PX) if _compact else float(PAGE_TEXT_MIN_PX if _phone else 280)
+
+
+## Where the dock and (while compact) the editor itself sit, in the window's own coordinates.
+##
+## **Why they are overlays and not children in the flow.** On the phone the vault window is one scrolling page
+## (its header, the browse preview, the editor, its Close button), so "the last child of the editor" is the end
+## of the PAGE, hundreds of dp below the screen once the text is 360 dp tall: the first windowed run measured the
+## dock 660 px under the keyboard's top. The dock is therefore `top_level` and pinned to the bottom of the window's
+## visible rect (`phone_present` has already sized the window above the soft keyboard, so that bottom edge IS the
+## keyboard's top). While the keyboard is up the editor takes the whole visible rect above the dock the same way
+## (`top_level`, opaque), which is the focus mode a phone editor wants: nothing between the text and the keys.
+## Both are undone when the keyboard goes, and the editor returns to its place in the page.
+func _layout_overlays() -> void:
+	if not _phone or _dock == null:
+		return
+	var vis := get_viewport().get_visible_rect()
+	var dock_h := 0.0
+	if _dock.visible:
+		dock_h = _dock.get_combined_minimum_size().y
+		_dock.size = Vector2(vis.size.x, dock_h)
+		_dock.global_position = Vector2(vis.position.x, vis.end.y - dock_h)
+	if _compact:
+		if not top_level:
+			top_level = true
+			z_index = OVERLAY_Z
+		global_position = vis.position
+		size = Vector2(vis.size.x, maxf(vis.size.y - dock_h, 0.0))
+		queue_redraw()
+	elif top_level:
+		top_level = false
+		z_index = 0
+		queue_redraw()
+		var host := get_parent()
+		if host is Container:
+			(host as Container).queue_sort()
+
+
+## The editor's own ground while it is an overlay (a `VBoxContainer` draws nothing), so the page it floats over
+## does not show through. Nothing is drawn in the page.
+func _draw() -> void:
+	if top_level:
+		draw_rect(Rect2(Vector2.ZERO, size), DccTheme.c("bg"))
+
+
+## Done: the keyboard goes away and the note stays in Write with its caret where it was.
+func _on_done() -> void:
+	_sg_hide()
+	var holder := get_viewport().gui_get_focus_owner()
+	if holder != null and is_ancestor_of(holder):
+		holder.release_focus()
+	if DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
+		DisplayServer.virtual_keyboard_hide()
+	_dock_key = ""
+	_refresh_dock()
+
+
+## `Open ›`: the same follow Ctrl-click performs, from what the caret was in when the chip was last refreshed.
+func _on_open_chip() -> void:
+	if _open_info.is_empty():
+		return
+	if bool(_open_info.get("external", false)):
+		external_link_followed.emit(String(_open_info["target"]))
+	else:
+		link_followed.emit(String(_open_info["target"]))
+
+
+## The chip follows the caret, debounced (`OPEN_CHIP_DEBOUNCE_SEC`): a caret move or an edit re-arms the timer and
+## the crate is asked once it settles. Shown only on the phone, in Write or Split, with no selection (a selection
+## is being edited, not pointed at).
+func _refresh_open_chip() -> void:
+	if _open_chip == null:
+		return
+	_open_info = {}
+	if _dock.visible and link_at.is_valid() and not text_edit.has_selection():
+		var line := text_edit.get_caret_line()
+		var info: Dictionary = link_at.call(text_edit.text, _offset(line, text_edit.get_caret_column()))
+		if bool(info.get("found", false)) and info.has("target"):
+			var t := String(info["target"])
+			if info.has("heading") and not bool(info.get("external", false)):
+				t += "#" + String(info["heading"])
+			_open_info = {"target": t, "external": bool(info.get("external", false))}
+	_open_chip.visible = not _open_info.is_empty()
+
+
+## The phone's H chip: the next level in Normal, H1, H2, H3, Normal. H4 to H6 count as 3 (the picker has no such
+## size, and stepping from one to Normal is the way out).
+func _cycle_heading() -> void:
+	var lvl := heading_level_at(text_edit.text, selection_offsets().x)
+	apply_heading(0 if lvl >= 3 else lvl + 1)
+
+
+# -- Long-press variants (VE-8) ---------------------------------------------
+
+## Makes a hold of `PEEK_HOLD_SEC` on `b` open the variants card (`rows()` -> `[{label, cb}]`) instead of firing
+## the tap. The timer starts on press and stops on release; when it fires the button is remembered in `_hold_for`
+## so the tap the lift would otherwise fire is swallowed (`_tapped`). A press that ends elsewhere fires nothing.
+func _wire_hold(b: Button, rows: Callable) -> void:
+	var t := Timer.new()
+	t.one_shot = true
+	t.wait_time = PEEK_HOLD_SEC
+	b.add_child(t)
+	t.timeout.connect(func():
+		_hold_for = b
+		_show_variants(b, rows.call()))
+	b.button_down.connect(func():
+		_hold_for = null
+		t.start())
+	b.button_up.connect(func(): t.stop())
+
+
+## A button's tap, unless that same press already opened its variants card (then it is swallowed, once).
+func _tapped(key: String, cb: Callable) -> void:
+	var b: Button = buttons.get(key)
+	if b != null and _hold_for == b:
+		_hold_for = null
+		return
+	cb.call()
+
+
+## The floating card of variants, built once, hidden. Top-level like the suggestion card, so it takes no focus.
+func _build_variants() -> void:
+	_vc_panel = PanelContainer.new()
+	_vc_panel.name = "EditorVariants"
+	_vc_panel.top_level = true
+	_vc_panel.visible = false
+	_vc_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var card := DccTheme.panel("panel", {"left": 1, "right": 1, "top": 1, "bottom": 1})
+	for side in ["left", "right", "top", "bottom"]:
+		card.set("content_margin_" + side, 4)
+	_vc_panel.add_theme_stylebox_override("panel", card)
+	## A row of choices, not a column: a landscape phone has about 130 dp above the keyboard row and a column of
+	## four 44 dp rows does not fit there, while a row of them is 400 dp wide on any phone.
+	_vc_box = HBoxContainer.new()
+	_vc_box.add_theme_constant_override("separation", 2)
+	_vc_panel.add_child(_vc_box)
+	add_child(_vc_panel)
+
+
+## Opens the card for `anchor` with `rows`, above the button when there is room (the phone's row is at the bottom
+## of the screen) and below it otherwise (the desktop's is at the top). Each row runs its `cb` and closes the card.
+func _show_variants(anchor: Button, rows: Array) -> void:
+	for c in _vc_box.get_children():
+		_vc_box.remove_child(c)
+		c.queue_free()
+	var rh := _sg_row_px()
+	for r in rows:
+		var row: Dictionary = r
+		var b := Button.new()
+		b.text = String(row["label"])
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(VARIANT_W_PX, rh)
+		b.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+		b.pressed.connect(func():
+			_hide_variants()
+			(row["cb"] as Callable).call())
+		_vc_box.add_child(b)
+	var h := rh + 8
+	var w := rows.size() * (VARIANT_W_PX + 2) + 6
+	_vc_panel.custom_minimum_size = Vector2(w, h)
+	_vc_panel.size = Vector2(w, h)
+	var vp := get_viewport().get_visible_rect()
+	var ar := anchor.get_global_rect()
+	## Above the dock's own top edge when the button is in it (the row has a margin above its buttons), else above
+	## the button.
+	var top_edge := ar.position.y
+	if _dock != null and _dock.visible and _dock.is_ancestor_of(anchor):
+		top_edge = _dock.get_global_rect().position.y
+	var y := top_edge - h - 4
+	if y < vp.position.y + 2:
+		y = ar.end.y + 4
+	_vc_panel.global_position = Vector2(clampf(ar.position.x, vp.position.x + 4, maxf(vp.position.x + 4, vp.end.x - w - 4)), y)
+	## Drawn in tree order within a z: the card is built before the text area, whose opaque field would cover it
+	## (the first windowed run drew no card at all while the scene graph said it was open), so it has its own z,
+	## above the editor overlay's and the dock's.
+	_vc_panel.z_index = OVERLAY_Z + 10
+	_vc_panel.visible = true
+
+
+func _hide_variants() -> void:
+	if _vc_panel != null:
+		_vc_panel.visible = false
+
+
+## A press outside the open variants card closes it (the card is top-level and takes no focus, so nothing else
+## would). The press is not consumed: a tap on another button still lands.
+func _input(ev: InputEvent) -> void:
+	if _vc_panel == null or not _vc_panel.visible:
+		return
+	var p := Vector2.INF
+	if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed:
+		p = (ev as InputEventMouseButton).position
+	elif ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed:
+		p = (ev as InputEventScreenTouch).position
+	elif ev is InputEventKey and (ev as InputEventKey).pressed and (ev as InputEventKey).keycode == KEY_ESCAPE:
+		_hide_variants()
+		get_viewport().set_input_as_handled()
+		return
+	if p != Vector2.INF and not _vc_panel.get_global_rect().has_point(p):
+		_hide_variants()
+
+
+## Toolbar: Undo and Redo walk the `TextEdit`'s own history, which the vault window has seeded with the session's
+## checkpoints (VE-4), so Undo reaches the note as first opened.
+func _undo_redo(undo: bool) -> void:
+	if undo:
+		text_edit.undo()
+	else:
+		text_edit.redo()
+	text_edit.grab_focus()
+	_refresh_undo_state()
+
+
+## Undo and Redo are live only in Write or Split and only when there is something to walk to.
+func _refresh_undo_state() -> void:
+	if text_edit == null or not buttons.has("undo"):
+		return
+	var writing := _mode != "preview"
+	(buttons["undo"] as Button).disabled = not (writing and text_edit.has_undo())
+	(buttons["redo"] as Button).disabled = not (writing and text_edit.has_redo())
+
+
 ## Build the source `TextEdit` (wrapping, shell field styling, caret and shortcut hooks) and the
 ## hidden `RichTextLabel` preview sharing its minimum height (360 px phone, 280 desktop -- labelled
 ## judgements). Edits emit `edited`; the preview is filled only when entering Preview.
@@ -855,7 +1293,7 @@ func _build_body(initial: String) -> void:
 	text_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	text_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	text_edit.custom_minimum_size.y = 360 if _phone else 280
+	text_edit.custom_minimum_size.y = PAGE_TEXT_MIN_PX if _phone else 280
 	text_edit.placeholder_text = "Write Markdown here."
 	## No grey slab: Godot's stock TextEdit draws a mid-grey block that reads as
 	## a foreign widget on either palette. The shell's field vocabulary instead
@@ -1019,6 +1457,18 @@ func apply_lines(kind: String) -> void:
 func apply_code_block() -> void:
 	var s := selection_offsets()
 	_commit(code_block(text_edit.text, s.x, s.y))
+
+
+## Toolbar action (VE-8): a table of `cols` x `rows` after the caret's line, through `table_block()`.
+func apply_table(cols: int, rows: int) -> void:
+	var s := selection_offsets()
+	_commit(table_block(text_edit.text, s.x, s.y, cols, rows))
+
+
+## Toolbar action (VE-8): a horizontal rule after the caret's line, through `rule_block()`.
+func apply_rule() -> void:
+	var s := selection_offsets()
+	_commit(rule_block(text_edit.text, s.x, s.y))
 
 
 ## Write a `[[note]]` link to the vault file `rel` at the selection through `note_link()`. Nothing in
@@ -1373,6 +1823,9 @@ func _on_text_changed() -> void:
 
 func _on_caret_changed() -> void:
 	_refresh_heading_lights()
+	_refresh_undo_state()
+	if _open_timer != null:
+		_open_timer.start()
 	_sg_update(false)
 
 
@@ -1428,6 +1881,9 @@ func _esc_hold(key: String, on: bool) -> void:
 
 ## An editor freed with the card or the bar open must not leave the window deaf to Escape.
 func _exit_tree() -> void:
+	if _compact:
+		_compact = false
+		keyboard_mode_changed.emit(false)
 	for k in _esc_owners.keys():
 		_esc_hold(String(k), false)
 
@@ -1510,8 +1966,11 @@ func _sg_place() -> void:
 	var base := text_edit.get_global_rect().position + rect.position
 	var vp := get_viewport().get_visible_rect()
 	var bottom := vp.end.y
-	if _phone:
-		bottom -= float(DisplayServer.virtual_keyboard_get_height()) / maxf(get_window().content_scale_factor, 0.01)
+	## VE-8: the phone's window is already sized above the soft keyboard (`DccWidgets.phone_present` takes the
+	## keyboard off its height), so subtracting the keyboard here again flipped the card above the caret early.
+	## What the card must clear is the keyboard row, which is the window's last child.
+	if _dock != null and _dock.visible:
+		bottom = minf(bottom, _dock.get_global_rect().position.y)
 	var y := base.y + rect.size.y + 4
 	if y + h > bottom:
 		y = maxf(vp.position.y + 2, base.y - h - 4)
@@ -1671,7 +2130,15 @@ func _on_source_input(ev: InputEvent) -> void:
 ## Light the Normal/H1/H2/H3 segment matching the heading level at the caret. Safe before the
 ## toolbar exists. H4 to H6 light nothing, since the picker has no such size.
 func _refresh_heading_lights() -> void:
-	if text_edit == null or not buttons.has("h0"):
+	if text_edit == null:
+		return
+	if buttons.has("heading"):
+		## The phone's single chip names the level it would step from, lit while the line is a heading.
+		var l := heading_level_at(text_edit.text, selection_offsets().x)
+		(buttons["heading"] as Button).text = "H" if l == 0 else "H%d" % l
+		DccWidgets.set_segment_on(buttons["heading"], l > 0)
+		return
+	if not buttons.has("h0"):
 		return
 	var lvl := heading_level_at(text_edit.text, selection_offsets().x)
 	## H4-H6 light nothing: the picker offers three levels, and lighting H3
@@ -1932,6 +2399,63 @@ static func code_block(text: String, from: int, to: int) -> Dictionary:
 	if block == "":
 		return {"text": t2, "from": ls + 4, "to": ls + 4}
 	return {"text": t2, "from": ls + 4, "to": ls + 4 + block.length()}
+
+
+## Writes `block` on its own lines after the line holding `at` (VE-8), separated from the line above and the line
+## below by a blank line, and returns the usual `{"text", "from", "to"}` with the selection at
+## `[sel_from, sel_to)` of the block, or (with `sel_from < 0`) a caret on the line after it. A block needs the
+## blank line above because a `---` directly under text is a setext heading, and a table directly under text
+## is not one. Nothing existing is removed or reordered: on a whitespace-only line the block goes in front of
+## that line's own text. Pure over its inputs.
+static func insert_block(text: String, at: int, block: String, sel_from: int, sel_to: int) -> Dictionary:
+	at = clampi(at, 0, text.length())
+	var ls := _line_start(text, at)
+	var le := _line_end(text, at)
+	var blank := text.substr(ls, le - ls).strip_edges() == ""
+	var ins := ls if blank else le
+	var pre := "\n\n"
+	if blank:
+		## The blank line is the separator below the block. Above it a blank line is needed only when the line
+		## before is text (the block would otherwise sit directly under it).
+		pre = ""
+		if ls > 0:
+			var ps := _line_start(text, ls - 1)
+			if text.substr(ps, ls - 1 - ps).strip_edges() != "":
+				pre = "\n"
+	var rest := text.substr(ins)
+	var suffix := "\n"
+	if not blank and (rest.begins_with("\n\n") or rest == "\n"):
+		suffix = ""
+	var t := text.substr(0, ins) + pre + block + suffix + rest
+	var base := ins + pre.length()
+	if sel_from < 0:
+		var after := base + block.length() + suffix.length()
+		return {"text": t, "from": after, "to": after}
+	return {"text": t, "from": base + sel_from, "to": base + sel_to}
+
+
+## A GFM pipe table of `cols` columns and `rows` empty body rows (both clamped to 1..`TABLE_MAX`): a header of
+## `Column N` cells, the delimiter row, then the body. The header's first cell is selected to type over.
+static func table_block(text: String, from: int, to: int, cols: int, rows: int) -> Dictionary:
+	cols = clampi(cols, 1, TABLE_MAX)
+	rows = clampi(rows, 1, TABLE_MAX)
+	var hdr := PackedStringArray()
+	var del := PackedStringArray()
+	var empty := PackedStringArray()
+	for c in cols:
+		hdr.append("Column %d" % (c + 1))
+		del.append("---")
+		empty.append("   ")
+	var lines := PackedStringArray(["| " + " | ".join(hdr) + " |", "| " + " | ".join(del) + " |"])
+	for _r in rows:
+		lines.append("|" + "|".join(empty) + "|")
+	return insert_block(text, maxi(from, to), "\n".join(lines), 2, 2 + "Column 1".length())
+
+
+## A thematic break (`---`) on its own line after the caret's, with the blank line above that keeps it from
+## reading as an underline. The caret lands on the line after it.
+static func rule_block(text: String, from: int, to: int) -> Dictionary:
+	return insert_block(text, maxi(from, to), "---", -1, -1)
 
 
 ## `[[Note]]` for a vault path (`Settlements/Aldenmoor.md` -> `Aldenmoor`, the

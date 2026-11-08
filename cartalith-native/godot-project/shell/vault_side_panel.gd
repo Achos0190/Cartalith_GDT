@@ -49,6 +49,14 @@ const TAG_SCAN_MAX := 2000
 
 var bridge
 var phone := false
+## VE-8. `keyboard_height() -> int`: the soft keyboard's height in pixels, **-1 when the display has no soft keyboard
+## to ask** (never 0, which would mean "hidden"); set by the host. With it the phone's sheet lifts out of the page
+## while a field in it is being typed into and the keyboard is up (`_process`, `_set_overlay`).
+var keyboard_height: Callable = Callable()
+## The sheet became (`on`) or stopped being the full-window overlay; the host hides its dialog's button bar for it.
+signal keyboard_mode_changed(on: bool)
+var _overlay := false
+var _overlay_key := ""
 var live_text: Callable = Callable()
 var note_rel: Callable = Callable()
 var open_note: Callable = Callable()
@@ -80,8 +88,58 @@ var _timer: Timer
 
 
 ## Builds the tab row and the body. Call once, after the host's Callables are set.
+## The phone's sheet is one part of a scrolling page whose header and connection line take about 190 dp, which a
+## landscape phone with the keyboard up does not have (measured: a properties field 329 dp down in a window 186 dp
+## tall, out of reach because the page does not scroll while a note is open). So while a field in the sheet has
+## focus and the keyboard is known to be up, the sheet takes the whole window above the keyboard, as the editor
+## does (`markdown_editor.gd::_layout_overlays`), and goes back when the field is left or the keyboard goes.
+func _process(_delta: float) -> void:
+	if not phone or not is_inside_tree():
+		return
+	var kb := int(keyboard_height.call()) if keyboard_height.is_valid() else -1
+	var vis := get_viewport().get_visible_rect()
+	var want := visible and kb > 0 and _field_has_focus()
+	var key := "%s|%s" % [want, vis.size]
+	if key == _overlay_key:
+		return
+	_overlay_key = key
+	_set_overlay(want, vis)
+
+
+func _set_overlay(on: bool, vis: Rect2) -> void:
+	if on:
+		if not top_level:
+			top_level = true
+			z_index = 20
+		global_position = vis.position
+		size = vis.size
+	elif top_level:
+		top_level = false
+		z_index = 0
+		var host := get_parent()
+		if host is Container:
+			(host as Container).queue_sort()
+	queue_redraw()
+	if on != _overlay:
+		_overlay = on
+		keyboard_mode_changed.emit(on)
+
+
+## The sheet's own ground while it is an overlay (a `VBoxContainer` draws nothing).
+func _draw() -> void:
+	if top_level:
+		draw_rect(Rect2(Vector2.ZERO, size), DccTheme.c("bg"))
+
+
+func _exit_tree() -> void:
+	if _overlay:
+		_overlay = false
+		keyboard_mode_changed.emit(false)
+
+
 func setup() -> void:
 	name = "VaultSidePanel"
+	set_process(phone)
 	add_theme_constant_override("separation", 6)
 	if phone:
 		var back := DccWidgets.action(self, "‹ Note", func():
@@ -107,6 +165,9 @@ func setup() -> void:
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	## VE-8: the phone's window is only the part above the soft keyboard, so a properties or rename field the person
+	## taps lower in the sheet has to be scrolled into view rather than left under the keys.
+	scroll.follow_focus = true
 	add_child(scroll)
 	_body = VBoxContainer.new()
 	_body.name = "SideBody"

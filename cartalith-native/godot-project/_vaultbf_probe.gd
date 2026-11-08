@@ -317,8 +317,13 @@ func _ready() -> void:
 		_finish()
 		return
 	var missing: Array = []
-	for k in ["bold", "italic", "underline", "strike", "highlight", "h0", "h1", "h2", "h3", "bullet",
-			"number", "task", "quote", "callout", "code", "code_block", "link", "tag", "template", "write", "preview"]:
+	var ruled: Array = ["bold", "italic", "underline", "strike", "highlight", "h0", "h1", "h2", "h3", "bullet",
+			"number", "task", "quote", "callout", "code", "code_block", "link", "tag", "template", "write", "preview"]
+	## VE-8: the phone's four text-size chips are ONE `heading` chip.
+	if ed._phone:
+		ruled = ruled.filter(func(k): return not (k in ["h0", "h1", "h2", "h3"]))
+		ruled.append("heading")
+	for k in ruled:
 		if not (ed.buttons as Dictionary).has(k):
 			missing.append(k)
 	_ok("the toolbar carries every Ruling BE and BF control", missing.is_empty(), str(missing))
@@ -340,6 +345,10 @@ func _ready() -> void:
 		var b_rect: Rect2 = (ed.buttons["template"] as Button).get_global_rect()
 		var want_top := Vector2(vw.position).y + b_rect.end.y
 		var want_left := Vector2(vw.position).x + b_rect.position.x
+		## VE-8: the toolbar gained four buttons, so Insert template now sits far enough right that
+		## `DccWidgets.popup_anchored` clamps the picker to the ROOT window's right edge (this probe's SubViewport
+		## is wider than the root window it runs in). Expect the same clamp, 320 px wide with its 4 px margin.
+		want_left = minf(want_left, get_tree().root.get_visible_rect().end.x - 4.0 - 320.0)
 		_ok("the picker opens under the Insert template button, not offset by the window",
 			absf(float(pop.position.y) - want_top) <= 40.0 and absf(float(pop.position.x) - want_left) <= 40.0,
 			"popup at %s, button bottom-left at (%d, %d)" % [str(pop.position), int(want_left), int(want_top)])
