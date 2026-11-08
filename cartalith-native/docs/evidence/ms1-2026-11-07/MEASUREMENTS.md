@@ -29,6 +29,14 @@ density × UI scale, and in a probe use the host `SubViewport`'s `size_2d_overri
 
 No device was connected (`adb devices` empty), and `adb` was not run. Every cell below reads *not measured*.
 
+**Measured 2026-11-08 (6T reconnected, serial 9608b26b, LineageOS):** `adb shell wm density` reports **Physical density: 450**
+(no override; `ro.sf.lcd_density` 450), `adb shell wm size` **Physical size: 1080x2340**, `font_scale` 1.0. So the 6T's
+density is **2.8125**, not the 2.625 the tree assumed. By this table's own row that changes nothing on the phone:
+`_phone_scale` = min(2.8125, 1080 / 412 = 2.6214) = 2.6214, held by MQ-3's cap, so the phone stays bit-identical after S2.
+In dp the 6T is 384 × 832 (1080 / 2.8125), not 411 × 891, which matters to any dp-native layout (MS-2 onward) once the cap is
+lifted. Probes that pass `--density 2.625` for the 6T stand in for it; the true figure is 2.8125. The Godot-side rows below
+(`screen_get_dpi()`, sizes, B7 captures) need an APK built from this tree and are still *not measured*.
+
 | What | Command | What the result changes |
 |---|---|---|
 | Android's density and size | `adb shell wm density`, `adb shell wm size` | The 6T's true dp. 420 dpi (2.625) leaves the phone bit-identical after S2 (`_phone_scale` = min(2.625, 1080/412 = 2.6214) = 2.6214). 402 dpi (2.5125) shrinks every phone figure by 4.1 %. 450 dpi (2.8125) changes nothing, because MQ-3's cap at short ÷ 412 holds it at 2.6214. |
