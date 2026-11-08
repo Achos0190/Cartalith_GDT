@@ -342,7 +342,7 @@ The context windows become **non-exclusive in-app windows**:
 - **Opening on the right subject.** Records ▸ Factions…, Story ▸ Faction history… and CIVIL ▸ Open factions… open on
   the current faction, not the last one used (finding W6). The roster's "Capital: X" is a link that selects it
   (flow F3).
-- **Window ▸ Open windows** lists every open window, the Context panel and pop-outs included (finding W5). While an exclusive dialog is open the menu bar takes no input, so until the context windows stop being exclusive (PC-7) the list can only ever show pop-outs.
+- **Window ▸ Open windows** lists every open window, the Context panel and pop-outs included (finding W5). While an exclusive dialog is open the menu bar takes no input; since PC-7 the five context windows are not exclusive on the desktop, so the list shows them (picking one raises it where the user left it).
 - **Refresh.** Roster edits refresh the Context panel, and an assistant save refreshes the vault (finding W7).
 
 **What stays modal.** The Data manager, the Asset library, New world, Export, Open project and file dialogs stay
@@ -641,6 +641,35 @@ a selection does not. (6) A verified world citation selects what it names (settl
 Vault citations stay text until PC-5. Not built, stated: the save preference, its first-use card and the world-file
 slot (PQ5); a note card going to the subject's linked note; names and years in an answer as links; per-subject task
 chips; "Ask about this" on Inspect pages and the context card. The probe is `_pc6ask_probe`.
+
+PC-7 (2026-11-08) converts the five windows §3.6 lists, all in one change, on the desktop only: one shared file,
+`shell/context_window.gd` (`ContextWindow`, preloaded, no `class_name`), and two calls per window. Departures and
+judgements found while building: (1) **the tablet keeps its modal windows**, as §3.11 says, so `ContextWindow.applies()`
+is false on the tablet and the phone and neither changes. (2) **Measured on Godot 4.7.2, an embedded window that has the
+focus takes every mouse event and every key**: only a left press outside it takes the focus away. So with a window
+focused, a wheel notch, a right press and a middle drag over the map went to the window, not the map, and no menu
+accelerator worked (Ctrl+F and Q measured; the menu bar never saw the key). Two relays close both holes: a press other than a left one outside the window's frame
+takes its focus and is pushed into the main viewport (`ContextWindow._on_window_input`), and an unused Ctrl/Cmd or Alt
+chord is run on the menu bar as its accelerator would (`shell/context_key_relay.gd`, through
+`PopupMenu.activate_item_by_event`; a field's own chords and every plain key stay with the window, so a key typed into
+a field never reaches the map's accelerators). Moving the pointer off a window does not take its focus, so hovering the
+map with a window focused samples nothing until a press. (3) **Held changes pin instead of following.** A window
+answers `held_changes()` with what it holds that has no commit path (the roster's open religion editor, the Place
+editor's unsubmitted event); a new selection then pins it, with the reason on the chip and the status line, and
+pressing PINNED asks before discarding. A field being typed in is committed against the subject it was typed for, the
+path a re-open already took, and a year move waits for it to give up the focus before redrawing. (4) **The chip reads FOLLOW / PINNED** (the mockup's window header; the Context panel keeps FOLLOWING), and sits at
+the right end of the button row, in the Pop out button's balance slot, so Close does not move (measured pixel-identical
+outside the chip, `_popout_windows_id_probe` and `_popout_roster_id_probe` with `--chip-only`); it lives in a
+non-Button holder because `AcceptDialog` resets the minimum width of every Button in that row, which is also why Pop
+out lays out at 81 px and not the 84 its builder asks. (5) **Saved journeys
+has no chip**: it lists every journey and nothing in it depends on the year; a row still closes it, because the planner
+it opens replaces the map until PC-8. (6) Conflicts stays open when a row is pressed, and marks the selected conflict.
+(7) The roster, the City viewer and Conflicts now redraw on a year move (one redraw per frame); the City viewer keeps the
+user's zoom. Every open follows again. Not built, stated: §3.6's one host with a back stack (finding W2), the roster's
+"Capital: X" as a link (flow F3), the refresh items (finding W7), and Find drawing above an open window (Ctrl+F works
+from a window; whether Find's results draw above a window that overlaps them was not measured). The assistant's window is not one of the five and stays
+exclusive, so PC-6's "close that window to bring it back" still holds; the vault, the Data manager and the rest stay
+modal. The probe is `_pc7windows_probe`.
 
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes

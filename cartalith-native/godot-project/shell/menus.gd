@@ -7686,8 +7686,10 @@ func _open_window_label(w: Window) -> String:
 ## always were: an Open windows row is an open thing. Its empty state is a readout, never a silent dark
 ## row (`_menuwire_probe.gd` checks that every disabled row states a reason).
 ##
-## While an exclusive dialog is open the menu bar takes no input, so in practice this lists pop-outs
-## until the context windows stop being exclusive (PC-7, §3.6); the walk needs no change when they do.
+## While an exclusive dialog is open the menu bar takes no input. Since PC-7 (§3.6) the five context
+## windows (the faction roster, the Place editor, the City viewer, Conflicts, Saved journeys) are not
+## exclusive on the desktop, so the menu is reachable with them open and lists them; the walk needed no
+## change for it. Every other window is still modal, and the list cannot be opened over one.
 ## The same test on every form factor (Ruling DX PQ13). On the phone it lists the selection sheet only
 ## while that sheet is shown, which MENU's own opening ends (`DccShell._close_all_phone_overlays()`), so
 ## the phone's list shows windows in practice.
@@ -7706,9 +7708,10 @@ func _refresh_open_windows() -> void:
 		_readout(_windows_popup, "No windows open", OPEN_WINDOWS_NONE_TIP)
 
 ## Brings the picked entry to the front. The Context panel: `open_context_tab("")`, which shows it on
-## the tab it already has. A docked window: `popup_centered()`, as shipped (on a visible
-## `AcceptDialog` it re-centres and raises it). A popped-out window: `grab_focus()` only, because a
-## window the user placed on a second screen must not be dragged back to the centre of the first.
+## the tab it already has. A docked modal window: `popup_centered()`, as shipped (on a visible
+## `AcceptDialog` it re-centres and raises it). A docked non-blocking window (PC-7) and a popped-out
+## window: `grab_focus()` only, which raises it where it is, because a window the user dragged beside
+## the map, or placed on a second screen, must not be pulled back to the centre.
 ## Ignores an index past the list or a window freed since the menu was built.
 func _on_open_window(id: int) -> void:
 	if id < 0 or id >= _open_windows.size():
@@ -7720,7 +7723,7 @@ func _on_open_window(id: int) -> void:
 	if not is_instance_valid(entry):
 		return
 	var w := entry as Window
-	if w.is_embedded():
+	if w.is_embedded() and w.exclusive:
 		w.popup_centered()
 	else:
 		w.grab_focus()

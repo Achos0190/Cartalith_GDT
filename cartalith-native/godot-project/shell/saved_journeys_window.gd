@@ -38,6 +38,17 @@ extends AcceptDialog
 ## `class_name`, so adding it needs no `--headless --import` pass (CLAUDE.md:
 ## that pass strips `project.godot`'s `;` comments) -- `export_dialog.gd`'s
 ## precedent.
+##
+## **PC-7** (`PC_SHELL_PROPOSAL.md` §3.6): on the desktop the window no longer
+## blocks the map. It has no FOLLOWING chip: it lists every journey in the
+## world, so there is no subject for a selection to move, and nothing it shows
+## depends on the year (a row's start year is the journey's own, stored). A row
+## press still closes it, because the planner it opens replaces the map view
+## (PC-8 moves the planner into its own window). The phone and the tablet keep
+## the modal window (`ContextWindow.applies()`).
+
+## PC-7: the non-blocking rules shared by the five context windows.
+const ContextWindow := preload("res://shell/context_window.gd")
 
 ## The shell (`DccApp`), for `phone_fit`, `open_journey_planner` and the planner view.
 var _host
@@ -98,6 +109,8 @@ func setup(host, bridge: EngineBridge) -> void:
 	## window re-reads rather than showing the old world's journeys.
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _refresh())
 	bridge.world_loaded.connect(func(): if visible: _refresh())
+	## PC-7: non-blocking on the desktop; no subject to follow (see the header).
+	ContextWindow.make_context(self, host, false)
 
 ## Shows the window with a fresh read: phone-shaped on a phone, centred
 ## elsewhere.

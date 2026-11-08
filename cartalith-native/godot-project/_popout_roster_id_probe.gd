@@ -7,7 +7,7 @@ extends Node
 ##   compare: godot --path . --resolution 1400x900 _popout_roster_id_probe.tscn -- --base <dirA> --base2 <dirB> [--shots <dir>]
 ##
 ## **Windowed, never `--headless`** (`ImageTexture.update()` is a no-op headless, so every comparison
-## would pass vacuously). It reads only `--out`, `--base`, `--base2` and `--shots`; anything else aborts,
+## would pass vacuously). It reads only `--out`, `--base`, `--base2`, `--shots` and (PC-7) `--chip-only`; anything else aborts,
 ## exit 2. Run from a scratch worktree with its own `config/name` and a wiped user dir. **It touches only
 ## APIs that exist on the tree BEFORE PW-2** (`FactionRosterWindow.open(faction, tab)`, `bridge.generate`)
 ## plus an optional lookup by NAME of the per-window button (`PopoutButton`) that only the changed tree
@@ -37,6 +37,8 @@ var _out := ""
 var _base := ""
 var _base2 := ""
 var _shots := ""
+## PC-7: `--chip-only` (see the argument loop).
+var _chip_only := false
 var _app: Node
 var _images := {}   ## tag -> Image (the window rectangle)
 var _meta := {}     ## tag -> Dictionary(window rect, ok rect, button rect or empty)
@@ -54,7 +56,13 @@ func _ready() -> void:
 	var i := 0
 	while i < args.size():
 		var a := String(args[i])
-		if a in ["--out", "--base", "--base2", "--shots"] and i + 1 < args.size():
+		if a == "--chip-only":
+			## PC-7: the baseline is a tree that already has the Pop out button (origin/main after PW-3),
+			## so the hidden pass hides only the FOLLOW chip's holder (`context_window.gd`) and gives the
+			## Pop out button its balance back, which is that tree's row exactly.
+			_chip_only = true
+			i += 1
+		elif a in ["--out", "--base", "--base2", "--shots"] and i + 1 < args.size():
 			match a:
 				"--out": _out = String(args[i + 1])
 				"--base": _base = String(args[i + 1])
@@ -123,10 +131,34 @@ func _capture(tag: String, w: Window, fid: int, tab: String) -> void:
 	var pb := w.find_child("PopoutButton", true, false)
 	if pb != null and (pb as Control).visible:
 		btn = Rect2i(Vector2i((pb as Control).get_global_rect().position) + w.position, Vector2i((pb as Control).get_global_rect().size))
+	## PC-7 (`context_window.gd`): the FOLLOW chip, on the desktop's context windows, sits in a holder in
+	## the Pop out balance's place, at the button's width. It is the second new control this bar allows,
+	## kept as its own rectangle (a merged one would span Close and hide a move of it).
+	var chip_n := w.find_child("FollowChipHolder", true, false) as Control
+	var chip_r := Rect2i()
+	if chip_n != null and chip_n.visible:
+		chip_r = Rect2i(Vector2i(chip_n.get_global_rect().position) + w.position, Vector2i(chip_n.get_global_rect().size))
 	var img := get_viewport().get_texture().get_image()
 	_images[tag] = img.get_region(win)
-	_meta[tag] = {"win": _rect_dict(win), "ok": _rect_dict(ok), "btn": _rect_dict(btn), "has_btn": pb != null}
-	if pb != null and _out == "":
+	_meta[tag] = {"win": _rect_dict(win), "ok": _rect_dict(ok), "btn": _rect_dict(btn), "chip": _rect_dict(chip_r), "has_btn": pb != null}
+	if _chip_only and chip_n != null and _out == "":
+		var pbal := w.find_child("PopoutButtonBalance", true, false) as Control
+		var cbal := w.find_child("FollowChipBalance", true, false) as Control
+		var was := [chip_n.visible, pbal.visible if pbal else false, cbal.visible if cbal else false]
+		chip_n.visible = false
+		if pbal != null:
+			pbal.visible = true
+		if cbal != null:
+			cbal.visible = false
+		await _settle(4)
+		_images[tag + "@hidden"] = get_viewport().get_texture().get_image().get_region(win)
+		chip_n.visible = was[0]
+		if pbal != null:
+			pbal.visible = was[1]
+		if cbal != null:
+			cbal.visible = was[2]
+		await _settle(2)
+	elif not _chip_only and pb != null and _out == "":
 		(pb as Control).visible = false
 		var bal := w.find_child("PopoutButtonBalance", true, false)
 		if bal != null:
@@ -144,7 +176,7 @@ func _load(dir: String, tag: String) -> Image:
 	return img
 
 
-func _diff(a: Image, b: Image, mask: Image = null, skip: Rect2i = Rect2i()) -> Dictionary:
+func _diff(a: Image, b: Image, mask: Image = null, skip: Rect2i = Rect2i(), skip2: Rect2i = Rect2i()) -> Dictionary:
 	var n := 0
 	var bb := Rect2i()
 	var first := true
@@ -155,6 +187,8 @@ func _diff(a: Image, b: Image, mask: Image = null, skip: Rect2i = Rect2i()) -> D
 	for y in a.get_height():
 		for x in a.get_width():
 			if skip.size != Vector2i.ZERO and skip.has_point(Vector2i(x, y)):
+				continue
+			if skip2.size != Vector2i.ZERO and skip2.has_point(Vector2i(x, y)):
 				continue
 			if mask != null and mask.get_pixel(x, y).r > 0.5:
 				continue
@@ -210,7 +244,9 @@ func _compare() -> void:
 			DirAccess.make_dir_recursive_absolute(_shots)
 			(_images[tag] as Image).save_png(_shots.path_join(tag + ".png"))
 		var all := _diff(b1, _images[tag], mask)
-		var outside := _diff(b1, _images[tag], mask, btn_local)
+		var chip_g := Rect2i(int(m.get("chip", {}).get("x", 0)), int(m.get("chip", {}).get("y", 0)), int(m.get("chip", {}).get("w", 0)), int(m.get("chip", {}).get("h", 0)))
+		var chip_local := Rect2i(chip_g.position - win.position, chip_g.size) if chip_g.size != Vector2i.ZERO else Rect2i()
+		var outside := _diff(b1, _images[tag], mask, btn_local, chip_local)
 		total_outside += maxi(int(outside["n"]), 0) if int(outside["n"]) >= 0 else 1000000
 		var hid := {"n": 0}
 		if _images.has(tag + "@hidden"):

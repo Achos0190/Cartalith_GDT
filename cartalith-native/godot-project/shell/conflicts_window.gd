@@ -35,6 +35,16 @@ extends AcceptDialog
 ##
 ## Preloaded by `app.gd` (`CONFLICTS_WINDOW`), no `class_name` -- the same
 ## no-import-pass reason as `saved_journeys_window.gd`.
+##
+## **PC-7** (`PC_SHELL_PROPOSAL.md` §3.6): on the desktop the window no longer
+## blocks the map. It stays open when a row is pressed, marks the selected
+## conflict (`_marked`, following the selection until its FOLLOWING chip pins
+## it) and re-reads on every move of the year, since "active" and the ACTIVE
+## chip are the engine's at the cursor's year. The phone and the tablet keep
+## the modal window and the shipped close-on-press (`ContextWindow.applies()`).
+
+## PC-7: the non-blocking, follow-until-pinned rules shared by the five context windows.
+const ContextWindow := preload("res://shell/context_window.gd")
 
 ## The shell (`DccApp`): `open_conflict`, `viewport`, `phone_fit`, the Conflict tool.
 var _host
@@ -50,6 +60,12 @@ var _chips: HFlowContainer
 var _filter := "all"
 ## Phone composition (`DccWidgets.phone_window`): rows become two lines.
 var _phone := false
+## PC-7. The conflict id the list marks: the selected conflict while the window follows, the one it
+## was pinned on while pinned; -1 (never a real id: `cartalith_civ::conflict::ConflictStore::add`
+## numbers from 1 and never goes back) when the selection is not a conflict.
+var _marked := -1
+## True while a year re-read is queued for the next idle frame (`_on_year_moved`).
+var _year_queued := false
 
 ## Builds the frame once (head row, readout, chips, scrolling list) and wires a
 ## refresh to the bridge signals that change the store. Call once, before
@@ -103,9 +119,16 @@ func setup(host, bridge: EngineBridge) -> void:
 	pad.add_child(_body)
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _refresh())
 	bridge.world_loaded.connect(func(): if visible: _refresh())
+	## PC-7: non-blocking on the desktop, marking the selected conflict, re-read on a year move.
+	ContextWindow.make_context(self, host, true)
+	if ContextWindow.applies(host) and host.has_signal("timeline_changed"):
+		host.timeline_changed.connect(_on_year_moved)
 
 ## Shows the window with a fresh read: phone-shaped on a phone, centred elsewhere.
 func open() -> void:
+	## PC-7: every open follows again, so the mark is the selection's.
+	ContextWindow.reset_on_open(self)
+	_marked = _selected_conflict()
 	_refresh()
 	if not DccWidgets.phone_present(self, _host):
 		popup_centered()
@@ -168,6 +191,33 @@ func _refresh() -> void:
 	if _phone:
 		_host.phone_fit(self, 1.0)
 
+## PC-7. The selected conflict's id, or -1 when the selection is not a conflict (or there is no shell).
+func _selected_conflict() -> int:
+	if _host == null or _host.get("selection") == null:
+		return -1
+	var sel: Dictionary = _host.selection
+	return int(sel.get("id", -1)) if String(sel.get("kind", "")) == "conflict" else -1
+
+## PC-7. Called by `ContextWindow` when the selection moves while the window is visible and
+## FOLLOWING: marks the newly selected conflict, or none when the selection is something else.
+func follow_selection(_sel: Dictionary) -> void:
+	var now := _selected_conflict()
+	if now == _marked:
+		return
+	_marked = now
+	_refresh()
+
+## PC-7. `timeline_changed`: one re-read per frame while visible (a scrub or Animate moves the year
+## many times a second); `_refresh()` itself draws the "generating" state rather than read the engine.
+func _on_year_moved() -> void:
+	if not visible or _year_queued:
+		return
+	_year_queued = true
+	(func() -> void:
+		_year_queued = false
+		if visible:
+			_refresh()).call_deferred()
+
 ## A chip press: sets the filter and re-reads.
 func _set_filter(f: String) -> void:
 	_filter = f
@@ -214,6 +264,10 @@ func _add_row(c: Dictionary, names: Dictionary, year: int) -> void:
 	row.set_meta("conflict_id", id)
 	row.add_theme_constant_override("separation", 2 if _phone else 10)
 	_body.add_child(row)
+	## PC-7: the selected (or pinned) conflict's row is marked, in the accent ink and with
+	## `selected` meta, so a probe and the eye read the same state.
+	var marked := id == _marked
+	row.set_meta("selected", marked)
 	var mark := "● " if on else "○ "
 	var b := Button.new()
 	b.name = "CfSelect"
@@ -221,7 +275,7 @@ func _add_row(c: Dictionary, names: Dictionary, year: int) -> void:
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.focus_mode = Control.FOCUS_NONE
 	b.flat = true
-	b.add_theme_color_override("font_color", DccTheme.c("text" if on else "text_dim"))
+	b.add_theme_color_override("font_color", DccTheme.c("accent" if marked else ("text" if on else "text_dim")))
 	b.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
 	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -252,12 +306,15 @@ func _add_row(c: Dictionary, names: Dictionary, year: int) -> void:
 			row.add_child(l)
 	_body.add_child(DccTheme.rule())
 
-## Closes the window, selects conflict `id` (`app.open_conflict`: the right
-## dock's Conflict context and the map's selected stroke, plus the phone's
-## right sheet) in CIVIL, and centres the view on its resolved points. A
-## conflict with no points moves nothing.
+## Selects conflict `id` (`app.open_conflict`: the right dock's Conflict
+## context and the map's selected stroke, plus the phone's right sheet) in
+## CIVIL, and centres the view on its resolved points. A conflict with no
+## points moves nothing. Closes the window where it is modal (the phone and
+## the tablet); on the desktop (PC-7) it stays open, and the selection it just
+## made marks the row (`follow_selection()`).
 func _select(id: int, points: PackedVector2Array) -> void:
-	hide()
+	if not ContextWindow.applies(_host):
+		hide()
 	_host.select_domain("civilization")
 	_host.open_conflict(id)
 	if not points.is_empty() and _host.viewport != null:

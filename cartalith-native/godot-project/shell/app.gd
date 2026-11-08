@@ -5402,7 +5402,8 @@ func open_place_editor(index: int) -> void:
 func transfer_settlement(index: int, to: int, on_done: Callable = Callable()) -> void:
 	place_editor_window.transfer_settlement(index, to, on_done, false)
 
-## The Faction Roster modal (`civOpenFactionsBtn`). `faction` is a faction id to
+## The Faction Roster window (`civOpenFactionsBtn`; modal on the phone and the tablet, and since
+## PC-7 non-blocking and following the selection on the desktop, `context_window.gd`). `faction` is a faction id to
 ## land on (the context card's CIVIL "Open <name> in roster" row), or `-1` to
 ## reopen on the last-selected faction -- see `FactionRosterWindow.open()`.
 ## `tab` is a hub tab id (`FactionRosterWindow.TAB_IDS`: identity, territory,

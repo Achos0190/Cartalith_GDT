@@ -149,6 +149,9 @@ const TAB_LABELS := {
 ## `_build_tab_strip()`.
 const TAB_MIN_H_POINTER := 28
 
+## PC-7: the non-blocking, follow-until-pinned rules shared by the five context windows.
+const ContextWindow := preload("res://shell/context_window.gd")
+
 var app                       ## `DccApp`
 ## The `EngineBridge` given to `setup()`; every `civ_*` call here goes through it, and `setup`
 ## connects `generation_finished` to `_on_world_changed` while visible.
@@ -354,6 +357,10 @@ func setup(a, b: EngineBridge) -> void:
 	## flips and re-shows this same node, so the selected faction, the tab and the scroll positions below
 	## survive the move.
 	PopoutHost.add_toggle_button(self)
+	## PC-7 (`PC_SHELL_PROPOSAL.md` §3.6): on the desktop the roster no longer blocks the map, and it
+	## follows the selection's faction until its FOLLOWING chip pins it (`follow_selection()`). The
+	## phone and the tablet keep the modal window (`ContextWindow.applies()`).
+	ContextWindow.make_context(self, a, true)
 
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 6)
@@ -491,6 +498,13 @@ func setup(a, b: EngineBridge) -> void:
 	## click.
 	bridge.generation_finished.connect(func(ok: bool): if ok and visible: _on_world_changed())
 	bridge.world_loaded.connect(func(): if visible: _on_world_changed())
+	## PC-7 (finding: no window listened to the year). Every figure here is the engine's at the year
+	## the civilisation layer shows (`get_factions()` after `civ_goto_year`), so a move of the year
+	## redraws an open roster, and a following roster whose selection is a settlement moves to the
+	## faction holding it in that year (§3.6, "the holder in the shown year"). Desktop only, like the
+	## rest of PC-7: on the phone and the tablet the window is modal, so the year cannot move under it.
+	if ContextWindow.applies(a) and a.has_signal("timeline_changed"):
+		a.timeline_changed.connect(_on_year_moved)
 
 
 ## Both O(cells) caches are per-world, so both are marked stale here and
@@ -681,6 +695,8 @@ func _phone_bar_sub_text(d: Dictionary) -> String:
 ## (`_mark_data_stale()`, so a roster that changed while the hub was hidden is
 ## re-read) and fetched by the tab that needs them.
 func open(select_faction: int = -1, tab: String = "", pair_with: int = -1) -> void:
+	## PC-7: every open follows again; the caller named what to show (or the last faction).
+	ContextWindow.reset_on_open(self)
 	_mark_data_stale()
 	var landed := select_faction > 0 and not _faction(select_faction).is_empty()
 	_pair = pair_with if (landed and pair_with > 0 and pair_with != select_faction) else -1
@@ -774,6 +790,63 @@ func refresh_after_edit() -> void:
 	_commit_focused_field()
 	_mark_data_stale()
 	_rebuild()
+
+
+# -- PC-7: following the selection and the year (`context_window.gd`) ---------------------------
+
+## PC-7. Called by `ContextWindow` when the selection moves while this roster is visible and
+## FOLLOWING: shows the selection's faction (`DccApp.current_faction()`: the faction itself, or for a
+## settlement the faction holding it at the shown year). A selection with no faction (a landmark, a
+## conflict, nothing) leaves the roster where it is: there is nothing to follow to, and showing no
+## faction would hide the list's own subject. Keeps the tab, like a pick in the list. A focused field
+## is committed first, against the faction it was typed for (FR-02, the shipped switch path).
+func follow_selection(_sel: Dictionary) -> void:
+	var fid: int = app.current_faction() if app != null else -1
+	if fid <= 0 or fid == _selected or _faction(fid).is_empty():
+		return
+	_commit_focused_field()
+	_selected = fid
+	_pair = -1
+	_mark_data_stale()
+	_rebuild()
+
+## PC-7. What this roster holds that a follow would discard: an open religion editor (its fields are
+## written only by its Save, so a rebuild for another faction would drop them). `""` when nothing.
+func held_changes() -> String:
+	return "an open religion editor" if _religion_edit_id != -1 else ""
+
+## PC-7. The user agreed to follow (`ContextWindow.follow()` asked): closes the religion editor.
+func discard_held_changes() -> void:
+	_religion_edit_id = -1
+
+## True while a year refresh is queued for the next idle frame, so a scrub or ▶ Animate, which move
+## the year many times a second, redraw the roster once per frame rather than once per step.
+var _year_refresh_queued := false
+
+## PC-7. `timeline_changed`: queues one redraw (see `_year_refresh_queued`). Ignored while hidden (the
+## next open re-reads) and while a generation runs (the engine is the worker's; `generation_finished`
+## redraws).
+func _on_year_moved() -> void:
+	if not visible or _year_refresh_queued:
+		return
+	_year_refresh_queued = true
+	_year_refresh.call_deferred()
+
+## PC-7. The queued year redraw. A following roster whose selection is a settlement first moves to the
+## faction holding it now (the holder can change with the year). A field the user is typing in is not
+## torn down: the redraw waits until it gives up the focus (`ContextWindow.defer_while_typing()`).
+func _year_refresh() -> void:
+	_year_refresh_queued = false
+	if not visible or bridge == null or bool(bridge.generating):
+		return
+	ContextWindow.defer_while_typing(self, func() -> void:
+		if ContextWindow.is_following(self) and held_changes() == "" and app != null \
+				and String(app.selection.get("kind", "")) == "settlement":
+			var fid: int = app.current_faction()
+			if fid > 0 and not _faction(fid).is_empty():
+				_selected = fid
+		_mark_data_stale()
+		_rebuild())
 
 
 # -- World overview (`_civRenderFactionsWorldOverview`) ----------------------
@@ -1012,7 +1085,8 @@ func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 ##   belongs to Cartography** (v3's own split), so the row routes there with the
 ##   same `select_domain_category` call the dock row made. It closes this window
 ##   first, like every other hand-off from it, or the category would switch
-##   behind an open modal.
+##   behind an open window (modal on the phone and the tablet; on the desktop,
+##   since PC-7, a non-blocking one that still draws over the dock).
 ## - the faction **emblem** (`GUI_GAP_REGISTER.md` CV-21) is unbuilt, and the
 ##   note says what is missing rather than offering an image slot nothing reads.
 func _build_identity_paint_notes(sec: Control) -> void:

@@ -47,6 +47,68 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-7 built: the five context windows do not block the map and follow the selection until pinned (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.6, §3.11, §6 (PC-7 and its build note); Ruling DY (PQ3), Ruling DX (PQ12). GDScript only.
+*Re-opened at the symbols first:* the five windows' `setup`/`open*` (`faction_roster_window.gd`, `place_editor_window.gd`,
+`city_viewer_window.gd`, `conflicts_window.gd`, `saved_journeys_window.gd`), `popout_host.gd` (`prepare`,
+`add_toggle_button`), `busy_overlay.gd::_mute_subwindows`, `app.gd` (`select`, `selection_changed`, `current_faction`),
+`dcc_shell.gd::tl_set_year`/`timeline_changed`, `menus.gd::_refresh_open_windows`/`_on_open_window`.
+
+- **Built (desktop only):** new `shell/context_window.gd` (`ContextWindow`, preloaded) clears each window's `exclusive`
+  and, for the four with a subject, adds a FOLLOW / PINNED chip (the mockup's words and inks, `Shell.dc.html`'s window
+  header) in the button row and follows `DccApp.selection_changed` while visible and following: the roster shows the
+  selection's faction (for a settlement, its holder at the shown year, `current_faction()`), the Place editor and the
+  City viewer the selected settlement, Conflicts marks the selected conflict. A press pins; a second follows; every
+  open follows again. Saved journeys is non-blocking with no chip (no subject; a row still closes it, because the
+  planner replaces the map until PC-8). The roster, the City viewer (keeping the user's zoom) and Conflicts now redraw
+  on a year move, one redraw per frame (finding: no window listened to the year). Conflicts stays open when a row is
+  pressed. Window ▸ Open windows lists them (it was unreachable with a modal window open) and raises one where the
+  user left it.
+- **The tablet and the phone are unchanged** (§3.11 keeps the tablet's windows modal; `ContextWindow.applies()`).
+- **Measured on Godot 4.7.2 before building the relays**: an embedded window with the focus takes every mouse event and
+  every key, and only a left press outside it takes the focus. With the roster focused, a wheel notch over the map
+  zoomed nothing, a right press reached the window, and neither Ctrl+F nor Q (two menu accelerators) did anything. So:
+  a non-left press outside a window's frame drops its focus and is pushed into the main viewport
+  (`ContextWindow._on_window_input`), and an unused Ctrl/Cmd or Alt chord runs on the menu bar
+  (`shell/context_key_relay.gd`, `PopupMenu.activate_item_by_event`). No plain key is passed, so Q, Shift+A, Delete
+  and Backspace typed into a field stay in it. Hover over the map with a window focused samples nothing until a press.
+- **Held changes are pinned, never discarded:** a window that holds something with no commit path (the roster's open
+  religion editor, the Place editor's unsubmitted event) pins itself on a new selection, says why on the chip and the
+  status line, and asks before discarding when PINNED is pressed. A field being typed in is committed against its own
+  subject (the shipped switch path), and a year move waits for it to give up the focus before redrawing.
+- **Also found:** `AcceptDialog` resets the custom minimum size of every `Button` in its button row when its theme
+  applies, which is why the Pop out button lays out at 81 px rather than `PopoutHost.BUTTON_MIN_W`'s 84; the chip sits
+  in a non-Button holder in the Pop out balance's place for that reason (two earlier layouts moved Close by 2 and 3 px).
+  The engine drops a muted window's input before `window_input`, so the busy overlay's mute covers the relay without a
+  test of its own (a mutant of that test survived, and the test was removed).
+- **Measured:** new `_pc7windows_probe` (windowed, real clicks, wheel notches, middle drags and keys, wiped user dir): **PASS
+  138/138 at 1600×1000 desktop and 23/23 at 1600×1000 touch** (the tablet: all five stay exclusive, no chip, no relay,
+  a map click selects nothing), 0 SCRIPT ERROR. On origin/main's shell (`1f526394`, the same debug DLL) the desktop leg
+  fails 27 of the 50 checks it can reach. **17 literal mutants, all killed** (exclusive kept, held-change pin off, the
+  press relay off, the frame test off, the chord rule passing plain keys, the year defer off, the roster's follow off,
+  the Place editor's draft test off, the Conflicts mark, the City viewer's kept zoom, Open windows re-centring, the
+  reopen reset, Conflicts closing on a press, the roster's year listener off, the chip's holder width, the Pop out
+  balance left visible, the chip's word); two survivors removed code instead (a focus drop after a relayed chord, which
+  Find's own `grab_focus` already does, and a mute test the engine already does). `_popout_windows_id_probe` and
+  `_popout_roster_id_probe` (new `--chip-only`, against two captures of origin/main): the roster **IDENTICAL** in all six
+  states; the Place editor, its Economy tab and the City viewer 0 px outside the chip and Close unmoved; the one
+  remaining difference is the assistant's window (95 px), which origin/main's own run also differs by (150 px) and PC-7
+  does not touch. Phone, 393×852: `_pc4context_probe --phone` captures against two origin/main runs (identical to each
+  other): the sheet pixel-identical, the launch card differing only in its build hash. Regression, windowed, on this
+  tree: `_pc1select` 31, `_pc2year` 46 and touch 46, `_pc3strip` 79 and 79, `_pc4context` 152 and 152, `_pc6ask` 74 and
+  70, `_pc9menus` 86 and 76, `_ac3` 48 and 48, `_popout_roster` 146, `_storymenus` 88, `_polity` 39, and `_petabs`,
+  `_pechronos`, `_exitbuttons`, `_wingrip`, `_winstale`, `_winsweep`, `_wincap`, `_townplan`, `_tariff`, `_currency`,
+  `_focusbug` all green. Three fail with the same checks on origin/main, so not PC-7's: `_popout_windows` (1, "feature
+  off: Send is disabled with its reason in the native window"), `_factionhub` (3, its FH8 and RF03 preconditions) and
+  `_wiredfix` (2, Pack metadata… and the Asset Library). Updated to PC-7's form: `_storylists` (a Conflicts row press
+  keeps the window open on the desktop; 21 green; it failed that one check before the update, by design).
+  `cargo test --workspace --no-fail-fast` (no Rust changed): 265 result lines, 7 770 passed, 0 failed, 144 ignored.
+- **Not in PC-7, stated:** §3.6's one host with a back stack (W2); the roster's "Capital: X" as a link (F3); the
+  refresh items (W7); whether Find's results draw above a window that overlaps them (Ctrl+F itself works from a window).
+  The assistant's window, the vault and every other window stay modal (the assistant is not in §3.6's list, so PC-6's
+  "close that window to bring it back" still holds).
+
 ### PC-6 built (its core): the assistant docked as the Context panel's Ask tab, with the selection and the year (2026-11-08)
 
 `PC_SHELL_PROPOSAL.md` §3.5, §6 (PC-6 and its build note); Rulings DY (PQ5), DX; `LLM_ASSISTANT_SCOPE.md`'s source and consent rules.

@@ -59,6 +59,11 @@ const TOGGLE_SETTLE_FRAMES := 3
 ## judgement**: wider than the natural minimum of either label ("Pop out" measured 81 px with the DCC button padding, "Dock" is
 ## shorter, `_popout_roster_probe.gd` asserts both) so the label change never moves the button or, through
 ## the balance, Close; the probe pins the two widths equal.
+## **Holds only in a header row** (`add_toggle_button`'s `header_row`). In the dialog's own button row it
+## does not stick: `AcceptDialog` resets the custom minimum size of every `Button` in that row when its theme
+## applies (theme constant `buttons_min_width`, 0 here), measured in PC-7 (`context_window.gd`, the chip's
+## holder note) as a custom minimum of (0, 0) by the first draw. That, not a scale, is why the button lays out
+## at its natural 81 px; the balance below follows the laid-out width, so Close holds either way.
 const BUTTON_MIN_W := 84
 
 const _META_PREPARED := "_popout_prepared"
@@ -362,7 +367,9 @@ static func add_toggle_button(dlg: AcceptDialog, header_row: BoxContainer = null
 		row.move_child(balance, row.get_child_count() - 2)
 	## The balance must equal the button's LAID-OUT width, not the constant: measured, the button lays out
 	## 3 px narrower than `BUTTON_MIN_W` asks (81 against 84) and an equal-constant balance moved Close
-	## by 1.5 px. So the balance follows the button's own size.
+	## by 1.5 px. So the balance follows the button's own size. (PC-7 found why: `AcceptDialog` clears a
+	## row Button's custom minimum when its theme applies; see `BUTTON_MIN_W`. The balance is a `Control`,
+	## so its own width holds.)
 	b.resized.connect(func() -> void: balance.custom_minimum_size.x = b.size.x)
 	b.name = BUTTON_NAME
 	b.tooltip_text = "Opens this panel in its own window, for a second monitor. Press again to dock it back."

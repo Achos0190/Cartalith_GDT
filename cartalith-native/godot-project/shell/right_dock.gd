@@ -1245,8 +1245,10 @@ func _ensure_ask_frame(scroll: Control) -> void:
 ## PC-6. Redraws the Ask tab: the panel header (the subject, the pin, the tabs) and the conversation,
 ## which `LlmAssistantWindow.present_in()` moves here without rebuilding it. While the conversation is
 ## in its own window ("Open in a window") the tab says so: closing that window brings it back. No button
-## here does it, because the window is exclusive until PC-7 (§3.6) and a click on the dock would not
-## reach one (measured in `_pc6ask_probe`, 2026-11-08). A no-op unless
+## here does it, because the window is exclusive and a click on the dock would not reach one (measured
+## in `_pc6ask_probe`, 2026-11-08). PC-7 (§3.6) made five context windows non-blocking; the
+## assistant's window is not one of them (its list is the roster, the Place editor, the City viewer,
+## Conflicts and Saved journeys), so this still holds. A no-op unless
 ## the Ask tab is the one shown. Called on every `_rebuild()` (the header follows the selection and
 ## the pin; the conversation, already here, is left alone) and by the assistant when its window
 ## closes. `present` (a tab switch, an open) also refreshes the conversation from the live app and

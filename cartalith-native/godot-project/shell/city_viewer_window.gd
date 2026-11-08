@@ -65,6 +65,8 @@ class_name CityViewerWindow
 ## run would fail to parse this file. `viewport_host.gd`'s `OVERLAY_SCRIPT`
 ## and `layers_popover.gd`'s `FLOW_FX_SCRIPT` are here for the same reason.
 const DRAW := preload("res://shell/urban_layout_draw.gd")
+## PC-7: the non-blocking, follow-until-pinned rules shared by the five context windows.
+const ContextWindow := preload("res://shell/context_window.gd")
 
 ## The engine bridge, set by `setup()`. Source of the settlement list and the
 ## per-settlement layouts; this window never mutates the world except through
@@ -165,6 +167,10 @@ func setup(b: EngineBridge, host = null) -> void:
 	## form only. A move re-shows this node and never calls `open()`, so the chosen place and the canvas
 	## stay as they were.
 	PopoutHost.add_toggle_button(self)
+	## PC-7 (`PC_SHELL_PROPOSAL.md` §3.6): on the desktop the viewer no longer blocks the map, and it
+	## shows the selected settlement until its FOLLOWING chip pins it (`follow_selection()`). The
+	## phone and the tablet keep the modal window (`ContextWindow.applies()`).
+	ContextWindow.make_context(self, host, true)
 
 	var outer: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -260,6 +266,13 @@ func setup(b: EngineBridge, host = null) -> void:
 
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _reload())
 	bridge.world_loaded.connect(func(): if visible: _reload())
+	## PC-7 (finding: no window listened to the year). The town is the engine's at the year shown
+	## (its class and population come from the snapshot `civ_goto_year` loaded), so a move of the year
+	## re-reads it while the window is open, keeping the user's zoom and pan (`_reload(true)`).
+	## Coalesced to one read per frame (`_year_queued`), since a scrub or Animate moves the year many
+	## times a second. Desktop only, like the rest of PC-7.
+	if ContextWindow.applies(host) and host.has_signal("timeline_changed"):
+		host.timeline_changed.connect(_on_year_moved)
 
 
 ## One 44 dp step of the wheel, for the pointer gesture a phone does not have.
@@ -289,8 +302,37 @@ func _zoom_by(factor: float, anchor: Vector2) -> void:
 	_canvas.queue_redraw()
 
 
+## True while a year re-read is queued for the next idle frame (`_on_year_moved`).
+var _year_queued := false
+
+## PC-7. `timeline_changed`: one re-read per frame while visible, none while a generation runs.
+func _on_year_moved() -> void:
+	if not visible or _year_queued:
+		return
+	_year_queued = true
+	(func() -> void:
+		_year_queued = false
+		if visible and not bool(bridge.generating):
+			_reload(true)).call_deferred()
+
+## PC-7. Called by `ContextWindow` when the selection moves while this viewer is visible and
+## FOLLOWING: a settlement selection shows that town; any other kind (or none) leaves the viewer on
+## its town. It holds no change of its own to lose (its Town plan setters write at once), so it has
+## no `held_changes()`.
+func follow_selection(sel: Dictionary) -> void:
+	if String(sel.get("kind", "")) != "settlement":
+		return
+	var idx := int(sel.get("id", -1))
+	if idx < 0 or idx == _index:
+		return
+	_index = idx
+	_refill_picker()
+	_reload()
+
 ## Opens on one settlement, by its index in `bridge.settlements()`.
 func open(index: int) -> void:
+	## PC-7: every open follows again; the caller named the town.
+	ContextWindow.reset_on_open(self)
 	_index = index
 	_refill_picker()
 	_reload()
@@ -322,7 +364,10 @@ func _on_pick(item: int) -> void:
 ## Re-asks the engine for this settlement's layout, resets the camera and rebuilds
 ## the column. Also run when a generation finishes or a world loads while the
 ## window is open, so it can never show a layout from a replaced world.
-func _reload() -> void:
+## `keep_view` (PC-7, a year move): the camera keeps the user's zoom and pan, because the town is the
+## same town in another year and resetting the view on every step of a scrub would throw away where
+## the user was looking.
+func _reload(keep_view := false) -> void:
 	_layout = {}
 	_settlement = {}
 	var places := bridge.settlements()
@@ -332,7 +377,10 @@ func _reload() -> void:
 		if got.size() > 0:
 			_layout = got[0]
 	_title_label.text = String(_settlement.get("name", "—"))
-	_reset_view()
+	if keep_view:
+		_canvas.queue_redraw()
+	else:
+		_reset_view()
 	_rebuild_side()
 
 

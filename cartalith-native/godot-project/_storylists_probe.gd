@@ -292,9 +292,13 @@ func _ready() -> void:
 		sel.pressed.emit()
 		await _frames(6)
 		var rd = app.right_dock_ctrl
-		_check("a row press closes the window and selects the conflict in the right dock",
-			not cw.visible and String(rd.get("_context")) == "conflict" and int(rd.get("_conflict_id")) == target,
-			"%s %s" % [rd.get("_context"), rd.get("_conflict_id")])
+		## PC-7 (`PC_SHELL_PROPOSAL.md` §3.6): on the desktop the window no longer blocks the map, so a
+		## row press leaves it open and marks the row; it still closes where it stays modal (the phone and
+		## the tablet, `context_window.gd::applies()`).
+		var modal_form := DccTheme.is_phone() or DccTheme.is_tablet()
+		_check("a row press %s the window and selects the conflict in the right dock" % ("closes" if modal_form else "keeps open"),
+			cw.visible == (not modal_form) and String(rd.get("_context")) == "conflict" and int(rd.get("_conflict_id")) == target,
+			"%s %s visible=%s" % [rd.get("_context"), rd.get("_conflict_id"), str(cw.visible)])
 		await _shot("conflict_selected")
 	else:
 		_check("the ongoing conflict's row has its select button", false)

@@ -193,6 +193,9 @@ const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet
 ## artboard header, after the five Batches A-D already shipped (Overview /
 ## Economy & notables / Timeline / Political history / Vault notes).
 const TAB_ORDER := ["overview", "economy", "timeline", "political", "vault", "layout"]
+
+## PC-7: the non-blocking, follow-until-pinned rules shared by the five context windows.
+const ContextWindow := preload("res://shell/context_window.gd")
 ## Display text for each key in `TAB_ORDER`; every tab key needs an entry.
 const TAB_LABELS := {
 	"overview": "Overview",
@@ -295,6 +298,10 @@ func setup(a, b: EngineBridge) -> void:
 	## form only. `PopoutHost.toggle()` hides, flips and re-shows THIS node (never `open_for`), so the
 	## place, the active tab and a half-typed field survive the move.
 	PopoutHost.add_toggle_button(self)
+	## PC-7 (`PC_SHELL_PROPOSAL.md` §3.6): on the desktop the editor no longer blocks the map, and it
+	## shows the selected settlement until its FOLLOWING chip pins it (`follow_selection()`). The
+	## phone and the tablet keep the modal window (`ContextWindow.applies()`).
+	ContextWindow.make_context(self, a, true)
 
 	## One column rather than the scroll directly, so the phone header has
 	## somewhere to sit. An `AcceptDialog` gives its *first* content child the
@@ -353,13 +360,24 @@ func setup(a, b: EngineBridge) -> void:
 	## the strip's, CIVIL's, or this window's own chips -- redraws it while it is open. Like the
 	## two handlers above it is `_rebuild()`, never `open_for()`, so no focused field is committed
 	## against a year it was not typed for.
+	##
+	## PC-7: a field the user is typing in (the name, the history) is not torn down by a year move: its
+	## rebuild waits until the field gives up the focus, when its own commit has run
+	## (`ContextWindow.defer_while_typing()`). Before PC-7 the window was modal, so the year could not
+	## move under a focused field; now it can, and a rebuild would drop the text under `_rebuilding`.
+	## Nothing is read while a generation runs (the engine is the worker's; `generation_finished`
+	## rebuilds).
 	if app != null and app.has_signal("timeline_changed"):
-		app.timeline_changed.connect(func(): if visible and _index >= 0: _rebuild())
+		app.timeline_changed.connect(func():
+			if visible and _index >= 0 and not bool(bridge.generating):
+				ContextWindow.defer_while_typing(self, func() -> void: if _index >= 0: _rebuild()))
 
 
 ## `_civOpenPlacePopup`: opens on the settlement at `index` into
 ## `get_settlements()`'s own array.
 func open_for(index: int) -> void:
+	## PC-7: every open follows again; the caller named the place.
+	ContextWindow.reset_on_open(self)
 	## PE-01: flush whatever the currently-open form has focused, against the
 	## settlement it belongs to, before `_index` moves. Without this an editor
 	## re-opened on a different place from the map committed the old form's
@@ -368,13 +386,7 @@ func open_for(index: int) -> void:
 	_index = index
 	## A half-typed event, and the last add's outcome, belong to the place they
 	## were typed against -- not to the next one opened.
-	_ae_end = ""
-	_ae_name = ""
-	_ae_desc = ""
-	_ae_color = ""
-	_ae_group = ""
-	_ae_msg = ""
-	_ae_conflict = false
+	_clear_event_draft()
 	## Every place opens on Overview -- the tab the name field (and §4.5.3's
 	## own "focused on the name field" request, just below) lives on. Without
 	## this an editor left on, say, Vault notes from the previous place would
@@ -592,6 +604,50 @@ func _switch_tab(tab: String) -> void:
 ## does for a click on the tab strip. An unknown key leaves the editor on
 ## Overview rather than on a tab that does not exist; a negative index opens
 ## nothing (`open_for`'s own rule).
+## PC-7. Called by `ContextWindow` when the selection moves while this editor is visible and
+## FOLLOWING: a settlement selection opens it here, on the tab already shown; any other kind (or none)
+## leaves the editor on its place, since there is no settlement to follow to. Unlike `open_for()` it
+## grabs no focus (the user is working on the map, and a focused name field would take the next key
+## typed there) and raises nothing. The focused field is committed first against the place it was
+## typed for (PE-01, the shipped switch path). An unsubmitted event never reaches here: it is a held
+## change (`held_changes()`), which pins the window instead.
+func follow_selection(sel: Dictionary) -> void:
+	if String(sel.get("kind", "")) != "settlement":
+		return
+	var idx := int(sel.get("id", -1))
+	if idx < 0 or idx == _index:
+		return
+	_commit_focused_field()
+	_index = idx
+	_clear_event_draft()
+	_rebuild()
+
+## PC-7. What this editor holds that a follow would discard: an "Add authored event" draft with any
+## text in it (written only by its Add button, and it belongs to the place it was typed for:
+## `open_for()` clears it). `""` when nothing. The start year alone is not a draft: it is a number
+## field that always holds a value.
+func held_changes() -> String:
+	for t in [_ae_end, _ae_name, _ae_desc, _ae_color, _ae_group]:
+		if String(t).strip_edges() != "":
+			return "an unsaved event for %s" % String(_settlement().get("name", "this place"))
+	return ""
+
+## PC-7. The user agreed to follow (`ContextWindow.follow()` asked): drops the event draft.
+func discard_held_changes() -> void:
+	_clear_event_draft()
+
+## The "Add authored event" draft and its last message, emptied: what `open_for()` does for a new
+## place and a follow does for the next one.
+func _clear_event_draft() -> void:
+	_ae_end = ""
+	_ae_name = ""
+	_ae_desc = ""
+	_ae_color = ""
+	_ae_group = ""
+	_ae_msg = ""
+	_ae_conflict = false
+
+
 func open_for_tab(index: int, tab: String) -> void:
 	open_for(index)
 	if _index >= 0 and TAB_ORDER.has(tab):
