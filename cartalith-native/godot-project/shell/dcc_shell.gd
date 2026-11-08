@@ -917,6 +917,13 @@ func _ready() -> void:
 	if left_dock != null and right_dock != null:
 		_run_dock_fit()
 		get_tree().node_added.connect(_on_dock_node_added)
+	## **Windows are walked too.** Only docks were: `phone_fit()` / `tablet_arbitrate()` reach a
+	## window only where the window's own file calls them, and `quick_bar_window.gd` (an
+	## `ItemList` catalogue), `gen_info_dialog.gd` (a `TextEdit`) and the credits and roster
+	## windows never did, so none of the central touch-scroll fixes reached them (measured:
+	## `_phonescroll_probe.gd --only Customise`, 0 px). One hook, every touch composition.
+	if _phone or DccTheme.is_tablet():
+		get_tree().node_added.connect(_on_window_node_added)
 
 	get_tree().root.size_changed.connect(_on_window_resized)
 	_select_domain(_active_domain)
@@ -3066,6 +3073,10 @@ func _touch_arbitrate(ctl: Control, unit: float) -> void:
 		## `DccWidgets.PgSpin`. Same slop as the field and slider; stock
 		## wheel/mouse stay untouched (see `PgSpin`'s gates).
 		DccWidgets.touch_spinbox(ctl as SpinBox, 8.0 * unit)
+	## **Superseded 2026-11-08 for the READ-ONLY `TextEdit` (and `ItemList`, passive cards, popups):**
+	## `_touch_scroll_arbitrate()` below gives them the central touch scroll; an editable `TextEdit`
+	## stays as the next paragraph says.
+	_touch_scroll_arbitrate(ctl, unit)
 	## `TextEdit` is deliberately not in that list. It is the other
 	## touch-DOWN text class, but it carries its OWN vertical scroll, so
 	## "give the vertical to the ancestor" is the wrong answer for it
@@ -3086,6 +3097,50 @@ func _touch_arbitrate(ctl: Control, unit: float) -> void:
 	if ctl is ScrollContainer:
 		(ctl as ScrollContainer).scroll_deadzone = maxi(
 			PHONE_SCROLL_DEADZONE, int(round(PHONE_SCROLL_DEADZONE * unit)))
+
+## **Central touch scroll (Ruling BK; `OUTSTANDING_WORK.md` "Central touch-scroll fix")**: the three
+## fixes that stop a drag reaching the scroller above it, split out of `_touch_arbitrate()` so the
+## window hook (`_on_window_node_added()`) can apply THEM ALONE. The rest of `_touch_arbitrate()`
+## (slider, button and field arbitration) stays opt-in per window through the window's own
+## `phone_fit()` call, deliberately: a field parked at `FOCUS_NONE` refuses a programmatic
+## `grab_focus()`, and the first version of the window hook applied all of it to the vault editor and
+## broke `_ve5_probe.gd` on the phone (66 of 90 checks and a script error at the property form; the
+## origin/main tree passes 90). Idempotent: each helper guards itself.
+##
+## `unit` scales the 8 dp slop (Android's `ViewConfiguration.getScaledTouchSlop()`) like the slider's:
+##
+## * a passive STOP card, colour rect, label or non-scrolling text block becomes PASS
+##   (`DccWidgets.touch_passive()`). The `PanelContainer` the arbitration used to leave alone "because
+##   several carry their own `gui_input`" is handled by that function's own gate (no listener, no
+##   handler script) instead of by skipping the class. Measured at 393x852 on the CARTO domain sheet:
+##   every one of 12 repeated strokes that started on a theme chip was swallowed by the STOP
+##   `PanelContainer` holding the chip, the `Button` inside it being PASS already.
+## * an `ItemList` or read-only `TextEdit` gets a touch-scroll proxy (`DccWidgets.touch_list()`):
+##   the engine scrolls neither by touch.
+## * an `OptionButton`/`MenuButton` popup gets the same proxy (`DccWidgets.touch_popup()`):
+##   `PopupMenu` picks an item on touch and cannot be dragged. The popup is an internal child, which
+##   `get_children()` (the walks' iterator) never visits, so it is asked for by name here.
+func _touch_scroll_arbitrate(ctl: Control, unit: float) -> void:
+	DccWidgets.touch_passive(ctl)
+	if ctl is ItemList or ctl is TextEdit:
+		DccWidgets.touch_list(ctl, 8.0 * unit)
+	if ctl is OptionButton:
+		DccWidgets.touch_popup((ctl as OptionButton).get_popup(), 8.0 * unit)
+	elif ctl is MenuButton:
+		DccWidgets.touch_popup((ctl as MenuButton).get_popup(), 8.0 * unit)
+
+## Stamp for `_touch_scroll_walk()`; its own key, so a window already walked by `phone_fit()` (which
+## stamps nothing) and a node stamped by `_touch_arbitrate_walk()` are both still visited once here.
+const _TOUCH_SCR_META := "_touch_scroll_walked"
+
+## Recursive worker for the window hook: `_touch_scroll_arbitrate()` on every `Control` under `node`
+## exactly once (guarded by `_TOUCH_SCR_META`).
+func _touch_scroll_walk(node: Node, unit: float) -> void:
+	for child in node.get_children():
+		if child is Control and not child.has_meta(_TOUCH_SCR_META):
+			child.set_meta(_TOUCH_SCR_META, true)
+			_touch_scroll_arbitrate(child as Control, unit)
+		_touch_scroll_walk(child, unit)
 
 # -- §13 Tablet interior ------------------------------------------------------
 #
@@ -3154,6 +3209,33 @@ func _touch_arbitrate_walk(node: Node, unit: float) -> void:
 			child.set_meta(_TOUCH_ARB_META, true)
 			_touch_arbitrate(child as Control, unit)
 		_touch_arbitrate_walk(child, unit)
+
+## Windows (other than popups) with an arbitration pass already queued, by instance id, so
+## a window that adds three hundred controls queues one pass, not three hundred.
+var _win_arb_pending := {}
+
+## `node_added` hook (phone and tablet): when a `Control` arrives inside a `Window` that is
+## not the shell's own viewport and not a `Popup` (dropdown lists are handled by their
+## owner's `touch_popup()`), queues ONE deferred `_touch_scroll_walk()` of that window.
+## `unit` is 1.0: a window is content-scaled, and the 8 dp slop is in the window's own
+## pixels (the rule `_touch_arbitrate()`'s header gives for windows).
+func _on_window_node_added(node: Node) -> void:
+	if not (node is Control):
+		return
+	var vp := node.get_viewport()
+	if not (vp is Window) or vp is Popup or vp == get_viewport():
+		return
+	var id := vp.get_instance_id()
+	if _win_arb_pending.has(id):
+		return
+	_win_arb_pending[id] = true
+	_run_window_arbitrate.call_deferred(vp as Window)
+
+## Deferred body of `_on_window_node_added()`; tolerates a window freed in between.
+func _run_window_arbitrate(w: Window) -> void:
+	_win_arb_pending.erase(w.get_instance_id() if is_instance_valid(w) else 0)
+	if is_instance_valid(w):
+		_touch_scroll_walk(w, 1.0)
 
 ## The tablet half of `_on_phone_node_added()`, and the reason the census
 ## number was 224 rather than 0: every workspace panel is attached to a dock

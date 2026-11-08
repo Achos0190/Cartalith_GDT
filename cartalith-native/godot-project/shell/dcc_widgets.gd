@@ -2678,6 +2678,262 @@ static func touch_spinbox(sb: SpinBox, slop_px: float) -> bool:
 	sb.set("slop", maxf(1.0, slop_px))
 	return true
 
+## # Central touch scroll (Ruling BK annotated; `OUTSTANDING_WORK.md` "Central touch-scroll fix")
+##
+## **The one mechanism behind the rest of the touch-scroll fixes**, kept here
+## beside `PgSlider`/`touch_release_button()` so the three gesture families
+## (value controls, buttons, and now scrollers/lists/popups) live in one file.
+## `DccShell._touch_arbitrate()` is the single call site, so the phone's docks and
+## windows (`phone_fit()`) and the tablet's docks (`tablet_arbitrate()`) both get
+## it and a desktop pointer never does.
+##
+## **What the engine does, measured on 4.7.2 in `_phonescroll_probe.gd`
+## (`ANDROID_BUILD_SCOPE.md` 3.13):** a touch drag is delivered to the control
+## under the finger and bubbles to its parent only while that control's
+## `mouse_filter` is not STOP, so every STOP control under a `ScrollContainer`
+## ends the gesture and the scroller never arms. `RichTextLabel` and `Tree`
+## scroll themselves by touch; `ItemList` and `TextEdit` do not; `PopupMenu`
+## activates an item on `InputEventScreenTouch` (touch-DOWN) and has no drag
+## scroll. Three tools answer that:
+##
+## * `touch_passive()` -- a passive STOP node (card, colour rect, text image)
+##   becomes PASS so the drag reaches the scroller. Gated on "no `gui_input`
+##   listener and no script": a node that handles input on purpose keeps STOP.
+## * `TouchScroll` on an `ItemList`/`TextEdit` -- the control scrolls itself
+##   first, then hands the remainder to the nearest vertical `ScrollContainer`
+##   above it, because the engine gives it no touch scroll at all.
+## * `TouchScroll` on a `PopupMenu` -- swallows the touch events (the
+##   touch-DOWN activation) and scrolls the popup's own scroller; a tap still
+##   selects on release through the emulated mouse press/release, which
+##   `project.godot` leaves on (`emulate_mouse_from_touch`).
+##
+## **Stated costs, not hidden:** no inertia on a list or popup scrolled this way
+## (the stock `ScrollContainer` keeps its fling everywhere else), and an
+## `ItemList` still selects the row under the first press (its own mouse
+## handling runs after this proxy and cannot be vetoed from a signal).
+##
+## The slop is Android's `ViewConfiguration.getScaledTouchSlop()` = 8 dp, the
+## same figure `PgSlider.slop` carries; the caller passes it in the pixels the
+## surface lays out in, scaled by `phone_fit()`'s `unit`.
+class TouchScroll extends RefCounted:
+	## The list, text box or popup being scrolled.
+	var target: Object
+	## Distance the finger must travel before the gesture counts as a scroll.
+	var slop := 8.0
+	## True from the gesture crossing `slop` until the next press.
+	var scrolling := false
+	var _down := false
+	var _last_y := 0.0
+	var _origin := Vector2.ZERO
+	var _anc: ScrollContainer
+	var _anc_f := 0.0
+	var _te_f := 0.0
+
+	## Gui-input entry point for an `ItemList`/`TextEdit` (connected to `gui_input`).
+	func on_control_input(ev: InputEvent) -> void:
+		var c := target as Control
+		if c != null:
+			_feed(ev, c.get_global_transform_with_canvas())
+
+	## `window_input` entry point for a `PopupMenu`. The events are only OBSERVED, and
+	## three ways of vetoing the pick were measured on 4.7.2 before this one:
+	## `set_input_as_handled()` here (a 12-step drag still picked a row: the viewport
+	## clears the flag as it starts routing the event itself), a mouse filter of
+	## IGNORE on the popup's item surface (`PopupMenuItems`; it still picked), and
+	## swallowing the emulated mouse events (same). What works is the popup's own
+	## rule that a DISABLED item cannot be activated: when the gesture becomes a
+	## scroll every enabled item is disabled, with `font_disabled_color` set to the
+	## enabled colour so nothing shows, and the items are given back 80 ms after the
+	## finger lifts -- past both release events -- or at the next press. A tap never
+	## crosses the slop, so it selects on release exactly as before.
+	func on_popup_input(ev: InputEvent) -> void:
+		var pm := target as PopupMenu
+		if pm == null:
+			return
+		if ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed:
+			_restore_items(pm)
+		if ev is InputEventScreenTouch or ev is InputEventScreenDrag:
+			var was := scrolling
+			_feed(ev, Transform2D.IDENTITY)
+			if scrolling and not was:
+				_veto_items(pm)
+			if ev is InputEventScreenTouch and not (ev as InputEventScreenTouch).pressed and not _vetoed.is_empty():
+				pm.get_tree().create_timer(0.08).timeout.connect(_restore_items.bind(pm))
+
+	## Item indices this proxy disabled for the current scroll, and the colour override it set.
+	var _vetoed: Array = []
+
+	## Disables every enabled, non-separator item without changing how it looks.
+	func _veto_items(pm: PopupMenu) -> void:
+		if not _vetoed.is_empty():
+			return
+		pm.add_theme_color_override("font_disabled_color", pm.get_theme_color("font_color"))
+		for i in pm.item_count:
+			if not pm.is_item_disabled(i) and not pm.is_item_separator(i):
+				pm.set_item_disabled(i, true)
+				_vetoed.append(i)
+
+	## Gives the items back; a no-op when nothing is vetoed, safe if the popup was freed.
+	func _restore_items(pm: PopupMenu) -> void:
+		if _vetoed.is_empty() or not is_instance_valid(pm):
+			return
+		for i in _vetoed:
+			if i < pm.item_count:
+				pm.set_item_disabled(i, false)
+		_vetoed.clear()
+		pm.remove_theme_color_override("font_disabled_color")
+
+	func _feed(ev: InputEvent, xf: Transform2D) -> void:
+		if ev is InputEventScreenTouch:
+			var t := ev as InputEventScreenTouch
+			if t.pressed:
+				_down = true
+				scrolling = false
+				_origin = xf * t.position
+				_last_y = _origin.y
+				_anc = null
+				if target is Control:
+					_anc = DccWidgets.vertical_scroller_above(target as Node)
+				_anc_f = float(_anc.scroll_vertical) if _anc != null else 0.0
+				if target is TextEdit:
+					_te_f = (target as TextEdit).scroll_vertical
+			else:
+				## `scrolling` stays set until the next press so the popup path can
+				## still swallow the emulated mouse release that follows.
+				_down = false
+		elif ev is InputEventScreenDrag and _down:
+			var p := xf * (ev as InputEventScreenDrag).position
+			if not scrolling:
+				if p.distance_to(_origin) < slop:
+					return
+				scrolling = true
+				_last_y = p.y
+			var dy := p.y - _last_y      ## > 0: finger moved down, content follows.
+			_last_y = p.y
+			_scroll_by(-dy)
+
+	## Scrolls `amount` px (positive = further down the content): the target first,
+	## whatever it could not take goes to the ancestor scroller.
+	func _scroll_by(amount: float) -> void:
+		var left := amount
+		if target is ItemList:
+			left = _bar((target as ItemList).get_v_scroll_bar(), left, 1.0)
+		elif target is TextEdit:
+			var te := target as TextEdit
+			## Lines, accumulated here as a float and written through `scroll_vertical`: the
+			## bar's own value is re-synced to a whole line by the box whenever it is written
+			## in fractions, which fought every step of the drag (measured, 4.7.2).
+			var lh := float(maxi(1, te.get_line_height()))
+			var bar := te.get_v_scroll_bar()
+			var top := maxf(0.0, bar.max_value - bar.page)
+			var want := clampf(_te_f + left / lh, 0.0, top)
+			left -= (want - _te_f) * lh
+			_te_f = want
+			te.scroll_vertical = want
+			## Keep the (invisible) caret on a visible line without scrolling to it. Measured on
+			## 4.7.2: with the caret left on line 0, the view snapped back to it as soon as the
+			## gesture ended and the whole scroll was lost (bar written to 12.7, read back 0.0).
+			te.set_caret_line(te.get_first_visible_line(), false)
+		elif target is PopupMenu:
+			var sc := _popup_scroller(target as PopupMenu)
+			if sc != null:
+				var before := sc.scroll_vertical
+				sc.scroll_vertical = before + int(round(left))
+				left -= float(sc.scroll_vertical - before)
+		if absf(left) >= 0.5 and _anc != null:
+			_anc_f += left
+			_anc.scroll_vertical = int(round(_anc_f))
+			_anc_f = float(_anc.scroll_vertical)
+
+	## The `ScrollContainer` inside a `PopupMenu`. 4.7.2 nests it three internal levels down
+	## (PanelContainer > VBoxContainer > [search LineEdit, ScrollContainer], measured in
+	## `_touchscroll_probe.gd`), so it is searched for, including internal children.
+	func _popup_scroller(pm: PopupMenu) -> ScrollContainer:
+		var st: Array = [pm]
+		while not st.is_empty():
+			var cur: Node = st.pop_back()
+			for g in cur.get_children(true):
+				if g is ScrollContainer:
+					return g as ScrollContainer
+				st.append(g)
+		return null
+
+	## Moves a scroll bar by `px / unit` (its own unit: px for an `ItemList`, lines
+	## for a `TextEdit`) and returns the px it could not take.
+	func _bar(bar: ScrollBar, px: float, unit: float) -> float:
+		var before := bar.value
+		bar.value = before + px / unit
+		return px - (bar.value - before) * unit
+
+## Passive STOP node -> PASS, so a drag that starts on it bubbles to the scroller.
+##
+## `RichTextLabel` is included only with `scroll_active` off: an active one scrolls
+## itself by touch and must keep the event. Everything is gated on a vertical
+## scroller above, on no `gui_input` listener and on no script (a node that
+## handles input on purpose keeps STOP). Returns whether it changed anything.
+static func touch_passive(c: Control) -> bool:
+	if c == null or c.mouse_filter != Control.MOUSE_FILTER_STOP:
+		return false
+	if not (c is PanelContainer or c is Panel or c is ColorRect or c is TextureRect 			or c is NinePatchRect or c is Label or c is RichTextLabel or c.get_class() == "Control"):
+		return false
+	## A `RichTextLabel` that sizes itself to its text (`fit_content`) never has a scroll of its
+	## own to give; one that scrolls (`scroll_active` on, fixed height) keeps the event.
+	if c is RichTextLabel and (c as RichTextLabel).scroll_active and not (c as RichTextLabel).fit_content:
+		return false
+	## A script is a reason to keep STOP only if it handles input (`faction_banner.gd` is a drawn
+	## `Control` with a script and no handler, and was swallowing every drag over it).
+	if c.get_script() != null and c.has_method("_gui_input"):
+		return false
+	## A listener counts only if some OTHER object connected it. The engine wires a few of its own
+	## controls to themselves, and a `RichTextLabel` is listened to by its own `ScrollBar` (`drag_node`
+	## forwarding, measured `ScrollBar::_drag_node_input` in `_touchscroll_probe.gd`); neither is a handler.
+	for conn in c.get_signal_connection_list("gui_input"):
+		var owner_obj := (conn["callable"] as Callable).get_object()
+		if owner_obj != c and not (owner_obj is ScrollBar):
+			return false
+	if vertical_scroller_above(c) == null:
+		return false
+	c.mouse_filter = Control.MOUSE_FILTER_PASS
+	return true
+
+## Gives an `ItemList` or a READ-ONLY `TextEdit` the touch scroll the engine lacks. A list
+## with no scroller above it still scrolls itself, so this is not gated on one.
+static func touch_list(c: Control, slop_px: float) -> bool:
+	if c == null or c.has_meta("_touch_scroll"):
+		return false
+	if c is TextEdit:
+		## An EDITABLE text area keeps stock handling: a drag in it means "select", and its caret
+		## would pull the view back anyway. A READ-ONLY one (credits, generation info, diagnostics)
+		## has nothing to select that a finger needs, and measured on 4.7.2 its emulated mouse drag
+		## runs `adjust_viewport_to_caret` after every step and undoes each scroll this proxy makes
+		## (bar written, value read back 0.0). Selecting is therefore switched off for it; the
+		## cost, stated: no touch selection or copy in a read-only text box on the phone.
+		var te := c as TextEdit
+		if te.editable:
+			return false
+		te.selecting_enabled = false
+		te.focus_mode = Control.FOCUS_NONE
+		te.drag_and_drop_selection_enabled = false
+		te.context_menu_enabled = false
+	var ts := TouchScroll.new()
+	ts.target = c
+	ts.slop = maxf(1.0, slop_px)
+	c.set_meta("_touch_scroll", ts)       ## Keeps the RefCounted alive with the node.
+	c.gui_input.connect(ts.on_control_input)
+	return true
+
+## Gives a `PopupMenu` (an `OptionButton`'s or `MenuButton`'s list) release-select
+## and a touch drag scroll. See `TouchScroll.on_popup_input`.
+static func touch_popup(pm: PopupMenu, slop_px: float) -> bool:
+	if pm == null or pm.has_meta("_touch_scroll"):
+		return false
+	var ts := TouchScroll.new()
+	ts.target = pm
+	ts.slop = maxf(1.0, slop_px)
+	pm.set_meta("_touch_scroll", ts)
+	pm.window_input.connect(ts.on_popup_input)
+	return true
+
 ## **Repaint-on-palette-flip**, for the two inputs whose appearance is carried
 ## by something `DccShell`'s recolour walks cannot reach: an `ImageTexture`
 ## (nothing can reach inside one -- `_style_popup_marks()` above carries the

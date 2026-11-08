@@ -174,7 +174,8 @@ func _offset(c: Control) -> float:
 	if c is Tree:
 		return (c as Tree).get_scroll().y
 	if c is TextEdit:
-		return (c as TextEdit).get_v_scroll_bar().value
+		## Lines, not pixels: scaled by the line height so MIN_MOVE means the same for every scroller kind.
+		return (c as TextEdit).get_v_scroll_bar().value * float(maxi(1, (c as TextEdit).get_line_height()))
 	if c is RichTextLabel:
 		return (c as RichTextLabel).get_v_scroll_bar().value
 	return 0.0
@@ -188,7 +189,7 @@ func _set_offset(c: Control, v: float) -> void:
 	elif c is Tree:
 		(c as Tree).scroll_to_item((c as Tree).get_root()) if v == 0.0 and (c as Tree).get_root() != null else null
 	elif c is TextEdit:
-		(c as TextEdit).get_v_scroll_bar().value = v
+		(c as TextEdit).get_v_scroll_bar().value = v / float(maxi(1, (c as TextEdit).get_line_height()))
 	elif c is RichTextLabel:
 		(c as RichTextLabel).get_v_scroll_bar().value = v
 
@@ -226,7 +227,7 @@ func _overflow(c: Control) -> float:
 	if c is TextEdit:
 		var te := c as TextEdit
 		var b2 := te.get_v_scroll_bar()
-		return b2.max_value - b2.page
+		return (b2.max_value - b2.page) * float(maxi(1, te.get_line_height()))
 	if c is RichTextLabel:
 		var r := c as RichTextLabel
 		var b3 := r.get_v_scroll_bar()
@@ -330,7 +331,7 @@ func _try(s: Scroller, pt: Dictionary) -> Dictionary:
 		var chain := ""
 		var c: Node = pt["hit"]
 		while c is Control and c != s.node:
-			chain += "%s(f%d) < " % [c.get_class(), (c as Control).mouse_filter]
+			chain += "%s(f%d%s) < " % [c.get_class(), (c as Control).mouse_filter, ("" if (c as Control).mouse_filter != 0 else ",script=%s,conns=%s" % [c.get_script() != null, c.get_signal_connection_list("gui_input").size()])]
 			c = c.get_parent()
 		print("   DBG from=%s hit=%s chain=%s scroller_saw=%s moved=%.0f activated=%s" % [from, pt["sig"], chain, seen, moved, activated])
 	await _settle(2)
@@ -448,6 +449,12 @@ func _repeat_check(label: String, s: Scroller) -> void:
 		var good := moved * float(dir) >= 15.0
 		log += "%+.0f " % moved
 		if not good:
+			## Name the control the failing stroke started on (TSC 2026-11-08): a bare count hid that the culprit
+			## was a STOP PanelContainer behind a PASS button.
+			var st: Vector2 = _safe_start(s, starts[k % starts.size()])
+			var hn := _hit(s.win, st)
+			var par := _sig(hn.get_parent() as Control) if hn != null and hn.get_parent() is Control else "-"
+			log += "[@%s %s < %s] " % [st, _sig(hn), par]
 			bad += 1
 	_ok(bad <= 1, "%s: 12 repeated strokes (at most 1 ignored: a stroke that lands on a slider is the slider's) in both directions each move the list (%d ignored; offsets %s)" % [label, bad, log])
 
