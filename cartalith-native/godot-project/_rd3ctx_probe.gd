@@ -80,10 +80,15 @@ func _labels() -> Array:
 			out.append(n)
 	return out
 
+## Every Label's text, and since PC-4 every Inspect link's (`right_dock.gd::_link()`): a relation's
+## other party is a link Button there, carrying the `▸ ` mark this probe reads.
 func _texts() -> Array:
 	var out: Array = []
 	for l in _labels():
 		out.append((l as Label).text)
+	for b in _nodes():
+		if b is Button and (b as Node).has_meta("ctx_link"):
+			out.append((b as Button).text)
 	return out
 
 func _label_with(t: String) -> Label:

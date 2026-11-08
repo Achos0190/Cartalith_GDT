@@ -1669,11 +1669,15 @@ func refresh_conflicts() -> void:
 
 ## Selects conflict `id`: the right dock's Conflict context, and the map's
 ## selected stroke. `-1` clears the stroke only.
+##
+## **PC-4:** the dock half goes through the one selection path (`DccApp.select("conflict", id)`), so
+## the selection history and a pinned Context panel see it; it called `show_conflict()` directly.
+## The map's highlight stays here: it is the map's own mark, not a surface that keeps a selection.
 func select_conflict(id: int) -> void:
 	if app.viewport.overlay.has_method("set_selected_conflict"):
 		app.viewport.overlay.set_selected_conflict(id)
-	if id >= 0 and app.right_dock_ctrl.has_method("show_conflict"):
-		app.right_dock_ctrl.show_conflict(id)
+	if id >= 0:
+		app.select("conflict", id)
 
 ## Fills Military ▸ Conflicts from `conflict_list()` rows: one button per conflict (● active in the cursor's year, ○ not) that selects it in the right dock.
 ## A row without an end year reads "ongoing"; it is never shown as 0. An empty list shows how to draw one.
@@ -3261,7 +3265,8 @@ func _fill_population(parent: Control) -> void:
 				"%s -- %s over %d settlement%s (%.1f%%)" % [
 					String(fd.get("name", "?")), FactionRosterWindow._thousands(fpop),
 					sc, "" if sc == 1 else "s", share],
-				func(): app.right_dock_ctrl.show_faction(int(fd.get("id", 0))))
+				## PC-4: through the one selection path (was the dock's `show_faction()`).
+				func(): app.select("faction", int(fd.get("id", 0))))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			## The engine's own population field (`get_factions()`).
 			b.tooltip_text = "The faction's total population -- the sum of its settlements' population. Opens the faction in the right dock."
@@ -7344,7 +7349,8 @@ func _fill_manpower(parent: Control, factions: Array) -> void:
 			String(d.get("name", "?")), _head(float(m.get("standing_army", 0.0))),
 			_head(float(m.get("field_army", 0.0))),
 			_head(float(m.get("emergency_mobilization", 0.0)))],
-			func(): app.right_dock_ctrl.show_faction(f))
+			## PC-4: through the one selection path (was the dock's `show_faction()`).
+			func(): app.select("faction", f))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.tooltip_text = _manpower_tooltip(m)
 

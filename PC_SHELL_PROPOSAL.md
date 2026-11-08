@@ -591,6 +591,23 @@ clamp to -400..1200 would have loaded the wrong year's snapshot for them (PC-3's
 clamp's constant). The readers T2 lists that were missing were the right dock, the Place editor, CIVIL's pills and
 the territory texture; the assistant's context carries no year until PC-6. The probe is `_pc2year_probe`.
 
+PC-4 (2026-11-08) is the right dock itself, not a new node: `right_dock.gd` (`RightDock`) draws the header (◀ ▶ over
+the selection history, the subject's name and one line of facts, FOLLOWING or PINNED) and a tab strip holding INSPECT
+alone at the top of its body, and its existing context builders are Inspect. Note and Ask are absent, not drawn
+disabled: their tabs arrive with PC-5 and PC-6. Departures and judgements found while building: the dock is told the
+whole selection (`RightDock.on_selection()`), so faction, conflict and landmark selections are shown, and the map's
+landmark pick and CIVIL's faction and conflict rows became `select()` producers; a context that is not a selection (a
+route, a river, a measurement, a region, an ecoregion, the history ledger, an icon) releases a pin, because a pinned
+panel would otherwise hide a tool's reading; Reset panel shows the panel on Inspect, since the arrangement has nothing
+to reset until PC-10 (`context_module_registry()` stays empty, and the per-user `[context_panel]` store lands with the
+first module); the settlement page gained Political history (periods, holder and year links), Conflicts here and the
+three nearest neighbours, with a link to the Place editor's full tab so Story ▸ Political history of the selection
+loses nothing the shipped row opened; the faction page gained its capital, its settlements (twelve, largest first) and
+its conflicts; the conflict page gained Years and sides. The §3.3 page items not built are the AT YEAR block's "when
+it is founded", roads, **City viewer…** and **Plan a journey from here** as named actions (the dock's City layout link
+and Logistics already open both), edit mode (PQ9's quick fields), and moving the year when a conflict is picked
+(finding F7). The phone's sheet is unchanged (§3.11). The probe is `_pc4context_probe`.
+
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes
 `popout_host.gd`, which Ruling DK's PW-2 built. PC-8 and PW-4 re-host the planner, so they are one change (§3.7).

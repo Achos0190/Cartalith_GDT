@@ -47,6 +47,71 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-4 built: the Context panel, with its header, the pin and Inspect (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.3, §6 (PC-4); the contract in `drafts/pc-shell/90_pc_milestone_stubs.gd`; Rulings DX, DY.
+
+- **Built:** the right dock is the Context panel (`right_dock.gd`): a header at the top of its body (◀ ▶ over
+  PC-1's selection history, the subject's name and one line of facts, FOLLOWING or PINNED as the pin button), a
+  banner while pinned and the selection is elsewhere ("Selection is now X", PIN TO IT, FOLLOW), and a tab strip
+  holding INSPECT only (Note and Ask are absent until PC-5 and PC-6). Inspect is the dock's existing builders, and
+  every name on the settlement, faction and conflict pages is a link through `DccApp.select()`; every year shown
+  there moves the one year (`tl_set_year(year, true)`). New on the pages: a settlement's Political history (periods
+  with holder and year links, and a link to the Place editor's full tab), Conflicts here and three nearest
+  neighbours; a faction's capital, settlements (twelve, largest first) and conflicts; a conflict's Years and sides.
+  The dock is told the whole selection (`RightDock.on_selection()`), so faction, conflict and landmark selections
+  show; the map's landmark pick (when the click hit no settlement), CIVIL's faction rows and `select_conflict()`
+  became `select()` producers. `DccApp`: `context_tabs()` = `["inspect"]`, `open_context_tab()`,
+  `pin_context_panel()`, `follow_selection()`, `reset_context_panel()`, and the module contract with nothing in it
+  (`context_module_registry()` empty, `context_panel_modules()` = `["inspect"]`; PC-10 builds both and the
+  `[context_panel]` store). From the next boot Window's region row reads Context panel, Window ▸ Context panel ▸
+  Inspect (Ctrl+1), Pin, Follow and Reset panel (id 934, unique in `shell/`) are live, and Story's row is Political
+  history of the selection. The phone's sheet draws no header and no links (§3.11).
+- **Judgements, labelled in the code:** a non-selection context (route, river, measure, region, ecoregion, history
+  ledger, icon) releases a pin; Reset panel shows the panel, uncollapsed, on Inspect, and leaves a pin alone.
+- **Bar:** every name Inspect draws on a settlement, faction and conflict page selects (`_pc4context_probe` clicks one
+  link per section first, then the rest, and checks the selection, the panel's subject and Alt+← back); the pin holds
+  while a real map click moves the selection (CIVIL's index follows it, the panel keeps its subject, the banner names
+  the new selection); an armed tool's section (Territory) is drawn below the subject. **Measured:** new
+  `_pc4context_probe` (windowed, real clicks and keys, wiped user dir): PASS 152/152 at 1600×1000 and at 1600×1000
+  touch, 0 SCRIPT ERROR; legs: the header and a one-tab strip; a settlement by map click; the three pages' links and
+  year links; a landmark by map click (after a landmark pass); a faction by Find; a conflict by its CIVIL ▸ Military
+  row; the pin, banner, PIN TO IT, FOLLOW and the menu's Pin/Follow; the tool section's order; Window's rows, Ctrl+1
+  on a hidden panel, Reset panel on a hidden and collapsed panel, Story ▸ Political history of the selection
+  scrolling to the history section. 15 literal mutants (pin ignored, link a no-op, dock not told, no tabs, no header,
+  tool above subject, Reset not showing, PIN TO IT a no-op, a relation link selecting its own faction, the landmark
+  producer off, `select_conflict()` back to the dock-only call, a year link off by one, no banner, Follow keeping the
+  pin, no history scroll) each turned it red (four first survived; the probe was strengthened until they did not).
+  Phone, 393×852 touch: a launch capture and a capture of the sheet showing a selected place, against two runs of
+  the pre-PC-4 shell (identical to each other): the sheet differs only in the clock, the launch card only in its
+  project-name path and build hash (both from the project copy, not the layout).
+- **Probes updated to PC-4's forms** (each now fails on the pre-PC-4 shell, which is the point): `_pc9menus` (the
+  region row reads Context panel; Inspect, Pin, Follow, Reset panel live; `_sub()` takes the row that has a submenu,
+  since Window carries two rows titled Context panel), `_storymenus` (Political history of the selection opens
+  Inspect's history; the place is chosen through `select()`), `_seedlayout` (the readout row is CONTEXT PANEL),
+  `_appbar20` (the phone's MORE ▸ Window row is Context panel), `_rd3ctx` (the relation's `▸` mark is on a link).
+- **Re-run, windowed, on this tree** (and on origin/main's shell wherever one failed): green at 1600×1000:
+  `_pc1select` 31, `_pc2year` 46, `_pc9menus` 86, `_rd3ctx`, `_rdappend`, `_rightdock5`, `_rdb18`, `_rdconform`,
+  `_rdrefresh`, `_sp4conflict`, `_pesibling`, `_poiclick` 12, `_storymenus` 88, `_llmplace`, `_llmpanel`,
+  `_seedlayout`, `_menuconf`, `_deadwire`, `_pcreach`, `_cmdindex`; `_pc9menus` at 1280×800 touch (76) and 393×852
+  phone (9); `_appbar20` at 393×852. Failing with the same FAIL lines on origin/main: `_factionhub` (3), `_mm8garrison`
+  (4), `_wiredfix` (2), `_llmknow` (2), `_railpress` (1), `_popout_windows` desktop (1), `_pc1select` at 1280×800
+  touch (6); `_idxfind` has no `.tscn` on either. Rust is unchanged, so `cargo test` was not re-run.
+- **Reachable before and after** (every right-dock item at origin/main, and where it is now): Sample; the Settlement page's rows, Actions (Economy, Politics, now a selection, Logistics), Faith, City layout
+  and its viewer link, Why here; the Faction page's rows, Open in Factions… (the hub entry point) and Relations (names
+  now links, the `▸` mark kept); the Conflict page's editors (name, years, ongoing, outcome, attached to, sides,
+  manpower, besieged, delete); Landmark and Icon (Show settlement / Show landmark, now selections); Route, River,
+  Measure, Region, Ecoregion and the History ledger (each releases a pin); every appended tool section and Layers;
+  the assistant's place (it reads `DccApp.selection`, PC-1). Story ▸ Political history of this place… opened the
+  Place editor's tab; its new form opens Inspect's history, whose "Full history in the Place editor…" link opens that
+  tab. Nothing is dropped. Window ▸ Right dock is Window ▸ Context panel (the same toggle; the "Right dock" search
+  alias is live).
+- **Not in PC-4, stated:** the Note and Ask tabs (PC-5, PC-6); the modules, their menu rows (still `_todo`) and the
+  arrangement store (PC-10); Inspect's edit mode (PQ9), roads, the founding year in AT YEAR, and moving the year when
+  a conflict is picked (finding F7); §3.9's Escape-deselects is PC-9's leftover row, not PC-4's bar. Found, not fixed:
+  menu id 82 is carried by both Edit ▸ Deselect and Preferences ▸ Atlas cache ▸ Export atlas… (different popups, so
+  no dispatch clash).
+
 ### PC-2 built: one year (2026-11-07)
 
 `PC_SHELL_PROPOSAL.md` §2 rule 2, §3.2 (findings T1, T2), §5.

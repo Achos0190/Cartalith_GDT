@@ -91,7 +91,8 @@ const FILE_EXPORT_ROWS: Array = ["|FOR THE TABLE", "Player map…", "DM / full m
 
 ## Story's rows, the proposal's §3.3 table in the mockup's (A2) order. The
 ## campaigns row is a live readout; its text is normalised to `Campaigns*`.
-const STORY_ROWS: Array = ["|TIME", "Timeline", "Political history of this place…",
+## PC-4: the political row is "…of the selection" once the Context panel has Inspect.
+const STORY_ROWS: Array = ["|TIME", "Timeline", "Political history of the selection",
 	"Faction history…", "|JOURNEYS", "Journey planner", "Saved journeys…", "Travel library…",
 	"|CONFLICTS & CAMPAIGNS", "Conflicts…", "Draw a conflict", "Campaigns*",
 	"|NOTES", "Notes for this place", "Places without notes is in Records", "Assistant panel…"]
@@ -705,7 +706,7 @@ func _sm2() -> void:
 
 	## No world yet: the place rows say so, and the readout prints no count.
 	story.about_to_popup.emit()
-	var pi := _index_of(story, "Political history of this place…")
+	var pi := _index_of(story, "Political history of the selection")
 	var ni := _index_of(story, "Notes for this place")
 	_check("no world: the place rows are disabled with a reason",
 		story.is_item_disabled(pi) and story.is_item_disabled(ni)
@@ -755,7 +756,8 @@ func _sm2() -> void:
 
 	## Select the first settlement the way a map pick does.
 	if setts.size() > 0:
-		app.right_dock_ctrl.on_settlement_selected(setts[0], 0)
+		## PC-1/PC-4: the one selection path (the political row reads `DccApp.selection` since PC-4).
+		app.select("settlement", 0)
 		await _frames(2)
 		story.about_to_popup.emit()
 		_check("a settlement is current: both place rows are enabled",
@@ -763,15 +765,17 @@ func _sm2() -> void:
 		story.popup_hide.emit()
 		story.id_pressed.emit(DccMenus.ID_STORY_POLITICAL)
 		await _frames(4)
-		_check("Political history… opens the Place editor on its Political tab",
-			app.place_editor_window.visible and String(app.place_editor_window.get("_active_tab")) == "political",
-			"visible=%s tab=%s" % [app.place_editor_window.visible, app.place_editor_window.get("_active_tab")])
-		app.place_editor_window.hide()
+		## PC-4: the row opens the Context panel's Inspect page at its history section, whose last
+		## row opens the Place editor's Political tab (the row's shipped destination, one click on).
+		var hist: Node = app.right_dock_body.find_child("InspectHistory", true, false)
+		_check("Political history of the selection opens Inspect at its history section",
+			hist != null and (app._region_nodes[DccMenus.ID_WIN_RIGHT] as CanvasItem).visible,
+			"history=%s" % str(hist))
 		story.id_pressed.emit(DccMenus.ID_STORY_NOTES_HERE)
 		await _frames(4)
 		_check("Notes for this place opens the vault window", app.vault_window.visible)
 		app.vault_window.hide()
-		app.right_dock_ctrl.on_settlement_selected(null, -1)
+		app.select("", -1)
 		await _frames(2)
 
 	story.id_pressed.emit(DccMenus.ID_STORY_FACTION_HISTORY)

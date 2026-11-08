@@ -712,6 +712,8 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## `CTX_REGION`, `CTX_WILDLIFE` and `CTX_HISTORY` all still survive a
 		## world replacement holding an index into a world that is gone. Same
 		## defect, unmeasured, not fixed by this clause.
+		## PC-4: a pin holds a subject by its index in a world that no longer exists.
+		_release_pin()
 		if _context == CTX_SETTLEMENT:
 			on_settlement_selected(null, -1)
 		## And the Way/Route draft, for the measurements' own reason one line
@@ -745,6 +747,8 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## this clause exists to stop. The two `_finish_*` emitters also fire
 		## `generation_finished`, so they reach the handler above first and
 		## this is a second, already-satisfied drop for them.
+		## PC-4: the same split as the settlement drop above, for the same reason.
+		_release_pin()
 		if _context == CTX_SETTLEMENT:
 			on_settlement_selected(null, -1)
 		_forget_way_draft()
@@ -777,6 +781,10 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	bridge.landmark_finished.connect(func(_r):
 		if _context == CTX_LANDMARK:
 			_context = CTX_SAMPLE
+			_landmark_index = -1
+			## PC-4: a pin on a landmark names a row of the replaced list.
+			if String(_pin_subject.get("kind", "")) == "landmark":
+				_release_pin()
 			_rebuild())
 	## RD-10. Two sources, and neither alone covers the section: the domain
 	## decides whether it is drawn at all, and the stack decides what it says.
@@ -962,6 +970,370 @@ func on_timeline_changed() -> void:
 	if _context == CTX_SETTLEMENT or _context == CTX_CONFLICT:
 		_rebuild()
 
+# -- PC-4: the Context panel (`PC_SHELL_PROPOSAL.md` §3.3, milestone PC-4) ---------------------
+#
+# The right dock becomes the Context panel: one subject, the selection or what the panel is
+# pinned to, with a header (back and forward through the selection history, the subject's name and
+# one line of facts, FOLLOWING or PINNED with a pin button) and a tab strip holding Inspect. Note
+# (PC-5) and Ask (PC-6) are absent until their milestones build them: a tab with nothing behind it
+# would be a control that claims a capability. The panel is this dock: Inspect is `_dispatch()`'s
+# builders, extended so every name selects (`_link_field()`), and the armed tool's section is still
+# appended below the subject (`_append_tool()`, the ruling "Selection wins; the tool appends a
+# section", unchanged).
+#
+# **The phone is unchanged** (§3.11: the phone gets "the model, not the panel"): no header, no tab
+# strip, no links; its sheet keeps drawing the shipped rows, and `_panel_chrome()` is the one test.
+
+## PC-4. Whether the panel holds its subject while the selection moves (§3.3, "Pinning"). Written only
+## by `pin()`, `follow()`, `pin_to_selection()`, `_release_pin()` and the two world-replacement
+## handlers in `setup()`; read by `on_selection()`, the header and `DccApp.pin_context_panel()`.
+var _pinned := false
+
+## PC-4. The subject the pin holds, as a `DccApp.selection` value (`{kind, id}`), set when pinning.
+## Only meaningful while `_pinned`; `{}` otherwise. The banner compares it with the live selection,
+## so the dock keeps no copy of the selection itself (§2: "No surface keeps a copy").
+var _pin_subject: Dictionary = {}
+
+## PC-4. The landmark the Landmark context shows, as an index into `bridge.landmarks()` (the
+## selection's id for kind "landmark"), or -1 when it was shown by a path that carries no index.
+var _landmark_index := -1
+
+## PC-4. True on the surfaces that draw the Context panel's chrome and links: the desktop and the
+## tablet. False on the phone, whose sheet keeps its shipped form (§3.11). One predicate, so the
+## header, the tab strip and every link agree about where they exist.
+func _panel_chrome() -> bool:
+	return not DccTheme.is_phone()
+
+## PC-4. `DccApp._apply_selection()` tells the panel the selection changed. Following, the panel shows
+## the new selection (`show_subject()`); pinned, it keeps its subject and only redraws, so the banner
+## can say what the selection is now (§3.3, "Pinning"). On the phone there is no pin to hold (the
+## header that would release it is not drawn), so the sheet always follows.
+func on_selection(sel: Dictionary) -> void:
+	if _pinned and _panel_chrome():
+		_rebuild()
+		return
+	show_subject(sel)
+
+## PC-4. Draws `sel` (a `DccApp.selection` value) through the context that already shows its kind:
+## a settlement through `on_settlement_selected()` (which also opens the phone's sheet on a pick), a
+## faction through `show_faction()`, a conflict through `show_conflict()`, a landmark through
+## `on_landmark_selected()`. `{}`, and the two kinds with no Inspect builder yet (culture, note: no
+## producer selects either today), show Sample, which is true: nothing the panel can draw is
+## selected. An index the live lists no longer hold also shows Sample rather than a neighbour.
+func show_subject(sel: Dictionary) -> void:
+	var kind := String(sel.get("kind", ""))
+	var id := int(sel.get("id", -1))
+	match kind:
+		"settlement":
+			var all: Array = bridge.settlements()
+			if id >= 0 and id < all.size():
+				on_settlement_selected(all[id], id)
+				return
+		"faction":
+			if id >= 0:
+				show_faction(id)
+				return
+		"conflict":
+			if id >= 0:
+				show_conflict(id)
+				return
+		"landmark":
+			var lms: Array = bridge.landmarks()
+			if id >= 0 and id < lms.size():
+				_context = CTX_LANDMARK
+				_landmark = lms[id]
+				_landmark_index = id
+				_rebuild()
+				_show_on_phone()
+				return
+	on_settlement_selected(null, -1)
+
+## PC-4. The subject the panel shows now, as a `DccApp.selection` value, or `{}` when it shows no
+## selectable subject (Sample, or a context that is not a selection: a route, a river, a measure, a
+## region, an ecoregion, the history ledger, an icon). Derived from `_context` and its own field on
+## every call, never stored.
+func shown_subject() -> Dictionary:
+	match _context:
+		CTX_SETTLEMENT:
+			if _settlement_data != null and _settlement_index >= 0:
+				return {"kind": "settlement", "id": _settlement_index}
+		CTX_FACTION:
+			if _faction_id >= 0:
+				return {"kind": "faction", "id": _faction_id}
+		CTX_CONFLICT:
+			if _conflict_id >= 0:
+				return {"kind": "conflict", "id": _conflict_id}
+		CTX_LANDMARK:
+			if _landmark_index >= 0:
+				return {"kind": "landmark", "id": _landmark_index}
+	return {}
+
+## PC-4. Whether the panel is pinned. Read by the header, `DccApp` and the probes.
+func is_pinned() -> bool:
+	return _pinned
+
+## PC-4. Window ▸ Context panel ▸ Pin to the current subject, and the header's pin button: holds what
+## the panel shows now. Returns false, and changes nothing, when it shows no selectable subject
+## (`shown_subject()` is `{}`), so the menu can say "Nothing to pin". Never on the phone (§3.11).
+func pin() -> bool:
+	if not _panel_chrome():
+		return false
+	var subject := shown_subject()
+	if subject.is_empty():
+		return false
+	_pinned = true
+	_pin_subject = subject
+	_rebuild()
+	return true
+
+## PC-4. Follow the selection, and the banner's FOLLOW: releases the pin and shows the selection
+## (`DccApp.selection`, read now, never a copy). A no-op when the panel already follows.
+func follow() -> void:
+	if not _pinned:
+		return
+	_pinned = false
+	_pin_subject = {}
+	show_subject(app.selection if app != null else {})
+
+## PC-4. The banner's PIN TO IT: the panel stays pinned, now to the selection. A no-op unless pinned
+## and something is selected.
+func pin_to_selection() -> void:
+	if not _pinned or app == null or app.selection.is_empty():
+		return
+	_pin_subject = (app.selection as Dictionary).duplicate()
+	show_subject(_pin_subject)
+	## `show_subject()` can find nothing to draw (a stale index); a pin on nothing is no pin.
+	if shown_subject().is_empty():
+		_pinned = false
+		_pin_subject = {}
+		_rebuild()
+
+## PC-4. Drops the pin without drawing anything: a context that is not a selection (a route row, a
+## river, a measurement, a region, an ecoregion, the history ledger, an icon) was asked for directly,
+## so the panel shows it and no longer claims to hold the pinned subject. A labelled judgement
+## (PC-4, 2026-11-08): the proposal pins the selection; these readings are the user's own request for
+## this dock, and a Measure reading that a pin hid would be a tool that silently stopped answering.
+## Each caller rebuilds after.
+func _release_pin() -> void:
+	_pinned = false
+	_pin_subject = {}
+
+## PC-4. The section `DccApp.open_context_tab(…, section)` scrolls Inspect to: "history" is a
+## settlement's political history, a faction's conflicts, a conflict's years (each built under the
+## node name `INSPECT_HISTORY_NODE`). Deferred twice: the body was just rebuilt and its rows have no
+## layout until the next frame. An unknown section or a page without one leaves the scroll alone.
+func focus_section(section: String) -> void:
+	if section == "" or app == null:
+		return
+	await app.get_tree().process_frame
+	await app.get_tree().process_frame
+	var node := app.right_dock_body.find_child(INSPECT_HISTORY_NODE, true, false) as Control
+	if section == "history" and node != null and app._right_dock_scroll != null:
+		app._right_dock_scroll.ensure_control_visible(node)
+
+## PC-4. The node name of the Inspect section `focus_section("history")` scrolls to.
+const INSPECT_HISTORY_NODE := "InspectHistory"
+
+## PC-4. The header's name and one line of facts for the subject `subj`, as `[name, facts]`. Read
+## fresh from the bridge; a subject the lists no longer hold names itself by kind and id rather than
+## a neighbour. Never writes state.
+func _subject_text(subj: Dictionary) -> Array:
+	var kind := String(subj.get("kind", ""))
+	var id := int(subj.get("id", -1))
+	match kind:
+		"settlement":
+			var all: Array = bridge.settlements()
+			if id >= 0 and id < all.size():
+				var s: Dictionary = all[id]
+				var fname := String(_faction_roster(int(s.get("faction", 0))).get("name", ""))
+				var facts := "%s · pop %s" % [String(s.get("kind", "place")).capitalize(),
+					_thousands(float(s.get("population", 0)))]
+				if fname != "":
+					facts += " · " + fname
+				return [String(s.get("name", "(unnamed)")), facts]
+		"faction":
+			var r := _faction_roster(id)
+			if not r.is_empty():
+				return [String(r.get("name", "Faction %d" % id)), "Faction · %d settlements · %s" % [
+					int(r.get("settlement_count", 0)), String(r.get("culture", "?")).capitalize()]]
+		"conflict":
+			var c := bridge.conflict_get(id)
+			if not c.is_empty():
+				var nm := String(c.get("name", ""))
+				return [nm if nm != "" else "Conflict #%d" % id, "%s · %d–%s" % [
+					String(c.get("kind", "")).capitalize(), int(c.get("start_year", 0)),
+					str(int(c["end_year"])) if c.has("end_year") else "ongoing"]]
+		"landmark":
+			var lms: Array = bridge.landmarks()
+			if id >= 0 and id < lms.size():
+				var lm: Dictionary = lms[id]
+				return [_landmark_label(String(lm.get("kind", ""))), "Landmark · %s" %
+					String(lm.get("class", "")).capitalize()]
+	if kind == "":
+		return ["Nothing selected", ""]
+	return ["%s #%d" % [kind.capitalize(), id], "no longer in this world"]
+
+## PC-4. The header button factory: a `DccWidgets.chip()`, floored to the touch row on the tablet on
+## both axes (`MISTAKES.md`, "Floor a control that a rebuild creates": this is built on every rebuild,
+## after any fitter has run). Named, so a probe finds it by name rather than by text.
+func _header_button(parent: Control, node_name: String, text: String, on_press: Callable,
+		tip: String, accent := false) -> Button:
+	var b := DccWidgets.chip(parent, text, on_press, accent, 7, 2)
+	b.name = node_name
+	b.tooltip_text = tip
+	if DccTheme.is_tablet():
+		var t := DccTheme.role_px("row_min_h")
+		b.custom_minimum_size = Vector2(t, t)
+	return b
+
+## PC-4. The Context panel's header and tab strip, drawn at the top of the body on every rebuild
+## (desktop and tablet only, `_panel_chrome()`):
+##   row 1  ◀ ▶ (`DccApp.select_back()` / `select_forward()`, the selection history, §3.1), the
+##          subject's name, then FOLLOWING or PINNED as the pin button (pin, or follow when pinned);
+##   row 2  the subject's one line of facts;
+##   banner while pinned and the selection is something else: "Selection is now X" with PIN TO IT
+##          and FOLLOW (§3.3, flow F8);
+##   tabs   Inspect, the only tab PC-4 builds (Note is PC-5's, Ask PC-6's; absent until then).
+## Hiding the panel stays the dock's own collapse button and Window ▸ Context panel's check.
+## Must never change `_context` or the selection: it only reads them.
+func _build_context_header(body: Control) -> void:
+	var tablet := DccTheme.is_tablet()
+	var box := VBoxContainer.new()
+	box.name = "ContextHeader"
+	box.add_theme_constant_override("separation", 4)
+	var pad := DccWidgets.pad(body, 10, 6, 10, 6)
+	pad.add_child(box)
+	var subj := _pin_subject if _pinned else shown_subject()
+	var txt := _subject_text(subj)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	box.add_child(row)
+	var can_back := app != null and not app._selection_back.is_empty()
+	var can_fwd := app != null and not app._selection_forward.is_empty()
+	var back := _header_button(row, "CtxBack", "◀", func(): app.select_back(),
+		"Previous selection (Alt+←)")
+	back.disabled = not can_back
+	var fwd := _header_button(row, "CtxForward", "▶", func(): app.select_forward(),
+		"Next selection (Alt+→)")
+	fwd.disabled = not can_fwd
+	var nm := DccTheme.label(String(txt[0]), "text_bright" if not subj.is_empty() else "text_dim",
+		DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL)
+	nm.name = "CtxName"
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(nm)
+	var pin_btn: Button
+	if _pinned:
+		pin_btn = _header_button(row, "CtxPin", "PINNED", follow,
+			"The panel is pinned to %s. Press to follow the selection again." % String(txt[0]), true)
+	else:
+		pin_btn = _header_button(row, "CtxPin", "FOLLOWING", func(): pin(),
+			"The panel follows the selection. Press to pin it to what it shows now.")
+		pin_btn.disabled = shown_subject().is_empty()
+	if String(txt[1]) != "":
+		var facts := DccTheme.label(String(txt[1]), "text_dim",
+			DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_TINY)
+		facts.name = "CtxFacts"
+		facts.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		box.add_child(facts)
+
+	if _pinned and app != null and app.selection != _pin_subject:
+		var banner := HBoxContainer.new()
+		banner.name = "CtxBanner"
+		banner.add_theme_constant_override("separation", 4)
+		box.add_child(banner)
+		var now := String(_subject_text(app.selection)[0])
+		var bl := DccTheme.label("Selection is now %s" % now, "accent",
+			DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_TINY)
+		bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		banner.add_child(bl)
+		var to_it := _header_button(banner, "CtxPinToIt", "PIN TO IT", pin_to_selection,
+			"Keep the panel pinned, now to %s." % now)
+		to_it.disabled = app.selection.is_empty()
+		_header_button(banner, "CtxFollow", "FOLLOW", follow,
+			"Release the pin: the panel shows the selection and follows each new one.")
+
+	var tabs := HBoxContainer.new()
+	tabs.name = "CtxTabs"
+	tabs.add_theme_constant_override("separation", 4)
+	box.add_child(tabs)
+	var inspect := DccWidgets.segment(tabs, "INSPECT", func(): pass)
+	inspect.name = "CtxTabInspect"
+	inspect.tooltip_text = "Inspect (Ctrl+1): the subject's facts. Every name selects it."
+	DccWidgets.set_segment_on(inspect, true)
+	body.add_child(DccTheme.rule())
+
+## PC-4 (§3.3, "Every name is a link"). A key/value row like `_field()` whose value is a link that
+## selects `kind`/`id` through `DccApp.select()`, the one selection path, so it honours the pin and
+## the history. On the phone (`_panel_chrome()` false) it is exactly `_field()`, so the sheet's rows
+## are unchanged (§3.11). Returns the value control.
+func _link_field(parent: Control, label_text: String, value_text: String, kind: String, id: int,
+		tooltip: String = "") -> Control:
+	if not _panel_chrome():
+		return _field(parent, label_text, value_text, tooltip)
+	var tablet := DccTheme.is_tablet()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", ROW_GAP)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	row.tooltip_text = tooltip
+	var label_fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
+	var l := DccTheme.label(label_text, "text_dim", label_fs)
+	l.custom_minimum_size.x = _FIELD_LABEL_W
+	l.clip_text = true
+	row.add_child(l)
+	var b := _link(row, value_text, func(): app.select(kind, id),
+		tooltip if tooltip != "" else "Select %s." % value_text, {"kind": kind, "id": id})
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	## Expanded, so it can elide: a long name must not widen the dock (`_field()`'s value does the same).
+	b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	parent.add_child(row)
+	return b
+
+## PC-4. A link: a borderless button in the accent ink that runs `on_press` (a selection or a year
+## move). `DccWidgets.text_button()`'s shape at the dock's row size. Two metas name what it does, so a
+## probe can enumerate every link Inspect drew, press each one and check the outcome: `ctx_target`
+## (the `{kind, id}` a selection link selects; set from `target`) and `ctx_year` (set by
+## `_year_link()`). Floored to the touch row on the tablet.
+func _link(parent: Control, text: String, on_press: Callable, tip: String,
+		target: Dictionary = {}) -> Button:
+	var tablet := DccTheme.is_tablet()
+	var b := DccWidgets.text_button(parent, text, on_press)
+	b.add_theme_font_override("font", DccTheme.mono(0))
+	b.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL)
+	b.add_theme_color_override("font_color", DccTheme.c("accent"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	## No ellipsis here: an overrun behaviour collapses a Button's minimum width to the ellipsis, and a
+	## link beside a spacer then draws as a few pixels of "…" (measured: the year links and conflict
+	## names in the first probe run were too small to hit). Callers that EXPAND the link set it.
+	b.tooltip_text = tip
+	b.set_meta("ctx_link", true)
+	if not target.is_empty():
+		b.set_meta("ctx_target", target)
+	if tablet:
+		b.custom_minimum_size.y = DccTheme.role_px("row_min_h")
+	return b
+
+## PC-4. A year link: moves the one year (`DccShell.tl_set_year(year, true)`, PC-2's one writer;
+## `exact`, because a recorded year is a value and the strip's clamp would load the wrong snapshot).
+func _year_link(parent: Control, year: int, text: String = "") -> Button:
+	var b := _link(parent, text if text != "" else str(year), func(): app.tl_set_year(year, true),
+		"Move the timeline to %d." % year)
+	b.set_meta("ctx_year", year)
+	return b
+
+## PC-4. The settlement index holding `tid` in the live list, or -1. A conflict's anchor and a siege's
+## besieged place are keyed on `tid` (Ruling AO), and a selection is an index.
+func _settlement_index_of_tid(tid: int) -> int:
+	var all: Array = bridge.settlements()
+	for i in all.size():
+		if int((all[i] as Dictionary).get("tid", -1)) == tid:
+			return i
+	return -1
+
 ## Sample panel's live path, called on every mouse motion over the viewport. Rewrites the
 ## coordinate rows, staleness footnote, Nearest, Elevation (also pushed to the collapsed dock via
 ## `app.set_dock_readout`) and every `SAMPLE_FIELDS` row **in place** from one `bridge.sample_cell()`
@@ -1036,6 +1408,8 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 ## clicked. `kind` is `"road"` or `"sea"` -- the two calls this dock's Route
 ## context actually has (`bridge.roads()` / `bridge.sea_routes()`).
 func show_route(entry: Dictionary, kind: String) -> void:
+	## PC-4: a route is not a selection; asking for it releases a pin (`_release_pin()`).
+	_release_pin()
 	_context = CTX_ROUTE
 	_route_entry = entry
 	_route_kind = kind
@@ -1049,13 +1423,37 @@ func show_route(entry: Dictionary, kind: String) -> void:
 ## `landmark_selected` here. A `null` (a click that hit no landmark) changes
 ## nothing: `settlement_selected` for the same click has already set the
 ## context, and a second rebuild here would only repeat it.
+##
+## **PC-4:** the map's landmark pick is a producer of the one selection now
+## (`app.gd::_wire_selection()` calls `DccApp.select("landmark", i)` when the click hit no settlement),
+## so this direct path is reached only when the same click also hit a settlement (settlement wins the
+## selection; the dock shows the landmark, as it always did). While the panel is pinned it changes
+## nothing: the pin holds (§3.3). `_index` is the overlay's own index; the selection's id is the row's
+## index in `bridge.landmarks()` (`landmark_index_of()`), so a pin can name it.
 func on_landmark_selected(data: Variant, _index: int) -> void:
 	if not (data is Dictionary):
 		return
+	if _pinned and _panel_chrome():
+		return
 	_context = CTX_LANDMARK
 	_landmark = data
+	_landmark_index = landmark_index_of(data)
 	_rebuild()
 	_show_on_phone()
+
+## PC-4. The index in `bridge.landmarks()` of landmark row `data`, matched on its cell and kind (the
+## overlay's own list can be filtered by the landmark filter, so its index is not the bridge's), or
+## -1 when the live list holds no such row.
+func landmark_index_of(data: Variant) -> int:
+	if not (data is Dictionary):
+		return -1
+	var d: Dictionary = data
+	var lms: Array = bridge.landmarks()
+	for i in lms.size():
+		var lm: Dictionary = lms[i]
+		if int(lm.get("x", -1)) == int(d.get("x", -2)) and int(lm.get("y", -1)) == int(d.get("y", -2)) 				and String(lm.get("kind", "")) == String(d.get("kind", "")):
+			return i
+	return -1
 
 ## `map_overlay.gd::icon_selected`, forwarded by `app.gd::_wire_selection()` --
 ## `on_landmark_selected`'s twin for a drawn icon glyph. A `null` changes
@@ -1063,6 +1461,8 @@ func on_landmark_selected(data: Variant, _index: int) -> void:
 func on_icon_selected(data: Variant, index: int) -> void:
 	if not (data is Dictionary) or index < 0:
 		return
+	## PC-4: an icon is not a selection, so asking for it releases a pin (`_release_pin()`).
+	_release_pin()
 	_context = CTX_ICON
 	_icon_index = index
 	_icon_data = data
@@ -1089,6 +1489,7 @@ func show_conflict(id: int) -> void:
 ## Pins one `river_at()` entity as the dock's River context and rebuilds. Selection state
 ## only; the engine is not written.
 func show_river(entity: Dictionary) -> void:
+	_release_pin()  ## PC-4: not a selection (`_release_pin()`).
 	_context = CTX_RIVER
 	_river = entity
 	_rebuild()
@@ -1128,6 +1529,7 @@ func show_faction(faction_id: int, pair_with: int = -1) -> void:
 ## title, their own readout branch and their own dispatch arm for what is one
 ## selection with six presentations.
 func show_measure(result: Dictionary, mode: String = "distance") -> void:
+	_release_pin()  ## PC-4: not a selection (`_release_pin()`).
 	_context = CTX_MEASURE
 	_measure_result = result
 	_measure_mode = mode
@@ -1136,6 +1538,7 @@ func show_measure(result: Dictionary, mode: String = "distance") -> void:
 ## Called by `GlobalTools` when a Region marquee commits -- `result` is
 ## `region_get()`'s own dict.
 func show_region(result: Dictionary) -> void:
+	_release_pin()  ## PC-4: not a selection (`_release_pin()`).
 	_context = CTX_REGION
 	_region_result = result
 	_rebuild()
@@ -1153,6 +1556,12 @@ func show_wildlife(rec: Dictionary) -> void:
 	if int(rec.get("id", -1)) != int(_wildlife_region.get("id", -2)):
 		_wildlife_show_all = false
 	_wildlife_region = rec
+	if not rec.is_empty():
+		_release_pin()  ## PC-4: not a selection (`_release_pin()`).
+	elif _pinned and _panel_chrome():
+		## PC-4: a Wildlife click that missed every marker clears the roster, never a pin.
+		_rebuild()
+		return
 	_context = CTX_WILDLIFE if not rec.is_empty() else CTX_SAMPLE
 	_rebuild()
 
@@ -1219,6 +1628,7 @@ func leave_sculpt_context() -> void:
 ## `show_sculpt_stack()` uses, because the answer changes on every commit and
 ## a cached copy would be one more thing to invalidate.
 func show_history() -> void:
+	_release_pin()  ## PC-4: not a selection (`_release_pin()`).
 	_context = CTX_HISTORY
 	_rebuild()
 
@@ -1433,6 +1843,11 @@ func _rebuild() -> void:
 	_sample_nearest = null
 	_sample_stale_note = null
 	_sample_rows.clear()
+	## PC-4: the Context panel's header and tab strip first (desktop and tablet; the phone's sheet
+	## keeps its shipped form, `_panel_chrome()`). It reads `_context` and the pin, so it is built
+	## from the same state `_dispatch()` draws.
+	if _panel_chrome():
+		_build_context_header(body)
 	## The selection, then the armed tool below it, then Layers below that.
 	## The order is the whole of the owner's ruling -- see `_append_tool()`.
 	_dispatch(body)
@@ -2377,7 +2792,8 @@ func _build_settlement(body: Control) -> void:
 	## addition) rather than opening a dialog.
 	var actions := DccWidgets.group(sec, "Actions")
 	DccWidgets.action(actions, "Economy", func(): app.open_world_data("Economy"))
-	DccWidgets.action(actions, "Politics", func(): show_faction(int(s.get("faction", 0))))
+	## PC-4: through the one selection path, so the history and a pin see it (was `show_faction()`).
+	DccWidgets.action(actions, "Politics", func(): app.select("faction", int(s.get("faction", 0))))
 	DccWidgets.action(actions, "Logistics", func(): app.open_journey_planner())
 	## **`GUI_GAP_REGISTER.md` UM-02's launcher used to be a fourth action here
 	## and is now the CITY LAYOUT section's own `open viewer ›` link**, which is
@@ -2401,9 +2817,97 @@ func _build_settlement(body: Control) -> void:
 	## never stored its suitability diagnostics. Those are dashed with that
 	## reason rather than omitted, per `MISTAKES.md`'s standing rule; a section
 	## with nothing to say and nothing to explain is genuinely not drawn.
+	## PC-4: the Inspect page's history, conflicts and neighbours (§3.3, "A settlement shows"), every
+	## name and year a link. Desktop and tablet only: the phone's sheet keeps its shipped rows (§3.11).
+	if _panel_chrome():
+		_build_settlement_history(body, s)
 	_build_settlement_faith(body, s)
 	_build_settlement_layout(body)
 	_build_settlement_why(body, why)
+
+## PC-4 (§3.3, "A settlement shows": "its political history as dated periods, each with its holder
+## and a 'go to' year; the conflicts fought over it, its nearest neighbours"). Three sections, each
+## from a call the shell already makes: `civ_settlement_ownership_periods(tid)` (the Place editor's
+## Political history tab draws the same periods), `conflicts_touching_settlement(tid)` (SP-5) and the
+## live settlement list. Every holder, conflict and neighbour selects; every year moves the timeline.
+## The section's node is `INSPECT_HISTORY_NODE`, which Story ▸ Political history of the selection
+## scrolls to (`focus_section()`). Its last row opens the Place editor's full tab, so the window's
+## stacked bar and population trajectory stay one click away (`MISTAKES.md`, "Delete a surface": the
+## shipped form of that Story row opened the tab directly).
+func _build_settlement_history(body: Control, s: Dictionary) -> void:
+	var tid := int(s.get("tid", 0))
+	var idx := _settlement_index
+	var sec := DccWidgets.section(body, "Political history")
+	sec.name = INSPECT_HISTORY_NODE
+	var periods: Array = bridge.civ_settlement_ownership_periods(tid)
+	if periods.is_empty():
+		DccWidgets.note(sec, "No recorded ownership history yet: it is derived from the recorded "
+			+ "years (CIVIL ▸ Timeline). Record a year, or run a collapse/recovery simulation.")
+	for p in periods:
+		var pd: Dictionary = p
+		var fid := int(pd.get("faction_id", 0))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", ROW_GAP)
+		sec.add_child(row)
+		var y0 := int(pd.get("start_year", 0))
+		_year_link(row, y0)
+		row.add_child(DccTheme.label("–", "text_dim", DccTheme.FS_SMALL))
+		if bool(pd.get("current", false)):
+			row.add_child(DccTheme.label("present", "text_dim", DccTheme.FS_SMALL))
+		else:
+			_year_link(row, int(pd.get("end_year", y0)))
+		row.add_child(DccTheme.spacer())
+		var fname := String(_faction_roster(fid).get("name", ""))
+		if fid > 0 and fname != "":
+			_link(row, fname, func(): app.select("faction", fid), "Select %s." % fname,
+				{"kind": "faction", "id": fid})
+		else:
+			## Faction 0 is the engine's "unclaimed" sentinel (see `_settlement_faction_row()`).
+			row.add_child(DccTheme.label("unclaimed" if fid <= 0 else "faction %d" % fid,
+				"text_ghost", DccTheme.FS_SMALL))
+	_link(sec, "Full history in the Place editor…",
+		func(): app.place_editor_window.open_for_tab(idx, "political"),
+		"Opens the Place editor's Political history tab: the ownership bar and the population trajectory.")
+
+	var conflicts: Array = bridge.conflicts_touching_settlement(tid)
+	var csec := DccWidgets.section(body, "Conflicts here" if conflicts.is_empty() else
+		"Conflicts here · %d" % conflicts.size())
+	if conflicts.is_empty():
+		DccWidgets.note(csec, "No conflict is attached to this place or its province.")
+	for c in conflicts:
+		var cd: Dictionary = c
+		var cid := int(cd.get("id", -1))
+		var cn := String(cd.get("name", ""))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", ROW_GAP)
+		csec.add_child(row)
+		_link(row, cn if cn != "" else "Conflict #%d" % cid, func(): app.select("conflict", cid),
+			"Select this conflict.", {"kind": "conflict", "id": cid})
+		row.add_child(DccTheme.spacer())
+		_year_link(row, int(cd.get("start_year", 0)))
+
+	var all: Array = bridge.settlements()
+	var near: Array = []
+	for i in all.size():
+		if i == idx:
+			continue
+		var o: Dictionary = all[i]
+		var dx := float(o.get("x", 0)) - float(s.get("x", 0))
+		var dy := float(o.get("y", 0)) - float(s.get("y", 0))
+		near.append([dx * dx + dy * dy, i])
+	near.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	var nsec := DccWidgets.section(body, "Nearest neighbours")
+	if near.is_empty():
+		DccWidgets.note(nsec, "This is the only settlement in the world.")
+	## Three: a labelled judgement (PC-4, 2026-11-08). The proposal names "its nearest neighbours"
+	## and no count; three reads at a glance and keeps the page short.
+	for e in near.slice(0, 3):
+		var j := int(e[1])
+		var o: Dictionary = all[j]
+		var km := sqrt(float(e[0])) * _cell_km()
+		_link_field(nsec, DccUnits.format_adaptive(km) if km > 0.0 else "—",
+			String(o.get("name", "(unnamed)")), "settlement", j,
+			"Select %s, straight-line distance between the two cells." % String(o.get("name", "")))
 
 ## `05-right-dock-and-bars.md` §1.11's `placeRows` gives this row as *"the
 ## owning faction name"*. It printed `str(int(s["faction"]))` -- a bare index --
@@ -2445,7 +2949,9 @@ func _settlement_faction_row(sec: Control, faction_id: int) -> void:
 				"list -- its owner exists but cannot be named here.") % faction_id,
 			false)
 		return
-	_field(sec, "Faction", fname)
+	## PC-4 (§3.3, "Every name is a link"): the holder selects the faction.
+	_link_field(sec, "Faction", fname, "faction", faction_id,
+		"%s holds this place in the year the timeline shows. Select it to inspect the faction." % fname)
 
 ## -- Faith -------------------------------------------------------------------
 ##
@@ -3021,7 +3527,13 @@ func _build_conflict(body: Control) -> void:
 		func(i: int): _conflict_set(id, {"anchor_kind": keys[i][0], "anchor_tid": keys[i][1]}),
 		"Attach it to a place and it moves with the place; \"what conflicts happened here\" " +
 		"is then a real query (conflicts_attached_to). Attaching keeps the drawing where it is.")
-	if c.has("anchor_kind"):
+	var anchor_idx := _settlement_index_of_tid(int(c.get("anchor_tid", 0))) if c.has("anchor_kind") else -1
+	if _panel_chrome() and c.has("anchor_kind") and bool(c.get("anchor_resolved", false)) and anchor_idx >= 0:
+		## PC-4: the anchor place selects (a province anchor is keyed on its seed settlement's tid,
+		## Ruling AO, so it selects that settlement).
+		_link_field(sec, "Anchor", String(c.get("anchor_name", "")), "settlement", anchor_idx,
+			"Select the place this conflict is attached to.")
+	elif c.has("anchor_kind"):
 		var resolved: bool = c.get("anchor_resolved", false)
 		_field(sec, "Anchor", String(c.get("anchor_name", "")) if resolved else "missing",
 			"" if resolved else ("That place is gone (deleted, or no longer a province seed). The link is " +
@@ -3044,6 +3556,31 @@ func _build_conflict(body: Control) -> void:
 					next.erase(fid)
 				_conflict_set(id, {"sides": PackedInt32Array(next)}))
 
+	## PC-4: the conflict's years and sides as links (§3.3, "A conflict shows its years, sides and
+	## places, all links"). The Sides toggles above stay the editor; this is the reading. Desktop and
+	## tablet only (§3.11).
+	if _panel_chrome():
+		var ysec := DccWidgets.section(body, "Years and sides")
+		ysec.name = INSPECT_HISTORY_NODE
+		var yrow := HBoxContainer.new()
+		yrow.add_theme_constant_override("separation", ROW_GAP)
+		ysec.add_child(yrow)
+		yrow.add_child(DccTheme.label("From", "text_dim", DccTheme.FS_SMALL))
+		_year_link(yrow, start)
+		yrow.add_child(DccTheme.label("to", "text_dim", DccTheme.FS_SMALL))
+		if c.has("end_year"):
+			_year_link(yrow, int(c["end_year"]))
+		else:
+			yrow.add_child(DccTheme.label("ongoing", "text_dim", DccTheme.FS_SMALL))
+		if sides.is_empty():
+			DccWidgets.note(ysec, "No sides yet: tick the factions involved above.")
+		for fid in sides:
+			var fname := String(_faction_roster(int(fid)).get("name", ""))
+			if fname != "":
+				_link_field(ysec, "Side", fname, "faction", int(fid), "Select %s." % fname)
+			else:
+				_field(ysec, "Side", "faction %d" % int(fid),
+					"Faction %d is not in the roster any more." % int(fid), false)
 	_build_conflict_manpower(body, id, sides.is_empty())
 	_build_siege_garrison(body, id)
 
@@ -3099,6 +3636,10 @@ func _build_siege_garrison(body: Control, id: int) -> void:
 			return
 		var sec := DccWidgets.section(body, "Besieged")
 		var name := String(sg.get("besieged_name", "the besieged place"))
+		## PC-4: the besieged place selects.
+		var bi := _settlement_index_of_tid(int(sg["besieged_tid"]))
+		if _panel_chrome() and bi >= 0:
+			_link_field(sec, "Place", name, "settlement", bi, "Select the besieged place.")
 		if sg.has("garrison"):
 			_field(sec, "Garrison of %s" % name, _thousands(float(sg["garrison"])),
 				"Its share of its faction's standing army in year %d's reading (§5.6): the defenders at the start. The siege ring does not scale with it -- nothing in the scope relates a siege line's length to the number inside." % cursor,
@@ -3442,7 +3983,8 @@ func _build_icon(body: Control) -> void:
 				if int(st.get("x", -1)) == gx and int(st.get("y", -1)) == gy:
 					_field(src, "Settlement", String(st.get("name", "")),
 						"The settlement at this icon's cell, which automatic placement put it on.")
-					DccWidgets.action(src, "Show settlement", func(): on_settlement_selected(st, i))
+					## PC-4: through the one selection path (was the dock's own pin).
+					DccWidgets.action(src, "Show settlement", func(): app.select("settlement", i))
 					return
 			DccWidgets.note(src, "No settlement stands at this cell any more.")
 		"poi":
@@ -3450,7 +3992,9 @@ func _build_icon(body: Control) -> void:
 				if int(lm.get("x", -1)) == gx and int(lm.get("y", -1)) == gy:
 					_field(src, "Landmark", _landmark_label(String(lm.get("kind", ""))),
 						"The landmark at this icon's cell, which automatic placement put it on.")
-					DccWidgets.action(src, "Show landmark", func(): on_landmark_selected(lm, -1))
+					## PC-4: through the one selection path, by the row's index in the live list.
+					var li := landmark_index_of(lm)
+					DccWidgets.action(src, "Show landmark", func(): app.select("landmark", li))
 					return
 			DccWidgets.note(src, "The landmark this was placed for is gone: a later landmark " +
 				"pass replaced the list. Re-run POI placement to match the current landmarks.")
@@ -3610,7 +4154,74 @@ func _build_faction(body: Control) -> void:
 	DccWidgets.action(open_actions, "Open in Factions…", func() -> void:
 		app.open_faction_roster(_faction_id,
 			"relations" if _faction_pair >= 0 else "identity", _faction_pair))
+	## PC-4 (§3.3, "A faction shows"): its capital and settlements in the shown year, and its
+	## conflicts, every name a link. Desktop and tablet only (§3.11).
+	if _panel_chrome():
+		_build_faction_places(body)
 	_build_faction_relations(body)
+	if _panel_chrome():
+		_build_faction_conflicts(body)
+
+## How many of a faction's settlements Inspect lists by name. A labelled judgement (PC-4, 2026-11-08):
+## the proposal says "its settlements in the shown year" and gives no count; a large faction holds
+## hundreds, and Records ▸ Factions… (the Open in Factions… row above) lists every one.
+const INSPECT_FACTION_PLACES := 12
+
+## PC-4. The faction's capital and its settlements, largest first, from the live settlement list,
+## whose `faction` is the holder in the year the civilisation layer was last moved to (PC-2's one
+## year). Each name selects that settlement. A faction with no capital says so instead of naming one.
+func _build_faction_places(body: Control) -> void:
+	var all: Array = bridge.settlements()
+	var mine: Array = []
+	var capital := -1
+	for i in all.size():
+		var d: Dictionary = all[i]
+		if int(d.get("faction", 0)) != _faction_id:
+			continue
+		mine.append(i)
+		if bool(d.get("capital", false)) and capital < 0:
+			capital = i
+	var sec := DccWidgets.section(body, "Settlements" if mine.is_empty() else
+		"Settlements · %d" % mine.size())
+	if capital >= 0:
+		_link_field(sec, "Capital", String((all[capital] as Dictionary).get("name", "(unnamed)")),
+			"settlement", capital, "Select the capital.")
+	else:
+		_field(sec, "Capital", "—", "No settlement of this faction is marked as its capital.", false)
+	if mine.is_empty():
+		DccWidgets.note(sec, "It holds no settlement in the year the timeline shows.")
+		return
+	mine.sort_custom(func(a, b): return int((all[a] as Dictionary).get("population", 0)) > int((all[b] as Dictionary).get("population", 0)))
+	for i in mine.slice(0, INSPECT_FACTION_PLACES):
+		var d: Dictionary = all[i]
+		_link_field(sec, String(d.get("kind", "")).capitalize(), String(d.get("name", "(unnamed)")),
+			"settlement", int(i), "Select this settlement (population %s)." % _thousands(float(d.get("population", 0))))
+	if mine.size() > INSPECT_FACTION_PLACES:
+		DccWidgets.note(sec, "And %d more: Open in Factions… lists every one." % (mine.size() - INSPECT_FACTION_PLACES))
+
+## PC-4. The conflicts the faction is a side in (`conflict_list()` rows, whose `sides` are faction
+## ids), each a link that selects it and its start year a link that moves the timeline. The section's
+## node is `INSPECT_HISTORY_NODE` ("a faction's wars", `focus_section()`).
+func _build_faction_conflicts(body: Control) -> void:
+	var rows: Array = []
+	for c in bridge.conflict_list():
+		var cd: Dictionary = c
+		if Array(cd.get("sides", PackedInt32Array())).has(_faction_id):
+			rows.append(cd)
+	var sec := DccWidgets.section(body, "Conflicts" if rows.is_empty() else "Conflicts · %d" % rows.size())
+	sec.name = INSPECT_HISTORY_NODE
+	if rows.is_empty():
+		DccWidgets.note(sec, "Not a side in any drawn conflict.")
+	for cd: Dictionary in rows:
+		var cid := int(cd.get("id", -1))
+		var cn := String(cd.get("name", ""))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", ROW_GAP)
+		sec.add_child(row)
+		_link(row, cn if cn != "" else "Conflict #%d" % cid, func(): app.select("conflict", cid),
+			"Select this conflict.", {"kind": "conflict", "id": cid})
+		row.add_child(DccTheme.spacer())
+		_year_link(row, int(cd.get("start_year", 0)))
 
 ## `GUI_GAP_REGISTER.md` **RL-01**. Every relation this faction is a party to,
 ## with the pair the reader actually clicked marked. `civ_faction_relations()`
@@ -3714,11 +4325,21 @@ func _relation_row(parent: Control, other_id: int, other_name: String, stance: S
 		int(roster.get("color_b", 0))) if not roster.is_empty() else DccTheme.c("sunken")
 	row.add_child(sw)
 
-	var n := DccTheme.mono_label(("▸ %s" % other_name) if marked else other_name,
-		"accent" if marked else "text_secondary", small)
-	n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	row.add_child(n)
+	var shown := ("▸ %s" % other_name) if marked else other_name
+	if _panel_chrome() and other_id > 0:
+		## PC-4 (§3.3, "Every name is a link"): the other party selects. The `▸ ` mark stays in the
+		## text, which `_wiredfix_probe.gd` reads.
+		var nl := _link(row, shown, func(): app.select("faction", other_id), "Select %s." % other_name,
+			{"kind": "faction", "id": other_id})
+		nl.add_theme_font_size_override("font_size", small)
+		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nl.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		nl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	else:
+		var n := DccTheme.mono_label(shown, "accent" if marked else "text_secondary", small)
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		row.add_child(n)
 	var v := DccTheme.mono_label("%+d" % score, "text_ghost", micro)
 	v.custom_minimum_size.x = 26
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

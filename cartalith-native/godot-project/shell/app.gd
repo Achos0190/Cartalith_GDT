@@ -721,10 +721,12 @@ func select(kind: String, id: int, opts: Dictionary = {}) -> void:
 ## and the right dock), the same fan-out a map click used before PC-1, so the dock and CIVIL can no
 ## longer disagree (finding S1).
 ##
-## **PC-1 applies settlements only.** A faction, landmark, culture, conflict or note selection is
-## recorded (history, `current_faction()`) but the surfaces that would show it are PC-4's Inspect
-## builders; until then such a selection empties the settlement surfaces, which is true: no settlement
-## is selected. The landmark and icon picks keep their own shipped paths (`_wire_selection()`).
+## **PC-4: the right dock is the Context panel and is told the whole selection**
+## (`RightDock.on_selection()`), so a faction, conflict or landmark selection is shown by its Inspect
+## builder, and a pinned panel keeps its subject (§3.3). The other surfaces still read settlements
+## only: a selection of another kind empties them, which is true, since no settlement is selected.
+## Culture and note selections have no producer and no Inspect builder yet; the panel shows Sample.
+## The icon pick keeps its own shipped path (`_wire_selection()`): an icon is not a selection kind.
 func _apply_selection() -> void:
 	var data: Variant = null
 	var idx := -1
@@ -732,8 +734,12 @@ func _apply_selection() -> void:
 		idx = int(selection["id"])
 		data = bridge.settlements()[idx]
 	for ws in _workspaces:
+		if ws == right_dock_ctrl:
+			continue
 		if ws.has_method("on_settlement_selected"):
 			ws.on_settlement_selected(data, idx)
+	if right_dock_ctrl != null:
+		right_dock_ctrl.on_selection(selection.duplicate())
 
 ## PC-1. Edit ▸ Previous selection (Alt+←): makes the selection before this one current again, like a
 ## browser's Back, through `select(…, {"history": false})`. Returns false, and changes nothing, when
@@ -773,6 +779,96 @@ func current_faction() -> int:
 			if i >= 0 and i < all.size() and (all[i] as Dictionary).has("faction"):
 				return int((all[i] as Dictionary)["faction"])
 	return -1
+
+# ── PC-4: the Context panel (`PC_SHELL_PROPOSAL.md` §3.3, §3.8; the contract in
+#    `drafts/pc-shell/90_pc_milestone_stubs.gd`) ───────────────────────────────────────────────
+
+## PC-4. The Context panel's tabs that exist in this build, in order. PC-4 builds Inspect; Note is
+## PC-5's and Ask PC-6's, and each appends its key in the change that builds it. On the phone
+## (Ruling DX PQ13, §3.11) "inspect" is listed too, because its route exists: the selection sheet
+## (`open_context_tab()`). `menus.gd::_context_tab_ready()` asks it once per row at build time, so a
+## row goes live on the next boot after its tab is built and never before.
+func context_tabs() -> PackedStringArray:
+	return PackedStringArray(["inspect"])
+
+## PC-4. Shows the Context panel on `tab` and returns true; returns false, and changes nothing, for a
+## tab `context_tabs()` does not list. `""` keeps the tab shown. Shows the panel first when it is
+## hidden (Window ▸ Context panel's check off) or collapsed (the dock's chevron). `section` scrolls
+## Inspect to a part of its page (`RightDock.focus_section()`: "history" is a place's holders, a
+## faction's wars, a conflict's years). On the phone, "inspect" and `""` show the selection sheet
+## (`phone_show_right_sheet()`), the phone's form of the panel (Ruling DX PQ13).
+func open_context_tab(tab: String, section: String = "") -> bool:
+	if tab != "" and not context_tabs().has(tab):
+		return false
+	if is_phone():
+		phone_show_right_sheet()
+		return true
+	if _region_nodes.has(DccMenus.ID_WIN_RIGHT):
+		(_region_nodes[DccMenus.ID_WIN_RIGHT] as CanvasItem).visible = true
+	if is_dock_collapsed("right"):
+		_toggle_dock(false)
+	if right_dock_ctrl != null and section != "":
+		right_dock_ctrl.focus_section(section)
+	return true
+
+## PC-4. Window ▸ Context panel ▸ Pin to the current subject: the panel holds what it shows while
+## the selection moves, and its banner offers PIN TO IT and FOLLOW (§3.3). False, and nothing
+## changes, when the panel shows no subject (the menu says so). The phone has no pin (§3.11: its
+## sheet follows the selection), so it answers false there.
+func pin_context_panel() -> bool:
+	return right_dock_ctrl != null and bool(right_dock_ctrl.pin())
+
+## PC-4. Window ▸ Context panel ▸ Follow the selection: releases a pin, so the panel shows the
+## selection again and follows each new one. A no-op when it already follows.
+func follow_selection() -> void:
+	if right_dock_ctrl != null:
+		right_dock_ctrl.follow()
+
+## PC-4 (Ruling DY). The modules this build can show. **Empty in PC-4, and that is the contract**:
+## a module is listed only once its builder is lifted out of its window so both hosts call one
+## function, which is PC-10's work (`PC_SHELL_PROPOSAL.md` §6). Empty keeps every MODULES row in
+## Window ▸ Context panel a `_todo` naming where its content lives today (`menus.gd::CTX_MODULE_TODAY`),
+## rather than a check over nothing.
+func context_module_registry() -> Array:
+	return []
+
+## PC-4 (Ruling DY). The panel's tabs in strip order: the default arrangement (Inspect · Note · Ask)
+## filtered to the tabs and modules this build has, so `["inspect"]` in PC-4. **Nothing is stored
+## yet**, because nothing can change it: Inspect cannot be removed (a judgement in Ruling DY), Note
+## and Ask do not exist, and no module is registered. PC-10 adds the per-user `[context_panel]` store
+## (`DccSettings`, the `[quick_bar]` pattern) with the first arrangement a user can make; never the
+## world file.
+func context_panel_modules() -> PackedStringArray:
+	var out := PackedStringArray()
+	var built := context_tabs()
+	for key in ["inspect", "note", "ask"]:
+		if built.has(key):
+			out.append(key)
+	return out
+
+## PC-4 (Ruling DY). Adds or removes tab `key`. In PC-4 there is nothing it can do, so it refuses
+## every key and returns false (the menu then says why, `menus.gd::CTX_MODULE_REFUSED`): Inspect is
+## the panel's anchor and cannot be removed, adding it again changes nothing, and no other tab or
+## module exists. No caller can reach it today: the MODULES rows are `_todo` while
+## `context_module_registry()` is empty. PC-10 writes its real body.
+func set_context_module_shown(key: String, shown: bool) -> bool:
+	if key == "inspect" and shown:
+		return true
+	return false
+
+## PC-4 (Ruling DY). Window ▸ Context panel ▸ Reset panel: the arrangement back to Inspect · Note ·
+## Ask. In PC-4 the arrangement is already that (`context_panel_modules()`), so the reset is what is
+## left of it: the panel is shown (unhidden and uncollapsed) on Inspect, at the top of its page. The
+## pin is not touched: a pin is a subject, not an arrangement. A labelled judgement (PC-4, 2026-11-08):
+## showing the panel makes a reset visible, where a hidden panel's reset would be a no-op. Desktop
+## and tablet only, as its row is.
+func reset_context_panel() -> void:
+	if is_phone():
+		return
+	open_context_tab("inspect")
+	if _right_dock_scroll != null:
+		_right_dock_scroll.scroll_vertical = 0
+	set_status("hint", "Context panel reset: Inspect.", "text_dim")
 
 ## PC-1. A generate or a load replaces the world, and a settlement index then names a different town
 ## (`tid` is re-issued too), so the selection and both histories are dropped, with no history step and
@@ -2104,7 +2200,16 @@ func _wire_selection() -> void:
 	bridge.world_loaded.connect(_reset_selection)
 	## Ruling AL: a landmark click, fanned out the same way. Emitted after
 	## `settlement_selected` for the same click (`map_overlay.gd`'s order).
+	## **PC-4: a producer of the one selection** when the same click hit no settlement (the
+	## selection is then empty: `settlement_selected(null)` ran first), by the row's index in
+	## `bridge.landmarks()` (`RightDock.landmark_index_of()`). A click that hit a settlement as well
+	## keeps the settlement selected and the dock's direct landmark view, the shipped behaviour.
 	viewport.landmark_selected.connect(func(data, index):
+		if data is Dictionary and selection.is_empty() and right_dock_ctrl != null:
+			var li: int = right_dock_ctrl.landmark_index_of(data)
+			if li >= 0:
+				select("landmark", li)
+				return
 		for ws in _workspaces:
 			if ws.has_method("on_landmark_selected"):
 				ws.on_landmark_selected(data, index))

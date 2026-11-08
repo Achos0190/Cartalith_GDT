@@ -253,7 +253,9 @@ func _ready() -> void:
 	if pm == null:
 		_check("PhoneMenu exists", false)
 	else:
-		for pair in [["Left dock", "_left_sheet_open"], ["Right dock", "_right_sheet_open"]]:
+		## PC-4: the right dock's row reads Context panel on the phone too (Ruling DX PQ13), where it
+		## shows or hides the selection sheet.
+		for pair in [["Left dock", "_left_sheet_open"], ["Context panel", "_right_sheet_open"]]:
 			var title := String(pair[0])
 			var flag := String(pair[1])
 			_reset()

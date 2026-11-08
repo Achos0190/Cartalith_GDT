@@ -7435,9 +7435,9 @@ const CTX_MODULES: Array = [
 	["recent", "Recent & bookmarks", ID_WIN_CTX_MOD_RECENT],
 ]
 
-## Why a MODULES row is disabled before its module is built: `%s` is the module's title, then where that
+## Why a MODULES row is disabled before its module is built (PC-10; PC-4 built the panel, not its modules): `%s` is the module's title, then where that
 ## content lives today (`CTX_MODULE_TODAY`), so the reason is a door, not only a "not yet".
-const CTX_MODULE_TODO := "Not built yet: %s arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4). %s"
+const CTX_MODULE_TODO := "Not built yet: %s arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-10). %s"
 
 ## Where each module's content lives today, each read at its builder on 2026-11-01 at `3099309`
 ## (`90_pc_milestone_stubs.gd::context_module_registry()` names the symbols). Recent & bookmarks has no

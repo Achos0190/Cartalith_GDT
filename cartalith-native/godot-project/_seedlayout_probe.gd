@@ -189,7 +189,8 @@ func _phase_one(titles: Array) -> void:
 		if wp0.is_item_checkable(i) and DccMenus.WIN_REGION_IDS.has(wp0.get_item_id(i)):
 			region_rows.append(wp0.get_item_text(i))
 	_ok("Window menu's five region rows", str(region_rows),
-		str(["Left dock", "Right dock", "Timeline", "Status bar", "Domain rail"]))
+		## PC-4 renamed the right dock's row Context panel (`menus.gd::_region_label()`).
+		str(["Left dock", "Context panel", "Timeline", "Status bar", "Domain rail"]))
 
 	# 2 -- every seed names a REAL rail node, checked against RAIL_NODES' own
 	#      labels rather than against the constant that produced it. This is
@@ -284,7 +285,8 @@ func _readout_checks() -> void:
 	await _frames(2)
 	var rows := _readout_rows(host)
 	_ok("readout: left dock", rows.get("LEFT DOCK", ""), "shown")
-	_ok("readout: right dock reads hidden", rows.get("RIGHT DOCK", ""), "hidden")
+	## PC-4: the right dock's readout row is titled Context panel (`menus.gd::_region_label()`).
+	_ok("readout: right dock reads hidden", rows.get("CONTEXT PANEL", ""), "hidden")
 	_ok("readout: domain · mode", rows.get("DOMAIN · MODE", ""), "CIVIL · planner")
 	_ok("readout: rail", rows.get("RAIL", ""), "expanded")
 	_ok("readout: dock widths dashed", rows.get("DOCK WIDTHS", ""), "—")
@@ -302,12 +304,13 @@ func _readout_checks() -> void:
 	await _frames(2)
 	var rows2 := _readout_rows(host2)
 	for rid in ids:
-		_ok("empty snap: %s dashed" % String(DccMenus.WIN_REGION_LABELS[rid]).to_upper(),
-			rows2.get(String(DccMenus.WIN_REGION_LABELS[rid]).to_upper(), ""), "—")
+		## The row's drawn title is `_region_label()`'s (Context panel for the right dock since PC-4).
+		_ok("empty snap: %s dashed" % menus._region_label(rid).to_upper(),
+			rows2.get(menus._region_label(rid).to_upper(), ""), "—")
 	## Literal keys, not `WIN_REGION_LABELS` upper-cased: the loop above reads
 	## the constant that produced the rows, so only this can catch a rename.
 	_ok("readout keys are the five region names", str(rows2.keys()),
-		str(["LEFT DOCK", "RIGHT DOCK", "TIMELINE", "STATUS BAR", "DOMAIN RAIL",
+		str(["LEFT DOCK", "CONTEXT PANEL", "TIMELINE", "STATUS BAR", "DOMAIN RAIL",
 			"DOMAIN · MODE", "RAIL", "DOCK WIDTHS"]))
 	_ok("empty snap: domain · mode dashed", rows2.get("DOMAIN · MODE", ""), "—")
 	_ok("empty snap: rail dashed", rows2.get("RAIL", ""), "—")
@@ -349,7 +352,7 @@ func _readout_checks() -> void:
 		_ok("save modal opened", false, true)
 		return
 	var live := _readout_rows(dlg)
-	_ok("live: right dock hidden as set", live.get("RIGHT DOCK", ""), "hidden")
+	_ok("live: right dock hidden as set", live.get("CONTEXT PANEL", ""), "hidden")
 	_ok("live: left dock still shown", live.get("LEFT DOCK", ""), "shown")
 	_ok("live: rail expanded as set", live.get("RAIL", ""), "expanded")
 	_ok("live: domain · mode as set", live.get("DOMAIN · MODE", ""), "CIVIL · planner")
