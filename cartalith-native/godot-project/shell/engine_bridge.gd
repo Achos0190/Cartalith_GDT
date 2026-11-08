@@ -8032,7 +8032,10 @@ func vault_read_file_for_edit(rel: String) -> Dictionary:
 ## Writes a whole file with no attached link -- `vault_write_section`'s
 ## simpler cousin. Refuses with the file unchanged if it was edited since
 ## `expect_hash` was read. `{ok, hash}` on success, `{ok: false, error}`
-## otherwise.
+## otherwise, with `kind` (VE-4): "conflict" (changed outside), "missing", "readonly" (read-only or locked),
+## "unavailable" (no vault / its folder is gone), "exists" or "io". A build without the key answers no
+## `kind`; callers read it with a default of "io", never as a conflict.
+## An unchanged text is not written (the file's time does not move) and still answers `ok`.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
 func vault_write_file(rel: String, text: String, expect_hash: String) -> Dictionary:
 	# Mid-generation gate (caller-gate audit 2026-10-12): the worker holds `WorldGen`.
@@ -8042,6 +8045,16 @@ func vault_write_file(rel: String, text: String, expect_hash: String) -> Diction
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
 	return world_gen.vault_write_file(rel, text, expect_hash)
+
+## Creates a note that does not exist (VE-4: Keep both, Recreate); never overwrites -- an existing `rel`
+## answers `kind: "exists"`. `{ok, error, kind, hash}`. `_VAULT_UNAVAILABLE` without the API.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
+func vault_create_file(rel: String, text: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_create_file"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_create_file(rel, text)
 
 ## Attaches an entity to a document or heading (`WorldGen.vault_attach`); reply
 ## `{ok, error, ...}`. `_VAULT_UNAVAILABLE` without the API; marks the world dirty.

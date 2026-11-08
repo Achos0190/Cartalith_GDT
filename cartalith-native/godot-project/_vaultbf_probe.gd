@@ -397,7 +397,7 @@ func _ready() -> void:
 		_vp.push_input(k2)
 		await _frames(3)
 		_ok("Ctrl+E again returns to the source", te.visible and not pv.visible)
-	ed.cancel_requested.emit()
+	ed.revert_requested.emit()
 	await _frames(3)
 	vw.hide()
 	await _frames(2)

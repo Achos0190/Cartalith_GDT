@@ -341,6 +341,18 @@ impl FsVault {
     /// across volumes is a copy, and a copy is not atomic.
     pub fn write(&self, rel: &str, text: &str) -> Result<(), VaultError> {
         let path = self.resolve(rel)?;
+        // VE-4: a read-only note stays read-only. A rename over a read-only target is refused on
+        // Windows but SUCCEEDS on POSIX (the folder's permissions govern a rename, not the file's),
+        // so without this check autosave would silently replace a file the owner locked. Checked
+        // before the temp file exists, so a refusal leaves nothing behind.
+        if let Ok(m) = std::fs::metadata(&path) {
+            if m.permissions().readonly() {
+                return Err(VaultError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "the file is read-only",
+                )));
+            }
+        }
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }

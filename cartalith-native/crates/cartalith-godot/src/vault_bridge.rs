@@ -55,6 +55,20 @@ pub(crate) fn err(message: impl std::fmt::Display) -> VarDictionary {
     vdict! { "ok" => false, "error" => message.to_string() }
 }
 
+/// [`err`] plus VE-4's `kind` (`cartalith_vault::Error::write_kind`): the refusal's class as a
+/// stable word, so the editor offers Keep mine / Take theirs only for `"conflict"` and not for a
+/// read-only file, and never has to match on the English message.
+fn write_err(e: &cartalith_vault::Error) -> VarDictionary {
+    let mut d = err(e);
+    d.set("kind", e.write_kind());
+    // A conflict also names the hash the file has NOW, so "Keep mine" can write against exactly the
+    // version the person was told about: a second outside change after the banner refuses again.
+    if let cartalith_vault::Error::SourceChanged { actual, .. } = e {
+        d.set("actual", actual.as_str());
+    }
+    d
+}
+
 /// The clock seam's live side (Ruling BF): the system's **local** date and
 /// time, as Obsidian's `{{date}}`/`{{time}}` use it. `None` only if Godot
 /// hands back something that is not a real date.
@@ -244,7 +258,21 @@ impl WorldGen {
                 d.set("hash", hash);
                 d
             }
-            Err(e) => err(e),
+            Err(e) => write_err(&e),
+        }
+    }
+
+    /// Creates a note that does not exist (VE-4: **Keep both**, and **Recreate** after a delete).
+    /// Never overwrites: an existing `rel` answers `kind: "exists"`. `{ok, error, kind, hash}`.
+    #[func]
+    fn vault_create_file(&mut self, rel: GString, text: GString) -> VarDictionary {
+        match self.vault.create_file(&rel.to_string(), &text.to_string()) {
+            Ok(hash) => {
+                let mut d = ok();
+                d.set("hash", hash);
+                d
+            }
+            Err(e) => write_err(&e),
         }
     }
 

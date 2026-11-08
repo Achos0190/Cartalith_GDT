@@ -427,7 +427,8 @@ func _ready() -> void:
 	await _frames(3)
 	_ok("Save refuses: the file on disk is exactly the other program's version", _disk(rel) == behind)
 	_ok("... the typed text survives in the editor", te.text.find("Mine, typed after the other edit.") >= 0)
-	_ok("... and the editor says it was refused", String(ed.status_label.text).findn("refused") >= 0, ed.status_label.text)
+	## VE-4: a refusal is the conflict banner now, and the status line says "Not saved" (it used to say "refused").
+	_ok("... and the editor says it was not saved, with the conflict banner up", String(ed.status_label.text).findn("not saved") >= 0 and ed.banner.visible, ed.status_label.text)
 	await _shot("7_editor_refused.png")
 
 	# == 6. Closing with unsaved edits warns ==================================

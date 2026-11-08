@@ -162,9 +162,33 @@ Rule: any "new" action resets every identity field (path, name, dirty flag), tes
 - **How to verify:** make a control missing on purpose; the probe must end with a named failure, not hang.
 - **Session:** the VE-0/VE-1 build, commit `bec744b5`. **[reported by agent]** (the `_ve0_probe.gd` comment "a script error inside an `await` never returns" is the writer's own note, not a reproduction here).
 
+## 23. `TextEdit.get_rect_at_line_column` answers for the grapheme BEFORE the column
+
+- **Preflight trigger:** *Measure where a coloured run, a caret or a glyph starts in a `TextEdit`*
+- **Root cause:** on Godot 4.7.2 `get_rect_at_line_column(line, col)` reports the rect of the grapheme before `col`, so column 1 returns column 0's x. A probe that asks it where a run starts is off by one glyph and passes or fails for the wrong reason.
+- **Rule:** to find where drawn ink starts, use the hit test (`get_line_column_at_pos`) on the drawn pixels, or measure the pixels; never trust `get_rect_at_line_column` for a run's left edge.
+- **How to verify:** ask for the rect at column 1 of a line whose first glyph is wide; it equals column 0's rect.
+- **Session:** the VE-3 build, commit `2dd5159d`. **[reported by agent]**: recorded in `VAULT_EDITOR_PROPOSAL.md` s.7a (a); the probe `_ve3_probe.gd` uses the hit test instead.
+
+## 24. The caret and the focus border are drawn in the same colour as a heading
+
+- **Preflight trigger:** *Measure the ink of one colour in a capture of an editor that has focus*
+- **Root cause:** the editor's caret and its focus border are drawn in the accent, which is also the heading colour. A pixel probe that counts "heading ink" on a focused editor counts the caret and the border and reports headings that are not there.
+- **Rule:** park the caret on a line the measurement does not read, and start the scan inside the border; or measure with the editor unfocused. Never count a colour the chrome also uses without excluding the chrome.
+- **How to verify:** move the caret onto the measured line; the count of heading-coloured pixels changes with no text change.
+- **Session:** the VE-3 build, commit `2dd5159d`. **[reported by agent]**: recorded in `VAULT_EDITOR_PROPOSAL.md` s.7a (c); `_ve3_probe.gd` parks the caret and starts inside the border.
+
+## 25. A rebuild frees the old editor AFTER the new note's state is assigned
+
+- **Preflight trigger:** *Add code that reads a widget's text during a rebuild, a note switch or a close*
+- **Root cause:** `vault_window.gd`'s `_open_editor` assigns the new `_browse_path` and `_browse_text` and only then calls `_rebuild`, which frees the old editor. For that moment the old note's `TextEdit` is alive under the NEW note's name. VE-4's first version synced the editor's text into `_browse_text` inside `_clear` and then autosaved: `Qconf1.md` came out holding `Qalpha.md`'s text. A user's note overwritten with another note's text is the worst failure an autosave can have.
+- **Rule:** any code that reads the live editor must first check the editor was built for the note now in `_browse_path` (`_editor_path`), and a write must refuse when it was not. Reading "the current editor" is a claim about which note, not only about which widget.
+- **How to verify:** open note B straight after editing note A without waiting; B's file must hold B's text. Remove the `_editor_path` checks and `_ve4_probe.gd` goes red (its Qconf1 and Qcrlf legs).
+- **Session:** the VE-4 build. **[verified]**: caught by the probe on its first run, before any commit.
+
 ## Suggested handling
 
 - Entry 6 merges into an existing row; the rest are new triggers.
-- Entries 20 and 21 are verified at a named place; entry 22 carries **[reported by agent]**.
+- Entries 20, 21 and 25 are verified at a named place; entries 22, 23 and 24 carry **[reported by agent]**.
 - Entries 1, 4, 5, 7, 8, 9 and 10 carry **[reported by agent]**: confirm each (one reproduction apiece) before adding, or add them with that tag visible.
 - Entries 2 and 3 are partly backed by repository text, noted above.

@@ -10,10 +10,11 @@ extends VBoxContainer
 ##
 ## ## What it is
 ##
-## A header row (file name, Write / Preview, Cancel, Save), a toolbar, and one
+## A header row (file name, Write / Preview, Revert to opened…, Save), a save banner, a toolbar, and one
 ## body that is either the source (`text_edit`) or its rendering (`preview`).
-## It never touches the disk: Save and Cancel are signals, and the vault
-## window answers them through `vault_write_file`'s hash guard. So this file
+## It never touches the disk: Save, Revert and the banner's choices are signals, and the vault
+## window answers them through `vault_write_file`'s hash guard (autosave, the conflict banner and the
+## session undo are VE-4; `vault_window.gd::_write_now` is the one place a note is written). So this file
 ## cannot write a note, and the guard cannot be bypassed from here.
 ##
 ## ## The markup, and the two defaults the ruling states
@@ -52,7 +53,7 @@ extends VBoxContainer
 ## new note" row). The card is never the whole vault: at most `SUGGEST_ROWS` rows (`SUGGEST_ROWS_PHONE`
 ## on the phone), re-ranked on every keystroke. Up / Down move, Enter or Tab accept, Escape closes the
 ## card (not the window), a click or tap on a row accepts. Rows are 44 px on touch. Accepting writes
-## the link text and nothing else: it creates no note and saves nothing (VQ2; autosave is VE-4).
+## the link text and nothing else: it creates no note and saves nothing itself (VQ2; the window's autosave saves the note a second later).
 ## **Insert template** puts one of the vault's templates at the caret, filled
 ## and with its properties merged (`cartalith_vault::template::insert`, reached
 ## through the `template_inserter` the host passes to `setup`).
@@ -73,6 +74,16 @@ extends VBoxContainer
 ## - **Footer.** Word count and outgoing links, from the host's `word_counter` / `link_counter`
 ##   (the Rust crate); a figure the host cannot give is left out, never shown as 0.
 ##
+## ## The save banner and the session undo (VE-4)
+##
+## - **The banner** (`show_banner` / `hide_banner`, signal `banner_choice`) is a blocking state above the
+##   toolbar: a conflict, a deleted note, a read-only file, a vanished vault folder. The host decides the
+##   words and the choices; this file only draws them (44 dp buttons on the phone) and emits the key.
+## - **`replace_whole_text`** swaps the whole text as ONE undo step (a revert, taking the version on disk).
+##   **`seed_history`** replays the host's checkpoints so Ctrl+Z reaches the first-opened text after a close
+##   and reopen or a rebuild; neither keeps a `TextEdit`'s own history. The status line reads
+##   `editing…` / `saved · time` (`mark_saved`).
+##
 ## Every transform is a `static func` over a plain `String` and two character
 ## offsets, returning `{"text", "from", "to"}`. That is what lets
 ## `_mdedit_probe.gd` pin each one with exact strings and no UI at all, and it
@@ -83,11 +94,12 @@ extends VBoxContainer
 ## The Save button was pressed. This file never writes a file; the vault window answers it through
 ## `vault_write_file`'s hash guard.
 signal save_requested
-## The Cancel button was pressed. The host decides whether to discard; nothing here reverts the
-## text.
-signal cancel_requested
-## "Reload from disk", offered after a refused Save: discard and re-read.
-signal reload_requested
+## "Revert to opened…" was pressed (VE-4, Ruling DY VQ6; it replaced Cancel). The host asks first, then
+## calls `replace_whole_text` with the note as first opened this session; nothing here reverts the text.
+signal revert_requested
+## A button of the save banner (`show_banner`) was pressed; `key` is the choice's key. The host answers
+## it (Keep mine, Take theirs, Keep both, Recreate, Retry...); the editor never touches the file.
+signal banner_choice(key: String)
 ## Emitted after any edit, typed or made by a toolbar button.
 signal edited
 ## Emitted when Write / Preview flips, so a host that rebuilds can keep it.
@@ -184,8 +196,13 @@ var preview: RichTextLabel
 var status_label: Label
 ## The header's Save button, made in `_build_header`; it emits `save_requested`.
 var save_button: Button
-## The header's Cancel button, made in `_build_header`; it emits `cancel_requested`.
-var cancel_button: Button
+## The header's "Revert to opened…" button, made in `_build_header`; it emits `revert_requested`.
+var revert_button: Button
+## VE-4's save banner (a conflict, a deleted note, a read-only file, a vanished vault): hidden until
+## `show_banner`. Built in `setup` between the header and the toolbar so it is the first thing read.
+var banner: PanelContainer
+var _banner_label: Label
+var _banner_row: HFlowContainer
 
 ## Every toolbar control, by key -- `bold`, `italic`, `underline`, `strike`,
 ## `highlight`, `h0`..`h3`, `bullet`, `number`, `task`, `quote`, `callout`,
@@ -258,8 +275,6 @@ var _find_notice := ""
 ## Owners of the window's Escape (the suggestion card, the find bar): `dialog_close_on_escape` stays
 ## off while any holds it.
 var _esc_owners := {}
-## The "Reload from disk" button made in `setup`, hidden until needed.
-var _reload_button: Button
 ## Callable given to `setup` that returns the template choices; `template_choices` calls it.
 var _templates_source: Callable
 ## Callable given to `setup` that inserts a chosen template; `insert_template` refuses when it is
@@ -293,6 +308,7 @@ func setup(file_label: String, initial: String, saved: String, phone: bool,
 
 	_split_wanted = mode == "split"
 	_build_header(file_label)
+	_build_banner()
 	_build_toolbar()
 	_build_find()
 	_build_body(initial)
@@ -304,8 +320,6 @@ func setup(file_label: String, initial: String, saved: String, phone: bool,
 	var status_row := HBoxContainer.new()
 	status_row.add_theme_constant_override("separation", 8)
 	status_row.add_child(status_label)
-	_reload_button = DccWidgets.text_button(status_row, "Reload from disk (discards these edits)", func(): reload_requested.emit())
-	_reload_button.visible = false
 	## The footer (VE-3): word count and outgoing links, right of the status. Empty until the host's
 	## counters answer; recomputed a moment after each edit.
 	_footer_label = DccTheme.label("", "text_ghost", DccTheme.FS_SMALL)
@@ -337,23 +351,122 @@ func is_dirty() -> bool:
 	return text_edit != null and text_edit.text != _saved_text
 
 
-## Record `text` as what the file now holds, so `is_dirty()` goes false, and say "Saved.". Call
-## only after the host's write succeeded; calling it early hides unsaved edits from the dirty
-## check.
-func mark_saved(text: String) -> void:
+## Record `text` as what the file now holds, so `is_dirty()` goes false, and say "saved" (VE-4: with
+## the time when `stamp` is given, so a person can see THAT it saved, which is what Obsidian's forum
+## users ask for). Call only after the host's write succeeded; calling it early hides unsaved edits
+## from the dirty check.
+func mark_saved(text: String, stamp: String = "") -> void:
 	_saved_text = text
-	set_status("Saved.", false)
+	set_status("saved · %s" % stamp if stamp != "" else "saved", false)
 
 
-## `refused` shows the reload offer beside the message: after a hash refusal
-## the only way to a writable state is to re-read the file.
+## Replace the whole text as ONE undo step (a revert, or taking the version on disk), keeping the
+## caret on a line that exists. The same shape as `_commit`, but it does not move focus or the
+## selection, and it resets the auto-pair length tracker: this is not typing, and a one-character
+## difference must not look like a typed `[`.
+func replace_whole_text(t: String) -> void:
+	if t == text_edit.text:
+		return
+	var cl := text_edit.get_caret_line()
+	text_edit.begin_complex_operation()
+	var last := text_edit.get_line_count() - 1
+	text_edit.remove_text(0, 0, last, text_edit.get_line(last).length())
+	text_edit.insert_text(t, 0, 0)
+	text_edit.end_complex_operation()
+	_last_len = t.length()
+	cl = clampi(cl, 0, text_edit.get_line_count() - 1)
+	text_edit.set_caret_line(cl)
+	text_edit.set_caret_column(mini(text_edit.get_caret_column(), text_edit.get_line(cl).length()))
+	_hl.refresh()
+	_footer_timer.start()
+	if _mode == "split":
+		_split_timer.start()
+
+
+## Rebuild the undo history from `snaps` (VE-4's session undo): `snaps[0]` is the note as first
+## opened this session, each later entry a checkpoint, and the last is the text to show. Every step
+## from one entry to the next is one undo step, so Ctrl+Z walks back to `snaps[0]` even though this
+## editor was built after the note was closed, or after a rebuild (dragging across the fold width),
+## neither of which keeps a `TextEdit`'s own history. The caller passes it right after `setup`.
+func seed_history(snaps: Array) -> void:
+	if snaps.size() < 2 or text_edit == null:
+		return
+	text_edit.text = String(snaps[0])
+	text_edit.clear_undo_history()
+	for i in range(1, snaps.size()):
+		replace_whole_text(String(snaps[i]))
+	text_edit.set_caret_line(0)
+	text_edit.set_caret_column(0)
+	_last_len = text_edit.text.length()
+
+
+## The phone's 44 dp touch floor for a button this file adds (VE-4). `DccWidgets.action` floors only the
+## tablet shell (its `btn_min_h`); on the phone it is 26 high, which a thumb misses. 44 is the shell's
+## own touch-target floor (`SUGGEST_ROW_TOUCH_PX`, and VE-3's find bar on the phone).
+func _touch_floor(b: Button) -> void:
+	if _phone:
+		b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, float(SUGGEST_ROW_TOUCH_PX))
+
+
+## Show the save banner: `msg` and one button per entry of `choices` (`[{key, label}]`). A
+## button emits `banner_choice(key)`. Replaces any banner already showing. 44 dp buttons on touch
+## come from `DccWidgets.action`.
+func show_banner(msg: String, choices: Array) -> void:
+	if banner == null:
+		return
+	_banner_label.text = msg
+	for c in _banner_row.get_children():
+		_banner_row.remove_child(c)
+		c.queue_free()
+	for ch in choices:
+		var d: Dictionary = ch
+		var key := String(d["key"])
+		var b := DccWidgets.action(_banner_row, String(d["label"]), func(): banner_choice.emit(key))
+		b.name = "Banner_" + key
+		_touch_floor(b)
+	banner.visible = true
+
+
+## Hide the save banner.
+func hide_banner() -> void:
+	if banner != null:
+		banner.visible = false
+
+
+## The banner is a blocking state, in the accent ground the shell uses for a refusal, above the
+## toolbar: read first, not hidden in the footer.
+func _build_banner() -> void:
+	banner = PanelContainer.new()
+	banner.name = "SaveBanner"
+	var sb := DccTheme.outline("accent", "panel")
+	sb.set_content_margin_all(8)
+	banner.add_theme_stylebox_override("panel", sb)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	banner.add_child(vb)
+	_banner_label = DccTheme.label("", "text_bright", DccTheme.FS_SMALL)
+	_banner_label.name = "SaveBannerText"
+	_banner_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_banner_label.custom_minimum_size.x = 160
+	_banner_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_child(_banner_label)
+	_banner_row = HFlowContainer.new()
+	_banner_row.name = "SaveBannerChoices"
+	_banner_row.add_theme_constant_override("h_separation", 6)
+	_banner_row.add_theme_constant_override("v_separation", 6)
+	vb.add_child(_banner_row)
+	banner.visible = false
+	add_child(banner)
+
+
+## The status line: `refused` draws it in the accent. Used for "editing…" / "saved · time" and for
+## the one-line reasons a save did not land.
 func set_status(msg: String, refused: bool) -> void:
 	if status_label == null:
 		return
 	status_label.text = msg
 	status_label.add_theme_color_override("font_color",
 		DccTheme.c("accent") if refused else DccTheme.c("text_ghost"))
-	_reload_button.visible = refused
 
 
 ## The current mode, `write`, `split` or `preview`.
@@ -442,7 +555,7 @@ func _on_resized() -> void:
 
 # -- Building ---------------------------------------------------------------
 
-## Desktop: one row -- title, Write / Preview, Cancel, Save. Phone: the title
+## Desktop: one row -- title, Write / Preview, Revert to opened…, Save. Phone: the title
 ## on its own line, because five things in one row do not fit 1080 px at phone
 ## density, and an `HBoxContainer` never wraps a sibling on its own.
 func _build_header(file_label: String) -> void:
@@ -471,10 +584,12 @@ func _build_header(file_label: String) -> void:
 	buttons["split"].tooltip_text = "Write and Preview side by side (offered when the note pane is at least %d dp wide)." % SPLIT_MIN_DP
 	buttons["split"].visible = false
 	buttons["preview"] = DccWidgets.segment(row, "Preview", func(): set_mode("preview"))
-	cancel_button = DccWidgets.action(row, "Cancel", func(): cancel_requested.emit())
-	cancel_button.tooltip_text = "Discards every edit since the note was opened or last saved. The file on disk is untouched."
+	revert_button = DccWidgets.action(row, "Revert to opened…", func(): revert_requested.emit())
+	revert_button.tooltip_text = "Replaces the note with how it was the first time you opened it this session. Asks first; Ctrl+Z brings your edits back."
+	_touch_floor(revert_button)
 	save_button = DccWidgets.action(row, "Save", func(): save_requested.emit(), true)
-	save_button.tooltip_text = "Writes the whole note back to the vault. Refuses, and writes nothing, if the file changed on disk since it was opened here."
+	_touch_floor(save_button)
+	save_button.tooltip_text = "The note saves itself about a second after you stop typing. This writes it at once (Ctrl+S). Refuses, and writes nothing, if the file changed on disk since it was opened here."
 
 
 ## Build the formatting toolbar (one scrolling row on a phone, a wrapping flow on desktop) and the

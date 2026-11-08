@@ -160,6 +160,42 @@ var _editor: Control
 ## `_close_editor`.
 var _editor_mode := "write"
 
+## --- VE-4: autosave, the conflict banner and the session undo (VAULT_EDITOR_PROPOSAL.md s.3.3) ---
+## Autosave fires this long after the last keystroke. A labelled judgement: the proposal and Ruling DY
+## (VQ1) say "about a second"; short enough that "saved" is on screen well inside the 2 s bar, long
+## enough that a pause between words does not write a half-sentence.
+const AUTOSAVE_SEC := 1.0
+## The session undo keeps checkpoints, not keystrokes: the first-opened text, then one per save or
+## rebuild. Labelled judgements: 100 steps is more Ctrl+Z than anyone walks, and 4 million characters
+## (about 8 MB) is a ceiling on one note's history. Past either, the OLDEST checkpoint after the
+## first-opened one is dropped, never the first-opened one itself (that is what Revert returns to).
+const HIST_MAX_CHECKPOINTS := 100
+const HIST_MAX_CHARS := 4000000
+## One-shot timer for the autosave, created in `setup`; restarted by every edit.
+var _autosave_timer: Timer
+## Per note (vault-relative path): the checkpoints, `[0]` being the note as first opened since
+## Cartalith started. Memory only: never written to disk, gone on quit (Ruling DY, VQ1). Cleared on
+## connect and disconnect, because a path means a different note in another vault.
+var _hist: Dictionary = {}
+## Why the last save did not land, `{kind, error}`, or `{}` when nothing blocks. Held here, not in
+## the editor, so a rebuild (dragging across the fold) shows the same banner again.
+var _save_block: Dictionary = {}
+## The open file used CRLF line endings. A `TextEdit` holds LF, so the text is converted back on write:
+## a Windows note must not change every line of itself the first time it is autosaved.
+var _eol_crlf := false
+## The time of the last successful save, shown in the footer; `""` before the first.
+var _saved_stamp := ""
+## How many times this window has called `vault_write_file` for the editor (a diagnostic a probe reads
+## to prove that an unchanged note, or a note under a standing conflict, is not written to).
+var _writes_attempted := 0
+## The note the LIVE editor (`_editor` / `_browse_edit`) was built for. `_open_editor` assigns the new
+## `_browse_path` and text BEFORE `_rebuild` frees the old editor, so for that moment the old editor is
+## still alive under the new note's name. Anything that reads the editor's text (the sync in `_clear`,
+## `_live_text`, `_write_now`) must check this equals `_browse_path`, or one note's text is
+## written to or checkpointed under another note's name. A probe caught exactly that on this
+## milestone's first run (Qconf1.md came out holding Qalpha.md's text).
+var _editor_path := ""
+
 ## The notes a followed link was followed FROM, most recent last (VE-1): Back pops one. Cleared when
 ## a note is picked from the tree, searched for or opened from the map, because those start a new
 ## trail rather than continuing one.
@@ -345,6 +381,12 @@ func setup(a, b: EngineBridge) -> void:
 	pad.add_child(_body)
 	visibility_changed.connect(_on_visibility_changed)
 	size_changed.connect(_on_size_changed)
+	_autosave_timer = Timer.new()
+	_autosave_timer.name = "VaultAutosave"
+	_autosave_timer.one_shot = true
+	_autosave_timer.wait_time = AUTOSAVE_SEC
+	_autosave_timer.timeout.connect(_write_now)
+	add_child(_autosave_timer)
 
 
 ## Opens scoped to one entity. `kind` is `"settlement"`, `"province"` or
@@ -418,6 +460,9 @@ func _reset_note_state() -> void:
 	_browse_hash = ""
 	_browse_saved = ""
 	_editor_mode = "write"
+	_save_block = {}
+	if _autosave_timer != null:
+		_autosave_timer.stop()
 	_attach_open = false
 	_attach_query = ""
 	_more_open = false
@@ -483,6 +528,13 @@ func open_browse() -> void:
 ## and bails instead of writing into a freed node. Must never be skipped before a
 ## rebuild.
 func _clear() -> void:
+	## VE-4: the live text is read back and checkpointed BEFORE the editor is freed, so a rebuild
+	## (a drag across the fold width) keeps both the unsaved buffer and the undo history. The
+	## `edited` mirror is deferred and may be one frame behind.
+	if _browse_path != "" and _editor_path == _browse_path and _browse_edit != null and is_instance_valid(_browse_edit):
+		_browse_text = _browse_edit.text
+		_checkpoint_history()
+	_editor_path = ""
 	for c in _body.get_children():
 		_body.remove_child(c)
 		c.queue_free()
@@ -597,6 +649,7 @@ func _build_connection(info: Dictionary) -> void:
 	if bound:
 		var dis := DccWidgets.action(sec, "Disconnect", func():
 			bridge.vault_disconnect()
+			_hist.clear()
 			store_changed.emit()
 			_rebuild())
 		dis.tooltip_text = "Drops this device's binding. The links themselves survive — that is the difference between disconnecting and detaching."
@@ -660,6 +713,7 @@ func _browse_vault() -> void:
 	DccBrowseDialog.choose_folder(app, "Select markdown vault folder", "",
 		"Cartalith reads .md files from this folder and writes only where you tell it to.",
 		func(path: String):
+			_hist.clear()
 			var r := bridge.vault_connect(path, "")
 			if not bool(r.get("ok", false)):
 				app.set_status("hint", "Vault: %s" % String(r.get("error", "could not connect")), "accent")
@@ -1145,13 +1199,16 @@ func _editing() -> bool:
 ## Whether the editor holds text that is not on disk. Measured against
 ## `_browse_saved`, not against the editor, so it survives a rebuild.
 func _is_dirty() -> bool:
-	return _browse_path != "" and _browse_text != _browse_saved
+	return _browse_path != "" and _live_text() != _browse_saved
 
 
 ## Runs `then` once any unsaved edit is dealt with: at once when there is
 ## none, otherwise only after the user chooses to discard it. Keeping the
 ## edits is the dialog's Cancel, which runs `on_keep` and loses nothing.
 func _guard_dirty(then: Callable, on_keep: Callable = Callable()) -> void:
+	## VE-4: leaving a note saves it (through the same hash guard). Only a save that could NOT land
+	## (a conflict, a deleted or read-only file, a vanished vault) falls through to the prompt.
+	_write_now()
 	if not _is_dirty():
 		then.call()
 		return
@@ -1167,6 +1224,10 @@ func _guard_dirty(then: Callable, on_keep: Callable = Callable()) -> void:
 ## rebuild; the caller redraws. Callers have either saved or have the user's
 ## consent to discard (`_guard_dirty`, `_warn_unsaved`).
 func _close_editor() -> void:
+	if _autosave_timer != null:
+		_autosave_timer.stop()
+	_save_block = {}
+	_saved_stamp = ""
 	_browse_path = ""
 	_browse_text = ""
 	_browse_hash = ""
@@ -1886,20 +1947,28 @@ func _open_editor() -> void:
 		app.set_status("hint", "Read: %s" % String(r.get("error", "")), "accent")
 		return
 	_browse_path = _pick_file
-	_browse_text = String(r.get("text", ""))
+	var raw := String(r.get("text", ""))
+	_eol_crlf = raw.contains("
+")
+	_browse_text = _norm_eol(raw)
 	_browse_saved = _browse_text
 	_browse_hash = String(r.get("hash", ""))
+	_save_block = {}
+	_saved_stamp = ""
+	_autosave_timer.stop()
+	_note_opened(_browse_path, _browse_text)
 	_editor_mode = "write"
 	_browse_phone_pane = "preview"
 	_rebuild()
 
 
 ## Builds the Markdown editor (`MdEditor`) for the open note into `parent` and
-## wires its signals: edits mirror into `_browse_text`, Save goes to `_save_note`,
-## Cancel discards, Reload re-reads from disk. `[[` suggestions are ranked and capped by
-## `_suggest_rows` (VE-2); the template inserter writes nothing itself, its
-## result waits in the editor for Save's hash-guarded write. Shows "Unsaved
-## edits." if the session is already dirty.
+## wires its signals: edits mirror into `_browse_text` and arm the autosave (`_on_editor_edited`), Save
+## goes to `_save_note`, Revert to opened… to `_on_revert_requested`, the save banner's buttons to
+## `_on_banner_choice`. The session undo is replayed into the new editor from `_hist` (VE-4). `[[`
+## suggestions are ranked and capped by `_suggest_rows` (VE-2); the template inserter writes nothing
+## itself, its result waits in the editor for the hash-guarded autosave. Shows "editing…" if the session
+## is already dirty, and the banner again if a save is being refused.
 func _build_editor_pane(parent: Control) -> void:
 	var ed = MdEditor.new()
 	ed.name = "VaultMarkdownEditor"
@@ -1932,50 +2001,336 @@ func _build_editor_pane(parent: Control) -> void:
 		templates_source, inserter)
 	_editor = ed
 	_browse_edit = ed.text_edit
+	_editor_path = _browse_path
+	## The session undo: rebuild the editor's history from the checkpoints (VE-4).
+	var snaps: Array = (_hist.get(_browse_path, []) as Array).duplicate()
+	if snaps.is_empty() or String(snaps.back()) != _browse_text:
+		snaps.append(_browse_text)
+	ed.seed_history(snaps)
 	ed.set_back_visible(not _link_back.is_empty())
 	ed.link_followed.connect(func(t: String): _follow_link(_browse_path, t, ed))
 	ed.external_link_followed.connect(_open_external)
 	ed.back_requested.connect(_go_back)
-	ed.edited.connect(func(): _browse_text = ed.text_edit.text)
+	ed.edited.connect(func(): _on_editor_edited(ed))
 	ed.mode_changed.connect(func(m: String): _editor_mode = m)
 	ed.save_requested.connect(_save_note)
-	ed.cancel_requested.connect(func():
-		_close_editor()
-		_rebuild())
-	ed.reload_requested.connect(func():
-		_close_editor()
-		_open_editor())
-	if _is_dirty():
-		ed.set_status("Unsaved edits.", false)
+	ed.revert_requested.connect(_on_revert_requested)
+	ed.banner_choice.connect(_on_banner_choice)
+	if not _save_block.is_empty():
+		_show_block()
+	elif _is_dirty():
+		ed.set_status("editing…", false)
+	elif _saved_stamp != "":
+		ed.set_status("saved · %s" % _saved_stamp, false)
 
 
-## The first of the five guarded writes. The hash is the one the file had when
-## it was opened (or last saved) here; the engine compares it against the file
-## it is about to replace and refuses on any difference, so a note edited in
-## another program meanwhile is never overwritten. A refusal keeps the text in
-## the editor -- nothing typed is lost to a refused write.
+## Ctrl+S and the Save now button: the user's own save, answered by the same path as the autosave
+## (`_write_now`), plus a status-bar line so the press is acknowledged.
 func _save_note() -> void:
 	if _editor == null or _browse_edit == null:
 		return
-	var text: String = _browse_edit.text
-	var r := bridge.vault_write_file(_browse_path, text, _browse_hash)
-	if bool(r.get("ok", false)):
-		_browse_text = text
-		_browse_saved = text
-		_browse_hash = String(r.get("hash", ""))
-		_editor.mark_saved(text)
+	if _write_now():
 		app.set_status("hint", "%s saved." % _browse_path.get_file(), "text_ghost")
 	else:
-		var err := String(r.get("error", ""))
-		_editor.set_status("Save refused -- nothing was written. %s Your text is still here; copy what you need, then reload the file to see the version on disk." % err, true)
-		app.set_status("hint", "Save refused: %s" % err, "accent")
+		app.set_status("hint", "Save refused: %s" % String(_save_block.get("error", "")), "accent")
+
+
+## The text as the editor holds it right now, falling back to the mirror when no editor is built.
+## The mirror (`_browse_text`) is fed by a deferred signal and can be a frame behind a keystroke.
+func _live_text() -> String:
+	if _browse_edit != null and is_instance_valid(_browse_edit) and _editor_path == _browse_path:
+		return _browse_edit.text
+	return _browse_text
+
+
+## Line endings as the editor holds them: LF. See `_eol_crlf`.
+static func _norm_eol(t: String) -> String:
+	return t.replace("\r\n", "\n")
+
+
+## The text as it goes to disk: back to CRLF when the file was CRLF when read.
+func _to_disk(t: String) -> String:
+	return t.replace("\n", "\r\n") if _eol_crlf else t
+
+
+## The one place a note is written (VE-4). Called by the autosave timer, by Save now, by leaving the
+## note and by closing the window. Returns true when nothing unsaved remains afterwards.
+##
+## **The data-safety contract.** It writes only through `vault_write_file`, whose hash guard refuses
+## when the file is not what was last read here; it never forces; a refusal keeps the text in the
+## editor and puts a banner up (`_show_block`). It writes nothing when the text equals what was last
+## saved (the crate also skips an identical write, so the file's time does not move). It never
+## recreates a note that was deleted: that is a banner choice.
+func _write_now() -> bool:
+	if _autosave_timer != null:
+		_autosave_timer.stop()
+	if _browse_path == "" or _browse_edit == null or not is_instance_valid(_browse_edit) or _editor_path != _browse_path:
+		return not _is_dirty()
+	var text: String = _browse_edit.text
+	_browse_text = text
+	if text == _browse_saved:
+		return true
+	_writes_attempted += 1
+	var r := bridge.vault_write_file(_browse_path, _to_disk(text), _browse_hash)
+	if bool(r.get("ok", false)):
+		_browse_saved = text
+		_browse_hash = String(r.get("hash", ""))
+		_save_block = {}
+		_saved_stamp = Time.get_time_string_from_system()
+		_checkpoint_history()
+		if _editor != null:
+			_editor.hide_banner()
+			_editor.mark_saved(text, _saved_stamp)
+		return true
+	_save_block = {"kind": String(r.get("kind", "io")), "error": String(r.get("error", "")), "actual": String(r.get("actual", ""))}
+	_show_block()
+	return false
+
+
+## An edit reached the editor: mirror it, and either arm the autosave or, when the text is back to
+## what is saved (an undo all the way back), say so. A conflict or a deleted note pauses the timer:
+## writing again would only be refused again, and the banner is already asking.
+func _on_editor_edited(ed) -> void:
+	_browse_text = ed.text_edit.text
+	if _browse_text == _browse_saved:
+		_autosave_timer.stop()
+		if _save_block.is_empty():
+			ed.set_status("saved · %s" % _saved_stamp if _saved_stamp != "" else "saved", false)
+		return
+	var k := String(_save_block.get("kind", ""))
+	if k == "conflict" or k == "missing":
+		ed.set_status("Not saved -- see above.", true)
+		return
+	if k == "":
+		ed.set_status("editing…", false)
+	_autosave_timer.start(AUTOSAVE_SEC)
+
+
+## The banner for `_save_block`. One sentence on what happened and that nothing was lost, and the
+## choices that fit that kind of refusal; a conflict never offers a bare "overwrite".
+func _show_block() -> void:
+	if _editor == null or _save_block.is_empty():
+		return
+	var k := String(_save_block["kind"])
+	var msg := ""
+	var choices: Array = []
+	match k:
+		"conflict":
+			msg = "This note was changed outside Cartalith after you opened it, so nothing was saved and nothing of theirs was overwritten. Your text is still here."
+			choices = [
+				{"key": "keep_mine", "label": "Keep mine (replace theirs)"},
+				{"key": "take_theirs", "label": "Take theirs"},
+				{"key": "keep_both", "label": "Keep both"}]
+		"missing":
+			msg = "This note was deleted outside Cartalith. Your text is still here and is not saved anywhere."
+			choices = [
+				{"key": "recreate", "label": "Recreate with mine"},
+				{"key": "discard", "label": "Close note"}]
+		"unavailable":
+			msg = "The vault folder is not available (moved, unplugged or deleted), so nothing was saved. Your text is still here."
+			choices = [{"key": "retry", "label": "Try again"}]
+		"readonly":
+			msg = "This note could not be written: it is read-only or another program has it locked. Not saved; your text is still here."
+			choices = [{"key": "retry", "label": "Try again"}]
+		_:
+			msg = "Not saved: %s Your text is still here." % String(_save_block.get("error", ""))
+			choices = [{"key": "retry", "label": "Try again"}]
+	_editor.show_banner(msg, choices)
+	_editor.set_status("Not saved.", true)
+
+
+## A banner button. Each choice that overwrites anything does so through the hash guard, after
+## re-reading the file, so a second outside change since the banner went up raises the banner again.
+func _on_banner_choice(key: String) -> void:
+	if _editor == null or _browse_edit == null:
+		return
+	match key:
+		"retry":
+			_save_block = {}
+			_write_now()
+		"keep_mine":
+			## Written against the hash of the version the banner told the person about (`actual`), not a
+			## fresh read: if the file changed AGAIN since the banner went up, the guard refuses and the
+			## banner returns, so a version the person never saw is never replaced.
+			var seen := String(_save_block.get("actual", ""))
+			if seen == "":
+				_editor.set_status("Cannot tell which version to replace; use Take theirs or Keep both.", true)
+				return
+			_browse_hash = seen
+			_save_block = {}
+			_write_now()
+		"take_theirs":
+			_take_theirs()
+		"keep_both":
+			var copy_rel := _conflict_copy_rel(_browse_path)
+			if copy_rel == "":
+				_editor.set_status("Could not choose a name for the copy; nothing changed.", true)
+				return
+			var c := bridge.vault_create_file(copy_rel, _to_disk(_browse_edit.text))
+			if not bool(c.get("ok", false)):
+				_editor.set_status("Could not save your version as a copy: %s Nothing changed." % String(c.get("error", "")), true)
+				return
+			_take_theirs()
+			app.set_status("hint", "Your version was saved as %s." % copy_rel, "text")
+		"recreate":
+			var c2 := bridge.vault_create_file(_browse_path, _to_disk(_browse_edit.text))
+			if bool(c2.get("ok", false)):
+				_browse_saved = _browse_edit.text
+				_browse_hash = String(c2.get("hash", ""))
+				_save_block = {}
+				_saved_stamp = Time.get_time_string_from_system()
+				_checkpoint_history()
+				_editor.hide_banner()
+				_editor.mark_saved(_browse_saved, _saved_stamp)
+			elif String(c2.get("kind", "")) == "exists":
+				## Someone put a note back while the banner was up: that is a conflict now, and the
+				## stale hash makes the guard say so.
+				_save_block = {"kind": "conflict", "error": ""}
+				_show_block()
+			else:
+				_save_block = {"kind": String(c2.get("kind", "io")), "error": String(c2.get("error", ""))}
+				_show_block()
+		"discard":
+			_hist.erase(_browse_path)
+			_close_editor()
+			_pick_file = ""
+			_rebuild()
+
+
+## Load the version on disk into the editor as ONE undo step (so Ctrl+Z brings the user's text
+## back), and treat it as saved. Used by Take theirs and Keep both.
+func _take_theirs() -> void:
+	var r := bridge.vault_read_file_for_edit(_browse_path)
+	if not bool(r.get("ok", false)):
+		_save_block = {"kind": String(r.get("kind", "io")), "error": String(r.get("error", ""))}
+		_show_block()
+		return
+	var raw := String(r.get("text", ""))
+	var theirs := _norm_eol(raw)
+	_checkpoint_history()
+	_eol_crlf = raw.contains("\r\n")
+	_editor.replace_whole_text(theirs)
+	_browse_text = theirs
+	_browse_saved = theirs
+	_browse_hash = String(r.get("hash", ""))
+	_save_block = {}
+	_autosave_timer.stop()
+	_saved_stamp = Time.get_time_string_from_system()
+	_checkpoint_history()
+	_editor.hide_banner()
+	_editor.mark_saved(theirs, _saved_stamp)
+
+
+## A name for the copy Keep both makes, beside the note: `Name (my edits 2026-11-08 14-03-22).md`,
+## with ` 2`, ` 3` ... if that exists too. `""` when ten names are all taken (never overwrite).
+func _conflict_copy_rel(rel: String) -> String:
+	var stamp := Time.get_datetime_string_from_system().replace("T", " ").replace(":", "-")
+	var dir := rel.get_base_dir()
+	var base := rel.get_file().get_basename()
+	for n in range(1, 11):
+		var nm := "%s (my edits %s%s).md" % [base, stamp, "" if n == 1 else " %d" % n]
+		var cand := nm if dir == "" else "%s/%s" % [dir, nm]
+		if not _file_exists(cand):
+			return cand
+	return ""
+
+
+## Whether `rel` is a note in the vault (an empty note reads as `""`, so a read alone cannot tell).
+func _file_exists(rel: String) -> bool:
+	var r := bridge.vault_read_file_for_edit(rel)
+	return bool(r.get("ok", false))
+
+
+# -- The session undo (VE-4, Ruling DY VQ1) -------------------------------------
+
+## A note was opened from disk: start its history with the text as first opened this session, or,
+## on a later open, add the text now on disk as a checkpoint if it differs from where the history
+## left off (the note changed outside Cartalith meanwhile, so Ctrl+Z steps back to ours).
+func _note_opened(rel: String, text: String) -> void:
+	var h: Array = _hist.get(rel, [])
+	if h.is_empty():
+		_hist[rel] = [text]
+	elif String(h.back()) != text:
+		h.append(text)
+		_trim_history(h)
+
+
+## Append the live text to the open note's history when it differs from the last checkpoint.
+func _checkpoint_history() -> void:
+	if _browse_path == "":
+		return
+	var cur := _live_text()
+	var h: Array = _hist.get(_browse_path, [])
+	if h.is_empty():
+		h = [cur]
+	elif String(h.back()) != cur:
+		h.append(cur)
+		_trim_history(h)
+	_hist[_browse_path] = h
+
+
+## Keep the history inside its caps by dropping the oldest checkpoint AFTER the first-opened one.
+func _trim_history(h: Array) -> void:
+	var chars := 0
+	for t in h:
+		chars += String(t).length()
+	while h.size() > 2 and (h.size() > HIST_MAX_CHECKPOINTS or chars > HIST_MAX_CHARS):
+		chars -= String(h[1]).length()
+		h.remove_at(1)
+
+
+## The note moved from `old_rel` to `new_rel`: its history goes with it (VE-6 calls this after a
+## rename; the proposal says the session undo "follows a rename").
+func history_follow_rename(old_rel: String, new_rel: String) -> void:
+	if _hist.has(old_rel):
+		_hist[new_rel] = _hist[old_rel]
+		_hist.erase(old_rel)
+	if _browse_path == old_rel:
+		_browse_path = new_rel
+
+
+## Keyboard focus back to the text, after a dialog that promised "Ctrl+Z brings it back" closed. Two
+## steps, both needed: an embedded dialog that closes leaves NO embedded window holding the keyboard (a
+## measured fact: with the vault window visible, typed keys and Ctrl+Z reached nothing until the window
+## was given focus again), so the window takes it back first and then the text. Deferred, because the
+## dialog frees itself at the end of the frame the confirm ran in.
+func _refocus_editor() -> void:
+	if not visible or _browse_edit == null or not is_instance_valid(_browse_edit):
+		return
+	grab_focus()
+	_browse_edit.grab_focus()
+
+
+## Revert to opened… (Ruling DY, VQ6): asks first, says what is lost, and is one undo step. The
+## write that follows goes through the same hash guard as any save.
+func _on_revert_requested() -> void:
+	var h: Array = _hist.get(_browse_path, [])
+	if h.is_empty() or _editor == null or _browse_edit == null:
+		return
+	var first := String(h[0])
+	if _live_text() == first:
+		app.set_status("hint", "%s is already as it was when you first opened it." % _browse_path.get_file(), "text_ghost")
+		return
+	DccWidgets.confirm(app, "Revert to opened",
+		"%s will go back to how it was when you first opened it this session. Everything you changed since is replaced. Ctrl+Z brings it back." % _browse_path.get_file(),
+		"Revert", func():
+			if _editor == null or _browse_edit == null or not is_instance_valid(_browse_edit):
+				return
+			_editor.replace_whole_text(first)
+			_browse_text = first
+			_write_now()
+			_refocus_editor.call_deferred())
 
 
 ## A close with unsaved edits: the window comes straight back and asks. Every
 ## way out of an `AcceptDialog` -- Close, the title bar's X, Escape -- ends in
 ## a hide, so this one handler covers all of them.
 func _on_visibility_changed() -> void:
-	if visible or not _is_dirty():
+	if visible:
+		return
+	## VE-4: closing the window saves first; the prompt below appears only if that save was refused.
+	_write_now()
+	if not _is_dirty():
 		return
 	_warn_unsaved.call_deferred()
 
@@ -2059,6 +2414,7 @@ func _build_more(parent: Control) -> void:
 	var vs := DccWidgets.section(more, "Vault")
 	var dis := DccWidgets.action(vs, "Disconnect", func():
 		bridge.vault_disconnect()
+		_hist.clear()
 		store_changed.emit()
 		_rebuild())
 	dis.tooltip_text = "Drops this device's binding. The links themselves survive — that is the difference between disconnecting and detaching."

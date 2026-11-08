@@ -74,6 +74,12 @@ func _frames(n: int) -> void:
 		await get_tree().process_frame
 
 
+func _wait(ms: int) -> void:
+	var t := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t < ms:
+		await get_tree().process_frame
+
+
 func _write(path: String, text: String) -> void:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var f := FileAccess.open(path, FileAccess.WRITE)
@@ -536,7 +542,9 @@ func _ready() -> void:
 	await _footer_leg(vw, ed, te)
 
 	# == 8. Nothing but the user's own save ever wrote ===============================
-	_ok("Scratch.md on disk is untouched by everything above (no autosave, no key but Ctrl+S writes)", _disk("Scratch.md") == scratch, _disk("Scratch.md"))
+	## VE-4: the autosave exists now, so the note on disk is no longer untouched; it must be exactly what the editor holds a second after the last key.
+	await _wait(1700)
+	_ok("Scratch.md on disk is exactly the editor's text once the autosave has run, and no temp file is left", _disk("Scratch.md") == _text(ed) and not FileAccess.file_exists(_root + "/Scratch.md.cartalith-tmp"), _disk("Scratch.md"))
 	_ok("no note was created or removed", _bridge.vault_list_files(5000).size() == 3)
 
 	# == 9. Ctrl+S: the user's own save ============================================
@@ -932,7 +940,7 @@ func _find_leg(vw: Window, ed, te: TextEdit, phone: bool) -> void:
 	await _frames(3)
 	_ok("Replace all replaced every hit, case-insensitively", _text(ed) == "dog sat. dog sat. dog sat on a dog.\nsecond line dog", _text(ed))
 	_ok("... and said how many", ed._find_count.text == "Replaced 5", ed._find_count.text)
-	_ok("... without saving", _disk("Scratch.md") == "# Scratch\n\nword here\n")
+	## (VE-4: "without saving" is no longer a property of the editor; the autosave writes the replaced text a second after the last key. What stays true is that the replace is one undo step, above.)
 	await _tap(vw, te.get_global_rect().get_center())
 	await _key(KEY_Z, true)
 	_ok("ONE Ctrl+Z puts every replaced hit back", _text(ed) == t1, _text(ed))

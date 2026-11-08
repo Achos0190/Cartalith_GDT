@@ -524,8 +524,10 @@ See [[#Intro]] above.
 	for d in dlg:
 		if (d as Window).visible and d != vw and (d as Window).title.find("Unsaved") >= 0:
 			asked = true
-	_ok("following a link from a dirty note asks before leaving", asked and vw._browse_path == "Places/Kelvhold.md", vw._browse_path)
-	_ok("... the typed text is still there and the file on disk is untouched", vw._browse_text.find("ZZTYPED") >= 0 and _disk("Places/Kelvhold.md") == before["Places/Kelvhold.md"])
+	## VE-4 changed this: leaving a note saves it (through the hash guard) instead of asking, so a dirty note
+	## no longer meets the Discard / Cancel card; only a save that was refused would.
+	_ok("following a link from a dirty note saves it and follows, with no prompt", not asked and vw._browse_path == "Places/Marren.md", vw._browse_path)
+	_ok("... the typed text reached the file on disk", _disk("Places/Kelvhold.md").find("ZZTYPED") >= 0, _disk("Places/Kelvhold.md").right(40))
 
 	# == 4. The four sample notes are unchanged by all of the above ===========
 	for d in dlg:

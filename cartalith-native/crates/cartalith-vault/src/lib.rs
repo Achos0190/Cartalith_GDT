@@ -110,6 +110,28 @@ pub enum Error {
     TooManyNotes(usize),
 }
 
+impl Error {
+    /// A short machine-readable class for a refused whole-file write, so a UI can offer the right
+    /// choices without parsing prose (VE-4): `"conflict"` (the file changed outside Cartalith),
+    /// `"missing"` (the note is gone), `"readonly"`, `"unavailable"` (no vault bound, or its folder
+    /// is gone), `"exists"`, or `"io"` for anything else. Never `""`: an unclassified error is
+    /// `"io"`, so a caller never has to guess what an empty string means.
+    pub fn write_kind(&self) -> &'static str {
+        use std::io::ErrorKind;
+        match self {
+            Error::SourceChanged { .. } => "conflict",
+            Error::NotBound | Error::Vault(VaultError::RootUnavailable(_)) => "unavailable",
+            Error::AlreadyExists(_) => "exists",
+            Error::Vault(VaultError::Io(e)) => match e.kind() {
+                ErrorKind::NotFound => "missing",
+                ErrorKind::PermissionDenied => "readonly",
+                _ => "io",
+            },
+            _ => "io",
+        }
+    }
+}
+
 impl std::fmt::Display for Error {
     /// A one-line, user-facing message per variant -- what a panel shows
     /// when an operation refuses rather than the `Debug` form.
@@ -546,6 +568,27 @@ impl VaultSession {
         let actual = provider::content_hash(&v.read(rel)?);
         if actual != expect_hash {
             return Err(Error::SourceChanged { expected: expect_hash.to_string(), actual });
+        }
+        // VE-4: an unchanged note is not written. The guard has just proved the file holds exactly
+        // the text the caller read, so a write of that same text would only move the file's
+        // modification time (waking every sync tool and editor watching the folder) for no change.
+        // Compared by hash, the same 64-bit FNV the guard uses.
+        let new_hash = provider::content_hash(text);
+        if new_hash == actual {
+            return Ok(new_hash);
+        }
+        v.write(rel, text)?;
+        Ok(new_hash)
+    }
+
+    /// Creates a note that does not exist yet, atomically (the provider's own write). VE-4's two
+    /// callers: **Keep both** (the user's text saved beside the version that won) and **Recreate**
+    /// (the note was deleted outside Cartalith). Refuses with [`Error::AlreadyExists`] rather than
+    /// overwriting, so it cannot destroy a note any more than [`Self::create_from_template`] can.
+    pub fn create_file(&self, rel: &str, text: &str) -> Result<String, Error> {
+        let v = self.bound()?;
+        if v.exists(rel) {
+            return Err(Error::AlreadyExists(rel.to_string()));
         }
         v.write(rel, text)?;
         Ok(provider::content_hash(text))
@@ -1827,6 +1870,103 @@ rows
         assert!(matches!(s.write_file("Locations/Nareth.md", &mine, &hash2), Err(Error::SourceChanged { .. })));
         assert_eq!(std::fs::read_to_string(root.join("Locations/Nareth.md")).unwrap(), theirs, "not one byte of the external edit was overwritten");
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Protects: VE-4's "an unchanged note is not written". The guard passes (same hash) and the text
+    /// is byte-identical to the file, yet the file's modification time must not move and no temp file
+    /// may be left, because a sync tool or Obsidian watching the folder would otherwise wake for no edit.
+    #[test]
+    fn writing_a_notes_own_text_back_touches_nothing() {
+        let root = scratch("ve4-unchanged");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let p = root.join("Locations/Nareth.md");
+        let (text, hash) = s.read_for_edit("Locations/Nareth.md").unwrap();
+        let before = std::fs::metadata(&p).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        let h = s.write_file("Locations/Nareth.md", &text, &hash).unwrap();
+        assert_eq!(h, hash, "the hash of an unchanged write is the hash it was given");
+        assert_eq!(std::fs::metadata(&p).unwrap().modified().unwrap(), before, "mtime moved: the note was rewritten");
+        // And a one-character change is still written (the skip is not a blanket no-op).
+        s.write_file("Locations/Nareth.md", &format!("{text}x"), &hash).unwrap();
+        assert!(std::fs::read_to_string(&p).unwrap().ends_with('x'));
+        assert!(std::fs::metadata(&p).unwrap().modified().unwrap() > before);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Protects: VE-4's three refusals that are not a conflict, each classed by `write_kind` and each
+    /// leaving the disk exactly as it was: a read-only note (never replaced, on any host), a note
+    /// deleted outside Cartalith (never silently recreated by an autosave), and a vault folder that is
+    /// gone. A stray `.cartalith-tmp` after any of them is a failure.
+    #[test]
+    fn a_write_that_cannot_land_is_classed_and_leaves_the_disk_alone() {
+        let root = scratch("ve4-refusals");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let rel = "Locations/Nareth.md";
+        let p = root.join(rel);
+        let (text, hash) = s.read_for_edit(rel).unwrap();
+        let no_tmp = |dir: &std::path::Path| {
+            std::fs::read_dir(dir).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".cartalith-tmp"))
+        };
+
+        // Read-only.
+        let mut perm = std::fs::metadata(&p).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(&p, perm.clone()).unwrap();
+        let e = s.write_file(rel, &format!("{text}mine"), &hash).unwrap_err();
+        perm.set_readonly(false);
+        std::fs::set_permissions(&p, perm).unwrap();
+        assert_eq!(e.write_kind(), "readonly", "{e}");
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), text, "a read-only note was replaced");
+        assert!(no_tmp(p.parent().unwrap()));
+
+        // Deleted outside Cartalith.
+        std::fs::remove_file(&p).unwrap();
+        let e = s.write_file(rel, &format!("{text}mine"), &hash).unwrap_err();
+        assert_eq!(e.write_kind(), "missing", "{e}");
+        assert!(!p.exists(), "an autosave recreated a deleted note");
+        // `create_file` is the deliberate way back, and it never overwrites.
+        s.create_file(rel, "mine").unwrap();
+        assert!(matches!(s.create_file(rel, "again"), Err(Error::AlreadyExists(_))));
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "mine");
+        assert_eq!(Error::AlreadyExists(String::new()).write_kind(), "exists");
+
+        // The conflict class.
+        let e = s.write_file(rel, "x", "0000000000000000").unwrap_err();
+        assert_eq!(e.write_kind(), "conflict");
+
+        // The vault folder vanishes.
+        std::fs::remove_dir_all(&root).unwrap();
+        let e = s.write_file(rel, &text, &hash).unwrap_err();
+        assert_eq!(e.write_kind(), "unavailable", "{e}");
+        assert!(!root.exists(), "a write recreated the vault folder");
+    }
+
+    /// Protects: VE-4's Windows hazard, "rename over a file another program holds open". A process that
+    /// opened the note without `FILE_SHARE_DELETE` (the way many editors and sync clients do) makes the
+    /// rename fail; the write must then report an error, leave the original bytes, and remove its temp
+    /// file, never truncate or half-write. Windows only: POSIX renames over an open file freely.
+    #[cfg(windows)]
+    #[test]
+    fn a_note_another_program_holds_open_is_not_damaged_by_a_failed_write() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = scratch("ve4-locked");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let rel = "Locations/Nareth.md";
+        let p = root.join(rel);
+        let (text, hash) = s.read_for_edit(rel).unwrap();
+        // 1 = FILE_SHARE_READ: readers allowed, delete/rename/write not.
+        let held = std::fs::OpenOptions::new().read(true).share_mode(1).open(&p).unwrap();
+        let r = s.write_file(rel, &format!("{text}mine"), &hash);
+        drop(held);
+        assert!(r.is_err(), "the rename over a held file should have been refused");
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), text, "the held note changed");
+        assert!(std::fs::read_dir(p.parent().unwrap()).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".cartalith-tmp")));
+        // Once released, the same write goes through with the same hash.
+        s.write_file(rel, &format!("{text}mine"), &hash).unwrap();
         let _ = std::fs::remove_dir_all(&root);
     }
 
