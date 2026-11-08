@@ -240,8 +240,8 @@ func _find() -> void:
 		texts.append((c as Button).text)
 		if (c as Button).disabled:
 			declined.append((c as Button).text)
-	_ok("six chips, in SEARCH_SCOPES order", ",".join(PackedStringArray(texts)),
-		"s settlements,f factions,lb labels,r routes,. commands,l landmarks")
+	_ok("seven chips, in SEARCH_SCOPES order (c cultures added by the PC-4 culture follow-up)", ",".join(PackedStringArray(texts)),
+		"s settlements,f factions,c cultures,lb labels,r routes,. commands,l landmarks")
 	_ok("exactly one is disabled", declined.size(), 1)
 	_ok("...and it is landmarks", declined[0] if declined.size() > 0 else "-", "l landmarks")
 	var l_chip: Button = null

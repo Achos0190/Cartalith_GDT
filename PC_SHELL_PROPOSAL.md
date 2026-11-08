@@ -608,6 +608,19 @@ it is founded", roads, **City viewer…** and **Plan a journey from here** as na
 and Logistics already open both), edit mode (PQ9's quick fields), and moving the year when a conflict is picked
 (finding F7). The phone's sheet is unchanged (§3.11). The probe is `_pc4context_probe`.
 
+**Cultures are selectable** (2026-11-08, the owner's "Culture selection is unreachable from the GUI"). A culture's
+selection id is its index in `bridge.get_cultures()` (the handle `context_modules.gd::build_faith` already read), and
+`DccApp.culture_index(key)` gives it from a faction's `culture` key: -1 for an empty or unknown key, so unowned land has
+no culture and gets no row. Producers, all through `DccApp.select("culture", i)`: a Find hit (a new `culture` entity in
+`place_search.gd`, scope prefix `c`; its row carries no `x`/`y`, and `_select_search_hit()` pans only a row that has
+them), a "Culture" link on the settlement page (beside Faction) and on the faction page, a "Select culture" row at the top
+of the Faith module's Culture section, and a "Select culture" row on the settlement's map card (CIVIL, INFO section).
+Inspect's culture page (`RightDock._build_culture()`, `CTX_CULTURE`) is the Faith module's own builder through the
+registry, so `_build_culture_card` stays the one implementation, plus the factions that hold the culture as links. The
+header, history, pin, bookmarks, the Links module and the assistant's chip read it through the generic paths. The Note
+tab still says a culture has no binding (a vault note binds to a place or a faction). The phone's sheet is unchanged
+(the new rows are desktop and tablet only). The probe is `_culturesel_probe`.
+
 PC-3 (2026-11-08) was built with five departures from the text above, each found at the symbol. (1) **The range's
 sources are the recorded years and the conflicts' start and end years**, not "the earliest founding, chronos entry or
 recorded year": the engine records no founding year (the settlement dictionary has no such field), and the chronos
@@ -727,8 +740,8 @@ settlement). (8) **History for a landmark is a sentence**: the chronos index rea
 (9) **Bookmarks are a new caller-owned slot, `annotations/bookmarks.json`** (`SAVEFILE_COMPAT.md`), written only when
 there is one; a generate drops them, an open restores the project's. (10) A window builder laid out for its window's width could widen the dock: measured on the touch tablet, the City
 layout page pushed the dock over most of the map, so a module page sits in its own sideways-scrolling box
-(`CtxModuleScroll`). (11) No producer selects a culture yet, so the culture branches of Faith and Links are reached
-only by code. Not built, stated: Pop out for module
+(`CtxModuleScroll`). (11) ~~No producer selects a culture yet, so the culture branches of Faith and Links are reached
+only by code.~~ Closed 2026-11-08 (see "Cultures are selectable" under PC-4 below). Not built, stated: Pop out for module
 windows; a module's own key (Note, which this note once listed, is PC-5's). The probe is `_pc10modules_probe`.
 
 PC-5 (2026-11-08) builds the Note tab on the desktop and the tablet: `shell/context_note.gd` (preloaded, no `class_name`)

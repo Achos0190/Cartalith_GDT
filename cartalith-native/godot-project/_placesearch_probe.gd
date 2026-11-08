@@ -134,7 +134,18 @@ func _ready() -> void:
 	var subtitle_ok := true
 	var name_ok := true
 	var bad_examples := []
+	var culture_rows := 0
+	var culture_no_pos := true
 	for r in idx.all():
+		## PC-4 follow-up: a culture has no map position, so its row has no x or y (absent, never 0).
+		if String(r["entity"]) == "culture":
+			culture_rows += 1
+			culture_no_pos = culture_no_pos and not r.has("x") and not r.has("y")
+			if String(r["subtitle"]).strip_edges() == "":
+				subtitle_ok = false
+			if String(r["name"]).strip_edges() == "":
+				name_ok = false
+			continue
 		var x := float(r["x"])
 		var y := float(r["y"])
 		if x < 0.0 or x > float(g.x) or y < 0.0 or y > float(g.y):
@@ -148,6 +159,8 @@ func _ready() -> void:
 	if not bounds_ok:
 		_p("out-of-bounds examples: %s" % str(bad_examples))
 	_ok("every row's x/y is inside the grid (0..%d, 0..%d)" % [g.x, g.y], bounds_ok, true)
+	_ok("one culture row per engine culture (%d)" % bridge.get_cultures().size(), culture_rows, bridge.get_cultures().size())
+	_ok("a culture row carries no x or y (no invented position)", culture_no_pos, true)
 	_ok("every row's subtitle is non-blank", subtitle_ok, true)
 	_ok("every row's name is non-blank", name_ok, true)
 

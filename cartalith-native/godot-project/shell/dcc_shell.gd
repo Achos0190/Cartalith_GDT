@@ -8969,12 +8969,13 @@ func _reset_place_search_cache() -> void:
 ## generated from `SEARCH_SCOPES` on purpose: a generated list would read
 ## "s settlements, f factions, ..." and say nothing about the space, which is
 ## the part that decides whether a token is a scope at all.
-const SEARCH_HINT := "Start with a scope and a space to narrow: s settlements, f factions, lb labels, r routes, . commands."
+const SEARCH_HINT := "Start with a scope and a space to narrow: s settlements, f factions, c cultures, lb labels, r routes, . commands."
 
 ## The search prefix table, in display order; each row has `prefix`, `label` and exactly one of `entity`, `commands` or `why` (see the note above).
 const SEARCH_SCOPES: Array = [
 	{"prefix": "s", "label": "settlements", "entity": "settlement"},
 	{"prefix": "f", "label": "factions", "entity": "faction"},
+	{"prefix": "c", "label": "cultures", "entity": "culture"},
 	{"prefix": "lb", "label": "labels", "entity": "label"},
 	{"prefix": "r", "label": "routes", "entity": "route"},
 	{"prefix": ".", "label": "commands", "commands": true},
@@ -9394,10 +9395,11 @@ func _refresh_desktop_search() -> void:
 ## base class has no selection of its own.
 func _select_search_hit(d: Dictionary, close_fn: Callable) -> void:
 	var vh := _find_viewport_host()
-	if vh != null:
+	## A row with no position (a culture) pans nowhere; `(0, 0)` would be a corner that is not its place.
+	if vh != null and d.has("x") and d.has("y"):
 		vh.move_view_to(float(int(d.get("x", 0))), float(int(d.get("y", 0))))
 	var entity := String(d.get("entity", ""))
-	if (entity == "settlement" or entity == "faction") and d.has("id") and has_method("select"):
+	if (entity == "settlement" or entity == "faction" or entity == "culture") and d.has("id") and has_method("select"):
 		call("select", entity, int(d["id"]))
 	close_fn.call()
 

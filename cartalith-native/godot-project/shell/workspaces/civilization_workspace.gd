@@ -805,6 +805,20 @@ func context_actions(req: Dictionary) -> Array:
 		## (this file's dock row for continents etc.) already does -- one row,
 		## since `vault_window.gd::open_for()` handles both the "open the
 		## existing note" and "nothing linked yet, attach one" cases itself.
+		## PC-4 follow-up: the holder's culture as a subject of its own. Only when the place has a holder
+		## whose culture the engine lists (`culture_index()` is -1 otherwise: unowned land gets no row,
+		## never a "Common" one). Runs the one selection path, so Inspect, history and the assistant follow.
+		var holder_culture := ""
+		for fr in bridge.get_factions():
+			if int((fr as Dictionary).get("id", -1)) == int(s.get("faction", 0)):
+				holder_culture = String((fr as Dictionary).get("culture", ""))
+				break
+		var cul_idx: int = app.culture_index(holder_culture) if int(s.get("faction", 0)) > 0 else -1
+		if cul_idx >= 0:
+			var cul_name := String((bridge.get_cultures()[cul_idx] as Dictionary).get("name", holder_culture))
+			rows.append({"id": "civ.select_culture", "label": "Select culture: %s" % cul_name, "section": "info",
+				"enabled": true, "header": head,
+				"callable": func() -> void: app.select("culture", cul_idx)})
 		var tid := int(s.get("tid", hit))
 		var vsum := bridge.vault_entity_summary("settlement", tid)
 		## SM-4 (§4, A4): the proposal's wording, "Open note for X", while a

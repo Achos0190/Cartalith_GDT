@@ -278,7 +278,18 @@ func build_faith(parent: Control, subject: Dictionary, _year: int) -> void:
 				var h := _roster_host(parent, int(subject["id"]))
 				h._build_tab_relations(parent)
 				var sec := DccWidgets.section(parent, "Culture")
-				h._build_culture_card(sec, String(d.get("culture", "common")))
+				## The culture is a subject of its own (PC-4 follow-up): a link row selects it through
+				## `DccApp.select()`, whose Inspect page and Faith module draw this same card.
+				var ckey := String(d.get("culture", "common"))
+				var ci: int = app.culture_index(ckey)
+				if ci >= 0:
+					var cname := String((app.bridge.get_cultures()[ci] as Dictionary).get("name", ckey.capitalize()))
+					var cb := DccWidgets.action(sec, "Select culture: %s" % cname,
+						func() -> void: app.select("culture", ci))
+					cb.name = "ModuleCultureLink"
+					cb.tooltip_text = "Selects the culture; Inspect shows its profile."
+					cb.set_meta("ctx_target", {"kind": "culture", "id": ci})
+				h._build_culture_card(sec, ckey)
 				return
 		"culture":
 			var cs: Array = app.bridge.get_cultures()

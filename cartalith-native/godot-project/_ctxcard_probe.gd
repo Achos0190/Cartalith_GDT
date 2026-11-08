@@ -385,6 +385,13 @@ func _run() -> void:
 	## viewer…, Attach note to X…) and three story verbs -- Add event to
 	## timeline here (PLACE HERE, a submenu), Plan journey from here and
 	## Journey to here (GO, the second disabled until a route has a start).
+	var a_cul := ""
+	for fr in bridge.get_factions():
+		if int((fr as Dictionary).get("id", -1)) == int(bridge.settlements()[_k].get("faction", 0)):
+			for cr in bridge.get_cultures():
+				if String((cr as Dictionary).get("key", "")) == String((fr as Dictionary).get("culture", "")):
+					a_cul = String((cr as Dictionary).get("name", ""))
+	_ok("A the settlement's holder has a culture the engine lists (PC-4 follow-up's INFO row)", a_cul != "", true)
 	var want_a := [
 		"Edit %s [OBJECT]" % _sname, "Move viewer to %s [OBJECT]" % _sname,
 		"Open in city viewer… [OBJECT]",
@@ -393,6 +400,7 @@ func _run() -> void:
 		"Start way here [PLACE HERE]", "Start route here [PLACE HERE]",
 		"Add event to timeline here [PLACE HERE]",
 		"Plan journey from here [GO / MEASURE]", "Journey to here [GO / MEASURE] {disabled}",
+		"Select culture: %s [INFO]" % a_cul,
 		"Attach note to %s… [INFO]" % _sname,
 		"Info here (settlement & ecology) [INFO]"]
 	var rows_a := _civ_rows()

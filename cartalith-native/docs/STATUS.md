@@ -47,6 +47,46 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-4 follow-up built: cultures are selectable from the GUI (2026-11-08)
+
+Closes the owner's item "Culture selection is unreachable from the GUI" (`OUTSTANDING_WORK.md`, PC row, removed).
+`PC_SHELL_PROPOSAL.md` §6 (PC-4 note, "Cultures are selectable"). *Re-opened at the symbols first:* `app.gd` (`select`,
+`_apply_selection`), `right_dock.gd` (`show_subject`, `shown_subject`, `_subject_text`, `_dispatch`, `_link_field`,
+`_settlement_faction_row`, `_build_faction`), `context_modules.gd` (`build_faith`'s "culture" arm, `build_links`),
+`faction_roster_window.gd` (`_build_culture_card`), `place_search.gd`, `dcc_shell.gd` (`_select_search_hit`,
+`SEARCH_SCOPES`), `workspaces/civilization_workspace.gd` (`context_actions`).
+
+- **Built.** A culture's selection id is its index in `bridge.get_cultures()`; `DccApp.culture_index(key)` maps a faction's
+  `culture` key to it and answers -1 for an empty or unknown key, so unowned land has no culture and no row (never a
+  "Common"). `select("culture", i)` selects nothing for an index the list does not hold. Producers: a Find hit (a
+  `culture` entity in `place_search.gd` when a world exists, scope prefix `c`; its row has no `x`/`y`, and
+  `_select_search_hit()` pans only a row that has them), a Culture link on the settlement page and on the faction page,
+  a "Select culture" row at the top of the Faith module's Culture section, and a "Select culture" row in the INFO section
+  of the settlement's map card. Inspect's culture page is `RightDock._build_culture()` (`CTX_CULTURE`): the Faith
+  module's own builder through the registry, so `_build_culture_card` stays the one implementation, then the factions
+  holding the culture as links. The header, history, back/forward, pin, bookmarks, the Links module and the assistant's
+  chip read the selection through the generic paths, so they needed no change. The Note tab still says a culture has no
+  note binding (true: the vault binds to places and factions).
+- **Measured.** New `_culturesel_probe` (windowed, real clicks and keys, wiped user dir): 113 checks, 0 failed at
+  1600x1000 desktop and at 1600x1000 `--force-touch`, 0 SCRIPT ERROR. A culture is selected five ways (Find, the
+  settlement page, the faction page, the Faith module, the map card), each followed by: the one selection, the panel's
+  subject and header name, the culture card and faction list on Inspect, the assistant's chip, Ctrl+D clearing all,
+  Alt+← and Alt+→. Also: the `c ` scope lists exactly the 7 cultures; the Find click does not move a zoomed camera; the
+  Faith and Links modules and the Note tab render for a culture; a pinned panel keeps its culture; id 7 and 9999 select
+  nothing; an unclaimed settlement (dropped with faction 0) has no culture link. 13 literal mutants (index off, settlement
+  row off, module / card / Find-row / faction-link ids off by one, empty key to 0, Find hit not selecting, the pan guard
+  off, the stale-id boundary, header name, the Faith registry key, the scope entity, the show arm), each killed by its
+  own checks; the ambiguous four re-run alone (`faith_key`, `row_id`, `card_row_id`, `stale_rule`); sources restored
+  byte-identical. Existing probes re-run green: `_pc1select` (desktop, touch), `_pc4context` (desktop, touch),
+  `_pc5note`, `_pc6ask`, `_pc7windows`, `_pc10modules`, `_pc9menus`, `_ctxring`. Four probes whose expectations the
+  change moved were updated: `_placesearch` (culture rows have no `x`/`y`; a no-world index stays empty, so the culture
+  rows are gated on a world), `_railfind` (seven scope chips), `_ctxbroker` and `_ctxcard` (the new INFO row). Failing
+  as on origin/main: `_railfind`'s `.` command count (652, want 728), `_storymenus` (7). Phone unchanged: `_pc4context
+  --phone` sheet and `_pc3phone`'s four captures at 393x852 are pixel-identical to origin/main's (two pristine captures
+  equal each other); only the launch card's build hash differs.
+- **Not done, stated:** the Faith page's "Also used by" rows are still labels (the factions are links on the culture
+  page); a culture has no note binding; the phone has no new rows (its sheet shows a culture only when Find selects one).
+
 ### PC-5 built: the Context panel's Note tab, in the vault editor, one note focus with one writer (2026-11-08)
 
 `PC_SHELL_PROPOSAL.md` §3.4, §6 (PC-5 and its build note); Ruling DY (VQ1, VQ4, VQ6); `VAULT_EDITOR_PROPOSAL.md` §7a (VE-4's
@@ -138,8 +178,8 @@ header and `show_tab()`, `context_window.gd`, and every builder §3.3's table na
   hash.
 - **Not done, stated:** *(Note, listed here when PC-10 landed, is built: see PC-5 above)*; Pop out for a module window (not one
   of `PopoutHost.LIVE_KEYS`); a module's own key; History for a landmark is a sentence (the chronos index reads
-  settlement and faction notes only); no producer selects a culture, so the culture branches of Faith and Links are
-  reached only by code; "roads from here" are roads ending within two cells (`ROAD_END_CELLS`, judgement); a generate
+  settlement and faction notes only); *(a culture producer, listed here when PC-10 landed, is built: see "PC-4
+  follow-up" above)*; "roads from here" are roads ending within two cells (`ROAD_END_CELLS`, judgement); a generate
   drops the bookmarks. Not run: a device.
 
 ### PC-8 and PW-4 built: the Journey planner in its own window on the desktop, with Pop out (2026-11-08)

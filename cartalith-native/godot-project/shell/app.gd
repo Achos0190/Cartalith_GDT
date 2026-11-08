@@ -709,6 +709,9 @@ func select(kind: String, id: int, opts: Dictionary = {}) -> void:
 		next = {"kind": kind, "id": id}
 	if String(next.get("kind", "")) == "settlement" and id >= bridge.settlements().size():
 		next = {}
+	## A culture's id is its index in `bridge.get_cultures()`; one the list does not hold selects nothing.
+	if String(next.get("kind", "")) == "culture" and id >= bridge.get_cultures().size():
+		next = {}
 	if bool(opts.get("history", true)) and next != selection:
 		_selection_back.append(selection.duplicate())
 		while _selection_back.size() > SELECTION_HISTORY_MAX:
@@ -717,6 +720,19 @@ func select(kind: String, id: int, opts: Dictionary = {}) -> void:
 	selection = next
 	_apply_selection()
 	selection_changed.emit(selection.duplicate())
+
+## PC-4 follow-up. The selection id of culture `key` (a faction's `culture` field, "common", "imperial",
+## ...): its index in `bridge.get_cultures()`, the handle `select("culture", id)` takes. -1 when the key
+## is empty or the engine's list has no such row, never a guess: an unowned settlement has no culture and
+## gets no culture link (`MISTAKES.md`, "no value as a plausible value").
+func culture_index(key: String) -> int:
+	if key == "":
+		return -1
+	var cs: Array = bridge.get_cultures()
+	for i in cs.size():
+		if String((cs[i] as Dictionary).get("key", "")) == key:
+			return i
+	return -1
 
 ## PC-1. Tells the surfaces that show a settlement which one is selected: every entry of `_workspaces`
 ## with `on_settlement_selected` (CIVIL's `_selected_index`, which Delete and the Place editor act on,
@@ -727,7 +743,7 @@ func select(kind: String, id: int, opts: Dictionary = {}) -> void:
 ## (`RightDock.on_selection()`), so a faction, conflict or landmark selection is shown by its Inspect
 ## builder, and a pinned panel keeps its subject (§3.3). The other surfaces still read settlements
 ## only: a selection of another kind empties them, which is true, since no settlement is selected.
-## Culture and note selections have no producer and no Inspect builder yet; the panel shows Sample.
+## A culture selection is shown by Inspect's culture page (`RightDock.show_culture()`); a note selection has no producer and no Inspect builder yet, and the panel shows Sample.
 ## The icon pick keeps its own shipped path (`_wire_selection()`): an icon is not a selection kind.
 func _apply_selection() -> void:
 	var data: Variant = null

@@ -46,6 +46,10 @@ const CTX_ICON := "icon"
 ## so a context -- the tool itself appends nothing here.
 const CTX_CONFLICT := "conflict"
 const CTX_FACTION := "faction"  ## Context id: a selected faction (`_faction_id`).
+## PC-4 follow-up (2026-11-08, the owner's "Culture selection is unreachable from the GUI"): a selected
+## culture, drawn by `_build_culture()` from the Faith module's own culture card. Its id is the culture's
+## index in `bridge.get_cultures()` (`_culture_id`), the handle `context_modules.gd::build_faith` reads.
+const CTX_CULTURE := "culture"
 const CTX_MEASURE := "measure"  ## Context id: a measurement reading (`_measure_result`).
 const CTX_REGION := "region"  ## Context id: a selected region (`_region_result`) or Wildlife ecoregion (`_wildlife_region`).
 ## `CTX_SCULPT` and `CTX_JOURNEY` were here. They are now `TOOL_STAMPS` and
@@ -465,6 +469,9 @@ var _icon_data: Dictionary = {}
 ## `CTX_CONFLICT`'s selection: an id, re-read from `conflict_get()` on every
 ## rebuild so the form can never show a copy the engine has moved past.
 var _conflict_id := -1
+## `CTX_CULTURE`'s selection: an index into `bridge.get_cultures()`, re-read on every rebuild. -1 when
+## no culture is shown (never a plausible index such as 0: `MISTAKES.md`, "no value as a plausible value").
+var _culture_id := -1
 ## The selected region's result dictionary; its `cell_count` feeds the readout.
 var _region_result: Dictionary = {}
 ## The clicked Wildlife ecoregion's record; its `richness` feeds the readout.
@@ -1065,9 +1072,9 @@ func on_selection(sel: Dictionary) -> void:
 ## PC-4. Draws `sel` (a `DccApp.selection` value) through the context that already shows its kind:
 ## a settlement through `on_settlement_selected()` (which also opens the phone's sheet on a pick), a
 ## faction through `show_faction()`, a conflict through `show_conflict()`, a landmark through
-## `on_landmark_selected()`. `{}`, and the two kinds with no Inspect builder yet (culture, note: no
-## producer selects either today), show Sample, which is true: nothing the panel can draw is
-## selected. An index the live lists no longer hold also shows Sample rather than a neighbour.
+## `on_landmark_selected()`, a culture through `show_culture()`. `{}`, and the one kind with no Inspect
+## builder yet (note: no producer selects it today), show Sample, which is true: nothing the panel can
+## draw is selected. An index the live lists no longer hold also shows Sample rather than a neighbour.
 func show_subject(sel: Dictionary) -> void:
 	var kind := String(sel.get("kind", ""))
 	var id := int(sel.get("id", -1))
@@ -1094,6 +1101,11 @@ func show_subject(sel: Dictionary) -> void:
 				_rebuild()
 				_show_on_phone()
 				return
+		"culture":
+			if id >= 0 and id < bridge.get_cultures().size():
+				show_culture(id)
+				_show_on_phone()
+				return
 	on_settlement_selected(null, -1)
 
 ## PC-4. The subject the panel shows now, as a `DccApp.selection` value, or `{}` when it shows no
@@ -1114,6 +1126,9 @@ func shown_subject() -> Dictionary:
 		CTX_LANDMARK:
 			if _landmark_index >= 0:
 				return {"kind": "landmark", "id": _landmark_index}
+		CTX_CULTURE:
+			if _culture_id >= 0:
+				return {"kind": "culture", "id": _culture_id}
 	return {}
 
 ## PC-4. Whether the panel is pinned. Read by the header, `DccApp` and the probes.
@@ -1423,6 +1438,13 @@ func _subject_text(subj: Dictionary) -> Array:
 				var lm: Dictionary = lms[id]
 				return [_landmark_label(String(lm.get("kind", ""))), "Landmark · %s" %
 					String(lm.get("class", "")).capitalize()]
+		"culture":
+			var cs: Array = bridge.get_cultures()
+			if id >= 0 and id < cs.size():
+				var cr: Dictionary = cs[id]
+				var fc := int(cr.get("faction_count", 0))
+				return [String(cr.get("name", String(cr.get("key", "")).capitalize())),
+					"Culture · %d faction%s" % [fc, "" if fc == 1 else "s"]]
 	if kind == "":
 		return ["Nothing selected", ""]
 	return ["%s #%d" % [kind.capitalize(), id], _GONE_FACTS]
@@ -2020,6 +2042,14 @@ func show_conflict(id: int) -> void:
 	_conflict_id = id
 	_rebuild()
 
+## PC-4 follow-up. Shows culture `id` (an index into `bridge.get_cultures()`), reached only through
+## `show_subject()` so that `DccApp.select("culture", id)` is its one producer. An index the engine's
+## list does not hold is drawn as the "no culture" note by `_build_culture()`, never as a neighbour.
+func show_culture(id: int) -> void:
+	_context = CTX_CULTURE
+	_culture_id = id
+	_rebuild()
+
 ## Pins one `river_at()` entity as the dock's River context and rebuilds. Selection state
 ## only; the engine is not written.
 func show_river(entity: Dictionary) -> void:
@@ -2341,7 +2371,7 @@ const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History", CTX_LANDMARK: "Landmark", CTX_ICON: "Icon",
-	CTX_CONFLICT: "Conflict",
+	CTX_CONFLICT: "Conflict", CTX_CULTURE: "Culture",
 }
 
 ## Tears the dock body down and redraws it: frees every child of `app.right_dock_body`,
@@ -2544,6 +2574,9 @@ func _dock_readout_text() -> String:
 			return _landmark_label(String(_landmark.get("kind", ""))) if not _landmark.is_empty() else "no landmark"
 		CTX_ICON:
 			return _icon_title(_icon_data) if not _icon_data.is_empty() else "no icon"
+		CTX_CULTURE:
+			var cn: String = String(_subject_text({"kind": "culture", "id": _culture_id})[0])
+			return cn if _culture_id >= 0 and bridge.get_cultures().size() > _culture_id else "no culture"
 		CTX_CONFLICT:
 			var cf := bridge.conflict_get(_conflict_id)
 			if cf.is_empty():
@@ -2578,6 +2611,8 @@ func _dispatch(body: Control) -> void:
 			_build_icon(body)
 		CTX_CONFLICT:
 			_build_conflict(body)
+		CTX_CULTURE:
+			_build_culture(body)
 		CTX_FACTION:
 			_build_faction(body)
 		CTX_MEASURE:
@@ -3496,6 +3531,15 @@ func _settlement_faction_row(sec: Control, faction_id: int) -> void:
 	## PC-4 (§3.3, "Every name is a link"): the holder selects the faction.
 	_link_field(sec, "Faction", fname, "faction", faction_id,
 		"%s holds this place in the year the timeline shows. Select it to inspect the faction." % fname)
+	## PC-4 follow-up: the holder's culture, a link that selects it. Desktop and tablet only (the phone's
+	## sheet keeps its shipped rows, §3.11), and only when the holder has a culture the engine lists:
+	## an unclaimed place (above) has no culture, so it gets no row rather than a "Common" one.
+	var cul_key := String(roster.get("culture", ""))
+	var cul_idx: int = app.culture_index(cul_key)
+	if _panel_chrome() and cul_idx >= 0:
+		var cul_name := String((bridge.get_cultures()[cul_idx] as Dictionary).get("name", cul_key.capitalize()))
+		_link_field(sec, "Culture", cul_name, "culture", cul_idx,
+			"The culture of %s, the holder in the year the timeline shows. Select it to inspect the culture." % fname)
 
 ## -- Faith -------------------------------------------------------------------
 ##
@@ -3977,6 +4021,40 @@ func _term_strength(value: float) -> String:
 # -- Route ------------------------------------------------------------------
 
 # -- Conflict (`STORY_PLANNING_SCOPE.md` SP-4) ---------------------------
+
+## PC-4 follow-up. The Inspect page of a selected culture: the Faith module's own builder
+## (`context_modules.gd::build_faith`, whose "culture" arm calls `FactionRosterWindow._build_culture_card`,
+## the Identity tab's profile card), reached through the module registry's `builder` so there is one
+## implementation of the card, then the factions that hold the culture as links that select them.
+## Nothing is invented for an index the engine does not hold: the note says so.
+func _build_culture(body: Control) -> void:
+	var cs: Array = bridge.get_cultures()
+	if _culture_id < 0 or _culture_id >= cs.size():
+		DccWidgets.note(DccWidgets.section(body, "Culture"),
+			"No culture is selected. Pick one from Find on map (c prefix), a faction's Culture row or the Faith module.")
+		return
+	var key := String((cs[_culture_id] as Dictionary).get("key", ""))
+	for m in app.context_module_registry():
+		if String((m as Dictionary).get("key", "")) == "faith":
+			((m as Dictionary)["builder"] as Callable).call(body, {"kind": "culture", "id": _culture_id}, app.tl_year())
+			break
+	var sec := DccWidgets.section(body, "Factions with this culture")
+	sec.name = "CultureFactions"
+	var any := false
+	for f in bridge.get_factions():
+		var fd: Dictionary = f
+		if String(fd.get("culture", "")) != key:
+			continue
+		any = true
+		var fid := int(fd.get("id", -1))
+		var fname := String(fd.get("name", "Faction %d" % fid))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", ROW_GAP)
+		sec.add_child(row)
+		_link(row, fname, func(): app.select("faction", fid), "Select %s." % fname,
+			{"kind": "faction", "id": fid})
+	if not any:
+		DccWidgets.note(sec, "No faction uses this culture.")
 
 ## The form Way/Route's Route context never needed: a conflict is authored
 ## after it is drawn. Every control writes straight through `conflict_update`
@@ -4604,7 +4682,14 @@ func _build_faction(body: Control) -> void:
 		_field(sec, "Settlements", "—",
 			"No data for faction %d -- generate a world first." % _faction_id, false)
 	else:
-		_field(sec, "Culture", String(roster.get("culture", "?")).capitalize())
+		## PC-4 follow-up: a link that selects the culture when the engine lists it (desktop and tablet;
+		## `_link_field()` is `_field()` itself on the phone, so the sheet's row is unchanged). A key the
+		## list does not hold stays the plain field, with the same text as before.
+		var cul_idx: int = app.culture_index(String(roster.get("culture", "")))
+		if cul_idx >= 0:
+			_link_field(sec, "Culture", String(roster.get("culture", "?")).capitalize(), "culture", cul_idx)
+		else:
+			_field(sec, "Culture", String(roster.get("culture", "?")).capitalize())
 		## Government shows its vocabulary LABEL (G1-3, `GOVERNMENTS_SCOPE.md`
 		## §4.4): `capitalize()` on the key read "City State" for "City-State"
 		## and would only have read the G1 forms correctly by accident. A key

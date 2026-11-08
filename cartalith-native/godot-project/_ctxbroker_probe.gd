@@ -250,6 +250,15 @@ func _run() -> void:
 	_ok("A the settlement's own cell is claimed (so the faction rows belong under it)",
 		a_cell.has("controlling_faction"), true)
 	var a_fname := String(a_cell.get("controlling_faction_name", ""))
+	## PC-4 follow-up: the settlement's holder's culture, as a row of its own ("Select culture: X"), read
+	## from the engine's lists and not assumed: the holder's `culture` key -> `get_cultures()`'s name.
+	var a_cul := ""
+	for fr in bridge.get_factions():
+		if int((fr as Dictionary).get("id", -1)) == int(bridge.settlements()[k].get("faction", 0)):
+			for cr in bridge.get_cultures():
+				if String((cr as Dictionary).get("key", "")) == String((fr as Dictionary).get("culture", "")):
+					a_cul = String((cr as Dictionary).get("name", ""))
+	_ok("A the settlement's holder has a culture the engine lists", a_cul != "", true)
 	await _rmb(ov, a_pos)
 	var rows_a := _dump("A_civ_settlement")
 	## CX-01's five rows plus CM-7's CM-2-residual additions (`MAP_CONTEXT_
@@ -265,7 +274,7 @@ func _run() -> void:
 	## timeline here (place), Plan journey from here and Journey to here (go;
 	## the second disabled with its reason while no route draft is open), so a
 	## third separator opens the go band. Fourteen rows, three separators.
-	_ok("A fourteen rows plus three separators (SM-4)", rows_a.size(), 17)
+	_ok("A fifteen rows plus three separators (SM-4 + the culture row)", rows_a.size(), 18)
 	_ok("A row order", rows_a, [
 		"Edit %s" % sname, "Move viewer to %s" % sname,
 		"Open in city viewer…",
@@ -274,6 +283,7 @@ func _run() -> void:
 		"Drop settlement here", "Start way here", "Start route here",
 		"Add event to timeline here", "----",
 		"Plan journey from here", "Journey to here {disabled}", "----",
+		"Select culture: %s" % a_cul,
 		"Attach note to %s…" % sname, "Info here (settlement & ecology)"])
 
 	# -- B ------------------------------------------------------------------

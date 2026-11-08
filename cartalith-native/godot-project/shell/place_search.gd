@@ -121,6 +121,10 @@ func build(bridge) -> void:
 
 	_add_settlements(settlements, faction_names)
 	_add_factions(factions, settlements)
+	## Only with a world: the seven cultures exist before any world does (compile-time `CIV_CULTURES`),
+	## but "Find on map" of nothing is not a search, and a no-world index is empty by contract.
+	if bool(bridge.get("has_world")):
+		_add_cultures(bridge.get_cultures() if bridge.has_method("get_cultures") else [])
 	_add_labels(labels)
 	_add_roads(roads)
 	_add_sea_routes(sea_routes)
@@ -215,6 +219,28 @@ func _add_factions(factions: Array, settlements: Array) -> void:
 			"y": float(cap.get("y", 0)),
 			"entity": "faction",
 			"id": fid,
+		})
+
+## PC-4 follow-up (2026-11-08, the owner's "Culture selection is unreachable from the GUI"): one row per
+## `get_cultures()` row, so a Find hit can select a culture (`DccShell._select_search_hit()`).
+## `id` is the row's index in `get_cultures()`, the handle `DccApp.select("culture", id)` takes.
+##
+## **A culture has no map position, so its row has no `x` or `y` key at all** -- absent, not `0`: a
+## `(0, 0)` would pan the map to a corner that is not the culture's (`MISTAKES.md`, "no value as a
+## plausible value"). `_select_search_hit()` pans only a row that has them.
+func _add_cultures(cultures: Array) -> void:
+	for i in cultures.size():
+		var c: Dictionary = cultures[i]
+		var name := String(c.get("name", "")).strip_edges()
+		if name == "":
+			continue
+		var fc := int(c.get("faction_count", 0))
+		_rows.append({
+			"name": name,
+			"kind": "culture",
+			"subtitle": "Culture · %d faction%s" % [fc, "" if fc == 1 else "s"],
+			"entity": "culture",
+			"id": i,
 		})
 
 ## Identical derivation to `FactionRosterWindow._capital_of()`
