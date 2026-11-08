@@ -967,6 +967,9 @@ func refresh_settlement() -> void:
 ## function's business. Connected by `app.gd` to `timeline_changed`. If a context that reads
 ## `get_civ_year()` is added, add it here.
 func on_timeline_changed() -> void:
+	if _note != null:
+		## PC-5: the Note tab lights the dated entry the year falls in. A re-light, not a rebuild: the editor stays put.
+		_note.on_timeline()
 	if _context == CTX_SETTLEMENT or _context == CTX_CONFLICT:
 		_rebuild()
 
@@ -974,9 +977,9 @@ func on_timeline_changed() -> void:
 #
 # The right dock becomes the Context panel: one subject, the selection or what the panel is
 # pinned to, with a header (back and forward through the selection history, the subject's name and
-# one line of facts, FOLLOWING or PINNED with a pin button) and a tab strip holding Inspect. Note
-# (PC-5) and Ask (PC-6) are absent until their milestones build them: a tab with nothing behind it
-# would be a control that claims a capability. The panel is this dock: Inspect is `_dispatch()`'s
+# one line of facts, FOLLOWING or PINNED with a pin button) and a tab strip: Inspect (PC-4), Note
+# (PC-5) and Ask (PC-6), each drawn only because something is behind it (a tab with nothing behind it
+# would be a control that claims a capability). The panel is this dock: Inspect is `_dispatch()`'s
 # builders, extended so every name selects (`_link_field()`), and the armed tool's section is still
 # appended below the subject (`_append_tool()`, the ruling "Selection wins; the tool appends a
 # section", unchanged).
@@ -994,10 +997,14 @@ var _pinned := false
 ## so the dock keeps no copy of the selection itself (§2: "No surface keeps a copy").
 var _pin_subject: Dictionary = {}
 
-## PC-6. The Context panel's tabs this build draws (§3.3): Inspect (PC-4) and Ask (PC-6). Note is
-## PC-5's and joins in the change that builds it.
+## PC-6. The Context panel's core tabs this build draws (§3.3): Inspect (PC-4), Ask (PC-6) and, below, Note (PC-5).
 const TAB_INSPECT := "inspect"
 const TAB_ASK := "ask"
+## PC-5. The Note tab's key (§3.4): the subject's linked note, edited in the vault editor. `DccApp.CONTEXT_PANEL_DEFAULT`
+## has held this key second since PC-10; the tab itself is built here and in `context_note.gd`.
+const TAB_NOTE := "note"
+## PC-5. The Note tab's content and logic (`context_note.gd`; preloaded, no `class_name`).
+const ContextNote := preload("res://shell/context_note.gd")
 ## PC-10. The ten modules' specs and builders (`context_modules.gd`; preloaded, no `class_name`, so it
 ## needs no `--headless --import` pass).
 const ContextModules := preload("res://shell/context_modules.gd")
@@ -1024,6 +1031,16 @@ var _ask_body: VBoxContainer
 ## touch tablet at 1600x1000: its 44 px rows put the chips below the window's edge). When it fits, the
 ## body fills the height (expand), so the transcript's own scroll takes the slack.
 var _ask_scroll: ScrollContainer
+
+## PC-5. The Note tab's frame, a sibling of Inspect's scroll exactly as `_ask_frame` is, and for the same
+## reason: the vault editor is persistent (it holds the user's unsaved text and its own scroll), so it cannot
+## live in the body that every `_rebuild()` frees. `_note_head` is the panel header redrawn above it;
+## `_note_body` holds `ContextNote`'s structure. Built on first use. Desktop and tablet.
+var _note_frame: VBoxContainer
+var _note_head: VBoxContainer
+var _note_body: VBoxContainer
+## PC-5. The Note tab's logic and the vault window it asks for the editor (`context_note.gd`).
+var _note = null
 
 ## PC-4. The landmark the Landmark context shows, as an index into `bridge.landmarks()` (the
 ## selection's id for kind "landmark"), or -1 when it was shown by a path that carries no index.
@@ -1188,6 +1205,10 @@ func current_tab() -> String:
 func _effective_tab() -> String:
 	if _tab == TAB_INSPECT or _tab == TAB_ASK or app == null:
 		return _tab
+	if _tab == TAB_NOTE:
+		## Note fits every subject (it says why when there is no note), but only while the user's
+		## arrangement holds it.
+		return TAB_NOTE if app.context_panel_modules().has(TAB_NOTE) else TAB_INSPECT
 	if not app.context_panel_modules().has(_tab) or not ContextModules.fits(_tab, _module_subject()):
 		return TAB_INSPECT
 	return _tab
@@ -1207,8 +1228,8 @@ func show_tab(tab: String) -> bool:
 		return false
 	## PC-10: a module is shown only while the user's arrangement holds it (`DccApp.open_context_tab()`
 	## adds it first); Inspect and Ask as before.
-	if not (tab in [TAB_INSPECT, TAB_ASK]) and not (app.context_panel_modules().has(tab)
-			and not ContextModules.spec(tab).is_empty()):
+	if not (tab in [TAB_INSPECT, TAB_ASK]) and not (tab == TAB_NOTE and app.context_panel_modules().has(TAB_NOTE)) \
+			and not (app.context_panel_modules().has(tab) and not ContextModules.spec(tab).is_empty()):
 		return false
 	_tab = tab
 	_apply_tab()
@@ -1232,11 +1253,17 @@ func _apply_tab() -> void:
 		return
 	if _tab == TAB_ASK:
 		_ensure_ask_frame(scroll)
+	if _tab == TAB_NOTE:
+		_ensure_note_frame(scroll)
 	if _ask_frame != null:
 		_ask_frame.visible = _tab == TAB_ASK
-	scroll.visible = _tab != TAB_ASK
+	if _note_frame != null:
+		_note_frame.visible = _tab == TAB_NOTE
+	scroll.visible = _tab != TAB_ASK and _tab != TAB_NOTE
 	if _tab == TAB_ASK:
 		refresh_ask(true)
+	elif _tab == TAB_NOTE:
+		refresh_note(true)
 	else:
 		## The Inspect header's tab strip shows which tab is on; it is in the body, so redraw it.
 		## PC-10: a module tab is drawn in the same body, by the same rebuild.
@@ -1272,6 +1299,55 @@ func _ensure_ask_frame(scroll: Control) -> void:
 	var col := scroll.get_parent()
 	col.add_child(_ask_frame)
 	col.move_child(_ask_frame, scroll.get_index() + 1)
+
+## PC-5. The Note frame, added once to the dock column right after the Ask frame (or the scroll), built like
+## `_ensure_ask_frame()`: a header slot and a body that fills the dock, with no scroll of its own, because the
+## editor scrolls its own text and a scroll around it would hand it an unbounded height.
+func _ensure_note_frame(scroll: Control) -> void:
+	if _note_frame != null:
+		return
+	_note_frame = VBoxContainer.new()
+	_note_frame.name = "ContextNoteFrame"
+	_note_frame.add_theme_constant_override("separation", 0)
+	_note_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_note_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_note_head = VBoxContainer.new()
+	_note_head.name = "ContextNoteHead"
+	_note_head.add_theme_constant_override("separation", 0)
+	_note_frame.add_child(_note_head)
+	_note_body = VBoxContainer.new()
+	_note_body.name = "ContextNoteBody"
+	_note_body.add_theme_constant_override("separation", 4)
+	_note_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_note_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var pad := DccWidgets.pad(_note_frame, 8, 4, 8, 6)
+	pad.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pad.add_child(_note_body)
+	_note = ContextNote.new(app)
+	_note.build_into(_note_body)
+	var col := scroll.get_parent()
+	col.add_child(_note_frame)
+	col.move_child(_note_frame, (_ask_frame.get_index() if _ask_frame != null else scroll.get_index()) + 1)
+
+## PC-5. Redraws the Note tab: the panel header and `ContextNote.refresh()` for the panel's subject (the
+## pinned one, else what it shows). A no-op unless the Note tab is the one shown; a note already docked
+## is kept when another tab is shown (the editor lives on, hidden, and its autosave runs). `present` (a tab
+## switch) also puts the cursor in the editor. Called on every `_rebuild()` and by `ContextNote` when the
+## vault window's state moved.
+func refresh_note(present := false) -> void:
+	if _note_frame == null or _note == null or _tab != TAB_NOTE:
+		return
+	for c in _note_head.get_children():
+		_note_head.remove_child(c)
+		c.queue_free()
+	_build_context_header(_note_head)
+	_note.refresh(_module_subject())
+	if present and app.vault_window.is_docked():
+		app.vault_window._refocus_editor.call_deferred()
+
+## PC-5. Whether the Note tab's editor holds text not yet on disk. Read by the probes.
+func note_dirty() -> bool:
+	return app != null and app.vault_window != null and app.vault_window.is_docked() and app.vault_window.dock_dirty()
 
 ## PC-6. Redraws the Ask tab: the panel header (the subject, the pin, the tabs) and the conversation,
 ## which `LlmAssistantWindow.present_in()` moves here without rebuilding it. While the conversation is
@@ -1372,7 +1448,7 @@ func _header_button(parent: Control, node_name: String, text: String, on_press: 
 ##   banner while pinned and the selection is something else: "Selection is now X" with PIN TO IT
 ##          and FOLLOW (§3.3, flow F8);
 ##   tabs   the user's arrangement (PC-10, `_build_tab_strip()`): Inspect (PC-4), Ask (PC-6) and the
-##          modules added, in strip order; Note is PC-5's and absent until then.
+##          modules added, in strip order; Note (PC-5) is a core tab like Ask.
 ## Hiding the panel stays the dock's own collapse button and Window ▸ Context panel's check.
 ## Must never change `_context` or the selection: it only reads them.
 func _build_context_header(body: Control) -> void:
@@ -1465,7 +1541,7 @@ func _build_tab_strip(box: Control) -> void:
 	var subj := _module_subject()
 	var keys: PackedStringArray = app.context_panel_modules()
 	for key in keys:
-		if key != TAB_INSPECT and key != TAB_ASK and not ContextModules.fits(key, subj):
+		if key != TAB_INSPECT and key != TAB_ASK and key != TAB_NOTE and not ContextModules.fits(key, subj):
 			continue
 		var b := DccWidgets.segment(tabs, _tab_label(key), _on_tab_pressed.bind(key))
 		b.name = _tab_node_name(key)
@@ -1500,6 +1576,7 @@ func _tab_node_name(key: String) -> String:
 	match key:
 		TAB_INSPECT: return "CtxTabInspect"
 		TAB_ASK: return "CtxTabAsk"
+		TAB_NOTE: return "CtxTabNote"
 	return "CtxTab_" + key
 
 ## PC-10. A tab's tooltip: the core tabs' PC-4 and PC-6 wording; a module's `DccMenus.CTX_MODULE_TIPS`
@@ -1508,6 +1585,7 @@ func _tab_tip(key: String) -> String:
 	match key:
 		TAB_INSPECT: return "Inspect (Ctrl+1): the subject's facts. Every name selects it."
 		TAB_ASK: return "Ask (Ctrl+3): the assistant, about the subject and the year shown. One conversation lasts the session."
+		TAB_NOTE: return "Note (Ctrl+2): the subject's own note, edited in place. Autosaves; the vault window opens the same note with split view, backlinks and rename."
 	return String(DccMenus.CTX_MODULE_TIPS.get(key, "")) + " Right-click it (or hold it) for Move, Open in a window and Remove; drag it to reorder."
 
 ## PC-10. How long a press on a tab is held before its menu opens. 500 ms is the shell's own hold
@@ -1561,7 +1639,7 @@ func _open_tab_menu(b: Button, key: String) -> void:
 	pm.set_item_disabled(pm.get_item_index(0), at <= 0)
 	pm.add_item("Move right", 1)
 	pm.set_item_disabled(pm.get_item_index(1), at < 0 or at >= keys.size() - 1)
-	if ContextWindow.applies(app) and key != TAB_ASK and key != TAB_INSPECT:
+	if ContextWindow.applies(app) and key != TAB_ASK and key != TAB_INSPECT and key != TAB_NOTE:
 		pm.add_item("Open in a window", 2)
 	if key != TAB_INSPECT:
 		pm.add_item("Remove", 3)
@@ -1571,7 +1649,7 @@ func _open_tab_menu(b: Button, key: String) -> void:
 	var r := b.get_global_rect()
 	pm.popup(Rect2i(Vector2i(int(r.position.x), int(r.end.y)), Vector2i.ZERO))
 
-## PC-10. `+`'s menu: Ask (and Note, once built), then the ten modules, each a check row ticked when it is
+## PC-10. `+`'s menu: Note and Ask, then the ten modules, each a check row ticked when it is
 ## in the panel. Picking an unticked row adds it at the end of the strip and shows it; a ticked one
 ## removes it. Inspect is not listed: it cannot be removed (a judgement in Ruling DY).
 func _open_add_menu() -> void:
@@ -2309,7 +2387,7 @@ func _rebuild() -> void:
 	## PC-10: a module tab draws its module where Inspect's page goes; the armed tool and Layers still
 	## append below it, so a tool armed while a module is open still answers (the ruling's order).
 	var eff := _effective_tab() if _panel_chrome() else TAB_INSPECT
-	if eff != TAB_INSPECT and eff != TAB_ASK:
+	if eff != TAB_INSPECT and eff != TAB_ASK and eff != TAB_NOTE:
 		_build_module_tab(body, eff)
 	else:
 		_dispatch(body)
@@ -2326,6 +2404,8 @@ func _rebuild() -> void:
 	_sculpt_drawn_stamps = bridge.sculpt_stamp_count() if bridge != null else -1
 	## PC-6: the Ask tab draws the same header above the conversation, so it follows this rebuild too.
 	refresh_ask()
+	## PC-5: so does the Note tab.
+	refresh_note()
 
 ## `_build_settlement` falls back to `_build_sample()` when its own data is
 ## missing (a settlement deselected out from under the dock) -- mirrored here

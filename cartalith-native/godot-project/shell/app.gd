@@ -785,14 +785,14 @@ func current_faction() -> int:
 # ── PC-4: the Context panel (`PC_SHELL_PROPOSAL.md` §3.3, §3.8; the contract in
 #    `drafts/pc-shell/90_pc_milestone_stubs.gd`) ───────────────────────────────────────────────
 
-## PC-4. The Context panel's tabs that exist in this build, in order. PC-4 built Inspect and PC-6 Ask
-## (the assistant docked, §3.5); Note is PC-5's and appends its key in the change that builds it. On
-## the phone (Ruling DX PQ13, §3.11) both are listed too, because their routes exist: the selection
-## sheet and the assistant's sheet (`open_context_tab()`). `menus.gd::_context_tab_ready()` asks it
+## PC-4. The Context panel's tabs that exist in this build, in order: Inspect (PC-4), Note (PC-5, the
+## subject's linked note in the vault editor, §3.4) and Ask (PC-6, the assistant docked, §3.5). On
+## the phone (Ruling DX PQ13, §3.11) all three are listed too, because their routes exist: the selection
+## sheet, the vault at the note (`_phone_open_note()`) and the assistant's sheet (`open_context_tab()`). `menus.gd::_context_tab_ready()` asks it
 ## once per row at build time, so a row goes live on the next boot after its tab is built and never
 ## before.
 func context_tabs() -> PackedStringArray:
-	return PackedStringArray(["inspect", "ask"])
+	return PackedStringArray(["inspect", "note", "ask"])
 
 ## PC-4. Shows the Context panel on `tab` and returns true; returns false, and changes nothing, for a
 ## tab `context_tabs()` does not list. `""` keeps the tab shown. Shows the panel first when it is
@@ -818,6 +818,10 @@ func open_context_tab(tab: String, section: String = "") -> bool:
 		if tab == "ask":
 			## The sheet: `open()` takes its phone branch, never this function again.
 			assistant_window.open()
+		elif tab == "note":
+			## PC-5, §3.11: on the phone the Note tab is the vault at the note (the vault window is the
+			## phone's editor, one writer as ever). A subject with no binding opens the vault browser.
+			_phone_open_note()
 		else:
 			phone_show_right_sheet()
 		return true
@@ -832,6 +836,24 @@ func open_context_tab(tab: String, section: String = "") -> bool:
 	if right_dock_ctrl != null and section != "":
 		right_dock_ctrl.focus_section(section)
 	return true
+
+## PC-5. The phone's Note: the vault window scoped to the selected settlement or faction (its first linked note
+## preselected, or its attach flow when it has none), else the vault browser. The same `open_vault` the
+## Story menu's "Notes for this place" row made before the Note tab existed, so the phone loses nothing.
+func _phone_open_note() -> void:
+	var kind := String(selection.get("kind", ""))
+	var id := int(selection.get("id", -1))
+	if kind == "settlement":
+		var all: Array = bridge.settlements()
+		if id >= 0 and id < all.size():
+			var s: Dictionary = all[id]
+			if int(s.get("tid", 0)) != 0:
+				open_vault("settlement", int(s["tid"]), String(s.get("name", "")))
+				return
+	elif kind == "faction" and id >= 0:
+		open_vault("faction", id, String(right_dock_ctrl.subject_name(selection)) if right_dock_ctrl != null else "")
+		return
+	open_vault_browse()
 
 ## PC-4. Window ▸ Context panel ▸ Pin to the current subject: the panel holds what it shows while
 ## the selection moves, and its banner offers PIN TO IT and FOLLOW (§3.3). False, and nothing
@@ -948,7 +970,7 @@ func context_panel_modules() -> PackedStringArray:
 
 ## PC-10. Writes the arrangement: `visible` (the keys this build draws, in their new order) with every
 ## stored key this build does not know put back at its stored position, so a module from a newer build,
-## or Note before PC-5 (the default's second tab), survives an edit here where it was. Then redraws the strip and refreshes the menu ticks' source. False when
+## (Note was one before PC-5 built it), survives an edit here where it was. Then redraws the strip and refreshes the menu ticks' source. False when
 ## `DccSettings` refused the list (it is checked before the write).
 func _write_context_arrangement(visible: PackedStringArray) -> bool:
 	var known := _context_known()
@@ -1039,7 +1061,7 @@ var _context_refresh_queued := false
 ## PC-10. `refresh_context_modules()`'s deferred body.
 func _do_refresh_context_modules() -> void:
 	_context_refresh_queued = false
-	if right_dock_ctrl != null and not (right_dock_ctrl.current_tab() in ["inspect", "ask"]):
+	if right_dock_ctrl != null and not (right_dock_ctrl.current_tab() in ["inspect", "note", "ask"]):
 		right_dock_ctrl._rebuild()
 	for k in _module_windows:
 		var w = _module_windows[k]

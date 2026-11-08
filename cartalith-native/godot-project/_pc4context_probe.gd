@@ -14,8 +14,9 @@ extends Node
 ## elsewhere; an armed tool's section is below the subject"). A small world is generated (seed 4242,
 ## 256 x 192, as `_pc1select_probe.gd`) and one conflict is drawn between two factions, attached to a
 ## settlement. Then:
-##   A. PANEL: the header (back, forward, name, FOLLOWING) and a tab strip of exactly one tab,
-##      INSPECT and ASK (Note is PC-5's and must be absent; Ask is PC-6's, `_pc6ask_probe.gd` drives it).
+##   A. PANEL: the header (back, forward, name, FOLLOWING) and a tab strip of exactly the default
+##      arrangement, INSPECT, NOTE and ASK (Note is PC-5's, `_pc5note_probe.gd` drives it; Ask is PC-6's,
+##      `_pc6ask_probe.gd`).
 ##   B. SETTLEMENT by a real map click: the selection, the header name and the panel's subject agree.
 ##   C. LINKS: on the settlement page, then the faction page, then the conflict page, every link
 ##      Inspect drew that names a subject is scrolled into view and clicked (a real click, its
@@ -31,7 +32,7 @@ extends Node
 ##      shows the selection again. The menu's Pin and Follow rows do the same.
 ##   G. TOOL: with a settlement shown, arming Territory appends its section BELOW the subject.
 ##   H. MENUS: Window's region row reads "Context panel"; its submenu's Inspect, Pin, Follow and Reset
-##      panel and (since PC-6) Ask are live with tooltips and Note is disabled with a reason; Ctrl+1 (a real key)
+##      panel, Note (since PC-5) and Ask (since PC-6) are live with tooltips; Ctrl+1 (a real key)
 ##      shows a hidden panel; Reset panel shows a hidden and collapsed panel on Inspect; Story ▸
 ##      Political history of the selection opens Inspect at its history section.
 ##   P. PHONE (`--phone`): no header and no links in the selection sheet; two captures (launch, and
@@ -338,7 +339,7 @@ func _leg_desktop() -> void:
 	await _settle(8)
 
 	print("== A. the panel ==")
-	_ok(_app.context_tabs() == PackedStringArray(["inspect", "ask"]), "context_tabs() is [inspect, ask] since PC-6 (got %s)" % str(_app.context_tabs()))
+	_ok(_app.context_tabs() == PackedStringArray(["inspect", "note", "ask"]), "context_tabs() is [inspect, note, ask] since PC-5 (got %s)" % str(_app.context_tabs()))
 	for nm in ["ContextHeader", "CtxBack", "CtxForward", "CtxName", "CtxPin", "CtxTabs"]:
 		_ok(_hdr(nm) != null, "the header has %s" % nm)
 	var tabs := _hdr("CtxTabs")
@@ -346,7 +347,7 @@ func _leg_desktop() -> void:
 	if tabs != null:
 		for b in tabs.find_children("*", "Button", true, false):
 			tab_texts.append((b as Button).text)
-	_ok(tab_texts == ["INSPECT", "ASK"], "the tab strip holds exactly INSPECT and ASK (got %s)" % str(tab_texts))
+	_ok(tab_texts == ["INSPECT", "NOTE", "ASK"], "the tab strip holds exactly INSPECT, NOTE and ASK, the default arrangement (got %s)" % str(tab_texts))
 	_ok(_hdr("CtxName") != null and (_hdr("CtxName") as Label).text == "Nothing selected", "with nothing selected the header says so")
 	_ok(_hdr("CtxPin") != null and (_hdr("CtxPin") as Button).disabled, "with nothing shown the pin is disabled")
 
@@ -734,8 +735,8 @@ func _leg_menus(a: int) -> void:
 	if sub == null:
 		_ok(false, "Window ▸ Context panel exists")
 		return
-	var want_live := ["Inspect", "Ask (assistant)", "Pin to the current subject", "Follow the selection", "Reset panel"]
-	var want_off := ["Note"]
+	var want_live := ["Inspect", "Note", "Ask (assistant)", "Pin to the current subject", "Follow the selection", "Reset panel"]
+	var want_off := []
 	for i in sub.item_count:
 		if sub.is_item_separator(i):
 			continue
@@ -761,7 +762,7 @@ func _leg_menus(a: int) -> void:
 	await _settle(6)
 	_ok(rnode.visible and not _app.is_dock_collapsed("right") and _hdr("CtxTabInspect") != null,
 		"Reset panel shows the panel, uncollapsed, on Inspect")
-	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "ask"]), "the arrangement is Inspect · Ask (got %s)" % str(_app.context_panel_modules()))
+	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "note", "ask"]), "the arrangement is Inspect · Note · Ask (got %s)" % str(_app.context_panel_modules()))
 	## Story ▸ Political history of the selection: Inspect at its history section.
 	var story: PopupMenu = null
 	for ch in _app.menu_bar_row.get_children():

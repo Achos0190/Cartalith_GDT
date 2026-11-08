@@ -632,13 +632,13 @@ judgements found while building: (1) **the selection and the year ride as a `sho
 (`cartalith_llm::prompt::shown_block`, on the prose and Commands paths, never on Edit), gated by the existing,
 previously unread "Send: selection" source (`ctx_selection`, off by default, now labelled "Send: selection and year"),
 which Rust re-checks; the proposal's chips sit on that source rather than replacing it, so the scope's opt-in per
-source holds. (2) **Two chips, not three**: the note chip waits for PC-5's Note tab. (3) **New** clears the
+source holds. (2) **Two chips, not three**: the note chip is not wired (PC-5 built the Note tab; the chip is still PC-6's to add). (3) **New** clears the
 conversation; on the phone it joins the status row so the sheet gains no row. (4) **Open in a window** (desktop) is the
 dialog form, where Ruling DK's Pop out still applies; the dialog is still exclusive (PC-7), so the tab says "close that
 window to bring it back" instead of offering a button a click could not reach. (5) A reading that is not a selection
 (a route, a river, a measurement, a region, an ecoregion, the history ledger, an icon) switches the panel to Inspect;
 a selection does not. (6) A verified world citation selects what it names (settlements by `tid`, factions, landmarks);
-Vault citations stay text until PC-5. Not built, stated: the save preference, its first-use card and the world-file
+Vault citations stay text (PC-5 built the tab and did not wire them). Not built, stated: the save preference, its first-use card and the world-file
 slot (PQ5); a note card going to the subject's linked note; names and years in an answer as links; per-subject task
 chips; "Ask about this" on Inspect pages and the context card. The probe is `_pc6ask_probe`.
 
@@ -728,8 +728,41 @@ settlement). (8) **History for a landmark is a sentence**: the chronos index rea
 there is one; a generate drops them, an open restores the project's. (10) A window builder laid out for its window's width could widen the dock: measured on the touch tablet, the City
 layout page pushed the dock over most of the map, so a module page sits in its own sideways-scrolling box
 (`CtxModuleScroll`). (11) No producer selects a culture yet, so the culture branches of Faith and Links are reached
-only by code. Not built, stated: Note (PC-5); Pop out for module
-windows; a module's own key. The probe is `_pc10modules_probe`.
+only by code. Not built, stated: Pop out for module
+windows; a module's own key (Note, which this note once listed, is PC-5's). The probe is `_pc10modules_probe`.
+
+PC-5 (2026-11-08) builds the Note tab on the desktop and the tablet: `shell/context_note.gd` (preloaded, no `class_name`)
+and the vault window's own editor, hosted in a frame the tab owns (`RightDock._note_frame`, a sibling of Inspect's
+scroll as Ask's is, because the editor holds the user's unsaved text and cannot live in a body every `_rebuild()`
+frees). **One note focus, one writer, defined:** the focus is the pair (`VaultWindow._browse_path`, the editor built for
+it); both exist once, and the editor is in exactly one of three places, the tab's frame (`VaultWindow._dock_host`), the
+vault window's body, or nowhere. The tab never builds an editor: `VaultWindow.dock_note(rel, host)` does, through the
+same `_build_editor_pane(…, docked)`, the same `_load_note_state()` read and the same `_write_now()` writer (hash guard,
+autosave, banner, session undo, Revert to opened…, `flush_for_exit`). `dock_note` answers `window` while the window is
+shown, and `VaultWindow._clear()` frees a docked editor before the window builds its own (`dock_released`), so two
+editors for one note are never alive together, which is VE-4's hazard (`_editor_path == _browse_path` at every read and
+write) closed by construction. **No typed text is lost:** a selection that moves flushes the note through `_write_now()`
+first; a refused save (conflict, deleted or read-only note, vanished vault) keeps the old editor on screen with its
+banner and HOLDS the switch (the tab says what the selection is and shows its note once a save lands or a banner choice
+settles it, `dock_saved`); leaving the tab keeps the editor alive and autosaving underneath; opening the vault window
+flushes first; the quit routes are the window's. Departures and judgements found while building: (1) **only settlements
+and factions are bound**: a landmark's entity id is made from its key by `vault_landmark_entity_id`, which the tab does
+not call yet, and a culture or a conflict has no binding; each says why in the tab instead of drawing an empty editor.
+(2) **A subject with several linked notes shows the first** and says how many more there are. (3) **A missing note is
+created from the vault's template list, with a blank note as the first choice**, a labelled judgement: Cartalith ships no
+templates (Ruling BF), so a vault with none would otherwise offer nothing; creating is a button, never a side effect, and
+the note is bound to the subject (`vault_attach`) in the same press. (4) **A followed `[[link]]`** to a note that belongs
+to a place or a faction selects it (the panel follows, so the map, Inspect and Ask do); pinned, or when no place owns the
+note, it opens in the tab with the window's Back trail. (5) **The dated entries sit under the editor** (up to 12 rows
+from `vault_entity_chronos`): pressing one moves the year through `tl_set_year()`, and the row the year falls in is lit
+(a ranged entry while the year is inside it, of the single-year entries the latest at or before the year). (6) **The
+side panel (backlinks, outline, properties) is not drawn in the tab**: the header's ⧉ opens the note in the vault window,
+which keeps it. (7) **The phone** keeps its sheet: `open_context_tab("note")` there opens the vault at the subject's note
+(`DccApp._phone_open_note()`, the call Story's "Notes for this place" made before), so the phone's Story and Window rows
+lose nothing; the phone shell is unchanged. (8) A selection that changes while another tab is shown does not re-dock: the
+note on screen stays docked and autosaving until the tab is shown again. Not built, stated: private notes shown as private
+(Ruling DP); the Ask tab's note chip and a note card going to the subject's note (PC-6's deferred items); a note citation
+opening the tab at its heading; the tab on a landmark; Pop out. The probe is `_pc5note_probe`.
 
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes

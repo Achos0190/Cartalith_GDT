@@ -342,6 +342,13 @@ var _phone_title: Label
 ## persist it. The window never touches the disk itself.
 signal store_changed
 
+## PC-5. The window took the editor back from the Context panel's Note tab (it is being opened or
+## rebuilt): the tab's editor is gone, the note's text is still held here, and the tab should re-dock.
+signal dock_released
+## PC-5. A write landed (`_after_save`): the Note tab retries a selection switch it held while the
+## previous note could not be saved.
+signal dock_saved
+
 
 ## Wires the window to its host (`app`) and the engine bridge (`b`), loads the
 ## write-confirmation preferences once, and builds the empty frame (title, size,
@@ -551,6 +558,12 @@ func _clear() -> void:
 		_browse_text = _browse_edit.text
 		_checkpoint_history()
 	_editor_path = ""
+	## PC-5: the window is taking the editor back (it is being opened, or rebuilt). The Note tab's editor is
+	## freed here, after the checkpoint above, so there is never a docked editor and a window editor for one
+	## note; the unsaved text stays in `_browse_text`, and the tab hears `dock_released` and re-docks.
+	if _dock_node != null:
+		_free_dock_node()
+		dock_released.emit()
 	for c in _body.get_children():
 		_body.remove_child(c)
 		c.queue_free()
@@ -1869,13 +1882,52 @@ func _create_items(name: String, rel: String) -> Array:
 
 ## Opens `path` in Write, from a link. A dirty editor asks first (`_guard_dirty`), so following a
 ## link never discards typing; keeping the edits leaves everything as it was.
+##
+## Docked (PC-5): a note that belongs to a place or faction is offered to `dock_link_select` first (a link
+## "selects what it names", `PC_SHELL_PROPOSAL.md` §3.4), so the map, Inspect and Ask follow; the tab
+## answers false when it is pinned or the note names nothing selectable, and the note then opens in the tab.
 func _open_linked(path: String, line: int = -1) -> void:
+	if _dock_host != null and dock_link_select.is_valid():
+		var ent := _entity_of_note(path)
+		if not ent.is_empty():
+			var sel_kind := String(ent["kind"])
+			var sel_id := int(ent["id"])
+			_guard_dirty(func():
+				_goto_pending = line
+				if not bool(dock_link_select.call(sel_kind, sel_id, path)):
+					_goto_pending = -1
+					_open_linked_plain(path, line))
+			return
+	_open_linked_plain(path, line)
+
+
+## `_open_linked`'s body: guard, push the Back trail, enter the note.
+func _open_linked_plain(path: String, line: int = -1) -> void:
 	_guard_dirty(func():
 		if _pick_file != "" and _pick_file != path:
 			_link_back.append(_pick_file)
 		## Set only once the guard has let this through, so a cancelled open leaves no stale line behind.
 		_goto_pending = line
 		_enter_note(path))
+
+
+## The place or faction a note is linked to, as `{kind, id}` in `DccApp.selection`'s vocabulary (a
+## settlement's id there is its INDEX, found from the link's `tid`), or `{}` when the note is linked to
+## neither (or the link names a thing this world no longer holds). Reads the link store, never a guess.
+func _entity_of_note(rel: String) -> Dictionary:
+	for l in bridge.vault_all_links():
+		var d: Dictionary = l
+		if String(d.get("path", "")) != rel:
+			continue
+		match String(d.get("entity_kind", "")):
+			"settlement":
+				var ss: Array = bridge.settlements()
+				for i in ss.size():
+					if int((ss[i] as Dictionary).get("tid", -1)) == int(d.get("entity_id", -2)):
+						return {"kind": "settlement", "id": i}
+			"faction":
+				return {"kind": "faction", "id": int(d.get("entity_id", -1))}
+	return {}
 
 
 ## Back to the note the last followed link came from. Asks first if there are unsaved edits.
@@ -1891,6 +1943,10 @@ func _go_back() -> void:
 ## Makes `path` the picked note and opens it in the editor, in Write (the reader pane is skipped:
 ## Ruling DY, VQ4). Unguarded -- callers have dealt with unsaved edits.
 func _enter_note(path: String) -> void:
+	if _dock_host != null:
+		## PC-5: a link followed inside the Note tab replaces the note in the tab, not in the window.
+		_dock_follow(path)
+		return
 	_pick_file = path
 	_pick_heading = ""
 	_reader_link = ""
@@ -1971,16 +2027,172 @@ func _show_link_menu(heading: String, items: Array, anchor: Control) -> void:
 	DccWidgets.popup_anchored(pm, r, 360)
 
 
+# -- The Note tab's host of the editor (PC-5, Ruling DY) ----------------------
+
+## **One note focus, one writer.** The Context panel's Note tab (`context_note.gd`) shows a place's linked
+## note in the SAME editor and through the SAME writer as this window: it does not build an editor of its
+## own, it asks this window to build one into a frame the tab owns. That is how the hazard VE-4 found (a
+## second editor alive under another note's name) is closed by construction rather than by care:
+##
+##   * `_editor`, `_browse_edit`, `_browse_path`, `_browse_hash`, `_browse_saved` and `_hist` exist once.
+##     At any moment the editor is in the window's body, or in the tab's frame (`_dock_host`), or nowhere.
+##   * `dock_note` refuses while this window is shown (`visible`), and `_clear` frees the docked editor
+##     before the window builds its own, so the two are never alive together.
+##   * Every write, the autosave timer, Save now, leaving a note, the quit flush (`flush_for_exit`) and the
+##     banner's choices, is `_write_now` or `_on_banner_choice`, whichever frame the editor sits in.
+##   * Changing the note flushes the old one through `_write_now` first; if that is refused (a conflict, a
+##     deleted or read-only file, a vanished vault) the old editor STAYS, with its banner, and the switch
+##     is reported as held. Typed text is never dropped to make room for another note.
+var _dock_host: Control = null
+## The box `_build_editor_pane(…, true)` made inside `_dock_host`; freed with the editor.
+var _dock_node: Control = null
+## `(kind, id, path) -> bool`: set by the Note tab. Called when a link followed in the docked editor names a
+## place or faction: true when the tab selected it (the panel follows), false to open the note in the tab.
+var dock_link_select: Callable = Callable()
+
+
+## Whether the editor is built into the Note tab right now.
+func is_docked() -> bool:
+	return _dock_host != null and _dock_node != null and is_instance_valid(_dock_node) \
+		and _editor != null and is_instance_valid(_editor)
+
+
+## The note the Note tab's editor holds, `""` when nothing is docked.
+func docked_path() -> String:
+	return _browse_path if is_docked() else ""
+
+
+## Whether the note held here (docked or not) has text that is not on disk. The Note tab asks it to say
+## "not saved yet" on a held switch.
+func dock_dirty() -> bool:
+	return _is_dirty()
+
+
+## Docks note `rel` into `host` (a container the Note tab owns). Returns `{ok: true}` or `{ok: false, why}`
+## with `why` one of:
+##   `window`  this window is shown, so it owns the editor (its modal state must not be raced);
+##   `held`    the note held here could not be saved (plus `path`, the note whose editor stays in `host`);
+##   `read`    `rel` could not be read (the reason is on the status line, nothing changed).
+## Never writes anything but through `_write_now`; never forces; never drops text. Docking the note that is
+## already docked in `host` is a no-op that answers ok.
+func dock_note(rel: String, host: Control) -> Dictionary:
+	if visible:
+		return {"ok": false, "why": "window"}
+	if rel == "" or host == null or not is_instance_valid(host):
+		return {"ok": false, "why": "read"}
+	if is_docked() and _dock_host == host and _browse_path == rel:
+		return {"ok": true}
+	## A note held with no live editor and text not on disk (the window was rebuilt over a dirty dock):
+	## its text is the user's. Put it back in front of them, with its banner, and report the switch held.
+	var retained := _browse_path != "" and (_editor == null or not is_instance_valid(_editor)) and _browse_text != _browse_saved
+	if retained:
+		_dock_into(host, _browse_path)
+		return {"ok": false, "why": "held", "path": _browse_path}
+	if _browse_path != "":
+		_write_now()
+		if _is_dirty():
+			if not is_docked():
+				_dock_into(host, _browse_path)
+			return {"ok": false, "why": "held", "path": _browse_path}
+	_free_dock_node()
+	_clear()
+	_reset_note_state()
+	_pick_file = rel
+	if not _load_note_state(rel):
+		_pick_file = ""
+		return {"ok": false, "why": "read"}
+	_editor_mode = "write"
+	_dock_into(host, rel)
+	return {"ok": true}
+
+
+## Builds the editor for the state this window holds (`_browse_path`) into `host`. The state is already
+## loaded; this only hosts it.
+func _dock_into(host: Control, rel: String) -> void:
+	_free_dock_node()
+	_dock_host = host
+	_pick_file = rel
+	_build_editor_pane(host, true)
+
+
+## A link followed inside the docked editor: the old note was flushed by `_guard_dirty`; the new one
+## replaces it in the same frame. A note that cannot be read leaves the old editor where it was.
+func _dock_follow(path: String) -> void:
+	var host := _dock_host
+	## `_load_note_state` changes nothing when the read fails, so the old editor stays on screen.
+	if not _load_note_state(path):
+		return
+	_dock_into(host, path)
+
+
+## Frees the docked editor's node and every reference to it. The unsaved-text state (`_browse_text`,
+## `_browse_saved`) is not touched: a caller that discards has done `_close_editor`.
+func _free_dock_node() -> void:
+	if _dock_node != null and is_instance_valid(_dock_node):
+		if _browse_path != "" and _editor_path == _browse_path and _browse_edit != null and is_instance_valid(_browse_edit):
+			_browse_text = _browse_edit.text
+			_checkpoint_history()
+		var par := _dock_node.get_parent()
+		if par != null:
+			par.remove_child(_dock_node)
+		_dock_node.queue_free()
+	_dock_node = null
+	_dock_host = null
+	_editor = null
+	_browse_edit = null
+	_editor_path = ""
+
+
+## The Note tab no longer shows a note (the subject has none, the tab was removed): flush it and let the
+## editor go. Returns true when nothing is at risk. A refused save keeps the editor and answers false.
+func release_dock() -> bool:
+	if _dock_node == null:
+		return true
+	_write_now()
+	if _is_dirty():
+		return false
+	_free_dock_node()
+	_close_editor()
+	return true
+
+
+## The header's open-in-window button: the note goes to the vault window for split view, the outline, backlinks
+## and rename. The window's own open guards the unsaved text (a refused save asks first).
+func _open_docked_in_window() -> void:
+	var rel := _browse_path
+	if rel == "":
+		return
+	_write_now()
+	if _is_dirty():
+		app.set_status("hint", "Resolve the message above first: this note is not saved yet.", "accent")
+		return
+	open_browse()
+	_enter_note(rel)
+
+
 # -- The editor (Ruling BE) -----------------------------------------------------
 
 ## Reads the whole file (`vault_read_file_for_edit`, which returns its hash)
 ## and turns the note pane into the editor. The hash is what Save hands back.
 func _open_editor() -> void:
-	var r := bridge.vault_read_file_for_edit(_pick_file)
+	if not _load_note_state(_pick_file):
+		return
+	_editor_mode = "write"
+	_browse_phone_pane = "preview"
+	_rebuild()
+
+
+## Reads `rel` and makes it the note this window holds (path, text, saved copy, hash, line-ending style,
+## session-undo seed), writing nothing and building nothing. Returns false, with the reason on the status
+## line and the window's state untouched, when the file cannot be read. The one reader behind both hosts
+## of the editor: the browser pane (`_open_editor`) and the Context panel's Note tab (`dock_note`, PC-5), so
+## a note is read, hashed and checkpointed the same way wherever it is edited.
+func _load_note_state(rel: String) -> bool:
+	var r := bridge.vault_read_file_for_edit(rel)
 	if not bool(r.get("ok", false)):
 		app.set_status("hint", "Read: %s" % String(r.get("error", "")), "accent")
-		return
-	_browse_path = _pick_file
+		return false
+	_browse_path = rel
 	var raw := String(r.get("text", ""))
 	_eol_crlf = raw.contains("
 ")
@@ -1991,9 +2203,7 @@ func _open_editor() -> void:
 	_saved_stamp = ""
 	_autosave_timer.stop()
 	_note_opened(_browse_path, _browse_text)
-	_editor_mode = "write"
-	_browse_phone_pane = "preview"
-	_rebuild()
+	return true
 
 
 ## Builds the Markdown editor (`MdEditor`) for the open note into `parent` and
@@ -2003,10 +2213,16 @@ func _open_editor() -> void:
 ## suggestions are ranked and capped by `_suggest_rows` (VE-2); the template inserter writes nothing
 ## itself, its result waits in the editor for the hash-guarded autosave. Shows "editing…" if the session
 ## is already dirty, and the banner again if a save is being refused.
-func _build_editor_pane(parent: Control) -> void:
+##
+## `docked` (PC-5): the editor is being built into the Context panel's Note tab, not the window's body. The
+## same editor, the same signals and the same writer (`_write_now`) -- there is still exactly one editor and
+## one `_browse_path`; what differs is the host (`_dock_host`, `_dock_node`), no side panel (the tab is a
+## narrow frame; the full panel stays in the window, reached by the header's open-in-window button), and a
+## link followed by Ctrl-click re-docks instead of rebuilding the window (`_enter_note`).
+func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 	## VE-5: the editor and its side panel share one host, side by side on a wide window and stacked on a
 	## narrow one (`SIDE_RIGHT_MIN_W`). The host fills the pane exactly as the bare editor did.
-	var wide := (not _phone) and size.x >= SIDE_RIGHT_MIN_W
+	var wide := (not _phone) and size.x >= SIDE_RIGHT_MIN_W and not docked
 	var host: BoxContainer = HBoxContainer.new() if wide else VBoxContainer.new()
 	host.name = "VaultEditorHost"
 	host.add_theme_constant_override("separation", 10)
@@ -2059,7 +2275,18 @@ func _build_editor_pane(parent: Control) -> void:
 	ed.save_requested.connect(_save_note)
 	ed.revert_requested.connect(_on_revert_requested)
 	ed.banner_choice.connect(_on_banner_choice)
-	_build_side_panel(host, ed, wide)
+	if docked:
+		_dock_node = host
+		_side_panel = null
+		_side_toggle = null
+		var open_btn := ed.add_header_button("⧉", "Open this note in the vault window: split view, outline, backlinks, properties and rename.", _open_docked_in_window)
+		open_btn.name = "NoteOpenInWindow"
+		if _goto_pending >= 0:
+			var l := _goto_pending
+			_goto_pending = -1
+			ed.goto_line.call_deferred(l)
+	else:
+		_build_side_panel(host, ed, wide)
 	if not _save_block.is_empty():
 		_show_block()
 	elif _is_dirty():
@@ -2142,6 +2369,7 @@ func _set_side(on: bool) -> void:
 ## pause is never what waits for it. "The index refreshes on save and on rename, not only on a manual
 ## Refresh" (proposal s.3.2).
 func _after_save() -> void:
+	dock_saved.emit()
 	if bool(bridge.vault_backlink_stats().get("built", false)):
 		bridge.vault_refresh_backlinks(2000)
 	if _side_panel != null and is_instance_valid(_side_panel):
@@ -2253,6 +2481,11 @@ func flush_for_exit(rescue: bool) -> bool:
 ## Brings the window back with its banner so the person sees why the app did not close
 ## (`flush_for_exit` returned false). The phone shows it as its sheet, which is already present.
 func surface_for_exit() -> void:
+	if _dock_host != null:
+		## PC-5: the unsaved note is in the Context panel's Note tab; bring that forward, not an empty window.
+		app.open_context_tab("note")
+		_show_block()
+		return
 	if not visible and not DccWidgets.phone_present(self, app):
 		popup()
 	_show_block()
@@ -2368,6 +2601,10 @@ func _on_banner_choice(key: String) -> void:
 			_close_editor()
 			_pick_file = ""
 			_rebuild()
+	## PC-5: a choice that leaves nothing unsaved (Take theirs, Keep both) writes nothing, so `_after_save`
+	## never fires; the Note tab is told here so a selection switch it held can go ahead.
+	if _dock_host != null and not _is_dirty():
+		dock_saved.emit.call_deferred()
 
 
 ## Load the version on disk into the editor as ONE undo step (so Ctrl+Z brings the user's text
@@ -2468,7 +2705,13 @@ func history_follow_rename(old_rel: String, new_rel: String) -> void:
 ## was given focus again), so the window takes it back first and then the text. Deferred, because the
 ## dialog frees itself at the end of the frame the confirm ran in.
 func _refocus_editor() -> void:
-	if not visible or _browse_edit == null or not is_instance_valid(_browse_edit):
+	if _browse_edit == null or not is_instance_valid(_browse_edit):
+		return
+	if _dock_host != null:
+		## Docked (PC-5): the editor lives in the main window's tree, which is the one holding the keyboard.
+		_browse_edit.grab_focus()
+		return
+	if not visible:
 		return
 	grab_focus()
 	_browse_edit.grab_focus()

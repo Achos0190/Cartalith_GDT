@@ -47,6 +47,44 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-5 built: the Context panel's Note tab, in the vault editor, one note focus with one writer (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.4, §6 (PC-5 and its build note); Ruling DY (VQ1, VQ4, VQ6); `VAULT_EDITOR_PROPOSAL.md` §7a (VE-4's
+`_editor_path == _browse_path` fact). *Re-opened at the symbols first:* `vault_window.gd` (`_open_editor`, `_build_editor_pane`,
+`_write_now`, `_clear`, `_guard_dirty`, `_on_banner_choice`, `flush_for_exit`, `surface_for_exit`, `_refocus_editor`),
+`right_dock.gd` (`_apply_tab`, `_ensure_ask_frame`, `_effective_tab`, `_build_tab_strip`, `_rebuild`), `app.gd`
+(`context_tabs`, `open_context_tab`, `_vault_safe_to_exit`), `menus.gd` (`_story`, `_context_tab_ready`), the bridge's
+`vault_links_for` / `vault_entity_chronos` / `vault_attach` / `vault_create_from_template`.
+
+- **Built.** New `shell/context_note.gd`. `VaultWindow`: `dock_note()`, `release_dock()`, `is_docked()`, `docked_path()`,
+  `dock_dirty()`, `_load_note_state()` (the reader `_open_editor` now shares), `_build_editor_pane(…, docked)`, the signals
+  `dock_released` and `dock_saved`, `_clear()` releasing a docked editor, link following and Back working inside the tab.
+  `RightDock`: `TAB_NOTE`, the note frame, `refresh_note()`, the strip and menu rows for Note. `DccApp`: `context_tabs()` lists
+  `note`; the phone's `open_context_tab("note")` opens the vault at the note. Window ▸ Context panel ▸ Note (Ctrl+2) and Story ▸
+  Note for the selection (Ctrl+Shift+N) are live on the next boot by the `_context_tab_ready()` gate that PC-9 built.
+- **One note focus, one writer (defined in the proposal's PC-5 note).** The tab owns a frame; the window builds its one editor
+  into it and writes through its one `_write_now`. The window refuses to dock while shown and frees a docked editor when it
+  opens, so two editors for one note never exist; a held switch (a refused save) keeps the user's text and the old editor.
+- **Verified (2026-11-08, this Windows machine, Godot 4.7.2, wiped `APPDATA`, throw-away vault, windowed).** New
+  `_pc5note_probe.gd`: **116 checks, 0 failed at 1600x1000 on desktop, 116 and 0 failed with `--touch`** (real clicks on the
+  NOTE tab, the pin, FOLLOW, the dated rows, Create, Revert and the banner's Keep both; real keys for typing, Ctrl+1/2, Ctrl+Z
+  and Ctrl-click; every file assertion re-reads the disk): the note opens in Write in one editor inside the tab; autosave lands
+  within 2 s and nothing is written before a pause; a selection change with unsaved text writes it first and shows the other
+  place's note, and selecting back shows the saved text; pinned, typing continues in the pinned note and FOLLOW flushes it; the
+  vault window opening flushes the tab's text, takes the editor (never two alive), refuses a dock while open, writes an edit once,
+  and gives the editor back on close; an outside change raises the banner in the tab, HOLDS the switch with the text kept and
+  their file untouched, and Keep both lets it through with one copy; the three quit routes write pending text; a hidden tab and a
+  hidden panel keep the text and the autosave lands; a dated row moves `tl_year` and the row the year falls in is lit; Ctrl-click
+  on a link selects the place (or opens the note in the tab, with Back, when pinned or unowned); Revert to opened… asks first and
+  is one undo step; a place with no note offers a template choice and Create, which makes the file and binds it. **Fourteen
+  literal mutants** (the link selection, the lit-row bound, Create's id, the window guard, the release on rebuild, the flush on a
+  note change, the held-switch retries, the refresh call, the scroll visibility, the tab list, the follow dock, the dock-or-open
+  answer, the release write): all fourteen killed (the dock-or-open answer survived the first probe; a pinned-link leg, J3, was added and kills it). Regression, compared with the pristine tree where noted: `_pc4context` desktop and touch 142 / 0, `_pc6ask` 74 / 0, `_pc9menus` desktop 86 / 0, `_pc10modules` main desktop 233 / 0, touch 227 / 0 and the malformed and newer corrupt-store phases 9 / 0 (the restart phase was not run, it needs the main phase's user directory), `_ve0` 52, `_ve2` 93, `_ve3` 204, `_ve4` 80, `_ve5` 83 (desktop), `_vequit` routes close, pause, focus, clean and conflict_close all pass; four existing probes' expectations were updated to the new tab list (the strip is Inspect · Note · Ask, thirteen keys in the arrangement), nothing else changed. Phone (§3.11, unchanged): `_pc4context --phone` and `_pc3phone` 393x852 captures equal the pristine tree's pixel for pixel, except the launch card's build-hash text (351 px at x 215..291, y 257..264). `cargo test --workspace` was not run: no Rust changed.
+- **Not done, stated:** landmark, culture and conflict subjects (each says why in the tab; a landmark needs
+  `vault_landmark_entity_id`); private notes shown as private (Ruling DP); the Ask tab's note chip and a note card going to the
+  subject's note; a note citation opening the tab at its heading; the vault side panel in the tab (the header's ⧉ opens the window);
+  Pop out. Not run: a device, and the tablet at 600 dp.
+
 ### PC-10 built: the Context panel's ten modules, as tabs the user arranges (2026-11-08)
 
 `PC_SHELL_PROPOSAL.md` §3.3 ("Modules: tabs you arrange"), §6 (PC-10 and its build note); Ruling DY (PQ1); the contract
@@ -98,7 +136,7 @@ header and `show_tab()`, `context_window.gd`, and every builder §3.3's table na
   touch (59 failures) fail identically on `origin/main`. Phone (§3.11, unchanged): `_pc4context --phone` and
   `_pc3phone` captures at 393×852 equal the pristine tree's except the status-bar clock and the launch card's build
   hash.
-- **Not done, stated:** Note (PC-5; its key is kept second in the stored default); Pop out for a module window (not one
+- **Not done, stated:** *(Note, listed here when PC-10 landed, is built: see PC-5 above)*; Pop out for a module window (not one
   of `PopoutHost.LIVE_KEYS`); a module's own key; History for a landmark is a sentence (the chronos index reads
   settlement and faction notes only); no producer selects a culture, so the culture branches of Faith and Links are
   reached only by code; "roads from here" are roads ending within two cells (`ROAD_END_CELLS`, judgement); a generate

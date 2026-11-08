@@ -13,7 +13,7 @@ extends Node
 ## `--variant` and `--shots <dir>`; anything else exits 2.
 ##
 ## What it protects (PC-10's bar):
-##   A. DEFAULTS: nothing is stored on a wiped dir; the strip is INSPECT · ASK with `+` beside it; the
+##   A. DEFAULTS: nothing is stored on a wiped dir; the strip is INSPECT · NOTE · ASK with `+` beside it; the
 ##      registry lists exactly the ten keys (a literal list); Window ▸ Context panel ▸ MODULES' ten rows
 ##      are live check rows with tooltips, all unticked.
 ##   B. ADD + FIT: with a settlement selected by a real map click, each module is added through `+`
@@ -495,8 +495,8 @@ func _leg_main() -> void:
 	var cfg := ConfigFile.new()
 	var loaded := cfg.load(CONFIG)
 	_ok(loaded != OK or not cfg.has_section("context_panel"), "a wiped user dir stores no [context_panel] (load %d)" % loaded)
-	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "ask"]), "the arrangement is Inspect · Ask (got %s)" % str(_app.context_panel_modules()))
-	_ok(_strip() == ["inspect", "ask"], "the strip draws INSPECT · ASK (got %s)" % str(_strip()))
+	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "note", "ask"]), "the arrangement is Inspect · Note · Ask (got %s)" % str(_app.context_panel_modules()))
+	_ok(_strip() == ["inspect", "note", "ask"], "the strip draws INSPECT · NOTE · ASK (got %s)" % str(_strip()))
 	_ok(_hdr("CtxTabAdd") != null and _hdr("CtxTabAdd").is_visible_in_tree(), "+ is drawn beside the strip")
 	var reg_keys: Array = []
 	for e in _app.context_module_registry():
@@ -535,7 +535,7 @@ func _leg_main() -> void:
 	rows = _module_rows()
 	for key in ALL_KEYS:
 		_ok(bool((rows.get(key, [0, 0, 0, 0, false]) as Array)[4]), "MODULES ▸ %s is ticked once it is in the panel" % key)
-	_ok(_strip() == ["inspect", "ask"] + FIT_SETTLEMENT, "a settlement shows exactly §3.3's settlement modules (got %s)" % str(_strip()))
+	_ok(_strip() == ["inspect", "note", "ask"] + FIT_SETTLEMENT, "a settlement shows exactly §3.3's settlement modules (got %s)" % str(_strip()))
 	await _shot("settlement_strip")
 	await _leg_pages("settlement", FIT_SETTLEMENT)
 	await _leg_same_builder_settlement(a)
@@ -551,7 +551,7 @@ func _leg_main() -> void:
 			break
 	await _press(fl, "the holder link")
 	_ok(String(_app.selection.get("kind", "")) == "faction", "the holder link selects a faction (got %s)" % str(_app.selection))
-	_ok(_strip() == ["inspect", "ask"] + FIT_FACTION, "a faction shows exactly §3.3's faction modules (got %s)" % str(_strip()))
+	_ok(_strip() == ["inspect", "note", "ask"] + FIT_FACTION, "a faction shows exactly §3.3's faction modules (got %s)" % str(_strip()))
 	await _leg_pages("faction", FIT_FACTION)
 	await _leg_same_builder_faction(int(_app.selection.get("id", -1)))
 
@@ -560,9 +560,9 @@ func _leg_main() -> void:
 	await _press(_tab("inspect"), "INSPECT")
 	_app.clear_selection()
 	await _settle(6)
-	_ok(_strip() == ["inspect", "ask"] + FIT_NONE, "nothing selected shows exactly Here and Recent & bookmarks (got %s)" % str(_strip()))
+	_ok(_strip() == ["inspect", "note", "ask"] + FIT_NONE, "nothing selected shows exactly Here and Recent & bookmarks (got %s)" % str(_strip()))
 	await _leg_pages("nothing", FIT_NONE)
-	_ok(_app.context_panel_modules().size() == 12, "hidden modules stay in the arrangement (got %d)" % _app.context_panel_modules().size())
+	_ok(_app.context_panel_modules().size() == 13, "hidden modules stay in the arrangement (Inspect, Note, Ask and the ten modules) (got %d)" % _app.context_panel_modules().size())
 
 	await _leg_arrange(a)
 	await _leg_keys()
@@ -719,7 +719,7 @@ func _leg_arrange(a: int) -> void:
 	var keep: PackedStringArray = _app.context_panel_modules()
 	_ctx_menu().id_pressed.emit(DccMenus.ID_WIN_CTX_RESET)
 	await _settle(6)
-	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "ask"]) and _strip() == ["inspect", "ask"], "Reset panel returns Inspect · Ask (got %s)" % str(_app.context_panel_modules()))
+	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "note", "ask"]) and _strip() == ["inspect", "note", "ask"], "Reset panel returns Inspect · Note · Ask (got %s)" % str(_app.context_panel_modules()))
 	## Put the arrangement back for the legs after this one.
 	for key in keep:
 		if not _app.context_panel_modules().has(key):
@@ -833,7 +833,7 @@ func _leg_restart() -> void:
 	_ok(not want.is_empty(), "--expect names the arrangement (%s)" % _expect)
 	_ok(_app.context_panel_modules() == want, "the arrangement survives a restart (got %s, want %s)" % [str(_app.context_panel_modules()), str(want)])
 	var drawn := _strip()
-	var fits: Array = Array(want).filter(func(k): return k == "inspect" or k == "ask" or FIT_NONE.has(k))
+	var fits: Array = Array(want).filter(func(k): return k == "inspect" or k == "note" or k == "ask" or FIT_NONE.has(k))
 	_ok(drawn == fits, "the strip draws it, in order, for nothing selected (got %s, want %s)" % [str(drawn), str(fits)])
 
 
@@ -858,8 +858,8 @@ func _write_corrupt_store() -> PackedByteArray:
 func _leg_corrupt(before: PackedByteArray) -> void:
 	print("== X. corrupt store (%s) ==" % _variant)
 	await _settle(10)
-	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "ask"]), "a %s store falls back to Inspect · Ask (got %s)" % [_variant, str(_app.context_panel_modules())])
-	_ok(_strip() == ["inspect", "ask"], "the strip draws the defaults (got %s)" % str(_strip()))
+	_ok(_app.context_panel_modules() == PackedStringArray(["inspect", "note", "ask"]), "a %s store falls back to Inspect · Note · Ask (got %s)" % [_variant, str(_app.context_panel_modules())])
+	_ok(_strip() == ["inspect", "note", "ask"], "the strip draws the defaults (got %s)" % str(_strip()))
 	var status: String = _app.context_notice_shown
 	var bak := "user://cartalith_settings.unreadable.bak.cfg" if _variant == "unreadable" else "user://cartalith_settings.context_panel.bak.cfg"
 	print("  info notice: %s" % status)
