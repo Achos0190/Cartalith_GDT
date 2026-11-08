@@ -289,7 +289,7 @@ Each was read at its own lines; none was run (no Godot here).
 
 *(2026-11-08: the Force tier, Lighting, Tile size · LOD levels and Atlas cache rows are flattened in `menus.gd` as
 captioned bands with the same ids; the phone needed no change, because MS-4's generic popup walk has no radio-chip rule.
-Landmark types is the one row still three levels deep, waiting on an owner decision. The table below is the inventory as
+Landmark types, the last three-level row, became a window by Ruling EH item 2 (`landmark_types_window.gd`). The table below is the inventory as
 read; `STATUS.md` has the build.)*
 
 | Submenu | Its rows, at each level | Refreshed by / consumers | Why it is not a mechanical flatten |

@@ -137,6 +137,8 @@ class_name CommandIndex
 ## indexed "menu" row on tablet already and needs no pointer of its own -- the
 ## gap is the WORD, not the command.
 ##
+## **Two POINTER rows added by Ruling EH item 2** (`Landmark icons`, `Landmark label style`): the cascade's two fixed destination rows became buttons in the Landmark types window, so a menu walk no longer finds them. Pointer rows (not aliases): no live row carries these titles, and they are counted by TITLE (`_lmtypes_probe.gd`), per `MISTAKES.md` "Move a command off the menu bar". `Placed by hand` needs none: it was a count readout, and the window carries it.
+##
 ## **Four ALIAS rows added by PC-9 (`PC_SHELL_PROPOSAL.md` §3.8), the `alias`
 ## key that came with them, and one POINTER row from Ruling DY.** "Import image" left Assets (it opened the Asset
 ## library under a second name). "Notes for this place" becomes "Note for the
@@ -166,6 +168,8 @@ const EXTRAS: Array = [
 	{"title": "Right dock", "blurb": "Now the Context panel: Window ▸ Context panel (☰ ▸ Window on a tablet; on a phone, the selection sheet) shows or hides it, and the submenu under it opens Inspect, Note and Ask (Ctrl+1, Ctrl+2, Ctrl+3).", "group": "Window", "alias": true},
 	{"title": "Run pipeline", "blurb": "Now Generate world (Ctrl+R): File ▸ Generate world, or World ▸ Generate world on a tablet whose bar has a World menu. The same command under one label (Ruling DX).", "group": "File", "alias": true},
 	{"title": "Records (was World)", "blurb": "The menu called World is Records now (Ruling DY): ⧉ Data manager, Factions… (Ctrl+Shift+F), Places…, Markdown vault… (Ctrl+Shift+V), Browse & edit a note…, Places without notes…, World data tables…, Import and Sources & validation. Generate world (Ctrl+R) is in File. On a tablet whose bar has a World menu, that menu holds the WORLD domain's own rows.", "group": "Records"},
+	{"title": "Landmark icons", "blurb": "Moved into Assets ▸ Landmark types… (Ruling EH): its foot button opens the Asset library on the points-of-interest family, whose slots landmark types draw with.", "group": "Assets"},
+	{"title": "Landmark label style", "blurb": "Moved into Assets ▸ Landmark types… (Ruling EH): its foot button opens Cartography ▸ Labels, where a landmark's label style lives.", "group": "Assets"},
 ]
 
 ## The index: one dictionary per entry (`title`, `blurb`, `group`, `kind`, `key`,
@@ -373,14 +377,14 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 ## Id spans that are generated per item (a ladder, a list), never a fixed command.
 ## A pin on one would point at whatever happens to sit at that index tomorrow.
 ## Names are DccMenus constants so a renumber cannot silently desynchronise. The
-## span lengths (9, 14, 64, 32) are labelled judgements rounded up from the
+## span lengths (9, 14, 32, 10) are labelled judgements rounded up from the
 ## constants' own comments; `_cmdindex_probe.gd` section 7 lists every pinnable
 ## row so an over- or under-wide span is visible, not assumed.
 func _is_dynamic_id(id: int) -> bool:
-	return (id >= DccMenus.ID_AUTOSAVE_FIRST and id < DccMenus.ID_AUTOSAVE_FIRST + 9) 		or (id >= DccMenus.ID_DATA_ROUTE_FIRST and id < DccMenus.ID_DATA_ROUTE_FIRST + 14) 		or id >= DccMenus.ID_LM_FAMILY_FIRST and id < DccMenus.ID_LM_FAMILY_FIRST + 64 		or (id >= DccMenus.ID_WIN_LAYOUT_FIRST and id < DccMenus.ID_WIN_LAYOUT_FIRST + 32) 		or (id >= DccMenus.ID_RESET_STAGE_FIRST and id < DccMenus.ID_RESET_STAGE_FIRST + 10)
+	return (id >= DccMenus.ID_AUTOSAVE_FIRST and id < DccMenus.ID_AUTOSAVE_FIRST + 9) 		or (id >= DccMenus.ID_DATA_ROUTE_FIRST and id < DccMenus.ID_DATA_ROUTE_FIRST + 14) 		or (id >= DccMenus.ID_WIN_LAYOUT_FIRST and id < DccMenus.ID_WIN_LAYOUT_FIRST + 32) 		or (id >= DccMenus.ID_RESET_STAGE_FIRST and id < DccMenus.ID_RESET_STAGE_FIRST + 10)
 
 ## True when a popup numbers its items from 0. That is the signature of a list built
-## from data (the icon families, the texture sets, each landmark family's types):
+## from data (the icon families, the texture sets, the retired landmark cascade's per-family types):
 ## the id means "the n-th entry today", so it is not a stable command identity and
 ## the same small ids repeat in every such popup. No named `DccMenus.ID_*` command
 ## is 0 (checked by grep 2026-10-25), so an item with id 0 marks an index popup.

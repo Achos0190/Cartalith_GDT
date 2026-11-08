@@ -270,6 +270,11 @@ CLASSIFY = [
     {"id": "S3", "cls": "s", "path": r"Open windows ▸ (No windows open|\{w\.title\.strip_edges\(\)\})$", "status": r"^(mockup-only|Godot-only)$"},
     # s, run-time labels: the static read of the Godot side sees a row's build-time text; the shell rewrites it when the
     # menu opens. The mockup draws the run-time text (fixed 2026-11-01, A1 and A3), so the two are the same at run time.
+    # c: Ruling EH item 2 (owner, 2026-11-08): Assets ▸ Landmark types ▸ <family> ▸ <type> became one row,
+    # `Landmark types…`, that opens `landmark_types_window.gd`. The mockup still draws the cascade; an owner decision
+    # is newer than a canvas (CLAUDE.md), so the canvas is the stale party. Matches the row and everything under it.
+    {"id": "EH-2", "cls": "c", "path": r"(Assets|☰) ▸ Landmark types( ▸ .*)?$"},
+    {"id": "EH-2", "cls": "c", "path": r"Landmark types ▸ "},
     {"id": "R1", "cls": "s", "path": r"Landmark types ▸ [^▸]+ ▸ [^▸]+   not buildable$", "status": r"^differs: label$"},
     {"id": "R2", "cls": "s", "path": r"Atlas cache ▸ \d+ chunks · .* · to LOD \d+$", "status": r"^differs: label$"},
     # a, c, and the phone's screen separators: none left. The mockup took A1-A11 (2026-11-01), and Ruling DX answered
@@ -644,6 +649,13 @@ NOTES = [
          "through a pointer row titled \"Records (was World)\"."),
     ]),
     ("(c) Owner decisions: all answered by Rulings DX and DY (2026-11-01); none is open", [
+        ("EH-2", "Ruling EH item 2 (2026-11-08): Assets ▸ Landmark types is a window, not a cascade.",
+         "*Answered: a browsable list window, one `Landmark types…` row (`menus.gd::_build_landmark_types_row()`, "
+         "`landmark_types_window.gd`).* The mockup's `lmFamilies` cascade (six family submenus and their kinds, the "
+         "fixed icons, label-style and hand rows) is the stale side. The window shows every row the cascade showed, "
+         "proved against a baseline dump by `_lmtypes_probe.gd`; the two destination rows stay findable through "
+         "`command_index.gd`'s `EXTRAS`. **Fix when the mockup is next edited:** replace the cascade with one live "
+         "row that opens a window."),
         ("K1", "PQ10: where the card's and the cartwheel's rows live.",
          "*Answered: as drafted, not on the phone (B6).* As asked: the drafts put Edit ▸ Context card (Shift+F10) and Cartwheel at the pointer (Q) after Find on map… on the "
          "desktop and both tablets. The mockup had neither row. *Default: as drafted.* If it is taken, add both rows "

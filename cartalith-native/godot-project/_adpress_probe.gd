@@ -127,15 +127,8 @@ func _ready() -> void:
 	var txs := assets.get_node_or_null(NodePath("TextureSets")) as PopupMenu
 	await _press(txs, 0, "Texture sets > " + txs.get_item_text(0))
 
-	print("\n=== ASSETS > Landmark types ===")
-	var lt := assets.get_node_or_null(NodePath("LandmarkTypes")) as PopupMenu
-	for i in lt.item_count:
-		if lt.is_item_separator(i) or lt.is_item_disabled(i) or lt.get_item_submenu(i) != "":
-			continue
-		await _press(lt, i, "Landmark types > " + lt.get_item_text(i))
-	var fam0 := lt.get_node_or_null(NodePath("LandmarkFam0")) as PopupMenu
-	await _press(fam0, 0, "LandmarkFam0 leaf > " + fam0.get_item_text(0))
-	await _press(fam0, fam0.item_count - 2, "LandmarkFam0 > " + fam0.get_item_text(fam0.item_count - 2))
+	## Ruling EH item 2: Landmark types is one ordinary row now (pressed by the top-level loop above), and its
+	## window's buttons are covered by `_lmtypes_probe.gd`'s real clicks.
 
 	print("\n=== DATA ===")
 	for i in data.item_count:

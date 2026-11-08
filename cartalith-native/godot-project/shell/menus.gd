@@ -309,20 +309,19 @@ const ID_LOD_IMPORT_ATLAS := 83  ## Atlas cache ▸ Import atlas….
 ## nothing between `87` and `121` was taken.
 const ID_LOD_REFINE_VIEWSHED := 88
 
-## §2.3's `Assets ▸ Landmark types ▸` cascade
-## (`design/landmark-generation/LANDMARK_UI_DESIGN.md` §6). A fresh 500 block:
-## everything else in this file tops out at 250 apart from
-## `ID_DATA_ROUTE_FIRST` (400, an open-ended run), so 500 leaves both alone
-## with room to grow.
-const ID_LM_ICONS := 500
-const ID_LM_LABELS := 501  ## Landmark types ▸ Landmark label style….
-const ID_LM_HAND := 502  ## Landmark types ▸ Placed by hand.
-const ID_LM_FAMILY_FIRST := 510   ## family i's "open in the dock" row is +i
+## §2.3's `Assets ▸ Landmark types…` row. Ruling EH item 2 (2026-11-08) replaced the three-level cascade
+## (`design/landmark-generation/LANDMARK_UI_DESIGN.md` §6) with this one row, which opens
+## `landmark_types_window.gd`. Its old ids went with it: `500`-`502` (icons, labels, hand) are the window's
+## own buttons now, and `510`+ (one "Open <family> in the dock" per family) its per-family buttons. The row takes a FRESH id,
+## `503`, never a retired one: a saved quick-bar pin stores the action id, so reusing `500` (the old Landmark
+## icons row) would have turned an old pin into a different command silently. `500`-`502` and `510`-`573`
+## stay unissued.
+const ID_LM_TYPES := 503
 
 ## The 2026-08-31 `UNWIRED_FUNCTIONS.md` batch. A fresh 600 block, allocated
 ## above everything else the way the 500 block was: `ID_DATA_ROUTE_FIRST`'s run
-## is fourteen long (400-413) and `ID_LM_FAMILY_FIRST`'s is one per landmark
-## family, so 600 clears both with room to spare. Grepped the whole file for
+## is fourteen long (400-413) and the retired `ID_LM_FAMILY_FIRST`'s was one per landmark
+## family (Ruling EH item 2 removed it), so 600 clears both with room to spare. Grepped the whole file for
 ## every `ID_`/`_FIRST` value before picking it -- `78` was issued twice once
 ## (`ID_HELP_DOCS` and what is now `ID_LOD_TILE_BORDERS`), and this file's own
 ## note on that says why a number must be free everywhere, not just in its own
@@ -474,20 +473,8 @@ var _texture_sets_popup: PopupMenu
 var _icon_family_keys: Array[String] = []
 ## Texture family keys, index-parallel to `_texture_sets_popup`.
 var _texture_family_keys: Array[String] = []
-## `Assets ▸ Landmark types ▸` and its per-family children. `_landmark_families`
-## is index-parallel to `ID_LM_FAMILY_FIRST` and carries everything the live
-## refresh needs -- the child popup, the family key, the type keys and labels in
-## menu order, and the index of the family's own row on the parent popup (a
-## submenu item has no id, so `get_item_index()` cannot find it and the index is
-## recorded when it is added).
-## `Assets ▸ Landmark types` cascade (ids `ID_LM_*`).
-var _landmark_popup: PopupMenu
-## One record per landmark family, index-parallel to `ID_LM_FAMILY_FIRST`; see the block
-## comment above.
-var _landmark_families: Array = []
-## Row index of `Placed by hand` on `_landmark_popup` for the live refresh; `-1` until
-## built.
-var _landmark_hand_idx: int = -1
+## `Assets ▸ Landmark types…`'s window (`landmark_types_window.gd`), built on the first open. Ruling EH item 2.
+var _landmark_win: AcceptDialog = null
 
 ## AS-13 / omission O2: `Assets ▸ Asset pack ▸`, `DCC_CONTROL_INDEX.md` §2.3.1.
 var _asset_pack_popup: PopupMenu
@@ -2404,7 +2391,7 @@ func _build_asset_library_row(p: PopupMenu) -> void:
 	_live(p, "⧉ Asset library", ID_ASSET_LIBRARY, KEY_MASK_SHIFT | KEY_A)
 
 ## `full=false` on the tablet omits the two rows the ☰ overflow promotes --
-## "⧉ Asset library" and the whole Landmark types cascade
+## "⧉ Asset library" and the Landmark types row
 ## (`TABLET_UI_SPEC.md` §2.1) -- so they exist exactly once on tablet rather
 ## than twice. `full=true` (the default, PC/phone's only call) is byte-for-
 ## byte the original single-body function.
@@ -2508,7 +2495,7 @@ func _assets(p: PopupMenu, full: bool = true) -> void:
 	_refresh_family_counts(_texture_sets_popup, _texture_family_keys)
 
 	if full:
-		_build_landmark_types_menu(p)
+		_build_landmark_types_row(p)
 
 	p.add_separator()
 	_live(p, "Apply library to map", ID_APPLY_LIBRARY)
@@ -2566,254 +2553,58 @@ func _family_by_key(key: String) -> Dictionary:
 			return fam
 	return {}
 
-# -- §2.3 Assets ▸ Landmark types ▸ -------------------------------------------
+# -- §2.3 Assets ▸ Landmark types… -------------------------------------------
 #
-# `design/landmark-generation/LANDMARK_UI_DESIGN.md` §6, three levels deep.
+# **Ruling EH item 2 (owner, 2026-11-08): the cascade is a window.** `Assets ▸ Landmark types ▸ <family> ▸
+# <type>` was the last three-level menu path (finding M7; `5c1d178f` flattened the other four): about 49
+# read-only engine-state rows whose per-family ids (0..n) collided in the phone's flattened MENU and the
+# searchable index. It is now ONE row, `Landmark types…`, that opens `landmark_types_window.gd` -- a
+# browsable list that shows everything the cascade showed (that file's header carries the before/after
+# table, and `_lmtypes_probe.gd` proves it row for row against a baseline taken from the cascade).
 #
-# **There is no `Run landmark pass` here, and no top-level Landmarks menu.**
-# §2 is explicit that the menu bar holds *program* functions and that world
-# generation, simulation, rendering and map styling are workspaces reached
-# through the domain rail, "never menu items". Running a generator from the
-# menu bar is precisely what that rule exists to prevent, and it has already
-# survived one deletion pass on this evidence -- §2.4's Conversion group,
-# removed 2026-08-20 for the structurally identical reason: a route that was
-# really a parameter.
+# **There is still no `Run landmark pass` here, and no top-level Landmarks menu.** §2 is explicit that the
+# menu bar holds *program* functions and that world generation is a workspace reached through the domain
+# rail, "never menu items" (§2.4's Conversion group was removed 2026-08-20 for the structurally identical
+# reason). **The window reads state and does not toggle:** a row that armed a type would be a second store
+# to keep in sync with CIVIL ▸ Landmarks' slider. `UI_SHELL_DESIGN.md`: *"The dropdown that opens a window is
+# a shortcut into it, never a second implementation of it."*
 #
-# **The leaves read state and do not toggle.** `UI_SHELL_DESIGN.md`: *"The
-# dropdown that opens a window is a shortcut into it, never a second
-# implementation of it."* Forty-odd numbers do not belong in a menu, and a menu
-# row that armed a type would be a second store to keep in sync with the dock's
-# slider. What the cascade IS good for, and what the dock is bad at, is the
-# world-at-a-glance read: every family, every armed type, every placed count,
-# in one hover, without scrolling a dock or expanding a group. That is a
-# complement rather than a duplicate.
-#
-# **Assets is the right menu, not Data**: the two rows at the foot are Assets
-# business -- which of the `poi` family's slots a landmark type draws with, and
-# where its label style lives -- so the cascade sits beside `Icon families`
-# because it is the same kind of thing about the same kind of content.
-#
-# `Icon families` (`:685`) is the precedent for the shape and `_refresh_family_
-# counts` (`:750`) for the live counts; both are followed rather than
-# reinvented, including its "count on every popup rather than at build time,
-# because a change between two opens changes it".
+# **Assets is the right menu, not Data**: the window's two destination buttons (the `poi` icon family, the
+# label style) are Assets business.
 
-## Read-only note at the top of the Landmark types cascade; points at CIVIL ▸ Landmarks,
-## where the arming slider lives.
+## Tooltip of the one row (the old cascade parent's own note, kept).
 const LANDMARK_TYPES_NOTE := ("Every landmark family with its armed and placed "
 	+ "counts, and every type's cap, result and limiting reason. Read-only: the "
 	+ "slider that arms a type lives in CIVIL ▸ Landmarks and only there. "
 	+ "Picking any row opens that panel at the family.")
 
-## Builds the Landmark types cascade (Assets, and ☰ on tablet): the fixed rows (icons /
-## labels / hand-place) and one submenu per ENGINE family, in the engine's first-seen
-## order out of `landmark_kinds()`. It carries no family or type name of its own; with no
-## kinds (an older cdylib) it says so instead of drawing an empty menu. Dispatch is
-## `_on_landmarks`.
-func _build_landmark_types_menu(p: PopupMenu) -> void:
-	_landmark_popup = PopupMenu.new()
-	_landmark_popup.name = "LandmarkTypes"
-	_shell.style_popup(_landmark_popup)
-	p.add_child(_landmark_popup)
-	p.add_submenu_item("Landmark types", "LandmarkTypes")
+## The window class (`landmark_types_window.gd`); no `class_name`, so no import pass.
+const LANDMARK_TYPES_WINDOW := preload("res://shell/landmark_types_window.gd")
+
+## Adds the one `Landmark types…` row (Assets, and ☰ on tablet). Its dispatch is `_on_assets`, on the popup it
+## is added to. It carries no family or type name of its own: the window reads the engine.
+func _build_landmark_types_row(p: PopupMenu) -> void:
+	_live(p, "Landmark types…", ID_LM_TYPES)
 	p.set_item_tooltip(p.item_count - 1, LANDMARK_TYPES_NOTE)
 
-	_landmark_families.clear()
-	## The family order is the ENGINE's, first-seen out of `landmark_kinds()`.
-	## Nothing here writes down a family, a class or a type name: a menu that
-	## carried its own copy of a 49-row vocabulary is exactly the hand-maintained
-	## catalogue `command_index.gd`'s own header calls "the most reliably stale
-	## document a project can own".
-	var kinds := _landmark_kinds()
-	if kinds.is_empty():
-		## **Re-worded 2026-08-31, and it was a false reason, not a stale one.**
-		## It read "EngineBridge carries no landmark_kinds(), so there is no
-		## vocabulary to list" -- but `landmark_kinds()` is bound (`lib.rs`),
-		## its own doc says it needs no generated world, and the bridge fills
-		## its cache at init, before `build()` runs. So the branch was
-		## unreachable *and* wrong, which is the worse pair: it could never be
-		## seen, never be corrected, and read to the next auditor as a live gap.
-		##
-		## Kept rather than deleted, because one thing genuinely does empty
-		## this list -- a native library older than this shell -- and that is
-		## what it now says. Same guard, true reason.
-		## `libcartalith_godot` older than this shell, one predating
-		## `landmark_kinds()`.
-		_todo(_landmark_popup, "No landmark types",
-			"This version of the app returned no landmark vocabulary -- an update "
-			+ "is needed to add it. CIVIL ▸ Landmarks "
-			+ "says the same thing at greater length. Neither invents a list to "
-			+ "fill the gap.")
-	else:
-		var order: Array[String] = []
-		var by_fam := {}
-		for k in kinds:
-			var f := String((k as Dictionary).get("family", "other"))
-			if not by_fam.has(f):
-				by_fam[f] = []
-				order.append(f)
-			(by_fam[f] as Array).append(k)
-		for i in order.size():
-			_build_landmark_family(order[i], by_fam[order[i]], i)
+## Opens (building on first use) the Landmark types window. Also the entry for probes and the phone MENU.
+func _open_landmark_types() -> void:
+	if _landmark_win == null or not is_instance_valid(_landmark_win):
+		_landmark_win = LANDMARK_TYPES_WINDOW.new()
+		_host.add_child(_landmark_win)
+		_landmark_win.setup(_host, _bridge, {
+			"dock": _open_landmark_dock,
+			"icons": func() -> void: _host.open_asset_library("poi"),
+			"labels": func() -> void: _shell.select_domain_category("cartography", "Labels"),
+		})
+	_landmark_win.open()
 
-		## §1.4: hand-stamped icons get their own row and are never added into a
-		## generated family's count. A generated 11 and a hand-placed 3 are
-		## different claims.
-		_landmark_popup.add_item("Placed by hand", ID_LM_HAND)
-		_landmark_hand_idx = _landmark_popup.item_count - 1
-		_landmark_popup.set_item_tooltip(_landmark_hand_idx,
-			"Icons stamped on the map by hand. Annotation, not entities: no causal "
-			+ "chain and no emergent importance, so they are never counted into a "
-			+ "family above.")
-
-	_landmark_popup.add_separator()
-	_landmark_popup.add_item("Landmark icons…", ID_LM_ICONS)
-	## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B11). The library family
-	## shows `LIBRARY_POI_SLOTS`' ten, but only `PACK_POI_SLOTS`' eight resolve
-	## to art on the map (lake and bridge never do), and the type -> slot
-	## mapping exists: `icon_bridge/generate.rs::poi_slot_for_landmark`.
-	_landmark_popup.set_item_tooltip(_landmark_popup.item_count - 1,
-		"Opens the Asset library on the points-of-interest family. Landmarks draw "
-		+ "from eight of its slots (Lake and Bridge are never used on the map): a "
-		+ "type uses the slot of the same name, peaks use Mountain peak, ancient "
-		+ "forests Named forest, ruins Ruin, and every other type uses Other.")
-	_landmark_popup.add_item("Landmark label style…", ID_LM_LABELS)
-	_landmark_popup.set_item_tooltip(_landmark_popup.item_count - 1,
-		"→ Cartography ▸ Labels. A landmark's icon and label style are "
-		+ "presentation and stay where presentation lives; its cap and its "
-		+ "spacing are world model and stay in CIVIL.")
-
-	## MN-10's trap: a submenu's `id_pressed` does not bubble to its parent in
-	## Godot 4, so this popup carries its own handler and so does every family
-	## child built above.
-	_landmark_popup.id_pressed.connect(_on_landmarks)
-	_landmark_popup.about_to_popup.connect(_refresh_landmark_menu)
-	_refresh_landmark_menu()
-
-## §6's third level: one family's types, read-only, then one destination.
-func _build_landmark_family(family: String, kinds: Array, index: int) -> void:
-	var sub := PopupMenu.new()
-	sub.name = "LandmarkFam%d" % index
-	_shell.style_popup(sub)
-	_landmark_popup.add_child(sub)
-	var title := family.replace("_", " ").capitalize()
-	_landmark_popup.add_submenu_item(title, sub.name)
-	var parent_idx := _landmark_popup.item_count - 1
-
-	var keys: Array[String] = []
-	var labels: Array[String] = []
-	var buildable: Array[bool] = []
-	for k in kinds:
-		var kd: Dictionary = k
-		var label := String(kd.get("label", kd.get("key", "")))
-		sub.add_item(label, keys.size())
-		keys.append(String(kd.get("key", "")))
-		labels.append(label)
-		buildable.append(bool(kd.get("buildable", true)))
-	sub.add_separator()
-	sub.add_item("Open %s in the dock" % title, ID_LM_FAMILY_FIRST + index)
-	sub.set_item_tooltip(sub.item_count - 1, "→ CIVIL ▸ Landmarks, opened at this family.")
-	## A signpost, not a command: disabled and deliberately without a tooltip, so
-	## `command_index.gd`'s walk classifies it as chrome rather than indexing it
-	## as an action a user could search for and get nothing from (its own comment
-	## on the File menu's two "imports live under…" rows).
-	_signpost(sub, "Rows here read state; they do not arm a type.")
-	## Every leaf is a destination, so which one was picked does not change what
-	## happens -- §6.3's whole point. The id is taken and dropped.
-	sub.id_pressed.connect(func(_id: int): _open_landmark_dock(family))
-
-	_landmark_families.append({
-		"popup": sub, "key": family, "title": title, "keys": keys,
-		"labels": labels, "buildable": buildable, "parent": parent_idx,
-	})
-
-## Counted on every popup rather than at build time, for `_refresh_family_
-## counts`' own reason: a change between two opens changes it. Silent and
-## harmless against a build with no landmark bridge -- every row keeps the plain
-## text it was built with.
-func _refresh_landmark_menu() -> void:
-	if _landmark_popup == null or not is_instance_valid(_landmark_popup):
-		return
-	if _landmark_hand_idx >= 0 and _bridge != null and _bridge.has_method("icon_list"):
-		_landmark_popup.set_item_text(_landmark_hand_idx,
-			"Placed by hand   %d" % (_bridge.icon_list() as Array).size())
-	var st := _landmark_settings()
-	if st.is_empty():
-		return
-	var caps: Dictionary = st.get("caps", {})
-	var armed: Dictionary = st.get("armed", {})
-	var funnels := _landmark_funnel_map()
-	for rec in _landmark_families:
-		var r: Dictionary = rec
-		var sub: PopupMenu = r["popup"]
-		var keys: Array = r["keys"]
-		var labels: Array = r["labels"]
-		var buildable: Array = r["buildable"]
-		var n_armed := 0
-		var n_placed := 0
-		for i in keys.size():
-			var key := String(keys[i])
-			## A type the engine cannot place is never counted as armed, whatever
-			## the settings say -- the dock forces the same thing on its own row
-			## (`civilization_workspace.gd`'s `_lm_type_row`), and two readouts of
-			## one fact must not disagree.
-			var on := bool(buildable[i]) and bool(armed.get(key, false))
-			var cap := int(caps.get(key, 0))
-			var f: Dictionary = funnels.get(key, {})
-			var placed := int(f.get("placed", 0))
-			var text := ""
-			if not bool(buildable[i]):
-				text = "%s   not buildable" % labels[i]
-			elif on:
-				n_armed += 1
-				n_placed += placed
-				## Normalised, not looked up raw -- the engine spells its tokens
-				## with spaces. See `civilization_workspace.gd`'s `_lm_limit_key()`.
-				var word := CivilizationWorkspace._lm_limit_word(String(f.get("limit", "")))
-				text = ("%s   %d max · %d placed · %s" % [labels[i], cap, placed, word]
-					if word != "" else "%s   %d max" % [labels[i], cap])
-			elif cap > 0:
-				text = "%s   off · was %d" % [labels[i], cap]
-			else:
-				text = "%s   off" % labels[i]
-			var idx := sub.get_item_index(i)
-			if idx >= 0:
-				sub.set_item_text(idx, text)
-				sub.set_item_tooltip(idx,
-					"Read-only. The slider that arms this type is in CIVIL ▸ Landmarks.")
-		var pidx := int(r["parent"])
-		if pidx >= 0 and pidx < _landmark_popup.item_count:
-			_landmark_popup.set_item_text(pidx, "%s   %d of %d armed · %d placed" % [
-				String(r["title"]), n_armed, keys.size(), n_placed])
-
-## Dispatcher for the Landmark types rows: icon library (`poi` family), the Labels
-## category, the hand-place dock, or a family row (id offset from `ID_LM_FAMILY_FIRST`
-## into `_landmark_families`). An id past the family list is ignored.
-func _on_landmarks(id: int) -> void:
-	match id:
-		ID_LM_ICONS:
-			## The `poi` family (`LIBRARY_POI_SLOTS`' ten; landmarks resolve
-			## eight via `poi_slot_for_landmark`). `AssetLibraryWindow.FAMILIES`
-			## calls the key `poi`.
-			_host.open_asset_library("poi")
-		ID_LM_LABELS:
-			_shell.select_domain_category("cartography", "Labels")
-		ID_LM_HAND:
-			_open_landmark_dock("")
-		_:
-			var i := id - ID_LM_FAMILY_FIRST
-			if i >= 0 and i < _landmark_families.size():
-				_open_landmark_dock(String((_landmark_families[i] as Dictionary)["key"]))
-
-## §9.1 row 20's two halves: the domain-and-category jump exists
-## (`dcc_shell.gd:1763`), and opening the *family group* inside it does now too
-## -- `civilization_workspace.gd`'s `open_landmark_family()`. Scrolling the dock
-## to the row is still owed; that needs the left dock's scroller, which lives in
-## a file this pass does not own.
+## §9.1 row 20's two halves: the domain-and-category jump exists, and opening the *family group* inside it
+## does too -- `civilization_workspace.gd`'s `open_landmark_family()`. `family == ""` opens the category only
+## (the hand-placed icons' destination).
 ##
-## The workspace is found by name rather than through `_workspace_panels`,
-## which `DccShell` keeps private and exposes no accessor for.
-## `register_workspace()` is what names it, so the name is as stable as the
+## The workspace is found by name rather than through `_workspace_panels`, which `DccShell` keeps private and
+## exposes no accessor for. `register_workspace()` is what names it, so the name is as stable as the
 ## registration is.
 func _open_landmark_dock(family: String) -> void:
 	_shell.select_domain_category("civilization", "Landmarks")
@@ -2828,44 +2619,6 @@ func _open_landmark_dock(family: String) -> void:
 	var ws := _shell.find_child("CivilizationWorkspace", true, false)
 	if ws != null and ws.has_method("open_landmark_family"):
 		ws.call("open_landmark_family", family)
-
-# -- landmark bridge access, guarded ------------------------------------------
-#
-# **All three wrappers landed** -- `engine_bridge.gd` defines `landmark_kinds()`,
-# `landmark_settings()` and `landmark_funnels()`, and a live walk of the built
-# menu reads six families, 49 types and real armed/placed counts. The guards
-# below stay for the one case that still empties the list: a `libcartalith_
-# godot` older than this shell, which is what the `kinds.is_empty()` branch in
-# `_build_landmark_types_menu` now says at greater length.
-#
-# (This block said "a concurrent pass is writing these wrappers" from the day
-# the cascade was built until 2026-09-07, so it described the cascade as
-# degraded to one `_todo` row long after it had stopped being.)
-
-## `_bridge.landmark_kinds()`, or `[]` when the binding is missing (older cdylib). An empty list
-## means "unavailable", not "no kinds".
-func _landmark_kinds() -> Array:
-	if _bridge == null or not _bridge.has_method("landmark_kinds"):
-		return []
-	return _bridge.landmark_kinds()
-
-## `_bridge.landmark_settings()` or `{}` when the binding is missing (older cdylib).
-## An empty dictionary means "unavailable", not "every cap is zero".
-func _landmark_settings() -> Dictionary:
-	if _bridge == null or not _bridge.has_method("landmark_settings"):
-		return {}
-	return _bridge.landmark_settings()
-
-## Landmark funnel rows keyed by kind (`kind` -> funnel dictionary), or `{}` when the
-## binding is missing. A kind absent from the map has not run, which is not the same as
-## having placed zero.
-func _landmark_funnel_map() -> Dictionary:
-	var out := {}
-	if _bridge == null or not _bridge.has_method("landmark_funnels"):
-		return out
-	for f in _bridge.landmark_funnels():
-		out[String((f as Dictionary).get("kind", ""))] = f
-	return out
 
 ## AS-13 / omission O2: the `Assets ▸ Asset pack ▸` submenu
 ## `DCC_CONTROL_INDEX.md` §2.3.1 describes (24 controls, "19 backed-unwired
@@ -3190,6 +2943,7 @@ func _on_assets(id: int) -> void:
 		ID_IMPORT_FOLDER: _host.open_asset_folder_picker()
 		ID_COMPARE_PACK: _host.open_pack_compare_picker()
 		ID_ASSET_LIBRARY: _host.open_asset_library()
+		ID_LM_TYPES: _open_landmark_types()
 		ID_SLICER: _host.open_asset_library("", true)
 		ID_APPLY_LIBRARY: _host.asset_library_window.apply_to_map_now()
 		ID_CLEAR_LIBRARY: _host.asset_library_window.clear_library_now()
@@ -8243,7 +7997,7 @@ func _overflow(p: PopupMenu) -> void:
 	_build_undo_redo(p)
 	p.add_separator()
 	_build_asset_library_row(p)
-	_build_landmark_types_menu(p)
+	_build_landmark_types_row(p)
 	p.add_separator()
 	## Canvas: `sep();head('VIEW');it('Toggle theme','theme',{sc:''});
 	## it('Units — '+...)` (`Cartalith Tablet.dc.html:1008`). Toggle theme is a
@@ -8259,9 +8013,8 @@ func _overflow(p: PopupMenu) -> void:
 	## Four dispatchers on one popup: each `match`es only the ids its own
 	## builder just added and is silent on everything else, so connecting all
 	## four is a fan-out, not a conflict (`_on_edit` for Undo/Redo/Undo
-	## history, `_on_assets` for Asset library, `_on_help` for
-	## Shortcuts/About, `_on_view` for Toggle theme). `_build_landmark_types_menu()`
-	## and `_build_theme_submenu()`/`_build_units_submenu()` wire their own
+	## history, `_on_assets` for Asset library and Landmark types…, `_on_help` for
+	## Shortcuts/About, `_on_view` for Toggle theme). `_build_theme_submenu()`/`_build_units_submenu()` wire their own
 	## child popups' `id_pressed` internally and need nothing added here.
 	p.id_pressed.connect(_on_edit)
 	p.id_pressed.connect(_on_assets)

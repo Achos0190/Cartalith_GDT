@@ -580,14 +580,35 @@ func _homes() -> void:
 	await _back()
 	_ok(String(_pm()._screen_head_title.text) == "MENU", "system back from the gesture reference returns to MENU (%s)" % _pm()._screen_head_title.text)
 
-	# Assets > Landmark types > family > Open <family> in the dock: the phone's door to the landmark settings.
+	# Assets > Landmark types… (Ruling EH item 2): one row, one tap from Assets, which opens the Landmark types
+	# window as a sheet. The window's own buttons are inside an embedded dialog a synthetic tap cannot reach
+	# (MISTAKES.md, "Plan a phone probe that must reach a DIALOG"), so `_lmtypes_probe.gd` proves them; this proves
+	# the phone's door and that its window opened with the engine's families in it.
 	_app.select_domain("world")
 	await _frames(4)
-	await _leaf(["Assets", "Landmark types", "Physical", "Open Physical"], "Assets > Landmark types > Physical > Open in the dock")
-	await _frames(8)
+	await _leaf(["Assets", "Landmark types"], "Assets > Landmark types…")
+	await _frames(10)
 	await _settle()
-	_ok(_app._active_domain == "civilization", "the landmark row switched the domain to CIVIL (%s)" % _app._active_domain)
-	_ok(_app.left_dock.is_visible_in_tree(), "the landmark row opened the dock on the phone (left sheet)")
+	var lmw = _app.menus.get("_landmark_win")
+	_ok(lmw != null and lmw.visible, "the Landmark types row opened its window on the phone")
+	if lmw != null:
+		var fam_labels: Array = []
+		for l in lmw.find_children("LtFamily", "Label", true, false):
+			fam_labels.append((l as Label).text)
+		_ok(fam_labels.size() == 6 and String(fam_labels[0]).begins_with("Physical"),
+			"the sheet lists the engine's six families, Physical first (%s)" % str(fam_labels.slice(0, 2)))
+		# The phone's door to the landmark settings is now the window's own "Open <family> in the dock" button.
+		# A synthetic tap cannot reach it, so it is invoked through its own signal: the destination handler, not the
+		# touch path, and `_open_landmark_dock()`'s phone sheet opener is what is under test.
+		for b in lmw.find_children("*", "Button", true, false):
+			if (b as Button).get_meta("lt_role", "") == "open" and (b as Button).get_meta("family") == "physical":
+				(b as Button).pressed.emit()
+				break
+		await _frames(8)
+		await _settle()
+		_ok(_app._active_domain == "civilization", "its Open Physical in the dock button switched the domain to CIVIL (%s)" % _app._active_domain)
+		_ok(_app.left_dock.is_visible_in_tree(), "...and opened the dock on the phone (left sheet)")
+		lmw.hide()
 
 	# The six civilization tool rows of the deleted Civilization screen: Window > Workspace > Civilization, then
 	# Window > Left dock, then each tool's own button in the CIVIL dock's TOOLS block, tapped for real.

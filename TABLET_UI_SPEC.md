@@ -331,7 +331,7 @@ command off the menu bar").
 | OVERFLOW | `Undo` `⌘Z` / `Redo` `⇧⌘Z` | Undo / Redo, same accelerators |
 | | `Undo history — N steps` | `Undo history…` |
 | | `Asset library…` | `⧉ Asset library` (Shift+A) |
-| | `Landmark types ▸` (family rows, `armed · placed`) | the `Landmark types` submenu — same shape, same counts |
+| | `Landmark types ▸` (family rows, `armed · placed`) | one `Landmark types…` row that opens a list window with the same rows and counts (Ruling EH item 2, 2026-11-08; it was a submenu) |
 | | `Toggle theme` | a flat toggle on tablet; the three-way choice stays at ☰ ▸ Preferences ▸ Theme |
 | | `Units — kilometres/miles` | the Units submenu (km / mi / nmi, `dcc_units.gd`) |
 | | `Stylus pressure — on/off` | **no counterpart** anywhere in the shell; omitted |
@@ -485,8 +485,8 @@ percentage fill, and a per-family drill whose per-type caps step along a
 a teaser card plus an `hOpenPlanner` that sets `s.scr = 'planner'`.
 
 **Shell:** all four subjects exist, as a larger set of `civilization_workspace.gd`
-categories built with `DccWidgets.category()`; `menus.gd`'s `Landmark types`
-submenu prints the same `armed · placed` pair per family. DS-03 keeps every
+categories built with `DccWidgets.category()`; `menus.gd`'s `Landmark types…`
+row opens a window (`landmark_types_window.gd`) that prints the same `armed · placed` pair per family. DS-03 keeps every
 category; the canvas's four are a grouping, not a cut.
 
 **(d) `ldCartoCats` — CARTO** (lines 354–443). Four categories: `LAYERS &

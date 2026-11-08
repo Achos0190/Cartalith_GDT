@@ -413,7 +413,7 @@ image" becomes an alias of the Asset library. Every accelerator moved out of a m
 - Preferences ▸ Atlas cache ▸ Size cap;
 - Window ▸ 3D capability ▸ Force tier.
 
-*(Built 2026-11-08 for four of the five (every path but Landmark types): each third level is a captioned band of its parent popup with the same ids; Assets ▸ Landmark types ▸ family ▸ type is not flattened and waits on an owner decision, because its type rows are engine-sized state rows. `STATUS.md` has the measurements.)*
+*(Built 2026-11-08 for four of the five (every path but Landmark types): each third level is a captioned band of its parent popup with the same ids; Assets ▸ Landmark types ▸ family ▸ type became one `Landmark types…` row that opens a list window, by Ruling EH item 2 (2026-11-08), because its type rows are engine-sized state rows. `STATUS.md` has the measurements.)*
 
 **Desktop menus: what is new and what Godot already does.** Godot's submenus already open beside their row, so the
 whole path stays visible, as the mockup's columns draw it. Rows are one line, with the accelerator on the right. What

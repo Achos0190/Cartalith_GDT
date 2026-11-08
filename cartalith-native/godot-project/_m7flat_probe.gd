@@ -3,7 +3,8 @@ extends Node
 ## shell, for the four submenus whose third level became a captioned band of the second:
 ##   Window > 3D capability > FORCE TIER; Preferences > Lighting rig defaults > AZIMUTH / ELEVATION / AMBIENT /
 ##   MULTIDIRECTIONAL; Preferences > Tile size · LOD levels > LOD LEVELS; Preferences > Atlas cache > SIZE CAP · GB.
-## (Assets > Landmark types > family > type is NOT flattened: it needs an owner decision, `OUTSTANDING_WORK.md`.)
+## (The fifth path, Assets > Landmark types > family > type, was settled by Ruling EH item 2 as a window, not a
+## band: `_lmtypes_probe.gd` is its probe.)
 ##
 ##   desktop: godot --path . --resolution 1600x1000 _m7flat_probe.tscn
 ##   touch:   godot --path . --resolution 1600x1000 _m7flat_probe.tscn -- --force-touch

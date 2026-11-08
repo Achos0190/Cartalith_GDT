@@ -47,6 +47,16 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Ruling EH item 2 built: Assets ▸ Landmark types is one row that opens a window (2026-11-08)
+
+The last three-level menu path (finding M7) is gone. Read at `menus.gd`: `_build_landmark_types_row()`, `_open_landmark_types()`, `ID_LM_TYPES` 503 (a fresh id: a saved pin stores the action id, so a retired one was not reused); new `shell/landmark_types_window.gd` (`row_text()`, `family_text()`, `model()`); `command_index.gd` `EXTRAS`. The window is non-blocking on the desktop (`ContextWindow.make_context(..., false)`, no FOLLOW chip: it has no subject), modal on the tablet, a full-screen sheet on the phone (`phone_present` / `phone_fit`). It lists no placed landmarks (only per-type counts), so Ruling EI's naming does not apply to it.
+- **Nothing lost (the inventory, Delete-a-surface).** Family header with `N of M armed · P placed`; one row per type with `cap · placed · reason`, `off · was N`, `not buildable`; `Open <Family> in the dock` per family (also the target of every type row, as before); the read-only signpost (once, not per family); `Placed by hand   N`; `Landmark icons…` and `Landmark label style…` as foot buttons; the empty-vocabulary sentence. Every row's text comes from `landmark_kinds()`, `landmark_settings()` and `landmark_funnels()` at their symbols; no second source. The two destination rows are no longer menu rows, so `command_index.gd` gained two `EXTRAS` pointer rows (found by title, counted by `_lmtypes_probe`).
+- **Proof.** New `_lmtypes_probe`: the expected rows are literals dumped from the old cascade on origin/main `a2200e5b` (with `StubBridge` and with the live bridge: 6 families, 49 types), compared in order against what the window drew; real key presses open the row, real clicks press the window's buttons. Desktop and tablet (touch 1600x1000) 29 of 29, phone 1080x2340 @2.8125 6 of 6 (opened through the menu's own entry: a synthetic tap cannot reach an embedded dialog).
+- **`_ms4_probe` computed count moved.** Phone walk (1080x2340 @2.625) on origin/main: 402 rows, deepest after 3 taps, 595 checks; now 332 rows, deepest after 2 taps, 506 checks, PASS; the `Landmark types…` row's tap runs id 503 as on the desktop and opens the sheet listing six families.
+- **Regression (same commands, new tree vs origin/main):** `_pc9menus` desktop 86 and touch 76 pass; `_m7flat` 30 and 30; `_cmdindex`; `_quickbar` 200, `_quickbar_window` 108, `_quickbar_ring` 164/165, `_quickbar_store` 114; `_landmark` desktop, touch and phone. `_quickbar_assistant` fails the same 3 checks on origin/main and here.
+- **Menu parity tool.** `compare.py` classifies the cascade as owner decision EH-2; its unclassified list equals origin/main's (427 lines, already stale for the four earlier flattenings), nothing new.
+- **Probes edited:** `_landmark_probe` (C1/C2 now the window), `_adpress_probe`, `_m7flat_probe` (header), `_ms4_probe`.
+
 ### MS-5, first step built: the phone and tablet map's control row and its gestures (2026-11-08)
 
 `MOBILE_SHELL_PROPOSAL.md` section 2.5 items 1 to 6 (DS-13; Rulings EB and EC), without the 3D camera (item 7, 3D-2). GDScript only, no Rust change. Read and changed at `viewport_host.gd` (`_build_navpad()`, `_apply_hand()`, `_apply_safe_insets()`, `set_tool_kind()`, `_sync_pan_btn()`, and the new `_touch_input()` router with `_touch_press()`, `_touch_motion()`, `_touch_release()`, `_finger_down()`), `map_overlay.gd` (`TOUCH_SLOP`, `touch_hold_ms()`, `discard_touch_press()`, `cancel_touch_gesture()`), `app.gd` (`tool_kind()`, called from `arm_tool()`), `dcc_settings.gd` (`on_hand_changed()`) and `phone_menu.gd` (`GESTURES`).
@@ -811,7 +821,7 @@ Two of the "left" items in `OUTSTANDING_WORK.md`'s PC-9 row, read and built at t
   probe handed the app the event directly), the `clear_selection()` call removed, the count-line reason removed, the run
   restricted to the phone. `_deselect_probe` section 6 now asserts both halves (Measure armed: kept; Inspect armed:
   cleared) and its menu finder takes the popup whose row is titled Deselect (id 82 is also an Atlas row).
-- **Left in that row:** §3.8's three-level flattening for Assets ▸ Landmark types (below). (CIVIL ▸ Open factions… on
+- **Left in that row:** nothing of §3.8's flattening (Landmark types became a window: Ruling EH item 2, entry above). (CIVIL ▸ Open factions… on
   `current_faction()` was built later the same day: next entry.)
 
 ### CIVIL ▸ Open factions… opens on the current faction (2026-11-08, finding W6's third entry point)
@@ -839,10 +849,8 @@ reads the first group only for `AtlasTileSize`, so the row still ends in the til
 still name the one popup that evicts). The README's worry about the phone's "radio-chip rule" no longer applies:
 `phone_menu.gd` was rebuilt by MS-4 and has no `_expandable()`; it draws any popup's labelled separator as a band and
 its radios as rows, so no phone code changed.
-- **Not flattened: Assets ▸ Landmark types ▸ family ▸ type.** Its type rows are engine-sized read-only state rows with
-  per-family index ids that would collide in one popup, and flattening means deleting them from the menu or giving 49
-  rows a new home. That is an owner decision (the README's M7 inventory said so), not a mechanical change. `_ms4_probe`
-  still pins its path (Landmark types ▸ Physical ▸ Open Physical).
+- **Assets ▸ Landmark types ▸ family ▸ type was not flattened here; the owner decided (Ruling EH item 2, later the same
+  day) that it becomes a window, so all five paths are gone.** Its 49 read-only rows live in `landmark_types_window.gd`.
 - **`_ms4_probe` count:** the 6T walk (1080×2340 @2.8125) passes 595 checks against 603 on origin/main `3ddcbe8c`
   (measured both, same command): the eight missing are four drill rows × two checks (the row and its count), which is
   the flatten, not a lost row. Parity (every drawn screen against the desktop dump) holds.

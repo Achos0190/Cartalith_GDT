@@ -551,73 +551,44 @@ func _ready() -> void:
 	print("  info writes: ", stub.writes)
 	_ok("landmark_set_cross_competition was written", stub.writes.has("cross=false"), true)
 
-	print("\n=== C1: the cascade, live (no bridge -> one disclosed row) ===")
-	var live_pop := _find_popup(app, "LandmarkTypes")
-	_ok("Assets ▸ Landmark types ▸ exists", live_pop != null, true)
-	if live_pop != null:
-		var live_rows: Array = []
-		for i in live_pop.item_count:
-			live_rows.append("%s%s" % [live_pop.get_item_text(i),
-				"  [disabled]" if live_pop.is_item_disabled(i) else ""])
-		print("  info rows: ", live_rows)
-		_ok("its two real destinations are there",
-			_pop_has(live_pop, "Landmark icons…") and _pop_has(live_pop, "Landmark label style…"),
-			true)
-		if not live_api:
-			_ok("the missing vocabulary is one disabled row",
-				_pop_has(live_pop, "No landmark types"), true)
-			var idx := _pop_index(live_pop, "No landmark types")
-			_ok("...disabled", live_pop.is_item_disabled(idx), true)
-			_ok("...with a reason attached, per menus.gd's own rule",
-				live_pop.get_item_tooltip(idx).find("landmark_kinds()") >= 0, true)
+	print("\n=== C1: Assets ▸ Landmark types… is one row (Ruling EH item 2) ===")
+	## The three-level cascade became a window; `_lmtypes_probe.gd` proves nothing was lost row for row
+	## against a baseline from the cascade. This section keeps the claims that were unique to it.
+	var assets_pop: PopupMenu = null
+	for mb in app.find_children("*", "MenuButton", true, false):
+		if (mb as MenuButton).text == "Assets":
+			assets_pop = (mb as MenuButton).get_popup()
+	_ok("the live Assets menu exists", assets_pop != null, true)
+	if assets_pop != null:
+		_ok("it carries one Landmark types… row", _pop_has(assets_pop, "Landmark types…"), true)
+		_ok("...and no LandmarkTypes cascade", assets_pop.get_node_or_null(NodePath("LandmarkTypes")) == null, true)
 
-	print("\n=== C2: the cascade against the contract ===")
+	print("\n=== C2: the window against the contract ===")
+	var win := AcceptDialog.new()
+	win.set_script(load("res://shell/landmark_types_window.gd"))
+	app.add_child(win)
+	win.setup(app, stub, {})
+	win.exclusive = false
+	win.open()
+	await _frames(2)
+	var fams: Array = win.model()
+	_ok("two families were built", fams.size(), 2)
+	var phys_fam: Dictionary = fams[0]
+	## 3, not 4: the fixture arms five Physical types but one of them is `buildable: false`, and neither readout
+	## counts a type the engine cannot place as armed. The dock's own header says 3 too (B7 above), which is the
+	## point -- two readouts of one fact that disagreed would be worse than either being wrong alone.
+	_ok("armed-of-total is the engine's, not a guess",
+		win.family_text(String(phys_fam["title"]), int(phys_fam["armed"]), int(phys_fam["total"]), int(phys_fam["placed"])).find("3 of 5 armed") >= 0, true)
+	_ok("...and it agrees with the dock's own header",
+		String((groups["physical"]["button"] as Button).text).find("3 of 5 armed") >= 0, true)
+	var blob := "\n".join((phys_fam["rows"] as Array).map(func(r): return String((r as Dictionary)["text"])))
+	_ok("a disarmed row shows its retained number", blob.find("off · was 2") >= 0, true)
+	_ok("an unbuildable row says so instead of a cap it cannot honour", blob.find("Ice shelf   not buildable") >= 0, true)
+	win.queue_free()
 	var m := DccMenus.new()
 	m.set("_shell", app)
 	m.set("_bridge", stub)
 	m.set("_host", app)
-	var host_pop := PopupMenu.new()
-	app.add_child(host_pop)
-	m.call("_build_landmark_types_menu", host_pop)
-	await _frames(2)
-	var pop: PopupMenu = m.get("_landmark_popup")
-	var pop_rows: Array = []
-	for i in pop.item_count:
-		pop_rows.append(pop.get_item_text(i))
-	print("  info level 2: ", pop_rows)
-	_ok("a row per family, plus hand-placed and the two destinations",
-		pop.item_count >= 5, true)
-	_ok("the family row carries its counts",
-		_pop_has_sub(pop, "Physical") and _pop_find(pop, "Physical").find("armed") >= 0, true)
-	print("  info physical row: ", _pop_find(pop, "Physical"))
-	## 3, not 4: the fixture arms five Physical types but one of them is
-	## `buildable: false`, and neither readout counts a type the engine cannot
-	## place as armed. The dock's own header says 3 too (B7 above), which is the
-	## point -- two readouts of one fact that disagreed would be worse than
-	## either being wrong alone.
-	_ok("...armed-of-total is the engine's, not a guess",
-		_pop_find(pop, "Physical").find("3 of 5 armed") >= 0, true)
-	_ok("...and it agrees with the dock's own header",
-		String((groups["physical"]["button"] as Button).text).find("3 of 5 armed") >= 0, true)
-	_ok("...and its placed total", _pop_find(pop, "Physical").find("41 placed") >= 0, true)
-
-	var fams: Array = m.get("_landmark_families")
-	_ok("two families were built", fams.size(), 2)
-	var sub: PopupMenu = (fams[0] as Dictionary)["popup"]
-	var sub_rows: Array = []
-	for i in sub.item_count:
-		sub_rows.append(sub.get_item_text(i))
-	print("  info level 3: ", sub_rows)
-	var sub_blob := "\n".join(sub_rows)
-	_ok("a leaf shows cap · placed · reason",
-		sub_blob.find("40 max · 11 placed · spacing") >= 0, true)
-	_ok("a disarmed leaf shows its retained number",
-		sub_blob.find("off · was 2") >= 0, true)
-	_ok("an unbuildable leaf says so instead of a cap it cannot honour",
-		sub_blob.find("Ice shelf   not buildable") >= 0, true)
-	_ok("the family's own destination row is there",
-		sub_blob.find("Open Physical in the dock") >= 0, true)
-	_ok("and the read-only signpost", sub_blob.find("do not arm a type") >= 0, true)
 
 	print("\n=== C3: picking a family opens the dock at it ===")
 	## The live dock, not the stub one -- this is the shipped path.

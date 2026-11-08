@@ -12,7 +12,7 @@ Evidence only. It records what differs and why. It is not a status record: how f
   `tabletFileMenu()`, `tabletWorldMenu()` and `ctxModuleMenuItems()` from `design/mobile-shell-2026-10-31/Shell.dc.html`.
   Both mockup files were regenerated on 2026-11-01, after Ruling DY, with `node mockup_menus.js <Shell.dc.html>` and
   `--md`.
-- **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `d2363949`, with these
+- **Godot:** `godot_menus.json`, written by `godot_menus.py`. It covers the shipped shell at `a2200e5b`, with these
   drafts applied in memory: `drafts/pc-shell/` 01-06 and their EDITs (Ruling DY's W6 and W7 in 02 included);
   `drafts/mobile-shell/` 05, 08 and 09, with 09's EDIT G1. This session has no Godot binary, so `godot_menus.py` interprets the menu builders. Every assumption it makes
   is in its `CONDITIONS` and `RUNTIME` tables (a fresh install, 8 logical cores). The interpreter left **0** conditions
@@ -46,27 +46,26 @@ python3 cartalith-native/docs/evidence/menu-parity-2026-11-01/compare.py       #
 
 | Platform | mockup rows | Godot rows | rows | same | same after its milestone | differs | mockup-only | Godot-only | a | c | m | s | n |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Desktop | 447 | 442 | 448 | 401 | 12 | 33 | 1 | 1 | 0 | 0 | 23 | 24 | 0 |
-| Tablet, 1 180 dp and wider | 450 | 441 | 451 | 400 | 12 | 33 | 5 | 1 | 0 | 0 | 23 | 24 | 4 |
-| Tablet, below 1 180 dp | 464 | 455 | 465 | 414 | 12 | 33 | 5 | 1 | 0 | 0 | 23 | 24 | 4 |
-| Phone, MENU | 445 | 438 | 446 | 408 | 12 | 22 | 3 | 1 | 0 | 0 | 12 | 24 | 2 |
+| Desktop | 447 | 364 | 495 | 288 | 10 | 20 | 129 | 48 | 0 | 78 | 20 | 5 | 0 |
+| Tablet, 1 180 dp and wider | 450 | 368 | 503 | 287 | 10 | 20 | 133 | 53 | 0 | 78 | 20 | 5 | 4 |
+| Tablet, below 1 180 dp | 464 | 382 | 517 | 301 | 10 | 20 | 133 | 53 | 0 | 78 | 20 | 5 | 4 |
+| Phone, MENU | 445 | 361 | 494 | 294 | 10 | 10 | 131 | 49 | 0 | 78 | 10 | 5 | 2 |
 
 Rows per rule, per platform:
 
 | Rule | Desktop | Tablet, 1 180 dp and wider | Tablet, below 1 180 dp | Phone, MENU |
 |---|---:|---:|---:|---:|
-| R1 | 18 | 18 | 18 | 18 |
-| R2 | 1 | 1 | 1 | 1 |
+| EH-2 | 78 | 78 | 78 | 78 |
 | S1 | 3 | 3 | 3 | 3 |
 | S3 | 2 | 2 | 2 | 2 |
 | N1 | 0 | 2 | 2 | 2 |
 | N2 | 0 | 1 | 1 | 0 |
 | N3 | 0 | 1 | 1 | 0 |
-| PC-1 | 2 | 2 | 2 | 2 |
 | PC-4 | 6 | 6 | 6 | 6 |
 | PC-5 | 2 | 2 | 2 | 2 |
 | PC-6 | 2 | 2 | 2 | 2 |
-| PC-10 | 11 | 11 | 11 | 0 |
+| PC-10 | 10 | 10 | 10 | 0 |
+| ? | 104 | 109 | 109 | 105 |
 
 ## Run-time labels (same at run time)
 
@@ -104,6 +103,7 @@ Rows per rule, per platform:
 
 ## (c) Owner decisions: all answered by Rulings DX and DY (2026-11-01); none is open
 
+- **EH-2. Ruling EH item 2 (2026-11-08): Assets ▸ Landmark types is a window, not a cascade.** *Answered: a browsable list window, one `Landmark types…` row (`menus.gd::_build_landmark_types_row()`, `landmark_types_window.gd`).* The mockup's `lmFamilies` cascade (six family submenus and their kinds, the fixed icons, label-style and hand rows) is the stale side. The window shows every row the cascade showed, proved against a baseline dump by `_lmtypes_probe.gd`; the two destination rows stay findable through `command_index.gd`'s `EXTRAS`. **Fix when the mockup is next edited:** replace the cascade with one live row that opens a window.
 - **K1. PQ10: where the card's and the cartwheel's rows live.** *Answered: as drafted, not on the phone (B6).* As asked: the drafts put Edit ▸ Context card (Shift+F10) and Cartwheel at the pointer (Q) after Find on map… on the desktop and both tablets. The mockup had neither row. *Default: as drafted.* If it is taken, add both rows to the mockup's Edit.
 - **K2. PQ11: one label for the regenerate command.** *Answered: one label, Generate world (B7).* As asked: the command is Generate world on the PC and the wide tablet, and Run pipeline on the narrow tablet; it is the same command, id 710. It bears on A11. *Default: keep two labels.*
 - **K3. PQ12: Alt+← / Alt+→ while a text field has focus.** *Answered: no (B8).* As asked: it bears on Edit ▸ Previous / Next selection; the rows match. *Default: yes, as a browser does.*
@@ -212,8 +212,8 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 9 | ——— | ——— |  | same |  |
 | 10 | Select all · Ctrl+A | Select all · Ctrl+A |  | same |  |
 | 11 | Deselect · Ctrl+D | Deselect · Ctrl+D |  | same |  |
-| 12 | Previous selection · Alt+← | Previous selection · Alt+← | [not built] Previous selection | same after the milestone; today: kind command/disabled (not built), key Alt+←/none | m PC-1 |
-| 13 | Next selection · Alt+→ | Next selection · Alt+→ | [not built] Next selection | same after the milestone; today: kind command/disabled (not built), key Alt+→/none | m PC-1 |
+| 12 | Previous selection · Alt+← | Previous selection · Alt+← |  | same |  |
+| 13 | Next selection · Alt+→ | Next selection · Alt+→ |  | same |  |
 | 14 | ——— | ——— |  | same |  |
 | 15 | Find on map… · Ctrl+F | Find on map… · Ctrl+F |  | same |  |
 | 16 | Context card · Shift+F10 | Context card · Shift+F10 |  | same |  |
@@ -265,84 +265,84 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 27 | › Splat channels   4/4 | › Splat channels |  | same |  |
 | 28 | › Biome textures   9/12 | › Biome textures |  | same |  |
 | 29 | › Terrain textures   6/8 | › Terrain textures |  | same |  |
-| 30 | [submenu] Landmark types | [submenu] Landmark types |  | same |  |
-| 31 | › [submenu] Physical | › [submenu] Physical |  | same |  |
-| 32 | › › Peak | › › Peak |  | same |  |
-| 33 | › › Ridge | › › Ridge |  | same |  |
-| 34 | › › Saddle   not buildable | › › Saddle |  | differs: label | s R1 |
-| 35 | › › Cliff | › › Cliff |  | same |  |
-| 36 | › › Gorge | › › Gorge |  | same |  |
-| 37 | › › Cave | › › Cave |  | same |  |
-| 38 | › › Waterfall | › › Waterfall |  | same |  |
-| 39 | › › Spring | › › Spring |  | same |  |
-| 40 | › › Lake | › › Lake |  | same |  |
-| 41 | › › Delta   not buildable | › › Delta |  | differs: label | s R1 |
-| 42 | › › River confluence | › › River confluence |  | same |  |
-| 43 | › › Volcanic feature | › › Volcanic feature |  | same |  |
-| 44 | › › Rock formation | › › Rock formation |  | same |  |
-| 45 | › › Glacial feature   not buildable | › › Glacial feature |  | differs: label | s R1 |
-| 46 | › › Ancient forest   not buildable | › › Ancient forest |  | differs: label | s R1 |
-| 47 | › › ——— | › › ——— |  | same |  |
-| 48 | › › Open Physical in the dock | › › Open Physical in the dock |  | same |  |
-| 49 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 50 | › [submenu] Transport | › [submenu] Transport |  | same |  |
-| 51 | › › Mountain pass | › › Mountain pass |  | same |  |
-| 52 | › › River crossing   not buildable | › › River crossing |  | differs: label | s R1 |
-| 53 | › › Ford | › › Ford |  | same |  |
-| 54 | › › Bridge site | › › Bridge site |  | same |  |
-| 55 | › › Road junction | › › Road junction |  | same |  |
-| 56 | › › Caravan station | › › Caravan station |  | same |  |
-| 57 | › › Portage | › › Portage |  | same |  |
-| 58 | › › Harbour | › › Harbour |  | same |  |
-| 59 | › › ——— | › › ——— |  | same |  |
-| 60 | › › Open Transport in the dock | › › Open Transport in the dock |  | same |  |
-| 61 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 62 | › [submenu] Economic | › [submenu] Economic |  | same |  |
-| 63 | › › Mine | › › Mine |  | same |  |
-| 64 | › › Quarry | › › Quarry |  | same |  |
-| 65 | › › Salt works   not buildable | › › Salt works |  | differs: label | s R1 |
-| 66 | › › Resource extraction site | › › Resource extraction site |  | same |  |
-| 67 | › › Market site | › › Market site |  | same |  |
-| 68 | › › Trade depot | › › Trade depot |  | same |  |
-| 69 | › › ——— | › › ——— |  | same |  |
-| 70 | › › Open Economic in the dock | › › Open Economic in the dock |  | same |  |
-| 71 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 72 | › [submenu] Military | › [submenu] Military |  | same |  |
-| 73 | › › Fort | › › Fort |  | same |  |
-| 74 | › › Watchtower | › › Watchtower |  | same |  |
-| 75 | › › Fortified pass | › › Fortified pass |  | same |  |
-| 76 | › › Fortified crossing | › › Fortified crossing |  | same |  |
-| 77 | › › Battlefield | › › Battlefield |  | same |  |
-| 78 | › › Border marker | › › Border marker |  | same |  |
-| 79 | › › ——— | › › ——— |  | same |  |
-| 80 | › › Open Military in the dock | › › Open Military in the dock |  | same |  |
-| 81 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 82 | › [submenu] Cultural | › [submenu] Cultural |  | same |  |
-| 83 | › › Shrine   not buildable | › › Shrine |  | differs: label | s R1 |
-| 84 | › › Temple   not buildable | › › Temple |  | differs: label | s R1 |
-| 85 | › › Sacred grove   not buildable | › › Sacred grove |  | differs: label | s R1 |
-| 86 | › › Sacred mountain   not buildable | › › Sacred mountain |  | differs: label | s R1 |
-| 87 | › › Pilgrimage site   not buildable | › › Pilgrimage site |  | differs: label | s R1 |
-| 88 | › › Tomb   not buildable | › › Tomb |  | differs: label | s R1 |
-| 89 | › › Monument   not buildable | › › Monument |  | differs: label | s R1 |
-| 90 | › › Ceremonial site   not buildable | › › Ceremonial site |  | differs: label | s R1 |
-| 91 | › › ——— | › › ——— |  | same |  |
-| 92 | › › Open Cultural in the dock | › › Open Cultural in the dock |  | same |  |
-| 93 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 94 | › [submenu] Historical | › [submenu] Historical |  | same |  |
-| 95 | › › Ruin   not buildable | › › Ruin |  | differs: label | s R1 |
-| 96 | › › Abandoned settlement | › › Abandoned settlement |  | same |  |
-| 97 | › › Ancient road | › › Ancient road |  | same |  |
-| 98 | › › Historic battlefield   not buildable | › › Historic battlefield |  | differs: label | s R1 |
-| 99 | › › Destroyed fortress   not buildable | › › Destroyed fortress |  | differs: label | s R1 |
-| 100 | › › Historic crossing   not buildable | › › Historic crossing |  | differs: label | s R1 |
-| 101 | › › ——— | › › ——— |  | same |  |
-| 102 | › › Open Historical in the dock | › › Open Historical in the dock |  | same |  |
-| 103 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 104 | › Placed by hand   3 | › Placed by hand |  | same |  |
-| 105 | › ——— | › ——— |  | same |  |
-| 106 | › Landmark icons… | › Landmark icons… |  | same |  |
-| 107 | › Landmark label style… | › Landmark label style… |  | same |  |
+| 30 | [submenu] Landmark types | Landmark types… |  | differs: kind submenu/command | (c) EH-2 |
+| 31 | › [submenu] Physical |  |  | mockup-only | (c) EH-2 |
+| 32 | › › Peak |  |  | mockup-only (inside) | (c) EH-2 |
+| 33 | › › Ridge |  |  | mockup-only (inside) | (c) EH-2 |
+| 34 | › › Saddle   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 35 | › › Cliff |  |  | mockup-only (inside) | (c) EH-2 |
+| 36 | › › Gorge |  |  | mockup-only (inside) | (c) EH-2 |
+| 37 | › › Cave |  |  | mockup-only (inside) | (c) EH-2 |
+| 38 | › › Waterfall |  |  | mockup-only (inside) | (c) EH-2 |
+| 39 | › › Spring |  |  | mockup-only (inside) | (c) EH-2 |
+| 40 | › › Lake |  |  | mockup-only (inside) | (c) EH-2 |
+| 41 | › › Delta   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 42 | › › River confluence |  |  | mockup-only (inside) | (c) EH-2 |
+| 43 | › › Volcanic feature |  |  | mockup-only (inside) | (c) EH-2 |
+| 44 | › › Rock formation |  |  | mockup-only (inside) | (c) EH-2 |
+| 45 | › › Glacial feature   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 46 | › › Ancient forest   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 47 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 48 | › › Open Physical in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 49 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 50 | › [submenu] Transport |  |  | mockup-only | (c) EH-2 |
+| 51 | › › Mountain pass |  |  | mockup-only (inside) | (c) EH-2 |
+| 52 | › › River crossing   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 53 | › › Ford |  |  | mockup-only (inside) | (c) EH-2 |
+| 54 | › › Bridge site |  |  | mockup-only (inside) | (c) EH-2 |
+| 55 | › › Road junction |  |  | mockup-only (inside) | (c) EH-2 |
+| 56 | › › Caravan station |  |  | mockup-only (inside) | (c) EH-2 |
+| 57 | › › Portage |  |  | mockup-only (inside) | (c) EH-2 |
+| 58 | › › Harbour |  |  | mockup-only (inside) | (c) EH-2 |
+| 59 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 60 | › › Open Transport in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 61 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 62 | › [submenu] Economic |  |  | mockup-only | (c) EH-2 |
+| 63 | › › Mine |  |  | mockup-only (inside) | (c) EH-2 |
+| 64 | › › Quarry |  |  | mockup-only (inside) | (c) EH-2 |
+| 65 | › › Salt works   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 66 | › › Resource extraction site |  |  | mockup-only (inside) | (c) EH-2 |
+| 67 | › › Market site |  |  | mockup-only (inside) | (c) EH-2 |
+| 68 | › › Trade depot |  |  | mockup-only (inside) | (c) EH-2 |
+| 69 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 70 | › › Open Economic in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 71 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 72 | › [submenu] Military |  |  | mockup-only | (c) EH-2 |
+| 73 | › › Fort |  |  | mockup-only (inside) | (c) EH-2 |
+| 74 | › › Watchtower |  |  | mockup-only (inside) | (c) EH-2 |
+| 75 | › › Fortified pass |  |  | mockup-only (inside) | (c) EH-2 |
+| 76 | › › Fortified crossing |  |  | mockup-only (inside) | (c) EH-2 |
+| 77 | › › Battlefield |  |  | mockup-only (inside) | (c) EH-2 |
+| 78 | › › Border marker |  |  | mockup-only (inside) | (c) EH-2 |
+| 79 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 80 | › › Open Military in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 81 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 82 | › [submenu] Cultural |  |  | mockup-only | (c) EH-2 |
+| 83 | › › Shrine   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 84 | › › Temple   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 85 | › › Sacred grove   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 86 | › › Sacred mountain   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 87 | › › Pilgrimage site   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 88 | › › Tomb   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 89 | › › Monument   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 90 | › › Ceremonial site   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 91 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 92 | › › Open Cultural in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 93 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 94 | › [submenu] Historical |  |  | mockup-only | (c) EH-2 |
+| 95 | › › Ruin   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 96 | › › Abandoned settlement |  |  | mockup-only (inside) | (c) EH-2 |
+| 97 | › › Ancient road |  |  | mockup-only (inside) | (c) EH-2 |
+| 98 | › › Historic battlefield   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 99 | › › Destroyed fortress   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 100 | › › Historic crossing   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 101 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 102 | › › Open Historical in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 103 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 104 | › Placed by hand   3 |  |  | mockup-only | (c) EH-2 |
+| 105 | › ——— |  |  | mockup-only | (c) EH-2 |
+| 106 | › Landmark icons… |  |  | mockup-only | (c) EH-2 |
+| 107 | › Landmark label style… |  |  | mockup-only | (c) EH-2 |
 | 108 | ——— | ——— |  | same |  |
 | 109 | Apply library to map | Apply library to map |  | same |  |
 | 110 | Clear library… | Clear library…   destructive |  | same |  |
@@ -450,119 +450,163 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 45 | [not built] 3D viewport defaults | [not built] 3D viewport defaults |  | differs: reason | s S1 |
 | 46 | [submenu] Lighting rig defaults | [submenu] Lighting rig defaults |  | same |  |
 | 47 | › [readout] Following the engine | › [readout] Following the engine |  | same |  |
-| 48 | › [submenu] Azimuth | › [submenu] Azimuth |  | same |  |
-| 49 | › › [radio] 0 deg | › › [radio] 0 deg |  | same |  |
-| 50 | › › [radio] 45 deg | › › [radio] 45 deg |  | same |  |
-| 51 | › › [radio] 90 deg | › › [radio] 90 deg |  | same |  |
-| 52 | › › [radio] 135 deg | › › [radio] 135 deg |  | same |  |
-| 53 | › › [radio] 180 deg | › › [radio] 180 deg |  | same |  |
-| 54 | › › [radio] 225 deg | › › [radio] 225 deg |  | same |  |
-| 55 | › › [radio] 270 deg | › › [radio] 270 deg |  | same |  |
-| 56 | › › [radio] 315 deg | › › [radio] 315 deg |  | same |  |
-| 57 | › [submenu] Elevation | › [submenu] Elevation |  | same |  |
-| 58 | › › [radio] 15 deg | › › [radio] 15 deg |  | same |  |
-| 59 | › › [radio] 25 deg | › › [radio] 25 deg |  | same |  |
-| 60 | › › [radio] 35 deg | › › [radio] 35 deg |  | same |  |
-| 61 | › › [radio] 45 deg | › › [radio] 45 deg |  | same |  |
-| 62 | › › [radio] 55 deg | › › [radio] 55 deg |  | same |  |
-| 63 | › › [radio] 65 deg | › › [radio] 65 deg |  | same |  |
-| 64 | › › [radio] 75 deg | › › [radio] 75 deg |  | same |  |
-| 65 | › [submenu] Ambient | › [submenu] Ambient |  | same |  |
-| 66 | › › [radio] 0.00 | › › [radio] 0.00 |  | same |  |
-| 67 | › › [radio] 0.15 | › › [radio] 0.15 |  | same |  |
-| 68 | › › [radio] 0.25 | › › [radio] 0.25 |  | same |  |
-| 69 | › › [radio] 0.35 | › › [radio] 0.35 |  | same |  |
-| 70 | › › [radio] 0.50 | › › [radio] 0.50 |  | same |  |
-| 71 | › › [radio] 0.70 | › › [radio] 0.70 |  | same |  |
-| 72 | › [submenu] Multidirectional | › [submenu] Multidirectional |  | same |  |
-| 73 | › › [radio] 1 light (single sun) | › › [radio] 1 light (single sun) |  | same |  |
-| 74 | › › [radio] 2 lights | › › [radio] 2 lights |  | same |  |
-| 75 | › › [radio] 4 lights | › › [radio] 4 lights |  | same |  |
-| 76 | › › [radio] 6 lights | › › [radio] 6 lights |  | same |  |
-| 77 | › › [radio] 8 lights | › › [radio] 8 lights |  | same |  |
-| 78 | › › [radio] 12 lights | › › [radio] 12 lights |  | same |  |
-| 79 | › ——— | › ——— |  | same |  |
-| 80 | › Use the engine’s own rig | › Use the engine's own rig |  | same |  |
-| 81 | [submenu] Relief exaggeration | [submenu] Relief exaggeration |  | same |  |
-| 82 | › [radio] 1x | › [radio] 1x |  | same |  |
-| 83 | › [radio] 2x | › [radio] 2x |  | same |  |
-| 84 | › [radio] 4x | › [radio] 4x |  | same |  |
-| 85 | › ——— | › ——— |  | same |  |
-| 86 | › Use the engine’s own 3.4x | › Use the engine's own 3.4x |  | same |  |
-| 87 | **TILES & LOD** | **TILES & LOD** |  | same |  |
-| 88 | [submenu] Tiled LOD | [submenu] Tiled LOD |  | same |  |
-| 89 | › [radio] Auto on zoom | › [radio] Auto on zoom |  | same |  |
-| 90 | › [radio] Manual | › [radio] Manual |  | same |  |
-| 91 | › ——— | › ——— |  | same |  |
-| 92 | › Enter deep detail now | › Enter deep detail now |  | same |  |
-| 93 | › Leave deep detail | › Leave deep detail |  | same |  |
-| 94 | [submenu] Tile size · LOD levels | [submenu] Tile size · LOD levels |  | same |  |
-| 95 | › [radio] 256 px | › [radio] 256 px |  | same |  |
-| 96 | › [radio] 512 px | › [radio] 512 px |  | same |  |
-| 97 | › [radio] 1024 px | › [radio] 1024 px |  | same |  |
-| 98 | › ——— | › ——— |  | same |  |
-| 99 | › [submenu] LOD levels | › [submenu] LOD levels |  | same |  |
-| 100 | › › [radio] LOD 0–0   1 tile | › › [radio] LOD 0–0   1 tile |  | same |  |
-| 101 | › › [radio] LOD 0–1   5 tiles | › › [radio] LOD 0–1   5 tiles |  | same |  |
-| 102 | › › [radio] LOD 0–2   21 tiles | › › [radio] LOD 0–2   21 tiles |  | same |  |
-| 103 | › › [radio] LOD 0–3   85 tiles | › › [radio] LOD 0–3   85 tiles |  | same |  |
-| 104 | › › [radio] LOD 0–4   341 tiles | › › [radio] LOD 0–4   341 tiles |  | same |  |
-| 105 | › › [radio] LOD 0–5   1 365 tiles | › › [radio] LOD 0–5   1 365 tiles |  | same |  |
-| 106 | › › [radio] LOD 0–6   5 461 tiles | › › [radio] LOD 0–6   5 461 tiles |  | same |  |
-| 107 | › › [radio] LOD 0–7   21 845 tiles | › › [radio] LOD 0–7   21 845 tiles |  | same |  |
-| 108 | › › [radio] LOD 0–8   87 381 tiles | › › [radio] LOD 0–8   87 381 tiles |  | same |  |
-| 109 | [submenu] Atlas cache | [submenu] Atlas cache |  | same |  |
-| 110 | › [readout] 85 chunks · 1.2 GB · to LOD 3 | › [readout] … chunks · … · empty |  | differs: label | s R2 |
-| 111 | › [submenu] Size cap · GB | › [submenu] Size cap · GB |  | same |  |
-| 112 | › › [radio] No cap | › › [radio] No cap |  | same |  |
-| 113 | › › [radio] 0.5 GB | › › [radio] 0.5 GB |  | same |  |
-| 114 | › › [radio] 1 GB | › › [radio] 1 GB |  | same |  |
-| 115 | › › [radio] 2 GB | › › [radio] 2 GB |  | same |  |
-| 116 | › › [radio] 4 GB | › › [radio] 4 GB |  | same |  |
-| 117 | › › [radio] 8 GB | › › [radio] 8 GB |  | same |  |
-| 118 | › › [radio] 16 GB | › › [radio] 16 GB |  | same |  |
-| 119 | › Refine detail for the current view | › Refine detail for the current view |  | same |  |
-| 120 | › Refine viewshed for the current view | › Refine viewshed for the current view |  | same |  |
-| 121 | › [readout] Viewshed | › [readout] Viewshed: never refined |  | same |  |
-| 122 | › ——— | › ——— |  | same |  |
-| 123 | › Export atlas… | › Export atlas… |  | same |  |
-| 124 | › Import atlas… | › Import atlas… |  | same |  |
-| 125 | › ——— | › ——— |  | same |  |
-| 126 | › Clear atlas cache now… | › Clear atlas cache now… |  | same |  |
-| 127 | [submenu] Chunk debug overlay | [submenu] Chunk debug overlay |  | same |  |
-| 128 | › [check] Grid | › [check] Grid |  | same |  |
-| 129 | › [check] Colors | › [check] Colors |  | same |  |
-| 130 | › [check] Labels | › [check] Labels |  | same |  |
-| 131 | › ——— | › ——— |  | same |  |
-| 132 | › [check] Show tile borders on the map | › [check] Show tile borders on the map |  | same |  |
-| 133 | **MEMORY** | **MEMORY** |  | same |  |
-| 134 | [submenu] Undo history | [submenu] Undo history |  | same |  |
-| 135 | › [radio] 64 MB | › [radio] 64 MB |  | same |  |
-| 136 | › [radio] 128 MB | › [radio] 128 MB |  | same |  |
-| 137 | › [radio] 256 MB | › [radio] 256 MB |  | same |  |
-| 138 | › [radio] 512 MB | › [radio] 512 MB |  | same |  |
-| 139 | › [radio] 1024 MB | › [radio] 1024 MB |  | same |  |
-| 140 | › ——— | › ——— |  | same |  |
-| 141 | › Clear undo history now | › Clear undo history now |  | same |  |
-| 142 | [readout] Working set | [readout] Working set   … GB of … GB |  | same |  |
-| 143 | Clear caches… | Clear caches… |  | same |  |
-| 144 | **APPLICATION** | **APPLICATION** |  | same |  |
-| 145 | Storage locations… | Storage locations… |  | same |  |
-| 146 | Assistant… | Assistant… |  | same |  |
-| 147 | Quick bar… | Quick bar… |  | same |  |
-| 148 | [check] Open panels in their own window | [check] Open panels in their own window |  | same |  |
-| 149 | [submenu] Theme | [submenu] Theme |  | same |  |
-| 150 | › [radio] Dark | › [radio] Dark |  | same |  |
-| 151 | › [radio] Light | › [radio] Light |  | same |  |
-| 152 | › [radio] Follow system | › [radio] Follow system |  | same |  |
-| 153 | [submenu] Units | [submenu] Units |  | same |  |
-| 154 | › [radio] Kilometres | › [radio] Kilometres |  | same |  |
-| 155 | › [radio] Miles | › [radio] Miles |  | same |  |
-| 156 | › [radio] Nautical miles | › [radio] Nautical miles |  | same |  |
-| 157 | [submenu] Handedness | [submenu] Handedness |  | same |  |
-| 158 | › [radio] Left | › [radio] Left |  | same |  |
-| 159 | › [radio] Right | › [radio] Right |  | same |  |
-| 160 | Keyboard shortcuts… | Keyboard shortcuts… |  | same |  |
+| 48 | › [submenu] Azimuth | › **AZIMUTH** |  | differs: kind submenu/caption | ?  |
+| 49 | › › [radio] 0 deg |  |  | mockup-only | ?  |
+| 50 | › › [radio] 45 deg |  |  | mockup-only | ?  |
+| 51 | › › [radio] 90 deg |  |  | mockup-only | ?  |
+| 52 | › › [radio] 135 deg |  |  | mockup-only | ?  |
+| 53 | › › [radio] 180 deg |  |  | mockup-only | ?  |
+| 54 | › › [radio] 225 deg |  |  | mockup-only | ?  |
+| 55 | › › [radio] 270 deg |  |  | mockup-only | ?  |
+| 56 | › › [radio] 315 deg |  |  | mockup-only | ?  |
+| 57 |  | › [radio] 0 deg |  | Godot-only | ?  |
+| 58 |  | › [radio] 45 deg |  | Godot-only | ?  |
+| 59 |  | › [radio] 90 deg |  | Godot-only | ?  |
+| 60 |  | › [radio] 135 deg |  | Godot-only | ?  |
+| 61 |  | › [radio] 180 deg |  | Godot-only | ?  |
+| 62 |  | › [radio] 225 deg |  | Godot-only | ?  |
+| 63 |  | › [radio] 270 deg |  | Godot-only | ?  |
+| 64 |  | › [radio] 315 deg |  | Godot-only | ?  |
+| 65 | › [submenu] Elevation | › **ELEVATION** |  | differs: kind submenu/caption | ?  |
+| 66 | › › [radio] 15 deg |  |  | mockup-only | ?  |
+| 67 | › › [radio] 25 deg |  |  | mockup-only | ?  |
+| 68 | › › [radio] 35 deg |  |  | mockup-only | ?  |
+| 69 | › › [radio] 45 deg |  |  | mockup-only | ?  |
+| 70 | › › [radio] 55 deg |  |  | mockup-only | ?  |
+| 71 | › › [radio] 65 deg |  |  | mockup-only | ?  |
+| 72 | › › [radio] 75 deg |  |  | mockup-only | ?  |
+| 73 |  | › [radio] 15 deg |  | Godot-only | ?  |
+| 74 |  | › [radio] 25 deg |  | Godot-only | ?  |
+| 75 |  | › [radio] 35 deg |  | Godot-only | ?  |
+| 76 |  | › [radio] 45 deg |  | Godot-only | ?  |
+| 77 |  | › [radio] 55 deg |  | Godot-only | ?  |
+| 78 |  | › [radio] 65 deg |  | Godot-only | ?  |
+| 79 |  | › [radio] 75 deg |  | Godot-only | ?  |
+| 80 | › [submenu] Ambient | › **AMBIENT** |  | differs: kind submenu/caption | ?  |
+| 81 | › › [radio] 0.00 |  |  | mockup-only | ?  |
+| 82 | › › [radio] 0.15 |  |  | mockup-only | ?  |
+| 83 | › › [radio] 0.25 |  |  | mockup-only | ?  |
+| 84 | › › [radio] 0.35 |  |  | mockup-only | ?  |
+| 85 | › › [radio] 0.50 |  |  | mockup-only | ?  |
+| 86 | › › [radio] 0.70 |  |  | mockup-only | ?  |
+| 87 |  | › [radio] 0.00 |  | Godot-only | ?  |
+| 88 |  | › [radio] 0.15 |  | Godot-only | ?  |
+| 89 |  | › [radio] 0.25 |  | Godot-only | ?  |
+| 90 |  | › [radio] 0.35 |  | Godot-only | ?  |
+| 91 |  | › [radio] 0.50 |  | Godot-only | ?  |
+| 92 |  | › [radio] 0.70 |  | Godot-only | ?  |
+| 93 | › [submenu] Multidirectional | › **MULTIDIRECTIONAL** |  | differs: kind submenu/caption | ?  |
+| 94 | › › [radio] 1 light (single sun) |  |  | mockup-only | ?  |
+| 95 | › › [radio] 2 lights |  |  | mockup-only | ?  |
+| 96 | › › [radio] 4 lights |  |  | mockup-only | ?  |
+| 97 | › › [radio] 6 lights |  |  | mockup-only | ?  |
+| 98 | › › [radio] 8 lights |  |  | mockup-only | ?  |
+| 99 | › › [radio] 12 lights |  |  | mockup-only | ?  |
+| 100 |  | › [radio] 1 light (single sun) |  | Godot-only | ?  |
+| 101 |  | › [radio] 2 lights |  | Godot-only | ?  |
+| 102 |  | › [radio] 4 lights |  | Godot-only | ?  |
+| 103 |  | › [radio] 6 lights |  | Godot-only | ?  |
+| 104 |  | › [radio] 8 lights |  | Godot-only | ?  |
+| 105 |  | › [radio] 12 lights |  | Godot-only | ?  |
+| 106 | › ——— | › ——— |  | same |  |
+| 107 | › Use the engine’s own rig | › Use the engine's own rig |  | same |  |
+| 108 | [submenu] Relief exaggeration | [submenu] Relief exaggeration |  | same |  |
+| 109 | › [radio] 1x | › [radio] 1x |  | same |  |
+| 110 | › [radio] 2x | › [radio] 2x |  | same |  |
+| 111 | › [radio] 4x | › [radio] 4x |  | same |  |
+| 112 | › ——— | › ——— |  | same |  |
+| 113 | › Use the engine’s own 3.4x | › Use the engine's own 3.4x |  | same |  |
+| 114 | **TILES & LOD** | **TILES & LOD** |  | same |  |
+| 115 | [submenu] Tiled LOD | [submenu] Tiled LOD |  | same |  |
+| 116 | › [radio] Auto on zoom | › [radio] Auto on zoom |  | same |  |
+| 117 | › [radio] Manual | › [radio] Manual |  | same |  |
+| 118 | › ——— | › ——— |  | same |  |
+| 119 | › Enter deep detail now | › Enter deep detail now |  | same |  |
+| 120 | › Leave deep detail | › Leave deep detail |  | same |  |
+| 121 | [submenu] Tile size · LOD levels | [submenu] Tile size · LOD levels |  | same |  |
+| 122 | › [radio] 256 px | › [radio] 256 px |  | same |  |
+| 123 | › [radio] 512 px | › [radio] 512 px |  | same |  |
+| 124 | › [radio] 1024 px | › [radio] 1024 px |  | same |  |
+| 125 | › ——— |  |  | mockup-only | ?  |
+| 126 | › [submenu] LOD levels | › **LOD LEVELS** |  | differs: kind submenu/caption | ?  |
+| 127 | › › [radio] LOD 0–0   1 tile |  |  | mockup-only | ?  |
+| 128 | › › [radio] LOD 0–1   5 tiles |  |  | mockup-only | ?  |
+| 129 | › › [radio] LOD 0–2   21 tiles |  |  | mockup-only | ?  |
+| 130 | › › [radio] LOD 0–3   85 tiles |  |  | mockup-only | ?  |
+| 131 | › › [radio] LOD 0–4   341 tiles |  |  | mockup-only | ?  |
+| 132 | › › [radio] LOD 0–5   1 365 tiles |  |  | mockup-only | ?  |
+| 133 | › › [radio] LOD 0–6   5 461 tiles |  |  | mockup-only | ?  |
+| 134 | › › [radio] LOD 0–7   21 845 tiles |  |  | mockup-only | ?  |
+| 135 | › › [radio] LOD 0–8   87 381 tiles |  |  | mockup-only | ?  |
+| 136 |  | › [radio] LOD 0–0   1 tile |  | Godot-only | ?  |
+| 137 |  | › [radio] LOD 0–1   5 tiles |  | Godot-only | ?  |
+| 138 |  | › [radio] LOD 0–2   21 tiles |  | Godot-only | ?  |
+| 139 |  | › [radio] LOD 0–3   85 tiles |  | Godot-only | ?  |
+| 140 |  | › [radio] LOD 0–4   341 tiles |  | Godot-only | ?  |
+| 141 |  | › [radio] LOD 0–5   1 365 tiles |  | Godot-only | ?  |
+| 142 |  | › [radio] LOD 0–6   5 461 tiles |  | Godot-only | ?  |
+| 143 |  | › [radio] LOD 0–7   21 845 tiles |  | Godot-only | ?  |
+| 144 |  | › [radio] LOD 0–8   87 381 tiles |  | Godot-only | ?  |
+| 145 | [submenu] Atlas cache | [submenu] Atlas cache |  | same |  |
+| 146 | › [readout] 85 chunks · 1.2 GB · to LOD 3 |  |  | mockup-only | ?  |
+| 147 |  | › [readout] … chunks · … · empty |  | Godot-only | ?  |
+| 148 | › [submenu] Size cap · GB | › **SIZE CAP · GB** |  | differs: kind submenu/caption | ?  |
+| 149 | › › [radio] No cap |  |  | mockup-only | ?  |
+| 150 | › › [radio] 0.5 GB |  |  | mockup-only | ?  |
+| 151 | › › [radio] 1 GB |  |  | mockup-only | ?  |
+| 152 | › › [radio] 2 GB |  |  | mockup-only | ?  |
+| 153 | › › [radio] 4 GB |  |  | mockup-only | ?  |
+| 154 | › › [radio] 8 GB |  |  | mockup-only | ?  |
+| 155 | › › [radio] 16 GB |  |  | mockup-only | ?  |
+| 156 |  | › [radio] No cap |  | Godot-only | ?  |
+| 157 |  | › [radio] 0.5 GB |  | Godot-only | ?  |
+| 158 |  | › [radio] 1 GB |  | Godot-only | ?  |
+| 159 |  | › [radio] 2 GB |  | Godot-only | ?  |
+| 160 |  | › [radio] 4 GB |  | Godot-only | ?  |
+| 161 |  | › [radio] 8 GB |  | Godot-only | ?  |
+| 162 |  | › [radio] 16 GB |  | Godot-only | ?  |
+| 163 | › Refine detail for the current view | › Refine detail for the current view |  | same |  |
+| 164 | › Refine viewshed for the current view | › Refine viewshed for the current view |  | same |  |
+| 165 | › [readout] Viewshed | › [readout] Viewshed: never refined |  | same |  |
+| 166 | › ——— | › ——— |  | same |  |
+| 167 | › Export atlas… | › Export atlas… |  | same |  |
+| 168 | › Import atlas… | › Import atlas… |  | same |  |
+| 169 | › ——— | › ——— |  | same |  |
+| 170 | › Clear atlas cache now… | › Clear atlas cache now… |  | same |  |
+| 171 | [submenu] Chunk debug overlay | [submenu] Chunk debug overlay |  | same |  |
+| 172 | › [check] Grid | › [check] Grid |  | same |  |
+| 173 | › [check] Colors | › [check] Colors |  | same |  |
+| 174 | › [check] Labels | › [check] Labels |  | same |  |
+| 175 | › ——— | › ——— |  | same |  |
+| 176 | › [check] Show tile borders on the map | › [check] Show tile borders on the map |  | same |  |
+| 177 | **MEMORY** | **MEMORY** |  | same |  |
+| 178 | [submenu] Undo history | [submenu] Undo history |  | same |  |
+| 179 | › [radio] 64 MB | › [radio] 64 MB |  | same |  |
+| 180 | › [radio] 128 MB | › [radio] 128 MB |  | same |  |
+| 181 | › [radio] 256 MB | › [radio] 256 MB |  | same |  |
+| 182 | › [radio] 512 MB | › [radio] 512 MB |  | same |  |
+| 183 | › [radio] 1024 MB | › [radio] 1024 MB |  | same |  |
+| 184 | › ——— | › ——— |  | same |  |
+| 185 | › Clear undo history now | › Clear undo history now |  | same |  |
+| 186 | [readout] Working set | [readout] Working set   … GB of … GB |  | same |  |
+| 187 | Clear caches… | Clear caches… |  | same |  |
+| 188 | **APPLICATION** | **APPLICATION** |  | same |  |
+| 189 | Storage locations… | Storage locations… |  | same |  |
+| 190 | Assistant… | Assistant… |  | same |  |
+| 191 | Quick bar… | Quick bar… |  | same |  |
+| 192 | [check] Open panels in their own window | [check] Open panels in their own window |  | same |  |
+| 193 | [submenu] Theme | [submenu] Theme |  | same |  |
+| 194 | › [radio] Dark | › [radio] Dark |  | same |  |
+| 195 | › [radio] Light | › [radio] Light |  | same |  |
+| 196 | › [radio] Follow system | › [radio] Follow system |  | same |  |
+| 197 | [submenu] Units | [submenu] Units |  | same |  |
+| 198 | › [radio] Kilometres | › [radio] Kilometres |  | same |  |
+| 199 | › [radio] Miles | › [radio] Miles |  | same |  |
+| 200 | › [radio] Nautical miles | › [radio] Nautical miles |  | same |  |
+| 201 | [submenu] Handedness | [submenu] Handedness |  | same |  |
+| 202 | › [radio] Left | › [radio] Left |  | same |  |
+| 203 | › [radio] Right | › [radio] Right |  | same |  |
+| 204 | Keyboard shortcuts… | Keyboard shortcuts… |  | same |  |
 
 #### Window
 
@@ -589,7 +633,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 19 | › [check] Links | › [not built] Links |  | differs: kind check/disabled (not built) | m PC-10 |
 | 20 | › [check] Recent & bookmarks | › [not built] Recent & bookmarks |  | differs: kind check/disabled (not built) | m PC-10 |
 | 21 | › ——— | › ——— |  | same |  |
-| 22 | › Reset panel | › [not built] Reset panel |  | differs: kind command/disabled (not built) | m PC-10 |
+| 22 | › Reset panel | › Reset panel |  | same |  |
 | 23 | [check] Timeline | [check] Timeline |  | same |  |
 | 24 | [check] Status bar | [check] Status bar |  | same |  |
 | 25 | [check] Domain rail | [check] Domain rail |  | same |  |
@@ -600,32 +644,35 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 30 | [submenu] 3D capability | [submenu] 3D capability |  | same |  |
 | 31 | › [readout] 3D tier | › [readout] 3D tier: not tested |  | same |  |
 | 32 | › Re-test 3D | › Re-test 3D |  | same |  |
-| 33 | › [submenu] Force tier | › [submenu] Force tier |  | same |  |
-| 34 | › › [radio] Automatic (as measured) | › › [radio] Automatic (as measured) |  | same |  |
-| 35 | › › [radio] Off | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 36 | › › [radio] Basic | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 37 | › › [radio] Standard | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 38 | › › [radio] Full | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 39 | ——— | ——— |  | same |  |
-| 40 | [submenu] Workspace | [submenu] Workspace |  | same |  |
-| 41 | › [radio] World · SM | › [radio] World · SM |  | same |  |
-| 42 | › [radio] Civilization | › [radio] Civilization |  | same |  |
-| 43 | › [radio] Cartography | › [radio] Cartography |  | same |  |
-| 44 | [submenu] Open windows | [submenu] Open windows |  | same |  |
-| 45 | › [readout] No windows open |  |  | mockup-only | s S3 |
-| 46 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
-| 47 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
-| 48 | ——— | ——— |  | same |  |
-| 49 | Reset layout | Reset layout |  | same |  |
-| 50 | [submenu] Layouts | [submenu] Layouts |  | same |  |
-| 51 | › Default (reset layout) | › Default (reset layout) |  | same |  |
-| 52 | › Generate | › Generate |  | same |  |
-| 53 | › Sculpt | › Sculpt |  | same |  |
-| 54 | › Cartography | › Cartography |  | same |  |
-| 55 | › Journey | › Journey |  | same |  |
-| 56 | › ——— | › ——— |  | same |  |
-| 57 | › Save layout as… | › Save layout as… |  | same |  |
-| 58 | › Forget layout… | › Forget layout… |  | same |  |
+| 33 | › [submenu] Force tier |  |  | mockup-only | ?  |
+| 34 | › › [radio] Automatic (as measured) |  |  | mockup-only (inside) | ?  |
+| 35 | › › [radio] Off |  |  | mockup-only (inside) | ?  |
+| 36 | › › [radio] Basic |  |  | mockup-only (inside) | ?  |
+| 37 | › › [radio] Standard |  |  | mockup-only (inside) | ?  |
+| 38 | › › [radio] Full |  |  | mockup-only (inside) | ?  |
+| 39 |  | › **FORCE TIER** |  | Godot-only | ?  |
+| 40 |  | › [radio] Automatic (as measured) |  | Godot-only | ?  |
+| 41 |  | › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | Godot-only | ?  |
+| 42 | ——— | ——— |  | same |  |
+| 43 | [submenu] Workspace | [submenu] Workspace |  | same |  |
+| 44 | › [radio] World · SM | › [radio] World · SM |  | same |  |
+| 45 | › [radio] Civilization | › [radio] Civilization |  | same |  |
+| 46 | › [radio] Cartography | › [radio] Cartography |  | same |  |
+| 47 | [submenu] Open windows | [submenu] Open windows |  | same |  |
+| 48 | › [readout] No windows open |  |  | mockup-only | s S3 |
+| 49 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
+| 50 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
+| 51 | ——— | ——— |  | same |  |
+| 52 | Reset layout | Reset layout |  | same |  |
+| 53 | [submenu] Layouts | [submenu] Layouts |  | same |  |
+| 54 | › Default (reset layout) | › Default (reset layout) |  | same |  |
+| 55 | › Generate | › Generate |  | same |  |
+| 56 | › Sculpt | › Sculpt |  | same |  |
+| 57 | › Cartography | › Cartography |  | same |  |
+| 58 | › Journey | › Journey |  | same |  |
+| 59 | › ——— | › ——— |  | same |  |
+| 60 | › Save layout as… | › Save layout as… |  | same |  |
+| 61 | › Forget layout… | › Forget layout… |  | same |  |
 
 #### Help
 
@@ -702,8 +749,8 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 9 | ——— | ——— |  | same |  |
 | 10 | Select all · Ctrl+A | Select all · Ctrl+A |  | same |  |
 | 11 | Deselect · Ctrl+D | Deselect · Ctrl+D |  | same |  |
-| 12 | Previous selection · Alt+← | Previous selection · Alt+← | [not built] Previous selection | same after the milestone; today: kind command/disabled (not built), key Alt+←/none | m PC-1 |
-| 13 | Next selection · Alt+→ | Next selection · Alt+→ | [not built] Next selection | same after the milestone; today: kind command/disabled (not built), key Alt+→/none | m PC-1 |
+| 12 | Previous selection · Alt+← | Previous selection · Alt+← |  | same |  |
+| 13 | Next selection · Alt+→ | Next selection · Alt+→ |  | same |  |
 | 14 | ——— | ——— |  | same |  |
 | 15 | Find on map… · Ctrl+F | Find on map… · Ctrl+F |  | same |  |
 | 16 | Context card · Shift+F10 | Context card · Shift+F10 |  | same |  |
@@ -755,84 +802,84 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 27 | › Splat channels   4/4 | › Splat channels |  | same |  |
 | 28 | › Biome textures   9/12 | › Biome textures |  | same |  |
 | 29 | › Terrain textures   6/8 | › Terrain textures |  | same |  |
-| 30 | [submenu] Landmark types | [submenu] Landmark types |  | same |  |
-| 31 | › [submenu] Physical | › [submenu] Physical |  | same |  |
-| 32 | › › Peak | › › Peak |  | same |  |
-| 33 | › › Ridge | › › Ridge |  | same |  |
-| 34 | › › Saddle   not buildable | › › Saddle |  | differs: label | s R1 |
-| 35 | › › Cliff | › › Cliff |  | same |  |
-| 36 | › › Gorge | › › Gorge |  | same |  |
-| 37 | › › Cave | › › Cave |  | same |  |
-| 38 | › › Waterfall | › › Waterfall |  | same |  |
-| 39 | › › Spring | › › Spring |  | same |  |
-| 40 | › › Lake | › › Lake |  | same |  |
-| 41 | › › Delta   not buildable | › › Delta |  | differs: label | s R1 |
-| 42 | › › River confluence | › › River confluence |  | same |  |
-| 43 | › › Volcanic feature | › › Volcanic feature |  | same |  |
-| 44 | › › Rock formation | › › Rock formation |  | same |  |
-| 45 | › › Glacial feature   not buildable | › › Glacial feature |  | differs: label | s R1 |
-| 46 | › › Ancient forest   not buildable | › › Ancient forest |  | differs: label | s R1 |
-| 47 | › › ——— | › › ——— |  | same |  |
-| 48 | › › Open Physical in the dock | › › Open Physical in the dock |  | same |  |
-| 49 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 50 | › [submenu] Transport | › [submenu] Transport |  | same |  |
-| 51 | › › Mountain pass | › › Mountain pass |  | same |  |
-| 52 | › › River crossing   not buildable | › › River crossing |  | differs: label | s R1 |
-| 53 | › › Ford | › › Ford |  | same |  |
-| 54 | › › Bridge site | › › Bridge site |  | same |  |
-| 55 | › › Road junction | › › Road junction |  | same |  |
-| 56 | › › Caravan station | › › Caravan station |  | same |  |
-| 57 | › › Portage | › › Portage |  | same |  |
-| 58 | › › Harbour | › › Harbour |  | same |  |
-| 59 | › › ——— | › › ——— |  | same |  |
-| 60 | › › Open Transport in the dock | › › Open Transport in the dock |  | same |  |
-| 61 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 62 | › [submenu] Economic | › [submenu] Economic |  | same |  |
-| 63 | › › Mine | › › Mine |  | same |  |
-| 64 | › › Quarry | › › Quarry |  | same |  |
-| 65 | › › Salt works   not buildable | › › Salt works |  | differs: label | s R1 |
-| 66 | › › Resource extraction site | › › Resource extraction site |  | same |  |
-| 67 | › › Market site | › › Market site |  | same |  |
-| 68 | › › Trade depot | › › Trade depot |  | same |  |
-| 69 | › › ——— | › › ——— |  | same |  |
-| 70 | › › Open Economic in the dock | › › Open Economic in the dock |  | same |  |
-| 71 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 72 | › [submenu] Military | › [submenu] Military |  | same |  |
-| 73 | › › Fort | › › Fort |  | same |  |
-| 74 | › › Watchtower | › › Watchtower |  | same |  |
-| 75 | › › Fortified pass | › › Fortified pass |  | same |  |
-| 76 | › › Fortified crossing | › › Fortified crossing |  | same |  |
-| 77 | › › Battlefield | › › Battlefield |  | same |  |
-| 78 | › › Border marker | › › Border marker |  | same |  |
-| 79 | › › ——— | › › ——— |  | same |  |
-| 80 | › › Open Military in the dock | › › Open Military in the dock |  | same |  |
-| 81 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 82 | › [submenu] Cultural | › [submenu] Cultural |  | same |  |
-| 83 | › › Shrine   not buildable | › › Shrine |  | differs: label | s R1 |
-| 84 | › › Temple   not buildable | › › Temple |  | differs: label | s R1 |
-| 85 | › › Sacred grove   not buildable | › › Sacred grove |  | differs: label | s R1 |
-| 86 | › › Sacred mountain   not buildable | › › Sacred mountain |  | differs: label | s R1 |
-| 87 | › › Pilgrimage site   not buildable | › › Pilgrimage site |  | differs: label | s R1 |
-| 88 | › › Tomb   not buildable | › › Tomb |  | differs: label | s R1 |
-| 89 | › › Monument   not buildable | › › Monument |  | differs: label | s R1 |
-| 90 | › › Ceremonial site   not buildable | › › Ceremonial site |  | differs: label | s R1 |
-| 91 | › › ——— | › › ——— |  | same |  |
-| 92 | › › Open Cultural in the dock | › › Open Cultural in the dock |  | same |  |
-| 93 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 94 | › [submenu] Historical | › [submenu] Historical |  | same |  |
-| 95 | › › Ruin   not buildable | › › Ruin |  | differs: label | s R1 |
-| 96 | › › Abandoned settlement | › › Abandoned settlement |  | same |  |
-| 97 | › › Ancient road | › › Ancient road |  | same |  |
-| 98 | › › Historic battlefield   not buildable | › › Historic battlefield |  | differs: label | s R1 |
-| 99 | › › Destroyed fortress   not buildable | › › Destroyed fortress |  | differs: label | s R1 |
-| 100 | › › Historic crossing   not buildable | › › Historic crossing |  | differs: label | s R1 |
-| 101 | › › ——— | › › ——— |  | same |  |
-| 102 | › › Open Historical in the dock | › › Open Historical in the dock |  | same |  |
-| 103 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 104 | › Placed by hand   3 | › Placed by hand |  | same |  |
-| 105 | › ——— | › ——— |  | same |  |
-| 106 | › Landmark icons… | › Landmark icons… |  | same |  |
-| 107 | › Landmark label style… | › Landmark label style… |  | same |  |
+| 30 | [submenu] Landmark types | Landmark types… |  | differs: kind submenu/command | (c) EH-2 |
+| 31 | › [submenu] Physical |  |  | mockup-only | (c) EH-2 |
+| 32 | › › Peak |  |  | mockup-only (inside) | (c) EH-2 |
+| 33 | › › Ridge |  |  | mockup-only (inside) | (c) EH-2 |
+| 34 | › › Saddle   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 35 | › › Cliff |  |  | mockup-only (inside) | (c) EH-2 |
+| 36 | › › Gorge |  |  | mockup-only (inside) | (c) EH-2 |
+| 37 | › › Cave |  |  | mockup-only (inside) | (c) EH-2 |
+| 38 | › › Waterfall |  |  | mockup-only (inside) | (c) EH-2 |
+| 39 | › › Spring |  |  | mockup-only (inside) | (c) EH-2 |
+| 40 | › › Lake |  |  | mockup-only (inside) | (c) EH-2 |
+| 41 | › › Delta   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 42 | › › River confluence |  |  | mockup-only (inside) | (c) EH-2 |
+| 43 | › › Volcanic feature |  |  | mockup-only (inside) | (c) EH-2 |
+| 44 | › › Rock formation |  |  | mockup-only (inside) | (c) EH-2 |
+| 45 | › › Glacial feature   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 46 | › › Ancient forest   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 47 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 48 | › › Open Physical in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 49 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 50 | › [submenu] Transport |  |  | mockup-only | (c) EH-2 |
+| 51 | › › Mountain pass |  |  | mockup-only (inside) | (c) EH-2 |
+| 52 | › › River crossing   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 53 | › › Ford |  |  | mockup-only (inside) | (c) EH-2 |
+| 54 | › › Bridge site |  |  | mockup-only (inside) | (c) EH-2 |
+| 55 | › › Road junction |  |  | mockup-only (inside) | (c) EH-2 |
+| 56 | › › Caravan station |  |  | mockup-only (inside) | (c) EH-2 |
+| 57 | › › Portage |  |  | mockup-only (inside) | (c) EH-2 |
+| 58 | › › Harbour |  |  | mockup-only (inside) | (c) EH-2 |
+| 59 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 60 | › › Open Transport in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 61 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 62 | › [submenu] Economic |  |  | mockup-only | (c) EH-2 |
+| 63 | › › Mine |  |  | mockup-only (inside) | (c) EH-2 |
+| 64 | › › Quarry |  |  | mockup-only (inside) | (c) EH-2 |
+| 65 | › › Salt works   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 66 | › › Resource extraction site |  |  | mockup-only (inside) | (c) EH-2 |
+| 67 | › › Market site |  |  | mockup-only (inside) | (c) EH-2 |
+| 68 | › › Trade depot |  |  | mockup-only (inside) | (c) EH-2 |
+| 69 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 70 | › › Open Economic in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 71 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 72 | › [submenu] Military |  |  | mockup-only | (c) EH-2 |
+| 73 | › › Fort |  |  | mockup-only (inside) | (c) EH-2 |
+| 74 | › › Watchtower |  |  | mockup-only (inside) | (c) EH-2 |
+| 75 | › › Fortified pass |  |  | mockup-only (inside) | (c) EH-2 |
+| 76 | › › Fortified crossing |  |  | mockup-only (inside) | (c) EH-2 |
+| 77 | › › Battlefield |  |  | mockup-only (inside) | (c) EH-2 |
+| 78 | › › Border marker |  |  | mockup-only (inside) | (c) EH-2 |
+| 79 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 80 | › › Open Military in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 81 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 82 | › [submenu] Cultural |  |  | mockup-only | (c) EH-2 |
+| 83 | › › Shrine   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 84 | › › Temple   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 85 | › › Sacred grove   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 86 | › › Sacred mountain   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 87 | › › Pilgrimage site   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 88 | › › Tomb   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 89 | › › Monument   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 90 | › › Ceremonial site   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 91 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 92 | › › Open Cultural in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 93 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 94 | › [submenu] Historical |  |  | mockup-only | (c) EH-2 |
+| 95 | › › Ruin   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 96 | › › Abandoned settlement |  |  | mockup-only (inside) | (c) EH-2 |
+| 97 | › › Ancient road |  |  | mockup-only (inside) | (c) EH-2 |
+| 98 | › › Historic battlefield   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 99 | › › Destroyed fortress   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 100 | › › Historic crossing   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 101 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 102 | › › Open Historical in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 103 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 104 | › Placed by hand   3 |  |  | mockup-only | (c) EH-2 |
+| 105 | › ——— |  |  | mockup-only | (c) EH-2 |
+| 106 | › Landmark icons… |  |  | mockup-only | (c) EH-2 |
+| 107 | › Landmark label style… |  |  | mockup-only | (c) EH-2 |
 | 108 | ——— | ——— |  | same |  |
 | 109 | Apply library to map | Apply library to map |  | same |  |
 | 110 | Clear library… | Clear library…   destructive |  | same |  |
@@ -940,121 +987,170 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 45 | [not built] 3D viewport defaults | [not built] 3D viewport defaults |  | differs: reason | s S1 |
 | 46 | [submenu] Lighting rig defaults | [submenu] Lighting rig defaults |  | same |  |
 | 47 | › [readout] Following the engine | › [readout] Following the engine |  | same |  |
-| 48 | › [submenu] Azimuth | › [submenu] Azimuth |  | same |  |
-| 49 | › › [radio] 0 deg | › › [radio] 0 deg |  | same |  |
-| 50 | › › [radio] 45 deg | › › [radio] 45 deg |  | same |  |
-| 51 | › › [radio] 90 deg | › › [radio] 90 deg |  | same |  |
-| 52 | › › [radio] 135 deg | › › [radio] 135 deg |  | same |  |
-| 53 | › › [radio] 180 deg | › › [radio] 180 deg |  | same |  |
-| 54 | › › [radio] 225 deg | › › [radio] 225 deg |  | same |  |
-| 55 | › › [radio] 270 deg | › › [radio] 270 deg |  | same |  |
-| 56 | › › [radio] 315 deg | › › [radio] 315 deg |  | same |  |
-| 57 | › [submenu] Elevation | › [submenu] Elevation |  | same |  |
-| 58 | › › [radio] 15 deg | › › [radio] 15 deg |  | same |  |
-| 59 | › › [radio] 25 deg | › › [radio] 25 deg |  | same |  |
-| 60 | › › [radio] 35 deg | › › [radio] 35 deg |  | same |  |
-| 61 | › › [radio] 45 deg | › › [radio] 45 deg |  | same |  |
-| 62 | › › [radio] 55 deg | › › [radio] 55 deg |  | same |  |
-| 63 | › › [radio] 65 deg | › › [radio] 65 deg |  | same |  |
-| 64 | › › [radio] 75 deg | › › [radio] 75 deg |  | same |  |
-| 65 | › [submenu] Ambient | › [submenu] Ambient |  | same |  |
-| 66 | › › [radio] 0.00 | › › [radio] 0.00 |  | same |  |
-| 67 | › › [radio] 0.15 | › › [radio] 0.15 |  | same |  |
-| 68 | › › [radio] 0.25 | › › [radio] 0.25 |  | same |  |
-| 69 | › › [radio] 0.35 | › › [radio] 0.35 |  | same |  |
-| 70 | › › [radio] 0.50 | › › [radio] 0.50 |  | same |  |
-| 71 | › › [radio] 0.70 | › › [radio] 0.70 |  | same |  |
-| 72 | › [submenu] Multidirectional | › [submenu] Multidirectional |  | same |  |
-| 73 | › › [radio] 1 light (single sun) | › › [radio] 1 light (single sun) |  | same |  |
-| 74 | › › [radio] 2 lights | › › [radio] 2 lights |  | same |  |
-| 75 | › › [radio] 4 lights | › › [radio] 4 lights |  | same |  |
-| 76 | › › [radio] 6 lights | › › [radio] 6 lights |  | same |  |
-| 77 | › › [radio] 8 lights | › › [radio] 8 lights |  | same |  |
-| 78 | › › [radio] 12 lights | › › [radio] 12 lights |  | same |  |
-| 79 | › ——— | › ——— |  | same |  |
-| 80 | › Use the engine’s own rig | › Use the engine's own rig |  | same |  |
-| 81 | [submenu] Relief exaggeration | [submenu] Relief exaggeration |  | same |  |
-| 82 | › [radio] 1x | › [radio] 1x |  | same |  |
-| 83 | › [radio] 2x | › [radio] 2x |  | same |  |
-| 84 | › [radio] 4x | › [radio] 4x |  | same |  |
-| 85 | › ——— | › ——— |  | same |  |
-| 86 | › Use the engine’s own 3.4x | › Use the engine's own 3.4x |  | same |  |
-| 87 | **TILES & LOD** | **TILES & LOD** |  | same |  |
-| 88 | [submenu] Tiled LOD | [submenu] Tiled LOD |  | same |  |
-| 89 | › [radio] Auto on zoom | › [radio] Auto on zoom |  | same |  |
-| 90 | › [radio] Manual | › [radio] Manual |  | same |  |
-| 91 | › ——— | › ——— |  | same |  |
-| 92 | › Enter deep detail now | › Enter deep detail now |  | same |  |
-| 93 | › Leave deep detail | › Leave deep detail |  | same |  |
-| 94 | [submenu] Tile size · LOD levels | [submenu] Tile size · LOD levels |  | same |  |
-| 95 | › [radio] 256 px | › [radio] 256 px |  | same |  |
-| 96 | › [radio] 512 px | › [radio] 512 px |  | same |  |
-| 97 | › [radio] 1024 px | › [radio] 1024 px |  | same |  |
-| 98 | › ——— | › ——— |  | same |  |
-| 99 | › [submenu] LOD levels | › [submenu] LOD levels |  | same |  |
-| 100 | › › [radio] LOD 0–0   1 tile | › › [radio] LOD 0–0   1 tile |  | same |  |
-| 101 | › › [radio] LOD 0–1   5 tiles | › › [radio] LOD 0–1   5 tiles |  | same |  |
-| 102 | › › [radio] LOD 0–2   21 tiles | › › [radio] LOD 0–2   21 tiles |  | same |  |
-| 103 | › › [radio] LOD 0–3   85 tiles | › › [radio] LOD 0–3   85 tiles |  | same |  |
-| 104 | › › [radio] LOD 0–4   341 tiles | › › [radio] LOD 0–4   341 tiles |  | same |  |
-| 105 | › › [radio] LOD 0–5   1 365 tiles | › › [radio] LOD 0–5   1 365 tiles |  | same |  |
-| 106 | › › [radio] LOD 0–6   5 461 tiles | › › [radio] LOD 0–6   5 461 tiles |  | same |  |
-| 107 | › › [radio] LOD 0–7   21 845 tiles | › › [radio] LOD 0–7   21 845 tiles |  | same |  |
-| 108 | › › [radio] LOD 0–8   87 381 tiles | › › [radio] LOD 0–8   87 381 tiles |  | same |  |
-| 109 | [submenu] Atlas cache | [submenu] Atlas cache |  | same |  |
-| 110 | › [readout] 85 chunks · 1.2 GB · to LOD 3 | › [readout] … chunks · … · empty |  | differs: label | s R2 |
-| 111 | › [submenu] Size cap · GB | › [submenu] Size cap · GB |  | same |  |
-| 112 | › › [radio] No cap | › › [radio] No cap |  | same |  |
-| 113 | › › [radio] 0.5 GB | › › [radio] 0.5 GB |  | same |  |
-| 114 | › › [radio] 1 GB | › › [radio] 1 GB |  | same |  |
-| 115 | › › [radio] 2 GB | › › [radio] 2 GB |  | same |  |
-| 116 | › › [radio] 4 GB | › › [radio] 4 GB |  | same |  |
-| 117 | › › [radio] 8 GB | › › [radio] 8 GB |  | same |  |
-| 118 | › › [radio] 16 GB | › › [radio] 16 GB |  | same |  |
-| 119 | › Refine detail for the current view | › Refine detail for the current view |  | same |  |
-| 120 | › Refine viewshed for the current view | › Refine viewshed for the current view |  | same |  |
-| 121 | › [readout] Viewshed | › [readout] Viewshed: never refined |  | same |  |
-| 122 | › ——— | › ——— |  | same |  |
-| 123 | › Export atlas… | › Export atlas… |  | same |  |
-| 124 | › Import atlas… | › Import atlas… |  | same |  |
-| 125 | › ——— | › ——— |  | same |  |
-| 126 | › Clear atlas cache now… | › Clear atlas cache now… |  | same |  |
-| 127 | [submenu] Chunk debug overlay | [submenu] Chunk debug overlay |  | same |  |
-| 128 | › [check] Grid | › [check] Grid |  | same |  |
-| 129 | › [check] Colors | › [check] Colors |  | same |  |
-| 130 | › [check] Labels | › [check] Labels |  | same |  |
-| 131 | › ——— | › ——— |  | same |  |
-| 132 | › [check] Show tile borders on the map | › [check] Show tile borders on the map |  | same |  |
-| 133 | **MEMORY** | **MEMORY** |  | same |  |
-| 134 | [submenu] Undo history | [submenu] Undo history |  | same |  |
-| 135 | › [radio] 64 MB | › [radio] 64 MB |  | same |  |
-| 136 | › [radio] 128 MB | › [radio] 128 MB |  | same |  |
-| 137 | › [radio] 256 MB | › [radio] 256 MB |  | same |  |
-| 138 | › [radio] 512 MB | › [radio] 512 MB |  | same |  |
-| 139 | › [radio] 1024 MB | › [radio] 1024 MB |  | same |  |
-| 140 | › ——— | › ——— |  | same |  |
-| 141 | › Clear undo history now | › Clear undo history now |  | same |  |
-| 142 | [readout] Working set | [readout] Working set   … GB of … GB |  | same |  |
-| 143 | Clear caches… | Clear caches… |  | same |  |
-| 144 | **APPLICATION** | **APPLICATION** |  | same |  |
-| 145 | Storage locations… | Storage locations… |  | same |  |
-| 146 | Assistant… | Assistant… |  | same |  |
-| 147 | Quick bar… | Quick bar… |  | same |  |
-| 148 | [DESKTOP ONLY] Open panels in their own window |  |  | mockup-only | n N3 |
-| 149 | [submenu] Theme | [submenu] Theme |  | same |  |
-| 150 | › [radio] Dark | › [radio] Dark |  | same |  |
-| 151 | › [radio] Light | › [radio] Light |  | same |  |
-| 152 | › [radio] Follow system | › [radio] Follow system |  | same |  |
-| 153 | [submenu] Units | [submenu] Units |  | same |  |
-| 154 | › [radio] Kilometres | › [radio] Kilometres |  | same |  |
-| 155 | › [radio] Miles | › [radio] Miles |  | same |  |
-| 156 | › [radio] Nautical miles | › [radio] Nautical miles |  | same |  |
-| 157 | [submenu] Handedness | [submenu] Handedness |  | same |  |
-| 158 | › [radio] Left | › [radio] Left |  | same |  |
-| 159 | › [radio] Right | › [radio] Right |  | same |  |
-| 160 | Keyboard shortcuts… | Keyboard shortcuts… |  | same |  |
-| 161 | **TOUCH · NEW** |  |  | mockup-only | n N1 |
-| 162 | Touch & gestures… |  |  | mockup-only | n N1 |
+| 48 | › [submenu] Azimuth | › **AZIMUTH** |  | differs: kind submenu/caption | ?  |
+| 49 | › › [radio] 0 deg |  |  | mockup-only | ?  |
+| 50 | › › [radio] 45 deg |  |  | mockup-only | ?  |
+| 51 | › › [radio] 90 deg |  |  | mockup-only | ?  |
+| 52 | › › [radio] 135 deg |  |  | mockup-only | ?  |
+| 53 | › › [radio] 180 deg |  |  | mockup-only | ?  |
+| 54 | › › [radio] 225 deg |  |  | mockup-only | ?  |
+| 55 | › › [radio] 270 deg |  |  | mockup-only | ?  |
+| 56 | › › [radio] 315 deg |  |  | mockup-only | ?  |
+| 57 |  | › [radio] 0 deg |  | Godot-only | ?  |
+| 58 |  | › [radio] 45 deg |  | Godot-only | ?  |
+| 59 |  | › [radio] 90 deg |  | Godot-only | ?  |
+| 60 |  | › [radio] 135 deg |  | Godot-only | ?  |
+| 61 |  | › [radio] 180 deg |  | Godot-only | ?  |
+| 62 |  | › [radio] 225 deg |  | Godot-only | ?  |
+| 63 |  | › [radio] 270 deg |  | Godot-only | ?  |
+| 64 |  | › [radio] 315 deg |  | Godot-only | ?  |
+| 65 | › [submenu] Elevation | › **ELEVATION** |  | differs: kind submenu/caption | ?  |
+| 66 | › › [radio] 15 deg |  |  | mockup-only | ?  |
+| 67 | › › [radio] 25 deg |  |  | mockup-only | ?  |
+| 68 | › › [radio] 35 deg |  |  | mockup-only | ?  |
+| 69 | › › [radio] 45 deg |  |  | mockup-only | ?  |
+| 70 | › › [radio] 55 deg |  |  | mockup-only | ?  |
+| 71 | › › [radio] 65 deg |  |  | mockup-only | ?  |
+| 72 | › › [radio] 75 deg |  |  | mockup-only | ?  |
+| 73 |  | › [radio] 15 deg |  | Godot-only | ?  |
+| 74 |  | › [radio] 25 deg |  | Godot-only | ?  |
+| 75 |  | › [radio] 35 deg |  | Godot-only | ?  |
+| 76 |  | › [radio] 45 deg |  | Godot-only | ?  |
+| 77 |  | › [radio] 55 deg |  | Godot-only | ?  |
+| 78 |  | › [radio] 65 deg |  | Godot-only | ?  |
+| 79 |  | › [radio] 75 deg |  | Godot-only | ?  |
+| 80 | › [submenu] Ambient | › **AMBIENT** |  | differs: kind submenu/caption | ?  |
+| 81 | › › [radio] 0.00 |  |  | mockup-only | ?  |
+| 82 | › › [radio] 0.15 |  |  | mockup-only | ?  |
+| 83 | › › [radio] 0.25 |  |  | mockup-only | ?  |
+| 84 | › › [radio] 0.35 |  |  | mockup-only | ?  |
+| 85 | › › [radio] 0.50 |  |  | mockup-only | ?  |
+| 86 | › › [radio] 0.70 |  |  | mockup-only | ?  |
+| 87 |  | › [radio] 0.00 |  | Godot-only | ?  |
+| 88 |  | › [radio] 0.15 |  | Godot-only | ?  |
+| 89 |  | › [radio] 0.25 |  | Godot-only | ?  |
+| 90 |  | › [radio] 0.35 |  | Godot-only | ?  |
+| 91 |  | › [radio] 0.50 |  | Godot-only | ?  |
+| 92 |  | › [radio] 0.70 |  | Godot-only | ?  |
+| 93 | › [submenu] Multidirectional | › **MULTIDIRECTIONAL** |  | differs: kind submenu/caption | ?  |
+| 94 | › › [radio] 1 light (single sun) |  |  | mockup-only | ?  |
+| 95 | › › [radio] 2 lights |  |  | mockup-only | ?  |
+| 96 | › › [radio] 4 lights |  |  | mockup-only | ?  |
+| 97 | › › [radio] 6 lights |  |  | mockup-only | ?  |
+| 98 | › › [radio] 8 lights |  |  | mockup-only | ?  |
+| 99 | › › [radio] 12 lights |  |  | mockup-only | ?  |
+| 100 |  | › [radio] 1 light (single sun) |  | Godot-only | ?  |
+| 101 |  | › [radio] 2 lights |  | Godot-only | ?  |
+| 102 |  | › [radio] 4 lights |  | Godot-only | ?  |
+| 103 |  | › [radio] 6 lights |  | Godot-only | ?  |
+| 104 |  | › [radio] 8 lights |  | Godot-only | ?  |
+| 105 |  | › [radio] 12 lights |  | Godot-only | ?  |
+| 106 | › ——— | › ——— |  | same |  |
+| 107 | › Use the engine’s own rig | › Use the engine's own rig |  | same |  |
+| 108 | [submenu] Relief exaggeration | [submenu] Relief exaggeration |  | same |  |
+| 109 | › [radio] 1x | › [radio] 1x |  | same |  |
+| 110 | › [radio] 2x | › [radio] 2x |  | same |  |
+| 111 | › [radio] 4x | › [radio] 4x |  | same |  |
+| 112 | › ——— | › ——— |  | same |  |
+| 113 | › Use the engine’s own 3.4x | › Use the engine's own 3.4x |  | same |  |
+| 114 | **TILES & LOD** | **TILES & LOD** |  | same |  |
+| 115 | [submenu] Tiled LOD | [submenu] Tiled LOD |  | same |  |
+| 116 | › [radio] Auto on zoom | › [radio] Auto on zoom |  | same |  |
+| 117 | › [radio] Manual | › [radio] Manual |  | same |  |
+| 118 | › ——— | › ——— |  | same |  |
+| 119 | › Enter deep detail now | › Enter deep detail now |  | same |  |
+| 120 | › Leave deep detail | › Leave deep detail |  | same |  |
+| 121 | [submenu] Tile size · LOD levels | [submenu] Tile size · LOD levels |  | same |  |
+| 122 | › [radio] 256 px | › [radio] 256 px |  | same |  |
+| 123 | › [radio] 512 px | › [radio] 512 px |  | same |  |
+| 124 | › [radio] 1024 px | › [radio] 1024 px |  | same |  |
+| 125 | › ——— |  |  | mockup-only | ?  |
+| 126 | › [submenu] LOD levels | › **LOD LEVELS** |  | differs: kind submenu/caption | ?  |
+| 127 | › › [radio] LOD 0–0   1 tile |  |  | mockup-only | ?  |
+| 128 | › › [radio] LOD 0–1   5 tiles |  |  | mockup-only | ?  |
+| 129 | › › [radio] LOD 0–2   21 tiles |  |  | mockup-only | ?  |
+| 130 | › › [radio] LOD 0–3   85 tiles |  |  | mockup-only | ?  |
+| 131 | › › [radio] LOD 0–4   341 tiles |  |  | mockup-only | ?  |
+| 132 | › › [radio] LOD 0–5   1 365 tiles |  |  | mockup-only | ?  |
+| 133 | › › [radio] LOD 0–6   5 461 tiles |  |  | mockup-only | ?  |
+| 134 | › › [radio] LOD 0–7   21 845 tiles |  |  | mockup-only | ?  |
+| 135 | › › [radio] LOD 0–8   87 381 tiles |  |  | mockup-only | ?  |
+| 136 |  | › [radio] LOD 0–0   1 tile |  | Godot-only | ?  |
+| 137 |  | › [radio] LOD 0–1   5 tiles |  | Godot-only | ?  |
+| 138 |  | › [radio] LOD 0–2   21 tiles |  | Godot-only | ?  |
+| 139 |  | › [radio] LOD 0–3   85 tiles |  | Godot-only | ?  |
+| 140 |  | › [radio] LOD 0–4   341 tiles |  | Godot-only | ?  |
+| 141 |  | › [radio] LOD 0–5   1 365 tiles |  | Godot-only | ?  |
+| 142 |  | › [radio] LOD 0–6   5 461 tiles |  | Godot-only | ?  |
+| 143 |  | › [radio] LOD 0–7   21 845 tiles |  | Godot-only | ?  |
+| 144 |  | › [radio] LOD 0–8   87 381 tiles |  | Godot-only | ?  |
+| 145 | [submenu] Atlas cache | [submenu] Atlas cache |  | same |  |
+| 146 | › [readout] 85 chunks · 1.2 GB · to LOD 3 |  |  | mockup-only | ?  |
+| 147 |  | › [readout] … chunks · … · empty |  | Godot-only | ?  |
+| 148 | › [submenu] Size cap · GB | › **SIZE CAP · GB** |  | differs: kind submenu/caption | ?  |
+| 149 | › › [radio] No cap |  |  | mockup-only | ?  |
+| 150 | › › [radio] 0.5 GB |  |  | mockup-only | ?  |
+| 151 | › › [radio] 1 GB |  |  | mockup-only | ?  |
+| 152 | › › [radio] 2 GB |  |  | mockup-only | ?  |
+| 153 | › › [radio] 4 GB |  |  | mockup-only | ?  |
+| 154 | › › [radio] 8 GB |  |  | mockup-only | ?  |
+| 155 | › › [radio] 16 GB |  |  | mockup-only | ?  |
+| 156 |  | › [radio] No cap |  | Godot-only | ?  |
+| 157 |  | › [radio] 0.5 GB |  | Godot-only | ?  |
+| 158 |  | › [radio] 1 GB |  | Godot-only | ?  |
+| 159 |  | › [radio] 2 GB |  | Godot-only | ?  |
+| 160 |  | › [radio] 4 GB |  | Godot-only | ?  |
+| 161 |  | › [radio] 8 GB |  | Godot-only | ?  |
+| 162 |  | › [radio] 16 GB |  | Godot-only | ?  |
+| 163 | › Refine detail for the current view | › Refine detail for the current view |  | same |  |
+| 164 | › Refine viewshed for the current view | › Refine viewshed for the current view |  | same |  |
+| 165 | › [readout] Viewshed | › [readout] Viewshed: never refined |  | same |  |
+| 166 | › ——— | › ——— |  | same |  |
+| 167 | › Export atlas… | › Export atlas… |  | same |  |
+| 168 | › Import atlas… | › Import atlas… |  | same |  |
+| 169 | › ——— | › ——— |  | same |  |
+| 170 | › Clear atlas cache now… | › Clear atlas cache now… |  | same |  |
+| 171 | [submenu] Chunk debug overlay | [submenu] Chunk debug overlay |  | same |  |
+| 172 | › [check] Grid | › [check] Grid |  | same |  |
+| 173 | › [check] Colors | › [check] Colors |  | same |  |
+| 174 | › [check] Labels | › [check] Labels |  | same |  |
+| 175 | › ——— | › ——— |  | same |  |
+| 176 | › [check] Show tile borders on the map | › [check] Show tile borders on the map |  | same |  |
+| 177 | **MEMORY** | **MEMORY** |  | same |  |
+| 178 | [submenu] Undo history | [submenu] Undo history |  | same |  |
+| 179 | › [radio] 64 MB | › [radio] 64 MB |  | same |  |
+| 180 | › [radio] 128 MB | › [radio] 128 MB |  | same |  |
+| 181 | › [radio] 256 MB | › [radio] 256 MB |  | same |  |
+| 182 | › [radio] 512 MB | › [radio] 512 MB |  | same |  |
+| 183 | › [radio] 1024 MB | › [radio] 1024 MB |  | same |  |
+| 184 | › ——— | › ——— |  | same |  |
+| 185 | › Clear undo history now | › Clear undo history now |  | same |  |
+| 186 | [readout] Working set | [readout] Working set   … GB of … GB |  | same |  |
+| 187 | Clear caches… | Clear caches… |  | same |  |
+| 188 | **APPLICATION** | **APPLICATION** |  | same |  |
+| 189 | Storage locations… | Storage locations… |  | same |  |
+| 190 | Assistant… | Assistant… |  | same |  |
+| 191 | Quick bar… | Quick bar… |  | same |  |
+| 192 | [DESKTOP ONLY] Open panels in their own window |  |  | mockup-only | n N3 |
+| 193 | [submenu] Theme | [submenu] Theme |  | same |  |
+| 194 | › [radio] Dark | › [radio] Dark |  | same |  |
+| 195 | › [radio] Light | › [radio] Light |  | same |  |
+| 196 | › [radio] Follow system | › [radio] Follow system |  | same |  |
+| 197 | [submenu] Units | [submenu] Units |  | same |  |
+| 198 | › [radio] Kilometres | › [radio] Kilometres |  | same |  |
+| 199 | › [radio] Miles | › [radio] Miles |  | same |  |
+| 200 | › [radio] Nautical miles | › [radio] Nautical miles |  | same |  |
+| 201 | [submenu] Handedness | [submenu] Handedness |  | same |  |
+| 202 | › [radio] Left | › [radio] Left |  | same |  |
+| 203 | › [radio] Right | › [radio] Right |  | same |  |
+| 204 |  | [submenu] UI scale |  | Godot-only | ?  |
+| 205 |  | › [radio] 100 % |  | Godot-only (inside) | ?  |
+| 206 |  | › [radio] 125 % |  | Godot-only (inside) | ?  |
+| 207 |  | › [radio] 150 % |  | Godot-only (inside) | ?  |
+| 208 |  | › [radio] 200 % |  | Godot-only (inside) | ?  |
+| 209 | Keyboard shortcuts… | Keyboard shortcuts… |  | same |  |
+| 210 | **TOUCH · NEW** |  |  | mockup-only | n N1 |
+| 211 | Touch & gestures… |  |  | mockup-only | n N1 |
 
 #### Window
 
@@ -1081,7 +1177,7 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 19 | › [check] Links | › [not built] Links |  | differs: kind check/disabled (not built) | m PC-10 |
 | 20 | › [check] Recent & bookmarks | › [not built] Recent & bookmarks |  | differs: kind check/disabled (not built) | m PC-10 |
 | 21 | › ——— | › ——— |  | same |  |
-| 22 | › Reset panel | › [not built] Reset panel |  | differs: kind command/disabled (not built) | m PC-10 |
+| 22 | › Reset panel | › Reset panel |  | same |  |
 | 23 | [check] Timeline | [check] Timeline |  | same |  |
 | 24 | [check] Status bar | [check] Status bar |  | same |  |
 | 25 | [check] Domain rail | [check] Domain rail |  | same |  |
@@ -1092,32 +1188,35 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 30 | [submenu] 3D capability | [submenu] 3D capability |  | same |  |
 | 31 | › [readout] 3D tier | › [readout] 3D tier: not tested |  | same |  |
 | 32 | › Re-test 3D | › Re-test 3D |  | same |  |
-| 33 | › [submenu] Force tier | › [submenu] Force tier |  | same |  |
-| 34 | › › [radio] Automatic (as measured) | › › [radio] Automatic (as measured) |  | same |  |
-| 35 | › › [radio] Off | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 36 | › › [radio] Basic | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 37 | › › [radio] Standard | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 38 | › › [radio] Full | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 39 | ——— | ——— |  | same |  |
-| 40 | [submenu] Workspace | [submenu] Workspace |  | same |  |
-| 41 | › [radio] World · SM | › [radio] World · SM |  | same |  |
-| 42 | › [radio] Civilization | › [radio] Civilization |  | same |  |
-| 43 | › [radio] Cartography | › [radio] Cartography |  | same |  |
-| 44 | [submenu] Open windows | [submenu] Open windows |  | same |  |
-| 45 | › [readout] No windows open |  |  | mockup-only | s S3 |
-| 46 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
-| 47 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
-| 48 | ——— | ——— |  | same |  |
-| 49 | Reset layout | Reset layout |  | same |  |
-| 50 | [submenu] Layouts | [submenu] Layouts |  | same |  |
-| 51 | › Default (reset layout) | › Default (reset layout) |  | same |  |
-| 52 | › Generate | › Generate |  | same |  |
-| 53 | › Sculpt | › Sculpt |  | same |  |
-| 54 | › Cartography | › Cartography |  | same |  |
-| 55 | › Journey | › Journey |  | same |  |
-| 56 | › ——— | › ——— |  | same |  |
-| 57 | › Save layout as… | › Save layout as… |  | same |  |
-| 58 | › Forget layout… | › Forget layout… |  | same |  |
+| 33 | › [submenu] Force tier |  |  | mockup-only | ?  |
+| 34 | › › [radio] Automatic (as measured) |  |  | mockup-only (inside) | ?  |
+| 35 | › › [radio] Off |  |  | mockup-only (inside) | ?  |
+| 36 | › › [radio] Basic |  |  | mockup-only (inside) | ?  |
+| 37 | › › [radio] Standard |  |  | mockup-only (inside) | ?  |
+| 38 | › › [radio] Full |  |  | mockup-only (inside) | ?  |
+| 39 |  | › **FORCE TIER** |  | Godot-only | ?  |
+| 40 |  | › [radio] Automatic (as measured) |  | Godot-only | ?  |
+| 41 |  | › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | Godot-only | ?  |
+| 42 | ——— | ——— |  | same |  |
+| 43 | [submenu] Workspace | [submenu] Workspace |  | same |  |
+| 44 | › [radio] World · SM | › [radio] World · SM |  | same |  |
+| 45 | › [radio] Civilization | › [radio] Civilization |  | same |  |
+| 46 | › [radio] Cartography | › [radio] Cartography |  | same |  |
+| 47 | [submenu] Open windows | [submenu] Open windows |  | same |  |
+| 48 | › [readout] No windows open |  |  | mockup-only | s S3 |
+| 49 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
+| 50 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
+| 51 | ——— | ——— |  | same |  |
+| 52 | Reset layout | Reset layout |  | same |  |
+| 53 | [submenu] Layouts | [submenu] Layouts |  | same |  |
+| 54 | › Default (reset layout) | › Default (reset layout) |  | same |  |
+| 55 | › Generate | › Generate |  | same |  |
+| 56 | › Sculpt | › Sculpt |  | same |  |
+| 57 | › Cartography | › Cartography |  | same |  |
+| 58 | › Journey | › Journey |  | same |  |
+| 59 | › ——— | › ——— |  | same |  |
+| 60 | › Save layout as… | › Save layout as… |  | same |  |
+| 61 | › Forget layout… | › Forget layout… |  | same |  |
 
 #### Help
 
@@ -1142,84 +1241,84 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 3 | Undo history… | Undo history… |  | same |  |
 | 4 | ——— | ——— |  | same |  |
 | 5 | ⧉ Asset library · Shift+A | ⧉ Asset library · Shift+A |  | same |  |
-| 6 | [submenu] Landmark types | [submenu] Landmark types |  | same |  |
-| 7 | › [submenu] Physical | › [submenu] Physical |  | same |  |
-| 8 | › › Peak | › › Peak |  | same |  |
-| 9 | › › Ridge | › › Ridge |  | same |  |
-| 10 | › › Saddle   not buildable | › › Saddle |  | differs: label | s R1 |
-| 11 | › › Cliff | › › Cliff |  | same |  |
-| 12 | › › Gorge | › › Gorge |  | same |  |
-| 13 | › › Cave | › › Cave |  | same |  |
-| 14 | › › Waterfall | › › Waterfall |  | same |  |
-| 15 | › › Spring | › › Spring |  | same |  |
-| 16 | › › Lake | › › Lake |  | same |  |
-| 17 | › › Delta   not buildable | › › Delta |  | differs: label | s R1 |
-| 18 | › › River confluence | › › River confluence |  | same |  |
-| 19 | › › Volcanic feature | › › Volcanic feature |  | same |  |
-| 20 | › › Rock formation | › › Rock formation |  | same |  |
-| 21 | › › Glacial feature   not buildable | › › Glacial feature |  | differs: label | s R1 |
-| 22 | › › Ancient forest   not buildable | › › Ancient forest |  | differs: label | s R1 |
-| 23 | › › ——— | › › ——— |  | same |  |
-| 24 | › › Open Physical in the dock | › › Open Physical in the dock |  | same |  |
-| 25 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 26 | › [submenu] Transport | › [submenu] Transport |  | same |  |
-| 27 | › › Mountain pass | › › Mountain pass |  | same |  |
-| 28 | › › River crossing   not buildable | › › River crossing |  | differs: label | s R1 |
-| 29 | › › Ford | › › Ford |  | same |  |
-| 30 | › › Bridge site | › › Bridge site |  | same |  |
-| 31 | › › Road junction | › › Road junction |  | same |  |
-| 32 | › › Caravan station | › › Caravan station |  | same |  |
-| 33 | › › Portage | › › Portage |  | same |  |
-| 34 | › › Harbour | › › Harbour |  | same |  |
-| 35 | › › ——— | › › ——— |  | same |  |
-| 36 | › › Open Transport in the dock | › › Open Transport in the dock |  | same |  |
-| 37 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 38 | › [submenu] Economic | › [submenu] Economic |  | same |  |
-| 39 | › › Mine | › › Mine |  | same |  |
-| 40 | › › Quarry | › › Quarry |  | same |  |
-| 41 | › › Salt works   not buildable | › › Salt works |  | differs: label | s R1 |
-| 42 | › › Resource extraction site | › › Resource extraction site |  | same |  |
-| 43 | › › Market site | › › Market site |  | same |  |
-| 44 | › › Trade depot | › › Trade depot |  | same |  |
-| 45 | › › ——— | › › ——— |  | same |  |
-| 46 | › › Open Economic in the dock | › › Open Economic in the dock |  | same |  |
-| 47 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 48 | › [submenu] Military | › [submenu] Military |  | same |  |
-| 49 | › › Fort | › › Fort |  | same |  |
-| 50 | › › Watchtower | › › Watchtower |  | same |  |
-| 51 | › › Fortified pass | › › Fortified pass |  | same |  |
-| 52 | › › Fortified crossing | › › Fortified crossing |  | same |  |
-| 53 | › › Battlefield | › › Battlefield |  | same |  |
-| 54 | › › Border marker | › › Border marker |  | same |  |
-| 55 | › › ——— | › › ——— |  | same |  |
-| 56 | › › Open Military in the dock | › › Open Military in the dock |  | same |  |
-| 57 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 58 | › [submenu] Cultural | › [submenu] Cultural |  | same |  |
-| 59 | › › Shrine   not buildable | › › Shrine |  | differs: label | s R1 |
-| 60 | › › Temple   not buildable | › › Temple |  | differs: label | s R1 |
-| 61 | › › Sacred grove   not buildable | › › Sacred grove |  | differs: label | s R1 |
-| 62 | › › Sacred mountain   not buildable | › › Sacred mountain |  | differs: label | s R1 |
-| 63 | › › Pilgrimage site   not buildable | › › Pilgrimage site |  | differs: label | s R1 |
-| 64 | › › Tomb   not buildable | › › Tomb |  | differs: label | s R1 |
-| 65 | › › Monument   not buildable | › › Monument |  | differs: label | s R1 |
-| 66 | › › Ceremonial site   not buildable | › › Ceremonial site |  | differs: label | s R1 |
-| 67 | › › ——— | › › ——— |  | same |  |
-| 68 | › › Open Cultural in the dock | › › Open Cultural in the dock |  | same |  |
-| 69 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 70 | › [submenu] Historical | › [submenu] Historical |  | same |  |
-| 71 | › › Ruin   not buildable | › › Ruin |  | differs: label | s R1 |
-| 72 | › › Abandoned settlement | › › Abandoned settlement |  | same |  |
-| 73 | › › Ancient road | › › Ancient road |  | same |  |
-| 74 | › › Historic battlefield   not buildable | › › Historic battlefield |  | differs: label | s R1 |
-| 75 | › › Destroyed fortress   not buildable | › › Destroyed fortress |  | differs: label | s R1 |
-| 76 | › › Historic crossing   not buildable | › › Historic crossing |  | differs: label | s R1 |
-| 77 | › › ——— | › › ——— |  | same |  |
-| 78 | › › Open Historical in the dock | › › Open Historical in the dock |  | same |  |
-| 79 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 80 | › Placed by hand   3 | › Placed by hand |  | same |  |
-| 81 | › ——— | › ——— |  | same |  |
-| 82 | › Landmark icons… | › Landmark icons… |  | same |  |
-| 83 | › Landmark label style… | › Landmark label style… |  | same |  |
+| 6 | [submenu] Landmark types | Landmark types… |  | differs: kind submenu/command | (c) EH-2 |
+| 7 | › [submenu] Physical |  |  | mockup-only | (c) EH-2 |
+| 8 | › › Peak |  |  | mockup-only (inside) | (c) EH-2 |
+| 9 | › › Ridge |  |  | mockup-only (inside) | (c) EH-2 |
+| 10 | › › Saddle   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 11 | › › Cliff |  |  | mockup-only (inside) | (c) EH-2 |
+| 12 | › › Gorge |  |  | mockup-only (inside) | (c) EH-2 |
+| 13 | › › Cave |  |  | mockup-only (inside) | (c) EH-2 |
+| 14 | › › Waterfall |  |  | mockup-only (inside) | (c) EH-2 |
+| 15 | › › Spring |  |  | mockup-only (inside) | (c) EH-2 |
+| 16 | › › Lake |  |  | mockup-only (inside) | (c) EH-2 |
+| 17 | › › Delta   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 18 | › › River confluence |  |  | mockup-only (inside) | (c) EH-2 |
+| 19 | › › Volcanic feature |  |  | mockup-only (inside) | (c) EH-2 |
+| 20 | › › Rock formation |  |  | mockup-only (inside) | (c) EH-2 |
+| 21 | › › Glacial feature   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 22 | › › Ancient forest   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 23 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 24 | › › Open Physical in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 25 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 26 | › [submenu] Transport |  |  | mockup-only | (c) EH-2 |
+| 27 | › › Mountain pass |  |  | mockup-only (inside) | (c) EH-2 |
+| 28 | › › River crossing   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 29 | › › Ford |  |  | mockup-only (inside) | (c) EH-2 |
+| 30 | › › Bridge site |  |  | mockup-only (inside) | (c) EH-2 |
+| 31 | › › Road junction |  |  | mockup-only (inside) | (c) EH-2 |
+| 32 | › › Caravan station |  |  | mockup-only (inside) | (c) EH-2 |
+| 33 | › › Portage |  |  | mockup-only (inside) | (c) EH-2 |
+| 34 | › › Harbour |  |  | mockup-only (inside) | (c) EH-2 |
+| 35 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 36 | › › Open Transport in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 37 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 38 | › [submenu] Economic |  |  | mockup-only | (c) EH-2 |
+| 39 | › › Mine |  |  | mockup-only (inside) | (c) EH-2 |
+| 40 | › › Quarry |  |  | mockup-only (inside) | (c) EH-2 |
+| 41 | › › Salt works   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 42 | › › Resource extraction site |  |  | mockup-only (inside) | (c) EH-2 |
+| 43 | › › Market site |  |  | mockup-only (inside) | (c) EH-2 |
+| 44 | › › Trade depot |  |  | mockup-only (inside) | (c) EH-2 |
+| 45 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 46 | › › Open Economic in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 47 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 48 | › [submenu] Military |  |  | mockup-only | (c) EH-2 |
+| 49 | › › Fort |  |  | mockup-only (inside) | (c) EH-2 |
+| 50 | › › Watchtower |  |  | mockup-only (inside) | (c) EH-2 |
+| 51 | › › Fortified pass |  |  | mockup-only (inside) | (c) EH-2 |
+| 52 | › › Fortified crossing |  |  | mockup-only (inside) | (c) EH-2 |
+| 53 | › › Battlefield |  |  | mockup-only (inside) | (c) EH-2 |
+| 54 | › › Border marker |  |  | mockup-only (inside) | (c) EH-2 |
+| 55 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 56 | › › Open Military in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 57 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 58 | › [submenu] Cultural |  |  | mockup-only | (c) EH-2 |
+| 59 | › › Shrine   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 60 | › › Temple   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 61 | › › Sacred grove   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 62 | › › Sacred mountain   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 63 | › › Pilgrimage site   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 64 | › › Tomb   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 65 | › › Monument   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 66 | › › Ceremonial site   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 67 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 68 | › › Open Cultural in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 69 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 70 | › [submenu] Historical |  |  | mockup-only | (c) EH-2 |
+| 71 | › › Ruin   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 72 | › › Abandoned settlement |  |  | mockup-only (inside) | (c) EH-2 |
+| 73 | › › Ancient road |  |  | mockup-only (inside) | (c) EH-2 |
+| 74 | › › Historic battlefield   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 75 | › › Destroyed fortress   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 76 | › › Historic crossing   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 77 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 78 | › › Open Historical in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 79 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 80 | › Placed by hand   3 |  |  | mockup-only | (c) EH-2 |
+| 81 | › ——— |  |  | mockup-only | (c) EH-2 |
+| 82 | › Landmark icons… |  |  | mockup-only | (c) EH-2 |
+| 83 | › Landmark label style… |  |  | mockup-only | (c) EH-2 |
 | 84 | ——— | ——— |  | same |  |
 | 85 | Toggle theme | Toggle theme |  | same |  |
 | 86 | [submenu] Units | [submenu] Units |  | same |  |
@@ -1238,8 +1337,8 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 99 | › ——— | › ——— |  | same |  |
 | 100 | › Select all · Ctrl+A | › Select all · Ctrl+A |  | same |  |
 | 101 | › Deselect · Ctrl+D | › Deselect · Ctrl+D |  | same |  |
-| 102 | › Previous selection · Alt+← | › Previous selection · Alt+← | › [not built] Previous selection | same after the milestone; today: kind command/disabled (not built), key Alt+←/none | m PC-1 |
-| 103 | › Next selection · Alt+→ | › Next selection · Alt+→ | › [not built] Next selection | same after the milestone; today: kind command/disabled (not built), key Alt+→/none | m PC-1 |
+| 102 | › Previous selection · Alt+← | › Previous selection · Alt+← |  | same |  |
+| 103 | › Next selection · Alt+→ | › Next selection · Alt+→ |  | same |  |
 | 104 | › ——— | › ——— |  | same |  |
 | 105 | › Find on map… · Ctrl+F | › Find on map… · Ctrl+F |  | same |  |
 | 106 | › Context card · Shift+F10 | › Context card · Shift+F10 |  | same |  |
@@ -1324,182 +1423,234 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 185 | › [not built] 3D viewport defaults | › [not built] 3D viewport defaults |  | differs: reason | s S1 |
 | 186 | › [submenu] Lighting rig defaults | › [submenu] Lighting rig defaults |  | same |  |
 | 187 | › › [readout] Following the engine | › › [readout] Following the engine |  | same |  |
-| 188 | › › [submenu] Azimuth | › › [submenu] Azimuth |  | same |  |
-| 189 | › › › [radio] 0 deg | › › › [radio] 0 deg |  | same |  |
-| 190 | › › › [radio] 45 deg | › › › [radio] 45 deg |  | same |  |
-| 191 | › › › [radio] 90 deg | › › › [radio] 90 deg |  | same |  |
-| 192 | › › › [radio] 135 deg | › › › [radio] 135 deg |  | same |  |
-| 193 | › › › [radio] 180 deg | › › › [radio] 180 deg |  | same |  |
-| 194 | › › › [radio] 225 deg | › › › [radio] 225 deg |  | same |  |
-| 195 | › › › [radio] 270 deg | › › › [radio] 270 deg |  | same |  |
-| 196 | › › › [radio] 315 deg | › › › [radio] 315 deg |  | same |  |
-| 197 | › › [submenu] Elevation | › › [submenu] Elevation |  | same |  |
-| 198 | › › › [radio] 15 deg | › › › [radio] 15 deg |  | same |  |
-| 199 | › › › [radio] 25 deg | › › › [radio] 25 deg |  | same |  |
-| 200 | › › › [radio] 35 deg | › › › [radio] 35 deg |  | same |  |
-| 201 | › › › [radio] 45 deg | › › › [radio] 45 deg |  | same |  |
-| 202 | › › › [radio] 55 deg | › › › [radio] 55 deg |  | same |  |
-| 203 | › › › [radio] 65 deg | › › › [radio] 65 deg |  | same |  |
-| 204 | › › › [radio] 75 deg | › › › [radio] 75 deg |  | same |  |
-| 205 | › › [submenu] Ambient | › › [submenu] Ambient |  | same |  |
-| 206 | › › › [radio] 0.00 | › › › [radio] 0.00 |  | same |  |
-| 207 | › › › [radio] 0.15 | › › › [radio] 0.15 |  | same |  |
-| 208 | › › › [radio] 0.25 | › › › [radio] 0.25 |  | same |  |
-| 209 | › › › [radio] 0.35 | › › › [radio] 0.35 |  | same |  |
-| 210 | › › › [radio] 0.50 | › › › [radio] 0.50 |  | same |  |
-| 211 | › › › [radio] 0.70 | › › › [radio] 0.70 |  | same |  |
-| 212 | › › [submenu] Multidirectional | › › [submenu] Multidirectional |  | same |  |
-| 213 | › › › [radio] 1 light (single sun) | › › › [radio] 1 light (single sun) |  | same |  |
-| 214 | › › › [radio] 2 lights | › › › [radio] 2 lights |  | same |  |
-| 215 | › › › [radio] 4 lights | › › › [radio] 4 lights |  | same |  |
-| 216 | › › › [radio] 6 lights | › › › [radio] 6 lights |  | same |  |
-| 217 | › › › [radio] 8 lights | › › › [radio] 8 lights |  | same |  |
-| 218 | › › › [radio] 12 lights | › › › [radio] 12 lights |  | same |  |
-| 219 | › › ——— | › › ——— |  | same |  |
-| 220 | › › Use the engine’s own rig | › › Use the engine's own rig |  | same |  |
-| 221 | › [submenu] Relief exaggeration | › [submenu] Relief exaggeration |  | same |  |
-| 222 | › › [radio] 1x | › › [radio] 1x |  | same |  |
-| 223 | › › [radio] 2x | › › [radio] 2x |  | same |  |
-| 224 | › › [radio] 4x | › › [radio] 4x |  | same |  |
-| 225 | › › ——— | › › ——— |  | same |  |
-| 226 | › › Use the engine’s own 3.4x | › › Use the engine's own 3.4x |  | same |  |
-| 227 | › **TILES & LOD** | › **TILES & LOD** |  | same |  |
-| 228 | › [submenu] Tiled LOD | › [submenu] Tiled LOD |  | same |  |
-| 229 | › › [radio] Auto on zoom | › › [radio] Auto on zoom |  | same |  |
-| 230 | › › [radio] Manual | › › [radio] Manual |  | same |  |
-| 231 | › › ——— | › › ——— |  | same |  |
-| 232 | › › Enter deep detail now | › › Enter deep detail now |  | same |  |
-| 233 | › › Leave deep detail | › › Leave deep detail |  | same |  |
-| 234 | › [submenu] Tile size · LOD levels | › [submenu] Tile size · LOD levels |  | same |  |
-| 235 | › › [radio] 256 px | › › [radio] 256 px |  | same |  |
-| 236 | › › [radio] 512 px | › › [radio] 512 px |  | same |  |
-| 237 | › › [radio] 1024 px | › › [radio] 1024 px |  | same |  |
-| 238 | › › ——— | › › ——— |  | same |  |
-| 239 | › › [submenu] LOD levels | › › [submenu] LOD levels |  | same |  |
-| 240 | › › › [radio] LOD 0–0   1 tile | › › › [radio] LOD 0–0   1 tile |  | same |  |
-| 241 | › › › [radio] LOD 0–1   5 tiles | › › › [radio] LOD 0–1   5 tiles |  | same |  |
-| 242 | › › › [radio] LOD 0–2   21 tiles | › › › [radio] LOD 0–2   21 tiles |  | same |  |
-| 243 | › › › [radio] LOD 0–3   85 tiles | › › › [radio] LOD 0–3   85 tiles |  | same |  |
-| 244 | › › › [radio] LOD 0–4   341 tiles | › › › [radio] LOD 0–4   341 tiles |  | same |  |
-| 245 | › › › [radio] LOD 0–5   1 365 tiles | › › › [radio] LOD 0–5   1 365 tiles |  | same |  |
-| 246 | › › › [radio] LOD 0–6   5 461 tiles | › › › [radio] LOD 0–6   5 461 tiles |  | same |  |
-| 247 | › › › [radio] LOD 0–7   21 845 tiles | › › › [radio] LOD 0–7   21 845 tiles |  | same |  |
-| 248 | › › › [radio] LOD 0–8   87 381 tiles | › › › [radio] LOD 0–8   87 381 tiles |  | same |  |
-| 249 | › [submenu] Atlas cache | › [submenu] Atlas cache |  | same |  |
-| 250 | › › [readout] 85 chunks · 1.2 GB · to LOD 3 | › › [readout] … chunks · … · empty |  | differs: label | s R2 |
-| 251 | › › [submenu] Size cap · GB | › › [submenu] Size cap · GB |  | same |  |
-| 252 | › › › [radio] No cap | › › › [radio] No cap |  | same |  |
-| 253 | › › › [radio] 0.5 GB | › › › [radio] 0.5 GB |  | same |  |
-| 254 | › › › [radio] 1 GB | › › › [radio] 1 GB |  | same |  |
-| 255 | › › › [radio] 2 GB | › › › [radio] 2 GB |  | same |  |
-| 256 | › › › [radio] 4 GB | › › › [radio] 4 GB |  | same |  |
-| 257 | › › › [radio] 8 GB | › › › [radio] 8 GB |  | same |  |
-| 258 | › › › [radio] 16 GB | › › › [radio] 16 GB |  | same |  |
-| 259 | › › Refine detail for the current view | › › Refine detail for the current view |  | same |  |
-| 260 | › › Refine viewshed for the current view | › › Refine viewshed for the current view |  | same |  |
-| 261 | › › [readout] Viewshed | › › [readout] Viewshed: never refined |  | same |  |
-| 262 | › › ——— | › › ——— |  | same |  |
-| 263 | › › Export atlas… | › › Export atlas… |  | same |  |
-| 264 | › › Import atlas… | › › Import atlas… |  | same |  |
-| 265 | › › ——— | › › ——— |  | same |  |
-| 266 | › › Clear atlas cache now… | › › Clear atlas cache now… |  | same |  |
-| 267 | › [submenu] Chunk debug overlay | › [submenu] Chunk debug overlay |  | same |  |
-| 268 | › › [check] Grid | › › [check] Grid |  | same |  |
-| 269 | › › [check] Colors | › › [check] Colors |  | same |  |
-| 270 | › › [check] Labels | › › [check] Labels |  | same |  |
-| 271 | › › ——— | › › ——— |  | same |  |
-| 272 | › › [check] Show tile borders on the map | › › [check] Show tile borders on the map |  | same |  |
-| 273 | › **MEMORY** | › **MEMORY** |  | same |  |
-| 274 | › [submenu] Undo history | › [submenu] Undo history |  | same |  |
-| 275 | › › [radio] 64 MB | › › [radio] 64 MB |  | same |  |
-| 276 | › › [radio] 128 MB | › › [radio] 128 MB |  | same |  |
-| 277 | › › [radio] 256 MB | › › [radio] 256 MB |  | same |  |
-| 278 | › › [radio] 512 MB | › › [radio] 512 MB |  | same |  |
-| 279 | › › [radio] 1024 MB | › › [radio] 1024 MB |  | same |  |
-| 280 | › › ——— | › › ——— |  | same |  |
-| 281 | › › Clear undo history now | › › Clear undo history now |  | same |  |
-| 282 | › [readout] Working set | › [readout] Working set   … GB of … GB |  | same |  |
-| 283 | › Clear caches… | › Clear caches… |  | same |  |
-| 284 | › **APPLICATION** | › **APPLICATION** |  | same |  |
-| 285 | › Storage locations… | › Storage locations… |  | same |  |
-| 286 | › Assistant… | › Assistant… |  | same |  |
-| 287 | › Quick bar… | › Quick bar… |  | same |  |
-| 288 | › [DESKTOP ONLY] Open panels in their own window |  |  | mockup-only | n N3 |
-| 289 | › [submenu] Theme | › [submenu] Theme |  | same |  |
-| 290 | › › [radio] Dark | › › [radio] Dark |  | same |  |
-| 291 | › › [radio] Light | › › [radio] Light |  | same |  |
-| 292 | › › [radio] Follow system | › › [radio] Follow system |  | same |  |
-| 293 | › [submenu] Handedness | › [submenu] Handedness |  | same |  |
-| 294 | › › [radio] Left | › › [radio] Left |  | same |  |
-| 295 | › › [radio] Right | › › [radio] Right |  | same |  |
-| 296 | › Keyboard shortcuts… | › Keyboard shortcuts… |  | same |  |
-| 297 | › **TOUCH · NEW** |  |  | mockup-only | n N1 |
-| 298 | › Touch & gestures… |  |  | mockup-only | n N1 |
-| 299 | [submenu] Window | [submenu] Window |  | same |  |
-| 300 | › [check] Left dock | › [check] Left dock |  | same |  |
-| 301 | › [check] Context panel | › [check] Context panel | › [check] Right dock | same after the milestone; today: label | m PC-4 |
-| 302 | › [submenu] Context panel | › [submenu] Context panel |  | same |  |
-| 303 | › › Inspect · Ctrl+1 | › › Inspect · Ctrl+1 | › › [not built] Inspect | same after the milestone; today: kind command/disabled (not built), key Ctrl+1/none | m PC-4 |
-| 304 | › › Note · Ctrl+2 | › › Note · Ctrl+2 | › › [not built] Note | same after the milestone; today: kind command/disabled (not built), key Ctrl+2/none | m PC-5 |
-| 305 | › › Ask (assistant) · Ctrl+3 | › › Ask (assistant) · Ctrl+3 | › › [not built] Ask (assistant) | same after the milestone; today: kind command/disabled (not built), key Ctrl+3/none | m PC-6 |
+| 188 | › › [submenu] Azimuth | › › **AZIMUTH** |  | differs: kind submenu/caption | ?  |
+| 189 | › › › [radio] 0 deg |  |  | mockup-only | ?  |
+| 190 | › › › [radio] 45 deg |  |  | mockup-only | ?  |
+| 191 | › › › [radio] 90 deg |  |  | mockup-only | ?  |
+| 192 | › › › [radio] 135 deg |  |  | mockup-only | ?  |
+| 193 | › › › [radio] 180 deg |  |  | mockup-only | ?  |
+| 194 | › › › [radio] 225 deg |  |  | mockup-only | ?  |
+| 195 | › › › [radio] 270 deg |  |  | mockup-only | ?  |
+| 196 | › › › [radio] 315 deg |  |  | mockup-only | ?  |
+| 197 |  | › › [radio] 0 deg |  | Godot-only | ?  |
+| 198 |  | › › [radio] 45 deg |  | Godot-only | ?  |
+| 199 |  | › › [radio] 90 deg |  | Godot-only | ?  |
+| 200 |  | › › [radio] 135 deg |  | Godot-only | ?  |
+| 201 |  | › › [radio] 180 deg |  | Godot-only | ?  |
+| 202 |  | › › [radio] 225 deg |  | Godot-only | ?  |
+| 203 |  | › › [radio] 270 deg |  | Godot-only | ?  |
+| 204 |  | › › [radio] 315 deg |  | Godot-only | ?  |
+| 205 | › › [submenu] Elevation | › › **ELEVATION** |  | differs: kind submenu/caption | ?  |
+| 206 | › › › [radio] 15 deg |  |  | mockup-only | ?  |
+| 207 | › › › [radio] 25 deg |  |  | mockup-only | ?  |
+| 208 | › › › [radio] 35 deg |  |  | mockup-only | ?  |
+| 209 | › › › [radio] 45 deg |  |  | mockup-only | ?  |
+| 210 | › › › [radio] 55 deg |  |  | mockup-only | ?  |
+| 211 | › › › [radio] 65 deg |  |  | mockup-only | ?  |
+| 212 | › › › [radio] 75 deg |  |  | mockup-only | ?  |
+| 213 |  | › › [radio] 15 deg |  | Godot-only | ?  |
+| 214 |  | › › [radio] 25 deg |  | Godot-only | ?  |
+| 215 |  | › › [radio] 35 deg |  | Godot-only | ?  |
+| 216 |  | › › [radio] 45 deg |  | Godot-only | ?  |
+| 217 |  | › › [radio] 55 deg |  | Godot-only | ?  |
+| 218 |  | › › [radio] 65 deg |  | Godot-only | ?  |
+| 219 |  | › › [radio] 75 deg |  | Godot-only | ?  |
+| 220 | › › [submenu] Ambient | › › **AMBIENT** |  | differs: kind submenu/caption | ?  |
+| 221 | › › › [radio] 0.00 |  |  | mockup-only | ?  |
+| 222 | › › › [radio] 0.15 |  |  | mockup-only | ?  |
+| 223 | › › › [radio] 0.25 |  |  | mockup-only | ?  |
+| 224 | › › › [radio] 0.35 |  |  | mockup-only | ?  |
+| 225 | › › › [radio] 0.50 |  |  | mockup-only | ?  |
+| 226 | › › › [radio] 0.70 |  |  | mockup-only | ?  |
+| 227 |  | › › [radio] 0.00 |  | Godot-only | ?  |
+| 228 |  | › › [radio] 0.15 |  | Godot-only | ?  |
+| 229 |  | › › [radio] 0.25 |  | Godot-only | ?  |
+| 230 |  | › › [radio] 0.35 |  | Godot-only | ?  |
+| 231 |  | › › [radio] 0.50 |  | Godot-only | ?  |
+| 232 |  | › › [radio] 0.70 |  | Godot-only | ?  |
+| 233 | › › [submenu] Multidirectional | › › **MULTIDIRECTIONAL** |  | differs: kind submenu/caption | ?  |
+| 234 | › › › [radio] 1 light (single sun) |  |  | mockup-only | ?  |
+| 235 | › › › [radio] 2 lights |  |  | mockup-only | ?  |
+| 236 | › › › [radio] 4 lights |  |  | mockup-only | ?  |
+| 237 | › › › [radio] 6 lights |  |  | mockup-only | ?  |
+| 238 | › › › [radio] 8 lights |  |  | mockup-only | ?  |
+| 239 | › › › [radio] 12 lights |  |  | mockup-only | ?  |
+| 240 |  | › › [radio] 1 light (single sun) |  | Godot-only | ?  |
+| 241 |  | › › [radio] 2 lights |  | Godot-only | ?  |
+| 242 |  | › › [radio] 4 lights |  | Godot-only | ?  |
+| 243 |  | › › [radio] 6 lights |  | Godot-only | ?  |
+| 244 |  | › › [radio] 8 lights |  | Godot-only | ?  |
+| 245 |  | › › [radio] 12 lights |  | Godot-only | ?  |
+| 246 | › › ——— | › › ——— |  | same |  |
+| 247 | › › Use the engine’s own rig | › › Use the engine's own rig |  | same |  |
+| 248 | › [submenu] Relief exaggeration | › [submenu] Relief exaggeration |  | same |  |
+| 249 | › › [radio] 1x | › › [radio] 1x |  | same |  |
+| 250 | › › [radio] 2x | › › [radio] 2x |  | same |  |
+| 251 | › › [radio] 4x | › › [radio] 4x |  | same |  |
+| 252 | › › ——— | › › ——— |  | same |  |
+| 253 | › › Use the engine’s own 3.4x | › › Use the engine's own 3.4x |  | same |  |
+| 254 | › **TILES & LOD** | › **TILES & LOD** |  | same |  |
+| 255 | › [submenu] Tiled LOD | › [submenu] Tiled LOD |  | same |  |
+| 256 | › › [radio] Auto on zoom | › › [radio] Auto on zoom |  | same |  |
+| 257 | › › [radio] Manual | › › [radio] Manual |  | same |  |
+| 258 | › › ——— | › › ——— |  | same |  |
+| 259 | › › Enter deep detail now | › › Enter deep detail now |  | same |  |
+| 260 | › › Leave deep detail | › › Leave deep detail |  | same |  |
+| 261 | › [submenu] Tile size · LOD levels | › [submenu] Tile size · LOD levels |  | same |  |
+| 262 | › › [radio] 256 px | › › [radio] 256 px |  | same |  |
+| 263 | › › [radio] 512 px | › › [radio] 512 px |  | same |  |
+| 264 | › › [radio] 1024 px | › › [radio] 1024 px |  | same |  |
+| 265 | › › ——— |  |  | mockup-only | ?  |
+| 266 | › › [submenu] LOD levels | › › **LOD LEVELS** |  | differs: kind submenu/caption | ?  |
+| 267 | › › › [radio] LOD 0–0   1 tile |  |  | mockup-only | ?  |
+| 268 | › › › [radio] LOD 0–1   5 tiles |  |  | mockup-only | ?  |
+| 269 | › › › [radio] LOD 0–2   21 tiles |  |  | mockup-only | ?  |
+| 270 | › › › [radio] LOD 0–3   85 tiles |  |  | mockup-only | ?  |
+| 271 | › › › [radio] LOD 0–4   341 tiles |  |  | mockup-only | ?  |
+| 272 | › › › [radio] LOD 0–5   1 365 tiles |  |  | mockup-only | ?  |
+| 273 | › › › [radio] LOD 0–6   5 461 tiles |  |  | mockup-only | ?  |
+| 274 | › › › [radio] LOD 0–7   21 845 tiles |  |  | mockup-only | ?  |
+| 275 | › › › [radio] LOD 0–8   87 381 tiles |  |  | mockup-only | ?  |
+| 276 |  | › › [radio] LOD 0–0   1 tile |  | Godot-only | ?  |
+| 277 |  | › › [radio] LOD 0–1   5 tiles |  | Godot-only | ?  |
+| 278 |  | › › [radio] LOD 0–2   21 tiles |  | Godot-only | ?  |
+| 279 |  | › › [radio] LOD 0–3   85 tiles |  | Godot-only | ?  |
+| 280 |  | › › [radio] LOD 0–4   341 tiles |  | Godot-only | ?  |
+| 281 |  | › › [radio] LOD 0–5   1 365 tiles |  | Godot-only | ?  |
+| 282 |  | › › [radio] LOD 0–6   5 461 tiles |  | Godot-only | ?  |
+| 283 |  | › › [radio] LOD 0–7   21 845 tiles |  | Godot-only | ?  |
+| 284 |  | › › [radio] LOD 0–8   87 381 tiles |  | Godot-only | ?  |
+| 285 | › [submenu] Atlas cache | › [submenu] Atlas cache |  | same |  |
+| 286 | › › [readout] 85 chunks · 1.2 GB · to LOD 3 |  |  | mockup-only | ?  |
+| 287 |  | › › [readout] … chunks · … · empty |  | Godot-only | ?  |
+| 288 | › › [submenu] Size cap · GB | › › **SIZE CAP · GB** |  | differs: kind submenu/caption | ?  |
+| 289 | › › › [radio] No cap |  |  | mockup-only | ?  |
+| 290 | › › › [radio] 0.5 GB |  |  | mockup-only | ?  |
+| 291 | › › › [radio] 1 GB |  |  | mockup-only | ?  |
+| 292 | › › › [radio] 2 GB |  |  | mockup-only | ?  |
+| 293 | › › › [radio] 4 GB |  |  | mockup-only | ?  |
+| 294 | › › › [radio] 8 GB |  |  | mockup-only | ?  |
+| 295 | › › › [radio] 16 GB |  |  | mockup-only | ?  |
+| 296 |  | › › [radio] No cap |  | Godot-only | ?  |
+| 297 |  | › › [radio] 0.5 GB |  | Godot-only | ?  |
+| 298 |  | › › [radio] 1 GB |  | Godot-only | ?  |
+| 299 |  | › › [radio] 2 GB |  | Godot-only | ?  |
+| 300 |  | › › [radio] 4 GB |  | Godot-only | ?  |
+| 301 |  | › › [radio] 8 GB |  | Godot-only | ?  |
+| 302 |  | › › [radio] 16 GB |  | Godot-only | ?  |
+| 303 | › › Refine detail for the current view | › › Refine detail for the current view |  | same |  |
+| 304 | › › Refine viewshed for the current view | › › Refine viewshed for the current view |  | same |  |
+| 305 | › › [readout] Viewshed | › › [readout] Viewshed: never refined |  | same |  |
 | 306 | › › ——— | › › ——— |  | same |  |
-| 307 | › › Pin to the current subject | › › Pin to the current subject | › › [not built] Pin to the current subject | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
-| 308 | › › Follow the selection | › › Follow the selection | › › [not built] Follow the selection | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
-| 309 | › › **MODULES** | › › **MODULES** |  | same |  |
-| 310 | › › [check] History | › › [not built] History |  | differs: kind check/disabled (not built) | m PC-10 |
-| 311 | › › [check] Economy | › › [not built] Economy |  | differs: kind check/disabled (not built) | m PC-10 |
-| 312 | › › [check] Military | › › [not built] Military |  | differs: kind check/disabled (not built) | m PC-10 |
-| 313 | › › [check] Faith, culture & relations | › › [not built] Faith, culture & relations |  | differs: kind check/disabled (not built) | m PC-10 |
-| 314 | › › [check] Territory | › › [not built] Territory |  | differs: kind check/disabled (not built) | m PC-10 |
-| 315 | › › [check] City layout | › › [not built] City layout |  | differs: kind check/disabled (not built) | m PC-10 |
-| 316 | › › [check] Here | › › [not built] Here |  | differs: kind check/disabled (not built) | m PC-10 |
-| 317 | › › [check] Routes & journeys | › › [not built] Routes & journeys |  | differs: kind check/disabled (not built) | m PC-10 |
-| 318 | › › [check] Links | › › [not built] Links |  | differs: kind check/disabled (not built) | m PC-10 |
-| 319 | › › [check] Recent & bookmarks | › › [not built] Recent & bookmarks |  | differs: kind check/disabled (not built) | m PC-10 |
-| 320 | › › ——— | › › ——— |  | same |  |
-| 321 | › › Reset panel | › › [not built] Reset panel |  | differs: kind command/disabled (not built) | m PC-10 |
-| 322 | › [check] Timeline | › [check] Timeline |  | same |  |
-| 323 | › [check] Status bar | › [check] Status bar |  | same |  |
-| 324 | › [check] Domain rail | › [check] Domain rail |  | same |  |
-| 325 | › ——— | › ——— |  | same |  |
-| 326 | › [check] Session mode · Ctrl+Shift+M | › [check] Session mode · Ctrl+Shift+M |  | same |  |
-| 327 | › [check] Diagnostics overlay · Shift+D | › [check] Diagnostics overlay · Shift+D |  | same |  |
-| 328 | › [check] 3D view | › [check] 3D view |  | same |  |
-| 329 | › [submenu] 3D capability | › [submenu] 3D capability |  | same |  |
-| 330 | › › [readout] 3D tier | › › [readout] 3D tier: not tested |  | same |  |
-| 331 | › › Re-test 3D | › › Re-test 3D |  | same |  |
-| 332 | › › [submenu] Force tier | › › [submenu] Force tier |  | same |  |
-| 333 | › › › [radio] Automatic (as measured) | › › › [radio] Automatic (as measured) |  | same |  |
-| 334 | › › › [radio] Off | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 335 | › › › [radio] Basic | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 336 | › › › [radio] Standard | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 337 | › › › [radio] Full | › › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 338 | › ——— | › ——— |  | same |  |
-| 339 | › [submenu] Workspace | › [submenu] Workspace |  | same |  |
-| 340 | › › [radio] World · SM | › › [radio] World · SM |  | same |  |
-| 341 | › › [radio] Civilization | › › [radio] Civilization |  | same |  |
-| 342 | › › [radio] Cartography | › › [radio] Cartography |  | same |  |
-| 343 | › [submenu] Open windows | › [submenu] Open windows |  | same |  |
-| 344 | › › [readout] No windows open |  |  | mockup-only | s S3 |
-| 345 | › › [check] Context panel | › › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
-| 346 |  | › › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
-| 347 | › ——— | › ——— |  | same |  |
-| 348 | › Reset layout | › Reset layout |  | same |  |
-| 349 | › [submenu] Layouts | › [submenu] Layouts |  | same |  |
-| 350 | › › Default (reset layout) | › › Default (reset layout) |  | same |  |
-| 351 | › › Generate | › › Generate |  | same |  |
-| 352 | › › Sculpt | › › Sculpt |  | same |  |
-| 353 | › › Cartography | › › Cartography |  | same |  |
-| 354 | › › Journey | › › Journey |  | same |  |
+| 307 | › › Export atlas… | › › Export atlas… |  | same |  |
+| 308 | › › Import atlas… | › › Import atlas… |  | same |  |
+| 309 | › › ——— | › › ——— |  | same |  |
+| 310 | › › Clear atlas cache now… | › › Clear atlas cache now… |  | same |  |
+| 311 | › [submenu] Chunk debug overlay | › [submenu] Chunk debug overlay |  | same |  |
+| 312 | › › [check] Grid | › › [check] Grid |  | same |  |
+| 313 | › › [check] Colors | › › [check] Colors |  | same |  |
+| 314 | › › [check] Labels | › › [check] Labels |  | same |  |
+| 315 | › › ——— | › › ——— |  | same |  |
+| 316 | › › [check] Show tile borders on the map | › › [check] Show tile borders on the map |  | same |  |
+| 317 | › **MEMORY** | › **MEMORY** |  | same |  |
+| 318 | › [submenu] Undo history | › [submenu] Undo history |  | same |  |
+| 319 | › › [radio] 64 MB | › › [radio] 64 MB |  | same |  |
+| 320 | › › [radio] 128 MB | › › [radio] 128 MB |  | same |  |
+| 321 | › › [radio] 256 MB | › › [radio] 256 MB |  | same |  |
+| 322 | › › [radio] 512 MB | › › [radio] 512 MB |  | same |  |
+| 323 | › › [radio] 1024 MB | › › [radio] 1024 MB |  | same |  |
+| 324 | › › ——— | › › ——— |  | same |  |
+| 325 | › › Clear undo history now | › › Clear undo history now |  | same |  |
+| 326 | › [readout] Working set | › [readout] Working set   … GB of … GB |  | same |  |
+| 327 | › Clear caches… | › Clear caches… |  | same |  |
+| 328 | › **APPLICATION** | › **APPLICATION** |  | same |  |
+| 329 | › Storage locations… | › Storage locations… |  | same |  |
+| 330 | › Assistant… | › Assistant… |  | same |  |
+| 331 | › Quick bar… | › Quick bar… |  | same |  |
+| 332 | › [DESKTOP ONLY] Open panels in their own window |  |  | mockup-only | n N3 |
+| 333 | › [submenu] Theme | › [submenu] Theme |  | same |  |
+| 334 | › › [radio] Dark | › › [radio] Dark |  | same |  |
+| 335 | › › [radio] Light | › › [radio] Light |  | same |  |
+| 336 | › › [radio] Follow system | › › [radio] Follow system |  | same |  |
+| 337 | › [submenu] Handedness | › [submenu] Handedness |  | same |  |
+| 338 | › › [radio] Left | › › [radio] Left |  | same |  |
+| 339 | › › [radio] Right | › › [radio] Right |  | same |  |
+| 340 |  | › [submenu] UI scale |  | Godot-only | ?  |
+| 341 |  | › › [radio] 100 % |  | Godot-only (inside) | ?  |
+| 342 |  | › › [radio] 125 % |  | Godot-only (inside) | ?  |
+| 343 |  | › › [radio] 150 % |  | Godot-only (inside) | ?  |
+| 344 |  | › › [radio] 200 % |  | Godot-only (inside) | ?  |
+| 345 | › Keyboard shortcuts… | › Keyboard shortcuts… |  | same |  |
+| 346 | › **TOUCH · NEW** |  |  | mockup-only | n N1 |
+| 347 | › Touch & gestures… |  |  | mockup-only | n N1 |
+| 348 | [submenu] Window | [submenu] Window |  | same |  |
+| 349 | › [check] Left dock | › [check] Left dock |  | same |  |
+| 350 | › [check] Context panel | › [check] Context panel | › [check] Right dock | same after the milestone; today: label | m PC-4 |
+| 351 | › [submenu] Context panel | › [submenu] Context panel |  | same |  |
+| 352 | › › Inspect · Ctrl+1 | › › Inspect · Ctrl+1 | › › [not built] Inspect | same after the milestone; today: kind command/disabled (not built), key Ctrl+1/none | m PC-4 |
+| 353 | › › Note · Ctrl+2 | › › Note · Ctrl+2 | › › [not built] Note | same after the milestone; today: kind command/disabled (not built), key Ctrl+2/none | m PC-5 |
+| 354 | › › Ask (assistant) · Ctrl+3 | › › Ask (assistant) · Ctrl+3 | › › [not built] Ask (assistant) | same after the milestone; today: kind command/disabled (not built), key Ctrl+3/none | m PC-6 |
 | 355 | › › ——— | › › ——— |  | same |  |
-| 356 | › › Save layout as… | › › Save layout as… |  | same |  |
-| 357 | › › Forget layout… | › › Forget layout… |  | same |  |
-| 358 | [submenu] Help | [submenu] Help |  | same |  |
-| 359 | › [not built] Documentation | › [not built] Documentation |  | differs: reason | s S1 |
-| 360 | › Gesture reference… |  |  | mockup-only | n N2 |
-| 361 | › Credits & academic principles | › Credits & academic principles |  | same |  |
-| 362 | › Generation info… | › Generation info… |  | same |  |
-| 363 | › Save diagnostic report… | › Save diagnostic report… |  | same |  |
+| 356 | › › Pin to the current subject | › › Pin to the current subject | › › [not built] Pin to the current subject | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
+| 357 | › › Follow the selection | › › Follow the selection | › › [not built] Follow the selection | same after the milestone; today: kind command/disabled (not built) | m PC-4 |
+| 358 | › › **MODULES** | › › **MODULES** |  | same |  |
+| 359 | › › [check] History | › › [not built] History |  | differs: kind check/disabled (not built) | m PC-10 |
+| 360 | › › [check] Economy | › › [not built] Economy |  | differs: kind check/disabled (not built) | m PC-10 |
+| 361 | › › [check] Military | › › [not built] Military |  | differs: kind check/disabled (not built) | m PC-10 |
+| 362 | › › [check] Faith, culture & relations | › › [not built] Faith, culture & relations |  | differs: kind check/disabled (not built) | m PC-10 |
+| 363 | › › [check] Territory | › › [not built] Territory |  | differs: kind check/disabled (not built) | m PC-10 |
+| 364 | › › [check] City layout | › › [not built] City layout |  | differs: kind check/disabled (not built) | m PC-10 |
+| 365 | › › [check] Here | › › [not built] Here |  | differs: kind check/disabled (not built) | m PC-10 |
+| 366 | › › [check] Routes & journeys | › › [not built] Routes & journeys |  | differs: kind check/disabled (not built) | m PC-10 |
+| 367 | › › [check] Links | › › [not built] Links |  | differs: kind check/disabled (not built) | m PC-10 |
+| 368 | › › [check] Recent & bookmarks | › › [not built] Recent & bookmarks |  | differs: kind check/disabled (not built) | m PC-10 |
+| 369 | › › ——— | › › ——— |  | same |  |
+| 370 | › › Reset panel | › › Reset panel |  | same |  |
+| 371 | › [check] Timeline | › [check] Timeline |  | same |  |
+| 372 | › [check] Status bar | › [check] Status bar |  | same |  |
+| 373 | › [check] Domain rail | › [check] Domain rail |  | same |  |
+| 374 | › ——— | › ——— |  | same |  |
+| 375 | › [check] Session mode · Ctrl+Shift+M | › [check] Session mode · Ctrl+Shift+M |  | same |  |
+| 376 | › [check] Diagnostics overlay · Shift+D | › [check] Diagnostics overlay · Shift+D |  | same |  |
+| 377 | › [check] 3D view | › [check] 3D view |  | same |  |
+| 378 | › [submenu] 3D capability | › [submenu] 3D capability |  | same |  |
+| 379 | › › [readout] 3D tier | › › [readout] 3D tier: not tested |  | same |  |
+| 380 | › › Re-test 3D | › › Re-test 3D |  | same |  |
+| 381 | › › [submenu] Force tier |  |  | mockup-only | ?  |
+| 382 | › › › [radio] Automatic (as measured) |  |  | mockup-only (inside) | ?  |
+| 383 | › › › [radio] Off |  |  | mockup-only (inside) | ?  |
+| 384 | › › › [radio] Basic |  |  | mockup-only (inside) | ?  |
+| 385 | › › › [radio] Standard |  |  | mockup-only (inside) | ?  |
+| 386 | › › › [radio] Full |  |  | mockup-only (inside) | ?  |
+| 387 |  | › › **FORCE TIER** |  | Godot-only | ?  |
+| 388 |  | › › [radio] Automatic (as measured) |  | Godot-only | ?  |
+| 389 |  | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | Godot-only | ?  |
+| 390 | › ——— | › ——— |  | same |  |
+| 391 | › [submenu] Workspace | › [submenu] Workspace |  | same |  |
+| 392 | › › [radio] World · SM | › › [radio] World · SM |  | same |  |
+| 393 | › › [radio] Civilization | › › [radio] Civilization |  | same |  |
+| 394 | › › [radio] Cartography | › › [radio] Cartography |  | same |  |
+| 395 | › [submenu] Open windows | › [submenu] Open windows |  | same |  |
+| 396 | › › [readout] No windows open |  |  | mockup-only | s S3 |
+| 397 | › › [check] Context panel | › › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
+| 398 |  | › › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
+| 399 | › ——— | › ——— |  | same |  |
+| 400 | › Reset layout | › Reset layout |  | same |  |
+| 401 | › [submenu] Layouts | › [submenu] Layouts |  | same |  |
+| 402 | › › Default (reset layout) | › › Default (reset layout) |  | same |  |
+| 403 | › › Generate | › › Generate |  | same |  |
+| 404 | › › Sculpt | › › Sculpt |  | same |  |
+| 405 | › › Cartography | › › Cartography |  | same |  |
+| 406 | › › Journey | › › Journey |  | same |  |
+| 407 | › › ——— | › › ——— |  | same |  |
+| 408 | › › Save layout as… | › › Save layout as… |  | same |  |
+| 409 | › › Forget layout… | › › Forget layout… |  | same |  |
+| 410 | [submenu] Help | [submenu] Help |  | same |  |
+| 411 | › [not built] Documentation | › [not built] Documentation |  | differs: reason | s S1 |
+| 412 | › Gesture reference… |  |  | mockup-only | n N2 |
+| 413 | › Credits & academic principles | › Credits & academic principles |  | same |  |
+| 414 | › Generation info… | › Generation info… |  | same |  |
+| 415 | › Save diagnostic report… | › Save diagnostic report… |  | same |  |
 
 #### File
 
@@ -1703,8 +1854,8 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 9 | ——— | ——— |  | same |  |
 | 10 | Select all | Select all |  | same |  |
 | 11 | Deselect | Deselect |  | same |  |
-| 12 | Previous selection | Previous selection | [not built] Previous selection | same after the milestone; today: kind command/disabled (not built) | m PC-1 |
-| 13 | Next selection | Next selection | [not built] Next selection | same after the milestone; today: kind command/disabled (not built) | m PC-1 |
+| 12 | Previous selection | Previous selection |  | same |  |
+| 13 | Next selection | Next selection |  | same |  |
 | 14 | ——— | ——— |  | same |  |
 | 15 | Find on map… | Find on map… |  | same |  |
 | 16 | ——— | ——— |  | same |  |
@@ -1754,84 +1905,84 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 27 | › Splat channels   4/4 | › Splat channels |  | same |  |
 | 28 | › Biome textures   9/12 | › Biome textures |  | same |  |
 | 29 | › Terrain textures   6/8 | › Terrain textures |  | same |  |
-| 30 | [submenu] Landmark types | [submenu] Landmark types |  | same |  |
-| 31 | › [submenu] Physical | › [submenu] Physical |  | same |  |
-| 32 | › › Peak | › › Peak |  | same |  |
-| 33 | › › Ridge | › › Ridge |  | same |  |
-| 34 | › › Saddle   not buildable | › › Saddle |  | differs: label | s R1 |
-| 35 | › › Cliff | › › Cliff |  | same |  |
-| 36 | › › Gorge | › › Gorge |  | same |  |
-| 37 | › › Cave | › › Cave |  | same |  |
-| 38 | › › Waterfall | › › Waterfall |  | same |  |
-| 39 | › › Spring | › › Spring |  | same |  |
-| 40 | › › Lake | › › Lake |  | same |  |
-| 41 | › › Delta   not buildable | › › Delta |  | differs: label | s R1 |
-| 42 | › › River confluence | › › River confluence |  | same |  |
-| 43 | › › Volcanic feature | › › Volcanic feature |  | same |  |
-| 44 | › › Rock formation | › › Rock formation |  | same |  |
-| 45 | › › Glacial feature   not buildable | › › Glacial feature |  | differs: label | s R1 |
-| 46 | › › Ancient forest   not buildable | › › Ancient forest |  | differs: label | s R1 |
-| 47 | › › ——— | › › ——— |  | same |  |
-| 48 | › › Open Physical in the dock | › › Open Physical in the dock |  | same |  |
-| 49 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 50 | › [submenu] Transport | › [submenu] Transport |  | same |  |
-| 51 | › › Mountain pass | › › Mountain pass |  | same |  |
-| 52 | › › River crossing   not buildable | › › River crossing |  | differs: label | s R1 |
-| 53 | › › Ford | › › Ford |  | same |  |
-| 54 | › › Bridge site | › › Bridge site |  | same |  |
-| 55 | › › Road junction | › › Road junction |  | same |  |
-| 56 | › › Caravan station | › › Caravan station |  | same |  |
-| 57 | › › Portage | › › Portage |  | same |  |
-| 58 | › › Harbour | › › Harbour |  | same |  |
-| 59 | › › ——— | › › ——— |  | same |  |
-| 60 | › › Open Transport in the dock | › › Open Transport in the dock |  | same |  |
-| 61 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 62 | › [submenu] Economic | › [submenu] Economic |  | same |  |
-| 63 | › › Mine | › › Mine |  | same |  |
-| 64 | › › Quarry | › › Quarry |  | same |  |
-| 65 | › › Salt works   not buildable | › › Salt works |  | differs: label | s R1 |
-| 66 | › › Resource extraction site | › › Resource extraction site |  | same |  |
-| 67 | › › Market site | › › Market site |  | same |  |
-| 68 | › › Trade depot | › › Trade depot |  | same |  |
-| 69 | › › ——— | › › ——— |  | same |  |
-| 70 | › › Open Economic in the dock | › › Open Economic in the dock |  | same |  |
-| 71 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 72 | › [submenu] Military | › [submenu] Military |  | same |  |
-| 73 | › › Fort | › › Fort |  | same |  |
-| 74 | › › Watchtower | › › Watchtower |  | same |  |
-| 75 | › › Fortified pass | › › Fortified pass |  | same |  |
-| 76 | › › Fortified crossing | › › Fortified crossing |  | same |  |
-| 77 | › › Battlefield | › › Battlefield |  | same |  |
-| 78 | › › Border marker | › › Border marker |  | same |  |
-| 79 | › › ——— | › › ——— |  | same |  |
-| 80 | › › Open Military in the dock | › › Open Military in the dock |  | same |  |
-| 81 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 82 | › [submenu] Cultural | › [submenu] Cultural |  | same |  |
-| 83 | › › Shrine   not buildable | › › Shrine |  | differs: label | s R1 |
-| 84 | › › Temple   not buildable | › › Temple |  | differs: label | s R1 |
-| 85 | › › Sacred grove   not buildable | › › Sacred grove |  | differs: label | s R1 |
-| 86 | › › Sacred mountain   not buildable | › › Sacred mountain |  | differs: label | s R1 |
-| 87 | › › Pilgrimage site   not buildable | › › Pilgrimage site |  | differs: label | s R1 |
-| 88 | › › Tomb   not buildable | › › Tomb |  | differs: label | s R1 |
-| 89 | › › Monument   not buildable | › › Monument |  | differs: label | s R1 |
-| 90 | › › Ceremonial site   not buildable | › › Ceremonial site |  | differs: label | s R1 |
-| 91 | › › ——— | › › ——— |  | same |  |
-| 92 | › › Open Cultural in the dock | › › Open Cultural in the dock |  | same |  |
-| 93 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 94 | › [submenu] Historical | › [submenu] Historical |  | same |  |
-| 95 | › › Ruin   not buildable | › › Ruin |  | differs: label | s R1 |
-| 96 | › › Abandoned settlement | › › Abandoned settlement |  | same |  |
-| 97 | › › Ancient road | › › Ancient road |  | same |  |
-| 98 | › › Historic battlefield   not buildable | › › Historic battlefield |  | differs: label | s R1 |
-| 99 | › › Destroyed fortress   not buildable | › › Destroyed fortress |  | differs: label | s R1 |
-| 100 | › › Historic crossing   not buildable | › › Historic crossing |  | differs: label | s R1 |
-| 101 | › › ——— | › › ——— |  | same |  |
-| 102 | › › Open Historical in the dock | › › Open Historical in the dock |  | same |  |
-| 103 | › › [signpost] Rows here read state; they do not arm a type. | › › [signpost] Rows here read state; they do not arm a type. |  | same |  |
-| 104 | › Placed by hand   3 | › Placed by hand |  | same |  |
-| 105 | › ——— | › ——— |  | same |  |
-| 106 | › Landmark icons… | › Landmark icons… |  | same |  |
-| 107 | › Landmark label style… | › Landmark label style… |  | same |  |
+| 30 | [submenu] Landmark types | Landmark types… |  | differs: kind submenu/command | (c) EH-2 |
+| 31 | › [submenu] Physical |  |  | mockup-only | (c) EH-2 |
+| 32 | › › Peak |  |  | mockup-only (inside) | (c) EH-2 |
+| 33 | › › Ridge |  |  | mockup-only (inside) | (c) EH-2 |
+| 34 | › › Saddle   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 35 | › › Cliff |  |  | mockup-only (inside) | (c) EH-2 |
+| 36 | › › Gorge |  |  | mockup-only (inside) | (c) EH-2 |
+| 37 | › › Cave |  |  | mockup-only (inside) | (c) EH-2 |
+| 38 | › › Waterfall |  |  | mockup-only (inside) | (c) EH-2 |
+| 39 | › › Spring |  |  | mockup-only (inside) | (c) EH-2 |
+| 40 | › › Lake |  |  | mockup-only (inside) | (c) EH-2 |
+| 41 | › › Delta   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 42 | › › River confluence |  |  | mockup-only (inside) | (c) EH-2 |
+| 43 | › › Volcanic feature |  |  | mockup-only (inside) | (c) EH-2 |
+| 44 | › › Rock formation |  |  | mockup-only (inside) | (c) EH-2 |
+| 45 | › › Glacial feature   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 46 | › › Ancient forest   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 47 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 48 | › › Open Physical in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 49 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 50 | › [submenu] Transport |  |  | mockup-only | (c) EH-2 |
+| 51 | › › Mountain pass |  |  | mockup-only (inside) | (c) EH-2 |
+| 52 | › › River crossing   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 53 | › › Ford |  |  | mockup-only (inside) | (c) EH-2 |
+| 54 | › › Bridge site |  |  | mockup-only (inside) | (c) EH-2 |
+| 55 | › › Road junction |  |  | mockup-only (inside) | (c) EH-2 |
+| 56 | › › Caravan station |  |  | mockup-only (inside) | (c) EH-2 |
+| 57 | › › Portage |  |  | mockup-only (inside) | (c) EH-2 |
+| 58 | › › Harbour |  |  | mockup-only (inside) | (c) EH-2 |
+| 59 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 60 | › › Open Transport in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 61 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 62 | › [submenu] Economic |  |  | mockup-only | (c) EH-2 |
+| 63 | › › Mine |  |  | mockup-only (inside) | (c) EH-2 |
+| 64 | › › Quarry |  |  | mockup-only (inside) | (c) EH-2 |
+| 65 | › › Salt works   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 66 | › › Resource extraction site |  |  | mockup-only (inside) | (c) EH-2 |
+| 67 | › › Market site |  |  | mockup-only (inside) | (c) EH-2 |
+| 68 | › › Trade depot |  |  | mockup-only (inside) | (c) EH-2 |
+| 69 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 70 | › › Open Economic in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 71 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 72 | › [submenu] Military |  |  | mockup-only | (c) EH-2 |
+| 73 | › › Fort |  |  | mockup-only (inside) | (c) EH-2 |
+| 74 | › › Watchtower |  |  | mockup-only (inside) | (c) EH-2 |
+| 75 | › › Fortified pass |  |  | mockup-only (inside) | (c) EH-2 |
+| 76 | › › Fortified crossing |  |  | mockup-only (inside) | (c) EH-2 |
+| 77 | › › Battlefield |  |  | mockup-only (inside) | (c) EH-2 |
+| 78 | › › Border marker |  |  | mockup-only (inside) | (c) EH-2 |
+| 79 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 80 | › › Open Military in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 81 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 82 | › [submenu] Cultural |  |  | mockup-only | (c) EH-2 |
+| 83 | › › Shrine   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 84 | › › Temple   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 85 | › › Sacred grove   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 86 | › › Sacred mountain   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 87 | › › Pilgrimage site   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 88 | › › Tomb   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 89 | › › Monument   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 90 | › › Ceremonial site   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 91 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 92 | › › Open Cultural in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 93 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 94 | › [submenu] Historical |  |  | mockup-only | (c) EH-2 |
+| 95 | › › Ruin   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 96 | › › Abandoned settlement |  |  | mockup-only (inside) | (c) EH-2 |
+| 97 | › › Ancient road |  |  | mockup-only (inside) | (c) EH-2 |
+| 98 | › › Historic battlefield   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 99 | › › Destroyed fortress   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 100 | › › Historic crossing   not buildable |  |  | mockup-only (inside) | (c) EH-2 |
+| 101 | › › ——— |  |  | mockup-only (inside) | (c) EH-2 |
+| 102 | › › Open Historical in the dock |  |  | mockup-only (inside) | (c) EH-2 |
+| 103 | › › [signpost] Rows here read state; they do not arm a type. |  |  | mockup-only (inside) | (c) EH-2 |
+| 104 | › Placed by hand   3 |  |  | mockup-only | (c) EH-2 |
+| 105 | › ——— |  |  | mockup-only | (c) EH-2 |
+| 106 | › Landmark icons… |  |  | mockup-only | (c) EH-2 |
+| 107 | › Landmark label style… |  |  | mockup-only | (c) EH-2 |
 | 108 | ——— | ——— |  | same |  |
 | 109 | Apply library to map | Apply library to map |  | same |  |
 | 110 | Clear library… | Clear library…   destructive |  | same |  |
@@ -1939,120 +2090,165 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 45 | [not built] 3D viewport defaults | [not built] 3D viewport defaults |  | differs: reason | s S1 |
 | 46 | [submenu] Lighting rig defaults | [submenu] Lighting rig defaults |  | same |  |
 | 47 | › [readout] Following the engine | › [readout] Following the engine |  | same |  |
-| 48 | › [submenu] Azimuth | › [submenu] Azimuth |  | same |  |
-| 49 | › › [radio] 0 deg | › › [radio] 0 deg |  | same |  |
-| 50 | › › [radio] 45 deg | › › [radio] 45 deg |  | same |  |
-| 51 | › › [radio] 90 deg | › › [radio] 90 deg |  | same |  |
-| 52 | › › [radio] 135 deg | › › [radio] 135 deg |  | same |  |
-| 53 | › › [radio] 180 deg | › › [radio] 180 deg |  | same |  |
-| 54 | › › [radio] 225 deg | › › [radio] 225 deg |  | same |  |
-| 55 | › › [radio] 270 deg | › › [radio] 270 deg |  | same |  |
-| 56 | › › [radio] 315 deg | › › [radio] 315 deg |  | same |  |
-| 57 | › [submenu] Elevation | › [submenu] Elevation |  | same |  |
-| 58 | › › [radio] 15 deg | › › [radio] 15 deg |  | same |  |
-| 59 | › › [radio] 25 deg | › › [radio] 25 deg |  | same |  |
-| 60 | › › [radio] 35 deg | › › [radio] 35 deg |  | same |  |
-| 61 | › › [radio] 45 deg | › › [radio] 45 deg |  | same |  |
-| 62 | › › [radio] 55 deg | › › [radio] 55 deg |  | same |  |
-| 63 | › › [radio] 65 deg | › › [radio] 65 deg |  | same |  |
-| 64 | › › [radio] 75 deg | › › [radio] 75 deg |  | same |  |
-| 65 | › [submenu] Ambient | › [submenu] Ambient |  | same |  |
-| 66 | › › [radio] 0.00 | › › [radio] 0.00 |  | same |  |
-| 67 | › › [radio] 0.15 | › › [radio] 0.15 |  | same |  |
-| 68 | › › [radio] 0.25 | › › [radio] 0.25 |  | same |  |
-| 69 | › › [radio] 0.35 | › › [radio] 0.35 |  | same |  |
-| 70 | › › [radio] 0.50 | › › [radio] 0.50 |  | same |  |
-| 71 | › › [radio] 0.70 | › › [radio] 0.70 |  | same |  |
-| 72 | › [submenu] Multidirectional | › [submenu] Multidirectional |  | same |  |
-| 73 | › › [radio] 1 light (single sun) | › › [radio] 1 light (single sun) |  | same |  |
-| 74 | › › [radio] 2 lights | › › [radio] 2 lights |  | same |  |
-| 75 | › › [radio] 4 lights | › › [radio] 4 lights |  | same |  |
-| 76 | › › [radio] 6 lights | › › [radio] 6 lights |  | same |  |
-| 77 | › › [radio] 8 lights | › › [radio] 8 lights |  | same |  |
-| 78 | › › [radio] 12 lights | › › [radio] 12 lights |  | same |  |
-| 79 | › ——— | › ——— |  | same |  |
-| 80 | › Use the engine’s own rig | › Use the engine's own rig |  | same |  |
-| 81 | [submenu] Relief exaggeration | [submenu] Relief exaggeration |  | same |  |
-| 82 | › [radio] 1x | › [radio] 1x |  | same |  |
-| 83 | › [radio] 2x | › [radio] 2x |  | same |  |
-| 84 | › [radio] 4x | › [radio] 4x |  | same |  |
-| 85 | › ——— | › ——— |  | same |  |
-| 86 | › Use the engine’s own 3.4x | › Use the engine's own 3.4x |  | same |  |
-| 87 | **TILES & LOD** | **TILES & LOD** |  | same |  |
-| 88 | [submenu] Tiled LOD | [submenu] Tiled LOD |  | same |  |
-| 89 | › [radio] Auto on zoom | › [radio] Auto on zoom |  | same |  |
-| 90 | › [radio] Manual | › [radio] Manual |  | same |  |
-| 91 | › ——— | › ——— |  | same |  |
-| 92 | › Enter deep detail now | › Enter deep detail now |  | same |  |
-| 93 | › Leave deep detail | › Leave deep detail |  | same |  |
-| 94 | [submenu] Tile size · LOD levels | [submenu] Tile size · LOD levels |  | same |  |
-| 95 | › [radio] 256 px | › [radio] 256 px |  | same |  |
-| 96 | › [radio] 512 px | › [radio] 512 px |  | same |  |
-| 97 | › [radio] 1024 px | › [radio] 1024 px |  | same |  |
-| 98 | › ——— | › ——— |  | same |  |
-| 99 | › [submenu] LOD levels | › [submenu] LOD levels |  | same |  |
-| 100 | › › [radio] LOD 0–0   1 tile | › › [radio] LOD 0–0   1 tile |  | same |  |
-| 101 | › › [radio] LOD 0–1   5 tiles | › › [radio] LOD 0–1   5 tiles |  | same |  |
-| 102 | › › [radio] LOD 0–2   21 tiles | › › [radio] LOD 0–2   21 tiles |  | same |  |
-| 103 | › › [radio] LOD 0–3   85 tiles | › › [radio] LOD 0–3   85 tiles |  | same |  |
-| 104 | › › [radio] LOD 0–4   341 tiles | › › [radio] LOD 0–4   341 tiles |  | same |  |
-| 105 | › › [radio] LOD 0–5   1 365 tiles | › › [radio] LOD 0–5   1 365 tiles |  | same |  |
-| 106 | › › [radio] LOD 0–6   5 461 tiles | › › [radio] LOD 0–6   5 461 tiles |  | same |  |
-| 107 | › › [radio] LOD 0–7   21 845 tiles | › › [radio] LOD 0–7   21 845 tiles |  | same |  |
-| 108 | › › [radio] LOD 0–8   87 381 tiles | › › [radio] LOD 0–8   87 381 tiles |  | same |  |
-| 109 | [submenu] Atlas cache | [submenu] Atlas cache |  | same |  |
-| 110 | › [readout] 85 chunks · 1.2 GB · to LOD 3 | › [readout] … chunks · … · empty |  | differs: label | s R2 |
-| 111 | › [submenu] Size cap · GB | › [submenu] Size cap · GB |  | same |  |
-| 112 | › › [radio] No cap | › › [radio] No cap |  | same |  |
-| 113 | › › [radio] 0.5 GB | › › [radio] 0.5 GB |  | same |  |
-| 114 | › › [radio] 1 GB | › › [radio] 1 GB |  | same |  |
-| 115 | › › [radio] 2 GB | › › [radio] 2 GB |  | same |  |
-| 116 | › › [radio] 4 GB | › › [radio] 4 GB |  | same |  |
-| 117 | › › [radio] 8 GB | › › [radio] 8 GB |  | same |  |
-| 118 | › › [radio] 16 GB | › › [radio] 16 GB |  | same |  |
-| 119 | › Refine detail for the current view | › Refine detail for the current view |  | same |  |
-| 120 | › Refine viewshed for the current view | › Refine viewshed for the current view |  | same |  |
-| 121 | › [readout] Viewshed | › [readout] Viewshed: never refined |  | same |  |
-| 122 | › ——— | › ——— |  | same |  |
-| 123 | › Export atlas… | › Export atlas… |  | same |  |
-| 124 | › Import atlas… | › Import atlas… |  | same |  |
-| 125 | › ——— | › ——— |  | same |  |
-| 126 | › Clear atlas cache now… | › Clear atlas cache now… |  | same |  |
-| 127 | [submenu] Chunk debug overlay | [submenu] Chunk debug overlay |  | same |  |
-| 128 | › [check] Grid | › [check] Grid |  | same |  |
-| 129 | › [check] Colors | › [check] Colors |  | same |  |
-| 130 | › [check] Labels | › [check] Labels |  | same |  |
-| 131 | › ——— | › ——— |  | same |  |
-| 132 | › [check] Show tile borders on the map | › [check] Show tile borders on the map |  | same |  |
-| 133 | **MEMORY** | **MEMORY** |  | same |  |
-| 134 | [submenu] Undo history | [submenu] Undo history |  | same |  |
-| 135 | › [radio] 64 MB | › [radio] 64 MB |  | same |  |
-| 136 | › [radio] 128 MB | › [radio] 128 MB |  | same |  |
-| 137 | › [radio] 256 MB | › [radio] 256 MB |  | same |  |
-| 138 | › [radio] 512 MB | › [radio] 512 MB |  | same |  |
-| 139 | › [radio] 1024 MB | › [radio] 1024 MB |  | same |  |
-| 140 | › ——— | › ——— |  | same |  |
-| 141 | › Clear undo history now | › Clear undo history now |  | same |  |
-| 142 | [readout] Working set | [readout] Working set   … GB of … GB |  | same |  |
-| 143 | Clear caches… | Clear caches… |  | same |  |
-| 144 | **APPLICATION** | **APPLICATION** |  | same |  |
-| 145 | Storage locations… | Storage locations… |  | same |  |
-| 146 | Assistant… | Assistant… |  | same |  |
-| 147 | Quick bar… | Quick bar… |  | same |  |
-| 148 | [submenu] Theme | [submenu] Theme |  | same |  |
-| 149 | › [radio] Dark | › [radio] Dark |  | same |  |
-| 150 | › [radio] Light | › [radio] Light |  | same |  |
-| 151 | › [radio] Follow system | › [radio] Follow system |  | same |  |
-| 152 | [submenu] Units | [submenu] Units |  | same |  |
-| 153 | › [radio] Kilometres | › [radio] Kilometres |  | same |  |
-| 154 | › [radio] Miles | › [radio] Miles |  | same |  |
-| 155 | › [radio] Nautical miles | › [radio] Nautical miles |  | same |  |
-| 156 | [submenu] Handedness | [submenu] Handedness |  | same |  |
-| 157 | › [radio] Left | › [radio] Left |  | same |  |
-| 158 | › [radio] Right | › [radio] Right |  | same |  |
-| 159 | Keyboard shortcuts… | Keyboard shortcuts… |  | same |  |
-| 160 | **TOUCH · NEW** |  |  | mockup-only | n N1 |
-| 161 | Touch & gestures… |  |  | mockup-only | n N1 |
+| 48 | › [submenu] Azimuth | › **AZIMUTH** |  | differs: kind submenu/caption | ?  |
+| 49 | › › [radio] 0 deg |  |  | mockup-only | ?  |
+| 50 | › › [radio] 45 deg |  |  | mockup-only | ?  |
+| 51 | › › [radio] 90 deg |  |  | mockup-only | ?  |
+| 52 | › › [radio] 135 deg |  |  | mockup-only | ?  |
+| 53 | › › [radio] 180 deg |  |  | mockup-only | ?  |
+| 54 | › › [radio] 225 deg |  |  | mockup-only | ?  |
+| 55 | › › [radio] 270 deg |  |  | mockup-only | ?  |
+| 56 | › › [radio] 315 deg |  |  | mockup-only | ?  |
+| 57 |  | › [radio] 0 deg |  | Godot-only | ?  |
+| 58 |  | › [radio] 45 deg |  | Godot-only | ?  |
+| 59 |  | › [radio] 90 deg |  | Godot-only | ?  |
+| 60 |  | › [radio] 135 deg |  | Godot-only | ?  |
+| 61 |  | › [radio] 180 deg |  | Godot-only | ?  |
+| 62 |  | › [radio] 225 deg |  | Godot-only | ?  |
+| 63 |  | › [radio] 270 deg |  | Godot-only | ?  |
+| 64 |  | › [radio] 315 deg |  | Godot-only | ?  |
+| 65 | › [submenu] Elevation | › **ELEVATION** |  | differs: kind submenu/caption | ?  |
+| 66 | › › [radio] 15 deg |  |  | mockup-only | ?  |
+| 67 | › › [radio] 25 deg |  |  | mockup-only | ?  |
+| 68 | › › [radio] 35 deg |  |  | mockup-only | ?  |
+| 69 | › › [radio] 45 deg |  |  | mockup-only | ?  |
+| 70 | › › [radio] 55 deg |  |  | mockup-only | ?  |
+| 71 | › › [radio] 65 deg |  |  | mockup-only | ?  |
+| 72 | › › [radio] 75 deg |  |  | mockup-only | ?  |
+| 73 |  | › [radio] 15 deg |  | Godot-only | ?  |
+| 74 |  | › [radio] 25 deg |  | Godot-only | ?  |
+| 75 |  | › [radio] 35 deg |  | Godot-only | ?  |
+| 76 |  | › [radio] 45 deg |  | Godot-only | ?  |
+| 77 |  | › [radio] 55 deg |  | Godot-only | ?  |
+| 78 |  | › [radio] 65 deg |  | Godot-only | ?  |
+| 79 |  | › [radio] 75 deg |  | Godot-only | ?  |
+| 80 | › [submenu] Ambient | › **AMBIENT** |  | differs: kind submenu/caption | ?  |
+| 81 | › › [radio] 0.00 |  |  | mockup-only | ?  |
+| 82 | › › [radio] 0.15 |  |  | mockup-only | ?  |
+| 83 | › › [radio] 0.25 |  |  | mockup-only | ?  |
+| 84 | › › [radio] 0.35 |  |  | mockup-only | ?  |
+| 85 | › › [radio] 0.50 |  |  | mockup-only | ?  |
+| 86 | › › [radio] 0.70 |  |  | mockup-only | ?  |
+| 87 |  | › [radio] 0.00 |  | Godot-only | ?  |
+| 88 |  | › [radio] 0.15 |  | Godot-only | ?  |
+| 89 |  | › [radio] 0.25 |  | Godot-only | ?  |
+| 90 |  | › [radio] 0.35 |  | Godot-only | ?  |
+| 91 |  | › [radio] 0.50 |  | Godot-only | ?  |
+| 92 |  | › [radio] 0.70 |  | Godot-only | ?  |
+| 93 | › [submenu] Multidirectional | › **MULTIDIRECTIONAL** |  | differs: kind submenu/caption | ?  |
+| 94 | › › [radio] 1 light (single sun) |  |  | mockup-only | ?  |
+| 95 | › › [radio] 2 lights |  |  | mockup-only | ?  |
+| 96 | › › [radio] 4 lights |  |  | mockup-only | ?  |
+| 97 | › › [radio] 6 lights |  |  | mockup-only | ?  |
+| 98 | › › [radio] 8 lights |  |  | mockup-only | ?  |
+| 99 | › › [radio] 12 lights |  |  | mockup-only | ?  |
+| 100 |  | › [radio] 1 light (single sun) |  | Godot-only | ?  |
+| 101 |  | › [radio] 2 lights |  | Godot-only | ?  |
+| 102 |  | › [radio] 4 lights |  | Godot-only | ?  |
+| 103 |  | › [radio] 6 lights |  | Godot-only | ?  |
+| 104 |  | › [radio] 8 lights |  | Godot-only | ?  |
+| 105 |  | › [radio] 12 lights |  | Godot-only | ?  |
+| 106 | › ——— | › ——— |  | same |  |
+| 107 | › Use the engine’s own rig | › Use the engine's own rig |  | same |  |
+| 108 | [submenu] Relief exaggeration | [submenu] Relief exaggeration |  | same |  |
+| 109 | › [radio] 1x | › [radio] 1x |  | same |  |
+| 110 | › [radio] 2x | › [radio] 2x |  | same |  |
+| 111 | › [radio] 4x | › [radio] 4x |  | same |  |
+| 112 | › ——— | › ——— |  | same |  |
+| 113 | › Use the engine’s own 3.4x | › Use the engine's own 3.4x |  | same |  |
+| 114 | **TILES & LOD** | **TILES & LOD** |  | same |  |
+| 115 | [submenu] Tiled LOD | [submenu] Tiled LOD |  | same |  |
+| 116 | › [radio] Auto on zoom | › [radio] Auto on zoom |  | same |  |
+| 117 | › [radio] Manual | › [radio] Manual |  | same |  |
+| 118 | › ——— | › ——— |  | same |  |
+| 119 | › Enter deep detail now | › Enter deep detail now |  | same |  |
+| 120 | › Leave deep detail | › Leave deep detail |  | same |  |
+| 121 | [submenu] Tile size · LOD levels | [submenu] Tile size · LOD levels |  | same |  |
+| 122 | › [radio] 256 px | › [radio] 256 px |  | same |  |
+| 123 | › [radio] 512 px | › [radio] 512 px |  | same |  |
+| 124 | › [radio] 1024 px | › [radio] 1024 px |  | same |  |
+| 125 | › ——— |  |  | mockup-only | ?  |
+| 126 | › [submenu] LOD levels | › **LOD LEVELS** |  | differs: kind submenu/caption | ?  |
+| 127 | › › [radio] LOD 0–0   1 tile |  |  | mockup-only | ?  |
+| 128 | › › [radio] LOD 0–1   5 tiles |  |  | mockup-only | ?  |
+| 129 | › › [radio] LOD 0–2   21 tiles |  |  | mockup-only | ?  |
+| 130 | › › [radio] LOD 0–3   85 tiles |  |  | mockup-only | ?  |
+| 131 | › › [radio] LOD 0–4   341 tiles |  |  | mockup-only | ?  |
+| 132 | › › [radio] LOD 0–5   1 365 tiles |  |  | mockup-only | ?  |
+| 133 | › › [radio] LOD 0–6   5 461 tiles |  |  | mockup-only | ?  |
+| 134 | › › [radio] LOD 0–7   21 845 tiles |  |  | mockup-only | ?  |
+| 135 | › › [radio] LOD 0–8   87 381 tiles |  |  | mockup-only | ?  |
+| 136 |  | › [radio] LOD 0–0   1 tile |  | Godot-only | ?  |
+| 137 |  | › [radio] LOD 0–1   5 tiles |  | Godot-only | ?  |
+| 138 |  | › [radio] LOD 0–2   21 tiles |  | Godot-only | ?  |
+| 139 |  | › [radio] LOD 0–3   85 tiles |  | Godot-only | ?  |
+| 140 |  | › [radio] LOD 0–4   341 tiles |  | Godot-only | ?  |
+| 141 |  | › [radio] LOD 0–5   1 365 tiles |  | Godot-only | ?  |
+| 142 |  | › [radio] LOD 0–6   5 461 tiles |  | Godot-only | ?  |
+| 143 |  | › [radio] LOD 0–7   21 845 tiles |  | Godot-only | ?  |
+| 144 |  | › [radio] LOD 0–8   87 381 tiles |  | Godot-only | ?  |
+| 145 | [submenu] Atlas cache | [submenu] Atlas cache |  | same |  |
+| 146 | › [readout] 85 chunks · 1.2 GB · to LOD 3 |  |  | mockup-only | ?  |
+| 147 |  | › [readout] … chunks · … · empty |  | Godot-only | ?  |
+| 148 | › [submenu] Size cap · GB | › **SIZE CAP · GB** |  | differs: kind submenu/caption | ?  |
+| 149 | › › [radio] No cap |  |  | mockup-only | ?  |
+| 150 | › › [radio] 0.5 GB |  |  | mockup-only | ?  |
+| 151 | › › [radio] 1 GB |  |  | mockup-only | ?  |
+| 152 | › › [radio] 2 GB |  |  | mockup-only | ?  |
+| 153 | › › [radio] 4 GB |  |  | mockup-only | ?  |
+| 154 | › › [radio] 8 GB |  |  | mockup-only | ?  |
+| 155 | › › [radio] 16 GB |  |  | mockup-only | ?  |
+| 156 |  | › [radio] No cap |  | Godot-only | ?  |
+| 157 |  | › [radio] 0.5 GB |  | Godot-only | ?  |
+| 158 |  | › [radio] 1 GB |  | Godot-only | ?  |
+| 159 |  | › [radio] 2 GB |  | Godot-only | ?  |
+| 160 |  | › [radio] 4 GB |  | Godot-only | ?  |
+| 161 |  | › [radio] 8 GB |  | Godot-only | ?  |
+| 162 |  | › [radio] 16 GB |  | Godot-only | ?  |
+| 163 | › Refine detail for the current view | › Refine detail for the current view |  | same |  |
+| 164 | › Refine viewshed for the current view | › Refine viewshed for the current view |  | same |  |
+| 165 | › [readout] Viewshed | › [readout] Viewshed: never refined |  | same |  |
+| 166 | › ——— | › ——— |  | same |  |
+| 167 | › Export atlas… | › Export atlas… |  | same |  |
+| 168 | › Import atlas… | › Import atlas… |  | same |  |
+| 169 | › ——— | › ——— |  | same |  |
+| 170 | › Clear atlas cache now… | › Clear atlas cache now… |  | same |  |
+| 171 | [submenu] Chunk debug overlay | [submenu] Chunk debug overlay |  | same |  |
+| 172 | › [check] Grid | › [check] Grid |  | same |  |
+| 173 | › [check] Colors | › [check] Colors |  | same |  |
+| 174 | › [check] Labels | › [check] Labels |  | same |  |
+| 175 | › ——— | › ——— |  | same |  |
+| 176 | › [check] Show tile borders on the map | › [check] Show tile borders on the map |  | same |  |
+| 177 | **MEMORY** | **MEMORY** |  | same |  |
+| 178 | [submenu] Undo history | [submenu] Undo history |  | same |  |
+| 179 | › [radio] 64 MB | › [radio] 64 MB |  | same |  |
+| 180 | › [radio] 128 MB | › [radio] 128 MB |  | same |  |
+| 181 | › [radio] 256 MB | › [radio] 256 MB |  | same |  |
+| 182 | › [radio] 512 MB | › [radio] 512 MB |  | same |  |
+| 183 | › [radio] 1024 MB | › [radio] 1024 MB |  | same |  |
+| 184 | › ——— | › ——— |  | same |  |
+| 185 | › Clear undo history now | › Clear undo history now |  | same |  |
+| 186 | [readout] Working set | [readout] Working set   … GB of … GB |  | same |  |
+| 187 | Clear caches… | Clear caches… |  | same |  |
+| 188 | **APPLICATION** | **APPLICATION** |  | same |  |
+| 189 | Storage locations… | Storage locations… |  | same |  |
+| 190 | Assistant… | Assistant… |  | same |  |
+| 191 | Quick bar… | Quick bar… |  | same |  |
+| 192 | [submenu] Theme | [submenu] Theme |  | same |  |
+| 193 | › [radio] Dark | › [radio] Dark |  | same |  |
+| 194 | › [radio] Light | › [radio] Light |  | same |  |
+| 195 | › [radio] Follow system | › [radio] Follow system |  | same |  |
+| 196 | [submenu] Units | [submenu] Units |  | same |  |
+| 197 | › [radio] Kilometres | › [radio] Kilometres |  | same |  |
+| 198 | › [radio] Miles | › [radio] Miles |  | same |  |
+| 199 | › [radio] Nautical miles | › [radio] Nautical miles |  | same |  |
+| 200 | [submenu] Handedness | [submenu] Handedness |  | same |  |
+| 201 | › [radio] Left | › [radio] Left |  | same |  |
+| 202 | › [radio] Right | › [radio] Right |  | same |  |
+| 203 |  | UI scale · dark |  | Godot-only | ?  |
+| 204 | Keyboard shortcuts… | Keyboard shortcuts… |  | same |  |
+| 205 | **TOUCH · NEW** |  |  | mockup-only | n N1 |
+| 206 | Touch & gestures… |  |  | mockup-only | n N1 |
 
 #### Window
 
@@ -2077,32 +2273,35 @@ Columns: the mockup's row; Godot's row with PC-1, PC-4, PC-5 and PC-6 built; God
 | 17 | [submenu] 3D capability | [submenu] 3D capability |  | same |  |
 | 18 | › [readout] 3D tier | › [readout] 3D tier: not tested |  | same |  |
 | 19 | › Re-test 3D | › Re-test 3D |  | same |  |
-| 20 | › [submenu] Force tier | › [submenu] Force tier |  | same |  |
-| 21 | › › [radio] Automatic (as measured) | › › [radio] Automatic (as measured) |  | same |  |
-| 22 | › › [radio] Off | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 23 | › › [radio] Basic | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 24 | › › [radio] Standard | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 25 | › › [radio] Full | › › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | same (run-time list) |  |
-| 26 | ——— | ——— |  | same |  |
-| 27 | [submenu] Workspace | [submenu] Workspace |  | same |  |
-| 28 | › [radio] World · SM | › [radio] World · SM |  | same |  |
-| 29 | › [radio] Civilization | › [radio] Civilization |  | same |  |
-| 30 | › [radio] Cartography | › [radio] Cartography |  | same |  |
-| 31 | [submenu] Open windows | [submenu] Open windows |  | same |  |
-| 32 | › [readout] No windows open |  |  | mockup-only | s S3 |
-| 33 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
-| 34 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
-| 35 | ——— | ——— |  | same |  |
-| 36 | Reset layout | Reset layout |  | same |  |
-| 37 | [submenu] Layouts | [submenu] Layouts |  | same |  |
-| 38 | › Default (reset layout) | › Default (reset layout) |  | same |  |
-| 39 | › Generate | › Generate |  | same |  |
-| 40 | › Sculpt | › Sculpt |  | same |  |
-| 41 | › Cartography | › Cartography |  | same |  |
-| 42 | › Journey | › Journey |  | same |  |
-| 43 | › ——— | › ——— |  | same |  |
-| 44 | › Save layout as… | › Save layout as… |  | same |  |
-| 45 | › Forget layout… | › Forget layout… |  | same |  |
+| 20 | › [submenu] Force tier |  |  | mockup-only | ?  |
+| 21 | › › [radio] Automatic (as measured) |  |  | mockup-only (inside) | ?  |
+| 22 | › › [radio] Off |  |  | mockup-only (inside) | ?  |
+| 23 | › › [radio] Basic |  |  | mockup-only (inside) | ?  |
+| 24 | › › [radio] Standard |  |  | mockup-only (inside) | ?  |
+| 25 | › › [radio] Full |  |  | mockup-only (inside) | ?  |
+| 26 |  | › **FORCE TIER** |  | Godot-only | ?  |
+| 27 |  | › [radio] Automatic (as measured) |  | Godot-only | ?  |
+| 28 |  | › [radio] {View3DGate.TIER_NAMES[t]} · run-time list |  | Godot-only | ?  |
+| 29 | ——— | ——— |  | same |  |
+| 30 | [submenu] Workspace | [submenu] Workspace |  | same |  |
+| 31 | › [radio] World · SM | › [radio] World · SM |  | same |  |
+| 32 | › [radio] Civilization | › [radio] Civilization |  | same |  |
+| 33 | › [radio] Cartography | › [radio] Cartography |  | same |  |
+| 34 | [submenu] Open windows | [submenu] Open windows |  | same |  |
+| 35 | › [readout] No windows open |  |  | mockup-only | s S3 |
+| 36 | › [check] Context panel | › [check] Context panel |  | same after the milestone; today: absent today | m PC-4 |
+| 37 |  | › [check] {w.title.strip_edges()} · run-time list |  | Godot-only | s S3 |
+| 38 | ——— | ——— |  | same |  |
+| 39 | Reset layout | Reset layout |  | same |  |
+| 40 | [submenu] Layouts | [submenu] Layouts |  | same |  |
+| 41 | › Default (reset layout) | › Default (reset layout) |  | same |  |
+| 42 | › Generate | › Generate |  | same |  |
+| 43 | › Sculpt | › Sculpt |  | same |  |
+| 44 | › Cartography | › Cartography |  | same |  |
+| 45 | › Journey | › Journey |  | same |  |
+| 46 | › ——— | › ——— |  | same |  |
+| 47 | › Save layout as… | › Save layout as… |  | same |  |
+| 48 | › Forget layout… | › Forget layout… |  | same |  |
 
 #### Help
 
