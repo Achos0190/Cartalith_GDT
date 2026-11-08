@@ -3808,6 +3808,31 @@ func _follow_tool_to_its_block(id: String) -> void:
 	## thing §2.4's `armTool` asks for.
 	app.select_domain_category("world", category)
 
+## MS-5 (`MOBILE_SHELL_PROPOSAL.md` section 2.1, the tool strip): the armed tool's own draft verbs, for the phone's
+## tool strip (`tool_strip.gd`). Returns `{}` for a tool this workspace does not draft with, else
+## `{"commit": Callable, "discard": Callable, "can": bool, "count": int}`. The two callables are the very ones the
+## card's Draft rows (`context_actions`) and the dock's Commit buttons run, so the strip is a third door onto one
+## path and never a second implementation. `can` is "the draft holds something": the engine's own stamp or dab
+## count, read only while the engine is free (a worker owns it mid-run, `bind() failed` otherwise), so a busy or
+## world-less engine answers `can = false, count = 0` rather than a guess. Read-only; never writes the engine.
+func draft_verbs(tool_id: String) -> Dictionary:
+	var can := false
+	var count := 0
+	if bridge != null and bridge.has_world and not bridge.generating:
+		match tool_id:
+			"sculpt":
+				count = bridge.sculpt_stamp_count()
+			"paint":
+				count = bridge.paint_draft_count()
+	match tool_id:
+		"sculpt":
+			can = count > 0
+			return {"commit": _on_sculpt_commit, "discard": _on_sculpt_discard, "can": can, "count": count}
+		"paint":
+			can = count > 0
+			return {"commit": _on_paint_commit, "discard": _on_paint_discard, "can": can, "count": count}
+	return {}
+
 ## `MAP_CONTEXT_SCOPE.md`'s provider contract (`shell/context_broker.gd`'s
 ## header). Empty in CM-1; **since CM-2, §4.3's WORLD rows that something in
 ## this file already does**:

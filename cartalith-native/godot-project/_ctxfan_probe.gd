@@ -15,8 +15,9 @@ extends Node
 ## required or the probe aborts (leg FORM).
 ##
 ## Legs:
-##   T  a 200 ms press-and-release (no slide) is a tap: the fan never opens,
-##      and it toggles Inspect <-> the previously-armed tool
+##   T  a 200 ms press-and-release (no slide) is a tap: the fan never opens and the
+##      armed tool is unchanged (MS-5: the tap raises the sheet; `toggle_inspect()` is the
+##      strip's X and return arrow and toggles Inspect <-> the previously-armed tool)
 ##   O  a press held past 260 ms without moving opens the fan
 ##   M  moving > 12 dp before 260 ms opens the fan immediately (the slop path)
 ##   A  dragging onto N (Inspect) and releasing arms it, checked through the
@@ -138,26 +139,33 @@ func _run() -> void:
 	var pill_rect: Rect2 = fan.pill_global_rect()
 	print("FIXTURE pill rect=%s" % [pill_rect])
 	_ok("the pill has a real, non-empty rect", pill_rect.size.x > 0.0 and pill_rect.size.y > 0.0, true)
-	var centre: Vector2 = pill_rect.get_center()
+	## MS-5 second step: the chip sits in the tool strip's row, not at the screen centre, so the fan's origin is no
+	## longer the chip's centre (`ToolFan.fan_origin()` moves it just far enough to fit the viewport). Every slot
+	## position below is measured from the origin; the press itself is a seam call that carries no hit-test.
+	var centre: Vector2 = fan.fan_origin()
 
-	# -- T: a quick tap toggles Inspect, never opens the fan ---------------------
+	# -- T: a quick tap never opens the fan and no longer toggles Inspect (MS-5: it raises the sheet) ---------------
 	app.arm_tool("measure")
 	await _frames(2)
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await _frames(2)
 	fan.release()
 	await _frames(2)
 	_ok("T a quick tap: the fan never opened", fan.is_open(), false)
-	_ok("T a quick tap: Inspect is now armed", app.armed_tool, "inspect")
-	fan.press(centre)
+	_ok("T a quick tap: the armed tool is unchanged", app.armed_tool, "measure")
+	## The old tap's two meanings, now the strip's X and return arrow: `toggle_inspect()`.
+	fan.toggle_inspect()
 	await _frames(2)
-	fan.release()
+	_ok("T toggle_inspect with a tool armed: Inspect is now armed", app.armed_tool, "inspect")
+	fan.toggle_inspect()
 	await _frames(2)
-	_ok("T a second quick tap: back to the previous tool", app.armed_tool, "measure")
+	_ok("T toggle_inspect from Inspect: back to the previous tool", app.armed_tool, "measure")
 	app.arm_tool("inspect")
 	await _frames(2)
 
 	# -- O: a still hold past 260 ms opens the fan --------------------------------
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await get_tree().create_timer(0.1).timeout
 	_ok("O 100ms still: not open yet", fan.is_open(), false)
@@ -175,6 +183,7 @@ func _run() -> void:
 
 	# -- M: moving past the 12 dp slop opens the fan immediately -----------------
 	var scale: float = app.phone_scale()
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await _frames(1)
 	fan.pointer(centre + Vector2(0.0, -20.0 * scale))
@@ -191,6 +200,7 @@ func _run() -> void:
 	## second table (this file's own header, and the milestone's own brief).
 	app.arm_tool("region")
 	await _frames(2)
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await _frames(1)
 	fan.pointer(centre + Vector2(0.0, -150.0 * scale))  ## N, outer radius
@@ -208,6 +218,7 @@ func _run() -> void:
 	## sub-open here, then a second selection (via `click_at`, the sticky-tap
 	## path leg K already exercises) arms Measure through the child's own
 	## `set_measure_mode()`, which is what actually calls `app.arm_tool`.
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await _frames(1)
 	fan.pointer(centre + Vector2(150.0 * scale, 0.0))  ## E, outer radius
@@ -235,6 +246,7 @@ func _run() -> void:
 	app.arm_tool("region")
 	await _frames(2)
 
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await _frames(1)
 	fan.pointer(centre + Vector2(-150.0 * scale, 0.0))  ## W, outer radius
@@ -244,6 +256,7 @@ func _run() -> void:
 	_ok("A2 drag to W arms Region", app.armed_tool, "region")
 
 	# -- Z: a release with no hover goes sticky, not closed ----------------------
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await get_tree().create_timer(0.3).timeout  ## past FAN_HOLD_MS -- the still-hold path opens it
 	fan.pointer(centre)  ## no movement -- still in the dead zone
@@ -265,6 +278,7 @@ func _run() -> void:
 	_ok("K after arming from sticky: closed", fan.is_open(), false)
 
 	# -- X: once sticky, a tap outside every slot dismisses the fan --------------
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await get_tree().create_timer(0.3).timeout
 	await _frames(2)
@@ -279,6 +293,7 @@ func _run() -> void:
 
 	# -- R: the fan's own bounding rect stays inside the phone viewport ----------
 	var vis: Rect2 = app.get_viewport().get_visible_rect()
+	centre = fan.fan_origin()  # the strip grows upward when a tool is armed, which moves the chip and so the origin
 	fan.press(centre)
 	await get_tree().create_timer(0.3).timeout
 	await _frames(2)
@@ -304,7 +319,7 @@ func _run() -> void:
 	## moved it), which put a diagonal aim at the OLD centre 132 px off the
 	## live `NW` slot -- just outside `HIT_MAX` -- and read as "nothing
 	## hovered" instead of a wrong-but-close hit.
-	var pc: Vector2 = fan.pill_global_rect().get_center()
+	var pc: Vector2 = fan.fan_origin()
 	fan.press(pc)
 	await get_tree().create_timer(0.3).timeout
 	await _frames(2)
@@ -363,7 +378,7 @@ func _run() -> void:
 		## Re-read the pill's centre again rather than reuse `pc` from above
 		## -- the same drift this leg's header already measured once is
 		## cheap to guard against a second time.
-		var pc2: Vector2 = fan.pill_global_rect().get_center()
+		var pc2: Vector2 = fan.fan_origin()
 		var glow_pt := pc2 + Vector2(0.0, -(56.0 * scale * 0.5 + 6.0))
 		fan.press(pc2)
 		await get_tree().create_timer(0.3).timeout   ## still-hold: fan opens, no sub yet
@@ -405,7 +420,7 @@ func _run() -> void:
 		await _frames(2)
 
 	# -- L: every label sits fully inside its own circle (Ruling BC) ------------
-	var pc3: Vector2 = fan.pill_global_rect().get_center()
+	var pc3: Vector2 = fan.fan_origin()
 	var d_l: float = 28.0 * scale   ## `fan.SLOT_D * scale * 0.5` -- the live main-slot radius.
 	## The raw map, fan fully closed -- the "nothing drawn here at all" frame
 	## `_expect_scrim()` predicts from, reused for every point below (the map

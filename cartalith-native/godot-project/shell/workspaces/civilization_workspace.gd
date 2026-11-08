@@ -727,6 +727,28 @@ func on_deselect() -> bool:
 	_selected_index = -1
 	return true
 
+## MS-5 (`MOBILE_SHELL_PROPOSAL.md` section 2.1, the tool strip): the armed tool's own draft verbs for the phone's
+## tool strip (`tool_strip.gd`); the same contract as `world_workspace.gd::draft_verbs`. Returns `{}` for a tool
+## that drafts nothing here. Way and Route live in `InfrastructureWorkspace` (`_infra`), whose Commit / Discard
+## buttons run `_commit_way` / `_discard_way` and `_commit_route` / `_discard_route`; Conflict, Territory and the
+## lasso are this file's own. Every callable is the function the tool's own Commit / Discard button already calls.
+## `can` is always true and `count` is -1 ("not known"): none of these tools has a bound count of its draft (the
+## card's own Territory row says the same: a commit of nothing is the documented no-op both engine calls have), and
+## a disabled Commit on a guess would be a fake value. Read-only.
+func draft_verbs(tool_id: String) -> Dictionary:
+	match tool_id:
+		"way":
+			return {"commit": _infra._commit_way, "discard": _infra._discard_way, "can": true, "count": -1}
+		"route":
+			return {"commit": _infra._commit_route, "discard": _infra._discard_route, "can": true, "count": -1}
+		"conflict":
+			return {"commit": _commit_conflict, "discard": _discard_conflict, "can": true, "count": -1}
+		"territory":
+			return {"commit": _commit_territory, "discard": _discard_territory, "can": true, "count": -1}
+		"territory_lasso":
+			return {"commit": _lasso_commit, "discard": _lasso_discard, "can": true, "count": -1}
+	return {}
+
 ## `_civCtxShow` (reference 25857) and the `contextmenu` handler that builds
 ## its item list (25888). Five of the reference's six operations; the sixth
 ## ("Drop POI here") is absent because POI is not a ported concept

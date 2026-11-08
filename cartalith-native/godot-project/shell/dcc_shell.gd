@@ -686,8 +686,13 @@ var _phone_menu: PhoneMenu      ## L2-L5. Replaces the old `_phone_overflow`
 ## `class_name` -- `tool_fan.gd`'s own header explains why -- so this is typed
 ## against the const below rather than a global class.
 const ToolFan := preload("res://shell/tool_fan.gd")
-## The CM-6 tool fan (a `ToolFan`) mounted in `_phone_content_gap`.
+## The CM-6 tool fan (a `ToolFan`): the gesture grammar behind the tool strip's chip (the chip is mounted in
+## `_tool_strip`, since MS-5's second step).
 var _tool_fan: ToolFan
+## MS-5: the phone's tool strip (`tool_strip.gd`), mounted in `_phone_content_gap`. Preloaded, not a `class_name`
+## (the project's rule for a script that would need an import pass to register one).
+const ToolStrip := preload("res://shell/tool_strip.gd")
+var _tool_strip: ToolStrip
 ## True while the left dock is up as a phone sheet; written by `_set_sheet_open()`.
 var _left_sheet_open := false
 ## True while the right dock is up as a phone sheet.
@@ -1007,6 +1012,8 @@ func _unmount_composition() -> void:
 		_tool_fan.teardown()
 		_tool_fan.free()
 	_tool_fan = null
+	## MS-5: the strip (and the chip inside it) is a child of the phone root, freed with it; only the reference is cleared.
+	_tool_strip = null
 	for root in [_phone_root, _desktop_root]:
 		if root != null and is_instance_valid(root):
 			(root as Node).free()
@@ -6825,7 +6832,10 @@ func _build_phone_shell() -> void:
 	## already built by tree order, same as `radial_ring.gd`'s own ring.
 	_tool_fan = ToolFan.new()
 	_tool_fan.setup(self)
-	_tool_fan.mount(_phone_content_gap)
+	## MS-5 second step: the pill is the chip of the tool strip, which now sits in `_phone_content_gap`.
+	_tool_strip = ToolStrip.new()
+	_tool_fan.strip = _tool_strip
+	_tool_strip.setup(self, _tool_fan, _phone_content_gap)
 
 	## Full-height sheets (§13), built by the exact same functions the
 	## desktop/tablet dock uses -- `as_sheet = true` only swaps the header's
@@ -8589,12 +8599,26 @@ func phone_tap(dp: float) -> int:
 func phone_font(dp: float) -> int:
 	return _pfont(dp)
 
-## Phone only: the band, in device px, the armed-tool pill takes above the bottom of the map area (0 off phone
-## or while the pill is hidden). `ViewportHost` lifts the zoom row by it; see `ToolFan.pill_reserve()`.
+## Phone only: the band, in device px, the armed-tool strip takes above the bottom of the map area (0 off phone
+## or while the strip is hidden). `ViewportHost` lifts the zoom row by it; see `ToolStrip.reserve()`. The name
+## says "pill" because `viewport_host.gd` has called it that since the pill was all there was (MS-5's second
+## step made the pill the strip's chip, and renaming the shell method for a cosmetic is a separate change).
 func phone_tool_pill_reserve() -> float:
-	if not _phone or _tool_fan == null:
+	if not _phone or _tool_strip == null:
 		return 0.0
-	return _tool_fan.pill_reserve()
+	return _tool_strip.reserve()
+
+## MS-5: the tool strip's chip tap. Raises the phone tool sheet to half when it is at peek, and lowers it to peek
+## when it is above, so one tap opens "the full options" the sheet draws for the armed tool and the next closes
+## them (`MOBILE_SHELL_PROPOSAL.md` section 2.1). It changes neither the tab nor the domain: the sheet already shows
+## the armed tool's own options on whichever tab is lit (MAP's options row, WORLD's phone column, a CIVIL or CARTO
+## dock), and switching tab for it would leave the domain the tool belongs to. Portrait only: in landscape the
+## sheet has no detents (`_snap_phone_sheet`), so the tap is a no-op there and the options are already beside the
+## map. Never arms or disarms anything.
+func phone_toggle_tool_options() -> void:
+	if not _phone or _landscape:
+		return
+	set_phone_detent("half" if _phone_detent == "peek" else "peek")
 
 ## A short self-dismissing sentence over `near` (the shell's phone toast); nothing off the phone.
 func phone_toast(text: String, near: Control = null) -> void:

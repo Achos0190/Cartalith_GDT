@@ -328,8 +328,11 @@ func _t_order() -> void:
 	await _settle()
 	_ok(not pan.visible, "Inspect armed: the latch is hidden")
 	var rec_without := rec.get_global_rect()
-	_ok(rec_with.position.distance_to(rec_without.position) < 2.0,
-		"the latch's arrival moves the recentre by %.2f px (< 2)" % rec_with.position.distance_to(rec_without.position))
+	## MS-5 second step: HORIZONTAL distance. The tool strip is taller with Sculpt armed (its option and verb row)
+	## than with Inspect, and the row sits above the strip, so the whole row now lifts by that height; what the latch
+	## must not do is push the recentre sideways, which is what "where the thumb learned it" means.
+	_ok(absf(rec_with.position.x - rec_without.position.x) < 2.0,
+		"the latch's arrival moves the recentre sideways by %.2f px (< 2)" % absf(rec_with.position.x - rec_without.position.x))
 	var pills: Array = _host._navpad.find_children("", "Button", true, false).filter(func(x): return x.text == "3D" or x.text == "2D")
 	_ok(pills.is_empty(), "no 3D / 2D pill is left in the row")
 	DccSettings.set_dominant_hand("left")
@@ -343,8 +346,8 @@ func _t_order() -> void:
 	var rec_left_with := rec.get_global_rect()
 	await _arm("inspect")
 	await _settle()
-	_ok(rec_left_with.position.distance_to(rec.get_global_rect().position) < 2.0,
-		"left hand: the latch's arrival moves the recentre by less than 2 px")
+	_ok(absf(rec_left_with.position.x - rec.get_global_rect().position.x) < 2.0,
+		"left hand: the latch's arrival moves the recentre sideways by less than 2 px (the strip's row lifts it; see above)")
 	_ok(_host._coords_label.get_global_rect().position.x < vr.position.x + vr.size.x * 0.5,
 		"left hand: the coordinate readout moved to the row's side")
 	DccSettings.set_dominant_hand("right")

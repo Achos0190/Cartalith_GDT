@@ -4,8 +4,16 @@ extends Node
 ## which the owner answered "yes, after CM-5" (`LARGE_ITEM_RULINGS.md`,
 ## Ruling AX, 2026-09-26); CM-5 shipped in `ba01574`.
 ##
-## An always-shown pill (the armed-tool readout) sits above the phone's tool
-## sheet. **Tap** toggles Inspect <-> the previously-armed tool. **Press and
+## **MS-5 second step: the pill is now the tool strip's chip** (`tool_strip.gd`,
+## `MOBILE_SHELL_PROPOSAL.md` section 2.1). The `_Pill` below is unchanged as a
+## gesture surface but no longer floats alone: `ToolStrip` mounts it as the first
+## cell of its row, beside the tool's hint, option chips and Commit / Discard.
+## What the pill's tap did moved with it: a **tap** on the chip now raises or
+## lowers the sheet to the tool's full options (`DccShell.phone_toggle_tool_options()`),
+## and the old tap's two meanings (Inspect <-> the previous tool) are `toggle_inspect()`,
+## reached by the strip's X and return-arrow buttons.
+## An always-shown chip (the armed-tool readout) sits in the strip above the phone's tool
+## sheet. **Press and
 ## slide up** opens a half-fan of the SAME 8 compass slots CM-3's ring already
 ## computes -- `ContextBroker.ring_collect()` / `ring_domain_req()` -- reused
 ## rather than a second table, per this milestone's own brief and
@@ -105,7 +113,12 @@ var _fan_center := Vector2.ZERO  ## global; the pill's own centre, captured at o
 var _slots: Dictionary = {}      ## `ContextBroker.ring_collect()`'s 8-slot compass
 var _hover := ""                 ## top-level hover dir, "" when none
 var _sub: Dictionary = {}        ## {} closed; else {"dir","items","hover":int}
-var _prev_tool := ""             ## for the tap-toggle's "return to" memory
+## The last tool armed other than Inspect: what the strip's return arrow re-arms. Written by every `tool_armed`
+## (so a tool left through the fan's Inspect slot or Esc is remembered too, which the pill's own tap-only memory
+## was not), and by `toggle_inspect()`.
+var _prev_tool := ""
+## The `ToolStrip` that hosts the chip (null until it mounts); `_process` hides it with the chip's old rule.
+var strip: Control
 
 
 ## Wires the fan to the shell: builds the pill and the overlay, parents this node
@@ -123,7 +136,10 @@ func setup(app_ref) -> void:
 		## already in the tree by tree order, independent of its own transform.
 	set_process(true)
 	if app.has_signal("tool_armed"):
-		app.tool_armed.connect(func(_id: String) -> void: _refresh_pill_text())
+		app.tool_armed.connect(func(id: String) -> void:
+			if id != "inspect":
+				_prev_tool = id
+			_refresh_pill_text())
 	_refresh_pill_text()
 
 
@@ -137,10 +153,9 @@ func teardown() -> void:
 	_overlay = null
 
 
-## Called once by `DccShell._build_phone_shell()`, after `_phone_content_gap`
-## exists. Not folded into `setup()`: `_pill` needs a real parent with a real
-## size before its anchors mean anything, the same ordering
-## `_build_phone_undo_chip()` already relies on.
+## Called once by `ToolStrip.setup()` with the strip's first row (the chip is a
+## plain cell of that row: the row, not the chip, places it). Not folded into
+## `setup()`: the strip must exist first.
 func mount(parent: Control) -> void:
 	parent.add_child(_pill)
 
@@ -162,8 +177,14 @@ func _refresh_pill_text() -> void:
 ## poll a few hundred lines up.
 func _process(_dt: float) -> void:
 	if _pill != null:
-		_pill.visible = not _blocked_by_menu()
-		if not _pill.visible and _open:
+		var blocked := _blocked_by_menu()
+		## The whole strip hides with the chip (it used to be the chip alone), so no Commit or option chip is left
+		## floating over a covering menu or card sheet.
+		if strip != null:
+			strip.visible = not blocked
+		else:
+			_pill.visible = not blocked
+		if blocked and _open:
 			_close()
 	if _pressed and not _open and Time.get_ticks_msec() - _press_ms >= FAN_HOLD_MS:
 		_open_fan()
@@ -216,17 +237,7 @@ func debug_state() -> Dictionary:
 	}
 
 
-## Height, in device px, of the band the armed-tool pill occupies above the bottom of its container: the pill
-## itself plus the 10 dp it floats above that edge; 0 while the pill is absent or hidden (a menu covers it).
-## `ViewportHost` reads it (through `DccShell.phone_tool_pill_reserve()`) to lift the zoom row clear of the
-## pill, which the two used to overlap (owner finding 2026-10-26: the zoom buttons sat over INSPECT).
-func pill_reserve() -> float:
-	if _pill == null or not _pill.visible:
-		return 0.0
-	return _pill.custom_minimum_size.y - _pill.offset_bottom
-
-
-## Probe seam: the pill's global rect, or an empty `Rect2` before it exists.
+## Probe seam: the chip's global rect, or an empty `Rect2` before it exists.
 ## Read-only.
 func pill_global_rect() -> Rect2:
 	return _pill.get_global_rect() if _pill != null else Rect2()
@@ -284,13 +295,20 @@ func pointer(gpos: Vector2) -> void:
 	_update_hover_from_pos(gpos)
 
 
-## The pill's own button-up. A tap (fan never opened) toggles Inspect; a
-## release once the fan is open resolves through `release_at()`, the same
-## function a sticky tap on the overlay uses.
+## The chip's own button-up. A tap (fan never opened) raises or lowers the sheet to the tool's full options
+## (`DccShell.phone_toggle_tool_options()`); a release once the fan is open resolves through `release_at()`, the
+## same function a sticky tap on the overlay uses.
 func release() -> void:
+	## MS-5 second step: with mouse emulation on, one finger reaches the chip as a touch AND as an emulated mouse
+	## event, so one lift calls this twice. The pill never noticed (its tap toggled twice); a tap that raises the
+	## sheet would raise it and lower it again (found by `_ms5b_probe`). Only a release that follows a press counts:
+	## the first clears `_pressed`, the second finds it clear and does nothing.
+	if not _pressed:
+		return
 	_pressed = false
 	if not _open:
-		_toggle_pill_tap()
+		if app.has_method("phone_toggle_tool_options"):
+			app.phone_toggle_tool_options()
 		return
 	release_at(_last_pos)
 
@@ -329,16 +347,41 @@ func click_at(gpos: Vector2) -> void:
 	release_at(gpos)
 
 
-## A tap on the pill: arm Inspect and remember the tool it replaced, or, if
-## Inspect is already armed, re-arm that remembered tool. Goes through
-## `app.arm_tool` (the dock controls' own path) and never arms by any other
-## route. Does nothing when Inspect is armed and nothing is remembered.
-func _toggle_pill_tap() -> void:
+## The strip's X and return-arrow buttons (the old pill tap): with a tool armed, arm Inspect (the tool is already
+## remembered by `tool_armed`); with Inspect armed, re-arm the remembered tool. Goes through `app.arm_tool` (the
+## dock controls' own path) and never arms by any other route. Does nothing when Inspect is armed and nothing is
+## remembered.
+func toggle_inspect() -> void:
 	if app.armed_tool != "inspect":
 		_prev_tool = app.armed_tool
 		app.arm_tool("inspect")
 	elif _prev_tool != "" and _prev_tool != "inspect":
 		app.arm_tool(_prev_tool)
+
+
+## Whether the return arrow has a tool to re-arm (Inspect armed and one remembered). Read-only.
+func can_rearm() -> bool:
+	return app != null and app.armed_tool == "inspect" and _prev_tool != "" and _prev_tool != "inspect"
+
+
+## The remembered tool id, "" if none. Read-only.
+func prev_tool() -> String:
+	return _prev_tool
+
+
+## Where the fan is drawn from, global px: the chip's centre, moved sideways just far enough that the fan's widest
+## reach (the outer ring plus half a slot) stays inside the viewport. The old pill sat at the screen's centre so
+## its fan always fit; the chip sits at the strip's left, so the origin is clamped, and where the viewport is
+## narrower than the fan (a 360 dp phone is 4 dp wider than it) the origin is the viewport's centre. Pure.
+func fan_origin() -> Vector2:
+	var c: Vector2 = _pill.get_global_rect().get_center() if _pill != null else Vector2.ZERO
+	var vw: float = app.get_viewport().get_visible_rect().size.x
+	var r: float = (OUTER_R + SLOT_D * 0.5) * app.phone_scale()
+	if vw <= r * 2.0:
+		c.x = vw * 0.5
+	else:
+		c.x = clampf(c.x, r, vw - r)
+	return c
 
 
 ## Opens the half-fan: collects the 8 compass slots from the broker for the
@@ -348,7 +391,7 @@ func _toggle_pill_tap() -> void:
 ## until the fan goes sticky, since the pill still owns the drag.
 func _open_fan() -> void:
 	_slots = app.context_broker.ring_collect(app.context_broker.ring_domain_req())
-	_fan_center = _pill.get_global_rect().get_center()
+	_fan_center = fan_origin()
 	_open = true
 	_sticky = false
 	_hover = ""
@@ -517,25 +560,13 @@ class _Pill:
 	func _ps(px: float) -> int:
 		return maxi(1, int(round(px * fan.app.phone_scale())))
 
-	## Sizes and anchors the pill: 188 x 44 dp (canvas figures), bottom-centre of its
-	## parent, 10 dp above the parent's bottom edge (a labelled judgement). Layout
-	## only; must stay anchored to the parent so it clears the nav and tool sheet.
+	## Sizes the chip: 104 x 44 dp, a plain cell of the strip's row (the row places it). The 44 is the canvas's
+	## 188 x 44 pill's own height and the touch floor; the width fits the longest tool name drawn in mono at the
+	## small size (`pill_label()` shortens the two long ids) with the strip's other cells still leaving the hint room
+	## on a 360 dp phone: a labelled judgement.
 	func _ready() -> void:
-		## Canvas: 188 x 44 dp, bottom-centre, `top:668` of a 728-tall canvas --
-		## i.e. clear of the bottom nav below it. Anchored the same way
-		## `_build_phone_undo_chip()` anchors into `_phone_content_gap`: that
-		## container already excludes the tool sheet AND the bottom nav, so a
-		## bottom-anchor here sits directly above the tool sheet, which is
-		## "above the bottom nav" once the nav sits below the sheet.
-		var w := _ps(188)
+		var w := _ps(104)
 		var h := _pt(44)
-		set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-		anchor_left = 0.5
-		anchor_right = 0.5
-		offset_left = -w / 2.0
-		offset_right = w / 2.0
-		offset_top = -h - _ps(10)
-		offset_bottom = -_ps(10)
 		custom_minimum_size = Vector2(w, h)
 
 	## Paints the pill as a capsule (filled when a non-Inspect tool is armed) with
@@ -868,4 +899,11 @@ func armed_visual() -> bool:
 func pill_label() -> String:
 	if app == null:
 		return "INSPECT"
+	## Two ids are longer than the chip's width draws at its size: shortened to one word (the strip's hint names the
+	## rest). Every other id is its own name.
+	match String(app.armed_tool):
+		"territory_lasso":
+			return "LASSO"
+		"colour_paint":
+			return "COLOUR"
 	return String(app.armed_tool).capitalize().to_upper()
