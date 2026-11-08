@@ -616,13 +616,13 @@ By the spec's own counts the 28 files with `phone_present()` are the 24 files of
 | X5 | `phone_present()` measures against `host.get_viewport_rect()` and `phone_scale()`; both change at the swap and the order matters (`_apply_unit()` before the re-present) | §5 | The swap order of §11, step 6. |
 | X6 | Pixel identity on the phone: the lazy-creation rule of `quick_bar_window` and `quick_bar_phone` (26 014 px) | §6 row 18 | The re-present path must create nothing in a window that is not open. |
 | X7 | The ring and the card keep tablet scale after a tablet to phone swap | §2.3 | Free, do not re-run. |
-| X8 | Two rulings on the line: EG is **shortest width 900 dp**, DY MQ-1 (c) is **width 600 dp, landing with MS-7**. Rotation swaps on one and not on the other | §0 | Q-S4-1. |
+| X8 | Two rulings on the line: EG is **shortest width 900 dp**, DY MQ-1 (c) is **width 600 dp, landing with MS-7**. Rotation swaps on one and not on the other | §0 | Q-S4-1, answered: EG governs (Ruling EG addendum, 2026-11-08). |
 | X9 | `_tl_*` handles and `timeline_row`: the journey planner takes `timeline_row` over, so the "rebuild when the handles are gone" guard must be exercised with the planner open | §2.2 | B5 runs once with the planner open. |
 | X10 | A phone-class window keeps a `relay` on `phone_insets_changed` that calls `phone_present`, which returns false off the phone, so a relay left on a window that moved to a tablet is harmless but a window first opened on a tablet then moved to the phone has none | §3.1 row 7 | Make the relay general (§5.1). |
 
 **Owner questions (defaults).** Q-S4-1: with Ruling EG (900 dp *shortest* width) and Ruling DY MQ-1 (c) (600 dp *width*, landing with MS-7)
 both on record, which governs the touch line, and does a rotation swap? Default: EG governs the phone/tablet line (it is the later ruling and is
-orientation-independent); DY's width classes (`compact`, `medium`, `expanded`...) stay the *within-tablet* classes that MS-7 reads. Q-S4-2: a held-input
+orientation-independent); DY's width classes (`compact`, `medium`, `expanded`...) stay the *within-tablet* classes that MS-7 reads. **Answered 2026-11-08 (Ruling EG addendum): the default stands; EG governs.** Q-S4-2: a held-input
 window (New world with typed values, the vault with unsaved text) during a class change: wait with a visible reason (the spec), or re-present with the state bag
 as for any other window? Default: wait, because the spec says nothing is discarded, and add the bag path only if users hit the wait. Q-S4-3: transient confirm
 dialogs: wait (this file's reading) or re-present? Default: wait.

@@ -3293,3 +3293,17 @@ phone gui"*. Then, on how the phone GUI is sized there: *"Agreed on the density 
    (`cartalith-native/docs/evidence/ms1-2026-11-07/S4_INVENTORY.md`) carries the consequences.
 
 It changes no generated output and no save.
+
+**Addendum, 2026-11-08: the owner's answer to Q-S4-1.** Asked whether Ruling EG's 900 dp shortest-width line or Ruling
+DY MQ-1 (c)'s 600 dp width line decides phone versus tablet (`S4_INVENTORY.md` X8), the owner answered: *"At 11" and
+900dp shortline just use the phone gui. (adapted/scaled according. But it's only sensible at this size)"*.
+
+- **EG's line decides.** Below 900 dp of shortest width a touch window uses the phone GUI. DY MQ-1 (c)'s width classes
+  stay as layout classes *inside* the tablet shell, for MS-7, and never choose between phone and tablet.
+- **Adapted, not blown up.** On such a tablet the phone GUI is adapted and scaled to the screen, by density as item 2
+  says, never by short side ÷ 412.
+- **Only at this size.** The owner limits this to the band just under the line, an 11-inch tablet being the case in
+  point. It is not a licence to stretch the phone GUI over larger screens. At 900 dp and above, the tablet shell stays.
+- **Correction to item 3.** Rotation does not cross a shortest-width line, because min(width, height) is the same either
+  way (found by the S4.0 inventory). What crosses it is split screen, a freeform window, a fold, Display size or UI
+  scale. S4 is still needed on tablets for those.
