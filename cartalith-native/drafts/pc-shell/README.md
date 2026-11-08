@@ -287,6 +287,11 @@ Each was read at its own lines; none was run (no Godot here).
 
 ### M7 inventory (read at the builders, `a38e0ac`)
 
+*(2026-11-08: the Force tier, Lighting, Tile size · LOD levels and Atlas cache rows are flattened in `menus.gd` as
+captioned bands with the same ids; the phone needed no change, because MS-4's generic popup walk has no radio-chip rule.
+Landmark types is the one row still three levels deep, waiting on an owner decision. The table below is the inventory as
+read; `STATUS.md` has the build.)*
+
 | Submenu | Its rows, at each level | Refreshed by / consumers | Why it is not a mechanical flatten |
 |---|---|---|---|
 | Assets ▸ Landmark types ▸ family ▸ type (`_build_landmark_types_menu()`, `_build_landmark_family()`) | L2: one submenu per family in the engine's first-seen order (`landmark_kinds()`), "Placed by hand   N" (`ID_LM_HAND`), Landmark icons… (`ID_LM_ICONS`), Landmark label style… (`ID_LM_LABELS`). L3 per family: one state row per type (index ids: "Peak   3 max · 2 placed · …", "off · was N", "not buildable"), "Open *Family* in the dock" (`ID_LM_FAMILY_FIRST + i`), a signpost | `_refresh_landmark_menu()` rewrites every type row; `phone_menu.gd::_landmark_sub()`; `_landmark_probe.gd`, `_adpress_probe.gd`; `command_index.gd::_is_index_popup()` and `_is_dynamic_id()` (510 + 64) | Engine-sized and per-type state with no other menu home; the tablet's ☰ promotes it to its top level. Needs a decision: family rows with counts and the types in CIVIL ▸ Landmarks, or bands |

@@ -773,7 +773,35 @@ Two of the "left" items in `OUTSTANDING_WORK.md`'s PC-9 row, read and built at t
   probe handed the app the event directly), the `clear_selection()` call removed, the count-line reason removed, the run
   restricted to the phone. `_deselect_probe` section 6 now asserts both halves (Measure armed: kept; Inspect armed:
   cleared) and its menu finder takes the popup whose row is titled Deselect (id 82 is also an Atlas row).
-- **Left in that row:** §3.8's three-level flattening (M7), CIVIL ▸ Open factions… on `current_faction()`.
+- **Left in that row:** §3.8's three-level flattening for Assets ▸ Landmark types (below), CIVIL ▸ Open factions… on
+  `current_faction()`.
+
+### PC-9's three-level flattening, four of five submenus (2026-11-08, finding M7)
+
+`PC_SHELL_PROPOSAL.md` §3.8 names five three-level paths. Four are flattened in `menus.gd`: the third level is a
+captioned band of the second popup, **with the same ids**, so every handler, accelerator and pin follows:
+Window ▸ 3D capability ▸ **FORCE TIER** (`_build_view3d_rows()`), Preferences ▸ Lighting rig defaults ▸ **AZIMUTH /
+ELEVATION / AMBIENT / MULTIDIRECTIONAL** (`_light_ladder()` adds to the one popup; the parent rows' tooltips are on
+each rung), Preferences ▸ Tile size · LOD levels ▸ **LOD LEVELS** (`_build_atlas_tiles_menu()`; `_stamp_pref_values()`
+reads the first group only for `AtlasTileSize`, so the row still ends in the tile size), and Preferences ▸ Atlas cache
+▸ **SIZE CAP · GB** (`_build_atlas_cap_menu()`, on the Atlas cache popup itself, so `NO_EXPAND`/`UNSAFE_OPEN_HANDLERS`
+still name the one popup that evicts). The README's worry about the phone's "radio-chip rule" no longer applies:
+`phone_menu.gd` was rebuilt by MS-4 and has no `_expandable()`; it draws any popup's labelled separator as a band and
+its radios as rows, so no phone code changed.
+- **Not flattened: Assets ▸ Landmark types ▸ family ▸ type.** Its type rows are engine-sized read-only state rows with
+  per-family index ids that would collide in one popup, and flattening means deleting them from the menu or giving 49
+  rows a new home. That is an owner decision (the README's M7 inventory said so), not a mechanical change. `_ms4_probe`
+  still pins its path (Landmark types ▸ Physical ▸ Open Physical).
+- **`_ms4_probe` count:** the 6T walk (1080×2340 @2.8125) passes 595 checks against 603 on origin/main `3ddcbe8c`
+  (measured both, same command): the eight missing are four drill rows × two checks (the row and its count), which is
+  the flatten, not a lost row. Parity (every drawn screen against the desktop dump) holds.
+- **Measured:** new `_m7flat_probe` (windowed; desktop and touch 1600×1000, 30 checks each; seven mutants killed, one of which, the LOD handler connection, survived until the probe pressed a depth other than the stored default): no submenu row left in
+  the four popups, each band caption, every rung id once, one checked rung per ladder, pressing a rung stores
+  (bake depth 3, cap 1 GB, azimuth 180) and moves the check, and the Preferences row still reads its tile size.
+  Green with it: `_lighting`, `_lodlevels`, `_prefvalue`, `_landmark`, `_cmdindex`, `_viewshedrefine`, `_adpress`,
+  `_cmdblock15`, `_pc9menus` ×4 forms, `_quickbar_ring` ×2, `_quickbar_phone`, `_pc1select` ×2, `_pc10modules`,
+  `_culturesel` ×2. **Failing the same on origin/main:** `_structmove` (1c-1f, the planner's Shift+J) and
+  `_vfy_batch0905` (A1, the same).
 
 ---
 

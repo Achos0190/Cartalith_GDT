@@ -179,8 +179,8 @@ const ID_WIN_VIEW_3D := 800
 ## `project.godot` note).
 const View3DGate := preload("res://shell/view3d_gate.gd")
 const ID_VIEW3D_RETEST := 801  ## Window ▸ 3D capability ▸ Re-test 3D.
-const ID_VIEW3D_FORCE_AUTO := 802  ## … ▸ Force tier ▸ Automatic (as measured).
-const ID_VIEW3D_FORCE_FIRST := 803  ## … ▸ Force tier ▸ tier t is +t (803-806).
+const ID_VIEW3D_FORCE_AUTO := 802  ## Window ▸ 3D capability, FORCE TIER band: Automatic (as measured).
+const ID_VIEW3D_FORCE_FIRST := 803  ## Window ▸ 3D capability, FORCE TIER band: tier t is +t (803-806).
 ## The standalone browse-and-edit row (owner request, 2026-09-21): opens
 ## `vault_window.gd` with no entity/kind scope at all, via `open_vault_browse()`
 ## -- a second destination alongside `ID_VAULT`'s one, so it needs its own id.
@@ -4090,10 +4090,15 @@ var _pref_row_labels := {}
 ## plausible-looking value is precisely the "no value encoded as a value"
 ## failure `MISTAKES.md` opens with. Two checked is treated the same way --
 ## a group that cannot say which one is selected should not claim one.
-func _sole_checked_text(sub: PopupMenu) -> String:
+func _sole_checked_text(sub: PopupMenu, first_group_only := false) -> String:
 	var found := ""
 	var n := 0
 	for j in sub.item_count:
+		## PC-9 / finding M7: `AtlasTileSize` holds two radio groups since "LOD levels" was flattened into it
+		## as a captioned band. Its readout is the tile size (the first group), as it was before, rather than
+		## "" for two checked rows.
+		if first_group_only and sub.is_item_separator(j) and n > 0:
+			break
 		if sub.is_item_separator(j) or not sub.is_item_checked(j):
 			continue
 		n += 1
@@ -4123,7 +4128,7 @@ func _stamp_pref_values(p: PopupMenu) -> void:
 		if not _pref_row_labels.has(sub_name):
 			_pref_row_labels[sub_name] = p.get_item_text(i)
 		var base: String = _pref_row_labels[sub_name]
-		var picked := _sole_checked_text(sub as PopupMenu)
+		var picked := _sole_checked_text(sub as PopupMenu, sub_name == "AtlasTileSize")
 		p.set_item_text(i, base if picked == ""
 			else base + PREF_VALUE_SEP + picked)
 
@@ -5436,22 +5441,20 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	## safety net to begin with, so it is fixed here too.
 	_refresh_lighting_menu()
 
-## Builds one radio submenu of the lighting rig (`steps` rungs with ids from `first_id`),
-## wires it to `_on_lighting`, hangs it under the lighting popup with `tip` as the parent
-## row's tooltip, and returns it so the caller can keep it. `key` names the engine key the
-## rungs write.
+## Adds one radio ladder of the lighting rig (`steps` rungs with ids from `first_id`) to the lighting popup
+## itself, under a captioned band named `label`, and returns that popup so the caller can keep it. **Finding
+## M7 (`PC_SHELL_PROPOSAL.md` s.3.8):** each ladder was a third-level submenu
+## (`Preferences > Lighting rig defaults > Azimuth > rung`); the four are bands of one popup now, with the same
+## ids, so `_on_lighting` (connected once, on the popup) serves them as before. A band cannot carry a tooltip, so
+## `tip`, which the parent row used to carry, is on every rung. `node_name` is kept only to name the band's
+## owner in the caller; no node is created. `key` names the engine key the rungs write.
 func _light_ladder(node_name: String, label: String, steps: Array,
 		first_id: int, key: String, tip: String) -> PopupMenu:
-	var sub := PopupMenu.new()
-	sub.name = node_name
-	_shell.style_popup(sub)
+	_lighting_popup.add_separator(label.to_upper())
 	for i in steps.size():
-		sub.add_radio_check_item(_light_rung_text(key, float(steps[i])), first_id + i)
-	sub.id_pressed.connect(_on_lighting)
-	_lighting_popup.add_child(sub)
-	_lighting_popup.add_submenu_item(label, node_name)
-	_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1, tip)
-	return sub
+		_lighting_popup.add_radio_check_item(_light_rung_text(key, float(steps[i])), first_id + i)
+		_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1, tip)
+	return _lighting_popup
 
 ## Display text of one lighting rung: degrees for the two sun angles, a light count for
 ## `relief_lights`, otherwise two decimals. Display only; the stored value is the float.
@@ -5525,7 +5528,7 @@ func _refresh_lighting_menu() -> void:
 			if absf(float(steps[i]) - v) < absf(float(steps[best]) - v):
 				best = i
 		for i in steps.size():
-			sub.set_item_checked(i, i == best)
+			sub.set_item_checked(sub.get_item_index(int(row[2]) + i), i == best)
 	if _light_source_idx >= 0 and _light_source_idx < _lighting_popup.item_count:
 		var stored := 4 - following.size()
 		_lighting_popup.set_item_text(_light_source_idx,
@@ -5681,19 +5684,20 @@ func _build_atlas_tiles_menu(p: PopupMenu) -> void:
 	for i in ATLAS_TILE_SIZES.size():
 		_tile_size_popup.add_radio_check_item("%d px" % ATLAS_TILE_SIZES[i],
 			ID_LOD_TILE_FIRST + i)
-	_tile_size_popup.add_separator()
-	_lod_levels_popup = PopupMenu.new()
-	_lod_levels_popup.name = "AtlasLodLevels"
-	_shell.style_popup(_lod_levels_popup)
+	## PC-9 / finding M7 (`PC_SHELL_PROPOSAL.md` s.3.8): "LOD levels" was a third-level submenu of this popup
+	## (`Preferences > Tile size · LOD levels > LOD levels > LOD 0-n`). It is a captioned band of this popup now,
+	## same ids, so one popup serves both ladders: each handler ignores the other's ids. The band's tooltip,
+	## which the parent row carried, is on every rung. Tile size stays first (rows 0-2) because
+	## `_refresh_tile_size_menu()` addresses them by index.
+	_tile_size_popup.add_separator("LOD LEVELS")
+	_lod_levels_popup = _tile_size_popup
 	for d in range(0, 9):
 		_lod_levels_popup.add_radio_check_item("LOD 0–%d   %s tile%s" % [
 			d, _pyramid_tiles(d), "" if d == 0 else "s"], ID_LOD_LEVEL_FIRST + d)
-	_lod_levels_popup.id_pressed.connect(_on_lod_levels)
-	_lod_levels_popup.about_to_popup.connect(_refresh_lod_levels_menu)
-	_tile_size_popup.add_child(_lod_levels_popup)
-	_tile_size_popup.add_submenu_item("LOD levels", "AtlasLodLevels")
-	_tile_size_popup.set_item_tooltip(_tile_size_popup.item_count - 1,
-		"How deep Bake ALL levels & finalize goes. The same setting as WORLD > Finalize > Bake depth -- one store, two entry points.")
+		_lod_levels_popup.set_item_tooltip(_lod_levels_popup.item_count - 1,
+			"How deep Bake ALL levels & finalize goes. The same setting as WORLD > Finalize > Bake depth -- one store, two entry points.")
+	_tile_size_popup.id_pressed.connect(_on_lod_levels)
+	_tile_size_popup.about_to_popup.connect(_refresh_lod_levels_menu)
 	_tile_size_popup.id_pressed.connect(_on_tile_size)
 	_tile_size_popup.about_to_popup.connect(_refresh_tile_size_menu)
 	p.add_child(_tile_size_popup)
@@ -5725,7 +5729,7 @@ func _refresh_lod_levels_menu() -> void:
 		return
 	var cur := DccSettings.bake_depth()
 	for d in range(0, 9):
-		_lod_levels_popup.set_item_checked(d, d == cur)
+		_lod_levels_popup.set_item_checked(_lod_levels_popup.get_item_index(ID_LOD_LEVEL_FIRST + d), d == cur)
 
 ## Serves the bake-depth ladder: stores depth 0-8 in `DccSettings` (the engine's ceiling
 ## is higher; the range is the spec's), re-ticks, nudges the atlas dock, and reports the
@@ -5928,23 +5932,27 @@ func _build_atlas_cap_menu(p: PopupMenu) -> void:
 		_todo(p, "Size cap · GB",
 			"This version of the app can't do that yet -- an update is needed to add it. Setting a cap here would be a number nothing enforces.")
 		return
-	_atlas_cap_popup = PopupMenu.new()
-	_atlas_cap_popup.name = "AtlasSizeCap"
-	_shell.style_popup(_atlas_cap_popup)
+	## PC-9 / finding M7 (`PC_SHELL_PROPOSAL.md` s.3.8): "Size cap · GB" was a third-level submenu of Atlas cache
+	## (`Preferences > Atlas cache > Size cap · GB > n GB`). Its rungs are a captioned band of `p` (the Atlas cache
+	## popup) now, same ids; `_on_atlas_cap` ignores every id outside its ladder, so it shares the popup's
+	## `id_pressed` with the Refine, Export and Clear rows. The parent row's tooltip is on every rung but the
+	## first, which keeps its own ("No cap").
+	_atlas_cap_popup = p
+	p.add_separator("SIZE CAP · GB")
 	for i in DccSettings.ATLAS_CAP_CHOICES.size():
 		var gb: float = DccSettings.ATLAS_CAP_CHOICES[i]
 		var text := "No cap"
 		if gb > 0.0:
 			text = ("%.1f GB" % gb) if gb < 1.0 else ("%d GB" % int(gb))
 		_atlas_cap_popup.add_radio_check_item(text, ID_ATLAS_CAP_FIRST + i)
-	_atlas_cap_popup.set_item_tooltip(0,
-		"The default, and what the atlas did before a cap existed: it grows until Clear atlas cache now, and nothing trims it.")
-	_atlas_cap_popup.id_pressed.connect(_on_atlas_cap)
-	_atlas_cap_popup.about_to_popup.connect(_refresh_atlas_cap_menu)
-	p.add_child(_atlas_cap_popup)
-	p.add_submenu_item("Size cap · GB", "AtlasSizeCap")
-	p.set_item_tooltip(p.item_count - 1,
-		"A ceiling on the baked tile store. Enforced when the cap is set and whenever this menu is opened -- a cap the app honoured only at the moment it was typed would let the very next bake walk past it. Nothing is lost that cannot be rebuilt: every evicted chunk is re-bakeable from WORLD > Finalize, which is why this trims without asking and Clear atlas cache now (which also releases the finalize lock) asks first.")
+		if i == 0:
+			p.set_item_tooltip(p.item_count - 1,
+				"The default, and what the atlas did before a cap existed: it grows until Clear atlas cache now, and nothing trims it.")
+		else:
+			p.set_item_tooltip(p.item_count - 1,
+			"A ceiling on the baked tile store. Enforced when the cap is set and whenever this menu is opened -- a cap the app honoured only at the moment it was typed would let the very next bake walk past it. Nothing is lost that cannot be rebuilt: every evicted chunk is re-bakeable from WORLD > Finalize, which is why this trims without asking and Clear atlas cache now (which also releases the finalize lock) asks first.")
+	p.id_pressed.connect(_on_atlas_cap)
+	p.about_to_popup.connect(_refresh_atlas_cap_menu)
 	_refresh_atlas_cap_menu()
 
 ## Ticks the atlas disk-cap ladder from `DccSettings.atlas_cap_gb()` (<= 0 means no cap).
@@ -5953,7 +5961,7 @@ func _refresh_atlas_cap_menu() -> void:
 		return
 	var cur := DccSettings.atlas_cap_gb()
 	for i in DccSettings.ATLAS_CAP_CHOICES.size():
-		_atlas_cap_popup.set_item_checked(i,
+		_atlas_cap_popup.set_item_checked(_atlas_cap_popup.get_item_index(ID_ATLAS_CAP_FIRST + i),
 			is_equal_approx(DccSettings.ATLAS_CAP_CHOICES[i], cur))
 
 ## Serves the atlas disk-cap ladder: stores the cap, then immediately trims the store to it
@@ -6539,14 +6547,13 @@ func _build_view3d_rows(p: PopupMenu) -> void:
 	_live(cap, "Re-test 3D", ID_VIEW3D_RETEST)
 	cap.set_item_tooltip(cap.item_count - 1,
 		"Runs the 3D test again now (about 3 seconds), in the 3D view. It measures this device's graphics and stores the result; the 2D map is not touched.")
-	var force := PopupMenu.new()
-	force.name = "View3DForce"
-	_shell.style_popup(force)
-	cap.add_child(force)
-	cap.add_submenu_item("Force tier", "View3DForce")
-	force.add_radio_check_item("Automatic (as measured)", ID_VIEW3D_FORCE_AUTO)
+	## PC-9 / finding M7 (`PC_SHELL_PROPOSAL.md` s.3.8): "Force tier" was a third-level submenu, `Window >
+	## 3D capability > Force tier > tier`. It is a captioned band of this popup now, with the same ids, so
+	## the path is two levels deep and the phone's MENU draws it as a band with its radios beneath it.
+	cap.add_separator("FORCE TIER")
+	cap.add_radio_check_item("Automatic (as measured)", ID_VIEW3D_FORCE_AUTO)
 	for t in View3DGate.TIER_NAMES.size():
-		force.add_radio_check_item(View3DGate.TIER_NAMES[t], ID_VIEW3D_FORCE_FIRST + t)
+		cap.add_radio_check_item(View3DGate.TIER_NAMES[t], ID_VIEW3D_FORCE_FIRST + t)
 	var refresh := func():
 		var r := DccSettings.view3d_result()
 		var forced := DccSettings.view3d_forced_tier()
@@ -6563,9 +6570,9 @@ func _build_view3d_rows(p: PopupMenu) -> void:
 			tier_text += " (forced)"
 		cap.set_item_text(tier_row, "3D tier: " + tier_text)
 		cap.set_item_tooltip(tier_row, text)
-		force.set_item_checked(0, forced < 0)
+		cap.set_item_checked(cap.get_item_index(ID_VIEW3D_FORCE_AUTO), forced < 0)
 		for t in View3DGate.TIER_NAMES.size():
-			force.set_item_checked(t + 1, forced == t)
+			cap.set_item_checked(cap.get_item_index(ID_VIEW3D_FORCE_FIRST + t), forced == t)
 	## Eager, so a `CommandIndex` built before either menu is opened reads a
 	## real tooltip (`command_index.gd`'s 2026-09-05 note on readouts).
 	refresh.call()
@@ -6581,14 +6588,14 @@ func _build_view3d_rows(p: PopupMenu) -> void:
 		if id == ID_WIN_VIEW_3D and vp0 != null:
 			vp0.set_3d(not vp0.is_3d()))
 	cap.id_pressed.connect(func(id: int):
-		if id == ID_VIEW3D_RETEST and vp0 != null:
-			vp0.set_3d(true)
-			vp0.view3d().retest())
-	force.id_pressed.connect(func(id: int):
 		if vp0 == null:
 			return
-		vp0.set_3d(true)
-		vp0.view3d().request_force(-1 if id == ID_VIEW3D_FORCE_AUTO else id - ID_VIEW3D_FORCE_FIRST))
+		if id == ID_VIEW3D_RETEST:
+			vp0.set_3d(true)
+			vp0.view3d().retest()
+		elif id == ID_VIEW3D_FORCE_AUTO or (id >= ID_VIEW3D_FORCE_FIRST 				and id < ID_VIEW3D_FORCE_FIRST + View3DGate.TIER_NAMES.size()):
+			vp0.set_3d(true)
+			vp0.view3d().request_force(-1 if id == ID_VIEW3D_FORCE_AUTO else id - ID_VIEW3D_FORCE_FIRST))
 
 func _window(p: PopupMenu) -> void:
 	## Held for `_capture_layout()`/`_apply_layout()`: the five region flags a
