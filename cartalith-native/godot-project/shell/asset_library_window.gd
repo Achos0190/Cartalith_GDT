@@ -5373,3 +5373,12 @@ func _on_slice() -> void:
 	_refresh_rail_counts()
 	_refresh_pack_status()
 	_refresh_slicer_summary()
+
+## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8): an open slicer session holds unapplied cuts. The slicer is its
+## own window parented to the host (`_slicer`), so the app asks this whether the library is visible or not
+## (`DccApp._app_quiescent_blockers()`), and the shell's window walk asks it too while the library is
+## visible. A pure query: it never closes the slicer.
+func quiescent_blockers() -> Array[String]:
+	if _slicer != null and is_instance_valid(_slicer) and _slicer.visible:
+		return ["the asset slicer is open"]
+	return []

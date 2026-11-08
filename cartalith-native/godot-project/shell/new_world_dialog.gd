@@ -2670,3 +2670,9 @@ func request() -> Dictionary:
 		"wind_deflection": bridge.param_get("climate.terrain_wind_deflection"),
 		"ocean_currents": bridge.param_get("climate.currents"),
 	}
+
+## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8, Q-S4-2's default): the New world form holds every value typed
+## into it until Create or Cancel, so while it is open a class swap waits. `DccShell.quiescent_blockers()`
+## asks this only while the dialog is visible. A pure query: it never creates, cancels or closes.
+func quiescent_blockers() -> Array[String]:
+	return ["the New world form is open"]

@@ -574,3 +574,11 @@ func _reset_all() -> void:
 		(pi["popup"] as PopupMenu).set_item_accelerator(int(pi["index"]), int(_app.menus.shortcut_default(id)))
 	_status.text = "Every menu shortcut restored to its shipped key."
 	_rebuild()
+
+## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8): a rebind capture in progress (`_capturing_id` >= 0) is held
+## input, so a class swap waits for it. `DccShell.quiescent_blockers()` asks this only while the dialog is
+## visible. A pure query: it never ends the capture.
+func quiescent_blockers() -> Array[String]:
+	if _capturing_id >= 0:
+		return ["a shortcut is being rebound"]
+	return []

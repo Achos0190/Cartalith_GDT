@@ -657,3 +657,37 @@ The probe **must fail on the code before S4.2**: with the swap request still log
 It is read from the code at `bd784584` on 2026-11-07. A field added, a window opened from a new place, or a `phone_present()` call in a file not
 listed changes the counts; re-run the commands of the spec's §6. The window *state* column is the weakest part: it was read from member names, not
 from each window's save/restore code, because no re-present path exists to read. Each S4.5 batch re-reads its window at the symbol before writing its `_represent()`.
+
+## 14. Addendum, 2026-11-08: what landed after this inventory (PC-1 to PC-8, VE-0 to VE-5)
+
+Written for stage S4.1 against `996cb307`, read at the symbols named. This pass re-inventories what **S4.1
+(quiescence)** needs in full; the rows S4.3 and S4.5 need are listed with what each must re-read at its symbol
+before coding, not yet given actions.
+
+### 14.1 New sources of held input (S4.1, built)
+
+| Source | Reported by | Where S4.1 reads it |
+|---|---|---|
+| PC-7's held changes in a context window: the Place editor's unsubmitted event (`place_editor_window.gd::held_changes()`, any of `_ae_end`, `_ae_name`, `_ae_desc`, `_ae_color`, `_ae_group` non-blank) and the faction roster's open religion editor (`faction_roster_window.gd::held_changes()`) | the window's own `held_changes()` (`context_window.gd`'s contract: a reason, or `""`) | `DccShell._collect_window_blockers()`, for a visible window with no `quiescent_blockers()` |
+| PC-6's docked assistant: on the desktop and the tablet the conversation lives in the Context panel's Ask tab while `LlmAssistantWindow` stays hidden (`llm_assistant_window.gd`, "Where it lives"), and a reply goes on streaming there | `LlmAssistantWindow.quiescent_blockers()` (`run.busy()`) | `DccApp._app_quiescent_blockers()`, asked directly when the dialog is hidden (the walk asks only visible windows) |
+| VE-4's autosave: a note now writes itself on a timer, so `VaultWindow._is_dirty()` is true only between an edit and the next write, or after a write that could not land (a conflict, a deleted or read-only file) | `VaultWindow.quiescent_blockers()` (`_is_dirty()`) | the walk |
+
+Not held input, so not a blocker (their state is S4.5's to carry): the PC-7 context windows' FOLLOW/PINNED
+state; the PC-8 planner window (a frame whose slots `JourneyPlannerView` fills; nothing in it waits for a
+confirm); the Ask tab's typed draft (the content is reparented, never freed, so a swap cannot lose it); VE-5's
+side panel (`vault_side_panel.gd`, its selected `tab` and `_tag_open`).
+
+### 14.2 For S4.3 and S4.5 to re-open at their symbols
+
+- `right_dock.gd`'s Context panel (PC-4/PC-6): `_tab`, `_ask_frame`, `_ask_body`, and the Ask frame "added once
+  to the dock column right after the scroll". A rebuilt `right_dock_body` drops that frame; the assistant's
+  content (`present_in()`) must be moved out before the old dock is freed, or it is freed with it. PC-10 (running
+  in parallel, 2026-11-08) adds Context panel modules and a per-user store to the same file.
+- `context_window.gd` (PC-7, a `RefCounted`): `make_context()` adds a FOLLOW/PINNED chip and a
+  `selection_changed` connection per window, on the desktop form only (`applies()` false on phone and tablet).
+  A swap between the tablet and the phone never changes `applies()`, but a re-present must not add a second chip.
+- `context_key_relay.gd` (PC-7, a `Node` child of each non-blocking window): survives with its window.
+- `planner_window.gd` (PC-8): desktop only; `JourneyPlannerView.setup()` builds it once and parents its panels
+  into five slots. The inventory's §2.2 row for `journey_planner_view` (rebuilt) now has a window to rebuild into.
+- `vault_side_panel.gd` (VE-5): `phone` is set at `setup()` and read by the panel's build, so it is one more
+  piece of the vault window's re-present path (§5.3's `VaultWindow` row).

@@ -2630,3 +2630,11 @@ func _on_save() -> void:
 		else:
 			_add_msg("", "The note was not written: %s" % err, "block")
 	_refresh()
+
+## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8): a reply in flight (`run.busy()`) is held work, so a class swap
+## waits for it. `DccShell.quiescent_blockers()` asks this only while the window is visible. A pure query: it
+## never cancels the run.
+func quiescent_blockers() -> Array[String]:
+	if run != null and run.busy():
+		return ["the assistant is replying"]
+	return []

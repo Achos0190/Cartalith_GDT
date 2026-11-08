@@ -102,7 +102,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   windows, a fold, Display size, UI scale; not rotation, since the shortest side does not change). The inventory carries the consequences, and
   raised one conflict for the owner, Ruling DY MQ-1 (c)'s 600 dp *width* line; the EG addendum (2026-11-08) settles it: EG decides
   phone versus tablet, and DY's width classes stay layout classes inside the tablet shell. The line itself is built (state: `STATUS.md`).
-  What is left of MS-1: S4.2…S4.6 (the mount path, the rebuild with a state bag, the swap, the window re-present path, the ring and B5),
+  What is left of MS-1 (S4.1, quiescence, is built): S4.2…S4.6 (the mount path, the rebuild with a state bag, the swap, the window re-present path, the ring and B5),
   in `S4_INVENTORY.md` §11's order, and the device rows (S0, B7).
   Its owner questions MQ-1…MQ-5
   are all answered (Ruling DY, 2026-11-01):

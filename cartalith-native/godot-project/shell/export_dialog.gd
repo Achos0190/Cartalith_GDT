@@ -665,3 +665,9 @@ func cancel_export() -> void:
 	if _running and _runner != null:
 		_runner.cancel()
 		_status.text = "Cancelling"
+
+## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8, Q-S4-2's default): the export form holds its chosen format,
+## size and fields until Export, so while it is open a class swap waits. `DccShell.quiescent_blockers()` asks
+## this only while the dialog is visible. A pure query: it never exports, cancels or closes.
+func quiescent_blockers() -> Array[String]:
+	return ["the export form is open"]

@@ -4398,11 +4398,18 @@ static func modal_choices(card: Dictionary, spec: Dictionary) -> Dictionary:
 				fire.call())
 	return out
 
+## Marks a `modal_card()` dialog as a transient decision (MS-1 S4.1): `DccShell.quiescent_blockers()` makes a
+## class swap wait while one is visible, by `S4_INVENTORY.md` Q-S4-3's default, as it does for every visible
+## `ConfirmationDialog`. A card is an `AcceptDialog`, which a long-lived window also is, so the class alone
+## cannot tell them apart; this meta does.
+const TRANSIENT_CARD_META := "_dcc_transient_card"
+
 ## Opens a `modal_card()`, phone-shaped where the host is a phone. Mirrors the
 ## two-line `phone_present()` / `popup_centered()` pair every window in this
-## shell already uses.
+## shell already uses. Marks the card transient (`TRANSIENT_CARD_META`) first.
 static func modal_present(card: Dictionary, host) -> void:
 	var dlg: AcceptDialog = card["dialog"]
+	dlg.set_meta(TRANSIENT_CARD_META, true)
 	if DccTheme.is_phone():
 		phone_window(dlg, host)
 	if not phone_present(dlg, host):

@@ -144,6 +144,30 @@ change, against a pristine worktree of `996cb307`, both windowed, each user dir 
   each with 0 `SCRIPT ERROR` lines. None of them passes `--density`, so EG cannot reach them.
 - No Rust changed; `cargo test` was not run.
 
+## S4.1, 2026-11-08: quiescence (no swap yet)
+
+`DccShell.quiescent_blockers()` lists every live source of unconfirmed input (`S4_INVENTORY.md` §8 and §14.1):
+the shell's dock drag, sheet drag and held undo chip; `DccApp._app_quiescent_blockers()` (a generating engine, a
+paint or sculpt draft, a Way or Route draft, the busy overlay, an open undo group, a map pan or pin drag, a
+timeline scrub, the assistant painting a region, the quit prompt, a context card, the asset slicer, a docked
+assistant reply); and a walk of visible windows: a window's own `quiescent_blockers()` (the vault's unsaved note,
+the New world and export forms, a shortcut rebind, an assistant reply, a travel definition's staged edits), PC-7's
+`held_changes()`, any `ConfirmationDialog`, and a `modal_card()` marked `DccWidgets.TRANSIENT_CARD_META`.
+`_request_class_swap()` now waits while the list is non-empty, with "Layout change waiting: <first> (and N more)"
+in the status hint (and a toast on the phone), polls every 0.5 s, and runs `_run_class_swap()` when the list
+empties; a size that comes back to the current class cancels the wait. `_run_class_swap()` still only logs, so
+no layout changes yet (S4.4).
+
+- **`_ms1swap_probe.gd --leg quiet --force-touch --vp 1800x3200 --density 1`**, windowed: PASS, 24 checks, 0
+  `SCRIPT ERROR`. A dock drag, a confirmation, a generating engine and an open New world form are each reported;
+  a crossing under a dock drag waits with the hint naming it and runs exactly once when the drag ends; a
+  crossing under a confirmation is cancelled by returning to the tablet size, by the settled resize alone (the
+  poll stopped) and by the poll alone (no `size_changed`), with no swap run and the confirmation untouched. On the
+  pre-S4.1 tree: FAIL (`quiescent_blockers()` does not exist).
+- **Mutation** (Python, exact literal replace, restored in a `finally`, hashes checked): 8 of 8 killed: the
+  wait gate, each of the two cancel paths, the confirmation test, the dock-drag source, the hint clear after a
+  run, the generating source, and the New world form's answer. The two cancel paths each survived until the
+  probe isolated them (stopping the poll for one, skipping `size_changed` for the other).
 ## S4: not built; the S4.0 census
 
 S4 (spec §3.5) needs the full S4.0 inventory first: an action for each item (rebuilt, survives, reset, freed, or re-presented), and per window, the state its re-present path must carry (MQ-5, Ruling DY). That inventory was **not written** in this pass. This is the census it starts from, measured 2026-11-07 on the S5 tree:

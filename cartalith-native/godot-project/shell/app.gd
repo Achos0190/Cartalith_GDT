@@ -2185,6 +2185,61 @@ func resume_from_context_surface() -> void:
 		if ws.has_method("resume_playback_for_context"):
 			ws.resume_playback_for_context()
 
+## MS-1 S4.1 (`S4_INVENTORY.md` §8): the app's sources of unconfirmed input, for `DccShell.quiescent_blockers()`.
+## Each was opened at its symbol for the inventory; the list is in the inventory's order. The shell asks this
+## before a class swap and waits while it is non-empty. A pure query: it must never cancel, commit or close
+## what it reports. An armed tool alone is not a blocker (arming is a choice, not held input); its live draft
+## is. Windows answer for themselves (`quiescent_blockers()` on each), so none is read from here.
+func _app_quiescent_blockers() -> Array[String]:
+	var out: Array[String] = []
+	if bridge != null:
+		if bridge.generating:
+			out.append("the world is %s" % ("generating" if String(bridge.busy_kind) == "" else String(bridge.busy_kind)))
+		if bridge.paint_draft_count() > 0:
+			out.append("a paint draft is not committed")
+		if bridge.sculpt_stamp_count() > 0:
+			out.append("a sculpt draft is not committed")
+	if busy_overlay != null and is_instance_valid(busy_overlay) and busy_overlay.visible:
+		out.append("an operation is running")
+	## The Way and Route tools' drafts live in the infrastructure panel, nested in CIVIL
+	## (`civilization_workspace.gd`'s `_infra`): points placed under an armed tool are a draft until the tool
+	## commits them (`infrastructure_workspace.gd::_on_infra_tool_armed`).
+	for ws in _workspaces:
+		var infra = ws.get("_infra") if ws != null else null
+		if infra != null and is_instance_valid(infra) and String(infra.get("_active_infra_tool")) != "":
+			var pts: PackedVector2Array = infra.get("_way_points") if String(infra.get("_active_infra_tool")) == "way" \
+				else infra.get("_route_points")
+			if pts.size() > 0:
+				out.append("a %s draft is not committed" % String(infra.get("_active_infra_tool")))
+	if undo_groups != null and undo_groups.is_open():
+		out.append("an undo group is open")
+	if viewport != null and is_instance_valid(viewport):
+		if bool(viewport.get("_panning")):
+			out.append("the map is being panned")
+		var ov = viewport.get("overlay")
+		if ov != null and is_instance_valid(ov) and bool(ov.get("_pin_drag_active")):
+			out.append("a pin is being dragged")
+	if _tl_scrubbing:
+		out.append("the timeline is being scrubbed")
+	## `llm_region.gd` has no `class_name`; its `painting` is a static var, read through the script.
+	if bool(preload("res://shell/llm_region.gd").painting):
+		out.append("the assistant is painting a region")
+	if _quit_prompt != null and is_instance_valid(_quit_prompt) and _quit_prompt.visible:
+		out.append("the quit prompt is open")
+	if _context_surface_depth > 0:
+		out.append("a context card is open")
+	## The asset slicer is a window of its own, parented here, so the shell's walk (which asks only visible
+	## windows that declare `quiescent_blockers()`) reaches it through the library only while the library is
+	## visible; asked here otherwise, and never twice.
+	if asset_library_window != null and is_instance_valid(asset_library_window) and not asset_library_window.visible:
+		out.append_array(asset_library_window.quiescent_blockers())
+	## PC-6: on the desktop and the tablet the assistant's content lives in the Context panel's Ask tab while its
+	## dialog stays hidden (`llm_assistant_window.gd`, "Where it lives"), and a reply goes on streaming there.
+	## The walk asks only visible windows, so a hidden one is asked here.
+	if assistant_window != null and is_instance_valid(assistant_window) and not assistant_window.visible:
+		out.append_array(assistant_window.quiescent_blockers())
+	return out
+
 ## Rewrites the status bar's `atlas` cell from `bridge.atlas_status()`: chunk
 ## count, deepest LOD, byte size, and a FINALIZED flag. Blank when there is no
 ## atlas. Called by `menus.gd` after atlas operations.

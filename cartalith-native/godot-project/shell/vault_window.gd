@@ -4577,3 +4577,11 @@ func _build_footer() -> void:
 		+ "factions the same archive already carries, and opening that project restores them "
 		+ "working. A copy is also kept beside your Cartalith profile, as the fallback for links "
 		+ "made before anything has been saved.")
+
+## MS-1 S4.1 (`S4_INVENTORY.md` §8, Q-S4-2's default): a class swap waits while the open note holds text
+## that is not on disk (`_is_dirty()`, measured against `_browse_saved`). `DccShell.quiescent_blockers()`
+## asks this only while the window is visible. A pure query: it never saves, discards or prompts.
+func quiescent_blockers() -> Array[String]:
+	if _is_dirty():
+		return ["a note has unsaved text"]
+	return []

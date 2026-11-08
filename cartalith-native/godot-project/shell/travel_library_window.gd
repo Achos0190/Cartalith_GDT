@@ -1185,3 +1185,11 @@ func _refresh_footer_state() -> void:
 				var maybe_revert := c.get_child(2)
 				if maybe_revert is Button:
 					(maybe_revert as Button).disabled = _draft.is_empty()
+
+## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8, Q-S4-2's default): staged field edits (`_draft`, which "nothing
+## reaches the engine until save") are held input, so a class swap waits for Save or Revert.
+## `DccShell.quiescent_blockers()` asks this only while the window is visible. A pure query.
+func quiescent_blockers() -> Array[String]:
+	if not _draft.is_empty():
+		return ["a travel definition has unsaved edits"]
+	return []

@@ -1254,16 +1254,166 @@ func _on_resize_settled() -> void:
 	if bool(next["phone"]) != _phone:
 		_request_class_swap(next)
 		return
+	## The size came back to the current class while a swap was waiting (a split-screen divider dragged
+	## across the line and back): the wait is over without a swap, and its status line goes with it.
+	if not _pending_swap.is_empty():
+		_cancel_swap_wait()
 	_layout = next
 	DccTheme.set_layout(_layout)
 	_apply_unit(_unit_factor())
 
-## S4's entry point. Until the mount path exists (spec §3.5, after S4.0's inventory) it only says it was
-## asked: the shell keeps its boot class, which is the pre-MS-1 behaviour, and the log line lets a probe
-## see the request. It must never flip `_phone` itself.
+# ===================== MS-1 S4.1: quiescence (spec §3.5, `S4_INVENTORY.md` §8) =====================
+#
+# A class swap must never discard input the user has not confirmed (spec §3.5, "Nothing is discarded to make
+# room for a layout change"). So before a swap runs, every source of held input is asked, and while any
+# answers, the swap waits with its reason on the status line and runs when the last one ends. The owner's
+# defaults stand for what waits (`S4_INVENTORY.md` Q-S4-2 and Q-S4-3): a window holding typed changes and a
+# transient confirmation both make the swap wait; other open windows do not (S4.5 re-presents them).
+# Until S4.4 the swap itself is still the logged request below, so this stage changes no layout.
+
+## How often a waiting swap asks again whether the blockers have ended, in seconds. A labelled judgement:
+## fast enough that a swap follows a closed dialog within about a breath, slow enough that the poll costs
+## nothing measurable (it is a handful of property reads). Not a debounce: `RESIZE_DEBOUNCE_S` is that.
+const SWAP_QUIET_POLL_S := 0.5
+## The classification a swap is waiting to apply, or `{}` when no swap is waiting. Written only by
+## `_request_class_swap()` and cleared by `_cancel_swap_wait()` or by the swap running.
+var _pending_swap: Dictionary = {}
+## The poll for a waiting swap; a child of the shell itself, never of a composition, so a swap cannot free it.
+var _swap_wait_timer: Timer
+## The status sentence this file last wrote for a waiting swap ("" when none), so it is cleared only while
+## it is still the sentence on screen and never wipes a hint some other writer put there since.
+var _swap_wait_text := ""
+## How many swap requests have got past the quiescence gate. A probe's counter; nothing in the product reads it.
+var class_swap_runs := 0
+
+## Every source of unconfirmed input that is live now, each as a short phrase a user can act on ("a dock is
+## being resized"), in a stable order; empty when the shell is quiet. Asks, in turn: the shell's own drags
+## and holds; `_app_quiescent_blockers()`, which `DccApp` overrides for the engine, the map and the tools
+## (`S4_INVENTORY.md` §8); every visible window under the shell that declares `quiescent_blockers()` (its
+## held changes); and every visible transient confirmation. A pure query: it must never close, cancel or
+## change anything it reports, because the user decides what happens to held input, not the layout.
+func quiescent_blockers() -> Array[String]:
+	var out: Array[String] = []
+	if _dragging_dock != "":
+		out.append("a dock is being resized")
+	if not _phone_sheet_drag.is_empty():
+		out.append("the tool sheet is being dragged")
+	if _undo_chip_down:
+		out.append("the undo chip is held")
+	out.append_array(_app_quiescent_blockers())
+	_collect_window_blockers(self, out)
+	return out
+
+## The app-level half of `quiescent_blockers()`. A bare `DccShell` (the phone-chrome probes) has no engine,
+## map or tools, so it reports none; `DccApp` overrides it.
+func _app_quiescent_blockers() -> Array[String]:
+	return []
+
+## Walks `node` for visible windows. A window that declares `quiescent_blockers()` answers for itself (its
+## held changes, which only it can read). Any other visible `ConfirmationDialog` is a pending decision, the
+## shape `DccWidgets.confirm()` and `prompt()` build (`S4_INVENTORY.md` §5.3, "Transient dialogs"), as is a
+## `modal_card()` that `DccWidgets.modal_present()` marked with `TRANSIENT_CARD_META`, and each
+## waits by Q-S4-3's default. Long-lived windows without held changes report nothing: S4.5 re-presents them.
+func _collect_window_blockers(node: Node, out: Array[String]) -> void:
+	for c in node.get_children():
+		if c is Window:
+			var w := c as Window
+			if w.visible:
+				if w.has_method("quiescent_blockers"):
+					for b in w.call("quiescent_blockers"):
+						out.append(String(b))
+				## PC-7's contract (`context_window.gd`): a context window answers `held_changes()` with the reason it
+				## holds something that has no commit path yet (the Place editor's unsubmitted event, the roster's
+				## open religion editor), or "". The same held input makes a swap wait.
+				elif w.has_method("held_changes"):
+					var held := String(w.call("held_changes"))
+					if held != "":
+						out.append(held)
+				elif w is ConfirmationDialog or w.has_meta(DccWidgets.TRANSIENT_CARD_META):
+					var t := w.title.strip_edges()
+					out.append("a confirmation is open" + ("" if t == "" else " (" + t + ")"))
+			## A window's own sub-dialogs are not walked: they are its business, reported through its
+			## `quiescent_blockers()`, and a hidden window cannot hold a decision on screen.
+			continue
+		_collect_window_blockers(c, out)
+
+## A classification that crossed the line (from `_on_resize_settled()` or a waiting swap's poll). If
+## anything holds unconfirmed input, the swap waits: the reason goes on the status line (and in a toast on
+## the phone, whose status bar is not drawn), and the poll asks again every `SWAP_QUIET_POLL_S`. Otherwise
+## it runs. It must never flip `_phone` itself, and never discard what a blocker holds.
 func _request_class_swap(next: Dictionary) -> void:
-	print("Cartalith: size class change requested (phone=%s, %s dp); kept the boot class until MS-1 S4" %
+	_pending_swap = next
+	var why := quiescent_blockers()
+	if not why.is_empty():
+		_show_swap_wait(why)
+		if _swap_wait_timer == null:
+			_swap_wait_timer = Timer.new()
+			_swap_wait_timer.one_shot = true
+			_swap_wait_timer.wait_time = SWAP_QUIET_POLL_S
+			_swap_wait_timer.timeout.connect(_on_swap_wait_poll)
+			add_child(_swap_wait_timer)
+		_swap_wait_timer.start()
+		return
+	_pending_swap = {}
+	_clear_swap_wait_text()
+	_run_class_swap(next)
+
+## The swap itself. Until stage S4.4 builds it on the mount path, it only says it was asked: the shell keeps
+## its boot class, which is the pre-MS-1 behaviour, and the log line lets a probe see the request (the
+## prefix `size class change requested` is what `_ms1class_probe.gd`'s runner greps).
+func _run_class_swap(next: Dictionary) -> void:
+	class_swap_runs += 1
+	print("Cartalith: size class change requested (phone=%s, %s dp); kept the boot class until MS-1 S4.4" %
 		[str(next["phone"]), str(next["dp"])])
+
+## The waiting swap's poll. The size is classified again, because the window may have moved while the swap
+## waited: back in the current class, the wait simply ends; still across the line, the request is made
+## again with the newest classification, so a swap applies where the window is now, not where it was.
+func _on_swap_wait_poll() -> void:
+	if _pending_swap.is_empty():
+		return
+	var px := _host_px()
+	if px.x <= 0.0 or px.y <= 0.0:
+		_swap_wait_timer.start()
+		return
+	var d := _density()
+	var next := DccTheme.classify(px, float(d["value"]), _ui_scale(), _touch, bool(d["known"]), _layout)
+	if bool(next["phone"]) == _phone:
+		_cancel_swap_wait()
+		return
+	_request_class_swap(next)
+
+## Ends a wait without a swap: forgets the pending classification, stops the poll, clears the status line.
+func _cancel_swap_wait() -> void:
+	_pending_swap = {}
+	if _swap_wait_timer != null:
+		_swap_wait_timer.stop()
+	_clear_swap_wait_text()
+
+## The classification a swap is waiting for, or `{}` when none is waiting (probes read it).
+func pending_class_swap() -> Dictionary:
+	return _pending_swap
+
+## Puts the wait's reason on the status line: the first blocker, and how many more. Rewritten only when the
+## sentence changes, so a poll does not restart the phone's toast every half second.
+func _show_swap_wait(why: Array[String]) -> void:
+	var text := "Layout change waiting: %s" % why[0]
+	if why.size() > 1:
+		text += " (and %d more)" % (why.size() - 1)
+	if text == _swap_wait_text:
+		return
+	_swap_wait_text = text
+	if _status_labels.has("hint"):
+		set_status("hint", text, "text_dim")
+	phone_toast(text)
+
+## Clears the wait's sentence, but only while it is still the hint on screen.
+func _clear_swap_wait_text() -> void:
+	if _swap_wait_text == "":
+		return
+	if _status_labels.has("hint") and status_slot_text("hint") == _swap_wait_text:
+		set_status("hint", "", "text_ghost")
+	_swap_wait_text = ""
 
 ## The tablet's share of the resize handler, and it acts on exactly one event:
 ## an orientation flip. Added 2026-09-07 with the portrait dock fix.
