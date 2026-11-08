@@ -3333,3 +3333,19 @@ Three answers, given together:
 
 None of this changes generated output or the save format. The quick-bar pins stay per-user (`[quick_bar]`), out of
 world saves.
+
+## Ruling EI: an unnamed landmark is linked by its type and nearest place (owner, 2026-11-08)
+
+VE-9 found that a placed landmark has no name, so a vault `[[...]]` link cannot reach it (`923cb657`). The owner
+chose a generated name: **the landmark's type plus its nearest named place**, for example *"Waterfall near Vhal
+Serai"*.
+
+- **Stable.** The name is derived from the landmark and the world, so the same landmark gets the same name on every
+  load. It never changes because a different landmark was placed elsewhere.
+- **Overridable.** A name the user gives the landmark (renaming it in the editor) replaces the generated one.
+- **Ties.** If two landmarks would get the same generated name, a deterministic suffix tells them apart. The rule is
+  chosen and labelled by the builder.
+- **No nearby place.** "No nearest place" is never written as a made-up place name: the builder states what the name
+  falls back to.
+
+It changes no generated output and no world save beyond what a user-given name already stores.
