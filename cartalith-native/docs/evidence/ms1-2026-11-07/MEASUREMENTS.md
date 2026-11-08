@@ -204,3 +204,22 @@ S4 (spec §3.5) needs the full S4.0 inventory first: an action for each item (re
 | B8 | parse checks after every edit, all clean. No Rust changed, so `cargo test` was not run (brief). |
 | B9 | **met** for 1920 × 1080 and 1366 × 768 at every stage, with a root factor of 1.000. The export PNG half was **not measured**. |
 | B10 | **14 of 107** scripts re-run, plus 16 legacy touch captures. The other 93 were not re-run. |
+
+## S0 on the 6T, measured 2026-11-08
+
+OnePlus 6T `9608b26b`, LineageOS Android 15, APK built from `origin/main` `e02fadcb`. The shell does not print these at boot, so a
+throwaway build (one `print` in `DccShell._ready`, never committed) read them from `adb logcat -s godot`. All at default
+`wm size`/`wm density` unless stated; every setting was restored and re-read.
+
+| What | Result |
+|---|---|
+| `screen_get_dpi()` | **450** |
+| `screen_get_dpi() / 160` against `wm density` 450 (2.8125) | **equal**, `_density()` reports `{value 2.8125, known true}`. MQ-2 does not apply |
+| `screen_get_scale()` | **1.35** at `font_scale` 1.0 and at 1.3 (restored to 1.0 and read back). It does not follow the font scale here, so `_os_text_scale()` = 0.85 (its clamp floor) at both |
+| `screen_get_size()`, `window_get_size()`, visible rect | all (1080, 2340); `_host_px()` equals the visible rect at content scale 1.0 (the premise of S1) |
+| `_phone_scale` | 2.6214 (the MQ-3 cap), as predicted |
+| Manifest | `resizeableActivity` true, `configChanges` 0x3ff4 |
+| B7 boot captures | two before (installed build of 2026-10-27, `lastUpdateTime` 2026-10-27 01:03:33) and two after (`lastUpdateTime` 2026-11-08 17:38:08) in `device/`. The after build carries MS-2 (tabs MAP, GENERATE, STORY, MENU against MAP, GENERATE, PLAN, MORE), so byte identity cannot hold across these builds; the first of each pair is a mid-boot frame |
+| B7 `wm size 1600x2560` + `wm density 320` | `screen_get_dpi()` 320, scale 2.0, density 2.0, `_phone_scale` 2.0, size (1600, 2560). The **phone composition** came up (bottom tabs, sheet), not the tablet the table expected (800 x 1 280 dp, aspect 0.625). That follows Ruling EG's 900 dp line (shortest 800 dp is a phone). `device/wm1600b.png`. Restored: `wm size` 1080x2340, `wm density` 450 |
+
+Not measured: cold-boot timing (B5), and `AndroidRuntime`'s own density.
