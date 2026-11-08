@@ -662,14 +662,41 @@ the right end of the button row, in the Pop out button's balance slot, so Close 
 outside the chip, `_popout_windows_id_probe` and `_popout_roster_id_probe` with `--chip-only`); it lives in a
 non-Button holder because `AcceptDialog` resets the minimum width of every Button in that row, which is also why Pop
 out lays out at 81 px and not the 84 its builder asks. (5) **Saved journeys
-has no chip**: it lists every journey and nothing in it depends on the year; a row still closes it, because the planner
-it opens replaces the map until PC-8. (6) Conflicts stays open when a row is pressed, and marks the selected conflict.
+has no chip**: it lists every journey and nothing in it depends on the year; a row closed it while the planner replaced the map; since PC-8 it stays open (see PC-8's note). (6) Conflicts stays open when a row is pressed, and marks the selected conflict.
 (7) The roster, the City viewer and Conflicts now redraw on a year move (one redraw per frame); the City viewer keeps the
 user's zoom. Every open follows again. Not built, stated: §3.6's one host with a back stack (finding W2), the roster's
 "Capital: X" as a link (flow F3), the refresh items (finding W7), and Find drawing above an open window (Ctrl+F works
 from a window; whether Find's results draw above a window that overlaps them was not measured). The assistant's window is not one of the five and stays
 exclusive, so PC-6's "close that window to bring it back" still holds; the vault, the Data manager and the rest stay
 modal. The probe is `_pc7windows_probe`.
+
+PC-8 (2026-11-08), with PW-4 as one change: on the desktop (`DccApp.planner_in_window()`, true where PC-7's
+`ContextWindow.applies()` is) the planner draws in its own window, `shell/planner_window.gd` (an `AcceptDialog`,
+preloaded, no `class_name`; its `PopoutHost` key `planner_window` is in `LIVE_KEYS`, with its Pop out / Dock button and
+`prepare()` before each open). `JourneyPlannerView` builds its panels as before and reparents them into the window:
+the Journeys list and the party form in a left column, the route map, profile, stops, inspector and matrix in the
+centre, the results `build_results()` drew in the right dock's appended Journey section in a right column, the day
+band in the window's own row, and the bar row (Ruling DZ) as the window's toolbar. Nothing it computes changed: the
+same request gives the same `jp_compute` answer (six routes on three seeds hash equal to the pre-PC-8 tree), and the
+79 controls the planner draws are the same 79. Departures and judgements found while building: (1) **opening it no
+longer switches to CIVIL or arms Journey** on the desktop, so the map keeps its domain and tool and a click selects;
+the CIVIL rail's Journey planner node still lights itself, because its handler writes the mode before opening.
+(2) **Start here / Add as stop / End here** sit in a row under the toolbar, each disabled with its reason;
+End here commits the stops as a route through the Route tool's own three calls and opens the planner on it, and
+refuses while the Route tool is armed (the engine keeps one route draft). Each press is one step of Edit ▸ Undo,
+on a stop history of the planner's own that the app's undo routes to first when the other histories are at the
+depth they had when the step was taken; undoing End here deletes its route only while it is still the last route
+and no saved journey names it, and otherwise drops the step with the reason. (3) **The window's floor is its content's
+minimum width** (`_fit_floor()`, measured 1 196 px at seed 4242, the party form alone 466 px), because
+`phone_window()` turns `wrap_controls` off and a narrower window cut the results column off; the toolbar and stop
+rows scroll sideways. At 1 600 px that floor is wider than the map, so the map is usable beside the window only once it
+is dragged aside or popped out, which is the ruling's own use case; an owner may want a narrower layout.
+(4) A reopen uses `show()`, not `popup()`, which moved an on-screen window 22 px. (5) Saved journeys stays open when
+a row is pressed. (6) The right dock's collapsed Journey header readout ("2 d · 432 km") now heads the window's
+title. Not built, stated: one route name everywhere (finding M2: the card's "Journey 1" against the picker's
+"Route #0"); an undo of End here that also restores the old route's per-stage edits (they were cleared when End
+opened the new route); the tablet and the phone are unchanged (§3.11), proved by pixel identity at 393 × 852. The
+probe is `_pc8planner_probe`.
 
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes

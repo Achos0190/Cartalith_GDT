@@ -229,9 +229,12 @@ func _ready() -> void:
 		await _frames(6)
 		var civ_panel: Control = app._workspace_panels.get("civilization")
 		var active := int(jpv.get("_active_journey"))
-		_check("a row press closes the window and opens the planner on that journey",
-			not sj.visible and app.active_domain() == "civilization" and civ_panel != null and not civ_panel.visible
-				and active >= 0 and int((jpv._journeys[active] as Dictionary).get("engine_id", -1)) == want_id,
+		## PC-8 (2026-11-08): on the desktop the planner is its own window, so Saved journeys stays open and
+		## nothing on the main screen is swapped; the tablet and the phone keep the shipped swap.
+		var windowed: bool = app.has_method("planner_in_window") and app.planner_in_window()
+		var opened: bool = (sj.visible and jpv.window().visible) if windowed 			else (not sj.visible and app.active_domain() == "civilization" and civ_panel != null and not civ_panel.visible)
+		_check("a row press opens the planner on that journey (desktop: in its own window, the list kept open; touch: the list closes and the planner swaps in)",
+			opened and active >= 0 and int((jpv._journeys[active] as Dictionary).get("engine_id", -1)) == want_id,
 			"active=%d sj.visible=%s domain=%s civ_visible=%s" % [active, sj.visible, app.active_domain(),
 				civ_panel.visible if civ_panel != null else null])
 	else:

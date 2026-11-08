@@ -1,6 +1,6 @@
 # POPOUT_WINDOWS_SCOPE.md — popping panels out to a second monitor
 
-**What this is:** research and a proposed scope for one owner question (2026-10-26): *"can we pop out screens (planner, civilisation screens) to a second monitor?"* It **defines** milestones and bars and carries no status column (progress is `cartalith-native/docs/STATUS.md`). **Owner answers to Q1-Q7 are recorded in Ruling DK (2026-10-25) and marked in section 7; the feature is scheduled, first milestone PW-0.** **PW-0 (section 8) is measured, PW-1 (section 9), PW-2 (section 10) and PW-3 (section 11) are built, 2026-10-26**; every other number is a bar to be met. Evidence tags: **[verified]** opened in the repository at the symbol named; **[cited]** read in the Godot class reference on 2026-10-26 (`docs.godotengine.org/en/stable/classes/class_window.html`, `class_displayserver.html`; the stable docs, not specifically 4.7); **[recalled]** from memory, not re-checked; **[judgement]** a labelled recommendation the owner may overrule. Read `MISTAKES.md`'s preflight first. The rows that bite: *Write a test that pins a constant*, *Read a layout that overflows the screen*, *Claim something covered is now visible* (flip the flag, diff the framebuffer), *Run a pixel probe* (windowed, never headless), *Declare the work green* (`cargo test --workspace` plus parse-check every touched `.gd` and `shell/app.gd`).
+**What this is:** research and a proposed scope for one owner question (2026-10-26): *"can we pop out screens (planner, civilisation screens) to a second monitor?"* It **defines** milestones and bars and carries no status column (progress is `cartalith-native/docs/STATUS.md`). **Owner answers to Q1-Q7 are recorded in Ruling DK (2026-10-25) and marked in section 7; the feature is scheduled, first milestone PW-0.** **PW-0 (section 8) is measured, PW-1 (section 9), PW-2 (section 10) and PW-3 (section 11) are built, 2026-10-26, and PW-4 (section 12) with `PC_SHELL_PROPOSAL.md` PC-8, 2026-11-08**; every other number is a bar to be met. Evidence tags: **[verified]** opened in the repository at the symbol named; **[cited]** read in the Godot class reference on 2026-10-26 (`docs.godotengine.org/en/stable/classes/class_window.html`, `class_displayserver.html`; the stable docs, not specifically 4.7); **[recalled]** from memory, not re-checked; **[judgement]** a labelled recommendation the owner may overrule. Read `MISTAKES.md`'s preflight first. The rows that bite: *Write a test that pins a constant*, *Read a layout that overflows the screen*, *Claim something covered is now visible* (flip the flag, diff the framebuffer), *Run a pixel probe* (windowed, never headless), *Declare the work green* (`cargo test --workspace` plus parse-check every touched `.gd` and `shell/app.gd`).
 
 **Short answer.** Yes on desktop, and cheaply for the civilisation windows; harder for the planner; not on Android. Almost every "screen" the owner means is already a Godot `Window` (an `AcceptDialog`) that is merely *embedded* in the main window, so a pop-out is mostly a property flip plus the places that assumed embedding. The planner is **not** a window: it swaps the main view, and popping it out is a re-hosting job. The project's renderer (`gl_compatibility`) is the one thing worth measuring before promising.
 
@@ -200,3 +200,33 @@ What exists, read at its symbols: `PopoutHost.LIVE_KEYS` now holds seven keys, i
 **Mutation (Python, exact literal, occurs once, restored and hashed):** 16 mutants, 16 killed: a key dropped from `LIVE_KEYS`; three terms of `opener_rule` and the title-row term of `centred_in`; the move flag never set and never erased; the forwarder without its parent fallback (the City viewer's row goes red); the Vault without its button; the rules window without its header button; each of the five windows' open paths not re-deciding native versus docked (setting on no longer pops out); only the roster joining the busy group (19 failed); the assistant ignoring the move flag (a reply is cancelled by the move; 6 failed, against the real model).
 
 **Owner-run, with two monitors (listed, not faked; one monitor attached):** each of the six windows opening on monitor 2, surviving a restart there and readable at that monitor's scale; the `opener_rule` live on two screens (the table is pinned, and on one screen the "opener" branch is never taken); a real OS Ctrl+Z / Ctrl+Y / Ctrl+S in each pop-out; the card mirror showing in each pop-out on monitor 2; the assistant streaming on monitor 2 across a drag; closing the main window with several pop-outs on monitor 2; whether a first appearance over its docked self flashes; the spawned dialogs of finding 5 appearing on monitor 1.
+
+## 12. PW-4 built with PC-8 (2026-11-08, this machine, one monitor)
+
+What exists, read at its symbols: `shell/planner_window.gd` (an `AcceptDialog`, preloaded; key `planner_window`, now
+the eighth entry of `PopoutHost.LIVE_KEYS`) is the planner's frame on the desktop, built by
+`JourneyPlannerView._build_window()`, which reparents the planner's own panels into it (`PC_SHELL_PROPOSAL.md` §6,
+PC-8's note). It carries the per-window Pop out / Dock button (`add_toggle_button`), calls `PopoutHost.prepare()`
+before every open, and treats a move's hide as no close (`PopoutHost.is_moving()`). The busy overlay and the key
+forwarder needed no change (the window is in `GROUP` and gets the forwarder like every live window).
+
+**The decision the "Planner" paragraph of section 4 asked for, as built.** The planner's whole view lives in the
+window (stage table, profile, route map, party form, results, day band and its toolbar); the main window keeps its live
+map, its docks and its timeline strip, docked or native. The fallback (stage table and profile only) was not needed:
+the route map is the same `_RouteMapView` node in both forms, so no second copy exists. Measured with the
+`Performance` texture monitor: 39.1 MB docked and 39.1 MB native, a delta of +0.0 MB (it does not count a swapchain,
+section 8). Before PC-8 the main map's node was hidden while the planner showed, not freed, so the window form holds
+no texture the swap did not.
+
+**Measured bars (`_pc8planner_probe.gd`, windowed, wiped user dir, real input).** Planner results equal the pre-PC-8
+tree's for six routes on three seeds (`_last_result` and the request hashed, the literals pasted from the baseline run
+on `de1568cc`); with the planner native a middle drag and a wheel on the main map pan and zoom it and change neither the
+planner's request nor its result, and a map click selects and the native window's stop row follows; a generate mutes
+the native window (`gui_disable_input`) and input returns after it; Dock brings it back embedded with one OS window;
+the window's Close and a reopen leave the main window's `timeline_row` exactly as it was (the band is drawn in the
+window's own row and the row is never borrowed). `_hide()`'s JP-13 restore still runs on the tablet and the phone,
+which keep the swap and are unchanged (the phone pixel-identical at 393 × 852 against two pristine captures).
+
+**Owner-run, with two monitors (listed, not faked; one monitor attached):** the planner on monitor 2, across a restart
+and at that monitor's scale; a real OS Ctrl+Z / Ctrl+Y / Ctrl+S typed in the pop-out (the forwarder is the shared one
+PW-2 and PW-3 measured); the busy card mirror in the pop-out on monitor 2.

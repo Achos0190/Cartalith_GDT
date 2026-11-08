@@ -90,7 +90,9 @@ func _walk(n: Node, out: Array) -> void:
 
 func _capture(jpv) -> Array:
 	var out: Array = []
-	for root in [jpv._left_panel, jpv._center_panel, app.right_dock_body]:
+	## PC-8: on the desktop the results are the planner window's own column, not the right dock's section.
+	var results: Control = jpv.window().results_body if jpv.has_method("in_window") and jpv.in_window() else app.right_dock_body
+	for root in [jpv._left_panel, jpv._center_panel, results]:
 		if root != null:
 			_walk(root, out)
 	out.append("[readout] " + jpv.readout_text())

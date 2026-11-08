@@ -47,6 +47,41 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-8 and PW-4 built: the Journey planner in its own window on the desktop, with Pop out (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.7, §6 (PC-8 and its build note); `POPOUT_WINDOWS_SCOPE.md` PW-4 and §12; Ruling DY (PQ4),
+Ruling DK, Ruling DZ. GDScript only. Symbols: new `shell/planner_window.gd` (preloaded, key `planner_window`),
+`journey_planner_view.gd` (`_build_window`, `_open_window`, `_refresh_side`, `_refresh_results`, `_rebuild_stops_row`,
+`stops_undo`/`stops_redo`/`stops_wants_undo`), `app.gd` (`planner_in_window`, `open_journey_planner`, the planner branch
+of `_undo_last_impl`/`_redo_last_impl`), `popout_host.gd::LIVE_KEYS`, `saved_journeys_window.gd::_open_journey`.
+
+- **Built (desktop only; `planner_in_window()` is PC-7's `ContextWindow.applies()`):** the planner is a non-exclusive
+  window and `_show()`'s swap is not used there, so the map, the docks, the timeline strip and the tool-options bar stay
+  as they were and the map takes input. The planner's own panels are reparented into it: party form left, route map /
+  profile / stops / inspector / matrix centre, the results that were the right dock's Journey section right, the day
+  band in its own row, the bar row as its toolbar (Ruling DZ), the dock header's readout in its title. Opening it no
+  longer switches to CIVIL or arms Journey (the rail node still selects CIVIL). Start here / Add as stop / End here take
+  the selected settlement; End here commits a route and opens it; each press is one Edit ▸ Undo / Redo step. Saved
+  journeys stays open on a row press. PW-4: the window is the eighth `LIVE_KEYS` entry with its Pop out / Dock button.
+- **The tablet and the phone keep the swap**, unchanged (§3.7, §3.11).
+- **Measured** (new `_pc8planner_probe`, windowed, real clicks, right clicks, wheel, middle drags and keys, wiped user
+  dir; on this tree after rebasing onto VE-4 `875b8542`, DLL rebuilt): **desktop 1600×1000 PASS 105/105, touch
+  1600×1000 PASS 7/7**, 0 SCRIPT ERROR. Every entry point opens the window with the map visible and the domain and tool
+  unchanged: Story ▸ Journey planner (real menu click and keys), Shift+J, the CIVIL rail node, a Saved journeys row,
+  the card's Plan journey from here → Journey to here. With it focused, a map click selects (the stop row follows), a
+  wheel zooms and a middle drag pans. **Routes identical:** six routes on three seeds (4242, 24601, 71077345; two
+  of them blocked journeys) give `_last_result` and request hashes equal to the pre-PC-8 tree's (`de1568cc`, same DLL).
+  **Reachability:** the 79 interactive controls the planner draws (form, centre, results, toolbar, band) are the same
+  79 on both trees, line for line (`INV` lines). Close and reopen keep route, request and position; closing leaves
+  `timeline_row` untouched. Pop out makes it native (2 OS windows), a pan and a wheel on the main map change neither
+  request nor result, a generate mutes it docked and native, Dock returns it; texture memory docked 39.1 MB, native
+  39.1 MB. The floor is the content's minimum, 1 196 px at seed 4242, wider than the map at 1 600 px (stated in
+  §6's note). Phone 393×852: two captures identical to two pristine captures (and, after the rebase, differing only
+  in the status-bar clock). **15 literal mutants, 15 killed** (mutants.txt). Evidence:
+  `cartalith-native/docs/evidence/pc8-2026-11-08/`. (The mutants ran before the rebase and before the title readout; the probe passed again after both.) **Regression**, windowed unless the header says headless, each also run on the pristine tree (`de1568cc`, same DLL) to compare: green and unchanged: `_journeyplan`, `_jp8append` (touch), `_jpinsw`, `_jprestore`, `_jptrace`, `_jptraceshot`, `_jpwidth`, `_jpwshot`, `_pc7windows` 139 and touch 23, `_pc4context` 152, `_pc1select` 31, `_pc2year` 46, `_pc9menus` 86, `_popout_roster` 146. Failing with the same checks on the pristine tree, so not PC-8's: `_popout_windows` (2), `_popout_settings` off (2) and on (3), `_jp16` (times out headless on both). Updated to PC-8's form (each failed on this tree before its update, by design): `_jpunits` (the results column is the window's), `_jpresupply` (same), `_jptlfs` (the band is in the window's row), `_storylists` (Saved journeys stays open), `_storymenus` (two checks), `_popout_settings --setting on` (eight live windows), `_popout_windows` and `_popout_roster` (the `LIVE_KEYS` literal); all green after. `_jp8append` and `_jpdock` test the swap form's docks, which the desktop no longer uses: they now refuse on the desktop (exit 3) and run with `--force-touch`; `_jpdock` with `--force-touch` fails its two pointer-density width literals on the pristine tree too, so the swap form at pointer density is no longer measured by anything (it exists on no form factor now). `cargo test --workspace --no-fail-fast` after the rebase (no Rust changed here): 265 result lines, 7 773 passed, 0 failed, 144 ignored.
+- **Not built, stated:** one route name everywhere (finding M2); restoring the previous route's per-stage edits when
+  End here is undone; the owner-run second-monitor bars (§12).
+
 ### PC-7 built: the five context windows do not block the map and follow the selection until pinned (2026-11-08)
 
 `PC_SHELL_PROPOSAL.md` §3.6, §3.11, §6 (PC-7 and its build note); Ruling DY (PQ3), Ruling DX (PQ12). GDScript only.
@@ -60,8 +95,7 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
   header) in the button row and follows `DccApp.selection_changed` while visible and following: the roster shows the
   selection's faction (for a settlement, its holder at the shown year, `current_faction()`), the Place editor and the
   City viewer the selected settlement, Conflicts marks the selected conflict. A press pins; a second follows; every
-  open follows again. Saved journeys is non-blocking with no chip (no subject; a row still closes it, because the
-  planner replaces the map until PC-8). The roster, the City viewer (keeping the user's zoom) and Conflicts now redraw
+  open follows again. Saved journeys is non-blocking with no chip (no subject; a row closed it until PC-8). The roster, the City viewer (keeping the user's zoom) and Conflicts now redraw
   on a year move, one redraw per frame (finding: no window listened to the year). Conflicts stays open when a row is
   pressed. Window ▸ Open windows lists them (it was unreachable with a modal window open) and raises one where the
   user left it.

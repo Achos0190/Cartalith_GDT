@@ -5583,6 +5583,8 @@ func open_places_without_notes() -> void:
 ## (CLAUDE.md: it strips `project.godot`'s `;` comments) -- `EXPORT_DIALOG`'s
 ## precedent below.
 const SAVED_JOURNEYS_WINDOW := preload("res://shell/saved_journeys_window.gd")
+## PC-7's rules for the non-blocking desktop windows; `planner_in_window()` asks it which form this is (PC-8).
+const CONTEXT_WINDOW := preload("res://shell/context_window.gd")
 const CONFLICTS_WINDOW := preload("res://shell/conflicts_window.gd")
 ## Story ▸ Saved journeys…'s window, built on first open and kept (it holds no
 ## state worth discarding, and a second instance would be a second window).
@@ -5791,12 +5793,18 @@ func _browse_root(key: String, readout: Label) -> void:
 ## the two cannot drift. Which history `undo_last()` then consumes is
 ## `undo_target_label()`'s question.
 func can_undo_any() -> bool:
-	return look_history.can_undo() or bridge.can_undo()
+	return look_history.can_undo() or bridge.can_undo() or _planner_stops("stops_can_undo")
 
 ## The Redo mirror of `can_undo_any()`. `bridge.redo_available()` already answers
 ## false on a cdylib without the binding.
 func can_redo_any() -> bool:
-	return look_history.can_redo() or bridge.redo_available()
+	return look_history.can_redo() or bridge.redo_available() or _planner_stops("stops_can_redo")
+
+## PC-8: asks the planner's stop history (`journey_planner_view.gd`, Start here / Add as stop / End here,
+## one undo step each) `method`, false when the planner is not built yet. The one way the undo routing
+## below reaches it, so a missing planner can never answer "yes".
+func _planner_stops(method: String) -> bool:
+	return journey_planner_view != null and bool(journey_planner_view.call(method))
 
 ## The gate `_undo_last_impl` / `_redo_last_impl` share. Returns `true` (caller must STOP)
 ## while `bridge.generating`, after writing a "Not done" status naming `what`; `false`
@@ -5813,6 +5821,8 @@ func _engine_busy_for_history(what: String) -> bool:
 func undo_target_label() -> String:
 	if undo_groups.wants_undo():
 		return undo_groups.undo_label()
+	if _planner_stops("stops_wants_undo"):
+		return journey_planner_view.stops_undo_label()
 	if look_history.wants_undo(bridge):
 		return look_history.undo_label()
 	return bridge.undo_label() if bridge.can_undo() else ""
@@ -5822,6 +5832,8 @@ func undo_target_label() -> String:
 func redo_target_label() -> String:
 	if undo_groups.wants_redo():
 		return undo_groups.redo_label()
+	if _planner_stops("stops_wants_redo"):
+		return journey_planner_view.stops_redo_label()
 	if look_history.wants_redo(bridge):
 		return look_history.redo_label()
 	return bridge.redo_label() if bridge.redo_available() else ""
@@ -5871,6 +5883,11 @@ func _undo_last_impl() -> void:
 	## With no group both calls answer at once and nothing below changes.
 	if undo_groups.wants_undo():
 		_group_step(true)
+		return
+	## PC-8: a planner stop press (Start here / Add as stop / End here) made after every other edit is
+	## undone first; `stops_wants_undo()` derives "after" from the other histories' depth.
+	if _planner_stops("stops_wants_undo"):
+		journey_planner_view.stops_undo()
 		return
 	var split: String = undo_groups.blocks_single_undo(look_history.wants_undo(bridge))
 	if split != "":
@@ -6012,6 +6029,10 @@ func _redo_last_impl() -> void:
 	if undo_groups.wants_redo():
 		_group_step(false)
 		return
+	## PC-8: the mirror of `_undo_last_impl()`'s planner branch.
+	if _planner_stops("stops_wants_redo"):
+		journey_planner_view.stops_redo()
+		return
 	var split: String = undo_groups.blocks_single_redo(look_history.wants_redo(bridge))
 	if split != "":
 		set_status("hint", split, "warn")
@@ -6105,8 +6126,17 @@ func reveal_on_disk(path: String) -> bool:
 ## planner. The extra work over `select_domain()` is a `RAIL_NODES` lookup, the
 ## mode write the rail paints from, and one `Workspace.open_category()` that
 ## emits only when the body is hidden.
+##
+## **PC-8 (Ruling DY, PQ4): on the desktop the planner is its own window**, so
+## the domain switch above is the swap's and is skipped there: the window does
+## not live in CIVIL's region, and switching domain would take the user's dock
+## and map context away for a window that does not need it (flow F2: "the
+## planner opens in its own window, the map still live"). The CIVIL rail's
+## Journey planner node still lights its own node, because its press handler
+## writes the mode before calling here (`dcc_shell.gd::_on_rail_node_pressed`).
 func open_journey_planner() -> void:
-	select_domain_mode("civilization", "planner")
+	if not planner_in_window():
+		select_domain_mode("civilization", "planner")
 	journey_planner_view.open()
 
 ## As `open_journey_planner()`, but seeds the planner's own committed-route
@@ -6114,8 +6144,18 @@ func open_journey_planner() -> void:
 ## once a measured path has been committed as a real route to hand off. See
 ## `journey_planner_view.gd::open_with_route()`'s own doc comment.
 func open_journey_planner_with_route(route_index: int) -> void:
-	select_domain_mode("civilization", "planner")
+	if not planner_in_window():
+		select_domain_mode("civilization", "planner")
 	journey_planner_view.open_with_route(route_index)
+
+## PC-8 (Ruling DY, PQ4). True where `open_journey_planner()` opens the planner in its own window: the
+## desktop form, the form PC-7's non-blocking windows apply to (`ContextWindow.applies()`). False on the
+## tablet and the phone, which keep the shipped swap (`PC_SHELL_PROPOSAL.md` §3.7, §3.11). Decided by the
+## form factor, which is fixed from boot, so `menus.gd::_story()` (built once) and the planner's `setup()`
+## (run once) read the same answer. Must never answer true where the window does not exist: the Story row's
+## tooltip would promise a window while the swap hides the map.
+func planner_in_window() -> bool:
+	return CONTEXT_WINDOW.applies(self)
 
 ## `credits.gd` extends AcceptDialog and fills `%CreditsText` from `_ready`, so
 ## the scroll and the label have to exist *before* the script runs -- hence

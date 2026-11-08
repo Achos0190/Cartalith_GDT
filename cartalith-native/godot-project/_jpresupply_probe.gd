@@ -55,7 +55,7 @@ func _shot(step: String) -> void:
 
 ## Scrolls the results dock so the Resupply stops section is on screen.
 func _reveal_resupply() -> void:
-	var body: Control = app.right_dock_body
+	var body: Control = _results_root()
 	var head := _find(body, func(n): return n is Label and String((n as Label).text).to_lower().contains("resupply stops"))
 	if head == null:
 		print("JPRS   (no Resupply stops section drawn)")
@@ -80,7 +80,7 @@ func _report(tag: String, jpv) -> Dictionary:
 		if bool((s as Dictionary).get("accepted", false)):
 			acc += 1
 	print("JPRS %s: dock_min.x=%.0f body_min.x=%.0f" % [tag, (app.right_dock as Control).get_combined_minimum_size().x,
-		(app.right_dock_body as Control).get_combined_minimum_size().x])
+		(_results_root() as Control).get_combined_minimum_size().x])
 	print("JPRS %s: verdict=%s total_days=%.1f resupply_stop_days=%.1f suggestions=%d accepted=%d supply_block=%s"
 		% [tag, String(v.get("level", "?")), float(plan.get("total_days", -1.0)),
 			float(plan.get("resupply_stop_days", 0.0)), sugg.size(), acc,
@@ -219,7 +219,7 @@ func _ready() -> void:
 		await _shot("1_suggested")
 
 		## Accept ONE through the real button.
-		var btn := _find(app.right_dock_body, func(n): return n is Button and String((n as Button).text).to_lower() == "accept") as Button
+		var btn := _find(_results_root(), func(n): return n is Button and String((n as Button).text).to_lower() == "accept") as Button
 		if btn == null:
 			print("JPRS FAIL: no accept button drawn")
 			get_tree().quit(1)
@@ -234,7 +234,7 @@ func _ready() -> void:
 
 		## Then every remaining one, the same way.
 		for guard in 20:
-			btn = _find(app.right_dock_body, func(n): return n is Button and String((n as Button).text).to_lower() == "accept") as Button
+			btn = _find(_results_root(), func(n): return n is Button and String((n as Button).text).to_lower() == "accept") as Button
 			if btn == null:
 				break
 			btn.pressed.emit()
@@ -258,9 +258,18 @@ func _ready() -> void:
 		await _frames(6)
 		print("JPRS control (no resupply group): dock_min.x=%.0f body_min.x=%.0f" % [
 			(app.right_dock as Control).get_combined_minimum_size().x,
-			(app.right_dock_body as Control).get_combined_minimum_size().x])
+			(_results_root() as Control).get_combined_minimum_size().x])
 		## The map, with the stops drawn on the route.
 		get_tree().quit(0)
 		return
 	print("JPRS FAIL: no seed produced a route needing resupply stops")
 	get_tree().quit(1)
+
+
+## Where the planner's results draw: the right dock's Journey section in the swap form, the planner window's
+## own results column on the desktop since PC-8 (2026-11-08).
+func _results_root() -> Control:
+	var jpv = app.journey_planner_view
+	if jpv.has_method("in_window") and jpv.in_window():
+		return jpv.window().results_body
+	return app.right_dock_body

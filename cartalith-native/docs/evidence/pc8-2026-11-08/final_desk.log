@@ -1,0 +1,207 @@
+== mode desktop, PC-8 built ==
+== R: route results ==
+ROUTE 4242:0 3929851557 2183103439 ok=true days=2.409
+  ok    R seed 4242 pair 0: the planner computed (ok; 2.41 days, -1 = blocked)
+ROUTE 4242:1 3426043075 2183103439 ok=true days=-1.000
+  ok    R seed 4242 pair 1: the planner computed (ok; -1.00 days, -1 = blocked)
+ROUTE 24601:0 76986086 2183103439 ok=true days=1.042
+  ok    R seed 24601 pair 0: the planner computed (ok; 1.04 days, -1 = blocked)
+ROUTE 24601:1 2688649912 2183103439 ok=true days=-1.000
+  ok    R seed 24601 pair 1: the planner computed (ok; -1.00 days, -1 = blocked)
+ROUTE 71077345:0 2710342202 2183103439 ok=true days=1.654
+  ok    R seed 71077345 pair 0: the planner computed (ok; 1.65 days, -1 = blocked)
+ROUTE 71077345:1 3777137194 2183103439 ok=true days=-1.000
+  ok    R seed 71077345 pair 1: the planner computed (ok; -1.00 days, -1 = blocked)
+  ok    R: the pre-PC-8 hashes are pasted (an empty table compares nothing)
+  ok    R 4242:0: result and request equal the pre-PC-8 tree's ([3929851557, 2183103439] vs [3929851557, 2183103439])
+  ok    R 4242:1: result and request equal the pre-PC-8 tree's ([3426043075, 2183103439] vs [3426043075, 2183103439])
+  ok    R 24601:0: result and request equal the pre-PC-8 tree's ([76986086, 2183103439] vs [76986086, 2183103439])
+  ok    R 24601:1: result and request equal the pre-PC-8 tree's ([2688649912, 2183103439] vs [2688649912, 2183103439])
+  ok    R 71077345:0: result and request equal the pre-PC-8 tree's ([2710342202, 2183103439] vs [2710342202, 2183103439])
+  ok    R 71077345:1: result and request equal the pre-PC-8 tree's ([3777137194, 2183103439] vs [3777137194, 2183103439])
+== I: inventory ==
+INV centre Button|
+INV centre Button|01 Calm River
+INV centre Button|02 Paved Road
+INV centre Button|clear column
+INV centre Button|clear overrides
+INV centre Button|copy to all land stages
+INV centre Button|fill down
+INV centre Button|isolate stage
+INV centre CheckBox|
+INV centre CheckBox|
+INV centre CheckBox|
+INV centre CheckBox|
+INV centre CheckBox|
+INV centre CheckBox|on
+INV centre Option|Auto (Neutral)/6
+INV centre Option|Auto (Sparse Settlements)/6
+INV centre Option|Auto/5
+INV centre Option|Auto/6
+INV centre Option|Inherit (Keelboat)/12
+INV centre Option|Inherit (None)/4
+INV centre Option|Inherit (Partial — graze at camp)/4
+INV centre Option|Inherit (Sea Faring)/4
+INV centre Option|Inherit (Standard Pace)/6
+INV centre Option|Inherit (horse)/5
+INV centre Option|—/4
+INV centre Option|—/4
+INV centre Option|—/6
+INV centre Option|—/6
+INV centre SpinBox|0.0
+INV centre SpinBox|0.0
+INV centre SpinBox|0.0
+INV centre SpinBox|0.0
+INV centre SpinBox|0.0
+INV centre SpinBox|4.0
+INV centre SpinBox|7.0
+INV centre SpinBox|8.0
+INV form Button|Auto
+INV form Button|Manual
+INV form CheckBox|
+INV form CheckBox|
+INV form CheckBox|
+INV form CheckBox|
+INV form CheckBox|
+INV form Option|Auto · Neutral/16
+INV form Option|Auto · Sparse Settlements/6
+INV form Option|Auto · under 6 days — no rest day scheduled/5
+INV form Option|Auto/5
+INV form Option|Auto/6
+INV form Option|Camel/1
+INV form Option|Donkey/1
+INV form Option|Horse/1
+INV form Option|Keelboat/11
+INV form Option|Mule/1
+INV form Option|None/3
+INV form Option|Partial — graze at camp/3
+INV form Option|Route #0 — 98 km (mixed)/1
+INV form Option|Standard Pace/5
+INV form Option|Summer/4
+INV form Option|Walking/3
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|4.0
+INV form SpinBox|7.0
+INV form SpinBox|8.0
+INV results Button|› VESSEL REFERENCE · SPEED BY WATER
+INV results Button|› VESSELS ON THIS ROUTE
+INV toolbar Button|capture party…
+INV toolbar Button|export table
+INV toolbar Button|re-route for Sea Faring…
+INV toolbar Button|save journey
+INV toolbar Option|Route #0/1
+INV toolbar Option|party set-up…/3
+INV-COUNT 79
+  ok    I: the inventory is not empty (79 controls)
+== desktop ==
+  ok    the desktop builds the planner window
+  ok    PW-4: the window's key is live
+  ok    PW-4: the window carries its Pop out button
+  ok    the window carries PC-7's chord relay
+  ok    Story ▸ Journey planner's tooltip names the window
+  ok    E: real Down keys reach Story ▸ Journey planner (3 presses)
+  ok    E Story ▸ Journey planner: the planner window is open
+  ok    E Story ▸ Journey planner: it is not exclusive
+  ok    E Story ▸ Journey planner: the map is still visible
+  ok    E Story ▸ Journey planner: the domain is world (was world, now world)
+  ok    E Story ▸ Journey planner: the armed tool is still inspect (now inspect)
+  ok    E Story ▸ Journey planner: the tool-options bar carries no planner row (Ruling DZ)
+  ok    E Story ▸ Journey planner: the timeline strip holds none of the planner's band
+== L: layout at the floor size (1196, 640) ==
+  ok    L: PlannerLeftScroll is inside the window (x 0..466 of 1196)
+  ok    L: PlannerCenter is inside the window (x 466..866 of 1196)
+  ok    L: PlannerResultsScroll is inside the window (x 866..1196 of 1196)
+  ok    L: the results column has content (18 groups)
+  ok    L: the title carries the dock header's readout ('Journey planner · 2 d · 98 km')
+  ok    L: the toolbar holds export table
+  ok    L: its last control scrolls into the window (x 1067..1186)
+== M: the map stays live ==
+  ok    M: three clickable settlements outside the window (5)
+  ok    M: a click inside focuses the window
+  ok    M: a real map click outside the window selects that place ({ "kind": "settlement", "id": 0 })
+  ok    M: the window stays open
+  ok    M: the stop row names the selection ('Crungarnridge' vs 'Crungarnridge')
+  ok    M: a wheel notch over the map zooms it with the window focused (1.1705 -> 1.3461)
+  ok    M: a middle drag pans the map with the window open (67.1 px)
+== S: stops from the selection ==
+  ok    S: with no selection Start here is disabled, with its reason ('Select a settlement on the map (or in Find, or a list) first.')
+  ok    S: a selected settlement enables Start here
+  ok    S: Add as stop is disabled before a start, with its reason
+  ok    S: Start here makes a one-stop draft at the selection
+  ok    S: Edit ▸ Undo names the step ('Journey: start at Crungarnridge')
+  ok    S: Add as stop appends the selection
+  ok    S: the stop just added cannot be added twice in a row
+  ok    S: End here commits one route (1 -> 2)
+  ok    S: the planner opens on it and computes (route 1, ok true)
+  ok    S: the plan has its stops (6)
+  ok    S: End here empties the draft
+  ok    S: one Ctrl+Z undoes End here: the route is gone, the draft and the planner's route are back (1, 2, 0)
+  ok    S: a second Ctrl+Z undoes Add as stop (1)
+  ok    S: a third Ctrl+Z undoes Start here (0)
+  ok    S: Ctrl+Y redoes Start here (1)
+  ok    S: Ctrl+Y redoes Add as stop (2)
+  ok    S: Ctrl+Y redoes End here: the route is committed again and opened (2, 1)
+  ok    S: End here refuses while the Route tool is armed (routes 2 -> 2)
+  ok    S: and Ctrl+Z takes that start back (0)
+== C: close and reopen ==
+  ok    C: the window's real Close hides it
+  ok    C: the planner is marked closed
+  ok    C: closing touched nothing on the main screen (map visible, strip 1 -> 1 children)
+  ok    C: Shift+J over the map reopens it
+  ok    C: the reopened planner shows the same route and request
+  ok    C: it reopens where the user left it ((384, 60) vs (384, 60))
+== E: Saved journeys ==
+  ok    E saved: a journey is saved (1)
+  ok    E saved: the Saved journeys window lists it
+  ok    E saved: a real click on its row opens the planner window
+  ok    E saved: on that journey (0)
+  ok    E saved: Saved journeys stays open beside it (PC-8: the planner no longer replaces the map)
+== E: the card's verbs ==
+  ok    E card: Plan journey from here arms Route
+  ok    E card: Journey to here commits the route
+  ok    E card ▸ Journey to here: the planner window is open
+  ok    E card ▸ Journey to here: it is not exclusive
+  ok    E card ▸ Journey to here: the map is still visible
+  ok    E card ▸ Journey to here: the domain is civilization (was civilization, now civilization)
+  ok    E card ▸ Journey to here: the armed tool is still inspect (now inspect)
+  ok    E card ▸ Journey to here: the tool-options bar carries no planner row (Ruling DZ)
+  ok    E card ▸ Journey to here: the timeline strip holds none of the planner's band
+  ok    E card: the planner opens on that route (2)
+== E: the CIVIL rail node ==
+  info the rail expansion was closed; opened by set_rail_expanded(true) as setup
+  ok    E rail: the CIVIL rail's Journey planner node is drawn
+  ok    E the CIVIL rail node: the planner window is open
+  ok    E the CIVIL rail node: it is not exclusive
+  ok    E the CIVIL rail node: the map is still visible
+  ok    E the CIVIL rail node: the domain is civilization (was world, now civilization)
+  ok    E the CIVIL rail node: the armed tool is still inspect (now inspect)
+  ok    E the CIVIL rail node: the tool-options bar carries no planner row (Ruling DZ)
+  ok    E the CIVIL rail node: the timeline strip holds none of the planner's band
+== P: pop out ==
+  ok    P: the button reads Pop out
+  ok    P: a real click pops it out (native, visible)
+  ok    P: two OS windows (2)
+  ok    P: the main map is still visible
+  info texture memory docked 40.3 MB, popped out 40.3 MB (delta +0.0 MB)
+  ok    P: the main map pans while the planner is native (92.0 px)
+  ok    P: a pan and a wheel on the main map change neither the planner's request nor its result
+  ok    P: a map click selects, and the native window's stop row follows ('Orenelywash')
+  ok    P: a generate mutes the native planner window
+  ok    P: input returns after the generate
+  ok    P: the button reads Dock while native
+  ok    P: Dock brings it back embedded
+  ok    P: one OS window again
+== B: busy ==
+  ok    B: a generate mutes the docked planner window
+  ok    B: a real click on Start here during the run does nothing
+  ok    B: after the run the window takes input again and is still open
+  ok    B: a new world dropped the stop draft and its undo steps
+RESULT: PASS (0 failed, 105 checks)

@@ -200,6 +200,51 @@ class_name JourneyPlannerView
 ##   candidate per-stage packages; whatever it picks is recomputed under the
 ##   real per-stage modifier before anything is reported.
 
+## ## PC-8: on the desktop, a window instead of the swap
+##
+## Ruling DY, PQ4 (`PC_SHELL_PROPOSAL.md` §3.7, milestone PC-8), one change with PW-4
+## (`POPOUT_WINDOWS_SCOPE.md`). Where `DccApp.planner_in_window()` is true (the desktop form only),
+## `setup()` builds `planner_window.gd` and parents this view's panels into it instead of into the left
+## dock and the map's place: `_left_panel` into its left column, `_center_panel` into its centre, the
+## results `build_results()` draws into its right column (the right dock's appended Journey section is
+## not used), the day band into its own row (the main window's `timeline_row` is never borrowed), and the
+## tool-options row into its toolbar (Ruling DZ). Everything this file computes and draws is unchanged;
+## only where it is parented moved, so the plan a route gives is the same request and the same answer.
+##
+## In that form the planner no longer arms a tool or takes a domain: it is open exactly while its window
+## is visible (`_active`), so the map keeps whatever tool and domain the user had, and a click on a
+## settlement selects it. The selection feeds the stop buttons (`_rebuild_stops_row()`): Start here, Add
+## as stop and End here, each one step of Edit ▸ Undo (`stops_undo()`, `_stops_hist`). Where
+## `planner_in_window()` is false (the tablet and the phone) every line below runs exactly as it did
+## before PC-8: the window is never built and `_window` stays null.
+
+## `planner_window.gd`, preloaded: it declares no `class_name` (see its header).
+const PLANNER_WINDOW := preload("res://shell/planner_window.gd")
+
+## The planner's window on the desktop (PC-8), or null where the planner keeps the shipped swap (the tablet
+## and the phone). Null is the swap form, and every branch below tests it, never the form factor again.
+var _window: AcceptDialog = null
+
+## PC-8 (§3.7, flow F2): the stops picked from the selection and not yet made a route, oldest first, each
+## `{name: String, x: int, y: int, index: int}` (a settlement's cell and its index in
+## `bridge.settlements()`). Start here replaces it, Add as stop appends, End here commits it with the
+## last stop as a route the planner opens on, and empties it.
+var _stops_draft: Array = []
+## PC-8's undo history for the three stop buttons, oldest first: one entry per press, `{label: String,
+## before: Array, after: Array, route: int, prev_route: int, end: Dictionary, sig: String}`. `route` is
+## the index End here committed (-1 for Start and Add), `prev_route` the route the planner showed before
+## it, `end` the stop End here added, `sig` the other histories' depth when the step was taken (see
+## `_history_sig()`). Entries at and above `_stops_cursor` are the redo tail.
+var _stops_hist: Array = []
+## How many entries of `_stops_hist` are applied; `stops_undo()` lowers it, `stops_redo()` raises it.
+var _stops_cursor := 0
+## The other histories' depth (`_history_sig()`) right after the last undo of one of these steps; the
+## redo half of the recency rule (`stops_wants_redo()`). Empty when no step was undone.
+var _stops_redo_sig := ""
+## Most entries `_stops_hist` keeps; the oldest is dropped past it. A labelled judgement: the look
+## history keeps 64 (`look_history.gd::MAX_ENTRIES`), and a stop press is far smaller.
+const STOPS_HISTORY_MAX := 64
+
 ## The shell (`DccApp`) bound in `setup()`; every dock, viewport and status-bar call in this file
 ## goes through it.
 var app: DccApp
@@ -362,7 +407,7 @@ var _matrix_body: VBoxContainer
 ## Declared but never read or assigned anywhere in this repository's shell scripts (grep finds no
 ## other use); intent unverified, apparently a leftover.
 var _matrix_problem_count: Label
-var _timeline_view: _TimelineBandView   ## JP-13: lives in `app.timeline_row`, not under `_center_panel` -- see `_rebuild_timeline_band()`.
+var _timeline_view: _TimelineBandView   ## JP-13: lives in `app.timeline_row` (in the window's own row in PC-8's form), not under `_center_panel` -- see `_rebuild_timeline_band()`.
 
 # ================================================================= Setup ====
 
@@ -382,8 +427,13 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	_left_panel.visible = false
 	_center_panel.visible = false
 
-	app.tool_armed.connect(func(_id: String): _recompute_visibility())
-	app.workspace_changed.connect(func(_id: String): _recompute_visibility())
+	## PC-8: the desktop's window form (see the header). The two signals below are the swap's; the window
+	## form is open exactly while its window is visible, so it connects neither.
+	if app.has_method("planner_in_window") and app.planner_in_window():
+		_build_window()
+	else:
+		app.tool_armed.connect(func(_id: String): _recompute_visibility())
+		app.workspace_changed.connect(func(_id: String): _recompute_visibility())
 
 	## **The journeys list has a world lifecycle, and until now had none.**
 	##
@@ -413,6 +463,369 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## call with those same bytes cannot undo it.
 	bridge.generation_finished.connect(func(ok: bool): if ok: clear_journeys())
 	bridge.world_loaded.connect(func(): if not bridge.has_world: clear_journeys())
+	## PC-8: the stop draft and its undo steps name settlements and a route of the world that made them,
+	## so they go with it. Unlike the journeys list, on EVERY `world_loaded`, not only a close: a project
+	## open replaces every route and settlement, and an in-place op such as Center landmasses moves the
+	## cells a draft stop names. A step that deletes "the route End here made" must never run against
+	## another world's route list, and dropping a few stop presses is the cheaper error.
+	bridge.generation_finished.connect(func(ok: bool): if ok: _clear_stops())
+	bridge.world_loaded.connect(func(): _clear_stops())
+
+## PC-8: builds the planner's window and moves both panels into it. Called once, from `setup()`, only where
+## `DccApp.planner_in_window()` is true. The panels were built into the left dock and the map's place by
+## their builders (which the tablet and the phone still use), and are reparented here, so neither builder
+## carries a second form.
+func _build_window() -> void:
+	_window = PLANNER_WINDOW.new()
+	app.add_child(_window)
+	_window.setup(app)
+	_left_panel.get_parent().remove_child(_left_panel)
+	_window.left_slot.add_child(_left_panel)
+	_left_panel.visible = true
+	_center_panel.get_parent().remove_child(_center_panel)
+	## The swap form anchors it over `viewport_content`; in the window it fills the centre slot instead,
+	## and its full-rect column keeps filling it.
+	_center_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_center_panel.custom_minimum_size = Vector2(400, 0)
+	_window.center_slot.add_child(_center_panel)
+	_window.center_slot.custom_minimum_size = Vector2(400, 0)
+	_center_panel.visible = true
+	_window.window_closed.connect(_on_window_closed)
+	app.selection_changed.connect(func(_sel: Dictionary) -> void:
+		if _active:
+			_rebuild_stops_row())
+
+## PC-8: whether the planner is in its own window (the desktop) rather than the swap. `menus.gd` and the
+## probes read the app's `planner_in_window()`; this is the view's own answer, the same fact.
+func in_window() -> bool:
+	return _window != null
+
+## PC-8: the planner's window, or null in the swap form. For the probes and Window ▸ Open windows.
+func window() -> AcceptDialog:
+	return _window
+
+## PC-8: the window was closed by the user (never for a Pop out / Dock move; `planner_window.gd` filters
+## that). Nothing on the main screen was taken, so nothing is given back: the planner keeps its route,
+## party form, stage edits and draft for the next open, as the swap form kept them across a disarm.
+func _on_window_closed() -> void:
+	_active = false
+
+## Redraws the results wherever this form draws them: the window's right column in PC-8's form, else the
+## right dock's appended Journey section (`right_dock.gd::refresh_journey()`, a no-op unless that section
+## is on screen). The one call every recompute and stage click makes, so the two forms cannot diverge.
+func _refresh_side() -> void:
+	if _window != null:
+		_refresh_results()
+		return
+	if app != null and app.right_dock_ctrl != null:
+		app.right_dock_ctrl.refresh_journey()
+
+## PC-8: rebuilds the window's results column from `build_results()`, the builder the right dock's section
+## calls, so the verdict, time, load, supply, resupply, cost, risk, vessels and trace groups are the same
+## nodes from the same data in both forms. Drawn while the window is closed too (cheap, and an open then
+## shows a current column with no extra compute).
+func _refresh_results() -> void:
+	## The one-line figure the right dock's collapsed Journey header showed (`right_dock.gd`'s TOOL_JOURNEY
+	## readout, `readout_text()`), so it keeps a home when the section is not used: the window's title, which
+	## Window ▸ Open windows also lists.
+	_window.title = "Journey planner · %s" % readout_text()
+	var body: VBoxContainer = _window.results_body
+	for c in body.get_children():
+		body.remove_child(c)
+		c.queue_free()
+	build_results(body)
+
+# ======================================= PC-8: stops from the selection ====
+
+## The selected settlement as a draft stop, or `{}` when the selection is not a settlement (or names one
+## this world no longer has). Never a stand-in: a stop is a real settlement's cell or nothing.
+func _selected_stop() -> Dictionary:
+	if app == null or String(app.selection.get("kind", "")) != "settlement" or bridge.generating:
+		return {}
+	var i := int(app.selection.get("id", -1))
+	var all: Array = bridge.settlements()
+	if i < 0 or i >= all.size():
+		return {}
+	var s: Dictionary = all[i]
+	return {"name": String(s.get("name", "")), "x": int(s.get("x", 0)), "y": int(s.get("y", 0)), "index": i}
+
+## Why Start here cannot run now, or `""` when it can. Each reason names what to do; it is the button's
+## tooltip and the status line, never silent.
+func _start_reason(stop: Dictionary) -> String:
+	if not _bound:
+		return "This build's engine has no journey planner bindings."
+	if bridge.generating:
+		return "The world is generating; try again when it finishes."
+	if not bool(bridge.has_world):
+		return "There is no world yet."
+	if stop.is_empty():
+		return "Select a settlement on the map (or in Find, or a list) first."
+	return ""
+
+## Why Add as stop cannot run, or `""`. Needs a start, and a stop that is not the one just added (a route
+## between a place and itself has no length, which `jp_compute` refuses as zero-length).
+func _add_reason(stop: Dictionary) -> String:
+	var r := _start_reason(stop)
+	if r != "":
+		return r
+	if _stops_draft.is_empty():
+		return "Press Start here on the first settlement first."
+	if int((_stops_draft[_stops_draft.size() - 1] as Dictionary).get("index", -1)) == int(stop.get("index", -2)):
+		return "%s is already the last stop; select another settlement." % String(stop.get("name", ""))
+	return ""
+
+## Why End here cannot run, or `""`. As Add as stop, and the Route tool must not hold a draft: the engine
+## keeps ONE route draft (`route_begin`), which committing this one would throw away.
+func _end_reason(stop: Dictionary) -> String:
+	var r := _add_reason(stop)
+	if r != "":
+		return r
+	if String(app.armed_tool) == "route":
+		return "The Route tool is armed and may hold a draft; commit it or press Esc, then End here."
+	return ""
+
+## The stop row: what is selected, the three buttons (each disabled with its reason as the tooltip), and
+## the draft so far. Rebuilt on every selection change while the window is open, and after every press.
+func _rebuild_stops_row() -> void:
+	if _window == null:
+		return
+	var row: HBoxContainer = _window.stops_row
+	for c in row.get_children():
+		row.remove_child(c)
+		c.queue_free()
+	row.add_child(DccTheme.mono_label("FROM THE SELECTION", "accent", DccTheme.FS_SMALL, 2, true))
+	var stop := _selected_stop()
+	var subject := DccTheme.label(String(stop.get("name", "")) if not stop.is_empty() \
+		else "no settlement selected", "text" if not stop.is_empty() else "text_ghost", DccTheme.FS_SMALL)
+	subject.name = "StopsSubject"
+	row.add_child(subject)
+	for spec in [["Start here", "StopStart", _start_reason(stop), _stop_start,
+			"Starts a new journey draft at the selected settlement (one undo step)."],
+		["Add as stop", "StopAdd", _add_reason(stop), _stop_add,
+			"Adds the selected settlement as the next stop (one undo step)."],
+		["End here", "StopEnd", _end_reason(stop), _stop_end,
+			"Ends the journey at the selected settlement: the stops become a committed route, drawn on the map, and the planner opens on it (one undo step)."]]:
+		var b := DccWidgets.action(row, String(spec[0]), spec[3])
+		b.name = String(spec[1])
+		b.disabled = String(spec[2]) != ""
+		b.tooltip_text = String(spec[2]) if b.disabled else String(spec[4])
+	row.add_child(DccTheme.spacer())
+	var names: PackedStringArray = []
+	for d in _stops_draft:
+		names.append(String((d as Dictionary).get("name", "")))
+	var draft := DccTheme.mono_label("draft: " + (" → ".join(names) if not names.is_empty() else "none"),
+		"text_dim" if not names.is_empty() else "text_ghost", DccTheme.FS_SMALL, 0)
+	draft.name = "StopsDraft"
+	row.add_child(draft)
+
+## Start here: the draft becomes the selected settlement alone.
+func _stop_start() -> void:
+	var stop := _selected_stop()
+	if _refuse(_start_reason(stop)):
+		return
+	_push_stops_step("Journey: start at %s" % String(stop["name"]), [stop])
+
+## Add as stop: the selected settlement appended to the draft.
+func _stop_add() -> void:
+	var stop := _selected_stop()
+	if _refuse(_add_reason(stop)):
+		return
+	var after := _stops_draft.duplicate(true)
+	after.append(stop)
+	_push_stops_step("Journey: add %s" % String(stop["name"]), after)
+
+## End here: the draft plus the selected settlement committed as a route through the Route tool's own three
+## calls (`route_begin("mixed")`, `route_append_stop`, `route_commit`, as `right_dock.gd::_on_plan_journey`
+## and `infrastructure_workspace.gd::_commit_route` make them), drawn on the map, and opened in the planner
+## as `open_with_route()` opens one. Refused, with the reason, when the engine commits nothing.
+func _stop_end() -> void:
+	var stop := _selected_stop()
+	if _refuse(_end_reason(stop)):
+		return
+	var prev := _route_index
+	var idx := _commit_stops(_stops_draft + [stop])
+	if idx < 0:
+		_refuse("The route could not be committed -- it needs two stops the map can route between.")
+		return
+	var entry := {"label": "Journey: end at %s" % String(stop["name"]), "before": _stops_draft.duplicate(true),
+		"after": [], "route": idx, "prev_route": prev, "end": stop}
+	_stops_draft = []
+	_record_step(entry)
+	_select_route(idx)
+
+## Commits `stops` as a route and repaints the map's routes; returns its index, or -1.
+func _commit_stops(stops: Array) -> int:
+	if stops.size() < 2 or not bridge.route_begin("mixed"):
+		return -1
+	for d in stops:
+		bridge.route_append_stop(float((d as Dictionary)["x"]), float((d as Dictionary)["y"]))
+	var idx := bridge.route_commit()
+	if idx >= 0 and app.viewport != null:
+		app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
+	return idx
+
+## Opens route `idx` in the planner with fresh per-route state, as `open_with_route()` does.
+func _select_route(idx: int) -> void:
+	_route_index = idx
+	_stage_overrides.clear()
+	_layovers.clear()
+	_resupply_accepted.clear()
+	_resupply_declined.clear()
+	_selected_stage = 0
+	_isolated_stage = -1
+	_trim = Vector2(0.0, 1.0)
+	_refresh_route_choice()
+	_tool_options_journey()
+	_compute()
+	_rebuild_stops_row()
+
+## Says `reason` on the status line and answers true when it is not empty (the press is refused).
+func _refuse(reason: String) -> bool:
+	if reason == "":
+		return false
+	app.set_status("hint", "Not done: " + reason, "warn")
+	return true
+
+## Applies a Start / Add step: the draft becomes `after`, and the step is recorded.
+func _push_stops_step(label: String, after: Array) -> void:
+	var entry := {"label": label, "before": _stops_draft.duplicate(true), "after": after.duplicate(true),
+		"route": -1, "prev_route": _route_index, "end": {}}
+	_stops_draft = after.duplicate(true)
+	_record_step(entry)
+	_rebuild_stops_row()
+
+## Records `entry` as the newest step: drops the redo tail (a new step ends redo, the linear-history rule
+## every history here keeps), caps the length, stamps the other histories' depth, and refreshes Edit's rows.
+func _record_step(entry: Dictionary) -> void:
+	_stops_hist.resize(_stops_cursor)
+	entry["sig"] = _history_sig()
+	_stops_hist.append(entry)
+	while _stops_hist.size() > STOPS_HISTORY_MAX:
+		_stops_hist.pop_front()
+	_stops_cursor = _stops_hist.size()
+	_stops_redo_sig = ""
+	app.set_status("hint", "%s · Ctrl+Z undoes it" % String(entry["label"]), "text_ghost")
+	app._refresh_undo_ui()
+
+## Drops the draft and every step (a world change; see `setup()`).
+func _clear_stops() -> void:
+	_stops_draft = []
+	_stops_hist = []
+	_stops_cursor = 0
+	_stops_redo_sig = ""
+	if _active:
+		_rebuild_stops_row()
+
+## The depth of every OTHER undo history, as one string: the engine's height and way stacks, the look
+## history and the grouped changes. A step of this history is "on top" when the others are back at the
+## depth they had when it was taken, which is how the app's one Edit ▸ Undo interleaves several stacks in
+## the order the edits were made (the look history's `wants_undo` uses a fingerprint the same way). Depths,
+## not the whole of `undo_stats()`: an undo elsewhere changes the redo half but returns the depth, and it is
+## the depth that says "everything after my step has been undone". Read only off the worker's engine.
+func _history_sig() -> String:
+	if bridge == null or bridge.generating:
+		return "generating"
+	var st: Dictionary = bridge.undo_stats()
+	return "%s|%s|%d|%d" % [str(st.get("depth", "")), str(st.get("way_depth", "")),
+		int(app.look_history.cursor), int(app.undo_groups.cursor)]
+
+## Whether any other history could take an undo now (the fallback half of `stops_wants_undo()`).
+func _others_can_undo() -> bool:
+	return app.look_history.can_undo() or bridge.can_undo() or app.undo_groups.wants_undo()
+
+## Whether this history has a step to undo.
+func stops_can_undo() -> bool:
+	return _stops_cursor > 0
+
+## Whether this history has a step to redo.
+func stops_can_redo() -> bool:
+	return _stops_cursor < _stops_hist.size()
+
+## True when the next Edit ▸ Undo belongs to these stop steps: one is applied, and either nothing was
+## done elsewhere since it (the others' depth equals its stamp) or nothing else can be undone. Read by
+## `app.gd::_undo_last_impl()` before the look and height stacks.
+func stops_wants_undo() -> bool:
+	if not stops_can_undo() or bridge.generating:
+		return false
+	return String((_stops_hist[_stops_cursor - 1] as Dictionary).get("sig", "")) == _history_sig() \
+		or not _others_can_undo()
+
+## The Redo mirror: a step is undone and either nothing was done elsewhere since that undo or nothing
+## else can be redone.
+func stops_wants_redo() -> bool:
+	if not stops_can_redo() or bridge.generating:
+		return false
+	return _stops_redo_sig == _history_sig() or not (app.look_history.can_redo() \
+		or bridge.redo_available() or app.undo_groups.wants_redo())
+
+## The label of the step Undo would take here, for Edit ▸ Undo's row.
+func stops_undo_label() -> String:
+	return String((_stops_hist[_stops_cursor - 1] as Dictionary).get("label", "")) if stops_can_undo() else ""
+
+## The label of the step Redo would take here.
+func stops_redo_label() -> String:
+	return String((_stops_hist[_stops_cursor] as Dictionary).get("label", "")) if stops_can_redo() else ""
+
+## Undoes the newest applied stop step. Start and Add put the draft back. End here deletes the route it
+## committed and puts the draft and the planner's previous route back, but only while that route is still
+## the last one and no saved journey names it: a route the user has since built on is never deleted by an
+## undo, and the step is then dropped with the reason (the route stays; nothing is half-undone).
+func stops_undo() -> void:
+	if not stops_can_undo():
+		return
+	var e: Dictionary = _stops_hist[_stops_cursor - 1]
+	var idx := int(e.get("route", -1))
+	if idx >= 0:
+		var why := ""
+		if bridge.route_count() != idx + 1:
+			why = "routes were added or removed since"
+		for j in _journeys:
+			if int((j as Dictionary).get("route", -1)) == idx:
+				why = "a saved journey uses that route"
+		if why != "":
+			_stops_hist.remove_at(_stops_cursor - 1)
+			_stops_cursor -= 1
+			app.set_status("hint", "Not undone: %s -- %s, so the route stays." % [String(e["label"]), why], "warn")
+			app._refresh_undo_ui()
+			return
+		bridge.route_delete(idx)
+		if app.viewport != null:
+			app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
+		var prev := int(e.get("prev_route", -1))
+		_stops_draft = (e["before"] as Array).duplicate(true)
+		_stops_cursor -= 1
+		_select_route(prev if prev < bridge.route_count() else -1)
+	else:
+		_stops_draft = (e["before"] as Array).duplicate(true)
+		_stops_cursor -= 1
+		_rebuild_stops_row()
+	_stops_redo_sig = _history_sig()
+	app.set_status("pass", "undid %s" % String(e["label"]).to_lower(), "text_dim")
+	app._refresh_undo_ui()
+
+## Redoes the oldest undone stop step: the same change its press made (End here commits the route again,
+## which takes the next free index, and the step records that index).
+func stops_redo() -> void:
+	if not stops_can_redo():
+		return
+	var e: Dictionary = _stops_hist[_stops_cursor]
+	if int(e.get("route", -1)) >= 0:
+		var idx := _commit_stops((e["before"] as Array) + [e["end"]])
+		if idx < 0:
+			app.set_status("hint", "Not redone: the route could not be committed again.", "warn")
+			return
+		e["route"] = idx
+		e["prev_route"] = _route_index
+		_stops_draft = []
+		_stops_cursor += 1
+		_select_route(idx)
+	else:
+		_stops_draft = (e["after"] as Array).duplicate(true)
+		_stops_cursor += 1
+		_rebuild_stops_row()
+	e["sig"] = _history_sig()
+	app.set_status("pass", "redid %s" % String(e["label"]).to_lower(), "text_dim")
+	app._refresh_undo_ui()
 
 ## Both entry points this pass wires (`DCC_SHELL_SPEC.md` §2.4, §4.5.4):
 ## `Data ▸ Journey planner… ⇧J` and the INFRA dock's own Logistics button both
@@ -420,6 +833,10 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 ## the `tool_armed` signal this triggers) does the actual region swap, the
 ## same one-way flow every other tool already uses.
 func open() -> void:
+	## PC-8: the desktop opens the window; nothing below (the tool, the swap, the phone sheet) applies.
+	if _window != null:
+		_open_window()
+		return
 	app.arm_tool("journey")
 	## **Re-assert this view's own region, because a second open does not.**
 	## `arm_tool()` early-returns when the tool is already armed, so it emits no
@@ -530,6 +947,11 @@ func open_with_route(route_index: int) -> void:
 	_trim = Vector2(0.0, 1.0)
 	_refresh_route_choice()
 	_compute()
+	## PC-8: the window's toolbar carries a route picker too, built before the route was seeded; the swap
+	## form's bar keeps its shipped behaviour.
+	if _window != null:
+		_tool_options_journey()
+		_rebuild_stops_row()
 
 ## SM-6 (`STORY_MENUS_PROPOSAL.md` §3.3, Ruling CK): Story ▸ Saved journeys…'s
 ## row press. Opens the planner as every entry point does (`app.open_journey_
@@ -551,9 +973,29 @@ func open_saved(engine_id: int) -> bool:
 			return true
 	return false
 
+## PC-8: shows the window, with the same first-show refresh `_show()` runs for the swap (the route list, the
+## party form, the toolbar, the stop row, a compute, which also fills the results column and the day band).
+## A second open while it is visible only raises it and refreshes nothing, as `_reassert_shown()` does for
+## the swap, so a field being typed in keeps its focus and text.
+func _open_window() -> void:
+	if _active and _window.visible:
+		_window.open()
+		return
+	_active = true
+	_refresh_route_choice()
+	_rebuild_party_form()
+	_tool_options_journey()
+	_rebuild_stops_row()
+	_compute()
+	_window.open()
+
 ## The single place that decides whether the planner is showing, and routes the change to `_show()`, `_hide()` or `_reassert_shown()`.
 ## Driven by `app.tool_armed` and `app.workspace_changed`. Must keep `active_mode("civilization") == "planner"` in the formula: domain plus armed tool alone re-covers other CIVIL destinations (REARM row B, details in the body).
 func _recompute_visibility() -> void:
+	## PC-8: never connected in the window form (`setup()`); guarded anyway, because the swap below would
+	## hide the live map, the exact thing the window form exists not to do.
+	if _window != null:
+		return
 	## **REARM row B, narrowed after a refuted fix** (filed 2026-09-07;
 	## `.claude/resume-2026-09-12/rearm_2026-09-12.patch` reverted). Requires
 	## `active_mode("civilization") == "planner"` now, not just the domain and
@@ -1599,8 +2041,7 @@ func _apply_result() -> void:
 	_rebuild_timeline_band(plan)
 	_refresh_auto_labels()
 	_phone_refit()   ## PH-12: five of those six rebuilt from fresh nodes.
-	if app != null and app.right_dock_ctrl != null:
-		app.right_dock_ctrl.refresh_journey()
+	_refresh_side()
 	## OUTSTANDING_WORK.md §2.7, found 2026-09-13 by the wf53 verifier: PLAN's
 	## phone sheet subtitle ("journey · <from> → <to>") went stale on a new
 	## plan. `_refresh_phone_sheet_header()` used to run only from the two call
@@ -1785,7 +2226,12 @@ func _tl_px(px: float) -> float:
 ## Fills `app.timeline_row` with the JP-13 day-band strip and legend while Journey owns that row.
 ## Segments are real per-stage `days`, then one combined rest+layover block, then resupply days; "weather hold" is never drawn because the engine reports no discrete weather-hold count. The row's metrics are reset to (8, 0), this band's own box, since the last filler wins.
 func _rebuild_timeline_band(plan: Dictionary) -> void:
-	if not _bound or app == null or app.timeline_row == null:
+	if not _bound or app == null:
+		return
+	## PC-8: the window form draws the band in the window's own row and never borrows the main window's
+	## `timeline_row`, so the strip there keeps its own content and JP-13's hand-back has nothing to do.
+	var row: HBoxContainer = _window.timeline_slot if _window != null else app.timeline_row
+	if row == null:
 		return
 	## The band is the fourth filler of `app.timeline_row`, and since 2026-09-05
 	## the strip's height and vertical padding are set by whichever filler ran
@@ -1794,21 +2240,22 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 	## padding; this band is neither of §3.7's forms, so it takes the box
 	## `_build_timeline()` builds -- `8px var(--pad)`, auto height -- the same
 	## one it had before that pair existed.
-	app.set_timeline_metrics(8, 0)
-	for c in app.timeline_row.get_children():
-		app.timeline_row.remove_child(c)
+	if _window == null:
+		app.set_timeline_metrics(8, 0)
+	for c in row.get_children():
+		row.remove_child(c)
 		c.queue_free()
 	_timeline_view = null
 
 	if _route_index < 0:
-		app.timeline_row.add_child(DccTheme.mono_label(
+		row.add_child(DccTheme.mono_label(
 			"no committed route selected", "text_ghost",
 			_tl_fs(DccTheme.role_px("fs_timeline"))))
 		return
 	var total_days := float(plan.get("total_days", -1.0))
 	if plan.is_empty() or total_days < 0.0:
 		var reason := "journey blocked -- no calendar to show" if not plan.is_empty() else "no result yet"
-		app.timeline_row.add_child(DccTheme.mono_label(reason, "block" if not plan.is_empty() else "text_ghost", _tl_fs(DccTheme.role_px("fs_timeline"))))
+		row.add_child(DccTheme.mono_label(reason, "block" if not plan.is_empty() else "text_ghost", _tl_fs(DccTheme.role_px("fs_timeline"))))
 		return
 
 	## Real segments only: `results[i].days` per stage (land -> accent, water
@@ -1845,14 +2292,14 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 	if resupply_days > 0.0:
 		segments.append({"days": resupply_days, "token": "text"})
 
-	app.timeline_row.add_child(DccTheme.mono_label("day 1", "text_faint", _tl_fs(DccTheme.role_px("fs_timeline"))))
+	row.add_child(DccTheme.mono_label("day 1", "text_faint", _tl_fs(DccTheme.role_px("fs_timeline"))))
 	_timeline_view = _TimelineBandView.new()
 	_timeline_view.segments = segments
 	_timeline_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_timeline_view.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_timeline_view.custom_minimum_size = Vector2(0, _tl_px(8.0))
-	app.timeline_row.add_child(_timeline_view)
-	app.timeline_row.add_child(DccTheme.mono_label("day %d" % int(roundf(total_days)), "text_faint", _tl_fs(DccTheme.role_px("fs_timeline"))))
+	row.add_child(_timeline_view)
+	row.add_child(DccTheme.mono_label("day %d" % int(roundf(total_days)), "text_faint", _tl_fs(DccTheme.role_px("fs_timeline"))))
 
 	var legend := HBoxContainer.new()
 	legend.add_theme_constant_override("separation", 10)
@@ -1864,7 +2311,7 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 	_timeline_legend_item(legend, "text_dim", "rest / layover")
 	if resupply_days > 0.0:
 		_timeline_legend_item(legend, "text", "resupply")
-	app.timeline_row.add_child(legend)
+	row.add_child(legend)
 
 ## One legend entry for the timeline band: a coloured swatch (colour token `token`) and a caption. Returns the row so callers can attach a tooltip.
 func _timeline_legend_item(parent: Control, token: String, label_text: String) -> Control:
@@ -2624,8 +3071,7 @@ func _on_stage_clicked(idx: int, isolate: bool) -> void:
 	_rebuild_inspector(plan)
 	_rebuild_matrix(plan)
 	# The trace group traces the SELECTED stage, so it follows the spine.
-	if app != null and app.right_dock_ctrl != null:
-		app.right_dock_ctrl.refresh_journey()
+	_refresh_side()
 	## OUTSTANDING_WORK.md row, re-derived 2026-09-20 -- `554d953`'s own
 	## RESIDUAL note named this exact gap: isolating a stage here changes
 	## `_isolated_stage`, which `phone_header_info()` reads to derive the
@@ -3337,37 +3783,50 @@ func _matrix_fill_down(stages: Array) -> void:
 
 ## Installs the JOURNEY tool's options bar through `app.set_tool_options()`: route chooser, party preset controls, carriage mode, re-route, trim hint, save journey and export table. Called again after any change that affects its labels (route, trim, journey saved). The builder lambda reads `_route_index` and `_trim` when the bar is built.
 func _tool_options_journey() -> void:
-	app.set_tool_options(func(row: HBoxContainer):
-		row.add_child(DccTheme.mono_label("JOURNEY PLANNER", "accent", DccTheme.FS_SMALL, 2, true))
-		var count := bridge.route_count()
-		var labels: Array = []
-		for i in count:
-			labels.append("Route #%d" % i)
-		if labels.is_empty():
-			labels.append("(no committed route)")
-		DccWidgets.choice(row, "journey", labels, maxi(0, _route_index),
-			func(i: int):
-				if i < count:
-					_route_index = i
-					_compute())
-		_preset_controls(row)
-		var carriage_lbl := DccTheme.mono_label("carriage: %s" % ("auto" if _carriage_auto else "manual"), "text_ghost", DccTheme.FS_SMALL)
-		row.add_child(carriage_lbl)
-		var transport := String(_plan_values.get("transport", "Walking"))
-		var reroute_btn := DccWidgets.action(row, "re-route for %s…" % transport, _reroute_journey)
-		reroute_btn.disabled = count == 0
-		## Backed by `_jpRerouteForMode`; the straight-line fallback it refuses is what `route_commit` tolerates.
-		reroute_btn.tooltip_text = "Re-paths this committed route's two endpoints under the domain %s implies (sea / river / land), and refuses an unreachable answer rather than drawing a straight-line fallback." % transport
-		var trim_text := "⇧ drag spine to trim · ⌥ click isolates a stage"
-		if _trim.x > 0.0 or _trim.y < 1.0:
-			trim_text = "trimmed %d–%d%% · click the spine outside the range to clear" % [roundi(_trim.x * 100.0), roundi(_trim.y * 100.0)]
-		row.add_child(DccTheme.label(trim_text, "accent" if (_trim.x > 0.0 or _trim.y < 1.0) else "text_ghost", DccTheme.FS_MICRO))
-		row.add_child(DccTheme.spacer())
-		var save_btn := DccWidgets.action(row, "save journey", _save_journey)
-		save_btn.disabled = count == 0
-		save_btn.tooltip_text = "Names this route + party form and adds it to the Journeys list in the left dock. File ▸ Save project writes that list into the archive as entities/journeys.json and reopening the project restores it -- it is not lost when the app closes. One real limit: this list stores a route INDEX, so generating a new world clears it rather than pointing it at routes that no longer exist. The saved journey itself is kept: it is re-snapped onto the new world and its party still shows on the map at the timeline's date (dropped only if its start or end settlement no longer exists)."
-		var export_btn := DccWidgets.action(row, "export table", _export_stage_table)
-	)
+	## PC-8 / Ruling DZ (§3.12): in the window form the row is the window's own toolbar, and the shell's
+	## tool-options bar is left alone (it holds the armed tool's settings only). The builder is the same
+	## callable either way, so the row's contents cannot drift between the two forms.
+	if _window != null:
+		for c in _window.toolbar.get_children():
+			_window.toolbar.remove_child(c)
+			c.queue_free()
+		_tool_options_build(_window.toolbar)
+		return
+	app.set_tool_options(_tool_options_build)
+
+## The planner's row: the route picker, the party set-ups, the carriage readout, re-route…, the trim hint,
+## save journey and export table, built into `row` (the tool-options bar in the swap form, the window's
+## toolbar in PC-8's). Split out of `_tool_options_journey()` unchanged.
+func _tool_options_build(row: HBoxContainer) -> void:
+	row.add_child(DccTheme.mono_label("JOURNEY PLANNER", "accent", DccTheme.FS_SMALL, 2, true))
+	var count := bridge.route_count()
+	var labels: Array = []
+	for i in count:
+		labels.append("Route #%d" % i)
+	if labels.is_empty():
+		labels.append("(no committed route)")
+	DccWidgets.choice(row, "journey", labels, maxi(0, _route_index),
+		func(i: int):
+			if i < count:
+				_route_index = i
+				_compute())
+	_preset_controls(row)
+	var carriage_lbl := DccTheme.mono_label("carriage: %s" % ("auto" if _carriage_auto else "manual"), "text_ghost", DccTheme.FS_SMALL)
+	row.add_child(carriage_lbl)
+	var transport := String(_plan_values.get("transport", "Walking"))
+	var reroute_btn := DccWidgets.action(row, "re-route for %s…" % transport, _reroute_journey)
+	reroute_btn.disabled = count == 0
+	## Backed by `_jpRerouteForMode`; the straight-line fallback it refuses is what `route_commit` tolerates.
+	reroute_btn.tooltip_text = "Re-paths this committed route's two endpoints under the domain %s implies (sea / river / land), and refuses an unreachable answer rather than drawing a straight-line fallback." % transport
+	var trim_text := "⇧ drag spine to trim · ⌥ click isolates a stage"
+	if _trim.x > 0.0 or _trim.y < 1.0:
+		trim_text = "trimmed %d–%d%% · click the spine outside the range to clear" % [roundi(_trim.x * 100.0), roundi(_trim.y * 100.0)]
+	row.add_child(DccTheme.label(trim_text, "accent" if (_trim.x > 0.0 or _trim.y < 1.0) else "text_ghost", DccTheme.FS_MICRO))
+	row.add_child(DccTheme.spacer())
+	var save_btn := DccWidgets.action(row, "save journey", _save_journey)
+	save_btn.disabled = count == 0
+	save_btn.tooltip_text = "Names this route + party form and adds it to the Journeys list in the left dock. File ▸ Save project writes that list into the archive as entities/journeys.json and reopening the project restores it -- it is not lost when the app closes. One real limit: this list stores a route INDEX, so generating a new world clears it rather than pointing it at routes that no longer exist. The saved journey itself is kept: it is re-snapped onto the new world and its party still shows on the map at the timeline's date (dropped only if its start or end settlement no longer exists)."
+	var export_btn := DccWidgets.action(row, "export table", _export_stage_table)
 
 # ================================== Journeys list / save (JP-06, JP-08) ====
 
@@ -5551,8 +6010,7 @@ func clear_journeys() -> void:
 	_active_journey = -1
 	if _bound:
 		_refresh_route_choice()
-		if app != null and app.right_dock_ctrl != null:
-			app.right_dock_ctrl.refresh_journey()
+		_refresh_side()
 
 ## How many saved journeys reference one Travel Library entry —
 ## `TRAVEL_LIBRARY_SPEC.md` §4's "how many saved journeys reference it", which

@@ -30,10 +30,13 @@ class_name PopoutHost
 ## in `setup()` and `prepare(self)` before each `popup_centered()`. A key joins this list only together
 ## with its button (`add_toggle_button`). Data Manager, Asset Library, Travel library, the assistant's
 ## settings, the quick-bar customiser and every file dialog are deliberately NOT here: they stay
-## embedded (scope Q4), and a probe pins that.
+## embedded (scope Q4), and a probe pins that. **PW-4 adds the planner** (`planner_window.gd`, the
+## desktop window PC-8 moved the Journey planner into; Ruling DY PQ4, one change with PC-8), with its
+## button and its `prepare()` in `planner_window.gd::open()`.
 const LIVE_KEYS: PackedStringArray = [
 	"faction_roster_window", "settlement_types_window", "place_editor_window",
 	"generation_rules_window", "city_viewer_window", "vault_window", "llm_assistant_window",
+	"planner_window",
 ]
 
 ## The scene-tree group every window whose key is live joins (docked or not), so `BusyOverlay` can

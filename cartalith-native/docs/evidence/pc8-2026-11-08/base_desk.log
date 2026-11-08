@@ -1,0 +1,97 @@
+== mode desktop, PC-8 NOT built (baseline run) ==
+== R: route results ==
+ROUTE 4242:0 3929851557 2183103439 ok=true days=2.409
+  ok    R seed 4242 pair 0: the planner computed a journey (2.41 days)
+ROUTE 4242:1 3426043075 2183103439 ok=true days=-1.000
+  FAIL  R seed 4242 pair 1: the planner computed a journey (-1.00 days)
+ROUTE 24601:0 76986086 2183103439 ok=true days=1.042
+  ok    R seed 24601 pair 0: the planner computed a journey (1.04 days)
+ROUTE 24601:1 2688649912 2183103439 ok=true days=-1.000
+  FAIL  R seed 24601 pair 1: the planner computed a journey (-1.00 days)
+ROUTE 71077345:0 2710342202 2183103439 ok=true days=1.654
+  ok    R seed 71077345 pair 0: the planner computed a journey (1.65 days)
+ROUTE 71077345:1 3777137194 2183103439 ok=true days=-1.000
+  FAIL  R seed 71077345 pair 1: the planner computed a journey (-1.00 days)
+== I: inventory ==
+INV centre Button|
+INV centre Button|01 Calm River
+INV centre Button|02 Paved Road
+INV centre Button|clear column
+INV centre Button|clear overrides
+INV centre Button|copy to all land stages
+INV centre Button|fill down
+INV centre Button|isolate stage
+INV centre CheckBox|
+INV centre CheckBox|
+INV centre CheckBox|
+INV centre CheckBox|
+INV centre CheckBox|
+INV centre CheckBox|on
+INV centre Option|Auto (Neutral)/6
+INV centre Option|Auto (Sparse Settlements)/6
+INV centre Option|Auto/5
+INV centre Option|Auto/6
+INV centre Option|Inherit (Keelboat)/12
+INV centre Option|Inherit (None)/4
+INV centre Option|Inherit (Partial — graze at camp)/4
+INV centre Option|Inherit (Sea Faring)/4
+INV centre Option|Inherit (Standard Pace)/6
+INV centre Option|Inherit (horse)/5
+INV centre Option|—/4
+INV centre Option|—/4
+INV centre Option|—/6
+INV centre Option|—/6
+INV centre SpinBox|0.0
+INV centre SpinBox|0.0
+INV centre SpinBox|0.0
+INV centre SpinBox|0.0
+INV centre SpinBox|0.0
+INV centre SpinBox|4.0
+INV centre SpinBox|7.0
+INV centre SpinBox|8.0
+INV form Button|Auto
+INV form Button|Manual
+INV form CheckBox|
+INV form CheckBox|
+INV form CheckBox|
+INV form CheckBox|
+INV form CheckBox|
+INV form Option|Auto · Neutral/16
+INV form Option|Auto · Sparse Settlements/6
+INV form Option|Auto · under 6 days — no rest day scheduled/5
+INV form Option|Auto/5
+INV form Option|Auto/6
+INV form Option|Camel/1
+INV form Option|Donkey/1
+INV form Option|Horse/1
+INV form Option|Keelboat/11
+INV form Option|Mule/1
+INV form Option|None/3
+INV form Option|Partial — graze at camp/3
+INV form Option|Route #0 — 98 km (mixed)/1
+INV form Option|Standard Pace/5
+INV form Option|Summer/4
+INV form Option|Walking/3
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|0.0
+INV form SpinBox|4.0
+INV form SpinBox|7.0
+INV form SpinBox|8.0
+INV results Button|› VESSEL REFERENCE · SPEED BY WATER
+INV results Button|› VESSELS ON THIS ROUTE
+INV toolbar Button|capture party…
+INV toolbar Button|export table
+INV toolbar Button|re-route for Sea Faring…
+INV toolbar Button|save journey
+INV toolbar Option|Route #0/1
+INV toolbar Option|party set-up…/3
+INV-COUNT 79
+  ok    I: the inventory is not empty (79 controls)
+RESULT: FAIL (3 failed, 7 checks)

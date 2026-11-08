@@ -384,7 +384,9 @@ func _hide_all() -> void:
 
 func _tables() -> void:
 	print("== 1. tables ==")
-	_ok(Array(PopoutHost.LIVE_KEYS) == LIVE, "LIVE_KEYS is exactly the seven v1 windows in the scope's order (literal)")
+	## PW-4 (2026-11-08) appended the planner's window, which this harness's window table does not drive
+	## (`_pc8planner_probe.gd` does); the seven v1 windows stay first, in the scope's order.
+	_ok(Array(PopoutHost.LIVE_KEYS) == LIVE + ["planner_window"], "LIVE_KEYS is exactly the seven v1 windows in the scope's order, then PW-4's planner (literal)")
 	for s in _specs:
 		_ok(PopoutHost.key_for(s["win"]) == s["key"], "%s: the window's key is '%s'" % [s["name"], s["key"]])
 		_ok(PopoutHost.wants_native(true, true, s["key"], PopoutHost.LIVE_KEYS), "%s: wants_native(setting on, platform ok) is true" % s["name"])

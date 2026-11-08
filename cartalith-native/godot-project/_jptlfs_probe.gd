@@ -134,7 +134,9 @@ func _pointer_expect(depth: int) -> int:
 ## whole probe exists to avoid, since a filter that matches nothing reports the
 ## same clean line as a row that is genuinely correct.
 func _walk(branch: String) -> void:
-	var row: Control = _app.timeline_row
+	## PC-8: on the desktop the planner's day band (both walks' subject) is drawn in its window's own row, not in `timeline_row`.
+	var jpv = _app.journey_planner_view
+	var row: Control = jpv.window().timeline_slot if (jpv.has_method("in_window") and jpv.in_window()) else _app.timeline_row
 	print("\n--- %s branch, %s density ---" % [branch, _dens])
 	print("  timeline_bar.visible=%s  row.children=%d  phone_scale=%.3f"
 		% [str(_app.timeline_bar.visible), row.get_child_count(), DccTheme.phone_scale()])

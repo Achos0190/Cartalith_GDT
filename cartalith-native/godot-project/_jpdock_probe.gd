@@ -180,6 +180,9 @@ func _ready() -> void:
 			w = int(parts[0])
 			h = int(parts[1])
 			i += 2
+		elif args[i] == "--force-touch":
+			## Read by the shell (`DccTheme`), accepted here so the swap form can be measured on touch (PC-8).
+			i += 1
 		else:
 			print("[FATAL] unrecognised argument: ", args[i])
 			get_tree().quit(2)
@@ -196,6 +199,13 @@ func _ready() -> void:
 	if app.get("open_project_dialog") != null:
 		app.open_project_dialog.hide()
 	await _frames(30)
+	## PC-8 (2026-11-08): on the desktop the planner is its own window and this probe's subject, the swap
+	## form's docks, is not used there; the tablet and the phone keep it. Refused rather than passed, so a
+	## run that cannot answer never reports green (`MISTAKES.md`): run it with `--force-touch`.
+	if app.has_method("planner_in_window") and app.planner_in_window():
+		print("REFUSED: the desktop opens the planner in its own window (PC-8); this probe covers the swap form -- run it with --force-touch")
+		get_tree().quit(3)
+		return
 
 	var lw := float(app.get("_left_width"))
 	var ld := app.get("left_dock") as Control

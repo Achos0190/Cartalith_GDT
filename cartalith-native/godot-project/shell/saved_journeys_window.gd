@@ -42,10 +42,14 @@ extends AcceptDialog
 ## **PC-7** (`PC_SHELL_PROPOSAL.md` §3.6): on the desktop the window no longer
 ## blocks the map. It has no FOLLOWING chip: it lists every journey in the
 ## world, so there is no subject for a selection to move, and nothing it shows
-## depends on the year (a row's start year is the journey's own, stored). A row
-## press still closes it, because the planner it opens replaces the map view
-## (PC-8 moves the planner into its own window). The phone and the tablet keep
-## the modal window (`ContextWindow.applies()`).
+## depends on the year (a row's start year is the journey's own, stored). The
+## phone and the tablet keep the modal window (`ContextWindow.applies()`).
+##
+## **PC-8** (§3.7): on the desktop the planner a row opens is its own window
+## beside this one, so a row press leaves this window open (another row opens
+## another journey in the same planner). Where the planner still replaces the
+## map view (the tablet and the phone), a press closes this window first, as it
+## did before PC-8, because the planner would draw underneath it.
 
 ## PC-7: the non-blocking rules shared by the five context windows.
 const ContextWindow := preload("res://shell/context_window.gd")
@@ -224,11 +228,13 @@ func _add_row(r: Dictionary, preset_names: Dictionary) -> void:
 			row.add_child(l)
 	_body.add_child(DccTheme.rule())
 
-## Closes this window and opens journey `id` in the planner
-## (`journey_planner_view.gd::open_saved`). Says so on the status line when the
-## planner's list does not hold it, rather than opening on another journey.
+## Opens journey `id` in the planner (`journey_planner_view.gd::open_saved`),
+## closing this window first only where the planner replaces the map view (see
+## the header's PC-8 note). Says so on the status line when the planner's list
+## does not hold it, rather than opening on another journey.
 func _open_journey(id: int) -> void:
-	hide()
+	if not (_host.has_method("planner_in_window") and _host.planner_in_window()):
+		hide()
 	var ok: bool = _host.journey_planner_view.open_saved(id)
 	if not ok:
 		_host.set_status("hint", "That journey is not in the planner's list; reopen the project to reload it.", "accent")

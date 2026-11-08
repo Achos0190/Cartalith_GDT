@@ -1,0 +1,10 @@
+== mode tablet, PC-8 built ==
+== tablet ==
+  ok    tablet: planner_in_window() is false
+  ok    tablet: no planner window is built
+  ok    tablet: no PlannerWindow node anywhere
+  ok    tablet: opening the planner hides the map (the shipped swap)
+  ok    tablet: Journey is armed (the shipped swap)
+  ok    tablet: the planner's centre panel shows where the map was
+  ok    tablet: releasing Journey gives the map back
+RESULT: PASS (0 failed, 7 checks)

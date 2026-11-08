@@ -636,8 +636,11 @@ func _sm4() -> void:
 		(jt2["callable"] as Callable).call()
 		await _frames(4)
 		var civ_panel: Control = app._workspace_panels.get("civilization")
-		_check("Journey to here commits the route and opens the planner on it",
-			bridge.route_count() == rc + 1 and civ_panel != null and not civ_panel.visible,
+		var opened: bool = (jpv_window().visible and app.viewport.visible) if jpv_window() != null 			else (civ_panel != null and not civ_panel.visible)
+		if jpv_window() != null:
+			jpv_window().hide()
+		_check("Journey to here commits the route and opens the planner on it (desktop: its window; touch: the swap)",
+			bridge.route_count() == rc + 1 and opened,
 			"routes %d -> %d" % [rc, bridge.route_count()])
 	app.select_domain("world")
 	await _frames(3)
@@ -829,9 +832,16 @@ func _sm2() -> void:
 	story.id_pressed.emit(DccMenus.ID_STORY_JOURNEY_PLANNER)
 	await _frames(4)
 	var civ_panel: Control = app._workspace_panels.get("civilization")
-	_check("Journey planner opens the planner (CIVIL, the planner swaps the dock panel out)",
-		app.active_domain() == "civilization" and civ_panel != null and not civ_panel.visible,
-		app.active_domain())
+	## PC-8 (2026-11-08): on the desktop the planner opens in its own window and the dock is not swapped.
+	var pw: Window = jpv_window()
+	if pw != null:
+		_check("Journey planner opens the planner (desktop, PC-8: in its own window, the map still shown)",
+			pw.visible and app.viewport.visible, app.active_domain())
+		pw.hide()
+	else:
+		_check("Journey planner opens the planner (CIVIL, the planner swaps the dock panel out)",
+			app.active_domain() == "civilization" and civ_panel != null and not civ_panel.visible,
+			app.active_domain())
 	app.select_domain("world")
 	await _frames(3)
 
@@ -839,3 +849,10 @@ func _sm2() -> void:
 func _finish() -> void:
 	print("STORY RESULT %d checks, %d failed (%s)" % [_checks, _fails, _form])
 	get_tree().quit(1 if _fails > 0 else 0)
+
+
+## PC-8: the planner's own window on the desktop, or null where the planner keeps the swap (and on a tree
+## before PC-8, which has no `in_window()`).
+func jpv_window() -> Window:
+	var jpv = app.journey_planner_view
+	return jpv.window() if jpv.has_method("in_window") and jpv.in_window() else null

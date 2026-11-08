@@ -384,7 +384,7 @@ func _tables() -> void:
 	for r in rows:
 		_ok(PopoutHost.wants_native(r[0], r[1], r[2], live) == r[3], "wants_native(setting=%s, platform=%s, key='%s') == %s" % [r[0], r[1], r[2], r[3]])
 	_ok(PopoutHost.wants_native(true, true, "a", PackedStringArray()) == false, "an empty live list lets nothing out")
-	_ok(PopoutHost.LIVE_KEYS == PackedStringArray(["faction_roster_window", "settlement_types_window", "place_editor_window", "generation_rules_window", "city_viewer_window", "vault_window", "llm_assistant_window"]), "PW-3 puts exactly the seven v1 windows in LIVE_KEYS, in the scope's order (PW-1 shipped it empty, PW-2 the roster alone)")
+	_ok(PopoutHost.LIVE_KEYS == PackedStringArray(["faction_roster_window", "settlement_types_window", "place_editor_window", "generation_rules_window", "city_viewer_window", "vault_window", "llm_assistant_window", "planner_window"]), "PW-3 puts the seven v1 windows in LIVE_KEYS, in the scope's order, and PW-4 the planner after them (PW-1 shipped it empty, PW-2 the roster alone)")
 
 
 # -- 3 ------------------------------------------------------------------------------------
@@ -467,8 +467,10 @@ func _session() -> void:
 		_step("open " + name)
 		w.hide()
 		await _settle(2)
-	var want_native := 7 if (_form == "desktop" and _setting) else 0
-	_ok(_native_shell_windows().size() == want_native, "exactly %d shell window(s) have force_native set (PW-3: the seven v1 windows, only on the desktop with the setting on; the six others never): %s" % [want_native, str(_native_shell_windows())])
+	## PW-4 (2026-11-08): the planner's window (`planner_window.gd`, built at boot on the desktop) is the eighth
+	## live window, so with the setting on it is prepared native too, without being opened by this probe.
+	var want_native := 8 if (_form == "desktop" and _setting) else 0
+	_ok(_native_shell_windows().size() == want_native, "exactly %d shell window(s) have force_native set (PW-3: the seven v1 windows, PW-4: the planner's, only on the desktop with the setting on; the six others never): %s" % [want_native, str(_native_shell_windows())])
 
 	var sdir := ProjectSettings.globalize_path("user://_popout_settings_probe")
 	DirAccess.make_dir_recursive_absolute(sdir)
