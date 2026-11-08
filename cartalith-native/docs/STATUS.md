@@ -47,6 +47,24 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### PC-3 follow-up built: a conflict row in the strip's event list selects the conflict (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.2 ("a conflict row also selects the conflict"), flow F7, §6 (PC-3 note 5). *Re-opened at the
+symbol first:* `app.gd::_build_timeline_events`, `tl_conflict_spans`, `select`; `right_dock.gd::show_subject` (PC-4's
+conflict page).
+
+- **Built.** Each conflict row of the event list carries its id (button meta `tl_conflict`) and a press runs
+  `tl_set_year(start, true)` and then `select("conflict", id)`, so Inspect's conflict page already reads the new year. A
+  chronos row has no id and only moves the year, as before.
+- **Measured.** New `_confevent_probe` (windowed, real clicks on the rows): 18 checks, 0 failed at 1600x1000. Two
+  conflicts are added through `conflict_add`; clicking each row (c1, c2, c1) moves the year to its start, selects that
+  conflict (not the other), shows it in the Context panel under its own name; Ctrl+D clears and Alt+← brings it back.
+  Three literal mutants (no select, id off by one, no year move), each killed by its own checks, source restored
+  byte-identical. `_pc3strip` re-run green (79).
+- **Not done, stated:** picking a conflict from other lists still does not move the year (PC-4's unbuilt F7 half; this
+  row moves it because the row is a year link); the chronos-row branch (`else -1`) is covered by construction and by
+  `_pc3strip`, not by a mutant.
+
 ### PC-7 follow-up built: the roster's "Capital: X" is a link that selects it (2026-11-08)
 
 `PC_SHELL_PROPOSAL.md` §3.6 flow F3, §6 (PC-7 note). *Re-opened at the symbols first:* `faction_roster_window.gd`
@@ -533,8 +551,8 @@ of `_undo_last_impl`/`_redo_last_impl`), `popout_host.gd::LIVE_KEYS`, `saved_jou
   Re-run after rebasing onto PC-4 (`2f2af9e9`): all of the above green, `_pc4context` 152/152.
 - **Not built, stated:** CV-24's collapsed line with a play button, slider and ticks (the collapsed strip is the shipped
   one, now fully clickable); "earliest founding" as a range source (the engine records none); one undo step for + Record
-  year (the engine keeps none, here or in the dock); a conflict row selecting the conflict (PC-4's Inspect); the event
-  list is capped at 12 rows and the pills at 12.
+  year (the engine keeps none, here or in the dock); *(a conflict row selecting the conflict is built: see "PC-3
+  follow-up" above)*; the event list is capped at 12 rows and the pills at 12.
 
 ### PC-2 built: one year (2026-11-07)
 

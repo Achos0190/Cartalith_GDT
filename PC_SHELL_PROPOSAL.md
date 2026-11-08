@@ -632,8 +632,9 @@ outside the range pins the playhead to the nearest end. (3) **The collapsed stri
 (TIMELINE, the year, the state word, `expand`): CV-24's collapsed line with a play button, a slider and ticks is not
 built, and the ticks live on the expanded strip's track. (4) **+ Record year records the shown year** (scrub, then
 record) through the dock's own `civ_add_year`; the engine keeps no undo step for a recorded year, here or in the dock,
-so the proposal's "one undo step" is open. (5) **A conflict row in the event list moves the year but does not select
-the conflict**: a conflict is a selection kind only PC-4's Inspect shows. The strip's pills show the 12 recorded years
+so the proposal's "one undo step" is open. (5) ~~**A conflict row in the event list moves the year but does not select
+the conflict**: a conflict is a selection kind only PC-4's Inspect shows.~~ Built 2026-11-08, after PC-4: the row moves
+the year, then selects the conflict (`_confevent_probe`). The strip's pills show the 12 recorded years
 nearest the cursor. The phone keeps its CIVIL-only strip. The probe is `_pc3strip_probe`; the phone guard is
 `_pc3phone_probe`.
 

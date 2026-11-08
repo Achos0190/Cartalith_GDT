@@ -3251,8 +3251,8 @@ func _build_timeline_records() -> Control:
 ## Row 3c (PC-3, `PC_SHELL_PROPOSAL.md` 3.2 "Expanded", second row): the event list. The world's conflicts
 ## and the selection's chronos entries, each a button that moves the year to its start through the one
 ## writer (`tl_set_year`, exact) and labelled with its source -- `conflict`, or the note the chronos line
-## came from. A conflict row does NOT also select the conflict: a conflict is a selection kind only PC-4's
-## Inspect shows (PC-1 records it and applies settlements alone), so that half waits. Capped like the pills.
+## came from. A conflict row also selects the conflict (`select("conflict", id)`; PC-4's Inspect page shows it,
+## so the half that had to wait before PC-4 is built). Capped like the pills.
 ## An empty list is a note, never a row.
 func _build_timeline_events() -> Control:
 	var flow := HFlowContainer.new()
@@ -3265,6 +3265,7 @@ func _build_timeline_events() -> Control:
 	for cs in tl_conflict_spans():
 		var c: Dictionary = cs
 		rows.append({"year": int(c["start"]), "text": "%s · conflict" % String(c["name"]),
+			"conflict": int(c["id"]),
 			"tip": "Conflict, %s%s." % [_tl_format_year(int(c["start"])),
 				(" to " + _tl_format_year(int(c["end"]))) if c.has("end") else ", still open"]})
 	for ce in tl_selection_events():
@@ -3282,8 +3283,17 @@ func _build_timeline_events() -> Control:
 			break
 		shown += 1
 		var yr: int = int(r["year"])
-		var b := DccWidgets.segment(flow, "%s  %s" % [_tl_format_year(yr), String(r["text"])], func(): tl_set_year(yr, true))
-		b.tooltip_text = String(r["tip"]) + " Click to move the year there."
+		## A conflict row also selects the conflict (PC-3 follow-up, `PC_SHELL_PROPOSAL.md` 3.2, flow F7): the
+		## year first, so the Inspect page it opens already reads the new year. `conflict` is absent on a
+		## chronos row, which only moves the year (-1 here is "none", never a conflict id).
+		var cid: int = int(r["conflict"]) if r.has("conflict") else -1
+		var b := DccWidgets.segment(flow, "%s  %s" % [_tl_format_year(yr), String(r["text"])], func():
+			tl_set_year(yr, true)
+			if cid >= 0:
+				select("conflict", cid))
+		b.tooltip_text = String(r["tip"]) + (" Click to move the year there and select the conflict." if cid >= 0 else " Click to move the year there.")
+		if cid >= 0:
+			b.set_meta("tl_conflict", cid)
 		b.set_meta("tl_year", yr)
 		b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, float(DccTheme.role_px("btn_min_h")))
 	if rows.size() > shown:
