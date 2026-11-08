@@ -6990,4 +6990,10 @@ the symbols; the ordering dependencies, what moved and what S4.4 must still do a
   count, every signal's receivers equal, `DccTheme` registries equal, structure equal to boot. It found and fixed ten
   leaks a second mount would have shipped (section 15.4). 18 literal mutants, all killed (14 by the probe; the four
   duplicate-connect ones, which Godot refuses, by its own "already connected" error in stderr, read by the harness).
+- **Re-run after rebasing onto `bd9b107e`** (the shell changed under it: MS-5, Ruling EH, VE-8): the four extra identity
+  sizes are byte-identical to a pristine `bd9b107e` tree; 20 probe runs pass with 0 `SCRIPT ERROR` (`_ms1class` table and
+  swap, `_ms1swap` quiet and the three round trips, `_pc1select`, `_pc1roster`, `_pc4context`, `_pc5note`, `_pc6ask`,
+  `_pc7windows`, `_pc8planner`, `_pc9menus`, `_pc10modules` and `_ve5` at desktop, `_ms2`, `_ms3`, `_ms4` at phone). **Not
+  re-run after the rebase, for lack of window-lock time:** the other 18 legacy identity sizes (they passed before it), and
+  the tablet and phone forms of the PC and VE probes.
 - Not wired to a class change. State is not re-derived after a mount beyond the status text (section 15.5).
