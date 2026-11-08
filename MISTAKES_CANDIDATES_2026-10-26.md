@@ -186,9 +186,17 @@ Rule: any "new" action resets every identity field (path, name, dirty flag), tes
 - **How to verify:** open note B straight after editing note A without waiting; B's file must hold B's text. Remove the `_editor_path` checks and `_ve4_probe.gd` goes red (its Qconf1 and Qcrlf legs).
 - **Session:** the VE-4 build. **[verified]**: caught by the probe on its first run, before any commit.
 
+## 26. Two agents removed `C:/cw/.win_lock` without checking it was theirs
+
+- **Preflight trigger:** *Take, wait for or release the shared lock for windowed probes (`C:/cw/.win_lock`)*
+- **Root cause:** a windowed run takes the lock with `mkdir C:/cw/.win_lock`; an agent that found it present, or that was tidying up after a crashed run, removed it without asking whose it was. Both PC-4 and VE-4 did this (2026-11-08). The directory was another agent's live lock, so two windowed Godot runs shared one desktop and one `user://`, and the probe that lost the race read a window it did not own.
+- **Rule:** write an owner file inside the lock directory that names you, wait while the lock exists, and remove the directory ONLY if its owner file is yours (`grep` for your own tag before `rm -rf`); release in a `finally`/`trap`; a hard timeout on every run so a crash cannot strand it. A lock whose owner is not you is never yours to remove, however old it looks: report it instead.
+- **How to verify:** start a run while another holds the lock: it must wait. Kill a run mid-way: its `trap` removes the lock because the owner file names it, and a second agent's lock is left standing.
+- **Session:** the VE-5 session (2026-11-08), recorded from the PC-4 and VE-4 reports. **[verified]**: the lock wrapper used for this session's probes (`ve5_run.sh`) takes it with `mkdir`, writes the owner file, and releases only when that file names this session.
+
 ## Suggested handling
 
 - Entry 6 merges into an existing row; the rest are new triggers.
-- Entries 20, 21 and 25 are verified at a named place; entries 22, 23 and 24 carry **[reported by agent]**.
+- Entries 20, 21, 25 and 26 are verified at a named place; entries 22, 23 and 24 carry **[reported by agent]**.
 - Entries 1, 4, 5, 7, 8, 9 and 10 carry **[reported by agent]**: confirm each (one reproduction apiece) before adding, or add them with that tag visible.
 - Entries 2 and 3 are partly backed by repository text, noted above.

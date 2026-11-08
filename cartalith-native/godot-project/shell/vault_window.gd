@@ -2087,6 +2087,52 @@ func _write_now() -> bool:
 	return false
 
 
+## The text last saved as a rescue copy at exit, and where (`flush_for_exit`). One slot: the same text
+## is never copied twice, so a pause that repeats while a conflict stands makes one file, not one per pause.
+var _rescued_text := ""
+var _rescued_rel := ""
+
+
+## **Quitting must never drop typed text** (the VE-4 gap, closed in the VE-5 session). Called by
+## `DccApp` before the app can end (the window's close request, Android's back at the end of its
+## navigation, `NOTIFICATION_APPLICATION_PAUSED`, and window focus-out). It saves through `_write_now`,
+## the only writer, so the hash guard holds and nothing is forced. If that save is REFUSED (a conflict, a
+## deleted or read-only note) the user's text is not lost and not forced over theirs either: with
+## `rescue` it is written beside the note as `Name (my edits <stamp>).md` through `vault_create_file`,
+## which never overwrites (the same copy name Keep both uses), and the banner stays as it was.
+## Returns true when nothing unsaved remains at risk (saved, or rescued), false when it could not be
+## made safe (the vault folder is gone, or a generation holds the engine); the caller then keeps the app
+## open and shows the window (`surface_for_exit`). `rescue` is false for a plain focus-out: leaving the
+## window for a moment is not leaving the app, so no copy is made, only the ordinary guarded save.
+func flush_for_exit(rescue: bool) -> bool:
+	_write_now()
+	if not _is_dirty():
+		return true
+	if not rescue:
+		return false
+	var text := _live_text()
+	if text == _rescued_text and _rescued_rel != "" and _file_exists(_rescued_rel):
+		return true
+	var copy_rel := _conflict_copy_rel(_browse_path)
+	if copy_rel == "":
+		return false
+	var c := bridge.vault_create_file(copy_rel, _to_disk(text))
+	if not bool(c.get("ok", false)):
+		return false
+	_rescued_text = text
+	_rescued_rel = copy_rel
+	app.set_status("hint", "Your unsaved text was saved as %s." % copy_rel, "text")
+	return true
+
+
+## Brings the window back with its banner so the person sees why the app did not close
+## (`flush_for_exit` returned false). The phone shows it as its sheet, which is already present.
+func surface_for_exit() -> void:
+	if not visible and not DccWidgets.phone_present(self, app):
+		popup()
+	_show_block()
+
+
 ## An edit reached the editor: mirror it, and either arm the autosave or, when the text is back to
 ## what is saved (an undo all the way back), say so. A conflict or a deleted note pauses the timer:
 ## writing again would only be refused again, and the banner is already asking.

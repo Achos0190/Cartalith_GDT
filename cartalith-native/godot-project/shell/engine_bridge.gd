@@ -8043,7 +8043,13 @@ func vault_write_file(rel: String, text: String, expect_hash: String) -> Diction
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_write_file"):
 		return _VAULT_UNAVAILABLE
-	mark_world_dirty()
+	# No `mark_world_dirty()` (2026-11-08, VE-5 session): a note is the user's file in their vault, not part of
+	# the world. `VaultSession::write_file` touches only that file -- no link, `imported_text` or `source_hash`
+	# is updated (SAVEFILE_COMPAT.md s.13.3.3: `vault.json` holds links and imported copies, and a link's
+	# staleness is DERIVED at read time) -- so nothing in a saved project changed. Marking it would turn the
+	# unsaved mark on at every pause in typing and make the world autosave rewrite a large archive for
+	# nothing. The section writers (`vault_write_section`, blocks, field fill) DO move a link's stored hash
+	# and keep their mark.
 	return world_gen.vault_write_file(rel, text, expect_hash)
 
 ## Creates a note that does not exist (VE-4: Keep both, Recreate); never overwrites -- an existing `rel`

@@ -5109,6 +5109,8 @@ func _back_exhausted() -> void:
 	if armed_tool != "inspect":
 		_escape_action(true)
 		return
+	if not _vault_safe_to_exit():
+		return
 	if not bridge.has_world:
 		get_tree().quit()
 		return
@@ -5175,6 +5177,8 @@ func _would_quit_immediately() -> bool:
 ## branches and why the app cannot become un-closeable -- is the doc block above
 ## `_would_quit_immediately()`, where it was left when that predicate was inserted.
 func _close_requested() -> void:
+	if not _vault_safe_to_exit():
+		return
 	if is_instance_valid(_quit_prompt) and _quit_prompt.visible:
 		_quit_prompt.grab_focus()
 		return
@@ -5190,6 +5194,40 @@ func _close_requested() -> void:
 	_quit_prompt.tree_exiting.connect(func():
 		_quit_prompt = null
 		_quit_asked = false)
+
+## True once a refused exit has already told the person their note could not be made safe; the NEXT
+## close request then quits anyway, so a vault that can never be written (a vanished drive) cannot
+## make the app un-closeable (the invariant `_close_requested` documents).
+var _vault_exit_warned := false
+
+## The vault editor's quit gate (the VE-4 gap closed in the VE-5 session): an unsaved note is saved, or
+## its text copied beside it when the save is refused, BEFORE any exit path continues
+## (`_close_requested`, `_back_exhausted`). Returns false when the text could not be made safe: the
+## window is brought back with its banner and the exit does not go ahead, once. See
+## `VaultWindow.flush_for_exit`. Notes are not world data, so this is independent of the world prompt.
+func _vault_safe_to_exit() -> bool:
+	if vault_window == null or not is_instance_valid(vault_window):
+		return true
+	if vault_window.flush_for_exit(true):
+		_vault_exit_warned = false
+		return true
+	if _vault_exit_warned:
+		return true
+	_vault_exit_warned = true
+	vault_window.surface_for_exit()
+	set_status("hint", "Not closed: the note you were editing could not be saved. Fix it in the vault window, or close again to quit and lose it.", "warn")
+	return false
+
+## The vault editor's other two flush points: Android pausing the app (the OS may end it without any
+## close request, so the text is saved and, if refused, copied) and the window losing focus (a plain
+## guarded save, no copy). Window notifications reach every node in the main window's tree.
+func _notification(what: int) -> void:
+	if vault_window == null or not is_instance_valid(vault_window):
+		return
+	if what == NOTIFICATION_APPLICATION_PAUSED:
+		vault_window.flush_for_exit(true)
+	elif what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		vault_window.flush_for_exit(false)
 
 ## The world on screen is a NEW one, not the project file it replaced: forget that file.
 ## `current_project_path = ""` makes Save behave as Save as (`save_project`), suggests a fresh
