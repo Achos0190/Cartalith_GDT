@@ -681,6 +681,7 @@ func _build_connection(info: Dictionary) -> void:
 		var dis := DccWidgets.action(sec, "Disconnect", func():
 			bridge.vault_disconnect()
 			_hist.clear()
+			_rename_last = {}
 			store_changed.emit()
 			_rebuild())
 		dis.tooltip_text = "Drops this device's binding. The links themselves survive — that is the difference between disconnecting and detaching."
@@ -745,6 +746,7 @@ func _browse_vault() -> void:
 		"Cartalith reads .md files from this folder and writes only where you tell it to.",
 		func(path: String):
 			_hist.clear()
+			_rename_last = {}
 			var r := bridge.vault_connect(path, "")
 			if not bool(r.get("ok", false)):
 				app.set_status("hint", "Vault: %s" % String(r.get("error", "could not connect")), "accent")
@@ -1836,7 +1838,8 @@ func _follow_link(from_rel: String, target: String, anchor: Control) -> void:
 				_show_link_menu("%s could mean several notes" % note_part, items, anchor)
 		"entity":
 			var ent := _resolve_entity(String(info["ent_kind"]), int(info["id"]))
-			var items2: Array = _create_items(String(info["name"]), bridge.vault_suggested_path(String(info["ent_kind"]), String(info["name"])))
+			var items2: Array = _create_items(String(info["name"]), bridge.vault_suggested_path(String(info["ent_kind"]), String(info["name"])),
+				{"kind": String(info["ent_kind"]), "id": int(info["id"])})
 			if ent.has("x") and ent.has("y"):
 				items2.append({"label": "Centre on map", "call": func():
 					app.viewport.move_view_to(float(ent["x"]), float(ent["y"]))})
@@ -1863,20 +1866,38 @@ func _jump_to_heading(name: String) -> void:
 
 
 ## Menu rows that create the note `rel` from each of the vault's templates (the creator never
-## overwrites). With no templates the row is present but disabled, naming why, rather than absent.
-func _create_items(name: String, rel: String) -> Array:
+## overwrites), then a blank note, so a vault with no templates is not a dead end.
+##
+## `entity` (VE-6) is `{kind, id}` when the link names a world entity: the new note is then bound to it
+## (`vault_attach`, a `KnowledgeLink`), so the map, the Inspect panel and the Note tab find it. A link to
+## nothing has no entity and creates a plain note. A blank note is always offered, so a vault with no
+## templates is not a dead end. Binding belongs to the person's one choice of this menu row, never a second
+## unasked act; if it is refused the note is still created and the status line says it is not linked.
+func _create_items(name: String, rel: String, entity: Dictionary = {}) -> Array:
 	var items: Array = []
+	var made := func(r: Dictionary, how: String):
+		if not bool(r.get("ok", false)):
+			app.set_status("hint", "Create refused: %s" % String(r.get("error", "")), "accent")
+			return
+		var path := String(r.get("path", rel))
+		if not entity.is_empty():
+			var a := bridge.vault_attach(String(entity["kind"]), int(entity["id"]), name, path, "")
+			if bool(a.get("ok", false)):
+				store_changed.emit()
+				app.set_status("hint", "%s created%s and linked to %s." % [path, how, name], "text")
+			else:
+				app.set_status("hint", "%s created%s, but could not be linked to %s: %s" % [path, how, name, String(a.get("error", ""))], "accent")
+		_open_linked(path)
 	for t in bridge.vault_templates():
 		var td: Dictionary = t
 		var trel := String(td.get("rel", ""))
 		items.append({"label": "Create %s from %s" % [rel, String(td.get("label", trel))], "call": func():
-			var r := bridge.vault_create_from_template(trel, rel, name)
-			if bool(r.get("ok", false)):
-				_open_linked(String(r.get("path", rel)))
-			else:
-				app.set_status("hint", "Create refused: %s" % String(r.get("error", "")), "accent")})
-	if items.is_empty():
-		items.append({"label": "Create %s (this vault has no templates)" % rel, "disabled": true, "call": Callable()})
+			made.call(bridge.vault_create_from_template(trel, rel, name), " from %s" % String(td.get("label", trel)))})
+	items.append({"label": "Create %s as a blank note" % rel, "call": func():
+		var r := bridge.vault_create_file(rel, "# %s\n" % name)
+		if bool(r.get("ok", false)):
+			r["path"] = rel
+		made.call(r, " blank")})
 	return items
 
 
@@ -2315,6 +2336,9 @@ func _build_side_panel(host: BoxContainer, ed, wide: bool) -> void:
 	panel.on_close = func(): _set_side(false)
 	panel.apply_text = func(t: String): ed.replace_whole_text(t)
 	panel.say = func(msg: String): app.set_status("hint", msg, "text_ghost")
+	panel.rename_note = _request_rename
+	panel.last_rename = func() -> Dictionary: return _rename_last
+	panel.undo_rename = _undo_rename
 	if wide:
 		panel.custom_minimum_size.x = 300
 		panel.size_flags_horizontal = Control.SIZE_FILL
@@ -2699,6 +2723,210 @@ func history_follow_rename(old_rel: String, new_rel: String) -> void:
 		_browse_path = new_rel
 
 
+# -- Rename (VE-6, Ruling DY VQ3) -----------------------------------------------
+
+## The last rename that moved a note: `{old, new, written: [{path, links}], failed: [{path, error}]}`, or
+## `{}`. Memory only. It lets the Properties tab offer the undo and lets a probe read the outcome. Cleared
+## when the vault is connected or disconnected (the paths would mean another vault).
+var _rename_last: Dictionary = {}
+## The last sentence the rename flow told the person (status line or report), kept for the probe.
+var _rename_message := ""
+
+
+## Says `msg` on the status line and keeps it as `_rename_message`.
+func _rename_say(msg: String, accent: bool = true) -> void:
+	_rename_message = msg
+	app.set_status("hint", msg, "accent" if accent else "text")
+
+
+## What the person typed, as a vault path: `\` becomes `/`, and `.md` is added unless it is already the end.
+## A folder in the name moves the note there. The crate refuses every name that is not a safe note path.
+static func rename_target(typed: String) -> String:
+	var t := typed.strip_edges().replace("\\", "/")
+	return t if t.to_lower().ends_with(".md") else t + ".md"
+
+
+## Properties > Rename...: asks for the new name, then plans (`_rename_plan`). The open note is saved first
+## through the one writer (`_write_now`), so the plan reads what is on disk and no unsaved typing can be
+## lost or overwritten by the move. Only the window's editor renames (the docked Note tab has no side
+## panel; its open-in-window button brings the note here).
+func _request_rename() -> void:
+	if _browse_path == "" or _editor == null or not is_instance_valid(_editor) or _editor_path != _browse_path or _dock_host != null:
+		return
+	if not _write_now():
+		_rename_say("Not renamed: this note is not saved yet. Resolve the message above first.")
+		return
+	var old := _browse_path
+	DccWidgets.prompt(app, "Rename note", "New name (a folder in it moves the note)", old.trim_suffix(".md"), "Rename",
+		func(typed: String): _rename_plan(old, rename_target(typed), false),
+		"Links to this note in your other notes are rewritten. You are told how many first.")
+
+
+## Plans renaming `old` to `new_rel` (the crate's `vault_rename_plan`, which writes nothing) and asks the
+## person to confirm with the count. `undo` only changes the wording. A refusal (name taken, unsafe path,
+## a name Windows cannot hold) is said and nothing else happens. The note must still be the open one and
+## saved; the plan's hash covers it and every note the plan would write.
+func _rename_plan(old: String, new_rel: String, undo: bool) -> void:
+	if _browse_path != old or _editor_path != _browse_path:
+		_rename_say("Not renamed: the note on screen is no longer %s." % old)
+		return
+	if not _write_now():
+		_rename_say("Not renamed: this note is not saved yet. Resolve the message above first.")
+		return
+	var plan := bridge.vault_rename_plan(old, new_rel)
+	if not bool(plan.get("ok", false)):
+		_rename_say("Not renamed: %s." % String(plan.get("error", "refused")).trim_suffix("."))
+		return
+	var locked := _rename_unwritable(plan)
+	var verb := "Undo rename" if undo else "Rename"
+	DccWidgets.confirm(app, verb if undo else "Rename note", _rename_describe(old, new_rel, plan, locked), verb,
+		func(): _rename_run(old, new_rel, plan, undo), _refocus_editor.call_deferred, 460)
+
+
+## The notes the plan would write that are read-only on this device, found BEFORE anything moves so the
+## confirmation can say so. Best effort and only for a folder vault on a desktop (an Android tree URI has no
+## file attribute to read): the authoritative answer is the crate's own refusal after the move, which
+## `_rename_run` reports in any case.
+func _rename_unwritable(plan: Dictionary) -> Array:
+	var out: Array = []
+	var root := String(bridge.vault_info().get("root", ""))
+	if root == "" or root.contains("://"):
+		return out
+	for f in plan.get("files", []):
+		var rel := String((f as Dictionary).get("path", ""))
+		var abs := root.path_join(rel)
+		if FileAccess.file_exists(abs) and FileAccess.get_read_only_attribute(abs):
+			out.append(rel)
+	return out
+
+
+## The confirmation's text: what moves, how many links change in which notes, what is left alone, what
+## could not be checked, and which notes cannot be written. Every number is the crate's, never counted here.
+func _rename_describe(old: String, new_rel: String, plan: Dictionary, locked: Array) -> String:
+	var lines := PackedStringArray()
+	lines.append("%s will become %s." % [old, new_rel])
+	var others: Array = []
+	var self_links := 0
+	for f in plan.get("files", []):
+		var fd: Dictionary = f
+		if String(fd.get("path", "")) == old:
+			self_links = int(fd.get("links", 0))
+		else:
+			others.append(fd)
+	var other_links := int(plan.get("links", 0)) - self_links
+	if others.is_empty() and self_links == 0:
+		lines.append("No link in any note names it, so no link changes.")
+	else:
+		lines.append("%d link%s in %d other note%s will be rewritten%s:" % [
+			other_links, "" if other_links == 1 else "s", others.size(), "" if others.size() == 1 else "s",
+			" (and %d in this note itself)" % self_links if self_links > 0 else ""])
+		for i in mini(others.size(), 8):
+			lines.append("   %s (%d)" % [String((others[i] as Dictionary).get("path", "")), int((others[i] as Dictionary).get("links", 0))])
+		if others.size() > 8:
+			lines.append("   and %d more" % (others.size() - 8))
+	var amb: Array = plan.get("ambiguous", [])
+	if not amb.is_empty():
+		lines.append("%d link%s could mean more than one note and will be left alone:" % [amb.size(), "" if amb.size() == 1 else "s"])
+		for i in mini(amb.size(), 4):
+			var a: Dictionary = amb[i]
+			lines.append("   %s, line %d: [[%s]]" % [String(a.get("path", "")), int(a.get("line", 0)) + 1, String(a.get("target", ""))])
+	if int(plan.get("unreadable", 0)) > 0:
+		lines.append("%d note%s could not be opened, so their links were NOT checked." % [int(plan["unreadable"]), "" if int(plan["unreadable"]) == 1 else "s"])
+	if int(plan.get("knowledge_links", 0)) > 0:
+		lines.append("%d link%s from the map follow the note." % [int(plan["knowledge_links"]), "" if int(plan["knowledge_links"]) == 1 else "s"])
+	if not locked.is_empty():
+		lines.append("READ-ONLY, so the links in them cannot be rewritten and will still name the old name: %s. The note still moves, and you are told afterwards. Make them writable first to avoid that." % ", ".join(PackedStringArray(locked)))
+	lines.append("If any of these notes changes on disk before you confirm, nothing is written and you are asked again. A note that cannot be written is never forced: it is listed afterwards, and the rename can be undone.")
+	return "\n".join(lines)
+
+
+## Runs the confirmed rename through the crate (`vault_rename`): the note moves first, then each rewrite goes
+## through the hash guard, so a note that changed or is read-only is left as it is and listed. **The
+## contract, stated once:** nothing is overwritten and nothing is forced; the move and the rewrites are NOT
+## one atomic step, so a rewrite that is refused leaves that note's links naming the old name and the report
+## says exactly which; the rename is undoable (`_undo_rename`), and the undo is a rename back, not a
+## byte-restore of the files. A plan whose notes changed since the confirmation is refused whole and planned
+## again.
+func _rename_run(old: String, new_rel: String, plan: Dictionary, undo: bool) -> void:
+	if _browse_path != old or _editor_path != _browse_path or not _write_now():
+		_rename_say("Not renamed: the note changed while you were deciding. Nothing was moved.")
+		return
+	var r := bridge.vault_rename(old, new_rel, String(plan.get("hash", "")))
+	if not bool(r.get("ok", false)):
+		if bool(r.get("conflict", false)):
+			_rename_say("A note changed while you were deciding, so nothing was written. Here is the plan again.")
+			_rename_plan.call_deferred(old, new_rel, undo)
+		else:
+			_rename_say("Not renamed: %s." % String(r.get("error", "refused")).trim_suffix("."))
+		return
+	var failed: Array = r.get("failed", [])
+	_rename_last = {} if undo else {"old": old, "new": new_rel, "written": r.get("written", []), "failed": failed}
+	_rename_follow(old, new_rel)
+	store_changed.emit()
+	var rewritten := int(r.get("links", 0))
+	var wrote: Array = r.get("written", [])
+	if failed.is_empty():
+		_rename_say("%s %s to %s; %d link%s in %d note%s rewritten." % [
+			"Renamed back" if undo else "Renamed", old, new_rel, rewritten, "" if rewritten == 1 else "s", wrote.size(), "" if wrote.size() == 1 else "s"], false)
+		return
+	var lines := PackedStringArray()
+	lines.append("%s is now %s, and %d link%s in %d note%s %s rewritten." % [old, new_rel, rewritten, "" if rewritten == 1 else "s", wrote.size(), "" if wrote.size() == 1 else "s", "was" if wrote.size() == 1 else "were"])
+	lines.append("NOT rewritten (they still name the old name until you fix or undo):")
+	for f in failed:
+		lines.append("   %s: %s" % [String((f as Dictionary).get("path", "")), String((f as Dictionary).get("error", ""))])
+	_rename_message = "\n".join(lines)
+	app.set_status("hint", "Renamed %s, but %d note%s could not be updated." % [new_rel, failed.size(), "" if failed.size() == 1 else "s"], "accent")
+	var dlg := DccWidgets.confirm(app, "Renamed, with problems", _rename_message,
+		"Undo the rename" if not undo else "OK", func():
+			if not undo:
+				_undo_rename()
+			else:
+				_refocus_editor.call_deferred(), _refocus_editor.call_deferred, 460)
+	if dlg != null and not undo:
+		dlg.cancel_button_text = "Keep it renamed"
+
+
+## The open note was just moved from `old` to `new_rel` by `vault_rename`. This window's state follows
+## it so there is still ONE note and ONE writer: the session undo and the Back trail are re-keyed
+## (`history_follow_rename`), the text and hash are read again (a note that links to itself was rewritten),
+## and the editor is rebuilt from that state with its undo replayed, on the tab the person was on.
+## `_editor_path` is cleared first so the old editor, alive until the rebuild, is never read as the new note.
+func _rename_follow(old: String, new_rel: String) -> void:
+	var tab_was := String(_side_panel.tab) if _side_panel != null and is_instance_valid(_side_panel) else ""
+	history_follow_rename(old, new_rel)
+	_pick_file = new_rel
+	for i in _link_back.size():
+		if String(_link_back[i]) == old:
+			_link_back[i] = new_rel
+	_editor_path = ""
+	var rr := bridge.vault_read_file_for_edit(new_rel)
+	if bool(rr.get("ok", false)):
+		var raw := String(rr.get("text", ""))
+		_eol_crlf = raw.contains("\r\n")
+		_browse_text = _norm_eol(raw)
+		_browse_saved = _browse_text
+		_browse_hash = String(rr.get("hash", ""))
+		_save_block = {}
+		_checkpoint_history()
+	_rebuild()
+	if tab_was != "" and _side_panel != null and is_instance_valid(_side_panel):
+		_side_panel.show_tab(tab_was)
+	_refocus_editor.call_deferred()
+
+
+## Undoes the last rename: renames the note back through the same plan, confirmation and guard. It is a
+## rename, so it puts every link that now names the new name back to naming the old one, and a note whose
+## rewrite had been refused (it still names the old name) is simply right again; it is NOT a byte-restore
+## of every file, and it is refused if the old name has been taken since.
+func _undo_rename() -> void:
+	if _rename_last.is_empty():
+		return
+	if _browse_path != String(_rename_last.get("new", "")):
+		_rename_say("Open %s to undo its rename." % String(_rename_last.get("new", "")))
+		return
+	_rename_plan(_browse_path, String(_rename_last.get("old", "")), true)
+
+
 ## Keyboard focus back to the text, after a dialog that promised "Ctrl+Z brings it back" closed. Two
 ## steps, both needed: an embedded dialog that closes leaves NO embedded window holding the keyboard (a
 ## measured fact: with the vault window visible, typed keys and Ctrl+Z reached nothing until the window
@@ -2831,6 +3059,7 @@ func _build_more(parent: Control) -> void:
 	var dis := DccWidgets.action(vs, "Disconnect", func():
 		bridge.vault_disconnect()
 		_hist.clear()
+		_rename_last = {}
 		store_changed.emit()
 		_rebuild())
 	dis.tooltip_text = "Drops this device's binding. The links themselves survive — that is the difference between disconnecting and detaching."

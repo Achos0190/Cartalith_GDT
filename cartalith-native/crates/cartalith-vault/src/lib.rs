@@ -799,6 +799,13 @@ impl VaultSession {
             l.relative_path = new.to_string();
             out.relinked += 1;
         }
+        // Every note this rename touched is re-read by the refresh below, not trusted to its stat
+        // (see `BacklinkIndex::forget`): without this an undo within the same second plans from stale links.
+        self.backlinks.forget(old);
+        self.backlinks.forget(new);
+        for (path, _) in &out.written {
+            self.backlinks.forget(path);
+        }
         let _ = self.refresh_backlinks(LIST_CAP + 1);
         Ok(out)
     }
@@ -2737,6 +2744,68 @@ tags: [Town, port]
         let aldis = cands.iter().find(|c| c.path == "People/Aldis.md").unwrap();
         assert_eq!((aldis.name.as_str(), aldis.kind.as_str()), ("Aldis", "note"));
         assert_eq!(aldis.aliases, vec!["The Ferryman".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Protects VE-6's all-or-report contract: a note that links to the renamed one but is read-only is
+    /// never written (its bytes and its time stay), the move and every other rewrite still happen, the
+    /// refusal is LISTED in `failed` with its path after the rename, and renaming back (the window's
+    /// undo) puts every file back byte for byte -- the stale note simply resolves again.
+    #[test]
+    fn a_read_only_note_is_reported_not_forced_and_the_rename_back_restores_every_file() {
+        let root = scratch("rename-readonly");
+        let put = |rel: &str, text: &str| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap();
+        let (a, b, locked) = ("[[Brindle]] and [[Brindle#Trade|shown]]
+", "see [md](Brindle.md)
+", "ro [[Brindle]]
+");
+        put("Brindle.md", "# Brindle
+## Trade
+");
+        put("A.md", a);
+        put("B.md", b);
+        put("Locked.md", locked);
+        let mut perm = std::fs::metadata(root.join("Locked.md")).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(root.join("Locked.md"), perm).unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+
+        let p = s.rename_preview("Brindle.md", "Quillon.md").unwrap();
+        assert_eq!(p.plan.link_count(), 4, "A has two, B one, Locked one");
+        let o = s.rename("Brindle.md", "Quillon.md", &p.hash).unwrap();
+        assert_eq!(o.to, "Quillon.md");
+        assert_eq!(o.written, vec![("A.md".to_string(), 2), ("B.md".to_string(), 1)], "the writable notes were rewritten");
+        assert_eq!(o.failed.len(), 1, "{:?}", o.failed);
+        assert_eq!(o.failed[0].0, "Locked.md", "the refusal names the note");
+        assert!(o.failed[0].1.to_lowercase().contains("read-only"), "and says why: {}", o.failed[0].1);
+        assert_eq!(read("Locked.md"), locked, "a read-only note is never written");
+        assert_eq!(read("A.md"), "[[Quillon]] and [[Quillon#Trade|shown]]
+");
+        assert_eq!(read("B.md"), "see [md](Quillon.md)
+");
+        assert!(root.join("Quillon.md").exists() && !root.join("Brindle.md").exists());
+
+        // The undo is a rename back through the same guard.
+        let back = s.rename_preview("Quillon.md", "Brindle.md").unwrap();
+        let o2 = s.rename("Quillon.md", "Brindle.md", &back.hash).unwrap();
+        assert!(o2.failed.is_empty(), "{:?}", o2.failed);
+        assert_eq!(read("A.md"), a);
+        assert_eq!(read("B.md"), b);
+        assert_eq!(read("Locked.md"), locked);
+        assert_eq!(read("Brindle.md"), "# Brindle
+## Trade
+");
+        assert!(!root.join("Quillon.md").exists());
+        let mut perm = std::fs::metadata(root.join("Locked.md")).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perm.set_readonly(false);
+        std::fs::set_permissions(root.join("Locked.md"), perm).unwrap();
         let _ = std::fs::remove_dir_all(&root);
     }
 

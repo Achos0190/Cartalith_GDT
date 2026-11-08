@@ -57,6 +57,12 @@ var apply_text: Callable = Callable()
 var say: Callable = Callable()
 ## Called by the phone's "Note" button, which closes the sheet and shows the editor again.
 var on_close: Callable = Callable()
+## VE-6. `rename_note()` starts the rename flow for the open note (the host owns the prompt, the plan,
+## the write and the report; this panel only offers the button). `last_rename()` answers the host's record
+## of the last rename that moved a note, `{}` when none, so the tab can offer its undo; `undo_rename()` runs it.
+var rename_note: Callable = Callable()
+var last_rename: Callable = Callable()
+var undo_rename: Callable = Callable()
 
 ## The active tab key (one of `TABS`).
 var tab := "links"
@@ -393,6 +399,7 @@ func _jump(line: int, heading: String) -> void:
 ## every other line of the note stays byte-identical and the autosave writes it. A block the crate
 ## cannot read safely (malformed, a repeated key) is listed read-only with the reason.
 func _build_props() -> void:
+	_build_rename()
 	var info: Dictionary = bridge.vault_note_properties(_text())
 	var present := bool(info.get("present", false))
 	var editable := bool(info.get("editable", true))
@@ -479,6 +486,26 @@ func _without(items: Array, idx: int) -> Array:
 
 
 ## The add-property row: a name, a value (a comma-separated value is NOT split: one scalar), an Add button.
+## Rename (VE-6): one button, and, after a rename that moved a note, a line saying so with its undo. The
+## flow itself (prompt, plan, write, report) is the host's, because it must go through the host's one writer
+## and its one note focus; this tab never touches a file.
+func _build_rename() -> void:
+	_heading("RENAME")
+	var b := _row_button("Rename this note…", "Changes the note's file name and rewrites the links to it in your other notes. You see how many first.", func():
+		if rename_note.is_valid():
+			rename_note.call())
+	b.name = "NoteRename"
+	_body.add_child(b)
+	var last: Dictionary = last_rename.call() if last_rename.is_valid() else {}
+	if not last.is_empty():
+		_note("Renamed %s to %s." % [String(last.get("old", "")), String(last.get("new", ""))])
+		var u := _row_button("Undo the rename", "Renames the note back and puts the links back. Refused if the old name is taken, and it says what it could not put back.", func():
+			if undo_rename.is_valid():
+				undo_rename.call())
+		u.name = "NoteRenameUndo"
+		_body.add_child(u)
+
+
 func _build_add_row() -> void:
 	_heading("ADD A PROPERTY")
 	var row := HFlowContainer.new()

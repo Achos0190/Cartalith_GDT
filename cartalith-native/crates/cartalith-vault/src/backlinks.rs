@@ -206,6 +206,18 @@ impl BacklinkIndex {
             .sum()
     }
 
+    /// Drops the record of `rel` so the next [`Self::refresh`] reads it again whatever its `(modified, len)`.
+    ///
+    /// Why it exists (VE-6): `modified` is whole seconds and `len` is bytes, so a note rewritten within the
+    /// same second as it was indexed, to text of the same length, looks unchanged. A rename to a name of the
+    /// same length does exactly that (`Brindle` to `Quillon`), and renaming back a second later would plan
+    /// from a stale record and miss every link the first rename had just written. A caller that has itself
+    /// written `rel` therefore forgets it. It cannot be reached from a note somebody else rewrites in the
+    /// same second with the same length; that blind spot of the stat-only check remains.
+    pub fn forget(&mut self, rel: &str) {
+        self.notes.remove(rel);
+    }
+
     /// Bring the index up to date against `vault`, reading only what changed.
     ///
     /// `limit` is passed straight to [`VaultProvider::list_markdown`], so

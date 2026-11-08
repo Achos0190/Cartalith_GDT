@@ -8110,6 +8110,29 @@ func vault_create_file(rel: String, text: String) -> Dictionary:
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_create_file(rel, text)
 
+## What renaming the note `old` to `new` would do, written nowhere (`WorldGen.vault_rename_plan`, VE-6):
+## `{ok, error, from, to, hash, links, read, unreadable, knowledge_links, files: [{path, links}], ambiguous: [...]}`.
+## Hand `hash` to `vault_rename` unchanged. `_VAULT_UNAVAILABLE` without the API. Refused while `generating`.
+func vault_rename_plan(old: String, new: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_rename_plan"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_rename_plan(old, new)
+
+## Renames the note and rewrites the links the plan named, each through the hash guard
+## (`WorldGen.vault_rename`, VE-6): `{ok, error, conflict, path, links, relinked, written: [{path, links}],
+## failed: [{path, error}]}`. `ok` means the note moved; `failed` names notes whose links were NOT rewritten.
+## Marks the world dirty first, because the map's links to the note are re-pointed in the saved project.
+## Refused while `generating`.
+func vault_rename(old: String, new: String, expect_hash: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT, "conflict": false}
+	if not _has("vault_rename"):
+		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
+	return world_gen.vault_rename(old, new, expect_hash)
+
 ## Attaches an entity to a document or heading (`WorldGen.vault_attach`); reply
 ## `{ok, error, ...}`. `_VAULT_UNAVAILABLE` without the API; marks the world dirty.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.
