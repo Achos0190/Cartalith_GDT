@@ -1919,6 +1919,12 @@ func _build_editor_pane(parent: Control) -> void:
 	ed.peek_source = func(t: String) -> String: return _peek_for(_browse_path, t)
 	ed.suggest_source = func(mode: String, note: String, query: String, limit: int) -> Array:
 		return _suggest_rows(mode, note, query, limit)
+	## VE-3: the colouring's links and the footer's counts come from the crate through the bridge, so
+	## the editor keeps no parser of its own. A build without the functions answers -1 and the footer
+	## leaves that figure out.
+	ed.link_spans = func(line: String) -> Array: return bridge.vault_link_spans(line)
+	ed.word_counter = func(text: String) -> int: return bridge.vault_word_count(text)
+	ed.link_counter = func(text: String) -> int: return bridge.vault_outgoing_link_count(text)
 	var templates_source := func() -> Array: return bridge.vault_templates()
 	var inserter := func(rel: String, text: String, caret: int) -> Dictionary:
 		return bridge.vault_insert_template(rel, text, caret, note_title)

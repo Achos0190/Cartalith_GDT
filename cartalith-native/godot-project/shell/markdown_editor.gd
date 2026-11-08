@@ -57,6 +57,22 @@ extends VBoxContainer
 ## and with its properties merged (`cartalith_vault::template::insert`, reached
 ## through the `template_inserter` the host passes to `setup`).
 ##
+## ## Write colouring, Split, smart keys, find and replace, word count (VE-3)
+##
+## - **Colour.** `markdown_highlighter.gd` colours the source by column (headings, dimmed markers,
+##   links, tags, code). Colour only: a `SyntaxHighlighter` cannot change a glyph's size or weight, so
+##   the caret and the colours cannot drift apart, and Preview / Split carry the rendering.
+## - **Split** shows Write and Preview side by side while the editor is at least `SPLIT_MIN_DP`
+##   (760) wide and not the phone; the button appears at exactly that width. Preview follows the
+##   text a moment after typing stops (`SPLIT_REFRESH_SEC`).
+## - **Smart keys.** Enter continues a list, an (unticked) task, a numbered item or a quote and ends
+##   the list on an empty one; Tab / Shift+Tab indent / outdent a list line; typing `**` pairs.
+##   Ctrl/Cmd+K link, +L task, +S save (an explicit save: this file still never writes), +F find,
+##   +H find and replace. Each is a pure `static func` (`smart_enter`, `find_matches`, `replace_all`).
+## - **Find and replace** is a bar under the toolbar. Replace all is ONE undo step.
+## - **Footer.** Word count and outgoing links, from the host's `word_counter` / `link_counter`
+##   (the Rust crate); a figure the host cannot give is left out, never shown as 0.
+##
 ## Every transform is a `static func` over a plain `String` and two character
 ## offsets, returning `{"text", "from", "to"}`. That is what lets
 ## `_mdedit_probe.gd` pin each one with exact strings and no UI at all, and it
@@ -107,6 +123,28 @@ var link_at: Callable = Callable()
 ## `peek_source(target: String) -> String`: BBCode for the peek card, or `""` for none (an
 ## unresolved link has nothing to show).
 var peek_source: Callable = Callable()
+## Footer hooks (VE-3), set by the host like the three above. `word_counter(text) -> int` is the
+## crate's `vault_word_count` (frontmatter excluded); `link_counter(text) -> int` counts the links that
+## name another note (`vault_outgoing_links`). A negative answer means "unavailable": without a hook, or
+## with one, that figure is simply not shown.
+var word_counter: Callable = Callable()
+var link_counter: Callable = Callable()
+## Host hook: `link_spans(line: String) -> Array`, `vault_link_spans`' rows for one line, so the
+## highlighter colours links from the crate and not from a second parser here.
+var link_spans: Callable = Callable()
+
+## Narrowest editor, in dp, at which Split is offered (`VAULT_EDITOR_PROPOSAL.md` s.3.1, s.4). The
+## editor's width in control units IS dp: a window's `content_scale_factor` is already divided out.
+const SPLIT_MIN_DP := 760
+## Pause after the last keystroke before Split's Preview re-renders (a labelled judgement: a render is
+## a full `to_bbcode` pass, and typing should not wait on it).
+const SPLIT_REFRESH_SEC := 0.2
+## Pause before the footer's counts are recomputed after an edit (the crate counts the whole note).
+const FOOTER_REFRESH_SEC := 0.25
+## What Tab inserts to indent a list line, and the most spaces Shift+Tab removes from one that is
+## indented with spaces. Obsidian's defaults are tabs, four wide (labelled judgement).
+const INDENT := "\t"
+const OUTDENT_SPACES := 4
 
 ## Pointer hover dwell before a peek shows (`VAULT_EDITOR_PROPOSAL.md` s.3.2: 650 ms), and the hold
 ## that stands in for it under a finger (500 ms; `_ve0_measure_probe.gd` Q2: a still finger produces
@@ -129,6 +167,8 @@ const SUGGEST_ROW_TOUCH_PX := 44
 const FONT_BOLD := preload("res://fonts/FiraSans-Bold.ttf")
 ## Italic face for rendered emphasis and the toolbar's `I` glyph.
 const FONT_ITALIC := preload("res://fonts/FiraSans-Italic.ttf")
+## Write-mode colouring (VE-3); a script and not a `class_name`, as this file is.
+const Highlighter := preload("res://shell/markdown_highlighter.gd")
 
 ## Rendered heading sizes. Not `DccTheme` tokens -- the theme has no heading
 ## scale below `FS_MODAL_TITLE` (16) and `FS_HERO` (26); these sit on that
@@ -189,6 +229,35 @@ var _sg_active := false
 var _last_len := 0
 ## Whether the last pointer input was a finger (an emulated mouse) -- sizes the rows.
 var _touch_seen := false
+## The row holding Write's `text_edit` and Preview's `preview`, side by side in Split (VE-3).
+var _body: HBoxContainer
+## The source colouring, and the wish for Split that survives the window being too narrow for it (a
+## rebuild at the fold, or setup before the first layout pass, must not lose it).
+var _hl
+var _split_wanted := false
+## The mode Ctrl+E returns to from Preview (Write, or Split when that is where the note was).
+var _before_preview := "write"
+var _split_timer: Timer
+var _footer_timer: Timer
+## The footer's count label.
+var _footer_label: Label
+## The find bar (VE-3), its fields, buttons and state. `_find_matches` is the hits for the current
+## query as `Vector2i(from, to)` character offsets, `_find_case` the match-case toggle.
+var _find_bar: HFlowContainer
+var _find_edit: LineEdit
+var _replace_edit: LineEdit
+var _find_count: Label
+var _find_replace_box: HBoxContainer
+var _find_case_button: Button
+var _find_case := false
+var _find_matches: Array = []
+var _find_open := false
+## A message that outlives the edit that caused it ("Replaced 5"): the replace changes the text, which
+## recounts the hits, and the recount must not wipe the answer. Cleared when the query changes.
+var _find_notice := ""
+## Owners of the window's Escape (the suggestion card, the find bar): `dialog_close_on_escape` stays
+## off while any holds it.
+var _esc_owners := {}
 ## The "Reload from disk" button made in `setup`, hidden until needed.
 var _reload_button: Button
 ## Callable given to `setup` that returns the template choices; `template_choices` calls it.
@@ -222,8 +291,10 @@ func setup(file_label: String, initial: String, saved: String, phone: bool,
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_theme_constant_override("separation", 6)
 
+	_split_wanted = mode == "split"
 	_build_header(file_label)
 	_build_toolbar()
+	_build_find()
 	_build_body(initial)
 
 	status_label = DccTheme.label("", "text_ghost", DccTheme.FS_SMALL)
@@ -235,10 +306,29 @@ func setup(file_label: String, initial: String, saved: String, phone: bool,
 	status_row.add_child(status_label)
 	_reload_button = DccWidgets.text_button(status_row, "Reload from disk (discards these edits)", func(): reload_requested.emit())
 	_reload_button.visible = false
+	## The footer (VE-3): word count and outgoing links, right of the status. Empty until the host's
+	## counters answer; recomputed a moment after each edit.
+	_footer_label = DccTheme.label("", "text_ghost", DccTheme.FS_SMALL)
+	_footer_label.name = "EditorFooter"
+	_footer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	status_row.add_child(_footer_label)
 	add_child(status_row)
+
+	_split_timer = Timer.new()
+	_split_timer.one_shot = true
+	_split_timer.wait_time = SPLIT_REFRESH_SEC
+	_split_timer.timeout.connect(_refresh_split_preview)
+	add_child(_split_timer)
+	_footer_timer = Timer.new()
+	_footer_timer.one_shot = true
+	_footer_timer.wait_time = FOOTER_REFRESH_SEC
+	_footer_timer.timeout.connect(_refresh_footer)
+	add_child(_footer_timer)
+	resized.connect(_on_resized)
 
 	set_mode(mode)
 	_refresh_heading_lights()
+	_refresh_footer()
 
 
 ## Whether the source differs from the text last read or written (`_saved_text`). False before
@@ -266,39 +356,88 @@ func set_status(msg: String, refused: bool) -> void:
 	_reload_button.visible = refused
 
 
-## The current mode, `write` or `preview`.
+## The current mode, `write`, `split` or `preview`.
 func mode() -> String:
 	return _mode
 
 
-## Flip Write / Preview (anything but `preview` means write). Re-renders the BBCode when entering
-## Preview, keeps focus on the visible pane only if the editor already had it, lights the matching
-## segment, and disables every formatting button in Preview, where there is no selection to act on.
+## Whether Split is on offer: never on the phone (one view at a time, s.4), and otherwise only while
+## the editor is at least `SPLIT_MIN_DP` wide. Pure over the two inputs so the boundary can be pinned.
+static func split_offered(phone: bool, width_dp: float) -> bool:
+	return not phone and width_dp >= float(SPLIT_MIN_DP)
+
+
+## Flip Write / Split / Preview (anything else means write; Split asked for while it is not on offer
+## becomes Write, remembered in `_split_wanted` so a window that grows wide enough brings it back).
+## Re-renders the BBCode when Preview is on screen, keeps focus on the visible pane only if the
+## editor already had it, lights the matching segment, and disables every formatting button in
+## Preview, where there is no selection to act on (Split keeps the source, so they stay live).
 ## Emits `mode_changed`.
 func set_mode(m: String) -> void:
-	_mode = "preview" if m == "preview" else "write"
-	var writing := _mode == "write"
+	var want := m if m in ["preview", "split"] else "write"
+	_split_wanted = want == "split"
+	if want == "split" and not split_offered(_phone, size.x):
+		want = "write"
+	if want == "preview" and _mode != "preview":
+		_before_preview = _mode
+	_mode = want
+	var writing := _mode != "preview"
 	## Ctrl+E is read from whichever of the two has focus, so the one on screen
 	## must take it -- but only when the editor already had focus (asked before
 	## hiding, which drops it); a rebuild must not steal focus from the window.
 	var had_focus := text_edit.has_focus() or preview.has_focus()
 	text_edit.visible = writing
-	preview.visible = not writing
+	preview.visible = _mode != "write"
+	if preview.visible:
+		_render_preview()
 	if not writing:
-		preview.text = to_bbcode(text_edit.text, "", "", link_info)
+		_find_close(false)
 	_hide_peek()
 	_sg_hide()
 	if had_focus:
 		(text_edit if writing else preview).grab_focus.call_deferred()
-	for k in ["write", "preview"]:
+	for k in ["write", "split", "preview"]:
 		if buttons.has(k):
 			DccWidgets.set_segment_on(buttons[k], k == _mode)
+	if buttons.has("split"):
+		(buttons["split"] as Button).visible = split_offered(_phone, size.x)
 	## Formatting acts on the source; in Preview there is no selection to act on.
 	for k in buttons:
-		if k in ["write", "preview"]:
+		if k in ["write", "split", "preview"]:
 			continue
 		(buttons[k] as Button).disabled = not writing
 	mode_changed.emit(_mode)
+
+
+## Fills Preview from the source. The scroll position is kept, since Split re-renders as you type and
+## a label that jumped to the top on every refresh would be unreadable.
+func _render_preview() -> void:
+	var bar := preview.get_v_scroll_bar()
+	var keep := bar.value if bar != null else 0.0
+	preview.text = to_bbcode(text_edit.text, "", "", link_info)
+	if bar != null and keep > 0.0:
+		bar.set_deferred("value", keep)
+
+
+## Split's Preview follows the source a moment after typing stops.
+func _refresh_split_preview() -> void:
+	if _mode == "split":
+		_render_preview()
+
+
+## The editor was resized: Split appears or goes at exactly `SPLIT_MIN_DP`. A note in Split that is
+## squeezed below it falls back to Write, and returns to Split when the room does.
+func _on_resized() -> void:
+	if text_edit == null or not buttons.has("split"):
+		return
+	var offered := split_offered(_phone, size.x)
+	(buttons["split"] as Button).visible = offered
+	if not offered and _mode == "split":
+		var keep := _split_wanted
+		set_mode("write")
+		_split_wanted = keep
+	elif offered and _split_wanted and _mode == "write":
+		set_mode("split")
 
 
 # -- Building ---------------------------------------------------------------
@@ -328,6 +467,9 @@ func _build_header(file_label: String) -> void:
 	## Write / Preview as a lit segment pair -- the DCC vocabulary's "one of a
 	## set is lit" control (`DccWidgets.segment`).
 	buttons["write"] = DccWidgets.segment(row, "Write", func(): set_mode("write"))
+	buttons["split"] = DccWidgets.segment(row, "Split", func(): set_mode("split"))
+	buttons["split"].tooltip_text = "Write and Preview side by side (offered when the note pane is at least %d dp wide)." % SPLIT_MIN_DP
+	buttons["split"].visible = false
 	buttons["preview"] = DccWidgets.segment(row, "Preview", func(): set_mode("preview"))
 	cancel_button = DccWidgets.action(row, "Cancel", func(): cancel_requested.emit())
 	cancel_button.tooltip_text = "Discards every edit since the note was opened or last saved. The file on disk is untouched."
@@ -396,6 +538,8 @@ func _build_toolbar() -> void:
 	_tool(bar, "tag", "#", "Tag -- #tag. Obsidian's tags hold no spaces, so a selected phrase is hyphenated.", func(): apply_tag())
 	_sep(bar)
 	_tool(bar, "template", "Insert template", "Insert one of this vault's templates at the caret, as Obsidian's Insert template does: {{title}}, {{date}} and {{time}} filled, its properties merged into this note's.", func(): _open_template_picker())
+	_sep(bar)
+	_tool(bar, "find", "Find", "Find in this note (Ctrl+F). Ctrl+H, or Replace… in the bar, adds replace.", func(): _find_open_bar(false))
 
 	_template_popup = PopupMenu.new()
 	_template_popup.name = "EditorTemplatePicker"
@@ -491,7 +635,23 @@ func _build_body(initial: String) -> void:
 	text_edit.caret_changed.connect(_on_caret_changed)
 	text_edit.focus_exited.connect(_sg_hide)
 	text_edit.gui_input.connect(_on_source_input)
-	add_child(text_edit)
+	## Write and Preview share one row so Split can show both (VE-3); each keeps its own visibility.
+	_body = HBoxContainer.new()
+	_body.name = "EditorBody"
+	_body.add_theme_constant_override("separation", 10)
+	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	add_child(_body)
+	_body.add_child(text_edit)
+	## The colouring. Links come from the host's crate-backed hook and the find bar's hits from here.
+	_hl = Highlighter.new()
+	_hl.link_source = func(line: String) -> Array:
+		return link_spans.call(line) if link_spans.is_valid() else []
+	_hl.match_source = _matches_in_line
+	text_edit.syntax_highlighter = _hl
+	## A text colour the highlighter does not override: the body role.
+	text_edit.add_theme_color_override("font_color", _hl.color_of(Highlighter.BODY))
+	text_edit.theme_changed.connect(_on_theme_changed)
 	_last_len = initial.length()
 	_build_suggest()
 
@@ -514,7 +674,7 @@ func _build_body(initial: String) -> void:
 	preview.meta_clicked.connect(_on_meta_clicked)
 	preview.meta_hover_started.connect(_on_meta_hover_started)
 	preview.meta_hover_ended.connect(_on_meta_hover_ended)
-	add_child(preview)
+	_body.add_child(preview)
 	_build_peek()
 
 
@@ -911,7 +1071,13 @@ func _on_text_changed() -> void:
 	var n := text_edit.text.length()
 	var typed_one := n == _last_len + 1
 	_last_len = n
-	if _mode != "write":
+	_hl.refresh()
+	_footer_timer.start()
+	if _mode == "split":
+		_split_timer.start()
+	if _find_open:
+		_find_refresh(false)
+	if _mode == "preview":
 		return
 	if typed_one and not text_edit.has_selection():
 		var cl := text_edit.get_caret_line()
@@ -920,6 +1086,23 @@ func _on_text_changed() -> void:
 		if col >= 2 and line.substr(col - 2, 2) == "[[" and not (col >= 3 and line.substr(col - 3, 1) == "[") \
 				and line.substr(col, 2) != "]]":
 			text_edit.insert_text_at_caret("]]")
+			text_edit.set_caret_column(col)
+			_last_len += 2
+		elif unpairs_third_star(line, col):
+			## `***` (a rule, or bold-italic) typed after `**|**` took its pair: the third `*` removes the
+			## closers this editor added, leaving exactly the three stars the user typed.
+			text_edit.remove_text(cl, col, cl, col + 2)
+			_last_len -= 2
+		elif overtypes_star(line, col):
+			## The closing `*` of a pair this editor made is typed OVER, not added (as Obsidian's
+			## closing bracket is): remove the character just typed and step past the existing one.
+			text_edit.remove_text(cl, col - 1, cl, col)
+			text_edit.set_caret_column(col)
+			_last_len -= 1
+		elif should_pair_bold(line, col):
+			## `**` pairs like `[[` does (s.3.3): the caret stays between, and typing the closer over it
+			## is left alone by `should_pair_bold` (an opener earlier on the line makes this a closer).
+			text_edit.insert_text_at_caret("**")
 			text_edit.set_caret_column(col)
 			_last_len += 2
 	_sg_update(true)
@@ -934,7 +1117,7 @@ func _on_caret_changed() -> void:
 ## typed or written change, the only thing that opens the card; a caret move only keeps or closes an
 ## open one, so clicking into a finished link does not pop suggestions up over it.
 func _sg_update(from_edit: bool) -> void:
-	if text_edit == null or _mode != "write" or not suggest_source.is_valid():
+	if text_edit == null or _mode == "preview" or not suggest_source.is_valid():
 		_sg_hide()
 		return
 	if not from_edit and not _sg_active:
@@ -962,15 +1145,28 @@ func _sg_hide() -> void:
 	_sg_items = []
 	if _sg_panel != null:
 		_sg_panel.visible = false
+	_esc_hold("suggest", false)
+
+
+## Takes (`on`) or gives back the window's own Escape for `key`. The vault window is an
+## `AcceptDialog`, and Escape would close it before the editor saw the key, so the suggestion card and
+## the find bar each hold it while open; it is given back only when no one holds it.
+func _esc_hold(key: String, on: bool) -> void:
 	var w := get_window()
-	if w != null and _sg_esc_saved:
+	if w == null or not ("dialog_close_on_escape" in w):
+		return
+	if on:
+		if _esc_owners.is_empty():
+			w.set("dialog_close_on_escape", false)
+		_esc_owners[key] = true
+	elif _esc_owners.erase(key) and _esc_owners.is_empty():
 		w.set("dialog_close_on_escape", true)
-		_sg_esc_saved = false
 
 
-## True while the card has taken over the window's Escape: the vault window is an `AcceptDialog`,
-## and Escape would close it before the editor saw the key.
-var _sg_esc_saved := false
+## An editor freed with the card or the bar open must not leave the window deaf to Escape.
+func _exit_tree() -> void:
+	for k in _esc_owners.keys():
+		_esc_hold(String(k), false)
 
 
 func _sg_row_px() -> int:
@@ -1058,10 +1254,7 @@ func _sg_place() -> void:
 		y = maxf(vp.position.y + 2, base.y - h - 4)
 	_sg_panel.global_position = Vector2(clampf(base.x, vp.position.x + 4, maxf(vp.position.x + 4, vp.end.x - w - 4)), y)
 	_sg_panel.visible = true
-	var win := get_window()
-	if win != null and not _sg_esc_saved and "dialog_close_on_escape" in win:
-		_sg_esc_saved = true
-		win.set("dialog_close_on_escape", false)
+	_esc_hold("suggest", true)
 
 
 ## Writes row `i` as the link (see `suggest_apply`) in ONE undo step, closes the card and returns
@@ -1119,6 +1312,11 @@ func _sg_input(ev: InputEvent) -> bool:
 			text_edit.remove_text(cl, col - 2, cl, col + 2)
 			text_edit.set_caret_column(col - 2)
 			return true
+		if col >= 2 and line.substr(col - 2, 2) == "**" and line.substr(col, 2) == "**":
+			## An empty `**|**` pair goes whole, as an empty `[[|]]` does.
+			text_edit.remove_text(cl, col - 2, cl, col + 2)
+			text_edit.set_caret_column(col - 2)
+			return true
 	return false
 
 
@@ -1146,13 +1344,14 @@ func _on_preview_input(ev: InputEvent) -> void:
 	if k == null or not k.pressed or k.echo:
 		return
 	if (k.ctrl_pressed or k.meta_pressed) and not k.alt_pressed and not k.shift_pressed and k.keycode == KEY_E:
-		set_mode("write")
+		set_mode(_before_preview)
 		preview.accept_event()
 
 
-## Keyboard shortcuts in Write mode: Ctrl/Cmd+E flips to Preview, +B bold, +I italic, +U underline;
-## any other key, any Alt or Shift combination, and key repeats fall through untouched. Accepts the
-## event only for the keys it handled.
+## Keyboard shortcuts in Write mode: Ctrl/Cmd+E flips to Preview, +B bold, +I italic, +U underline,
+## +K link, +L task, +S save, +F find, +H find and replace; Enter and Tab are the smart keys
+## (`_smart_key`). Any other key, any Alt or Shift combination, and key repeats fall through
+## untouched. Accepts the event only for the keys it handled.
 func _on_source_input(ev: InputEvent) -> void:
 	if _sg_input(ev):
 		text_edit.accept_event()
@@ -1172,7 +1371,12 @@ func _on_source_input(ev: InputEvent) -> void:
 			text_edit.accept_event()
 		return
 	var k := ev as InputEventKey
-	if k == null or not k.pressed or k.echo:
+	if k == null or not k.pressed:
+		return
+	if not (k.ctrl_pressed or k.meta_pressed) and not k.alt_pressed and _smart_key(k):
+		text_edit.accept_event()
+		return
+	if k.echo:
 		return
 	if not (k.ctrl_pressed or k.meta_pressed) or k.alt_pressed or k.shift_pressed:
 		return
@@ -1185,6 +1389,17 @@ func _on_source_input(ev: InputEvent) -> void:
 			apply_inline("*", "*")
 		KEY_U:
 			apply_inline("<u>", "</u>")
+		KEY_K:
+			apply_link()
+		KEY_L:
+			apply_lines("task")
+		KEY_S:
+			## An explicit save, the user's own: this file still writes nothing (the host answers).
+			save_requested.emit()
+		KEY_F:
+			_find_open_bar(false)
+		KEY_H:
+			_find_open_bar(true)
 		_:
 			return
 	text_edit.accept_event()
@@ -1785,3 +2000,462 @@ static func _inline_text(s: String, accent_hex: String) -> String:
 	for j in links.size():
 		s = s.replace("\u0001%d\u0001" % j, String(links[j]))
 	return s
+
+
+# -- VE-3: smart keys ---------------------------------------------------------
+
+static var _rx_enter: RegEx
+static var _rx_number: RegEx
+
+
+## Compiled once. Group 1 is the line's lead (indent and any block-quote markers), group 2 the list
+## item marker with the spaces after it: a task box (`- [ ] `), a bullet (`- `, `* `, `+ `) or a
+## number (`1. `, `1) `). Either group can be empty. The task alternative comes first, or the bullet
+## alternative would swallow `- ` and leave `[ ]` as content.
+static func _enter_re() -> RegEx:
+	if _rx_enter == null:
+		_rx_enter = RegEx.new()
+		_rx_enter.compile("^([ \\t]*(?:>[ \\t]?)*)([-*+][ \\t]+\\[[ xX]\\][ \\t]+|[-*+][ \\t]+|\\d{1,9}[.)][ \\t]+)?")
+		_rx_number = RegEx.new()
+		_rx_number.compile("^(\\d{1,9})([.)][ \\t]+)$")
+	return _rx_enter
+
+
+## What Enter does at column `col` of `line`, or `{}` for the editor's own newline.
+##
+## - **Continue**: on a list item, task or quote line, `{"kind": "continue", "insert": "\n" + marker}`
+##   -- the text to insert at the caret. A bullet repeats, a number counts up, a task comes back
+##   **unticked**, a quote repeats. Text after the caret flows onto the new line, as in any editor.
+## - **End**: on an item with nothing in it and the caret at the end, `{"kind": "end", "line": ...}`
+##   -- the line to leave there instead, and no new line. A top-level item or quote line becomes empty
+##   (the list ends); an indented item steps out one level and keeps its marker; the item inside a
+##   quote loses its marker and keeps the quote.
+## - **Default** (`{}`): a plain line, a caret inside the marker itself, or no marker at all.
+static func smart_enter(line: String, col: int) -> Dictionary:
+	var m := _enter_re().search(line)
+	if m == null:
+		return {}
+	var lead := m.get_string(1)
+	var item := m.get_string(2)
+	var quoted := lead.contains(">")
+	if item.is_empty() and not quoted:
+		return {}
+	var prefix_len := lead.length() + item.length()
+	if col < prefix_len:
+		return {}
+	if line.substr(prefix_len).strip_edges().is_empty() and col >= line.length():
+		if item.is_empty():
+			return {"kind": "end", "line": ""}
+		if quoted:
+			return {"kind": "end", "line": lead}
+		if not lead.is_empty():
+			return {"kind": "end", "line": outdent_line(lead) + item}
+		return {"kind": "end", "line": ""}
+	var next_item := item
+	var nm := _rx_number.search(item)
+	if nm != null:
+		next_item = str(int(nm.get_string(1)) + 1) + nm.get_string(2)
+	elif item.contains("["):
+		next_item = item.replace("[x]", "[ ]").replace("[X]", "[ ]")
+	return {"kind": "continue", "insert": "\n" + lead + next_item}
+
+
+## Whether `line` is a list item or task (a number, bullet or task marker after any indent and quote
+## markers) -- the lines Tab indents.
+static func is_list_line(line: String) -> bool:
+	var m := _enter_re().search(line)
+	return m != null and not m.get_string(2).is_empty()
+
+
+## `line` one indent level shallower: a leading tab goes, otherwise up to `OUTDENT_SPACES` leading
+## spaces. A line with no indent is returned as it is.
+static func outdent_line(line: String) -> String:
+	if line.begins_with("\t"):
+		return line.substr(1)
+	var n := 0
+	while n < OUTDENT_SPACES and n < line.length() and line[n] == " ":
+		n += 1
+	return line.substr(n)
+
+
+## Whether the `**` just typed (the two characters before `col`) should be completed to `**|**`. Not a
+## third `*` (that is a rule or a bold-italic run), not over an existing `**`, and not when an unmatched
+## `**` opener is already earlier on the line -- then this one is the closer of text being typed.
+static func should_pair_bold(line: String, col: int) -> bool:
+	if col < 2 or line.substr(col - 2, 2) != "**":
+		return false
+	if col >= 3 and line[col - 3] == "*":
+		return false
+	if line.substr(col, 1) == "*":
+		return false
+	var openers := 0
+	var i := line.find("**")
+	while i >= 0 and i < col - 2:
+		openers += 1
+		i = line.find("**", i + 2)
+	return openers % 2 == 0
+
+
+## Whether the `*` just typed completes `***` right before the `**` closers `should_pair_bold` added
+## (`**|**` then `*`): the pair is then withdrawn so three stars stay three.
+static func unpairs_third_star(line: String, col: int) -> bool:
+	if col < 3 or line.substr(col - 3, 3) != "***" or line.substr(col, 2) != "**":
+		return false
+	return col < 4 or line[col - 4] != "*"
+
+
+## Whether the `*` just typed (at `col - 1`) lands in front of an existing `*` while an unmatched `**`
+## opener stands earlier on the line -- the closer of a pair `should_pair_bold` made, which is then typed
+## over instead of doubled. False in plain text, so a `*` typed before an unrelated `*` stays.
+static func overtypes_star(line: String, col: int) -> bool:
+	if col < 1 or line.substr(col - 1, 1) != "*" or line.substr(col, 1) != "*":
+		return false
+	var openers := 0
+	var prefix := line.substr(0, col - 1)
+	var i := prefix.find("**")
+	while i >= 0:
+		openers += 1
+		i = prefix.find("**", i + 2)
+	return openers % 2 == 1
+
+
+## Enter and Tab (VE-3). True when the key was used (the caller accepts the event). Enter keeps the
+## editor's own newline whenever `smart_enter` answers `{}`, with a selection, with Shift (a plain line
+## break, as Obsidian's Shift+Enter) and inside a fence or the front matter. Tab and Shift+Tab move a
+## list line a level; on any other line, and over a selection, the editor's own Tab stays.
+func _smart_key(k: InputEventKey) -> bool:
+	if text_edit.has_selection():
+		return false
+	var cl := text_edit.get_caret_line()
+	var col := text_edit.get_caret_column()
+	var line := text_edit.get_line(cl)
+	if _hl != null and _hl.kind_at(cl) != Highlighter.K_NORMAL:
+		return false
+	if k.keycode == KEY_ENTER or k.keycode == KEY_KP_ENTER:
+		if k.shift_pressed:
+			return false
+		var r := smart_enter(line, col)
+		if r.is_empty():
+			return false
+		text_edit.begin_complex_operation()
+		if String(r["kind"]) == "continue":
+			text_edit.insert_text_at_caret(String(r["insert"]))
+		else:
+			text_edit.remove_text(cl, 0, cl, line.length())
+			text_edit.insert_text(String(r["line"]), cl, 0)
+			text_edit.set_caret_line(cl)
+			text_edit.set_caret_column(String(r["line"]).length())
+		text_edit.end_complex_operation()
+		return true
+	if k.keycode == KEY_TAB and is_list_line(line):
+		text_edit.begin_complex_operation()
+		if k.shift_pressed:
+			var out := outdent_line(line)
+			var cut := line.length() - out.length()
+			if cut > 0:
+				text_edit.remove_text(cl, 0, cl, cut)
+				text_edit.set_caret_column(maxi(col - cut, 0))
+		else:
+			text_edit.insert_text(INDENT, cl, 0)
+			text_edit.set_caret_column(col + INDENT.length())
+		text_edit.end_complex_operation()
+		return true
+	return false
+
+
+# -- VE-3: find and replace ----------------------------------------------------
+
+## Every non-overlapping hit of `query` in `text` as `Vector2i(from, to)` character offsets, in order.
+## Empty for an empty query. `match_case` false folds ASCII case (`findn`), which keeps offsets
+## identical to the text's own -- a lower-cased copy would shift them for letters whose lower form is
+## longer.
+static func find_matches(text: String, query: String, match_case: bool) -> Array:
+	var out: Array = []
+	if query.is_empty():
+		return out
+	var i := text.find(query) if match_case else text.findn(query)
+	while i >= 0:
+		out.append(Vector2i(i, i + query.length()))
+		i = text.find(query, i + query.length()) if match_case else text.findn(query, i + query.length())
+	return out
+
+
+## The index in `matches` of the hit after `pos` (forward: first one starting at or after it) or
+## before it (backward: last one ending at or before it), wrapping round; -1 when there are none.
+static func pick_match(matches: Array, pos: int, forward: bool) -> int:
+	if matches.is_empty():
+		return -1
+	if forward:
+		for i in matches.size():
+			if (matches[i] as Vector2i).x >= pos:
+				return i
+		return 0
+	for i in range(matches.size() - 1, -1, -1):
+		if (matches[i] as Vector2i).y <= pos:
+			return i
+	return matches.size() - 1
+
+
+## `text` with every hit of `query` replaced by `replacement`, and how many there were:
+## `{"text", "count"}`. A single left-to-right pass, so a replacement that contains the query is not
+## searched again. Nothing is replaced for an empty query.
+static func replace_all(text: String, query: String, replacement: String, match_case: bool) -> Dictionary:
+	var hits := find_matches(text, query, match_case)
+	if hits.is_empty():
+		return {"text": text, "count": 0}
+	var out := ""
+	var at := 0
+	for h in hits:
+		out += text.substr(at, (h as Vector2i).x - at) + replacement
+		at = (h as Vector2i).y
+	return {"text": out + text.substr(at), "count": hits.size()}
+
+
+## The find bar: a flow row (so it wraps on a phone) built at setup and hidden, so a rebuild's touch
+## pass sees it. Find field, match-case, previous / next, the count, Replace… (reveals the replace
+## row) and close; the replace row has its field, Replace and Replace all.
+func _build_find() -> void:
+	_find_bar = HFlowContainer.new()
+	_find_bar.name = "EditorFind"
+	_find_bar.add_theme_constant_override("h_separation", 6)
+	_find_bar.add_theme_constant_override("v_separation", 4)
+	_find_bar.visible = false
+	add_child(_find_bar)
+	_find_edit = LineEdit.new()
+	_find_edit.name = "EditorFindField"
+	_find_edit.placeholder_text = "Find"
+	_find_edit.custom_minimum_size.x = 150
+	DccWidgets.well(_find_edit)
+	_find_edit.text_changed.connect(func(_t: String):
+		_find_notice = ""
+		_find_refresh(true))
+	_find_edit.text_submitted.connect(func(_t: String): _find_step(true))
+	_find_edit.gui_input.connect(_on_find_input)
+	_find_bar.add_child(_find_edit)
+	_find_case_button = DccWidgets.segment(_find_bar, "Aa", func():
+		_find_case = not _find_case
+		DccWidgets.set_segment_on(_find_case_button, _find_case)
+		_find_refresh(true))
+	_find_case_button.name = "EditorFindCase"
+	_find_case_button.tooltip_text = "Match case"
+	buttons["find_case"] = _find_case_button
+	buttons["find_prev"] = DccWidgets.action(_find_bar, "‹ Prev", func(): _find_step(false))
+	buttons["find_prev"].name = "EditorFindPrev"
+	buttons["find_next"] = DccWidgets.action(_find_bar, "Next ›", func(): _find_step(true))
+	buttons["find_next"].name = "EditorFindNext"
+	_find_count = DccTheme.label("", "text_ghost", DccTheme.FS_SMALL)
+	_find_count.name = "EditorFindCount"
+	_find_bar.add_child(_find_count)
+	buttons["find_replace"] = DccWidgets.action(_find_bar, "Replace…", func(): _find_replace_box.visible = not _find_replace_box.visible)
+	buttons["find_replace"].name = "EditorFindReplaceToggle"
+	buttons["find_close"] = DccWidgets.action(_find_bar, "Close", func(): _find_close(true))
+	buttons["find_close"].name = "EditorFindClose"
+	_find_replace_box = HBoxContainer.new()
+	_find_replace_box.name = "EditorReplaceRow"
+	_find_replace_box.add_theme_constant_override("separation", 6)
+	_find_replace_box.visible = false
+	_find_bar.add_child(_find_replace_box)
+	_replace_edit = LineEdit.new()
+	_replace_edit.name = "EditorReplaceField"
+	_replace_edit.placeholder_text = "Replace with"
+	_replace_edit.custom_minimum_size.x = 150
+	DccWidgets.well(_replace_edit)
+	_replace_edit.text_submitted.connect(func(_t: String): _replace_one())
+	_replace_edit.gui_input.connect(_on_find_input)
+	_find_replace_box.add_child(_replace_edit)
+	buttons["replace_one"] = DccWidgets.action(_find_replace_box, "Replace", func(): _replace_one())
+	buttons["replace_one"].name = "EditorReplaceOne"
+	buttons["replace_all"] = DccWidgets.action(_find_replace_box, "Replace all", func(): _replace_all())
+	buttons["replace_all"].name = "EditorReplaceAll"
+	buttons["replace_all"].tooltip_text = "Replaces every match in the note in one step; Ctrl+Z puts them all back."
+
+
+## Escape closes the bar from either field; Shift+Enter in the find field goes to the previous hit.
+func _on_find_input(ev: InputEvent) -> void:
+	var k := ev as InputEventKey
+	if k == null or not k.pressed:
+		return
+	if k.keycode == KEY_ESCAPE:
+		_find_close(true)
+		_find_edit.accept_event()
+	elif (k.keycode == KEY_ENTER or k.keycode == KEY_KP_ENTER) and k.shift_pressed and _find_edit.has_focus():
+		_find_step(false)
+		_find_edit.accept_event()
+
+
+## Opens the bar (Write and Split only -- it searches the source). A one-line selection becomes the
+## query. `with_replace` shows the replace row; opening plain keeps it as it was.
+func _find_open_bar(with_replace: bool) -> void:
+	if _mode == "preview" or _find_bar == null:
+		return
+	if text_edit.has_selection():
+		var sel := text_edit.get_selected_text()
+		if not sel.contains("\n") and not sel.is_empty():
+			_find_edit.text = sel
+	_find_bar.visible = true
+	_find_open = true
+	_find_notice = ""
+	if with_replace:
+		_find_replace_box.visible = true
+	_esc_hold("find", true)
+	_sg_hide()
+	_find_refresh(false)
+	_find_edit.grab_focus()
+	_find_edit.select_all()
+
+
+## Hides the bar and clears the match colouring; the text keeps focus unless `focus_text` is false.
+func _find_close(focus_text: bool) -> void:
+	if _find_bar == null:
+		return
+	var was_open := _find_open
+	_find_bar.visible = false
+	_find_open = false
+	_esc_hold("find", false)
+	if was_open and _hl != null:
+		_hl.refresh()
+	if focus_text and _mode != "preview":
+		text_edit.grab_focus()
+
+
+## Re-reads the hits for the query and the count label, and re-colours them. With `jump`, the first
+## hit at or after the caret is selected -- incremental search: each letter typed keeps the same hit
+## when it still matches. The caret and focus stay where they are (the field keeps typing).
+func _find_refresh(jump: bool) -> void:
+	if not _find_open:
+		return
+	_find_matches = find_matches(text_edit.text, _find_edit.text, _find_case)
+	if _hl != null:
+		_hl.refresh()
+	if jump and not _find_matches.is_empty():
+		var i := pick_match(_find_matches, selection_offsets().x, true)
+		_select_match(i)
+	_update_find_count()
+
+
+func _update_find_count() -> void:
+	if _find_notice != "":
+		_find_count.text = _find_notice
+		return
+	if _find_edit.text.is_empty():
+		_find_count.text = ""
+		return
+	if _find_matches.is_empty():
+		_find_count.text = "No matches"
+		return
+	var sel := selection_offsets()
+	for i in _find_matches.size():
+		if _find_matches[i] == sel:
+			_find_count.text = "%d of %d" % [i + 1, _find_matches.size()]
+			return
+	_find_count.text = "%d match%s" % [_find_matches.size(), "" if _find_matches.size() == 1 else "es"]
+
+
+func _select_match(i: int) -> void:
+	if i < 0 or i >= _find_matches.size():
+		return
+	var m: Vector2i = _find_matches[i]
+	select_offsets(m.x, m.y)
+	text_edit.center_viewport_to_caret()
+
+
+## Next or previous hit from the selection (or the caret), wrapping round.
+func _find_step(forward: bool) -> void:
+	if not _find_open:
+		return
+	_find_notice = ""
+	_find_matches = find_matches(text_edit.text, _find_edit.text, _find_case)
+	var sel := selection_offsets()
+	_select_match(pick_match(_find_matches, sel.y if forward else sel.x, forward))
+	_update_find_count()
+
+
+## Replaces the selected hit with the replacement (an undo step of its own) and moves to the next;
+## when the selection is not a hit, just moves to one.
+func _replace_one() -> void:
+	if not _find_open:
+		return
+	_find_notice = ""
+	var sel := selection_offsets()
+	_find_matches = find_matches(text_edit.text, _find_edit.text, _find_case)
+	if not _find_matches.has(sel):
+		_find_step(true)
+		return
+	var repl := _replace_edit.text
+	var a := _line_col(text_edit.text, sel.x)
+	var b := _line_col(text_edit.text, sel.y)
+	text_edit.begin_complex_operation()
+	text_edit.remove_text(a.x, a.y, b.x, b.y)
+	text_edit.insert_text(repl, a.x, a.y)
+	text_edit.end_complex_operation()
+	var after := sel.x + repl.length()
+	select_offsets(after, after)
+	_find_matches = find_matches(text_edit.text, _find_edit.text, _find_case)
+	_select_match(pick_match(_find_matches, after, true))
+	_update_find_count()
+
+
+## Replaces every hit in ONE undo step: the new text comes from `replace_all` and is written as a single
+## complex operation (as `_commit` does), so Ctrl+Z restores all of them at once. The scroll position and
+## caret line are kept; the note is not saved.
+func _replace_all() -> void:
+	if not _find_open:
+		return
+	var r := replace_all(text_edit.text, _find_edit.text, _replace_edit.text, _find_case)
+	var n := int(r["count"])
+	if n == 0:
+		_find_count.text = "No matches"
+		return
+	var scroll := text_edit.scroll_vertical
+	var line := text_edit.get_caret_line()
+	text_edit.begin_complex_operation()
+	var last := text_edit.get_line_count() - 1
+	text_edit.remove_text(0, 0, last, text_edit.get_line(last).length())
+	text_edit.insert_text(String(r["text"]), 0, 0)
+	text_edit.end_complex_operation()
+	text_edit.set_caret_line(mini(line, text_edit.get_line_count() - 1))
+	text_edit.set_caret_column(0)
+	text_edit.scroll_vertical = scroll
+	_find_matches = find_matches(text_edit.text, _find_edit.text, _find_case)
+	_hl.refresh()
+	_find_notice = "Replaced %d" % n
+	_update_find_count()
+
+
+## The find hits in one line as column ranges, for the highlighter; nothing while the bar is closed.
+func _matches_in_line(line_text: String) -> Array:
+	if not _find_open or _find_edit == null or _find_edit.text.is_empty():
+		return []
+	return find_matches(line_text, _find_edit.text, _find_case)
+
+
+# -- VE-3: footer and theme ----------------------------------------------------
+
+## "N words · M links" from the host's counters. A counter the host did not give is left out, not
+## shown as zero.
+func _refresh_footer() -> void:
+	if _footer_label == null or text_edit == null:
+		return
+	var parts := PackedStringArray()
+	if word_counter.is_valid():
+		var w := int(word_counter.call(text_edit.text))
+		if w >= 0:
+			parts.append("%d word%s" % [w, "" if w == 1 else "s"])
+	if link_counter.is_valid():
+		var l := int(link_counter.call(text_edit.text))
+		if l >= 0:
+			parts.append("%d link%s" % [l, "" if l == 1 else "s"])
+	_footer_label.text = "  ·  ".join(parts)
+
+
+var _hl_dark := DccTheme.is_dark()
+
+
+## A palette flip re-colours the source. The vault window usually rebuilds on a flip, but the colours
+## are the highlighter's own and cost nothing to refresh.
+func _on_theme_changed() -> void:
+	if _hl == null or _hl_dark == DccTheme.is_dark():
+		return
+	_hl_dark = DccTheme.is_dark()
+	_hl.refresh_palette()
+	text_edit.add_theme_color_override("font_color", _hl.color_of(Highlighter.BODY))

@@ -7943,6 +7943,35 @@ func vault_link_at(text: String, offset: int) -> Dictionary:
 		return {"found": false}
 	return world_gen.vault_link_at(text, offset)
 
+## Every link in `text` (`WorldGen.vault_link_spans`, pure): `[{start, end, line, syntax, external}]`
+## plus `target`, `heading`, `block`, `alias` when written; offsets are characters. Not gated. `[]` on a
+## build without it, which the editor reads as "colour no links" -- the truth, if not the whole of it.
+func vault_link_spans(text: String) -> Array:
+	if not _has("vault_link_spans"):
+		return []
+	return world_gen.vault_link_spans(text)
+
+## The links in `text` that name another note (`WorldGen.vault_outgoing_links`, pure): `vault_link_spans`'
+## rows without URLs, attachments or same-note links. `[]` on a build without it.
+func vault_outgoing_links(text: String) -> Array:
+	if not _has("vault_outgoing_links"):
+		return []
+	return world_gen.vault_outgoing_links(text)
+
+## How many links in `text` name another note (the length of `vault_outgoing_links`). **-1 on a build
+## without it**, so the editor's footer can leave the figure out rather than show 0.
+func vault_outgoing_link_count(text: String) -> int:
+	if not _has("vault_outgoing_links"):
+		return -1
+	return world_gen.vault_outgoing_links(text).size()
+
+## The note's word count, frontmatter excluded (`WorldGen.vault_word_count`, pure). **-1 on a build
+## without it**, so a caller can tell "unavailable" from a note of no words and show nothing.
+func vault_word_count(text: String) -> int:
+	if not _has("vault_word_count"):
+		return -1
+	return world_gen.vault_word_count(text)
+
 ## Ranks the vault's notes against `query` for the editor's `[[` suggestions (`WorldGen.vault_suggest_notes`):
 ## `[{name, path, kind, match, matched}]` plus `alias` when an alias matched, best first, at most `limit`.
 ## Aliases appear only once the backlink index has been built. `[]` while `generating`, with no vault
