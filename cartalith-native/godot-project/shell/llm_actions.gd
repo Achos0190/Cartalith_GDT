@@ -16,7 +16,7 @@ extends RefCounted
 ##     `DccMenus` `ID_` constant, not its number, so an id survives a renumbering;
 ##   * which of those rows open a curated window (`llm_view.gd::WINDOWS`, the single table), so Rust
 ##     lists the window once, not twice;
-##   * whether a world is open, and the year cursor's track (`DccShell.TL_YEAR_MIN`/`MAX`).
+##   * whether a world is open, and the year cursor's track (`DccShell.tl_range()`, the world's own range since PC-3).
 ##
 ## The view verbs, the windows and the parameters are NOT read here: `llm_view.gd::facts` and the
 ## registry already supply them to the same request, and a second reader would be a second source.
@@ -116,7 +116,10 @@ static func facts(app, bridge) -> Dictionary:
 	if bridge != null:
 		f["has_world"] = bool(bridge.has_world)
 	if app != null and app.has_method("tl_set_year"):
-		f["timeline"] = {"min": int(app.TL_YEAR_MIN), "max": int(app.TL_YEAR_MAX)}
+		## PC-3: the track is the world's range (`DccShell.tl_range()`), the fallback axis for a world that
+		## gave none, so the catalogue's bounds and `tl_set_year()`'s clamp are the same two numbers.
+		var rng: Dictionary = app.tl_range()
+		f["timeline"] = {"min": int(rng["min"]), "max": int(rng["max"])}
 	## AC-3: the selection verbs' bounds. Both keys are ABSENT when the app cannot say (no world, or
 	## `DccApp` without PC-1's selection), never `0` / `false`: Rust offers no selection entry for an absent
 	## fact. `bridge.settlements()` is an engine read, so it is skipped while a generation owns the engine.
@@ -247,7 +250,7 @@ static func preflight(app, bridge, valid: Array) -> String:
 				var y := int(a.get("year", 0))
 				if not app.has_method("tl_set_year") or not bool(app.tl_available()):
 					why.append("the year cursor is not available")
-				elif y < int(app.TL_YEAR_MIN) or y > int(app.TL_YEAR_MAX):
+				elif y < app.tl_range_min() or y > app.tl_range_max():
 					why.append("year %d is outside the track" % y)
 			"select":
 				match id:

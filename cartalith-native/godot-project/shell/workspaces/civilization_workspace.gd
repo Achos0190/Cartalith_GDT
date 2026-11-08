@@ -7644,6 +7644,62 @@ func _rebuild_timeline() -> void:
 	## year it diffs against, so the map's per-pin marks are re-pushed with it.
 	## Outside the body guard: the map needs them even with this dock closed.
 	_tl_push_marks()
+	## PC-3: the strip's expanded rows list the same recorded years and filters, so every Timeline mutation
+	## that ends here tells it (`DccShell.timeline_records_changed`, coalesced on the strip's side).
+	_tl_records_changed()
+
+## PC-3. Tells the strip that the recorded years or a Timeline filter changed without the year moving.
+## Does nothing before `setup()` gave this workspace its app.
+func _tl_records_changed() -> void:
+	if app != null:
+		app.timeline_records_changed.emit()
+
+## PC-3, the strip's reads of the Timeline's three filters: `"exist"` (Exist only), `"ghost"` (Ghost
+## removed) and `"highlight"` (Highlight new). The flags live here, one copy, because they decide what the
+## CIVIL map overlay is handed (`_tl_apply_filters`, `_tl_push_marks`); the strip shows and flips these and
+## keeps none of its own. An unknown name answers false.
+func tl_filter(which: String) -> bool:
+	match which:
+		"exist":
+			return _tl_filter_exist_only
+		"ghost":
+			return _tl_filter_ghost
+		"highlight":
+			return _tl_filter_highlight
+	return false
+
+## PC-3, the strip's write of a Timeline filter (names as `tl_filter()`): exactly what the dock's toggle does
+## for that flag -- re-filter the civ data for Exist only, re-push the map's marks for the other two -- and
+## then tells the strip and the dock to redraw. An unknown name changes nothing.
+func tl_set_filter(which: String, on: bool) -> void:
+	match which:
+		"exist":
+			_tl_filter_exist_only = on
+			_refresh_civ_data()
+		"ghost":
+			_tl_filter_ghost = on
+			_tl_push_marks()
+		"highlight":
+			_tl_filter_highlight = on
+			_tl_push_marks()
+		_:
+			return
+	_rebuild_timeline()
+
+## PC-3, the strip's **+ Record year**: records a snapshot at `year` through the same call the dock's Add year
+## makes (`bridge.civ_add_year`), then repaints the territory and rebuilds the Timeline body, which tells
+## the strip. There is no undo step: the engine keeps none for a recorded year, here or in the dock, and
+## the strip does not pretend to (the proposal's "one undo step" is an open gap, `STATUS.md`).
+func tl_record_year(year: int) -> void:
+	bridge.civ_add_year(year)
+	_tl_refresh_territory_view()
+	_rebuild_timeline()
+
+## PC-3, a recorded-year pill on the strip: moves the cursor through `_tl_goto_year` (the one writer, with
+## the territory repaint and the civ-data refresh the dock's pill does) and rebuilds the Timeline body.
+func tl_go_recorded(year: int) -> void:
+	_tl_goto_year(year)
+	_rebuild_timeline()
 
 ## `_civFormatYear` (reference line 20644), ported verbatim: negative years
 ## are BC.
@@ -7921,7 +7977,7 @@ func _build_timeline_filters(body: Control) -> void:
 	## Settlements and generated ways (`_tl_apply_filters`); hand-drawn ways are
 	## never recorded by the timeline, so they always stay -- the tooltip says so.
 	DccWidgets.toggle(sec, "Exist only", _tl_filter_exist_only,
-		func(v: bool): _tl_filter_exist_only = v; _refresh_civ_data(),
+		func(v: bool): _tl_filter_exist_only = v; _refresh_civ_data(); _tl_records_changed(),
 		"Hide settlements and ways not present in the selected year. " +
 			"Hand-drawn ways are not recorded by the timeline and always show.")
 	## Enabled since CV-03 closed (was drawn disabled 2026-09-24 because nothing
@@ -7932,13 +7988,13 @@ func _build_timeline_filters(body: Control) -> void:
 	## `civ_year_diff_removed()` / `civ_year_diff_removed_ways()` (reference
 	## v2.11 lines 16022-16033 and 16271-16284).
 	DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
-		func(v: bool): _tl_filter_ghost = v; _tl_push_marks(),
+		func(v: bool): _tl_filter_ghost = v; _tl_push_marks(); _tl_records_changed(),
 		"Fade in the settlements and ways removed since the previous recorded year, " +
 			"where they last stood.")
 	## `civ_year_diff().added`: a ring on the live pin, and a stroke under the
 	## live way, that carries the tid (reference v2.11 lines 15989, 16266).
 	DccWidgets.toggle(sec, "Highlight new", _tl_filter_highlight,
-		func(v: bool): _tl_filter_highlight = v; _tl_push_marks(),
+		func(v: bool): _tl_filter_highlight = v; _tl_push_marks(); _tl_records_changed(),
 		"Ring the settlements, and underline the ways, new since the previous recorded year.")
 	var years := _tl_years()
 	if not years.is_empty():

@@ -5302,9 +5302,19 @@ func set_timeline_metrics(pad_y: int, fixed_h: int) -> void:
 ## `05-right-dock-and-bars.md` §4.2: "the scrub range is therefore fixed at
 ## year -400 ... year 1200 (1600 years)", and `06-phone.md` §6.2's slider is
 ## `min=-400 max=1200 step=1`. The same two numbers, in both canvases.
+##
+## **Since PC-3 these two are the track's FALLBACK, not its range.** The strip's range is taken from the
+## world (`tl_range()`, finding T3 of `PC_SHELL_PROPOSAL.md`), and these answer only for a world with no
+## recorded year and no conflict, where there is nothing to take a range from. `tl_range()` says which it
+## is (`from_world`), so a caller never mistakes this axis for the world's own.
 const TL_YEAR_MIN := -400
-## Top of the scrub track (see the note above); playback stops here.
+## Top of the fallback track (see the note above). Playback stops at `tl_range_max()`, which is this
+## only when the world gave no range.
 const TL_YEAR_MAX := 1200
+## The narrowest track `tl_range()` draws from world data, in years. A world whose only recorded year is 340
+## has a span of zero, and a zero-width track cannot place a playhead. A labelled judgement (PC-3); 100 is
+## about the width at which two marks one decade apart are still a few pixels apart on a 700 px track.
+const TL_MIN_SPAN := 100
 ## `tlSpeeds` is **in** the prototype, at line 1980, and it is this ladder
 ## exactly: `tlSpeeds:['×1','×10','×100'].map(v=>({v,col:s.tlSpeed===v?
 ## 'var(--acc)':'var(--dim)',bg:s.tlSpeed===v?'var(--wash2)':'transparent'}))`.
@@ -5343,6 +5353,12 @@ const TL_LAYER_NOTE := "they record which layer you want; no layer renders yet"
 ## and the right dock (`on_timeline_changed`) -- PC-2. A reader that shows the year must connect
 ## here, and a writer of the year must call `tl_set_year()`, which emits it.
 signal timeline_changed()
+
+## PC-3. Emitted when what the strip's expanded rows list changed WITHOUT the year moving: a year recorded
+## or removed, a Timeline filter flipped (CIVIL > Timeline and the strip share the flags, which live in
+## `CivilizationWorkspace`), or the Timeline body rebuilt. The strip rebuilds its rows on it, deferred and
+## coalesced, so it never frees a node mid-click. A move of the year is `timeline_changed`, not this.
+signal timeline_records_changed()
 
 var tl_speed := 10            ## `tlSpeed:'×10'`.
 var tl_playing := false       ## `tlRun:false`.
@@ -5393,8 +5409,117 @@ func tl_set_year(year: int, exact := false) -> void:
 	var bridge := _find_engine_bridge()
 	if bridge == null:
 		return
-	bridge.civ_goto_year(year if exact else clampi(year, TL_YEAR_MIN, TL_YEAR_MAX))
+	var r := tl_range()
+	bridge.civ_goto_year(year if exact else clampi(year, int(r["min"]), int(r["max"])))
 	timeline_changed.emit()
+
+## **The strip's range, taken from the world** (`PC_SHELL_PROPOSAL.md` section 3.2 "One range", finding T3;
+## PC-3). `{"min": int, "max": int, "from_world": bool}`: the earliest to the latest of the world's own dated
+## things -- every recorded year (`tl_recorded_years()`) and every conflict's start and, when it has one,
+## end (`bridge.conflict_list()`) -- widened to `TL_MIN_SPAN` when they sit closer than that.
+##
+## **`from_world` false means "the world gave no range", and then `min`/`max` are the fallback axis
+## `TL_YEAR_MIN`..`TL_YEAR_MAX`, not a range**: a fresh world has no recorded year, and a track drawn from
+## nothing must say so rather than pass an arbitrary span off as the world's (`MISTAKES.md`, never encode
+## "no value" as a plausible value). The strip keeps the fallback track so a fresh world can still be
+## scrubbed, labels its range literals `default axis`, and no caller may treat the pair as data.
+##
+## The cursor is deliberately NOT folded in: a range that moved when the playhead did would re-map every mark
+## while it was dragged. A cursor outside the range (an exact write such as the Place editor's Go to year)
+## pins the playhead to the nearest end and the readout still prints the true year.
+## No settlement founding year is a source: the engine records none (the settlement dictionary carries no
+## founding field), so the proposal's "earliest founding" is not built. The selection's chronos entries are
+## drawn as ticks (`tl_selection_events()`) and are not a range source either, so selecting a place never
+## moves the axis under the user.
+func tl_range() -> Dictionary:
+	var years: Array = []
+	for y in tl_recorded_years():
+		years.append(int(y))
+	var bridge := _find_engine_bridge()
+	if bridge != null and bridge.has_world:
+		for c in bridge.conflict_list():
+			var cd: Dictionary = c
+			if cd.has("start_year"):
+				years.append(int(cd["start_year"]))
+			if cd.has("end_year"):
+				years.append(int(cd["end_year"]))
+	if years.is_empty():
+		return {"min": TL_YEAR_MIN, "max": TL_YEAR_MAX, "from_world": false}
+	var lo: int = years[0]
+	var hi: int = years[0]
+	for y in years:
+		lo = mini(lo, int(y))
+		hi = maxi(hi, int(y))
+	if hi - lo < TL_MIN_SPAN:
+		## Widened by the shortfall, split as evenly as integers allow, so the data sits mid-track.
+		var short := TL_MIN_SPAN - (hi - lo)
+		lo -= short / 2
+		hi += short - short / 2
+	return {"min": lo, "max": hi, "from_world": true}
+
+## The track's first year (`tl_range()["min"]`).
+func tl_range_min() -> int:
+	return int(tl_range()["min"])
+
+## The track's last year (`tl_range()["max"]`); playback stops here.
+func tl_range_max() -> int:
+	return int(tl_range()["max"])
+
+## **The selection's own dated entries, for the strip's ticks and event list** (PC-3, finding T5): the
+## chronos events of the notes attached to the selected settlement or faction
+## (`bridge.vault_entity_chronos`, Ruling AM). `[{"start": int, "end"?: int, "name": String, "rel": String}]`,
+## ascending by start; `[]` for no selection, a kind with no notes, a vault that is not reachable, or an
+## unreadable note (an empty list is "nothing to draw", never a year). `end` is absent for a single-year
+## entry, as the engine omits it. Reads `selection` through `get()`, because the shell base does not declare it.
+func tl_selection_events() -> Array:
+	var sel: Variant = get("selection")
+	if not (sel is Dictionary) or (sel as Dictionary).is_empty():
+		return []
+	var bridge := _find_engine_bridge()
+	if bridge == null or not bridge.has_world:
+		return []
+	var kind := String((sel as Dictionary).get("kind", ""))
+	var id := int((sel as Dictionary).get("id", -1))
+	if kind == "settlement":
+		var all: Array = bridge.settlements()
+		if id < 0 or id >= all.size():
+			return []
+		id = int((all[id] as Dictionary).get("tid", 0))
+		if id == 0:
+			return []
+	elif kind != "faction":
+		return []
+	var got: Dictionary = bridge.vault_entity_chronos(kind, id)
+	if not bool(got.get("ok", false)):
+		return []
+	var out: Array = []
+	for e in got.get("events", []):
+		var ed: Dictionary = e
+		if not ed.has("start"):
+			continue
+		var item := {"start": int(ed["start"]), "name": String(ed.get("name", "")), "rel": String(ed.get("rel", ""))}
+		if ed.has("end"):
+			item["end"] = int(ed["end"])
+		out.append(item)
+	return out
+
+## Every conflict that has a start year, as `[{"id": int, "name": String, "start": int, "end"?: int}]`
+## (`bridge.conflict_list()`); `end` is absent for an open-ended conflict. The strip draws each as a span
+## and lists it. `[]` before a world.
+func tl_conflict_spans() -> Array:
+	var bridge := _find_engine_bridge()
+	var out: Array = []
+	if bridge == null or not bridge.has_world:
+		return out
+	for c in bridge.conflict_list():
+		var cd: Dictionary = c
+		if not cd.has("start_year"):
+			continue
+		var item := {"id": int(cd.get("id", -1)), "name": String(cd.get("name", "")), "start": int(cd["start_year"])}
+		if cd.has("end_year"):
+			item["end"] = int(cd["end_year"])
+		out.append(item)
+	return out
 
 ## Moves the year cursor one step in `direction` (-1 or +1) of `tl_speed` years; `tl_set_year()`
 ## clamps and no-ops before a world exists.
@@ -5520,7 +5645,7 @@ func tl_toggle_play() -> void:
 	if not tl_available():
 		return
 	tl_playing = not tl_playing
-	if tl_playing and tl_year() >= TL_YEAR_MAX:
+	if tl_playing and tl_year() >= tl_range_max():
 		tl_playing = false
 	if _tl_timer == null:
 		_tl_timer = Timer.new()
@@ -5547,8 +5672,9 @@ func _tl_tick() -> void:
 	if gen_bridge != null and gen_bridge.generating:
 		return
 	var next := tl_year() + tl_speed
-	if next >= TL_YEAR_MAX:
-		tl_set_year(TL_YEAR_MAX)
+	var top := tl_range_max()
+	if next >= top:
+		tl_set_year(top)
 		tl_playing = false
 		_tl_timer.stop()
 		timeline_changed.emit()
@@ -5581,7 +5707,7 @@ func _tl_tick() -> void:
 ## Simulation rows read the same function, and the end of the track is as true
 ## on the phone as it is here.
 func tl_state_text() -> String:
-	if tl_year() >= TL_YEAR_MAX:
+	if tl_year() >= tl_range_max():
 		return "end of track"
 	return ("playing ×%d" % tl_speed) if tl_playing else "paused"
 
@@ -9682,6 +9808,8 @@ func _build_phone_sim_strip() -> Control:
 	row.add_child(gap)
 
 	_phone_sim_slider = HSlider.new()
+	## The fallback axis at build; `_refresh_phone_sim_strip()` follows the world's range from then on (PC-3).
+	## A fresh world has no range, so the phone's slider is exactly the shipped -400..1200 there.
 	_phone_sim_slider.min_value = TL_YEAR_MIN
 	_phone_sim_slider.max_value = TL_YEAR_MAX
 	_phone_sim_slider.step = 1
@@ -9781,6 +9909,15 @@ func _refresh_phone_sim_strip() -> void:
 	## `set_value_no_signal`: this is the *echo* of a cursor that has already
 	## moved, and letting it re-enter `value_changed` would write the year back
 	## to the engine on every refresh.
+	## The slider follows the world's range (PC-3); the bounds change only when they differ, with signals
+	## blocked, because a bound that clamps the value would otherwise re-enter `value_changed` and write the
+	## year back to the engine.
+	var rng := tl_range()
+	if int(_phone_sim_slider.min_value) != int(rng["min"]) or int(_phone_sim_slider.max_value) != int(rng["max"]):
+		_phone_sim_slider.set_block_signals(true)
+		_phone_sim_slider.min_value = int(rng["min"])
+		_phone_sim_slider.max_value = int(rng["max"])
+		_phone_sim_slider.set_block_signals(false)
 	_phone_sim_slider.set_value_no_signal(float(year))
 	_phone_sim_play.text = DccIcons.SYMBOLS["pause"] if tl_playing \
 		else DccIcons.SYMBOLS["play"]

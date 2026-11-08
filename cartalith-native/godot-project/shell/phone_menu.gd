@@ -88,7 +88,7 @@ class_name PhoneMenu
 ## | `act` | a plain item, fired by `_activate()` |
 ## | `tog` | a `p.is_item_checkable()` item, drawn with `_switch()` |
 ## | `seg` | a submenu of radio items, **expanded inline as chips** -- see `_expandable()` |
-## | `range` | only where a continuous quantity really exists: the `sim` screen's Year, over `DccShell.TL_YEAR_MIN..TL_YEAR_MAX`. Everywhere §6.6 draws a range over what this port models as a fixed set (CPU threads, undo budget, zoom levels) the set is drawn, because inventing intermediate values would offer settings the engine has no call for |
+## | `range` | only where a continuous quantity really exists: the `sim` screen's Year, over `DccShell.tl_range()` (the world's range since PC-3; the old -400..1200 for a world with none). Everywhere §6.6 draws a range over what this port models as a fixed set (CPU threads, undo budget, zoom levels) the set is drawn, because inventing intermediate values would offer settings the engine has no call for |
 ## | `read` | a `menus.gd::_readout()` row, or a `DccShell` status slot |
 ## | `info` | a `menus.gd::_signpost()` row, or a stated absence |
 ##
@@ -2092,7 +2092,7 @@ func _fill_sim(body: VBoxContainer) -> void:
 		_add(body, _missing_row("Year", DccShell.TL_UNAVAILABLE))
 	else:
 		_add(body, _slider_row("Year", "YEAR %d" % _shell.tl_year(),
-			DccShell.TL_YEAR_MIN, DccShell.TL_YEAR_MAX, _shell.tl_year(),
+			_shell.tl_range_min(), _shell.tl_range_max(), _shell.tl_year(),
 			func(v: float): _shell.tl_set_year(int(v))))
 		var speeds: Array = []
 		for mult in DccShell.TL_SPEEDS:

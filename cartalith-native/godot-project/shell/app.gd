@@ -2328,7 +2328,10 @@ func _on_workspace_changed(id: String) -> void:
 		and armed_tool != "inspect"
 	_last_workspace_domain = id
 	_last_workspace_mode = mode
-	timeline_bar.visible = id == "civilization"
+	## PC-3 (CV-24): the strip is program scope -- WORLD, CIVIL and CARTO on the desktop and the tablet.
+	## The PHONE keeps its shipped rule (CIVIL only): its strip is a different composition reached through
+	## the phone menu, and `PC_SHELL_PROPOSAL.md` changes nothing on the phone.
+	timeline_bar.visible = id == "civilization" or (not is_phone() and (id == "world" or id == "cartography"))
 	## Only Journey ever borrows `timeline_row` (JP-13's own header) -- no
 	## other tool has ever touched it -- so this one write is gated on that
 	## specific tool rather than "any tool", unlike the two below.
@@ -2525,6 +2528,12 @@ func _fill_timeline_strip() -> void:
 	## cheaper and says what it means.
 	if not timeline_changed.is_connected(_repaint_timeline):
 		timeline_changed.connect(_repaint_timeline)
+	## PC-3: the records (pills, filters, conflicts) and the selection's chronos change without the year
+	## moving, so the expanded rows listen for those too -- deferred and coalesced, see `_queue_tl_rows()`.
+	if not timeline_records_changed.is_connected(_queue_tl_rows):
+		timeline_records_changed.connect(_queue_tl_rows)
+	if not selection_changed.is_connected(_on_tl_selection_changed):
+		selection_changed.connect(_on_tl_selection_changed)
 	_tl_year_labels = []
 	_tl_state_label = null
 	_tl_play_button = null
@@ -2546,6 +2555,7 @@ func _fill_timeline_strip() -> void:
 	_tl_end_hint = null
 	_tl_day_slider = null
 	_tl_date_label = null
+	_tl_chronos = tl_selection_events() if (_tl_expanded and not is_phone()) else []
 	## A rebuild ends any drag: the `Control` that was receiving the motion
 	## events is on its way out of the tree, so its release never arrives.
 	_tl_scrubbing = false
@@ -2619,7 +2629,13 @@ func _build_timeline_collapsed() -> void:
 	_tl_status_labels.append(status)
 	row.add_child(status)
 	_tl_collapsed_dot = dot
-	row.add_child(DccTheme.spacer())
+	## **The click-through fix (PC-3; the fault PC-2's probe found).** `DccTheme.spacer()` is a bare Control
+	## whose mouse filter defaults to STOP, so it swallowed the press everywhere except over the words and
+	## the strip, documented as "the whole strip clickable" (section 4.1, `hTlExpand`), expanded only when
+	## the click landed on a label. IGNORE hands the press to `hit` beneath, across the full width.
+	var gap := DccTheme.spacer()
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(gap)
 	## `▴` U+25B4 -- not in `DccIcons.SYMBOLS`, and the table is not this
 	## file's to extend. Same `SystemFont` fallback as every other missing mark.
 	row.add_child(DccTheme.mono_label("\u25b4 expand", "text_faint",
@@ -2739,19 +2755,22 @@ func _build_timeline_expanded() -> void:
 	collapse.custom_minimum_size.x = maxf(collapse.custom_minimum_size.x, chev_floor)
 	collapse.custom_minimum_size.y = maxf(collapse.custom_minimum_size.y, chev_floor)
 
+	# Row 1b -- PC-3: the recorded years, + Record year and the three filters, at program scope.
+	col.add_child(_build_timeline_records())
+
 	# Row 2 -- the scrub track.
 	col.add_child(_build_timeline_scrub())
 
 	# Row 3 -- the track scale, `justify-content:space-between`.
 	var foot := HBoxContainer.new()
 	col.add_child(foot)
-	_tl_min_label = DccTheme.mono_label("YEAR %d" % TL_YEAR_MIN, "text_ghost",
+	_tl_min_label = DccTheme.mono_label(_tl_range_text(false), "text_ghost",
 		DccTheme.role_px("fs_timeline"), 0)
 	foot.add_child(_tl_min_label)
 	foot.add_child(DccTheme.spacer())
 	foot.add_child(_build_timeline_readout())
 	foot.add_child(DccTheme.spacer())
-	_tl_max_label = DccTheme.mono_label("YEAR %d" % TL_YEAR_MAX, "text_ghost",
+	_tl_max_label = DccTheme.mono_label(_tl_range_text(true), "text_ghost",
 		DccTheme.role_px("fs_timeline"), 0)
 	foot.add_child(_tl_max_label)
 
@@ -2760,6 +2779,9 @@ func _build_timeline_expanded() -> void:
 	# date. Built from row 3's own vocabulary (a ghost mono caption and a
 	# secondary mono value) plus the one control a 365-step value needs.
 	col.add_child(_build_timeline_day_row())
+
+	# Row 3c -- PC-3: the event list (conflicts and the selection's chronos entries).
+	col.add_child(_build_timeline_events())
 
 	# Row 4 -- the note the six toggles owe the reader. See below.
 	var note := DccTheme.mono_label("Simulation layers — %s." % TL_LAYER_NOTE,
@@ -2772,6 +2794,127 @@ func _build_timeline_expanded() -> void:
 	## state", so they are written by the same function that will write them
 	## again on the next `timeline_changed` rather than a second time here.
 	_repaint_timeline()
+
+## The CIVIL workspace, which owns the Timeline's recorded years and the three filters' flags, or null.
+## The strip reads and writes those through it (`tl_filter`, `tl_set_filter`, `tl_record_year`,
+## `tl_go_recorded`) and keeps no copy: one definition, two surfaces (PC-3).
+func _civ_workspace() -> Node:
+	for ws in _workspaces:
+		if ws.has_method("tl_record_year"):
+			return ws
+	return null
+
+## At most this many recorded-year pills are drawn on the strip (the ones nearest the cursor); the rest are
+## reached by scrubbing or in CIVIL > Timeline. A collapse simulation records one year per step, so without
+## a cap the row would grow with the run. A labelled judgement (PC-3): about two rows of pills at 1600 px.
+const TL_STRIP_PILLS_MAX := 12
+
+## Row 1b (PC-3, `PC_SHELL_PROPOSAL.md` 3.2 "Expanded", first row): CIVIL > Timeline's controls at program
+## scope. The recorded years as pills (the cursor's lit, a click moves the year through the CIVIL
+## workspace's own jump), **+ Record year** (records the shown year, the dock's Add year call), and the
+## three filters as lit-one-of-a-set pills (Exist only, Ghost removed, Highlight new) that flip the
+## CIVIL workspace's flags. The speeds are row 1's, in every domain. With no world the row is one note.
+func _build_timeline_records() -> Control:
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 6)
+	flow.add_theme_constant_override("v_separation", 4)
+	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flow.name = "TimelineRecords"
+	var ws := _civ_workspace()
+	if ws == null or not tl_available():
+		flow.add_child(DccTheme.mono_label("RECORDED", "text_ghost", DccTheme.role_px("fs_timeline"), 2))
+		flow.add_child(DccTheme.mono_label("no world" if not tl_available() else "unavailable", "text_ghost",
+			DccTheme.role_px("fs_timeline"), 0))
+		return flow
+	flow.add_child(DccTheme.mono_label("RECORDED", "text_ghost", DccTheme.role_px("fs_timeline"), 2))
+	var years := tl_recorded_years()
+	var cur := tl_year()
+	## The nearest-to-the-cursor `TL_STRIP_PILLS_MAX`, shown in ascending order.
+	var picked: Array = []
+	for y in years:
+		picked.append(int(y))
+	if picked.size() > TL_STRIP_PILLS_MAX:
+		picked.sort_custom(func(a: int, b: int) -> bool: return absi(a - cur) < absi(b - cur))
+		picked = picked.slice(0, TL_STRIP_PILLS_MAX)
+		picked.sort()
+	if picked.is_empty():
+		flow.add_child(DccTheme.mono_label("none yet", "text_ghost", DccTheme.role_px("fs_timeline"), 0))
+	for y in picked:
+		var yy: int = y
+		var pill := DccWidgets.segment(flow, _tl_format_year(yy), func(): ws.tl_go_recorded(yy))
+		DccWidgets.set_segment_on(pill, yy == cur)
+		pill.tooltip_text = "Jump to %s (a recorded year)." % _tl_format_year(yy)
+		pill.set_meta("tl_year", yy)
+	if years.size() > picked.size():
+		var more := DccTheme.mono_label("+%d more" % (years.size() - picked.size()), "text_ghost",
+			DccTheme.role_px("fs_timeline"), 0)
+		more.tooltip_text = "The strip shows the %d recorded years nearest the cursor. CIVIL > Timeline lists all %d." \
+			% [TL_STRIP_PILLS_MAX, years.size()]
+		flow.add_child(more)
+	var rec := DccWidgets.segment(flow, "+ Record year", func(): ws.tl_record_year(tl_year()))
+	rec.name = "RecordYear"
+	rec.tooltip_text = ("Record a snapshot at the shown year (%s): which settlements and ways exist then "
+		+ "and who holds the ground. The same call as CIVIL > Timeline's Add year.") % _tl_format_year(cur)
+	var names := {"exist": "Exist only", "ghost": "Ghost removed", "highlight": "Highlight new"}
+	var tips := {
+		"exist": "Hide settlements and ways not present in the shown year. Hand-drawn ways are not recorded by the timeline and always show.",
+		"ghost": "Fade in the settlements and ways removed since the previous recorded year, where they last stood.",
+		"highlight": "Ring the settlements, and underline the ways, new since the previous recorded year.",
+	}
+	for key in ["exist", "ghost", "highlight"]:
+		var k: String = key
+		var seg := DccWidgets.segment(flow, String(names[k]), func(): ws.tl_set_filter(k, not ws.tl_filter(k)))
+		DccWidgets.set_segment_on(seg, ws.tl_filter(k))
+		seg.name = "Filter_" + k
+		seg.tooltip_text = String(tips[k])
+	for c in flow.get_children():
+		if c is Button:
+			(c as Button).custom_minimum_size.y = maxf((c as Button).custom_minimum_size.y,
+				float(DccTheme.role_px("btn_min_h")))
+	return flow
+
+## Row 3c (PC-3, `PC_SHELL_PROPOSAL.md` 3.2 "Expanded", second row): the event list. The world's conflicts
+## and the selection's chronos entries, each a button that moves the year to its start through the one
+## writer (`tl_set_year`, exact) and labelled with its source -- `conflict`, or the note the chronos line
+## came from. A conflict row does NOT also select the conflict: a conflict is a selection kind only PC-4's
+## Inspect shows (PC-1 records it and applies settlements alone), so that half waits. Capped like the pills.
+## An empty list is a note, never a row.
+func _build_timeline_events() -> Control:
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 6)
+	flow.add_theme_constant_override("v_separation", 4)
+	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flow.name = "TimelineEvents"
+	flow.add_child(DccTheme.mono_label("EVENTS", "text_ghost", DccTheme.role_px("fs_timeline"), 2))
+	var rows: Array = []
+	for cs in tl_conflict_spans():
+		var c: Dictionary = cs
+		rows.append({"year": int(c["start"]), "text": "%s · conflict" % String(c["name"]),
+			"tip": "Conflict, %s%s." % [_tl_format_year(int(c["start"])),
+				(" to " + _tl_format_year(int(c["end"]))) if c.has("end") else ", still open"]})
+	for ce in tl_selection_events():
+		var e: Dictionary = ce
+		rows.append({"year": int(e["start"]), "text": "%s · %s" % [String(e["name"]), String(e["rel"]).get_file().get_basename()],
+			"tip": "Chronos entry in %s, %s." % [String(e["rel"]), _tl_format_year(int(e["start"]))]})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["year"]) < int(b["year"]))
+	if rows.is_empty():
+		flow.add_child(DccTheme.mono_label("none: no conflicts, and the selection has no chronos entries",
+			"text_ghost", DccTheme.role_px("fs_timeline"), 0))
+		return flow
+	var shown := 0
+	for r in rows:
+		if shown >= TL_STRIP_PILLS_MAX:
+			break
+		shown += 1
+		var yr: int = int(r["year"])
+		var b := DccWidgets.segment(flow, "%s  %s" % [_tl_format_year(yr), String(r["text"])], func(): tl_set_year(yr, true))
+		b.tooltip_text = String(r["tip"]) + " Click to move the year there."
+		b.set_meta("tl_year", yr)
+		b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, float(DccTheme.role_px("btn_min_h")))
+	if rows.size() > shown:
+		flow.add_child(DccTheme.mono_label("+%d more" % (rows.size() - shown), "text_ghost",
+			DccTheme.role_px("fs_timeline"), 0))
+	return flow
 
 ## Row 3b: `DATE` · `YYYY-MM-DD` · a 0..364 day slider. The slider writes the
 ## engine's day beside the year (`DccShell.tl_set_day()`); the year controls
@@ -2997,8 +3140,11 @@ func _build_timeline_scrub() -> Control:
 	## name (audit B15), corrected 2026-09-24. Ruling AT (2026-09-24): any
 	## other year keeps the territory already on screen (`dcc_shell.gd`'s
 	## §10a note).
+	var rng0 := tl_range()
 	track.tooltip_text = ("Drag to move the civilisation year cursor anywhere in "
-		+ "-400..1200. A year CIVIL ▸ Timeline has recorded a snapshot for loads that "
+		+ ("%d..%d, the range of this world's recorded years and conflicts" % [int(rng0["min"]), int(rng0["max"])]
+			if bool(rng0["from_world"]) else "%d..%d, the default axis (this world has no recorded year or conflict to take a range from)" % [int(rng0["min"]), int(rng0["max"])])
+		+ ". A year CIVIL ▸ Timeline has recorded a snapshot for loads that "
 		+ "snapshot's territory; any other year keeps the territory already shown. "
 		+ "The marks below the rail are those recorded years; hold Shift while dragging to "
 		+ "snap to the nearest one.")
@@ -3082,7 +3228,8 @@ func _build_timeline_scrub() -> Control:
 		if at < 0.0 or track.size.x <= 0.0:
 			return
 		var f: float = clampf(at / track.size.x, 0.0, 1.0)
-		var year := TL_YEAR_MIN + int(round(f * float(TL_YEAR_MAX - TL_YEAR_MIN)))
+		var rng := tl_range()
+		var year := int(rng["min"]) + int(round(f * float(int(rng["max"]) - int(rng["min"]))))
 		## Shift magnets to the nearest recorded year -- board E's hint, and the
 		## modifier Photoshop, Blender and every NLE already use for "snap".
 		## `tl_nearest_recorded()` answers `{}` on a world with no recorded
@@ -3128,8 +3275,13 @@ func _build_timeline_scrub() -> Control:
 ## top-of-range mark off the right-hand edge and produced 701 distinct columns
 ## on a 700 px track.
 func tl_mark_column(year: int, w: float) -> int:
-	var span := float(TL_YEAR_MAX - TL_YEAR_MIN)
-	return mini(floori(w * float(year - TL_YEAR_MIN) / span), int(w) - 1)
+	var rng := tl_range()
+	return _tl_col(year, w, int(rng["min"]), int(rng["max"]))
+
+## `tl_mark_column()` over a range the caller already holds, so the draw handler reads the world's range
+## once per frame instead of once per mark (each `tl_range()` asks the engine for the conflicts).
+func _tl_col(year: int, w: float, lo: int, hi: int) -> int:
+	return mini(floori(w * float(year - lo) / float(hi - lo)), int(w) - 1)
 
 ## `draw` handler for the scrub track: one tick per recorded year (columns via
 ## `tl_mark_column()`, deduplicated) plus an emphasised mark for the year under the
@@ -3139,16 +3291,40 @@ func _draw_timeline_marks(track: Control) -> void:
 	var w := track.size.x
 	if w <= 0.0:
 		return
+	var rng := tl_range()
+	var lo := int(rng["min"])
+	var hi := int(rng["max"])
+	var mid := track.size.y * 0.5
+	var span := float(hi - lo)
+	## PC-3: the conflicts as spans ON the rail and the selection's chronos entries as accent ticks ABOVE
+	## it (the playhead crosses above the rail and the recorded years hang below, so neither is misread as
+	## the other). Drawn before the recorded years' early return: a world can have either with no recorded
+	## year. An entry outside the range is not drawn rather than pinned to an edge, which would be a mark
+	## at a year it does not name.
+	for cs in tl_conflict_spans():
+		var c0 := int(cs["start"])
+		var c1 := int(cs.get("end", c0))
+		if c1 < lo or c0 > hi:
+			continue
+		var x0 := _tl_col(clampi(c0, lo, hi), w, lo, hi)
+		var x1 := _tl_col(clampi(c1, lo, hi), w, lo, hi)
+		track.draw_rect(Rect2(float(x0), mid - 1.0, float(maxi(x1 - x0, 1) + 1), 3.0), DccTheme.c("text_faint"))
+	for ev in _tl_chronos:
+		var e0 := int(ev["start"])
+		var e1 := int(ev.get("end", e0))
+		if e1 < lo or e0 > hi:
+			continue
+		var cx0 := _tl_col(clampi(e0, lo, hi), w, lo, hi)
+		var cx1 := _tl_col(clampi(e1, lo, hi), w, lo, hi)
+		track.draw_rect(Rect2(float(cx0), mid - 8.0, float(maxi(cx1 - cx0, 1) + 1), 4.0), DccTheme.c("accent"))
 	var years := tl_recorded_years()
 	if years.is_empty():
 		return
-	var mid := track.size.y * 0.5
-	var span := float(TL_YEAR_MAX - TL_YEAR_MIN)
 	var dim := DccTheme.c("text_dim")
 	var cols: Dictionary = {}
 	for y in years:
 		var yi := int(y)
-		if yi < TL_YEAR_MIN or yi > TL_YEAR_MAX:
+		if yi < lo or yi > hi:
 			continue
 		## Clamped to the last column, not just floored. `TL_YEAR_MAX` maps to
 		## `w` exactly, which is one pixel past a track whose columns are
@@ -3156,7 +3332,7 @@ func _draw_timeline_marks(track: Control) -> void:
 		## right-hand edge. Measured by `_tlscrub_probe.gd` §6: the whole axis
 		## produced **701** distinct columns on a 700 px track, and 701 marks
 		## cannot fit in 700 pixels.
-		cols[tl_mark_column(yi, w)] = true
+		cols[_tl_col(yi, w, lo, hi)] = true
 	for cx in cols:
 		track.draw_rect(Rect2(float(cx), mid + 3.0, 1.0, 5.0), dim)
 	## Which one is emphasised, and in which ink, is exactly what row 3's word
@@ -3180,9 +3356,9 @@ func _draw_timeline_marks(track: Control) -> void:
 			emph = int(n["at"])
 			has_emph = true
 			ink = DccTheme.c("accent")
-	if not has_emph or emph < TL_YEAR_MIN or emph > TL_YEAR_MAX:
+	if not has_emph or emph < lo or emph > hi:
 		return
-	var ex := w * float(emph - TL_YEAR_MIN) / span
+	var ex := w * float(emph - lo) / span
 	track.draw_rect(Rect2(ex - 1.0, mid + 2.0, 2.0, 7.0), ink)
 
 ## The phone has no room for §4.2's row, so its timeline region carries the
@@ -3317,6 +3493,13 @@ func _repaint_timeline() -> void:
 		if is_instance_valid(seg):
 			DccWidgets.set_segment_on(seg, int(mult) == tl_speed)
 	_place_timeline_head()
+	## PC-3: the chronos ticks follow what the selected place's notes hold. Read only when the user is not
+	## mid-drag (a drag's redraw reads the cache, never the vault); a changed list also rebuilds the event row.
+	if _tl_expanded and not _tl_scrubbing and not is_phone():
+		var ce := tl_selection_events()
+		if ce != _tl_chronos:
+			_tl_chronos = ce
+			_queue_tl_rows()
 	_repaint_timeline_readout(live)
 
 ## Everything `Timeline.dc.html` adds to §4.2, written on the same signal as
@@ -3326,7 +3509,8 @@ func _repaint_timeline() -> void:
 ##
 ## `live` is `tl_available()`, resolved once by the caller.
 func _repaint_timeline_readout(live: bool) -> void:
-	var at_max: bool = live and tl_year() >= TL_YEAR_MAX
+	var rng := tl_range()
+	var at_max: bool = live and tl_year() >= int(rng["max"])
 	## Board F draws the play and step-forward squares dead at 1200 --
 	## `tl_toggle_play()` refuses to start there and `_tl_tick()` has already
 	## stopped, so both are controls with nothing behind them, and this shell's
@@ -3339,7 +3523,7 @@ func _repaint_timeline_readout(live: bool) -> void:
 				b.disabled = true
 				b.tooltip_text = ("The cursor is at year %d, the top of the track. "
 					+ "Playback stops here rather than wrapping. Step back or drag "
-					+ "to resume.") % TL_YEAR_MAX
+					+ "to resume.") % int(rng["max"])
 	if is_instance_valid(_tl_end_hint):
 		_tl_end_hint.visible = at_max
 	## The cheapest end-of-range signal there is, and it costs no width: the
@@ -3348,9 +3532,13 @@ func _repaint_timeline_readout(live: bool) -> void:
 	## condition on the other literal, so both ends are written here rather than
 	## one end being a special case.
 	if is_instance_valid(_tl_min_label):
+		_tl_min_label.text = _tl_range_text(false)
+		_tl_min_label.tooltip_text = _tl_range_tip()
 		_tl_min_label.add_theme_color_override("font_color",
-			DccTheme.c("text_faint" if (live and tl_year() <= TL_YEAR_MIN) else "text_ghost"))
+			DccTheme.c("text_faint" if (live and tl_year() <= int(rng["min"])) else "text_ghost"))
 	if is_instance_valid(_tl_max_label):
+		_tl_max_label.text = _tl_range_text(true)
+		_tl_max_label.tooltip_text = _tl_range_tip()
 		_tl_max_label.add_theme_color_override("font_color",
 			DccTheme.c("text_faint" if at_max else "text_ghost"))
 
@@ -3386,7 +3574,7 @@ func _repaint_timeline_readout(live: bool) -> void:
 		if _tl_bubble.visible:
 			_tl_bubble.text = _tl_year_label()
 			var bw := _tl_bubble.get_combined_minimum_size()
-			var f := float(tl_year() - TL_YEAR_MIN) / float(TL_YEAR_MAX - TL_YEAR_MIN)
+			var f := _tl_frac(tl_year())
 			_tl_bubble.size = bw
 			_tl_bubble.position = Vector2(_tl_track.size.x * f - bw.x * 0.5,
 				_tl_track.size.y * 0.5 - 6.5 - bw.y - 3.0)
@@ -3422,7 +3610,8 @@ func _repaint_timeline_counts() -> void:
 ## as the obvious candidate and states that it is not written down", so the
 ## formula below was labelled *recovered rather than read*. It is read: the
 ## expression is character-for-character the one in the canvas, with
-## `TL_YEAR_MIN`/`TL_YEAR_MAX` standing in for the two literals.
+## `TL_YEAR_MIN`/`TL_YEAR_MAX` standing in for the two literals -- since PC-3 the world's `tl_range()`,
+## with the playhead pinned to the track when the cursor sits outside it.
 ##
 ## The playhead's own box is quoted too — markup line 1210 gives the rail
 ## `height:3px` and the head `top:-5px;width:2px;height:13px`, which is the
@@ -3430,9 +3619,61 @@ func _repaint_timeline_counts() -> void:
 func _place_timeline_head() -> void:
 	if not is_instance_valid(_tl_track) or not is_instance_valid(_tl_head):
 		return
-	var f := float(tl_year() - TL_YEAR_MIN) / float(TL_YEAR_MAX - TL_YEAR_MIN)
+	var f := _tl_frac(tl_year())
 	_tl_head.position = Vector2(_tl_track.size.x * f - 1.0, _tl_track.size.y * 0.5 - 6.5)
 	_tl_head.size = Vector2(2, 13)
+
+## Where `year` sits along the track as 0..1 over `tl_range()`: clamped, so a cursor outside the range (an
+## exact write from the Place editor, say) pins the playhead to the nearest end instead of drawing it off
+## the track. The readout beside it still prints the true year.
+func _tl_frac(year: int) -> float:
+	var rng := tl_range()
+	var span := float(int(rng["max"]) - int(rng["min"]))
+	return clampf(float(year - int(rng["min"])) / span, 0.0, 1.0)
+
+## The track's two end literals. A world's own range reads `YEAR 340`; the fallback axis of a world that gave
+## none reads `YEAR -400 (default)`, so a track drawn from nothing never passes for the world's (PC-3,
+## `MISTAKES.md`: never encode "no value" as a plausible value). `at_max` picks the right-hand literal.
+func _tl_range_text(at_max: bool) -> String:
+	var rng := tl_range()
+	var t := "YEAR %d" % int(rng["max" if at_max else "min"])
+	return t if bool(rng["from_world"]) else t + " (default)"
+
+## The tooltip of both end literals, saying where the range came from.
+func _tl_range_tip() -> String:
+	if bool(tl_range()["from_world"]):
+		return "The track runs from this world's earliest to its latest recorded year or conflict."
+	return ("Default axis: this world has no recorded year or conflict to take a range from. "
+		+ "Record a year (+ Record year) and the track follows the world.")
+
+## The selection's chronos entries as the strip last read them (`tl_selection_events()`), kept so a drag's
+## redraw reads a list and never the vault. Refreshed on a fill, a selection change, a records change and
+## every repaint that is not a drag.
+var _tl_chronos: Array = []
+
+## True between `_queue_tl_rows()` queuing a rebuild of the expanded rows and it running.
+var _tl_rows_queued := false
+
+## Queues one deferred rebuild of the strip's expanded rows (recorded years, filters, event list, range
+## literals). Deferred and coalesced because the usual caller is a button on the strip itself, whose own
+## node the rebuild frees. Does nothing on the phone, while collapsed, hidden, mid-drag, or while the
+## journey planner owns the row.
+func _queue_tl_rows() -> void:
+	if _tl_rows_queued or not _tl_expanded or is_phone() or timeline_bar == null or not timeline_bar.visible:
+		return
+	_tl_rows_queued = true
+	_run_tl_rows.call_deferred()
+
+func _run_tl_rows() -> void:
+	_tl_rows_queued = false
+	if not _tl_expanded or is_phone() or timeline_bar == null or not timeline_bar.visible \
+			or _tl_scrubbing or armed_tool == "journey":
+		return
+	_fill_timeline_strip()
+
+## A new selection changes the strip's chronos ticks and its event list.
+func _on_tl_selection_changed(_current: Dictionary) -> void:
+	_queue_tl_rows()
 
 ## WORLD's idle hint in the tool-options bar, with a mouse and keyboard. A labelled judgement (Ruling DZ): with
 ## no actions left on the bar, its one line says what a click and the two context gestures do. Q is the

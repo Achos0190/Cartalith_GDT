@@ -112,6 +112,41 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
   menu id 82 is carried by both Edit ▸ Deselect and Preferences ▸ Atlas cache ▸ Export atlas… (different popups, so
   no dispatch clash).
 
+### PC-3 built: the strip at program scope, one range from the world (2026-11-08)
+
+`PC_SHELL_PROPOSAL.md` §3.2 (CV-24, finding T3), §6 (departures listed in its PC-3 build note).
+
+- **Built:** the strip shows in WORLD, CIVIL and CARTO (`app.gd::_on_workspace_changed`; the phone keeps CIVIL only).
+  Expanded, it adds a RECORDED row (the 12 recorded years nearest the cursor as pills, **+ Record year** at the shown
+  year, and the three filters, Exist only, Ghost removed and Highlight new, which flip the one set of flags that lives
+  in `CivilizationWorkspace`: `tl_filter`, `tl_set_filter`, `tl_record_year`, `tl_go_recorded`) and an EVENTS row
+  (conflicts and the selection's chronos entries; a row moves the year through `tl_set_year`). The track draws
+  conflicts as spans on the rail and the selection's chronos entries as accent ticks above it. New signal
+  `timeline_records_changed`. **The range comes from the world**: `DccShell.tl_range()` is the earliest to the latest
+  recorded year or conflict year, widened to 100 years; with none it answers the old -400..1200 with
+  `from_world` false and the end literals read `(default)`. `TL_YEAR_MIN`/`MAX` are only that fallback. The writer's
+  clamp, playback's stop, the scrub, the marks, the phone slider, the phone menu's Year row and the assistant's
+  catalogue bounds (`llm_actions.gd::facts` and its year preflight) all read `tl_range()`, so they cannot disagree.
+  **The shipped fault is fixed:** the collapsed strip's spacer now ignores the mouse, so a click anywhere across the
+  strip expands it.
+- **Measured:** new `_pc3strip_probe` (windowed, real clicks, wiped user dir): PASS 79/79 at 1600x1000 desktop and at
+  1600x1000 touch, 0 SCRIPT ERROR. It covers the default axis, the strip in the three domains, clicks at 5, 50 and 95
+  per cent of the collapsed strip, scrub per domain, + Record year, a year recorded in the dock moving the range and the
+  strip's pills and literals, a pill jump, the three filters (and the dock showing them), a speed, the assistant
+  bounds and a card year one past the range refused, and a chronos tick read from the rendered frame, the event row and
+  its click. Eleven literal mutants each turned it (or `_pc2year_probe`) red: spacer STOP, no strip in CARTO, range
+  ignoring the world, no-data reported as a range, a filter flipping the wrong flag, ticks not drawn, Record year at
+  year 0, a pill to the wrong year, an event row to year 0, the catalogue on the fixed axis, the writer clamping to the
+  fixed axis. Re-run green: `_pc2year` 46/46 (desktop and touch; adapted to the new range), `_pc1select` 31/31,
+  `_pc9menus` 86/86, `_ac3` 48/48 (desktop and touch), `_tlpins` 50/50, `_tlheight`, `_tlfloor --pointer`.
+  `_tlscrub` assumed the fixed axis and was adapted (recorded years now set the track). `_tlfloor --tablet`,
+  `_simscrub`, `_jump` and `_phonemore_act` fail identically on origin/main. `_pc3phone_probe` captures the phone for a
+  byte comparison against origin/main.
+- **Not built, stated:** CV-24's collapsed line with a play button, slider and ticks (the collapsed strip is the shipped
+  one, now fully clickable); "earliest founding" as a range source (the engine records none); one undo step for + Record
+  year (the engine keeps none, here or in the dock); a conflict row selecting the conflict (PC-4's Inspect); the event
+  list is capped at 12 rows and the pills at 12.
+
 ### PC-2 built: one year (2026-11-07)
 
 `PC_SHELL_PROPOSAL.md` §2 rule 2, §3.2 (findings T1, T2), §5.

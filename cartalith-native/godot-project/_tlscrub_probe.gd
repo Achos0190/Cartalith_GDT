@@ -283,7 +283,9 @@ func _s4_recorded() -> void:
 	## unrecorded year keeps the claims it was reached with, so the clause
 	## names the year they were last loaded from -- 412, from the step above --
 	## and not the mark below the cursor, which does not exist here.
-	_app.call("tl_set_year", -300)
+	## `exact`: since PC-3 the track is the world's range (-200..705 here), so a default write of -300
+	## would clamp onto the first mark; an exact write reaches the unrecorded year below it.
+	_app.call("tl_set_year", -300, true)
 	await _frames(3)
 	var below: Dictionary = _app.call("tl_year_neighbours", -300)
 	_ok("below the first mark: no prev", below.has("prev"), false)
@@ -307,7 +309,8 @@ func _s5_end_of_track() -> void:
 	print("\n-- §5 end of track (board F) --")
 	var t: Control = _app.get("timeline_row")
 	var before := t.get_combined_minimum_size().x
-	_app.call("tl_set_year", 900)
+	## 600, not 900: the track ends at the last recorded year (705) since PC-3, and 900 would clamp onto it.
+	_app.call("tl_set_year", 600)
 	await _frames(3)
 	_ok("mid-track state word", _app.call("tl_state_text"), "paused")
 	_ok("play live mid-track", (_app.get("_tl_play_button") as Button).disabled, false)
@@ -408,17 +411,20 @@ func _s6_merge() -> void:
 	## extracted for exactly this: the probe now fails when the shipped function
 	## changes.
 	var every: Dictionary = {}
-	for y in range(-400, 1201):
+	var rng: Dictionary = _app.tl_range()
+	var lo := int(rng["min"])
+	var hi := int(rng["max"])
+	for y in range(lo, hi + 1):
 		every[_app.tl_mark_column(y, 700.0)] = true
 	## The clamp, asserted directly rather than inferred from the column count:
 	## the top of the range must land on the last column of a 700 px track, and
 	## 700 would be one pixel past it.
-	_ok("TL_YEAR_MAX lands on the last column, not one past it",
-		_app.tl_mark_column(1200, 700.0), 699)
-	_note("1601 years → distinct columns at 700 px", every.size())
+	_ok("the range top lands on the last column, not one past it",
+		_app.tl_mark_column(hi, 700.0), 699)
+	_note("years on the track → distinct columns at 700 px", every.size())
 	_ok("every year on the axis reduces to one mark per column",
 		every.size() <= 700, true)
-	_ok("and that is fewer marks than years", every.size() < 1601, true)
+	_ok("and that is fewer marks than years", every.size() < hi - lo + 1, true)
 
 # -- §7 The marks actually rasterise (windowed only) ---------------------------
 

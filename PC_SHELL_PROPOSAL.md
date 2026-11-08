@@ -608,6 +608,22 @@ it is founded", roads, **City viewer…** and **Plan a journey from here** as na
 and Logistics already open both), edit mode (PQ9's quick fields), and moving the year when a conflict is picked
 (finding F7). The phone's sheet is unchanged (§3.11). The probe is `_pc4context_probe`.
 
+PC-3 (2026-11-08) was built with five departures from the text above, each found at the symbol. (1) **The range's
+sources are the recorded years and the conflicts' start and end years**, not "the earliest founding, chronos entry or
+recorded year": the engine records no founding year (the settlement dictionary has no such field), and the chronos
+entries of the selection are ticks, not a range source, so selecting a place never moves the axis. (2) **A world with
+no recorded year and no conflict has no range**: `tl_range()` answers the old -400..1200 axis with `from_world` false,
+the end literals read `YEAR -400 (default)`, and the strip stays scrubbable. `TL_YEAR_MIN`/`MAX` survive only as that
+fallback. A one-year world is widened to `TL_MIN_SPAN` (100 years) around it; the cursor is not folded in, so a cursor
+outside the range pins the playhead to the nearest end. (3) **The collapsed strip keeps its shipped composition**
+(TIMELINE, the year, the state word, `expand`): CV-24's collapsed line with a play button, a slider and ticks is not
+built, and the ticks live on the expanded strip's track. (4) **+ Record year records the shown year** (scrub, then
+record) through the dock's own `civ_add_year`; the engine keeps no undo step for a recorded year, here or in the dock,
+so the proposal's "one undo step" is open. (5) **A conflict row in the event list moves the year but does not select
+the conflict**: a conflict is a selection kind only PC-4's Inspect shows. The strip's pills show the 12 recorded years
+nearest the cursor. The phone keeps its CIVIL-only strip. The probe is `_pc3strip_probe`; the phone guard is
+`_pc3phone_probe`.
+
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.
 PC-11 stands alone and can land at any time; the planner's bar row moves with PC-8. PC-7 changes
 `popout_host.gd`, which Ruling DK's PW-2 built. PC-8 and PW-4 re-host the planner, so they are one change (§3.7).

@@ -15,8 +15,8 @@ extends Node
 ## are recorded (100, 300 and 5000), and the year is then moved from THREE writers, each by a real click:
 ##   1. CIVIL ▸ Timeline: a year pill (300), which before PC-2 called the engine directly;
 ##   2. the strip: the scrub track, clicked at the x of a year (700), the writer that always emitted;
-##   3. the Place editor's Timeline tab: a recorded-year chip (100), and Go to year with 5000, a value
-##      outside the strip's -400..1200 track (so the writer must not clamp it), both of which called
+##   3. the Place editor's Timeline tab: a recorded-year chip (100), and Go to year with 9000, a value
+##      outside the strip's track (the world's range, 100..5000 here since PC-3) (so the writer must not clamp it), both of which called
 ##      the engine directly before PC-2.
 ## After EACH write every surface that shows the year must agree on it: the engine and `tl_year()`; the
 ## strip's year labels; CIVIL's pills (the active one) and its "Active year" note; the right dock's
@@ -245,8 +245,8 @@ func _ready() -> void:
 	var civ = _app._workspaces.filter(func(w): return w is CivilizationWorkspace)
 	_ws = civ[0]
 	_app.timeline_changed.connect(func(): _emits += 1)
-	## Three recorded years (setup only: the writers under test are the clicks below). 5000 is outside
-	## the strip's track on purpose.
+	## Three recorded years (setup only: the writers under test are the clicks below). 5000 sets the world's range top (PC-3; it was
+	## outside the old fixed -400..1200 track, on purpose).
 	for y in [100, 300, 5000]:
 		_bridge.civ_add_year(y)
 	_app.tl_set_year(100, true)
@@ -279,10 +279,12 @@ func _ready() -> void:
 	var s1 := _state()
 	_ok(s1["tl_year"] == s0["tl_year"] and s1["dock_first"] == s0["dock_first"] and _emits == e0,
 		"with no write the year, the dock and the emit count do not move")
-	_app.tl_set_year(5000)
-	_ok(_app.tl_year() == 1200, "control: the writer clamps a default write of 5000 to the track's 1200 (got %d)" % _app.tl_year())
-	_app.tl_set_year(5000, true)
-	_ok(_app.tl_year() == 5000, "control: the writer does not clamp an exact write of 5000 (got %d)" % _app.tl_year())
+	## PC-3: the track is the world's range, here 100..5000 (the three recorded years), so the default write
+	## clamps to 5000 and only an `exact` write may pass it.
+	_app.tl_set_year(99999)
+	_ok(_app.tl_year() == 5000, "control: the writer clamps a default write of 99999 to the track's 5000 (got %d)" % _app.tl_year())
+	_app.tl_set_year(99999, true)
+	_ok(_app.tl_year() == 99999, "control: the writer does not clamp an exact write of 99999 (got %d)" % _app.tl_year())
 	_app.tl_set_year(100, true)
 	await _settle(10)
 
@@ -302,24 +304,25 @@ func _ready() -> void:
 	## The strip starts collapsed to one row whose whole width is a button; a real click expands it.
 	for b in _app.timeline_row.find_children("*", "Button", true, false):
 		if (b as Button).tooltip_text.begins_with("Expand the timeline") and (b as Control).is_visible_in_tree():
-			## On the word TIMELINE at the row's left, not its centre: the centre is a spacer Control
-			## with the default STOP filter that swallows the click (a shipped fault, reported in
-			## STATUS.md's PC-2 entry, not fixed by PC-2).
+			## The centre of the row, over the spacer: PC-3 fixed the spacer swallowing the click (PC-2 had to
+			## click on the word TIMELINE instead). `_pc3strip_probe` pins the fix across the full width.
 			var rr := (b as Control).get_global_rect()
-			await _click_at(_to_root(Vector2(rr.position.x + 30.0, rr.get_center().y), b))
+			await _click_at(_to_root(rr.get_center(), b))
 			break
 	await _settle(8)
 	var track: Control = _app._tl_track
 	_ok(track != null and track.is_visible_in_tree() and track.size.x > 0.0, "the strip's scrub track is on screen")
 	if track != null and track.is_visible_in_tree():
-		var f := float(700 - _app.TL_YEAR_MIN) / float(_app.TL_YEAR_MAX - _app.TL_YEAR_MIN)
+		var rng: Dictionary = _app.tl_range()
+		var span := float(int(rng["max"]) - int(rng["min"]))
+		var f := float(700 - int(rng["min"])) / span
 		var r := track.get_global_rect()
 		var dock1 := _dock_first_id()
 		var e2 := _emits
 		await _click_at(_to_root(Vector2(r.position.x + r.size.x * f, r.get_center().y), track))
 		## The click lands on a pixel, so the year is within a pixel's worth (1600 / track width) of 700.
 		var got: int = _app.tl_year()
-		var tol := int(ceil(1600.0 / r.size.x)) + 1
+		var tol := int(ceil(span / r.size.x)) + 1
 		_ok(abs(got - 700) <= tol, "the track click at 700's x moved the year to %d (within %d of 700)" % [got, tol])
 		await _agree(got, "strip", dock1, tid, e2)
 		await _shot("strip")
@@ -339,15 +342,15 @@ func _ready() -> void:
 		await _agree(100, "Place chip", dock2, tid, e3)
 		_ok(_label_with(ped, "Cursor: year 100") != null, "Place chip: the editor's own 'Cursor: year' line reads 100")
 		await _shot("chip")
-	ped._tl_target_year = 5000
+	ped._tl_target_year = 9000
 	var go := _button(ped, "Go to year")
 	_ok(go != null, "the editor draws Go to year")
 	if go != null:
 		var dock3 := _dock_first_id()
 		var e4 := _emits
 		await _click_control(go)
-		await _agree(5000, "Place Go to year", dock3, tid, e4)
-		_ok(_label_with(ped, "Cursor: year 5000") != null, "Place Go to year: the editor's 'Cursor: year' line reads 5000, not a clamped 1200")
+		await _agree(9000, "Place Go to year", dock3, tid, e4)
+		_ok(_label_with(ped, "Cursor: year 9000") != null, "Place Go to year: the editor's 'Cursor: year' line reads 9000, not a clamped 5000")
 		await _shot("goto")
 	ped.hide()
 	await _settle(6)
