@@ -1149,10 +1149,28 @@ const REP_CF_FILTER := "active"
 ## The windows this leg covers, in order. Each is driven by the `match` arms below; a window joins the list with its arm in
 ## every one of them (open, state, expect, scroll node), so a half-added window fails loudly (`push_error`) and not silently.
 const REP_ORDER := ["faction_roster_window", "place_editor_window", "world_data_window", "city_viewer_window",
-	"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window"]
+	"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window",
+	"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list"]
+## Batch 3's literals. The generation rules' lit preset chip (not the engine's rules: the leg must not change the world), the layers
+## popover's filter, and the export form's choices: the second format (JPEG, which shows the quality row), a quality that is not the
+## default (90), the third tier, a layer that is off by default switched on and one that is on by default switched off, and a path.
+const REP_GR_PRESET := "Medina"
+const REP_LP_QUERY := "o"
+const REP_EX_FORMAT := 1
+const REP_EX_QUALITY := 55.0
+const REP_EX_TIER := 2
+const REP_EX_WIDTH := 4096
+const REP_EX_PATH := "C:/probe_export/map.jpg"
+## The popover is a `PopupPanel` (always borderless) so the borderless check does not tell its class; its own `_phone` does.
+const REP_NO_BORDER_CHECK := ["layers_popover"]
+## The non-vacuity floor of "the layout equals a fresh open's" (8 lines by default): the phone's `All...` sheet, with no pins in
+## this fixture, is one title, one count and the Customise row.
+## The tablet's credits dialog is a scroll holding one text label: three lines.
+const REP_MIN_LINES := {"quick_bar_phone_list": 6, "_credits_dialog": 2}
 ## The scroll check is vacuous for a window with nothing to scroll in this fixture, so the fixture asserts a scroll with room
 ## exists, and only for these.
-const REP_SCROLLED := ["faction_roster_window", "place_editor_window", "world_data_window", "settlement_types_window", "gen_info_dialog"]
+const REP_SCROLLED := ["faction_roster_window", "place_editor_window", "world_data_window", "settlement_types_window", "gen_info_dialog",
+	"shortcuts_dialog", "layers_popover", "_credits_dialog", "export_dialog"]
 ## The bags the fixture builds each window's expected state from, filled by `_rep_init()` (the settlement type's id is the
 ## store's, not a literal the probe could know).
 var _rep_bag := {}
@@ -1160,7 +1178,10 @@ var _rep_bag := {}
 ## before the swap captures it, the stretched page is taller than this window's content, and the scroll is clamped to 0 (the
 ## `S4_INVENTORY.md` section 18.3 finding, here with no room at all). The scroll is checked on the way to the phone, expected to be
 ## 0 on the way back, and set again on the tablet before the next trip.
-const REP_SCROLL_ONE_WAY := ["settlement_types_window"]
+## The credits text joins it: stretched to the tablet viewport (1800 dp wide) the phone window lays the text out short enough to fit,
+## so the engine clamps the scroll to 0 before the capture, as for Settlement types; on the tablet's own 720 px measure the text is
+## 1 139 px tall and scrolls again.
+const REP_SCROLL_ONE_WAY := ["settlement_types_window", "_credits_dialog"]
 
 func _rep_init() -> void:
 	## Two library entries so "the second" is a selection and not the default the window would fall back to.
@@ -1175,6 +1196,14 @@ func _rep_init() -> void:
 		"gen_info_dialog": {"open": true, "scroll": REP_SCROLL},
 		"conflicts_window": {"open": true, "filter": REP_CF_FILTER, "scroll": 0},
 		"saved_journeys_window": {"open": true, "scroll": 0},
+		"shortcuts_dialog": {"open": true, "editable": true, "scroll": REP_SCROLL},
+		"generation_rules_window": {"open": true, "preset": REP_GR_PRESET, "scroll": 0},
+		"layers_popover": {"open": true, "query": REP_LP_QUERY, "scroll": REP_SCROLL},
+		"_credits_dialog": {"open": true, "scroll": REP_SCROLL},
+		"export_dialog": {"open": true, "scroll": REP_SCROLL, "width": REP_EX_WIDTH, "format": REP_EX_FORMAT, "quality": REP_EX_QUALITY,
+			"tier": REP_EX_TIER, "settle": true, "path": REP_EX_PATH, "layers": {"routes": true, "labels": false},
+			"space": "sRGB", "look": "Current look", "title": "Export map image", "note": "", "note_on": false},
+		"quick_bar_phone_list": {"open": true, "scroll": 0},
 	}
 
 ## The structure lines of one window, visible nodes only, no names or text: what `_structure_lines()` gives a composition.
@@ -1216,6 +1245,24 @@ func _rep_state(field: String) -> Dictionary:
 			return {"open": w.visible, "filter": String(w._filter), "phone": bool(w._phone)}
 		"saved_journeys_window":
 			return {"open": w.visible, "phone": bool(w._phone)}
+		"shortcuts_dialog":
+			return {"open": w.visible, "editable": bool(w._editable), "phone": bool(w._phone)}
+		"generation_rules_window":
+			return {"open": w.visible, "preset": String(w._active_preset), "phone": bool(w._phone)}
+		"layers_popover":
+			return {"open": w.visible, "query": String(w._query), "field": String(w._field.text), "phone": bool(w._phone)}
+		"_credits_dialog":
+			## The one build-site branch the dialog has: the desktop form sets a 660 px measure on the text, the phone's leaves it 0.
+			return {"open": w.visible, "phone": w.get_node("%CreditsText").custom_minimum_size.x == 0.0}
+		"export_dialog":
+			var lb: Dictionary = w._layer_boxes
+			return {"open": w.visible, "format": int(w._format.selected), "quality": float(w._quality.value), "tier": int(w._tier.selected),
+				"settle": bool(w._settle.button_pressed), "width": int(w._selected_width()), "path": String(w._path),
+				"routes": bool(lb["routes"].button_pressed), "labels": bool(lb["labels"].button_pressed),
+				"quality_row": bool(w._quality_row.visible), "phone": bool(w._phone)}
+		"quick_bar_phone_list":
+			## No build-site branch: `phone_window()` makes it borderless on the phone and nothing else differs.
+			return {"open": w.visible, "phone": w.borderless}
 	push_error("_rep_state: no arm for " + field)
 	return {}
 
@@ -1226,6 +1273,10 @@ func _rep_scroll(field: String) -> int:
 		return int(w._text.scroll_vertical)
 	var body: Node = null
 	match field:
+		"shortcuts_dialog", "layers_popover": body = w._list
+		"generation_rules_window": body = w._street_body
+		"_credits_dialog": body = w.get_node("%CreditsText")
+		"export_dialog": body = w._status
 		"faction_roster_window": body = w._inspector_body
 		"place_editor_window": body = w._body
 		"world_data_window": body = w._settlements_body
@@ -1248,6 +1299,13 @@ func _rep_expect(field: String) -> Dictionary:
 		"gen_info_dialog": return {"open": true, "lines": true}
 		"conflicts_window": return {"open": true, "filter": "active"}
 		"saved_journeys_window": return {"open": true}
+		"shortcuts_dialog": return {"open": true, "editable": true}
+		"generation_rules_window": return {"open": true, "preset": "Medina"}
+		"layers_popover": return {"open": true, "query": "o", "field": "o"}
+		"_credits_dialog": return {"open": true}
+		"export_dialog": return {"open": true, "format": 1, "quality": 55.0, "tier": 2, "settle": true, "width": 4096,
+			"path": "C:/probe_export/map.jpg", "routes": true, "labels": false, "quality_row": true}
+		"quick_bar_phone_list": return {"open": true}
 	push_error("_rep_expect: no arm for " + field)
 	return {}
 
@@ -1287,6 +1345,33 @@ func _rep_open(field: String) -> void:
 			_app.open_conflicts_list()
 			_app.conflicts_window._set_filter(REP_CF_FILTER)
 		"saved_journeys_window": _app.open_saved_journeys()
+		"shortcuts_dialog": _app.shortcuts_dialog.open_editable()
+		"generation_rules_window":
+			_app.generation_rules_window._active_preset = REP_GR_PRESET
+			_app.generation_rules_window.open()
+		"layers_popover":
+			## A popup opened in the frame a dialog was hidden is closed again by the engine's focus hand-back (seen in the full
+			## leg, not in `--only layers_popover`), so the focus settles first.
+			await _frames(10)
+			_app.layers_popover.open()
+			_app.layers_popover._field.text = REP_LP_QUERY
+			_app.layers_popover._field.text_changed.emit(REP_LP_QUERY)
+		"_credits_dialog": _app.open_credits()
+		"export_dialog":
+			var ex = _app.open_export_dialog()
+			ex._format.select(REP_EX_FORMAT)
+			ex._on_format_changed()
+			ex._quality.value = REP_EX_QUALITY
+			ex._tier.select(REP_EX_TIER)
+			ex._settle.button_pressed = true
+			ex._layer_boxes["routes"].button_pressed = true
+			ex._layer_boxes["labels"].button_pressed = false
+			for i in ex._widths.size():
+				if ex._widths[i] == REP_EX_WIDTH:
+					_ok(not ex._sizes.is_item_disabled(i), "the export fixture's width %d is affordable in this world" % REP_EX_WIDTH)
+					ex._sizes.select(i)
+			ex.set_destination(REP_EX_PATH)
+		"quick_bar_phone_list": _app.phone_quick.open_list()
 
 ## The ScrollContainer this fixture scrolls (a `TextEdit` for the dump), or null.
 func _rep_scroll_target(w: Node, field: String) -> Node:
@@ -1318,9 +1403,16 @@ func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void
 	for k in ex:
 		same = same and (is_equal_approx(float(st[k]), float(ex[k])) if ex[k] is float else st[k] == ex[k])
 	_ok(same, "%s: %s is open with its state (%s)" % [tag, field, str(st)])
-	_ok(st["phone"] == phone and win.borderless == phone, "%s: baked for %s (_phone %s, borderless %s)" % [tag, want, str(st["phone"]), str(win.borderless)])
+	_ok(st["phone"] == phone and (REP_NO_BORDER_CHECK.has(field) or win.borderless == phone), "%s: baked for %s (_phone %s, borderless %s)" % [tag, want, str(st["phone"]), str(win.borderless)])
 	if field == "faction_roster_window" or field == "place_editor_window" or field == "world_data_window":
 		_ok((win.min_size == Vector2i.ZERO) == phone, "%s: min_size is %s (%s)" % [tag, "cleared" if phone else "the desktop's", str(win.min_size)])
+	if field == "layers_popover":
+		## The wind and current layer is attached to the SURVIVING overlay by `setup()`: a rebuilt popover must reuse it.
+		var fx := 0
+		for c in _app.viewport.overlay.get_children():
+			if String(c.name).begins_with("WindFxLayer"):
+				fx += 1
+		_ok(fx == 1, "%s: exactly one wind/current layer is attached to the overlay (%d)" % [tag, fx])
 	var want_scroll := 0 if (want == "tablet" and REP_SCROLL_ONE_WAY.has(field)) else REP_SCROLL
 	if REP_SCROLLED.has(field):
 		_ok(_rep_scroll(field) == want_scroll, "%s: the scroll is %d (%d)" % [tag, want_scroll, _rep_scroll(field)])
@@ -1333,7 +1425,7 @@ func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void
 	win.hide()
 	await _frames(4)
 	var fresh_bag: Dictionary = (_rep_bag[field] as Dictionary).duplicate()
-	if fresh_bag.has("scroll"):
+	if fresh_bag.has("scroll") and REP_SCROLLED.has(field):
 		fresh_bag["scroll"] = want_scroll
 	var fr := await _fresh_lines(field, fresh_bag)
 	var first := -1
@@ -1341,7 +1433,7 @@ func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void
 		if rl[i] != fr[i]:
 			first = i
 			break
-	_ok(rl.size() > 8 and rl == fr, "%s: the layout equals a fresh open's (%d lines vs %d; first difference %d: '%s' vs '%s')" % [tag, rl.size(), fr.size(), first, "" if first < 0 else rl[first], "" if first < 0 else fr[first]])
+	_ok(rl.size() > (REP_MIN_LINES[field] if REP_MIN_LINES.has(field) else 8) and rl == fr, "%s: the layout equals a fresh open's (%d lines vs %d; first difference %d: '%s' vs '%s')" % [tag, rl.size(), fr.size(), first, "" if first < 0 else rl[first], "" if first < 0 else fr[first]])
 	var back_bag: Dictionary = fresh_bag
 	win.represent_restore(back_bag)
 	await _frames(10)
@@ -1392,6 +1484,79 @@ func _rep_world_tab(ph: Vector2i, tab: Vector2i) -> void:
 	_app.world_data_window.hide()
 	await _frames(4)
 
+## The desktop `Find on map` dialog (batch 3): a plain AcceptDialog the shell builds, re-presented by `DccShell.search_represent_*`,
+## so it is not in `REP_ORDER`. Same-class remounts (the probe's direct call, which bypasses the gate) keep it open with its text
+## three times; a swap to the phone drops it closed (the phone has its own search overlay, `search_represent_restore`) and back to
+## the tablet it stays closed, as a rebuilt-but-unopened dialog should.
+const REP_SEARCH_TEXT := "a"
+func _rep_search(ph: Vector2i, tab: Vector2i) -> void:
+	print("-- the desktop Find dialog: open with a query, three same-class remounts, then the phone and back")
+	for other in REP_ORDER:
+		if _app.get(other) != null:
+			_app.get(other).hide()
+	_app.open_find_on_map()
+	await _frames(6)
+	_app._desktop_search_field.text = REP_SEARCH_TEXT
+	_app._refresh_desktop_search()
+	await _frames(4)
+	_ok(_app._desktop_search_dialog != null and _app._desktop_search_dialog.visible, "the Find dialog is open on the tablet")
+	var o0 := -1
+	for t in range(1, 4):
+		var old = _app._desktop_search_dialog
+		await _app._remount_composition(null)
+		await _frames(12)
+		var d = _app._desktop_search_dialog
+		_ok(d != old and not is_instance_valid(old), "find trip %d: the dialog is a new instance and the old one is freed" % t)
+		_ok(d != null and d.visible and String(_app._desktop_search_field.text) == "a", "find trip %d: open with its query ('%s')" % [t, str(_app._desktop_search_field.text) if d != null else "none"])
+		_ok(not str(_blockers()).contains("Find on map"), "find trip %d: the dialog holds nothing (%s)" % [t, str(_blockers())])
+		_ok(_app._desktop_search_results.get_child_count() > 0, "find trip %d: the results are filled again from the world (%d rows)" % [t, _app._desktop_search_results.get_child_count()])
+		if t == 1:
+			o0 = _orphans()
+		else:
+			_ok(_orphans() == o0, "find trip %d: orphan nodes %d equal trip 1's %d" % [t, _orphans(), o0])
+	await _swap_to("phone", ph.x, ph.y)
+	var dp = _app._desktop_search_dialog
+	_ok(dp != null and not dp.visible, "on the phone the desktop dialog is rebuilt closed (the phone's overlay is its search)")
+	await _swap_to("tablet", tab.x, tab.y)
+	var dt = _app._desktop_search_dialog
+	_ok(dt != null and dt != dp and not dt.visible, "back on the tablet it is a new instance, closed")
+	_app._desktop_search_dialog.hide()
+	await _frames(4)
+
+## Generation rules' scroll. On the tablet the window (980 x 660) holds all three tables with nothing to scroll, so the table
+## cannot test it; on the phone the sections stack and there is room. Set there and carried across three same-class remounts (the
+## probe's direct call, which bypasses the gate), with the lit preset chip.
+func _rep_gr_scroll(ph: Vector2i, tab: Vector2i) -> void:
+	print("-- generation rules: the scroll on the phone, across three same-class remounts")
+	for other in REP_ORDER:
+		if _app.get(other) != null:
+			_app.get(other).hide()
+	await _swap_to("phone", ph.x, ph.y)
+	_app.generation_rules_window._active_preset = REP_GR_PRESET
+	_app.generation_rules_window.open()
+	await _frames(12)
+	var sc: ScrollContainer = null
+	var p: Node = _app.generation_rules_window._street_body.get_parent()
+	while p != null and not p is ScrollContainer:
+		p = p.get_parent()
+	sc = p
+	_ok(sc != null and sc.get_v_scroll_bar().max_value - sc.get_v_scroll_bar().page > REP_SCROLL + 20.0, "the phone's tables have room to scroll (max %s, page %s)" % [str(sc.get_v_scroll_bar().max_value), str(sc.get_v_scroll_bar().page)])
+	sc.scroll_vertical = REP_SCROLL
+	await _frames(4)
+	for t in range(1, 4):
+		var old = _app.generation_rules_window
+		await _app._remount_composition(null)
+		await _frames(14)
+		var g = _app.generation_rules_window
+		var q: Node = g._street_body.get_parent()
+		while q != null and not q is ScrollContainer:
+			q = q.get_parent()
+		_ok(g != old and not is_instance_valid(old) and g.visible, "gen rules remount %d: a new instance, open" % t)
+		_ok(q != null and (q as ScrollContainer).scroll_vertical == REP_SCROLL, "gen rules remount %d: the scroll is %d (%d)" % [t, REP_SCROLL, (q as ScrollContainer).scroll_vertical if q != null else -1])
+		_ok(String(g._active_preset) == REP_GR_PRESET, "gen rules remount %d: the lit preset is '%s' (%s)" % [t, REP_GR_PRESET, g._active_preset])
+	_app.generation_rules_window.hide()
+	await _swap_to("tablet", tab.x, tab.y)
+
 func _represent() -> void:
 	await _settle_at_rest()
 	var boot := String(_app.class_key())
@@ -1427,6 +1592,10 @@ func _represent() -> void:
 		await _frames(4)
 	if only == "" or only == "world_data_window":
 		await _rep_world_tab(ph, tab)
+	if only == "" or only == "search":
+		await _rep_search(ph, tab)
+	if only == "" or only == "gr_scroll":
+		await _rep_gr_scroll(ph, tab)
 	_ok(_world_hash() == _live_world and absf(float(_app.viewport.zoom()) - _live_zoom) < 1e-6, "the world and the camera are untouched")
 	print("-- the vault holds the swap until its text is saved (a converted window is hidden by then: only one modal window can be shown)")
 	var vw = _app.vault_window

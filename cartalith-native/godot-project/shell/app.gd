@@ -1633,14 +1633,10 @@ func _ready() -> void:
 
 	settlement_types_window = _make_window("settlement_types_window")
 
-	generation_rules_window = GenerationRulesWindow.new()
-	add_child(generation_rules_window)
-	generation_rules_window.setup(self, bridge)
+	generation_rules_window = _make_window("generation_rules_window")
 
 	gen_info_dialog = _make_window("gen_info_dialog")
-	shortcuts_dialog = ShortcutsDialog.new()
-	add_child(shortcuts_dialog)
-	shortcuts_dialog.setup(self)
+	shortcuts_dialog = _make_window("shortcuts_dialog")
 
 	assistant_settings_window = LlmSettingsWindow.new()
 	add_child(assistant_settings_window)
@@ -1732,9 +1728,7 @@ func _ready() -> void:
 		bridge.mark_world_dirty())
 	VaultStore.load_into(bridge)
 
-	layers_popover = LayersPopover.new()
-	add_child(layers_popover)
-	layers_popover.setup(bridge, viewport)
+	layers_popover = _make_window("layers_popover")
 
 	## MS-1 S4.2: everything in this function that depends on the composition's class, in one call.
 	_mount_app_composition()
@@ -2098,13 +2092,26 @@ func _perform_class_swap() -> void:
 ## added here only with its `represent_capture()` and `represent_restore()`, and its probe leg in `_ms1swap_probe.gd`
 ## (`--leg represent`); `S4_INVENTORY.md` section 18 says which windows are still not here and so still hold a swap.
 const REPRESENTED_WINDOWS := ["place_editor_window", "faction_roster_window", "world_data_window", "city_viewer_window",
-		"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window"]
+		"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window",
+		"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list"]
 ## The represented windows that are built on first use (`open_conflicts_list()`, `open_saved_journeys()`) and are null until
 ## then: the swap leaves a never-built one unbuilt (its first open builds it for the class it is then in, as before) and
 ## rebuilds one that exists.
-const LAZY_WINDOWS := ["conflicts_window", "saved_journeys_window"]
+const LAZY_WINDOWS := ["conflicts_window", "saved_journeys_window", "_credits_dialog", "export_dialog", "quick_bar_phone_list"]
+
+## The phone quick bar's `All...` sheet belongs to `QuickBarPhone` (a `RefCounted` that builds it on first use), not to this node;
+## this property is the field `REPRESENTED_WINDOWS` and `LAZY_WINDOWS` name it by, forwarding to the owner so one mechanism
+## serves every window. Null until it was first opened, and while `phone_quick` does not exist.
+var quick_bar_phone_list: QuickBarPhoneList:
+	get:
+		return phone_quick.list_sheet() if phone_quick != null else null
+	set(v):
+		if phone_quick != null:
+			phone_quick._list = v
 ## What `_capture_windows()` read, by field name, until `_represent_windows()` and `_restore_windows()` have used it.
 var _window_bags: Dictionary = {}
+## The desktop Find dialog's share of the same swap (`DccShell.search_represent_capture()`), which is the shell's own plain dialog.
+var _search_bag: Dictionary = {}
 
 ## Builds the long-lived window `field` for the class the shell is in now, exactly as `_ready()` did at boot: the one
 ## constructor both paths use, so a re-presented window cannot differ from a cold boot's. Returns the new window (already
@@ -2144,6 +2151,29 @@ func _make_window(field: String) -> Node:
 			w = SAVED_JOURNEYS_WINDOW.new()
 			add_child(w)
 			w.setup(self, bridge)
+		"shortcuts_dialog":
+			w = ShortcutsDialog.new()
+			add_child(w)
+			w.setup(self)
+		"generation_rules_window":
+			w = GenerationRulesWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"layers_popover":
+			w = LayersPopover.new()
+			add_child(w)
+			w.setup(bridge, viewport)
+		"_credits_dialog":
+			w = _build_credits_dialog()
+		"export_dialog":
+			## `setup()` before `add_child()`, as `open_export_dialog()` always did.
+			w = EXPORT_DIALOG.new()
+			w.setup(self)
+			add_child(w)
+		"quick_bar_phone_list":
+			w = QuickBarPhoneList.new()
+			add_child(w)
+			w.setup(self)
 		_:
 			push_error("_make_window: no builder for '%s'" % field)
 	return w
@@ -2151,6 +2181,7 @@ func _make_window(field: String) -> Node:
 ## Step 1 of a swap's windows, BEFORE anything is unmounted: each represented window says what the user set.
 func _capture_windows() -> void:
 	_window_bags = {}
+	_search_bag = search_represent_capture()
 	for f in REPRESENTED_WINDOWS:
 		var w = get(f)
 		if w != null and is_instance_valid(w):
@@ -2161,6 +2192,7 @@ func _capture_windows() -> void:
 ## rebuilt too, because its `_phone` and presentation were baked for the class it was built in and a later open would
 ## otherwise show the wrong layout.
 func _represent_windows() -> void:
+	search_represent_free()
 	var existed := {}
 	for f in REPRESENTED_WINDOWS:
 		var old = get(f)
@@ -2184,6 +2216,8 @@ func _restore_windows() -> void:
 	## the mount, and a window opened before it was measured 27 px taller than the same window opened after (`_ms1swap_
 	## probe.gd --leg represent`, "equals a fresh open's").
 	await get_tree().process_frame
+	search_represent_restore(_search_bag)
+	_search_bag = {}
 	for f in REPRESENTED_WINDOWS:
 		if _window_bags.has(f):
 			var w = get(f)
@@ -6453,9 +6487,7 @@ var export_dialog: AcceptDialog = null
 ## (Export map image…) leaves them as the user last set them.
 func open_export_dialog(preset: String = "") -> AcceptDialog:
 	if export_dialog == null or not is_instance_valid(export_dialog):
-		export_dialog = EXPORT_DIALOG.new()
-		export_dialog.setup(self)
-		add_child(export_dialog)
+		export_dialog = _make_window("export_dialog")
 	export_dialog.apply_preset(preset)
 	export_dialog.present()
 	return export_dialog
@@ -7012,9 +7044,14 @@ var _credits_dialog: AcceptDialog = null
 ## and presents it; later calls re-present the same dialog. The script must be
 ## attached before the node enters the tree -- see the block above `_credits_dialog`.
 func open_credits() -> void:
-	if is_instance_valid(_credits_dialog):
-		_present_credits()
-		return
+	if not is_instance_valid(_credits_dialog):
+		_credits_dialog = _build_credits_dialog()
+	_present_credits()
+
+## Builds the credits dialog for the class the shell is in now and parents it to this node (never presents it): the
+## constructor `open_credits()` and `_make_window("_credits_dialog")` (MS-1 S4.5, a class swap rebuilds it) share, so a
+## re-presented dialog cannot differ from a first open. The caller assigns `_credits_dialog`.
+func _build_credits_dialog() -> AcceptDialog:
 	var dlg := AcceptDialog.new()
 	dlg.title = "Credits & academic principles"
 	dlg.size = Vector2i(720, 640)
@@ -7049,18 +7086,19 @@ func open_credits() -> void:
 	text.owner = dlg
 	text.unique_name_in_owner = true
 	dlg.set_script(load("res://credits.gd"))
-	_credits_dialog = dlg
 	add_child(dlg)
 	if phone:
 		phone_fit(dlg, 1.0)
-	_present_credits()
+	return dlg
 
-## Shows `_credits_dialog` the platform's way: the phone's `phone_present()`, else
-## a centred popup.
-func _present_credits() -> void:
-	if DccWidgets.phone_present(_credits_dialog, self):
+## Shows `dlg` (default `_credits_dialog`) the platform's way: the phone's `phone_present()`, else
+## a centred popup. The parameter is for `credits.gd::represent_restore()`, which presents ITSELF, so a dialog built apart from the
+## field (the probe's oracle) is not silently presented through the field's instance.
+func _present_credits(dlg: AcceptDialog = null) -> void:
+	var d := _credits_dialog if dlg == null else dlg
+	if DccWidgets.phone_present(d, self):
 		return
-	_credits_dialog.popup_centered()
+	d.popup_centered()
 
 ## The second instance of `open_storage_locations()`'s defect, in the same file
 ## and reached the same way: MORE ▸ Help & about ▸ About, which

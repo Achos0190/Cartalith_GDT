@@ -66,6 +66,8 @@ class_name ShortcutsDialog
 ## same key means different things with a tool armed", is not a bug this
 ## dialog polices.
 
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
 ## The owning `DccApp`, typed `Node` like every sibling window's reference.
 ## Used for `.menus` (rebindability, default accelerators) and the phone
 ## fit/present calls; never null after [`setup`].
@@ -574,6 +576,24 @@ func _reset_all() -> void:
 		(pi["popup"] as PopupMenu).set_item_accelerator(int(pi["index"]), int(_app.menus.shortcut_default(id)))
 	_status.text = "Every menu shortcut restored to its shipped key."
 	_rebuild()
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18): what a class swap carries across the dialog's rebuild: whether
+## it is open, which mode (the reference list or the rebindable one: a rebind chip must not appear on a read-only sheet or
+## vanish from the editable one), and the list's scroll. The rows are regenerated from the live menus on every open, so they
+## are not state. A rebind capture in progress is not carried: it is held input and makes the swap wait (`quiescent_blockers`).
+func represent_capture() -> Dictionary:
+	return {"open": visible, "editable": _editable, "scroll": WindowRepresent.scroll_value(_list)}
+
+## The other half, on the NEW dialog (after the menus are mounted, so the list reads the new class's live menus). A coroutine:
+## the scroll waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	if not bool(bag["open"]):
+		return
+	if bool(bag["editable"]):
+		open_editable()
+	else:
+		open()
+	await WindowRepresent.restore_scroll(_list, int(bag["scroll"]))
 
 ## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8): a rebind capture in progress (`_capturing_id` >= 0) is held
 ## input, so a class swap waits for it. `DccShell.quiescent_blockers()` asks this only while the dialog is

@@ -781,6 +781,7 @@ const PHONE_UNDO_HOLD_SEC := 0.45  ## Standard mobile long-press threshold
 ## first `open_find_on_map()` call. See that function for why this is a plain
 ## `AcceptDialog` rather than the phone's hand-built overlay.
 var _desktop_search_dialog: AcceptDialog
+const WindowRepresent := preload("res://shell/window_represent.gd")
 ## Find-on-map dialog input (desktop).
 var _desktop_search_field: LineEdit
 ## Find-on-map dialog results column (desktop).
@@ -1926,7 +1927,8 @@ func _collect_window_blockers(node: Node, out: Array[String]) -> void:
 				## S4.4: an open window that reported nothing of its own still holds the swap until S4.5.
 				## S4.5: a window that re-presents itself (`window_represent.gd`) is not a reason to wait; what it holds
 				## unconfirmed it has already said above.
-				if out.size() == before and not w.has_method("represent_capture"):
+				## The desktop Find dialog is a plain AcceptDialog the shell re-presents itself (`search_represent_*`).
+				if out.size() == before and not w.has_method("represent_capture") and w != _desktop_search_dialog:
 					if w is Popup:
 						out.append("a menu is open")
 					else:
@@ -10419,6 +10421,45 @@ func _open_desktop_find_on_map() -> void:
 	_refresh_desktop_search()
 	_desktop_search_dialog.popup_centered(Vector2i(440, 480))
 	_desktop_search_field.grab_focus.call_deferred()
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18): the desktop `Find on map` dialog across a class swap. It is a plain
+## `AcceptDialog` the shell builds on first use, so it has no `represent_capture()` of its own; `DccApp._capture_windows()` /
+## `_represent_windows()` / `_restore_windows()` call these three beside the windows `_make_window()` builds. Returns
+## `{"built": false}` when the dialog was never built (a swap leaves it unbuilt, as a first open then builds it for the class it is in).
+## What is carried: whether it is open, the query text (which holds the scope prefix, `SEARCH_SCOPES`, so the active chip follows
+## it) and the results' scroll. The results themselves are re-derived from the world by `_refresh_desktop_search()`.
+func search_represent_capture() -> Dictionary:
+	if _desktop_search_dialog == null or not is_instance_valid(_desktop_search_dialog):
+		return {"built": false}
+	return {"built": true, "open": _desktop_search_dialog.visible, "text": _desktop_search_field.text,
+		"scroll": WindowRepresent.scroll_value(_desktop_search_results)}
+
+## Frees the old dialog and clears the four handles the builder set. Before the registries are pruned, like the windows.
+func search_represent_free() -> void:
+	if _desktop_search_dialog != null and is_instance_valid(_desktop_search_dialog):
+		_desktop_search_dialog.free()
+	_desktop_search_dialog = null
+	_desktop_search_field = null
+	_desktop_search_chips = null
+	_desktop_search_count = null
+	_desktop_search_results = null
+
+## Builds the dialog again for the new class (when it existed) and, if it was open, opens it with its text. A coroutine: the scroll
+## waits for the new layout.
+func search_represent_restore(bag: Dictionary) -> void:
+	if not bool(bag.get("built", false)):
+		return
+	_ensure_desktop_search_dialog()
+	## The phone searches in its own overlay (`open_find_on_map()`): a 440 x 480 desktop dialog over a 393 dp column is not its form,
+	## so the dialog is rebuilt closed there and the user's query on the other class is not carried onto it.
+	if not bool(bag["open"]) or _phone:
+		return
+	_open_desktop_find_on_map()
+	var q := String(bag["text"])
+	if q != "":
+		_desktop_search_field.text = q
+		_refresh_desktop_search()
+	await WindowRepresent.restore_scroll(_desktop_search_results, int(bag["scroll"]))
 
 ## Builds the desktop `Find on map` dialog (field, chips, count, results) on first use only;
 ## later calls return immediately. The 400 x 420 minimum size is a labelled judgement.

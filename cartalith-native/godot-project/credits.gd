@@ -26,6 +26,21 @@ extends AcceptDialog
 ## wording below carries `PROVENANCE.md`'s framing, and claims nothing about
 ## AGPL-3.0 beyond naming it.
 
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
+## MS-1 S4.5 (`shell/window_represent.gd`, `S4_INVENTORY.md` section 18): what a class swap carries across the dialog's rebuild:
+## whether it is open and the scroll. The text is a constant (`_bbcode()`), so nothing else is state. Built on first use
+## (`DccApp.open_credits()`); the swap rebuilds it only if it exists (`DccApp.LAZY_WINDOWS`).
+func represent_capture() -> Dictionary:
+	return {"open": visible, "scroll": WindowRepresent.scroll_value(%CreditsText)}
+
+## The other half, on the NEW dialog (a child of the app, which presents it the platform's way). A coroutine: the scroll
+## waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	if bool(bag["open"]):
+		get_parent()._present_credits(self)
+		await WindowRepresent.restore_scroll(%CreditsText, int(bag["scroll"]))
+
 ## Relabels the OK button "Close" and fills the `%CreditsText` rich-text node.
 ## The node must exist in the owning scene (`main.tscn`).
 func _ready() -> void:

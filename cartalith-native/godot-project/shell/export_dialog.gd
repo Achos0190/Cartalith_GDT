@@ -59,6 +59,7 @@ extends AcceptDialog
 signal export_finished(result: Dictionary)
 
 const EXPORT_OVERLAY := preload("res://shell/export_overlay.gd")
+const WindowRepresent := preload("res://shell/window_represent.gd")
 
 ## The widths offered when the engine cannot list its own (`export_raster_widths`,
 ## `export_raster.rs::BAKE_WIDTHS`) -- the same five rungs, copied so a dialog
@@ -666,8 +667,55 @@ func cancel_export() -> void:
 		_runner.cancel()
 		_status.text = "Cancelling"
 
-## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8, Q-S4-2's default): the export form holds its chosen format,
-## size and fields until Export, so while it is open a class swap waits. `DccShell.quiescent_blockers()` asks
-## this only while the dialog is visible. A pure query: it never exports, cancels or closes.
+## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8): an export in progress is held work -- the runner is a child of this dialog and
+## freeing the dialog cancels it and removes the partial file -- so a class swap waits for it. `DccShell.quiescent_blockers()` asks
+## this only while the dialog is visible. A pure query: it never exports, cancels or closes. **MS-1 S4.5 narrowed it:** it used to
+## say "the export form is open" whenever the form was shown (Q-S4-2's default, because the chosen format and size were lost by a
+## rebuild); `represent_capture()` now carries them, so only a running export holds the swap.
 func quiescent_blockers() -> Array[String]:
-	return ["the export form is open"]
+	if _running:
+		return ["an export is running"]
+	return []
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18): everything the user chose on the form, read from the
+## controls (the labelled option text where the option list can change, the index where it is a constant table). Not carried: the
+## measured-run line and the estimates (re-derived by `refresh()` against the world as it is, which a swap does not change), the
+## overwrite confirmation (a sub-dialog, the window's own business) and a running export (it holds the swap, above).
+func represent_capture() -> Dictionary:
+	var layers := {}
+	for k in _layer_boxes:
+		layers[k] = (_layer_boxes[k] as CheckBox).button_pressed
+	return {"open": visible, "width": _selected_width(), "settle": _settle.button_pressed, "tier": _tier.selected,
+		"layers": layers, "space": _space.get_item_text(_space.selected), "format": _format.selected,
+		"quality": _quality.value, "look": _look.get_item_text(_look.selected), "path": _path,
+		"title": title, "note": _preset_note.text, "note_on": _preset_note.visible,
+		"scroll": WindowRepresent.scroll_value(_status)}
+
+## The other half, on the NEW dialog. The format goes first (its change handler shows the quality row and re-prices), the size is
+## picked by width after that, and a width the world no longer affords falls back as `refresh()` does. Open or closed, the choices
+## are put back (a closed form reopened later must show them too, as it did before the swap).
+func represent_restore(bag: Dictionary) -> void:
+	_format.select(int(bag["format"]))
+	_on_format_changed()
+	for k in bag["layers"]:
+		if _layer_boxes.has(k):
+			(_layer_boxes[k] as CheckBox).button_pressed = bool(bag["layers"][k])
+	_settle.button_pressed = bool(bag["settle"])
+	_tier.select(int(bag["tier"]))
+	for i in _space.item_count:
+		if _space.get_item_text(i) == String(bag["space"]):
+			_space.select(i)
+	for i in _look.item_count:
+		if _look.get_item_text(i) == String(bag["look"]):
+			_look.select(i)
+	_quality.value = float(bag["quality"])
+	title = String(bag["title"])
+	_preset_note.text = String(bag["note"])
+	_preset_note.visible = bool(bag["note_on"])
+	for i in _widths.size():
+		if _widths[i] == int(bag["width"]) and not _sizes.is_item_disabled(i):
+			_sizes.select(i)
+	set_destination(String(bag["path"]))
+	if bool(bag["open"]):
+		present()
+		await WindowRepresent.restore_scroll(_status, int(bag["scroll"]))

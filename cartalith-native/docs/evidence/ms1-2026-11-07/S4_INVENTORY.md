@@ -974,12 +974,39 @@ back.
 
 ### 18.4 Which windows are not converted (they still hold a swap while open, and are still wrong if opened after a swap)
 
-From section 5.3's table, all but the eight converted in batches 1 and 2 (18.2, 18.5). **17 remain:** `vault_window`, `data_manager_window`, `asset_library_window` (and its slicer),
+From section 5.3's table, all but the fifteen converted in batches 1 to 3 (18.2, 18.5, 18.6). **10 remain:** `vault_window`, `data_manager_window`, `asset_library_window` (and its slicer),
 `new_world_dialog`, `open_project_dialog`, `phone_project_picker`, `travel_library_window`, `llm_assistant_window`,
-`llm_settings_window`, `layers_popover`, `quick_bar_window`, `quick_bar_phone_list`,
-`generation_rules_window`, `shortcuts_dialog`, `export_dialog`, the credits sheet and the desktop search dialog. Each needs its `represent_capture()` /
+`llm_settings_window` (`assistant_settings_window`) and `quick_bar_window`. Each needs its `represent_capture()` /
 `represent_restore()` and a `_make_window()` arm; the ones `_ready()` builds with extra wiring (`quick_bar_window.pins_changed`,
 `vault_window.store_changed`, `assistant_settings_window.settings_changed`) need that wiring in the arm. The windows with a
 held-input state (the vault, New world, the slicer, Export, the Travel library draft) keep waiting by Q-S4-2 and need the
 re-present only for the moments they hold nothing. A pop-out (`PopoutHost`) window is a native window on the desktop only and a
 desktop never swaps, so a converted window's native state is not carried (PW owns that file).
+
+### 18.6 Batch 3: seven windows (Shortcuts, Generation rules, credits, Export, Layers popover, the quick bar's phone list, the desktop Find dialog)
+
+Built on the contract of 18.1; verified by `_ms1swap_probe.gd --leg represent` (six more table rows, plus two blocks of their own).
+
+| Window | Carried | Not carried, and why |
+|---|---|---|
+| `shortcuts_dialog.gd` | open, mode (reference or rebindable), scroll | a rebind capture in progress (held input: still makes the swap wait) |
+| `generation_rules_window.gd` | open, the lit preset chip (`_active_preset`), the tables' scroll | the rules and sliders (the engine's, re-read by `open()`) |
+| credits (`credits.gd`, `DccApp._credits_dialog`, lazy) | open, scroll | nothing else is state |
+| `export_dialog.gd` (lazy) | open, size by width, format, JPEG quality, settlements switch and tier, every layer switch, colour space, look, destination, preset title and note, scroll | a running export (see below), the measured-run line (re-derived), the overwrite sub-dialog |
+| `layers_popover.gd` | open, the filter text, scroll | which layer is on (the engine's) |
+| `quick_bar_phone_list.gd` (lazy) | open, scroll | the rows (regenerated from the store) |
+| desktop Find dialog (`DccShell.search_represent_*`) | open, the query (it holds the scope prefix), scroll | on the phone it is rebuilt closed: the phone searches in its own overlay |
+
+**Findings.** (1) **Export no longer holds a swap while merely open.** `quiescent_blockers()` was `["the export form is open"]` (Q-S4-2's
+default) only because a rebuild lost the choices; they are carried now, so only a running export holds it (the runner is a child of the
+dialog, and freeing the dialog would cancel it and delete the partial file). (2) The layers popover attached its wind/current layer
+to the **surviving** viewport overlay, so a rebuilt popover would stack a second one per swap; `_attach_flow_fx()` now reuses the one
+named `WindFxLayer` (a mutant that stacks it is killed by a count of exactly one). (3) The quick bar's phone list belongs to
+`QuickBarPhone` (a `RefCounted`), so `DccApp.quick_bar_phone_list` is a forwarding property and the one `REPRESENTED_WINDOWS` mechanism
+serves it; the credits dialog and the Export dialog are named by their existing fields (`_credits_dialog`, `export_dialog`), their
+builders moved into `_make_window()` (`_build_credits_dialog()`). (4) The credits text's scroll is one-way (phone to tablet is
+clamped to 0 by the stretched phone window, as for Settlement types) and Generation rules' tables have no room to scroll on the
+tablet, so its scroll is checked on the phone across three same-class `_remount_composition()` calls (`--only gr_scroll`). (5) A
+`PopupPanel` opened in the frame a dialog was hidden is closed by the engine's focus hand-back (seen in the full leg only), so the
+probe lets the focus settle first. (6) `represent_restore()` of the credits dialog presents ITSELF (`_present_credits(dlg)`), so the
+probe's fresh oracle cannot be silently satisfied by the field's instance.

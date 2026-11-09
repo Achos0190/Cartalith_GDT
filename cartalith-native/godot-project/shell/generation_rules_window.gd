@@ -65,6 +65,8 @@ class_name GenerationRulesWindow
 ## caller here; a future per-field editor would use it, not a new bridge
 ## call.
 
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
 ## The owning `DccApp` (untyped, like sibling windows). Reached only for
 ## `phone_fit` and `viewport.forget_all_urban_layouts`; both calls are guarded.
 var app                       ## `DccApp`
@@ -176,6 +178,22 @@ func setup(a, b: EngineBridge) -> void:
 	_build()
 	if _phone:
 		app.phone_fit(self, 1.0)
+
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18): what a class swap carries across the window's rebuild. The
+## rules and the two sliders live in the engine (`get_active_urban_rules`, re-read by every `open()`), so they are not state here;
+## what only this window knows is which preset chip is lit (`_active_preset`, "" once a slider diverged), whether it is open, and
+## the tables pane's scroll. The preset is carried closed or open (a later open must light the same chip).
+func represent_capture() -> Dictionary:
+	return {"open": visible, "preset": _active_preset, "scroll": WindowRepresent.scroll_value(_street_body)}
+
+## The other half, on the NEW window. A coroutine: the scroll waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	_active_preset = String(bag["preset"])
+	if not bool(bag["open"]):
+		return
+	open()
+	await WindowRepresent.restore_scroll(_street_body, int(bag["scroll"]))
 
 
 ## Shows the window and re-reads the rule set from the engine, so what appears

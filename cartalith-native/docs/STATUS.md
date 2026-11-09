@@ -7347,8 +7347,8 @@ lists them), so S4.5 is not finished and B5's window bar is not met.
   `_ms1unit` tablet 7, `_pc7windows` desktop 138 and tablet 23, `_pc8planner` desktop 105, `_pc4context` desktop 145, `_pc6ask`
   desktop 74, `_ve5` 83, `_ve8` 87; no `SCRIPT ERROR` in any. Not re-run: the live leg's cold-boot comparison (`--clean --noworld`),
   `_pc8planner` on the tablet and phone, `_pc4context` and `_pc6ask` on the tablet and phone.
-- **Not done:** the 24 other windows (batch 2 below converts six of them; the large ones remain: the vault, the data manager, the
-  asset library, New world), the ring and B5's full bar (S4.6).
+- **Not done:** the 24 other windows (batches 2 and 3 below convert thirteen of them; the large ones remain: the vault, the data
+  manager, the asset library, New world), the ring and B5's full bar (S4.6).
 
 ### MS-1 S4.5 batch 2 built: six read-only and refill-per-open windows (2026-11-09)
 
@@ -7384,3 +7384,29 @@ bar is not met.
 - **Not done:** 17 windows: the vault, Data manager, Asset library (and its slicer), New world, Open project, the phone project
   picker, Travel library, the assistant and its settings, the layers popover, the quick-bar window and its phone list, Generation
   rules, Shortcuts, Export, the credits sheet and the desktop search dialog; the ring and B5's full bar (S4.6).
+
+### MS-1 S4.5 batch 3 built: Shortcuts, Generation rules, credits, Export, Layers popover, the quick bar's phone list, the desktop Find dialog (2026-11-09)
+
+Read at the symbols; the per-item account is `S4_INVENTORY.md` section 18.6. A class swap no longer waits for any of these seven while
+open. With batches 1 and 2 that is **fifteen converted windows; 10 long-lived windows still hold a swap while open** (the vault, Data
+manager, Asset library and its slicer, New world, Open project, the phone project picker, Travel library, the assistant, its
+settings window, the quick-bar window), so S4.5 is not finished and B5's window bar is not met.
+- **Carried:** see the table in section 18.6. The Export form's every choice is carried, so **it no longer holds a swap merely by
+  being open: only a running export does** (`quiescent_blockers()`).
+- **Mechanism additions:** `_make_window()` arms for the six (`_credits_dialog`, `export_dialog`, `quick_bar_phone_list` lazy via
+  `LAZY_WINDOWS`; `DccApp.quick_bar_phone_list` forwards to `QuickBarPhone._list`); the desktop Find dialog, a plain dialog the shell
+  builds, is captured, freed and restored by `DccShell.search_represent_capture/free/restore`, called from the same three steps; the
+  layers popover reuses the overlay's wind layer instead of stacking another.
+- **Bar (`_ms1swap_probe.gd --leg represent`, 1800 x 1000 tablet to 880 x 800 phone and back, three round trips each):** 722 checks, 0
+  failed (409 before this batch), plus a Find-dialog block (three same-class remounts, then the phone and back) and a Generation-rules
+  phone-scroll block. `--only <field>`, `--only search` and `--only gr_scroll` run one.
+- **Mutants (literal, one at a time, restored by the script):** 20 of 20 killed: Shortcuts mode and scroll dropped, Generation rules
+  preset and scroll dropped, Layers filter, scroll and wind-layer reuse dropped, credits scroll and re-open dropped, Export format,
+  quality, width, destination, layer switches, tier dropped, Export held while merely open, the phone list not re-opened, the Find
+  dialog's query dropped, its old instance not freed and its blocker exemption removed.
+- **Regression (on origin/main 7472f7c3 plus this change, after the rebase and a fresh `--import`; every run 0 failed, 0 `SCRIPT ERROR`):**
+  `_ms1swap` quiet 24, roundtrip 11, carry 68, live 540, represent 728 (the 722 above plus the Find block's later checks), `_ms1class --live
+  swap` 3, `_pc7windows` desktop 138 and tablet 23, `_pc8planner` desktop 105, tablet 7, phone 1, `_pc4context` desktop 145, tablet 145,
+  phone 2, `_pc6ask` desktop 74, tablet 70, phone 7, `_ve5` 83, `_ve8` 87, `_quickbar_window` desktop 108, `_llmprofiles` desktop PASS.
+  The tablet and phone forms of `_pc8planner`, `_pc4context` and `_pc6ask`, which batch 2 did not re-run, are included.
+- **Not done:** 10 windows (above); the ring and B5's full bar (S4.6).

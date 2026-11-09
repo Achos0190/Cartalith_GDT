@@ -22,6 +22,8 @@ class_name QuickBarPhoneList
 ## a row that cannot run toasts its reason and stays open. Only the list is a `ScrollContainer`, with the
 ## horizontal axis `DISABLED` and every row a width-bounded Button, so nothing here widens the window.
 
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
 ## One list row's height in dp (see "Rows").
 const ROW_DP := 52.0
 
@@ -66,6 +68,20 @@ func setup(app) -> void:
 	_body.add_theme_constant_override("separation", 4)
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(_body)
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18): what a class swap carries across the sheet's rebuild: whether it
+## is open and the list's scroll. The rows are regenerated from the store on every open (`show_entries`), so they are not state.
+## Built on first use (`QuickBarPhone.open_list`), so the swap rebuilds it only if it exists (`DccApp.LAZY_WINDOWS`).
+func represent_capture() -> Dictionary:
+	return {"open": visible, "scroll": WindowRepresent.scroll_value(_body)}
+
+## The other half, on the NEW sheet. It reopens in the new class's form (full-height on the phone, a centred 420 x 640 window
+## otherwise: its rows and its Customise row work in both). A coroutine: the scroll waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	if not bool(bag["open"]):
+		return
+	open(QuickBarPhone.entries(_app))
+	await WindowRepresent.restore_scroll(_body, int(bag["scroll"]))
 
 ## Shows the sheet on `es` ([`QuickBarPhone.entries`]).
 func open(es: Array) -> void:

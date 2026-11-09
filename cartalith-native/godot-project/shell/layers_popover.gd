@@ -44,6 +44,7 @@ class_name LayersPopover
 ## The animated wind/current overlay's script, preloaded (not by class name) so a
 ## fresh clone parses; instantiated once by `_attach_flow_fx`.
 const FLOW_FX_SCRIPT := preload("res://shell/wind_fx_layer.gd")
+const WindowRepresent := preload("res://shell/window_represent.gd")
 
 ## `sample_bridge.rs`'s `GAP_LAYERS` (`sample_bridge.rs:741 const GAP_LAYERS`),
 ## restated -- the one thing this file copies out of the engine's
@@ -489,6 +490,11 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 func _attach_flow_fx() -> void:
 	if host == null or host.overlay == null:
 		return
+	## MS-1 S4.5: the overlay is a survivor of a class swap and this popover is not (`window_represent.gd`: it is built again),
+	## so the one layer a first `setup()` attached is kept, not stacked once more per swap. The layer reads `bridge` and
+	## `host` only, both survivors, and never this popover.
+	if host.overlay.get_node_or_null("WindFxLayer") != null:
+		return
 	## `preload`, not the `WindFxLayer` global class name: a global name only
 	## resolves once the editor has rescanned and written
 	## `.godot/global_script_class_cache.cfg`, so a fresh clone (or any
@@ -499,6 +505,25 @@ func _attach_flow_fx() -> void:
 	fx.name = "WindFxLayer"
 	fx.setup(bridge, host)
 	host.overlay.add_child(fx)
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18): what a class swap carries across the popover's rebuild: whether
+## it is open, the filter text and the list's scroll. Which layer is on is the engine's (`debug_view()`), re-read by `rebuild()`.
+## A closed popover carries nothing: `open()` clears the filter on every open (CA-09), so a carried query would be a state no
+## user could have left behind.
+func represent_capture() -> Dictionary:
+	return {"open": visible, "query": _query, "scroll": WindowRepresent.scroll_value(_list)}
+
+## The other half, on the NEW popover. A coroutine: the scroll waits for the new layout. The filter is typed back through the
+## field's own `text_changed` (the one path that sets `_query` and redraws), after `open()` has cleared it.
+func represent_restore(bag: Dictionary) -> void:
+	if not bool(bag["open"]):
+		return
+	open()
+	var q := String(bag["query"])
+	if q != "":
+		_field.text = q
+		_field.text_changed.emit(q)
+	await WindowRepresent.restore_scroll(_list, int(bag["scroll"]))
 
 ## Anchored under the viewport's own layers button rather than at a guessed
 ## corner offset -- the button moves with `set_safe_insets()` on phone.
