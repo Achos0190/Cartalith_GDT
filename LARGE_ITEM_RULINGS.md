@@ -3388,3 +3388,17 @@ first. They set double tap's default to **Last tool** and the side slide's to **
   is enough.
 - **Everything goes through existing entry points** (`arm_tool`, the brush steppers, `undo_last`, `pin_key`). No
   generated output moves. The Gradle build switch is accepted (P10).
+
+## Ruling EL: user-given landmark names are saved with the world; the phone's slider steppers come back (owner, 2026-11-09)
+
+Two answers:
+
+1. **A user-given landmark name is saved with the world.** VE-9 (`df36f8d1`) keeps the override (Ruling EI) for the
+   session only, because nothing stored it and no control set it.
+   - **Save:** it goes into the project save as an optional slot, the `SAVEFILE_COMPAT.md` way. An old save without
+     the slot loads unchanged, and the slot round-trips byte-exact.
+   - **Control:** a control to give or clear the name is added on the landmark's Inspect page and its context card.
+   - **Generated output:** none moves. The generated name stays the fallback.
+2. **The phone's +/− steppers beside sliders come back.** Ruling EH item 1 (`3af1e0ac`) dropped them with the
+   GENERATE column. They are restored on the phone's dock sliders. Each step goes through the slider's own value path
+   and undo, with the 44 dp floor.
