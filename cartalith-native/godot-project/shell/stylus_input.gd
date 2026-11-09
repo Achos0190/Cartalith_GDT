@@ -24,6 +24,16 @@ extends RefCounted
 ## continuously while the pen is in range, so a pen that has gone leaves a gap longer than this.
 const PALM_MS := 300
 
+## The pressure responses: the exponent each applies to a 0..1 pressure. "linear" is the identity and the
+## default. 0.6 and 1.6 are SH-4's own pair (`STYLUS_HAPTICS_RESEARCH.md` section 8.1): a labelled judgement, not
+## a measurement. Below 1 eases light pressure in; above 1 holds back until a harder press.
+const PRESSURE_CURVES := {"soft": 0.6, "linear": 1.0, "firm": 1.6}
+
+## The "comfortable maximum" choices the menu offers, as raw pressures that should read as full strength. The
+## setting's own range is 0.5..1.0 (a floor of 0.5 stops a light touch exploding to full strength); these six
+## steps of 0.1 are a labelled judgement.
+const PRESSURE_MAX_CHOICES: Array[float] = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
+
 ## Test seam only: probes cannot make `OS.has_feature("mobile")` true on a desktop, so they set this to exercise
 ## the Android branches. Never set in shipped code.
 static var assume_mobile := false
@@ -68,6 +78,16 @@ static func pen_pressure(mm: InputEventMouseMotion) -> Variant:
 	if is_finger(mm.device) or not has_pen_signature(mm.pressure, mm.tilt, mm.pen_inverted):
 		return null
 	return mm.pressure
+
+## SH-4: remaps a 0..1 pressure through a curve exponent and a "comfortable maximum" (the raw pressure that
+## should read as full strength, 0.5..1.0). Identity, bitwise, at gamma 1 and maximum 1, so turning the feature
+## on changes nothing until a curve is chosen. Pure; never invents a value: callers pass only real pressures.
+static func remap_pressure(p: float, gamma: float, pmax: float) -> float:
+	if gamma == 1.0 and pmax == 1.0:
+		return p
+	var raw := clampf(p, 0.0, 1.0)
+	var scaled := clampf(raw / pmax, 0.0, 1.0) if pmax > 0.0 else raw
+	return pow(scaled, gamma)
 
 ## SH-3's palm test: whether a finger landing at `now_ms` falls inside the palm window of the last pen event at
 ## `last_pen_ms`. `last_pen_ms < 0` means no pen event yet (never a window), so a device that has not yet seen a

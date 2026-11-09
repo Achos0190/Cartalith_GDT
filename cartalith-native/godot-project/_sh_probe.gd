@@ -373,6 +373,8 @@ func _run(vw: int, vh: int) -> void:
 		await _t_sh2(P)
 	if _want("sh3"):
 		await _t_sh3(P)
+	if _want("sh4"):
+		await _t_sh4(P)
 
 
 # SH-2 -----------------------------------------------------------------------------------------------------------------
@@ -583,3 +585,107 @@ func _t_sh3(P: Vector2) -> void:
 	DccSettings.set_pen_draws_finger_pans(false)
 	StylusInput.assume_mobile = false
 	await _sh3_reset()
+
+# SH-4 -----------------------------------------------------------------------------------------------------------------
+
+## A stand-in for the engine bridge that records what the workspace hands it. `EngineBridge` is a GDScript node, so
+## a subclass overrides the two pressure chokepoints; it is never added to the tree (no `_ready`, no worker).
+class SpyBridge extends EngineBridge:
+	var paint_calls: Array = []
+	var sculpt_calls: Array = []
+	func paint_stroke_sample(_gx: float, _gy: float, pressure: Variant, tilt: Variant, _t_ms: int) -> Dictionary:
+		paint_calls.append({"p": pressure, "t": tilt})
+		return {}
+	func sculpt_add_point_p(_x: float, _y: float, pressure: Variant) -> int:
+		sculpt_calls.append(pressure)
+		return 0
+
+func _near(a: Variant, b: float, tol: float = 0.001) -> bool:
+	return a != null and absf(float(a) - b) <= tol
+
+func _t_sh4(_P: Vector2) -> void:
+	var ws: WorldWorkspace = _app._world_workspace()
+	_ok(ws != null, "the world workspace is reachable")
+	# the pure law, literals worked by hand: 0.5^1.6 = 0.32988, 0.5^0.6 = 0.65975
+	_ok(StylusInput.remap_pressure(0.5, 1.0, 1.0) == 0.5, "linear, max 1.0: 0.5 stays exactly 0.5 (bitwise identity)")
+	_ok(StylusInput.remap_pressure(0.37, 1.0, 1.0) == 0.37, "linear, max 1.0: 0.37 stays exactly 0.37")
+	_ok(_near(StylusInput.remap_pressure(0.5, 1.6, 1.0), 0.32988), "firm: 0.5 maps to 0.3299")
+	_ok(_near(StylusInput.remap_pressure(0.5, 0.6, 1.0), 0.65975), "soft: 0.5 maps to 0.6598")
+	_ok(_near(StylusInput.remap_pressure(0.7, 1.0, 0.7), 1.0), "comfortable max 0.7: 0.7 reads as full")
+	_ok(_near(StylusInput.remap_pressure(0.35, 1.0, 0.7), 0.5), "comfortable max 0.7: 0.35 reads as half")
+	_ok(_near(StylusInput.remap_pressure(0.9, 1.0, 0.7), 1.0), "comfortable max 0.7: 0.9 is clamped to full")
+	_ok(_near(StylusInput.remap_pressure(0.25, 1.6, 0.5), 0.32988), "firm with max 0.5: 0.25 maps to 0.3299")
+	_ok(StylusInput.remap_pressure(0.0, 1.6, 0.7) == 0.0 and StylusInput.remap_pressure(1.0, 1.6, 1.0) == 1.0,
+		"the ends stay where they are: 0 -> 0 and 1 -> 1")
+	_ok(StylusInput.PRESSURE_CURVES["soft"] == 0.6 and StylusInput.PRESSURE_CURVES["linear"] == 1.0 and StylusInput.PRESSURE_CURVES["firm"] == 1.6,
+		"the three curves are 0.6, 1.0 and 1.6 (SH-4's own pair)")
+
+	# the settings: defaults, validation, round trip
+	_ok(DccSettings.pen_pressure_curve() == "linear" and is_equal_approx(DccSettings.pen_pressure_max(), 1.0), "the defaults are linear and 1.0")
+	DccSettings.set_pen_pressure_curve("bogus")
+	_ok(DccSettings.pen_pressure_curve() == "linear", "an unknown curve name is ignored, not stored")
+	DccSettings.set_pen_pressure_max(0.2)
+	_ok(is_equal_approx(DccSettings.pen_pressure_max(), 0.5), "a maximum below 0.5 is clamped to 0.5")
+	DccSettings.set_pen_pressure_max(2.0)
+	_ok(is_equal_approx(DccSettings.pen_pressure_max(), 1.0), "a maximum above 1.0 is clamped to 1.0")
+	DccSettings.set_pen_pressure_curve("firm")
+	_ok(DccSettings.pen_pressure_curve() == "firm", "firm round-trips")
+	DccSettings.set_pen_pressure_curve("linear")
+
+	# the workspace helper: null passes through, identity at the defaults, the curve otherwise
+	_ok(ws._apply_pen_pressure(null) == null, "no pressure stays no pressure at the defaults")
+	_ok(ws._apply_pen_pressure(0.5) == 0.5, "the defaults return 0.5 unchanged")
+	DccSettings.set_pen_pressure_curve("firm")
+	_ok(ws._apply_pen_pressure(null) == null, "no pressure stays no pressure under firm: a curve never invents one")
+	_ok(_near(ws._apply_pen_pressure(0.5), 0.32988), "firm: the workspace maps 0.5 to 0.3299")
+	DccSettings.set_pen_pressure_curve("linear")
+
+	# the two chokepoints, through the real cached-sample path
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": 0.5, "tilt": null}
+	_ok(ws._sculpt_take_pressure(10.0, 20.0) == 0.5, "sculpt, defaults: the cached 0.5 reaches the engine as exactly 0.5")
+	DccSettings.set_pen_pressure_curve("firm")
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": 0.5, "tilt": null}
+	_ok(_near(ws._sculpt_take_pressure(10.0, 20.0), 0.32988), "sculpt, firm: the engine receives 0.3299")
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": 0.5, "tilt": null}
+	_ok(ws._sculpt_take_pressure(11.0, 20.0) == null, "sculpt: a sample for another position is no pressure (null)")
+	var was_on: bool = ws.sculpt_pressure_on()
+	ws.set_sculpt_pressure_on(false)
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": 0.5, "tilt": null}
+	_ok(ws._sculpt_take_pressure(10.0, 20.0) == null, "sculpt: the Pressure toggle off is still no pressure, whatever the curve")
+	ws.set_sculpt_pressure_on(was_on)
+
+	var real = ws.bridge
+	var spy := SpyBridge.new()
+	ws.bridge = spy
+	ws._paint_stroke_open = true
+	DccSettings.set_pen_pressure_curve("linear")
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": 0.5, "tilt": null}
+	ws._paint_drag(10.0, 20.0)
+	_ok(spy.paint_calls.size() == 1 and spy.paint_calls[0]["p"] == 0.5, "paint, defaults: the engine receives exactly 0.5")
+	DccSettings.set_pen_pressure_curve("firm")
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": 0.5, "tilt": null}
+	ws._paint_drag(10.0, 20.0)
+	_ok(spy.paint_calls.size() == 2 and _near(spy.paint_calls[1]["p"], 0.32988), "paint, firm: the engine receives 0.3299")
+	ws._paint_pending_sample = {}
+	ws._paint_drag(10.0, 20.0)
+	_ok(spy.paint_calls.size() == 3 and spy.paint_calls[2]["p"] == null, "paint: with no cached sample the engine receives null, not a curve of nothing")
+	ws._paint_stroke_open = false
+	ws.bridge = real
+	spy.free()
+	DccSettings.set_pen_pressure_curve("linear")
+	DccSettings.set_pen_pressure_max(1.0)
+
+	# the Preferences row (PC and tablet menus; the phone has its own menu, MS-6's)
+	var mn = _app.menus
+	if mn != null and mn._stylus_popup != null:
+		var pop: PopupMenu = mn._stylus_popup
+		mn._on_stylus_choice(mn.ID_PREF_CURVE_FIRM)
+		_ok(DccSettings.pen_pressure_curve() == "firm" and pop.is_item_checked(pop.get_item_index(mn.ID_PREF_CURVE_FIRM))
+			and not pop.is_item_checked(pop.get_item_index(mn.ID_PREF_CURVE_LINEAR)), "Preferences > Stylus > Firm stores firm and ticks it alone")
+		mn._on_stylus_choice(mn.ID_PREF_CURVE_LINEAR)
+		mn._on_stylus_choice(mn.ID_PREF_MAX_70)
+		_ok(is_equal_approx(DccSettings.pen_pressure_max(), 0.7), "Preferences > Stylus > Comfortable maximum 70 % stores 0.7")
+		mn._on_stylus_choice(mn.ID_PREF_MAX_100)
+		_ok(is_equal_approx(DccSettings.pen_pressure_max(), 1.0) and DccSettings.pen_pressure_curve() == "linear", "and 100 % / Linear put the defaults back")
+	else:
+		print("note: no PC/tablet Preferences menu on this form; the row is not checked here")

@@ -640,6 +640,34 @@ static func set_pen_draws_finger_pans(on: bool) -> void:
 	_cfg.set_value(_SEC_STYLUS, "pen_draws_finger_pans", on)
 	_save()
 
+## SH-4: the pen pressure response curve, "soft" / "linear" / "firm" (`StylusInput.PRESSURE_CURVES`). An unset or
+## unknown value reads as "linear", the identity -- never a guessed curve.
+static func pen_pressure_curve() -> String:
+	_ensure_loaded()
+	var cv := String(_cfg.get_value(_SEC_STYLUS, "pressure_curve", "linear"))
+	return cv if StylusInput.PRESSURE_CURVES.has(cv) else "linear"
+
+## Stores the curve and saves; an unknown name is ignored, not stored.
+static func set_pen_pressure_curve(curve: String) -> void:
+	if not StylusInput.PRESSURE_CURVES.has(curve):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "pressure_curve", curve)
+	_save()
+
+## SH-4's "comfortable maximum": the raw pressure that reads as full strength, 0.5..1.0, default 1.0 (the identity:
+## the pen must reach full pressure for full strength). A pen a user never presses past 0.7 then reaches full
+## strength at 0.7. The 0.5 floor keeps light touches from being exploded to full.
+static func pen_pressure_max() -> float:
+	_ensure_loaded()
+	return clampf(float(_cfg.get_value(_SEC_STYLUS, "pressure_max", 1.0)), 0.5, 1.0)
+
+## Stores the comfortable maximum and saves, clamped to 0.5..1.0.
+static func set_pen_pressure_max(value: float) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "pressure_max", clampf(value, 0.5, 1.0))
+	_save()
+
 # -- MS-1 S5: UI scale ----------------------------------------------------------
 
 ## The four offered UI scales (spec §3.6: 100 %, 125 %, 150 %, 200 %). Anything else read back or offered to

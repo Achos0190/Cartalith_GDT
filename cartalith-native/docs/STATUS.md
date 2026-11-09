@@ -89,6 +89,15 @@ emulation (device -1): it proves the routing, not what the Pad 3's pen reports. 
   glass size) does not work in this harness:** the stock `_ms5_probe` fails there identically on `origin/main`
   (the tablet's map host is 848x966 and no tap reaches it), so the tablet figure above is 2388x1668.
 
+- **SH-4 built (the pressure curve, GDScript only).** `Preferences > Stylus > Pressure curve` (Soft 0.6 / Linear 1.0 / Firm 1.6,
+  SH-4's own labelled-judgement pair) and `Comfortable maximum` (100 % to 50 %), per install in `DccSettings`. One helper,
+  `WorldWorkspace._apply_pen_pressure`, wraps the only two places a pen's pressure reaches the engine
+  (`_sculpt_take_pressure`, `_paint_drag`); `null` passes through (a curve never invents a pressure) and the defaults
+  return the value bitwise unchanged. The engine's law is untouched. `_sh_probe --section sh4` uses a spy bridge for the
+  paint path and hand-worked literals (0.5^1.6 = 0.3299, 0.5^0.6 = 0.6598, max 0.7: 0.35 -> 0.5): 31 checks at the 6T form,
+  75 (all sections) at 2388x1668 @2, 59 at the desktop form; five literal mutants killed (each wrap, the firm exponent,
+  the division by the maximum, a menu row's mapping).
+
 ### Ruling EH item 1 built: the phone's GENERATE column is retired; the WORLD sheet is the dock's own categories (2026-11-09)
 
 `LARGE_ITEM_RULINGS.md` Ruling EH item 1, `MISTAKES.md` "Delete a surface". GDScript only, no Rust change. *Re-opened at the symbols first (origin/main `e6f3cfbd`):* `dcc_shell.gd` (`_build_phone_tool_sheet()`, `_refresh_phone_gen_panel()`, `_mount_dock_in_sheet()`, `_ensure_dom_rows()`, `_refresh_phone_sheet_header()`, `_phone_gen_tab_on()`, `_capture_shell_state()`), `workspaces/world_workspace.gd` (`build_phone_generate()` and the whole `_pg_*` block, `_on_tool_armed()`, `brush_surfaces_changed()`, `_build_generate_head()`, `_build_paint()`, `_build_sculpt()`), `tool_bar.gd` (`build_brush_controls()`, `sym_pick_begin()`), `paint_original.gd`, `tool_fan.gd`.

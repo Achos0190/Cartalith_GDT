@@ -3704,8 +3704,20 @@ func _sculpt_take_pressure(gx: float, gy: float) -> Variant:
 	if not _sculpt_pressure_on:
 		return null
 	if not ps.is_empty() and is_equal_approx(float(ps["gx"]), gx) and is_equal_approx(float(ps["gy"]), gy):
-		return ps["pressure"]
+		return _apply_pen_pressure(ps["pressure"])
 	return null
+
+## SH-4. Remaps a live pen's pressure through the user's curve and comfortable maximum (`DccSettings`), for both the
+## sculpt and the paint pressure paths -- the only two places a pen's pressure is handed to the engine. A float 0..1
+## is remapped; `null` (no pen, a finger, the Pressure toggle off) passes straight through, so a curve never invents
+## a pressure where there was none. At the defaults (curve "linear", maximum 1.0) the value comes back bitwise
+## unchanged, so turning the feature on changes nothing until a curve is chosen. The engine's own pressure law
+## (`WorldGen::sculpt_add_point_p`, `paint_stroke_sample`) is untouched: this reshapes user input, never generation.
+func _apply_pen_pressure(p: Variant) -> Variant:
+	if not (p is float):
+		return p
+	return StylusInput.remap_pressure(float(p), float(StylusInput.PRESSURE_CURVES[DccSettings.pen_pressure_curve()]),
+		DccSettings.pen_pressure_max())
 
 ## Stroke motion sample: opens a stroke on the first point (when the press never
 ## reached the map, `_sculpt_begin_engine_stroke`), adds the point to the engine with
@@ -4952,7 +4964,7 @@ func _paint_drag(gx: float, gy: float) -> void:
 		var tilt: Variant = null
 		var ps := _paint_pending_sample
 		if not ps.is_empty() and is_equal_approx(float(ps["gx"]), gx) and is_equal_approx(float(ps["gy"]), gy):
-			pressure = ps["pressure"]
+			pressure = _apply_pen_pressure(ps["pressure"])
 			tilt = ps["tilt"]
 		_paint_pending_sample = {}
 		_paint_show_reply(bridge.paint_stroke_sample(gx, gy, pressure, tilt, Time.get_ticks_msec()))

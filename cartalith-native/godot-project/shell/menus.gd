@@ -222,6 +222,16 @@ const ID_PREF_HAND_RIGHT := 718  ## Preferences ▸ Handedness ▸ Right.
 ## SH-3 (Ruling EE, standard stylus input): Preferences ▸ Stylus. 940-949 are this submenu's; grepped for 94x across
 ## `shell/` before taking them (an id must be free everywhere, `78` was once issued twice).
 const ID_PREF_PEN_DRAWS := 940  ## Preferences ▸ Stylus ▸ Pen draws, finger pans.
+const ID_PREF_CURVE_SOFT := 941  ## Preferences ▸ Stylus ▸ Pressure curve ▸ Soft (SH-4).
+const ID_PREF_CURVE_LINEAR := 942  ## ... Linear (the identity, the default).
+const ID_PREF_CURVE_FIRM := 943  ## ... Firm.
+## Comfortable maximum, 100 % to 50 % in steps of 10 (`StylusInput.PRESSURE_MAX_CHOICES`, same order).
+const ID_PREF_MAX_100 := 944
+const ID_PREF_MAX_90 := 945
+const ID_PREF_MAX_80 := 946
+const ID_PREF_MAX_70 := 947
+const ID_PREF_MAX_60 := 948
+const ID_PREF_MAX_50 := 949
 ## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
 ## after 717/718 above -- grepped this whole file for 719 before taking it,
 ## the same whole-file check every neighbouring block records (an id must be
@@ -4112,8 +4122,9 @@ func _build_handedness_submenu(p: PopupMenu) -> void:
 	p.add_child(_hand_popup)
 	p.add_submenu_item("Handedness", "HandChoice")
 
-## `Preferences ▸ Stylus` (SH-3, Ruling EE -- standard pointer input only: pressure, tilt, hover, touch). One
-## check row now, *Pen draws, finger pans*; SH-4 and SH-5 add their rows below it. Unconditional, like Handedness:
+## `Preferences ▸ Stylus` (SH-3/SH-4, Ruling EE -- standard pointer input only: pressure, tilt, hover, touch):
+## *Pen draws, finger pans*, then SH-4's pressure curve (Soft / Linear / Firm) and comfortable maximum; SH-5 adds
+## its row below. Unconditional, like Handedness:
 ## a Windows pen reaches the same code. The row stores a preference only (`DccSettings`, never a world's); the
 ## shell's routing (`ViewportHost._finger_navigates`) reads it, and takes effect once a pen has been seen.
 func _build_stylus_submenu(p: PopupMenu) -> void:
@@ -4122,6 +4133,17 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 	_stylus_popup.add_check_item("Pen draws, finger pans", ID_PREF_PEN_DRAWS)
 	_stylus_popup.set_item_tooltip(0,
 		"Once a pen has been seen, a finger only moves the map and the pen draws; a finger that lands while the pen is near is ignored as a resting palm. The pen is told from a finger by its input device, which is best-effort. Stored on this device, never in a world.")
+	_stylus_popup.add_separator("Pressure curve")
+	for row in [["Soft", ID_PREF_CURVE_SOFT], ["Linear", ID_PREF_CURVE_LINEAR], ["Firm", ID_PREF_CURVE_FIRM]]:
+		_stylus_popup.add_radio_check_item(String(row[0]), int(row[1]))
+		_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
+			"How a pen's pressure maps to stroke strength. Linear is the pen as it reports; Soft eases light pressure in; Firm holds back until a harder press. Applies to sculpt and paint with a pen; a mouse or a finger carries no pressure.")
+	_stylus_popup.add_separator("Comfortable maximum")
+	for row in [["100 % (the pen as it reports)", ID_PREF_MAX_100], ["90 %", ID_PREF_MAX_90], ["80 %", ID_PREF_MAX_80],
+			["70 %", ID_PREF_MAX_70], ["60 %", ID_PREF_MAX_60], ["50 %", ID_PREF_MAX_50]]:
+		_stylus_popup.add_radio_check_item(String(row[0]), int(row[1]))
+		_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
+			"The pressure that counts as full strength. If you never press past 70 %, choose 70 % and that press reaches full strength.")
 	_refresh_stylus_menu()
 	_stylus_popup.id_pressed.connect(_on_stylus_choice)
 	_shell.style_popup(_stylus_popup)
@@ -4131,6 +4153,14 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 ## Ticks Preferences ▸ Stylus from `DccSettings`. Reads settings only.
 func _refresh_stylus_menu() -> void:
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_PEN_DRAWS), DccSettings.pen_draws_finger_pans())
+	var curve := DccSettings.pen_pressure_curve()
+	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_CURVE_SOFT), curve == "soft")
+	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_CURVE_LINEAR), curve == "linear")
+	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_CURVE_FIRM), curve == "firm")
+	var pmax := DccSettings.pen_pressure_max()
+	for k in StylusInput.PRESSURE_MAX_CHOICES.size():
+		_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_MAX_100 + k),
+			is_equal_approx(StylusInput.PRESSURE_MAX_CHOICES[k], pmax))
 
 ## Serves Preferences ▸ Stylus: stores the toggled preference, re-ticks, and tells the map host so the pan latch
 ## follows at once. An unknown id is ignored.
@@ -4138,8 +4168,16 @@ func _on_stylus_choice(id: int) -> void:
 	match id:
 		ID_PREF_PEN_DRAWS:
 			DccSettings.set_pen_draws_finger_pans(not DccSettings.pen_draws_finger_pans())
+		ID_PREF_CURVE_SOFT:
+			DccSettings.set_pen_pressure_curve("soft")
+		ID_PREF_CURVE_LINEAR:
+			DccSettings.set_pen_pressure_curve("linear")
+		ID_PREF_CURVE_FIRM:
+			DccSettings.set_pen_pressure_curve("firm")
 		_:
-			return
+			if id < ID_PREF_MAX_100 or id > ID_PREF_MAX_50:
+				return
+			DccSettings.set_pen_pressure_max(StylusInput.PRESSURE_MAX_CHOICES[id - ID_PREF_MAX_100])
 	_refresh_stylus_menu()
 	if _host != null and _host.viewport != null and _host.viewport.has_method("refresh_stylus_mode"):
 		_host.viewport.refresh_stylus_mode()
