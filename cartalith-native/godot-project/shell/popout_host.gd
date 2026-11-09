@@ -491,3 +491,107 @@ static func forget_choices(tree: SceneTree) -> void:
 	for n in tree.get_nodes_in_group(GROUP):
 		if n.has_meta(META_CHOICE):
 			n.remove_meta(META_CHOICE)
+
+
+# -- Ruling EA item 11: dialogs a pop-out spawns open on the asking window's monitor ----------------
+
+## Gap, in logical pixels, a dialog keeps from every edge of the pop-out it is embedded in. **A labelled
+## judgement**: the dialog's own shadow margin is 12-ish px (`style_popup`), and 16 leaves it visible
+## rather than clipped by the pop-out's edge.
+const DIALOG_MARGIN := 16
+
+## The node a dialog that `asker` opens must be added to. If `asker` is, or sits inside, a visible
+## NATIVE pop-out of the live list, that window (the dialog is then a child of it, so an embedded
+## dialog lives inside it and a native one is transient to it, on its monitor). Otherwise `app`, which
+## is exactly what every caller passed before: a docked window, the main window or a menu is unchanged.
+## `null` is never returned unless `app` is null.
+static func dialog_host(app: Node, asker: Node) -> Node:
+	var n := asker
+	while n != null:
+		if n is Window and n.is_in_group(GROUP) and (n as Window).visible and not (n as Window).is_embedded():
+			return n
+		n = n.get_parent()
+	return app
+
+## Pure: whether a dialog needing `need` logical pixels fits inside a window of `host_size` logical
+## pixels with `DIALOG_MARGIN` on every side. Both terms count (a dialog taller OR wider than the
+## pop-out does not fit). A non-positive host answers false, never "fits".
+static func dialog_fits(need: Vector2i, host_size: Vector2i) -> bool:
+	if host_size.x <= 0 or host_size.y <= 0:
+		return false
+	return need.x + 2 * DIALOG_MARGIN <= host_size.x and need.y + 2 * DIALOG_MARGIN <= host_size.y
+
+## Shows `dlg`, which the caller has already added under `host` (`dialog_host()`'s answer), the way
+## `popup_centered()` always did, except when `host` is a native pop-out:
+## - the dialog **fits** inside it: `popup_centered()` as before, so it is embedded in the pop-out and
+##   sits on the pop-out's monitor by construction;
+## - it **does not fit** (a popup embedded in a native window is clipped to it, scope s.11 finding 6):
+##   it becomes its own native window (`force_native`, transient to the pop-out, still exclusive to it)
+##   centred on the usable area of the pop-out's screen (`centred_in()`), and joins `GROUP` so the busy
+##   overlay mutes it like any native window.
+## With no usable screen the fallback keeps the engine's own placement (never a made-up rectangle).
+## `need_hint` is the size the CALLER asked for, in logical pixels, or `Vector2i.ZERO`: **an embedded
+## window's `min_size` and `size` are clamped to its embedder the moment it joins the tree** (measured: a
+## 1500 px confirm read back `min_size` 880 inside an 880 px pop-out), so the request must come from the
+## caller, not be read back from the dialog. Returns whether the dialog is a native window of its own.
+static func present(dlg: Window, host: Node, need_hint: Vector2i = Vector2i.ZERO) -> bool:
+	var pw := host as Window
+	if pw == null or not pw.is_in_group(GROUP) or not pw.visible or pw.is_embedded():
+		dlg.popup_centered()
+		return false
+	var cm := dlg.get_contents_minimum_size()
+	var need := Vector2i(maxi(maxi(dlg.size.x, dlg.min_size.x), ceili(cm.x)),
+		maxi(maxi(dlg.size.y, dlg.min_size.y), ceili(cm.y)))
+	need = Vector2i(maxi(need.x, need_hint.x), maxi(need.y, need_hint.y))
+	var f := maxf(pw.content_scale_factor, 0.001)
+	var logical := Vector2i(Vector2(pw.size) / f)
+	if dialog_fits(need, logical):
+		dlg.popup_centered()
+		return false
+	var screens := PopoutGeometry.screens_now()
+	var scr := pw.current_screen
+	if scr < 0 or scr >= screens.size():
+		dlg.popup_centered()
+		return false
+	## **Re-entered into the tree as a native window.** An embedded window caches its embedder when it
+	## joins the tree, and `popup(rect)` applies the rectangle BEFORE it shows, so on a window that is
+	## still embedded in the pop-out the rectangle is clamped to the pop-out (measured: a (90, 467,
+	## 1500 x 100) request came back as (0, 278, 880 x 100)). Flipping `force_native` on a hidden window
+	## and putting it back under the same parent makes it native from its first size.
+	var parent := dlg.get_parent()
+	if parent != null:
+		parent.remove_child(dlg)
+	dlg.force_native = true
+	dlg.transient = true
+	if parent != null:
+		parent.add_child(dlg)
+	if not dlg.is_in_group(GROUP):
+		dlg.add_to_group(GROUP)
+	## The dialog's own window carries the pop-out's content scale, so on a monitor of another scale
+	## (`fit_scale`) it is as large as its asker is; `need` is logical, the window rectangle physical.
+	var phys := Vector2i(Vector2(need) * f)
+	if not is_equal_approx(f, dlg.content_scale_factor):
+		dlg.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+		dlg.content_scale_factor = f
+	## Its minimum is the request, not the embedder-clamped value it read back.
+	dlg.min_size = Vector2i(maxi(dlg.min_size.x, need_hint.x), dlg.min_size.y)
+	dlg.popup(centred_in(screens[scr]["usable"], phys))
+	return true
+
+## Re-sizes and re-centres a dialog that is ALREADY showing (`DccWidgets.confirm` shows it first, a
+## caller then measures its text and wants a different size). An embedded dialog is `popup_centered(want)`
+## as it always was. A dialog that `present()` made its own native window cannot be re-popped (a native
+## window's `popup` while visible is a no-op on `force_native`, and `popup_centered` centres on the
+## wrong rectangle), so it is resized and moved on its own screen's usable area, scaled with its
+## content factor. Never used on a hidden dialog: that is `present()`.
+static func reshape(dlg: Window, want: Vector2i) -> void:
+	if not (dlg.visible and dlg.force_native and not dlg.is_embedded()):
+		dlg.popup_centered(want)
+		return
+	var screens := PopoutGeometry.screens_now()
+	var scr := dlg.current_screen
+	if scr < 0 or scr >= screens.size():
+		return
+	var r := centred_in(screens[scr]["usable"], Vector2i(Vector2(want) * maxf(dlg.content_scale_factor, 0.001)))
+	dlg.size = r.size
+	dlg.position = r.position

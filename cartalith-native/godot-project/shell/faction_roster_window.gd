@@ -4058,7 +4058,7 @@ func _confirm_remove() -> void:
 	## .text` and `ok_button_text` are the same property by two routes; the
 	## helper takes the text and sets it before the window is presented, which
 	## the button-object route cannot guarantee.
-	DccWidgets.confirm(app, "Remove the last faction?",
+	DccWidgets.confirm(PopoutHost.dialog_host(app, self), "Remove the last faction?",
 		"Remove faction %d?\n\nAny settlements and territory using it will revert to Unclaimed." % bridge.civ_faction_count(),
 		"Remove",
 		func():

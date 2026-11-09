@@ -3861,7 +3861,10 @@ func _save_journey() -> void:
 	## means after it is saved, when it is frozen user text that no later unit
 	## change re-converts (`journeys_document()` stores the typed name, not a
 	## distance).
-	DccWidgets.prompt(app, "Save journey", "Name for this journey:",
+	## Ruling EA item 11: the asker is the planner WINDOW (this view is not under it in the tree), so a popped-out
+	## planner opens this prompt on its own monitor; docked it is `app`, as before (the note above about `app` still
+	## holds for `phone_window()`: `dialog_host()` returns `app` unless a native pop-out asks).
+	DccWidgets.prompt(PopoutHost.dialog_host(app, _window if _window != null else self), "Save journey", "Name for this journey:",
 		"Journey %d — %s" % [_journeys.size() + 1, DccUnits.format_thousands(km)],
 		"Save",
 		func(jname: String): _commit_saved_journey(jname),
@@ -4063,7 +4066,9 @@ func _capture_preset() -> void:
 	## `DccWidgets.prompt()` -- see `_save_journey` above. Same shape, and the
 	## empty-name guard goes with it: the helper only calls back on a non-empty
 	## stripped string, so `if preset_name != ""` was doing the helper's job.
-	DccWidgets.prompt(app, "Capture party from planner",
+	## Ruling EA item 11: the asker is the planner WINDOW (this view is not under it in the tree), so a popped-out
+	## planner opens this prompt on its own monitor; docked it is `app`, as before.
+	DccWidgets.prompt(PopoutHost.dialog_host(app, _window if _window != null else self), "Capture party from planner",
 		"Name for the new party set-up:", "Captured party", "Capture",
 		func(preset_name: String):
 			var result: Dictionary = bridge.tl_capture_preset_from_plan(preset_name, _plan_values.duplicate(true))

@@ -2678,7 +2678,7 @@ func confirm_delete(index: int) -> void:
 		return
 	var name := String((all[index] as Dictionary).get("name", "this place"))
 	## `DccWidgets.confirm()` -- see `right_dock.gd::_confirm_revert`.
-	DccWidgets.confirm(app, "Delete place?",
+	DccWidgets.confirm(PopoutHost.dialog_host(app, self), "Delete place?",
 		"Delete %s?\n\nProvinces, trade balances, roads and territory were computed before this edit and are not recomputed by the delete itself. The Civilization dock's Settlements ▸ Recompute civilisation rebuilds them against the current roster and terrain." % name,
 		"Delete",
 		func():
@@ -2813,7 +2813,7 @@ func transfer_settlement(index: int, to: int, on_done: Callable = Callable(),
 	if cells <= 1 and not loses_capital:
 		_do_polity_move(index, to, on_done, editor_bound)
 		return
-	var dlg := DccWidgets.confirm(app, "Move polity?", _polity_confirm_text(pv), "Move",
+	var dlg := DccWidgets.confirm(PopoutHost.dialog_host(app, self), "Move polity?", _polity_confirm_text(pv), "Move",
 		func(): _do_polity_move(index, to, on_done, editor_bound),
 		func(): _polity_done(on_done), POLITY_CONFIRM_W)
 	## Desktop only (the phone form puts the text in a wrapping `modal_prose`
@@ -2846,7 +2846,7 @@ func transfer_settlement(index: int, to: int, on_done: Callable = Callable(),
 		## buttons.
 		var want := Vector2i(POLITY_CONFIRM_W, int(ceilf(dlg.get_contents_minimum_size().y)) + POLITY_CONFIRM_SLACK)
 		dlg.min_size = want
-		dlg.popup_centered(want)
+		PopoutHost.reshape(dlg, want)
 
 ## The polity-move confirm's width on desktop, px. A labelled judgement, not a
 ## canvas figure (no design draws this dialog): wide enough that the first

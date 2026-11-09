@@ -1625,7 +1625,7 @@ func _on_send() -> void:
 			if not enabling and _gate_code_now() == "" and _input.text.strip_edges() != "" and not run.busy():
 				_on_send()
 		if bool(ep.get("ok", false)) and not DccSettings.llm_consented_origins().has(String(ep.get("origin", ""))):
-			last_consent = LlmConsent.present(app, ep, preset, go, func(): _refresh())
+			last_consent = LlmConsent.present(PopoutHost.dialog_host(app, self), ep, preset, go, func(): _refresh())
 		elif enabling:
 			go.call()
 		return

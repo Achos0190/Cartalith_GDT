@@ -761,7 +761,7 @@ func _build_connection_header(info: Dictionary) -> void:
 ## `store_changed` so the host persists. Rebuilds either way. Never writes to the
 ## chosen folder: connecting only reads.
 func _browse_vault() -> void:
-	DccBrowseDialog.choose_folder(app, "Select markdown vault folder", "",
+	DccBrowseDialog.choose_folder(PopoutHost.dialog_host(app, self), "Select markdown vault folder", "",
 		"Cartalith reads .md files from this folder and writes only where you tell it to.",
 		func(path: String):
 			_hist.clear()
@@ -1265,7 +1265,7 @@ func _guard_dirty(then: Callable, on_keep: Callable = Callable()) -> void:
 	if not _is_dirty():
 		then.call()
 		return
-	DccWidgets.confirm(app, "Unsaved edits",
+	DccWidgets.confirm(PopoutHost.dialog_host(app, self), "Unsaved edits",
 		"%s has edits that are not saved. Discard them?" % _browse_path.get_file(),
 		"Discard edits", func():
 			_close_editor()
@@ -2992,7 +2992,7 @@ func _request_rename() -> void:
 		_rename_say("Not renamed: this note is not saved yet. Resolve the message above first.")
 		return
 	var old := _browse_path
-	DccWidgets.prompt(app, "Rename note", "New name (a folder in it moves the note)", old.trim_suffix(".md"), "Rename",
+	DccWidgets.prompt(PopoutHost.dialog_host(app, self), "Rename note", "New name (a folder in it moves the note)", old.trim_suffix(".md"), "Rename",
 		func(typed: String): _rename_plan(old, rename_target(typed), false),
 		"Links to this note in your other notes are rewritten. You are told how many first.")
 
@@ -3014,7 +3014,7 @@ func _rename_plan(old: String, new_rel: String, undo: bool) -> void:
 		return
 	var locked := _rename_unwritable(plan)
 	var verb := "Undo rename" if undo else "Rename"
-	DccWidgets.confirm(app, verb if undo else "Rename note", _rename_describe(old, new_rel, plan, locked), verb,
+	DccWidgets.confirm(PopoutHost.dialog_host(app, self), verb if undo else "Rename note", _rename_describe(old, new_rel, plan, locked), verb,
 		func(): _rename_run(old, new_rel, plan, undo), _refocus_editor.call_deferred, 460)
 
 
@@ -3111,7 +3111,7 @@ func _rename_run(old: String, new_rel: String, plan: Dictionary, undo: bool) -> 
 		lines.append("   %s: %s" % [String((f as Dictionary).get("path", "")), String((f as Dictionary).get("error", ""))])
 	_rename_message = "\n".join(lines)
 	app.set_status("hint", "Renamed %s, but %d note%s could not be updated." % [new_rel, failed.size(), "" if failed.size() == 1 else "s"], "accent")
-	var dlg := DccWidgets.confirm(app, "Renamed, with problems", _rename_message,
+	var dlg := DccWidgets.confirm(PopoutHost.dialog_host(app, self), "Renamed, with problems", _rename_message,
 		"Undo the rename" if not undo else "OK", func():
 			if not undo:
 				_undo_rename()
@@ -3190,7 +3190,7 @@ func _on_revert_requested() -> void:
 	if _live_text() == first:
 		app.set_status("hint", "%s is already as it was when you first opened it." % _browse_path.get_file(), "text_ghost")
 		return
-	DccWidgets.confirm(app, "Revert to opened",
+	DccWidgets.confirm(PopoutHost.dialog_host(app, self), "Revert to opened",
 		"%s will go back to how it was when you first opened it this session. Everything you changed since is replaced. Ctrl+Z brings it back." % _browse_path.get_file(),
 		"Revert", func():
 			if _editor == null or _browse_edit == null or not is_instance_valid(_browse_edit):
@@ -3224,7 +3224,7 @@ func _warn_unsaved() -> void:
 		return
 	if not DccWidgets.phone_present(self, app):
 		popup()
-	DccWidgets.confirm(app, "Unsaved edits",
+	DccWidgets.confirm(PopoutHost.dialog_host(app, self), "Unsaved edits",
 		"%s has edits that are not saved. Close anyway and discard them?" % _browse_path.get_file(),
 		"Discard and close", func():
 			_close_editor()
@@ -3982,14 +3982,18 @@ func _compare_dialog(lid: String, rel: String, ops: Array, too_large: bool) -> v
 	reload.tooltip_text = "Discards the Cartalith working copy and re-reads the section from the vault. The vault is not written."
 	dlg.confirmed.connect(dlg.queue_free)
 	dlg.canceled.connect(dlg.queue_free)
-	app.add_child(dlg)
+	## Ruling EA item 11: a window popped out to another monitor opens its dialogs on that monitor
+	## (`PopoutHost.dialog_host`); docked, this is `app` exactly as before.
+	var dlg_want := dlg.size   # read BEFORE it joins a pop-out: an embedded window is clamped to its embedder on entry
+	var dlg_host := PopoutHost.dialog_host(app, self)
+	dlg_host.add_child(dlg)
 	if phone:
 		app.phone_fit(dlg, 1.0)
 	## `phone_present()` is the third call, and it returns false off-phone --
 	## so `popup_centered()` is the desktop path rather than a fallback that
 	## also fires on a phone and fights the presentation.
 	if not DccWidgets.phone_present(dlg, app):
-		dlg.popup_centered()
+		PopoutHost.present(dlg, dlg_host, dlg_want)
 
 
 ## `ops` collapsed to context around each change — `diff -U3`'s own idea: a
@@ -4549,7 +4553,9 @@ func _preview_dialog(dialog_title: String, preview: String, note: String,
 		on_confirm.call()
 		dlg.queue_free())
 	dlg.canceled.connect(dlg.queue_free)
-	app.add_child(dlg)
+	var dlg_want := dlg.size
+	var dlg_host := PopoutHost.dialog_host(app, self)   # Ruling EA item 11, as in `_compare_dialog`
+	dlg_host.add_child(dlg)
 	## The dialog is built outside `_rebuild()`, so the window's own phone pass
 	## has never seen it — the same reason `app.gd`'s credits dialog fits itself
 	## after `add_child`. Without this the checkbox row lands under §13's 44 dp
@@ -4566,7 +4572,7 @@ func _preview_dialog(dialog_title: String, preview: String, note: String,
 	## desktop keeps `popup_centered()` as its own path rather than as a
 	## fallback that would also fire on a phone.
 	if not DccWidgets.phone_present(dlg, app):
-		dlg.popup_centered()
+		PopoutHost.present(dlg, dlg_host, dlg_want)
 
 
 # -- "Confirm always", and where it is turned back off ----------------------

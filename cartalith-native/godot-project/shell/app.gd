@@ -1427,6 +1427,13 @@ func _watch_dialog(n: Node) -> void:
 func _fit_dialog(w: Window) -> void:
 	if not w.visible or is_phone() or w.get_parent() == null:
 		return
+	## Ruling EA item 11 (found by `_popdlg_probe.gd`): a dialog that is its OWN native window (a popped-out
+	## panel, or a dialog `PopoutHost.present()` made native) lives on a monitor, not inside this app window.
+	## Clamping it to its parent's viewport shrank a 1500 px dialog to its asking pop-out's 880 px and
+	## re-centred it in the PARENT'S coordinates ((0, 278) read back, as screen coordinates). Its screen
+	## placement is `PopoutHost`'s (`resolve()` / `centred_in()`).
+	if w.force_native and not w.is_embedded():
+		return
 	var vp := Vector2i(w.get_parent().get_viewport().get_visible_rect().size)
 	var title := 0 if w.borderless else w.get_theme_constant("title_height")
 	var avail := vp - Vector2i(0, title)

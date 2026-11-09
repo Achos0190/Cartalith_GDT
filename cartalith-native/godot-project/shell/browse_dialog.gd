@@ -434,7 +434,7 @@ static func _spawn(host: Node, dialog_title: String, mode: PickKind,
 	## hidden `AcceptDialog` and popping it afterwards leaves the body at its
 	## desktop rect (the list then overflows instead of scrolling).
 	if not DccWidgets.phone_present(d, d._shell):
-		d.popup_centered()
+		PopoutHost.present(d, host)
 	return d
 
 ## The nearest ancestor that is a `DccShell`. `host` is whatever node the

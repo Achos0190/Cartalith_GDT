@@ -4084,7 +4084,9 @@ static func confirm(host: Node, title: String, text: String, ok_text: String,
 	if phone and host.has_method("phone_fit"):
 		host.phone_fit(dlg, 1.0)
 	if not phone_present(dlg, host):
-		dlg.popup_centered()
+		## Ruling EA item 11: `present()` is `popup_centered()` unless `host` is a native pop-out, where it
+		## opens inside it or, if it would not fit, on its monitor (`popout_host.gd`).
+		PopoutHost.present(dlg, host, Vector2i(width, 0))
 	return dlg
 
 ## The one-field prompt, protocol-complete. Three sites hand-build it and none
@@ -4144,7 +4146,7 @@ static func prompt(host: Node, title: String, field_label: String,
 	if phone and host.has_method("phone_fit"):
 		host.phone_fit(dlg, 1.0)
 	if not phone_present(dlg, host):
-		dlg.popup_centered()
+		PopoutHost.present(dlg, host, Vector2i(width, 0))
 	le.grab_focus.call_deferred()
 	return {"dialog": dlg, "field": le, "body": body}
 
@@ -4669,4 +4671,4 @@ static func modal_present(card: Dictionary, host) -> void:
 	if DccTheme.is_phone():
 		phone_window(dlg, host)
 	if not phone_present(dlg, host):
-		dlg.popup_centered()
+		PopoutHost.present(dlg, host, Vector2i(int((card["root"] as Control).custom_minimum_size.x), 0))
