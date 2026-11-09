@@ -366,12 +366,10 @@ var _sculpt_stroke_aborted := false
 ## key rather than defaulting it.
 var _sculpt_symmetry: Dictionary = {}
 
-## ET-D5. Whether the pen's pressure reaches the sculpt stamp. `true` = today's
-## behaviour (a pen reports pressure, the engine scales strength by it). `false` = every
-## sample is fed with NO pressure (`null`, never 1.0 or 0.0), so the stroke is
-## pressure-less exactly as a mouse's is. Read by `_sculpt_take_pressure`; written by the
-## Sculpt pressure toggle (bar and phone column) through `set_sculpt_pressure_on`.
-var _sculpt_pressure_on := true
+## Ruling EM item 3: sculpt's "Pressure controls" choice now lives in `DccSettings.pressure_control("sculpt")`
+## (per install, "strength" by default, or "off"); this replaces ET-D5's session-only `_sculpt_pressure_on` switch.
+## "off" feeds every sample with NO pressure (`null`, never 1.0 or 0.0), exactly as a mouse's stroke is. Read by
+## `_sculpt_take_pressure`; written by the option bar's Pressure controls through `set_sculpt_pressure_on`.
 
 ## ET-D5. The Paint stroke options handed to `paint_stroke_begin` on every press -- the
 ## engine's own keys (`spacing`, `spacing_enabled`, `symmetry*`, `scatter_*`,
@@ -403,7 +401,7 @@ var _paint_layer := "biome"
 ## `_build_finalize()` reads at build; `_bake_depth` is its mirror).
 func tool_state_keys() -> Array:
 	return ["_paint_layer", "_paint_brush", "_rock_layer_last", "_erode_op", "_erode_op_seeded",
-		"_sculpt_symmetry", "_sculpt_pressure_on", "_pg_mode", "_pg_open"]
+		"_sculpt_symmetry", "_pg_mode", "_pg_open"]
 ## The mirrored brush: `value`, `radius` (cells), `hardness`, `softness`, `erase`, `land_only`. Defaults claim to match `Brush::default()` in `paint_bridge.rs` (per the block above; not re-checked here). Read by the Paint bar rows and the brush cursor.
 var _paint_brush := {
 	"value": 1, "radius": 6.0, "hardness": 1.0, "softness": 0.0,
@@ -3701,15 +3699,15 @@ func _sculpt_take_pressure(gx: float, gy: float) -> Variant:
 	## ET-D5: the Pressure toggle off = a pressure-less stroke whatever the device
 	## reported. The cached sample was still consumed above, so it cannot leak into the
 	## next sample.
-	if not _sculpt_pressure_on:
+	if DccSettings.pressure_control("sculpt") != "strength":
 		return null
 	if not ps.is_empty() and is_equal_approx(float(ps["gx"]), gx) and is_equal_approx(float(ps["gy"]), gy):
 		return _apply_pen_pressure(ps["pressure"])
 	return null
 
 ## The paint brush's size multiplier at zero pressure: `paint_bridge.rs`'s `DEFAULT_PRESSURE_MIN` (0.2), which the
-## stroke uses because `_paint_stroke_options` is `{}`. Mirrored here only to draw SH-6's inner ring; if the options
-## ever carry a `pressure_min`, read that instead.
+## stroke uses because `_paint_stroke_options` never carries a `pressure_min`. Mirrored here only to draw SH-6's inner
+## ring, and only while the paint Pressure controls choice is "size" (Ruling EM item 3: otherwise there is no span).
 const PAINT_PRESSURE_MIN := 0.2
 
 ## SH-4. Remaps a live pen's pressure through the user's curve and comfortable maximum (`DccSettings`), for both the
@@ -4292,7 +4290,7 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 		var r := float(_paint_brush.get("radius", 6.0))
 		## SH-6: a PEN hover also previews the footprint's span: an inner ring at the minimum-pressure radius, and a
 		## ring that hides 150 ms after the last hover. A mouse gets today's single permanent ring.
-		if StylusInput.pen_recent(StylusInput.HOVER_RING_MS):
+		if DccSettings.pressure_control("paint") == "size" and StylusInput.pen_recent(StylusInput.HOVER_RING_MS):
 			overlay.set_brush_cursor(valid, gx, gy, r, r * PAINT_PRESSURE_MIN, StylusInput.HOVER_RING_MS)
 		else:
 			overlay.set_brush_cursor(valid, gx, gy, r)
@@ -4823,14 +4821,14 @@ func brush_options(tool: String) -> Dictionary:
 			return _sculpt_symmetry
 	return {}
 
-## Whether a pen's pressure reaches the sculpt stamp (`_sculpt_pressure_on`).
+## Whether a pen's pressure reaches the sculpt stamp (`DccSettings.pressure_control("sculpt")` is "strength").
 func sculpt_pressure_on() -> bool:
-	return _sculpt_pressure_on
+	return DccSettings.pressure_control("sculpt") == "strength"
 
-## Sets whether pen pressure scales sculpt strokes. Called by `tool_bar.gd` (via `has_method`) and
-## the phone column with the toggle's value; read back by `sculpt_pressure_on()`.
+## Sets sculpt's Pressure controls to strength (true) or off (false) in `DccSettings`, per install.
+## Kept as the has_method seam `_sh_probe` uses; `DccToolBar` now writes the choice directly.
 func set_sculpt_pressure_on(on: bool) -> void:
-	_sculpt_pressure_on = on
+	DccSettings.set_pressure_control("sculpt", "strength" if on else "off")
 
 ## What the engine was last handed by an accepted stroke begin for `tool` (`"paint"` or
 ## `"sculpt"`): a copy of the options Dictionary, `{}` before any stroke. Read-only
@@ -4993,6 +4991,9 @@ func _paint_click(gx: float, gy: float) -> void:
 		_paint_sync_brush_with_shift()
 		## ET-D5: the seam, not a literal `{}` -- `{}` while no control has moved.
 		var given := _paint_stroke_options.duplicate()
+		## Ruling EM item 3: the engine's `pressure_size` follows the per-install Pressure controls choice on every
+		## begin ("size" = true; the default "off" = false). Never taken from the options seam any more.
+		given["pressure_size"] = DccSettings.pressure_control("paint") == "size"
 		if bridge.paint_stroke_begin(given):
 			_last_paint_begin = given.duplicate()
 			_paint_stroke_open = true

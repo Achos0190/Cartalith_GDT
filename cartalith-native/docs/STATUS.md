@@ -383,7 +383,32 @@ Installed with `adb install -r`; the user's worlds on the device were untouched.
   and at 2.625 x 1.25 as tablets (88 of 88); the literal mutant (class over density x scale) fails 5 rows. The 11-inch at
   density 2 stays a phone (Ruling EG).
 - **Welcome:** idle mode is held off across the two frame waits and restored. Pad check: not yet made. The APK (debug certificate, Gradle route with the pen plugin, 105 897 314 bytes) is built at `C:\cw\Cartalith-scrollfix-EM.apk`; the Pad 3 was not reachable by `adb` at the time (no mDNS service, only the 6T on USB), so it is **not installed**, and neither the tablet form after Ruling EM nor the welcome card without a touch has been seen on the glass.
-- **Pen pressure:** answered, not built (the per-tool "Pressure controls" choice).
+- **Pen pressure:** answered, then built the same day: see "Pressure controls" below.
+
+### Pressure controls: a per-tool choice of what a pen's pressure does (Ruling EM item 3, 2026-11-09)
+
+**Built and probed against the real engine at three form factors; the pen on the glass is the owner's.** GDScript only: no Rust file
+changed, so `cargo test` for any crate is unaffected and no generated output or golden can move (a stroke's options are a UI tool
+setting applied to the user's own edits, not `WorldParams`; `DECISIONS.md` section 7p's defaults rule concerns generated output).
+- **Setting:** `DccSettings.pressure_control(kind)` for `sculpt`, `paint`, `colour`, stored per install (the `stylus` section), never in
+  a world save. Each kind offers only what its engine can do (`PRESSURE_CHOICES`): sculpt strength | off, paint size | off, colour
+  off. A write the kind does not offer is refused, and a stored value it does not offer reads as the default.
+- **Defaults:** sculpt = strength (unchanged: `sculpt.rs` k = cov x intensity x p, radius untouched). **Biome paint = off, which
+  changes the paint default:** `paint_bridge.rs` `StrokeOptions::pressure_size` is still true in the engine, but the shell now sends
+  `pressure_size` on every stroke begin from the choice (`WorldWorkspace._paint_click`), so a pen no longer shrinks the dab unless
+  the user picks Size. Colour paint = off, and offers nothing else: a mark stores one `radius_km` and one `opacity` for the whole
+  stroke (`colour_paint_tool.gd::commit_line`), the tool reads no pressure, and a per-dab amount would need a new mark format and
+  a parity gate, which was not built. Sculpt size is not offered because a stamp has one radius for the whole stroke.
+- **Where:** `Preferences > Stylus > Pressure controls` (menu ids 1030-1036); the tool's option bar row "Pressure controls"
+  (`DccToolBar.build_pressure_control`, shared by the desktop and tablet bar and the phone's Brush dynamics section), replacing
+  the old Pressure toggles; a note in the colour paint window. The old session-only `_sculpt_pressure_on` is gone
+  (`set_sculpt_pressure_on` remains as a wrapper). The SH-6 inner ring shows only while paint is on Size.
+- **Tester:** three rows "sculpt maps", "paint maps", "colour maps" show the effective mapping for the live pen reading, after the
+  user's curve and maximum, and "no pen pressure: stroke unchanged" for a mouse or finger (no multiplier is computed).
+- **Absent pressure:** unchanged by control flow (`null` passes through; `_sculpt_take_pressure` returns `null` when the choice is
+  not strength).
+- **Evidence:** `_pressure_probe.gd` (new; synthetic device-0 pen events and a device-0 mouse, real engine, windowed). See the
+  results line below.
 
 ### Scroll-fix: a finger on the MENU, a sheet or a window no longer pans the map behind it (2026-11-09)
 

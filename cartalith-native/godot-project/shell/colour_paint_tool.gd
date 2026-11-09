@@ -235,6 +235,9 @@ func build_into(parent: Control) -> void:
 	DccWidgets.slider(body, "Opacity", 0.0, 1.0, 0.05, opacity, "", func(v: float): opacity = v)
 	DccWidgets.toggle(body, "Land only", land_only, func(v: bool): land_only = v,
 		"On: sea and lakes under the stroke keep their colour. Off: water is painted too (a crater lake inside a painted crater).")
+	## Ruling EM item 3: colour paint reads no pen pressure (`DccSettings.PRESSURE_DEFAULTS["colour"]` is "off", the only
+	## choice it offers): a mark stores one radius and one opacity for the whole stroke, so nothing is per dab.
+	DccWidgets.note(body, "Pressure controls: off. A colour mark has one size and one opacity for the stroke, so pen pressure does not change it.")
 	_mat_rows = []
 	_mat_rows.append(DccWidgets.slider(body, "Heat", 0.0, 1.0, 0.05, heat, "", func(v: float): heat = v,
 		"How much of the surface is open and hot: 0 a cooled crust with faint seams, 1 a molten, white-hot lake."))

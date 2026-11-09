@@ -1049,16 +1049,25 @@ static func paint_write_spacing_pct(o: Dictionary, pct: float) -> void:
 	else:
 		o["spacing"] = p / 100.0
 
-## Paint pressure-to-size (the engine's `pressure_size`, default true).
-static func paint_pressure_on(o: Dictionary) -> bool:
-	return bool(o.get("pressure_size", true))
-
-## On erases `pressure_size` (engine default true); off writes false.
-static func paint_write_pressure(o: Dictionary, on: bool) -> void:
-	if on:
-		o.erase("pressure_size")
-	else:
-		o["pressure_size"] = false
+## Ruling EM item 3: the "Pressure controls" dropdown for a tool kind (`"sculpt"` or `"paint"`), the same row on the
+## desktop bar, the tablet bar and the phone's Brush dynamics section. It lists only the mappings the kind's engine can
+## honour (`DccSettings.PRESSURE_CHOICES`) and reads and writes `DccSettings.pressure_control`, per install, never the
+## world. A mouse or a finger reports no pressure, so no choice changes anything for one (the control flow, not a value).
+static func build_pressure_control(parent: Control, app: DccApp, kind: String) -> OptionButton:
+	var modes: Array = DccSettings.PRESSURE_CHOICES[kind]
+	var labels: Array = []
+	for m in modes:
+		labels.append(String(m).capitalize())
+	var tip := "What a pen's pressure does on this tool. " + (
+		"Strength scales each stamp along the stroke; the radius never changes." if kind == "sculpt"
+		else "Size scales the dab (the area otherwise comes from the slider only); paint is categorical, so it has no strength.") 		+ " Off ignores pressure. A mouse or finger reports none, so nothing changes for one. Stored per install."
+	var ob := DccWidgets.choice(parent, "Pressure controls", labels, modes.find(DccSettings.pressure_control(kind)),
+		func(i: int):
+			DccSettings.set_pressure_control(kind, String(modes[i]))
+			refresh_surfaces(app, kind),
+		tip)
+	_touch_floor(_narrow(ob))
+	return ob
 
 ## Paint scatter: copies per dab (1 = off) and the offset range in dab diameters.
 static func paint_scatter_count(o: Dictionary) -> int:
@@ -1256,11 +1265,7 @@ static func _controls_paint(parent: Control, app: DccApp) -> void:
 	_touch_floor(gap)
 	if not spacing_on:
 		_disable_slider(gap, "Spacing is off: one dab per pointer sample.")
-	_touch_floor(_narrow(DccWidgets.toggle(parent, "Pressure", paint_pressure_on(o), func(v: bool):
-		paint_write_pressure(options(app, "paint"), v)
-		refresh_surfaces(app, "paint"),
-		"A pen's pressure scales the dab SIZE (never the class: paint is categorical). A mouse reports no pressure, so this changes nothing for one. There is no softness target: the engine has no option for it.")))
-	_hint(parent, "→ size", "Pressure drives the dab size.")
+	build_pressure_control(parent, app, "paint")
 	var count := paint_scatter_count(o)
 	var scatter := DccWidgets.slider(parent, "Scatter", 1.0, float(SCATTER_COUNT_MAX), 1.0, float(count), "",
 		func(v: float): paint_write_scatter_count(options(app, "paint"), v),
@@ -1281,17 +1286,7 @@ static func _controls_paint(parent: Control, app: DccApp) -> void:
 ## world workspace's `sculpt_pressure_on`/`set_sculpt_pressure_on` rather than the
 ## options seam (it shows on when the owner lacks the method).
 static func _controls_sculpt(parent: Control, app: DccApp) -> void:
-	var owner := seam_owner(app, "sculpt")
-	var on := true
-	if owner != null and owner.has_method("sculpt_pressure_on"):
-		on = bool(owner.call("sculpt_pressure_on"))
-	_touch_floor(_narrow(DccWidgets.toggle(parent, "Pressure", on, func(v: bool):
-		var ws := seam_owner(app, "sculpt")
-		if ws != null and ws.has_method("set_sculpt_pressure_on"):
-			ws.call("set_sculpt_pressure_on", v)
-		refresh_surfaces(app, "sculpt"),
-		"A pen's pressure scales each stamp's STRENGTH along the stroke. A mouse reports no pressure, so this changes nothing for one.")))
-	_hint(parent, "→ strength", "Pressure drives the stamp strength.")
+	build_pressure_control(parent, app, "sculpt")
 
 ## Way's road-drag controls: Mode, Smooth and an Advanced disclosure (routed mode
 ## only) holding Waypoints, Corridor and Pull. For Freehand it returns early with

@@ -19,7 +19,7 @@ extends Control
 ## Readout rows in display order. Each is a Label in `_rows`, keyed by name so a caller never pokes the tree.
 const FIELDS := ["event", "source", "device", "pressure", "pressure span", "tilt", "tilt angle", "eraser flag",
 	"hover", "contact", "rate Hz", "rate max", "last key", "gestures", "pen link", "pen battery", "pen firmware",
-	"pen last"]
+	"pen last", "sculpt maps", "paint maps", "colour maps"]
 
 var _rows: Dictionary = {}
 var _values: Dictionary = {}          ## field -> its current text; what `snapshot()` returns
@@ -76,6 +76,8 @@ func _build_ui() -> void:
 		_rows[f] = line
 		root.add_child(line)
 		_put(f, "—")
+	for k in ["sculpt", "paint", "colour"]:
+		_put(k + " maps", DccSettings.pressure_effect_text(k, -1.0))
 	var reset := Button.new()
 	reset.text = "Reset observed span"
 	reset.pressed.connect(reset_observed)
@@ -199,6 +201,13 @@ func feed(klass: String, device: int, pos: Vector2, pressure: float, tilt: Vecto
 		_put("pressure", "%.4f  (mouse-like, not a pen reading)" % pressure)
 	else:
 		_put("pressure", "—  (hover: none reported)")
+
+	# Ruling EM item 3: what this reading does on each tool under the stored Pressure controls choice. Only a pen
+	# reading counts as pressure; everything else is "no pen pressure", so the tester never invents a multiplier.
+	var pen_p := pressure if (signature and not finger) else -1.0
+	_put("sculpt maps", DccSettings.pressure_effect_text("sculpt", pen_p))
+	_put("paint maps", DccSettings.pressure_effect_text("paint", pen_p))
+	_put("colour maps", DccSettings.pressure_effect_text("colour", pen_p))
 
 	# tilt: each axis is sin(angle from vertical)
 	_tilt = Vector2.ZERO

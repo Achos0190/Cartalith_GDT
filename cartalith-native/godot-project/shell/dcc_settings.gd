@@ -668,6 +668,85 @@ static func set_pen_pressure_max(value: float) -> void:
 	_cfg.set_value(_SEC_STYLUS, "pressure_max", clampf(value, 0.5, 1.0))
 	_save()
 
+## Ruling EM item 3: the per-tool-kind "Pressure controls" choice, `"strength"`, `"size"` or `"off"`. Per install, never
+## a world's. The kinds are the three pressure-aware brush tools. Each lists only the mappings its engine can honour:
+## sculpt scales the stamp's strength (`cartalith-terrain` `sculpt.rs`, k = cov x intensity x p; the stamp's radius is
+## fixed per stamp, so it has no size mapping), biome paint scales the dab size (a categorical layer has no strength),
+## and colour paint reads no pressure at all (a mark stores ONE radius and ONE opacity for the whole stroke, so there
+## is nothing per dab to scale; a mapping would need a change to the mark format and its parity gate, not built).
+const PRESSURE_KINDS: Array[String] = ["sculpt", "paint", "colour"]
+
+## The choices each kind offers, first = the mapping it can do. "off" is always last.
+const PRESSURE_CHOICES := {
+	"sculpt": ["strength", "off"],
+	"paint": ["size", "off"],
+	"colour": ["off"],
+}
+
+## The defaults. Sculpt keeps today's behaviour (strength). Biome paint is OFF by the owner's ruling ("area is from
+## the slider"): it used to default to size (`paint_bridge.rs` `StrokeOptions::pressure_size` is still true in the
+## engine; the shell now sends the choice on every stroke begin). Colour paint is off because it cannot do otherwise.
+const PRESSURE_DEFAULTS := {"sculpt": "strength", "paint": "off", "colour": "off"}
+
+## Why a mapping is not offered for a kind, for the control's tooltip and the tester. "" when it is offered.
+static func pressure_why_not(kind: String, mode: String) -> String:
+	if not PRESSURE_CHOICES.has(kind):
+		return "unknown tool kind"
+	if (PRESSURE_CHOICES[kind] as Array).has(mode):
+		return ""
+	match kind + ":" + mode:
+		"sculpt:size":
+			return "a sculpt stamp has one radius for the whole stroke"
+		"paint:strength":
+			return "biome paint is categorical and has no strength"
+		"colour:size", "colour:strength":
+			return "a colour mark stores one radius and one opacity per stroke"
+	return "not available for this tool"
+
+## The stored choice for `kind`, always one the kind offers: an unset, unknown or unsupported stored value reads as
+## the kind's default, so a hand-edited settings file cannot arm a mapping the engine lacks.
+static func pressure_control(kind: String) -> String:
+	if not PRESSURE_DEFAULTS.has(kind):
+		return "off"
+	_ensure_loaded()
+	var v := String(_cfg.get_value(_SEC_STYLUS, "pressure_" + kind, PRESSURE_DEFAULTS[kind]))
+	return v if (PRESSURE_CHOICES[kind] as Array).has(v) else String(PRESSURE_DEFAULTS[kind])
+
+## Stores the choice and saves. A mode the kind does not offer is refused (returns false), never stored.
+static func set_pressure_control(kind: String, mode: String) -> bool:
+	if not PRESSURE_CHOICES.has(kind) or not (PRESSURE_CHOICES[kind] as Array).has(mode):
+		return false
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "pressure_" + kind, mode)
+	_save()
+	return true
+
+## The size multiplier at zero pressure that biome paint's engine applies (`paint_bridge.rs` `DEFAULT_PRESSURE_MIN`);
+## mirrored only for the tester's and the ring's readout, as `world_workspace.gd`'s `PAINT_PRESSURE_MIN` is.
+const PAINT_SIZE_AT_ZERO := 0.2
+
+## What a pen reading does on `kind` under the stored choice, for the stylus tester: `raw` is the pen's pressure as
+## reported, or -1.0 for "no pen pressure" (a mouse, a finger, a hover). Applies the user's curve and maximum first,
+## exactly as `world_workspace.gd::_apply_pen_pressure` does. With no pen pressure it says nothing changes: the absent
+## case is a control-flow answer, never a computed multiplier.
+static func pressure_effect_text(kind: String, raw: float) -> String:
+	var m := pressure_control(kind)
+	if m == "off":
+		return "pressure ignored"
+	if raw < 0.0:
+		return "no pen pressure: stroke unchanged"
+	var p := StylusInput.remap_pressure(raw, float(StylusInput.PRESSURE_CURVES[pen_pressure_curve()]), pen_pressure_max())
+	if m == "strength":
+		return "strength x %.3f" % p
+	return "size x %.3f" % (PAINT_SIZE_AT_ZERO + (1.0 - PAINT_SIZE_AT_ZERO) * p)
+
+## The effective mapping as one line, for Preferences and the stylus tester: the choice, the curve and the maximum.
+static func pressure_mapping_text(kind: String) -> String:
+	var m := pressure_control(kind)
+	if m == "off":
+		return "%s: pressure ignored" % kind
+	return "%s: pressure sets %s (%s curve, maximum %d %%)" % [kind, m, pen_pressure_curve(), int(round(pen_pressure_max() * 100.0))]
+
 ## SH-5: whether a pen's tilt reaches the paint engine. Default false. Today the engine reads no tilt (its brush maps
 ## only pressure, `paint_bridge.rs` `StrokeOptions`), so the switch changes nothing visible until the Rust
 ## `tilt_size` option lands as its own parity-gated change; this is the GDScript half Ruling EE keeps.

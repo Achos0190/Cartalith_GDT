@@ -68,8 +68,9 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
 - **Owner questions of 2026-11-09: answered (Ruling EM, `LARGE_ITEM_RULINGS.md`).**
   - **UI scale and the shell form:** the screen alone decides; built (`STATUS.md`, "Ruling EM").
   - **The welcome idle-mode fix:** applied; the handset check is the owner's.
-  - **Pen pressure per tool:** biome paint off, area from the slider; sculpt keeps pressure as strength. **Still to build:**
-    the per-tool "Pressure controls" choice (strength / size / off); colour paint's use of pressure is unchecked.
+  - **Pen pressure per tool:** answered (Ruling EM) and built (`STATUS.md`, "Pressure controls"). Closed. The
+    one open item inside it is the owner's: whether colour paint should get a per-stroke or per-dab pressure mapping,
+    which needs a change to the mark format (`STATUS.md` says why it is off).
 - **Performance pass across devices** (owner, 2026-11-08: *"Maybe we should just wait until all outstanding work is
   done and start thinking about improving performance across devices."*). It is scheduled **after** the rest of this
   list, by the owner's order. It starts with three owner reports from the OnePlus Pad 3 (APK `e02fadcb`):
