@@ -9,7 +9,7 @@ only verification available without the editor.
 > **Transplanted, 2026-11-09.** These drafts are being built into the shell one milestone per commit, with
 > `shell/stylus_input.gd` holding the pure rules and `_sh_probe.gd` verifying them with synthetic pen events. What has
 > landed is `STATUS.md`'s answer (its *Standard stylus input built* entry); this file keeps the drafts as written, and
-> where the shipped code differs (SH-2's spec below became code, not a patch) the code and `STATUS.md` win.
+> where the shipped code differs (SH-2's spec below became code, not a patch; the tester draft's `_set` method did not parse and is `_put` in `shell/stylus_tester.gd`) the code and `STATUS.md` win.
 
 ## Scope, and what is parked
 

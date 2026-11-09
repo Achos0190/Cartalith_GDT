@@ -379,6 +379,8 @@ func _run(vw: int, vh: int) -> void:
 		await _t_sh5(P)
 	if _want("sh6"):
 		await _t_sh6(P)
+	if _want("sh9"):
+		await _t_sh9(P)
 
 
 # SH-2 -----------------------------------------------------------------------------------------------------------------
@@ -820,3 +822,55 @@ func _t_sh6(P: Vector2) -> void:
 
 	StylusInput.last_pen_motion_ms = -1
 	to.set_brush_cursor(false)
+
+# SH-9 -----------------------------------------------------------------------------------------------------------------
+
+func _t_sh9(_P: Vector2) -> void:
+	var t := StylusTester.new()
+	_vp.add_child(t)
+	await _frames(2)
+	var s := t.snapshot()
+	_ok(s["pressure"] == "—" and s["tilt"] == "—" and s["pressure span"] == "—", "before any event every row is — (nothing is shown as a number)")
+	# SYNTHETIC pen contact: pressure 0.4, tilt (0.5, 0) = 30 degrees
+	t.feed("MouseMotion", 0, Vector2(50, 50), 0.4, Vector2(0.5, 0.0), false, true, true)
+	s = t.snapshot()
+	_ok(s["pressure"] == "0.4000" and s["source"].begins_with("pen"), "a pen at 0.4: pressure 0.4000, source pen (%s | %s)" % [s["pressure"], s["source"]])
+	_ok(s["tilt"] == "(0.500, 0.000)" and s["tilt angle"] == "30.0 deg from vertical", "tilt (0.5, 0) reads 30.0 degrees (%s | %s)" % [s["tilt"], s["tilt angle"]])
+	t.feed("MouseMotion", 0, Vector2(52, 50), 0.8, Vector2(0.5, 0.0), false, true, true)
+	_ok(t.snapshot()["pressure span"] == "0.4000 .. 0.8000", "the span widens to 0.4000 .. 0.8000 (%s)" % t.snapshot()["pressure span"])
+	t.feed("MouseMotion", 0, Vector2(54, 50), 0.0, Vector2.ZERO, false, false, true)
+	s = t.snapshot()
+	_ok(s["pressure"].begins_with("—") and s["source"].begins_with("pointer hovering") and s["hover"].begins_with("hovering"),
+		"a hover with no fields reads pressure —, hovering (%s | %s)" % [s["pressure"], s["source"]])
+	_ok(s["tilt"] == "—", "a hover's tilt is — (none reported), not (0, 0)")
+	t.feed("MouseMotion", 0, Vector2(56, 50), 1.0, Vector2.ZERO, false, true, true)
+	s = t.snapshot()
+	_ok(s["source"].begins_with("mouse-like") and s["pressure"].contains("mouse-like"), "a held flat 1.0 is labelled mouse-like, not a pen (%s)" % s["pressure"])
+	_ok(t.snapshot()["pressure span"] == "0.4000 .. 0.8000", "a mouse-like 1.0 does not enter the pen's span")
+	t.feed("MouseMotion", -1, Vector2(58, 50), 0.3, Vector2.ZERO, false, true, true)
+	s = t.snapshot()
+	_ok(s["source"].begins_with("finger") and s["pressure"].contains("finger's own"), "a finger's 0.3 is labelled the finger's own (%s)" % s["pressure"])
+	t.feed("ScreenTouch#0", -1, Vector2(58, 50), 0.0, Vector2.ZERO, false, true, false)
+	s = t.snapshot()
+	_ok(s["pressure"] == "—" and s["tilt"] == "—", "a touch event carries no fields: pressure and tilt are —")
+	t.feed("MouseMotion", 0, Vector2(60, 50), 0.5, Vector2.ZERO, true, true, true)
+	_ok(t.snapshot()["eraser flag"].begins_with("yes"), "the eraser flag reads yes when set")
+	t.reset_observed()
+	_ok(t.snapshot()["pressure span"] == "—", "Reset clears the span")
+	# the real event path: _gui_input on a motion event
+	var mm := _pen_event_motion(Vector2(70, 70), Vector2(68, 70), 0.6, Vector2.ZERO, false, true)
+	t._gui_input(mm)
+	_ok(is_equal_approx(float(t.snapshot()["pressure"]), 0.6) and t.snapshot()["event"] == "MouseMotion", "_gui_input reads a motion event's pressure")
+	t.queue_free()
+	await _frames(2)
+	var mn = _app.menus
+	if mn != null and mn._stylus_popup != null:
+		var before := _vp.find_children("*", "StylusTester", true, false).size()
+		mn._on_stylus_choice(mn.ID_PREF_TESTER)
+		await _frames(3)
+		var found := _vp.find_children("*", "StylusTester", true, false)
+		_ok(found.size() == before + 1, "Preferences > Stylus > Stylus tester… opens the tester")
+		for w in _vp.find_children("*", "Window", true, false):
+			if (w as Window).title == "Stylus tester":
+				w.queue_free()
+		await _frames(3)

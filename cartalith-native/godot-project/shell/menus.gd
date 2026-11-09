@@ -233,6 +233,7 @@ const ID_PREF_MAX_70 := 947
 const ID_PREF_MAX_60 := 948
 const ID_PREF_MAX_50 := 949
 const ID_PREF_TILT := 950  ## Preferences ▸ Stylus ▸ Tilt shapes the brush (SH-5).
+const ID_PREF_TESTER := 951  ## Preferences ▸ Stylus ▸ Stylus tester… (SH-9).
 ## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
 ## after 717/718 above -- grepped this whole file for 719 before taking it,
 ## the same whole-file check every neighbouring block records (an id must be
@@ -4134,6 +4135,9 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 	_stylus_popup.add_check_item("Pen draws, finger pans", ID_PREF_PEN_DRAWS)
 	_stylus_popup.set_item_tooltip(0,
 		"Once a pen has been seen, a finger only moves the map and the pen draws; a finger that lands while the pen is near is ignored as a resting palm. The pen is told from a finger by its input device, which is best-effort. Stored on this device, never in a world.")
+	_stylus_popup.add_item("Stylus tester…", ID_PREF_TESTER)
+	_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
+		"Shows what the pen reports: pressure, tilt, hover, the eraser flag, report rate and device. Reads input only; changes nothing.")
 	_stylus_popup.add_check_item("Tilt shapes the brush", ID_PREF_TILT)
 	_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
 		"Sends the pen's tilt to the paint brush. The engine does not read tilt yet, so this changes nothing visible until it does. Stored on this device.")
@@ -4173,6 +4177,9 @@ func _on_stylus_choice(id: int) -> void:
 	match id:
 		ID_PREF_PEN_DRAWS:
 			DccSettings.set_pen_draws_finger_pans(not DccSettings.pen_draws_finger_pans())
+		ID_PREF_TESTER:
+			StylusTester.open_in_window(_host)
+			return
 		ID_PREF_TILT:
 			DccSettings.set_pen_tilt_to_size(not DccSettings.pen_tilt_to_size())
 		ID_PREF_CURVE_SOFT:

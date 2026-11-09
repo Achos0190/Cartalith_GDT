@@ -114,6 +114,16 @@ emulation (device -1): it proves the routing, not what the Pad 3's pen reports. 
   an adjacent single-ring capture, because something on the map animates between captures); five literal mutants killed.
   All sections: 97 checks at the 6T form and at 2388x1668 @2, 81 at the desktop form.
 
+- **SH-9 built (the stylus tester).** `StylusTester` (`shell/stylus_tester.gd`), opened by `Preferences > Stylus > Stylus
+  tester...` in its own window: event class, a **source** row (finger / pen / mouse-like / hover), device, pressure,
+  pressure span, tilt, tilt angle, the eraser flag, hover, contact, report rate, last key (a `KEY_UNKNOWN` is named) and
+  pan/magnify counts. It reads input only. A field the event does not carry, or Android's port never fills (hover's
+  pressure and tilt, `pen_inverted`), reads a dash; a mouse's flat 1.0 is labelled mouse-like, a finger's pressure "the
+  finger's own". **The draft had a defect, fixed:** it named a method `_set`, which collides with `Object._set` and does not
+  parse. `_sh_probe --section sh9`: 15 checks on SYNTHETIC samples; three literal mutants killed. All sections: 111 at the
+  touch tablet (2388x1668 @2), 95 at the desktop. **Nothing here proves what the Stylo 2 sends:** that is the owner's glass
+  pass with this tester.
+
 ### Ruling EH item 1 built: the phone's GENERATE column is retired; the WORLD sheet is the dock's own categories (2026-11-09)
 
 `LARGE_ITEM_RULINGS.md` Ruling EH item 1, `MISTAKES.md` "Delete a surface". GDScript only, no Rust change. *Re-opened at the symbols first (origin/main `e6f3cfbd`):* `dcc_shell.gd` (`_build_phone_tool_sheet()`, `_refresh_phone_gen_panel()`, `_mount_dock_in_sheet()`, `_ensure_dom_rows()`, `_refresh_phone_sheet_header()`, `_phone_gen_tab_on()`, `_capture_shell_state()`), `workspaces/world_workspace.gd` (`build_phone_generate()` and the whole `_pg_*` block, `_on_tool_armed()`, `brush_surfaces_changed()`, `_build_generate_head()`, `_build_paint()`, `_build_sculpt()`), `tool_bar.gd` (`build_brush_controls()`, `sym_pick_begin()`), `paint_original.gd`, `tool_fan.gd`.
