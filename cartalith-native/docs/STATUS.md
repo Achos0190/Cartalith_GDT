@@ -7081,5 +7081,8 @@ widths, mounts, and restores the state. Read at the symbols; who holds each item
   runs after a swap; the timeline strip's three survivor connections are dropped at unmount; the desktop's `_on_window_node_added`
   hook is disconnected when a swap lands on it; a phone-first shell swapped to a tablet drew a 372 px left dock (the old
   class's `DccTheme` statics were read by `role_px()`).
+  `tool_strip.gd` (MS-5's, c302a4ed) connected to the bridge in `setup()`, which a cold boot runs before the bridge exists, so on a
+  real boot the phone strip never refreshed after a generate or a load; the phone round trip's connection count found it, and
+  the connections are now made one idle frame later, once (`_ms5b_probe` 111 checks still pass).
 - **Not done here:** the automatic swap (S4.4), window re-present (S4.5), the ring and B5 (S4.6), the `ViewportHost` refresh,
   workspace tool settings, and Ruling EH's CQ-8 and the MS-5 remainder, which other agents own.

@@ -479,6 +479,16 @@ func _norm_text() -> String:
 	lines.append("NODES %d" % all.size())
 	lines.append("ORPHANS %d" % _orphans())
 	lines.append("CLASS %s" % _app.class_key())
+	var strips := 0
+	for n in get_tree().root.find_children("*", "PanelContainer", true, false):
+		if n.get_script() != null and String((n.get_script() as Script).resource_path).get_file() == "tool_strip.gd":
+			strips += 1
+	var recv := 0
+	for c in _app.bridge.get_signal_connection_list("generation_finished"):
+		var o: Object = (c["callable"] as Callable).get_object()
+		if o != null and o.get_script() != null and String((o.get_script() as Script).resource_path).get_file() == "tool_strip.gd":
+			recv += 1
+	print("  info tool strips in the tree: ", strips, ", generation_finished receivers of tool_strip.gd: ", recv)
 	var sc: ScrollContainer = _app._left_dock_scroll
 	if sc != null:
 		var vb := sc.get_v_scroll_bar()

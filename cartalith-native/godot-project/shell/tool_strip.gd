@@ -148,11 +148,26 @@ func setup(app_ref, fan_ref, host: Control) -> void:
 	resized.connect(func() -> void: app.phone_insets_changed.emit())
 	if app.has_signal("tool_armed"):
 		app.tool_armed.connect(func(_id: String) -> void: refresh())
-	var b = app.bridge
-	if b != null:
-		b.world_loaded.connect(refresh)
-		b.generation_finished.connect(func(_ok: bool) -> void: refresh())
+	## MS-1 S4.3: wired one idle frame later. On a cold boot the shell builds this strip from `DccShell._ready()`,
+	## BEFORE `DccApp._ready()` creates the bridge, so `app.bridge` is null here and the two connections were never
+	## made (measured: 0 receivers after a cold phone boot, 1 after a remount, where the bridge exists), leaving a
+	## strip that did not refresh after a generate or a load. A remount and a boot now both end with exactly one.
+	_wire_bridge.call_deferred()
 	refresh()
+
+
+## True once the bridge connections exist, so a deferred call that finds them made does nothing.
+var _bridge_wired := false
+
+## Connects the strip to the bridge's `world_loaded` and `generation_finished`, once. Does nothing while the bridge
+## does not exist yet or after the strip has left the tree (a swap freed it before this deferred call ran).
+func _wire_bridge() -> void:
+	var b = app.bridge if app != null and is_instance_valid(app) else null
+	if _bridge_wired or b == null or not is_inside_tree():
+		return
+	_bridge_wired = true
+	b.world_loaded.connect(refresh)
+	b.generation_finished.connect(func(_ok: bool) -> void: refresh())
 
 
 ## Anchors the strip full width (less the side margins), or, when the container is wider than `MAX_W_DP`, centred at
