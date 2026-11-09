@@ -1053,6 +1053,8 @@ func open() -> void:
 func _screen_title(id: String, arg: String = "") -> String:
 	if id == "story":
 		return String(_story_row(arg).get("label", "Story"))
+	if id == "story-root":
+		return "Story"
 	var row: Array = SCREEN_TITLES.get(id, [])
 	return String(row[0]) if row.size() == 2 and String(row[0]) != "" else id
 
@@ -1061,8 +1063,8 @@ func _screen_title(id: String, arg: String = "") -> String:
 ## `SCREEN_TITLES`, or "" when the id has none.
 func _screen_sub(id: String, arg: String = "") -> String:
 	match id:
-		"story":
-			return String(_story_row(arg).get("sub", ""))
+		"story", "story-root":
+			return String(_story_row(arg if arg != "" else _story_band).get("sub", ""))
 	var row: Array = SCREEN_TITLES.get(id, [])
 	return String(row[1]) if row.size() == 2 else ""
 
@@ -1405,9 +1407,9 @@ func _missing_row(label: String, why: String) -> Control:
 func _fill_screen(body: VBoxContainer, id: String, arg: String = "") -> void:
 	match id:
 		"more": _fill_root(body)
-		"story-root": _fill_story_rows(body)
+		"story-root": _fill_story_rows(body, arg if arg != "" else _story_band)
 		"gestures": _fill_gestures(body)
-		"story": _fill_story(body, arg)
+		"story": _fill_story_rows(body, arg)
 		_:
 			## No case for this id in `_fill_screen()`.
 			body.add_child(_missing_row("Unknown screen '%s'." % id,
@@ -1537,15 +1539,16 @@ func _quick_customise() -> void:
 ## the band's rows -- so the rows each screen draws are read off the live popup,
 ## never copied here. `label` and `glyph` are A8's; `sub` names the band's own
 ## rows (A8 wrote `vault` for Notes, which this build's band does not hold, so
-## the subtitle says what it does hold).
+## the subtitle says what it does hold). `chip` is the segment's caption on the STORY sheet's strip (MS-6, the
+## mockup's `TIME · JOURNEYS · CONFLICTS · NOTES`); the band is the key, so a caption never has to match the menu.
 const STORY_ROWS: Array = [
-	{"band": "TIME", "glyph": "◷", "label": "Timeline",
+	{"band": "TIME", "chip": "TIME", "glyph": "◷", "label": "Timeline",
 		"sub": "timeline · political · faction history"},
-	{"band": "JOURNEYS", "glyph": "→", "label": "Journeys",
+	{"band": "JOURNEYS", "chip": "JOURNEYS", "glyph": "→", "label": "Journeys",
 		"sub": "planner · saved journeys · travel library"},
-	{"band": "CONFLICTS & CAMPAIGNS", "glyph": "◇", "label": "Conflicts & campaigns",
+	{"band": "CONFLICTS & CAMPAIGNS", "chip": "CONFLICTS", "glyph": "◇", "label": "Conflicts & campaigns",
 		"sub": "list · draw · this year"},
-	{"band": "NOTES", "glyph": "▤", "label": "Notes",
+	{"band": "NOTES", "chip": "NOTES", "glyph": "▤", "label": "Notes",
 		"sub": "this place · places without notes"},
 ]
 
@@ -1556,28 +1559,82 @@ func _story_row(band: String) -> Dictionary:
 			return r
 	return {}
 
-## The Story screen's body (`story-root`, the STORY tab through `open_story()`): the four band rows of
-## `STORY_ROWS`, each opening its band (`_fill_story()`). MENU ▸ Story is the Story popup itself, row for row
-## (Ruling DX Q13); this screen is the STORY tab's. (MS-4 retired `_fill_story_section()`, which drew these rows
-## under the old MORE root's "Story" and "World" heads.)
-func _fill_story_rows(body: VBoxContainer) -> void:
+## The band the STORY sheet last showed (`STORY_ROWS`' key). The tab reopens on it, so a user who works in
+## CONFLICTS is not sent back to TIME each time. Session memory only: nothing is saved, and a band that is no longer
+## in `STORY_ROWS` falls back to the first (`_story_band_or_first()`).
+var _story_band: String = "TIME"
+
+## `band` if `STORY_ROWS` has it, else the first band. Never returns "" (the strip must always have one lit).
+func _story_band_or_first(band: String) -> String:
+	if not _story_row(band).is_empty():
+		return band
+	return String(STORY_ROWS[0]["band"])
+
+## The STORY sheet's body (`story-root`, and `story` pushed over it): MS-6's segment strip, one 44 dp segment per
+## `STORY_ROWS` band with the shown one lit, then that band's own rows (`_fill_story()`), so the planner, the timeline,
+## the conflicts and the notes are one tap apart without leaving the sheet and without MENU. MENU ▸ Story is the Story
+## popup itself, row for row (Ruling DX Q13); this screen is the STORY tab's. (MS-4 retired `_fill_story_section()`;
+## this replaces the four drill rows `_fill_story_rows()` drew, which made every band two taps and a back away.)
+## Must never draw a band's rows from a copy: `_fill_story()` reads the live popup.
+func _fill_story_rows(body: VBoxContainer, band: String) -> void:
+	band = _story_band_or_first(band)
+	var wrap := MarginContainer.new()
+	wrap.add_theme_constant_override("margin_left", _ps(16))
+	wrap.add_theme_constant_override("margin_right", _ps(16))
+	wrap.add_theme_constant_override("margin_top", _ps(8))
+	wrap.add_theme_constant_override("margin_bottom", _ps(8))
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", _ps(6))
+	wrap.add_child(strip)
 	for r in STORY_ROWS:
-		var band := String(r["band"])
-		_add(body, _row(String(r["label"]), String(r["sub"]), null, _chevron(),
-			func(): _push_screen("story", band), false, _glyph(String(r["glyph"]))))
+		var b_key := String(r["band"])
+		var seg := DccWidgets.chip(strip, String(r["chip"]), func() -> void: _story_pick(b_key),
+			b_key == band, 7, 4)
+		seg.name = "StorySeg_" + b_key
+		seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## 52 units, not 44: a unit is not a dp. The phone's unit is capped at short side / 412 (`_phone_scale_for()`),
+		## so a 360 dp phone's unit is 0.87 dp, and 44 units measured 43.8 dp at the 6T's 2.625, 43.0 at 2.8125
+		## and 38 dp at 360 dp wide (`_ms6_probe.gd`). 52 units is at least 45 dp on all of them, over the 44 dp
+		## floor of the proposal's touch table.
+		seg.custom_minimum_size = Vector2(0, _ps(52))
+		seg.clip_text = true
+		seg.add_theme_font_size_override("font_size", _pt(11))
+	_add(body, wrap)
+	_fill_story(body, band)
+
+## A tap on a STORY segment: shows `band` in place, rewriting the top step's `arg` rather than pushing, so the stack
+## never grows with each tap and system back still leaves the sheet in one step. When the top step is not a Story
+## screen at all (a caller that pushed `story` over MENU's root is the only way there, and that one is a `story`
+## step) nothing here can be reached, so the band is pushed. A no-op on an empty stack.
+func _story_pick(band: String) -> void:
+	band = _story_band_or_first(band)
+	_story_band = band
+	if _stack.is_empty():
+		return
+	var top: _Step = _stack[_stack.size() - 1]
+	if top.screen == "story-root":
+		top.arg = band
+		_render()
+	elif top.screen == "story":
+		top.arg = band
+		top.title = _screen_title("story", band)
+		_render()
+	else:
+		_push_screen("story", band)
 
 ## The STORY tab (Ruling DT Q1; draft 05). Opens this sheet on the Story screen, or straight on one band
 ## ("TIME", "JOURNEYS", "CONFLICTS & CAMPAIGNS" or "NOTES", the `STORY_ROWS` bands). System back from a band
 ## returns to the Story screen, and from there closes the sheet. Does not close other overlays; the shell
 ## does that first. Must never leave the planner unreachable: JOURNEYS holds it (the PLAN tab's old door).
 func open_story(band: String = "") -> void:
-	_stack.clear()
-	_stack.append(_Step.new(null, _screen_title("story-root"), "", 2, "story-root"))
-	visible = true
 	if band != "":
-		_push_screen("story", band)
-	else:
-		_render()
+		_story_band = _story_band_or_first(band)
+	_stack.clear()
+	## SCREEN_LEVEL (a drilled screen: back and close buttons, the band's subtitle), not the root's level 2: since
+	## MS-6 the STORY sheet is its own segmented screen and a root header has neither button.
+	_stack.append(_Step.new(null, _screen_title("story-root"), "", SCREEN_LEVEL, "story-root", _story_band))
+	visible = true
+	_render()
 
 ## Opens MENU on its root and pushes screen `id` over it, so system back returns to MENU. For a row a program menu
 ## carries whose content is a phone screen: Help ▸ Gesture reference… (`gestures`), reached through

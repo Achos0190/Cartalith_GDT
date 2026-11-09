@@ -322,8 +322,10 @@ func _run(vw: int, vh: int) -> void:
 	await _tap(_centre("story"), true)
 	await _settle()
 	_ok(_app._phone_menu.is_open() and _app._phone_tab == "story", "STORY tab opens the phone menu, lit")
-	for lab in ["Timeline", "Journeys", "Conflicts & campaigns", "Notes"]:
-		_ok(_menu_has(lab), "Story screen lists '%s'" % lab)
+	## MS-6: the Story sheet is a strip of four segments (`TIME`, `JOURNEYS`, `CONFLICTS`, `NOTES`) over the shown band.
+	for lab in ["TIME", "JOURNEYS", "CONFLICTS", "NOTES"]:
+		_ok(_menu_has(lab), "Story sheet has the segment '%s'" % lab)
+	_ok(_menu_has("Timeline"), "Story sheet opens on TIME, which lists the Timeline row")
 	_app._phone_menu.open_story("JOURNEYS")
 	await _settle()
 	_ok(_menu_has("Journey planner"), "STORY > Journeys reaches the Journey planner (the PLAN tab's old door)")

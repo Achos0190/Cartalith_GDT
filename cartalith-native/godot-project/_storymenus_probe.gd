@@ -379,9 +379,9 @@ func _ready() -> void:
 			await _frames(4)
 			var root_txt: Array = []
 			_labels(pm._screen_body, root_txt)
-			for r in pm.STORY_ROWS:
-				_check("the STORY screen draws the row '%s'" % r["label"],
-					root_txt.has(String(r["label"])), str(root_txt))
+			## MS-6: the STORY sheet draws four segments (chips) over the shown band, not four drill rows.
+			for cap in ["TIME", "JOURNEYS", "CONFLICTS", "NOTES"]:
+				_check("the STORY sheet draws the segment '%s'" % cap, root_txt.has(cap), str(root_txt))
 			pm.open()
 			pm._push(pm._menu_popup("Records", false), "Records", pm.SCREEN_LEVEL)
 			await _frames(4)

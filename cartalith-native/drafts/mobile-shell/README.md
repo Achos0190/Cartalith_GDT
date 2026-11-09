@@ -38,6 +38,11 @@ coach mark (H2) reads "MAP · domain · STORY switch tasks here — hold the dom
 everything else.", with `_coachcoldboot_probe.gd` and `_pandraghint_probe.gd` re-pinned. `check_symbols.sh` no longer
 anchors draft 03's coach-mark text (replaced); its "TAKEN" lines for MS-1's and MS-2's names are expected now that drafts 1 to 4 are in.
 
+**MS-6 (2026-11-09) landed without a draft.** Draft 05's STORY half had given the tab four drill rows (`_fill_story_rows()`), each a push and a
+back away from the next band. MS-6 replaces them with the mockup's segment strip: `_fill_story_rows(body, band)` draws four 52-unit segments
+(`STORY_ROWS`' new `chip` key) and then `_fill_story()`'s rows for the shown band; `_story_pick()` rewrites the top step in place; `open_story()`
+reopens on the band last shown (`_story_band`). Rows still come from the live Story popup, so MENU ▸ Story and the STORY tab cannot drift.
+
 ## Order of work
 
 | # | Draft | Milestone | Target | Replaces / adds | Blocked by |
