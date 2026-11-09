@@ -8166,6 +8166,12 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		var interior := _interior_rect(rect)
 		_stroke_pen_seen = false   ## ET-D2: every press and release starts a stroke afresh.
+		## SH-2: a pen contact (device >= 0 on a touch build) takes every sample, not one per frame, until
+		## its release; a finger and a desktop mouse are unchanged. See `StylusInput.begin_pen_contact`.
+		if mb.pressed:
+			StylusInput.begin_pen_contact(mb.device)
+		else:
+			StylusInput.end_pen_contact()
 		if mb.device < 0 or OS.has_feature("mobile"):
 			_touch_down = mb.pressed
 			if mb.pressed:
@@ -8257,13 +8263,23 @@ func _gui_input(event: InputEvent) -> void:
 ## `_stroke_pen_seen` latch first. Pressure and tilt are read from the event only
 ## once `is_pen` holds, and are `null` (not 1.0, not 0.0) before then. Must never
 ## be called for a hover, and never changes what `map_dragged` receives.
+## SH-2: a FINGER never latches (`StylusInput.is_finger`, device -1). Android hands a
+## touch-emulated drag the finger's own `getPressure`, so a light finger drag strictly
+## between 0 and 1 used to latch as a pen and reach the engine with a pressure no pen
+## made (`STYLUS_HAPTICS_RESEARCH.md` section 8.1, SH-2). A pen and a mouse are device >= 0
+## and are judged by the signature as before.
 func _emit_stroke_sample(mm: InputEventMouseMotion, gx: float, gy: float) -> void:
-	if (mm.pressure > 0.0 and mm.pressure < 1.0) or mm.tilt != Vector2.ZERO or mm.pen_inverted:
+	if not StylusInput.is_finger(mm.device) and StylusInput.has_pen_signature(mm.pressure, mm.tilt, mm.pen_inverted):
 		_stroke_pen_seen = true
 	if _stroke_pen_seen:
 		map_stroke_sample.emit(gx, gy, mm.pressure, mm.tilt.x, mm.tilt.y, true)
 	else:
 		map_stroke_sample.emit(gx, gy, null, null, null, false)
+
+## SH-2: never leave `Input.use_accumulated_input` switched off by a pen contact whose release this control
+## will not see (the overlay is freed mid-stroke).
+func _exit_tree() -> void:
+	StylusInput.end_pen_contact()
 
 ## Let a withheld touch press through, unchanged and in its original order --
 ## the selection first, then the click, exactly as the mouse branch emits them

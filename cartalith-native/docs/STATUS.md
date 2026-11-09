@@ -55,6 +55,22 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 - **Probe: `_ms6_probe.gd`** drives REAL touches (a touch and its emulated mouse) at the 6T portrait and landscape at 2.625 and 2.8125 (1080 x 2340, 2340 x 1080), 1440 x 3120 @3, the 11-inch tablet (2388 x 1668 @2, a phone under Ruling EG) and 360 dp (1080 x 1920 @3): 49 of 49 at each of the seven. Hand-written literals: the four captions and their order, 44 dp on both axes, wholly on screen, one lit, each band's row text, the stack one deep after five taps, a tap on the Journey planner row showing the planner, the band remembered across a close, back leaving in one step, an unknown band falling back to TIME, MENU still listing Story. **It found a defect before it shipped:** the first height of 44 units measured 43.8 dp at 2.625, 43.0 at 2.8125 and 38 dp at 360 dp wide (the phone's unit is capped at short side / 412, so it is under 1 dp on a narrow phone); 52 units is at least 45 dp on all of them. **Mutants, 4 of 4 killed (windowed, 6T portrait):** segment height 52 to 30 (4 failures), `_story_pick` always pushing (6), `open_story()` ignoring the remembered band (2), the strip not added (1 of 4 checks, aborting early).
 - **Regression, new tree, windowed:** `_eh1` (78) at six sizes, `_ms2` (52, the Story checks re-pointed to the segments) and `_ms3` (33) at five, `_ms3b` (28), `_ms5` (93), `_ms5b` (119), `_phonemap` (67), `_quickbar_phone` (123) all pass; `_storymenus` fails 7 of 96 identically on `origin/main` (Story's popup rows, the Ctrl+Shift+N accelerator, the no-world and generating place rows, the Inspect history jump: the desktop popup after PC-4/PC-5, not this change), its re-pointed segment check passes; `_vfyb13` exits 0. `_ms4` (its walk needs a desktop dump file) was not run, and `_ms5`, `_ms5b`, `_ms3b` ran at one size each (2.8125 portrait for the first two, 2.625 for `_ms3b`). Desktop and the touch tablet are unchanged by construction, not by capture: `PhoneMenu` is built only inside `_build_phone_shell()`, and no pixel capture was taken.
 - **Left of MS-6.** The mockup's STORY also shows a year in TIME's subtitle (`time · year N`) and a live `journey A to B` in JOURNEYS' (the PLAN header already carries the latter while the planner is on screen); the segments hold the Story menu's rows, not the planner's own panels inline (the planner is still the swapped main view, as on the tablet). Neither is in the milestone's bar. The glass pass is MS-10. The `+` / `-` steppers (Ruling EH item 1's follow-up) are not built: no ruling or proposal asks for them yet.
+### Standard stylus input built, milestone by milestone (Ruling EE) (2026-11-09)
+
+`cartalith-native/drafts/stylus-input/` transplanted into the shell, one commit per milestone, standard pointer input
+only (no plugin, no Gradle, no BLE, no haptics, no `project.godot` edit). `StylusInput` (`shell/stylus_input.gd`) holds the
+pure rules; `_sh_probe.gd` drives SYNTHETIC pen events (device 0 with hand-set pressure and tilt) and Godot's touch
+emulation (device -1): it proves the routing, not what the Pad 3's pen reports. *Re-opened at the symbols first:*
+`map_overlay.gd::_emit_stroke_sample`, `viewport_host.gd::_touch_press`, `world_workspace.gd::_paint_drag`.
+
+- **SH-2 built (input hygiene).** A finger can no longer latch as a pen: `_emit_stroke_sample` ignores `device < 0`
+  (Android hands a touch-emulated drag the finger's own `getPressure`, so 0.4 used to reach the engine as a pen's).
+  While a non-finger press is down on a touch build `Input.use_accumulated_input` is false and the release restores
+  it (`StylusInput.begin_pen_contact` / `end_pen_contact`; a finger and a desktop mouse are untouched). `_sh_probe`
+  `--section sh2`: 24 checks at the 6T form; two literal mutants killed (the finger guard; the contact gate).
+  **Not done: `disable_scroll_deadzone`.** It is a `project.godot` setting and this work never edits that file; the
+  owner can add `input_devices/pointing/android/disable_scroll_deadzone=true` and measure with the SH-9 tester first
+  (the drafts README's own advice).
 
 ### Ruling EH item 1 built: the phone's GENERATE column is retired; the WORLD sheet is the dock's own categories (2026-11-09)
 

@@ -6,6 +6,11 @@ are **not parse-checked** here: this session has no Godot. `check_symbols.sh`
 greps the shipped tree for every shipped symbol the drafts call, which is the
 only verification available without the editor.
 
+> **Transplanted, 2026-11-09.** These drafts are being built into the shell one milestone per commit, with
+> `shell/stylus_input.gd` holding the pure rules and `_sh_probe.gd` verifying them with synthetic pen events. What has
+> landed is `STATUS.md`'s answer (its *Standard stylus input built* entry); this file keeps the drafts as written, and
+> where the shipped code differs (SH-2's spec below became code, not a patch) the code and `STATUS.md` win.
+
 ## Scope, and what is parked
 
 Owner, 2026-11-02: *"Let's park the haptics feedback for now. And continue

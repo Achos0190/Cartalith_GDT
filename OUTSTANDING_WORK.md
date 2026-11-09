@@ -232,6 +232,15 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
   reads them over BLE, which Ruling EE puts off. The proposal asks the owner to revisit EE for one read-only plugin
   (§10 P1–P11); SP-0 (measure with `getevent`) and SP-1 (a key from the pen, if it sends one) sit inside EE. The
   pen's motor stays off in every option.
+- **Active, within standard stylus-input permissions (owner, 2026-11-02): the input work, being transplanted from
+  `cartalith-native/drafts/stylus-input/` into the shell one milestone per commit** (`STATUS.md`'s *Standard stylus
+  input built* entry says which have landed; this row never records that). Still to do, whichever of SH-3 (pen draws,
+  finger pans, with a palm rule; Ruling EC), SH-4 (the pressure curve), SH-5 (tilt: the GDScript toggle; the Rust
+  `paint_stroke_options` field is its own parity-gated change, not started), SH-6 (the hover ring's inner ring) and
+  SH-9 (the tester) `STATUS.md` does not list as built. **SH-2's `disable_scroll_deadzone=true` is left for the
+  owner:** it is a `project.godot` setting, and measuring first with the SH-9 tester is the research's own order. On
+  the glass (the owner's pass): the pen's real pressure, tilt and hover reports, and whether a resting palm is
+  cancelled by Android or reaches the shell. All are standard pointer input; SH-10 is **off** (Ruling EE).
 - **Stale pen prose (Ruling BK):** `TABLET_UI_SPEC.md` §4.2 ("nothing in the shell reads pen pressure") and
   `EDITING_TOOLS_SCOPE.md` §3.2 ("are never read") predate ET-D2/D3/D5; `map_overlay.gd` passes pressure and the sculpt
   and paint tools read it. Also stale comments the fact-check found: `analysis.rs::ruggedness` (a uniform slope reads
