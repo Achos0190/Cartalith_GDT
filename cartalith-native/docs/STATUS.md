@@ -996,6 +996,12 @@ The owner asked: *"Just copy it into the reference folder"*.
 - **The old blocker was wrong.** The re-freeze row had been blocked since 2026-10-10 on "the owner has no v2.71 file to
   supply". That check looked only in this repository; the file had been in `Cartalith_RC` since 2026-09-20.
 
+### Stylo 2 pen proposal written; nothing built (2026-11-09)
+
+`STYLO2_PEN_PROPOSAL.md` exists: how the pen's double tap, side slide and battery (over BLE, per the owner's pack in
+`cartalith-native/docs/evidence/stylus-2026-11-08/cartalith-pen/`) could reach Cartalith's tools, framed as a request
+to revisit Ruling EE. Documentation only; no shell, plugin or device change. Ruling EE stands until the owner answers.
+
 ### Stylus: standard input only (Ruling EE), and the input drafts begin (2026-11-02)
 
 The owner settled the stylus scope: *"standard stylus input with pressure and touch is what it is"* (Ruling EE).

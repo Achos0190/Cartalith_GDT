@@ -227,6 +227,11 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
   with no special permission. Built as GDScript drafts in `cartalith-native/drafts/stylus-input/` (no Godot in the
   session to parse-check); implementing them in the shell is the follow-on. SH-10 (the Kotlin input plugin) is **off**
   (Ruling EE: standard input only, no Gradle plugin).
+- **The Stylo 2's double tap, side slide and battery** (owner, 2026-11-08/09; `STYLO2_PEN_PROPOSAL.md`, a proposal,
+  no status column): the owner's integration pack (`cartalith-native/docs/evidence/stylus-2026-11-08/cartalith-pen/`)
+  reads them over BLE, which Ruling EE puts off. The proposal asks the owner to revisit EE for one read-only plugin
+  (§10 P1–P11); SP-0 (measure with `getevent`) and SP-1 (a key from the pen, if it sends one) sit inside EE. The
+  pen's motor stays off in every option.
 - **Stale pen prose (Ruling BK):** `TABLET_UI_SPEC.md` §4.2 ("nothing in the shell reads pen pressure") and
   `EDITING_TOOLS_SCOPE.md` §3.2 ("are never read") predate ET-D2/D3/D5; `map_overlay.gd` passes pressure and the sculpt
   and paint tools read it. Also stale comments the fact-check found: `analysis.rs::ruggedness` (a uniform slope reads
