@@ -1528,7 +1528,80 @@ func _gestures_on() -> bool:
 func _on_map(pos: Vector2) -> bool:
 	if not get_global_rect().has_point(pos):
 		return false
-	return not (_navpad != null and _navpad.visible and _navpad.get_global_rect().has_point(pos))
+	if _navpad != null and _navpad.visible and _navpad.get_global_rect().has_point(pos):
+		return false
+	## SCROLL-FIX: geometry is not enough. The phone MENU, a sheet or a window is drawn OVER the map, inside the
+	## map's rect, and this `_input` hook runs before GUI dispatch -- so a finger dragging the MENU's list was
+	## taken as a camera pan (and, by consuming the emulated mouse motion, never reached the list's
+	## ScrollContainer: the owner's "scrolling the menu moves the map behind it" on the Pad 3, and why adb swipes
+	## did not scroll Preferences). The finger is the map's only when the topmost control that picks at the point
+	## is this host or one of its own descendants.
+	var top: Node = _topmost_pick(get_viewport(), pos)
+	return top == null or top == self or is_ancestor_of(top)
+
+## Whether `ctl` takes a finger away from the map: every STOP control, and a PASS one only when it does something with
+## a touch (a button, slider, text box, list, tree, scroller, or a `gui_input` listener). A PASS control with none of
+## those is chrome that only forwards to its parent: the tablet has full-rect PASS layers over the map (found by
+## `_scrollfix_probe.gd`, whose bare-map pan failed on the Pad until this rule), and the map must keep its pan under them.
+func _blocks_map_touch(ctl: Control) -> bool:
+	match ctl.mouse_filter:
+		Control.MOUSE_FILTER_STOP:
+			return true
+		Control.MOUSE_FILTER_PASS:
+			return ctl is BaseButton or ctl is Range or ctl is LineEdit or ctl is TextEdit or ctl is ItemList 				or ctl is Tree or ctl is ScrollContainer or not ctl.get_signal_connection_list("gui_input").is_empty()
+	return false
+
+## The topmost visible Control (or open embedded Window) under `pos` that Godot's GUI picking would choose (any `mouse_filter` but
+## IGNORE -- a PASS control is picked too, it only forwards to its parent), or null. Walks front to back:
+## CanvasLayers by descending `layer` first, then children last-to-first, each node's children before the node
+## itself. Embedded Windows are skipped (their events are routed to them before this hook sees any), and a
+## clipping parent hides the parts of its children outside its rect. Called on a press only, never per motion.
+func _topmost_pick(node: Node, pos: Vector2) -> Node:
+	var kids := node.get_children()
+	if node == get_viewport():
+		var layers: Array = kids.filter(func(k): return k is CanvasLayer and (k as CanvasLayer).visible)
+		layers.sort_custom(func(a, b): return (a as CanvasLayer).layer > (b as CanvasLayer).layer)
+		for l in layers:
+			var hit: Node = _topmost_pick(l, pos)
+			if hit != null:
+				return hit
+	for i in range(kids.size() - 1, -1, -1):
+		var c: Node = kids[i]
+		if c is Window:
+			## An open embedded window (a dialog, a phone-presented form) is above everything in this viewport.
+			var w := c as Window
+			if w.visible and w.is_embedded() and Rect2(Vector2(w.position), Vector2(w.size)).has_point(pos):
+				return w
+			continue
+		if c is CanvasLayer and node == get_viewport():
+			continue
+		if c is CanvasLayer:
+			if not (c as CanvasLayer).visible:
+				continue
+			var lhit: Node = _topmost_pick(c, pos)
+			if lhit != null:
+				return lhit
+			continue
+		if not (c is Control):
+			## A Node2D or a plain Node can still parent Controls.
+			if c is CanvasItem and not (c as CanvasItem).visible:
+				continue
+			var nhit: Node = _topmost_pick(c, pos)
+			if nhit != null:
+				return nhit
+			continue
+		var ctl := c as Control
+		if not ctl.visible:
+			continue
+		var rect := ctl.get_global_rect()
+		if ctl.clip_contents and not rect.has_point(pos):
+			continue
+		var below: Node = _topmost_pick(ctl, pos)
+		if below != null:
+			return below
+		if rect.has_point(pos) and _blocks_map_touch(ctl):
+			return ctl
+	return null
 
 ## A mouse event that is really a finger: Godot's emulation stamps `device = DEVICE_ID_EMULATION` (-1), and a
 ## mobile build counts every mouse event as touch, the same two-part test `map_overlay.gd` uses for the same
