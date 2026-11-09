@@ -1013,8 +1013,10 @@ func context_actions(req: Dictionary) -> Array:
 			rows.append({"id": "carto.label_this", "label": "Label this: “%s”" % nm, "section": "place",
 				"enabled": true, "callable": func() -> void: _create_label(gx, gy, nm)})
 			break
-	rows.append({"id": "carto.add_label", "label": "Add label here…", "section": "place",
-		"enabled": true, "callable": func() -> void: _prompt_label_name(gx, gy)})
+	## MS-5 (`MOBILE_SHELL_PROPOSAL.md` section 2.1): CARTO's lead verbs on empty ground are Add label, Stamp icon, View
+	## field, Style preset and Export region (`GlobalTools.lead_chip`, ranks 1 to 5; the sheet shows the first four).
+	rows.append(GlobalTools.lead_chip({"id": "carto.add_label", "label": "Add label here…", "section": "place",
+		"enabled": true, "callable": func() -> void: _prompt_label_name(gx, gy)}, 1, req))
 	var stamp := {"id": "carto.stamp_icon", "label": "Stamp armed icon here", "section": "place",
 		"enabled": false, "callable": func() -> void:
 			if bridge.icon_place(gx, gy) >= 0:
@@ -1026,24 +1028,42 @@ func context_actions(req: Dictionary) -> Array:
 		stamp["reason"] = "no icon armed — arm Icon in TOOLS and pick one in its options bar"
 	else:
 		stamp["enabled"] = true
-	rows.append(stamp)
+	rows.append(GlobalTools.lead_chip(stamp, 2, req))
 	var views := _view_field_rows()
 	if not views.is_empty():
-		rows.append({"id": "carto.view_field", "label": "View field", "section": "place",
-			"enabled": true, "children": views})
+		rows.append(GlobalTools.lead_chip({"id": "carto.view_field", "label": "View field", "section": "place",
+			"enabled": true, "children": views,
+			## MS-5: on the phone this submenu is a jump to the Layers popover, which holds the view field with its
+			## fields in groups (the same popover MAP's own row opens).
+			"phone_jump": _jump_view_field}, 3, req))
 	if _render != null:
 		var presets: Array = []
 		for i in RenderWorkspace.STYLE_PRESETS.size():
 			presets.append({"id": "carto.style.%d" % i, "label": String(RenderWorkspace.STYLE_PRESETS[i][0]),
 				"enabled": true, "callable": _render._apply_preset.bind(i)})
-		rows.append({"id": "carto.style_preset", "label": "Style preset", "section": "place",
-			"enabled": true, "children": presets})
-	rows.append({"id": "carto.region_start", "label": "Start export region here", "section": "go",
+		rows.append(GlobalTools.lead_chip({"id": "carto.style_preset", "label": "Style preset", "section": "place",
+			"enabled": true, "children": presets,
+			## MS-5: on the phone the presets live in CARTO > Style, so the row opens that category in the sheet.
+			"phone_jump": _jump_style_presets}, 4, req))
+	rows.append(GlobalTools.lead_chip({"id": "carto.region_start", "label": "Start export region here", "section": "go",
 		"enabled": true, "callable": func() -> void:
 			app.arm_tool("region")
 			GlobalTools._region_drag(app, gx, gy)
-			app.set_status("hint", "Region: drag or click to the opposite corner", "text_ghost")})
+			app.set_status("hint", "Region: drag or click to the opposite corner", "text_ghost")}, 5, req))
 	return rows
+
+## MS-5: the phone card's *View field* jump: opens the Layers popover (`DccShell.layers_popover`), which on the phone is
+## a full sheet. Does nothing when the shell has no popover (a probe harness).
+func _jump_view_field() -> void:
+	var lp = app.get("layers_popover")
+	if lp != null:
+		lp.open()
+
+## MS-5: the phone card's *Style preset* jump: opens CARTO > Style (where the presets are) and lifts the sheet to half
+## so the category is on screen. `select_domain_category` moves the rail node with the dock, as every other jump does.
+func _jump_style_presets() -> void:
+	app.select_domain_category("cartography", "Style")
+	app.set_phone_detent("half")
 
 ## The Layers popover's eight hot-keyed views, in its own order: the first
 ## eight *available* `debug_layers()` items (`layers_popover.gd::rebuild`'s

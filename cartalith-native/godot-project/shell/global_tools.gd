@@ -130,6 +130,19 @@ static func install(app) -> void:
 	app.register_tool_release_handler("region", func(gx, gy, valid): _region_release(app, gx, gy, valid))
 	app.register_tool_escape_handler("region", func(): _region_escape(app))
 
+## MS-5 (`MOBILE_SHELL_PROPOSAL.md` section 2.1, "Long-press on the map ... the card leads with four to six actions
+## for the current domain"): puts `row` into the phone peek sheet's chip row at rank `n` when the press landed on
+## **empty ground** (`req["hits"]` empty), and returns `row` either way. `PhoneMenu._rebuild_peek_chip_row()` sorts
+## rows that carry `chip` ahead of the rest, so each domain's provider names its lead verbs here and the sheet
+## needs no per-domain table. On a press that hit something, the verbs are NOT promoted: the hit's own rows
+## (Edit label, Open note, Inspect river) are what that press was for, and the SM-4 story chips (ranks 1 to 4)
+## keep their places. Never changes the row's callable or its place in the half-detent list.
+static func lead_chip(row: Dictionary, n: int, req: Dictionary) -> Dictionary:
+	if (req.get("hits", []) as Array).is_empty():
+		row["chip"] = n
+	return row
+
+
 ## `MAP_CONTEXT_SCOPE.md` CM-1's provider contract (`context_broker.gd`'s own
 ## header has it). Static, like everything here: this class has no instance,
 ## so the broker passes `app`.

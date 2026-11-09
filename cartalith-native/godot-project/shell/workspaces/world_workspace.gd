@@ -4011,9 +4011,17 @@ func context_actions(req: Dictionary) -> Array:
 						_rebuild_paint_body()}})
 			var eye := _eyedropper_row(gx, gy)
 			if not eye.is_empty():
-				rows.append(eye)
-	rows.append({"id": "world.section_from", "label": "Cross-section from here", "section": "go",
-		"enabled": true, "callable": func() -> void: GlobalTools.measure_from(app, "section", gx, gy)})
+				rows.append(GlobalTools.lead_chip(eye, 3, req))
+	## MS-5 (`MOBILE_SHELL_PROPOSAL.md` section 2.1): WORLD's lead verbs on empty ground are Sculpt here, Cross-section
+	## from here and Paint with this biome, in that order (`GlobalTools.lead_chip`, chip ranks 1 to 3). *Sculpt here* arms the
+	## Sculpt tool through `app.arm_tool`, the palette cell's own path, and draws nothing: a stamp needs a drag, and the
+	## phone's drawing latch hands that drag to the tool (item 3).
+	rows.append(GlobalTools.lead_chip({"id": "world.sculpt_here", "label": "Sculpt here", "section": "go",
+		"enabled": String(req.get("armed_tool", "")) != "sculpt",
+		"reason": "Sculpt is already armed",
+		"callable": func() -> void: app.arm_tool("sculpt")}, 1, req))
+	rows.append(GlobalTools.lead_chip({"id": "world.section_from", "label": "Cross-section from here", "section": "go",
+		"enabled": true, "callable": func() -> void: GlobalTools.measure_from(app, "section", gx, gy)}, 2, req))
 	return rows
 
 ## `get_sculpt_globals_info()`'s entry for one key, or `{}`.

@@ -338,13 +338,28 @@ func present(req: Dictionary, actions: Array) -> void:
 	_present_phone(req, actions)
 
 
-## Phone presentation: drops card-only rows (`children`, `param`), tries the
+## Phone presentation: drops card-only rows (`children`, `param`) -- except a submenu row that carries `phone_jump`
+## (MS-5, `MOBILE_SHELL_PROPOSAL.md` section 5: "a submenu row becomes a jump"), which stays as one plain row whose
+## callable is that jump and whose label ends in a chevron -- tries the
 ## CM-5 peek sheet via `app.phone_present_peek_card`, and only falls back to a
 ## styled `PopupMenu` when the shell has no phone chrome (probe harnesses).
 ## Disabled rows keep their `reason` as the tooltip (§4.2). Must keep
 ## `last_actions` equal to what is displayed, because `_on_id` indexes it.
 func _present_phone(req: Dictionary, all_actions: Array) -> void:
-	var actions: Array = all_actions.filter(func(a): return not (a.has("children") or a.has("param")))
+	var actions: Array = []
+	for a in all_actions:
+		var row: Dictionary = a
+		if row.has("children") and row.get("phone_jump") is Callable:
+			## MS-5: a submenu has no second level on the sheet, so the row jumps to where its choices live instead.
+			## A copy, so `last_request`'s own rows (and the desktop card's) keep their children.
+			var jump := row.duplicate()
+			jump.erase("children")
+			jump["chip_label"] = String(row.get("label", ""))
+			jump["label"] = "%s ›" % String(row.get("label", ""))
+			jump["callable"] = row["phone_jump"]
+			actions.append(jump)
+		elif not (row.has("children") or row.has("param")):
+			actions.append(row)
 	last_actions = actions
 	if actions.is_empty():
 		return

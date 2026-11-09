@@ -965,9 +965,11 @@ func context_actions(req: Dictionary) -> Array:
 		## roster" because the window is the Factions hub, not a list. Never
 		## open without the faction id: a bare `open_faction_roster()` would
 		## land on the last-selected faction, not the one under the cursor.
-		rows.append({"id": "civ.faction_open", "label": "Open %s…" % cf_name,
+		## MS-5: on a claimed cell with nothing under the finger the Open row leads the sheet (rank -5, ahead of the
+		## lead verbs below at -4 to -1), as it did before those verbs were ranked (`_ctxphone_probe` FR leg).
+		rows.append(GlobalTools.lead_chip({"id": "civ.faction_open", "label": "Open %s…" % cf_name,
 			"section": "object", "enabled": true,
-			"callable": func() -> void: app.open_faction_roster(cf_id, "territory")})
+			"callable": func() -> void: app.open_faction_roster(cf_id, "territory")}, -5, req))
 		## "Claim for this faction" is the Territory tool armed with this
 		## faction pre-picked -- the eyedropper of the scope's own wording --
 		## through the same `_territory_faction` state the options bar's
@@ -975,24 +977,26 @@ func context_actions(req: Dictionary) -> Array:
 		rows.append({"id": "civ.faction_claim", "label": "Claim for %s" % cf_name,
 			"section": "object", "enabled": true,
 			"callable": claim_for_faction.bind(cf_id)})
-	rows.append({"id": "civ.drop_settlement", "label": "Drop settlement here", "section": "place",
-		"enabled": true, "callable": _run_ctx.bind(3, hit, gx, gy)})
+	## MS-5 (`MOBILE_SHELL_PROPOSAL.md` section 2.1): CIVIL's lead verbs on empty ground are Drop settlement, Start way,
+	## Start route and Info here (`GlobalTools.lead_chip`, ranks -4 to -1, ahead of the SM-4 story chips (ranks 1 to 4), which Add event and Journey from here still reach through the half-detent list).
+	rows.append(GlobalTools.lead_chip({"id": "civ.drop_settlement", "label": "Drop settlement here", "section": "place",
+		"enabled": true, "callable": _run_ctx.bind(3, hit, gx, gy)}, -4, req))
 	## CM-2 residual (§4.3 CIVIL row 12): `way_begin`/`route_begin` fire the
 	## moment the tool arms (`_on_infra_tool_armed`), so "start … here" is arm
 	## then place the first point at this cell -- exactly `_settlement_click`'s
 	## own two-step shape for "Drop settlement here" above, over `_infra`'s
 	## click handlers rather than duplicating them.
-	rows.append({"id": "civ.start_way", "label": "Start way here", "section": "place",
+	rows.append(GlobalTools.lead_chip({"id": "civ.start_way", "label": "Start way here", "section": "place",
 		"enabled": true, "callable": func() -> void:
 			app.arm_tool("way")
-			_infra._way_click(gx, gy)})
-	rows.append({"id": "civ.start_route", "label": "Start route here", "section": "place",
+			_infra._way_click(gx, gy)}, -3, req))
+	rows.append(GlobalTools.lead_chip({"id": "civ.start_route", "label": "Start route here", "section": "place",
 		"enabled": true, "callable": func() -> void:
 			app.arm_tool("route")
-			_infra._route_click(gx, gy)})
+			_infra._route_click(gx, gy)}, -2, req))
 	rows.append_array(_story_ctx_rows(req, gx, gy))
-	rows.append({"id": "civ.info_here", "label": "Info here (settlement & ecology)", "section": "info",
-		"enabled": true, "callable": _run_ctx.bind(4, hit, gx, gy)})
+	rows.append(GlobalTools.lead_chip({"id": "civ.info_here", "label": "Info here (settlement & ecology)", "section": "info",
+		"enabled": true, "callable": _run_ctx.bind(4, hit, gx, gy)}, -1, req))
 	## CM-2 residual (§4.3 CIVIL Draft row): shown while Territory is the armed
 	## tool -- there is no bound territory-draft cell count to gate on the way
 	## Sculpt/Paint's own draft rows do (`civ_territory_paint_at`/`_polygon`
