@@ -143,9 +143,9 @@ func _ready() -> void:
 	_row("4K @1 landscape", Vector2(3840, 2160), 1.0, 1.0, true, true, "", false, true, "xl")
 	_row("4K @1 portrait", Vector2(2160, 3840), 1.0, 1.0, true, true, "", false, false, "xl")
 
-	print("-- UI scale 1.25 (spec §2.2: '4K at density 2 is 1 536 x 864 dp, a phone under either 900 dp rule')")
-	_row("4K @2 x1.25 landscape", Vector2(3840, 2160), 2.0, 1.25, true, true, "", true, true, "large")
-	_row("4K @2 x1.25 portrait", Vector2(2160, 3840), 2.0, 1.25, true, true, "", true, false, "expanded")
+	print("-- UI scale 1.25 (Ruling EM: the class is the screen's, 2 160 / 2 = 1 080 dp short is a tablet at any scale; the width class follows the scaled dp)")
+	_row("4K @2 x1.25 landscape", Vector2(3840, 2160), 2.0, 1.25, true, true, "", false, true, "large")
+	_row("4K @2 x1.25 portrait", Vector2(2160, 3840), 2.0, 1.25, true, true, "", false, false, "expanded")
 	# 4K at 1.5 x 1.25 = 2 048 x 1 152 dp: still a tablet.
 	_row("4K @1.5 x1.25 landscape", Vector2(3840, 2160), 1.5, 1.25, true, true, "", false, true, "xl")
 	# 11-inch at 2 x 1.25 = 955.2 x 667.2 dp: short 667 < 900, a phone under Ruling EG.
@@ -175,11 +175,11 @@ func _ready() -> void:
 	_row("Pad 3 @2.625 landscape", Vector2(3392, 2400), 2.625, 1.0, true, true, "", false, true, "large")
 	_row("Pad 3 @2.625 portrait", Vector2(2400, 3392), 2.625, 1.0, true, true, "", false, false, "expanded")
 	# The cause of the 2026-11-09 "phone GUI on the tablet" report: the Pad held a stored UI scale of 200 %.
-	# 2.225 x 2.0 = 4.45: 762.2 x 539.3 dp effective, short < 900, a phone BY DESIGN (spec §3.6). The fix is
-	# the escape in the UI scale menu, not this line. At 125 % (1 078.7 / 1.25 = 863 dp) it is a phone too.
-	_row("Pad 3 @2.225 x2.0 landscape", Vector2(3392, 2400), 2.225, 2.0, true, true, "", true, true, "medium")
-	_row("Pad 3 @2.225 x1.25 landscape", Vector2(3392, 2400), 2.225, 1.25, true, true, "", true, true, "large")
-	_row("Pad 3 @2.625 x1.25 landscape", Vector2(3392, 2400), 2.625, 1.25, true, true, "", true, true, "expanded")
+	# Ruling EM reversed the old "a phone by design": the class is read over the density alone (2 400 / 2.225 =
+	# 1 078.7 dp short), so 200 % and 125 % are tablets; the width class still follows the scaled dp (762 -> medium).
+	_row("Pad 3 @2.225 x2.0 landscape", Vector2(3392, 2400), 2.225, 2.0, true, true, "", false, true, "medium")
+	_row("Pad 3 @2.225 x1.25 landscape", Vector2(3392, 2400), 2.225, 1.25, true, true, "", false, true, "large")
+	_row("Pad 3 @2.625 x1.25 landscape", Vector2(3392, 2400), 2.625, 1.25, true, true, "", false, true, "expanded")
 	# Off a device, no --density (the legacy figure, aspect 0.7075 >= 0.6): a tablet.
 	_row("Pad 3 legacy landscape", Vector2(3392, 2400), 1.0, 1.0, true, false, "", false, true, "xl")
 

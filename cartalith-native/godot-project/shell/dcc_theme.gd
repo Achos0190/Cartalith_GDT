@@ -1501,7 +1501,13 @@ static func classify(px: Vector2, density: float, ui_scale: float, touch: bool,
 			size_line -= BAND_DP
 	## Ruling EG: a known density puts the line at 900 dp of shortest width at every aspect; only the
 	## legacy figure, which is not a density, falls back to the aspect line.
-	var phone := touch and (short_dp < size_line if density_known else aspect < aspect_line)
+	## Ruling EM (owner, 2026-11-09): the SCREEN decides the class, never the UI scale. The line is read against the
+	## shortest side over the DENSITY alone (`short_dp` above is over density x UI scale, the size the layout is
+	## laid out in, and still feeds `dp` and the width class). Before this, a stored 200 % on the OnePlus Pad 3
+	## (1 078.7 dp short at density 2.225) made 539 dp and so a phone GUI on a tablet; this reverses the UI-scale
+	## clause of MOBILE_SHELL_MS1_SPEC.md 2.2 / 3.6. The UI scale still sizes the UI within the class.
+	var class_short_dp := minf(px.x, px.y) / density
+	var phone := touch and (class_short_dp < size_line if density_known else aspect < aspect_line)
 	return {"dp": dp, "short_dp": short_dp, "aspect": aspect, "phone": phone,
 		"landscape": px.x > px.y, "width_class": width_class_of(dp.x)}
 
