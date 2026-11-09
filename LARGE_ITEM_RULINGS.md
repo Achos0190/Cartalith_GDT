@@ -3349,3 +3349,12 @@ Serai"*.
   falls back to.
 
 It changes no generated output and no world save beyond what a user-given name already stores.
+
+## Ruling EJ: the phone's per-tool option bars stay; arming drops the sheet only from the map (owner, 2026-11-09)
+
+Two answers on MS-5's tool strip (`c302a4ed`):
+
+1. **The per-tool option bars stay as the full options.** The strip shows a tool's common chips and Commit / Discard.
+   Tapping the tool chip still opens the full option bar. Nothing is deleted.
+2. **Arming drops the sheet to peek only when the tool was armed from the map** (the fan, the strip or the context
+   card). Arming from the dock keeps the sheet where it is, so the tool's options stay visible.
