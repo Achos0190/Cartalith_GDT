@@ -219,28 +219,18 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
   Bluetooth pen-motor experiment. SH-1 (the VIBRATE permission) already landed and stays. **Reason the owner gave for
   not pursuing the open Magisk route in-app:** it force-grants a protected OnePlus permission and binds to OnePlus's
   proprietary pen service; the app will not integrate that.
-- **Active, within standard stylus-input permissions (owner, 2026-11-02): the input work.** SH-2 (input hygiene and
-  the finger-mistaken-for-a-pen fix), SH-3 (pen draws, finger pans, with a palm rule; ties to Ruling EC), SH-4 (the
-  pressure curve, GDScript only, engine law unchanged), SH-5 (tilt to the brush: the GDScript toggles now, the Rust
-  `paint_stroke_options` field as its own parity-gated change), SH-6 (the hover cursor's inner ring), and SH-9 (the
-  stylus tester and calibration screen). All are standard pointer input: pressure, tilt, hover and pen-vs-finger,
-  with no special permission. Built as GDScript drafts in `cartalith-native/drafts/stylus-input/` (no Godot in the
-  session to parse-check); implementing them in the shell is the follow-on. SH-10 (the Kotlin input plugin) is **off**
-  (Ruling EE: standard input only, no Gradle plugin).
 - **The Stylo 2's double tap, side slide and battery** (owner, 2026-11-08/09; `STYLO2_PEN_PROPOSAL.md`, a proposal,
   no status column): the owner's integration pack (`cartalith-native/docs/evidence/stylus-2026-11-08/cartalith-pen/`)
   reads them over BLE, which Ruling EE puts off. The proposal asks the owner to revisit EE for one read-only plugin
   (§10 P1–P11); SP-0 (measure with `getevent`) and SP-1 (a key from the pen, if it sends one) sit inside EE. The
   pen's motor stays off in every option.
-- **Active, within standard stylus-input permissions (owner, 2026-11-02): the input work, being transplanted from
-  `cartalith-native/drafts/stylus-input/` into the shell one milestone per commit** (`STATUS.md`'s *Standard stylus
-  input built* entry says which have landed; this row never records that). Still to do, whichever of SH-3 (pen draws,
-  finger pans, with a palm rule; Ruling EC), SH-4 (the pressure curve), SH-5 (tilt: the GDScript toggle; the Rust
-  `paint_stroke_options` field is its own parity-gated change, not started), SH-6 (the hover ring's inner ring) and
-  SH-9 (the tester) `STATUS.md` does not list as built. **SH-2's `disable_scroll_deadzone=true` is left for the
-  owner:** it is a `project.godot` setting, and measuring first with the SH-9 tester is the research's own order. On
-  the glass (the owner's pass): the pen's real pressure, tilt and hover reports, and whether a resting palm is
-  cancelled by Android or reaches the shell. All are standard pointer input; SH-10 is **off** (Ruling EE).
+- **Stylus input, standard pointer input only (Ruling EE): SH-2, SH-3, SH-4, SH-5, SH-6 and SH-9 are in the shell**
+  (`STATUS.md`'s *Standard stylus input built* entry has the evidence; this row never records status). **Left:** the Rust
+  half of SH-5 (`tilt_size` / `tilt_min` in `paint_stroke_options`, its own parity-gated change, not started); sculpt's
+  inner hover ring; SH-2's `disable_scroll_deadzone=true`, which is a `project.godot` setting left for the owner
+  (measure with the SH-9 tester first); and the glass pass, which is the owner's: the Stylo 2's real pressure, tilt and
+  hover reports through *Preferences > Stylus > Stylus tester*, whether a resting palm is cancelled by Android or reaches
+  the shell, and whether a pen is told from a finger by device on the Pad 3. SH-10 is **off** (Ruling EE).
 - **Stale pen prose (Ruling BK):** `TABLET_UI_SPEC.md` §4.2 ("nothing in the shell reads pen pressure") and
   `EDITING_TOOLS_SCOPE.md` §3.2 ("are never read") predate ET-D2/D3/D5; `map_overlay.gd` passes pressure and the sculpt
   and paint tools read it. Also stale comments the fact-check found: `analysis.rs::ruggedness` (a uniform slope reads
