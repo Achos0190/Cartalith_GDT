@@ -59,6 +59,12 @@ var brush_center := Vector2.ZERO   ## Grid coords.
 ## Brush ring radius in grid cells, set by `set_brush_cursor`; `_draw` draws the ring only when it
 ## is above 0.
 var brush_radius_cells := 0.0
+## SH-6: the inner (minimum-pressure) ring's radius in grid cells; 0 draws no inner ring, so every caller that does
+## not pass one keeps today's single ring. Drawn only when smaller than the outer ring.
+var brush_inner_cells := 0.0
+## SH-6: `Time.get_ticks_msec()` at which a PEN-hover ring hides itself, or -1 for a ring that never expires (every
+## mouse and every non-hover caller). Checked by `_process`, which runs only while this is set.
+var _brush_expire_ms := -1
 
 ## Shared by every domain-specific click-chain tool that builds up a path
 ## before committing it -- Way/Route (§4.5.4, appended stop by stop via
@@ -191,6 +197,7 @@ var _camera_zoom := 1.0
 ## remains is one float compare per frame against a value that changes a few
 ## times a second at most, which is cheaper than the redraw it guards.
 func _process(_delta: float) -> void:
+	_expire_brush_ring()
 	var p := get_parent() as Control
 	if p == null or is_equal_approx(p.scale.x, _camera_zoom):
 		return
@@ -260,10 +267,28 @@ func set_assist_region(dabs: Array) -> void:
 ## Shows or hides the brush ring at grid position `(gx, gy)` with the given
 ## radius in grid cells. Cheap to call every cursor sample; a non-positive
 ## radius draws nothing.
-func set_brush_cursor(visible_: bool, gx: float = 0.0, gy: float = 0.0, radius_cells: float = 0.0) -> void:
+## SH-6: `inner_cells` is the minimum-pressure radius (0 = none) and `expire_ms` the lifetime of a pen-hover ring
+## (0 = never expires, today's behaviour). Both default off, so every existing caller is byte-for-byte unchanged.
+func set_brush_cursor(visible_: bool, gx: float = 0.0, gy: float = 0.0, radius_cells: float = 0.0,
+		inner_cells: float = 0.0, expire_ms: int = 0) -> void:
 	brush_visible = visible_
 	brush_center = Vector2(gx, gy)
 	brush_radius_cells = radius_cells
+	brush_inner_cells = inner_cells
+	_brush_expire_ms = Time.get_ticks_msec() + expire_ms if (visible_ and expire_ms > 0) else -1
+	queue_redraw()
+
+## SH-6: hides a pen-hover ring `expire_ms` after the last hover sample; called every frame by `_process`, and a
+## no-op unless an expiry is pending. It must never hide a ring while a button is held: a stroke's own motion keeps
+## refreshing it, but a pen pressed and still for 150 ms is mid-stroke, and blinking the cursor off then would be a bug.
+func _expire_brush_ring() -> void:
+	if _brush_expire_ms < 0 or Time.get_ticks_msec() < _brush_expire_ms:
+		return
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		_brush_expire_ms = Time.get_ticks_msec() + StylusInput.HOVER_RING_MS
+		return
+	_brush_expire_ms = -1
+	brush_visible = false
 	queue_redraw()
 
 ## Replaces the shared in-progress path (grid-cell coordinates) and redraws; an
@@ -411,6 +436,10 @@ func _draw() -> void:
 		## no longer supplies it.
 		var px_radius: float = brush_radius_cells * cell_px
 		draw_arc(center_screen, px_radius, 0, TAU, 48, MEASURE_COLOR, 1.2, true)
+		if brush_inner_cells > 0.0 and brush_inner_cells < brush_radius_cells:
+			## SH-6: the minimum-pressure edge, dimmer and thinner, so the gap between the rings reads as the span a
+			## press will sweep. Scaled by `cell_px` like the outer ring: both are real map distances.
+			draw_arc(center_screen, brush_inner_cells * cell_px, 0, TAU, 40, Color(MEASURE_COLOR, 0.5), 1.0, true)
 
 	if measure_points.size() > 0:
 		var screen_pts := PackedVector2Array()

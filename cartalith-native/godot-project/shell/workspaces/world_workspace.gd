@@ -3707,6 +3707,11 @@ func _sculpt_take_pressure(gx: float, gy: float) -> Variant:
 		return _apply_pen_pressure(ps["pressure"])
 	return null
 
+## The paint brush's size multiplier at zero pressure: `paint_bridge.rs`'s `DEFAULT_PRESSURE_MIN` (0.2), which the
+## stroke uses because `_paint_stroke_options` is `{}`. Mirrored here only to draw SH-6's inner ring; if the options
+## ever carry a `pressure_min`, read that instead.
+const PAINT_PRESSURE_MIN := 0.2
+
 ## SH-4. Remaps a live pen's pressure through the user's curve and comfortable maximum (`DccSettings`), for both the
 ## sculpt and the paint pressure paths -- the only two places a pen's pressure is handed to the engine. A float 0..1
 ## is remapped; `null` (no pen, a finger, the Pressure toggle off) passes straight through, so a curve never invents
@@ -4248,7 +4253,13 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	if app.armed_tool == "sculpt":
 		overlay.set_brush_cursor(valid, gx, gy, _sculpt_brush_radius_cells())
 	elif app.armed_tool == "paint":
-		overlay.set_brush_cursor(valid, gx, gy, float(_paint_brush.get("radius", 6.0)))
+		var r := float(_paint_brush.get("radius", 6.0))
+		## SH-6: a PEN hover also previews the footprint's span: an inner ring at the minimum-pressure radius, and a
+		## ring that hides 150 ms after the last hover. A mouse gets today's single permanent ring.
+		if StylusInput.pen_recent(StylusInput.HOVER_RING_MS):
+			overlay.set_brush_cursor(valid, gx, gy, r, r * PAINT_PRESSURE_MIN, StylusInput.HOVER_RING_MS)
+		else:
+			overlay.set_brush_cursor(valid, gx, gy, r)
 	else:
 		overlay.set_brush_cursor(false, 0.0, 0.0, 0.0)
 

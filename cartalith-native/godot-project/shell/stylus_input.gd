@@ -34,6 +34,10 @@ const PRESSURE_CURVES := {"soft": 0.6, "linear": 1.0, "firm": 1.6}
 ## steps of 0.1 are a labelled judgement.
 const PRESSURE_MAX_CHOICES: Array[float] = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
 
+## The hover ring's lifetime after the last hover event, ms (SH-6's own figure, a labelled judgement: long enough to
+## survive the gap between two reports, short enough that the ring is gone soon after the pen has left).
+const HOVER_RING_MS := 150
+
 ## Test seam only: probes cannot make `OS.has_feature("mobile")` true on a desktop, so they set this to exercise
 ## the Android branches. Never set in shipped code.
 static var assume_mobile := false
@@ -88,6 +92,20 @@ static func remap_pressure(p: float, gamma: float, pmax: float) -> float:
 	var raw := clampf(p, 0.0, 1.0)
 	var scaled := clampf(raw / pmax, 0.0, 1.0) if pmax > 0.0 else raw
 	return pow(scaled, gamma)
+
+## When the last pointer motion that `is_pen_event` called a pen arrived (`Time.get_ticks_msec()`), or -1 for none.
+## Written by `note_motion` from the map overlay, read by `pen_recent`.
+static var last_pen_motion_ms := -1
+
+## SH-6: records a motion event as pen activity when it is one. Called by `map_overlay.gd` for every motion, before
+## it emits the cursor sample, so the brush ring's owner reads `pen_recent` for THIS motion.
+static func note_motion(mm: InputEventMouseMotion) -> void:
+	if is_pen_event(mm):
+		last_pen_motion_ms = Time.get_ticks_msec()
+
+## SH-6: whether the pointer is a pen right now, i.e. a pen motion arrived within `within_ms`. False when none has.
+static func pen_recent(within_ms: int) -> bool:
+	return last_pen_motion_ms >= 0 and Time.get_ticks_msec() - last_pen_motion_ms <= within_ms
 
 ## SH-3's palm test: whether a finger landing at `now_ms` falls inside the palm window of the last pen event at
 ## `last_pen_ms`. `last_pen_ms < 0` means no pen event yet (never a window), so a device that has not yet seen a

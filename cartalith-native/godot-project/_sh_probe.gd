@@ -377,6 +377,8 @@ func _run(vw: int, vh: int) -> void:
 		await _t_sh4(P)
 	if _want("sh5"):
 		await _t_sh5(P)
+	if _want("sh6"):
+		await _t_sh6(P)
 
 
 # SH-2 -----------------------------------------------------------------------------------------------------------------
@@ -724,3 +726,97 @@ func _t_sh5(_P: Vector2) -> void:
 		mn._on_stylus_choice(mn.ID_PREF_TILT)
 		_ok(DccSettings.pen_tilt_to_size() and mn._stylus_popup.is_item_checked(mn._stylus_popup.get_item_index(mn.ID_PREF_TILT)), "and back on, ticked")
 	DccSettings.set_pen_tilt_to_size(false)
+
+# SH-6 -----------------------------------------------------------------------------------------------------------------
+
+func _crop(p: Vector2, half: int = 200) -> PackedByteArray:
+	var img: Image = _vp.get_texture().get_image()
+	var r := Rect2i(Vector2i(p) - Vector2i(half, half), Vector2i(half * 2, half * 2))
+	r = r.intersection(Rect2i(Vector2i.ZERO, img.get_size()))
+	return img.get_region(r).get_data()
+
+## The same motion event with its position taken into the overlay's local space, for a direct `_gui_input` call
+## (as `_ctxring_probe` drives the overlay): deterministic where a viewport push is subject to its hover routing.
+func _local_motion(mm: InputEventMouseMotion) -> InputEventMouseMotion:
+	var m: InputEventMouseMotion = mm.duplicate()
+	m.position = _ov.get_global_transform().affine_inverse() * mm.position
+	return m
+
+func _t_sh6(P: Vector2) -> void:
+	var to: Control = _host.tool_overlay
+	# a grid point under P, so the ring is drawn where the camera shows it
+	var lp: Vector2 = _ov.get_global_transform().affine_inverse() * P
+	var q: Dictionary = _ov._grid_point(lp, _ov._displayed_rect(), _ov._interior_rect(_ov._displayed_rect()))
+	var gx := float(q["gx"])
+	var gy := float(q["gy"])
+	_ok(StylusInput.HOVER_RING_MS == 150, "the hover ring's lifetime is 150 ms (SH-6's own figure)")
+	await _arm("paint")
+	var r := 20.0
+	to.set_brush_cursor(true, gx, gy, r)
+	_ok(to.brush_inner_cells == 0.0 and to._brush_expire_ms == -1, "the old call shape: no inner ring, never expires")
+	# each variant is compared with a single-ring picture taken just before it, so nothing else animating on the map
+	# between two captures can pass for a ring
+	var cases := [["an inner ring at 0.2 of the radius", r * 0.2, false],
+		["an inner radius not smaller than the outer", r, true], ["an inner radius larger than the outer", r * 1.2, true], ["inner 0", 0.0, true]]
+	for c in cases:
+		to.set_brush_cursor(true, gx, gy, r)
+		await _frames(3)
+		var single := _crop(P)
+		to.set_brush_cursor(true, gx, gy, r, float(c[1]))
+		await _frames(3)
+		var variant := _crop(P)
+		to.set_brush_cursor(true, gx, gy, r)
+		await _frames(3)
+		var single2 := _crop(P)
+		if bool(c[2]):
+			_ok(variant == single or variant == single2, "%s draws nothing: pixel-identical to the single ring" % c[0])
+		else:
+			_ok(variant != single and variant != single2, "%s changes the picture" % c[0])
+	to.set_brush_cursor(false)
+
+	# through the workspace: a mouse gets the single permanent ring, a pen the pair that expires
+	StylusInput.last_pen_motion_ms = -1
+	var mouse_mm := _pen_event_motion(P + Vector2(2, 0), P, 1.0, Vector2.ZERO, false, false)
+	_ov._gui_input(_local_motion(mouse_mm))
+	await _frames(3)
+	mouse_mm = _pen_event_motion(P + Vector2(4, 0), P + Vector2(2, 0), 1.0, Vector2.ZERO, false, false)
+	_ov._gui_input(_local_motion(mouse_mm))
+	await _frames(3)
+	print("DBG mouse: vis ", to.brush_visible, " inner ", to.brush_inner_cells, " exp ", to._brush_expire_ms, " armed ", _app.armed_tool, " r ", to.brush_radius_cells, " recent ", StylusInput.pen_recent(150), " last ", StylusInput.last_pen_motion_ms)
+	_ok(to.brush_visible and to.brush_inner_cells == 0.0 and to._brush_expire_ms == -1, "mouse hover: one ring, no inner, no expiry")
+	await get_tree().create_timer(0.4).timeout
+	_ok(to.brush_visible, "the mouse's ring stays")
+	var pen_mm := _pen_event_motion(P + Vector2(3, 0), P, 0.5, Vector2(0.1, 0.0), false, false)
+	_ov._gui_input(_local_motion(pen_mm))
+	await _frames(3)
+	_ok(to.brush_visible and absf(to.brush_inner_cells - to.brush_radius_cells * 0.2) < 0.001 and to._brush_expire_ms >= 0,
+		"pen hover: an inner ring at 0.2 of the radius and an expiry (inner %.3f of %.3f)" % [to.brush_inner_cells, to.brush_radius_cells])
+	await get_tree().create_timer(0.4).timeout
+	_ok(not to.brush_visible, "the pen's ring is gone 400 ms after the last hover")
+	to.set_brush_cursor(false)
+	# lifetime
+	to.set_brush_cursor(true, gx, gy, r, r * 0.2, 150)
+	await get_tree().create_timer(0.05).timeout
+	_ok(to.brush_visible, "a pen-hover ring is still there 50 ms after its last sample")
+	await get_tree().create_timer(0.4).timeout
+	_ok(not to.brush_visible, "and gone well after 150 ms")
+	to.set_brush_cursor(true, gx, gy, r)
+	await get_tree().create_timer(0.4).timeout
+	_ok(to.brush_visible, "a ring with no expiry (the mouse's) is still there after 400 ms")
+	# a held button never lets it blink off mid-stroke
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	Input.parse_input_event(press)
+	to.set_brush_cursor(true, gx, gy, r, r * 0.2, 150)
+	await get_tree().create_timer(0.4).timeout
+	_ok(to.brush_visible, "with the button held the ring does not expire (a stroke is not a hover)")
+	var rel := InputEventMouseButton.new()
+	rel.button_index = MOUSE_BUTTON_LEFT
+	rel.pressed = false
+	Input.parse_input_event(rel)
+	await get_tree().create_timer(0.5).timeout
+	_ok(not to.brush_visible, "released, the ring expires")
+
+	StylusInput.last_pen_motion_ms = -1
+	to.set_brush_cursor(false)

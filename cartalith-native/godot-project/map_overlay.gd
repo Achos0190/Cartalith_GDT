@@ -8046,6 +8046,9 @@ func _gui_input(event: InputEvent) -> void:
 		var interior := _interior_rect(rect)
 		var mm := event as InputEventMouseMotion
 		var mouse: Vector2 = mm.position
+		## SH-6: stamp a pen's motion BEFORE `cursor_sampled`, so the brush ring's owner can tell a pen hover
+		## (inner ring, short lifetime) from a mouse (neither). See `StylusInput.note_motion`.
+		StylusInput.note_motion(mm)
 
 		var pick := _pick_mark(mouse, interior, rect)
 		var closest: int = pick["s"]

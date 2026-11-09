@@ -105,6 +105,15 @@ emulation (device -1): it proves the routing, not what the Pad 3's pen reports. 
   `paint_stroke_options`, `Sensor::TiltElevation`) is NOT built:** it is its own parity-gated change needing a workspace
   `cargo test` and `golden_parity_paint`, and was not started. `_sh_probe --section sh5`: 8 checks; two literal mutants killed.
 
+- **SH-6 built (the hover cursor's inner ring).** `ToolOverlay.set_brush_cursor` takes two optional trailing arguments, an
+  inner (minimum-pressure) radius and a lifetime; every existing caller is unchanged (defaults 0). The paint tool passes
+  `radius * 0.2` (`PAINT_PRESSURE_MIN`, mirroring `paint_bridge.rs` `DEFAULT_PRESSURE_MIN`) and 150 ms **only when the pointer
+  is a pen** (`StylusInput.note_motion` in `map_overlay.gd`, read by `pen_recent`); a mouse gets today's single permanent
+  ring, so the desktop is pixel-identical. The expiry never fires while a button is held. **Sculpt gets no inner ring:** its
+  pressure-to-footprint law is not mirrored in the shell. `_sh_probe --section sh6`: 16 checks (pixel comparisons against
+  an adjacent single-ring capture, because something on the map animates between captures); five literal mutants killed.
+  All sections: 97 checks at the 6T form and at 2388x1668 @2, 81 at the desktop form.
+
 ### Ruling EH item 1 built: the phone's GENERATE column is retired; the WORLD sheet is the dock's own categories (2026-11-09)
 
 `LARGE_ITEM_RULINGS.md` Ruling EH item 1, `MISTAKES.md` "Delete a surface". GDScript only, no Rust change. *Re-opened at the symbols first (origin/main `e6f3cfbd`):* `dcc_shell.gd` (`_build_phone_tool_sheet()`, `_refresh_phone_gen_panel()`, `_mount_dock_in_sheet()`, `_ensure_dom_rows()`, `_refresh_phone_sheet_header()`, `_phone_gen_tab_on()`, `_capture_shell_state()`), `workspaces/world_workspace.gd` (`build_phone_generate()` and the whole `_pg_*` block, `_on_tool_armed()`, `brush_surfaces_changed()`, `_build_generate_head()`, `_build_paint()`, `_build_sculpt()`), `tool_bar.gd` (`build_brush_controls()`, `sym_pick_begin()`), `paint_original.gd`, `tool_fan.gd`.
