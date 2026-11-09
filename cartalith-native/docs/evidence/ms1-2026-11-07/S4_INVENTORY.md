@@ -838,3 +838,66 @@ selection replay, the status text, and last the collapse, tab, detent and scroll
 Long-lived windows and their static-lambda relays (S4.5); the `ViewportHost` survivor's chrome (`_layers_btn`'s size, the scale
 rule, the map control row are built for the boot class: S4.4, in a file MS-5 is changing). Touch is hardware: the viewport
 reads it once, so the swap chains keep it. Workspace tool settings held in fields (brush, erode, bake) are not carried.
+*S4.4 (section 17) refreshes the viewport's chrome and carries the tool settings and the Ask conversation; this section is as written on 2026-11-09.*
+
+
+## 17. Addendum, 2026-11-09: S4.4, the swap itself (what changed, what it carries, what it waits for)
+
+Written for stage S4.4 against `a61eb9e6`, verified by `_ms1swap_probe.gd --leg live`, not by this prose.
+
+### 17.1 What S4.4 built
+
+- **`_run_class_swap()` performs the swap.** `DccShell._request_class_swap()` (S4.1: it waits for `quiescent_blockers()` and is
+  cancelled if the size comes back) now calls a coroutine, `_run_class_swap()`, which calls `_perform_class_swap()`; `DccApp`
+  overrides that with `_remount_composition()`, the S4.3 test path promoted to the real one (the `_for_test` suffix is gone).
+  A bare `DccShell` (the phone-chrome probes) keeps its boot class. `_swap_running` spans the swap and is itself a blocker
+  ("a layout change is running"), so a resize that arrives mid-swap is classified after it lands. `class_swap_runs`,
+  `last_swap_ms` and `last_swap_sync_ms` are the probe's counters.
+- **The viewport survivor's chrome is rebuilt.** `ViewportHost._ready()`'s chrome block is now `_build_chrome()` (moved unchanged:
+  the scale bar and rule, the readout and coordinate labels, the Layers button, the context chip, the navpad), and
+  `rebuild_chrome()` frees those nodes and calls it again, resets `_safe_insets` and `_touch_scale`, and keeps the pan latch
+  (without the toast an arming would show). A cold boot and a swap therefore take one path. The camera, the tiles and the
+  overlays are not touched. `DccApp._remount_composition()` calls it after the app's mount; a phone's `set_safe_insets()` then
+  arrives through the existing deferred relay.
+- **Workspace tool settings are carried.** `Workspace.tool_state_keys()`, `export_tool_state()` and `import_tool_state()`;
+  `DccApp._app_memory["tools"]`, written at capture and handed to the new workspace BEFORE its `setup()`, so the build draws
+  the carried values. Carried: `WorldWorkspace` (`_paint_layer`, `_paint_brush`, `_rock_layer_last`, `_erode_op` with
+  `_erode_op_seeded`, `_sculpt_symmetry`, `_sculpt_pressure_on`, `_pg_mode`, `_pg_open`), `CivilizationWorkspace`
+  (`_territory_radius`), `CartographyWorkspace` (`_icon_brush_r`, `_icon_brush_density`, and `ColourPaintTool`'s material,
+  colour, blend, radius, hardness, opacity, land-only and heat settings). **Not carried, because a survivor holds the truth:**
+  the Finalize bake depth (`DccSettings.bake_depth()`; `_bake_depth` is its mirror, re-read at build) and the engine's copy of
+  the paint brush. The first draft of the probe wrote the mirror field and failed: the setting is the source.
+- **The Ask conversation survives.** `LlmAssistantWindow.release_dock()` gives the content (`_host`, the session's transcript,
+  cards and draft) back to its window before the Ask tab's body is freed, and the remounted tab's `present_in()` takes it
+  again. `DccApp._unmount_app_composition()` also releases a docked vault note (`VaultWindow.release_dock()`; the vault's own
+  `quiescent_blockers()` already makes a swap wait while text is unsaved).
+- **Dock widths are remembered per orientation.** `DccShell._dock_widths` is keyed `"<class>:<land|port>"`.
+  `_on_tablet_resized()` puts the widths away under the orientation it is leaving before it re-lays out, and the capture and
+  restore use the same key. Found by the live leg: a resize that crosses the line flips a tablet's orientation first
+  (WI-04 resets the widths there) and swaps after the debounce, so the S4.3 capture read the portrait default (232) and the
+  next landscape tablet drew a 232 px dock.
+- **Open windows hold the swap, with their name.** `_collect_window_blockers()` reports any visible window that reported nothing
+  of its own as "the X window is open (close it to change the layout)", and an open menu as "a menu is open". That is S4.5's
+  stopgap: nothing is re-presented yet, so a swap would leave the window in the wrong layout, or lose its text. The status
+  hint reads "Layout change waiting: ..." and the swap runs within `SWAP_QUIET_POLL_S` of the window closing.
+
+### 17.2 Defects the live path exposed (none is a swap bug in itself)
+
+- **A toast tween owned by the shell.** `_show_phone_toast()` made its fade with `create_tween()` on the shell, so a toast still
+  fading when a swap freed it finished a tween whose `finished` lambda had captured the freed toast, seconds later. It is
+  `wrap.create_tween()` now, which stops with the node (the "Lambda capture at index 0 was freed" errors, five per run, went with it;
+  its mutant is killed by the stderr scan). This is what S4.2's note about "a toast in flight" meant: the toast is dropped with the
+  phone composition, and nothing is left behind. A first guess for the same error, `LandmarkFilterPanel._queue_refresh()`'s deferred
+  lambda, was tried as a method, found to change nothing (its mutant survived) and reverted.
+- `civilization_workspace.gd`: `"... up to 90% of the levy ..."` in a `%` format string raised "unsupported format character"
+  and left the manpower tooltip empty whenever a world stood while the workspace was built; it is `90%%`. Found because a remount
+  builds the workspace with a world standing, which a cold boot never does.
+
+### 17.3 What is still not done
+
+- **Open windows are not re-presented (S4.5)**; until then they hold the swap (above), and `LlmAssistantWindow._phone` and the
+  other windows' baked class flags are what S4.5 owns. The Ask content built on one class keeps that class's layout until it
+  is rebuilt (its conversation is kept).
+- The Cartography workspace's Render parts (`RenderWorkspace`'s ramp mode and similar fields) and the colour-paint tool's active
+  layer and undo stacks are not in the bag.
+- B5's full bar (S4.6): the three-window probe of section 12 needs S4.5.

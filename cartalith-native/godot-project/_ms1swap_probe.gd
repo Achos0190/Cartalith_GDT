@@ -994,6 +994,21 @@ func _live() -> void:
 		_ok(le.text == "typed text", "the window's typed text survived the swap")
 	await _live_swap(tab.x, tab.y, "tablet")
 
+	## ---- the Ask tab SHOWN while the swap runs: its content is in the tab's body, which the unmount frees ----
+	if not _clean:
+		_ok(_app.open_context_tab("ask"), "the Ask tab is shown")
+		await _frames(8)
+		_ok(_app.assistant_window.is_docked(), "its conversation is docked in the tab")
+		await _live_swap(ph.x, ph.y, "phone")
+		var a1 := _ask_state()
+		_ok(a1["n"] == _st["ask_n"] and a1["draft"] == LIVE_DRAFT and a1["host_ok"], "on the phone the conversation is alive (%d entries, draft '%s', content alive %s)" % [a1["n"], a1["draft"], str(a1["host_ok"])])
+		await _live_swap(tab.x, tab.y, "tablet")
+		await _frames(8)
+		var a2 := _ask_state()
+		_ok(a2["n"] == _st["ask_n"] and a2["draft"] == LIVE_DRAFT and _app.assistant_window.is_docked(), "back on the tablet the Ask tab shows it again, docked (%d entries)" % a2["n"])
+		_app.open_context_tab("inspect")
+		await _frames(4)
+
 	if not _clean:
 		await _carry_fixture()
 		_app.viewport.zoom_step(2.0)
