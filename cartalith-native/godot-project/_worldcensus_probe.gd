@@ -13,10 +13,10 @@ extends Node
 ## Every category is therefore walked once per mode (`a` = PIPELINE, `b` =
 ## SCULPT), and each record carries the mode it was taken in.
 ##
-## **Desktop leg only, deliberately.** The phone WORLD surface is not this dock:
-## `PhoneMenu`'s GENERATE tab calls `WorldWorkspace.build_phone_generate()`,
-## a separate builder with its own `_pg_*` tree that Ruling L's left-rail tree
-## does not describe. Censusing it here would compare two different surfaces.
+## **Desktop leg only, deliberately.** (When this was written the phone WORLD surface was a separate
+## builder, `WorldWorkspace.build_phone_generate()` with its own `_pg_*` tree. Ruling EH item 1 deleted it
+## and the phone sheet now mounts this same dock, so a phone leg would census the same nodes; it stays
+## unwritten because the walk's value is the category list, which `_ms3b_probe` / `_eh1_probe` check on the phone.)
 ##
 ## Flags, after `--`:
 ##   --out PATH      write the census TSV to this absolute path; omitted, no file

@@ -486,16 +486,6 @@ func _section_headers(root: Node) -> Array:
 	return out
 
 
-## The stage index the `GENERATE` sheet's group header toggles (`world_workspace.gd::_pg_group` binds it to
-## `_pg_toggle_group`), or -1 when `btn` is not one.
-func _stage_index(btn: Button) -> int:
-	for c in btn.get_signal_connection_list("pressed"):
-		var cb: Callable = c["callable"]
-		if cb.get_method() == &"_pg_toggle_group" and not cb.get_bound_arguments().is_empty():
-			return int(cb.get_bound_arguments()[0])
-	return -1
-
-
 ## Strokes the first scroller 4 times (down, down, up, up) from different start points; returns the log and the
 ## number of strokes that did not move it (strokes without room are skipped).
 func _four_strokes() -> Dictionary:
@@ -519,8 +509,9 @@ func _four_strokes() -> Dictionary:
 	return {"bad": bad, "log": log, "overflow": _overflow(s.node)}
 
 
-## Opens every collapsible section of the open surface one at a time (the GENERATE sheet's stage groups, and the
-## `DccWidgets` groups and categories elsewhere); after each opening it strokes the scroller 4 times and requires
+## Opens every collapsible section of the open surface one at a time (the dock's categories and groups, which are the WORLD sheet since
+## Ruling EH item 1 -- the GENERATE column's stage groups and its `_stage_index()` helper are deleted -- and the
+## `DccWidgets` groups elsewhere); after each opening it strokes the scroller 4 times and requires
 ## each stroke to move it. Scrolling that degrades as sections open, or dies after the first rebuild, fails here.
 func _expand_check(name_: String) -> void:
 	var opened := 0
@@ -529,15 +520,6 @@ func _expand_check(name_: String) -> void:
 		var target: Button = null
 		var scrollers := _scan()
 		var root_node: Node = (scrollers[0] as Scroller).node if not scrollers.is_empty() else _app
-		for b in (root_node as Node).find_children("*", "Button", true, false):
-			var btn := b as Button
-			if not btn.is_visible_in_tree():
-				continue
-			var si := _stage_index(btn)
-			if si >= 0 and not done_stage.has(si):
-				done_stage[si] = true
-				target = btn
-				break
 		if target == null:
 			for h in _section_headers(root_node):
 				var bd := _section_body(h as Button)

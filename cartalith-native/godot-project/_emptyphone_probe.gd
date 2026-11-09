@@ -29,7 +29,7 @@ extends Node
 ##     --tab ID     press a bottom-nav tab first: map · gen · plan · more
 ##     --screen NAME open MENU and push one of the desktop menus' popups (MS-4 deleted the `ROOT_ROWS`
 ##                  screens): File · Edit · Assets · Records · Story · Preferences · Window · Help
-##     --pressgen   press the tool sheet's `GENERATE WORLD` and assert a world
+##     --pressgen   press the sheet's `Generate world` (the dock's Run section) and assert a world
 ##                  appears; asserts instead of censusing, then exits
 ##
 ##   Always available:

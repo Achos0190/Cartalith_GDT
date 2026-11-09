@@ -5,7 +5,8 @@ extends Node
 ## domain sheet -- the dock's own category scroller, reparented into the phone tool sheet by
 ## `DccShell._mount_dock_in_sheet()` -- counting every category of the domain's `RAIL_NODES` `owns` lists that
 ## is NOT drawn inside the sheet. Also: a real tap on a category header opens its body, Window > Left dock
-## still gets the dock back, WORLD keeps its GENERATE column, and the touch floor of the header rows.
+## still gets the dock back, WORLD's sheet is the dock too (Ruling EH item 1 deleted its GENERATE column; the
+## walk of its nine categories is `_ms3b_probe`'s and `_eh1_probe`'s), and the touch floor of the header rows.
 ##
 ## Windowed, with a wiped user dir (the shell remembers coach marks and layout in the user dir):
 ##   godot --path . --resolution 1600x1000 _ms3_probe.tscn -- --vp 1080x2340 --density 2.625 --force-touch
@@ -19,8 +20,8 @@ extends Node
 ## **Every expected category list is a literal written by hand from `RAIL_NODES`' `owns` lists as the
 ## proposal names them** (CIVIL ▸ Factions: ten categories; CARTO ▸ Style: four); nothing is asserted against
 ## the constant it came from. Mutants run by hand and listed in the commit: `_mount_dock_in_sheet` made a
-## no-op (the sheet stays the one-line tool row), the `_active_domain != "world"` clause dropped (WORLD loses
-## its GENERATE column), `_set_sheet_open`'s hand-back removed (Window > Left dock opens empty).
+## no-op (the sheet stays the one-line tool row), the WORLD `ws == null` guard in `_refresh_phone_sheet_body` dropped is not a mutant of this
+## file (it is `_eh1_probe`'s); `_set_sheet_open`'s hand-back removed (Window > Left dock opens empty).
 ##
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument.
 
@@ -225,10 +226,10 @@ func _run(vw: int, vh: int) -> void:
 	var cell_c := _centre("domain")
 	var dx: float = 48.0 * float(_app.phone_scale()) + 24.0
 
-	# 1. WORLD: keeps its GENERATE column; the dock stays in its own left dock
+	# 1. WORLD: the dock is the sheet's body (Ruling EH item 1: there is no GENERATE column any more)
 	_ok(_app._active_domain == "world", "boots on WORLD")
-	_ok(not _in_sheet() and not _app._phone_dom_host.visible, "WORLD: the domain host is empty and hidden")
-	_ok(_app._phone_gen_scroll.visible, "WORLD: the phone GENERATE column is still the sheet's body")
+	_ok(_in_sheet(), "WORLD: the dock is mounted in the domain host (shown once the sheet is above peek)")
+	_ok(not _app._phone_tool_scroll.visible, "WORLD: the one-line tool row is not the body")
 
 	# 2. a real swipe (left = next) picks CIVIL; the sheet then hosts the dock
 	for dom in ["civilization", "cartography"]:
@@ -240,8 +241,8 @@ func _run(vw: int, vh: int) -> void:
 			await _settle()
 		_ok(_app._phone_detent != "peek", "%s: the sheet is up (%s)" % [dom, _app._phone_detent])
 		_ok(_in_sheet() and _app._phone_dom_host.visible, "%s: the dock's scroller sits in the domain host" % dom)
-		_ok(not _app._phone_gen_scroll.visible and not _app._phone_tool_scroll.visible,
-			"%s: neither the GENERATE column nor the one-line tool row is the body" % dom)
+		_ok(not _app._phone_tool_scroll.visible,
+			"%s: the one-line tool row is not the body" % dom)
 		var sc := _dock_scroll()
 		_ok(sc.is_visible_in_tree(), "%s: the scroller is visible" % dom)
 		var r := sc.get_global_rect()
@@ -291,8 +292,9 @@ func _run(vw: int, vh: int) -> void:
 	await _tap(_centre("story"), true)
 	await _settle()
 
-	# 4. WORLD again: the GENERATE column, not the dock
+	# 4. WORLD again: the dock is the body
 	await _hold_slide(cell_c, cell_c + Vector2(-dx, 0), 0, true, true)
 	await _settle()
 	_ok(_app._active_domain == "world", "swipe from CARTO wraps to WORLD (got %s)" % _app._active_domain)
-	_ok(not _in_sheet() and _app._phone_gen_scroll.visible, "WORLD again: the GENERATE column is the body, dock not mounted")
+	_ok(_in_sheet() and _app._phone_dom_host.visible and not _app._phone_tool_scroll.visible,
+		"WORLD again: the dock is the body")

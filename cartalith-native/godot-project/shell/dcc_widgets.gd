@@ -1880,8 +1880,9 @@ static func phone_slider(s: HSlider, unit: float) -> void:
 ## two construction sites.** It was moved here because a live census of the
 ## phone tree at 1080x2340 (`_rangeswipe_probe.gd --census-only`) counted **247
 ## `Range` nodes, of which 245 are writable and sit inside a live vertical
-## scroller -- and exactly 3 of those 245 arbitrated the gesture**, the `_pg_*`
-## sliders. The other **242** are `DccWidgets.slider()` rows in the left-dock
+## scroller -- and exactly 3 of those 245 arbitrated the gesture**, the three
+## sliders of the phone GENERATE column (deleted by Ruling EH item 1; the dock sheet now has the same
+## arbitration through `touch_slider()`). The other **242** are `DccWidgets.slider()` rows in the left-dock
 ## sheet (214), `DccWidgets.number()` spin boxes in the journey planner's form
 ## (12), and 16 more across four phone-presented windows. A defect class this
 ## broad cannot be closed at a construction site, so `touch_slider()` below is
@@ -1931,9 +1932,8 @@ class PgSlider extends HSlider:
 	## **Deliberately carries no default, and `PgField.slop` lost the identical
 	## one in the same change.** Every way in supplies it: `touch_slider()`
 	## below takes it as a required argument, and the three `PgSlider.new()` sites
-	## -- `world_workspace.gd::_pg_range_field()`, `::_pg_sculpt_slider()` and
-	## `::_pg_paint_slider()` -- each assign `_pg_px(8)` on the line after the
-	## constructor. So a declared
+	## -- all three in the phone GENERATE column's `_pg_*` builders, deleted by Ruling EH item 1 --
+	## each assigned `_pg_px(8)` on the line after the constructor. So a declared
 	## `:= 8.0` was never reached by anything, and read as coverage it did not
 	## give: mutated to `400.0` AND to `0.0` it left `_rangeswipe_probe.gd`
 	## green both ways, and `PgField`'s left `_gestclass_probe.gd` green both
@@ -2048,8 +2048,8 @@ class PgSlider extends HSlider:
 			_begin_drag()
 			_apply_x(pos.x)     ## A tap: Godot's own jump-to-the-tap, deferred.
 		## Only a gesture that actually moved the value announces itself.
-		## `_pg_range_field()` and `_pg_sculpt_slider()` both write the engine
-		## from `drag_ended`, and `_pg_after_param_write()` marks the stage
+		## the retired phone column's `_pg_range_field()` and `_pg_sculpt_slider()` both wrote the engine
+		## from `drag_ended`, and `_pg_after_param_write()` marked the stage
 		## stale off the same signal -- so a scroll, and a tap that lands on the
 		## value the slider already held, now write nothing and mark nothing.
 		##

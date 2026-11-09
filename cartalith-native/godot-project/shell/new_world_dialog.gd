@@ -834,8 +834,9 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 
 	## **Archetype comes across too, and it closes a route that dead-ended.**
 	##
-	## `world_workspace.gd`'s phone GENERATE sheet draws `Archetype` as a
-	## tappable row whose stated reason is *"Pick it in File ▸ New world"*
+	## `world_workspace.gd`'s phone GENERATE sheet (retired by Ruling EH item 1; the dock's
+	## Planet note now says the same) drew `Archetype` as a
+	## tappable row whose stated reason was *"Pick it in File ▸ New world"*
 	## (`PHONE_GEN_ABSENT`, stage 2). That reason was true of the desktop form
 	## and **false of the phone**, because this control was built into
 	## `struct_sec` -- which was parented to the hidden `rest` -- so the row
@@ -846,7 +847,7 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 	## `_on_archetype_selected()` seeds five dials that stay editable
 	## afterwards, but `request()["archetype"]` is what decides **which
 	## generation call runs** (`generate_world_structure_sized` against the
-	## plain path), and no dial on the GENERATE sheet can express that.
+	## plain path), and no dial in the generation sheet can express that.
 	##
 	## The five-dial note goes with it: it is what tells a phone user that the
 	## choice is a starting point and not a lock.

@@ -332,7 +332,7 @@ var _rail_exp_heads: Dictionary = {}
 # `app.active_domain() == "world"` (`right_dock.gd::_tool_section()`,
 # `_draft_stack_live()`). So keeping WORLD from being the active domain hides
 # exactly those, and the only extra chrome to hide is the WORLD mark itself
-# (desktop/tablet rail, rail expansion, phone GENERATE tab).
+# (desktop/tablet rail, rail expansion, the phone domain tab while it reads GENERATE).
 #
 # Hidden is never destroyed: no panel is freed, no mode is rewritten and no
 # engine call is made by the gate. Turning it off makes WORLD reachable again
@@ -370,7 +370,7 @@ func set_session_gate(on: bool) -> void:
 	session_mode_changed.emit(on)
 
 ## Shows or hides the chrome that names a hidden domain: its rail mark (on the
-## phone the same dictionary holds the GENERATE tab's button, `_build_phone_
+## phone the same dictionary holds the WORLD domain tab's button, `_build_phone_
 ## bar()`), the hairline above a mark that would otherwise lead the column, and
 ## the rail expansion's header, subtitle and node rows for it. Idempotent.
 func _apply_session_gate() -> void:
@@ -524,20 +524,17 @@ var _phone_content_gap: Control            ## Hosts the floating rail; its own
 	## rect is the visible gap between the app bar and the tool sheet.
 var _phone_tool_sheet: PanelContainer
 ## The two things the tool sheet can hold, and which one is up. The tool-options
-## scroller is the desktop bar (§13); the GENERATE column is the canvas's
-## `tabIsGen` sheet. Exactly one is visible -- see `_refresh_phone_gen_panel()`.
+## scroller is the desktop bar (§13); the domain host (`_phone_dom_host`) holds the dock's own categories
+## for WORLD, CIVIL and CARTO. At most one is visible -- see `_refresh_phone_sheet_body()`. (Ruling EH item 1
+## retired the third body, the phone's own GENERATE column.)
 var _phone_tool_scroll: ScrollContainer
 ## The phone tool sheet's content column, kept so the quick row (CQ-6) can be mounted into it.
 var _phone_sheet_col: VBoxContainer
 ## The chip row of pinned commands (`QuickBarPhoneRow`, CQ-6), or null while nothing is pinned. Mounted
 ## between the sheet's header and its scroller by `set_phone_quick_row()`, shown from the half detent up.
 var _phone_quick_row: Control
-## Scroller holding the GENERATE column inside the phone tool sheet; vertical only.
-var _phone_gen_scroll: ScrollContainer
-## The GENERATE column inside `_phone_gen_scroll`.
-var _phone_gen_col: VBoxContainer
 ## MS-3: the domain sheet's host inside the phone tool sheet, and the three pieces of the LEFT dock that
-## move into it while a CIVIL or CARTO domain sheet is up (`_mount_dock_in_sheet()`). The dock is the
+## move into it while a WORLD, CIVIL or CARTO domain sheet is up (WORLD since Ruling EH item 1) (`_mount_dock_in_sheet()`). The dock is the
 ## builder (`_build_left_dock()`, `register_workspace()`, `apply_mode()`), so nothing is rebuilt for the
 ## phone: the mode switch and the category scroller are the same nodes, reparented, and returned to the
 ## dock's own column when the sheet leaves (so Window > Left dock keeps working).
@@ -547,8 +544,8 @@ var _left_dock_col: VBoxContainer
 var _dock_in_sheet := false
 ## MS-3: the rows the domain sheet carries above the dock's own pieces, built lazily on first need (so the
 ## `_on_phone_node_added()` hook that fits them is the real path, not a build-time accident):
-## WORLD's way back to the three columns, CIVIL's door to STORY > Journeys, and the MAP sheet's row.
-var _phone_dom_back_row: Control
+## CIVIL's door to STORY > Journeys, and the MAP sheet's row. (WORLD's "back to the three columns" row went
+## with the columns, Ruling EH item 1.)
 var _phone_dom_journeys_row: Control
 var _phone_map_row: Control
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
@@ -1092,10 +1089,7 @@ func _unmount_composition() -> void:
 	_phone_tool_scroll = null
 	_phone_sheet_col = null
 	_phone_quick_row = null
-	_phone_gen_scroll = null
-	_phone_gen_col = null
 	_phone_dom_host = null
-	_phone_dom_back_row = null
 	_phone_dom_journeys_row = null
 	_phone_map_row = null
 	_phone_app_bar = null
@@ -1173,7 +1167,7 @@ func class_key() -> String:
 
 ## Captures what the composition of the CURRENT class holds that the user set and that the unmount would lose:
 ## the dock widths and collapse flags, the scroll offsets of the docks (tablet, desktop) or of the phone's sheet
-## and generate column, and on the phone the sheet's detent and tab. Called before `_unmount_composition()`.
+## (the dock's scroller is the one the sheet shows, so `scroll_left` carries it), and on the phone the sheet's detent and tab. Called before `_unmount_composition()`.
 ## Reads only; never changes a node.
 func _capture_shell_state() -> void:
 	var key := class_key()
@@ -1183,7 +1177,6 @@ func _capture_shell_state() -> void:
 		m["detent"] = _phone_detent
 		m["tab"] = _phone_tab
 		m["scroll_tool"] = _phone_tool_scroll.scroll_vertical if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll) else 0
-		m["scroll_gen"] = _phone_gen_scroll.scroll_vertical if _phone_gen_scroll != null and is_instance_valid(_phone_gen_scroll) else 0
 	m["scroll_left"] = _left_dock_scroll.scroll_vertical if _left_dock_scroll != null and is_instance_valid(_left_dock_scroll) else 0
 	m["scroll_right"] = _right_dock_scroll.scroll_vertical if _right_dock_scroll != null and is_instance_valid(_right_dock_scroll) else 0
 	_class_memory[key] = m
@@ -1216,13 +1209,13 @@ func _restore_view_state() -> void:
 		if m.has("tab"):
 			_phone_tab = String(m["tab"])
 			_refresh_phone_tabs()
-			_refresh_phone_gen_panel()
+			_refresh_phone_sheet_body()
 		if m.has("detent"):
 			_set_phone_detent(String(m["detent"]), false)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	for pair in [[_left_dock_scroll, "scroll_left"], [_right_dock_scroll, "scroll_right"],
-			[_phone_tool_scroll, "scroll_tool"], [_phone_gen_scroll, "scroll_gen"]]:
+			[_phone_tool_scroll, "scroll_tool"]]:
 		var sc = pair[0]
 		if sc != null and is_instance_valid(sc) and m.has(pair[1]):
 			(sc as ScrollContainer).scroll_vertical = int(m[pair[1]])
@@ -4682,7 +4675,7 @@ func _select_domain(id: String) -> void:
 		## Workspace, `select_domain()` from a menu row, or any in-shell jump --
 		## so the sheet's contents have to follow the same write, not only the
 		## press. Second of the two call sites; see the function's own doc.
-		_refresh_phone_gen_panel()
+		_refresh_phone_sheet_body()
 	## §5.2's chip reads the domain and its mode, and `select_domain_mode()`
 	## writes the mode before calling here -- so this one call site covers both.
 	## No-op until the viewport exists (`DccShell._ready()` runs as
@@ -4854,10 +4847,11 @@ func register_workspace(id: String, panel: Control) -> void:
 	## GENERATE already lit and `_pick_phone_tab()` never called -- and
 	## `_select_domain()`'s own refresh runs during shell build, before any
 	## workspace is registered, so `_workspace_panels` is empty and
-	## `_refresh_phone_gen_panel()` correctly declines. The result on a real
+	## `_refresh_phone_sheet_body()` correctly declines. The result on a real
 	## handset was the app booting to the one-line tool-options strip with the
 	## GENERATE tab lit over it: *"one line that barely scrolls properly and a
-	## lot of white space"*. Measured on the device (`9608b26b`,
+	## lot of white space"* (the sheet body is the dock's own categories now, Ruling EH item 1, but the
+	## boot-order trap is the same). Measured on the device (`9608b26b`,
 	## ONEPLUS_A6013), not on a desktop probe -- the probe taps the tab, which
 	## is exactly the path that hid this.
 	##
@@ -4865,7 +4859,7 @@ func register_workspace(id: String, panel: Control) -> void:
 	## panel arriving here is a bare `WorldWorkspace.new()` whose `setup()` has
 	## not run, so filling the sheet from it now would read an empty parameter
 	## table.
-	_refresh_phone_gen_panel.call_deferred()
+	_refresh_phone_sheet_body.call_deferred()
 	## **Deferred, not called here directly -- measured, not assumed.**
 	## `dcc_widgets.gd`'s own header claims a workspace builds its whole panel
 	## before this call ever runs; `app.gd::_register_workspaces()` disproves
@@ -5670,7 +5664,7 @@ var _vp_wired := false
 ## `EngineBridge.mark_dirty()` early-returns once already dirty, so
 ## `params_changed` fires on the clean->dirty transition and not per drag frame.
 func _refresh_viewport_context() -> void:
-	## `_refresh_phone_sheet_header()`'s own GENERATE case reads the same
+	## `_refresh_phone_sheet_header()`'s own WORLD case reads the same
 	## seed/mode state this function does (world mode, `bridge.world_gen`'s
 	## seed) and needs the same trigger set -- a dice roll or a world landing
 	## while GENERATE is already the lit tab, not only a tab press. Riding this
@@ -5685,9 +5679,8 @@ func _refresh_viewport_context() -> void:
 	## for its entire run (`engine_bridge.gd::_worker()`'s own doc comment).
 	## Neither timing fix could have worked: the unsafe window is the whole
 	## generation, not one reentrant instant. `_refresh_phone_sheet_header()`
-	## itself now carries the real guard (`bridge.generating`), the same one
-	## `_pg_rebuild()` already uses for the same object -- see that function's
-	## own doc comment.
+	## itself now carries the real guard (`bridge.generating`): the engine's `world_gen` belongs to the worker
+	## for the whole run (the retired phone column's `_pg_rebuild()` had the same guard for the same object).
 	_refresh_phone_sheet_header()
 	var host := _find_viewport_host()
 	if host == null:
@@ -5711,7 +5704,7 @@ func _refresh_viewport_context() -> void:
 		bridge.params_applied.connect(_refresh_viewport_context)
 		## Arming or disarming Paint changes arm 2's wording (above), and no
 		## domain/mode write accompanies it on the phone's PAINT segment
-		## (`_pg_set_mode()` selects the mode BEFORE it arms), so the chip has to
+		## (the retired phone column's mode segment selected the mode BEFORE it armed), so the chip has to
 		## follow the tool itself. `tool_armed` is `DccApp`'s signal; this class
 		## is also instantiated bare by older probes, hence `has_signal`.
 		if has_signal("tool_armed"):
@@ -6892,9 +6885,9 @@ func _build_phone_shell() -> void:
 	## **And it is not the first screen either.** A cold boot with no world runs
 	## `app.gd::open_welcome()` → `phone_project_picker.gd`, which covers y
 	## 0..2348 and measures **212** blank rows; the 1 787 state is reachable only
-	## after the user dismisses that. On the default GENERATE tab the empty shell
-	## already carries `GENERATE WORLD` as an accent-filled primary in the tool
-	## sheet, so an empty-state signpost drawn into this gap would be a second
+	## after the user dismisses that. On the default WORLD domain tab the empty shell
+	## already carries `Generate world` as an accent-filled primary in the dock's Run section (the
+	## sheet body since Ruling EH item 1), so an empty-state signpost drawn into this gap would be a second
 	## route to a button already on screen. Considered and not built, 2026-09-06.
 	##
 	## Drawn is not wired, so that last sentence is a **pressed** button, not a
@@ -7669,10 +7662,10 @@ func _pick_phone_tab(id: String, toggle: bool = true) -> void:
 	_sync_phone_quick_row()
 	_refresh_phone_tabs()
 	_refresh_phone_sheet_header()
-	## After the detent, not before: `_refresh_phone_gen_panel()` fills a scroller whose height the detent has
-	## just set, and a fill against the old height leaves the column measured for the wrong box on its
+	## After the detent, not before: `_refresh_phone_sheet_body()` mounts the dock's scroller, whose height the
+	## detent has just set, and a mount against the old height leaves it measured for the wrong box on its
 	## first frame.
-	_refresh_phone_gen_panel()
+	_refresh_phone_sheet_body()
 
 ## `sheetTitle`/`sheetSub` (`AND:181-182`) for whichever tab is lit -- the
 ## canvas's own per-tab `titles` table, quoted (`AND:1466`):
@@ -7731,33 +7724,31 @@ func _pick_phone_tab(id: String, toggle: bool = true) -> void:
 ## deferring the call helped** (`call_deferred`, then a full `process_frame`
 ## boundary, both still panicked): the object is unsafe to touch for the
 ## worker's whole run, not just for one reentrant instant, so the fix is the
-## same branch `_pg_rebuild()` already takes for the same reason
-## (`world_workspace.gd`: `if bridge.generating: progress card else: idle
-## block`), not a timing change.
+## same branch the retired phone column's `_pg_rebuild()` took for the same reason
+## (`if bridge.generating: progress card else: idle block`), not a timing change.
 func _refresh_phone_sheet_header() -> void:
 	if _phone_sheet_title == null or not is_instance_valid(_phone_sheet_title):
 		return
-	if _phone_gen_tab_on():
+	if _phone_world_sheet_on():
 		_phone_sheet_title.text = "GENERATE"
-		## Mode `b` holds BOTH Sculpt and Paint, so `active_mode()` cannot tell
-		## them apart; the world workspace's sheet column is what knows which one
-		## is on screen (`WorldWorkspace.phone_sheet_mode()`).
-		var world_ws: Node = _workspace_panels.get("world")
-		var sheet_mode: String = String(world_ws.call("phone_sheet_mode")) if world_ws != null and world_ws.has_method("phone_sheet_mode") else ""
-		if sheet_mode == "all":
-			_phone_sheet_subtitle.text = "all categories · the dock"
-		elif active_mode("world") == "b" and sheet_mode == "paint":
+		## Mode `b` holds BOTH Sculpt and Paint, so `active_mode()` cannot tell them apart; the armed tool is
+		## what says which one the user is working on. (The retired phone column kept its own `_pg_mode` for
+		## this; Ruling EH item 1.)
+		var bridge := _find_engine_bridge()
+		if bridge != null and bridge.generating:
+			## The progress home the retired column's progress card moved to, besides the dock's Pipeline
+			## status rows and the map's GENERATING chip: the header is on screen at every detent and for
+			## every category. `_vp_stage` is the 1-based stage the engine last reported (0 before the
+			## first tick), kept by `_refresh_viewport_context()`, which calls this function.
+			var stage_part := (", stage %02d" % _vp_stage) if _vp_stage > 0 else "…"
+			_phone_sheet_subtitle.text = "pipeline · generating" + stage_part
+		elif active_mode("world") == "b" and String(get("armed_tool")) == "paint":
 			_phone_sheet_subtitle.text = "paint · draft cells"
 		elif active_mode("world") == "b":
 			_phone_sheet_subtitle.text = "sculpt · draft stamps"
 		else:
-			var bridge := _find_engine_bridge()
-			if bridge != null and bridge.generating:
-				_phone_sheet_subtitle.text = "pipeline · generating…"
-			else:
-				var seed_str := _phone_gen_seed_text(bridge)
-				_phone_sheet_subtitle.text = ("pipeline · seed " + seed_str) \
-					if seed_str != "" else "pipeline · no world yet"
+			var seed_str := _phone_seed_text(bridge)
+			_phone_sheet_subtitle.text = ("pipeline · seed " + seed_str) if seed_str != "" else "pipeline · no world yet"
 		return
 	## MS-2: the PLAN tab is gone and its planner is STORY ▸ Journeys, so the PLAN header (title "PLAN" /
 	## "PLAN · STAGE n", subtitle "journey · A → B" or "Journey planner") belongs to the STORY tab while the
@@ -7810,7 +7801,7 @@ func _refresh_phone_sheet_header() -> void:
 ## CALLER already knows it needs one to check `bridge.generating` first (see
 ## this function's own caller), and finding it twice would invite a second
 ## copy of that guard drifting out of sync with this one.
-func _phone_gen_seed_text(bridge: EngineBridge) -> String:
+func _phone_seed_text(bridge: EngineBridge) -> String:
 	if bridge == null or bridge.world_gen == null or not bridge.world_gen.has_method("get_seed"):
 		return ""
 	## No world yet: the binding exists and `get_seed()` answers 0, which is not a
@@ -7836,9 +7827,9 @@ func _phone_tab_for_domain(id: String) -> String:
 func _phone_tab_drives_sheet(id: String) -> bool:
 	return id == "map" or id == "domain"
 
-## True when the sheet shows WORLD's generation panel: the domain tab is lit and the domain is WORLD (what
-## `_phone_tab == "gen"` meant before the domain tab).
-func _phone_gen_tab_on() -> bool:
+## True when the sheet is on WORLD: the domain tab is lit and the domain is WORLD (what `_phone_tab == "gen"`
+## meant before the domain tab). The body is the dock's own categories since Ruling EH item 1.
+func _phone_world_sheet_on() -> bool:
 	return _phone_tab == "domain" and _active_domain == "world"
 
 ## Called at the end of `_refresh_phone_tabs()` (MS-2): the domain cell's caption and glyph follow `_active_domain`.
@@ -8459,56 +8450,13 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	col.add_child(scroll)
 	_phone_tool_scroll = scroll
 
-	## **The GENERATE sheet, and the defect it closes.**
-	##
-	## Owner, 2026-09-07, on a OnePlus 6T: *"I don't have sliders or fields to
-	## change parameters on how the world is generated … I can pull them up but
-	## there is one line that barely scrolls properly and a lot of white
-	## space."* That line is `tool_options_row` above -- one `HBoxContainer` --
-	## and the sliders were never in this sheet at all. `_pick_phone_tab("gen")`
-	## calls `_pick_bar_domain("world")`, which is `_select_domain("world")`,
-	## which decides what the LEFT DOCK would show; on a phone `left_dock` is a
-	## sheet with `visible = false` and the only two openers are
-	## `DccApp.toggle_region(ID_WIN_LEFT)` (MORE ▸ Window) and
-	## `PhoneMenu._open_left_sheet() (deleted by MS-4)`. The bottom bar reaches neither, so the
-	## generation parameters were unreachable by tapping.
-	##
-	## Fixed here rather than by teaching GENERATE to open the left sheet,
-	## because the canvas puts this content **in the sheet**
-	## (`design/Cartalith-Android-2026-09-07.dc.html`, `tabIsGen`): a column of
-	## collapsible parameter groups, not a full-screen dock. A second column in
-	## the same sheet, swapped for the tool-options row, is what that draws.
-	##
-	## Empty and hidden until `_refresh_phone_gen_panel()` fills it, which it
-	## does from `WorldWorkspace.build_phone_generate()` -- the workspace owns
-	## the content because it is the one object that already reads
-	## `bridge.param_*`, and duplicating that read here is the "second
-	## parameter table" defect this project keeps finding.
-	_phone_gen_scroll = ScrollContainer.new()
-	_phone_gen_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_phone_gen_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	_phone_gen_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_phone_gen_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
-	_phone_gen_scroll.visible = false
-	var gen_pad := MarginContainer.new()
-	## `padding:2px 14px 24px` -- the prototype's own sheet-body padding.
-	gen_pad.add_theme_constant_override("margin_left", _pscale(14))
-	gen_pad.add_theme_constant_override("margin_right", _pscale(14))
-	gen_pad.add_theme_constant_override("margin_top", _pscale(2))
-	gen_pad.add_theme_constant_override("margin_bottom", _pscale(24))
-	gen_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	## Inert padding, and the one node of the GENERATE column that
-	## `WorldWorkspace._pg_open_gestures()` cannot reach -- it walks down from
-	## the column, and this is the column's parent. `IGNORE` for the same reason
-	## everything inert in there is `IGNORE`: a touch drag has to reach this
-	## `ScrollContainer` or the sheet only scrolls from its outer gutter.
-	gen_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_phone_gen_scroll.add_child(gen_pad)
-	_phone_gen_col = VBoxContainer.new()
-	_phone_gen_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_phone_gen_col.add_theme_constant_override("separation", _pscale(12))
-	gen_pad.add_child(_phone_gen_col)
-	col.add_child(_phone_gen_scroll)
+	## **There is no GENERATE column here any more (Ruling EH item 1).** It was a second, phone-only parameter
+	## sheet (`WorldWorkspace.build_phone_generate()`) built after the owner's 2026-09-07 report that the
+	## sheet held no generation parameters (*"I don't have sliders or fields to change parameters on how the
+	## world is generated"*). MS-3 then mounted the dock's own categories in this sheet for CIVIL and CARTO
+	## and added an ALL segment for WORLD; Ruling EH retired the column, so WORLD's sheet body is the dock too
+	## (`_phone_dom_host`, below) and the generation parameters have exactly one builder, the workspace's
+	## `_build_categories()`. The 2026-09-07 defect stays closed by that mount, and `_eh1_probe` taps it.
 	## MS-3: the domain sheet's host (see `_phone_dom_host`). Empty and hidden until a CIVIL or CARTO domain
 	## sheet is lit; `separation 0` and a full-height expand so the dock's own scroller fills the sheet.
 	_phone_dom_host = VBoxContainer.new()
@@ -8523,45 +8471,36 @@ func _build_phone_tool_sheet() -> PanelContainer:
 		col.move_child(_phone_quick_row, 1)
 	return sheet
 
-## Show the GENERATE column instead of the tool-options row, or the other way
-## round, and (re)fill it.
+## Chooses the phone tool sheet's body, and (re)mounts it: the dock's own categories (WORLD, CIVIL, CARTO on
+## the domain tab) or the tool-options row (the MAP tab, and anywhere the dock cannot be mounted).
 ##
-## Called from `_pick_phone_tab()` and from `_select_domain()`, which are the
-## two places the answer can change -- a domain picked from MORE ▸ Workspace or
-## from an in-shell jump lights the GENERATE tab through
+## Called from `_pick_phone_tab()` and from `_select_domain()`, which are the two places the answer can change
+## -- a domain picked from MORE > Workspace or from an in-shell jump lights the domain tab through
 ## `_phone_tab_for_domain()` without ever passing through a tab press.
 ##
-## `has_method` rather than a cast: `DccShell` is instantiated bare by probes
-## with no workspaces registered at all, and `_workspace_panels` is empty then.
-func _refresh_phone_gen_panel() -> void:
-	if _phone_gen_scroll == null or not is_instance_valid(_phone_gen_scroll):
-		return
-	var on: bool = _phone and _phone_gen_tab_on()
+## Ruling EH item 1: WORLD no longer has a body of its own. Before it, WORLD's body was the phone GENERATE
+## column (`WorldWorkspace.build_phone_generate()`, a second parameter builder) and the dock showed only
+## behind an ALL segment; now WORLD mounts the dock exactly as CIVIL and CARTO do.
+##
+## WORLD additionally waits for its workspace panel (`register_workspace()`), because `DccShell` is
+## instantiated bare by probes with no workspaces registered at all, and the boot-order trap
+## (`register_workspace()`'s own comment) means the first call, from `_select_domain()` during the shell's
+## build, finds none and the deferred one finds it.
+func _refresh_phone_sheet_body() -> void:
 	var ws: Node = _workspace_panels.get("world")
-	if on and (ws == null or not ws.has_method("build_phone_generate")):
-		on = false
-	## MS-3: WORLD's fourth segment (ALL) shows the dock's nine categories, not the column.
-	var world_all: bool = on and _world_sheet_mode() == "all"
-	if world_all:
-		on = false
-	## MS-3: CIVIL and CARTO on the domain tab show the DOCK in the sheet instead of the one-line tool row.
-	## WORLD keeps its phone GENERATE column (departure from the proposal, recorded in the drafts README:
-	## replacing it by the dock's accordions is MS-3's remainder). MAP keeps the tool row (MS-3's MAP sheet
-	## is a separate build).
-	var dom: bool = _phone and _phone_tab == "domain" and (_active_domain != "world" or world_all) \
-		and not _left_sheet_open and _phone_dom_host != null and left_dock_body != null \
-		and _left_dock_scroll != null
+	var dom: bool = _phone and _phone_tab == "domain" and not _left_sheet_open and _phone_dom_host != null and left_dock_body != null and _left_dock_scroll != null
+	if dom and _active_domain == "world" and ws == null:
+		dom = false
 	_mount_dock_in_sheet(dom)
+	if _dock_in_sheet and dom:
+		_sync_dom_rows(true)
 	_refresh_phone_map_row()
-	_phone_gen_scroll.visible = on
 	if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll):
-		_phone_tool_scroll.visible = not on and not dom
-	if not on:
-		return
-	if _phone_gen_col.get_child_count() == 0:
-		ws.call("build_phone_generate", _phone_gen_col)
-	else:
-		ws.call("refresh_phone_generate")
+		_phone_tool_scroll.visible = not dom
+	## The phone seed readout in the Run section shows the dialog's pending seed, which a roll anywhere (the
+	## tool bar, File > New world) can change while the dock is out of sight; refresh it when the sheet shows.
+	if dom and ws != null and ws.has_method("refresh_phone_seed_readout"):
+		ws.call("refresh_phone_seed_readout")
 
 ## MS-3: moves the dock's mode switch and category scroller into the phone tool sheet (`on`) or back into the
 ## left dock's own column (`not on`). Reparenting, not rebuilding: `register_workspace()` attached every
@@ -8570,41 +8509,44 @@ func _refresh_phone_gen_panel() -> void:
 ## Must never run with the left sheet showing: `_set_sheet_open("left", true)` calls this with `false`
 ## first, or Window > Left dock would open an empty sheet.
 func _mount_dock_in_sheet(on: bool) -> void:
-	if on == _dock_in_sheet or _phone_dom_host == null or _left_dock_col == null \
-			or _left_dock_scroll == null or _left_dock_mode_switch == null:
+	if on == _dock_in_sheet or _phone_dom_host == null or _left_dock_col == null or _left_dock_scroll == null or _left_dock_mode_switch == null:
 		return
 	_dock_in_sheet = on
 	var target: Control = _phone_dom_host if on else _left_dock_col
 	_left_dock_mode_switch.reparent(target, false)
 	_left_dock_scroll.reparent(target, false)
-	_phone_dom_host.visible = on
+	_sync_dom_host_visible()
+	_sync_dom_rows(on)
+
+## Shows the domain host while the dock is mounted in it, except at the `peek` detent in portrait. The sheet's
+## minimum height is the sum of its children's, and the dock's mode switch alone is a 44 dp row, so a visible
+## host lifts the peek detent above its 66 dp (`_ms5b_probe`: the strip sat 131 px higher and the map's control
+## row overlapped it, found when WORLD began mounting the dock at boot, Ruling EH item 1; `_refresh_phone_map_row()`
+## hides its row at peek for the same reason). Peek shows the header only, as it always did.
+func _sync_dom_host_visible() -> void:
+	if _phone_dom_host == null:
+		return
+	_phone_dom_host.visible = _dock_in_sheet and (_landscape or _phone_detent != "peek")
+
+## Builds (once) and shows or hides the door row above the mounted dock for the CURRENT domain. Split out of
+## `_mount_dock_in_sheet()` by Ruling EH item 1: WORLD now mounts the dock too, so a domain change from WORLD to
+## CIVIL happens with the dock already mounted, `_mount_dock_in_sheet()` returns early on `on == _dock_in_sheet`,
+## and the Journeys row was never built (found by `_ms3b_probe`). Called by `_refresh_phone_sheet_body()` on every
+## refresh, mounted or not.
+func _sync_dom_rows(on: bool) -> void:
 	if on:
 		_ensure_dom_rows()
-	if _phone_dom_back_row != null:
-		_phone_dom_back_row.visible = on and _active_domain == "world"
 	if _phone_dom_journeys_row != null:
 		_phone_dom_journeys_row.visible = on and _active_domain == "civilization"
 
-## MS-3: the world workspace's sheet column (`pipe` | `sculpt` | `paint` | `all`), or "".
-func _world_sheet_mode() -> String:
-	var ws: Node = _workspace_panels.get("world")
-	return String(ws.call("phone_sheet_mode")) if ws != null and ws.has_method("phone_sheet_mode") else ""
-
-## MS-3: builds, once, the two rows that sit above the dock's pieces inside `_phone_dom_host` and moves
-## them to the front (`reparent()` appended the dock's pieces first). Both are plain `DccWidgets.action()`
-## buttons, so `phone_fit()` (through `_on_phone_node_added()`'s `_phone_dom_host` clause) sizes them to
-## the 44 dp floor like every dock control. They are doors, not copies: each calls an existing entry point.
-## - WORLD's back row returns the sheet to the three curated columns (`WorldWorkspace._pg_set_mode("pipe")`).
-## - CIVIL's journeys row opens STORY > Journeys (`PhoneMenu.open_story("JOURNEYS")`), the proposal's
-##   "CIVIL > Journeys opens STORY > Journeys rather than a second planner".
+## MS-3: builds, once, the row that sits above the dock's pieces inside `_phone_dom_host` and moves it to the
+## front (`reparent()` appended the dock's pieces first). A plain `DccWidgets.action()` button, so
+## `phone_fit()` (through `_on_phone_node_added()`'s `_phone_dom_host` clause) sizes it to the 44 dp floor like
+## every dock control. It is a door, not a copy: CIVIL's journeys row opens STORY > Journeys
+## (`PhoneMenu.open_story("JOURNEYS")`), the proposal's "CIVIL > Journeys opens STORY > Journeys rather than a
+## second planner". WORLD's "Back to Pipeline - Sculpt - Paint" row is gone with the columns it returned to
+## (Ruling EH item 1).
 func _ensure_dom_rows() -> void:
-	if _phone_dom_back_row == null:
-		_phone_dom_back_row = DccWidgets.action(_phone_dom_host, "Back to Pipeline · Sculpt · Paint", func():
-			var ws: Node = _workspace_panels.get("world")
-			if ws != null:
-				ws.call("_pg_set_mode", "pipe"))
-		_phone_dom_back_row.name = "DomBackRow"
-		_phone_dom_host.move_child(_phone_dom_back_row, 0)
 	if _phone_dom_journeys_row == null:
 		_phone_dom_journeys_row = DccWidgets.action(_phone_dom_host, "Journeys ▸ planner, saved journeys (STORY)", func():
 			_pick_phone_tab("story")
@@ -8791,13 +8733,13 @@ func _phone_nav_reserve() -> float:
 ## `_tool_options_cartography_default()`'s one label row -- so the flat
 ## fraction opened a sheet 92% blank regardless of world state
 ## (`OUTSTANDING_WORK.md`'s own measured row, 933/1003 px blank with no world,
-## 912/1003 with one). GENERATE keeps the untouched flat fraction: its sheet
-## body is `_phone_gen_col`'s real multi-row parameter column, which the
-## fraction was sized for, and every other tab (`plan`/`more`) doesn't drive
-## the sheet's height at all (`_phone_tab_drives_sheet()`). Gated on
-## `_phone_tab == "map"` rather than on `_phone_gen_scroll.visible` --
+## 912/1003 with one). The domain tab keeps the untouched flat fraction: its sheet
+## body is the dock's own multi-row category column (WORLD included since Ruling EH item 1, which retired
+## the phone's own GENERATE column), which the fraction was sized for, and every other tab (`story`/`menu`)
+## doesn't drive the sheet's height at all (`_phone_tab_drives_sheet()`). Gated on
+## `_phone_tab == "map"` rather than on which body is visible --
 ## `_pick_phone_tab()` sets `_phone_tab` before it calls
-## `_set_phone_detent("half")`, but only calls `_refresh_phone_gen_panel()`
+## `_set_phone_detent("half")`, but only calls `_refresh_phone_sheet_body()`
 ## (which flips that visibility) AFTER, so the visibility flag would still
 ## name the PREVIOUS tab's content on the very transition that matters most.
 func _phone_detent_height(det: String) -> float:
@@ -8922,6 +8864,7 @@ func _set_phone_detent(det: String, animate: bool = true) -> void:
 	if animate:
 		_haptic("detent")
 	_refresh_phone_map_row()
+	_sync_dom_host_visible()
 	_snap_phone_sheet(animate)
 
 ## The prototype's `_snapSheet()`: writes the current detent's height onto the

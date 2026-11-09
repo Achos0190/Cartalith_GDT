@@ -493,11 +493,21 @@ func _leg_gestures() -> void:
 	if tab != null:
 		await _tap(tab)
 	await _frames(8)
-	var scroll: ScrollContainer = app._phone_gen_scroll
-	_check(scroll != null and scroll.visible, "the GENERATE column is the visible sheet body")
-	if scroll == null or not scroll.visible:
+	## Ruling EH item 1: the GENERATE column is deleted; WORLD's sheet body is the dock's own scroller.
+	var scroll: ScrollContainer = app._left_dock_scroll
+	_check(scroll != null and scroll.is_visible_in_tree() and scroll.get_parent() == app._phone_dom_host,
+		"the dock, mounted in the phone sheet, is the visible sheet body")
+	if scroll == null or not scroll.is_visible_in_tree():
 		return
 
+	## Ruling EH item 1: the dock's categories open on a header tap; open Planet (dials, stage 01-03) so the
+	## first visible slider is a real parameter row, as the retired column's first open group was.
+	for e in app._workspace_panels["world"].categories:
+		if String((e as Dictionary).get("title", "")) == "Planet":
+			var pb: Control = (e as Dictionary).get("body") as Control
+			if pb != null and not pb.is_visible_in_tree():
+				(pb.get_parent().get_child(0) as Button).pressed.emit()
+	await _frames(6)
 	var ws: Node = app._workspace_panels.get("world")
 	var slider := _first_slider(scroll)
 	_check(slider != null, "the sheet draws at least one parameter slider")
@@ -507,9 +517,9 @@ func _leg_gestures() -> void:
 
 	## **Assert against the ENGINE, not against the node.** Writing a parameter
 	## for the first time makes the sheet stale, and `_pg_after_param_write()`
-	## answers that with a deferred `_pg_rebuild()` -- which frees the very
-	## slider under test. The engine value survives that, and it is also the
-	## thing the owner's report was about: *the parameter changed*.
+	## answered (while the GENERATE column existed) with a deferred `_pg_rebuild()` -- which freed the very
+	## slider under test. The dock does not rebuild, but the engine value is still the thing the owner's
+	## report was about: *the parameter changed*.
 	var label_text := _row_label(slider)
 	var key := _key_for_label(label_text)
 	_check(not key.is_empty(), "the slider under test is `%s` (param `%s`)"
@@ -599,6 +609,11 @@ func _first_slider(root: Node) -> HSlider:
 
 ## The label `_pg_range_field()` draws to the left of the value readout.
 func _row_label(slider: Control) -> String:
+	## The dock's own row is an HBox of [label, slider, readout] (the retired column's was a VBox of a head row
+	## and a slider row): read the label beside the slider first.
+	for g in slider.get_parent().get_children():
+		if g is Label and String((g as Label).text) != "":
+			return String((g as Label).text)
 	var wrap := slider.get_parent().get_parent() as Control
 	if wrap == null:
 		return ""

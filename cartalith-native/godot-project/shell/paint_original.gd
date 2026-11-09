@@ -28,8 +28,8 @@ extends RefCounted
 ## a grid-sized RGBA, freed on disarm); or draw anything per frame (the layer
 ## is a static `TextureRect`, hidden when off, so an idle frame is unchanged).
 ##
-## **State** is shared by the desktop Paint tool bar and the phone GENERATE sheet's
-## Paint column (both write it only through `set_percent()`), and is session-only,
+## **State** is shared by the Paint tool bar's Original slider, whichever surface draws it (on the phone the MAP tab's
+## option row; the GENERATE sheet's Paint column was deleted by Ruling EH item 1) -- it writes only through `set_percent()`, and is session-only,
 ## like `world_workspace.gd`'s `_paint_brush` which it sits beside: `opacity` starts at 0 (off), survives
 ## layer switches and disarm/re-arm, and is gone at restart. Nothing is written
 ## to `user://cartalith_settings.cfg`.
@@ -148,10 +148,9 @@ func sync() -> void:
 	app.viewport.set_paint_original(_tex, opacity)
 
 ## Set the strength from a percent value and re-evaluate the layer. The ONE
-## writer of `opacity`: the tool bar's "Original" slider (`decorate()` below)
-## and the phone GENERATE sheet's Paint column (`world_workspace.gd::_pg_paint`)
-## both call it, so a thumb on the phone and a mouse on the bar move the same
-## state and neither can drift from the other. `percent` is on the slider's own
+## writer of `opacity`: the tool bar's "Original" slider (`decorate()` below), on the phone and the
+## desktop alike, calls it (the phone GENERATE sheet's Paint column, `_pg_paint`, was a second caller
+## until Ruling EH item 1), so there is one writer and no copy to drift. `percent` is on the slider's own
 ## 0..`PCT_MAX` scale (0 = off); out-of-range input is clamped, never wrapped.
 ## Must never write anything but `opacity` and the on-screen layer; it is as
 ## cheap as `sync()` (one dictionary read, plus one texture build the first

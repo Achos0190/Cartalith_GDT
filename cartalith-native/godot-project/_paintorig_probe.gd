@@ -231,6 +231,13 @@ func _ready() -> void:
 	_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	add_child(_vp)
 	app = load("res://shell/app.tscn").instantiate()
+	## The first-run coach marks (3.6 s each, `_show_next_coach_mark`) fade through the map region this probe
+	## captures; which of them is on screen at a capture depends on boot timing, which Ruling EH item 1's
+	## sheet change moved. They are marked seen BEFORE the shell exists so none starts (they are not what
+	## this probe measures; `_save_shot` of the pixels is).
+	if app.has_method("_coach_mark_ids"):
+		for coach_id in app._coach_mark_ids():
+			app._set_coach_mark_seen(coach_id)
 	_vp.add_child(app)
 	await get_tree().create_timer(1.6).timeout
 	if app.open_project_dialog != null:
@@ -264,8 +271,8 @@ func _ready() -> void:
 	app.select_domain("world")
 	await _frames(SETTLE)
 	if phone:
-		## The phone's default GENERATE tab swaps the tool-options row for the
-		## generation column (`_refresh_phone_gen_panel`), so the Paint bar is
+		## The phone's WORLD domain tab shows the dock in the sheet instead of the
+		## tool-options row (`_refresh_phone_sheet_body`), so the Paint bar is
 		## reachable only from another tab; MAP is the one that shows it.
 		app._pick_phone_tab("map")
 		await _frames(SETTLE)
@@ -273,18 +280,18 @@ func _ready() -> void:
 	app.tool_bar._on_paint_layer("biome")
 	await _frames(SETTLE)
 	if phone and app._phone_tab == "domain":
-		## Arming Paint selects the WORLD domain, which lights GENERATE and swaps
-		## the options row for the generation column, so THIS bar's own row is
-		## hidden on a phone. A thumb now reaches Paint's options through the
-		## GENERATE sheet's PAINT segment instead, and `_phonepaint_probe.gd` proves
-		## that with real taps. What this leg still measures is the BAR'S OWN row
+		## Arming Paint selects the WORLD domain, which lights the domain tab and swaps
+		## the options row for the dock, so THIS bar's own row is hidden on a phone
+		## until the MAP tab is lit. `_eh1_probe.gd` proves with real taps that the
+		## MAP tab then shows it (Ruling EH item 1 deleted the GENERATE sheet's PAINT
+		## segment that was the other route). What this leg measures is the BAR'S OWN row
 		## (its Original slider's touch size, the shared slider state), so it
 		## REVEALS the already-built, hidden row by writing the tab and refreshing
 		## the sheet -- a test-only path, not the user's route.
 		app._phone_tab = "map"
-		app._refresh_phone_gen_panel()
+		app._refresh_phone_sheet_body()
 		await _frames(SETTLE)
-		_log("FORCED REVEAL of the bar row (the user route is _phonepaint_probe.gd): tab=%s armed=%s bar mode=%s" % [app._phone_tab, app.armed_tool, app.tool_bar.mode])
+		_log("FORCED REVEAL of the bar row (the user route is _eh1_probe.gd: the dock's Biomes body): tab=%s armed=%s bar mode=%s" % [app._phone_tab, app.armed_tool, app.tool_bar.mode])
 	_check(app.armed_tool == "paint", "Paint is armed")
 	var sl := _slider_labelled("Original")
 	if sl == null:

@@ -396,19 +396,33 @@ tool (`app.arm_tool("sculpt")`) and drops the sheet to `peek`.
 3. **Tap `GENERATE`** — always on screen, second of four cells.
 4. `_pick_phone_tab("gen")` selects the `world` domain and lifts the sheet from
    `peek` to `half`.
-5. The sheet is the GENERATE column: `PIPELINE | SCULPT`, `SEED`,
-   `GENERATE WORLD`, then the ten groups.
-6. **Tap a group header** and its fields open under it; drag the handle up for
-   `full` if the group is long.
+5. The sheet is the dock's own categories (Ruling EH item 1, 2026-11-09; this
+   step described the retired GENERATE column: `PIPELINE | SCULPT`, `SEED`,
+   `GENERATE WORLD`, then the ten groups): the dock's mode switch
+   (`PIPELINE | SCULPT`), then Generate (Run: seed readout, New seed,
+   Generate world, Pipeline status), Planet, Geology, Hydrology, Climate,
+   Ecology, World data (Terrain and Biomes in SCULPT).
+6. **Tap a category header** and its body opens under it; drag the handle up
+   for `full` if the category is long.
 
 Nothing in that path is a gesture, a long-press or an off-screen affordance.
 
 ### 1.11 Every place the GENERATE column departs from the canvas
 
+> **Retired by Ruling EH item 1 (2026-11-09).** The column this section and
+> section 1.10 describe (`build_phone_generate()` and the `_pg_*` block, the
+> shell's `_phone_gen_scroll`) is deleted. The WORLD sheet is the dock's own
+> categories, the same nodes CIVIL and CARTO already mount
+> (`_refresh_phone_sheet_body()`, `_mount_dock_in_sheet()`). The text below is
+> kept as the record of what the column was and of the glass figures it was
+> tuned to; **those figures are not carried over and are listed for
+> re-measurement on the 6T in `STATUS.md`'s Ruling EH item 1 entry (MS-10).**
+> Where each part went is in that entry's inventory and `_eh1_probe.gd`'s header.
+
 Built in `dcc_shell.gd` (`_build_phone_tool_sheet()`,
 `_refresh_phone_gen_panel()`) and `workspaces/world_workspace.gd`
 (`build_phone_generate()` and the `_pg_*` block). Probe:
-`_genphone_probe.gd`, which prints its own check count.
+`_genphone_probe.gd` (deleted by Ruling EH item 1 with the column; `_eh1_probe.gd` taps the dock sheet that replaced it), which printed its own check count.
 
 | Canvas says | This build | Why |
 |---|---|---|

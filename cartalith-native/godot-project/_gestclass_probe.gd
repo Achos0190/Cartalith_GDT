@@ -261,8 +261,9 @@ func _surface_of(n: Node) -> String:
 			return "left_dock sheet"
 		if p == app.right_dock:
 			return "right_dock sheet"
-		if p == app._phone_gen_scroll:
-			return "GENERATE sheet"
+		if p == app._phone_dom_host:
+			## Ruling EH item 1: the GENERATE column is gone; WORLD's sheet is the dock mounted here.
+			return "dock sheet (mounted in the phone sheet)"
 		if p == app._phone_tool_scroll:
 			return "tool-options sheet"
 		if p is PhoneMenu:

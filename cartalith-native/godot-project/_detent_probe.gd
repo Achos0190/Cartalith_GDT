@@ -634,13 +634,16 @@ func _ready() -> void:
 	app.set_phone_detent("peek")
 	await get_tree().create_timer(0.45).timeout
 	await _frames(2)
-	var gen_scroll: Control = app._phone_gen_scroll
+	## Ruling EH item 1: the WORLD sheet body is the dock (its mode switch, then its scroller), so the chip
+	## is clipped by the SHEET's own rect, not by a column scroller of its own (that column is deleted).
+	var gen_scroll: Control = app._phone_tool_sheet
 	## `PIPELINE`, not a generic "first row" -- the exact chip
 	## `OUTSTANDING_WORK.md` named, found the same way
 	## `.claude/resume-2026-09-12/peek_pin_2026-09-12.patch`'s own `_find_button`
 	## did for the same control.
 	var seg_btn := _find_button(app._phone_tool_sheet as Control, "PIPELINE")
-	_check(gen_scroll != null and gen_scroll.visible, "the GENERATE body scroll is the visible one")
+	_check(app._left_dock_scroll.get_parent() == app._phone_dom_host,
+		"the dock is mounted in the sheet's domain host (hidden at peek so the peek stays 66 dp)")
 	_check(seg_btn != null, "PIPELINE mode-segment chip exists under the sheet")
 	if gen_scroll != null and seg_btn != null:
 		var seg_full_h: float = seg_btn.get_global_rect().size.y

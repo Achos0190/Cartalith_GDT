@@ -296,11 +296,6 @@ func _closed_headers(root: Node) -> Array:
 			if bd != null and not bd.visible:
 				out.append(btn)
 				continue
-			for c in btn.get_signal_connection_list("pressed"):
-				var cb: Callable = c["callable"]
-				if cb.get_method() == &"_pg_toggle_group":
-					out.append(btn)
-					break
 	return out
 
 

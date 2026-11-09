@@ -1,16 +1,17 @@
 extends Node
 ## Verifier probe, 2026-09-12 -- attacks Lane SEED's `request()` -> `seed_input.apply()`
 ## fix on the production path that writes `seed_input.value` and reads `request()`
-## in the SAME frame: `world_workspace.gd::_pg_roll_seed()` is `app._new_seed()`
-## (`randomise_seed()`, a direct `.value` write) followed by `_pg_rebuild()` ->
-## `_pg_seed_row()` -> `app.new_world_dialog.request()`.
+## in the SAME frame: `world_workspace.gd::_roll_seed_marking_stale()` (the WORLD dock's New seed button,
+## which replaced the deleted phone column's `_pg_roll_seed()` in Ruling EH item 1) is `app._new_seed()`
+## (`randomise_seed()`, a direct `.value` write) followed by `app.new_world_dialog.request()` reads (the stale
+## comparison and the phone seed readout).
 ##
 ## Also measured: a typed value committed by a real Enter key event (the lane's
 ## "normally committed" control was a property write), and the frame timing of a
 ## bare `text_submitted` emission (the lane printed without yielding a frame).
 ##
-## Desktop composition. `_pg_roll_seed()` is called directly and the dice's
-## `pressed` is emitted -- neither is a finger.
+## Desktop composition. `_roll_seed_marking_stale()` is called directly and the New seed button's
+## `pressed` is emitted -- neither is a finger (`_eh1_probe.gd` taps it on a phone).
 ##
 ## Run windowed: Godot_v4.7.1-stable_win64_console.exe --path . _vfy_seedroll_probe.tscn
 ## Result: an assertion that does not carry its verdict in the exit code; windowed ("Run windowed"; header command
@@ -49,24 +50,13 @@ func _built_seed(dlg) -> int:
 		waited += 0.1
 	return _app.bridge.world_gen.get_seed()
 
-func _find_seed_label(host: Node) -> String:
-	var stack: Array = [host]
-	while not stack.is_empty():
-		var n: Node = stack.pop_back()
-		if n is Label and (n as Label).text == "SEED":
-			var row := n.get_parent()
-			var idx := n.get_index()
-			if idx + 1 < row.get_child_count() and row.get_child(idx + 1) is Label:
-				return (row.get_child(idx + 1) as Label).text
-		for c in n.get_children():
-			stack.append(c)
-	return "<no SEED row>"
-
+## The Run section's `New seed` button anywhere under `host` (Ruling EH item 1: it replaced the deleted phone
+## column's dice, `↻`, as the one seed-roll control the WORLD workspace draws).
 func _find_dice(host: Node) -> Button:
 	var stack: Array = [host]
 	while not stack.is_empty():
 		var n: Node = stack.pop_back()
-		if n is Button and (n as Button).text == "↻":
+		if n is Button and (n as Button).text == "New seed":
 			return n
 		for c in n.get_children():
 			stack.append(c)
@@ -149,37 +139,31 @@ func _ready() -> void:
 	_check("S7 New seed, 0.5 s, WORLD dock _regenerate_now() builds the rolled seed", built7 == rolled7,
 		"rolled=%d built=%d le.text='%s'" % [rolled7, built7, le.text])
 
-	# -- S3: the real production function, _pg_roll_seed() ----------------------
+	# -- S3: the real production function, _roll_seed_marking_stale() ----------
 	var ws = _app._world_workspace()
-	var host := VBoxContainer.new()
-	add_child(host)
-	ws.build_phone_generate(host)
+	var host: Node = ws
 	await _frames(3)
 	await _settle(dlg, 11111)
-	ws._pg_rebuild()
 	await _frames(2)
-	_p("S3 pre-roll: value=%d seed_row_label='%s'" % [int(dlg.seed_input.value), _find_seed_label(host)])
+	_p("S3 pre-roll: value=%d" % int(dlg.seed_input.value))
 	_emits.clear()
-	ws._pg_roll_seed()
+	ws._roll_seed_marking_stale()
 	var emits3 := _emits.duplicate()
 	var now3 := int(dlg.seed_input.value)
 	await _frames(3)
-	var label3 := _find_seed_label(host)
-	_p("S3 _pg_roll_seed(): emits=%s value_same_frame=%d +3f value=%d text='%s' seed_row_label='%s'"
-		% [str(emits3), now3, int(dlg.seed_input.value), le.text, label3])
+	_p("S3 _roll_seed_marking_stale(): emits=%s value_same_frame=%d +3f value=%d text='%s'"
+		% [str(emits3), now3, int(dlg.seed_input.value), le.text])
 	var rolled3: int = emits3[0] if emits3.size() > 0 else -1
-	_check("S3 _pg_roll_seed(): the rolled seed survives its own row rebuild",
+	_check("S3 _roll_seed_marking_stale(): the rolled seed survives its own readout refresh",
 		rolled3 != -1 and rolled3 != 11111 and int(dlg.seed_input.value) == rolled3,
-		"rolled=%d final=%d label='%s'" % [rolled3, int(dlg.seed_input.value), label3])
+		"rolled=%d final=%d" % [rolled3, int(dlg.seed_input.value)])
 	var built3: int = await _built_seed(dlg)
 	_check("S3 next Create builds the rolled seed", built3 == rolled3,
 		"rolled=%d built=%d" % [rolled3, built3])
 
-	# -- S4: the dice's own pressed signal (not a finger) -----------------------
-	ws._pg_rebuild()
+	# -- S4: the New seed button's own pressed signal (not a finger) ------------
 	await _frames(2)
 	await _settle(dlg, 22222)
-	ws._pg_rebuild()
 	await _frames(2)
 	var dice := _find_dice(host)
 	_p("S4 dice found=%s" % str(dice != null))
@@ -189,9 +173,9 @@ func _ready() -> void:
 		var emits4 := _emits.duplicate()
 		await _frames(3)
 		var rolled4: int = emits4[0] if emits4.size() > 0 else -1
-		_check("S4 dice pressed.emit(): the rolled seed survives",
+		_check("S4 New seed pressed.emit(): the rolled seed survives",
 			rolled4 != -1 and rolled4 != 22222 and int(dlg.seed_input.value) == rolled4,
-			"emits=%s final=%d label='%s'" % [str(emits4), int(dlg.seed_input.value), _find_seed_label(host)])
+			"emits=%s final=%d" % [str(emits4), int(dlg.seed_input.value)])
 
 	# -- S5: typed + a real Enter key event, dialog popped ----------------------
 	dlg.popup_centered()

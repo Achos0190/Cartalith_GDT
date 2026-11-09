@@ -6,9 +6,9 @@ extends Node
 ## Reproduces the shell's own phone composition WINDOWED at the device's exact
 ## resolution (MISTAKES.md, "Assert on pixels": headless returns a null
 ## texture) and measures every "PIPELINE"/"SCULPT" instance this shell draws --
-## the GENERATE sheet's mode segment (`WorldWorkspace._pg_mode_segment`, inside
-## `_phone_gen_col`) and the LEFT DOCK's own mode switch
-## (`DccShell._build_mode_switch()`) -- against both their RECT (unclipped,
+## the dock's mode switch as the phone sheet mounts it (since Ruling EH item 1 the WORLD sheet is the
+## dock; the GENERATE column's own segment, `_pg_mode_segment`, is deleted) and the LEFT DOCK's own mode
+## switch in its own column (`DccShell._build_mode_switch()`) -- against both their RECT (unclipped,
 ## MISTAKES.md line ~119) and the ACTUAL DRAWN pixels (accent-colour row scan,
 ## same method the device measurement used).
 ##
@@ -136,12 +136,12 @@ func _measure_generate_segment(tag: String, app: Node, accent: Color) -> void:
 		_log("%s: no PIPELINE button found under _phone_tool_sheet" % tag)
 		return
 	var btn: Control = buttons[0]
-	var vs_scroll := _clip_fraction(btn, app._phone_gen_scroll)
+	var vs_scroll := _clip_fraction(btn, app._phone_dom_host)
 	var vs_sheet := _clip_fraction(btn, app._phone_tool_sheet)
 	var bar_rect: Rect2 = (app._phone_menu_bar as Control).get_global_rect()
-	_log("%s: sheet=%s  gen_scroll=%s" % [tag,
+	_log("%s: sheet=%s  dom_host=%s" % [tag,
 		_rect_str((app._phone_tool_sheet as Control).get_global_rect()),
-		_rect_str((app._phone_gen_scroll as Control).get_global_rect())])
+		_rect_str((app._phone_dom_host as Control).get_global_rect())])
 	_log("%s: PIPELINE button global_rect=%s" % [tag, _rect_str(vs_scroll["button"])])
 	_log("%s: visible-vs-scroll frac=%.3f  visible-vs-sheet frac=%.3f  bar_top=%.0f" %
 		[tag, vs_scroll["frac"], vs_sheet["frac"], bar_rect.position.y])

@@ -220,7 +220,7 @@ func _ready() -> void:
 	var sheet: Control = app._phone_tool_sheet
 	_log("  sheet h              = %.1f px  %.2f dp" % [sheet.size.y, _dp(sheet.size.y)])
 	_log("  tool scroll visible  = %s" % str(app._phone_tool_scroll.visible))
-	_log("  gen  scroll visible  = %s" % str(app._phone_gen_scroll.visible))
+	_log("  dock in sheet        = %s" % str(app._phone_dom_host.visible))
 
 	# ---------------------------------------------------------------- 3
 	_log("--- 3: EVERY text node in the MAP sheet ---")

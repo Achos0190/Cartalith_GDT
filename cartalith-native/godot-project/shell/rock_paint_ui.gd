@@ -1,7 +1,8 @@
 ## GF-8 (`GEOLOGY_FIRST_SCOPE.md` §4.13, owner Ruling BJ): the shell's shared
 ## vocabulary for the **Rock** paint target, so the four surfaces that draw it --
 ## the tool bar's rows (desktop and tablet), the WORLD dock's Biome paint panel,
-## the right dock's paint context and the phone's Paint column -- say the same
+## the right dock's paint context and the tool bar (the phone's Paint column was a fifth until
+## Ruling EH item 1) -- say the same
 ## thing in the same words and cannot drift.
 ##
 ## What it is: pure functions over the engine's own answers

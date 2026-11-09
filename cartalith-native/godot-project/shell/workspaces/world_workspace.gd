@@ -360,7 +360,7 @@ var _sculpt_stroke_aborted := false
 ## ET-D3. The symmetry options handed to `sculpt_begin_stroke_with` on every press:
 ## the engine's own keys (`symmetry`, `radial_count`, `symmetry_center`,
 ## `symmetry_angle`). `{}` = no symmetry, today's behaviour. **Since ET-D5 the Sculpt
-## bar row and the phone Sculpt column write it** (through `DccToolBar`'s writers, which
+## bar row writes it** (and the phone Sculpt column did until Ruling EH item 1) (through `DccToolBar`'s writers, which
 ## erase a key at its default), and they READ it back to draw -- it is the one source of
 ## truth, so a probe that sets it directly still works and the controls show it. Omit a
 ## key rather than defaulting it.
@@ -377,8 +377,8 @@ var _sculpt_pressure_on := true
 ## engine's own keys (`spacing`, `spacing_enabled`, `symmetry*`, `scatter_*`,
 ## `pressure_size`, ...; `WorldGen::paint_stroke_begin`'s table). `{}` = every default
 ## (spacing 18 %, no symmetry, no scatter, pressure drives size), which is exactly what
-## `_paint_click` sent before this seam existed. Written by the Paint bar row and the phone
-## Paint column through `DccToolBar`'s writers; a key is erased at its default.
+## `_paint_click` sent before this seam existed. Written by the Paint bar row (and, until Ruling EH item 1, the phone
+## Paint column) through `DccToolBar`'s writers; a key is erased at its default.
 var _paint_stroke_options: Dictionary = {}
 
 ## ET-D5. The options Dictionary the last ACCEPTED `paint_stroke_begin` /
@@ -697,8 +697,6 @@ var _ecology_fill_deferred := false
 var _crs_build_deferred := false
 ## Replay flag for `_refresh_finalize()` (see `_sculpt_build_deferred`).
 var _finalize_refresh_deferred := false
-## Replay flag for the phone Generate sheet rebuild (see `_sculpt_build_deferred`).
-var _pg_rebuild_deferred := false
 
 ## **The gate for a handler a CLICK or a DRAG reaches directly** (found-bug sweep 2026-10-11,
 ## G2). The flag-and-replay gates above serve signal listeners that rebuild a panel; a button
@@ -742,8 +740,6 @@ func _flush_generating_deferred(_r: Variant = null) -> void:
 		_build_crs(_crs_body)
 	if _finalize_refresh_deferred:
 		_refresh_finalize()
-	if _pg_rebuild_deferred:
-		_pg_rebuild()
 
 ## A new/loaded world means a fresh (or absent) `SculptEditor`/`PaintEditor`
 ## on the Rust side -- both panels rebuild from scratch rather than trusting
@@ -939,7 +935,15 @@ func _build_generate_head(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Run")
 	var gen := DccWidgets.action(sec, "Generate world", _on_generate_pressed, true)
 	gen.tooltip_text = "The reference's #genBtn. Runs all ten stages against the current parameters and the current seed. The same button sits in the tool options bar above the map."
-	var seed_btn := DccWidgets.action(sec, "New seed", func(): app._new_seed())
+	## Ruling EH item 1: the phone's GENERATE column (seed row, dice) is retired and this section is where the
+	## phone now rolls and reads the seed. The readout is phone-only (the desktop's seed lives in File > New
+	## world and the tool bar), so the desktop dock is byte-for-byte what it was.
+	if DccTheme.is_phone():
+		_phone_seed_label = DccTheme.mono_label("", "text_secondary", DccTheme.FS_MICRO, 1)
+		_phone_seed_label.name = "PhoneSeedReadout"
+		sec.add_child(_phone_seed_label)
+		refresh_phone_seed_readout()
+	var seed_btn := DccWidgets.action(sec, "New seed", _roll_seed_marking_stale)
 	## Prose matches `app.gd::_new_seed()` -> `NewWorldDialog.randomise_seed()`, which only
 	## writes the dialog's seed (no-op when `seed_locked`); corrected 2026-10-12, it said
 	## it also regenerated.
@@ -1078,6 +1082,40 @@ func _build_generate_head(parent: Control) -> void:
 		"Resolution, working and render, is a creation-time call argument rather "
 		+ "than a stored parameter -- File ▸ New world sets it. Map extent (world "
 		+ "/ region) is the same.")
+
+## The Run section's phone-only seed readout (`PhoneSeedReadout`); null off the phone. It shows the seed the
+## NEXT Generate will use (`NewWorldDialog.request()["seed"]`), which is what the retired GENERATE column's seed
+## row showed, not the seed of the world on screen (the sheet header's subtitle shows that one).
+var _phone_seed_label: Label
+
+## Rewrites the phone seed readout from `NewWorldDialog.request()`. "Seed --" when there is no dialog yet (a
+## bare shell in a probe), never a made-up number: zero is a legal seed.
+func refresh_phone_seed_readout() -> void:
+	if _phone_seed_label == null or not is_instance_valid(_phone_seed_label):
+		return
+	var seed_text := "--"
+	if app != null and app.new_world_dialog != null:
+		seed_text = str(int(app.new_world_dialog.request().get("seed", 0)))
+	_phone_seed_label.text = "SEED  %s  (used by the next Generate)" % seed_text
+
+## The Run section's New seed button. Rolls through `app._new_seed()` (the dialog's own `randomise_seed()`, a
+## no-op while the seed is locked) and, only when the seed value actually changed, marks stage 01 onward stale:
+## the retired phone column's dice did both (`hDice` calls `_markStale(1)` in the reference's prototype), and
+## the dock's button did only the first, so a roll left "Not stale" standing over a seed no world had been made
+## from. Comparing before and after keeps a locked seed (no change) from raising a stale badge for nothing.
+func _roll_seed_marking_stale() -> void:
+	if app == null:
+		return
+	var before := -1
+	if app.new_world_dialog != null:
+		before = int(app.new_world_dialog.request().get("seed", -1))
+	app._new_seed()
+	var after := before
+	if app.new_world_dialog != null:
+		after = int(app.new_world_dialog.request().get("seed", -1))
+	if after != before:
+		_mark_stale_from(0)
+	refresh_phone_seed_readout()
 
 ## v3 GENERATE's `› Bake & finalize` group, plus the LOD row beside it. The
 ## finalize foot is unchanged (WW-01); what v3 adds here is the disclosure that
@@ -2917,6 +2955,7 @@ func _build_sculpt(parent: Control) -> void:
 	if bridge.sculpt_get_feature() == "freehand":
 		_build_freehand_modes(parent)
 	_build_brush_globals(parent)
+	_build_phone_brush_extras(parent, "sculpt")
 	_build_sculpt_unbuilt_note(parent)
 	_build_sculpt_draft(parent)
 
@@ -3374,6 +3413,42 @@ func _build_sculpt_unbuilt_note(parent: Control) -> void:
 		"its 13 Stroke & grid chips just toasts \"edits the stamp control points, not the " +
 		"heightfield (mock)\") -- new, unscoped design work, not a port gap.")
 
+## **Phone only, Ruling EH item 1.** The brush dynamics and symmetry controls, and Paint's Original slider,
+## were reachable by thumb only in the retired GENERATE column (`_pg_brush_block`, `_pg_paint`): on a phone the
+## tool-options row that carries them (`DccToolBar.build_brush_controls()`, `PaintOriginal.decorate()`) is
+## the MAP tab's, and the MAP tab selects CARTOGRAPHY, whose row is not the armed WORLD tool's. So the WORLD
+## sheet (the dock) draws them itself, from the SAME builders and writers: nothing is copied, every control
+## reads and writes the same seams the bar does (`options()`, `brush_surfaces_changed()`, `set_percent()`).
+## `tool` is `"paint"` or `"sculpt"`. A no-op off the phone, so the desktop and tablet docks are unchanged
+## (they have the bar). Must never run a stroke, a commit or a discard.
+func _build_phone_brush_extras(parent: Control, tool: String) -> void:
+	if not DccTheme.is_phone():
+		return
+	var sec := DccWidgets.section(parent, "Brush dynamics · symmetry")
+	var flow := HFlowContainer.new()
+	flow.name = "PhoneBrushDynamics"
+	sec.add_child(flow)
+	DccToolBar.build_brush_controls(flow, app, tool)
+	if tool != "paint":
+		return
+	var po = app.paint_original
+	if po == null:
+		return
+	var why: String = po.unavailable_reason(_paint_layer)
+	if why != "":
+		DccWidgets.note(sec, "Original · no original -- %s" % why)
+		return
+	## Live only while Paint is armed (`paint_original.gd::sync`); dimmed and inert otherwise, with the reason,
+	## as the column drew it. `_on_tool_armed` rebuilds this body on a phone so the state follows the arm edge.
+	var armed: bool = app.armed_tool == "paint"
+	var parts := DccWidgets.slider(sec, "Original", 0.0, po.PCT_MAX, po.PCT_STEP, po.opacity * 100.0, "%",
+		func(v: float): po.set_percent(v),
+		"Shows the generator's own layer under your paint, to compare. A viewing aid -- it never changes the world.")
+	(parts["slider"] as HSlider).editable = armed
+	if not armed:
+		(parts["row"] as Control).modulate.a = 0.5
+		DccWidgets.note(sec, "Paint is not armed -- arm it from the map's tool chip to use Original.")
+
 ## The draft/stamp-stack summary and Commit/Discard -- §5.2 places these at
 ## the foot of the left dock (`#sculptCommitBtn`/`#sculptDiscardBtn`); the
 ## full stamp-by-stamp list with its own Undo/Redo lives in the right dock
@@ -3725,20 +3800,10 @@ func _on_tool_armed(id: String) -> void:
 	## `_build()`. `_follow_tool_to_its_block()` at the foot of this function is
 	## what makes arming still land the user on the controls: it switches the
 	## mode and opens the category, rather than revealing a body in place.
-	## Phone GENERATE sheet: land it on the armed tool's own column. Set BEFORE
-	## `_follow_tool_to_its_block()` below, which switches the domain and so
-	## refills the sheet -- the refill must already know which column to draw.
-	## Only these two edges move `_pg_mode`: arming anything else leaves the
-	## user's PIPELINE / SCULPT / PAINT choice exactly as they made it.
-	var was_all := _pg_mode == "all"
-	if id == "paint":
-		_pg_mode = "paint"
-	elif id == "sculpt" and _pg_mode == "paint":
-		_pg_mode = "sculpt"
-	## MS-3: arming Paint while the dock is showing (ALL) returns the sheet to the Paint column.
-	if was_all and _pg_mode != "all" and app != null and app.has_method("_refresh_phone_gen_panel"):
-		app.call("_refresh_phone_gen_panel")
-		app.call("_refresh_phone_sheet_header")
+	## (The retired phone GENERATE column picked its own Sculpt / Paint column here. Since Ruling EH item 1
+	## the phone sheet IS the dock, so `_follow_tool_to_its_block()` below, which switches the dock's mode
+	## and opens Terrain or Biomes, is the one place arming lands the user on the controls, on every form
+	## factor.)
 	if id != "sculpt":
 		_sculpt_abandon_stroke()
 	if id != "sculpt" and id != "paint":
@@ -3753,12 +3818,11 @@ func _on_tool_armed(id: String) -> void:
 	if id == "paint" and app.right_dock_ctrl.has_method("show_paint"):
 		app.right_dock_ctrl.show_paint(_paint_layer, _on_paint_value_picked_from_dock)
 	_follow_tool_to_its_block(id)
-	## The phone Paint column's Original slider is live only while Paint is armed,
-	## so ANY arm edge (measure, sculpt, inspect from the tool bar or a hotkey)
-	## must repaint it. No-op unless that column is on screen. Skipped while a run
-	## is in flight: the rebuild reads `world_gen`, which the worker owns.
-	if not bridge.generating:
-		_pg_refresh_paint_column()
+	## Phone: Paint's Original slider is live only while Paint is armed, so any arm edge repaints the Biomes
+	## body that carries it (`_build_phone_brush_extras`). Skipped while a run is in flight (the rebuild reads the
+	## engine, which the worker owns; `_flush_generating_deferred` replays it).
+	if DccTheme.is_phone() and is_instance_valid(_paint_body):
+		_build_paint(_paint_body)
 
 ## **`armTool`'s navigation half** (`04-left-dock.md` §2.4, and §4c of
 ## `02-rail-and-domains.md` which lists it among the writers of `domain`/`mode`):
@@ -4283,6 +4347,8 @@ func _build_paint(parent: Control) -> void:
 	DccWidgets.toggle(sec, "Land only", bool(_paint_brush["land_only"]), _on_paint_land_only_changed,
 		"Gates the dab against this world's water-body classification -- a toggle here, unlike the reference's hard-always gate.")
 
+	_build_phone_brush_extras(sec, "paint")
+
 	var counts: Dictionary = bridge.paint_painted_counts()
 	var total := int(counts.get("total", 0))
 	var legend := DccWidgets.group(sec, "Legend · painted counts")
@@ -4489,6 +4555,8 @@ func _build_rock_paint(sec: Control, st: Dictionary) -> void:
 	erase.tooltip_text = RockPaintUI.ERASE_DISABLED
 	DccWidgets.toggle(sec, "Land only", bool(_paint_brush["land_only"]), _on_paint_land_only_changed,
 		"Gates the dab against this world's water-body classification. Off, rock can be painted under the sea too.")
+
+	_build_phone_brush_extras(sec, "paint")
 
 	var counts: Dictionary = bridge.paint_painted_counts()
 	var total := int(counts.get("total", 0))
@@ -4707,18 +4775,15 @@ func last_begin_options(tool: String) -> Dictionary:
 			return _last_sculpt_begin.duplicate()
 	return {}
 
-## Re-draws the surfaces over the brush state after a DISCRETE control changed it: the
-## desktop/tablet bar and the phone's Paint / Sculpt column. A no-op while a generation
-## runs -- both surfaces read the engine, which the worker owns then, and the bar
-## re-reads everything when `generation_finished` fires. Never runs a stroke, a commit or
-## a discard, and never rebuilds a column under a finger (only discrete controls call it).
+## Re-draws the surfaces over the brush state after a DISCRETE control changed it: the tool bar (every form
+## factor; on the phone it is the sheet's option row, and the strip's chips read the same state). A no-op
+## while a generation runs -- the bar reads the engine, which the worker owns then, and it re-reads
+## everything when `generation_finished` fires. Never runs a stroke, a commit or a discard. (Until Ruling EH
+## item 1 it also rebuilt the phone's Paint / Sculpt column.)
 func brush_surfaces_changed() -> void:
 	if bridge.generating:
 		return
 	_refresh_tool_bar()
-	if (_pg_mode == "paint" or _pg_mode == "sculpt") and _pg_host != null \
-			and is_instance_valid(_pg_host) and _pg_host.is_visible_in_tree():
-		_pg_rebuild()
 
 # -- §4.5.2 Biome paint: stroke capture (map_clicked/map_dragged/map_released) -
 #
@@ -4934,8 +4999,8 @@ func _notification(what: int) -> void:
 			_sculpt_stroke_aborted = true
 
 ## End of a paint stroke: closes the engine stroke (flushing its smoothing tail),
-## then rebuilds the body once and refreshes the tool bar, right dock and phone
-## Paint column. UI only; the draft stays uncommitted. Arguments unused.
+## then rebuilds the body once and refreshes the tool bar and the right dock.
+## UI only; the draft stays uncommitted. Arguments unused.
 func _paint_release(_gx: float, _gy: float, _valid: bool) -> void:
 	_paint_stroke_finish()
 	_paint_stroke_aborted = false
@@ -4943,10 +5008,6 @@ func _paint_release(_gx: float, _gy: float, _valid: bool) -> void:
 		_build_paint(_paint_body)
 	_refresh_tool_bar()
 	_refresh_right_dock_paint()
-	## The phone sheet's Paint column draws the same painted count and the same
-	## Commit / Discard enable state, so it is the fourth surface over this draft
-	## and a stroke has to tell it too (once per gesture, like the three above).
-	_pg_refresh_paint_column()
 
 ## The unified tool bar (`tool_bar.gd`) shows this panel's own stamp count /
 ## painted count in its options row, so a stroke that ends here has to tell
@@ -4958,1655 +5019,3 @@ func _refresh_tool_bar() -> void:
 	var bar := DccToolBar.instance()
 	if bar != null:
 		bar.refresh()
-
-
-# =============================================================================
-# The phone GENERATE sheet -- `tabIsGen`
-# =============================================================================
-#
-# `design/Cartalith-Android-2026-09-07.dc.html`, template bytes 26 332-39 559,
-# state and handlers 104 500-112 000. Every metric below is transcribed in
-# `ANDROID_UI_SPEC.md` §1, which is where the provenance lives; this file
-# carries only the reasons a value here differs from the one drawn there.
-#
-# **Why this exists at all.** Owner, 2026-09-07, using the APK on a OnePlus 6T:
-# *"I don't have sliders or fields to change parameters on how the world is
-# generated. Nothing from map, generate, plan or more really leads to a deeper
-# menu."* Confirmed at the symbol before building: `DccShell._pick_phone_tab()`
-# routes GENERATE to `_pick_bar_domain("world")` -> `_select_domain("world")`,
-# which decides what the LEFT DOCK would show; on a phone that dock is
-# `left_dock` with `visible = false`, and the only two things that open it are
-# `DccApp.toggle_region(ID_WIN_LEFT)` and `PhoneMenu._open_left_sheet()`
-# (`grep -rn "_set_sheet_open" --include=*.gd`, 2026-09-07: seven call sites,
-# none of them the bottom bar). The tab lifted the tool-options strip -- one
-# `HBoxContainer` in a scroller -- and every generation parameter stayed behind
-# a sheet the bottom bar cannot open. That is the "one line that barely scrolls
-# properly and a lot of white space".
-#
-# **One parameter source, not two.** Every row here is built from
-# `bridge.param_keys()` / `param_info()` / `param_get()` / `param_set()`,
-# grouped by the identical predicate `_build_group_section()` uses -- match
-# `info.group` against `STAGES[i]["groups"]`, then append `STAGES[i]["keys"]`.
-# No range, step, label, unit or default is copied into this block. A parameter
-# added to `crates/cartalith-godot/src/params.rs` appears here with no GDScript
-# change, which is that file's own stated contract.
-
-## Stage index -> the canvas fields that stage draws and **this engine cannot
-## back**, with the reason each one is actually missing.
-##
-## Every entry was opened at its symbol before it was written, per
-## `MISTAKES.md`'s "Dash a field with a reason" row -- a wrong reason reads as
-## freshly checked and routes the next brief at the wrong subsystem.
-##
-## `route` is `"new_world"` for the two that are not missing at all but live on
-## a different surface: those draw as a tappable row that opens File > New
-## world rather than as a dead dash.
-##
-## **Re-audited on the phone, 2026-09-07, for one specific failure: a reason
-## that is true of the DESKTOP and false of the handset it is printed on.**
-## Archetype was exactly that -- `archetype_input` was built into
-## `new_world_dialog.gd`'s `struct_sec`, which is parented to the `rest`
-## container that file hides on a phone, so this row's *"Pick it in File ▸ New
-## world"* sent a finger to a dialog that did not contain the control. Closed
-## by lifting the control onto the phone card rather than by rewording the row
-## (see that file for why that half was the right one), so the route below is
-## now true on both. Three others were checked and held -- Erosion strength's
-## *"the real dials are below"* (`STAGES[5]`'s `erosion` group is built into
-## this same sheet by `_pg_fill_group`), Ecotone sharpness (`params.rs` has no
-## `ecology` group: `grep -o 'group: "[a-z_]*"' params.rs | sort -u` gives
-## civ / climate / erosion / planet / tectonics / volcanism / weather / world /
-## world_structure and nothing else), and CANCEL below -- and **two failed for a
-## different reason than the one hunted**: Min stream order and Rivers in biome
-## view both named Cartography as their home, and Cartography does not have
-## them either, on any density. Their reasons now say where each is actually
-## missing from, which is the drawing side.
-## *Re-worded 2026-09-24:* both reasons described rivers as a flow-area tint
-## baked into the terrain raster. Since the owner's 2026-09-22 ruling rivers
-## are vector strokes only (`viewport_host.gd`'s `set_rivers(_bridge.rivers(1))`,
-## gated by CARTO > Layers' Rivers row), and the reasons now say that.
-const PHONE_GEN_ABSENT: Array = [
-	## Resolution isn't in the engine's parameter table at all (`params.rs`'s
-	## "world" group holds world, sea_level, peak_m, carve_rivers,
-	## river_density, integrate_drainage and use_gpu, no resolution key).
-	{"stage": 1, "label": "Working resolution", "route": "new_world",
-	 "why": "Resolution is chosen only when you create the world, not something you can adjust afterward. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
-	## The archetype seeds the six world_structure dials below (`apply_archetype()`);
-	## `new_world_dialog.gd`'s own NOTE_CREATION_ONLY says extent, resolution and
-	## archetype reallocate every field in the pipeline.
-	{"stage": 2, "label": "Archetype", "route": "new_world",
-	 "why": "Archetype is chosen only when you create the world, since it reallocates every field in the pipeline. Pick it in File > New world -- on this phone it is on that dialog's card, under World structure."},
-	{"stage": 5, "label": "Erosion strength", "route": "",
-	 "why": "No engine parameter means this. Stage 06 exposes 28 rows (stream.* and passes.*) and none of them is a single 0-1 strength; synthesising one over several would be a second parameter table that can drift from the desktop's. The real dials are below."},
-	## No control exposes a minimum stream order; the map always asks the
-	## engine for order 1 (`get_rivers(min_order)`, called from `viewport_host.gd`).
-	{"stage": 6, "label": "Min stream order", "route": "",
-	 "why": "Not settable anywhere yet. Since the owner's 2026-09-22 ruling a generated world's rivers are drawn as smoothed vector strokes over the full river set, and no control exposes a minimum order. Strahler order itself is real: the right dock's River context picks a river by it."},
-	{"stage": 8, "label": "Ecotone sharpness", "route": "",
-	 ## Corrected 2026-09-24 (B12): the reference's sharpBiomes is a render
-	 ## toggle, applied always-on here by `render.rs::bio_jitter`.
-	 "why": "This is a map-drawing setting, not a generation one: finer biome edges are always drawn (the reference's default), and no switch turns them off."},
-	{"stage": 8, "label": "Rivers in biome view", "route": "",
-	 "why": "Not a separate switch: it is the Rivers row under CARTO > Layers, which shows or hides the map's river strokes in every view, the biome view included. Nothing river-shaped is baked into the terrain texture any more (owner ruling 2026-09-22), so there is no second, biome-only copy to toggle."},
-]
-
-## Which stage index each group header opens at. The canvas ships `g1:true` and
-## the rest closed (byte 77 286); index 0 is that same first group.
-var _pg_open: Dictionary = {0: true}
-var _pg_host: VBoxContainer          ## The sheet column this workspace fills.
-## `pipe` | `sculpt` | `paint` | `all`. The first two are the canvas's `genMode`; `all` is MS-3's fourth
-## segment (the left dock's own accordions, mounted by `DccShell._mount_dock_in_sheet()`; the column is hidden
-## and not rebuilt while it is chosen); `paint`
-## is this port's own third segment (OUTSTANDING_WORK.md "Phone: the Paint tool
-## bar cannot be reached by thumb"), because the phone's GENERATE tab hides the
-## tool-options row that is the only other place Paint's Size / Erase / Original
-## live. Arming Paint by any route sets it (`_on_tool_armed`), so the sheet opens
-## on the controls of the tool that is armed.
-var _pg_mode := "pipe"
-## One-shot guard so the sheet's signal connections are made once (set true after the first connect, in the sheet setup).
-var _pg_connected := false
-var _pg_stage_index := -1            ## Live stage while `bridge.generating`.
-
-## The sheet's own live nodes, so a progress tick repaints instead of rebuilding
-## the whole column under the user's finger.
-var _pg_prog_title: Label
-## The sheet progress header's percent Label, created in the sheet build and set to `i / STAGES.size()` as a percent per tick; nulled on teardown.
-var _pg_prog_pct: Label
-## The progress bar's fill; its `custom_minimum_size.x` is set per tick. Nulled on teardown.
-var _pg_prog_fill: Control
-## The progress bar's track (a PanelContainer 5 px tall via `_pg_px(5)`) that holds `_pg_prog_fill`. Nulled on teardown.
-var _pg_prog_track: Control
-## The sheet's progress log Label (mono, word-wrapped); guarded with `is_instance_valid` where written. Nulled on teardown.
-var _pg_log_label: Label
-## Everything a parameter write has to repaint without rebuilding the column
-## under the user's finger: one entry per group (`{index, num, state}`), the
-## Generate button whose caption carries the stale range, and the stale note.
-var _pg_stale_marks: Array = []
-## The sheet's Generate button, whose caption carries the stale range; assigned in the sheet build and re-captioned on parameter writes.
-var _pg_gen_button: Button
-## The sheet's stale note; its text is refreshed from `_stale_note_text()` on parameter writes. Nulled on teardown.
-var _pg_stale_label: Label
-
-# -- Metrics ------------------------------------------------------------------
-#
-# `app` is a `DccApp`, which `extends DccShell`, so these three resolve
-# statically. Boxes go through `_pscale`/`_ptap` and type through `_pfont`,
-# which is `dcc_shell.gd`'s own split: a tap target is a finger measurement and
-# does not grow when the OS text size does.
-
-## Phone-generate helper: a dp value scaled by the shell's text-aware scale (`app._pscale`), or
-## unscaled when `app` is null.
-func _pg_px(px: float) -> int:
-	return app._pscale(px) if app != null else int(round(px))
-
-## Phone-generate helper: scales a touch target but never below
-## `DccTheme.PHONE_TAP_MIN`; unscaled floor when `app` is null.
-func _pg_tap(px: float) -> int:
-	return app._ptap(px) if app != null else int(round(maxf(DccTheme.PHONE_TAP_MIN, px)))
-
-## Phone-generate helper: phone font size for `px`, or `px` rounded when `app`
-## is null.
-func _pg_fs(px: float) -> int:
-	return app._pfont(px) if app != null else int(round(px))
-
-## `--chip: rgba(255,255,255,.05)`. Built off `text_bright` rather than written
-## as a white literal so `DccTheme.remap()` can trace it: on the light palette
-## `text_bright` is `#111210`, so the same expression gives a 5% BLACK wash,
-## which is what a light theme wants. A literal `Color(1,1,1,.05)` would stay
-## white and disappear.
-func _pg_chip() -> Color:
-	return Color(DccTheme.c("text_bright"), 0.05)
-
-## `--warn: #e0a840`. `DccTheme` carries that exact value as its own `warn`
-## token (dark `#e0a840`, light `#9a6a12`), so this reads it rather than
-## substituting `accent` (`#e0a34a` / `#a4650f`) as it did until 2026-09-24
-## (ALIGNMENT_AUDIT Part 2 B12). Light-palette contrast against `panel`
-## `#fbfaf7` is unchanged to two decimals: both inks have relative luminance
-## ~0.172, ~4.5:1.
-func _pg_warn() -> Color:
-	return DccTheme.c("warn")
-
-## Phone-generate helper: a rounded `StyleBoxFlat` of `bg`; a border is added
-## only when `border_px > 0`.
-func _pg_box(bg: Color, radius: int, border_col: Color = Color(0, 0, 0, 0),
-		border_px: int = 0) -> StyleBoxFlat:
-	var b := StyleBoxFlat.new()
-	b.bg_color = bg
-	b.set_corner_radius_all(radius)
-	if border_px > 0:
-		b.border_color = border_col
-		b.set_border_width_all(border_px)
-	return b
-
-## Phone-generate helper: a mono-font Label for `text` in theme `token`, at the
-## phone-scaled size.
-func _pg_mono(text: String, token: String, px: float, spacing: int = 0,
-		medium: bool = false) -> Label:
-	var l := DccTheme.mono_label(text, token, _pg_fs(px), spacing, medium)
-	return l
-
-# -- Entry points -------------------------------------------------------------
-
-## Called once by `DccShell._build_phone_gen_panel()` with the column it owns.
-## Everything after that is `refresh_phone_generate()`.
-func build_phone_generate(host: VBoxContainer) -> void:
-	_pg_host = host
-	if not _pg_connected:
-		_pg_connected = true
-		bridge.generation_started.connect(_pg_on_started)
-		bridge.generation_stage.connect(_pg_on_stage)
-		bridge.generation_finished.connect(_pg_on_finished)
-		bridge.world_loaded.connect(func(): _pg_rebuild())
-	_pg_rebuild()
-
-## The shell calls this every time the GENERATE tab is tapped. A sheet that was
-## built against a world that has since been regenerated, loaded or had its
-## seed rolled would otherwise show the values it was built with.
-func refresh_phone_generate() -> void:
-	_pg_rebuild()
-
-## Generate-started handler for the phone column: resets the stage index to 0
-## and rebuilds so the progress view shows. Passes `at_start = true`: `EngineBridge`
-## sets `generating` and emits `generation_started` SYNCHRONOUSLY, before it starts the
-## worker thread, so the engine is still free here and the Sculpt / Paint columns may
-## read it. Measured 2026-10-11 (`_etd3_probe` phone leg): skipping this rebuild too
-## removed ~tens of ms of main-thread work between `generate()` and the worker's
-## `generate_sized`, and the worker then lost a race with `viewport_host.gd`'s
-## ungated LOD calls (`generate_sized` panicked "cannot borrow mutable while shared
-## borrow exists", the world was not regenerated, the probe failed 5 of 5).
-func _pg_on_started() -> void:
-	_pg_stage_index = 0
-	_pg_rebuild(true)
-
-## Stage-progress handler: records the new `index` and repaints the progress
-## bar only (no rebuild). The name and total are unused.
-func _pg_on_stage(index: int, _name: String, _total: int) -> void:
-	_pg_stage_index = index
-	_pg_paint_progress()
-
-## Generate-finished handler: sets the stage index back to -1 (the not-running
-## sentinel) and rebuilds. Same path for success and failure (`_ok` is unused).
-func _pg_on_finished(_ok: bool) -> void:
-	_pg_stage_index = -1
-	_pg_rebuild()
-
-# -- The column ---------------------------------------------------------------
-
-## Rebuilds the phone GENERATE column. `at_start` is true ONLY from `_pg_on_started`
-## (the pre-worker window, see there); every other caller leaves it false and is
-## gated. Never pass `at_start` from anywhere that can run after the worker starts.
-func _pg_rebuild(at_start: bool = false) -> void:
-	if _pg_host == null or not is_instance_valid(_pg_host):
-		return
-	## The Sculpt and Paint columns read the engine (`sculpt_*`, `paint_*`), which the
-	## worker owns while generating; a GENERATE-tab tap or a `world_loaded` landing
-	## mid-run reaches here. The Pipeline column reads only the cached `param_get`, so
-	## it is not gated. Replayed by `_flush_generating_deferred`.
-	## MS-3: the ALL segment shows the dock, not this column; nothing to rebuild until the user leaves it.
-	if _pg_mode == "all":
-		return
-	if bridge.generating and _pg_mode != "pipe" and not at_start:
-		_pg_rebuild_deferred = true
-		return
-	_pg_rebuild_deferred = false
-	for child in _pg_host.get_children():
-		_pg_host.remove_child(child)
-		child.queue_free()
-	_pg_prog_title = null
-	_pg_prog_pct = null
-	_pg_prog_fill = null
-	_pg_prog_track = null
-	_pg_log_label = null
-	_pg_stale_marks.clear()
-	_pg_gen_button = null
-	_pg_stale_label = null
-	_pg_host.add_theme_constant_override("separation", _pg_px(12))
-
-	_pg_mode_segment(_pg_host)
-	if _pg_mode == "pipe":
-		_pg_seed_row(_pg_host)
-		if bridge.generating:
-			_pg_progress_card(_pg_host)
-		else:
-			_pg_idle_block(_pg_host)
-		for i in STAGES.size():
-			_pg_group(_pg_host, i)
-		_pg_footnote(_pg_host)
-	elif _pg_mode == "paint":
-		_pg_paint(_pg_host)
-	else:
-		_pg_sculpt(_pg_host)
-	_pg_open_gestures(_pg_host)
-
-## **Let the finger drag reach the scroller.**
-##
-## Measured on the handset (`9608b26b`, ONEPLUS_A6013) twice, because the first
-## fix was aimed at the wrong layer. A drag starting anywhere inside this column
-## moved nothing; only a drag in the ~14 dp gutter either side of it scrolled,
-## because that x misses every child and lands on the `ScrollContainer` itself.
-## The first attempt set `MOUSE_FILTER_PASS` on the buttons and **changed
-## nothing on glass** -- the buttons were never the blocker. `Control`'s default
-## is `MOUSE_FILTER_STOP` and every `PanelContainer`, `MarginContainer`,
-## `VBoxContainer` and `HBoxContainer` here inherits it, so the group boxes and
-## their padding were eating the drag before any button saw it.
-##
-## So the rule is applied to the whole subtree, by kind:
-##
-## - **`IGNORE`** for everything inert -- labels, containers, the toggle track
-##   and knob. The event passes straight through to the scroller.
-## - **`PASS`** for `BaseButton`. It still takes its own taps, and the drag
-##   continues up to the scroller so a fling that begins on a 50 dp group
-##   header works. On a list that is mostly header rows this is most of the
-##   surface.
-## - **`STOP`** for `Range` (the sliders). A slider has to own its horizontal
-##   drag or it cannot be set at all.
-##
-## That last line was the whole rule until 2026-09-07 and it is only half of
-## one: **`STOP` is right for the horizontal drag and wrong for the vertical
-## one**, and a vertical swipe beginning on a slider rewrote the parameter
-## instead of scrolling (Ocean depth `0.60` -> `0.14` in one gesture, found on
-## glass). The filter is unchanged -- the arbitration happens *inside* the
-## control now, in `DccWidgets.PgSlider`, which is what every `Range` in this
-## column
-## actually is. Read that class before changing anything here: it needs the
-## `STOP` this line sets.
-##
-## Reasserted on every rebuild rather than at each construction site: a single
-## missed `mouse_filter` at one of two dozen sites is invisible until someone
-## drags exactly there, which is how this survived the first fix.
-func _pg_open_gestures(node: Node) -> void:
-	for child in node.get_children():
-		var c := child as Control
-		if c != null:
-			if c is Range:
-				c.mouse_filter = Control.MOUSE_FILTER_STOP
-			elif c is BaseButton:
-				c.mouse_filter = Control.MOUSE_FILTER_PASS
-			else:
-				c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_pg_open_gestures(child)
-
-## `PIPELINE | SCULPT | PAINT`. `min-height:44px; border-radius:22px;
-## font:500 10px mono; letter-spacing:.16em`. The first two are the canvas's;
-## PAINT is this port's addition (see `_pg_mode`), drawn with the same cell so
-## it is no new widget and is held to the same 44 dp floor.
-##
-## Writes `select_domain_mode("world", ...)` as well as the local flag, so the
-## desktop dock and this sheet cannot disagree about which mode the WORLD
-## domain is in -- the shell's `_domain_mode` is the one store for that, and
-## `_refresh_mode_switch()` and the rail foot both read it.
-func _pg_mode_segment(parent: Control) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", _pg_px(8))
-	parent.add_child(row)
-	## MS-3: ALL is the fourth cell. It mounts the desktop dock's own nine WORLD categories (Generate, Planet,
-	## Geology, Hydrology, Climate, Ecology, World data, Terrain, Biomes) in this sheet, so none of them is
-	## reachable only through Window > Left dock. The three columns stay: they are the phone's curated views.
-	for entry in [["pipe", "PIPELINE"], ["sculpt", "SCULPT"], ["paint", "PAINT"], ["all", "ALL"]]:
-		var id := String(entry[0])
-		var on: bool = _pg_mode == id
-		var b := Button.new()
-		b.text = String(entry[1])
-		b.focus_mode = Control.FOCUS_NONE
-		## **`MOUSE_FILTER_PASS`, not the `Button` default `STOP`, and the reason is a
-		## measurement.** On the handset (`9608b26b`, ONEPLUS_A6013) a finger drag
-		## starting anywhere on this column's controls moved nothing: the child
-		## swallowed the drag and the `ScrollContainer` never saw an
-		## `InputEventScreenDrag`, so a list that is mostly 50 dp header rows could
-		## only be scrolled from the ~14 dp gutter at either edge. `PASS` delivers the
-		## event to the control AND to its ancestors, so the button still takes taps
-		## and the scroller still takes flings. Invisible to `_genphone_probe.gd`,
-		## which reaches a group with `ensure_control_visible()` -- a programmatic
-		## scroll that never exercises the gesture.
-		b.mouse_filter = Control.MOUSE_FILTER_PASS
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size.y = _pg_tap(44)
-		b.add_theme_font_override("font", DccTheme.mono(2, true))
-		b.add_theme_font_size_override("font_size", _pg_fs(10))
-		b.add_theme_color_override("font_color",
-			DccTheme.c("accent") if on else DccTheme.c("text_secondary"))
-		b.add_theme_color_override("font_hover_color",
-			DccTheme.c("accent") if on else DccTheme.c("text_secondary"))
-		b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
-		var box := _pg_box(DccTheme.c("accent_wash") if on else Color(0, 0, 0, 0),
-			_pg_px(22), DccTheme.c("accent") if on else DccTheme.c("line"), 1)
-		for state in ["normal", "hover", "pressed", "focus"]:
-			b.add_theme_stylebox_override(state, box)
-		b.pressed.connect(_pg_set_mode.bind(id))
-		row.add_child(b)
-
-## Switch the sheet's column. PAINT also ARMS the paint tool: the column's
-## Original control only draws while Paint is armed (`paint_original.gd::sync`),
-## and a thumb that chose PAINT wants to paint -- one tap, not two. SCULPT does
-## not arm (the canvas's own behaviour); this is the one asymmetry and it is
-## deliberate. Must never run a stroke, a commit or a discard.
-func _pg_set_mode(id: String) -> void:
-	if _pg_mode == id:
-		return
-	_pg_mode = id
-	if id == "all":
-		## MS-3: the dock takes the sheet; the column is neither rebuilt nor shown (the shell hides it).
-		## The mode stays `a`, the node whose `shows` lists the seven stage categories, and the dock's own
-		## mode switch picks Sculpt (`b`) from inside the sheet.
-		if app != null and app.has_method("_refresh_phone_gen_panel"):
-			app.call("_refresh_phone_gen_panel")
-			app.call("_refresh_phone_sheet_header")
-		return
-	if app != null and app.has_method("select_domain_mode"):
-		## `RAIL_NODES`' own mode ids for WORLD are `a` and `b`, not the words --
-		## `railFoot`'s binding is `wm==='b' ? 'SCULPT' : ...`. Paint's own
-		## category (`Biomes`) sits in the same mode `b` as Sculpt's (`Terrain`),
-		## per `mode_for_category()`, so PAINT is `b` as well.
-		app.select_domain_mode("world", "b" if id != "pipe" else "a")
-	if id == "paint" and app != null:
-		app.arm_tool("paint")
-	_pg_rebuild()
-
-## The sheet's current column, for `DccShell._refresh_phone_sheet_header()`,
-## which has to tell Sculpt's subtitle from Paint's although both live in the
-## WORLD domain's mode `b` and `active_mode("world")` cannot.
-func phone_sheet_mode() -> String:
-	return _pg_mode
-
-## Repaint the Paint column after something outside it changed the draft (a map
-## stroke, `_paint_release`). A no-op unless that column is the one on screen,
-## so a desktop session -- where `_pg_host` is never built -- pays nothing.
-func _pg_refresh_paint_column() -> void:
-	if _pg_mode == "paint" and _pg_host != null and is_instance_valid(_pg_host) and _pg_host.is_visible_in_tree():
-		_pg_rebuild()
-
-## `SEED   483102   [dice]`. `padding:10px 12px; border-radius:16px;
-## background:var(--chip); gap:10px`.
-##
-## The seed is `new_world_dialog.request()["seed"]` -- the same value the
-## desktop's Generate sends -- and the roll is `app._new_seed()`, which is
-## `randomise_seed()` on that dialog. Nothing is stored here.
-##
-## The canvas draws the roll button `42 x 40` and its glyph as `U+2684` (die
-## face five). Both are changed, and both for measured reasons. `42 x 40` is
-## under the 44 dp floor on both axes, so it goes through `_ptap()`. `U+2684`
-## is **absent from the shipped `IBMPlexMono-Regular.ttf`** -- checked against
-## that file's own cmap on 2026-09-07, along with `U+2304` (present in the
-## fallback chain, which is why `DccIcons.SYMBOLS["chevron"]` may use it) and
-## `U+FF0B` (absent, which is why the stepper below draws `+` and not the
-## canvas's fullwidth form). `U+21BB`, an open clockwise arrow, IS in the font
-## and means re-roll, so that is what the cell carries.
-func _pg_seed_row(parent: Control) -> void:
-	var pc := PanelContainer.new()
-	pc.add_theme_stylebox_override("panel", _pg_box(_pg_chip(), _pg_px(16)))
-	parent.add_child(pc)
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", _pg_px(12))
-	pad.add_theme_constant_override("margin_right", _pg_px(12))
-	pad.add_theme_constant_override("margin_top", _pg_px(10))
-	pad.add_theme_constant_override("margin_bottom", _pg_px(10))
-	pc.add_child(pad)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", _pg_px(10))
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	pad.add_child(row)
-	row.add_child(_pg_mono("SEED", "text_dim", 9.5, 2))
-	var seed_text := "--"
-	if app != null and app.new_world_dialog != null:
-		seed_text = str(int(app.new_world_dialog.request().get("seed", 0)))
-	var value := _pg_mono(seed_text, "text_bright", 13, 0, true)
-	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(value)
-	var dice := Button.new()
-	dice.text = "↻"
-	dice.tooltip_text = "Roll a new seed. Stage 01 onward goes stale until you regenerate."
-	dice.focus_mode = Control.FOCUS_NONE
-	dice.mouse_filter = Control.MOUSE_FILTER_PASS
-	dice.custom_minimum_size = Vector2(_pg_tap(42), _pg_tap(40))
-	dice.add_theme_font_override("font", DccTheme.mono())
-	dice.add_theme_font_size_override("font_size", _pg_fs(14))
-	dice.add_theme_color_override("font_color", DccTheme.c("accent"))
-	dice.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
-	dice.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
-	for state in ["normal", "hover", "pressed", "focus"]:
-		dice.add_theme_stylebox_override(state,
-			_pg_box(DccTheme.c("accent_wash"), _pg_px(14)))
-	dice.pressed.connect(_pg_roll_seed)
-	row.add_child(dice)
-
-## `hDice` sets a seed **and** calls `_markStale(1)`. Both halves, in that order
-## -- `MISTAKES.md`'s "Emit a change signal" row: the stale mark is written
-## after the value it describes, not before it.
-func _pg_roll_seed() -> void:
-	if app == null:
-		return
-	app._new_seed()
-	_mark_stale_from(0)
-	_pg_rebuild()
-
-## The running card: `border:1px solid var(--acc); border-radius:18px;
-## padding:13px 14px; gap:9px`, a 5 px bar, the last three log lines, CANCEL.
-func _pg_progress_card(parent: Control) -> void:
-	var pc := PanelContainer.new()
-	pc.add_theme_stylebox_override("panel",
-		_pg_box(Color(0, 0, 0, 0), _pg_px(18), DccTheme.c("accent"), 1))
-	parent.add_child(pc)
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", _pg_px(14))
-	pad.add_theme_constant_override("margin_right", _pg_px(14))
-	pad.add_theme_constant_override("margin_top", _pg_px(13))
-	pad.add_theme_constant_override("margin_bottom", _pg_px(13))
-	pc.add_child(pad)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", _pg_px(9))
-	pad.add_child(col)
-
-	var head := HBoxContainer.new()
-	col.add_child(head)
-	_pg_prog_title = _pg_mono("", "accent", 10.5, 2, true)
-	_pg_prog_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(_pg_prog_title)
-	_pg_prog_pct = _pg_mono("", "text_dim", 10)
-	head.add_child(_pg_prog_pct)
-
-	_pg_prog_track = PanelContainer.new()
-	(_pg_prog_track as PanelContainer).add_theme_stylebox_override("panel",
-		_pg_box(_pg_chip(), _pg_px(3)))
-	_pg_prog_track.custom_minimum_size.y = _pg_px(5)
-	col.add_child(_pg_prog_track)
-	_pg_prog_fill = PanelContainer.new()
-	(_pg_prog_fill as PanelContainer).add_theme_stylebox_override("panel",
-		_pg_box(DccTheme.c("accent"), _pg_px(3)))
-	(_pg_prog_track as PanelContainer).add_child(_pg_prog_fill)
-
-	_pg_log_label = _pg_mono("", "text_dim", 9.5)
-	_pg_log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(_pg_log_label)
-
-	## CANCEL is drawn by the canvas and **cannot be backed**. `EngineBridge`
-	## has `generate()` and no cancellation entry point at all -- grep for
-	## `cancel` in `engine_bridge.gd` returns `sculpt_cancel_stroke` and
-	## `label_cancel_edit` and nothing that stops a run (2026-09-07). The
-	## prototype's own CANCEL is `clearInterval` over a simulated timer, which
-	## is not a claim about this engine. Drawn dashed with that reason rather
-	## than as a button that would do nothing.
-	## Names the missing capability precisely: the engine's `generate()` call
-	## and the `cartalith-godot` binding expose no cancel entry point.
-	_pg_dash_row(col, "CANCEL",
-		"Generation can't be interrupted once started -- a run holds until all ten stages finish.")
-	_pg_paint_progress()
-
-## Repaint only -- called on every `generation_stage` tick, so it must not
-## rebuild anything the user could be touching.
-func _pg_paint_progress() -> void:
-	if _pg_prog_title == null or not is_instance_valid(_pg_prog_title):
-		return
-	var i: int = clampi(_pg_stage_index, 0, STAGES.size() - 1)
-	_pg_prog_title.text = "%02d · %s" % [i + 1, String(STAGES[i]["name"])]
-	## The canvas's own arithmetic is `round((i*100 + min(pct,100)) / 10)`,
-	## where `pct` is a simulated within-stage percentage. This engine reports
-	## stage boundaries and nothing finer (`GenerationProgress` carries a stage
-	## index and a count, not a fraction), so the readout is whole stages: the
-	## same formula with `pct = 0`. Stated rather than interpolated -- a smooth
-	## bar over a value the engine does not produce is a fake measurement.
-	_pg_prog_pct.text = "%d%%" % int(round(i * 100.0 / float(STAGES.size())))
-	if is_instance_valid(_pg_prog_track):
-		var w: float = _pg_prog_track.size.x * (float(i) / float(STAGES.size()))
-		_pg_prog_fill.custom_minimum_size.x = maxf(0.0, w)
-		_pg_prog_fill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	if is_instance_valid(_pg_log_label):
-		## The desktop's own rolling log (`_stage_log`, maintained by
-		## `_log_stage()`), tailed to the canvas's three lines. Not a second
-		## store: the same array both surfaces read.
-		var tail: Array = _stage_log.slice(maxi(0, _stage_log.size() - 3))
-		_pg_log_label.text = "\n".join(tail)
-
-## Idle: the stale note, the big button, and the two-ended footer.
-func _pg_idle_block(parent: Control) -> void:
-	if _stale_from_stage >= 0:
-		var pc := PanelContainer.new()
-		pc.add_theme_stylebox_override("panel",
-			_pg_box(Color(0, 0, 0, 0), _pg_px(14), Color(_pg_warn(), 0.4), 1))
-		parent.add_child(pc)
-		var pad := MarginContainer.new()
-		pad.add_theme_constant_override("margin_left", _pg_px(14))
-		pad.add_theme_constant_override("margin_right", _pg_px(14))
-		pad.add_theme_constant_override("margin_top", _pg_px(11))
-		pad.add_theme_constant_override("margin_bottom", _pg_px(11))
-		pc.add_child(pad)
-		## `_stale_note_text()` is the desktop's own sentence for this state.
-		var note := _pg_mono(_stale_note_text(), "text", 10)
-		note.add_theme_color_override("font_color", _pg_warn())
-		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		pad.add_child(note)
-		_pg_stale_label = note
-
-	var gen := Button.new()
-	## `genBtnLabel`: `REGENERATE NN -> 10` only when something is stale AND a
-	## run has already happened. `bridge.has_world` is this shell's form of the
-	## canvas's `lastRun !== '-'`.
-	gen.text = ("REGENERATE %02d → 10" % (_stale_from_stage + 1)) \
-		if (_stale_from_stage >= 0 and bridge.has_world) else "GENERATE WORLD"
-	gen.focus_mode = Control.FOCUS_NONE
-	gen.mouse_filter = Control.MOUSE_FILTER_PASS
-	gen.custom_minimum_size.y = _pg_tap(52)
-	gen.add_theme_font_override("font", DccTheme.mono(2, true))
-	gen.add_theme_font_size_override("font_size", _pg_fs(11))
-	for key in ["font_color", "font_hover_color", "font_pressed_color"]:
-		gen.add_theme_color_override(key, DccTheme.c("accent_ink"))
-	for state in ["normal", "hover", "pressed", "focus"]:
-		gen.add_theme_stylebox_override(state,
-			_pg_box(DccTheme.c("accent"), _pg_px(26)))
-	## `_regenerate_live()`, not `bridge.generate()`: it is the guarded path
-	## that prompts before discarding hand-authored sculpt stamps, icons and
-	## painted cells. The tool-options bar's own Generate skips that guard and
-	## this one must not copy it.
-	gen.pressed.connect(_regenerate_live)
-	parent.add_child(gen)
-	_pg_gen_button = gen
-
-	var foot := HBoxContainer.new()
-	parent.add_child(foot)
-	## `last run` has no engine reading. Nothing in `EngineBridge` records a
-	## wall-clock time for the last generate, so this is the one field the
-	## canvas draws whose VALUE would have to be invented -- and an em dash is
-	## what the canvas itself puts there before a run
-	## (`gen.lastRun` starts `'-'`). Drawn as the total elapsed of the last run
-	## instead, which IS measured: `_stage_elapsed_ms` is summed by the same
-	## timing the ten desktop rows print.
-	var elapsed := 0
-	for ms in _stage_elapsed_ms:
-		if int(ms) > 0:
-			elapsed += int(ms)
-	var left := _pg_mono(
-		("last run · %.1f s" % (elapsed / 1000.0)) if elapsed > 0 else "last run · —",
-		"text_faint", 9.5)
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	foot.add_child(left)
-	foot.add_child(_pg_mono("%d stages · dependency order" % STAGES.size(),
-		"text_faint", 9.5))
-
-## `Editing a stage marks everything downstream stale...` -- the canvas's
-## closing line, rewritten where it is false here.
-##
-## The canvas says *"Volcanism (05) and Resources (10) run with defaults"*.
-## That is true of the prototype and **false of this engine**: `params.rs`
-## files nine live parameters under `group: "volcanism"`, all of which this
-## sheet draws under `05`. Resources (10) genuinely has none. The GPU/LOD half
-## of the sentence is true and kept.
-func _pg_footnote(parent: Control) -> void:
-	var text := ("Editing a stage marks everything downstream stale. This engine "
-		+ "resolves all %d stages on every Generate, so "
-		+ "the stale badge names where the edit landed, not where the run starts. "
-		+ "Ecology (09) and Resources (10) carry no dials. GPU, LOD and render "
-		+ "quality live under MORE ▸ Preferences.") % STAGES.size()
-	var l := _pg_mono(text, "text_faint", 9.5)
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	parent.add_child(l)
-
-## **What a parameter write owes the rest of the sheet.**
-##
-## `hGenStep`/`hGenRange`/`hGenTog` all funnel through the prototype's
-## `_setGenParam(key, val, stage)`, whose second act is `_markStale(stage)` --
-## so an edit does not only write a value, it repaints the group numbers, the
-## per-group `stale` captions, the note, and the Generate button's own range.
-##
-## Caught by `_genphone_probe.gd`, not by reading this back: tapping `+` on
-## Plates moved `tect.plates` 14 -> 15 and left `_stale_from_stage` at **-1**,
-## because the stepper closure had the key and not the stage. That is
-## `MISTAKES.md`'s "covering some inputs of a thing, not all of them" -- the
-## slider's release handler had it and the stepper's did not.
-##
-## Repaint rather than rebuild: a rebuild inside a press frees the button that
-## is still delivering the press and loses the scroll position. The one case
-## that genuinely needs new nodes -- the stale note appearing for the first
-## time -- is deferred so it lands after the input frame.
-func _pg_after_param_write(stage_index: int) -> void:
-	var was_stale: bool = _stale_from_stage >= 0
-	_mark_stale_from(stage_index)
-	for m in _pg_stale_marks:
-		var e: Dictionary = m
-		var stale: bool = _stale_from_stage >= 0 and int(e["index"]) >= _stale_from_stage
-		var num: Label = e["num"]
-		var state: Label = e["state"]
-		if is_instance_valid(num):
-			num.add_theme_color_override("font_color",
-				_pg_warn() if stale else DccTheme.c("text_faint"))
-		if is_instance_valid(state):
-			state.text = ("stale" if stale else "resolved") if bridge.has_world else "no world"
-	if is_instance_valid(_pg_gen_button):
-		_pg_gen_button.text = ("REGENERATE %02d → 10" % (_stale_from_stage + 1)) 			if (_stale_from_stage >= 0 and bridge.has_world) else "GENERATE WORLD"
-	if is_instance_valid(_pg_stale_label):
-		_pg_stale_label.text = _stale_note_text()
-	elif not was_stale and _stale_from_stage >= 0:
-		_pg_rebuild.call_deferred()
-
-# -- One collapsible group ----------------------------------------------------
-
-## `genGroups`: `border:1px solid var(--hair2); border-radius:18px`, a 50 dp
-## header of `[num][name][state][chev]`, and a body separated by a `--hair2`
-## rule at `padding:6px 14px 12px`.
-func _pg_group(parent: Control, index: int) -> void:
-	var st: Dictionary = STAGES[index]
-	var stale: bool = _stale_from_stage >= 0 and index >= _stale_from_stage
-	var open: bool = bool(_pg_open.get(index, false))
-
-	var pc := PanelContainer.new()
-	pc.add_theme_stylebox_override("panel",
-		_pg_box(Color(0, 0, 0, 0), _pg_px(18), DccTheme.c("line_soft"), 1))
-	parent.add_child(pc)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 0)
-	pc.add_child(col)
-
-	var head := Button.new()
-	head.focus_mode = Control.FOCUS_NONE
-	head.mouse_filter = Control.MOUSE_FILTER_PASS
-	head.custom_minimum_size.y = _pg_tap(50)
-	head.tooltip_text = String(st.get("produces", ""))
-	for state in ["normal", "hover", "pressed", "focus"]:
-		head.add_theme_stylebox_override(state, DccTheme.empty())
-	head.pressed.connect(_pg_toggle_group.bind(index))
-	col.add_child(head)
-
-	## The four header elements ride inside the button rather than beside it:
-	## a `Button` with four differently-coloured pieces of text cannot be one
-	## string, and a row of Labels over the button would eat the press unless
-	## every one of them is `MOUSE_FILTER_IGNORE`.
-	var hrow := HBoxContainer.new()
-	hrow.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hrow.add_theme_constant_override("separation", _pg_px(10))
-	hrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hrow.offset_left = _pg_px(14)
-	hrow.offset_right = -_pg_px(14)
-	head.add_child(hrow)
-	var num := _pg_mono("%02d" % (index + 1), "text_faint", 9.5)
-	if stale:
-		num.add_theme_color_override("font_color", _pg_warn())
-	num.custom_minimum_size.x = _pg_px(22)
-	num.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hrow.add_child(num)
-	var name_label := DccTheme.label(String(st["name"]), "text_bright", _pg_fs(12.5))
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hrow.add_child(name_label)
-	## Three states, not the canvas's two. `resolved` and `stale` both assert
-	## that a world exists to be one or the other; before the first generate
-	## neither is true, and printing `resolved` there would be exactly the
-	## "encode no value as a plausible value" defect this project keeps
-	## finding. `no world` is the third.
-	var state_text := "stale" if stale else "resolved"
-	if not bridge.has_world:
-		state_text = "no world"
-	var state_label := _pg_mono(state_text, "text_faint", 9)
-	state_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hrow.add_child(state_label)
-	_pg_stale_marks.append({"index": index, "num": num, "state": state_label})
-	var chev := _pg_mono(DccIcons.SYMBOLS["chevron"] if open else DccIcons.SYMBOLS["expand"],
-		"text_faint", 11)
-	chev.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hrow.add_child(chev)
-
-	if not open:
-		return
-	col.add_child(DccTheme.rule())
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", _pg_px(14))
-	pad.add_theme_constant_override("margin_right", _pg_px(14))
-	pad.add_theme_constant_override("margin_top", _pg_px(6))
-	pad.add_theme_constant_override("margin_bottom", _pg_px(12))
-	col.add_child(pad)
-	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", _pg_px(2))
-	pad.add_child(body)
-	_pg_fill_group(body, index)
-
-## Toggles the open state of pipeline stage group `index` in the phone column
-## (default closed) and rebuilds.
-func _pg_toggle_group(index: int) -> void:
-	_pg_open[index] = not bool(_pg_open.get(index, false))
-	_pg_rebuild()
-
-## Exactly `_build_group_section()`'s predicate: every `params.rs` row whose
-## `group` matches one of this stage's, then this stage's loose `keys`. Ordinary
-## rows first and `ADVANCED_KEYS` after, which is the desktop's order -- the
-## difference is that the phone draws them inline instead of behind a
-## disclosure, because the canvas has no disclosure form and dropping them
-## would lose nine live controls.
-func _pg_fill_group(body: VBoxContainer, index: int) -> void:
-	var st: Dictionary = STAGES[index]
-	var groups: Array = st.get("groups", [])
-	var plain: Array = []
-	var advanced: Array = []
-	for key in bridge.param_keys():
-		var info := bridge.param_info(key)
-		if not groups.has(String(info.get("group", ""))):
-			continue
-		if ADVANCED_KEYS.has(key):
-			advanced.append(key)
-		else:
-			plain.append(key)
-	for key in (st.get("keys", []) as Array):
-		plain.append(String(key))
-
-	for key in plain:
-		_pg_param(body, String(key), index)
-	for entry in PHONE_GEN_ABSENT:
-		if int(entry["stage"]) == index:
-			if String(entry.get("route", "")) == "new_world":
-				_pg_route_row(body, String(entry["label"]), String(entry["why"]))
-			else:
-				_pg_dash_row(body, String(entry["label"]), String(entry["why"]))
-	if not advanced.is_empty():
-		body.add_child(_pg_mono("ADVANCED", "text_dim", 9.5, 2))
-		for key in advanced:
-			_pg_param(body, String(key), index)
-	if plain.is_empty() and advanced.is_empty():
-		var gap := String(st.get("gap", ""))
-		var l := _pg_mono(gap if not gap.is_empty()
-			else "No parameters in cartalith-engine for this stage.", "text_faint", 9.5)
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		body.add_child(l)
-
-# -- One field ----------------------------------------------------------------
-
-## Dispatch on `param_info(key).type`, which is the same three-way `Kind` the
-## engine's own table carries: `bool` -> the canvas's `f.isTog`, everything else
-## -> `f.isRange`. There is no `f.isSeg` case, because no engine parameter is an
-## enumeration -- the two the canvas draws as segments are creation-time and are
-## handled by `PHONE_GEN_ABSENT` above.
-func _pg_param(parent: Control, key: String, stage_index: int) -> void:
-	var info := bridge.param_info(key)
-	if info.is_empty():
-		return
-	if String(info.get("type", "float")) == "bool":
-		_pg_toggle_field(parent, key, info, stage_index)
-	else:
-		_pg_range_field(parent, key, info, stage_index)
-
-## `f.isTog`: a 40 x 22 track with an 18 x 18 knob inset 2 px, `min-height:44px`.
-func _pg_toggle_field(parent: Control, key: String, info: Dictionary,
-		stage_index: int) -> void:
-	var on := bool(bridge.param_get(key))
-	var btn := Button.new()
-	btn.toggle_mode = true
-	btn.button_pressed = on
-	btn.focus_mode = Control.FOCUS_NONE
-	btn.mouse_filter = Control.MOUSE_FILTER_PASS
-	btn.custom_minimum_size.y = _pg_tap(44)
-	btn.tooltip_text = String(info.get("label", key))
-	for state in ["normal", "hover", "pressed", "focus"]:
-		btn.add_theme_stylebox_override(state, DccTheme.empty())
-	parent.add_child(btn)
-	var row := HBoxContainer.new()
-	row.set_anchors_preset(Control.PRESET_FULL_RECT)
-	row.add_theme_constant_override("separation", _pg_px(12))
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	btn.add_child(row)
-	var l := _pg_mono(String(info.get("label", key)), "text_secondary", 10)
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(l)
-	var track := PanelContainer.new()
-	track.custom_minimum_size = Vector2(_pg_px(40), _pg_px(22))
-	track.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	track.add_theme_stylebox_override("panel",
-		_pg_box(DccTheme.c("accent") if on else _pg_chip(), _pg_px(11)))
-	row.add_child(track)
-	var knob := Control.new()
-	knob.custom_minimum_size = Vector2(_pg_px(18), _pg_px(18))
-	knob.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	knob.size_flags_horizontal = Control.SIZE_SHRINK_END if on else Control.SIZE_SHRINK_BEGIN
-	var dot := PanelContainer.new()
-	dot.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dot.add_theme_stylebox_override("panel",
-		_pg_box(DccTheme.c("accent_ink") if on else DccTheme.c("text_secondary"), _pg_px(9)))
-	knob.add_child(dot)
-	var knob_pad := MarginContainer.new()
-	knob_pad.add_theme_constant_override("margin_left", _pg_px(2))
-	knob_pad.add_theme_constant_override("margin_right", _pg_px(2))
-	knob_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	knob_pad.add_child(knob)
-	track.add_child(knob_pad)
-	btn.toggled.connect(func(v: bool):
-		bridge.param_set(key, v)
-		_pg_after_param_write(stage_index)
-		## A toggle changes the knob's side and both its colours, which is new
-		## geometry rather than new text -- so this one does rebuild, deferred
-		## so the press finishes first.
-		_pg_rebuild.call_deferred())
-
-## **`PgSlider` moved to `dcc_widgets.gd` on 2026-09-07 and is now
-## `DccWidgets.PgSlider`.**
-##
-## It was written here, for the two `_pg_*` sliders below, and that was the
-## whole of its reach. A live census of the phone tree at 1080x2340
-## (`_rangeswipe_probe.gd --census-only`) then counted **247 `Range` nodes, of
-## which 245 are writable and inside a live vertical scroller and exactly 3
-## arbitrated** -- these. The other **242** are 214 `DccWidgets.slider()` rows
-## in the left-dock sheet, the 12 `DccWidgets.number()` spin boxes the journey
-## planner's form adds to it, and 16 more across four phone-presented windows;
-## every one of them had the defect this class closes.
-##
-## Read `DccWidgets.PgSlider` for the mechanism, the three gates it now applies
-## (disabled slider, no vertical scroller, non-left button) and why `slop` is
-## pinned from below as well as above. `DccShell.phone_fit()` attaches it to
-## everything it walks; the two builders below still construct it directly,
-## because this sheet is not one of the surfaces `phone_fit()` reaches.
-
-## `f.isRange`: a `[label ......... value]` line, then `[-] [slider] [+]` with
-## the steppers at 38 x 38 and radius 14.
-##
-## `f.disp` is the canvas's own formatter: two decimals below a step of 1,
-## thousands-separated whole numbers at or above it, then the unit. The unit
-## comes from `param_info`, so `m`, `deg C`, `x` and the rest are the engine's
-## own strings and not a second table.
-func _pg_range_field(parent: Control, key: String, info: Dictionary,
-		stage_index: int) -> void:
-	var is_int: bool = String(info.get("type", "float")) == "int"
-	var lo := float(info.get("min", 0.0))
-	var hi := float(info.get("max", 1.0))
-	var step := float(info.get("step", 0.01))
-	var unit := String(info.get("unit", ""))
-	var value := float(bridge.param_get(key))
-
-	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", _pg_px(2))
-	parent.add_child(wrap)
-	var head := HBoxContainer.new()
-	wrap.add_child(head)
-	var l := _pg_mono(String(info.get("label", key)), "text_secondary", 10)
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	head.add_child(l)
-	var readout := _pg_mono("", "text_bright", 11)
-	head.add_child(readout)
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", _pg_px(8))
-	wrap.add_child(row)
-	## `DccWidgets.PgSlider`, not `HSlider` -- see that class for the
-	## vertical-swipe defect it exists to close. `_pg_px(8)` is Android's 8 dp
-	## touch slop in this surface's own pixels, which is `_pscale`'s job and not `_ptap`'s: it is a
-	## distance travelled, not a target to be floored at 44.
-	var slider := DccWidgets.PgSlider.new()
-	slider.slop = float(_pg_px(8))
-	slider.min_value = lo
-	slider.max_value = hi
-	slider.step = step
-	slider.value = value
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	DccWidgets.phone_slider(slider, DccTheme.phone_scale())
-	## **Floored above `phone_slider()`'s own 32 dp, and measured before it was.**
-	## `_genphone_probe.gd` walked every tappable control on this sheet at
-	## 1080x2340 and found the sliders at `650x84` -- `248.0 x 32.0 dp` -- against
-	## the 44 dp floor, because `DccTheme.PHONE_SLIDER_ROW` is 32. The canvas is
-	## smaller still (`input[type=range]{height:22px}`) and answers the finger
-	## question with the +/- pair either side, which this build already floors to
-	## 44. Both are true and neither makes a 32 dp drag target acceptable, so the
-	## row is raised here rather than exempted. `phone_slider()` itself is left
-	## alone: it is shared with every other phone surface and re-basing it is a
-	## different pass.
-	slider.custom_minimum_size.y = maxf(slider.custom_minimum_size.y,
-		float(_pg_tap(44)))
-
-	## `f.disp` verbatim: `step<1 ? toFixed(2) : toLocaleString('en-US')`. The
-	## thousands grouping is this file's own `_thousands()`, not a second
-	## formatter -- `DccUnits` has no grouping helper (checked, 2026-09-07).
-	var fmt := func(v: float) -> String:
-		return (("%.2f" % v) if step < 1.0 else _thousands(int(round(v)))) + unit
-	readout.text = fmt.call(value)
-
-	## **U+2212 MINUS SIGN, not ASCII hyphen.** The canvas draws U+2212, the
-	## shipped `IBMPlexMono-Regular.ttf` has it (cmap parsed 2026-09-07, the
-	## same pass that found U+2684 and U+FF0B absent), so there is no
-	## substitution to make here and none is recorded. This shipped as `"-"`
-	## for one revision and the deviations table said U+2212 was in use, which
-	## was the table asserting the opposite of the code; on glass the hyphen
-	## renders short and high beside a full-height `+`. The plus IS a genuine
-	## substitution -- the canvas's U+FF0B is absent from the font, so
-	## `DccIcons.SYMBOLS["add"]`'s ASCII `+` stands in, and that one is
-	## recorded.
-	row.add_child(_pg_stepper(key, slider, -1.0, "−", stage_index))
-	row.add_child(slider)
-	row.add_child(_pg_stepper(key, slider, 1.0, DccIcons.SYMBOLS["add"], stage_index))
-
-	## `input` updates the readout on every tick; `change` (here `drag_ended`,
-	## Godot's one-shot release) is what writes the engine and marks the stage
-	## stale. That is `tparam()`'s own split and `_build_param_row()`'s, so a
-	## drag costs one generate rather than one per tick.
-	slider.value_changed.connect(func(v: float):
-		readout.text = fmt.call(v))
-	slider.drag_ended.connect(func(_changed: bool):
-		bridge.param_set(key, int(round(slider.value)) if is_int else slider.value)
-		_pg_after_param_write(stage_index))
-
-## A `-` / `+` cell. `38 x 38` in the canvas, floored to the tap minimum here.
-## The canvas's glyphs are `U+2212` and `U+FF0B`; `U+2212` is in the shipped
-## Plex Mono and `U+FF0B` is not (cmap checked 2026-09-07), so the plus is
-## `DccIcons.SYMBOLS["add"]`, which is ASCII and cannot tofu.
-func _pg_stepper(key: String, slider: HSlider, dir: float, glyph: String,
-		stage_index: int) -> Button:
-	var b := Button.new()
-	b.text = glyph
-	b.focus_mode = Control.FOCUS_NONE
-	b.mouse_filter = Control.MOUSE_FILTER_PASS
-	b.custom_minimum_size = Vector2(_pg_tap(38), _pg_tap(38))
-	b.add_theme_font_override("font", DccTheme.mono())
-	b.add_theme_font_size_override("font_size", _pg_fs(14))
-	for c_key in ["font_color", "font_hover_color", "font_pressed_color"]:
-		b.add_theme_color_override(c_key, DccTheme.c("text_secondary"))
-	for state in ["normal", "hover", "pressed", "focus"]:
-		b.add_theme_stylebox_override(state, _pg_box(_pg_chip(), _pg_px(14)))
-	b.pressed.connect(func():
-		slider.value = clampf(slider.value + dir * slider.step,
-			slider.min_value, slider.max_value)
-		## `HSlider.value_changed` fires for a programmatic write and repaints
-		## the readout; `drag_ended` does NOT, so the engine write has to be
-		## made here by hand. Same asymmetry `_build_param_row()`'s right-click
-		## reset documents.
-		var info := bridge.param_info(key)
-		var is_int: bool = String(info.get("type", "float")) == "int"
-		bridge.param_set(key, int(round(slider.value)) if is_int else slider.value)
-		## The half the first cut of this function missed entirely: a stepper
-		## is `hGenStep`, and `hGenStep` marks the stage stale exactly as a
-		## drag release does.
-		_pg_after_param_write(stage_index))
-	return b
-
-# -- The two honest non-controls ----------------------------------------------
-
-## A field the canvas draws that this engine cannot back. Dashed, with the true
-## reason on the row and in the tooltip -- never a plausible value.
-func _pg_dash_row(parent: Control, label_text: String, why: String) -> void:
-	var row := VBoxContainer.new()
-	row.add_theme_constant_override("separation", 0)
-	row.tooltip_text = why
-	parent.add_child(row)
-	var head := HBoxContainer.new()
-	row.add_child(head)
-	var l := _pg_mono(label_text, "text_faint", 10)
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(l)
-	head.add_child(_pg_mono("—", "text_faint", 11))
-	var note := _pg_mono(why, "text_faint", 9)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	row.add_child(note)
-
-## A field that is not missing -- it lives on another surface. Draws as a real
-## row that opens File > New world.
-func _pg_route_row(parent: Control, label_text: String, why: String) -> void:
-	var b := Button.new()
-	b.focus_mode = Control.FOCUS_NONE
-	b.mouse_filter = Control.MOUSE_FILTER_PASS
-	b.custom_minimum_size.y = _pg_tap(44)
-	b.tooltip_text = why
-	for state in ["normal", "hover", "pressed", "focus"]:
-		b.add_theme_stylebox_override(state, DccTheme.empty())
-	parent.add_child(b)
-	var row := HBoxContainer.new()
-	row.set_anchors_preset(Control.PRESET_FULL_RECT)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override("separation", _pg_px(8))
-	b.add_child(row)
-	var l := _pg_mono(label_text, "text_secondary", 10)
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(l)
-	var go := _pg_mono("New world %s" % DccIcons.SYMBOLS["expand"], "accent", 9.5)
-	go.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(go)
-	b.pressed.connect(func():
-		if app != null:
-			app.open_new_world())
-	var note := _pg_mono(why, "text_faint", 9)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	parent.add_child(note)
-
-# -- SCULPT -------------------------------------------------------------------
-
-## `isSculpt`. The canvas's own order: feature chips, hint, presets, brush
-## globals, add-stamp, then the draft's DISCARD / COMMIT pair.
-##
-## Every list is read live off the engine -- `get_sculpt_features()`,
-## `get_sculpt_presets()`, `sculpt_get_globals()` -- which is what
-## `_build_sculpt()` already does for the desktop. Nothing is transcribed.
-##
-## The canvas's `+ ADD DRAFT STAMP (MOCK STROKE)` is the prototype standing in
-## for a map stroke it has no map to take. Here the equivalent is arming the
-## sculpt tool and getting out of the way -- the arm-then-close pattern the
-## phone's tool rows use (this comment used to name `phone_menu.gd`'s
-## `_go_civ_tool()`, which no longer exists) -- so the button arms and closes
-## the sheet rather than fabricating a stamp.
-func _pg_sculpt(parent: Control) -> void:
-	if not bridge.has_world:
-		var l := _pg_mono("Generate a world first -- the Sculpt editor is created "
-			+ "fresh per generated world.", "text_faint", 9.5)
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(l)
-		return
-	if bridge.sculpt_get_globals().is_empty():
-		var l2 := _pg_mono("No sculpt editor for this world -- a loaded save has no "
-			+ "draft session, only a freshly generated world does.", "text_faint", 9.5)
-		l2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(l2)
-		return
-
-	parent.add_child(_pg_mono("GEOLOGICAL FEATURE", "text_dim", 9.5, 2))
-	var current := bridge.sculpt_get_feature()
-	var chips := HFlowContainer.new()
-	chips.add_theme_constant_override("h_separation", _pg_px(7))
-	chips.add_theme_constant_override("v_separation", _pg_px(7))
-	parent.add_child(chips)
-	var hint := ""
-	for f in bridge.get_sculpt_features():
-		var d: Dictionary = f
-		var key := String(d.get("key", ""))
-		if key == current:
-			hint = String(d.get("hint", ""))
-		chips.add_child(_pg_chip_button(String(d.get("label", key)), key == current, 42,
-			func():
-				if _engine_busy("selecting the %s feature" % key):
-					return
-				bridge.sculpt_set_feature(key)
-				app.arm_tool("sculpt")
-				_pg_rebuild()))
-	if not hint.is_empty():
-		var hl := _pg_mono(hint, "text_faint", 9.5)
-		hl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(hl)
-
-	parent.add_child(_pg_mono("PRESETS", "text_dim", 9.5, 2))
-	var presets := HFlowContainer.new()
-	presets.add_theme_constant_override("h_separation", _pg_px(7))
-	presets.add_theme_constant_override("v_separation", _pg_px(7))
-	parent.add_child(presets)
-	var all_presets := bridge.get_sculpt_presets()
-	for i in all_presets.size():
-		var pd: Dictionary = all_presets[i]
-		var idx := i
-		presets.add_child(_pg_chip_button(String(pd.get("name", "Preset %d" % i)), false, 38,
-			func():
-				if _engine_busy("applying the sculpt preset"):
-					return
-				bridge.sculpt_apply_preset(idx)
-				app.arm_tool("sculpt")
-				_pg_rebuild()))
-
-	parent.add_child(_pg_mono("BRUSH · GLOBAL", "text_dim", 9.5, 2))
-	var globals_now := bridge.sculpt_get_globals()
-	for spec in bridge.get_sculpt_globals_info():
-		var sd: Dictionary = spec
-		var gkey := String(sd.get("key", ""))
-		if not globals_now.has(gkey):
-			continue
-		_pg_sculpt_slider(parent, sd, float(globals_now[gkey]))
-
-	_pg_brush_block(parent, "sculpt")
-
-	var arm := Button.new()
-	arm.text = "%s ARM SCULPT · DRAW ON THE MAP" % DccIcons.SYMBOLS["add"]
-	arm.focus_mode = Control.FOCUS_NONE
-	arm.mouse_filter = Control.MOUSE_FILTER_PASS
-	arm.custom_minimum_size.y = _pg_tap(48)
-	arm.add_theme_font_override("font", DccTheme.mono(2, true))
-	arm.add_theme_font_size_override("font_size", _pg_fs(10))
-	for c_key in ["font_color", "font_hover_color", "font_pressed_color"]:
-		arm.add_theme_color_override(c_key, DccTheme.c("accent"))
-	var dashed := _pg_box(Color(0, 0, 0, 0), _pg_px(24), DccTheme.c("accent"), 1)
-	for state in ["normal", "hover", "pressed", "focus"]:
-		arm.add_theme_stylebox_override(state, dashed)
-	arm.pressed.connect(func():
-		## G2: arming runs `tool_armed` listeners that read the engine (`icon_disarm`,
-		## `sculpt_get_globals` in the tool bar), so it is refused while a worker holds it.
-		if _engine_busy("arming Sculpt"):
-			return
-		app.arm_tool("sculpt")
-		if app.has_method("_set_phone_detent"):
-			app._set_phone_detent("peek"))
-	parent.add_child(arm)
-	## `StyleBoxFlat` has no dashed border, so the canvas's `1px dashed
-	## var(--acc)` is drawn solid. Said here rather than left as a silent
-	## divergence: the affordance the dash carries -- "this makes a draft, not
-	## a commit" -- is carried by the caption instead.
-
-	var stamps := bridge.sculpt_stamp_count()
-	var foot := HBoxContainer.new()
-	foot.add_theme_constant_override("separation", _pg_px(10))
-	parent.add_child(foot)
-	var note := _pg_mono("%d stamp%s on the draft" % [stamps, "" if stamps == 1 else "s"],
-		"accent" if stamps > 0 else "text_faint", 10)
-	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	foot.add_child(note)
-	## `_on_sculpt_discard()` / `_on_sculpt_commit()`, not the bare bridge
-	## calls: both also clear the viewport preview and re-point the right dock,
-	## and `sculpt_commit` takes a reason string those two already supply.
-	foot.add_child(_pg_chip_button("DISCARD", false, 44, func():
-		_on_sculpt_discard()
-		_pg_rebuild()))
-	foot.add_child(_pg_chip_button("%s COMMIT" % DccIcons.SYMBOLS["tick"], true, 44, func():
-		_on_sculpt_commit()
-		_pg_rebuild()))
-
-## Phone-sheet Sculpt slider for one control `spec`
-## (key/label/min/max/step/int): a label plus live readout over a `PgSlider`;
-## on drag end it writes `bridge.sculpt_set_globals({key: value})`. Touch
-## target is floored at 44 dp.
-func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
-	var key := String(spec.get("key", ""))
-	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", _pg_px(2))
-	parent.add_child(wrap)
-	var head := HBoxContainer.new()
-	wrap.add_child(head)
-	var l := _pg_mono(String(spec.get("label", key)), "text_secondary", 10)
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(l)
-	var readout := _pg_mono("%.2f" % value, "text_bright", 11)
-	head.add_child(readout)
-	var is_int: bool = bool(spec.get("int", false))
-	## The SCULPT half of the same arbitration -- these sliders sit in the same
-	## `ScrollContainer` and were reached by the same vertical swipe. Found by
-	## enumerating the sheet's `Range`s rather than by hitting it a second
-	## time: **`_pg_range_field()`, this function and `_pg_paint_slider()` are
-	## the three sites in the `_pg_*` block that construct a slider**, and all
-	## take `DccWidgets.PgSlider`.
-	##
-	## That sentence replaced a pasted `grep -n "HSlider.new()"` and its
-	## quoted count of two. The paste stopped reproducing the moment it was
-	## written -- the substitution it documents removed both matches, so the
-	## only line the grep returns today is the comment quoting its own
-	## string, and a reader following it gets a self-reference rather than a
-	## count. Name the symbols; a symbol survives the edit that a command
-	## measuring the file cannot.
-	var s := DccWidgets.PgSlider.new()
-	s.slop = float(_pg_px(8))
-	s.min_value = float(spec.get("min", 0.0))
-	s.max_value = float(spec.get("max", 1.0))
-	s.step = float(spec.get("step", 0.01))
-	s.value = value
-	DccWidgets.phone_slider(s, DccTheme.phone_scale())
-	## Same 44 dp floor as `_pg_range_field()`; see its own note.
-	s.custom_minimum_size.y = maxf(s.custom_minimum_size.y, float(_pg_tap(44)))
-	wrap.add_child(s)
-	s.value_changed.connect(func(v: float):
-		readout.text = "%.2f" % v)
-	## `sculpt_set_globals` takes a Dictionary -- there is no singular setter
-	## (`grep -n "^func sculpt_set_global" engine_bridge.gd`, 2026-09-07), and
-	## `_on_sculpt_global()` writes it the same way for the desktop.
-	s.drag_ended.connect(func(_c: bool):
-		if _engine_busy("changing %s" % key):
-			return
-		bridge.sculpt_set_globals({key: (round(s.value) if is_int else s.value)}))
-
-## **The PAINT column** -- the phone's way to arm a paint tool and reach its
-## options. Why it exists: on the phone the GENERATE tab shows this sheet INSTEAD
-## of the tool-options row (`DccShell._refresh_phone_gen_panel`), and arming Paint
-## forces the WORLD domain, which lights GENERATE -- so the one row that carries
-## Size / Erase / Land only / Original was hidden at the very moment Paint was
-## armed, and even un-hidden it is a desktop-width horizontal row that overflows
-## a portrait phone at every detent (measured: Original sat at the right edge,
-## clipped). This is that row's content laid out the way the SCULPT column above
-## lays out Sculpt's: vertical, 44 dp rows, thumb sliders, chips.
-##
-## **One state, four surfaces.** Nothing here owns a value. Every control reads
-## and writes `_paint_layer` / `_paint_brush` through the same handlers the dock
-## panel and the tool bar use (`_on_paint_layer_changed`, `_on_paint_radius_changed`
-## ...), and Original goes through `PaintOriginal.set_percent()`, so a change
-## here shows in the other surfaces and the reverse. No design canvas draws a
-## phone Paint column (`ANDROID_UI_SPEC.md` has none), so it is derived from the
-## sheet's own vocabulary -- the SCULPT column's chips, sliders and dashed ARM
-## button -- and not invented. Hardness / Softness are here too (the tool bar
-## omits them by ruling, the dock has them; the phone has no dock).
-##
-## Must never: paint, commit or discard on its own (only its COMMIT / DISCARD
-## chips do, through the shared handlers); write anything to disk; or rebuild
-## itself under a finger -- sliders repaint their own readout and mirror the
-## other surfaces only on release.
-func _pg_paint(parent: Control) -> void:
-	if not bridge.has_world:
-		var l := _pg_mono("Generate a world first -- the Paint editor is created "
-			+ "fresh per generated world.", "text_faint", 9.5)
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(l)
-		return
-	var layers := bridge.get_paint_layers()
-	if layers.is_empty():
-		var l2 := _pg_mono("No paint editor for this world -- a loaded save has no "
-			+ "draft session, only a freshly generated world does.", "text_faint", 9.5)
-		l2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(l2)
-		return
-
-	## GF-8: first, so a stale Rock selection is back on Biome before anything reads it.
-	var rock_st := rock_status()
-	var rock_on := RockPaintUI.is_rock(_paint_layer)
-	parent.add_child(_pg_mono("TARGET FIELD", "text_dim", 9.5, 2))
-	var field_chips := HFlowContainer.new()
-	field_chips.add_theme_constant_override("h_separation", _pg_px(7))
-	field_chips.add_theme_constant_override("v_separation", _pg_px(7))
-	parent.add_child(field_chips)
-	for i in layers.size():
-		var li := i
-		var key := String(layers[i])
-		field_chips.add_child(_pg_chip_button(key.capitalize(), key == _paint_layer, 44,
-			func():
-				_on_paint_layer_changed(li, layers)
-				_pg_paint_mirror()
-				app.arm_tool("paint")
-				_pg_rebuild()))
-	## §4.13's fourth target. Always drawn so it can be found; disabled, with the
-	## engine's reason written under the chips (a phone has no hover), when this world
-	## cannot take it.
-	var rock_ok := bool(rock_st.get("available", false))
-	var rock_chip := _pg_chip_button("Rock", rock_on, 44,
-		func():
-			if select_paint_layer(_rock_layer_last):
-				_pg_paint_mirror()
-				app.arm_tool("paint")
-			_pg_rebuild())
-	rock_chip.disabled = not rock_ok
-	rock_chip.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
-	field_chips.add_child(rock_chip)
-	if not rock_ok:
-		var rwhy := _pg_mono("Rock unavailable -- " + bridge.rock_paint_unavailable_reason(rock_st), "text_faint", 9.5)
-		rwhy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(rwhy)
-	if rock_on:
-		parent.add_child(_pg_mono("ROCK LAYER", "text_dim", 9.5, 2))
-		var rl_chips := HFlowContainer.new()
-		rl_chips.add_theme_constant_override("h_separation", _pg_px(7))
-		rl_chips.add_theme_constant_override("v_separation", _pg_px(7))
-		parent.add_child(rl_chips)
-		for k in RockPaintUI.layer_keys(rock_st):
-			var rk := String(k)
-			rl_chips.add_child(_pg_chip_button(RockPaintUI.layer_label(rock_st, rk).to_upper(), rk == _paint_layer, 44,
-				func():
-					if select_paint_layer(rk):
-						_pg_paint_mirror()
-					_pg_rebuild()))
-
-	parent.add_child(_pg_mono("BRUSH", "text_dim", 9.5, 2))
-	_pg_paint_slider(parent, "Size", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells",
-		_on_paint_radius_changed)
-	## Hardness / Softness: the brush's coverage-ramp controls. The desktop's tool
-	## bar does NOT carry them (owner ruling 2026-08-31, `tool_bar.gd::
-	## _build_paint_options`: the dock's Biome paint panel is the one surviving
-	## copy, to end "two copies on screen at once"); on the phone there is no dock,
-	## so this column is where the brush is reached, and it is not a second copy on
-	## screen. Same state, same writers as the dock's sliders
-	## (`_on_paint_hardness_changed` / `_on_paint_softness_changed` write
-	## `_paint_brush` and call `paint_set_brush`); nothing is stored here. Both
-	## are 0..1 and step 0.01, exactly the dock's own range.
-	_pg_paint_slider(parent, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "",
-		_on_paint_hardness_changed, 2)
-	_pg_paint_slider(parent, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "",
-		_on_paint_softness_changed, 2)
-	## Ruling BR. The slider is shared state with the tool bar's own; a layer
-	## with no generated raster (Splat) gets the engine's reason in place of a
-	## dead slider, exactly as the bar does.
-	var po = app.paint_original
-	var why: String = po.unavailable_reason(_paint_layer) if po != null else "not available"
-	if why != "":
-		var hint := _pg_mono("Original · no original -- %s" % why, "text_faint", 9.5)
-		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(hint)
-	else:
-		## Range and step are `paint_original.gd`'s own (`PCT_MAX`, `PCT_STEP`), read
-		## off the instance because that script is not a `class_name`.
-		## The overlay only draws while Paint is the armed tool
-		## (`paint_original.gd::sync`). With another tool armed the slider would
-		## move a value nothing shows, so it is drawn inert with the reason; ARM
-		## PAINT (below) re-arms, which rebuilds this column via `_on_tool_armed`.
-		var paint_armed: bool = app.armed_tool == "paint"
-		_pg_paint_slider(parent, "Original", 0.0, po.PCT_MAX, po.PCT_STEP,
-			po.opacity * 100.0, "%", func(v: float): po.set_percent(v), 0, paint_armed)
-		var tip := _pg_mono("Shows the generator's own layer under your paint, to compare. "
-			+ "A viewing aid -- it never changes the world."
-			+ ("" if paint_armed else " Paint is not armed -- tap ARM PAINT to use it."),
-			"text_faint", 9.5)
-		tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(tip)
-
-	var toggles := HFlowContainer.new()
-	toggles.add_theme_constant_override("h_separation", _pg_px(7))
-	toggles.add_theme_constant_override("v_separation", _pg_px(7))
-	parent.add_child(toggles)
-	var erase_chip := _pg_chip_button("ERASE", bool(_paint_brush["erase"]) and not rock_on, 44,
-		func():
-			_on_paint_erase_changed(not bool(_paint_brush["erase"]))
-			_pg_paint_mirror()
-			_pg_rebuild())
-	## §4.13: Erase is disabled for Rock, with its reason (written below, no hover here).
-	erase_chip.disabled = rock_on
-	erase_chip.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
-	toggles.add_child(erase_chip)
-	toggles.add_child(_pg_chip_button("LAND ONLY", bool(_paint_brush["land_only"]), 44,
-		func():
-			_on_paint_land_only_changed(not bool(_paint_brush["land_only"]))
-			_pg_paint_mirror()
-			_pg_rebuild()))
-	if rock_on:
-		var ewhy := _pg_mono(RockPaintUI.ERASE_DISABLED, "text_faint", 9.5)
-		ewhy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(ewhy)
-
-	var palette := bridge.get_paint_palette(_paint_layer)
-	if _paint_layer == "rock_cap":
-		parent.add_child(_pg_mono("CAP THICKNESS", "text_dim", 9.5, 2))
-		_pg_paint_slider(parent, "Thickness", RockPaintUI.cap_class_m(rock_st), float(rock_st.get("cap_max_m", 2550.0)),
-			RockPaintUI.cap_class_m(rock_st), RockPaintUI.cap_metres(rock_st, int(_paint_brush["value"])), " m",
-			func(v: float):
-				_paint_brush["value"] = RockPaintUI.cap_value(rock_st, v)
-				_sync_paint_brush())
-	if not palette.is_empty():
-		parent.add_child(_pg_mono("ROCK · s = STRENGTH · κ = ERODIBILITY" if rock_on else "CLASS", "text_dim", 9.5, 2))
-		var class_chips := HFlowContainer.new()
-		class_chips.add_theme_constant_override("h_separation", _pg_px(7))
-		class_chips.add_theme_constant_override("v_separation", _pg_px(7))
-		parent.add_child(class_chips)
-		for pd in palette:
-			var d: Dictionary = pd
-			var index := int(d.get("index", 1))
-			class_chips.add_child(_pg_chip_button(String(d.get("label", "?")),
-				index == int(_paint_brush["value"]), 42,
-				func():
-					_on_paint_value_picked_from_dock(index)
-					_pg_paint_mirror()
-					_pg_rebuild()))
-
-	_pg_brush_block(parent, "paint")
-
-	## Same shape as the SCULPT column's ARM button, and for the same reason: the
-	## map is behind this sheet, so arming drops it to its peek detent.
-	var arm := Button.new()
-	arm.text = "%s ARM PAINT · DRAW ON THE MAP" % DccIcons.SYMBOLS["add"]
-	arm.focus_mode = Control.FOCUS_NONE
-	arm.mouse_filter = Control.MOUSE_FILTER_PASS
-	arm.custom_minimum_size.y = _pg_tap(48)
-	arm.add_theme_font_override("font", DccTheme.mono(2, true))
-	arm.add_theme_font_size_override("font_size", _pg_fs(10))
-	for c_key in ["font_color", "font_hover_color", "font_pressed_color"]:
-		arm.add_theme_color_override(c_key, DccTheme.c("accent"))
-	var dashed := _pg_box(Color(0, 0, 0, 0), _pg_px(24), DccTheme.c("accent"), 1)
-	for state in ["normal", "hover", "pressed", "focus"]:
-		arm.add_theme_stylebox_override(state, dashed)
-	arm.pressed.connect(func():
-		app.arm_tool("paint")
-		if app.has_method("_set_phone_detent"):
-			app._set_phone_detent("peek"))
-	parent.add_child(arm)
-
-	var total := int(bridge.paint_painted_counts().get("total", 0))
-	var pending := bridge.paint_draft_count()
-	var foot := HBoxContainer.new()
-	foot.add_theme_constant_override("separation", _pg_px(10))
-	parent.add_child(foot)
-	## On Rock the count is the draft's only (committed rock is in the column), so it
-	## says "in draft" rather than claim nothing was painted after a commit.
-	var note := _pg_mono(("%d in draft" if rock_on else "%d painted") % total, "accent" if pending > 0 else "text_faint", 10)
-	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	foot.add_child(note)
-	## WW-13: both are gated on the PENDING draft, not on `total` (which includes
-	## committed paint), exactly like the dock's and the bar's pairs.
-	var discard := _pg_chip_button("DISCARD", false, 44, func():
-		_on_paint_discard()
-		_pg_rebuild())
-	discard.disabled = pending == 0
-	foot.add_child(discard)
-	var commit := _pg_chip_button("%s COMMIT" % DccIcons.SYMBOLS["tick"], true, 44, func():
-		_on_paint_commit()
-		_pg_rebuild())
-	commit.disabled = pending == 0
-	foot.add_child(commit)
-	for b in [discard, commit]:
-		(b as Button).add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
-	if rock_on:
-		## The re-erosion window, the last Rock commit's report and the save caveat,
-		## written out: the phone has no right dock and no hover.
-		var rnote := _pg_mono(("Commit re-erodes the painted box plus %d cells each side; Undo reverts rock and erosion. "
-			% int(rock_st.get("pad_cells", 16))) + String(rock_st.get("save_note", EngineBridge.ROCK_PAINT_SAVE_NOTE_FALLBACK)),
-			"text_faint", 9.5)
-		rnote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		parent.add_child(rnote)
-		if not rock_last_commit.is_empty():
-			var lnote := _pg_mono("LAST COMMIT · " + String(RockPaintUI.commit_status({"rock": rock_last_commit})[0]), "text_faint", 9.5)
-			lnote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			parent.add_child(lnote)
-
-## ET-D5. **The phone's brush controls**, for the Paint and Sculpt columns -- the second
-## surface over the same seam the desktop bar's third row draws
-## (`DccToolBar.build_brush_controls`). It exists because the bar is not on a phone
-## screen while this column is (the GENERATE tab shows THIS INSTEAD of the tool-options
-## row, `DccShell._refresh_phone_gen_panel`; Ruling BR's lesson). Same state, same
-## writers: every control reads `DccToolBar.options(app, tool)` on the way in and writes it
-## through `DccToolBar`'s `*_write_*` functions on the way out, so nothing is stored here
-## and the two surfaces cannot disagree. Chips and `PgSlider`s at the column's own 44 dp
-## floor (`_pg_chip_button`, `_pg_paint_slider`), grouped like the canvas's other columns.
-## Discrete controls rebuild the column (`DccToolBar.refresh_surfaces`); sliders write
-## while the thumb moves and re-draw only the on-map marker on release, never the column
-## under the finger (the scatter count is the one exception: it re-draws the column on
-## release because the spread slider's enabled state depends on it). A control the engine
-## would ignore is not drawn (the angle of a radial symmetry) or is drawn inert (the
-## spread of one scatter copy). Must never paint, commit, discard or call the engine.
-func _pg_brush_block(parent: Control, tool: String) -> void:
-	var o := DccToolBar.options(app, tool)
-	parent.add_child(_pg_mono("BRUSH · DYNAMICS", "text_dim", 9.5, 2))
-	var chips := HFlowContainer.new()
-	chips.add_theme_constant_override("h_separation", _pg_px(7))
-	chips.add_theme_constant_override("v_separation", _pg_px(7))
-	parent.add_child(chips)
-	var nothing := func(): pass
-	if tool == "paint":
-		var spacing_on := DccToolBar.paint_spacing_on(o)
-		var on_spacing := func():
-			var cur := DccToolBar.options(app, "paint")
-			DccToolBar.paint_write_spacing_on(cur, not DccToolBar.paint_spacing_on(cur))
-			DccToolBar.refresh_surfaces(app, "paint")
-		chips.add_child(_pg_chip_button("SPACING %s" % ("ON" if spacing_on else "OFF"), spacing_on, 44, on_spacing))
-		var pressure_on := DccToolBar.paint_pressure_on(o)
-		var on_pressure := func():
-			var cur := DccToolBar.options(app, "paint")
-			DccToolBar.paint_write_pressure(cur, not DccToolBar.paint_pressure_on(cur))
-			DccToolBar.refresh_surfaces(app, "paint")
-		chips.add_child(_pg_chip_button("PRESSURE → SIZE %s" % ("ON" if pressure_on else "OFF"), pressure_on, 44, on_pressure))
-		var on_gap := func(v: float): DccToolBar.paint_write_spacing_pct(DccToolBar.options(app, "paint"), v)
-		_pg_paint_slider(parent, "Gap between dabs", DccToolBar.SPACING_PCT_MIN, DccToolBar.SPACING_PCT_MAX, 1.0,
-			DccToolBar.paint_spacing_pct(o), " %", on_gap, 0, spacing_on, nothing)
-		var count := DccToolBar.paint_scatter_count(o)
-		var on_count := func(v: float): DccToolBar.paint_write_scatter_count(DccToolBar.options(app, "paint"), v)
-		var after_count := func(): DccToolBar.refresh_surfaces(app, "paint")
-		_pg_paint_slider(parent, "Scatter copies", 1.0, float(DccToolBar.SCATTER_COUNT_MAX), 1.0, float(count), "",
-			on_count, 0, true, after_count)
-		var on_spread := func(v: float): DccToolBar.paint_write_scatter_amount(DccToolBar.options(app, "paint"), v)
-		_pg_paint_slider(parent, "Scatter spread", 0.0, DccToolBar.SCATTER_AMOUNT_MAX, 0.1,
-			DccToolBar.paint_scatter_amount(o), " ⌀", on_spread, 1, count > 1, nothing)
-	else:
-		var sculpt_on := _sculpt_pressure_on
-		var on_sculpt_pressure := func():
-			set_sculpt_pressure_on(not _sculpt_pressure_on)
-			DccToolBar.refresh_surfaces(app, "sculpt")
-		chips.add_child(_pg_chip_button("PRESSURE → STRENGTH %s" % ("ON" if sculpt_on else "OFF"), sculpt_on, 44, on_sculpt_pressure))
-
-	parent.add_child(_pg_mono("SYMMETRY", "text_dim", 9.5, 2))
-	var modes := HFlowContainer.new()
-	modes.add_theme_constant_override("h_separation", _pg_px(7))
-	modes.add_theme_constant_override("v_separation", _pg_px(7))
-	parent.add_child(modes)
-	var mode := DccToolBar.sym_mode(o)
-	for i in DccToolBar.SYM_MODES.size():
-		var m := String(DccToolBar.SYM_MODES[i])
-		var pick_mode := func():
-			DccToolBar.sym_write_mode(DccToolBar.options(app, tool), m)
-			DccToolBar.refresh_surfaces(app, tool)
-		modes.add_child(_pg_chip_button(String(DccToolBar.SYM_LABELS[i]).to_upper(), m == mode, 44, pick_mode))
-	if mode == "none":
-		return
-	if mode == "radial":
-		var on_copies := func(v: float):
-			DccToolBar.sym_write_count(DccToolBar.options(app, tool), v)
-			DccToolBar.refresh_marker(app)
-		_pg_paint_slider(parent, "Copies", float(DccToolBar.RADIAL_MIN), float(DccToolBar.RADIAL_MAX), 1.0,
-			float(DccToolBar.sym_count(o)), "", on_copies, 0, true, nothing)
-	else:
-		var on_angle := func(v: float):
-			DccToolBar.sym_write_angle_deg(DccToolBar.options(app, tool), v)
-			DccToolBar.refresh_marker(app)
-		_pg_paint_slider(parent, "Mirror angle", -DccToolBar.ANGLE_MAX_DEG, DccToolBar.ANGLE_MAX_DEG, 1.0,
-			DccToolBar.sym_angle_deg(o), "°", on_angle, 0, true, nothing)
-	var centre = DccToolBar.sym_centre(o)
-	parent.add_child(_pg_mono("centre: grid middle" if centre == null
-		else "centre (%.1f, %.1f)" % [(centre as Vector2).x, (centre as Vector2).y], "text_faint", 9.5))
-	var centre_chips := HFlowContainer.new()
-	centre_chips.add_theme_constant_override("h_separation", _pg_px(7))
-	centre_chips.add_theme_constant_override("v_separation", _pg_px(7))
-	parent.add_child(centre_chips)
-	var pending: bool = DccToolBar.sym_pick_tool == tool
-	## The map is behind this sheet: a pick the user cannot reach is no pick, so the sheet
-	## drops to its peek detent exactly as the ARM buttons below do.
-	var begin_pick := func():
-		DccToolBar.sym_pick_begin(app, tool)
-		if DccToolBar.sym_pick_tool == tool and app.has_method("_set_phone_detent"):
-			app._set_phone_detent("peek")
-	centre_chips.add_child(_pg_chip_button("PRESS THE MAP…" if pending else "PICK CENTRE", pending, 44, begin_pick))
-	if centre != null:
-		var reset_centre := func():
-			DccToolBar.sym_write_centre(DccToolBar.options(app, tool), null)
-			DccToolBar.refresh_surfaces(app, tool)
-		centre_chips.add_child(_pg_chip_button("RESET CENTRE", false, 44, reset_centre))
-
-## Tell the other surfaces over the paint state that this column changed it: the
-## tool bar's Class / Erase / Land only controls and the dock panel's mirror of
-## them would otherwise show the old value until something rebuilt them.
-func _pg_paint_mirror() -> void:
-	_rebuild_tool_bar()
-	rebuild_paint_panel()
-	_refresh_right_dock_paint()
-
-## One labelled thumb slider of the Paint column: label left, live readout right,
-## a `PgSlider` underneath (so a vertical swipe scrolls the sheet instead of
-## rewriting the value -- the arbitration `_pg_sculpt_slider` documents) at the
-## 44 dp floor. `on_change` fires on every value change so Size and Original act
-## while the thumb moves; the other surfaces are mirrored once on release. The
-## readout shows whole numbers unless `decimals` asks for more (Hardness and
-## Softness step by 0.01 and read as the dock's own `0.00`, like the SCULPT
-## column's `%.2f`). `editable = false` draws the slider greyed and inert -- used
-## for Original while Paint is not the armed tool (see `_pg_paint`); an inert
-## control writes nothing, so `PaintOriginal.set_percent()` stays the one writer.
-func _pg_paint_slider(parent: Control, label_text: String, min_v: float, max_v: float,
-		step_v: float, value: float, unit: String, on_change: Callable,
-		decimals: int = 0, editable: bool = true, on_release: Callable = Callable()) -> void:
-	var fmt := "%%.%df%%s" % decimals
-	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", _pg_px(2))
-	parent.add_child(wrap)
-	var head := HBoxContainer.new()
-	wrap.add_child(head)
-	var l := _pg_mono(label_text, "text_secondary", 10)
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(l)
-	var readout := _pg_mono(fmt % [value, unit], "text_bright", 11)
-	head.add_child(readout)
-	var s := DccWidgets.PgSlider.new()
-	s.slop = float(_pg_px(8))
-	s.min_value = min_v
-	s.max_value = max_v
-	s.step = step_v
-	s.value = value
-	s.editable = editable
-	DccWidgets.phone_slider(s, DccTheme.phone_scale())
-	s.custom_minimum_size.y = maxf(s.custom_minimum_size.y, float(_pg_tap(44)))
-	wrap.add_child(s)
-	if not editable:
-		## Greyed, readout included, so it reads as unavailable and not merely low.
-		wrap.modulate.a = 0.5
-	s.value_changed.connect(func(v: float):
-		readout.text = fmt % [v, unit]
-		on_change.call(v))
-	## ET-D5: a caller whose value is not the paint brush (the brush-dynamics block) supplies
-	## its own release action; every earlier caller gets the paint mirror exactly as before.
-	s.drag_ended.connect(func(_c: bool):
-		if on_release.is_valid():
-			on_release.call()
-		else:
-			_pg_paint_mirror())
-
-## The canvas's chip: `min-height:<h>px; padding:0 13px; border-radius:<h/2>px;
-## font:10px mono`, accent-on-wash when selected.
-func _pg_chip_button(text: String, on: bool, h: float, on_press: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.focus_mode = Control.FOCUS_NONE
-	b.mouse_filter = Control.MOUSE_FILTER_PASS
-	b.custom_minimum_size.y = _pg_tap(h)
-	b.add_theme_font_override("font", DccTheme.mono())
-	b.add_theme_font_size_override("font_size", _pg_fs(10))
-	for c_key in ["font_color", "font_hover_color", "font_pressed_color"]:
-		b.add_theme_color_override(c_key,
-			DccTheme.c("accent") if on else DccTheme.c("text_secondary"))
-	var box := _pg_box(DccTheme.c("accent_wash") if on else Color(0, 0, 0, 0),
-		_pg_px(h / 2.0), DccTheme.c("accent") if on else DccTheme.c("line"), 1)
-	box.content_margin_left = _pg_px(13)
-	box.content_margin_right = _pg_px(13)
-	for state in ["normal", "hover", "pressed", "focus"]:
-		b.add_theme_stylebox_override(state, box)
-	b.pressed.connect(on_press)
-	return b

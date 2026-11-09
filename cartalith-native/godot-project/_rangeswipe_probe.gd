@@ -180,8 +180,8 @@ func _surface_of(n: Node) -> String:
 			return "left_dock sheet"
 		if p == app.right_dock:
 			return "right_dock sheet"
-		if p == app._phone_gen_scroll:
-			return "GENERATE sheet"
+		if p == app._phone_dom_host:
+			return "dock sheet (mounted in the phone sheet)"
 		if p == app._phone_tool_scroll:
 			return "tool-options sheet"
 		if p is PhoneMenu:
@@ -491,8 +491,9 @@ func _ready() -> void:
 	## **The boot state, before any input.** `MISTAKES.md`: the GENERATE bug hid
 	## from five passes of probes because the probe's own tap fixed the state.
 	if app.is_phone():
-		_check(app._phone_gen_scroll != null and app._phone_gen_scroll.visible,
-			"at launch, nothing tapped, the GENERATE column is already up")
+		## Ruling EH item 1: the GENERATE column is deleted; WORLD's body is the dock mounted in the sheet.
+		_check(app._left_dock_scroll.get_parent() == app._phone_dom_host,
+			"at launch, nothing tapped, the WORLD sheet (the dock) is already mounted (hidden at peek)")
 
 	var before := _census("boot, docks unopened")
 
@@ -583,7 +584,7 @@ func _ready() -> void:
 		get_tree().quit(1 if _fail > 0 else 0)
 		return
 
-	# -- Leg 2: the GENERATE sheet (the already-fixed `_pg_*` population) -------
+	# -- Leg 2: the dock mounted in the WORLD sheet (the population the deleted GENERATE column's `_pg_*` sliders were) --
 	if app.is_phone():
 		app._set_sheet_open("left", false)
 		await _frames(4)
@@ -593,21 +594,21 @@ func _ready() -> void:
 			if cell != null:
 				await _tap_at(cell.get_global_rect().get_center())
 		await _frames(8)
-		var gs: ScrollContainer = app._phone_gen_scroll
-		if gs != null and gs.visible:
+		var gs: ScrollContainer = app._left_dock_scroll
+		if gs != null and gs.is_visible_in_tree():
 			var g := _first_slider(gs)
 			if g != null:
 				var ws: Node = app._workspace_panels.get("world")
 				var key := _key_for(g, ws)
 				if key.is_empty():
-					await _swipe_leg("GENERATE sheet", g, gs, func(): return g.value)
+					await _swipe_leg("WORLD dock sheet", g, gs, func(): return g.value)
 				else:
 					_log("   (asserting against the ENGINE param `%s`, since a" % key)
 					_log("    write rebuilds the column and frees the node)")
-					await _swipe_leg("GENERATE sheet", g, gs,
+					await _swipe_leg("WORLD dock sheet", g, gs,
 						func(): return float(app.bridge.param_get(key)))
 			else:
-				_check(false, "the GENERATE sheet draws a slider")
+				_check(false, "the WORLD dock sheet draws a slider")
 
 	## The SpinBox arrow strip, one box from each dialog family -- or, on the
 	## desktop shell, the regression that its stock mouse behaviour is intact.

@@ -821,8 +821,8 @@ func _on_paint_discard() -> void:
 #    hands the engine on each press (`world_workspace.gd::_paint_stroke_options`,
 #    `::_sculpt_symmetry`, `infrastructure_workspace.gd::_way_drag_options`), reached
 #    through each workspace's `brush_options(tool)` accessor. No control keeps a copy,
-#    so a surface that is rebuilt, a second surface over the same state (the phone's
-#    Paint/Sculpt columns are the second) and a probe that writes the seam directly
+#    so a surface that is rebuilt, a second surface over the same state (the right dock and the
+#    strip's chips are such) and a probe that writes the seam directly
 #    all agree by construction -- "two views of one state will disagree" was a
 #    recorded mistake and this is how it is not repeated.
 #  * **A default is the ABSENT key**, never a written default: an untouched tool still
@@ -840,9 +840,9 @@ func _on_paint_discard() -> void:
 #  * Nothing here calls the engine or the disk: writes are shell-side dictionary edits,
 #    so none can run into a generation worker that owns `world_gen`.
 #
-# The three surfaces: the bar's third row (`build_brush_controls`, desktop and tablet),
-# `world_workspace.gd`'s phone Paint and Sculpt columns (`_pg_brush_block`, which calls
-# the writers below) and the Way row (`infrastructure_workspace.gd`, which calls
+# The three surfaces: the bar's third row (`build_brush_controls`, desktop, tablet and the phone's option row),
+# until Ruling EH item 1 `world_workspace.gd`'s phone Paint and Sculpt columns (`_pg_brush_block`,
+# deleted) and the Way row (`infrastructure_workspace.gd`, which calls
 # `build_brush_controls` too).
 
 ## The tools that take brush options -- the ids `options()` and `refresh_marker()` accept.
@@ -1153,8 +1153,8 @@ static func way_write_pull(o: Dictionary, v: float) -> void:
 ## Starts (or, pressed again, cancels) "the next map press on `tool` sets the centre".
 ## Starting ARMS the tool first (a press only reaches a tool's handler while it is armed,
 ## and arming any tool drops a pending pick, `_on_tool_armed`, so the pick is set AFTER).
-## The map is hidden behind the phone sheet, so the phone surfaces drop it to `peek` after
-## calling this (`world_workspace.gd::_pg_brush_block`); this function stays surface-neutral.
+## The map is hidden behind the phone sheet, so the pick drops it to `peek` itself (below; the
+## retired phone column's `_pg_brush_block` did it after calling this, Ruling EH item 1); this function stays surface-neutral.
 static func sym_pick_begin(app: DccApp, tool: String) -> void:
 	if sym_pick_tool == tool:
 		sym_pick_tool = ""
@@ -1163,6 +1163,11 @@ static func sym_pick_begin(app: DccApp, tool: String) -> void:
 		app.arm_tool(tool)
 		sym_pick_tool = tool
 		app.set_status("hint", "Press the map to place the symmetry centre -- the next press only; it draws nothing.", "accent")
+		## The map is behind the phone sheet, so the pick drops it to peek (the retired GENERATE column's
+		## "PICK CENTRE" chip did this itself; Ruling EH item 1 moved the duty here so every phone surface that
+		## draws this button gets it). `phone_drop_sheet_to_peek()` is a no-op off the phone and in landscape.
+		if app.has_method("phone_drop_sheet_to_peek"):
+			app.phone_drop_sheet_to_peek()
 	refresh_surfaces(app, tool)
 
 ## The click hook every brush tool's PRESS handler calls first: if a centre pick is pending
@@ -1387,7 +1392,7 @@ static func _controls_symmetry(parent: Control, app: DccApp, tool: String) -> vo
 
 ## Greys one `DccWidgets.slider()` row out and makes it inert, with the reason on hover.
 ## `editable = false` is the control's own off state; the row's alpha is the shell's
-## convention for "unavailable, not merely low" (`_pg_paint_slider`'s greyed Original).
+## convention for "unavailable, not merely low" (the greyed Original slider).
 static func _disable_slider(parts: Dictionary, why: String) -> void:
 	(parts["slider"] as HSlider).editable = false
 	var row := parts["row"] as Control

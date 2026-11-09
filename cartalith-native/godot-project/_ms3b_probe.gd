@@ -2,9 +2,9 @@ extends Node
 ## MS-3 remainder probe (`MOBILE_SHELL_PROPOSAL.md` section 6, MS-3: "no control reachable only through Window >
 ## Left dock (walk every category, count 0)"). Drives REAL pointer events against the real shell as a phone in a
 ## `--vp`-sized host `SubViewport` and checks the four parts MS-3's first step left:
-##   1. WORLD: the sheet's fourth segment ALL (a real tap) mounts the dock's own nine categories
-##      (Generate, Planet, Geology, Hydrology, Climate, Ecology, World data; then Terrain, Biomes after a real tap
-##      on the dock's SCULPT pill), the column is hidden, a back row returns to the column;
+##   1. WORLD: the sheet body IS the dock (Ruling EH item 1 deleted the GENERATE column, its ALL segment and the
+##      back row): the dock's own nine categories (Generate, Planet, Geology, Hydrology, Climate, Ecology, World
+##      data; then Terrain, Biomes after a real tap on the dock's SCULPT pill) are drawn with no ALL tap;
 ##   2. CIVIL: the Journeys row (a real tap) opens STORY > Journeys (the planner row is on screen);
 ##   3. MAP: its own row (Layers & fields, Fit world, 2D / 3D) at the 44 dp floor; a real tap on Layers & fields
 ##      opens the Layers popover;
@@ -19,8 +19,8 @@ extends Node
 ##
 ## **Every expected category list is a literal written by hand from `RAIL_NODES`' `owns` lists**; nothing is
 ## asserted against the constant it came from. Mutants (run by hand, listed in the commit): the ALL segment
-## removed, `world_all` forced false, the `p == _phone_dom_host` clause dropped, the journeys row's callback
-## emptied, the MAP row never shown.
+## removed, the `p == _phone_dom_host` clause dropped, the journeys row's callback emptied, the MAP row never
+## shown, WORLD's `dom` forced false in `_refresh_phone_sheet_body` (the dock is not mounted at boot).
 ##
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument.
 
@@ -244,34 +244,26 @@ func _run(vw: int, vh: int) -> void:
 	var dx: float = 48.0 * float(_app.phone_scale()) + 24.0
 	var fl := _floor_px()
 
-	# 1. WORLD: the column, then ALL
-	_ok(_app._active_domain == "world" and _app._phone_gen_scroll.visible and not _in_sheet(),
-		"WORLD boots with the GENERATE column and the dock in its own column")
+	# 1. WORLD: the dock is the body at boot, with no segment to tap
+	_ok(_app._active_domain == "world" and _in_sheet(), "WORLD boots with the dock mounted in the sheet")
 	if _app._phone_detent == "peek":
+		# at peek the sheet shows its header only: the host is hidden so the 66 dp peek is not lifted (portrait
+		# only: landscape has no detents, so the host is shown)
+		_ok(_app._landscape or not _app._phone_dom_host.visible, "WORLD at peek: the dock's host is hidden (the peek stays 66 dp)")
 		await _tap(_centre("domain"), true)
 		await _settle()
+	_ok(_app._phone_dom_host.visible, "WORLD: the dock's host is shown once the sheet is up")
 	_ok(_app._phone_detent != "peek", "WORLD: the sheet is up (%s)" % _app._phone_detent)
-	var all_btn := _find_button(_app._phone_gen_col, "ALL")
-	_ok(all_btn != null, "WORLD: the segment row has an ALL cell")
-	if all_btn == null:
-		return
-	_ok(all_btn.get_global_rect().size.y >= fl,
-		"WORLD: ALL is at the 44 dp floor (%s px, floor %.1f)" % [str(all_btn.get_global_rect().size), fl])
-	_ok(all_btn.get_global_rect().end.y <= float(_vp.size.y) and all_btn.get_global_rect().position.y >= 0.0,
-		"WORLD: ALL is on screen (%s)" % str(all_btn.get_global_rect()))
-	await _tap(all_btn.get_global_rect().get_center(), true)
-	await _settle()
-	_ok(_in_sheet() and _app._phone_dom_host.visible, "WORLD ALL: the dock's scroller sits in the domain host")
-	_ok(not _app._phone_gen_scroll.visible and not _app._phone_tool_scroll.visible,
-		"WORLD ALL: the GENERATE column and the tool row are not the body")
-	_ok(_app._phone_dom_back_row != null and _app._phone_dom_back_row.visible, "WORLD ALL: the back row is shown")
+	_ok(not _app._phone_tool_scroll.visible, "WORLD: the tool row is not the body")
+	_ok(_find_button(_app._phone_dom_host, "ALL") == null and _find_button(_app._phone_dom_host, "PAINT") == null,
+		"WORLD: no ALL or PAINT segment cell exists")
 	_walk("world", WORLD_A)
-	_ok(String(_app._phone_sheet_subtitle.text).contains("all categories"),
-		"WORLD ALL: the sheet subtitle says so (%s)" % _app._phone_sheet_subtitle.text)
 	# the dock's own mode switch reaches Terrain and Biomes
 	var sculpt := _find_button(_app._left_dock_mode_switch, "SCULPT")
-	_ok(sculpt != null, "WORLD ALL: the dock's mode switch has SCULPT")
+	_ok(sculpt != null, "WORLD: the dock's mode switch has SCULPT")
 	if sculpt != null:
+		_ok(sculpt.get_global_rect().size.y >= fl,
+			"WORLD: SCULPT is at the 44 dp floor (%s px, floor %.1f)" % [str(sculpt.get_global_rect().size), fl])
 		await _tap(sculpt.get_global_rect().get_center(), true)
 		await _settle()
 		_walk("world", WORLD_B)
@@ -288,13 +280,6 @@ func _run(vw: int, vh: int) -> void:
 		"fit hook: a button added under _phone_dom_host reaches the 44 dp floor (min %.1f, size %.1f, floor %.1f)" % [
 			late.custom_minimum_size.y, late.size.y, fl])
 	late.queue_free()
-	# back to the columns
-	var back: Button = _app._phone_dom_back_row as Button
-	_ok(back.get_global_rect().size.y >= fl, "WORLD ALL: the back row is at the 44 dp floor (%.1f px)" % back.get_global_rect().size.y)
-	await _tap(back.get_global_rect().get_center(), true)
-	await _settle()
-	_ok(not _in_sheet() and _app._phone_gen_scroll.visible and not _app._phone_dom_back_row.visible,
-		"WORLD: the back row returns the column and hands the dock back")
 
 	# 2. CIVIL: Journeys opens STORY > Journeys
 	await _swipe_to("civilization", cell_c, dx)

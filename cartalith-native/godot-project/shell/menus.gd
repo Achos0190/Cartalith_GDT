@@ -8116,10 +8116,10 @@ func _world(p: PopupMenu) -> void:
 	_build_reset_generation(p)
 	p.add_separator()
 	## Canvas: "Generation pipeline / Sculpt (radio)". `select_domain_mode()`
-	## is `dcc_shell.gd`'s, real since 2026-08-31 (`_pg_set_mode()` already
-	## calls it the same way from the phone sheet) -- WORLD's own mode ids are
-	## "a" (pipeline) and "b" (sculpt), not the words (`world_workspace.gd`
-	## `_pg_set_mode()`'s own comment: "RAIL_NODES' own mode ids for WORLD are
+	## is `dcc_shell.gd`'s, real since 2026-08-31 (the retired phone column's `_pg_set_mode()`
+	## called it the same way) -- WORLD's own mode ids are
+	## "a" (pipeline) and "b" (sculpt), not the words (`world_workspace.gd`'s
+	## retired `_pg_set_mode()` said: "RAIL_NODES' own mode ids for WORLD are
 	## a and b, not the words").
 	p.add_radio_check_item("Generation pipeline", ID_WORLD_MODE_PIPELINE)
 	var mode_pipe_idx := p.item_count - 1

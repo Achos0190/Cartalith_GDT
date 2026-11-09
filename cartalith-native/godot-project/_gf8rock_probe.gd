@@ -36,7 +36,7 @@ extends Node
 ##   disabled with a reason; `sample_cell` has no rock keys and says why.
 ##
 ## Navigation is by call where the probe needs a surface (`app.arm_tool`,
-## `_pick_phone_tab`, `_pg_set_mode`): this probe proves the Rock target renders,
+## `_pick_phone_tab`): this probe proves the Rock target renders,
 ## is disabled or enabled with the right reason, and that its commit / undo / redo
 ## are exact. It is NOT a reachability proof of the phone path (`MISTAKES.md`).
 ##
@@ -78,6 +78,36 @@ func _shot(name: String) -> void:
 	print("[OUT] %s" % ProjectSettings.globalize_path(path))
 
 ## Every visible-in-tree `Button` under `n` whose text is `text` (internal children included).
+## The visible Target-field `OptionButton` that lists a "Rock" item, or null. Since Ruling EH item 1 the phone
+## shows the WORLD dock's Biomes body, where Rock is an item of this dropdown (the retired phone column drew it
+## as a chip button, which is what `_buttons(app, "Rock", ...)` found there). Index of the item: `rock_index`.
+func _rock_option(n: Node) -> OptionButton:
+	if n is OptionButton and (n as OptionButton).is_visible_in_tree():
+		for i in (n as OptionButton).item_count:
+			if (n as OptionButton).get_item_text(i) == "Rock":
+				return n as OptionButton
+	for c in n.get_children(true):
+		var r := _rock_option(c)
+		if r != null:
+			return r
+	return null
+
+## Phone: the dock's `Erase` toggle is a row of a Label reading "Erase" and an empty-text check control, so the
+## button-by-text search above cannot find it; collect those check controls instead.
+func _erase_toggles(n: Node, out: Array) -> void:
+	if (n is CheckBox or n is CheckButton) and (n as Control).is_visible_in_tree() and n.get_parent() != null:
+		for s in n.get_parent().get_children():
+			if s is Label and (s as Label).text.to_lower() == "erase":
+				out.append(n)
+	for c in n.get_children(true):
+		_erase_toggles(c, out)
+
+func _rock_index(ob: OptionButton) -> int:
+	for i in ob.item_count:
+		if ob.get_item_text(i) == "Rock":
+			return i
+	return -1
+
 func _buttons(n: Node, text: String, out: Array) -> void:
 	if n is Button and (n as Button).text == text and (n as Button).is_visible_in_tree():
 		out.append(n)
@@ -101,7 +131,7 @@ func _generate(bridge, seed: int) -> bool:
 	return bool(bridge.has_world)
 
 ## Puts the Paint surfaces on screen for this form: arms Paint (desktop/tablet tool
-## bar), and on a phone opens the GENERATE sheet's PAINT column.
+## bar), and on a phone the WORLD sheet (the dock, Ruling EH item 1) follows the armed tool to Biomes.
 func _show_paint(app, ws) -> void:
 	app.arm_tool("paint")
 	await _frames(6)
@@ -109,8 +139,18 @@ func _show_paint(app, ws) -> void:
 		if app.has_method("_pick_phone_tab"):
 			app._switch_domain_from_tab("world")
 		await _frames(6)
-		ws._pg_set_mode("paint")
+		## Ruling EH item 1: the PAINT segment is gone; arming Paint (above) already moved the dock to Biomes.
+		## The Biomes category opens on a header tap, so open it as a thumb would.
+		app.arm_tool("paint")
 		await _frames(8)
+		## The dock's host is hidden at the peek detent (the peek stays 66 dp), so raise the sheet.
+		app.set_phone_detent("full")
+		await _frames(40)
+		var pbody: Control = ws._paint_body
+		print("[INFO] phone show_paint: host_visible=%s paint_body_visible=%s detent=%s" % [str(app._phone_dom_host.visible), str(pbody.is_visible_in_tree()), app.phone_detent()])
+		if pbody != null and not pbody.is_visible_in_tree():
+			(pbody.get_parent().get_child(0) as Button).pressed.emit()
+			await _frames(8)
 
 ## Phone only: opens the sheet to its full detent and scrolls the first visible
 ## label containing `needle` into view, so a frame shows the Rock rows. A no-op on
@@ -190,12 +230,20 @@ func _ready() -> void:
 	await _frames(6)
 	var rock_buttons: Array = []
 	_buttons(app, "Rock", rock_buttons)
-	_check(rock_buttons.size() > 0, "leg A: a Rock target is drawn (%d found)" % rock_buttons.size())
-	var all_disabled := rock_buttons.size() > 0
+	var rock_opt: OptionButton = _rock_option(app) if _form == "phone" else null
+	var rock_drawn: int = rock_buttons.size() + (1 if rock_opt != null else 0)
+	_check(rock_drawn > 0, "leg A: a Rock target is drawn (%d found)" % rock_drawn)
+	var all_disabled := rock_drawn > 0
 	var reason_shown := false
 	for b in rock_buttons:
 		all_disabled = all_disabled and (b as Button).disabled
 		if "Committed rock paint is saved with the project" in (b as Button).tooltip_text and "geology processes are off" in (b as Button).tooltip_text:
+			reason_shown = true
+	if rock_opt != null:
+		var ri := _rock_index(rock_opt)
+		all_disabled = all_disabled and rock_opt.is_item_disabled(ri)
+		var tip := rock_opt.get_item_tooltip(ri)
+		if "Committed rock paint is saved with the project" in tip and "geology processes are off" in tip:
 			reason_shown = true
 	var why_labels: Array = []
 	_labels_with(app, "Rock unavailable", why_labels)
@@ -247,9 +295,14 @@ func _ready() -> void:
 	for b in rock_buttons:
 		if not (b as Button).disabled:
 			enabled_rock = b
-	_check(enabled_rock != null, "leg B: an enabled Rock target is drawn")
+	var rock_opt_b: OptionButton = _rock_option(app) if _form == "phone" else null
+	var opt_enabled: bool = rock_opt_b != null and not rock_opt_b.is_item_disabled(_rock_index(rock_opt_b))
+	_check(enabled_rock != null or opt_enabled, "leg B: an enabled Rock target is drawn")
 	if enabled_rock != null:
 		enabled_rock.pressed.emit()
+	elif opt_enabled:
+		rock_opt_b.select(_rock_index(rock_opt_b))
+		rock_opt_b.item_selected.emit(_rock_index(rock_opt_b))
 	else:
 		ws.select_paint_layer("rock_top")
 	await _frames(6)
@@ -261,11 +314,13 @@ func _ready() -> void:
 	ws._sync_paint_brush()
 	await _frames(4)
 	if _form == "phone":
-		ws._pg_rebuild()
+		ws.rebuild_paint_panel()
 		await _frames(6)
 	var erase_buttons: Array = []
 	_buttons(app, "Erase", erase_buttons)
 	_buttons(app, "ERASE", erase_buttons)
+	if _form == "phone":
+		_erase_toggles(app, erase_buttons)
 	var erase_off := erase_buttons.size() > 0
 	for b in erase_buttons:
 		erase_off = erase_off and (b as Button).disabled
@@ -313,9 +368,9 @@ func _ready() -> void:
 		"the painted mask goes from absent to present (%s -> %s)" % [before["painted_mask"], after["painted_mask"]])
 	_check(bridge.paint_draft_count() == 0, "leg B: the commit emptied the draft")
 	# The report is on the status line (desktop, tablet) or, on a phone, which has no
-	# status bar on screen, in the Paint column's LAST COMMIT note.
+	# status bar on screen, in the Biomes body's "Last commit:" note (the phone column's LAST COMMIT note was deleted by Ruling EH item 1).
 	var status_labels: Array = []
-	_labels_with(app, "LAST COMMIT · rock painted:" if _form == "phone" else "rock painted:", status_labels)
+	_labels_with(app, "rock painted:", status_labels)
 	_check(status_labels.size() > 0, "leg B: the commit report is on screen (%d labels)" % status_labels.size())
 	await _phone_reveal(app, "LAST COMMIT")
 	await _shot("B_rock_committed")

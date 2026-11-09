@@ -251,7 +251,7 @@ func _count_end(_c: bool) -> void:
 
 func _first_pg(root: Node) -> HSlider:
 	for c in root.get_children(true):
-		if c is HSlider and (c as HSlider).get_script() != null:
+		if c is HSlider and (c as HSlider).get_script() != null and (c as HSlider).is_visible_in_tree():
 			return c as HSlider
 		var r := _first_pg(c)
 		if r != null:
@@ -283,10 +283,20 @@ func _leg_tap_to_set() -> void:
 		tvp.push_input(e2, false)
 		await _frames(1)
 	await _frames(8)
-	var scroll: ScrollContainer = app._phone_gen_scroll
-	_check(scroll != null and scroll.visible, "the GENERATE column is up")
-	if scroll == null or not scroll.visible:
+	## Ruling EH item 1: WORLD's sheet body is the dock's own scroller (the GENERATE column is deleted).
+	var scroll: ScrollContainer = app._left_dock_scroll
+	_check(scroll != null and scroll.is_visible_in_tree() and scroll.get_parent() == app._phone_dom_host,
+		"the WORLD dock is up in the sheet")
+	if scroll == null or not scroll.is_visible_in_tree():
 		return
+	## Ruling EH item 1: the dock's categories open on a header tap; open Planet (dials, stage 01-03) so the
+	## first visible slider is a real parameter row, as the retired column's first open group was.
+	for e in app._workspace_panels["world"].categories:
+		if String((e as Dictionary).get("title", "")) == "Planet":
+			var pb: Control = (e as Dictionary).get("body") as Control
+			if pb != null and not pb.is_visible_in_tree():
+				(pb.get_parent().get_child(0) as Button).pressed.emit()
+	await _frames(6)
 	var sl := _first_pg(scroll)
 	_check(sl != null, "a PgSlider is present")
 	if sl == null:

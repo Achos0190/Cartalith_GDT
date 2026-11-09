@@ -335,17 +335,15 @@ func _ready() -> void:
 	# scripted `--force-touch` run are both still not a finger; that is
 	# disclosed in the check name and in the run banner above, not implied.
 	if force_touch:
+		## Ruling EH item 1: the phone's GENERATE column and its dice (`_pg_roll_seed`) are deleted; the roll the
+		## phone has now is the WORLD dock's Run > New seed button, whose handler is `_roll_seed_marking_stale`
+		## (`_eh1_probe` taps the button; this cell proves the roll survives the frame and builds).
 		var ws4 = _app._world_workspace()
-		var host4 := VBoxContainer.new()
-		add_child(host4)
-		ws4.build_phone_generate(host4)
-		await get_tree().process_frame
 		dlg.hide()
 		await get_tree().process_frame
 		var base4 := await _settle(dlg)
-		ws4._pg_rebuild()
 		await get_tree().process_frame
-		ws4._pg_roll_seed()
+		ws4._roll_seed_marking_stale()
 		var rolled4 := int(dlg.seed_input.value)
 		await get_tree().process_frame  # "survives the frame"
 		var survived4 := int(dlg.seed_input.value) == rolled4 and rolled4 != base4

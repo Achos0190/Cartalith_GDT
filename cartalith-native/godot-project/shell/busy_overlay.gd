@@ -49,8 +49,8 @@ extends Control
 ## once; inside a long stage a new line every `ROTATE_S`, never the previous one.
 ##
 ## **Never.** Never call a `world_gen` method or `GenerationProgress` from here. Never offer a
-## cancel (the engine has no cancel entry point; `world_workspace.gd::_pg_progress_card` says the
-## same). Never hold a non-engine source across more frames than `WATCHDOG_FRAMES` (the watchdog
+## cancel (the engine has no cancel entry point; the retired phone GENERATE column's progress card said the
+## same, Ruling EH item 1). Never hold a non-engine source across more frames than `WATCHDOG_FRAMES` (the watchdog
 ## will release it; `busy_run` holds `PAINT_FRAMES + SETTLE_FRAMES`). Never draw progress the engine did not report: the trace's head (`_head`) eases
 ## toward the completed-stages fraction (`_solid`) and never past it, so it is monotonic and stops
 ## at the last tick the engine reported; the glint running along it is animation, not a measurement.

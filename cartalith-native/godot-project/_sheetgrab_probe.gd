@@ -261,16 +261,15 @@ func _ready() -> void:
 	## scrolls that body, the gesture is not merely lost -- it does something
 	## else, which is what a user reads as "the drawer will not drag up".
 	await _reset_peek()
-	## **Both scrollers, named.** `col` holds two: `_phone_tool_scroll` (the
-	## tool-options row) and `_phone_gen_scroll` (the GENERATE parameter
-	## column), and `_refresh_phone_gen_panel()` shows exactly one. A loop that
-	## takes the last `ScrollContainer` it finds silently measures whichever
-	## happens to be second in the tree -- it took the GENERATE column and
-	## reported its 1146 dp of content as if it were the sculpt sheet's.
+	## **The scroller, named.** `col` holds `_phone_tool_scroll` (the tool-options row) and, when a domain
+	## sheet is up, the dock's own scroller under `_phone_dom_host`; `_refresh_phone_sheet_body()` shows at
+	## most one. A loop that takes the last `ScrollContainer` it finds silently measures whichever happens to
+	## be second in the tree -- it once took the (now deleted, Ruling EH item 1) GENERATE column and reported
+	## its 1146 dp of content as if it were the sculpt sheet's.
 	var scroll: ScrollContainer = app._phone_tool_scroll
-	_log("[scrollers] tool vis=%s   gen vis=%s   tab=%s" % [
+	_log("[scrollers] tool vis=%s   dock-in-sheet vis=%s   tab=%s" % [
 		str(scroll != null and scroll.visible),
-		str(app._phone_gen_scroll != null and app._phone_gen_scroll.visible),
+		str(app._phone_dom_host != null and app._phone_dom_host.visible),
 		app._phone_tab])
 	if scroll == null:
 		_log("[miss]    no ScrollContainer found under the sheet")
