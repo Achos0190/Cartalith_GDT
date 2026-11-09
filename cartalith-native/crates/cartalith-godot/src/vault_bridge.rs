@@ -326,18 +326,20 @@ impl WorldGen {
     /// here, and `entity_id` is **absent** from the dictionary rather than
     /// present as a zero.
     ///
-    /// `label` is `LandmarkKindSpec::label` plus the cell -- "Waterfall (120,
-    /// 64)" -- which is what `vault_attach`'s `entity_label` wants and what
+    /// `label` is the landmark's Ruling EI name -- "Waterfall near Vhal Serai",
+    /// or "Waterfall (120, 64)" where no named place is near -- which is what
+    /// `vault_attach`'s `entity_label` wants and what
     /// `cartalith_vault::template::suggested_path` turns into
-    /// `Landmarks/Waterfall (120, 64).md`. A landmark has no name of its own
-    /// (see `export.rs`'s `EVERY`), so this is a designation, not one.
+    /// `Landmarks/Waterfall near Vhal Serai.md`. A landmark has no name of its own
+    /// stored (see `export.rs`'s `EVERY`); the name is derived on each call
+    /// (`cartalith_civ::landmark::place_name`).
     #[func]
     fn vault_landmark_entity_id(&self, key: GString) -> VarDictionary {
         let key = key.to_string();
         let Some(run) = self.landmark_store.last.as_ref() else {
             return err("No landmark pass has run for this world.");
         };
-        let Some(lm) = landmark_with_entity_id(
+        let Some(_lm) = landmark_with_entity_id(
             &run.landmarks,
             cartalith_vault::links::landmark_entity_id(&key),
         )
@@ -346,9 +348,40 @@ impl WorldGen {
         };
         let mut d = ok();
         d.set("entity_id", cartalith_vault::links::landmark_entity_id(&key));
-        if let Some(spec) = cartalith_civ::landmark::kind_spec(&lm.kind) {
-            d.set("label", format!("{} ({}, {})", spec.label, lm.x, lm.y));
+        // Ruling EI: the label is the landmark's generated (or user-given) name, which is also
+        // what `[[...]]` links write; the type-and-cell designation is that name's own
+        // fallback, so a world with no near place still gets the old label.
+        if let Some(n) = self.landmark_name_list().into_iter().find(|n| n.key == key) {
+            d.set("label", n.name.as_str());
         }
+        d
+    }
+
+    /// Ruling DP's private badge: which of `rels` are private, `{ok, marks, decided}`.
+    ///
+    /// `marks` is `{rel: label}` for each private note, the label the fixed-vocabulary words of
+    /// `cartalith_vault::private::PrivateMarker::label` ("a folder named dm", "frontmatter
+    /// private: true"), never note text. `decided` lists every `rel` whose answer is final. **A
+    /// `rel` in neither is undecided**: it was past the read budget or could not be read, and a list
+    /// must draw it as unknown rather than as public ("not looked at" is not "not private").
+    ///
+    /// A note in a private folder is decided from its path with no read; any other note is read
+    /// once. `max_reads <= 0` means 400 reads, so a vault of thousands is badged over several calls
+    /// (pass the leftovers back) rather than in one stall. Reads are of the note's text only, kept
+    /// nowhere. The rule is `cartalith_vault::private::private_marks`, which has the tests.
+    #[func]
+    fn vault_private_marks(&self, rels: PackedStringArray, max_reads: i64) -> VarDictionary {
+        let budget = if max_reads > 0 { max_reads as usize } else { 400 };
+        let paths: Vec<String> = rels.as_slice().iter().map(|r| r.to_string()).collect();
+        let got = cartalith_vault::private::private_marks(&paths, budget, |p| self.vault.read(p).ok());
+        let mut marks = VarDictionary::new();
+        for (p, m) in &got.private {
+            marks.set(p.as_str(), m.label().as_str());
+        }
+        let decided: PackedStringArray = got.decided.iter().map(|p| GString::from(p.as_str())).collect();
+        let mut d = ok();
+        d.set("marks", &marks);
+        d.set("decided", &decided);
         d
     }
 

@@ -71,6 +71,9 @@ var on_close: Callable = Callable()
 var rename_note: Callable = Callable()
 var last_rename: Callable = Callable()
 var undo_rename: Callable = Callable()
+## Ruling DP (VE-9). `private_suffix(rel) -> String` answers the badge text for a note (`  ·  private`, or `""` for a
+## public or undecided one) from the host's one cache, so a backlink or a mention of a private note is drawn as private.
+var private_suffix: Callable = Callable()
 
 ## The active tab key (one of `TABS`).
 var tab := "links"
@@ -294,6 +297,12 @@ func _row_button(text: String, tip: String, on_press: Callable) -> Button:
 ## Backlinks (notes that link here) and unlinked mentions (notes that name this one in prose), from the
 ## backlink index. With no index the tab says so and offers to build it: an empty list would read as
 ## "nothing links here", which is a claim the vault never made (`vault_backlink_stats().built`).
+## Ruling DP (VE-9): `  ·  private` for a private note (the host's `private_suffix`), so a backlink or a mention
+## of a private note is drawn as private; `""` for a public or undecided one, or with no host to ask.
+func _private_suffix(rel: String) -> String:
+	return String(private_suffix.call(rel)) if private_suffix.is_valid() else ""
+
+
 func _build_links() -> void:
 	var rel := _rel()
 	if rel == "":
@@ -317,7 +326,7 @@ func _build_links() -> void:
 		var d: Dictionary = bl
 		var src := String(d.get("rel", ""))
 		var n := int(d.get("count", 1))
-		var row := _row_button("%s%s" % [src, "  ×%d" % n if n > 1 else ""], "Opens %s at the first link to this note." % src, func(): open_backlink(src))
+		var row := _row_button("%s%s%s" % [src, "  ×%d" % n if n > 1 else "", _private_suffix(src)], "Opens %s at the first link to this note." % src, func(): open_backlink(src))
 		row.name = ("Backlink_" + src).validate_node_name()
 		_body.add_child(row)
 	_heading("UNLINKED MENTIONS  %d" % mentions.size())
@@ -329,7 +338,7 @@ func _build_links() -> void:
 		var box := VBoxContainer.new()
 		box.add_theme_constant_override("separation", 2)
 		_body.add_child(box)
-		var open := _row_button(src2, "Opens %s at the mention." % src2, func(): open_mention(src2))
+		var open := _row_button(src2 + _private_suffix(src2), "Opens %s at the mention." % src2, func(): open_mention(src2))
 		open.name = ("Mention_" + src2).validate_node_name()
 		box.add_child(open)
 		var ex := DccTheme.label(String(md.get("excerpt", "")), "text_ghost", DccTheme.FS_SMALL)

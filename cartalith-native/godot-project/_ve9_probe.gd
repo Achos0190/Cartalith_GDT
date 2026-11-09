@@ -11,7 +11,7 @@ extends Node
 ## index refresh all see every note; the bridge's default limits are the crate's own; `[[Highland]]` is classed as a
 ## culture with no note (and `[[highland]]` too), is offered by the `[[` suggestions as "culture, no note yet", and
 ## creating a note from its link binds it to the culture; a note called Highland wins the name once it exists; a
-## name that is no entity is unresolved, and a landmark is NOT a link class (it has no name to be linked by).
+## name that is no entity is unresolved, and a name no landmark has stays unresolved (landmarks are linkable since Ruling EI: see _ve9b_probe).
 
 var _vp: SubViewport
 var app: Node
@@ -157,7 +157,7 @@ func _ready() -> void:
 	k = vw._link_kind("Hub.md", "Nowhere Special")
 	_ok("a name that is no entity stays unresolved", String(k.get("kind", "")) == "unresolved", str(k))
 	k = vw._link_kind("Hub.md", "Waterfall 1")
-	_ok("a landmark is NOT a link class (no name to link by): it stays unresolved", String(k.get("kind", "")) == "unresolved", str(k))
+	_ok("a name that is no landmark's (Ruling EI names them \"Type near Place\") stays unresolved", String(k.get("kind", "")) == "unresolved", str(k))
 	var rows2: Array = vw._suggest_rows("note", "", "Highl", 8)
 	var found := false
 	for row in rows2:

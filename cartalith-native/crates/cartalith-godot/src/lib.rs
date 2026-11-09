@@ -6919,6 +6919,14 @@ struct WorldGen {
     /// it restores a run the archive already carried.
     landmark_store: cartalith_civ::landmark::LandmarkStore,
 
+    /// Ruling EI: names the user gave landmarks, `Landmark::key()` to name, read by
+    /// `landmark_names()` ahead of the generated one. **Session-only and not saved**:
+    /// nothing in a project archive stores a landmark name today (the ruling adds none to a
+    /// save), so a name set here is gone on a reload or a new world (cleared where the landmark
+    /// settings are reset on a project open). The key is kind and cell, so a stale entry for a
+    /// landmark that is no longer placed is inert.
+    landmark_user_names: std::collections::BTreeMap<String, String>,
+
     /// `STORY_PLANNING_SCOPE.md` SP-4: every drawn conflict. Emptied with
     /// the world (`absorb`, `load_save`, a recentre); anchors detached when
     /// `tid`s are reissued (`civ_populate`, `civ_clear_places`). See
@@ -7274,6 +7282,7 @@ impl IRefCounted for WorldGen {
             knowledge: crate::knowledge_service::KnowledgeState::new(),
             wildlife: None,
             landmark_store: cartalith_civ::landmark::LandmarkStore::new(),
+            landmark_user_names: std::collections::BTreeMap::new(),
             conflicts: cartalith_civ::conflict::ConflictStore::new(),
             carried_foreign: std::collections::BTreeMap::new(),
             landmark_error: String::new(),
@@ -10292,6 +10301,8 @@ impl WorldGen {
         // first), so an archive carrying a landmark document still wins and
         // one without it opens at the documented defaults.
         self.landmark_store.settings = cartalith_civ::landmark::LandmarkSettings::default();
+        // Ruling EI: user-given landmark names belong to the world they were given in.
+        self.landmark_user_names.clear();
         // The previous project's unmodelled entries, for exactly the reason
         // the landmark settings above are reset: they belong to the file that
         // is being closed. `project_open` calls this function first and then
@@ -26733,6 +26744,85 @@ impl WorldGen {
             .last
             .as_ref()
             .map_or_else(Array::new, |r| r.landmarks.iter().map(landmark_dict).collect())
+    }
+
+    /// Ruling EI: every placed landmark's name, `[{key, id, name, source}]` in the order
+    /// `landmarks()` lists them. `key` is `Landmark::key()`; `source` is `user`, `near_place` or
+    /// `fallback` (`cartalith_civ::landmark::NameSource`), so a caller says which instead of
+    /// parsing the text. The name is the user's, else the type label plus the nearest named
+    /// settlement (`Waterfall near Vhal Serai`), else the type label and cell
+    /// (`Waterfall (120, 64)`); see `cartalith_civ::landmark::place_name` for the rules and
+    /// their tests. Empty before a landmark run. Derived on each call from the placements and
+    /// the settlements, never stored, so it cannot drift from either.
+    #[func]
+    fn landmark_names(&self) -> Array<VarDictionary> {
+        self.landmark_name_list()
+            .into_iter()
+            .map(|n| {
+                dict! {
+                    "key" => n.key.as_str(),
+                    // The vault's entity id for this landmark, so a caller listing every landmark
+                    // for a `[[` card does not make one `vault_landmark_entity_id` call (and one
+                    // whole-world naming) per row.
+                    "id" => cartalith_vault::links::landmark_entity_id(&n.key),
+                    "name" => n.name.as_str(),
+                    "source" => match n.source {
+                        cartalith_civ::landmark::NameSource::UserGiven => "user",
+                        cartalith_civ::landmark::NameSource::NearPlace => "near_place",
+                        cartalith_civ::landmark::NameSource::Fallback => "fallback",
+                    },
+                }
+            })
+            .collect()
+    }
+
+    /// `landmark_names()`'s data, for Rust callers (`vault_landmark_entity_id` labels a note with it).
+    pub(crate) fn landmark_name_list(&self) -> Vec<cartalith_civ::landmark::LandmarkName> {
+        let Some(run) = self.landmark_store.last.as_ref() else { return Vec::new() };
+        let places: Vec<cartalith_civ::landmark::NamedPlace<'_>> = self
+            .civ
+            .as_ref()
+            .map(|c| {
+                c.settlements
+                    .iter()
+                    .map(|s| cartalith_civ::landmark::NamedPlace {
+                        name: s.name.as_str(),
+                        x: s.placement.x as f64,
+                        y: s.placement.y as f64,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        cartalith_civ::landmark::landmark_names(
+            &run.landmarks,
+            &places,
+            self.gw.max(0) as usize,
+            self.gh.max(0) as usize,
+            &self.landmark_user_names,
+        )
+    }
+
+    /// Ruling EI: gives the landmark `key` a name of the user's own, replacing the generated one.
+    /// An empty (or blank) `name` removes it. `false` when no placed landmark has that key.
+    /// **Session-only** (see `landmark_user_names`): no project file carries it yet.
+    #[func]
+    fn landmark_set_user_name(&mut self, key: GString, name: GString) -> bool {
+        let key = key.to_string();
+        let placed = self
+            .landmark_store
+            .last
+            .as_ref()
+            .is_some_and(|r| r.landmarks.iter().any(|l| l.key() == key));
+        if !placed {
+            return false;
+        }
+        let name = name.to_string();
+        if name.trim().is_empty() {
+            self.landmark_user_names.remove(&key);
+        } else {
+            self.landmark_user_names.insert(key, name.trim().to_string());
+        }
+        true
     }
 
     /// The last `landmark_run()`'s per-type funnel — the "why fewer than I

@@ -240,8 +240,8 @@ func _find() -> void:
 		texts.append((c as Button).text)
 		if (c as Button).disabled:
 			declined.append((c as Button).text)
-	_ok("seven chips, in SEARCH_SCOPES order (c cultures added by the PC-4 culture follow-up)", ",".join(PackedStringArray(texts)),
-		"s settlements,f factions,c cultures,lb labels,r routes,. commands,l landmarks")
+	_ok("eight chips, in SEARCH_SCOPES order (c cultures by the PC-4 follow-up, n notes by VE-9)", ",".join(PackedStringArray(texts)),
+		"s settlements,f factions,c cultures,lb labels,r routes,n notes,. commands,l landmarks")
 	_ok("exactly one is disabled", declined.size(), 1)
 	_ok("...and it is landmarks", declined[0] if declined.size() > 0 else "-", "l landmarks")
 	var l_chip: Button = null
@@ -249,7 +249,7 @@ func _find() -> void:
 		if (c as Button).text == "l landmarks":
 			l_chip = c
 	_ok("the disabled chip carries the code's own reason, not a blank",
-		l_chip != null and l_chip.tooltip_text.contains("four closed vocabularies"), true)
+		l_chip != null and l_chip.tooltip_text.contains("named now"), true)
 
 	print("\n=== G. whole-token scope split: l and lb cannot collide ===")
 	_ok("'lb ald' -> labels", _scope_of("lb ald"), "lb")
@@ -356,7 +356,7 @@ func _find() -> void:
 	await _frames(6)
 	_ok("the declined scope draws no rows", _rows_of().size(), 0)
 	_ok("...it draws the reason instead",
-		_notice_text().contains("four closed vocabularies"), true)
+		_notice_text().contains("named now"), true)
 	_ok("...and the count says why, not '0 of 0'", count.text, "landmarks · not indexed")
 
 # -- K : the phone sheet ----------------------------------------------------------

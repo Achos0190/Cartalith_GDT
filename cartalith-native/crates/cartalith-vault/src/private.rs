@@ -227,6 +227,51 @@ fn inline_tag(body: &str) -> Option<&'static str> {
     None
 }
 
+/// The answer for a list of notes at once: what a list or a link shows beside a note's name
+/// (the private badge, Ruling DP). See [`private_marks`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrivateMarks {
+    /// `(path, marker)` for every path that is private, in the order the paths were given.
+    pub private: Vec<(String, PrivateMarker)>,
+    /// Every path whose answer is **final** (private or public), in order. A path in neither list
+    /// was *not decided* (the read budget ran out, or the note could not be read) and must be shown
+    /// as unknown, never as public: "not looked at" is not "not private".
+    pub decided: Vec<String>,
+}
+
+/// Decides [`private_marker`] for each of `paths`, reading a note only when its path alone does not
+/// decide it (a note in a private folder needs no read) and **at most `max_reads` times**, so a list
+/// of thousands cannot stall the caller; a later call with the leftovers continues.
+///
+/// `read` returns the note's text, or `None` when it cannot be read: that note is left undecided
+/// rather than guessed public (`MISTAKES.md`: never encode "no value" as a plausible value). Pure
+/// apart from `read`, and the order of `paths` is the order of both result lists.
+pub fn private_marks(
+    paths: &[String],
+    max_reads: usize,
+    mut read: impl FnMut(&str) -> Option<String>,
+) -> PrivateMarks {
+    let mut out = PrivateMarks::default();
+    let mut reads = 0usize;
+    for p in paths {
+        if let Some(f) = private_folder(p) {
+            out.private.push((p.clone(), PrivateMarker::Folder(f)));
+            out.decided.push(p.clone());
+            continue;
+        }
+        if reads >= max_reads {
+            continue;
+        }
+        reads += 1;
+        let Some(text) = read(p) else { continue };
+        if let Some(m) = private_marker(p, &text) {
+            out.private.push((p.clone(), m));
+        }
+        out.decided.push(p.clone());
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +403,28 @@ mod tests {
         assert!(!is_private("a.md", "é#secret"), "a hash after a non-space is not a tag");
         assert!(!is_private("a.md", "---\n...\nbody"));
         assert!(is_private("a.md", "---"), "a lone opener is malformed and withheld");
+    }
+    /// Protects: the batch answer the private badge reads. A folder decides without a read, a body
+    /// marker needs the read, a public note is *decided* and not private, an unreadable note and
+    /// any note past the budget are *undecided* (neither private nor decided), and order is kept.
+    /// MUTATION: reading a folder note, counting an unreadable note as decided, or ignoring the
+    /// budget each turns a line red.
+    #[test]
+    fn private_marks_reads_only_what_the_path_cannot_decide_and_never_guesses_public() {
+        let paths: Vec<String> = ["DM/a.md", "b.md", "c.md", "gone.md", "d.md"].iter().map(|s| s.to_string()).collect();
+        let mut reads = Vec::new();
+        let m = private_marks(&paths, 3, |p| {
+            reads.push(p.to_string());
+            match p {
+                "b.md" => Some("---\nprivate: true\n---\nx".to_string()),
+                "c.md" => Some("# Open".to_string()),
+                _ => None,
+            }
+        });
+        assert_eq!(reads, vec!["b.md", "c.md", "gone.md"], "the folder note is not read; the budget is 3");
+        assert_eq!(m.private.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), vec!["DM/a.md", "b.md"]);
+        assert_eq!(m.private[0].1, PrivateMarker::Folder("dm"));
+        assert_eq!(m.private[1].1, PrivateMarker::Flag("private"));
+        assert_eq!(m.decided, vec!["DM/a.md", "b.md", "c.md"], "gone.md and d.md are undecided");
     }
 }

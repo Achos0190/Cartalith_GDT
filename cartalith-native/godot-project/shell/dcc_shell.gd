@@ -686,6 +686,8 @@ var _phone_menu: PhoneMenu      ## L2-L5. Replaces the old `_phone_overflow`
 ## `class_name` -- `tool_fan.gd`'s own header explains why -- so this is typed
 ## against the const below rather than a global class.
 const ToolFan := preload("res://shell/tool_fan.gd")
+## The Find `n ` scope's notes search (VE-9); a script file with no `class_name`.
+const NotesFind := preload("res://shell/notes_find.gd")
 ## The CM-6 tool fan (a `ToolFan`): the gesture grammar behind the tool strip's chip (the chip is mounted in
 ## `_tool_strip`, since MS-5's second step).
 var _tool_fan: ToolFan
@@ -9518,7 +9520,7 @@ func _reset_place_search_cache() -> void:
 ## generated from `SEARCH_SCOPES` on purpose: a generated list would read
 ## "s settlements, f factions, ..." and say nothing about the space, which is
 ## the part that decides whether a token is a scope at all.
-const SEARCH_HINT := "Start with a scope and a space to narrow: s settlements, f factions, c cultures, lb labels, r routes, . commands."
+const SEARCH_HINT := "Start with a scope and a space to narrow: s settlements, f factions, c cultures, lb labels, r routes, n notes, . commands."
 
 ## The search prefix table, in display order; each row has `prefix`, `label` and exactly one of `entity`, `commands` or `why` (see the note above).
 const SEARCH_SCOPES: Array = [
@@ -9527,16 +9529,17 @@ const SEARCH_SCOPES: Array = [
 	{"prefix": "c", "label": "cultures", "entity": "culture"},
 	{"prefix": "lb", "label": "labels", "entity": "label"},
 	{"prefix": "r", "label": "routes", "entity": "route"},
+	## VE-9: the vault's notes, searched by `vault_search` (names always, text once indexed) through `NotesFind`.
+	{"prefix": "n", "label": "notes", "notes": true},
 	{"prefix": ".", "label": "commands", "commands": true},
-	## **Declined, in the code's own words.** `place_search.gd`'s header
-	## declines icons because `icon_dict` (lib.rs:5939-5948) carries
-	## `family`/`slot`/`set`/`scale` -- four closed vocabularies and no
-	## identifying name -- so a row reading "pine / forest" is not a place
-	## anyone typed a name to find. Drawn disabled rather than omitted because
-	## a searcher who expects landmarks deserves to be told why there are none,
-	## and typing `l ` says the same thing where the result list would be.
+	## **Declined, and the reason has moved.** `place_search.gd`'s header declines icons because `icon_dict`
+	## carries `family`/`slot`/`set`/`scale` -- four closed vocabularies and no identifying name. Placed
+	## landmarks were declined with them; since Ruling EI (2026-11-08) a landmark has a derived name, so
+	## that reason is gone and the row is declined only because `PlaceSearch` does not index them yet
+	## (a follow-up filed in `STATUS.md`). Drawn disabled rather than omitted so a searcher who expects
+	## landmarks is told, and typing `l ` says the same thing where the result list would be.
 	{"prefix": "l", "label": "landmarks",
-		"why": "Placed landmarks carry family / slot / set / scale — four closed vocabularies, no name. Nothing to type to find one."},
+		"why": "Placed landmarks are named now (Ruling EI: type plus nearest place, as the vault links them) but are not in this index yet. Link to one from a note with [[ instead."},
 ]
 
 ## The band a returned row fell in, recomputed here rather than re-ranked.
@@ -9633,6 +9636,11 @@ func _search_result_set(raw: String) -> Dictionary:
 		out["note"] = String(scope["why"])
 		return out
 
+	if scope.has("notes"):
+		var nf := NotesFind.rows(self, _find_engine_bridge(), query)
+		nf["scope"] = scope
+		return nf
+
 	if scope.has("commands"):
 		var idx := _ensure_command_index()
 		out["rows"] = idx.all() if query == "" else idx.search(query)
@@ -9675,6 +9683,8 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 	var rows: Array = res.get("rows", [])
 	if rows.is_empty():
 		container.add_child(_search_notice("No matches"))
+		if res.has("footer"):
+			container.add_child(_search_notice(String(res["footer"])))
 		return
 	var commands: bool = res.has("commands")
 	var needle := String(res.get("query", "")).to_lower()
@@ -9723,6 +9733,9 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 		var line2 := "%s — %s" % [kind, sub] if kind != "" and sub != "" else kind + sub
 		container.add_child(_phone_list_row(String(d.get("name", "")), line2,
 			_select_search_hit.bind(d, close_fn)))
+	## A qualifier the list must not hide (the notes scope's names-only / capped answers).
+	if res.has("footer"):
+		container.add_child(_search_notice(String(res["footer"])))
 
 ## A tap on a `.` command row (phone and desktop dialog alike): run it when the index calls it pinnable, close
 ## the surface that opened it, else say why not and stay open. **One path:** the run is
@@ -9955,6 +9968,13 @@ func _select_search_hit(d: Dictionary, close_fn: Callable) -> void:
 	if vh != null and d.has("x") and d.has("y"):
 		vh.move_view_to(float(int(d.get("x", 0))), float(int(d.get("y", 0))))
 	var entity := String(d.get("entity", ""))
+	## VE-9: a notes hit opens that note in the vault window (the app owns it; a bare shell has none).
+	if entity == "note" and d.has("rel"):
+		var vw = get("vault_window")
+		if vw != null and vw.has_method("open_note"):
+			vw.call("open_note", String(d["rel"]))
+		close_fn.call()
+		return
 	if (entity == "settlement" or entity == "faction" or entity == "culture") and d.has("id") and has_method("select"):
 		call("select", entity, int(d["id"]))
 	close_fn.call()

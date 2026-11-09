@@ -101,6 +101,8 @@ class_name VaultWindow
 const MdEditor := preload("res://shell/markdown_editor.gd")
 ## The side panel (VE-5): Links, Outline, Properties, Tags. Held without a `class_name`, as the editor is.
 const SidePanel := preload("res://shell/vault_side_panel.gd")
+## The private badge's cache (Ruling DP, VE-9): which notes are private, asked of the crate's one rule.
+const Privacy := preload("res://shell/vault_privacy.gd")
 ## The window width from which the side panel sits to the RIGHT of the editor (px of the window, which
 ## are dp here). Below it the panel sits BELOW the editor, the "end of the note" form of the proposal's
 ## s.4. A labelled judgement: the editor wants 760 for Split, the tree column takes 220-300, so a 280
@@ -111,6 +113,9 @@ const SIDE_RIGHT_MIN_W := 1100
 var app                       ## `DccApp`
 ## The `EngineBridge` given to `setup()`; every `vault_*` call in this window goes through it.
 var bridge: EngineBridge
+## Which notes are private, held so every list and link can say so (`vault_privacy.gd`). Built on first use,
+## emptied when the window opens on a vault (`_forget_privacy`), and one note's answer dropped when it is saved.
+var _privacy: RefCounted
 
 ## The entity this window is scoped to. Empty `kind` means the overview.
 var _kind := ""
@@ -216,9 +221,9 @@ var _editor_path := ""
 ## a note is picked from the tree, searched for or opened from the map, because those start a new
 ## trail rather than continuing one.
 var _link_back: Array = []
-## Lower-cased entity name -> `{kind, id}` for the four kinds `_entity_list` can list; built on the
-## first link classed after a rebuild (`_clear` empties it). Culture and landmark names are not in
-## it -- this window cannot look them up (`_resolve_entity`) -- so a link to one reads as unresolved.
+## Lower-cased entity name -> `{kind, id}` for the kinds `_entity_list` can list (settlement, province,
+## continent, faction, culture and, since Ruling EI, landmark); built on the first link classed after a
+## rebuild (`_clear` empties it), so a landmark name given while the window is open reads from the next open.
 var _ent_names: Dictionary = {}
 
 ## The "Attach to…" picker (`_build_attach_picker`): open or not, the kind it
@@ -427,6 +432,7 @@ func open_for(kind: String, entity_id: int, label: String) -> void:
 	if _is_dirty():
 		_guard_dirty(func(): open_for(kind, entity_id, label))
 		return
+	privacy().clear()
 	_kind = kind
 	_entity_id = entity_id
 	_entity_label = label
@@ -507,6 +513,14 @@ func open_overview() -> void:
 	open_for("", 0, "")
 
 
+## The map's Find notes scope opens a note here (VE-9): the browse window, then the note in Write (Ruling DY, VQ4).
+## A dirty note asks first, as every other way into the window does.
+func open_note(rel: String) -> void:
+	open_browse()
+	if _browse_only:
+		_enter_note(rel)
+
+
 ## The standalone browse-and-edit entry point (owner request, 2026-09-21):
 ## the same window, no entity/kind scope and no Attach — Search plus the file
 ## browser and its raw-text preview+edit panel (`_build_browse`), so a note
@@ -523,6 +537,7 @@ func open_browse() -> void:
 	if _is_dirty():
 		_guard_dirty(open_browse)
 		return
+	privacy().clear()
 	_kind = ""
 	_entity_id = 0
 	_entity_label = ""
@@ -892,7 +907,7 @@ func _fill_search_results() -> void:
 			else DccIcons.SYMBOLS["expand"]
 		## In the browser a hit opens the note in the pane beside it -- the
 		## pane already shows everything the old inline readout did.
-		var open := DccWidgets.action(_search_box, "%s %s" % [mark, rel], func():
+		var open := DccWidgets.action(_search_box, privacy().badged(rel, "%s %s" % [mark, rel]), func():
 			if in_browser:
 				_select_file(rel)
 				return
@@ -1596,9 +1611,22 @@ func _frontmatter_entity(fm: Dictionary) -> Dictionary:
 ## present only when this world actually has it (`x`/`y` a map position,
 ## `index` an index into `bridge.settlements()` for the place editor). `{}` when
 ## nothing by that id exists -- which is also the answer for a kind this window
-## does not look up (landmark: a landmark has no name to be linked by, VE-9), and the callers say which.
+## does not look up, and the callers say which. A landmark (Ruling EI) is found by its vault entity id in
+## `bridge.landmark_names()` and carries `{name, x, y}` (its cell; no `faction`, no `index`).
 func _resolve_entity(kind: String, id: int) -> Dictionary:
 	match kind:
+		"landmark":
+			for n in bridge.landmark_names():
+				var d: Dictionary = n
+				if int(d.get("id", -1)) == id:
+					var out := {"name": String(d.get("name", ""))}
+					## The key is `kind@x,y`; the cell is read from it rather than guessed, and left out when
+					## it does not parse (a landmark with no position offers no Centre on map).
+					var cell := String(d.get("key", "")).get_slice("@", 1).split(",")
+					if cell.size() == 2 and cell[0].is_valid_int() and cell[1].is_valid_int():
+						out["x"] = float(int(cell[0]))
+						out["y"] = float(int(cell[1]))
+					return out
 		"culture":
 			## VE-9. A culture is addressed by its `CIV_CULTURES` index (`get_cultures`' `id`), has no map
 			## position (so no Centre on map), and its name is the title-cased key the engine gives it.
@@ -1665,6 +1693,10 @@ func _entity_list(kind: String) -> Array:
 			## VE-9: the seven cultures of `CIV_CULTURES`, which exist before any world does.
 			for c in bridge.get_cultures():
 				out.append({"id": int((c as Dictionary).get("id", 0)), "name": String((c as Dictionary).get("name", "?"))})
+		"landmark":
+			## Ruling EI: the generated (or user-given) name of every placed landmark.
+			for n in bridge.landmark_names():
+				out.append({"id": int((n as Dictionary).get("id", 0)), "name": String((n as Dictionary).get("name", "?"))})
 	return out
 
 
@@ -1685,8 +1717,8 @@ func _faction_name(fid: int) -> String:
 
 ## What a link `note_part` (the text before any `#heading` or `^block`) written in the note at
 ## `from_rel` names, as `{kind}`: `note` (plus `path`, or `candidates` when more than one note could
-## mean it), `entity` (a settlement, province, continent, faction or culture of this world that has no note
-## by that name; plus `ent_kind` and `id`; cultures since VE-9), `unresolved` (nothing by that name), or `unknown` (the
+## mean it), `entity` (a settlement, province, continent, faction, culture or landmark of this world that has no
+## note by that name; plus `ent_kind` and `id`; cultures since VE-9, landmarks since Ruling EI), `unresolved` (nothing by that name), or `unknown` (the
 ## resolver could not answer -- generating, or no vault bound -- plus `why`). `unknown` is its own
 ## answer on purpose: reading a failed lookup as `unresolved` would offer to CREATE a note that may
 ## well exist (`MISTAKES.md`: never encode "no value" as a plausible value).
@@ -1705,13 +1737,58 @@ func _link_kind(from_rel: String, note_part: String) -> Dictionary:
 	return {"kind": "unresolved"}
 
 
+## How many notes the browse tree asks the crate about per pass (`_badge_tree`): a folder marker costs no read,
+## any other note one, so a vault of thousands is badged over a few frames instead of in one stall. A
+## labelled judgement (a read is well under a millisecond on the machines measured).
+const PRIV_CHUNK := 400
+## Bumped by every tree build, so a pass belonging to a tree that has been replaced stops.
+var _priv_pass := 0
+
+
+## Ruling DP (VE-9): draws the private badge on the browse tree's note rows. The first chunk is decided before the
+## tree is first drawn; the rest follow a frame at a time. A note that could not be decided (unreadable) keeps no
+## badge, and a pass that decides nothing stops rather than ask again forever.
+func _badge_tree(leaves: Array) -> void:
+	_priv_pass += 1
+	var mine := _priv_pass
+	var rels: Array = []
+	for lv in leaves:
+		rels.append(String((lv as Array)[1]))
+	while not rels.is_empty():
+		var n: int = privacy().decide(rels, PRIV_CHUNK)
+		for lv in leaves:
+			var item: TreeItem = (lv as Array)[0]
+			var rel := String((lv as Array)[1])
+			if is_instance_valid(item) and privacy().is_private(rel) and not item.get_text(0).ends_with(Privacy.SUFFIX):
+				item.set_text(0, item.get_text(0) + Privacy.SUFFIX)
+				var tip := item.get_tooltip_text(0)
+				item.set_tooltip_text(0, ("%s%sPrivate: %s." % [tip, " " if tip != "" else "", privacy().reason(rel)]))
+		if n == 0:
+			return
+		rels = privacy().pending(rels)
+		if rels.is_empty():
+			return
+		await get_tree().process_frame
+		if mine != _priv_pass or not is_inside_tree():
+			return
+
+
+## The private-note cache (`vault_privacy.gd`), shared with the side panel and the map's Find notes scope
+## (Ruling DP: a private note is shown as private wherever a note is listed or linked).
+func privacy() -> RefCounted:
+	if _privacy == null:
+		_privacy = Privacy.new(bridge)
+	return _privacy
+
+
 ## `_ent_names`, built on first use. The first entity of a name wins (names are not unique across
 ## kinds; a note link would be unambiguous, an entity link is only a courtesy).
 func _entity_names() -> Dictionary:
 	if _ent_names.is_empty():
-		## Cultures last (VE-9): a culture is a generic word ("Highland"), so a settlement, province, continent or
-		## faction of that name must win the link. Landmarks are not here: they carry no name to link by.
-		for kind in ["settlement", "province", "continent", "faction", "culture"]:
+		## Cultures next-to-last (VE-9): a culture is a generic word ("Highland"), so a settlement, province,
+		## continent or faction of that name must win the link. Landmarks last (Ruling EI): their names are
+		## "Waterfall near Vhal Serai", so a real place or note of the same words still wins.
+		for kind in ["settlement", "province", "continent", "faction", "culture", "landmark"]:
 			for ent in _entity_list(kind):
 				var n := String((ent as Dictionary).get("name", "")).strip_edges()
 				var key := n.to_lower()
@@ -1753,7 +1830,7 @@ func _suggest_rows(mode: String, note: String, query: String, limit: int) -> Arr
 		seen_names[name.to_lower()] = true
 		## A name shared by two notes is written as its path, so the link names one of them.
 		var target := name if int(dup.get(name.to_lower(), 0)) < 2 else path.trim_suffix(".md")
-		var row := {"kind": "note", "insert": target, "label": name,
+		var row := {"kind": "note", "insert": target, "label": name, "path": path,
 			"detail": path.get_base_dir() if path.get_base_dir() != "" else "",
 			"cls": _MATCH_ORDER.find(String(d.get("match", ""))), "sort": String(d.get("matched", name)).to_lower(), "tie": 0}
 		if d.has("alias"):
@@ -1788,6 +1865,15 @@ func _suggest_rows(mode: String, note: String, query: String, limit: int) -> Arr
 	var make_new := q != "" and not exact
 	var keep := limit - (1 if make_new else 0)
 	var rows: Array = ranked.slice(0, maxi(keep, 0))
+	## Ruling DP: a private note is offered as private (at most `limit` notes are asked about, never the vault).
+	for r in rows:
+		var rd: Dictionary = r
+		if String(rd.get("kind", "")) == "note" and rd.has("path"):
+			var pr := String(rd["path"])
+			privacy().decide([pr])
+			if privacy().is_private(pr):
+				rd["detail"] = (String(rd.get("detail", "")) + Privacy.SUFFIX).strip_edges(true, false)
+				rd["private"] = true
 	if make_new:
 		rows.append({"kind": "create", "insert": q, "label": "Link to new note “%s”" % q})
 	return rows
@@ -1852,7 +1938,7 @@ func _follow_link(from_rel: String, target: String, anchor: Control) -> void:
 				var items: Array = []
 				for c in info.get("candidates", []):
 					var path := String(c)
-					items.append({"label": path, "call": func(): _open_linked(path)})
+					items.append({"label": privacy().badged(path, path), "call": func(): _open_linked(path)})
 				_show_link_menu("%s could mean several notes" % note_part, items, anchor)
 		"entity":
 			var ent := _resolve_entity(String(info["ent_kind"]), int(info["id"]))
@@ -1975,6 +2061,14 @@ func _entity_of_note(rel: String) -> Dictionary:
 						return {"kind": "settlement", "id": i}
 			"faction":
 				return {"kind": "faction", "id": int(d.get("entity_id", -1))}
+			"landmark":
+				## `DccApp.selection`'s landmark id is an index into `bridge.landmarks()`; the link holds the
+				## vault entity id, so the index is found through the names (same order). A landmark no longer
+				## placed gives nothing, and the note then opens in the tab.
+				var names: Array = bridge.landmark_names()
+				for i in names.size():
+					if int((names[i] as Dictionary).get("id", -2)) == int(d.get("entity_id", -1)):
+						return {"kind": "landmark", "id": i}
 	return {}
 
 
@@ -2028,6 +2122,8 @@ func _peek_for(from_rel: String, target: String) -> String:
 			if not info.has("path"):
 				return "[b]%s[/b]\nCould mean %d notes." % [note_part, (info.get("candidates", []) as Array).size()]
 			var path := String(info["path"])
+			privacy().decide([path])
+			var priv_tag := "  [i]%s[/i]" % Privacy.WORD if privacy().is_private(path) else ""
 			var text := MdEditor.strip_frontmatter(bridge.vault_read_file(path))
 			var lines := PackedStringArray()
 			var chars := 0
@@ -2038,7 +2134,7 @@ func _peek_for(from_rel: String, target: String) -> String:
 				chars += ln.length()
 				if lines.size() >= PEEK_LINES or chars >= PEEK_CHARS:
 					break
-			return MdEditor.to_bbcode("\n".join(lines))
+			return priv_tag.strip_edges() + ("\n" if priv_tag != "" else "") + MdEditor.to_bbcode("\n".join(lines))
 		"entity":
 			return "[b]%s[/b]\nA %s of this world with no note yet." % [info["name"], info["ent_kind"]]
 	return ""
@@ -2338,6 +2434,16 @@ func _load_note_state(rel: String) -> bool:
 ## narrow frame; the full panel stays in the window, reached by the header's open-in-window button), and a
 ## link followed by Ctrl-click re-docks instead of rebuilding the window (`_enter_note`).
 func _build_editor_pane(parent: Control, docked: bool = false) -> void:
+	## Ruling DP (VE-9): the open note says so when it is private, whichever host it is in. Asked afresh (the
+	## text may have just been saved with or without a marker), never assumed from an earlier list.
+	privacy().forget(_browse_path)
+	privacy().decide([_browse_path])
+	if privacy().is_private(_browse_path):
+		var pn := DccTheme.label("Private note: %s. Cartalith withholds it from the assistant's knowledge and place prose." % privacy().reason(_browse_path), "accent", DccTheme.FS_TINY)
+		pn.name = "VaultPrivateNotice"
+		pn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		pn.custom_minimum_size.x = 160
+		parent.add_child(pn)
 	## VE-5: the editor and its side panel share one host, side by side on a wide window and stacked on a
 	## narrow one (`SIDE_RIGHT_MIN_W`). The host fills the pane exactly as the bare editor did.
 	var wide := (not _phone) and size.x >= SIDE_RIGHT_MIN_W and not docked
@@ -2463,6 +2569,9 @@ func _build_side_panel(host: BoxContainer, ed, wide: bool) -> void:
 	panel.rename_note = _request_rename
 	panel.last_rename = func() -> Dictionary: return _rename_last
 	panel.undo_rename = _undo_rename
+	panel.private_suffix = func(rel: String) -> String:
+		privacy().decide([rel])
+		return privacy().suffix(rel)
 	if wide:
 		panel.custom_minimum_size.x = 300
 		panel.size_flags_horizontal = Control.SIZE_FILL
@@ -2517,6 +2626,8 @@ func _set_side(on: bool) -> void:
 ## pause is never what waits for it. "The index refreshes on save and on rename, not only on a manual
 ## Refresh" (proposal s.3.2).
 func _after_save() -> void:
+	## Its frontmatter may have gained or lost a private marker: ask again next time it is listed.
+	privacy().forget(_browse_path)
 	dock_saved.emit()
 	if bool(bridge.vault_backlink_stats().get("built", false)):
 		bridge.vault_refresh_backlinks()
@@ -3289,6 +3400,7 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 	var dot: Texture2D = DccWidgets._round_dot(8, DccTheme.c("accent")) if not linked.is_empty() else null
 	var root := tree.create_item()
 	var folders := {"": root}    # folder path ("" = root) -> TreeItem
+	var leaves: Array = []       # [TreeItem, rel] for the private badge (Ruling DP, VE-9)
 	for rel in shown:
 		var parts := String(rel).split("/")
 		var cur_path := ""
@@ -3304,6 +3416,7 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 		var leaf := tree.create_item(cur_item)
 		leaf.set_text(0, String(parts[parts.size() - 1]))
 		leaf.set_metadata(0, rel)
+		leaves.append([leaf, rel])
 		if linked.has(rel):
 			leaf.set_icon(0, dot)
 			leaf.set_tooltip_text(0, "Attached to %s" % ", ".join(PackedStringArray(linked[rel])))
@@ -3320,6 +3433,7 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 		## `queue_free()`, which waits for the signal to return.
 		_select_file(rel))
 	parent.add_child(tree)
+	_badge_tree(leaves)
 	if shown.is_empty():
 		DccWidgets.note(parent, "No file matches \"%s\"." % _search_query.strip_edges())
 
@@ -4546,9 +4660,10 @@ func _build_overview() -> void:
 		var kind := String(d.get("entity_kind", ""))
 		var eid := int(d.get("entity_id", 0))
 		var label := String(d.get("entity_label", ""))
-		var b := DccWidgets.action(sec, "%s %s — %s (%s)" % [
+		var b := DccWidgets.action(sec, "%s %s — %s (%s)%s" % [
 			kind.capitalize(), label, String(d.get("path", "")),
-			String(STATUS_TEXT.get(String(d.get("status", "")), ""))],
+			String(STATUS_TEXT.get(String(d.get("status", "")), "")),
+			privacy().badged(String(d.get("path", "")), "")],
 			func(): open_for(kind, eid, label))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
@@ -5123,6 +5238,7 @@ func _build_index(parent: Control) -> void:
 ## notes (12 000; VE-9, Ruling DY VQ7: it was a shell-side 2 000 chosen to match the list calls) and never
 ## writes to the vault.
 func _refresh_index() -> void:
+	privacy().clear()
 	var r := bridge.vault_refresh_backlinks()
 	if bool(r.get("ok", false)):
 		VaultStore.save_index_from(bridge)

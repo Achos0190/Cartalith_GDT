@@ -53,10 +53,11 @@ var _wired := false
 
 ## A subject kind that the vault can bind a note to, and the vault's own name for it
 ## (`cartalith_vault::EntityKind`). Settlement is addressed by its `tid`, never its index (an index shifts
-## when another settlement is deleted). Landmark, culture, conflict and note are not bound here: a
-## landmark's entity id is made from its key by `vault_landmark_entity_id`, which this tab does not yet
-## call, so it says so rather than offering a binding it cannot make (labelled; PC-5 build notes).
-const BINDABLE := {"settlement": "settlement", "faction": "faction"}
+## when another settlement is deleted). Landmark is bound too (VE-9, Ruling EI): its selection id is an index
+## into `bridge.landmarks()`, so `resolve` turns it into the vault entity id through the landmark's key
+## (`vault_landmark_entity_id`) and names it by its generated or user-given name (`landmark_names`). Culture,
+## conflict and note are not bound here.
+const BINDABLE := {"settlement": "settlement", "faction": "faction", "landmark": "landmark"}
 
 
 func _init(a) -> void:
@@ -138,13 +139,25 @@ func resolve(subject: Dictionary) -> Dictionary:
 	var nm := String(app.right_dock_ctrl.subject_name(subject)) if app.right_dock_ctrl != null else ""
 	if not BINDABLE.has(kind):
 		var why: String = {
-			"landmark": "A landmark's note is bound through its key, which this tab does not make yet; open Records ▸ Markdown vault to attach one.",
 			"culture": "A culture has no note binding on this screen yet.",
 			"conflict": "A conflict has no note: a vault note binds to a place or a faction.",
 		}.get(kind, "This kind of subject has no note binding.")
 		return {"state": "unsupported", "why": why, "name": nm}
 	var bridge = app.bridge
 	var vid := int(subject.get("id", -1))
+	if kind == "landmark":
+		## The selection id is an index into the landmark list; the note binds to the vault entity id made
+		## from the landmark's key. A landmark that is not (or is no longer) placed says so: no id is invented.
+		var lms: Array = bridge.landmarks()
+		var names: Array = bridge.landmark_names()
+		if vid < 0 or vid >= lms.size() or vid >= names.size():
+			return {"state": "none"}
+		nm = String((names[vid] as Dictionary).get("name", nm))
+		var lm: Dictionary = lms[vid]
+		var got: Dictionary = bridge.vault_landmark_entity_id("%s@%d,%d" % [String(lm.get("kind", "")), int(lm.get("x", 0)), int(lm.get("y", 0))])
+		if not bool(got.get("ok", false)) or not got.has("entity_id"):
+			return {"state": "unsupported", "why": "This landmark cannot be bound to a note now: %s" % String(got.get("error", "no vault id")), "name": nm}
+		vid = int(got["entity_id"])
 	if kind == "settlement":
 		var all: Array = bridge.settlements()
 		if vid < 0 or vid >= all.size():

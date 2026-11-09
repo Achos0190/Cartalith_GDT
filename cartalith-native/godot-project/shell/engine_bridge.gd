@@ -561,16 +561,6 @@ func missing_bindings() -> PackedStringArray:
 #   * `ping` (`WalkingSkeleton`, `lib.rs`) -- the Phase 0 load proof, on a class
 #     that appears in no `.tscn` and no `.gd`. This node proves the library
 #     loads by constructing `WorldGen`; `_has()` proves it is the right one.
-#   * `vault_landmark_entity_id` (`vault_bridge.rs`) -- owner ruling 13
-#     (2026-09-06) made `landmark` a vault entity kind and added this as the
-#     only way to turn a `Landmark::key()` into an `entity_id`. There IS a
-#     per-landmark panel and a landmark IS selected as one entity --
-#     `right_dock.gd`'s `CTX_LANDMARK` context (`on_landmark_selected()`,
-#     `_build_landmark()`), reached by clicking a landmark on the map. What
-#     it lacks is the knowledge-link row `_knowledge_row()` gives
-#     settlement/faction/province/continent/culture, which is what actually
-#     calls `vault_window.open_for()`. The surface comes first; the wrapper
-#     is four lines after the knowledge row exists on this one too.
 #   * `labels_clear_generated` (`label_bridge/generate.rs`) -- drops the pass
 #     output and leaves hand-placed labels alone. Its own doc says to call it
 #     "when the world moves underneath it", and the three paths that move the
@@ -8581,6 +8571,15 @@ func vault_restore_state(json: String) -> bool:
 
 # -- F9 · the vault: search, "confirm always", note data, undo a block --------
 
+## Ruling DP's private badge (`WorldGen.vault_private_marks`): `{ok, marks: {rel: label}, decided: [rel]}`.
+## `marks` holds each private note with the fixed-vocabulary reason; `decided` every note whose answer is final.
+## A `rel` in neither is **undecided** (past the read budget, or unreadable), never public. `max_reads` 0 takes
+## the engine's 400. Empty (and `ok` false) while generating or without the API.
+func vault_private_marks(rels: PackedStringArray, max_reads: int = 0) -> Dictionary:
+	if generating or not _has("vault_private_marks"):
+		return {"ok": false, "error": "vault_private_marks not available", "marks": {}, "decided": PackedStringArray()}
+	return world_gen.vault_private_marks(rels, max_reads)
+
 ## `vault_search`: `{ok, error, indexed, scanned, truncated, hits: [{rel,
 ## in_name, excerpt}]}`. `limit`/`max_reads` of 0 take the engine's own
 ## defaults (50 / 40).
@@ -9461,6 +9460,30 @@ func landmarks() -> Array:
 	if generating or not _has("landmarks"):
 		return []
 	return world_gen.landmarks()
+
+## Ruling EI: every placed landmark's name, `[{key, id, name, source}]` in `landmarks()`' order
+## (`WorldGen.landmark_names`). `key` is the landmark's kind and cell (`peak@120,64`), `id` its vault entity id,
+## `source` `user`, `near_place` or `fallback`. Empty while generating, before a landmark run, or without the API.
+func landmark_names() -> Array:
+	if generating or not _has("landmark_names"):
+		return []
+	return world_gen.landmark_names()
+
+## Ruling EI: gives the landmark `key` a name of its own (empty clears it). Session-only: no project file
+## carries a landmark name yet. `false` when no placed landmark has that key.
+func landmark_set_user_name(key: String, name: String) -> bool:
+	if generating or not _has("landmark_set_user_name"):
+		return false
+	return world_gen.landmark_set_user_name(key, name)
+
+## The vault `entity_id` of the landmark `key` (`WorldGen.vault_landmark_entity_id`): `{ok, entity_id, label}` or
+## `{ok: false, error}`. `entity_id` is absent, never 0, for a key with no landmark behind it.
+func vault_landmark_entity_id(key: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_landmark_entity_id"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_landmark_entity_id(key)
 
 ## The last `landmark_run()`'s per-type funnel -- the "why fewer than I
 ## asked for" popover's own data (`LANDMARK_UI_DESIGN.md` §5): `[{kind,

@@ -116,6 +116,11 @@ pub use karst_view::{KarstAbsent, KarstView};
 pub mod rock_view;
 pub use rock_view::{RockAbsent, RockView};
 
+/// Ruling EI: the generated name a placed landmark is linked by (type plus nearest named place).
+/// Pure and golden-free; changes no generated output.
+pub mod place_name;
+pub use place_name::{landmark_names, LandmarkName, NameSource, NamedPlace, NEAR_FRACTION};
+
 // ===========================================================================
 // §23 — hierarchical landmark classes
 // ===========================================================================
