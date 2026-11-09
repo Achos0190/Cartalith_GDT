@@ -4133,6 +4133,42 @@ func _step_brush_size(dir: int, info: Dictionary) -> void:
 	if is_instance_valid(_sculpt_body):
 		_build_sculpt(_sculpt_body)
 
+## Ruling EK (Stylo 2 Pen link): one pen slide step of the armed tool's brush size, through the same steppers the
+## context card's Tool rows use. "" on success, else why it did nothing. Sculpt and Paint only; every other tool has
+## no brush size here and says so.
+func pen_step_size(dir: int) -> String:
+	match String(app.armed_tool):
+		"sculpt":
+			var info := _sculpt_global_info("brush_size")
+			if info.is_empty():
+				return "Sculpt has no brush size in this world."
+			_step_brush_size(dir, info)
+			return ""
+		"paint":
+			_step_paint_radius(dir)
+			return ""
+	return "This tool has no brush size."
+
+## Ruling EK: the pen's double tap as an eraser/lower toggle. Paint flips its Erase switch; Sculpt's Freehand flips
+## Raise and Lower. Anything else answers why, so the tap is never a silent no-op. "" on success.
+func pen_toggle_erase() -> String:
+	match String(app.armed_tool):
+		"paint":
+			_on_paint_erase_changed(not bool(_paint_brush["erase"]))
+			_rebuild_paint_body()
+			return ""
+		"sculpt":
+			var mode := bridge.sculpt_get_freehand_mode()
+			var to := "lower" if mode == "raise" else ("raise" if mode == "lower" else "")
+			if to == "":
+				return "Sculpt's current mode has no lower/raise counterpart."
+			if not bridge.sculpt_set_freehand_mode(to):
+				return "Sculpt would not change mode."
+			if is_instance_valid(_sculpt_body):
+				_build_sculpt(_sculpt_body)
+			return ""
+	return "This tool has no erase mode."
+
 ## The dock's Radius slider runs 1-40 cells in steps of 1; the card steps by 1.
 func _step_paint_radius(dir: int) -> void:
 	_on_paint_radius_changed(clampf(float(_paint_brush["radius"]) + dir, 1.0, 40.0))

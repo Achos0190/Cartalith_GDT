@@ -485,6 +485,13 @@ Bluetooth. Only `ABS_*` or `SYN_*` lines from the digitizer mean it does not. Pu
 - **Unknowns left for SP-3 on the device:** the slide token's base (the pack says ASCII `film <pos>`; the client parses hex, `PenProtocol.parseSlide` drops anything else and logs it),
   the battery-change notify characteristic (battery is queried on connect and by `query_battery`), and the strip's orientation.
 
+### 11.2b The facade (SP-4, SP-5, SP-6)
+
+`shell/pen_link.gd` is the only place with policy. Settings are in `DccSettings` (`[stylus]`: `pen_link_on`, `double_tap_<kind>`, `slide_<kind>`, `slide_invert`, `low_battery_chip`; per install, never in a world).
+The slide is relative: 6 positions per brush step, 12 per zoom step, 5 per year step of 5 years (labelled judgements for SP-5 to tune), a gap over 250 ms starts a new contact, and the dead band is the step size.
+Two additions the proposal did not name: **Flip slide direction** (which end of the strip raises a value is unknown) and the **Status** row in the menu. Tool fan as a double-tap target is not built (see `STATUS.md`).
+`project.godot` is untouched: the plugin needs no editor plugin, and the one new `class_name` (`PenLink`) registered by the import pass left the file unchanged after its comments were restored.
+
 ### 11.3 The owner's device test, in order (nothing here has been run)
 
 The APK is built (path in the report) but was not installed. Install is yours: `adb install -r Cartalith-penlink.apk` over the existing app keeps its data, but the signing certificate is the debug one; if it was ever installed with a different certificate, uninstall first.

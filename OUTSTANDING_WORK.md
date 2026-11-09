@@ -236,7 +236,7 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
   pen's motor stays off in every option.
   **Ruling EK (2026-11-09) revisits EE for the read-only plugin; its SP milestones are building** (`STYLO2_PEN_PROPOSAL.md`
   section 11 has the build notes and SP-0's exact `getevent` commands, which need a person holding the pen).
-  Plugin half built (SP-2 skeleton and Gradle switch, SP-3 client in code), facade and settings next; every on-device bar and SP-0 are the owner's (`STATUS.md` has the state).
+  Plugin, facade, settings and tester are built (`STATUS.md` has the state); left: the Tool fan target, SP-0, every on-device bar (SP-2..SP-6) and SP-7, all the owner's, and the experimental label until SP-7 passes.
 - **Stylus input, standard pointer input only (Ruling EE): SH-2, SH-3, SH-4, SH-5, SH-6 and SH-9 are in the shell**
   (`STATUS.md`'s *Standard stylus input built* entry has the evidence; this row never records status). **Left:** the Rust
   half of SH-5 (`tilt_size` / `tilt_min` in `paint_stroke_options`, its own parity-gated change, not started); sculpt's

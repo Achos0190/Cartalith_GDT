@@ -234,6 +234,16 @@ const ID_PREF_MAX_60 := 948
 const ID_PREF_MAX_50 := 949
 const ID_PREF_TILT := 950  ## Preferences ▸ Stylus ▸ Tilt shapes the brush (SH-5).
 const ID_PREF_TESTER := 951  ## Preferences ▸ Stylus ▸ Stylus tester… (SH-9).
+
+## Ruling EK, Preferences > Stylus > Pen link (Stylo 2). 960-962 are switches; 963 is the status row (disabled);
+## double-tap rows are 970 + kind*10 + action (action 0-3 fixed, 4-9 the first six quick-bar pins), slide rows
+## 1000 + kind*10 + action. Grepped for 96x, 97x, 98x, 99x and 10xx across `shell/` before taking them.
+const ID_PEN_LINK_ON := 960
+const ID_PEN_SLIDE_FLIP := 961
+const ID_PEN_CHIP := 962
+const ID_PEN_STATUS := 963
+const ID_PEN_TAP_BASE := 970
+const ID_PEN_SLIDE_BASE := 1000
 ## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
 ## after 717/718 above -- grepped this whole file for 719 before taking it,
 ## the same whole-file check every neighbouring block records (an id must be
@@ -561,6 +571,8 @@ var _theme_popup: PopupMenu
 var _popout_pref_row := -1   ## `Preferences ▸ Open panels in their own window` row index (PW-1), -1 where absent
 var _ui_scale_popup: PopupMenu  ## MS-1 S5: `Preferences ▸ UI scale` (touch builds only).
 var _stylus_popup: PopupMenu   ## `Preferences ▸ Stylus` (SH-3): the stylus input preferences, per install.
+var _penlink_popup: PopupMenu  ## Preferences > Stylus > Pen link (Ruling EK): the Stylo 2 BLE link's settings.
+var _pen_kind_popups: Dictionary = {}  ## "tap_<kind>" / "slide_<kind>" -> that kind's action PopupMenu.
 var _hand_popup: PopupMenu   ## `Preferences ▸ Handedness` -- CM-4's touch-hold
 	## ring/card dock side (`MAP_CONTEXT_SCOPE.md` §7.1), read by
 	## `context_broker.gd`'s tablet path via `DccSettings.dominant_hand()`.
@@ -4152,14 +4164,120 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 		_stylus_popup.add_radio_check_item(String(row[0]), int(row[1]))
 		_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
 			"The pressure that counts as full strength. If you never press past 70 %, choose 70 % and that press reaches full strength.")
+	_build_penlink_submenu(_stylus_popup)
 	_refresh_stylus_menu()
 	_stylus_popup.id_pressed.connect(_on_stylus_choice)
 	_shell.style_popup(_stylus_popup)
 	p.add_child(_stylus_popup)
 	p.add_submenu_item("Stylus", "StylusChoice")
 
+## Ruling EK: Preferences > Stylus > Pen link (Stylo 2). Switches, a status row, and per tool kind one submenu for the
+## double tap and one for the slide. Off by default; it has no vibration setting (P6). Built once; the action
+## submenus are refilled by `_refresh_penlink_menu` because the pinnable commands come from the user's quick bar.
+func _build_penlink_submenu(p: PopupMenu) -> void:
+	_penlink_popup = PopupMenu.new()
+	_penlink_popup.name = "PenLinkChoice"
+	_penlink_popup.add_check_item("Pen link on", ID_PEN_LINK_ON)
+	_penlink_popup.set_item_tooltip(0,
+		"Listens to the OnePlus Stylo 2 over Bluetooth for its double tap, side slide and battery. Off by default. Switching it on asks for the Nearby devices permission once. Read-only: it never changes the pen's settings or makes it vibrate. Experimental.")
+	_penlink_popup.add_item("Status", ID_PEN_STATUS)
+	_penlink_popup.set_item_disabled(_penlink_popup.item_count - 1, true)
+	_penlink_popup.add_check_item("Flip slide direction", ID_PEN_SLIDE_FLIP)
+	_penlink_popup.set_item_tooltip(_penlink_popup.item_count - 1,
+		"Which end of the strip raises the value is not known for every pen; flip it here.")
+	_penlink_popup.add_check_item("Low-battery notice", ID_PEN_CHIP)
+	_penlink_popup.set_item_tooltip(_penlink_popup.item_count - 1,
+		"Says so once per session when the pen is at 20 % or lower.")
+	_penlink_popup.add_separator("Double tap, by tool kind")
+	for kind in DccSettings.PEN_KINDS:
+		_add_pen_kind_submenu("tap", String(kind))
+	_penlink_popup.add_separator("Side slide, by tool kind")
+	for kind in DccSettings.PEN_KINDS:
+		_add_pen_kind_submenu("slide", String(kind))
+	_penlink_popup.id_pressed.connect(_on_penlink_choice)
+	_shell.style_popup(_penlink_popup)
+	p.add_child(_penlink_popup)
+	p.add_submenu_item("Pen link (Stylo 2)", "PenLinkChoice")
+
+func _add_pen_kind_submenu(what: String, kind: String) -> void:
+	var sm := PopupMenu.new()
+	sm.name = "Pen_%s_%s" % [what, kind]
+	sm.id_pressed.connect(_on_penlink_choice)
+	_shell.style_popup(sm)
+	_penlink_popup.add_child(sm)
+	_pen_kind_popups["%s_%s" % [what, kind]] = sm
+	var label: String = {"drawing": "Drawing tools", "placing": "Placing tools", "none": "Inspect"}[kind]
+	_penlink_popup.add_submenu_item("%s: %s" % ["Double tap" if what == "tap" else "Slide", label], sm.name)
+
+const _PEN_TAP_LABELS := {"last_tool": "Last tool", "off": "Off", "eraser": "Eraser / lower toggle", "undo": "Undo"}
+const _PEN_SLIDE_LABELS := {"brush_size": "Brush size", "off": "Off", "zoom": "Zoom", "year": "Timeline year"}
+
+## Refills the Pen link menu from `DccSettings` and the live link. Reads settings and the facade only.
+func _refresh_penlink_menu() -> void:
+	if _penlink_popup == null:
+		return
+	_penlink_popup.set_item_checked(_penlink_popup.get_item_index(ID_PEN_LINK_ON), DccSettings.pen_link_on())
+	_penlink_popup.set_item_checked(_penlink_popup.get_item_index(ID_PEN_SLIDE_FLIP), DccSettings.pen_slide_invert())
+	_penlink_popup.set_item_checked(_penlink_popup.get_item_index(ID_PEN_CHIP), DccSettings.pen_low_battery_chip())
+	var link = _host.get("pen_link") if _host != null else null
+	var st := "Needs a OnePlus Stylo 2 on Android" if link == null else String(link.reason())
+	if link != null and link.state() == "connected":
+		st = "Connected" + ("" if link.battery() < 0 else ", battery %d %%" % link.battery())
+	_penlink_popup.set_item_text(_penlink_popup.get_item_index(ID_PEN_STATUS), "Status: " + st)
+	var pins: Array = DccSettings.quick_bar_value("bar")
+	for ki in DccSettings.PEN_KINDS.size():
+		var kind: String = DccSettings.PEN_KINDS[ki]
+		var tp: PopupMenu = _pen_kind_popups["tap_" + kind]
+		tp.clear()
+		var cur := DccSettings.pen_double_tap(kind)
+		for a in DccSettings.PEN_TAP_ACTIONS.size():
+			var act: String = DccSettings.PEN_TAP_ACTIONS[a]
+			tp.add_radio_check_item(String(_PEN_TAP_LABELS[act]), ID_PEN_TAP_BASE + ki * 10 + a)
+			tp.set_item_checked(tp.item_count - 1, cur == act)
+		for pi in mini(pins.size(), 6):
+			var pk := "pin:" + String((pins[pi] as Dictionary).get("k", ""))
+			tp.add_radio_check_item("Quick bar: " + String((pins[pi] as Dictionary).get("t", "")), ID_PEN_TAP_BASE + ki * 10 + 4 + pi)
+			tp.set_item_checked(tp.item_count - 1, cur == pk)
+		var sp: PopupMenu = _pen_kind_popups["slide_" + kind]
+		sp.clear()
+		var scur := DccSettings.pen_slide(kind)
+		for a in DccSettings.PEN_SLIDE_ACTIONS.size():
+			var sact: String = DccSettings.PEN_SLIDE_ACTIONS[a]
+			sp.add_radio_check_item(String(_PEN_SLIDE_LABELS[sact]), ID_PEN_SLIDE_BASE + ki * 10 + a)
+			sp.set_item_checked(sp.item_count - 1, scur == sact)
+
+## Serves Pen link: stores the choice, re-ticks, and tells the facade to start or stop on the switch.
+func _on_penlink_choice(id: int) -> void:
+	if id == ID_PEN_LINK_ON:
+		DccSettings.set_pen_link_on(not DccSettings.pen_link_on())
+		var link = _host.get("pen_link") if _host != null else null
+		if link != null:
+			link.apply_setting()
+	elif id == ID_PEN_SLIDE_FLIP:
+		DccSettings.set_pen_slide_invert(not DccSettings.pen_slide_invert())
+	elif id == ID_PEN_CHIP:
+		DccSettings.set_pen_low_battery_chip(not DccSettings.pen_low_battery_chip())
+	elif id >= ID_PEN_TAP_BASE and id < ID_PEN_TAP_BASE + 30:
+		var ki := (id - ID_PEN_TAP_BASE) / 10
+		var a := (id - ID_PEN_TAP_BASE) % 10
+		var act := ""
+		if a < DccSettings.PEN_TAP_ACTIONS.size():
+			act = DccSettings.PEN_TAP_ACTIONS[a]
+		else:
+			var pins: Array = DccSettings.quick_bar_value("bar")
+			if a - 4 < pins.size():
+				act = "pin:" + String((pins[a - 4] as Dictionary).get("k", ""))
+		DccSettings.set_pen_double_tap(DccSettings.PEN_KINDS[ki], act)
+	elif id >= ID_PEN_SLIDE_BASE and id < ID_PEN_SLIDE_BASE + 30:
+		var sk := (id - ID_PEN_SLIDE_BASE) / 10
+		var sa := (id - ID_PEN_SLIDE_BASE) % 10
+		if sa < DccSettings.PEN_SLIDE_ACTIONS.size():
+			DccSettings.set_pen_slide(DccSettings.PEN_KINDS[sk], DccSettings.PEN_SLIDE_ACTIONS[sa])
+	_refresh_penlink_menu()
+
 ## Ticks Preferences ▸ Stylus from `DccSettings`. Reads settings only.
 func _refresh_stylus_menu() -> void:
+	_refresh_penlink_menu()
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_PEN_DRAWS), DccSettings.pen_draws_finger_pans())
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_TILT), DccSettings.pen_tilt_to_size())
 	var curve := DccSettings.pen_pressure_curve()

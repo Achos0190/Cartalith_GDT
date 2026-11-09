@@ -681,6 +681,93 @@ static func set_pen_tilt_to_size(on: bool) -> void:
 	_cfg.set_value(_SEC_STYLUS, "tilt_to_size", on)
 	_save()
 
+# -- SP-4..SP-6 (Ruling EK): the Stylo 2 "Pen link" preferences --------------------------------------------------
+
+## The three tool kinds a pen mapping is chosen for (proposal section 4.1, P8: per KIND, not per tool): the drawing
+## tools, the tap-placing tools and Inspect. `PenLink.kind_name()` maps `ViewportHost.TOOL_*` onto these.
+const PEN_KINDS: Array[String] = ["drawing", "placing", "none"]
+
+## What a double tap can do (Ruling EK). A pinned quick-bar command is stored as `"pin:<pin_key>"` and is run by the
+## quick bar's own `run_pin_on`, never a second implementation.
+const PEN_TAP_ACTIONS: Array[String] = ["last_tool", "off", "eraser", "undo"]
+
+## What the side slide can do. Brush size is Ruling EK's default for drawing tools.
+const PEN_SLIDE_ACTIONS: Array[String] = ["brush_size", "off", "zoom", "year"]
+
+## Whether the BLE Pen link is on. Default FALSE and stored per install, never in a world (Ruling EK: off by default;
+## BLUETOOTH_CONNECT is asked only when this is switched on).
+static func pen_link_on() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_STYLUS, "pen_link_on", false))
+
+## Stores the Pen link switch and saves.
+static func set_pen_link_on(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "pen_link_on", on)
+	_save()
+
+## True when `a` is a legal double-tap action: a listed one, or `pin:` plus a non-empty command key.
+static func pen_tap_action_valid(a: String) -> bool:
+	return PEN_TAP_ACTIONS.has(a) or (a.begins_with("pin:") and a.length() > 4)
+
+## The double-tap action for a tool kind. Ruling EK's default is "last_tool" for every kind; an unset, unknown or
+## hand-edited value reads as the default, never as a guessed action.
+static func pen_double_tap(kind: String) -> String:
+	_ensure_loaded()
+	if not PEN_KINDS.has(kind):
+		return "last_tool"
+	var a := String(_cfg.get_value(_SEC_STYLUS, "double_tap_" + kind, "last_tool"))
+	return a if pen_tap_action_valid(a) else "last_tool"
+
+## Stores a kind's double-tap action and saves; an unknown kind or action is ignored, not stored.
+static func set_pen_double_tap(kind: String, action: String) -> void:
+	if not PEN_KINDS.has(kind) or not pen_tap_action_valid(action):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "double_tap_" + kind, action)
+	_save()
+
+## The slide action for a tool kind. Ruling EK: brush size for drawing tools; placing tools and Inspect have no brush,
+## so their default is "off" (a slide that did something there would be a surprise).
+static func pen_slide(kind: String) -> String:
+	_ensure_loaded()
+	if not PEN_KINDS.has(kind):
+		return "off"
+	var d := "brush_size" if kind == "drawing" else "off"
+	var a := String(_cfg.get_value(_SEC_STYLUS, "slide_" + kind, d))
+	return a if PEN_SLIDE_ACTIONS.has(a) else d
+
+## Stores a kind's slide action and saves; an unknown kind or action is ignored.
+static func set_pen_slide(kind: String, action: String) -> void:
+	if not PEN_KINDS.has(kind) or not PEN_SLIDE_ACTIONS.has(action):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "slide_" + kind, action)
+	_save()
+
+## Whether sliding toward the other end of the strip increases the value. Which end of the strip a given position
+## byte is the pen's tip is NOT known (the pack gives no orientation), so this is the user's flip. Default false.
+static func pen_slide_invert() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_STYLUS, "slide_invert", false))
+
+## Stores the slide direction flip and saves.
+static func set_pen_slide_invert(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "slide_invert", on)
+	_save()
+
+## Whether the low-battery chip (at or below 20 %, once per session) is shown. Default true (P5).
+static func pen_low_battery_chip() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_STYLUS, "low_battery_chip", true))
+
+## Stores the low-battery chip switch and saves.
+static func set_pen_low_battery_chip(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "low_battery_chip", on)
+	_save()
+
 # -- MS-1 S5: UI scale ----------------------------------------------------------
 
 ## The four offered UI scales (spec §3.6: 100 %, 125 %, 150 %, 200 %). Anything else read back or offered to

@@ -18,7 +18,8 @@ extends Control
 
 ## Readout rows in display order. Each is a Label in `_rows`, keyed by name so a caller never pokes the tree.
 const FIELDS := ["event", "source", "device", "pressure", "pressure span", "tilt", "tilt angle", "eraser flag",
-	"hover", "contact", "rate Hz", "rate max", "last key", "gestures"]
+	"hover", "contact", "rate Hz", "rate max", "last key", "gestures", "pen link", "pen battery", "pen firmware",
+	"pen last"]
 
 var _rows: Dictionary = {}
 var _values: Dictionary = {}          ## field -> its current text; what `snapshot()` returns
@@ -26,6 +27,7 @@ var _event_times: Array[int] = []     ## ms timestamps within the last second: t
 var _p_min := 2.0                     ## pressure extremes seen while in contact; 2 / -1 are "none yet", never shown
 var _p_max := -1.0
 var _rate_max := 0
+var _pen_link: PenLink = null         ## Ruling EK: the facade whose state the "pen ..." rows show; null when not bound
 var _hover_seen := false
 var _eraser_seen := false
 var _pan_n := 0
@@ -78,6 +80,28 @@ func _build_ui() -> void:
 	reset.text = "Reset observed span"
 	reset.pressed.connect(reset_observed)
 	root.add_child(reset)
+
+## Ruling EK: shows the Stylo 2 Pen link in the four "pen ..." rows. A value the link does not have reads "—" followed
+## by the reason (never `0 %`). Reads the facade only; it never starts the link or changes a setting.
+func bind_pen_link(link: PenLink) -> void:
+	_pen_link = link
+	if link == null:
+		for f in ["pen link", "pen battery", "pen firmware"]:
+			_put(f, "— (no Pen link in this window)")
+		return
+	link.state_changed.connect(func(_s): _show_pen_link())
+	link.info_changed.connect(_show_pen_link)
+	link.pen_event.connect(func(_k, _d): _put("pen last", link.last_action() if link.last_action() != "" else _d))
+	_show_pen_link()
+
+func _show_pen_link() -> void:
+	var link := _pen_link
+	if link == null:
+		return
+	var why := link.reason()
+	_put("pen link", link.state() if why == "" else "%s (%s)" % [link.state(), why])
+	_put("pen battery", "%d %%" % link.battery() if link.battery() >= 0 else "— (%s)" % (why if why != "" else "not reported"))
+	_put("pen firmware", link.firmware() if link.firmware() != "" else "— (%s)" % (why if why != "" else "not reported"))
 
 ## Writes one readout row and records it for `snapshot()`.
 func _put(field: String, value: String) -> void:
@@ -233,12 +257,15 @@ func _draw() -> void:
 static func open_in_window(parent: Node) -> StylusTester:
 	var w := Window.new()
 	w.title = "Stylus tester"
-	w.size = Vector2i(560, 520)
+	w.size = Vector2i(560, 600)
 	w.transient = true
 	w.close_requested.connect(w.queue_free)
 	var t := StylusTester.new()
 	w.add_child(t)
 	parent.add_child(w)
+	## Bound AFTER the window is in the tree: `_ready` builds the rows and writes their dashes, which would
+	## otherwise overwrite what the binding just showed.
+	t.bind_pen_link(parent.get("pen_link") as PenLink)
 	w.popup_centered()
 	t.grab_focus()
 	return t

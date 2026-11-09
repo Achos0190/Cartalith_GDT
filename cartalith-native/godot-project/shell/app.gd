@@ -160,6 +160,8 @@ signal tool_armed(id: String)
 var tool_group := ButtonGroup.new()
 ## The armed tool id; "inspect" at start. Runs ahead of `_emitted_tool` only while `_arm_pending`.
 var armed_tool := "inspect"
+## Ruling EK: the Stylo 2 Pen link facade (`pen_link.gd`). A child node made in `_ready`; "absent" without the plugin.
+var pen_link: PenLink
 ## True from an `arm_tool` made while the engine was busy until `_flush_deferred_arm`
 ## has told the `tool_armed` listeners (see `arm_tool`'s doc comment).
 var _arm_pending := false
@@ -1463,6 +1465,10 @@ func _ready() -> void:
 	get_tree().node_added.connect(_watch_dialog)
 	_enable_idle_mode()
 	tool_armed.connect(_sync_tool_strip)
+	pen_link = PenLink.new()
+	pen_link.name = "PenLink"
+	pen_link.app = self
+	add_child(pen_link)
 
 	bridge = EngineBridge.new()
 	bridge.name = "EngineBridge"
