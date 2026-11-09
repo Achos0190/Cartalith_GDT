@@ -93,6 +93,9 @@ var bridge: EngineBridge
 var _tabs: TabContainer
 ## Lower-cased name filter shared by all three tabs; empty means no filter.
 var _filter := ""
+## MS-1 S4.5: the filter field, kept so a re-present can put the typed text back (`represent_restore()`).
+var _search: LineEdit
+const WindowRepresent := preload("res://shell/window_represent.gd")
 ## The Settlements tab's row container, refilled by `_rebuild_settlements`.
 var _settlements_body: VBoxContainer
 ## The Provinces tab's row container, refilled by `_rebuild_provinces`.
@@ -197,6 +200,7 @@ func setup(b: EngineBridge) -> void:
 	else:
 		DccWidgets.well(search)
 		search.custom_minimum_size.x = 220
+	_search = search
 	search.text_changed.connect(func(t: String): _filter = t.to_lower(); _rebuild())
 	filter_row.add_child(search)
 	outer.add_child(filter_row)
@@ -616,3 +620,27 @@ func open(tab: String = "") -> void:
 	if DccWidgets.phone_present(self, get_parent()):
 		return
 	popup_centered()
+
+## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild. The tab is carried by its
+## title (the order is the window's own and `open()` selects by title), the filter by the field's text (`_filter` is its
+## lower-case form), and the scroll of the tab that is showing. `_row_cap` is not carried: it is a per-visit state that
+## `open()` resets on every open by design (PH-12), so a re-open after a swap starts at one page, as any re-open does.
+func represent_capture() -> Dictionary:
+	var bodies := [_settlements_body, _provinces_body, _trade_body]
+	var cur: VBoxContainer = bodies[clampi(_tabs.current_tab, 0, 2)]
+	return {"open": visible, "tab": _tabs.get_tab_title(_tabs.current_tab), "search": _search.text,
+		"scroll": WindowRepresent.scroll_value(cur)}
+
+## The other half, on the NEW window. The filter is put back first so the rebuild `open()` runs applies it. A coroutine:
+## the scroll waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	_search.text = String(bag["search"])
+	_filter = _search.text.to_lower()
+	if bool(bag["open"]):
+		open(String(bag["tab"]))
+		var bodies := [_settlements_body, _provinces_body, _trade_body]
+		await WindowRepresent.restore_scroll(bodies[clampi(_tabs.current_tab, 0, 2)], int(bag["scroll"]))
+	else:
+		for i in _tabs.get_tab_count():
+			if _tabs.get_tab_title(i) == String(bag["tab"]):
+				_tabs.current_tab = i

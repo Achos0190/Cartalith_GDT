@@ -58,6 +58,7 @@ var _readout: Label
 var _chips: HFlowContainer
 ## The filter: `"all"`, or `"active"` (active in the Timeline cursor's year).
 var _filter := "all"
+const WindowRepresent := preload("res://shell/window_represent.gd")
 ## Phone composition (`DccWidgets.phone_window`): rows become two lines.
 var _phone := false
 ## PC-7. The conflict id the list marks: the selected conflict while the window follows, the one it
@@ -323,3 +324,17 @@ func _select(id: int, points: PackedVector2Array) -> void:
 			sum += p
 		var mid := sum / float(points.size())
 		_host.viewport.move_view_to(mid.x, mid.y)
+
+## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild: the chip filter and the list's
+## scroll. The marked conflict is not carried: `open()` re-derives it from the selection (PC-7: it follows again on every
+## open), and a swap carries the selection itself (S4.3). This window is built lazily (`DccApp.open_conflicts_list()`); the
+## swap rebuilds it only if it exists (`DccApp.LAZY_WINDOWS`).
+func represent_capture() -> Dictionary:
+	return {"open": visible, "filter": _filter, "scroll": WindowRepresent.scroll_value(_body)}
+
+## The other half, on the NEW window. A coroutine: the scroll waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	_filter = String(bag["filter"]) if ["all", "active"].has(String(bag["filter"])) else "all"
+	if bool(bag["open"]):
+		open()
+		await WindowRepresent.restore_scroll(_body, int(bag["scroll"]))

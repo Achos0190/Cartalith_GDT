@@ -60,6 +60,7 @@ var _host
 var _bridge: EngineBridge
 ## The list body, cleared and refilled by `_refresh()`.
 var _body: VBoxContainer
+const WindowRepresent := preload("res://shell/window_represent.gd")
 ## The readout line under the head row ("N saved journeys"); set by `_refresh()`.
 var _readout: Label
 ## Phone composition (`DccWidgets.phone_window`): rows become two lines.
@@ -238,3 +239,15 @@ func _open_journey(id: int) -> void:
 	var ok: bool = _host.journey_planner_view.open_saved(id)
 	if not ok:
 		_host.set_status("hint", "That journey is not in the planner's list; reopen the project to reload it.", "accent")
+
+## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild: whether it is open and the
+## list's scroll. The rows are read from the journey store on every open, so nothing else is state. Built lazily
+## (`DccApp.open_saved_journeys()`); the swap rebuilds it only if it exists (`DccApp.LAZY_WINDOWS`).
+func represent_capture() -> Dictionary:
+	return {"open": visible, "scroll": WindowRepresent.scroll_value(_body)}
+
+## The other half, on the NEW window. A coroutine: the scroll waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	if bool(bag["open"]):
+		open()
+		await WindowRepresent.restore_scroll(_body, int(bag["scroll"]))

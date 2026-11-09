@@ -102,6 +102,12 @@ var _zoom := 1.0
 ## Screen-space pan offset of the canvas, applied after the fit scale (see the comment above);
 ## changed by `_zoom_by` and the drag handler, zeroed by `_reset_view`, read by `_draw_canvas`.
 var _pan := Vector2.ZERO
+## The canvas size the view (`_zoom`, `_pan`) was last set against: `_pan` is in canvas pixels, so it means a fraction of THIS
+## size. Kept separately because by the time a class swap captures the window the engine has already resized it to the new
+## viewport (S4_INVENTORY.md section 18.3), and `_canvas.size` is then not what the user was looking at. Written by every
+## writer of `_pan` (`_zoom_by`, the drag, `_reset_view`); zero before the first one.
+var _view_canvas := Vector2.ZERO
+const WindowRepresent := preload("res://shell/window_represent.gd")
 ## True while the mouse button is held on the canvas, set from the button state in
 ## `_on_canvas_input`; motion events pan only while it is set.
 var _dragging := false
@@ -299,6 +305,7 @@ func _zoom_by(factor: float, anchor: Vector2) -> void:
 	var centre := _canvas.size * 0.5
 	var k := _zoom / before
 	_pan = (_pan + centre - anchor) * k - centre + anchor
+	_view_canvas = _canvas.size
 	_canvas.queue_redraw()
 
 
@@ -388,6 +395,7 @@ func _reload(keep_view := false) -> void:
 func _reset_view() -> void:
 	_zoom = 1.0
 	_pan = Vector2.ZERO
+	_view_canvas = Vector2.ZERO
 	_canvas.queue_redraw()
 
 
@@ -482,6 +490,7 @@ func _on_canvas_input(event: InputEvent) -> void:
 			_canvas.accept_event()
 	elif event is InputEventMouseMotion and _dragging:
 		_pan += (event as InputEventMouseMotion).relative
+		_view_canvas = _canvas.size
 		_canvas.queue_redraw()
 		_canvas.accept_event()
 	elif event is InputEventMagnifyGesture:
@@ -929,3 +938,30 @@ func _field(parent: Control, key: String, value: String) -> void:
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(v)
 	parent.add_child(row)
+
+## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild: the town (`_index`, an index
+## into `bridge.settlements()`, which a swap does not touch), the zoom (a multiple of the fit scale, so it means the same in
+## any canvas) and the pan as a FRACTION of the canvas, because `_pan` is in canvas pixels and the canvas is a different size
+## in the other class (a pixel pan would put the town off-centre). The canvas size is 0 before the first layout, so an unlaid
+## window carries a zero pan (a real zero: it has not been dragged).
+func represent_capture() -> Dictionary:
+	var cs := _view_canvas
+	var frac := Vector2(_pan.x / cs.x, _pan.y / cs.y) if cs.x > 0.0 and cs.y > 0.0 else Vector2.ZERO
+	return {"open": visible, "index": _index, "zoom": _zoom, "pan": frac}
+
+## The other half, on the NEW window. An open window opens onto the town (`open()` presents for the new class and resets the
+## view), then, once the canvas has been laid out, the carried zoom and pan are applied. A closed one only keeps its town.
+func represent_restore(bag: Dictionary) -> void:
+	if bool(bag["open"]):
+		open(int(bag["index"]))
+		for k in 3:
+			await get_tree().process_frame
+		if not is_instance_valid(self):
+			return
+		_zoom = float(bag["zoom"])
+		var frac: Vector2 = bag["pan"]
+		_pan = Vector2(frac.x * _canvas.size.x, frac.y * _canvas.size.y)
+		_view_canvas = _canvas.size
+		_canvas.queue_redraw()
+	else:
+		_index = int(bag["index"])

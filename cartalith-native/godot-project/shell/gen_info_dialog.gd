@@ -28,6 +28,7 @@ var _bridge: EngineBridge
 var _app: Node
 ## The read-only dump box, refilled on every `open()`.
 var _text: TextEdit
+const WindowRepresent := preload("res://shell/window_represent.gd")
 
 ## Phone (§13) -- PH-12. One column of text, so nothing stacks; what was missing
 ## was the content scale (this opened as a 560x480 desktop card inside a
@@ -255,3 +256,21 @@ static func params_text(bridge: EngineBridge) -> String:
 	for k in keys:
 		out.append("%s: %s" % [k, JSON.stringify(params[k])])
 	return "\n".join(out)
+
+## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild. The dump is regenerated from the
+## live world on every open (`open()` never caches), so only whether it is open and the text's scroll line are carried; a
+## selection inside the read-only text is not (the text may differ if the world changed, and a swap never changes it).
+func represent_capture() -> Dictionary:
+	return {"open": visible, "scroll": int(_text.scroll_vertical)}
+
+## The other half, on the NEW window. A coroutine: the `TextEdit` clamps the scroll to its laid-out height, so it is written
+## once a frame has passed in the new size.
+func represent_restore(bag: Dictionary) -> void:
+	if not bool(bag["open"]):
+		return
+	open()
+	for k in 3:
+		await get_tree().process_frame
+		if not is_instance_valid(self):
+			return
+	_text.scroll_vertical = int(bag["scroll"])

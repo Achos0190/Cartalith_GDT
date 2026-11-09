@@ -30,7 +30,7 @@ extends Node
 ##           half of the bar: no size makes a desktop a phone (touch is hardware), so no swap is ever requested.
 ##
 ## Run windowed with a wiped user dir (the runner sets `APPDATA` to an empty folder). Logic and layout only, so
-## nothing here reads pixels. Arguments read by THIS file: `--leg quiet`, `--vp WxH`; accepted because the
+## nothing here reads pixels. Arguments read by THIS file: `--leg quiet`, `--vp WxH`, `--only <window field>` (represent only); accepted because the
 ## shell reads them: `--force-touch`, `--density D`. Flags of this file with no value: `--window`, `--clean`, `--noworld`,
 ## `--world`, `--names`. Anything else aborts with exit 2 (`MISTAKES.md`, "Write a
 ## probe's usage header").
@@ -114,7 +114,7 @@ func _ready() -> void:
 		var a := String(args[i])
 		if a == "--force-touch" or a == "--names" or a == "--window" or a == "--clean" or a == "--world" or a == "--noworld":
 			i += 1
-		elif a in ["--leg", "--vp", "--density", "--out", "--steps", "--trips"]:
+		elif a in ["--leg", "--vp", "--density", "--out", "--steps", "--trips", "--only"]:
 			i += 2
 		else:
 			print("ABORT: unknown argument ", a)
@@ -1132,10 +1132,50 @@ const REP_SIM := "recovery"
 ## 20, not larger: the old window is stretched by the engine to the new viewport before the swap reads it, and the faction
 ## roster's scroll then clamps to 35 (measured in this leg), so a larger value would be clamped by the resize, not lost by the swap.
 const REP_SCROLL := 20
-const REP_FIELDS := {
-	"faction_roster_window": {"open": true, "selected": 2, "tab": REP_TAB, "pair": -1, "scroll": REP_SCROLL},
-	"place_editor_window": {"open": true, "index": 1, "tab": REP_PLACE_TAB, "sim_mode": REP_SIM, "scroll": REP_SCROLL},
-}
+## World data (batch 2): the Settlements tab (the only one long enough to scroll in this world; the tab carry has its own block,
+## `_rep_world_tab()`), and a filter typed in upper case (the field keeps the case, `_filter` is its lower-case form, so a
+## window that carried only `_filter` would show "a" in the box).
+const REP_WD_TAB := "Settlements"
+const REP_WD_SEARCH := "A"
+## City viewer: a zoom the Fit button would not leave and a drag in canvas pixels, both made through the window's own input
+## paths (`_zoom_by`, the canvas drag), so the pan is a fraction of the canvas the user saw (a pixel pan would be wrong in the
+## other class's canvas).
+const REP_CV_ZOOM := 2.5
+const REP_CV_DRAG := Vector2(80.0, -40.0)
+const REP_CV_INDEX := 1
+## The settlement-type library entry the window is on (the second of two the leg creates) and the conflicts filter chip.
+const REP_ST_NAME := "Probe B"
+const REP_CF_FILTER := "active"
+## The windows this leg covers, in order. Each is driven by the `match` arms below; a window joins the list with its arm in
+## every one of them (open, state, expect, scroll node), so a half-added window fails loudly (`push_error`) and not silently.
+const REP_ORDER := ["faction_roster_window", "place_editor_window", "world_data_window", "city_viewer_window",
+	"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window"]
+## The scroll check is vacuous for a window with nothing to scroll in this fixture, so the fixture asserts a scroll with room
+## exists, and only for these.
+const REP_SCROLLED := ["faction_roster_window", "place_editor_window", "world_data_window", "settlement_types_window", "gen_info_dialog"]
+## The bags the fixture builds each window's expected state from, filled by `_rep_init()` (the settlement type's id is the
+## store's, not a literal the probe could know).
+var _rep_bag := {}
+## Windows whose scroll cannot survive the trip BACK to the tablet: the engine stretches the phone window to the tablet viewport
+## before the swap captures it, the stretched page is taller than this window's content, and the scroll is clamped to 0 (the
+## `S4_INVENTORY.md` section 18.3 finding, here with no room at all). The scroll is checked on the way to the phone, expected to be
+## 0 on the way back, and set again on the tablet before the next trip.
+const REP_SCROLL_ONE_WAY := ["settlement_types_window"]
+
+func _rep_init() -> void:
+	## Two library entries so "the second" is a selection and not the default the window would fall back to.
+	SettlementTypeStore.new_type("Probe A")
+	var b_id: String = SettlementTypeStore.new_type(REP_ST_NAME)
+	_rep_bag = {
+		"faction_roster_window": {"open": true, "selected": 2, "tab": REP_TAB, "pair": -1, "scroll": REP_SCROLL},
+		"place_editor_window": {"open": true, "index": 1, "tab": REP_PLACE_TAB, "sim_mode": REP_SIM, "scroll": REP_SCROLL},
+		"world_data_window": {"open": true, "tab": REP_WD_TAB, "search": REP_WD_SEARCH, "scroll": REP_SCROLL},
+		"city_viewer_window": {"open": true, "index": REP_CV_INDEX, "zoom": REP_CV_ZOOM, "pan": Vector2.ZERO},
+		"settlement_types_window": {"open": true, "selected": b_id, "scroll": REP_SCROLL},
+		"gen_info_dialog": {"open": true, "scroll": REP_SCROLL},
+		"conflicts_window": {"open": true, "filter": REP_CF_FILTER, "scroll": 0},
+		"saved_journeys_window": {"open": true, "scroll": 0},
+	}
 
 ## The structure lines of one window, visible nodes only, no names or text: what `_structure_lines()` gives a composition.
 func _window_lines(w: Node) -> PackedStringArray:
@@ -1158,22 +1198,105 @@ func _fresh_lines(field: String, bag: Dictionary) -> PackedStringArray:
 ## The window's state as its own fields hold it, for the literal checks.
 func _rep_state(field: String) -> Dictionary:
 	var w = _app.get(field)
-	if field == "faction_roster_window":
-		return {"open": w.visible, "sel": int(w._selected), "tab": String(w._tab), "phone": bool(w._phone)}
-	return {"open": w.visible, "idx": int(w._index), "tab": String(w._active_tab), "sim": String(w._sim_mode), "phone": bool(w._phone)}
+	match field:
+		"faction_roster_window":
+			return {"open": w.visible, "sel": int(w._selected), "tab": String(w._tab), "phone": bool(w._phone)}
+		"place_editor_window":
+			return {"open": w.visible, "idx": int(w._index), "tab": String(w._active_tab), "sim": String(w._sim_mode), "phone": bool(w._phone)}
+		"world_data_window":
+			return {"open": w.visible, "tab": w._tabs.get_tab_title(w._tabs.current_tab), "search": String(w._search.text), "filter": String(w._filter), "phone": bool(w._phone)}
+		"city_viewer_window":
+			return {"open": w.visible, "idx": int(w._index), "zoom": float(w._zoom), "phone": bool(w._phone)}
+		"settlement_types_window":
+			var t: Dictionary = SettlementTypeStore.get_type(String(w._selected_id))
+			return {"open": w.visible, "name": String(t.get("name", "")), "phone": bool(w._phone)}
+		"gen_info_dialog":
+			return {"open": w.visible, "phone": bool(w._phone), "lines": int(w._text.get_line_count()) > 40}
+		"conflicts_window":
+			return {"open": w.visible, "filter": String(w._filter), "phone": bool(w._phone)}
+		"saved_journeys_window":
+			return {"open": w.visible, "phone": bool(w._phone)}
+	push_error("_rep_state: no arm for " + field)
+	return {}
 
+## The window's scroll in the units its bag uses, or -1 when it has none.
 func _rep_scroll(field: String) -> int:
 	var w = _app.get(field)
-	var body: Node = w._inspector_body if field == "faction_roster_window" else w._body
+	if field == "gen_info_dialog":
+		return int(w._text.scroll_vertical)
+	var body: Node = null
+	match field:
+		"faction_roster_window": body = w._inspector_body
+		"place_editor_window": body = w._body
+		"world_data_window": body = w._settlements_body
+		"settlement_types_window", "conflicts_window", "saved_journeys_window": body = w._body
+	if body == null:
+		return -1
 	var p := body.get_parent()
 	while p != null and not p is ScrollContainer:
 		p = p.get_parent()
 	return -1 if p == null else (p as ScrollContainer).scroll_vertical
 
+## The literals the state must read after every swap (the bag's values written out, not read from it).
 func _rep_expect(field: String) -> Dictionary:
-	if field == "faction_roster_window":
-		return {"open": true, "sel": 2, "tab": REP_TAB}
-	return {"open": true, "idx": 1, "tab": REP_PLACE_TAB, "sim": REP_SIM}
+	match field:
+		"faction_roster_window": return {"open": true, "sel": 2, "tab": REP_TAB}
+		"place_editor_window": return {"open": true, "idx": 1, "tab": REP_PLACE_TAB, "sim": REP_SIM}
+		"world_data_window": return {"open": true, "tab": "Settlements", "search": "A", "filter": "a"}
+		"city_viewer_window": return {"open": true, "idx": 1, "zoom": 2.5}
+		"settlement_types_window": return {"open": true, "name": "Probe B"}
+		"gen_info_dialog": return {"open": true, "lines": true}
+		"conflicts_window": return {"open": true, "filter": "active"}
+		"saved_journeys_window": return {"open": true}
+	push_error("_rep_expect: no arm for " + field)
+	return {}
+
+## Opens the window on the tablet with the state of its bag, the way the user would (the window's own open call).
+func _rep_open(field: String) -> void:
+	match field:
+		"faction_roster_window": _app.faction_roster_window.open(2, REP_TAB)
+		"place_editor_window":
+			_app.place_editor_window.open_for_tab(1, REP_PLACE_TAB)
+			_app.place_editor_window._sim_mode = REP_SIM
+		"world_data_window":
+			_app.world_data_window._search.text = REP_WD_SEARCH
+			_app.world_data_window._filter = REP_WD_SEARCH.to_lower()
+			_app.open_world_data(REP_WD_TAB)
+		"city_viewer_window":
+			_app.open_city_viewer(REP_CV_INDEX)
+			await _frames(6)
+			var cv = _app.city_viewer_window
+			var cs: Vector2 = cv._canvas.size
+			cv._zoom_by(REP_CV_ZOOM, cs * 0.5)
+			var press := InputEventMouseButton.new()
+			press.button_index = MOUSE_BUTTON_LEFT
+			press.pressed = true
+			cv._on_canvas_input(press)
+			var mm := InputEventMouseMotion.new()
+			mm.relative = REP_CV_DRAG
+			cv._on_canvas_input(mm)
+			var rel := InputEventMouseButton.new()
+			rel.button_index = MOUSE_BUTTON_LEFT
+			cv._on_canvas_input(rel)
+			_rep_bag[field]["pan"] = Vector2(REP_CV_DRAG.x / cs.x, REP_CV_DRAG.y / cs.y)
+		"settlement_types_window":
+			_app.settlement_types_window._selected_id = String(_rep_bag[field]["selected"])
+			_app.settlement_types_window.open()
+		"gen_info_dialog": _app.gen_info_dialog.open()
+		"conflicts_window":
+			_app.open_conflicts_list()
+			_app.conflicts_window._set_filter(REP_CF_FILTER)
+		"saved_journeys_window": _app.open_saved_journeys()
+
+## The ScrollContainer this fixture scrolls (a `TextEdit` for the dump), or null.
+func _rep_scroll_target(w: Node, field: String) -> Node:
+	if field == "gen_info_dialog":
+		return w._text
+	var sc: ScrollContainer = null
+	for c in w.find_children("*", "ScrollContainer", true, false):
+		if (c as ScrollContainer).get_v_scroll_bar().max_value - (c as ScrollContainer).get_v_scroll_bar().page > REP_SCROLL + 20.0 and (c as Control).is_visible_in_tree():
+			sc = c
+	return sc
 
 ## One step: resize across the line, wait, and check that the swap ran once without waiting and the window is open in the
 ## new class's form with its state; its lines equal a fresh open's (the restored window is hidden for that, because only one
@@ -1193,52 +1316,88 @@ func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void
 	var ex := _rep_expect(field)
 	var same := true
 	for k in ex:
-		same = same and st[k] == ex[k]
+		same = same and (is_equal_approx(float(st[k]), float(ex[k])) if ex[k] is float else st[k] == ex[k])
 	_ok(same, "%s: %s is open with its state (%s)" % [tag, field, str(st)])
 	_ok(st["phone"] == phone and win.borderless == phone, "%s: baked for %s (_phone %s, borderless %s)" % [tag, want, str(st["phone"]), str(win.borderless)])
-	_ok((win.min_size == Vector2i.ZERO) == phone, "%s: min_size is %s (%s)" % [tag, "cleared" if phone else "the desktop's", str(win.min_size)])
-	_ok(_rep_scroll(field) == REP_SCROLL, "%s: the scroll is %d (%d)" % [tag, REP_SCROLL, _rep_scroll(field)])
+	if field == "faction_roster_window" or field == "place_editor_window" or field == "world_data_window":
+		_ok((win.min_size == Vector2i.ZERO) == phone, "%s: min_size is %s (%s)" % [tag, "cleared" if phone else "the desktop's", str(win.min_size)])
+	var want_scroll := 0 if (want == "tablet" and REP_SCROLL_ONE_WAY.has(field)) else REP_SCROLL
+	if REP_SCROLLED.has(field):
+		_ok(_rep_scroll(field) == want_scroll, "%s: the scroll is %d (%d)" % [tag, want_scroll, _rep_scroll(field)])
+	if field == "city_viewer_window":
+		var cs: Vector2 = win._canvas.size
+		var fr: Vector2 = _rep_bag[field]["pan"]
+		var pan_ok: bool = (win._pan - Vector2(fr.x * cs.x, fr.y * cs.y)).length() < 0.5
+		_ok(pan_ok, "%s: the pan is the same fraction of the canvas (%s of %s)" % [tag, str(win._pan), str(cs)])
 	var rl := _window_lines(win)
 	win.hide()
 	await _frames(4)
-	var fr := await _fresh_lines(field, REP_FIELDS[field])
+	var fresh_bag: Dictionary = (_rep_bag[field] as Dictionary).duplicate()
+	if fresh_bag.has("scroll"):
+		fresh_bag["scroll"] = want_scroll
+	var fr := await _fresh_lines(field, fresh_bag)
 	var first := -1
 	for i in mini(rl.size(), fr.size()):
 		if rl[i] != fr[i]:
 			first = i
 			break
-	_ok(rl.size() > 25 and rl == fr, "%s: the layout equals a fresh open's (%d lines vs %d; first difference %d: '%s' vs '%s')" % [tag, rl.size(), fr.size(), first, "" if first < 0 else rl[first], "" if first < 0 else fr[first]])
-	win.represent_restore(REP_FIELDS[field])
+	_ok(rl.size() > 8 and rl == fr, "%s: the layout equals a fresh open's (%d lines vs %d; first difference %d: '%s' vs '%s')" % [tag, rl.size(), fr.size(), first, "" if first < 0 else rl[first], "" if first < 0 else fr[first]])
+	var back_bag: Dictionary = fresh_bag
+	win.represent_restore(back_bag)
 	await _frames(10)
+	if want == "tablet" and REP_SCROLL_ONE_WAY.has(field):
+		var sc: Node = _rep_scroll_target(win, field)
+		_ok(sc != null, "%s: the tablet window has room to scroll again" % tag)
+		if sc != null:
+			(sc as ScrollContainer).scroll_vertical = REP_SCROLL
+			await _frames(4)
 
 func _rep_fixture(field: String) -> void:
-	var other := "place_editor_window" if field == "faction_roster_window" else "faction_roster_window"
-	_app.get(other).hide()
-	if field == "faction_roster_window":
-		_app.faction_roster_window.open(2, REP_TAB)
-	else:
-		_app.place_editor_window.open_for_tab(1, REP_PLACE_TAB)
-		_app.place_editor_window._sim_mode = REP_SIM
+	for other in REP_ORDER:
+		if other != field and _app.get(other) != null:
+			_app.get(other).hide()
+	await _rep_open(field)
 	await _frames(12)
 	var w = _app.get(field)
-	var sc: ScrollContainer = null
-	for c in w.find_children("*", "ScrollContainer", true, false):
-		if (c as ScrollContainer).get_v_scroll_bar().max_value - (c as ScrollContainer).get_v_scroll_bar().page > REP_SCROLL + 20.0 and (c as Control).is_visible_in_tree():
-			sc = c
-	_ok(sc != null, "%s has a scroll with room to scroll (so the scroll check is not vacuous)" % field)
+	var sc: Node = _rep_scroll_target(w, field)
+	if REP_SCROLLED.has(field):
+		_ok(sc != null, "%s has a scroll with room to scroll (so the scroll check is not vacuous)" % field)
 	if sc != null:
-		sc.scroll_vertical = REP_SCROLL
-		print("  info %s scroll node %s max %.0f set %d" % [field, str(w.get_path_to(sc)), sc.get_v_scroll_bar().max_value, sc.scroll_vertical])
+		if sc is ScrollContainer:
+			(sc as ScrollContainer).scroll_vertical = REP_SCROLL
+		else:
+			(sc as TextEdit).scroll_vertical = REP_SCROLL
+		print("  info %s scroll node %s set %d" % [field, str(w.get_path_to(sc)), REP_SCROLL])
 	await _frames(4)
-	_ok(_rep_scroll(field) == REP_SCROLL, "%s: the scroll is set to %d before the swap (%d)" % [field, REP_SCROLL, _rep_scroll(field)])
+	if REP_SCROLLED.has(field):
+		_ok(_rep_scroll(field) == REP_SCROLL, "%s: the scroll is set to %d before the swap (%d)" % [field, REP_SCROLL, _rep_scroll(field)])
 	var st := _rep_state(field)
 	_ok(st["open"] and not st["phone"], "%s is open on the tablet (%s)" % [field, str(st)])
+
+## World data's tab, which the main loop cannot test (the Settlements tab is the default, and the only long one): open on the
+## Economy tab, swap to the phone and back, and the tab is still Economy each time.
+func _rep_world_tab(ph: Vector2i, tab: Vector2i) -> void:
+	for other in REP_ORDER:
+		if _app.get(other) != null:
+			_app.get(other).hide()
+	_app.open_world_data("Economy")
+	await _frames(8)
+	for t in 2:
+		for step in [[ph, "phone"], [tab, "tablet"]]:
+			await _resize(step[0].x, step[0].y)
+			await _await_swap()
+			await _frames(10)
+			var w = _app.world_data_window
+			_ok(w.visible and w._tabs.get_tab_title(w._tabs.current_tab) == "Economy", "world data keeps the Economy tab on the %s (trip %d, got %s)" % [step[1], t + 1, w._tabs.get_tab_title(w._tabs.current_tab)])
+	_app.world_data_window.hide()
+	await _frames(4)
 
 func _represent() -> void:
 	await _settle_at_rest()
 	var boot := String(_app.class_key())
 	_ok(boot == "tablet", "boots as a tablet (class_key %s)" % boot)
 	await _make_world()
+	_rep_init()
 	var parts := _arg("--vp", "").split("x")
 	var tab := Vector2i(int(parts[0]), int(parts[1]))
 	## 800 dp tall, not the 1 564 of the live leg: a window as tall as the phone shows 1 200 px of content with nothing to scroll, so
@@ -1246,7 +1405,11 @@ func _represent() -> void:
 	var ph := Vector2i(880, 800)
 	_live_world = _world_hash()
 	_live_zoom = float(_app.viewport.zoom())
-	for field in REP_FIELDS:
+	## `--only <field>`: one window, for the mutation runs (each mutant needs only its own window's steps).
+	var only := _arg("--only", "")
+	for field in REP_ORDER:
+		if only != "" and field != only:
+			continue
 		print("-- %s: open on the tablet with state, then three round trips" % field)
 		await _rep_fixture(field)
 		var o0 := -1
@@ -1262,6 +1425,8 @@ func _represent() -> void:
 				_ok(_live_conn_sets() == c0, "%s trip %d: the named signals have trip 1's receivers" % [field, t])
 		_app.get(field).hide()
 		await _frames(4)
+	if only == "" or only == "world_data_window":
+		await _rep_world_tab(ph, tab)
 	_ok(_world_hash() == _live_world and absf(float(_app.viewport.zoom()) - _live_zoom) < 1e-6, "the world and the camera are untouched")
 	print("-- the vault holds the swap until its text is saved (a converted window is hidden by then: only one modal window can be shown)")
 	var vw = _app.vault_window

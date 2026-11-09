@@ -57,6 +57,7 @@ var _rebuilding := false
 
 ## Selected library entry's id, `""` when the library is empty.
 var _selected_id := ""
+const WindowRepresent := preload("res://shell/window_represent.gd")
 
 ## The six base settlement kinds, in display order; aliased from the store so the
 ## dropdown and the store cannot disagree.
@@ -394,3 +395,20 @@ func _release_focus_in_body() -> void:
 	var fo := vp.gui_get_focus_owner()
 	if fo != null and _body.is_ancestor_of(fo):
 		fo.release_focus()
+
+## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild. Every edit here applies live (no
+## held changes), so a half-typed name is committed first, as the window's own refresh does on focus loss. The selected
+## library entry is carried by id (`open()` falls back to the first entry when the id no longer exists) and the body's scroll.
+func represent_capture() -> Dictionary:
+	var fo := get_viewport().gui_get_focus_owner() if is_inside_tree() else null
+	if fo != null and is_ancestor_of(fo):
+		fo.release_focus()
+	return {"open": visible, "selected": _selected_id, "scroll": WindowRepresent.scroll_value(_body)}
+
+## The other half, on the NEW window. An open window opens onto the carried entry in the new class's form; a closed one keeps
+## the selection for its next open. A coroutine: the scroll waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	_selected_id = String(bag["selected"])
+	if bool(bag["open"]):
+		open()
+		await WindowRepresent.restore_scroll(_body, int(bag["scroll"]))

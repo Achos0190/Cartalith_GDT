@@ -949,13 +949,35 @@ again instead**, through the same constructor `_ready()` uses, which is the one 
 - **The live leg's "a window is open" step used the faction roster**; it now uses the travel library, a window with no
   re-present path yet, and asserts that it has none (so the step moves to the next unconverted window when that one is converted).
 
+### 18.5 Batch 2: six windows (World data, City viewer, Settlement types, Generation info, Conflicts, Saved journeys)
+
+Built on the contract of 18.1; verified by `_ms1swap_probe.gd --leg represent` (now table-driven: one `match` arm per window in
+`_rep_open`, `_rep_state`, `_rep_expect`, `_rep_scroll`, and a bag in `_rep_init`).
+
+| Window | Carried | Not carried, and why |
+|---|---|---|
+| `world_data_window.gd` | tab (by title), the filter box's text, the shown tab's scroll | `_row_cap` (per-visit by PH-12: `open()` resets it) |
+| `city_viewer_window.gd` | town (`_index`), `_zoom`, `_pan` as a fraction of `_view_canvas` | a drag in progress |
+| `settlement_types_window.gd` | selected entry id, scroll (committed first: a half-typed name lands) | scroll on the way back from the phone (see below) |
+| `gen_info_dialog.gd` | open, the text's scroll | the text selection (the text is regenerated from the world on every open) |
+| `conflicts_window.gd` (lazy) | filter chip, scroll | the marked conflict (re-derived from the selection, PC-7) |
+| `saved_journeys_window.gd` (lazy) | open, scroll | nothing else is state |
+
+**Findings.** (1) `_pan` is in canvas pixels, and by the time the swap captures a window the engine has already resized it to the
+new viewport, so `_canvas.size` is no longer what the user was looking at: the City viewer records the size each view change was made
+in (`_view_canvas`) and carries the pan against it. (2) Two windows are built on first open (`open_conflicts_list()`,
+`open_saved_journeys()`), so `DccApp.LAZY_WINDOWS` keeps a never-built one null and rebuilds one that exists. (3) The freed windows'
+headers stayed in `DccTheme._elide_labels`; `_represent_windows()` prunes the registry after freeing (the roundtrip leg caught it).
+(4) Settlement types' scroll cannot survive phone to tablet: the stretched phone window needs no scroll, so the engine clamps it to 0
+before the capture (the 18.3 clamp, here with no room at all); the probe checks it on the way to the phone and expects 0 on the way
+back.
+
 ### 18.4 Which windows are not converted (they still hold a swap while open, and are still wrong if opened after a swap)
 
-From section 5.3's table, all but the two above: `vault_window`, `data_manager_window`, `asset_library_window` (and its slicer),
+From section 5.3's table, all but the eight converted in batches 1 and 2 (18.2, 18.5). **17 remain:** `vault_window`, `data_manager_window`, `asset_library_window` (and its slicer),
 `new_world_dialog`, `open_project_dialog`, `phone_project_picker`, `travel_library_window`, `llm_assistant_window`,
-`llm_settings_window`, `layers_popover`, `quick_bar_window`, `quick_bar_phone_list`, `world_data_window`, `city_viewer_window`,
-`conflicts_window`, `saved_journeys_window`, `settlement_types_window`, `generation_rules_window`, `gen_info_dialog`,
-`shortcuts_dialog`, `export_dialog`, the credits sheet and the desktop search dialog. Each needs its `represent_capture()` /
+`llm_settings_window`, `layers_popover`, `quick_bar_window`, `quick_bar_phone_list`,
+`generation_rules_window`, `shortcuts_dialog`, `export_dialog`, the credits sheet and the desktop search dialog. Each needs its `represent_capture()` /
 `represent_restore()` and a `_make_window()` arm; the ones `_ready()` builds with extra wiring (`quick_bar_window.pins_changed`,
 `vault_window.store_changed`, `assistant_settings_window.settings_changed`) need that wiring in the arm. The windows with a
 held-input state (the vault, New world, the slicer, Export, the Travel library draft) keep waiting by Q-S4-2 and need the

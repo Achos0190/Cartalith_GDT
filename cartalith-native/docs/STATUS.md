@@ -7320,5 +7320,40 @@ lists them), so S4.5 is not finished and B5's window bar is not met.
   `_ms1unit` tablet 7, `_pc7windows` desktop 138 and tablet 23, `_pc8planner` desktop 105, `_pc4context` desktop 145, `_pc6ask`
   desktop 74, `_ve5` 83, `_ve8` 87; no `SCRIPT ERROR` in any. Not re-run: the live leg's cold-boot comparison (`--clean --noworld`),
   `_pc8planner` on the tablet and phone, `_pc4context` and `_pc6ask` on the tablet and phone.
-- **Not done:** the 24 other windows (batches: refill-per-open windows, one-build windows, the large ones: the vault, the data
-  manager, the asset library, New world), the ring and B5's full bar (S4.6).
+- **Not done:** the 24 other windows (batch 2 below converts six of them; the large ones remain: the vault, the data manager, the
+  asset library, New world), the ring and B5's full bar (S4.6).
+
+### MS-1 S4.5 batch 2 built: six read-only and refill-per-open windows (2026-11-09)
+
+Read at the symbols; the per-item account is `S4_INVENTORY.md` section 18.5. A class swap no longer waits for an open **World
+data**, **City viewer**, **Settlement types**, **Generation info**, **Conflicts** or **Saved journeys** window: each is built
+again for the new class through `DccApp._make_window()` and opened again with its state. With batch 1 that is **eight converted
+windows; 17 long-lived windows still hold a swap while open** (section 18.4 lists them), so S4.5 is not finished and B5's window
+bar is not met.
+- **Carried:** World data: tab (by title), the filter field's text (not only the lower-case `_filter`), the shown tab's scroll.
+  City viewer: town, zoom, pan as a fraction of the canvas the user set it in (`_view_canvas`). Settlement types: selected entry,
+  scroll. Generation info: the text's scroll. Conflicts: filter chip, scroll. Saved journeys: open/closed, scroll.
+  Not carried, by design: World data's phone row cap (a per-visit state `open()` resets, PH-12), Conflicts' marked conflict
+  (re-derived from the selection on every open, PC-7). Limit found: the scroll on the way back from the phone to the tablet is lost
+  for Settlement types, because the engine stretches the phone window to the tablet viewport before the swap captures it and its
+  content then needs no scroll (the same clamp as batch 1's finding); the way to the phone keeps it.
+- **Mechanism additions:** `DccApp.LAZY_WINDOWS` (Conflicts and Saved journeys are built on first open: a swap rebuilds one that
+  exists and leaves a never-built one null); `_represent_windows()` now frees every old window first, prunes
+  `DccTheme._elide_labels` (freed window headers had been left in it: `--leg roundtrip` caught "elide labels 99, before 98"),
+  then builds. `WorldDataWindow._search` is a field now (the filter box was a local).
+- **Bar (`_ms1swap_probe.gd --leg represent`, now table-driven over all eight windows, 1800 x 1000 tablet to 880 x 800 phone and back,
+  three round trips each):** 409 checks, 0 failed (120 before this batch). The same per-swap checks as batch 1 for each window, a
+  scroll with room asserted before the swap where a window has one, the City viewer's pan checked against its fraction of each
+  class's canvas, and a separate block that World data keeps a non-default tab (Economy) across two round trips.
+  `--only <field>` runs one window.
+- **Mutants (literal, one at a time, restored by the script):** 11 of 11 killed: World data filter not lower-cased (12 failed),
+  World data scroll dropped (6), World data search text dropped (6), City viewer zoom dropped (6), pan applied in pixels (6), town
+  dropped (6), Settlement types selection dropped (6), its scroll dropped (3), Generation info scroll dropped (6), Conflicts filter
+  dropped (6), Saved journeys not re-opened (6).
+- **Regression (same results as before the change; origin/main for `roundtrip` re-run when it first failed):** `_ms1swap` quiet 24,
+  roundtrip 11, carry 68, live 540, `_ms1class --live swap` 3, `_pc7windows` desktop 138 and tablet 23, `_pc8planner` desktop 105,
+  `_pc4context` desktop 145, `_pc6ask` desktop 74, `_ve5` 83, `_ve8` 87, `_quickbar_window` desktop 108, `_llmprofiles` desktop
+  PASS; no `SCRIPT ERROR` in any. Not re-run: the tablet and phone forms of `_pc8planner`, `_pc4context`, `_pc6ask`.
+- **Not done:** 17 windows: the vault, Data manager, Asset library (and its slicer), New world, Open project, the phone project
+  picker, Travel library, the assistant and its settings, the layers popover, the quick-bar window and its phone list, Generation
+  rules, Shortcuts, Export, the credits sheet and the desktop search dialog; the ring and B5's full bar (S4.6).

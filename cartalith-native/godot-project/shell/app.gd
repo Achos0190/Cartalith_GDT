@@ -1611,13 +1611,10 @@ func _ready() -> void:
 	add_child(new_world_dialog)
 	new_world_dialog.setup(bridge)
 
-	world_data_window = WorldDataWindow.new()
-	add_child(world_data_window)
-	world_data_window.setup(bridge)
+	## MS-1 S4.5: these windows are built through `_make_window()`, the one path a class swap rebuilds them by.
+	world_data_window = _make_window("world_data_window")
 
-	city_viewer_window = CityViewerWindow.new()
-	add_child(city_viewer_window)
-	city_viewer_window.setup(bridge)
+	city_viewer_window = _make_window("city_viewer_window")
 
 	## `placeEditPopup` and `civFactionsModal` (`PARITY_AUDIT.md` §5 items 3,
 	## 9, 10). Long-lived like their neighbours -- both keep a selection
@@ -1628,17 +1625,13 @@ func _ready() -> void:
 	place_editor_window = _make_window("place_editor_window")
 	faction_roster_window = _make_window("faction_roster_window")
 
-	settlement_types_window = SettlementTypesWindow.new()
-	add_child(settlement_types_window)
-	settlement_types_window.setup(self, bridge)
+	settlement_types_window = _make_window("settlement_types_window")
 
 	generation_rules_window = GenerationRulesWindow.new()
 	add_child(generation_rules_window)
 	generation_rules_window.setup(self, bridge)
 
-	gen_info_dialog = GenInfoDialog.new()
-	add_child(gen_info_dialog)
-	gen_info_dialog.setup(self, bridge)
+	gen_info_dialog = _make_window("gen_info_dialog")
 	shortcuts_dialog = ShortcutsDialog.new()
 	add_child(shortcuts_dialog)
 	shortcuts_dialog.setup(self)
@@ -2098,7 +2091,12 @@ func _perform_class_swap() -> void:
 ## window is built again rather than edited). Each name is a `DccApp` field that `_make_window()` can build. A window is
 ## added here only with its `represent_capture()` and `represent_restore()`, and its probe leg in `_ms1swap_probe.gd`
 ## (`--leg represent`); `S4_INVENTORY.md` section 18 says which windows are still not here and so still hold a swap.
-const REPRESENTED_WINDOWS := ["place_editor_window", "faction_roster_window"]
+const REPRESENTED_WINDOWS := ["place_editor_window", "faction_roster_window", "world_data_window", "city_viewer_window",
+		"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window"]
+## The represented windows that are built on first use (`open_conflicts_list()`, `open_saved_journeys()`) and are null until
+## then: the swap leaves a never-built one unbuilt (its first open builds it for the class it is then in, as before) and
+## rebuilds one that exists.
+const LAZY_WINDOWS := ["conflicts_window", "saved_journeys_window"]
 ## What `_capture_windows()` read, by field name, until `_represent_windows()` and `_restore_windows()` have used it.
 var _window_bags: Dictionary = {}
 
@@ -2114,6 +2112,30 @@ func _make_window(field: String) -> Node:
 			w.setup(self, bridge)
 		"faction_roster_window":
 			w = FactionRosterWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"world_data_window":
+			w = WorldDataWindow.new()
+			add_child(w)
+			w.setup(bridge)
+		"city_viewer_window":
+			w = CityViewerWindow.new()
+			add_child(w)
+			w.setup(bridge)
+		"settlement_types_window":
+			w = SettlementTypesWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"gen_info_dialog":
+			w = GenInfoDialog.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"conflicts_window":
+			w = CONFLICTS_WINDOW.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"saved_journeys_window":
+			w = SAVED_JOURNEYS_WINDOW.new()
 			add_child(w)
 			w.setup(self, bridge)
 		_:
@@ -2133,11 +2155,21 @@ func _capture_windows() -> void:
 ## rebuilt too, because its `_phone` and presentation were baked for the class it was built in and a later open would
 ## otherwise show the wrong layout.
 func _represent_windows() -> void:
+	var existed := {}
 	for f in REPRESENTED_WINDOWS:
 		var old = get(f)
-		if old != null and is_instance_valid(old):
+		existed[f] = old != null and is_instance_valid(old)
+		if existed[f]:
 			(old as Node).free()
-		set(f, _make_window(f))
+	## The freed windows' header labels are still in `DccTheme._elide_labels` (a window's header registers there on a tablet and
+	## the composition's own pruning ran before these windows were freed): without this the registry grows by one batch of
+	## dead labels per swap (`_ms1swap_probe.gd --leg roundtrip`, "elide labels: 99, before 98"). Before the new windows are
+	## built, so nothing valid is touched.
+	DccTheme.clear_composition_registries()
+	for f in REPRESENTED_WINDOWS:
+		## A lazy window that was never built stays unbuilt; one that exists is rebuilt like the rest (its state, such as the
+		## conflicts filter chip, survives between opens).
+		set(f, _make_window(f) if existed[f] or not LAZY_WINDOWS.has(f) else null)
 
 ## Step 3, after the mount: each rebuilt window gets its bag (an open one opens again, in the new class's form). Coroutines
 ## the swap does not await (a scroll offset needs laid-out frames).
