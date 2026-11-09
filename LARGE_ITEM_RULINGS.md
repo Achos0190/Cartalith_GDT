@@ -3358,3 +3358,33 @@ Two answers on MS-5's tool strip (`c302a4ed`):
    Tapping the tool chip still opens the full option bar. Nothing is deleted.
 2. **Arming drops the sheet to peek only when the tool was armed from the map** (the fan, the strip or the context
    card). Arming from the dock keeps the sheet where it is, so the tool's options stay visible.
+
+## Ruling EK: Ruling EE is revisited, so a read-only Stylo 2 Bluetooth plugin may be built; double tap = last tool, slide = brush size (owner, 2026-11-09)
+
+Asked about `STYLO2_PEN_PROPOSAL.md` (`9cee84bf`), the owner chose to **revisit Ruling EE now** rather than run SP-0
+first. They set double tap's default to **Last tool** and the side slide's to **Brush size**.
+
+- **Superseded in EE:** "no Kotlin plugin, no Gradle, no BLE" is lifted, for one narrow, **read-only** Stylo 2
+  plugin as the proposal scopes it.
+  - It is a Kotlin Godot v2 Android plugin wrapping a fixed BLE client, with a GDScript facade.
+  - It is off by default. `BLUETOOTH_CONNECT` is asked for only when the user switches it on, and no scan or
+    location permission is used.
+  - On desktop, the 6T and any other device it is absent, and absent without an error.
+  - Its writes are limited to the three query commands: battery, firmware and name.
+- **Kept from EE:** no haptics. The pen-enable command, the two vibration commands and the firmware services are
+  never written. The app does not root a device, apply to Oplus for an authCode (proposal P7: no), or ship a pen
+  SDK.
+- **The client must be fixed before it ships** (proposal §2.4/§5). It must serialise the notification
+  subscriptions, report connected only after they are confirmed, close the connection on an unexpected disconnect,
+  check error statuses and match the paired pen exactly. The vibration-setting write is removed.
+- **Defaults:**
+  - Double tap selects the **last tool**. Off, the eraser/lower toggle, Undo, the Tool fan and any pinnable command
+    can be chosen per tool kind (P8 default).
+  - The slide sets **brush size**, with Zoom and Timeline year as options.
+  - Battery appears in settings and the tester, with a chip at 20 % or below (P5 default).
+  - No vibration-feel setting (P6).
+  - The plugin is experimental and in the owner's own builds only until SP-7 passes (P9).
+- **Still worth running:** SP-0's raw-input check. If the pen also sends a standard key, that path is used where it
+  is enough.
+- **Everything goes through existing entry points** (`arm_tool`, the brush steppers, `undo_last`, `pin_key`). No
+  generated output moves. The Gradle build switch is accepted (P10).
