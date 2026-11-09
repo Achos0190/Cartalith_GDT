@@ -38,6 +38,12 @@ extends Node
 ##           restores 100 % and checks 52 x density again. At 3840 x 2160 it presses 125 % instead, which
 ##           crosses the line (1 536 x 864 dp at density 2), and the runner greps the log for the shell's
 ##           class-change request (S4 is not built, so the boot class is kept).
+##   uiescape (the OnePlus Pad 3 trap, 2026-11-09) seeds a stored UI scale of 200 % BEFORE the shell boots,
+##           at `--vp 3392x2400 --density 2.225` (1 524 x 1 079 dp physical, 762 x 539 dp effective), so it
+##           boots the PHONE composition by Ruling EG's line over density x scale. It checks the Preferences
+##           UI scale submenu is a live four-item radio submenu on that phone (not the disabled placeholder),
+##           that it ticks 200 %, then presses 100 % and checks the shell swaps to the tablet shell and the
+##           settings file reads 1.0. Without the escape the user could never leave the phone shell.
 ##   map     prints the zoom at which `ViewportHost.lod_active()` first turns true, stepping the zoom by
 ##           `zoom_step(1.35)` from fit on a small generated world; the bar compares two runs (density 1
 ##           and 2) and is judged by the runner, within one step.
@@ -152,8 +158,8 @@ func _ready() -> void:
 		return
 	var parts := _arg("--vp", "").split("x")
 	var leg := _arg("--leg", "")
-	if parts.size() != 2 or not leg in ["tablet", "phone", "map", "uiscale"]:
-		print("ABORT: needs --vp WxH and --leg tablet|phone|map|uiscale")
+	if parts.size() != 2 or not leg in ["tablet", "phone", "map", "uiscale", "uiescape"]:
+		print("ABORT: needs --vp WxH and --leg tablet|phone|map|uiscale|uiescape")
 		get_tree().quit(2)
 		return
 	_density = _arg("--density", "1").to_float()
@@ -167,6 +173,9 @@ func _ready() -> void:
 	_vp.gui_embed_subwindows = true
 	_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	add_child(_vp)
+	if leg == "uiescape":
+		## Seeds the stored scale the way a user's earlier choice would be on disk; the shell reads it at boot.
+		DccSettings.set_ui_scale(2.0)
 	_app = load("res://shell/app.tscn").instantiate()
 	_vp.add_child(_app)
 	await get_tree().create_timer(1.6).timeout
@@ -187,6 +196,8 @@ func _ready() -> void:
 			await _map()
 		"uiscale":
 			await _uiscale(vw, vh)
+		"uiescape":
+			await _uiescape()
 	print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
 	get_tree().quit(0 if _fails == 0 else 1)
 
@@ -379,3 +390,29 @@ func _uiscale(vw: int, vh: int) -> void:
 	_ok(_stored_ui_scale() == "1.0", "100 %% restored (file reads %s)" % _stored_ui_scale())
 	var m2 := await _drawn(menu)
 	_ok(absf(m2.size.y - 52.0 * _density) <= 1.0, "menu bar %d px after restoring 100 %%; want %.1f" % [m2.size.y, 52.0 * _density])
+
+
+## The leg `uiescape` (see the header). Literals only: 2.0 is the seeded scale, 930 the 100 % id, 4 the
+## number of radio rows, "1.0" the file's text after the press.
+func _uiescape() -> void:
+	_ok(DccTheme.is_phone(), "boots as a PHONE with a stored 200 %% scale (762 x 539 dp effective)")
+	var nodes: Array = []
+	_all(_app, nodes)
+	var pop: PopupMenu = null
+	for n in nodes:
+		if n is PopupMenu and n.name == "UiScaleChoice":
+			pop = n
+	_ok(pop != null, "the phone's Preferences has a live UI scale submenu while a non-100 %% scale is stored")
+	if pop == null:
+		return
+	_ok(pop.item_count == 4, "the submenu has four rows (got %d)" % pop.item_count)
+	var ticked := -1
+	for k in pop.item_count:
+		if pop.is_item_checked(k):
+			ticked = pop.get_item_id(k)
+	_ok(ticked == 933, "200 %% is ticked (id 933; got %d)" % ticked)
+	pop.id_pressed.emit(930)
+	await get_tree().create_timer(2.5).timeout
+	await _frames(6)
+	_ok(_stored_ui_scale() == "1.0", "100 %% stored (file reads %s)" % _stored_ui_scale())
+	_ok(DccTheme.is_tablet(), "pressing 100 %% swapped the shell to the tablet composition")

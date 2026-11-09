@@ -167,6 +167,19 @@ func _ready() -> void:
 	# At 2 x 1.25: 1 356.8 x 960 dp.
 	_row("Pad 3 @2 x1.25 landscape", Vector2(3392, 2400), 2.0, 1.25, true, true, "", false, true, "large")
 	_row("Pad 3 @2 x1.25 portrait", Vector2(2400, 3392), 2.0, 1.25, true, true, "", false, false, "expanded")
+	# Measured on the owner's Pad 3 on 2026-11-09 (`screen_get_dpi()` follows `wm density`, as on the 6T):
+	# Override density 356 (the owner's Display size) = 2.225, Physical density 420 = 2.625.
+	# 2 400 / 2.225 = 1 078.7 dp short; 2 400 / 2.625 = 914.3 dp short: both tablets (900 dp line).
+	_row("Pad 3 @2.225 landscape", Vector2(3392, 2400), 2.225, 1.0, true, true, "", false, true, "large")
+	_row("Pad 3 @2.225 portrait", Vector2(2400, 3392), 2.225, 1.0, true, true, "", false, false, "expanded")
+	_row("Pad 3 @2.625 landscape", Vector2(3392, 2400), 2.625, 1.0, true, true, "", false, true, "large")
+	_row("Pad 3 @2.625 portrait", Vector2(2400, 3392), 2.625, 1.0, true, true, "", false, false, "expanded")
+	# The cause of the 2026-11-09 "phone GUI on the tablet" report: the Pad held a stored UI scale of 200 %.
+	# 2.225 x 2.0 = 4.45: 762.2 x 539.3 dp effective, short < 900, a phone BY DESIGN (spec §3.6). The fix is
+	# the escape in the UI scale menu, not this line. At 125 % (1 078.7 / 1.25 = 863 dp) it is a phone too.
+	_row("Pad 3 @2.225 x2.0 landscape", Vector2(3392, 2400), 2.225, 2.0, true, true, "", true, true, "medium")
+	_row("Pad 3 @2.225 x1.25 landscape", Vector2(3392, 2400), 2.225, 1.25, true, true, "", true, true, "large")
+	_row("Pad 3 @2.625 x1.25 landscape", Vector2(3392, 2400), 2.625, 1.25, true, true, "", true, true, "expanded")
 	# Off a device, no --density (the legacy figure, aspect 0.7075 >= 0.6): a tablet.
 	_row("Pad 3 legacy landscape", Vector2(3392, 2400), 1.0, 1.0, true, false, "", false, true, "xl")
 

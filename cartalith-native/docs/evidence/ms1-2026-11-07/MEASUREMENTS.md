@@ -223,3 +223,21 @@ throwaway build (one `print` in `DccShell._ready`, never committed) read them fr
 | B7 `wm size 1600x2560` + `wm density 320` | `screen_get_dpi()` 320, scale 2.0, density 2.0, `_phone_scale` 2.0, size (1600, 2560). The **phone composition** came up (bottom tabs, sheet), not the tablet the table expected (800 x 1 280 dp, aspect 0.625). That follows Ruling EG's 900 dp line (shortest 800 dp is a phone). `device/wm1600b.png`. Restored: `wm size` 1080x2340, `wm density` 450 |
 
 Not measured: cold-boot timing (B5), and `AndroidRuntime`'s own density.
+
+## Pad 3 on the device, measured 2026-11-09
+
+OnePlus Pad 3 `OPD2415`, `wm size` 2400x3392 (landscape in use), Physical density 420, Override density 356. A throwaway
+`print` in `DccShell._compute_layout_mode` and `_on_resize_settled` (never committed), read from `adb logcat -s godot`.
+
+| What | Result |
+|---|---|
+| `screen_get_dpi()` | **356** (follows `wm density`, the override; not the ~315 ppi physical) |
+| `screen_get_scale()` | 2.0 |
+| `screen_get_size()`, `window_get_size()`, visible rect | all (3392, 2400) |
+| `_density()` | {2.225, known true} |
+| Stored `[ui_scale] scale` | **2.0** (`DccSettings.ui_scale()`, `_touch` true) |
+| `classify()` | dp (762.2, 539.3), aspect 0.7075, **phone true**, width class medium |
+| At physical 420 (2.625) and scale 1.0 | 914 dp short: tablet (pinned in `_ms1class --table`) |
+| Boot, untouched | no welcome card after 20 s and 35 s; it appears after the first touch |
+
+Cause: the stored 200 % UI scale, not the density. Fix: the UI scale row is live on a phone that holds a non-100 % scale.

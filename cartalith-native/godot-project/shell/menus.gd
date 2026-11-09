@@ -4205,10 +4205,19 @@ const _UI_SCALE_IDS := {930: 1.0, 931: 1.25, 932: 1.5, 933: 2.0}
 ## disabled with its reason** (MQ-3 (a)): phones follow Android's Display size until the phone layout
 ## reflows below 412 dp (MS-2 to MS-6). On the tablet a choice is stored and re-runs the shell's class
 ## question and unit (`DccShell.ui_scale_changed()`).
+##
+## **The one exception is a phone that holds a stored scale other than 100 %** (OnePlus Pad 3, measured
+## 2026-11-09: stored 200 % x density 2.225 = 539 dp of shortest width, so the 13-inch tablet booted the
+## phone shell by `DccTheme.classify()`'s design, Ruling EG's 900 dp line over density x scale). There the
+## row used to be disabled, which left the user no way back to 100 % and so no way back to the tablet:
+## a trap, not a rule. With a non-default scale stored the radio choices are live on the phone too, and a
+## choice re-runs the class question exactly as on the tablet (`ui_scale_changed()`), so 100 % crosses back
+## to the tablet shell when the screen's density says it is one. At 100 % on a real phone the row stays
+## disabled, unchanged. Never hide or disable the only control that can undo a stored setting.
 func _build_ui_scale_submenu(p: PopupMenu) -> void:
 	if not DccTheme.is_touch():
 		return
-	if DccTheme.is_phone():
+	if DccTheme.is_phone() and is_equal_approx(DccSettings.ui_scale(), 1.0):
 		p.add_item("UI scale", ID_PREF_UI_SCALE_100)
 		var idx := p.item_count - 1
 		p.set_item_disabled(idx, true)
@@ -4221,7 +4230,7 @@ func _build_ui_scale_submenu(p: PopupMenu) -> void:
 	_ui_scale_popup.add_radio_check_item("150 %", ID_PREF_UI_SCALE_150)
 	_ui_scale_popup.add_radio_check_item("200 %", ID_PREF_UI_SCALE_200)
 	for i in 4:
-		_ui_scale_popup.set_item_tooltip(i, "Scales the whole tablet interface. Stored on this device, never in a world.")
+		_ui_scale_popup.set_item_tooltip(i, "Scales the whole interface. Stored on this device, never in a world. At 100 % a screen of 900 dp or more of shortest width uses the tablet layout.")
 	_refresh_ui_scale_menu()
 	_ui_scale_popup.id_pressed.connect(_on_ui_scale_choice)
 	_shell.style_popup(_ui_scale_popup)

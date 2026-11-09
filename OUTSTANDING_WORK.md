@@ -76,11 +76,21 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
     **unverified on a device and not committed**: hold idle mode off across that wait and restore it, as
     `view3d_gate.gd` does. That is four lines; the patch was kept in the 2026-11-08 session's scratchpad
     (`welcome_idle_fix.patch`).
-  - **The phone GUI opened on the tablet.** At the 2026-11-08 22:40 launch the shell came up as the tablet
-    composition. Its display then read 2400 x 3392 at an override density of 356 (2.225), about 1 078 dp of
-    shortest width, so it should be a tablet under Ruling EG. Re-measure the density Godot reads on the Pad 3
-    (`screen_get_dpi()`, which on the 6T matched `wm density`) and the class `classify()` returns, at the owner's
-    current Display size, before changing anything.
+  - ~~**The phone GUI opened on the tablet.**~~ **Closed 2026-11-09, measured on the Pad 3 (`OPD2415`).** Cause: the
+    Pad held a stored `Preferences > UI scale` of 200 % (`cartalith_settings.cfg`, `[ui_scale] scale=2.0`). Godot's
+    `screen_get_dpi()` is 356 there, equal to `wm density` (so `_density()` is `{2.225, known}`, not the problem), but
+    `classify()` divides by density x UI scale: 2 400 px / 4.45 = 539 dp, a phone by Ruling EG's line, by design
+    (spec §3.6). The real defect was the trap: on the phone that row was disabled, so a user could never return to 100 %
+    and the tablet. Fixed in `DccMenus._build_ui_scale_submenu`: with a non-100 % scale stored the row is live on the
+    phone and a choice re-runs the class question. The classifier is unchanged and its Pad rows are re-pinned. **Open
+    for the owner:** whether UI scale should be allowed to change the shell form at all (a 125 % scale makes a 13-inch
+    Pad a phone: 863 dp); that reverses spec §2.2/§3.6 and is not done here. The Pad's stored scale was left at 200 %
+    (editing the user's settings was not permitted); choose 100 % in Preferences, or on a build that has this fix.
+    Evidence: `cartalith-native/docs/evidence/ms1-2026-11-07/MEASUREMENTS.md`, "Pad 3 on the device".
+  - **Welcome screen idle-mode row, re-observed 2026-11-09:** on the fixed build, untouched, the welcome/project picker
+    was still absent 20 and 35 s after launch and appeared only after the first touch; after a tap a sheet opened
+    empty until a second touch (frames are not drawn between inputs). `adb input swipe` does not scroll Preferences.
+    The candidate patch was not applied.
 - **Central touch-scroll fix: built 2026-11-08 (`STATUS.md`); the handset check is open.** Cards, lists, read-only text
   boxes, popup lists and windows are covered and probed. The owner's reported symptoms "generation parameters scrolling
   degrades as sections expand" and "settings scroll once then dead" still do NOT reproduce (before or after the fix);
