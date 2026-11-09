@@ -2329,10 +2329,22 @@ func busy_run(label: String, work: Callable) -> Variant:
 ## `process_frame`s first so layout has settled and `popup_centered` centres
 ## against a real window size -- the reason the old comment gave for
 ## deferring at all, which still holds.
+##
+## **Idle mode is held off across this wait** (owner, 2026-11-08: on the OnePlus Pad 3 the
+## project/new-world screen only appeared after the screen was touched). `_enable_idle_mode()`
+## has already turned on `OS.low_processor_usage_mode` by now, and in that mode a frame is drawn
+## only when something on screen changes. Once the shell's first frames are drawn nothing changes
+## until input arrives, so `frame_post_draw` never fired and the welcome waited for a touch.
+## Measured with adb on the Pad 3, build `e02fadcb`: no welcome after 30 s untouched. The wait now
+## runs with idle mode off and restores the mode it found, the same pattern `view3d_gate.gd` uses
+## around its own frame waits. It must never leave idle mode off: the restore runs on every path.
 func _open_welcome_when_drawn() -> void:
+	var lowp := OS.low_processor_usage_mode
+	OS.low_processor_usage_mode = false
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
+	OS.low_processor_usage_mode = lowp
 	if is_inside_tree() and not bridge.has_world:
 		open_welcome()
 
