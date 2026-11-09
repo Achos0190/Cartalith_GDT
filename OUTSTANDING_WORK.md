@@ -65,15 +65,11 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
 - **Retrieval:** RK-8 to RK-11. `RAG_KNOWLEDGE_BASE_RESEARCH.md`.
 
 **Phone and touch** (`ANDROID_BUILD_SCOPE.md` 3.12, 3.13; `GUI_GAP_REGISTER.md`)
-- **Open owner questions, 2026-11-09** (answer before building):
-  - **Pen pressure per tool.** The proposal is one per-tool choice, "Pressure controls: strength / size / off".
-    - Sculpt already uses pressure as strength (`cartalith-terrain` `sculpt.rs`: k = cov x intensity x p).
-    - Biome paint uses it for dab size (`paint_bridge.rs`, `DEFAULT_PRESSURE_MIN` 0.2). That paint is categorical, so
-      strength has no meaning there; the options are (a) size, (b) off or (c) scatter density.
-    - Colour paint's use of pressure is unchecked.
-  - **UI scale and the shell form.** Should UI scale be able to switch the shell form at all? A 125 % scale already
-    makes the Pad 3 a phone; see `fd47fd33`.
-  - **The welcome idle-mode fix.** Apply it now, or keep it for the performance pass below?
+- **Owner questions of 2026-11-09: answered (Ruling EM, `LARGE_ITEM_RULINGS.md`).**
+  - **UI scale and the shell form:** the screen alone decides; built (`STATUS.md`, "Ruling EM").
+  - **The welcome idle-mode fix:** applied; the handset check is the owner's.
+  - **Pen pressure per tool:** biome paint off, area from the slider; sculpt keeps pressure as strength. **Still to build:**
+    the per-tool "Pressure controls" choice (strength / size / off); colour paint's use of pressure is unchecked.
 - **Performance pass across devices** (owner, 2026-11-08: *"Maybe we should just wait until all outstanding work is
   done and start thinking about improving performance across devices."*). It is scheduled **after** the rest of this
   list, by the owner's order. It starts with three owner reports from the OnePlus Pad 3 (APK `e02fadcb`):
@@ -100,6 +96,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
     was still absent 20 and 35 s after launch and appeared only after the first touch; after a tap a sheet opened
     empty until a second touch (frames are not drawn between inputs). `adb input swipe` does not scroll Preferences.
     The candidate patch was not applied.
+- **Menu drag panned the map behind it: fixed 2026-11-09 (`STATUS.md`, "Scroll-fix"); the handset check is open** (the owner's finger on the Pad 3).
 - **Central touch-scroll fix: built 2026-11-08 (`STATUS.md`); the handset check is open.** Cards, lists, read-only text
   boxes, popup lists and windows are covered and probed. The owner's reported symptoms "generation parameters scrolling
   degrades as sections expand" and "settings scroll once then dead" still do NOT reproduce (before or after the fix);

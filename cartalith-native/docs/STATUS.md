@@ -374,6 +374,42 @@ APK; APK 80 751 312 bytes, md5 `460f0440238ada5a3c577b7bc1a26d1d`; `apksigner` C
 Installed with `adb install -r`; the user's worlds on the device were untouched. Delivered to `Mapping Tools\Cartalith.apk`
 (no earlier file was there, so no `.previous`).
 
+### Ruling EM built: the screen decides the form; the welcome idle-mode fix (2026-11-09)
+
+**Built; probed headless and windowed; the handset check is the owner's.** Read at `dcc_theme.gd`: `classify()`
+(`class_short_dp`); at `app.gd`: `_open_welcome_when_drawn()`.
+
+- **Form:** UI scale no longer changes phone versus tablet. `_ms1class_probe.gd --table` pins the Pad at 2.225 x 2.0, x 1.25
+  and at 2.625 x 1.25 as tablets (88 of 88); the literal mutant (class over density x scale) fails 5 rows. The 11-inch at
+  density 2 stays a phone (Ruling EG).
+- **Welcome:** idle mode is held off across the two frame waits and restored. Pad check: not yet made. The APK (debug certificate, Gradle route with the pen plugin, 105 897 314 bytes) is built at `C:\cw\Cartalith-scrollfix-EM.apk`; the Pad 3 was not reachable by `adb` at the time (no mDNS service, only the 6T on USB), so it is **not installed**, and neither the tablet form after Ruling EM nor the welcome card without a touch has been seen on the glass.
+- **Pen pressure:** answered, not built (the per-tool "Pressure controls" choice).
+
+### Scroll-fix: a finger on the MENU, a sheet or a window no longer pans the map behind it (2026-11-09)
+
+**Built and probed; the handset check is the owner's.** Owner report (OnePlus Pad 3, phone GUI at a stored 200 % UI scale): *"trying
+to scroll the menu moves the map behind the menu"*; `adb input swipe` also failed to scroll Preferences. Read at
+`viewport_host.gd`: `_on_map()`, the new `_topmost_pick()`, `_touch_press()`, `_finger_down()`, `_touch_motion()`.
+
+- **Cause (reproduced, `_scrollfix_probe.gd`, mutant below):** MS-5's touch router decided "is this finger the map's?" by geometry
+  alone (`_on_map()`: inside the host's rect, outside the navpad row). The phone MENU, a dock sheet and a phone-presented window are
+  drawn over the map, inside that rect, and `ViewportHost._input()` runs before GUI dispatch. So the press was taken as a camera pan
+  (`_TP_CANDIDATE` to `_TP_PANNING`), the camera moved (-779 px on one stroke in the mutant run), and `_touch_motion()` consumed
+  the emulated mouse motion with `set_input_as_handled()`, so the list's ScrollContainer never saw the drag. It is the likely
+  cause of the owner's earlier "Settings only scrolls down once" too.
+- **Why the earlier probes missed it:** `_touchscroll_probe.gd` pushes its emulated mouse with `device = 0`, which
+  `_is_touch_mouse()` never routes on a desktop; only a probe that stamps `DEVICE_ID_EMULATION` (-1), as `_ms5_probe.gd` and
+  `_scrollfix_probe.gd` do, enters the router.
+- **Fix:** `_on_map()` now also requires the topmost control that GUI picking would choose at the press point to be the host or one
+  of its descendants (`_topmost_pick()` walks CanvasLayers by layer, children last-to-first, skips IGNORE controls, and treats an open
+  embedded Window as on top). Evaluated on a press only, never per motion; a drag that starts elsewhere is never tracked, so
+  its motion reaches the GUI untouched. The bare map's one-finger pan, double-tap, thumb zoom and stray-stroke guard are unchanged.
+- **Probe:** `_scrollfix_probe.gd` drives real ScreenTouch/ScreenDrag plus device -1 emulated mouse at MENU root, Preferences, a STORY
+  band, the CIVIL/CARTO/WORLD sheets and the New World window; a list that fits gets a probe-side spacer so a real scroll exists. It
+  asserts the list moved and the camera did not, from a row label and from blank space, up and down, plus a bare-map pan as the
+  positive control. Pad 3 (3392x2400, 2.225, ui-scale 2), 6T portrait and landscape. Mutant (`return true` in `_on_map()`): 36 of 58 checks fail.
+- **Not measured:** the finger itself (synthetic events have no Android slop or inertia), and `adb input swipe` on the Pad (not installed, see the Ruling EM entry). After Ruling EM the Pad is a tablet at 200 %, so the phone MENU legs run on the 6T sizes; on the tablet the probe covers the window leg and `_ms5_probe` at 1600x1000 covers the bare-map pan. The New World window's label-start scroll is flaky across sizes and is asserted only for the camera. `_touchscroll_probe` still fails its precondition "Preferences has an overflowing scroller" (the collapsed Preferences list fits), unrelated to input routing.
+
 ### Central touch-scroll fix built (2026-11-08)
 
 **Built, verified on the probes named; the owner's two reports stay open until the handset confirms.** Read at

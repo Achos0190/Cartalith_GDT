@@ -3402,3 +3402,25 @@ Two answers:
 2. **The phone's +/− steppers beside sliders come back.** Ruling EH item 1 (`3af1e0ac`) dropped them with the
    GENERATE column. They are restored on the phone's dock sliders. Each step goes through the slider's own value path
    and undo, with the 44 dp floor.
+
+## Ruling EM: the screen decides phone or tablet; the welcome idle-mode fix is applied; pen pressure per tool (owner, 2026-11-09)
+
+Three answers to the open questions of 2026-11-09 (`OUTSTANDING_WORK.md`), and the bug that prompted the first.
+
+1. **The actual screen decides phone versus tablet, never the UI scale.** `DccTheme.classify()` reads the 900 dp line
+   against the shortest side over the density alone (`class_short_dp`). UI scale still sizes the UI within the class
+   (`dp` and the width class stay over density x scale). This **reverses the UI-scale clause** of
+   `MOBILE_SHELL_MS1_SPEC.md` 2.2 and 3.6 (a scale "can cross a line"); those passages carry a note. A stored 200 % on
+   the OnePlus Pad 3 (2 400 / 2.225 = 1 078.7 dp short) is a tablet; 125 % too. `_ms1class_probe.gd`'s rows for 200 % and
+   125 % on the Pad (and the 4K at density 2, 125 % rows) now expect tablet. The 11-inch at density 2 (834 dp short) stays
+   a phone at any scale, by Ruling EG.
+2. **The welcome idle-mode fix is applied now**, not held for the performance pass. `app.gd::_open_welcome_when_drawn()`
+   holds `OS.low_processor_usage_mode` off across its frame waits and restores the value it found (the pattern of
+   `view3d_gate.gd`), so the welcome card appears on the Pad without a touch.
+3. **Pen pressure.** Biome paint: pressure is off, and the area comes from the slider only. Sculpt keeps pressure as
+   strength (`cartalith-terrain` `sculpt.rs`: k = cov x intensity x p). The per-tool "Pressure controls" choice
+   (strength / size / off) is still to build. Colour paint's use of pressure stays unchecked.
+
+Also found the same day, not a decision: a finger on the phone MENU, a sheet or a window panned the map behind it,
+because `ViewportHost._on_map()` tested geometry only. Fixed by requiring the topmost picked control at the press to be
+the map's own (`STATUS.md`, "Scroll-fix").

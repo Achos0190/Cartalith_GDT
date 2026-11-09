@@ -144,8 +144,14 @@ Five of the fourteen rows differ between at least two rules, and every one of th
 
 Two further facts bear on the choice. Off a device, today's rule is the aspect alone, so a probe at
 `--force-touch --vp 3840x2160` gets the phone composition, although the same panel on a device at density 2 is a
-tablet. And a UI scale (S5) shrinks the effective size. At 125 %, a 4K panel at density 2 is 1 536 × 864 dp, which is a
+tablet. And a UI scale (S5) shrinks the effective size. At 125 %, a 4K panel at density 2 is 1 536 × 864 dp, which was a
 phone under either 900 dp rule. Under the proposal's 600 dp width line it stays a tablet up to 320 %.
+
+> **Reversed by Ruling EM (owner, 2026-11-09): UI scale never changes the class.** The 900 dp line is read against the
+> shortest side over the density alone (`classify()`'s `class_short_dp`); the screen decides phone or tablet. The
+> scale still sizes the UI within the class (`dp` and the width class stay over density × scale). The 125 % example
+> above is therefore a tablet (2 160 / 2 = 1 080 dp short). Cause: a stored 200 % on the OnePlus Pad 3 gave a phone GUI
+> on a tablet.
 
 ### 2.3 What a "pixel" means in each composition today
 
@@ -373,7 +379,7 @@ do after the build. `_unmount_composition()` is its inverse. A swap is: unmount,
   later work.
 - Touch builds only (MQ-4: the PC gets no UI scale, Ruling DY). On the phone, under MQ-3's default, the row is shown disabled with its reason: phones follow
   Android's Display size until the phone layout reflows below 412 dp.
-- Changing it re-runs `classify()`, because a scale can cross a line (§2.2), and re-applies the unit.
+- Changing it re-runs `classify()` and re-applies the unit. Since Ruling EM a scale can no longer cross the phone/tablet line (§2.2): the class reads the density alone.
 - Probes use a `--ui-scale S` user argument, which overrides the setting for the run without writing it.
 
 ### 3.7 Probes
@@ -492,11 +498,11 @@ The bars:
   Timing: a swap costs less than a cold boot at the same size, both measured as the median (min..max) of five serial
   runs, run alone. If it does not, a restart would be the better design, and this file says so.
 - **B6 — UI scale (S5).** `--vp 2388x1668 --density 2 --ui-scale 1.5` gives a 156 px menu bar (52 dp × 2 × 1.5).
-  *Since Ruling EG that window is a phone at any UI scale; the leg runs at `--vp 4000x2800 --density 2` (2 000 × 1 400 dp,
+  *Since Ruling EG that window is a phone at any UI scale (834 dp short at density 2); the leg runs at `--vp 4000x2800 --density 2` (2 000 × 1 400 dp,
   1 333 × 933 dp at 150 %, a tablet either way).*
   Pressing `Preferences ▸ UI scale ▸ 150 %` through the visible menu, not by calling a function, writes 1.5 to the
   settings file and gives the same drawn heights. The setting is restored afterwards. At UI scale 125 %,
-  `--vp 3840x2160 --density 2` classifies as MQ-1's rule says (a phone under today's), and that swap meets B5.
+  `--vp 3840x2160 --density 2` stays a tablet (Ruling EM: the class ignores the scale).
 - **B7 — on the 6T (S2 onwards).**
   - `_phone_scale` is within S0's stated deviation of 2.621. Under MQ-3's default, with a density of 2.625, it is
     bit-identical.
