@@ -4471,7 +4471,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	_live(p, "Quick bar…", ID_PREF_QUICK_BAR)
 	## PW-1: the pop-out switch (Ruling DK Q1: off by default). Desktop only -- the phone and the
 	## tablet keep every window embedded (`PopoutHost.supported()`); the tablet's disabled-with-
-	## reason row is PW-5's. The tooltip says what the switch does TODAY: only the windows in
+	## reason row is PW-5's (the `else` below). The tooltip says what the switch does TODAY: only the windows in
 	## `PopoutHost.LIVE_KEYS` leave the main window (the faction roster since PW-2, which closed the
 	## busy-overlay and shortcut holes PW-0 measured; the other six v1 windows since PW-3); Data
 	## Manager, Asset Library and the file dialogs stay docked by decision (scope Q4).
@@ -4482,6 +4482,16 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 		p.set_item_tooltip(popout_idx,
 			"Opens the listed panels as separate operating-system windows you can move to a second monitor. Off keeps every panel inside this window. Applies to the Factions, Settlement types, Place editor, Generation rules, City viewer, Vault and Assistant panels (the Data Manager, the Asset Library and file dialogs stay inside this window), and each one's own Pop out button works with this off. Stored per device, never in a world.")
 		_popout_pref_row = popout_idx
+	else:
+		## PW-5: where it cannot work the row is absent on the phone and DISABLED WITH ITS REASON
+		## elsewhere (the tablet; an Android process; a display with no multi-window support), never
+		## a silent omission and never an enabled row that does nothing. `_popout_pref_row` stays
+		## -1: the row has no check state to rewrite. `_todo()` puts the reason in the tooltip.
+		var why := PopoutHost.reason_text(PopoutHost.unsupported_reason(
+			DisplayServer.has_feature(DisplayServer.FEATURE_SUBWINDOWS),
+			OS.has_feature("mobile"), DccTheme.is_phone(), DccTheme.is_tablet()))
+		if why != "":
+			_todo(p, "Open panels in their own window", why)
 
 	if full or include_theme:
 		_build_theme_submenu(p)

@@ -32,7 +32,7 @@ const MIN_TITLE_VISIBLE := 64
 ##
 ## Returns `{"placed": true, "rect": Rect2i, "screen": int, "how": String}` or `{"placed": false,
 ## "why": String}`. `how` says which rule chose the screen (`same_screen`, `same_origin`, `overlap`,
-## `primary`) so a probe can tell a restore from a fallback.
+## `primary`, `first_usable`) so a probe can tell a restore from a fallback.
 ##
 ## Screen choice, first rule that matches wins:
 ## 1. `same_screen`: a screen whose FULL rectangle equals the one stored (`sx sy sw sh`).
@@ -83,8 +83,16 @@ static func resolve(saved: Dictionary, screens: Array, primary: int) -> Dictiona
 				how = "overlap"
 	var centre := false
 	if pick < 0:
-		pick = primary if usable_screens.has(primary) else usable_screens[0]
-		how = "primary"
+		## PW-5: the answer says which rule picked the screen. A primary index that is not among the
+		## usable screens (it reported no usable area, or the caller had no value to give) is NOT
+		## "primary": the first usable screen is used and labelled `first_usable`, so a probe (and a
+		## reader of a log) can tell a fallback from the primary monitor. Never screen 0 by default.
+		if usable_screens.has(primary):
+			pick = primary
+			how = "primary"
+		else:
+			pick = usable_screens[0]
+			how = "first_usable"
 		centre = true
 
 	var u: Rect2i = screens[pick]["usable"]

@@ -81,8 +81,47 @@ static func key_for(dlg: Window) -> String:
 ## (`DisplayServer.FEATURE_SUBWINDOWS`, absent on Android) and the shell is the desktop form. The
 ## phone and the tablet keep every window embedded (scope s.4 "Not offered").
 static func supported() -> bool:
-	return DisplayServer.has_feature(DisplayServer.FEATURE_SUBWINDOWS) \
-		and not OS.has_feature("mobile") and not DccTheme.is_phone() and not DccTheme.is_tablet()
+	return unsupported_reason(DisplayServer.has_feature(DisplayServer.FEATURE_SUBWINDOWS),
+		OS.has_feature("mobile"), DccTheme.is_phone(), DccTheme.is_tablet()) == ""
+
+## PW-5 (`POPOUT_WINDOWS_SCOPE.md` s.5 and s.12): why this process cannot pop a window out, as a pure
+## function of the four facts so a table of literals can pin every term. **`""` means it can** (never a
+## sentinel such as "none": the caller tests for an empty string, and a reason is always a sentence-sized
+## key). The answers, in the order they are tested:
+## - `"phone"`: the phone form. The setting is ABSENT from its menu (nothing to explain on a screen with
+##   one window), and no window is ever native there.
+## - `"tablet"`: the tablet form. The setting is shown DISABLED with a reason (`menus.gd`, the
+##   `CommandIndex` rule: a reason beside every disabled control).
+## - `"mobile_os"`: an Android (or iOS) process in a desktop-shaped form, e.g. a foldable or a
+##   Chromebook-sized window. Android is not in the engine's `FEATURE_SUBWINDOWS` list (scope s.2.2), so
+##   this is also the case the display server would catch on its own; it is listed first among the
+##   platform terms so the reason names the OS, not the missing feature.
+## - `"no_subwindows"`: a desktop build whose display server reports no multi-window support (a headless
+##   or software display driver).
+## The form terms come before the platform terms on purpose: a tablet on Android is `"tablet"`, the
+## message the user can act on, not `"mobile_os"`. Dropping any one term changes a row of the probe.
+static func unsupported_reason(has_subwindows: bool, mobile_os: bool, phone: bool, tablet: bool) -> String:
+	if phone:
+		return "phone"
+	if tablet:
+		return "tablet"
+	if mobile_os:
+		return "mobile_os"
+	if not has_subwindows:
+		return "no_subwindows"
+	return ""
+
+## The sentence `Preferences` shows beside the disabled pop-out row for `reason` (a non-empty
+## `unsupported_reason()`). `""` for `"phone"`, which has no row, and for `""`, which has no reason.
+static func reason_text(reason: String) -> String:
+	match reason:
+		"tablet":
+			return "Not available on a tablet: every panel opens inside this window. Separate operating-system windows are a desktop feature (a second monitor)."
+		"mobile_os":
+			return "Not available on this device: Android cannot open a panel as a second operating-system window, so every panel opens inside this window."
+		"no_subwindows":
+			return "Not available here: this display does not support separate operating-system windows, so every panel opens inside this window."
+	return ""
 
 ## The whole decision, as a pure function so a table of literals can pin each term: a window is
 ## native only when the user's wish is on AND the platform supports it AND the window's key is

@@ -230,3 +230,13 @@ which keep the swap and are unchanged (the phone pixel-identical at 393 × 852 a
 **Owner-run, with two monitors (listed, not faked; one monitor attached):** the planner on monitor 2, across a restart
 and at that monitor's scale; a real OS Ctrl+Z / Ctrl+Y / Ctrl+S typed in the pop-out (the forwarder is the shared one
 PW-2 and PW-3 measured); the busy card mirror in the pop-out on monitor 2.
+
+## 13. PW-5 built (2026-11-09, this machine, one monitor, Windows)
+
+What exists, read at its symbols: `PopoutHost.unsupported_reason()` (a pure function of `has_subwindows`, `mobile_os`, `phone` and `tablet`; `""` means it can pop out; the form terms outrank the platform terms) and `reason_text()`; `PopoutHost.supported()` is exactly "no reason"; `menus.gd`'s Preferences block: an enabled check row on the desktop, a disabled `_todo` row **with the reason** on the tablet, on an Android process in a desktop-shaped form and on a display with no multi-window support, and **no row on the phone**; `PopoutGeometry.resolve()` now labels the fallback to the first usable screen `first_usable`, not `primary`. Probe: `_pw5_probe.gd` (`--form desktop|tablet|phone`, `--pure`).
+
+**PW-6 is not a milestone.** The table above says it: folded into PW-2 and PW-3 by Ruling DK Q2 (the per-window button), with the planner's own button part of PW-4. There was nothing to build under that name; the restore bar the task named for it (a stored window never lands off-screen, a missing monitor is not screen 0) was PW-1's, and PW-5 added a live leg and a label.
+
+**Measured (one monitor; the probe prints `screens: 1`).** Desktop 37, tablet 50, phone 47 checks, 0 failed (see `STATUS.md`). The gate by eleven literal rows; the live row per form; with a stored `enabled=true` written past the row, the tablet and the phone open the seven listed windows embedded (OS window count 1, no `force_native`, no button); a roster stored on a monitor that does not exist opens inside this screen and stores this screen's rectangle on close. **Simulated, and labelled so in the probe:** Android's two facts (`FEATURE_SUBWINDOWS`, `OS.has_feature("mobile")`) are passed in as literals, and the screens of the restore table are made-up rectangles. Mutation: 11 of 11 killed.
+
+**Owner-run, with the device or a second monitor (listed, not faked):** the OnePlus 6T build showing no row and creating no native window (and confirming the scope's section 2 judgement that Android's display server reports no `FEATURE_SUBWINDOWS`); a window left on monitor 2 reopening on monitor 2 after a restart, and on monitor 1 with monitor 2 unplugged; monitors of different scale or origin; the saved screen rectangle surviving a Windows display reorder. Nothing was installed on a device.

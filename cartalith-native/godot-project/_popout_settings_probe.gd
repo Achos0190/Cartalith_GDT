@@ -579,8 +579,13 @@ func _row() -> void:
 	for r in idx.all():
 		if String(r["title"]) == ROW:
 			row = r
+	if _form == "tablet":
+		## PW-5 (built): the tablet shows the row DISABLED with its reason; `_pw5_probe.gd` pins the sentence.
+		_ok(not row.is_empty() and not bool(row["available"]) and String(row["why"]).begins_with("Not available on a tablet"),
+			"the tablet's '%s' row is present, disabled, with its reason (PW-5)" % ROW)
+		return
 	if _form != "desktop":
-		_ok(row.is_empty(), "no '%s' row on the %s (it stays embedded; the tablet's disabled row is PW-5's)" % [ROW, _form])
+		_ok(row.is_empty(), "no '%s' row on the %s (absent on the phone, PW-5)" % [ROW, _form])
 		return
 	_ok(not row.is_empty(), "CommandIndex finds the Preferences row BY TITLE on the desktop")
 	if row.is_empty():
