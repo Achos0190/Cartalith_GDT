@@ -232,6 +232,7 @@ const ID_PREF_MAX_80 := 946
 const ID_PREF_MAX_70 := 947
 const ID_PREF_MAX_60 := 948
 const ID_PREF_MAX_50 := 949
+const ID_PREF_TILT := 950  ## Preferences ▸ Stylus ▸ Tilt shapes the brush (SH-5).
 ## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
 ## after 717/718 above -- grepped this whole file for 719 before taking it,
 ## the same whole-file check every neighbouring block records (an id must be
@@ -4133,6 +4134,9 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 	_stylus_popup.add_check_item("Pen draws, finger pans", ID_PREF_PEN_DRAWS)
 	_stylus_popup.set_item_tooltip(0,
 		"Once a pen has been seen, a finger only moves the map and the pen draws; a finger that lands while the pen is near is ignored as a resting palm. The pen is told from a finger by its input device, which is best-effort. Stored on this device, never in a world.")
+	_stylus_popup.add_check_item("Tilt shapes the brush", ID_PREF_TILT)
+	_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
+		"Sends the pen's tilt to the paint brush. The engine does not read tilt yet, so this changes nothing visible until it does. Stored on this device.")
 	_stylus_popup.add_separator("Pressure curve")
 	for row in [["Soft", ID_PREF_CURVE_SOFT], ["Linear", ID_PREF_CURVE_LINEAR], ["Firm", ID_PREF_CURVE_FIRM]]:
 		_stylus_popup.add_radio_check_item(String(row[0]), int(row[1]))
@@ -4153,6 +4157,7 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 ## Ticks Preferences ▸ Stylus from `DccSettings`. Reads settings only.
 func _refresh_stylus_menu() -> void:
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_PEN_DRAWS), DccSettings.pen_draws_finger_pans())
+	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_TILT), DccSettings.pen_tilt_to_size())
 	var curve := DccSettings.pen_pressure_curve()
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_CURVE_SOFT), curve == "soft")
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_CURVE_LINEAR), curve == "linear")
@@ -4168,6 +4173,8 @@ func _on_stylus_choice(id: int) -> void:
 	match id:
 		ID_PREF_PEN_DRAWS:
 			DccSettings.set_pen_draws_finger_pans(not DccSettings.pen_draws_finger_pans())
+		ID_PREF_TILT:
+			DccSettings.set_pen_tilt_to_size(not DccSettings.pen_tilt_to_size())
 		ID_PREF_CURVE_SOFT:
 			DccSettings.set_pen_pressure_curve("soft")
 		ID_PREF_CURVE_LINEAR:

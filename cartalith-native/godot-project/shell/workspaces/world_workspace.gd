@@ -4965,7 +4965,8 @@ func _paint_drag(gx: float, gy: float) -> void:
 		var ps := _paint_pending_sample
 		if not ps.is_empty() and is_equal_approx(float(ps["gx"]), gx) and is_equal_approx(float(ps["gy"]), gy):
 			pressure = _apply_pen_pressure(ps["pressure"])
-			tilt = ps["tilt"]
+			## SH-5: tilt reaches the engine only when the user turned it on; absent stays null.
+			tilt = ps["tilt"] if DccSettings.pen_tilt_to_size() else null
 		_paint_pending_sample = {}
 		_paint_show_reply(bridge.paint_stroke_sample(gx, gy, pressure, tilt, Time.get_ticks_msec()))
 		return

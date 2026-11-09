@@ -375,6 +375,8 @@ func _run(vw: int, vh: int) -> void:
 		await _t_sh3(P)
 	if _want("sh4"):
 		await _t_sh4(P)
+	if _want("sh5"):
+		await _t_sh5(P)
 
 
 # SH-2 -----------------------------------------------------------------------------------------------------------------
@@ -689,3 +691,36 @@ func _t_sh4(_P: Vector2) -> void:
 		_ok(is_equal_approx(DccSettings.pen_pressure_max(), 1.0) and DccSettings.pen_pressure_curve() == "linear", "and 100 % / Linear put the defaults back")
 	else:
 		print("note: no PC/tablet Preferences menu on this form; the row is not checked here")
+
+# SH-5 -----------------------------------------------------------------------------------------------------------------
+
+func _t_sh5(_P: Vector2) -> void:
+	var ws: WorldWorkspace = _app._world_workspace()
+	_ok(not DccSettings.pen_tilt_to_size(), "tilt-to-brush defaults off")
+	var real = ws.bridge
+	var spy := SpyBridge.new()
+	ws.bridge = spy
+	ws._paint_stroke_open = true
+	# tilt (0.866, 0) = a pen 60 degrees from vertical (sin 60 = 0.866)
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": 0.5, "tilt": Vector2(0.866, 0.0)}
+	ws._paint_drag(10.0, 20.0)
+	_ok(spy.paint_calls[0]["t"] == null, "tilt off: the engine receives no tilt (null)")
+	_ok(spy.paint_calls[0]["p"] == 0.5, "tilt off: pressure is unaffected")
+	DccSettings.set_pen_tilt_to_size(true)
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": 0.5, "tilt": Vector2(0.866, 0.0)}
+	ws._paint_drag(10.0, 20.0)
+	var t = spy.paint_calls[1]["t"]
+	_ok(t is Vector2 and absf(t.x - 0.866) < 0.0001 and absf(t.y) < 0.0001, "tilt on: the engine receives (0.866, 0)")
+	ws._paint_pending_sample = {"gx": 10.0, "gy": 20.0, "pressure": null, "tilt": null}
+	ws._paint_drag(10.0, 20.0)
+	_ok(spy.paint_calls[2]["t"] == null, "tilt on, no tilt reported: still null, never (0, 0)")
+	ws._paint_stroke_open = false
+	ws.bridge = real
+	spy.free()
+	var mn = _app.menus
+	if mn != null and mn._stylus_popup != null:
+		mn._on_stylus_choice(mn.ID_PREF_TILT)
+		_ok(not DccSettings.pen_tilt_to_size(), "the Tilt row toggles it (on -> off)")
+		mn._on_stylus_choice(mn.ID_PREF_TILT)
+		_ok(DccSettings.pen_tilt_to_size() and mn._stylus_popup.is_item_checked(mn._stylus_popup.get_item_index(mn.ID_PREF_TILT)), "and back on, ticked")
+	DccSettings.set_pen_tilt_to_size(false)

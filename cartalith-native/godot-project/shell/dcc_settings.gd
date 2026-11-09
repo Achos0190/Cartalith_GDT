@@ -668,6 +668,19 @@ static func set_pen_pressure_max(value: float) -> void:
 	_cfg.set_value(_SEC_STYLUS, "pressure_max", clampf(value, 0.5, 1.0))
 	_save()
 
+## SH-5: whether a pen's tilt reaches the paint engine. Default false. Today the engine reads no tilt (its brush maps
+## only pressure, `paint_bridge.rs` `StrokeOptions`), so the switch changes nothing visible until the Rust
+## `tilt_size` option lands as its own parity-gated change; this is the GDScript half Ruling EE keeps.
+static func pen_tilt_to_size() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_STYLUS, "tilt_to_size", false))
+
+## Stores the tilt preference and saves.
+static func set_pen_tilt_to_size(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "tilt_to_size", on)
+	_save()
+
 # -- MS-1 S5: UI scale ----------------------------------------------------------
 
 ## The four offered UI scales (spec §3.6: 100 %, 125 %, 150 %, 200 %). Anything else read back or offered to

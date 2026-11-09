@@ -98,6 +98,13 @@ emulation (device -1): it proves the routing, not what the Pad 3's pen reports. 
   75 (all sections) at 2388x1668 @2, 59 at the desktop form; five literal mutants killed (each wrap, the firm exponent,
   the division by the maximum, a menu row's mapping).
 
+- **SH-5 built, GDScript half only (tilt to the brush).** `Preferences > Stylus > Tilt shapes the brush`
+  (`DccSettings.pen_tilt_to_size`, default off): `_paint_drag` passes the pen's tilt to `paint_stroke_sample` only when on
+  (absent tilt stays `null`, never (0, 0)). The engine reads no tilt today (`paint_bridge.rs` maps only pressure), so the
+  switch changes nothing visible, and nothing changed at the default. **The Rust half (`tilt_size` / `tilt_min` in
+  `paint_stroke_options`, `Sensor::TiltElevation`) is NOT built:** it is its own parity-gated change needing a workspace
+  `cargo test` and `golden_parity_paint`, and was not started. `_sh_probe --section sh5`: 8 checks; two literal mutants killed.
+
 ### Ruling EH item 1 built: the phone's GENERATE column is retired; the WORLD sheet is the dock's own categories (2026-11-09)
 
 `LARGE_ITEM_RULINGS.md` Ruling EH item 1, `MISTAKES.md` "Delete a surface". GDScript only, no Rust change. *Re-opened at the symbols first (origin/main `e6f3cfbd`):* `dcc_shell.gd` (`_build_phone_tool_sheet()`, `_refresh_phone_gen_panel()`, `_mount_dock_in_sheet()`, `_ensure_dom_rows()`, `_refresh_phone_sheet_header()`, `_phone_gen_tab_on()`, `_capture_shell_state()`), `workspaces/world_workspace.gd` (`build_phone_generate()` and the whole `_pg_*` block, `_on_tool_armed()`, `brush_surfaces_changed()`, `_build_generate_head()`, `_build_paint()`, `_build_sculpt()`), `tool_bar.gd` (`build_brush_controls()`, `sym_pick_begin()`), `paint_original.gd`, `tool_fan.gd`.
