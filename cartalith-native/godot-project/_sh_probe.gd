@@ -745,6 +745,9 @@ func _local_motion(mm: InputEventMouseMotion) -> InputEventMouseMotion:
 	return m
 
 func _t_sh6(P: Vector2) -> void:
+	## Ruling EM item 3: the inner (minimum-pressure) ring exists only while biome paint's Pressure controls is Size
+	## (its default is off, where there is no span to show), so this section runs under Size.
+	DccSettings.set_pressure_control("paint", "size")
 	var to: Control = _host.tool_overlay
 	# a grid point under P, so the ring is drawn where the camera shows it
 	var lp: Vector2 = _ov.get_global_transform().affine_inverse() * P

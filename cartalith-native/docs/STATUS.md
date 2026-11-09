@@ -409,6 +409,13 @@ setting applied to the user's own edits, not `WorldParams`; `DECISIONS.md` secti
   not strength).
 - **Evidence:** `_pressure_probe.gd` (new; synthetic device-0 pen events and a device-0 mouse, real engine, windowed). See the
   results line below.
+- **Results (2026-11-09, after the final rebase; origin/main unchanged at `de5ba544`):** `_pressure_probe` 44/44 at 1600x1000,
+  2388x1668 @2 touch and 1080x2340 @2.8125 touch (pen sculpt stamps carry 0.3 and 0.9 with identical params; off and a mouse carry
+  none; paint off gives footprint (22, 13, 5) at pressure 0.1 and 1.0, size gives (17, 13, 13) at 0.1, a mouse equals full). Five
+  literal mutants killed (invert the paint begin flag; sculpt gate; paint default; the 0.2 floor; offering strength to paint).
+  `_sh_probe` 95/111/111 (its sh6 section now runs under Size, since the inner ring exists only there), `_penlink` 116/116,
+  `_paintorig` desktop and phone 0 fail, `_ms5b` 119/119, `_scrollfix` 5/5. Not run: a baseline on `origin/main` for the unchanged
+  probes (all pass, so there was nothing to compare); the pen on the glass; `cargo test` (no Rust file changed).
 
 ### Scroll-fix: a finger on the MENU, a sheet or a window no longer pans the map behind it (2026-11-09)
 
