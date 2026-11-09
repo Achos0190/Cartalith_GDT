@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merged into the app by Gradle. BLUETOOTH_CONNECT is DECLARED here but only REQUESTED at run time, when the user
+     switches Pen link on (Ruling EK). No BLUETOOTH_SCAN and no location: the pen is bonded by OnePlus's own
+     pairing, so Cartalith never scans. BLE is optional so a device without it is not excluded by the store. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <application>
+        <meta-data
+            android:name="org.godotengine.plugin.v2.CartalithPen"
+            android:value="org.cartalith.pen.CartalithPenPlugin" />
+    </application>
+</manifest>

@@ -472,3 +472,27 @@ Read the result as follows. A `KEY_*` or `BTN_*` line within about 100 ms of eac
 a standard key, and SP-1 (a GDScript rule on an unknown key from the pen device) covers the double tap with no
 Bluetooth. Only `ABS_*` or `SYN_*` lines from the digitizer mean it does not. Put the four files under
 `cartalith-native/docs/evidence/stylus-<date>/` and fill SP-0's rows (20 double taps and 10 slides per mode).
+
+### 11.2 What landed (SP-2 and SP-3, code)
+
+- **Plugin:** `cartalith-native/android/pen-plugin/` (Kotlin, Gradle 8.13, AGP 8.6.1, Kotlin 2.1.21, the versions Godot 4.7.2's template pins). Package `org.cartalith.pen`.
+  The Godot library is `compileOnly`; `minSdk` 24 equals the template's, and API 31/33 are guarded at run time (`is_supported()`).
+- **Client fixes** (section 2.5, numbered as there): 1 `OpQueue`; 2 connected only on drain; 3 `close()` + back-off 1, 2, 5, then 30 s; 4 status and return-code checks;
+  5 exact name `OnePlus Stylo 2`; 6 the vibration setter is gone and `PenProtocol.isAllowedWrite` gates the only write path to three frames; 7 the plugin copies and `emitSignal`s.
+  The pack file stays verbatim in the evidence folder; `Stylo2Pen.kt`'s header lists each change.
+- **Two choices the proposal left open:** the plugin is loaded by `addons/cartalith_pen.aar` plus the manifest meta-data, with **no `EditorExportPlugin` and so no `project.godot` edit**
+  (the template reads `addons/*.aar` at the root, non-recursively); and `BLUETOOTH_CONNECT` is declared by the plugin's own manifest (section 6.4's preferred route), never in the preset.
+- **Unknowns left for SP-3 on the device:** the slide token's base (the pack says ASCII `film <pos>`; the client parses hex, `PenProtocol.parseSlide` drops anything else and logs it),
+  the battery-change notify characteristic (battery is queried on connect and by `query_battery`), and the strip's orientation.
+
+### 11.3 The owner's device test, in order (nothing here has been run)
+
+The APK is built (path in the report) but was not installed. Install is yours: `adb install -r Cartalith-penlink.apk` over the existing app keeps its data, but the signing certificate is the debug one; if it was ever installed with a different certificate, uninstall first.
+
+1. **Pen link off (SP-2).** Start the app, use it for 10 minutes. `adb logcat -d | findstr /i "CartalithPen bluetooth gatt"` should show nothing from the app. Settings: Preferences > Stylus > Pen link (Stylo 2) reads `Status: Pen link is off`; no Bluetooth prompt has appeared.
+2. **Switch it on (SP-3).** Pen paired in Android's Bluetooth settings first. Tick Pen link on: one *Nearby devices* prompt; allow. Status reads Connected within 3 s. Open Preferences > Stylus > Stylus tester: `pen battery` shows a percentage equal to OnePlus's own figure, `pen firmware` a string like `4D45.03.00.12`.
+3. **Capture one slide line.** While connected, `adb logcat -s CartalithPen` shows `dropped: ...` for any NUS text the client could not read. Slide a finger along the strip and send the lines: this settles hex or decimal and the direction.
+4. **Double tap (SP-4).** Arm Sculpt then Measure; double tap the pen: Sculpt returns; again: Measure. Try Preferences > Stylus > Pen link > Double tap: Drawing tools > Eraser, arm Paint, double tap. Count 50 taps for the delivered bar; check OnePlus Notes does not also act while Cartalith is open.
+5. **Slide (SP-5).** Arm Paint; slide: the radius steps. Flip slide direction if the wrong end raises it.
+6. **Detach and reattach the pen** (SP-3's reconnect, 10 times), then 60 minutes of drawing (SP-7), then OnePlus Notes' double tap still works.
+7. **Permission denied path:** deny the prompt once; the switch returns to off with `Bluetooth permission denied`.

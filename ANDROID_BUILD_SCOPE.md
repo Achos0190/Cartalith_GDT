@@ -89,6 +89,7 @@ matches the one unzipped back out of the exported APK.
   editor-only addons since `d044af9` (2026-08-20, ~19 MB of Steam SDK and a dev
   tool), the `_*` probe and shot scenes since `686cd2a` (2026-09-03, under the
   owner's scoped authorisation to edit that line and nothing else in the file).
+- **Ruling EK (2026-11-09) switched the Android preset to the Gradle build** (`gradle_build/use_gradle_build=true`, owner question P10) so the Kotlin Stylo 2 plugin can load. The `exclude_filter` gained `addons/*.aar` (the plugin archive is read from disk by Gradle, not packed). The paragraph above describes the prebuilt-template route; it still works by setting the switch back to `false` and is what the `Cartalith_RC`-era recipe used. The Gradle recipe is section 3.14.
 - **The only real APK** is `godot-project/builds/android/Cartalith.apk`:
   `export_path` resolves relative to the Godot project. A stray
   `cartalith-native/builds/android/` copy appeared twice from a wrong working
@@ -742,3 +743,40 @@ Owner findings a to h on the OnePlus 6T; the fixes and their probes are in `STAT
 - **Engine facts measured (4.7.2):** every STOP control (`Button`, `Panel`, `PanelContainer`, `ItemList`, `Tree`, `TextEdit`, `RichTextLabel`, `LineEdit`, `OptionButton`) swallows a touch drag before an ancestor `ScrollContainer` sees it; `RichTextLabel` and `Tree` scroll themselves by touch, `ItemList` and `TextEdit` do not; a `PopupMenu`'s items control is STOP and the popup activates an item on `InputEventScreenTouch`; the same holds inside an embedded `Window`.
 - **Handset (6T 9608b26b), `adb shell input swipe`:** MORE, Preferences and the Assistant settings scroll repeatedly from many start points; the Assistant Key field is greyed while the master switch is off and raises no keyboard (the token-cap field does); the app takes 10 to 40 s to echo `input text` into the search field on the 24601 world.
 - **Only a finger can confirm:** fling inertia, a drag that starts on a slider and wobbles, multi-touch and palm touches, the Android back-gesture edge, and the owner's "scrolls once then never".
+
+### 3.14 The Gradle build and the Stylo 2 plugin (Ruling EK, 2026-11-09): recipe, what changed, what was verified
+
+STYLO2_PEN_PROPOSAL.md section 6.4/6.5 and section 11 are the design; this is the build.
+
+**One-time setup, per checkout (all of it is `.gitignore`d, none of it is in the repo):**
+
+1. Install Godot's Android build template: unzip `AppData/Roaming/Godot/export_templates/4.7.2.stable/android_source.zip` into
+   `godot-project/android/build/`, write `4.7.2.stable` into `godot-project/android/.build_version`, and put an empty
+   `.gdignore` in `android/build/` so the editor does not scan Godot's own instrumentation-test `project.godot`.
+2. Build the plugin (`cartalith-native/android/pen-plugin/README.md`): JDK 21 (the editor setting
+   `export/android/java_sdk_path` now points at `C:/Program Files/Microsoft/jdk-21.0.13.21-hotspot/`), Gradle 8.13, SDK platform 36.
+   The first build also let Gradle install SDK Build-Tools 34 into the SDK. Copy the `.aar` to
+   `godot-project/addons/cartalith_pen.aar`. It must sit at the root of `addons/`: the template picks up
+   `addons/*.aar` with a non-recursive file tree, so a subfolder is silently ignored (found by building once and reading
+   the APK's permissions, which then lacked `BLUETOOTH_CONNECT`).
+
+**Per APK:** the Rust steps of section 1.3 are unchanged (`cargo ndk -t arm64-v8a build --release -p cartalith-godot`, check the
+`.so` is fresh). Then export, supplying Godot's debug keystore through the environment (the Gradle route checks for a
+release keystore *before* it builds, so unlike the prebuilt route it leaves no unsigned APK behind):
+
+    GODOT_ANDROID_KEYSTORE_RELEASE_PATH=<AppData>/Godot/keystores/debug.keystore \
+    GODOT_ANDROID_KEYSTORE_RELEASE_USER=androiddebugkey GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=android \
+    godot --headless --path godot-project --export-release "Android" builds/android/Cartalith.apk
+
+This is the same debug certificate the `apksigner` step used (Ruling 23 stands: still no release keystore). No scene path is
+on the command line. The export writes the APK and then does not exit by itself (observed: it ran to the 5 and 10 minute
+timeouts after `export DONE`); the APK is complete at that point. The `.so` inside is stripped by Gradle, so compare it to
+`llvm-strip --strip-unneeded` of the built file, not to the file itself.
+
+**Measured 2026-11-09 (one build, no repeat):** a 105 892 442-byte APK, against about 57 MB for the prebuilt route (the Gradle template
+stores native libraries uncompressed unless `gradle_build/compress_native_libraries` is set; not changed). `aapt dump permissions`:
+`INTERNET`, `VIBRATE`, `BLUETOOTH_CONNECT` and nothing else. The manifest carries `org.godotengine.plugin.v2.CartalithPen`
+and `classes.dex` carries `CartalithPenPlugin`. `apksigner verify`: verifies under the v2 scheme, certificate `CN=Godot`. The
+`libcartalith_godot.so` inside matches the fresh build after stripping (sha256 `7dae8fa0...`). **Not measured:** an install, a
+cold start (SP-2's 5 % bar), or anything on a device: the auto-mode classifier denied an earlier agent's `adb install` to the
+Pad 3, and this pass did not retry or work around it. The owner's steps are in `STYLO2_PEN_PROPOSAL.md` section 11.3.
