@@ -805,3 +805,36 @@ the app, 426 orphan slider rows on the tablet, and a status bar and stale button
 - **Rows of §2.2 not exercised by a same-class round trip**: the phone to tablet half of the palette bar, the picker
   and the insets relay (each is built or freed only when the class differs); the mutation harness proves the
   disconnects on the class that has them.
+
+## 16. Addendum, 2026-11-09: S4.3, the cross-class remount and the state it carries
+
+Written for stage S4.3 against `950946f3`, verified by `_ms1swap_probe.gd --leg carry|crossclass|norm`, not by this prose.
+
+### 16.1 Who holds each carried item, and the action
+
+| Item | Held by | Action across a swap |
+|---|---|---|
+| Open accordion category per workspace panel | the panels (rebuilt) | **memory**: `DccApp._app_memory["open"]`, keyed by the panel's path under `left_dock_body`; restored by `open_category()` after the mount |
+| Scroll of the left and right docks; of the phone sheet and its generate column | `ScrollContainer`s (rebuilt) | **memory**, per class (`DccShell._class_memory`); written two laid-out frames after the mount |
+| Tool-options row | rebuilt by the `tool_armed` listeners | **re-derived**: `armed_tool` survives; `_complete_arm()` tells the new listeners (not `arm_tool()`, which no-ops on the armed id and buzzes) |
+| Domain rail, current domain, each domain's mode | `_active_domain`, `_domain_mode` (survive) | re-derived by the mount's `_select_domain()` |
+| Selection and its history | `DccApp.selection`, `_selection_back`, `_selection_forward` (survive) | replayed to every surface by `_apply_selection()` after the pin is restored |
+| Timeline year | the engine's cursor (survives) | none: the strip is filled from it. A `timeline_changed` emit was tried and removed: it ran the strip's no-world gate a second time |
+| Context panel pin, subject, tab | `RightDock` (rebuilt) | **memory**: `RightDock.export_state()` and `import_state()`, only from and to a class with the panel's chrome |
+| Context panel arrangement (which tabs) | `DccSettings` (on disk) | none |
+| Phone sheet detent and tab | `DccShell._phone_detent`, `_phone_tab` | **memory**, per class; the tab is written after the mount's `_select_domain()`, which derives one from the domain |
+| Dock widths and collapse flags (WI-04) | `_left_width`, `_right_width`, the flags | **memory**, per class; the widths before the mount (the build reads them), the collapse through `_toggle_dock()` after it |
+
+### 16.2 The order, and why
+
+Capture, unmount, republish the class (clear `DccTheme`'s phone flag, phone scale and layout first: `role_px()` reads them
+inside the classification), restore the dock widths, mount, `_on_workspace_changed()`, planner, stale button, then the
+state: accordions, **the tool re-armed before the panel's state** (arming a measuring tool makes the panel show its reading,
+which releases a pin and returns to Inspect, so a pin restored first would be undone), the panel's pin and tab, the
+selection replay, the status text, and last the collapse, tab, detent and scrolls.
+
+### 16.3 What the comparison with a cold boot excludes
+
+Long-lived windows and their static-lambda relays (S4.5); the `ViewportHost` survivor's chrome (`_layers_btn`'s size, the scale
+rule, the map control row are built for the boot class: S4.4, in a file MS-5 is changing). Touch is hardware: the viewport
+reads it once, so the swap chains keep it. Workspace tool settings held in fields (brush, erode, bake) are not carried.

@@ -1135,6 +1135,32 @@ func shown_subject() -> Dictionary:
 func is_pinned() -> bool:
 	return _pinned
 
+## MS-1 S4.3 (`S4_INVENTORY.md` section 15.5): what the user did to this panel that a class swap must carry,
+## as plain data: whether it is pinned and to what, and which tab is open. Empty on the phone, whose sheet has
+## no pin and no tab strip (section 3.11), so a phone never overwrites what the desktop last held. The
+## arrangement of the tabs themselves is `DccSettings.context_panel_read()`, per user and on disk, so it
+## survives a swap by not living here. Reads only.
+func export_state() -> Dictionary:
+	if not _panel_chrome():
+		return {}
+	return {"pinned": _pinned, "pin_subject": _pin_subject.duplicate(), "tab": _tab}
+
+## MS-1 S4.3: the inverse of `export_state()`, called on a freshly built panel after the selection's replay has
+## NOT yet run (`DccApp._restore_class_state()` orders it so). A pin is restored by showing its subject and
+## pinning what is shown (`pin()` reads `shown_subject()`), so a subject the lists no longer hold pins nothing
+## rather than a neighbour. The tab goes through `show_tab()`, which refuses a module the user's arrangement no
+## longer holds. Does nothing on the phone or for `{}`.
+func import_state(d: Dictionary) -> void:
+	if d.is_empty() or not _panel_chrome():
+		return
+	var subject: Dictionary = d.get("pin_subject", {})
+	if bool(d.get("pinned", false)) and not subject.is_empty():
+		show_subject(subject)
+		pin()
+	var tab := String(d.get("tab", TAB_INSPECT))
+	if tab != TAB_INSPECT:
+		show_tab(tab)
+
 ## PC-4. Window ▸ Context panel ▸ Pin to the current subject, and the header's pin button: holds what
 ## the panel shows now. Returns false, and changes nothing, when it shows no selectable subject
 ## (`shown_subject()` is `{}`), so the menu can say "Nothing to pin". Never on the phone (§3.11).

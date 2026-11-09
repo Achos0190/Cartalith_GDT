@@ -962,6 +962,10 @@ func _mount_composition() -> void:
 	if _phone or DccTheme.is_tablet():
 		if not get_tree().node_added.is_connected(_on_window_node_added):
 			get_tree().node_added.connect(_on_window_node_added)
+	elif get_tree().node_added.is_connected(_on_window_node_added):
+		## MS-1 S4.3: a swap onto the desktop leaves the touch composition; the hook is touch-only (S4.2 note,
+		## `S4_INVENTORY.md` section 15.1).
+		get_tree().node_added.disconnect(_on_window_node_added)
 
 	_select_domain(_active_domain)
 	## Deferred, and it has to be: this function runs as `super._ready()` from
@@ -1002,6 +1006,16 @@ func _unmount_composition() -> void:
 	_tablet_arb_pending = false
 	_phone_fit_pending = false
 	_dock_fit_pending = false
+	## MS-1 S4.3: the three build-time wirings to survivors end with the composition they serve, and their
+	## once-guards reopen for the next mount (a swap would otherwise leave the old class's lambdas on the bridge).
+	for links in [_menu_squares_links, _phone_undo_links, _phone_overflow_links]:
+		for l in links:
+			if is_instance_valid(l[0]) and (l[0] as Object).is_connected(String(l[1]), l[2]):
+				(l[0] as Object).disconnect(String(l[1]), l[2])
+		(links as Array).clear()
+	_menu_squares_wired = false
+	_phone_undo_wired = false
+	_phone_overflow_wired = false
 	## A `Tween` is not a `Node`: freeing the sheet would leave it running.
 	if _phone_sheet_tween != null and _phone_sheet_tween.is_valid():
 		_phone_sheet_tween.kill()
@@ -1122,12 +1136,123 @@ func _unmount_composition() -> void:
 	_undo_chip_down = false
 	_undo_chip_hold_fired = false
 	_coach_marks_wait_for_picker = false
+	## MS-1 S4.3: the next composition is built expanded, and `_toggle_dock()` flips from these flags, so one left
+	## true would read a collapsed dock that is not there. The user's collapse is carried by
+	## `_capture_shell_state()` and put back by `_restore_dock_state()`, per class.
+	_left_collapsed = false
+	_right_collapsed = false
 	DccTheme.clear_composition_registries()
 
 ## The pointer-first / tablet composition: one continuous vertical stack of
 ## fixed-height bars around a horizontal row of rail/docks/viewport. This is
 ## the shell as it existed before phone support -- `_scaled()` already makes
 ## it tablet-safe, so nothing here is phone-aware.
+# ===================== MS-1 S4.3: the class memory and the cross-class remount (spec §3.5) =====================
+#
+# A swap deletes one composition and builds another, so what the USER set in the old one has to be carried by
+# something that outlives it. That something is `_class_memory`, kept by the shell (never by a composition),
+# written by `_capture_shell_state()` just before the unmount and read by `_restore_dock_state()` (before the
+# mount: the build reads the widths) and `_restore_view_state()` (after it). It is **per class** wherever the
+# class decides what the value means: WI-04's dragged widths and the dock collapse flags (a 232 px portrait
+# dock width is not a 400 px landscape one), the scroll offsets (the phone's sheet is not a dock) and the phone
+# sheet's detent and tab (a desktop has neither). Capture writes only the keys the OLD class can express and
+# leaves the others untouched, so desktop -> phone -> desktop finds the desktop's widths where the user left
+# them. Nothing here is saved to disk: a restart is a cold boot (`DccSettings` holds what persists).
+
+## What each class last held, `{class_key: {...}}`; see the block above. `{}` until the first capture.
+var _class_memory: Dictionary = {}
+
+## The class the shell is laid out for now: "phone", "tablet" or "desktop". The key of `_class_memory`, and
+## what a probe asks instead of reading three flags.
+func class_key() -> String:
+	if _phone:
+		return "phone"
+	return "tablet" if DccTheme.is_tablet() else "desktop"
+
+## Captures what the composition of the CURRENT class holds that the user set and that the unmount would lose:
+## the dock widths and collapse flags, the scroll offsets of the docks (tablet, desktop) or of the phone's sheet
+## and generate column, and on the phone the sheet's detent and tab. Called before `_unmount_composition()`.
+## Reads only; never changes a node.
+func _capture_shell_state() -> void:
+	var key := class_key()
+	var m: Dictionary = {"left_width": _left_width, "right_width": _right_width,
+		"left_collapsed": _left_collapsed, "right_collapsed": _right_collapsed}
+	if _phone:
+		m["detent"] = _phone_detent
+		m["tab"] = _phone_tab
+		m["scroll_tool"] = _phone_tool_scroll.scroll_vertical if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll) else 0
+		m["scroll_gen"] = _phone_gen_scroll.scroll_vertical if _phone_gen_scroll != null and is_instance_valid(_phone_gen_scroll) else 0
+	m["scroll_left"] = _left_dock_scroll.scroll_vertical if _left_dock_scroll != null and is_instance_valid(_left_dock_scroll) else 0
+	m["scroll_right"] = _right_dock_scroll.scroll_vertical if _right_dock_scroll != null and is_instance_valid(_right_dock_scroll) else 0
+	_class_memory[key] = m
+
+## Puts back, BEFORE the mount, what the build reads: the dock widths. A class never visited keeps what
+## `_compute_layout_mode()` just published for it (the role widths), which is a real default and not a guess.
+## The collapse flags are applied by `_restore_view_state()` once the docks exist.
+func _restore_dock_state() -> void:
+	var m: Dictionary = _class_memory.get(class_key(), {})
+	if m.has("left_width"):
+		_left_width = float(m["left_width"])
+	if m.has("right_width"):
+		_right_width = float(m["right_width"])
+
+## Puts back, AFTER the mount, what needs the composition to exist: the collapse flags (through
+## `_toggle_dock()`, so the strip, readout and glyph agree), the phone's tab and detent, and the scroll offsets.
+## A coroutine: a scroll offset has no meaning until the content has been laid out, so the scrolls are written
+## two frames later, and the caller awaits it. The tab is written after `_select_domain()` (the mount ran it),
+## which derives a tab from the domain and would otherwise win.
+func _restore_view_state() -> void:
+	var m: Dictionary = _class_memory.get(class_key(), {})
+	if m.is_empty():
+		return
+	if left_dock != null and right_dock != null:
+		if bool(m.get("left_collapsed", false)):
+			_toggle_dock(true)
+		if bool(m.get("right_collapsed", false)):
+			_toggle_dock(false)
+	if _phone:
+		if m.has("tab"):
+			_phone_tab = String(m["tab"])
+			_refresh_phone_tabs()
+			_refresh_phone_gen_panel()
+		if m.has("detent"):
+			_set_phone_detent(String(m["detent"]), false)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	for pair in [[_left_dock_scroll, "scroll_left"], [_right_dock_scroll, "scroll_right"],
+			[_phone_tool_scroll, "scroll_tool"], [_phone_gen_scroll, "scroll_gen"]]:
+		var sc = pair[0]
+		if sc != null and is_instance_valid(sc) and m.has(pair[1]):
+			(sc as ScrollContainer).scroll_vertical = int(m[pair[1]])
+
+## Republishes the class for a swap to the one the host's size and `touch` name, exactly as a cold boot decides
+## it: `_layout` is cleared (a boot has no previous classification to be hysteretic about), the classification
+## runs with `_booted` false so it writes `_phone`, and everything `_ready()` publishes after it is published
+## again (the touch flag, the phone flags and scale, the tablet's unit, the window chrome, the per-frame process
+## that only the phone needs). Must be called with NO composition mounted: the builders read what this sets.
+## Test-only until S4.4 calls it from `_run_class_swap()`.
+func _republish_class(touch: bool) -> void:
+	_touch = touch
+	DccTheme.set_touch(touch)
+	## The statics a cold boot starts from. `_compute_layout_mode()` reads `role_px()` for the dock widths, and
+	## `role_px()` reads the phone flag and scale and the layout: left at the OLD class's values they gave a
+	## phone-first shell swapped to a tablet a 372 px left dock where a cold tablet draws 400 (measured,
+	## `_ms1swap_probe.gd --leg crossclass`; the per-class width memory hid it whenever the tablet had been visited).
+	DccTheme.set_phone(false)
+	DccTheme.set_phone_scale(1.0)
+	DccTheme.set_layout({})
+	_layout = {}
+	_booted = false
+	_compute_layout_mode()
+	_booted = true
+	DccTheme.set_phone(_phone)
+	DccTheme.set_phone_scale(_phone_scale)
+	_apply_unit(_unit_factor())
+	_style_window_chrome()
+	## `_process()` switches itself off on a desktop or a tablet and on a phone without a virtual keyboard; a
+	## swap onto a phone has to switch it back on (its own comment, written for this).
+	set_process(_phone)
+
 func _build_desktop_shell() -> void:
 	var shell := VBoxContainer.new()
 	shell.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -2128,6 +2253,13 @@ func _menu_bar_redo() -> void:
 ## the same way -- a commit to the height field can arrive through any of them,
 ## and none of the others moves the undo stack.
 var _menu_squares_wired := false
+## MS-1 S4.3: the connections each of the three build-time wirings made to a survivor, as `[emitter, signal,
+## callable]`, so `_unmount_composition()` can drop exactly them. They are class-specific (the squares exist on
+## the desktop and the tablet, the chip and the overflow's saved time on the phone), so a swap must end them with
+## the composition they serve or a cold boot of the target class and a remounted one differ by their receivers.
+var _menu_squares_links: Array = []
+var _phone_undo_links: Array = []
+var _phone_overflow_links: Array = []
 ## Same once-guards for the phone's two build-time wirings (`_wire_phone_undo_chip()`, `_wire_phone_overflow()`).
 var _phone_undo_wired := false
 var _phone_overflow_wired := false
@@ -2135,15 +2267,18 @@ var _phone_overflow_wired := false
 func _wire_menu_squares() -> void:
 	(func() -> void:
 		var bridge := _find_engine_bridge()
-		if bridge == null:
+		## S4.3: the squares are gone if a swap left the desktop and the tablet before this deferred call ran.
+		if bridge == null or _menu_undo_btn == null:
 			return
-		## MS-1 S4.2: connected once for the life of the shell. The lambdas read the squares through
-		## `_refresh_menu_squares()` at call time, so a rebuilt menu bar is served by the same connections, and
-		## a second mount does not double them (`S4_INVENTORY.md` section 15.1).
+		## MS-1 S4.2: connected once per composition. The lambdas read the squares through
+		## `_refresh_menu_squares()` at call time, and a second mount does not double them (`S4_INVENTORY.md`
+		## section 15.1); S4.3 records each link so the unmount drops them with the bar they serve.
 		if not _menu_squares_wired:
 			_menu_squares_wired = true
 			for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
-				bridge.connect(sig, func(_a = null): _refresh_menu_squares())
+				var cb := func(_a = null): _refresh_menu_squares()
+				bridge.connect(sig, cb)
+				_menu_squares_links.append([bridge, sig, cb])
 			## The shared look history (Ruling BY item 2, `DccApp.look_history`) emits
 			## `changed` on every commit, undo, redo and clear, so a look-only edit
 			## lights the squares without polling. A bare `DccShell` has no such
@@ -2151,6 +2286,7 @@ func _wire_menu_squares() -> void:
 			var lh = get("look_history")
 			if lh != null and lh.has_signal("changed"):
 				lh.changed.connect(_refresh_menu_squares)
+				_menu_squares_links.append([lh, "changed", Callable(self, "_refresh_menu_squares")])
 		_refresh_menu_squares()
 	).call_deferred()
 
@@ -9271,11 +9407,13 @@ func _set_phone_overflow_open(open: bool) -> void:
 func _wire_phone_overflow() -> void:
 	(func() -> void:
 		var bridge := _find_engine_bridge()
-		if bridge == null or _phone_overflow_wired:
+		if bridge == null or _phone_overflow_wired or not _phone:
 			return
 		_phone_overflow_wired = true
-		bridge.project_saved.connect(func(_path: String):
-			_phone_saved_at = Time.get_time_string_from_system().substr(0, 5))
+		var cb := func(_path: String):
+			_phone_saved_at = Time.get_time_string_from_system().substr(0, 5)
+		bridge.project_saved.connect(cb)
+		_phone_overflow_links.append([bridge, "project_saved", cb])
 	).call_deferred()
 
 # -- ⌕ Find on map --------------------------------------------------------------
@@ -10145,7 +10283,8 @@ func _build_phone_undo_chip() -> Button:
 func _wire_phone_undo_chip() -> void:
 	(func() -> void:
 		var bridge := _find_engine_bridge()
-		if bridge == null:
+		## S4.3: no chip, no wiring (a swap left the phone before this deferred call ran).
+		if bridge == null or _phone_undo_chip == null:
 			return
 		## The four signals a commit to the height field can arrive through.
 		## NOT `generation_started`/`params_changed` -- a dial moving or a
@@ -10156,13 +10295,16 @@ func _wire_phone_undo_chip() -> void:
 		if not _phone_undo_wired:
 			_phone_undo_wired = true
 			for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
-				bridge.connect(sig, func(_a = null): _refresh_phone_undo_chip())
+				var cb := func(_a = null): _refresh_phone_undo_chip()
+				bridge.connect(sig, cb)
+				_phone_undo_links.append([bridge, sig, cb])
 			## The shared look history emits `changed` on every commit, undo, redo and clear (the
 			## same hook `_wire_menu_squares()` uses), so a look-only edit shows the chip too
 			## (OUTSTANDING_WORK "phone undo chip answers only bridge.can_undo()", 2026-10-12).
 			var lh = get("look_history")
 			if lh != null and lh.has_signal("changed"):
 				lh.changed.connect(_refresh_phone_undo_chip)
+				_phone_undo_links.append([lh, "changed", Callable(self, "_refresh_phone_undo_chip")])
 		_refresh_phone_undo_chip()
 	).call_deferred()
 

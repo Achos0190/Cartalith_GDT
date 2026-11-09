@@ -1902,6 +1902,12 @@ func _unmount_app_composition() -> void:
 	if _palette_workspace_relay.is_valid() and workspace_changed.is_connected(_palette_workspace_relay):
 		workspace_changed.disconnect(_palette_workspace_relay)
 	_palette_workspace_relay = Callable()
+	## MS-1 S4.3: the timeline strip connects these three to survivors the first time it is filled, guarded, and a
+	## phone never fills it (its bar is hidden outside CIVIL), so a strip left connected would put a desktop's or a
+	## tablet's receivers on a phone that a cold boot of the phone does not have. The next fill connects them again.
+	for pair in [[timeline_changed, _repaint_timeline], [timeline_records_changed, _queue_tl_rows], [selection_changed, _on_tl_selection_changed]]:
+		if (pair[0] as Signal).is_connected(pair[1]):
+			(pair[0] as Signal).disconnect(pair[1])
 	for n in [viewport, resource_overlay, section_strip]:
 		if n != null and is_instance_valid(n) and (n as Node).get_parent() != null:
 			(n as Node).get_parent().remove_child(n)
@@ -1980,17 +1986,83 @@ func _reset_timeline_handles() -> void:
 	_tl_day_slider = null
 	_tl_date_label = null
 
-## TEST-ONLY (`_ms1swap_probe.gd --leg roundtrip`) until S4.4 wires a class change: unmounts the whole composition
-## and mounts it again at the SAME class, so the probe can prove the pair leaves no orphan and no extra
-## connection. Not the swap: it republishes no class flag, restores no per-class state and re-presents no window.
-## After the mount it runs the steps boot runs after `_mount_app_composition()` that a freshly built composition
-## needs: the active domain's workspace reaction (which also fills the empty timeline strip, as at boot: a second
-## `_repaint_timeline()` would run the world gate and hide labels boot leaves showing), the planner, the stale
-## button, and the status bar's text and ink, which the old labels held the only copy of (`status_snapshot()`
-## before, `restore_status()` after).
-func _remount_composition_for_test() -> void:
+## MS-1 S4.3: what the USER set in a composition that the unmount would lose and the survivors do not hold, kept
+## by the app across swaps and merged, never replaced: `"open"` maps a workspace panel's path under
+## `left_dock_body` to the titles of its open accordion categories, and `"context"` is `RightDock.export_state()`
+## of the last panel that could express one (a phone's empty answer does not overwrite a desktop's pin). The
+## shell's own half (dock widths, collapse, scrolls, the phone sheet) is `DccShell._class_memory`. What needs no
+## memory because a survivor already holds it: the selection and its history (`selection`, `_selection_back`,
+## `_selection_forward`), the armed tool (`armed_tool`), the active domain and each domain's mode
+## (`_active_domain`, `_domain_mode`), the timeline year (the engine's cursor, `tl_year()`) and `_tl_expanded`.
+## `S4_INVENTORY.md` section 15.6 lists, for each, who holds it and how the restore re-derives what draws it.
+var _app_memory: Dictionary = {"open": {}, "context": {}}
+
+## Writes `_app_memory` and the shell's `_class_memory` from the composition that is about to go. Reads only.
+func _capture_class_state() -> void:
+	_capture_shell_state()
+	if left_dock_body != null and is_instance_valid(left_dock_body):
+		for n in left_dock_body.find_children("*", "", true, false):
+			if n is Workspace and not (n as Workspace).categories.is_empty():
+				var titles: Array = []
+				for e in (n as Workspace).categories:
+					var body: Control = (e as Dictionary).get("body")
+					if body != null and is_instance_valid(body) and body.visible:
+						titles.append(String((e as Dictionary).get("title", "")))
+				(_app_memory["open"] as Dictionary)[String(left_dock_body.get_path_to(n))] = titles
+	if right_dock_ctrl != null and is_instance_valid(right_dock_ctrl):
+		var ctx: Dictionary = right_dock_ctrl.export_state()
+		if not ctx.is_empty():
+			_app_memory["context"] = ctx
+
+## The synchronous half of the restore, run after the mount, the planner and the stale button exist: the open
+## accordion categories (through `open_category()`, the click path, so a lazily built category builds), the
+## Context panel's pin and tab, the selection replayed to every surface that shows it, the year to everything
+## that draws it (the year needs no call: the engine holds the cursor and the strip is filled from it by the mount's
+## `_on_workspace_changed()`; a `timeline_changed` emit here ran the strip's no-world gate a second time and hid
+## what a cold boot leaves showing), and the armed tool re-armed so its options row is built by the same listeners a click on the
+## tool would run. Orders matter: the tool is re-armed BEFORE the panel's state (arming a measuring tool makes the
+## panel show its reading, which releases a pin and returns to Inspect, exactly as a click on the tool would, so
+## a pin and a tab restored first would be undone), and the pin before the selection's replay (a pinned panel
+## keeps its subject).
+func _restore_class_state_now() -> void:
+	var open: Dictionary = _app_memory["open"]
+	if left_dock_body != null:
+		for n in left_dock_body.find_children("*", "", true, false):
+			if n is Workspace and open.has(String(left_dock_body.get_path_to(n))):
+				var ws := n as Workspace
+				for title in open[String(left_dock_body.get_path_to(n))]:
+					if ws.category_visible(String(title)):
+						ws.open_category(String(title))
+	## The armed tool: the new listeners have heard nothing, so tell them. `_complete_arm()`, not `arm_tool()`,
+	## because the tool IS armed (`arm_tool()` is a no-op on the armed id) and a swap must not buzz the haptic.
+	## While the engine is busy the replay is deferred exactly as an arm made then would be.
+	if armed_tool != "inspect":
+		_emitted_tool = "inspect"
+		if bridge != null and bridge.generating:
+			_arm_pending = true
+		else:
+			_complete_arm(armed_tool)
+	var ctx: Dictionary = _app_memory["context"]
+	if right_dock_ctrl != null and not ctx.is_empty():
+		right_dock_ctrl.import_state(ctx)
+	if not selection.is_empty():
+		_apply_selection()
+
+## TEST-ONLY until S4.4 (`_ms1swap_probe.gd --leg roundtrip|crossclass|carry`): unmounts the whole composition
+## and mounts it again, at the class the host's size names for `touch`, so the probe can prove what a swap
+## must: no orphan, no extra connection, a structure equal to a cold boot of the target class, and the user's
+## state carried. `touch` null keeps the current touch flag, which is what a real swap does (touch is hardware); the
+## class is re-decided from the host's size either way, so the same-class round trip S4.2 built is a swap to the class
+## it is already in. Not the swap
+## itself: nothing calls it from a resize, and it does not wait for quiescence or re-present a window (S4.4,
+## S4.5). A coroutine because a scroll offset needs two laid-out frames; a caller that does not need the scroll
+## may call it without `await`, the rest has run by the time it first yields.
+func _remount_composition_for_test(touch: Variant = null) -> void:
 	var status := status_snapshot()
+	_capture_class_state()
 	_unmount_app_composition()
+	_republish_class(_touch if touch == null else bool(touch))
+	_restore_dock_state()
 	_mounting_composition = true
 	_mount_composition()
 	_mount_app_composition()
@@ -1998,7 +2070,9 @@ func _remount_composition_for_test() -> void:
 	_on_workspace_changed(active_domain())
 	_mount_journey_planner()
 	_build_stale_recompute()
+	_restore_class_state_now()
 	restore_status(status)
+	await _restore_view_state()
 
 ## **The busy overlay and UI guard** (`busy_overlay.gd`; owner 2026-10-11: loading lines per step
 ## over a relief-trace bar, "That way we can block/save guard the UI"). Its own `CanvasLayer`

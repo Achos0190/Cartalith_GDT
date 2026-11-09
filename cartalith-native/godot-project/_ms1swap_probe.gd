@@ -5,6 +5,10 @@ extends Node
 ## resize does not resize the root window, and the shell listens to the root).
 ##
 ##   godot --path . --resolution 1600x1000 _ms1swap_probe.tscn -- --leg quiet --force-touch --vp 1800x3200 --density 1
+##   ... -- --leg norm --vp 1600x1000 --out <file>        (cold boot of one class: its normalised dump)
+##   ... -- --leg crossclass --vp 1600x1000 --steps tablet:1800x1000,phone:880x1564,tablet:1800x1000 --density 1
+##         --out <file>     (S4.3: remount across classes; the final dump must equal a cold boot's)
+##   ... -- --leg carry --force-touch --vp 1800x1000 --density 1          (S4.3: each carried state item round-trips)
 ##
 ## Legs:
 ##   quiet   (stage S4.1) the quiescence gate. The shell must report no blocker when idle; a held dock drag, a
@@ -26,6 +30,9 @@ extends Node
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument, 3 watchdog.
 
 var _vp: SubViewport
+## Debug only (`--names`): append each node's name and its parent's to the structure lines, to find what a
+## differing line is. Names carry counters, so a run with it is read by eye, never compared byte for byte.
+var _debug_names := false
 var _app: Node
 var _fails := 0
 var _checks := 0
@@ -69,7 +76,7 @@ func _hint() -> String:
 
 func _ready() -> void:
 	var wd := Timer.new()
-	wd.wait_time = 120.0
+	wd.wait_time = 400.0
 	wd.one_shot = true
 	add_child(wd)
 	wd.timeout.connect(func():
@@ -80,18 +87,19 @@ func _ready() -> void:
 	var i := 0
 	while i < args.size():
 		var a := String(args[i])
-		if a == "--force-touch":
+		if a == "--force-touch" or a == "--names":
 			i += 1
-		elif a in ["--leg", "--vp", "--density", "--out"]:
+		elif a in ["--leg", "--vp", "--density", "--out", "--steps"]:
 			i += 2
 		else:
 			print("ABORT: unknown argument ", a)
 			get_tree().quit(2)
 			return
 	var leg := _arg("--leg", "")
+	_debug_names = "--names" in OS.get_cmdline_user_args()
 	var parts := _arg("--vp", "").split("x")
-	if not leg in ["quiet", "dump", "roundtrip"] or parts.size() != 2:
-		print("ABORT: needs --leg quiet|dump|roundtrip and --vp WxH")
+	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry"] or parts.size() != 2:
+		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry and --vp WxH")
 		get_tree().quit(2)
 		return
 	var vw := int(parts[0])
@@ -114,6 +122,12 @@ func _ready() -> void:
 		await _quiet()
 	elif leg == "dump":
 		await _dump_leg()
+	elif leg == "norm":
+		await _norm_leg()
+	elif leg == "crossclass":
+		await _crossclass()
+	elif leg == "carry":
+		await _carry()
 	else:
 		await _roundtrip()
 	print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
@@ -225,7 +239,11 @@ func _connection_lines() -> PackedStringArray:
 ## to 1 dp, indented by depth. No names (an unnamed node's name carries a counter) and no text (the clock and the
 ## build id are text). Windows are listed with their children: the round trip must leave them as they were, and
 ## the cold-boot comparison wants the child order of the app.
-func _structure_lines(n: Node, depth: int, out: PackedStringArray, visible_only := false) -> void:
+func _structure_lines(n: Node, depth: int, out: PackedStringArray, visible_only := false, skip_windows := false) -> void:
+	## S4.3: a long-lived window (not a popup menu) decides its layout for the class it was set up in, and S4.5
+	## re-presents it, so a cold-boot comparison of the COMPOSITION leaves it out (`_norm_text()`).
+	if skip_windows and n is Window and not (n is PopupMenu):
+		return
 	var scr := ""
 	if n.get_script() != null:
 		scr = String((n.get_script() as Script).resource_path).get_file()
@@ -236,13 +254,19 @@ func _structure_lines(n: Node, depth: int, out: PackedStringArray, visible_only 
 	var vis := ""
 	if n is CanvasItem:
 		vis = " v=%s" % str((n as CanvasItem).visible)
-	out.append("%s%s [%s]%s%s" % ["  ".repeat(depth), n.get_class(), scr, vis, rect])
+	var nm := (" '" + String(n.name) + "' " + String(n.get_parent().name if n.get_parent() != null else "")) if _debug_names else ""
+	out.append("%s%s [%s]%s%s%s" % ["  ".repeat(depth), n.get_class(), scr, vis, rect, nm])
 	## The phone's project picker builds its content when it is opened, and boot opens it (no world); a remounted
 	## picker is new and unopened, so its subtree is not comparable. The window itself is still counted.
-	if visible_only and scr == "phone_project_picker.gd":
+	if (visible_only or skip_windows) and scr == "phone_project_picker.gd":
+		return
+	## S4.3: the viewport is a SURVIVOR whose own chrome (the Layers button's size, the scale rule, the map control
+	## row) is built for the class it booted in; refreshing that is `ViewportHost`'s S4.4 work (and MS-5's file),
+	## so a cold-boot comparison of the composition counts the node and not what is under it.
+	if skip_windows and scr == "viewport_host.gd":
 		return
 	for c in n.get_children():
-		_structure_lines(c, depth + 1, out, visible_only)
+		_structure_lines(c, depth + 1, out, visible_only, skip_windows)
 
 func _dump_text() -> String:
 	var lines := PackedStringArray()
@@ -421,3 +445,274 @@ func _roundtrip() -> void:
 			if int(b[s]) > int(a.get(s, 0)) and shown < 8:
 				print("    only after (x%d): %s" % [int(b[s]) - int(a.get(s, 0)), String(s).strip_edges()])
 				shown += 1
+
+## -- S4.3: the cross-class remount and the state it carries ---------------------------------------------------------
+
+## The dump a cold boot and a remounted shell are compared by: every visible control's class, script, visibility and
+## rect as a SORTED multiset (a rebuilt node's tree position is a construction-order artefact, a hidden control's
+## rect a timing artefact), every signal's receivers as a sorted multiset (a rebuilt receiver is connected last),
+## and the node and orphan counts. The phone picker's subtree is left out of the node count, as `_roundtrip()` does.
+func _norm_text() -> String:
+	var lines := PackedStringArray()
+	var st := PackedStringArray()
+	_structure_lines(_app, 0, st, true, true)
+	var sarr: Array = Array(st)
+	sarr.sort()
+	for l in sarr:
+		lines.append("S " + String(l))
+	var conns := _connection_sets()
+	var keys: Array = conns.keys()
+	keys.sort()
+	for k in keys:
+		if String(k).begins_with("viewport."):
+			continue  ## the survivor viewport's own signals: see `_structure_lines()`
+		## Receivers that are long-lived windows are S4.5's (see `_structure_lines()`): left out of both sides.
+		var recv: Array = []
+		for r in conns[k]:
+			## "GDScript/." is a lambda defined in a static helper (`DccWidgets`, `ContextWindow`): the windows' own
+			## relays (`phone_present()`, the context windows' chips), which S4.5 owns, left out like their windows.
+			if not (String(r).begins_with("AcceptDialog/") or String(r).begins_with("ConfirmationDialog/") or String(r).begins_with("Window/") or String(r).begins_with("GDScript/.")):
+				recv.append(r)
+		lines.append("C %s : %s" % [k, " | ".join(PackedStringArray(recv))])
+	var all := PackedStringArray()
+	_structure_lines(_app, 0, all, false, true)
+	lines.append("NODES %d" % all.size())
+	lines.append("ORPHANS %d" % _orphans())
+	lines.append("CLASS %s" % _app.class_key())
+	var sc: ScrollContainer = _app._left_dock_scroll
+	if sc != null:
+		var vb := sc.get_v_scroll_bar()
+		print("  info dock widths: left ", _app._left_width, " ", _app.left_dock.custom_minimum_size.x, " size ", _app.left_dock.size.x, " landscape ", _app._landscape, " portrait ", DccTheme.is_tablet_portrait(), " narrow ", DccTheme.is_laptop())
+		print("  info left dock scroll: mode ", sc.vertical_scroll_mode, " bar visible ", vb.visible, " bar width ", vb.size.x, " min ", vb.get_combined_minimum_size().x, " max ", vb.max_value, " page ", vb.page, " scroll size ", sc.size)
+	return "\n".join(lines) + "\n"
+
+func _write_norm(path: String) -> void:
+	_ok(path != "", "--out names the dump file")
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	_ok(f != null, "the dump file opens")
+	if f == null:
+		return
+	var txt := _norm_text()
+	f.store_string(txt)
+	f.close()
+	print("NORM ", path, " ", txt.length(), " chars, sha256 ", txt.sha256_text())
+
+## Waits for the boot's settling and, on the phone, for its first-run coach toasts (about eight seconds, not part
+## of the composition) so a snapshot is taken at rest. Used identically by the cold boot and the remounted shell.
+func _settle_at_rest() -> void:
+	await _frames(10)
+	if DccTheme.is_phone():
+		await get_tree().create_timer(20.0).timeout
+		await _frames(4)
+
+func _norm_leg() -> void:
+	await _settle_at_rest()
+	_write_norm(_arg("--out", ""))
+
+## Moves the host to `w` x `h` and remounts across to the class `want` (a literal the step names), then waits.
+func _swap_to(want: String, w: int, h: int) -> void:
+	_vp.size = Vector2i(w, h)
+	await _frames(2)
+	## The touch flag is hardware, never a swap dimension (a pointer window does not become a touch one), so it
+	## stays what the shell booted with: null.
+	await _app._remount_composition_for_test(null)
+	await _frames(8)
+	_ok(String(_app.class_key()) == want, "the swap lands on %s (class_key %s)" % [want, _app.class_key()])
+
+## S4.3 bar: remount desktop -> tablet -> phone -> tablet (or any `--steps` chain) at runtime. Writes the final
+## normalised dump to `--out`; the runner compares it with `--leg norm` of a cold boot of the last step's class and
+## size (structure, every signal's receivers, node and orphan counts). Also holds a literal: no signal of the
+## tree may keep a freed receiver after any step.
+func _crossclass() -> void:
+	await _settle_at_rest()
+	print("  info tl-connected at start: ", _app.timeline_changed.is_connected(_app._repaint_timeline), " bar visible ", _app.timeline_bar.visible)
+	var steps := _arg("--steps", "").split(",", false)
+	_ok(steps.size() >= 1, "--steps names at least one class change")
+	var vp_id: int = _app.viewport.get_instance_id()
+	for st in steps:
+		var cw := String(st).split(":")
+		var wh := cw[1].split("x")
+		print("-- swap to ", st)
+		await _swap_to(cw[0], int(wh[0]), int(wh[1]))
+		print("  info tl-connected: ", _app.timeline_changed.is_connected(_app._repaint_timeline), " bar visible ", _app.timeline_bar.visible, " domain ", _app.active_domain())
+		_ok(_app.viewport.get_instance_id() == vp_id, "  the viewport is the same instance")
+		_ok(_app.viewport.get_parent() == _app.viewport_content, "  and sits under the new viewport_content")
+		var orph_cap: int = {"tablet": 214, "phone": 1, "desktop": 0}[String(_app.class_key())]
+		_ok(_orphans() <= orph_cap, "  orphan nodes after the swap: %d, at most %d (cold boots of this class and size leave 213, 1 and 0 for tablet, phone and desktop; the tablet's extra one is a phone boot's own)" % [_orphans(), orph_cap])
+		if _orphans() > orph_cap:
+			var hist := {}
+			for id in Node.get_orphan_node_ids():
+				var o := instance_from_id(id)
+				if o != null:
+					var k := o.get_class()
+					if o.get_script() != null:
+						k += " [" + String((o.get_script() as Script).resource_path).get_file() + "]"
+					hist[k] = int(hist.get(k, 0)) + 1
+			print("    orphan classes: ", hist)
+		var freed := 0
+		for l in _connection_lines():
+			if String(l).contains("freed/"):
+				freed += 1
+		_ok(freed == 0, "  no connection keeps a freed receiver (%d)" % freed)
+	await _settle_at_rest()
+	_write_norm(_arg("--out", ""))
+
+## The carry leg's recorded values, written on the tablet and read back after each swap.
+var _st := {}
+
+func _panel_paths() -> Dictionary:
+	var out := {}
+	for n in _app.left_dock_body.find_children("*", "", true, false):
+		if n is Workspace and not (n as Workspace).categories.is_empty():
+			out[String(_app.left_dock_body.get_path_to(n))] = n
+	return out
+
+## The title of the category of `ws` that is open now, "" when none is.
+func _open_title(ws: Workspace) -> String:
+	for e in ws.categories:
+		if (e["body"] as Control).visible and ((e["body"] as Control).get_parent() as Control).visible:
+			return String(e["title"])
+	return ""
+
+func _scroll_max(sc: ScrollContainer) -> int:
+	var b := sc.get_v_scroll_bar()
+	return int(b.max_value - b.page)
+
+## S4.3: every item the swap carries, set on the tablet, then read back after tablet -> phone -> tablet -> desktop
+## -> tablet -> desktop -> phone. Expected values are LITERALS or the values this function wrote itself on a
+## different class (never read back from the composition under test). A positive control: the fixture must be
+## able to hold each item (a scrollable dock, three accordions, an options row), or the equality is vacuous.
+func _carry() -> void:
+	await _settle_at_rest()
+	if not ClassDB.class_exists("WorldGen"):
+		print("[FATAL] extension did not load")
+		get_tree().quit(2)
+		return
+	_ok(String(_app.class_key()) in ["tablet", "desktop"], "boots as a tablet or the desktop (class_key %s)" % _app.class_key())
+	var b = _app.bridge
+	b.generate({"seed": 4242, "width_km": 2400.0, "grid_w": 256, "grid_h": 192, "archetype": "", "villages": true, "sea_level": 0.45})
+	var t0 := Time.get_ticks_msec()
+	await _frames(2)
+	while bool(b.generating) and Time.get_ticks_msec() - t0 < 240000:
+		await _frames(10)
+	await _frames(30)
+	_ok(bool(b.has_world) and b.settlements().size() >= 2, "a world with two settlements stands")
+	## ---- set every carried item on the tablet ----
+	var civ_modes: Array = []
+	for n in DccShell.RAIL_NODES:
+		if String(n.get("kind", "")) == "node" and String(n["domain"]) == "civilization":
+			civ_modes.append(String(n["mode"]))
+	_st["mode"] = civ_modes[1]
+	_app.select_domain_mode("civilization", _st["mode"])
+	await _frames(4)
+	## One non-first, visible category open in each workspace panel.
+	_st["open"] = {}
+	var panels0 := _panel_paths()
+	for path in panels0:
+		var ws: Workspace = panels0[path]
+		var pick := ""
+		for e in ws.categories:
+			if ((e["body"] as Control).get_parent() as Control).visible and String(e["title"]) != _open_title(ws):
+				pick = String(e["title"])
+		if pick != "":
+			ws.open_category(pick)
+		_st["open"][path] = _open_title(ws)
+	await _frames(4)
+	_ok(_st["open"].size() >= 3, "three or more workspace panels hold an accordion (%d)" % _st["open"].size())
+	_app.arm_tool("measure")
+	await _frames(4)
+	_st["opts"] = _app.tool_options_row.get_child_count()
+	_ok(_st["opts"] > 0, "the measure tool built an options row (%d children)" % _st["opts"])
+	_app.select("settlement", 0)
+	await _frames(3)
+	_ok(_app.right_dock_ctrl.pin(), "the Context panel pins settlement 0")
+	_app.select("settlement", 1)
+	await _frames(3)
+	_ok(_app.right_dock_ctrl.is_pinned() and _app.right_dock_ctrl.shown_subject() == {"kind": "settlement", "id": 0},
+		"pinned: the panel holds settlement 0 while settlement 1 is selected")
+	_ok(_app.right_dock_ctrl.show_tab("note"), "the Note tab opens")
+	_st["back"] = _app._selection_back.duplicate(true)
+	_ok(_st["back"].size() == 2, "the selection history holds two steps (%d)" % _st["back"].size())
+	var r: Dictionary = _app.tl_range()
+	_ok(int(r["min"]) == -400, "the strip's range starts at the fallback -400 (%d)" % int(r["min"]))
+	_st["year"] = int(r["min"]) + 37
+	_app.tl_set_year(_st["year"])
+	_ok(_app.tl_year() == _st["year"], "the year cursor moved to %d (got %d)" % [_st["year"], _app.tl_year()])
+	_app._left_width = 333.0
+	_app._apply_dock_widths()
+	_app._toggle_dock(false)
+	await _frames(4)
+	_ok(_app.right_dock.custom_minimum_size.x == float(DccTheme.W_RAIL_COLLAPSED), "the right dock is collapsed")
+	var sc: ScrollContainer = _app._left_dock_scroll
+	var smax := _scroll_max(sc)
+	_ok(smax >= 50, "the left dock can scroll (max %d): the fixture reaches the scroll" % smax)
+	sc.scroll_vertical = 50
+	await _frames(3)
+	_ok(sc.scroll_vertical == 50, "the left dock holds scroll 50")
+
+	## ---- the chain ----
+	## The touch flag is hardware, so the chain keeps it: on a touch build tablet <-> phone, on a pointer build the
+	## desktop remounted twice (`--leg carry` without `--force-touch`, 1600x1000).
+	if String(_app.class_key()) == "tablet":
+		print("-- tablet -> phone")
+		await _swap_to("phone", 880, 1564)
+		_check_common("on the phone")
+		_app.set_phone_detent("full")
+		await _frames(4)
+		_ok(_app.phone_detent() == "full", "the phone's detent is full")
+		_ok(_app.right_dock_ctrl.shown_subject() == {"kind": "settlement", "id": 1}, "phone: the sheet shows the selection (settlement 1; a phone has no pin)")
+		print("-- phone -> tablet")
+		await _swap_to("tablet", 1800, 1000)
+		_check_common("back on the tablet")
+		_check_chrome("back on the tablet")
+		print("-- tablet -> phone, again")
+		await _swap_to("phone", 880, 1564)
+		_check_common("on the phone, second visit")
+		_ok(_app.phone_detent() == "full", "phone, second visit: the detent is still full (%s)" % _app.phone_detent())
+		print("-- phone -> tablet, again")
+		await _swap_to("tablet", 1800, 1000)
+		_check_common("tablet, second visit")
+		_check_chrome("tablet, second visit")
+	else:
+		print("-- desktop -> desktop (the same class, state carried through two remounts)")
+		await _swap_to("desktop", 1600, 1000)
+		_check_common("desktop remount 1")
+		_check_chrome("desktop remount 1")
+		await _swap_to("desktop", 1600, 1000)
+		_check_common("desktop remount 2")
+		_check_chrome("desktop remount 2")
+
+## What every class must still show after a swap: the domain and its mode, the open accordion categories, the
+## selection and its history, the armed tool, the year.
+func _check_common(tag: String) -> void:
+	_ok(_app.active_domain() == "civilization" and _app.active_mode("civilization") == _st["mode"],
+		"%s: domain civilization, mode %s (got %s/%s)" % [tag, _st["mode"], _app.active_domain(), _app.active_mode("civilization")])
+	var panels := _panel_paths()
+	for path in _st["open"]:
+		_ok(panels.has(path) and _open_title(panels[path]) == _st["open"][path],
+			"%s: %s has %s open (got %s)" % [tag, path, _st["open"][path], _open_title(panels[path]) if panels.has(path) else "no panel"])
+	_ok(_app.selection == {"kind": "settlement", "id": 1}, "%s: the selection is settlement 1 (%s)" % [tag, str(_app.selection)])
+	_ok(_app._selection_back == _st["back"], "%s: the selection history is the two steps (%s)" % [tag, str(_app._selection_back)])
+	_ok(_app.armed_tool == "measure", "%s: measure is armed (%s)" % [tag, _app.armed_tool])
+	_ok(_app.tl_year() == _st["year"], "%s: the year is %d (got %d)" % [tag, _st["year"], _app.tl_year()])
+	var seen := false
+	var texts := PackedStringArray()
+	for l in _app._tl_year_labels:
+		if is_instance_valid(l):
+			texts.append(String(l.text))
+			if String(l.text) == "363 BC":
+				seen = true
+	## The phone's strip lives in the STORY sheet and is not built until opened: its year label is not drawn.
+	seen = seen or tag.contains("phone")
+	_ok(seen, "%s: a year label on the strip reads 363 BC, year -363 (labels %s)" % [tag, str(texts)])
+
+## What only a class with the docks and the Context panel's chrome shows: the pin and the tab, the options row, the
+## dragged width, the collapsed right dock and the scroll.
+func _check_chrome(tag: String) -> void:
+	_ok(_app.right_dock_ctrl.is_pinned() and _app.right_dock_ctrl.shown_subject() == {"kind": "settlement", "id": 0},
+		"%s: pinned to settlement 0 while settlement 1 is selected" % tag)
+	_ok(String(_app.right_dock_ctrl.get("_tab")) == "note", "%s: the Note tab is open (%s)" % [tag, str(_app.right_dock_ctrl.get("_tab"))])
+	_ok(_app.tool_options_row.get_child_count() == _st["opts"], "%s: the options row has %d children (got %d)" % [tag, _st["opts"], _app.tool_options_row.get_child_count()])
+	_ok(_app._left_width == 333.0 and _app.left_dock.custom_minimum_size.x == 333.0, "%s: the left dock is 333 wide (%.0f)" % [tag, _app.left_dock.custom_minimum_size.x])
+	_ok(_app.right_dock.custom_minimum_size.x == float(DccTheme.W_RAIL_COLLAPSED), "%s: the right dock is collapsed" % tag)
+	_ok(_app._left_dock_scroll.scroll_vertical == 50, "%s: the left dock is scrolled to 50 (%d)" % [tag, _app._left_dock_scroll.scroll_vertical])
