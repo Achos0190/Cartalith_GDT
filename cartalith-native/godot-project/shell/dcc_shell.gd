@@ -8746,6 +8746,13 @@ func phone_tool_pill_reserve() -> float:
 		return 0.0
 	return _tool_strip.reserve()
 
+## Ruling EJ item 2 (MS-5): called by `arm_tool` when a tool was armed from the map. Drops the phone tool sheet
+## to peek (portrait only: landscape has no detents) unless it is already there. Changes nothing else.
+func phone_drop_sheet_to_peek() -> void:
+	if not _phone or _landscape or _phone_detent == "peek":
+		return
+	set_phone_detent("peek")
+
 ## MS-5: the tool strip's chip tap. Raises the phone tool sheet to half when it is at peek, and lowers it to peek
 ## when it is above, so one tap opens "the full options" the sheet draws for the armed tool and the next closes
 ## them (`MOBILE_SHELL_PROPOSAL.md` section 2.1). It changes neither the tab nor the domain: the sheet already shows

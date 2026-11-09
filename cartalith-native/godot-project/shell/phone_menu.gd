@@ -719,8 +719,7 @@ func _rebuild_peek_chip_row(actions: Array) -> void:
 		var cb: Callable = row.get("callable", Callable())
 		DccWidgets.chip(_peek_chip_row, String(row.get("chip_label", row.get("label", ""))), func() -> void:
 			_dismiss_peek_card()
-			if cb.is_valid():
-				cb.call())
+			_shell.call_arming_from_map(cb))
 	## Four chips share the row's width, eliding their text, rather than
 	## running off the right edge: before this, four full-width labels at
 	## 393 dp pushed the fourth chip off screen (seen on SM-4's own capture,
@@ -850,8 +849,7 @@ func _build_peek_row(a: Dictionary) -> Control:
 		var cb: Callable = a.get("callable", Callable())
 		b.pressed.connect(func() -> void:
 			_dismiss_peek_card()
-			if cb.is_valid():
-				cb.call())
+			_shell.call_arming_from_map(cb))
 	wrap.add_child(b)
 	if not enabled:
 		var reason := DccTheme.mono_label(String(a.get("reason", "")), "text_faint", _ps(9), 0)

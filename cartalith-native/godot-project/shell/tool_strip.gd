@@ -362,7 +362,8 @@ func _run_verb(cb: Callable) -> void:
 
 
 func _on_disarm_pressed() -> void:
-	fan.toggle_inspect()
+	## Ruling EJ item 2: the return arrow arms a tool from the map, so it drops the sheet to peek.
+	app.call_arming_from_map(fan.toggle_inspect)
 
 
 func _process(dt: float) -> void:

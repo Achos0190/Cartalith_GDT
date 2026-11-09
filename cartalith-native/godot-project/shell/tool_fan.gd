@@ -428,8 +428,7 @@ func _run_leaf(dir: String) -> void:
 		return
 	var cb: Callable = row.get("callable", Callable())
 	_close()
-	if cb.is_valid():
-		cb.call()
+	app.call_arming_from_map(cb)  ## Ruling EJ item 2: a fan pick drops the sheet to peek
 
 
 ## Resolves a sub-fan pick by index. Out-of-range or disabled closes the fan;
@@ -446,8 +445,7 @@ func _run_sub_leaf(i: int) -> void:
 		return
 	var cb: Callable = row.get("callable", Callable())
 	_close()
-	if cb.is_valid():
-		cb.call()
+	app.call_arming_from_map(cb)  ## Ruling EJ item 2: a fan pick drops the sheet to peek
 
 
 ## Tears the fan down completely: every gesture flag, the slot cache and the

@@ -207,6 +207,20 @@ static func tool_kind(id: String) -> int:
 			return ViewportHost.TOOL_PLACING
 	return ViewportHost.TOOL_DRAWING
 
+## True only while `call_arming_from_map()` runs its callable (Ruling EJ item 2).
+var _arm_from_map := false
+
+## Runs `cb` (a map-side control's action: a fan slot, the tool strip's return arrow, a context-card row) with
+## `arm_tool` told it came from the map, so a tool it arms drops the phone sheet to peek. Never leaves the flag set:
+## it is cleared after the call whatever the callable did. Anything armed from a dock calls `arm_tool` directly and
+## is unaffected.
+func call_arming_from_map(cb: Callable) -> void:
+	if not cb.is_valid():
+		return
+	_arm_from_map = true
+	cb.call()
+	_arm_from_map = false
+
 ## Arms tool `id` globally -- the one entry every palette cell, key, menu row and
 ## workspace funnels through (`DccWidgets.tool_strip()`, `global_tools.gd`,
 ## `journey_planner_view.gd`). No-op when `id` is already armed, so callers that
@@ -233,6 +247,12 @@ func arm_tool(id: String) -> void:
 	if armed_tool == id:
 		return
 	armed_tool = id
+	## Ruling EJ item 2 (MS-5): a tool armed FROM THE MAP (the fan, the strip, the context card) drops the phone
+	## sheet to peek so the map is clear to use it; one armed from the dock leaves the sheet where it is. The flag
+	## is set only inside `call_arming_from_map()`, so no other route can trigger it. Before the engine-busy
+	## branch, like `set_tool_kind`: the sheet follows the user's choice at once, not when the listeners are told.
+	if _arm_from_map and id != "inspect" and has_method("phone_drop_sheet_to_peek"):
+		call("phone_drop_sheet_to_peek")
 	## MS-5 (`MOBILE_SHELL_PROPOSAL.md` section 2.5, items 3 and 4): the map's touch routing and its pan latch
 	## follow the armed tool. Pushed HERE, at the root and before the engine-busy branch below, because
 	## `armed_tool` changes at once while the `tool_armed` emit may be deferred -- a finger that lands while a

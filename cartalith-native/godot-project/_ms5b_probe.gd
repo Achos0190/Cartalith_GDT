@@ -362,6 +362,7 @@ func _run(vw: int, vh: int) -> void:
 	await _t_disarm()
 	await _t_chip_tap()
 	await _t_chip_hold()
+	await _t_arm_peek()
 
 ## A screen point on LAND: the Way tool refuses a waypoint on water and Paint is land-only by default, so a point
 ## `_find_point()` accepts (any valid grid point) can be sea. Scans the host rect for a point whose cell the engine
@@ -707,4 +708,76 @@ func _t_chip_hold() -> void:
 	await _settle()
 	_ok(_app.armed_tool == "inspect", "slide to N and lift armed Inspect (%s)" % _app.armed_tool)
 	_ok(not _fan.is_open(), "the fan closed on the pick")
+	await _arm("inspect")
+
+# 10. Ruling EJ item 2: arming from the map drops the sheet to peek; arming from the dock does not ---------------
+
+func _t_arm_peek() -> void:
+	if _app._landscape:
+		_ok(true, "landscape: the sheet has no detents, so nothing to drop (EJ item 2 is portrait-only)")
+		return
+	# (a) From the dock: `arm_tool` called directly (the route every dock tool cell funnels into) leaves the sheet.
+	await _arm("inspect")
+	_app.set_phone_detent("half")
+	await _settle()
+	await _arm("measure")
+	await _settle()
+	_ok(_app.phone_detent() == "half", "EJ: a tool armed from the dock leaves the sheet at half (%s)" % _app.phone_detent())
+	# (b) From the fan, by real touch: hold the chip, slide to W (Region), lift.
+	var c: Vector2 = _fan._pill.get_global_rect().get_center()
+	await _down(0, c)
+	await get_tree().create_timer(0.42).timeout
+	await _frames(3)
+	var o: Vector2 = _fan.fan_origin()
+	var w: Vector2 = o + Vector2(-150.0 * _app.phone_scale(), 0.0)
+	await _move(0, w, c)
+	await _up(0, w)
+	await _settle()
+	_ok(_app.armed_tool == "region", "EJ: the fan's W slot armed Region (%s)" % _app.armed_tool)
+	_ok(_app.phone_detent() == "peek", "EJ: arming from the fan dropped the sheet to peek (%s)" % _app.phone_detent())
+	# (c) Inspect from the map does not count: sheet stays where it is.
+	_app.set_phone_detent("half")
+	await _settle()
+	await _tap_btn(_btn_by_text(_strip, "✕"))
+	_ok(_app.armed_tool == "inspect" and _app.phone_detent() == "half", "EJ: the strip's X (Inspect) leaves the sheet at half (%s, %s)" % [_app.armed_tool, _app.phone_detent()])
+	# (d) The strip's return arrow arms the tool from the map: drops to peek.
+	await _tap_btn(_btn_by_text(_strip, "↩"))
+	_ok(_app.armed_tool == "region" and _app.phone_detent() == "peek", "EJ: the strip's return arrow re-armed Region and dropped the sheet (%s, %s)" % [_app.armed_tool, _app.phone_detent()])
+	# (e) The context card: hold on land in CIVIL, tap "Start way here".
+	await _arm("inspect")
+	_app.select_domain("civilization")
+	_app.set_phone_detent("half")
+	await _settle()
+	var T: Array = _land_triplet()
+	if T.size() != 3:
+		T = _T0
+	## A hold's card lists the rows for what is under the finger; a road under it offers road rows, not
+	## "Start way here". Try the triplet and then more land points until one offers it.
+	var pm = _app._phone_menu
+	var way: Button = null
+	var held := Vector2.ZERO
+	var cands: Array = T.duplicate()
+	for k in 12:
+		var q := _find_land_point(k)
+		if q.x >= 0.0:
+			cands.append(q)
+	for pt in cands:
+		held = pt
+		await _down(0, held)
+		await get_tree().create_timer(0.8).timeout
+		await _frames(4)
+		way = _btn_starting(pm, "Start way")
+		if way != null:
+			break
+		await _up(0, held)
+		_close_card()
+	_ok(pm.peek_card_is_open() and way != null, "EJ: a hold on land opened the phone context card offering Start way here")
+	await _up(0, held)
+	await _frames(3)
+	if way != null:
+		_app.set_phone_detent("half")
+		await _settle()
+		await _tap_btn(way)
+		_ok(_app.armed_tool == "way", "EJ: the card's row armed Way (%s)" % _app.armed_tool)
+		_ok(_app.phone_detent() == "peek", "EJ: arming from the card dropped the sheet to peek (%s)" % _app.phone_detent())
 	await _arm("inspect")
