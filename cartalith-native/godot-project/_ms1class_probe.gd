@@ -309,16 +309,20 @@ func _live(leg: String) -> void:
 			_ok(String(DccTheme.layout().get("width_class", "")) == "large",
 				"published width class 'large' (1550 dp); got '%s'" % String(DccTheme.layout().get("width_class", "")))
 		"swap":
-			## S3's class question with B5's hysteresis walk, density 1 (900 x 1 600 dp). Until S4 the
-			## shell keeps its boot class and logs a request; the runner greps the log for it.
+			## S3's class question with B5's hysteresis walk, density 1 (900 x 1 600 dp). Since S4.4 the request is a real
+			## swap: the shell is the phone composition afterwards (`_ms1swap_probe.gd --leg live` is the full bar).
 			_ok(DccTheme.is_tablet(), "boots 900 x 1600 dp as a tablet")
 			await _resize(890, 1582)
 			_ok(not bool(DccTheme.layout().get("phone", true)) and DccTheme.is_tablet(),
 				"890 x 1582 stays a tablet (inside the 16 dp band), no request")
 			await _resize(880, 1564)
-			## The settled classification says phone; the published layout is not overwritten by a
-			## request, and the composition is still the boot class.
-			_ok(DccTheme.is_tablet(), "880 x 1564: still the boot composition (S4 not built)")
+			## The settled classification says phone and the swap runs (a coroutine; wait it out).
+			var t0 := Time.get_ticks_msec()
+			while bool(_app.get("_swap_running")) and Time.get_ticks_msec() - t0 < 30000:
+				await _frames(5)
+			await _frames(10)
+			_ok(DccTheme.is_phone() and not DccTheme.is_tablet() and String(_app.class_key()) == "phone",
+				"880 x 1564: swapped to the phone composition (class %s)" % String(_app.class_key()))
 			print("LIVE swap step 880x1564 done")
 		_:
 			_ok(false, "unknown --live leg " + leg)

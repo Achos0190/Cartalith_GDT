@@ -9,6 +9,13 @@ extends Node
 ##   ... -- --leg crossclass --vp 1600x1000 --steps tablet:1800x1000,phone:880x1564,tablet:1800x1000 --density 1
 ##         --out <file>     (S4.3: remount across classes; the final dump must equal a cold boot's)
 ##   ... -- --leg carry --force-touch --vp 1800x1000 --density 1          (S4.3: each carried state item round-trips)
+##   ... -- --leg live --force-touch --vp 1800x1000 --density 1 --out <prefix> [--trips N] [--window]
+##         (S4.4: the REAL swap. Resizes through the resize path, `--window` through `DisplayServer.window_set_size()`,
+##         across the 900 dp line with hysteresis; a window open makes the swap wait with a reason; ten round trips;
+##         every carried item, the Ask conversation, the tool settings, the world hash and the camera zoom checked after
+##         each; writes `<prefix>.phone` and `<prefix>.tablet` for the runner to compare with a cold boot.
+##         `--clean` sets no user state, `--noworld` also stands no world, so the end state equals `--leg norm`'s.)
+##   ... -- --leg norm [--world] --force-touch --vp 880x1564 --density 1 --out <file>   (cold boot, optionally with a world)
 ##
 ## Legs:
 ##   quiet   (stage S4.1) the quiescence gate. The shell must report no blocker when idle; a held dock drag, a
@@ -18,9 +25,13 @@ extends Node
 ##           current class while waiting must cancel the wait (no swap run, the hint cleared). At density 1,
 ##           1 800 x 3 200 dp is a tablet and 880 x 1 564 dp a phone (past 900 - 16, `DccTheme.BAND_DP`).
 ##
+##   live    (stage S4.4) see the usage line above. Run WITHOUT `--force-touch` on a pointer build it asserts the other
+##           half of the bar: no size makes a desktop a phone (touch is hardware), so no swap is ever requested.
+##
 ## Run windowed with a wiped user dir (the runner sets `APPDATA` to an empty folder). Logic and layout only, so
 ## nothing here reads pixels. Arguments read by THIS file: `--leg quiet`, `--vp WxH`; accepted because the
-## shell reads them: `--force-touch`, `--density D`. Anything else aborts with exit 2 (`MISTAKES.md`, "Write a
+## shell reads them: `--force-touch`, `--density D`. Flags of this file with no value: `--window`, `--clean`, `--noworld`,
+## `--world`, `--names`. Anything else aborts with exit 2 (`MISTAKES.md`, "Write a
 ## probe's usage header").
 ##
 ## **It fails on the tree before S4.1** by construction: there `quiescent_blockers()` does not exist and the
@@ -54,11 +65,24 @@ func _arg(name: String, dflt: String) -> String:
 		return String(args[k + 1])
 	return dflt
 
+## `--window`: the shell is in the real root window (see `_ready()`), not in a host SubViewport.
+var _window_mode := false
+## How long `app.tscn` took to instantiate and enter the tree at boot, in ms; the cold-boot figure the live leg's swap
+## timing is set against (measured on this machine, labelled so in the report).
+var _cold_boot_ms := 0.0
+
 ## Resizes the host and tells the shell, then waits past the 150 ms debounce (0.4 s).
 func _resize(w: int, h: int) -> void:
-	_vp.size = Vector2i(w, h)
-	await _frames(2)
-	get_tree().root.size_changed.emit()
+	if _window_mode:
+		DisplayServer.window_set_size(Vector2i(w, h))
+		await _frames(2)
+		if get_tree().root.size != Vector2i(w, h):
+			print("  info: the window is %s after asking for %dx%d" % [str(get_tree().root.size), w, h])
+		get_tree().root.size_changed.emit()
+	else:
+		_vp.size = Vector2i(w, h)
+		await _frames(2)
+		get_tree().root.size_changed.emit()
 	await get_tree().create_timer(0.4).timeout
 	await _frames(3)
 
@@ -87,9 +111,9 @@ func _ready() -> void:
 	var i := 0
 	while i < args.size():
 		var a := String(args[i])
-		if a == "--force-touch" or a == "--names":
+		if a == "--force-touch" or a == "--names" or a == "--window" or a == "--clean" or a == "--world" or a == "--noworld":
 			i += 1
-		elif a in ["--leg", "--vp", "--density", "--out", "--steps"]:
+		elif a in ["--leg", "--vp", "--density", "--out", "--steps", "--trips"]:
 			i += 2
 		else:
 			print("ABORT: unknown argument ", a)
@@ -98,20 +122,31 @@ func _ready() -> void:
 	var leg := _arg("--leg", "")
 	_debug_names = "--names" in OS.get_cmdline_user_args()
 	var parts := _arg("--vp", "").split("x")
-	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry"] or parts.size() != 2:
-		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry and --vp WxH")
+	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry", "live"] or parts.size() != 2:
+		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry|live and --vp WxH")
 		get_tree().quit(2)
 		return
 	var vw := int(parts[0])
 	var vh := int(parts[1])
-	DisplayServer.window_set_size(Vector2i(mini(vw, 1600), mini(vh, 1000)))
-	_vp = SubViewport.new()
-	_vp.size = Vector2i(vw, vh)
-	_vp.gui_embed_subwindows = true
-	_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	add_child(_vp)
-	_app = load("res://shell/app.tscn").instantiate()
-	_vp.add_child(_app)
+	_window_mode = "--window" in OS.get_cmdline_user_args()
+	var t_boot := Time.get_ticks_usec()
+	if _window_mode:
+		## `--window`: no host SubViewport; the shell lives in the real root window, and a "resize" is
+		## `DisplayServer.window_set_size()`, the call a split-screen divider or a freeform drag ends in.
+		DisplayServer.window_set_size(Vector2i(vw, vh))
+		await _frames(4)
+		_app = load("res://shell/app.tscn").instantiate()
+		add_child(_app)
+	else:
+		DisplayServer.window_set_size(Vector2i(mini(vw, 1600), mini(vh, 1000)))
+		_vp = SubViewport.new()
+		_vp.size = Vector2i(vw, vh)
+		_vp.gui_embed_subwindows = true
+		_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		add_child(_vp)
+		_app = load("res://shell/app.tscn").instantiate()
+		_vp.add_child(_app)
+	_cold_boot_ms = (Time.get_ticks_usec() - t_boot) / 1000.0
 	await get_tree().create_timer(1.6).timeout
 	if "open_project_dialog" in _app and _app.open_project_dialog != null:
 		_app.open_project_dialog.hide()
@@ -128,6 +163,8 @@ func _ready() -> void:
 		await _crossclass()
 	elif leg == "carry":
 		await _carry()
+	elif leg == "live":
+		await _live()
 	else:
 		await _roundtrip()
 	print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
@@ -244,6 +281,10 @@ func _structure_lines(n: Node, depth: int, out: PackedStringArray, visible_only 
 	## re-presents it, so a cold-boot comparison of the COMPOSITION leaves it out (`_norm_text()`).
 	if skip_windows and n is Window and not (n is PopupMenu):
 		return
+	## S4.4: a `Timer` is shell infrastructure made on first use (the resize debounce, the swap's poll), not part of
+	## the composition; a cold boot has made none of them yet. Left out of the cold-boot comparison on both sides.
+	if skip_windows and n is Timer:
+		return
 	var scr := ""
 	if n.get_script() != null:
 		scr = String((n.get_script() as Script).resource_path).get_file()
@@ -260,12 +301,12 @@ func _structure_lines(n: Node, depth: int, out: PackedStringArray, visible_only 
 	## picker is new and unopened, so its subtree is not comparable. The window itself is still counted.
 	if (visible_only or skip_windows) and scr == "phone_project_picker.gd":
 		return
-	## S4.3: the viewport is a SURVIVOR whose own chrome (the Layers button's size, the scale rule, the map control
-	## row) is built for the class it booted in; refreshing that is `ViewportHost`'s S4.4 work (and MS-5's file),
-	## so a cold-boot comparison of the composition counts the node and not what is under it.
-	if skip_windows and scr == "viewport_host.gd":
-		return
+	## S4.4: the viewport is a SURVIVOR, and `ViewportHost.rebuild_chrome()` builds its chrome (the Layers button, the
+	## scale bar and rule, the readouts, the context chip, the navpad) again for the new class, so a cold-boot comparison
+	## now lists those nodes too. Its camera subtree (the map, its tiles and overlays) is the world and is left out.
 	for c in n.get_children():
+		if skip_windows and scr == "viewport_host.gd" and c == (n as Object).get("_camera"):
+			continue
 		_structure_lines(c, depth + 1, out, visible_only, skip_windows)
 
 func _dump_text() -> String:
@@ -334,7 +375,7 @@ func _orphans() -> int:
 	return int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
 
 ## S4.2 (`MOBILE_SHELL_MS1_SPEC.md` section 3.5; `S4_INVENTORY.md` section 12, step 4 at the SAME class): the
-## composition is unmounted and mounted again `ROUNDS` times through `_remount_composition_for_test()`, and
+## composition is unmounted and mounted again `ROUNDS` times through `_remount_composition()`, and
 ## nothing may be left over. Held to LITERALS where a count is the thing (zero orphans gained, the same node
 ## count), and to the boot's own figures where the thing is "as it was" (every signal's receivers, the two
 ## `DccTheme` registries, the composition's structure). Positive controls: the old docks must be freed and the
@@ -368,7 +409,7 @@ func _roundtrip() -> void:
 	_ok(old_left != null and old_rdc != null and old_root != null, "a composition is present before the round trip")
 	print("  info: portrait watchers %d, elide labels %d at boot" % [watch0, elide0])
 	for r in ROUNDS:
-		_app._remount_composition_for_test()
+		_app._remount_composition()
 		await _frames(8)
 	await _frames(10)
 	_ok(not is_instance_valid(old_left) and not is_instance_valid(old_rdc) and not is_instance_valid(old_root),
@@ -479,6 +520,10 @@ func _norm_text() -> String:
 	lines.append("NODES %d" % all.size())
 	lines.append("ORPHANS %d" % _orphans())
 	lines.append("CLASS %s" % _app.class_key())
+	var slots := PackedStringArray()
+	for sl in ["pass", "stale", "atlas", "progress", "autosave", "hint", "mid"]:
+		slots.append("%s='%s'" % [sl, _app.status_slot_text(sl)])
+	print("  info status slots: ", ", ".join(slots))
 	var strips := 0
 	for n in get_tree().root.find_children("*", "PanelContainer", true, false):
 		if n.get_script() != null and String((n.get_script() as Script).resource_path).get_file() == "tool_strip.gd":
@@ -517,6 +562,10 @@ func _settle_at_rest() -> void:
 
 func _norm_leg() -> void:
 	await _settle_at_rest()
+	## `--world`: the cold boot a `--leg live --clean` run is compared with, with the same world standing.
+	if "--world" in OS.get_cmdline_user_args():
+		await _make_world()
+		await _settle_at_rest()
 	_write_norm(_arg("--out", ""))
 
 ## Moves the host to `w` x `h` and remounts across to the class `want` (a literal the step names), then waits.
@@ -525,7 +574,7 @@ func _swap_to(want: String, w: int, h: int) -> void:
 	await _frames(2)
 	## The touch flag is hardware, never a swap dimension (a pointer window does not become a touch one), so it
 	## stays what the shell booted with: null.
-	await _app._remount_composition_for_test(null)
+	await _app._remount_composition(null)
 	await _frames(8)
 	_ok(String(_app.class_key()) == want, "the swap lands on %s (class_key %s)" % [want, _app.class_key()])
 
@@ -599,6 +648,43 @@ func _carry() -> void:
 		get_tree().quit(2)
 		return
 	_ok(String(_app.class_key()) in ["tablet", "desktop"], "boots as a tablet or the desktop (class_key %s)" % _app.class_key())
+	await _make_world()
+	await _carry_fixture()
+
+	## ---- the chain ----
+	## The touch flag is hardware, so the chain keeps it: on a touch build tablet <-> phone, on a pointer build the
+	## desktop remounted twice (`--leg carry` without `--force-touch`, 1600x1000).
+	if String(_app.class_key()) == "tablet":
+		print("-- tablet -> phone")
+		await _swap_to("phone", 880, 1564)
+		_check_common("on the phone")
+		_app.set_phone_detent("full")
+		await _frames(4)
+		_ok(_app.phone_detent() == "full", "the phone's detent is full")
+		_ok(_app.right_dock_ctrl.shown_subject() == {"kind": "settlement", "id": 1}, "phone: the sheet shows the selection (settlement 1; a phone has no pin)")
+		print("-- phone -> tablet")
+		await _swap_to("tablet", 1800, 1000)
+		_check_common("back on the tablet")
+		_check_chrome("back on the tablet")
+		print("-- tablet -> phone, again")
+		await _swap_to("phone", 880, 1564)
+		_check_common("on the phone, second visit")
+		_ok(_app.phone_detent() == "full", "phone, second visit: the detent is still full (%s)" % _app.phone_detent())
+		print("-- phone -> tablet, again")
+		await _swap_to("tablet", 1800, 1000)
+		_check_common("tablet, second visit")
+		_check_chrome("tablet, second visit")
+	else:
+		print("-- desktop -> desktop (the same class, state carried through two remounts)")
+		await _swap_to("desktop", 1600, 1000)
+		_check_common("desktop remount 1")
+		_check_chrome("desktop remount 1")
+		await _swap_to("desktop", 1600, 1000)
+		_check_common("desktop remount 2")
+		_check_chrome("desktop remount 2")
+
+## Generates the probe's world (seed 4242, 256 x 192) and waits for it; asserts two settlements stand.
+func _make_world() -> void:
 	var b = _app.bridge
 	b.generate({"seed": 4242, "width_km": 2400.0, "grid_w": 256, "grid_h": 192, "archetype": "", "villages": true, "sea_level": 0.45})
 	var t0 := Time.get_ticks_msec()
@@ -607,6 +693,11 @@ func _carry() -> void:
 		await _frames(10)
 	await _frames(30)
 	_ok(bool(b.has_world) and b.settlements().size() >= 2, "a world with two settlements stands")
+
+## Sets every carried item on the boot class (see `_carry()`): domain mode, open accordions, the armed measure tool,
+## a pin and a selection history, the year, a dragged left width, a collapsed right dock and a scrolled left dock.
+## Writes the literals it sets into `_st`; the checks read them back after each swap.
+func _carry_fixture() -> void:
 	## ---- set every carried item on the tablet ----
 	var civ_modes: Array = []
 	for n in DccShell.RAIL_NODES:
@@ -660,37 +751,6 @@ func _carry() -> void:
 	await _frames(3)
 	_ok(sc.scroll_vertical == 50, "the left dock holds scroll 50")
 
-	## ---- the chain ----
-	## The touch flag is hardware, so the chain keeps it: on a touch build tablet <-> phone, on a pointer build the
-	## desktop remounted twice (`--leg carry` without `--force-touch`, 1600x1000).
-	if String(_app.class_key()) == "tablet":
-		print("-- tablet -> phone")
-		await _swap_to("phone", 880, 1564)
-		_check_common("on the phone")
-		_app.set_phone_detent("full")
-		await _frames(4)
-		_ok(_app.phone_detent() == "full", "the phone's detent is full")
-		_ok(_app.right_dock_ctrl.shown_subject() == {"kind": "settlement", "id": 1}, "phone: the sheet shows the selection (settlement 1; a phone has no pin)")
-		print("-- phone -> tablet")
-		await _swap_to("tablet", 1800, 1000)
-		_check_common("back on the tablet")
-		_check_chrome("back on the tablet")
-		print("-- tablet -> phone, again")
-		await _swap_to("phone", 880, 1564)
-		_check_common("on the phone, second visit")
-		_ok(_app.phone_detent() == "full", "phone, second visit: the detent is still full (%s)" % _app.phone_detent())
-		print("-- phone -> tablet, again")
-		await _swap_to("tablet", 1800, 1000)
-		_check_common("tablet, second visit")
-		_check_chrome("tablet, second visit")
-	else:
-		print("-- desktop -> desktop (the same class, state carried through two remounts)")
-		await _swap_to("desktop", 1600, 1000)
-		_check_common("desktop remount 1")
-		_check_chrome("desktop remount 1")
-		await _swap_to("desktop", 1600, 1000)
-		_check_common("desktop remount 2")
-		_check_chrome("desktop remount 2")
 
 ## What every class must still show after a swap: the domain and its mode, the open accordion categories, the
 ## selection and its history, the armed tool, the year.
@@ -726,3 +786,296 @@ func _check_chrome(tag: String) -> void:
 	_ok(_app._left_width == 333.0 and _app.left_dock.custom_minimum_size.x == 333.0, "%s: the left dock is 333 wide (%.0f)" % [tag, _app.left_dock.custom_minimum_size.x])
 	_ok(_app.right_dock.custom_minimum_size.x == float(DccTheme.W_RAIL_COLLAPSED), "%s: the right dock is collapsed" % tag)
 	_ok(_app._left_dock_scroll.scroll_vertical == 50, "%s: the left dock is scrolled to 50 (%d)" % [tag, _app._left_dock_scroll.scroll_vertical])
+
+## -- S4.4: the live swap ---------------------------------------------------------------------------------------------
+
+## The signals whose receiver lists the bar names (spec B5): compared between the first and every later visit of a class.
+const LIVE_SIGNALS := ["CONN root.size_changed", "CONN tree.node_added", "CONN app.phone_insets_changed",
+	"CONN app.timeline_changed", "CONN app.workspace_changed", "CONN bridge.world_loaded", "CONN bridge.generation_finished"]
+## What the live leg writes on the boot class and reads back after every swap (literals it chose, never read from the
+## composition under test): the paint brush radius, a droplet-erosion setting, the bake depth, the territory radius,
+## the colour-paint radius, the Ask conversation's draft and entry count, the map's zoom.
+const LIVE_PAINT_RADIUS := 17.0
+const LIVE_BAKE_DEPTH := 5
+const LIVE_TERRITORY := 9.0
+const LIVE_COLOUR_KM := 3.5
+const LIVE_DRAFT := "draft one"
+## Round trips of the live leg; the bar is ten, and `--trips N` runs fewer for a mutant run (the mutants need one).
+var ROUND_TRIPS := 10
+
+## `--clean` (leg live): swap with the world standing and none of the user's state set, so the end state is what a
+## cold boot of the class with the same world draws (`--leg norm --world`), which the runner compares.
+var _clean := false
+var _live_orph := {}
+var _live_conn := {}
+var _live_world := ""
+var _live_zoom := 0.0
+var _live_t_sync := {"phone": [], "tablet": []}
+var _live_t_full := {"phone": [], "tablet": []}
+
+func _workspace(name: String) -> Object:
+	for w in _app._workspaces:
+		if String(w.name) == name:
+			return w
+	return null
+
+func _median(a: Array) -> float:
+	var s := a.duplicate()
+	s.sort()
+	return 0.0 if s.is_empty() else float(s[s.size() / 2])
+
+## The hash of what the world IS to the viewer: the map texture's bytes and a fixed set of engine cell samples.
+func _world_hash() -> String:
+	if _app.viewport.map_view.texture == null:
+		return "no world"
+	var img: Image = _app.viewport.map_view.texture.get_image()
+	var cells := ""
+	for p in [Vector2i(10, 10), Vector2i(100, 80), Vector2i(200, 150), Vector2i(60, 120)]:
+		cells += str(_app.bridge.sample_cell(p.x, p.y))
+	var hc := HashingContext.new()
+	hc.start(HashingContext.HASH_SHA256)
+	hc.update(img.get_data())
+	return hc.finish().hex_encode() + ":" + cells.sha256_text()
+
+## Waits for a swap that has started (or is pending) to finish: the swap runs in a coroutine, and a wait ends by a poll.
+func _await_swap(limit_s := 40.0) -> void:
+	var t0 := Time.get_ticks_msec()
+	while (bool(_app._swap_running) or not _app.pending_class_swap().is_empty()) and Time.get_ticks_msec() - t0 < int(limit_s * 1000.0):
+		await _frames(5)
+	await _frames(10)
+
+## Resizes (the real resize path, `_resize()`) and expects ONE swap to `want`: the counter moves by exactly one.
+func _live_swap(w: int, h: int, want: String) -> void:
+	var runs0: int = _app.class_swap_runs
+	await _resize(w, h)
+	await _await_swap()
+	_ok(String(_app.class_key()) == want and _app.class_swap_runs == runs0 + 1,
+		"%dx%d swaps to %s, once (class %s, runs %d -> %d)" % [w, h, want, _app.class_key(), runs0, _app.class_swap_runs])
+
+## Resizes and expects NO swap: the class stays `want`, the counter does not move and nothing waits.
+func _live_stay(w: int, h: int, want: String, why: String) -> void:
+	var runs0: int = _app.class_swap_runs
+	await _resize(w, h)
+	await _await_swap()
+	_ok(String(_app.class_key()) == want and _app.class_swap_runs == runs0 and _app.pending_class_swap().is_empty(),
+		"%dx%d stays %s with no swap (%s; class %s, runs %d -> %d)" % [w, h, want, why, _app.class_key(), runs0, _app.class_swap_runs])
+
+func _ask_state() -> Dictionary:
+	var win = _app.assistant_window
+	var msgs: Node = win.get("_msgs")
+	var inp = win.controls.get("input")
+	return {"n": 0 if msgs == null or not is_instance_valid(msgs) else msgs.get_child_count(),
+		"draft": "" if inp == null or not is_instance_valid(inp) else String((inp as TextEdit).text),
+		"host_ok": win.get("_host") != null and is_instance_valid(win.get("_host"))}
+
+## What the live leg wrote on the first class, read back after a swap.
+func _live_check_items(tag: String) -> void:
+	var w = _workspace("WorldWorkspace")
+	_ok(w != null and float(w._paint_brush["radius"]) == LIVE_PAINT_RADIUS, "%s: the paint brush radius is %.0f" % [tag, LIVE_PAINT_RADIUS])
+	_ok(w != null and int(w._bake_depth) == LIVE_BAKE_DEPTH and DccSettings.bake_depth() == LIVE_BAKE_DEPTH, "%s: the bake depth is %d, in the setting and in the rebuilt Finalize foot" % [tag, LIVE_BAKE_DEPTH])
+	_ok(w != null and float(w._erode_op[_st["erode_key"]]) == float(_st["erode_val"]) and bool(w._erode_op_seeded),
+		"%s: the erode setting %s is %s and not re-seeded" % [tag, _st["erode_key"], str(_st["erode_val"])])
+	var c = _workspace("CivilizationWorkspace")
+	_ok(c != null and float(c._territory_radius) == LIVE_TERRITORY, "%s: the territory radius is %.0f" % [tag, LIVE_TERRITORY])
+	var k = _workspace("CartographyWorkspace")
+	_ok(k != null and k.colour_paint != null and float(k.colour_paint.radius_km) == LIVE_COLOUR_KM, "%s: the colour-paint radius is %.1f km" % [tag, LIVE_COLOUR_KM])
+	var a := _ask_state()
+	_ok(a["n"] == _st["ask_n"] and a["draft"] == LIVE_DRAFT and a["host_ok"], "%s: the Ask conversation survived (%d entries, draft '%s', content alive %s)" % [tag, a["n"], a["draft"], str(a["host_ok"])])
+	_ok(_world_hash() == _live_world, "%s: the world is byte-identical (map texture and engine cells)" % tag)
+	_ok(absf(float(_app.viewport.zoom()) - _live_zoom) < 1e-6, "%s: the camera zoom is unchanged (%.6f, was %.6f)" % [tag, _app.viewport.zoom(), _live_zoom])
+
+func _live_conn_sets() -> Dictionary:
+	var all := _connection_sets()
+	var out := {}
+	for k in LIVE_SIGNALS:
+		out[k] = all.get(k, [])
+	return out
+
+## Counts after a visit: orphans and the named signals' receiver lists. The first visit of a class sets the reference;
+## every later visit must equal it.
+func _live_visit(cls: String, trip: int) -> void:
+	var o := _orphans()
+	var c := _live_conn_sets()
+	if not _live_orph.has(cls):
+		_live_orph[cls] = o
+		_live_conn[cls] = c
+		var sizes := PackedStringArray()
+		for k in LIVE_SIGNALS:
+			sizes.append("%s=%d" % [k, (c[k] as Array).size()])
+		print("  info %s reference: orphans %d, receivers %s" % [cls, o, ", ".join(sizes)])
+		return
+	_ok(o == _live_orph[cls], "trip %d, %s: orphan nodes %d equal the first visit's %d" % [trip, cls, o, _live_orph[cls]])
+	var bad := PackedStringArray()
+	for k in LIVE_SIGNALS:
+		if c[k] != _live_conn[cls][k]:
+			bad.append("%s %d->%d" % [k, (_live_conn[cls][k] as Array).size(), (c[k] as Array).size()])
+	_ok(bad.is_empty(), "trip %d, %s: the named signals have the first visit's receivers (%s)" % [trip, cls, ", ".join(bad)])
+
+func _live_desktop() -> void:
+	print("-- desktop: touch is hardware, so no size makes a pointer window a phone")
+	var runs0: int = _app.class_swap_runs
+	for wh in [Vector2i(880, 1564), Vector2i(520, 1000), Vector2i(1000, 1000)]:
+		await _resize(wh.x, wh.y)
+		await _await_swap()
+		_ok(String(_app.class_key()) == "desktop" and _app.class_swap_runs == runs0 and _app.pending_class_swap().is_empty(),
+			"%dx%d: still the desktop, no swap requested (class %s, runs %d)" % [wh.x, wh.y, _app.class_key(), _app.class_swap_runs])
+
+func _live() -> void:
+	_clean = "--clean" in OS.get_cmdline_user_args()
+	ROUND_TRIPS = int(_arg("--trips", "10"))
+	await _settle_at_rest()
+	if not ClassDB.class_exists("WorldGen"):
+		print("[FATAL] extension did not load")
+		get_tree().quit(2)
+		return
+	var boot := String(_app.class_key())
+	_ok(boot in ["tablet", "desktop"], "boots as a tablet or the desktop (class_key %s)" % boot)
+	print("  info cold boot of the app: %.0f ms (measured on this machine, instantiate + enter tree)" % _cold_boot_ms)
+	## `--noworld` (with `--clean`): no world at all, so the end state is comparable with a plain cold boot (`--leg norm`):
+	## a composition built with a world standing holds the rows that world makes (hundreds of buttons), which a boot
+	## that builds empty and gets its world later does not draw the same way.
+	if not "--noworld" in OS.get_cmdline_user_args():
+		await _make_world()
+	if boot == "desktop":
+		await _live_desktop()
+		return
+	var parts := _arg("--vp", "").split("x")
+	var tab := Vector2i(int(parts[0]), int(parts[1]))
+	var ph := Vector2i(520, 1000) if _window_mode else Vector2i(880, 1564)
+	## ---- the hysteresis band, at the real resize path ----
+	print("-- hysteresis")
+	await _live_stay(890, 1000, "tablet", "890 dp is inside the band")
+	await _live_swap(880, 1000, "phone")
+	await _live_stay(900, 1000, "phone", "900 dp does not cross back")
+	await _live_swap(920, 1000, "tablet")
+	if not _window_mode:
+		await _resize(1600, 1000)
+		await _await_swap()
+		_ok(String(_app.class_key()) == "tablet", "1600x1000 (16:10) is a tablet")
+		await _live_swap(880, 550, "phone")
+		await _live_swap(tab.x, tab.y, "tablet")
+	else:
+		await _live_stay(tab.x, tab.y, "tablet", "already a tablet at 920 dp")
+
+	## ---- fixture: the tool settings, the Ask conversation, then every S4.3 item ----
+	if not _clean:
+		await _live_fixture_a()
+	if _clean:
+		_live_zoom = float(_app.viewport.zoom())
+		_live_world = _world_hash()
+	## ---- a window open: the swap waits with a reason, loses nothing, and runs when the window closes ----
+	print("-- a window is open")
+	var roster = _app.faction_roster_window
+	roster.open()
+	await _frames(10)
+	var le: LineEdit = null
+	for n in roster.find_children("*", "LineEdit", true, false):
+		le = n
+		break
+	_ok(roster.visible, "the factions window is open")
+	if le != null:
+		le.text = "typed text"
+	var runs0: int = _app.class_swap_runs
+	await _resize(ph.x, ph.y)
+	await _frames(20)
+	await get_tree().create_timer(1.3).timeout
+	_ok(String(_app.class_key()) == "tablet" and _app.class_swap_runs == runs0 and not _app.pending_class_swap().is_empty(),
+		"the swap waits while the window is open (class %s, runs %d, pending %s)" % [_app.class_key(), _app.class_swap_runs, str(_app.pending_class_swap().get("phone"))])
+	var reason := String(_app.status_slot_text("hint"))
+	_ok(str(_blockers()).contains("window is open"), "quiescent_blockers() names the window (%s)" % str(_blockers()))
+	_ok(reason.begins_with("Layout change waiting: the ") and reason.contains("window is open"), "the status line says why: '%s'" % reason)
+	if le != null:
+		_ok(le.text == "typed text", "the typed text is still there while waiting")
+	roster.hide()
+	await _await_swap()
+	_ok(String(_app.class_key()) == "phone" and _app.class_swap_runs == runs0 + 1, "the swap ran once the window closed (class %s)" % _app.class_key())
+	_ok(not str(_app.status_slot_text("hint")).begins_with("Layout change waiting"), "and the wait's sentence is gone from the status line")
+	if le != null and is_instance_valid(le):
+		_ok(le.text == "typed text", "the window's typed text survived the swap")
+	await _live_swap(tab.x, tab.y, "tablet")
+
+	if not _clean:
+		await _carry_fixture()
+		_app.viewport.zoom_step(2.0)
+		await _frames(4)
+		_live_zoom = float(_app.viewport.zoom())
+		_ok(_live_zoom > 1.5, "the map is zoomed in to %.3f (a literal check that the zoom moved)" % _live_zoom)
+		_live_world = _world_hash()
+		_ok(_live_world.length() > 40, "the world hash is not empty")
+	await _live_visit_now("tablet", 0)
+
+	## ---- ten round trips ----
+	print("-- %d round trips" % ROUND_TRIPS)
+	for t in range(1, ROUND_TRIPS + 1):
+		await _live_swap(ph.x, ph.y, "phone")
+		_live_t_sync["phone"].append(float(_app.last_swap_sync_ms))
+		_live_t_full["phone"].append(float(_app.last_swap_ms))
+		await _live_visit_now("phone", t)
+		await _live_swap(tab.x, tab.y, "tablet")
+		_live_t_sync["tablet"].append(float(_app.last_swap_sync_ms))
+		_live_t_full["tablet"].append(float(_app.last_swap_ms))
+		await _live_visit_now("tablet", t)
+	var out := _arg("--out", "")
+	await _live_swap(ph.x, ph.y, "phone")
+	await _settle_at_rest()
+	_write_norm(out + ".phone")
+	await _live_swap(tab.x, tab.y, "tablet")
+	if not _clean:
+		_ok(_app.open_context_tab("ask"), "back on the tablet the Ask tab opens")
+		await _frames(8)
+		var a := _ask_state()
+		_ok(a["n"] == _st["ask_n"] and a["draft"] == LIVE_DRAFT and _app.assistant_window.is_docked(), "the conversation is back in the Ask tab with its %d entries and its draft" % a["n"])
+		_app.open_context_tab("inspect")
+		await _frames(4)
+	await _settle_at_rest()
+	_write_norm(out + ".tablet")
+	for cls in ["phone", "tablet"]:
+		var sy: Array = _live_t_sync[cls]
+		var fu: Array = _live_t_full[cls]
+		print("  TIMING %s swap: synchronous part median %.0f ms (min %.0f, max %.0f), whole median %.0f ms, n=%d" % [cls, _median(sy), sy.min(), sy.max(), _median(fu), sy.size()])
+	print("  TIMING cold boot %.0f ms" % _cold_boot_ms)
+	var freed := 0
+	for l in _connection_lines():
+		if String(l).contains("freed/"):
+			freed += 1
+	_ok(freed == 0, "no connection keeps a freed receiver (%d)" % freed)
+
+## A visit's checks: the common items (domain, accordions, selection, tool, year), the class chrome on the tablet, the
+## tool settings, the Ask conversation, the world and the camera, then the counts.
+func _live_visit_now(cls: String, trip: int) -> void:
+	var tag := "trip %d, %s" % [trip, cls]
+	if _clean:
+		_ok(_world_hash() == _live_world, "%s: the world is byte-identical" % tag)
+		await _live_visit(cls, trip)
+		return
+	_check_common(tag)
+	if cls == "tablet":
+		_check_chrome(tag)
+	else:
+		_ok(_app.right_dock_ctrl.shown_subject() == {"kind": "settlement", "id": 1}, "%s: the sheet shows the selection (settlement 1)" % tag)
+	_live_check_items(tag)
+	await _live_visit(cls, trip)
+
+## The tool settings and the Ask conversation the live leg writes on the boot class (see `_live()`), before the
+## S4.3 items of `_carry_fixture()`.
+func _live_fixture_a() -> void:
+	var wk = _workspace("WorldWorkspace")
+	wk._on_paint_radius_changed(LIVE_PAINT_RADIUS)
+	DccSettings.set_bake_depth(LIVE_BAKE_DEPTH)
+	wk._refresh_finalize()
+	_st["erode_key"] = "talus"
+	_st["erode_val"] = 0.031
+	wk._erode_op["talus"] = 0.031
+	wk._erode_op_seeded = true
+	_workspace("CivilizationWorkspace")._territory_radius = LIVE_TERRITORY
+	_workspace("CartographyWorkspace").colour_paint.radius_km = LIVE_COLOUR_KM
+	_ok(_app.open_context_tab("ask"), "the Ask tab opens on the boot class")
+	await _frames(8)
+	var win = _app.assistant_window
+	win._on_view_facts()
+	await _frames(4)
+	(win.controls["input"] as TextEdit).text = LIVE_DRAFT
+	_st["ask_n"] = int(_ask_state()["n"])
+	_ok(_st["ask_n"] >= 1 and win.is_docked(), "the conversation holds %d entries and is docked in the Ask tab" % _st["ask_n"])
+	_app.open_context_tab("inspect")
+	await _frames(4)

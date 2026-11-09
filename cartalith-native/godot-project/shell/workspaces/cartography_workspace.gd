@@ -348,6 +348,17 @@ const ColourPaintTool := preload("res://shell/colour_paint_tool.gd")
 const LandmarkFilterPanel := preload("res://shell/landmark_filter_panel.gd")
 ## The live tool (see `ColourPaintTool`); `null` until `_build` runs.
 var colour_paint
+## MS-1 S4.4: the fields a class swap carries (`Workspace.export_tool_state()`): the icon brush's radius and
+## density. The colour-paint tool's own settings ride in the same bag under `colour_paint` (`export_tool_state()`
+## and `_build()` below); its marks and undo are the engine's and survive on their own.
+func tool_state_keys() -> Array:
+	return ["_icon_brush_r", "_icon_brush_density"]
+
+func export_tool_state() -> Dictionary:
+	var out := super.export_tool_state()
+	if is_instance_valid(colour_paint):
+		out["colour_paint"] = colour_paint.export_tool_state()
+	return out
 
 ## `DccApp` forwards every map cursor sample here (`_wire_selection`); the
 ## colour brush draws its ring from it while armed.
@@ -416,6 +427,8 @@ func _build() -> void:
 	_render.build_colours_into(colours_body)
 	colour_paint = ColourPaintTool.new()
 	colour_paint.setup(app, bridge)
+	## MS-1 S4.4: the user's settings from before a class swap, put in before the section draws its controls.
+	colour_paint.import_tool_state(_tool_state_in.get("colour_paint", {}))
 	colour_paint.build_into(colours_body)
 
 	## 4 -- FEATURE STYLE: the style halves of the two categories that used to

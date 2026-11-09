@@ -1827,7 +1827,7 @@ func _ready() -> void:
 ##   7. `_region_nodes` (composition nodes by `ID_WIN_*`).
 ## Call it with a composition present (`DccShell._mount_composition()` has run) and every window already set up:
 ## the workspaces connect to the Place editor and the Factions window at build. Boot calls it once, from
-## `_ready()`; `_remount_composition_for_test()` calls it again after `_unmount_app_composition()`. It must not
+## `_ready()`; `_remount_composition()` calls it again after `_unmount_app_composition()`. It must not
 ## create a survivor or connect to a long-lived emitter without a guard (the round trip counts connections).
 func _mount_app_composition() -> void:
 	_attach_survivors()
@@ -1914,8 +1914,16 @@ func _refresh_quick_bar_deferred() -> void:
 ## handle and registry that pointed into the composition (`S4_INVENTORY.md` section 2.2's *reset* rows), then free
 ## the composition itself. A rebuilt workspace replaces only the handler ids it registers again, so the six handler
 ## dictionaries are cleared whole (an id it does not re-register would keep a `Callable` to a freed object).
-## `menus` is replaced by a fresh `DccMenus`: it holds the freed popups. Test-only until S4.4.
+## `menus` is replaced by a fresh `DccMenus`: it holds the freed popups. Called by the swap (S4.4) and by the probes.
 func _unmount_app_composition() -> void:
+	## MS-1 S4.4: two long-lived windows keep their content in a tab of the dock that is about to be freed. The
+	## assistant's conversation goes back to its window (it is the session's); a docked vault note is flushed and
+	## released (`release_dock()` refuses when text is unsaved, and a swap does not run while any is: `VaultWindow.
+	## quiescent_blockers()`), and the remounted Note tab docks it again from the restored subject.
+	if assistant_window != null and is_instance_valid(assistant_window):
+		assistant_window.release_dock()
+	if vault_window != null and is_instance_valid(vault_window) and vault_window.is_docked():
+		vault_window.release_dock()
 	if _phone_insets_relay.is_valid() and phone_insets_changed.is_connected(_phone_insets_relay):
 		phone_insets_changed.disconnect(_phone_insets_relay)
 	_phone_insets_relay = Callable()
@@ -2015,7 +2023,9 @@ func _reset_timeline_handles() -> void:
 ## `_selection_forward`), the armed tool (`armed_tool`), the active domain and each domain's mode
 ## (`_active_domain`, `_domain_mode`), the timeline year (the engine's cursor, `tl_year()`) and `_tl_expanded`.
 ## `S4_INVENTORY.md` section 15.6 lists, for each, who holds it and how the restore re-derives what draws it.
-var _app_memory: Dictionary = {"open": {}, "context": {}}
+## S4.4 adds `"tools"`: the workspace tool settings held in fields (`Workspace.export_tool_state()`), keyed by the
+## workspace's node name and handed to the new workspace before its `setup()` builds its controls.
+var _app_memory: Dictionary = {"open": {}, "context": {}, "tools": {}}
 
 ## Writes `_app_memory` and the shell's `_class_memory` from the composition that is about to go. Reads only.
 func _capture_class_state() -> void:
@@ -2033,6 +2043,11 @@ func _capture_class_state() -> void:
 		var ctx: Dictionary = right_dock_ctrl.export_state()
 		if not ctx.is_empty():
 			_app_memory["context"] = ctx
+	for ws in _workspaces:
+		if ws is Workspace:
+			var bag: Dictionary = (ws as Workspace).export_tool_state()
+			if not bag.is_empty():
+				(_app_memory["tools"] as Dictionary)[String(ws.name)] = bag
 
 ## The synchronous half of the restore, run after the mount, the planner and the stale button exist: the open
 ## accordion categories (through `open_category()`, the click path, so a lazily built category builds), the
@@ -2068,16 +2083,25 @@ func _restore_class_state_now() -> void:
 	if not selection.is_empty():
 		_apply_selection()
 
-## TEST-ONLY until S4.4 (`_ms1swap_probe.gd --leg roundtrip|crossclass|carry`): unmounts the whole composition
-## and mounts it again, at the class the host's size names for `touch`, so the probe can prove what a swap
-## must: no orphan, no extra connection, a structure equal to a cold boot of the target class, and the user's
-## state carried. `touch` null keeps the current touch flag, which is what a real swap does (touch is hardware); the
-## class is re-decided from the host's size either way, so the same-class round trip S4.2 built is a swap to the class
-## it is already in. Not the swap
-## itself: nothing calls it from a resize, and it does not wait for quiescence or re-present a window (S4.4,
-## S4.5). A coroutine because a scroll offset needs two laid-out frames; a caller that does not need the scroll
-## may call it without `await`, the rest has run by the time it first yields.
-func _remount_composition_for_test(touch: Variant = null) -> void:
+## `DccShell._run_class_swap()`'s body for the real application: the swap is the remount below, at the class the
+## host's size names now.
+func _perform_class_swap() -> void:
+	await _remount_composition()
+
+## **The class swap** (MS-1 S4.4, `MOBILE_SHELL_MS1_SPEC.md` section 3.5, `S4_INVENTORY.md` sections 15 to 17):
+## unmounts the whole composition and mounts it again, at the class the host's size names, carrying what the user
+## set. `DccShell._run_class_swap()` calls it once `quiescent_blockers()` is empty (so no held input, no long-lived
+## window and no draft is lost); the probes (`_ms1swap_probe.gd`) call it directly to bypass that gate. In order:
+## capture the state, detach the survivors and free the composition, republish the class (`DccTheme`'s flags,
+## the phone scale, the tablet unit, the window chrome), restore the dock widths, mount the shell and the app, give
+## the viewport survivor its chrome for the new class (`ViewportHost.rebuild_chrome()`), then the planner, the
+## stale button, the carried state and the status text. `touch` null keeps the current touch flag, which is what a
+## real swap does (touch is hardware, never a swap dimension); the class is re-decided from the host's size either
+## way, so a same-class call is a swap to the class it is already in. A coroutine because a scroll offset needs
+## two laid-out frames; a caller that does not need the scroll may call it without `await`, the rest has run by the
+## time it first yields. Never frees a survivor (the bridge, the viewport, the world) and never changes the world.
+func _remount_composition(touch: Variant = null) -> void:
+	var t0 := Time.get_ticks_usec()
 	var status := status_snapshot()
 	_capture_class_state()
 	_unmount_app_composition()
@@ -2086,12 +2110,16 @@ func _remount_composition_for_test(touch: Variant = null) -> void:
 	_mounting_composition = true
 	_mount_composition()
 	_mount_app_composition()
+	## The viewport is a survivor, so its chrome was built for the class it booted in: build it again for this one.
+	if viewport != null and is_instance_valid(viewport) and viewport.has_method("rebuild_chrome"):
+		viewport.call("rebuild_chrome")
 	_mounting_composition = false
 	_on_workspace_changed(active_domain())
 	_mount_journey_planner()
 	_build_stale_recompute()
 	_restore_class_state_now()
 	restore_status(status)
+	last_swap_sync_ms = (Time.get_ticks_usec() - t0) / 1000.0
 	await _restore_view_state()
 
 ## **The busy overlay and UI guard** (`busy_overlay.gd`; owner 2026-10-11: loading lines per step
@@ -2187,6 +2215,9 @@ func _register_workspaces() -> void:
 	]:
 		var ws: Control = entry[1]
 		ws.name = String(entry[0]).capitalize() + "Workspace"
+		## MS-1 S4.4: the tool settings the user had on this workspace before a class swap, in before the build.
+		if (_app_memory["tools"] as Dictionary).has(String(ws.name)):
+			ws.import_tool_state((_app_memory["tools"] as Dictionary)[String(ws.name)])
 		register_workspace(entry[0], ws)
 		ws.setup(self, bridge)
 		_workspaces.append(ws)
@@ -2603,7 +2634,7 @@ func _setup_staleness() -> void:
 
 ## MS-1 S4.2: the status bar's "Recompute" button, split out of `_setup_staleness()` so a rebuilt status bar can be
 ## given one again (the poll timer and its connection are made once; the button lives in `status_row`, which is
-## rebuilt with the composition). Called by `_setup_staleness()` at boot and by `_remount_composition_for_test()`.
+## rebuilt with the composition). Called by `_setup_staleness()` at boot and by `_remount_composition()`.
 func _build_stale_recompute() -> void:
 	_stale_recompute = DccWidgets.action(status_row, "Recompute", _recompute_stale)
 	_stale_recompute.visible = false

@@ -395,6 +395,15 @@ var _last_sculpt_begin: Dictionary = {}
 ## `Brush::default()` in `paint_bridge.rs` exactly, so an untouched panel and
 ## an untouched engine agree before the first dab.
 var _paint_layer := "biome"
+## MS-1 S4.4: the fields a class swap carries (`Workspace.export_tool_state()`): the paint target, the brush the
+## Paint bar mirrors, the Rock layer last used, the droplet-erosion settings (and the flag that stops a rebuild
+## re-seeding them from the defaults over the user's edits), the sculpt symmetry and pressure switches and the
+## pipeline sheet's mode and open stages. Each is a user choice held only here. NOT carried, because a survivor holds
+## the truth: the engine's copy of the paint brush, and the Finalize bake depth (`DccSettings.bake_depth()`, which
+## `_build_finalize()` reads at build; `_bake_depth` is its mirror).
+func tool_state_keys() -> Array:
+	return ["_paint_layer", "_paint_brush", "_rock_layer_last", "_erode_op", "_erode_op_seeded",
+		"_sculpt_symmetry", "_sculpt_pressure_on", "_pg_mode", "_pg_open"]
 ## The mirrored brush: `value`, `radius` (cells), `hardness`, `softness`, `erase`, `land_only`. Defaults claim to match `Brush::default()` in `paint_bridge.rs` (per the block above; not re-checked here). Read by the Paint bar rows and the brush cursor.
 var _paint_brush := {
 	"value": 1, "radius": 6.0, "hardness": 1.0, "softness": 0.0,

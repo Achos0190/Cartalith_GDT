@@ -76,10 +76,16 @@ func _queue_refresh() -> void:
 	if _pending:
 		return
 	_pending = true
-	(func():
-		_pending = false
-		if is_instance_valid(self) and is_inside_tree():
-			refresh()).call_deferred()
+	_flush_refresh.call_deferred()
+
+## The deferred half of `_queue_refresh()`. A method, not the lambda it was: MS-1 S4.4's class swap frees this
+## panel with its composition (`free()`), and a deferred LAMBDA queued before that and run after it is called with
+## its captured `self` freed ("Lambda capture at index 0 was freed", one per swap, measured by
+## `_ms1swap_probe.gd --leg live`), where a deferred method on a freed object is dropped silently.
+func _flush_refresh() -> void:
+	_pending = false
+	if is_inside_tree():
+		refresh()
 
 ## `{key, label}` rows, in the engine registry's order (its families are
 ## already grouped there), then unknown kinds this world carries, then the

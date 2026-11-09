@@ -357,6 +357,20 @@ func present_in(parent: Control) -> bool:
 	return true
 
 
+## MS-1 S4.4 (`S4_INVENTORY.md` section 17): gives the content back to this window when the Ask tab that holds it is
+## about to be freed by a class swap. The conversation is the session's (PC-6, finding A1): it lives in `_host`, which
+## `present_in()` parented under the tab's body, and a freed body would free it. Parented here (hidden, as when the
+## window form is closed) it survives, and the remounted tab's `present_in()` takes it back, so no turn, card or typed
+## input is lost. A no-op when the content is not built or is not docked. Never rebuilds, never changes a message.
+func release_dock() -> void:
+	if _host == null or not is_instance_valid(_host):
+		return
+	var par := _host.get_parent()
+	if par != null and par != self:
+		par.remove_child(_host)
+		add_child(_host)
+
+
 ## PC-6. True when the content is drawn somewhere the user can see: the window or sheet, or the Ask
 ## tab. For probes and the menus.
 func is_open() -> bool:

@@ -990,8 +990,8 @@ func _mount_composition() -> void:
 ## The caller detaches the survivors that live inside the composition (the viewport and its overlays, under
 ## `viewport_content`) BEFORE this runs: `DccApp._unmount_app_composition()` does, then calls this. Freed with
 ## `free()`, not `queue_free()`, so a mount straight after finds no half-dead node of the same class; call it
-## from an idle point, never from a signal the composition itself is emitting. Test-only until S4.4 wires it to
-## a class change (`_ms1swap_probe.gd --leg roundtrip` proves it leaves no orphan and no extra connection).
+## from an idle point, never from a signal the composition itself is emitting. Called by the swap (S4.4) and by
+## the probes (`_ms1swap_probe.gd --leg roundtrip` proves it leaves no orphan and no extra connection).
 func _unmount_composition() -> void:
 	var tree := get_tree()
 	## Class-specific connections (inventory section 3.1 rows 3 and 4, section 3.2), and the debounce flags a
@@ -1171,8 +1171,8 @@ func class_key() -> String:
 ## Reads only; never changes a node.
 func _capture_shell_state() -> void:
 	var key := class_key()
-	var m: Dictionary = {"left_width": _left_width, "right_width": _right_width,
-		"left_collapsed": _left_collapsed, "right_collapsed": _right_collapsed}
+	_remember_dock_widths()
+	var m: Dictionary = {"left_collapsed": _left_collapsed, "right_collapsed": _right_collapsed}
 	if _phone:
 		m["detent"] = _phone_detent
 		m["tab"] = _phone_tab
@@ -1185,11 +1185,24 @@ func _capture_shell_state() -> void:
 ## `_compute_layout_mode()` just published for it (the role widths), which is a real default and not a guess.
 ## The collapse flags are applied by `_restore_view_state()` once the docks exist.
 func _restore_dock_state() -> void:
-	var m: Dictionary = _class_memory.get(class_key(), {})
-	if m.has("left_width"):
-		_left_width = float(m["left_width"])
-	if m.has("right_width"):
-		_right_width = float(m["right_width"])
+	var w: Dictionary = _dock_widths.get(_width_key(), {})
+	if w.has("left"):
+		_left_width = float(w["left"])
+	if w.has("right"):
+		_right_width = float(w["right"])
+
+## The dock widths the user has dragged, `{"<class>:<orientation>": {"left": px, "right": px}}`. Orientation is part
+## of the key because a width is a figure for one shape of window (the portrait tablet's 232 is not the landscape
+## tablet's 400), and a resize can flip the orientation before a swap runs (`_on_tablet_resized()`).
+var _dock_widths: Dictionary = {}
+
+## The key of `_dock_widths` for the class and orientation the shell is laid out for now.
+func _width_key() -> String:
+	return "%s:%s" % [class_key(), "land" if _landscape else "port"]
+
+## Puts the current widths away under the current key. Reads only the two width fields.
+func _remember_dock_widths() -> void:
+	_dock_widths[_width_key()] = {"left": _left_width, "right": _right_width}
 
 ## Puts back, AFTER the mount, what needs the composition to exist: the collapse flags (through
 ## `_toggle_dock()`, so the strip, readout and glyph agree), the phone's tab and detent, and the scroll offsets.
@@ -1225,7 +1238,7 @@ func _restore_view_state() -> void:
 ## runs with `_booted` false so it writes `_phone`, and everything `_ready()` publishes after it is published
 ## again (the touch flag, the phone flags and scale, the tablet's unit, the window chrome, the per-frame process
 ## that only the phone needs). Must be called with NO composition mounted: the builders read what this sets.
-## Test-only until S4.4 calls it from `_run_class_swap()`.
+## Called by `_remount_composition()` (S4.4).
 func _republish_class(touch: bool) -> void:
 	_touch = touch
 	DccTheme.set_touch(touch)
@@ -1597,7 +1610,8 @@ func _on_resize_settled() -> void:
 # answers, the swap waits with its reason on the status line and runs when the last one ends. The owner's
 # defaults stand for what waits (`S4_INVENTORY.md` Q-S4-2 and Q-S4-3): a window holding typed changes and a
 # transient confirmation both make the swap wait; other open windows do not (S4.5 re-presents them).
-# Until S4.4 the swap itself is still the logged request below, so this stage changes no layout.
+# S4.4 made the swap real (`_run_class_swap()`); a long-lived window that is open also makes it wait, with its name
+# as the reason, until S4.5 re-presents windows (`_collect_window_blockers()`).
 
 ## How often a waiting swap asks again whether the blockers have ended, in seconds. A labelled judgement:
 ## fast enough that a swap follows a closed dialog within about a breath, slow enough that the poll costs
@@ -1611,8 +1625,19 @@ var _swap_wait_timer: Timer
 ## The status sentence this file last wrote for a waiting swap ("" when none), so it is cleared only while
 ## it is still the sentence on screen and never wipes a hint some other writer put there since.
 var _swap_wait_text := ""
+## The hint the wait's sentence replaced, `{text, token}`, put back by `_clear_swap_wait_text()`.
+var _swap_prev_hint: Dictionary = {}
 ## How many swap requests have got past the quiescence gate. A probe's counter; nothing in the product reads it.
 var class_swap_runs := 0
+## True from the moment a swap starts unmounting until its restore has finished (it spans the two frames a scroll
+## offset needs). A request made meanwhile waits like any other (`quiescent_blockers()` reports it), so two swaps
+## never overlap and a resize that arrives mid-swap is classified once the first has landed.
+var _swap_running := false
+## How long the last swap took, in ms: `last_swap_sync_ms` is the synchronous part (capture, unmount, republish,
+## mount, restore up to the two frames a scroll offset waits), `last_swap_ms` the whole of it. A probe's figures,
+## measured on whatever machine runs it; nothing in the product reads them.
+var last_swap_ms := 0.0
+var last_swap_sync_ms := 0.0
 
 ## Every source of unconfirmed input that is live now, each as a short phrase a user can act on ("a dock is
 ## being resized"), in a stable order; empty when the shell is quiet. Asks, in turn: the shell's own drags
@@ -1628,6 +1653,8 @@ func quiescent_blockers() -> Array[String]:
 		out.append("the tool sheet is being dragged")
 	if _undo_chip_down:
 		out.append("the undo chip is held")
+	if _swap_running:
+		out.append("a layout change is running")
 	out.append_array(_app_quiescent_blockers())
 	_collect_window_blockers(self, out)
 	return out
@@ -1641,12 +1668,16 @@ func _app_quiescent_blockers() -> Array[String]:
 ## held changes, which only it can read). Any other visible `ConfirmationDialog` is a pending decision, the
 ## shape `DccWidgets.confirm()` and `prompt()` build (`S4_INVENTORY.md` §5.3, "Transient dialogs"), as is a
 ## `modal_card()` that `DccWidgets.modal_present()` marked with `TRANSIENT_CARD_META`, and each
-## waits by Q-S4-3's default. Long-lived windows without held changes report nothing: S4.5 re-presents them.
+## waits by Q-S4-3's default. **S4.4: any other visible window also holds the swap** ("the X window is open"): a
+## long-lived window is laid out for the class it was opened in and S4.5 (`S4_INVENTORY.md` section 11) is what will
+## re-present it, so until then a swap would leave it in the wrong layout, or (a window with typed text) lose it.
+## The reason names the window so the user can close it. An open menu (a `Popup`) holds it too, for a moment.
 func _collect_window_blockers(node: Node, out: Array[String]) -> void:
 	for c in node.get_children():
 		if c is Window:
 			var w := c as Window
 			if w.visible:
+				var before := out.size()
 				if w.has_method("quiescent_blockers"):
 					for b in w.call("quiescent_blockers"):
 						out.append(String(b))
@@ -1660,6 +1691,13 @@ func _collect_window_blockers(node: Node, out: Array[String]) -> void:
 				elif w is ConfirmationDialog or w.has_meta(DccWidgets.TRANSIENT_CARD_META):
 					var t := w.title.strip_edges()
 					out.append("a confirmation is open" + ("" if t == "" else " (" + t + ")"))
+				## S4.4: an open window that reported nothing of its own still holds the swap until S4.5.
+				if out.size() == before:
+					if w is Popup:
+						out.append("a menu is open")
+					else:
+						var wt := w.title.strip_edges()
+						out.append("the %s window is open (close it to change the layout)" % (String(w.name) if wt == "" else wt))
 			## A window's own sub-dialogs are not walked: they are its business, reported through its
 			## `quiescent_blockers()`, and a hidden window cannot hold a decision on screen.
 			continue
@@ -1686,13 +1724,24 @@ func _request_class_swap(next: Dictionary) -> void:
 	_clear_swap_wait_text()
 	_run_class_swap(next)
 
-## The swap itself. Until stage S4.4 builds it on the mount path, it only says it was asked: the shell keeps
-## its boot class, which is the pre-MS-1 behaviour, and the log line lets a probe see the request (the
-## prefix `size class change requested` is what `_ms1class_probe.gd`'s runner greps).
+## The swap itself (MS-1 S4.4): `_perform_class_swap()` runs on the mount path, and the log line lets a probe see
+## the request (the prefix `size class change requested` is what `_ms1class_probe.gd`'s runner greps). A coroutine
+## (the restore waits two frames for the scroll offsets); `_request_class_swap()` does not await it, and
+## `_swap_running` is what keeps a second request from starting while it runs.
 func _run_class_swap(next: Dictionary) -> void:
 	class_swap_runs += 1
-	print("Cartalith: size class change requested (phone=%s, %s dp); kept the boot class until MS-1 S4.4" %
-		[str(next["phone"]), str(next["dp"])])
+	print("Cartalith: size class change requested (phone=%s, %s dp)" % [str(next["phone"]), str(next["dp"])])
+	_swap_running = true
+	var t0 := Time.get_ticks_usec()
+	await _perform_class_swap()
+	last_swap_ms = (Time.get_ticks_usec() - t0) / 1000.0
+	_swap_running = false
+
+## What a swap does. The base shell (the phone-chrome probes' bare `DccShell`) has no application and no composition
+## to carry state across, so it keeps its boot class, which is the pre-MS-1 behaviour; `DccApp` overrides this
+## with `_remount_composition()`.
+func _perform_class_swap() -> void:
+	print("Cartalith: a bare shell keeps its boot class")
 
 ## The waiting swap's poll. The size is classified again, because the window may have moved while the swap
 ## waited: back in the current class, the wait simply ends; still across the line, the request is made
@@ -1730,6 +1779,10 @@ func _show_swap_wait(why: Array[String]) -> void:
 		text += " (and %d more)" % (why.size() - 1)
 	if text == _swap_wait_text:
 		return
+	## The hint that was there is put back when the wait ends (the boot's "File > New world... to begin" is one),
+	## unless the wait's sentence is the one being replaced by a newer sentence of the same wait.
+	if _swap_wait_text == "" and _status_labels.has("hint"):
+		_swap_prev_hint = {"text": status_slot_text("hint"), "token": String(_status_tokens.get("hint", "text_ghost"))}
 	_swap_wait_text = text
 	if _status_labels.has("hint"):
 		set_status("hint", text, "text_dim")
@@ -1740,7 +1793,8 @@ func _clear_swap_wait_text() -> void:
 	if _swap_wait_text == "":
 		return
 	if _status_labels.has("hint") and status_slot_text("hint") == _swap_wait_text:
-		set_status("hint", "", "text_ghost")
+		set_status("hint", String(_swap_prev_hint.get("text", "")), String(_swap_prev_hint.get("token", "text_ghost")))
+	_swap_prev_hint = {}
 	_swap_wait_text = ""
 
 ## The tablet's share of the resize handler, and it acts on exactly one event:
@@ -1772,6 +1826,11 @@ func _on_tablet_resized() -> void:
 		return
 	if (size.x > size.y) == _landscape:
 		return  ## Same orientation. WI-04's dragged widths stand.
+	## MS-1 S4.4: the dragged widths belong to the orientation being left. They are put away under its key before
+	## the flip's re-layout overwrites them, so a swap that follows the same resize (a tablet that is rotated, or
+	## dragged across the 900 dp line, flips orientation first and swaps after the debounce) restores the widths of
+	## the orientation it comes back to and never the other's (a portrait 232 in a landscape tablet).
+	_remember_dock_widths()
 	_compute_layout_mode()
 	_apply_dock_widths()
 
@@ -4685,7 +4744,7 @@ func _select_domain(id: String) -> void:
 	## MS-1 S4.2: not while a composition is being mounted. `_mount_composition()` calls `_select_domain()` before
 	## the app's workspaces and right dock exist, and a boot has no listener yet; a remount has them all (the app's
 	## `_on_workspace_changed()` reads `right_dock_ctrl`), so the mount holds the signal back and the caller makes
-	## the one call the listeners need once everything is built (`DccApp._remount_composition_for_test()`).
+	## the one call the listeners need once everything is built (`DccApp._remount_composition()`).
 	if not _mounting_composition:
 		workspace_changed.emit(id)
 
@@ -10893,7 +10952,11 @@ func _show_phone_toast(text: String, near: Control, seconds: float = 2.8) -> voi
 	wrap.modulate.a = 0.0
 	_phone_root.add_child(wrap)
 	_position_phone_toast.call_deferred(wrap, near)
-	var tw := create_tween()
+	## MS-1 S4.4: the tween belongs to the TOAST (`wrap.create_tween()`), not to the shell. A class swap frees the
+	## composition and with it a toast still fading; a tween owned by the shell kept running and, when it finished,
+	## called this lambda with its captured `wrap` already freed ("Lambda capture at index 0 was freed", seconds after
+	## the swap). A tween bound to a node stops when the node is freed, so the lambda is never called on a dead toast.
+	var tw := wrap.create_tween()
 	tw.tween_property(wrap, "modulate:a", 1.0, 0.18)
 	tw.tween_interval(seconds)
 	tw.tween_property(wrap, "modulate:a", 0.0, 0.35)

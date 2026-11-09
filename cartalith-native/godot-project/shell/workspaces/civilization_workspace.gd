@@ -93,6 +93,9 @@ var _settlement_snap_water := false
 var _territory_faction := 1
 ## Territory brush radius in cells (slider 1-20); default 5.0 is the reference's `_civTerRadius` initial value per the block above. Drives the brush cursor.
 var _territory_radius := 5.0
+## MS-1 S4.4: the field a class swap carries (`Workspace.export_tool_state()`): the territory brush radius.
+func tool_state_keys() -> Array:
+	return ["_territory_radius"]
 ## True when the Territory brush removes cells rather than adds; set by `_arm_ring_territory` and the options row's Mode choice.
 var _territory_subtract := false
 ## Territory lasso's ring, grid coords. Faction and Add/Subtract are the
@@ -7455,7 +7458,7 @@ func _fill_manpower(parent: Control, factions: Array) -> void:
 			+ "per person, so the map's scale drops out), and the reason "
 			+ "geography moves the answer at all: below 1 it cuts the standing "
 			+ "army's budget in proportion; above 1 it adds no revenue but feeds "
-			+ "a larger field army on the march, up to 90% of the levy. "
+			+ "a larger field army on the march, up to 90%% of the levy. "
 			+ "A soldier costs the treasury "
 			+ "%.2f subsistence-equivalents at this agricultural labour ratio.") % [
 			String(m.get("ag_tech", "?")), String(m.get("government", "?")),

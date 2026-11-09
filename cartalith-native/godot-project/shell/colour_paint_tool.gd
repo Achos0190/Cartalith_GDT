@@ -92,6 +92,22 @@ var bridge: Node
 
 ## Brush state. `rgb` is the flat colour, or the crust for a material.
 var material := "colour"
+## MS-1 S4.4: the settings a class swap carries (`CartographyWorkspace.export_tool_state()`), the tool's own
+## choices: the material and its colour, the blend, the brush and the heat parameters. Not the marks (the engine's)
+## and not the active layer or the undo stacks (they belong to the document the engine holds).
+const TOOL_STATE_KEYS := ["material", "rgb", "blend", "radius_km", "hardness", "opacity", "land_only", "heat",
+	"crack", "glow_km", "heat_along"]
+
+func export_tool_state() -> Dictionary:
+	var out := {}
+	for k in TOOL_STATE_KEYS:
+		out[k] = get(k)
+	return out
+
+func import_tool_state(bag: Dictionary) -> void:
+	for k in TOOL_STATE_KEYS:
+		if bag.has(k):
+			set(k, bag[k])
 var rgb := Color8(200, 30, 18)
 ## Ruling CS: Colour is the default blend (the flat material's own default).
 var blend := "colour"

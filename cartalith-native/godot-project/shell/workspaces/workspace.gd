@@ -243,6 +243,37 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 			if cat_btn != null and is_instance_valid(cat_btn):
 				cat_btn.pressed.connect(_enforce_open_floor)
 
+## MS-1 S4.4 (`S4_INVENTORY.md` section 17): the settings a user has put on this workspace's tools, held in
+## fields that a class swap would lose because the workspace is rebuilt with the composition. A subclass names the
+## fields in `tool_state_keys()`; the app reads them with `export_tool_state()` just before the unmount and hands
+## them to the NEW workspace with `import_tool_state()` BEFORE its `setup()`, so the build draws its sliders and
+## choices from the carried values instead of the defaults. Values only (numbers, strings, flags, small
+## dictionaries): never a node, a callable or an engine handle, and never anything a survivor already holds (the
+## engine mirrors the paint brush, so the engine's copy survives on its own).
+var _tool_state_in: Dictionary = {}
+
+## The names of this workspace's fields that `export_tool_state()` carries. The base carries none.
+func tool_state_keys() -> Array:
+	return []
+
+## A deep copy of each field named by `tool_state_keys()`, keyed by field name. Reads only.
+func export_tool_state() -> Dictionary:
+	var out := {}
+	for k in tool_state_keys():
+		var v = get(String(k))
+		out[String(k)] = v.duplicate(true) if (v is Dictionary or v is Array) else v
+	return out
+
+## Puts a carried bag into the fields, and keeps it in `_tool_state_in` for a part that is built later than this
+## workspace's own fields (the Cartography workspace's colour-paint tool). Call before `setup()`. A key the bag
+## does not hold, or a field this class does not name, is left alone.
+func import_tool_state(bag: Dictionary) -> void:
+	_tool_state_in = bag.duplicate(true)
+	for k in tool_state_keys():
+		if bag.has(String(k)):
+			var v = bag[String(k)]
+			set(String(k), v.duplicate(true) if (v is Dictionary or v is Array) else v)
+
 ## Subclass hook: add this domain's categories. The base does nothing.
 func _build() -> void:
 	pass

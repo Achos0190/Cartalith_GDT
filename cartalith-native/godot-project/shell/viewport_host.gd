@@ -1020,6 +1020,35 @@ func _ready() -> void:
 	_export_grid_layer.draw.connect(_draw_export_tile_grid)
 	_camera.add_child(_export_grid_layer)
 
+	## MS-1 S4.4: the chrome is built by `_build_chrome()`, the one path `_ready()` and a class swap's
+	## `rebuild_chrome()` both take, so a swapped viewport cannot differ from a cold one's.
+	_build_chrome()
+
+	## A resize changes the native fit rect `_update_lod()` positions every
+	## tile against (`displayed_origin`/`displayed_size`, computed from
+	## `size`) -- without this, resizing the window while zoomed in past the
+	## threshold would leave existing tiles positioned against the old
+	## window size until the next zoom/pan event.
+	resized.connect(_update_lod)
+	## ...and the navpad is the one piece of chrome positioned absolutely
+	## against the *right/bottom* edge rather than anchored there, so unlike
+	## the three labels it does not track a resize on its own.
+	resized.connect(_apply_safe_insets)
+
+	## `_process()` (deep-zoom backlog catch-up, see `_lod_backlog`'s own doc
+	## comment) has nothing to do until `_update_lod()` first populates a
+	## backlog -- disabled here rather than paying a per-frame call for a
+	## dictionary that starts, and usually stays, empty.
+	set_process(false)
+
+	_apply_safe_insets()
+
+## MS-1 S4.4: builds the map's own chrome, the nodes whose size, look and presence depend on the class (the
+## Layers button, the scale bar and its rule, the readout and coordinate labels, the context chip and, on touch, the
+## navpad). Called once by `_ready()` and again by `rebuild_chrome()` after a class swap; the body is the block
+## `_ready()` held, moved unchanged. Everything here is a child of this node and nothing else holds it but the
+## fields it sets, so `rebuild_chrome()` can free and rebuild it. Must never touch the map, the overlays or the camera.
+func _build_chrome() -> void:
 	## §9's chrome, all corner-anchored so it survives any dock width.
 	## `false` on the scale bar: §5.4 gives it the ink and no pill.
 	_scale_label = _chrome(Control.PRESET_BOTTOM_LEFT, HORIZONTAL_ALIGNMENT_LEFT, false)
@@ -1124,23 +1153,57 @@ func _ready() -> void:
 
 	_build_navpad()
 
-	## A resize changes the native fit rect `_update_lod()` positions every
-	## tile against (`displayed_origin`/`displayed_size`, computed from
-	## `size`) -- without this, resizing the window while zoomed in past the
-	## threshold would leave existing tiles positioned against the old
-	## window size until the next zoom/pan event.
-	resized.connect(_update_lod)
-	## ...and the navpad is the one piece of chrome positioned absolutely
-	## against the *right/bottom* edge rather than anchored there, so unlike
-	## the three labels it does not track a resize on its own.
-	resized.connect(_apply_safe_insets)
-
-	## `_process()` (deep-zoom backlog catch-up, see `_lod_backlog`'s own doc
-	## comment) has nothing to do until `_update_lod()` first populates a
-	## backlog -- disabled here rather than paying a per-frame call for a
-	## dictionary that starts, and usually stays, empty.
-	set_process(false)
-
+## MS-1 S4.4 (`MOBILE_SHELL_MS1_SPEC.md` section 3.5, `S4_INVENTORY.md` section 17): refreshes the chrome for the
+## class the shell has just swapped to. This node is a SURVIVOR of a swap (the map, its tiles and its overlays are
+## kept), but its chrome was built for the boot class: the Layers button's size and look (`role_px("w_fab")`, and
+## `_apply_touch_scale()`'s repaint once the phone pushes its insets), the navpad's hit size and glyph size, the
+## scale rule's visibility (hidden on the phone) and the insets the phone pushes through `set_safe_insets()`. Rather
+## than write the inverse of each of those, the chrome is freed and built again by `_build_chrome()`, the same
+## function `_ready()` calls, so it equals a cold boot of the new class by construction.
+##
+## Resets the insets to their flat default and `_touch_scale` to 1.0 (a phone's shell pushes its own right after the
+## mount; a tablet's and a desktop's never do), keeps the latch state the armed tool decides (`_tool_kind` is held by
+## `set_tool_kind()`; `_sync_pan_btn()` re-reads it), repaints the readout and the scale bar, and re-seats the 3D view
+## under the new navpad. The caller repeats `set_viewport_context()` (the shell's `_refresh_viewport_context()` does).
+## Never frees a tile, an overlay or the camera, and never changes the zoom, the pan or the world.
+func rebuild_chrome() -> void:
+	if pan_mode_changed.is_connected(_announce_pan_mode):
+		pan_mode_changed.disconnect(_announce_pan_mode)
+	for n in [_scale_label, _scale_rule, _readout_label, _coords_label, _layers_btn, _vp_context, _navpad]:
+		if n != null and is_instance_valid(n):
+			remove_child(n)
+			n.free()
+	_scale_label = null
+	_scale_rule = null
+	_readout_label = null
+	_coords_label = null
+	_layers_btn = null
+	_vp_context = null
+	_navpad = null
+	_rocker = null
+	_zoom_rule = null
+	_pan_btn = null
+	_recentre_btn = null
+	_touch_scale = 1.0
+	_safe_insets = {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0}
+	## The latch (`_pan_mode`) is the user's and survives; the new button is painted for it without the toast
+	## `_announce_pan_mode()` would show (nothing was armed by the user just now).
+	var was_pan := _pan_mode
+	_pan_mode = false
+	_build_chrome()
+	if was_pan and _pan_btn != null:
+		pan_mode_changed.disconnect(_announce_pan_mode)
+		set_pan_mode(true)
+		pan_mode_changed.connect(_announce_pan_mode)
+	if _view3d != null and _navpad != null:
+		move_child(_view3d, _navpad.get_index())
+		_view3d.set_frame(_safe_insets, _touch_scale)
+	## Only with a world to read: a cold boot draws these two untouched until the first world arrives (the scale rule
+	## is then visible, unlabelled), and `_update_scale_bar()` would hide it. With a world the same calls repaint what
+	## the swap just freed.
+	if _engine_readable():
+		_update_zoom_readout()
+		_update_scale_bar()
 	_apply_safe_insets()
 
 ## `_input`, not `_gui_input` or `_unhandled_input` -- verified empirically,
