@@ -371,6 +371,8 @@ func _run(vw: int, vh: int) -> void:
 		return
 	if _want("sh2"):
 		await _t_sh2(P)
+	if _want("sh3"):
+		await _t_sh3(P)
 
 
 # SH-2 -----------------------------------------------------------------------------------------------------------------
@@ -436,3 +438,148 @@ func _t_sh2(P: Vector2) -> void:
 	_ok(Input.use_accumulated_input, "and its release leaves it on")
 	_host.reset_view()
 	await _settle()
+
+# SH-3 -----------------------------------------------------------------------------------------------------------------
+
+## A pen hover at `p`: a device-0 motion with no button, which is all Android gives a hovering pen. `assume_mobile`
+## is set by the caller, because `OS.has_feature("mobile")` is false on this desktop host.
+func _pen_hover(p: Vector2) -> void:
+	await _pen_move(p, p, 0.0, Vector2.ZERO, false)
+
+func _sh3_reset() -> void:
+	_host.reset_view()
+	_host._pen_seen = false
+	_host._pen_last_ms = -1
+	_host._sync_pan_btn()
+	_zero()
+	_samples.clear()
+	await _settle()
+
+func _t_sh3(P: Vector2) -> void:
+	# the palm window, literals (boundary: 300 ms after is inside, 301 is not; no pen yet is never inside)
+	_ok(StylusInput.in_palm_window(1300, 1000), "300 ms after the last pen event is inside the palm window")
+	_ok(not StylusInput.in_palm_window(1301, 1000), "301 ms after is outside")
+	_ok(StylusInput.in_palm_window(1000, 1000), "the same millisecond is inside")
+	_ok(not StylusInput.in_palm_window(5, -1), "no pen event yet is never a palm window")
+	if not _host._touch:
+		# the desktop host: no touch routing, so a pen hover latches nothing and the setting changes nothing
+		StylusInput.assume_mobile = true
+		DccSettings.set_pen_draws_finger_pans(true)
+		await _pen_hover(P)
+		_ok(not _host._pen_seen, "desktop host: a pen hover latches nothing (the touch router never runs)")
+		DccSettings.set_pen_draws_finger_pans(false)
+		StylusInput.assume_mobile = false
+		return
+	var pan: Button = _host._pan_btn
+	var c0: Vector2
+	var d: Vector2
+
+	# control: setting OFF, a pen seen -> the finger draws with Sculpt exactly as before
+	DccSettings.set_pen_draws_finger_pans(false)
+	StylusInput.assume_mobile = true
+	await _sh3_reset()
+	await _arm("sculpt")
+	await _pen_hover(P)
+	_ok(_host._pen_seen, "a device-0 hover on a touch build is a seen pen")
+	await get_tree().create_timer(0.45).timeout
+	_ok(pan.visible, "setting off, pen seen: the latch is still drawn")
+	c0 = _cam()
+	await _down(0, P)
+	await _drag(P, P + Vector2(120, 0))
+	await _up(0, P + Vector2(120, 0))
+	_ok(_n["drag"] > 0 and _cam().distance_to(c0) < 1.0, "setting off: a finger draws with Sculpt, camera unmoved (%s)" % str(_n))
+
+	# setting ON but no pen seen yet: fails safe, the finger still draws and the latch shows
+	DccSettings.set_pen_draws_finger_pans(true)
+	await _sh3_reset()
+	await _arm("sculpt")
+	_ok(pan.visible, "setting on, no pen seen: the latch is drawn")
+	c0 = _cam()
+	await _down(0, P)
+	await _drag(P, P + Vector2(120, 0))
+	await _up(0, P + Vector2(120, 0))
+	_ok(_n["drag"] > 0 and _cam().distance_to(c0) < 1.0, "setting on, no pen seen: a finger still draws (%s)" % str(_n))
+
+	# setting ON, pen seen, pen gone for > 300 ms: the finger pans, the pen draws, a tap draws nothing
+	await _sh3_reset()
+	await _arm("sculpt")
+	await _pen_hover(P)
+	await get_tree().create_timer(0.45).timeout
+	_ok(not pan.visible, "setting on, pen seen: the latch is hidden")
+	_zero()
+	c0 = _cam()
+	await _down(0, P)
+	await _drag(P, P + Vector2(120, 0))
+	await _up(0, P + Vector2(120, 0))
+	d = _cam() - c0
+	_ok(absf(d.x - 120.0) <= 1.0 and absf(d.y) <= 1.0, "a finger's 120 px drag with Sculpt pans the camera by 120 px, got %s" % str(d))
+	_ok(_n["drag"] == 0 and _n["click"] == 0 and _n["rel"] == 0 and _n["sel"] == 0,
+		"the finger's pan emits no draw, click, release or selection (%s)" % str(_n))
+	await get_tree().create_timer(0.7).timeout
+	_ok(not _ov._touch_armed and not _ov._touch_ring_active and _n["ctx"] == 0,
+		"after the pan nothing is armed and no card opened (armed %s, ctx %d)" % [str(_ov._touch_armed), _n["ctx"]])
+	_host.reset_view()
+	await _settle()
+	_zero()
+	c0 = _cam()
+	await _tap(P)
+	await get_tree().create_timer(0.45).timeout
+	_ok(_n["click"] == 0 and _n["drag"] == 0 and _cam().distance_to(c0) < 0.01,
+		"a finger TAP with Sculpt draws nothing and moves nothing (%s)" % str(_n))
+	# the pen (device 0) draws at once, camera unmoved
+	_zero()
+	c0 = _cam()
+	await _pen_stroke(P, P + Vector2(120, 0), 0.5)
+	_ok(_n["drag"] > 0 and _cam().distance_to(c0) < 1.0, "the pen draws with Sculpt, camera unmoved (%s)" % str(_n))
+
+	# the palm rule: a finger that lands within 300 ms of a pen hover is ignored outright
+	await _sh3_reset()
+	await _arm("sculpt")
+	await _pen_hover(P)
+	await get_tree().create_timer(0.45).timeout
+	_zero()
+	c0 = _cam()
+	await _pen_hover(P + Vector2(2, 0))
+	await _down(0, P + Vector2(60, 0))
+	await _drag(P + Vector2(60, 0), P + Vector2(180, 0))
+	await _up(0, P + Vector2(180, 0))
+	_ok(_cam().distance_to(c0) < 0.01 and _n["drag"] == 0 and _n["click"] == 0 and _n["rel"] == 0,
+		"a finger landing while the pen hovers is a palm: no pan, no draw (%s, camera %s)" % [str(_n), str(_cam() - c0)])
+	# ... and with Inspect too (the palm rule is about the finger, not the tool)
+	await _arm("inspect")
+	_zero()
+	await _pen_hover(P + Vector2(2, 0))
+	await _tap(P + Vector2(60, 0))
+	await get_tree().create_timer(0.45).timeout
+	_ok(_n["click"] == 0, "a palm tap with Inspect clicks nothing (%s)" % str(_n))
+	# ... and the same tap clicks once the pen has been away for more than 300 ms (positive control)
+	await get_tree().create_timer(0.45).timeout
+	_zero()
+	await _tap(P + Vector2(60, 0))
+	await get_tree().create_timer(0.45).timeout
+	_ok(_n["click"] == 1, "the same tap with the pen away clicks once (%s)" % str(_n))
+	await _dismiss_windows()
+
+	# a placing tool is unchanged by the setting: a finger drag pans, a tap clicks
+	await _sh3_reset()
+	await _arm("settlement")
+	await _pen_hover(P)
+	await get_tree().create_timer(0.45).timeout
+	_zero()
+	c0 = _cam()
+	await _down(0, P)
+	await _drag(P, P + Vector2(120, 0))
+	await _up(0, P + Vector2(120, 0))
+	d = _cam() - c0
+	_ok(absf(d.x - 120.0) <= 1.0 and _n["click"] == 0, "Settlement: the finger still pans (%s, %s)" % [str(d), str(_n)])
+	await _dismiss_windows()
+
+	# toggling the setting off at runtime brings the latch back
+	await _arm("sculpt")
+	_ok(not pan.visible, "latch hidden while on")
+	DccSettings.set_pen_draws_finger_pans(false)
+	_host.refresh_stylus_mode()
+	_ok(pan.visible, "turning the setting off brings the latch back at once")
+	DccSettings.set_pen_draws_finger_pans(false)
+	StylusInput.assume_mobile = false
+	await _sh3_reset()

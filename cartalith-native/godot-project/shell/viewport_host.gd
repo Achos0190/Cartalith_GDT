@@ -352,6 +352,10 @@ const _TP_PANNING := 4
 const _TP_THUMB := 5
 const _TP_IGNORE := 6
 const _TP_HELD := 7
+## SH-3: down with a DRAWING tool armed while the finger is only allowed to navigate (`_finger_navigates()`):
+## the overlay holds the press back like a tap tool's, a drag past the slop pans, and a lift that never became a
+## drag or a hold is DISCARDED, so a finger tap draws nothing.
+const _TP_FINGERNAV := 8
 
 var _tool_kind := TOOL_NONE
 var _tp := _TP_IDLE
@@ -364,6 +368,12 @@ var _tp_zoomed := false
 ## or more have been down since the last time none was: the stray-stroke guard's latch (Ruling EC item 3).
 var _fingers: Dictionary = {}
 var _multi_touch := false
+## SH-3: when the last pen event (contact or hover) arrived, `Time.get_ticks_msec()`, or -1 for none yet. The palm
+## rule reads it (`StylusInput.in_palm_window`); a pen event also latches `_pen_seen`.
+var _pen_last_ms := -1
+## SH-3: a pen has been seen since this host started. Not stored: it gates hiding the pan latch, and a stored
+## flag would hide the latch on a device the pen has since left. Resets with the process.
+var _pen_seen := false
 ## The last tap's `{pos, ms}`, or empty; consumed by the double-tap that matches it.
 var _last_tap: Dictionary = {}
 var _dt_tween: Tween
@@ -1478,9 +1488,34 @@ func tool_kind() -> int:
 func _sync_pan_btn() -> void:
 	if _pan_btn == null:
 		return
-	_pan_btn.visible = _tool_kind == TOOL_DRAWING
+	## SH-3: hidden while the finger only navigates -- with a drawing tool a finger drag already pans, so the
+	## latch would be a control that changes nothing (proposal section 2.5 item 3).
+	_pan_btn.visible = _tool_kind == TOOL_DRAWING and not _finger_navigates()
 	if _layers_btn != null:
 		_apply_safe_insets()
+
+## SH-3 (Ruling EC, `MOBILE_SHELL_PROPOSAL.md` section 4): whether a finger only navigates right now -- the user
+## turned *Pen draws, finger pans* on (`DccSettings`) AND a pen has been seen. The second half fails safe: with the
+## setting on but no pen yet, the finger still draws and the latch still shows, so nobody is locked out of drawing
+## by a switch their device cannot honour. The pen is known only by `StylusInput`'s standard-input rule (device >= 0
+## on a touch build, or a pen signature elsewhere); best-effort, as Ruling EE leaves it.
+func _finger_navigates() -> bool:
+	return _pen_seen and DccSettings.pen_draws_finger_pans()
+
+## SH-3: the setting changed (the Preferences row calls this); re-evaluates the latch's visibility. A no-op off
+## touch, like `_sync_pan_btn`.
+func refresh_stylus_mode() -> void:
+	_sync_pan_btn()
+
+## SH-3: notes a pen event for the palm rule and the seen-pen latch. Called for every mouse-class event before the
+## finger routing, so a hover (which carries no fields on Android) counts. A finger never does.
+func _note_pen(ev: InputEventMouse) -> void:
+	if not StylusInput.is_pen_event(ev):
+		return
+	_pen_last_ms = Time.get_ticks_msec()
+	if not _pen_seen:
+		_pen_seen = true
+		_sync_pan_btn()
 
 ## Whether double-tap and thumb zoom are on right now: with no tool armed beyond Inspect, or while the latch
 ## says "the finger moves the map" (Ruling EC item 4: off with a drawing or placing tool unless the latch is on,
@@ -1498,7 +1533,9 @@ func _on_map(pos: Vector2) -> bool:
 ## A mouse event that is really a finger: Godot's emulation stamps `device = DEVICE_ID_EMULATION` (-1), and a
 ## mobile build counts every mouse event as touch, the same two-part test `map_overlay.gd` uses for the same
 ## reason. A pen or a real mouse on Windows is neither, so it never enters the routing below -- the stylus
-## draws, which is Ruling EE's "pen draws" half (the "finger pans" setting, SH-3, is not built).
+## draws, which is Ruling EE's "pen draws" half. The "finger pans" half (SH-3) is `_finger_navigates()`'s, which
+## tells a finger from a pen by `StylusInput.is_finger` (device -1) and so does not rely on this test: on a touch
+## build `_is_touch_mouse` stays true for a pen too, which keeps its hold-for-the-card behaviour as it was.
 func _is_touch_mouse(ev: InputEventMouse) -> bool:
 	return ev.device < 0 or OS.has_feature("mobile")
 
@@ -1521,11 +1558,13 @@ func _touch_input(event: InputEvent) -> bool:
 		return false
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
+		_note_pen(mb)
 		if mb.button_index != MOUSE_BUTTON_LEFT or not _is_touch_mouse(mb):
 			return false
 		return _touch_press(mb) if mb.pressed else _touch_release(mb)
 	if event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
+		_note_pen(mm)
 		if not _is_touch_mouse(mm):
 			return false
 		return _touch_motion(mm)
@@ -1547,7 +1586,7 @@ func _finger_down(index: int, pos: Vector2) -> void:
 	_last_tap = {}
 	_kill_tap_zoom()
 	match _tp:
-		_TP_CANDIDATE, _TP_DRAW:
+		_TP_CANDIDATE, _TP_DRAW, _TP_FINGERNAV:
 			if overlay.cancel_touch_gesture():
 				_tp = _TP_IGNORE
 		_TP_PANNING, _TP_THUMB, _TP_PANLATCH:
@@ -1573,6 +1612,14 @@ func _touch_press(mb: InputEventMouseButton) -> bool:
 		_tp = _TP_IGNORE
 		get_viewport().set_input_as_handled()
 		return true
+	## SH-3's palm rule: with the finger confined to navigation, a finger that lands while the pen is in contact,
+	## hovering, or has just left (`StylusInput.PALM_MS`) is a resting palm. Consumed like the stray finger above,
+	## so neither the tool nor the pan sees it. A pen never is (it is not a finger).
+	if StylusInput.is_finger(mb.device) and _finger_navigates() \
+			and StylusInput.in_palm_window(now, _pen_last_ms):
+		_tp = _TP_IGNORE
+		get_viewport().set_input_as_handled()
+		return true
 	_tp_origin = mb.position
 	_tp_last = mb.position
 	_tp_ms = now
@@ -1592,7 +1639,8 @@ func _touch_press(mb: InputEventMouseButton) -> bool:
 	if _pan_mode:
 		_tp = _TP_PANLATCH
 	elif _tool_kind == TOOL_DRAWING:
-		_tp = _TP_DRAW
+		## SH-3: a finger confined to navigation does not own a drawing tool's stroke; the pen (device >= 0) does.
+		_tp = _TP_FINGERNAV if StylusInput.is_finger(mb.device) and _finger_navigates() else _TP_DRAW
 	else:
 		_tp = _TP_CANDIDATE
 	return false
@@ -1616,8 +1664,8 @@ func _touch_motion(mm: InputEventMouseMotion) -> bool:
 			_tp_last = mm.position
 			if size.y > 0.0:
 				_zoom_at(_tp_origin - global_position, pow(2.0, dy / (size.y * THUMB_DOUBLING_FRAC)))
-		_TP_CANDIDATE, _TP_PANNING:
-			if _tp == _TP_CANDIDATE:
+		_TP_CANDIDATE, _TP_FINGERNAV, _TP_PANNING:
+			if _tp == _TP_CANDIDATE or _tp == _TP_FINGERNAV:
 				if Time.get_ticks_msec() - _tp_ms >= overlay.touch_hold_ms():
 					## The hold fired (the card on a phone, the ring on a tablet): the finger is theirs.
 					_tp = _TP_HELD
@@ -1649,6 +1697,13 @@ func _touch_release(mb: InputEventMouseButton) -> bool:
 	_tp = _TP_IDLE
 	match prior:
 		_TP_IGNORE, _TP_PANNING:
+			get_viewport().set_input_as_handled()
+			return true
+		_TP_FINGERNAV:
+			## SH-3: a finger that neither dragged past the slop nor held long enough to open the card (those leave
+			## this state) is a tap, and a tap draws nothing here. The withheld press is dropped without emitting,
+			## and the lift is consumed so the overlay never sees an unpaired release.
+			overlay.discard_touch_press()
 			get_viewport().set_input_as_handled()
 			return true
 		_TP_THUMB:

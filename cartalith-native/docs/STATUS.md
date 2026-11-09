@@ -72,6 +72,23 @@ emulation (device -1): it proves the routing, not what the Pad 3's pen reports. 
   owner can add `input_devices/pointing/android/disable_scroll_deadzone=true` and measure with the SH-9 tester first
   (the drafts README's own advice).
 
+- **SH-3 built (pen draws, finger pans, with a palm rule; Ruling EC).** `Preferences > Stylus > Pen draws, finger pans`
+  (`DccSettings.pen_draws_finger_pans`, default off, per install). With it on **and a pen seen** (`ViewportHost._pen_seen`:
+  any device >= 0 pointer event on a touch build, or a pen signature elsewhere; not stored), a finger with a drawing
+  tool armed is the new `_TP_FINGERNAV`: a drag past the slop pans (the MS-5 path), a tap draws nothing, the hold still
+  opens the card, and the pan latch is hidden (`_finger_navigates()`). A finger that lands within `StylusInput.PALM_MS`
+  (300 ms, SH-3's own figure, a labelled judgement) of the last pen event, contact or hover, is ignored outright. With
+  no pen seen the finger still draws and the latch shows (fail safe). Placing tools and every default are unchanged.
+  `_sh_probe --section sh3`: 22 checks at the 6T form, 45 for all sections at 2388x1668 @2 (touch tablet), 29 at the
+  desktop form (a pen hover latches nothing, the touch router never runs); five literal mutants killed (palm window, the
+  FINGERNAV choice, the 300 ms literal, the tap discard, the pen-seen gate). Regression on this tree: `_ms5` 93/93 (6T
+  and 2388x1668 @2), `_ms5b` 119/119, `_phonemap` 67/67, `_ctxring` and `_gestclass` and `_paintorig` (desktop and
+  phone) 0 failures. **The finger-versus-pen split is best-effort (Ruling EE):** Android gives the pen and a mouse
+  device 0 and a finger -1, and nothing finer. **Not handled:** a palm that lands first (Godot's emulated mouse follows
+  the first touch, `STYLUS_HAPTICS_RESEARCH.md` section 4.2) is SH-0's glass probe. **3392x2400 @2 (the Pad 3's
+  glass size) does not work in this harness:** the stock `_ms5_probe` fails there identically on `origin/main`
+  (the tablet's map host is 848x966 and no tap reaches it), so the tablet figure above is 2388x1668.
+
 ### Ruling EH item 1 built: the phone's GENERATE column is retired; the WORLD sheet is the dock's own categories (2026-11-09)
 
 `LARGE_ITEM_RULINGS.md` Ruling EH item 1, `MISTAKES.md` "Delete a surface". GDScript only, no Rust change. *Re-opened at the symbols first (origin/main `e6f3cfbd`):* `dcc_shell.gd` (`_build_phone_tool_sheet()`, `_refresh_phone_gen_panel()`, `_mount_dock_in_sheet()`, `_ensure_dom_rows()`, `_refresh_phone_sheet_header()`, `_phone_gen_tab_on()`, `_capture_shell_state()`), `workspaces/world_workspace.gd` (`build_phone_generate()` and the whole `_pg_*` block, `_on_tool_armed()`, `brush_surfaces_changed()`, `_build_generate_head()`, `_build_paint()`, `_build_sculpt()`), `tool_bar.gd` (`build_brush_controls()`, `sym_pick_begin()`), `paint_original.gd`, `tool_fan.gd`.

@@ -219,6 +219,9 @@ const ID_PREF_UI_SCALE_125 := 931
 const ID_PREF_UI_SCALE_150 := 932
 const ID_PREF_UI_SCALE_200 := 933
 const ID_PREF_HAND_RIGHT := 718  ## Preferences ▸ Handedness ▸ Right.
+## SH-3 (Ruling EE, standard stylus input): Preferences ▸ Stylus. 940-949 are this submenu's; grepped for 94x across
+## `shell/` before taking them (an id must be free everywhere, `78` was once issued twice).
+const ID_PREF_PEN_DRAWS := 940  ## Preferences ▸ Stylus ▸ Pen draws, finger pans.
 ## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
 ## after 717/718 above -- grepped this whole file for 719 before taking it,
 ## the same whole-file check every neighbouring block records (an id must be
@@ -545,6 +548,7 @@ var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 var _theme_popup: PopupMenu
 var _popout_pref_row := -1   ## `Preferences ▸ Open panels in their own window` row index (PW-1), -1 where absent
 var _ui_scale_popup: PopupMenu  ## MS-1 S5: `Preferences ▸ UI scale` (touch builds only).
+var _stylus_popup: PopupMenu   ## `Preferences ▸ Stylus` (SH-3): the stylus input preferences, per install.
 var _hand_popup: PopupMenu   ## `Preferences ▸ Handedness` -- CM-4's touch-hold
 	## ring/card dock side (`MAP_CONTEXT_SCOPE.md` §7.1), read by
 	## `context_broker.gd`'s tablet path via `DccSettings.dominant_hand()`.
@@ -4108,6 +4112,38 @@ func _build_handedness_submenu(p: PopupMenu) -> void:
 	p.add_child(_hand_popup)
 	p.add_submenu_item("Handedness", "HandChoice")
 
+## `Preferences ▸ Stylus` (SH-3, Ruling EE -- standard pointer input only: pressure, tilt, hover, touch). One
+## check row now, *Pen draws, finger pans*; SH-4 and SH-5 add their rows below it. Unconditional, like Handedness:
+## a Windows pen reaches the same code. The row stores a preference only (`DccSettings`, never a world's); the
+## shell's routing (`ViewportHost._finger_navigates`) reads it, and takes effect once a pen has been seen.
+func _build_stylus_submenu(p: PopupMenu) -> void:
+	_stylus_popup = PopupMenu.new()
+	_stylus_popup.name = "StylusChoice"
+	_stylus_popup.add_check_item("Pen draws, finger pans", ID_PREF_PEN_DRAWS)
+	_stylus_popup.set_item_tooltip(0,
+		"Once a pen has been seen, a finger only moves the map and the pen draws; a finger that lands while the pen is near is ignored as a resting palm. The pen is told from a finger by its input device, which is best-effort. Stored on this device, never in a world.")
+	_refresh_stylus_menu()
+	_stylus_popup.id_pressed.connect(_on_stylus_choice)
+	_shell.style_popup(_stylus_popup)
+	p.add_child(_stylus_popup)
+	p.add_submenu_item("Stylus", "StylusChoice")
+
+## Ticks Preferences ▸ Stylus from `DccSettings`. Reads settings only.
+func _refresh_stylus_menu() -> void:
+	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_PEN_DRAWS), DccSettings.pen_draws_finger_pans())
+
+## Serves Preferences ▸ Stylus: stores the toggled preference, re-ticks, and tells the map host so the pan latch
+## follows at once. An unknown id is ignored.
+func _on_stylus_choice(id: int) -> void:
+	match id:
+		ID_PREF_PEN_DRAWS:
+			DccSettings.set_pen_draws_finger_pans(not DccSettings.pen_draws_finger_pans())
+		_:
+			return
+	_refresh_stylus_menu()
+	if _host != null and _host.viewport != null and _host.viewport.has_method("refresh_stylus_mode"):
+		_host.viewport.refresh_stylus_mode()
+
 ## MS-1 S5: each UI-scale menu id's factor (spec §3.6's four values, `DccSettings.UI_SCALES`).
 const _UI_SCALE_IDS := {930: 1.0, 931: 1.25, 932: 1.5, 933: 2.0}
 
@@ -4512,6 +4548,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## CM-4 residual: unconditional, unlike the two rows above -- see this
 	## function's own header comment for why.
 	_build_handedness_submenu(p)
+	_build_stylus_submenu(p)
 	_build_ui_scale_submenu(p)
 	## **Built.** This row was a `_todo` reading "SS2.5 asks for an editable,
 	## per-context table... what is missing is rebinding: a per-context store

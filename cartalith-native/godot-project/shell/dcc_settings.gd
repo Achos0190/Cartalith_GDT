@@ -68,6 +68,10 @@ const _SEC_ATLAS := "atlas"
 const _SEC_WINDOWS := "window_sizes"
 ## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1) -- the tablet's dominant-hand preference.
 const _SEC_HANDEDNESS := "handedness"
+## The stylus INPUT preferences (Ruling EE, 2026-11-02: standard pointer input only; `STYLUS_HAPTICS_RESEARCH.md`
+## section 8.1). Per install, never a world's: a `.zip` carrying "pen-only drawing, firm pressure" would reshape
+## another person's input. Handedness and Theme above are the model.
+const _SEC_STYLUS := "stylus"
 ## MS-1 S5 (`MOBILE_SHELL_MS1_SPEC.md` §3.6) -- the touch shell's UI scale, per device, never in a world.
 const _SEC_UI_SCALE := "ui_scale"
 ## 3D-1 (`3D_VIEWPORT_SCOPE.md` §4.2): the 3D capability gate's measured result
@@ -619,6 +623,22 @@ static func set_dominant_hand(hand: String) -> void:
 			cb.call()
 		else:
 			_hand_listeners.erase(cb)
+
+# -- SH-3 (and SH-4/5 below it): the stylus input preferences ------------------------------------------------------
+
+## Whether, once a pen has been seen, the finger only navigates and the pen draws (SH-3, Ruling EC,
+## `MOBILE_SHELL_PROPOSAL.md` section 4). Default false: the shipped behaviour (a finger draws with a drawing tool)
+## is unchanged until the user turns it on. Seen-pen is `ViewportHost`'s runtime latch, not stored: a stored one
+## would hide the pan latch on a device the pen has since left.
+static func pen_draws_finger_pans() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_STYLUS, "pen_draws_finger_pans", false))
+
+## Stores the pen-draws-finger-pans preference and saves.
+static func set_pen_draws_finger_pans(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_STYLUS, "pen_draws_finger_pans", on)
+	_save()
 
 # -- MS-1 S5: UI scale ----------------------------------------------------------
 

@@ -17,6 +17,13 @@ extends RefCounted
 ## MUST NEVER: encode "no pressure" as a plausible number (an absent value is `null` here and at every caller), talk
 ## to the engine, or read a world. Settings live in `DccSettings`; this file holds none.
 
+## The palm rule's window, ms: a finger that lands this soon after the last pen event (contact OR hover) is a
+## palm and is ignored. SH-3's own figure ("ignores touches during pen contact and for 300 ms after, and while the
+## pen hovers", `STYLUS_HAPTICS_RESEARCH.md` section 8.1): a labelled judgement, since hover exit is not
+## distinguished on Android, so "still hovering" has to mean "an event within this window". Hover reports
+## continuously while the pen is in range, so a pen that has gone leaves a gap longer than this.
+const PALM_MS := 300
+
 ## Test seam only: probes cannot make `OS.has_feature("mobile")` true on a desktop, so they set this to exercise
 ## the Android branches. Never set in shipped code.
 static var assume_mobile := false
@@ -61,6 +68,12 @@ static func pen_pressure(mm: InputEventMouseMotion) -> Variant:
 	if is_finger(mm.device) or not has_pen_signature(mm.pressure, mm.tilt, mm.pen_inverted):
 		return null
 	return mm.pressure
+
+## SH-3's palm test: whether a finger landing at `now_ms` falls inside the palm window of the last pen event at
+## `last_pen_ms`. `last_pen_ms < 0` means no pen event yet (never a window), so a device that has not yet seen a
+## pen is never "palm-blocked". Boundary: exactly `PALM_MS` after is still inside; one ms later is outside.
+static func in_palm_window(now_ms: int, last_pen_ms: int) -> bool:
+	return last_pen_ms >= 0 and now_ms - last_pen_ms <= PALM_MS
 
 ## SH-2: a pen contact began on a touch build, so deliver every sample, not one per frame. Godot's default merges
 ## the frame's motion events and keeps the OLDER event's pressure and tilt (`InputEventMouseMotion::accumulate`,
