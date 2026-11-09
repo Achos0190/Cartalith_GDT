@@ -200,6 +200,7 @@ const TAB_ORDER := ["overview", "economy", "timeline", "political", "vault", "la
 
 ## PC-7: the non-blocking, follow-until-pinned rules shared by the five context windows.
 const ContextWindow := preload("res://shell/context_window.gd")
+const WindowRepresent := preload("res://shell/window_represent.gd")
 ## Display text for each key in `TAB_ORDER`; every tab key needs an entry.
 const TAB_LABELS := {
 	"overview": "Overview",
@@ -663,6 +664,23 @@ func _clear_event_draft() -> void:
 	_ae_msg = ""
 	_ae_conflict = false
 
+
+## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild. Committed first (PE-01, as
+## `open_for()` does), so a half-typed field lands on the place it was typed for. `_ae_*` (an unsubmitted event) is not
+## carried: it is a held change (`held_changes()`), which makes a swap wait instead.
+func represent_capture() -> Dictionary:
+	if visible and _body != null and is_instance_valid(_body):
+		_commit_focused_field()
+	return {"open": visible, "index": _index, "tab": _active_tab, "sim_mode": _sim_mode,
+		"scroll": WindowRepresent.scroll_value(_body) if _body != null and is_instance_valid(_body) else 0}
+
+## The other half, on the NEW window: an open editor opens onto the carried place and tab (`open_for_tab()`, which
+## presents for the new class); a closed one keeps only its simulator mode. A coroutine for the scroll.
+func represent_restore(bag: Dictionary) -> void:
+	_sim_mode = String(bag["sim_mode"])
+	if bool(bag["open"]) and int(bag["index"]) >= 0:
+		open_for_tab(int(bag["index"]), String(bag["tab"]))
+		await WindowRepresent.restore_scroll(_body, int(bag["scroll"]))
 
 func open_for_tab(index: int, tab: String) -> void:
 	open_for(index)

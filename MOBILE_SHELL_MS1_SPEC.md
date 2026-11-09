@@ -391,7 +391,7 @@ numbers, probe by probe. That is follow-up work, not MS-1.
 | S1 | `classify()`, the threshold table, `--density`, the legacy figure | no | B1, B2, B8, B10 |
 | S2 | the dp unit: the phone's multiplier, the tablet's content scale, the §2.6 sites | tablets, and phones wider than 412 dp | B3, B7, B8, B9, B10 |
 | S3 | debounced re-evaluation within a class | live updates only | B4, B8, B10 |
-| S4 | S4.0's inventory, then the mount path and the swap (S4.1 to S4.4 built: a class change swaps and carries the user's state; until S4.5 re-presents windows, an open long-lived window holds the swap; `S4_INVENTORY.md` section 17) | class changes without a restart | B5, B8, B10 |
+| S4 | S4.0's inventory, then the mount path and the swap (S4.1 to S4.4 built: a class change swaps and carries the user's state; S4.5 has begun, so a window with a re-present path (`window_represent.gd`) is rebuilt for the new class and the others hold the swap while open; `S4_INVENTORY.md` sections 17 and 18) | class changes without a restart | B5, B8, B10 |
 | S5 | UI scale | adds a preference | B6, B8, B10 |
 
 Each stage lands on its own and is verified before the next starts. S0 needs the 6T, and so does S2's B7. S1 and S3 do
@@ -479,7 +479,7 @@ The bars:
     - Its state is kept: the tab, the text and the scroll position.
     - *S4.4 (2026-11-09): until S4.5 builds the re-present, an open long-lived window makes the swap wait, named on the
       status line, and the swap runs when it closes (`_ms1swap_probe.gd --leg live` checks the wait and that typed text
-      survives). The other B5 items above are checked by that leg; the three-window re-present bar is S4.6's.*
+      survives). The other B5 items above are checked by that leg; the three-window re-present bar is S4.6's.* *S4.5 batch 1 (2026-11-09): on the phone and the tablet an `AcceptDialog` is exclusive, so the engine allows one open window at a time there and a desktop never swaps; "three windows open at once" is read as three windows in turn, each open across the swap (`S4_INVENTORY.md` section 18.3).*
 
   Over ten round trips, the orphan node count (`Performance.OBJECT_ORPHAN_NODE_COUNT`) and the number of connections on
   `root.size_changed` and on `node_added` return to their values before the first swap. Captured stderr holds no

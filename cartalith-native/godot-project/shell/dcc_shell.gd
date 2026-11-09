@@ -1610,8 +1610,9 @@ func _on_resize_settled() -> void:
 # answers, the swap waits with its reason on the status line and runs when the last one ends. The owner's
 # defaults stand for what waits (`S4_INVENTORY.md` Q-S4-2 and Q-S4-3): a window holding typed changes and a
 # transient confirmation both make the swap wait; other open windows do not (S4.5 re-presents them).
-# S4.4 made the swap real (`_run_class_swap()`); a long-lived window that is open also makes it wait, with its name
-# as the reason, until S4.5 re-presents windows (`_collect_window_blockers()`).
+# S4.4 made the swap real (`_run_class_swap()`). A long-lived window that is open makes it wait, with its name as the
+# reason, until it has a re-present path (S4.5, `window_represent.gd`; the windows that have one are
+# `DccApp.REPRESENTED_WINDOWS`), which `_collect_window_blockers()` recognises by `represent_capture()`.
 
 ## How often a waiting swap asks again whether the blockers have ended, in seconds. A labelled judgement:
 ## fast enough that a swap follows a closed dialog within about a breath, slow enough that the poll costs
@@ -1669,9 +1670,11 @@ func _app_quiescent_blockers() -> Array[String]:
 ## shape `DccWidgets.confirm()` and `prompt()` build (`S4_INVENTORY.md` §5.3, "Transient dialogs"), as is a
 ## `modal_card()` that `DccWidgets.modal_present()` marked with `TRANSIENT_CARD_META`, and each
 ## waits by Q-S4-3's default. **S4.4: any other visible window also holds the swap** ("the X window is open"): a
-## long-lived window is laid out for the class it was opened in and S4.5 (`S4_INVENTORY.md` section 11) is what will
-## re-present it, so until then a swap would leave it in the wrong layout, or (a window with typed text) lose it.
-## The reason names the window so the user can close it. An open menu (a `Popup`) holds it too, for a moment.
+## long-lived window is laid out for the class it was opened in, so a swap would leave it in the wrong layout, or (a
+## window with typed text) lose it. **S4.5: a window that declares `represent_capture()` is the exception** (it is built
+## again for the new class and given its state back, `S4_INVENTORY.md` section 18); what it holds unconfirmed it still
+## reports through `quiescent_blockers()` or `held_changes()` and still waits (Q-S4-2). The reason names the window so the
+## user can close it. An open menu (a `Popup`) holds it too, for a moment.
 func _collect_window_blockers(node: Node, out: Array[String]) -> void:
 	for c in node.get_children():
 		if c is Window:
@@ -1692,7 +1695,9 @@ func _collect_window_blockers(node: Node, out: Array[String]) -> void:
 					var t := w.title.strip_edges()
 					out.append("a confirmation is open" + ("" if t == "" else " (" + t + ")"))
 				## S4.4: an open window that reported nothing of its own still holds the swap until S4.5.
-				if out.size() == before:
+				## S4.5: a window that re-presents itself (`window_represent.gd`) is not a reason to wait; what it holds
+				## unconfirmed it has already said above.
+				if out.size() == before and not w.has_method("represent_capture"):
 					if w is Popup:
 						out.append("a menu is open")
 					else:

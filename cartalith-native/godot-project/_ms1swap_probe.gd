@@ -15,6 +15,7 @@ extends Node
 ##         every carried item, the Ask conversation, the tool settings, the world hash and the camera zoom checked after
 ##         each; writes `<prefix>.phone` and `<prefix>.tablet` for the runner to compare with a cold boot.
 ##         `--clean` sets no user state, `--noworld` also stands no world, so the end state equals `--leg norm`'s.)
+##   ... -- --leg represent --force-touch --vp 1800x1000 --density 1          (S4.5: open windows are re-presented in place)
 ##   ... -- --leg norm [--world] --force-touch --vp 880x1564 --density 1 --out <file>   (cold boot, optionally with a world)
 ##
 ## Legs:
@@ -122,8 +123,8 @@ func _ready() -> void:
 	var leg := _arg("--leg", "")
 	_debug_names = "--names" in OS.get_cmdline_user_args()
 	var parts := _arg("--vp", "").split("x")
-	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry", "live"] or parts.size() != 2:
-		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry|live and --vp WxH")
+	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry", "live", "represent"] or parts.size() != 2:
+		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry|live|represent and --vp WxH")
 		get_tree().quit(2)
 		return
 	var vw := int(parts[0])
@@ -165,6 +166,8 @@ func _ready() -> void:
 		await _carry()
 	elif leg == "live":
 		await _live()
+	elif leg == "represent":
+		await _represent()
 	else:
 		await _roundtrip()
 	print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
@@ -965,7 +968,10 @@ func _live() -> void:
 		_live_world = _world_hash()
 	## ---- a window open: the swap waits with a reason, loses nothing, and runs when the window closes ----
 	print("-- a window is open")
-	var roster = _app.faction_roster_window
+	## A window with no re-present path yet (`REPRESENTED_WINDOWS` in app.gd): the travel library, until its batch lands
+	## (then this takes the next unconverted one, and `--leg represent` carries the converted windows' checks).
+	var roster = _app.travel_library_window
+	_ok(not roster.has_method("represent_capture"), "the window used for the wait check has no re-present path (else pick another)")
 	roster.open()
 	await _frames(10)
 	var le: LineEdit = null
@@ -1094,3 +1100,180 @@ func _live_fixture_a() -> void:
 	_ok(_st["ask_n"] >= 1 and win.is_docked(), "the conversation holds %d entries and is docked in the Ask tab" % _st["ask_n"])
 	_app.open_context_tab("inspect")
 	await _frames(4)
+
+## ---- S4.5: windows re-presented in place -------------------------------------------------------------------------------
+## `--leg represent`: a tablet with ONE converted window open at a time (the roster, then the Place editor), with state the
+## user set, swapped to the phone and back across the 900 dp line through the real resize path. One at a time because on
+## the phone and the tablet an `AcceptDialog` is exclusive (`ContextWindow.applies()` is false there), so the engine
+## refuses a second modal window: B5's "three windows open at once" can only be a desktop state, and a desktop never
+## swaps (touch is hardware). After each swap: no wait, the window is a new instance open in the new class's form (its
+## baked `_phone`, `borderless`, `min_size`), its state is intact (the faction or place, the tab, the simulator mode, the
+## scroll), its layout equals a fresh open's, and the counts do not grow. Then a window with no re-present path yet (the
+## vault with unsaved text) holds the swap with its reason while a converted window is open, and that window comes
+## through when it ends. Expected values are literals.
+
+const REP_TAB := "economy"
+const REP_PLACE_TAB := "timeline"
+const REP_SIM := "recovery"
+## 20, not larger: the old window is stretched by the engine to the new viewport before the swap reads it, and the faction
+## roster's scroll then clamps to 35 (measured in this leg), so a larger value would be clamped by the resize, not lost by the swap.
+const REP_SCROLL := 20
+const REP_FIELDS := {
+	"faction_roster_window": {"open": true, "selected": 2, "tab": REP_TAB, "pair": -1, "scroll": REP_SCROLL},
+	"place_editor_window": {"open": true, "index": 1, "tab": REP_PLACE_TAB, "sim_mode": REP_SIM, "scroll": REP_SCROLL},
+}
+
+## The structure lines of one window, visible nodes only, no names or text: what `_structure_lines()` gives a composition.
+func _window_lines(w: Node) -> PackedStringArray:
+	var out := PackedStringArray()
+	_structure_lines(w, 0, out, true)
+	return out
+
+## Builds the window again through the app's own constructor, gives it `bag` and returns its lines: what a fresh open of
+## the same window in the current class looks like. The probe's oracle for "equals a fresh open".
+func _fresh_lines(field: String, bag: Dictionary) -> PackedStringArray:
+	var fresh: Node = _app._make_window(field)
+	await fresh.represent_restore(bag)
+	await _frames(6)
+	var lines := _window_lines(fresh)
+	fresh.hide()
+	fresh.free()
+	await _frames(2)
+	return lines
+
+## The window's state as its own fields hold it, for the literal checks.
+func _rep_state(field: String) -> Dictionary:
+	var w = _app.get(field)
+	if field == "faction_roster_window":
+		return {"open": w.visible, "sel": int(w._selected), "tab": String(w._tab), "phone": bool(w._phone)}
+	return {"open": w.visible, "idx": int(w._index), "tab": String(w._active_tab), "sim": String(w._sim_mode), "phone": bool(w._phone)}
+
+func _rep_scroll(field: String) -> int:
+	var w = _app.get(field)
+	var body: Node = w._inspector_body if field == "faction_roster_window" else w._body
+	var p := body.get_parent()
+	while p != null and not p is ScrollContainer:
+		p = p.get_parent()
+	return -1 if p == null else (p as ScrollContainer).scroll_vertical
+
+func _rep_expect(field: String) -> Dictionary:
+	if field == "faction_roster_window":
+		return {"open": true, "sel": 2, "tab": REP_TAB}
+	return {"open": true, "idx": 1, "tab": REP_PLACE_TAB, "sim": REP_SIM}
+
+## One step: resize across the line, wait, and check that the swap ran once without waiting and the window is open in the
+## new class's form with its state; its lines equal a fresh open's (the restored window is hidden for that, because only one
+## modal window can be shown, then opened again from its own bag).
+func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void:
+	var runs0: int = _app.class_swap_runs
+	var old = _app.get(field)
+	await _resize(w, h)
+	await _await_swap()
+	await _frames(10)
+	_ok(String(_app.class_key()) == want and _app.class_swap_runs == runs0 + 1, "%s: swapped to %s once, without waiting (class %s, runs %d -> %d)" % [tag, want, _app.class_key(), runs0, _app.class_swap_runs])
+	_ok(not str(_blockers()).contains("window is open"), "%s: no open window is holding anything (%s)" % [tag, str(_blockers())])
+	var win = _app.get(field)
+	_ok(win != old and not is_instance_valid(old), "%s: the window is a new instance and the old one is freed" % tag)
+	var st := _rep_state(field)
+	var phone := want == "phone"
+	var ex := _rep_expect(field)
+	var same := true
+	for k in ex:
+		same = same and st[k] == ex[k]
+	_ok(same, "%s: %s is open with its state (%s)" % [tag, field, str(st)])
+	_ok(st["phone"] == phone and win.borderless == phone, "%s: baked for %s (_phone %s, borderless %s)" % [tag, want, str(st["phone"]), str(win.borderless)])
+	_ok((win.min_size == Vector2i.ZERO) == phone, "%s: min_size is %s (%s)" % [tag, "cleared" if phone else "the desktop's", str(win.min_size)])
+	_ok(_rep_scroll(field) == REP_SCROLL, "%s: the scroll is %d (%d)" % [tag, REP_SCROLL, _rep_scroll(field)])
+	var rl := _window_lines(win)
+	win.hide()
+	await _frames(4)
+	var fr := await _fresh_lines(field, REP_FIELDS[field])
+	var first := -1
+	for i in mini(rl.size(), fr.size()):
+		if rl[i] != fr[i]:
+			first = i
+			break
+	_ok(rl.size() > 25 and rl == fr, "%s: the layout equals a fresh open's (%d lines vs %d; first difference %d: '%s' vs '%s')" % [tag, rl.size(), fr.size(), first, "" if first < 0 else rl[first], "" if first < 0 else fr[first]])
+	win.represent_restore(REP_FIELDS[field])
+	await _frames(10)
+
+func _rep_fixture(field: String) -> void:
+	var other := "place_editor_window" if field == "faction_roster_window" else "faction_roster_window"
+	_app.get(other).hide()
+	if field == "faction_roster_window":
+		_app.faction_roster_window.open(2, REP_TAB)
+	else:
+		_app.place_editor_window.open_for_tab(1, REP_PLACE_TAB)
+		_app.place_editor_window._sim_mode = REP_SIM
+	await _frames(12)
+	var w = _app.get(field)
+	var sc: ScrollContainer = null
+	for c in w.find_children("*", "ScrollContainer", true, false):
+		if (c as ScrollContainer).get_v_scroll_bar().max_value - (c as ScrollContainer).get_v_scroll_bar().page > REP_SCROLL + 20.0 and (c as Control).is_visible_in_tree():
+			sc = c
+	_ok(sc != null, "%s has a scroll with room to scroll (so the scroll check is not vacuous)" % field)
+	if sc != null:
+		sc.scroll_vertical = REP_SCROLL
+		print("  info %s scroll node %s max %.0f set %d" % [field, str(w.get_path_to(sc)), sc.get_v_scroll_bar().max_value, sc.scroll_vertical])
+	await _frames(4)
+	_ok(_rep_scroll(field) == REP_SCROLL, "%s: the scroll is set to %d before the swap (%d)" % [field, REP_SCROLL, _rep_scroll(field)])
+	var st := _rep_state(field)
+	_ok(st["open"] and not st["phone"], "%s is open on the tablet (%s)" % [field, str(st)])
+
+func _represent() -> void:
+	await _settle_at_rest()
+	var boot := String(_app.class_key())
+	_ok(boot == "tablet", "boots as a tablet (class_key %s)" % boot)
+	await _make_world()
+	var parts := _arg("--vp", "").split("x")
+	var tab := Vector2i(int(parts[0]), int(parts[1]))
+	## 800 dp tall, not the 1 564 of the live leg: a window as tall as the phone shows 1 200 px of content with nothing to scroll, so
+	## the scroll carried across would be a vacuous check there.
+	var ph := Vector2i(880, 800)
+	_live_world = _world_hash()
+	_live_zoom = float(_app.viewport.zoom())
+	for field in REP_FIELDS:
+		print("-- %s: open on the tablet with state, then three round trips" % field)
+		await _rep_fixture(field)
+		var o0 := -1
+		var c0 := {}
+		for t in range(1, 4):
+			await _rep_step(field, ph.x, ph.y, "phone", "%s trip %d to the phone" % [field, t])
+			await _rep_step(field, tab.x, tab.y, "tablet", "%s trip %d back to the tablet" % [field, t])
+			if t == 1:
+				o0 = _orphans()
+				c0 = _live_conn_sets()
+			else:
+				_ok(_orphans() == o0, "%s trip %d: orphan nodes %d equal trip 1's %d" % [field, t, _orphans(), o0])
+				_ok(_live_conn_sets() == c0, "%s trip %d: the named signals have trip 1's receivers" % [field, t])
+		_app.get(field).hide()
+		await _frames(4)
+	_ok(_world_hash() == _live_world and absf(float(_app.viewport.zoom()) - _live_zoom) < 1e-6, "the world and the camera are untouched")
+	print("-- the vault holds the swap until its text is saved (a converted window is hidden by then: only one modal window can be shown)")
+	var vw = _app.vault_window
+	_ok(not vw.has_method("represent_capture"), "the vault has no re-present path yet (this block moves when it gets one)")
+	_app.faction_roster_window.hide()
+	_app.place_editor_window.hide()
+	vw._browse_path = "probe.md"
+	vw._browse_saved = "saved"
+	vw._browse_text = "typed but not saved"
+	vw.show()
+	await _frames(4)
+	_ok(vw._is_dirty(), "the vault holds unsaved text")
+	var runs0: int = _app.class_swap_runs
+	await _resize(ph.x, ph.y)
+	await _frames(20)
+	await get_tree().create_timer(1.3).timeout
+	_ok(String(_app.class_key()) == "tablet" and _app.class_swap_runs == runs0 and str(_blockers()).contains("a note has unsaved text"), "the swap waits for the vault's text and names it (%s)" % str(_blockers()))
+	_ok(str(_app.status_slot_text("hint")).begins_with("Layout change waiting: a note has unsaved text"), "the status line says: '%s'" % _app.status_slot_text("hint"))
+	vw._browse_saved = "typed but not saved"
+	vw._browse_path = ""
+	vw.hide()
+	await _await_swap()
+	_ok(String(_app.class_key()) == "phone" and _app.class_swap_runs == runs0 + 1, "once the text is saved the swap runs (class %s)" % _app.class_key())
+	_ok(bool(_app.faction_roster_window._phone) and bool(_app.place_editor_window._phone), "the two windows, closed, were rebuilt for the phone too (a later open is in its form)")
+	var freed := 0
+	for l in _connection_lines():
+		if String(l).contains("freed/"):
+			freed += 1
+	_ok(freed == 0, "no connection keeps a freed receiver (%d)" % freed)

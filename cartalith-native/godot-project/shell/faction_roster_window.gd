@@ -151,6 +151,7 @@ const TAB_MIN_H_POINTER := 28
 
 ## PC-7: the non-blocking, follow-until-pinned rules shared by the five context windows.
 const ContextWindow := preload("res://shell/context_window.gd")
+const WindowRepresent := preload("res://shell/window_represent.gd")
 
 var app                       ## `DccApp`
 ## The `EngineBridge` given to `setup()`; every `civ_*` call here goes through it, and `setup`
@@ -737,6 +738,28 @@ func open(select_faction: int = -1, tab: String = "", pair_with: int = -1) -> vo
 		## more after the first layout pass (measured: 2 602 -> 581).
 		child_controls_changed.call_deferred()
 
+
+## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild. Committed first, so a
+## half-typed field lands on the faction it was typed for (FR-02, as `open()` does). The inspector's scroll is read from
+## the pane that holds `_inspector_body`, the phone's one column or the desktop's detail pane. `_religion_edit_id` is not
+## carried: an open religion editor is a held change (`held_changes()`), which makes a swap wait instead.
+func represent_capture() -> Dictionary:
+	if _inspector_body != null and is_instance_valid(_inspector_body) and visible:
+		_commit_focused_field()
+	return {"open": visible, "selected": _selected, "tab": _tab, "pair": _pair,
+		"scroll": WindowRepresent.scroll_value(_inspector_body) if _inspector_body != null and is_instance_valid(_inspector_body) else 0}
+
+## The other half, on the NEW window (built for the class the shell is in now). An open window opens onto the carried
+## faction and tab (`open()`, which also reads `DccWidgets.phone_present()` for the new class); a closed one only has
+## its selection and tab put back for its next open. A coroutine: the scroll waits for the new layout.
+func represent_restore(bag: Dictionary) -> void:
+	if bool(bag["open"]):
+		open(int(bag["selected"]), String(bag["tab"]), int(bag["pair"]))
+		await WindowRepresent.restore_scroll(_inspector_body, int(bag["scroll"]))
+	else:
+		_selected = int(bag["selected"])
+		if TAB_IDS.has(String(bag["tab"])):
+			_tab = String(bag["tab"])
 
 ## Set for the duration of a pane teardown. The inspector's name field commits
 ## on `focus_exited`, and removing a focused `Control` from the tree fires that

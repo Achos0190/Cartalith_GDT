@@ -1624,13 +1624,9 @@ func _ready() -> void:
 	## worth holding between opens, and the place editor in particular is
 	## reopened from four different places (the context menu, the Delete-key
 	## path's confirm, the roster's settlement sublist, and the CIVIL dock).
-	place_editor_window = PlaceEditorWindow.new()
-	add_child(place_editor_window)
-	place_editor_window.setup(self, bridge)
-
-	faction_roster_window = FactionRosterWindow.new()
-	add_child(faction_roster_window)
-	faction_roster_window.setup(self, bridge)
+	## MS-1 S4.5: through `_make_window()`, the one path a class swap rebuilds them by (`window_represent.gd`).
+	place_editor_window = _make_window("place_editor_window")
+	faction_roster_window = _make_window("faction_roster_window")
 
 	settlement_types_window = SettlementTypesWindow.new()
 	add_child(settlement_types_window)
@@ -2095,6 +2091,65 @@ func _restore_class_state_now() -> void:
 func _perform_class_swap() -> void:
 	await _remount_composition()
 
+## **MS-1 S4.5: the windows that are re-presented, not waited for** (`window_represent.gd` has the contract and why a
+## window is built again rather than edited). Each name is a `DccApp` field that `_make_window()` can build. A window is
+## added here only with its `represent_capture()` and `represent_restore()`, and its probe leg in `_ms1swap_probe.gd`
+## (`--leg represent`); `S4_INVENTORY.md` section 18 says which windows are still not here and so still hold a swap.
+const REPRESENTED_WINDOWS := ["place_editor_window", "faction_roster_window"]
+## What `_capture_windows()` read, by field name, until `_represent_windows()` and `_restore_windows()` have used it.
+var _window_bags: Dictionary = {}
+
+## Builds the long-lived window `field` for the class the shell is in now, exactly as `_ready()` did at boot: the one
+## constructor both paths use, so a re-presented window cannot differ from a cold boot's. Returns the new window (already
+## a child of this node and set up); the caller assigns the field. Never frees anything.
+func _make_window(field: String) -> Node:
+	var w: Node
+	match field:
+		"place_editor_window":
+			w = PlaceEditorWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"faction_roster_window":
+			w = FactionRosterWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+		_:
+			push_error("_make_window: no builder for '%s'" % field)
+	return w
+
+## Step 1 of a swap's windows, BEFORE anything is unmounted: each represented window says what the user set.
+func _capture_windows() -> void:
+	_window_bags = {}
+	for f in REPRESENTED_WINDOWS:
+		var w = get(f)
+		if w != null and is_instance_valid(w):
+			_window_bags[f] = w.call("represent_capture")
+
+## Step 2, after the class is republished and BEFORE the app mounts (so the workspaces the mount builds connect to the
+## new instances): every represented window is freed and built again for the new class, hidden or open. A hidden one is
+## rebuilt too, because its `_phone` and presentation were baked for the class it was built in and a later open would
+## otherwise show the wrong layout.
+func _represent_windows() -> void:
+	for f in REPRESENTED_WINDOWS:
+		var old = get(f)
+		if old != null and is_instance_valid(old):
+			(old as Node).free()
+		set(f, _make_window(f))
+
+## Step 3, after the mount: each rebuilt window gets its bag (an open one opens again, in the new class's form). Coroutines
+## the swap does not await (a scroll offset needs laid-out frames).
+func _restore_windows() -> void:
+	## One frame first: the phone's insets, its gesture reserve and the dialogs' button bars are settled by the frame after
+	## the mount, and a window opened before it was measured 27 px taller than the same window opened after (`_ms1swap_
+	## probe.gd --leg represent`, "equals a fresh open's").
+	await get_tree().process_frame
+	for f in REPRESENTED_WINDOWS:
+		if _window_bags.has(f):
+			var w = get(f)
+			if w != null and is_instance_valid(w):
+				w.call("represent_restore", _window_bags[f])
+	_window_bags = {}
+
 ## **The class swap** (MS-1 S4.4, `MOBILE_SHELL_MS1_SPEC.md` section 3.5, `S4_INVENTORY.md` sections 15 to 17):
 ## unmounts the whole composition and mounts it again, at the class the host's size names, carrying what the user
 ## set. `DccShell._run_class_swap()` calls it once `quiescent_blockers()` is empty (so no held input, no long-lived
@@ -2111,8 +2166,10 @@ func _remount_composition(touch: Variant = null) -> void:
 	var t0 := Time.get_ticks_usec()
 	var status := status_snapshot()
 	_capture_class_state()
+	_capture_windows()
 	_unmount_app_composition()
 	_republish_class(_touch if touch == null else bool(touch))
+	_represent_windows()
 	_restore_dock_state()
 	_mounting_composition = true
 	_mount_composition()
@@ -2125,6 +2182,7 @@ func _remount_composition(touch: Variant = null) -> void:
 	_mount_journey_planner()
 	_build_stale_recompute()
 	_restore_class_state_now()
+	_restore_windows()
 	restore_status(status)
 	last_swap_sync_ms = (Time.get_ticks_usec() - t0) / 1000.0
 	await _restore_view_state()

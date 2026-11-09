@@ -901,3 +901,63 @@ Written for stage S4.4 against `a61eb9e6`, verified by `_ms1swap_probe.gd --leg 
 - The Cartography workspace's Render parts (`RenderWorkspace`'s ramp mode and similar fields) and the colour-paint tool's active
   layer and undo stacks are not in the bag.
 - B5's full bar (S4.6): the three-window probe of section 12 needs S4.5.
+
+## 18. Addendum, 2026-11-09: S4.5, the re-present path (batch 1: the shared helper, the faction roster, the Place editor)
+
+Written against `415f0196`, read at the symbols named, verified by `_ms1swap_probe.gd --leg represent`, not by this prose.
+
+### 18.1 The decision the contract of section 5.1 became
+
+Section 5.1 proposed an in-place `_represent(was_phone)` that undoes the presentation and rebuilds the content. It was not
+built that way, because section 5.2's own finding makes it unsafe: `phone_fit()` has no inverse, `phone_present()` and
+`_desktop_window_size()` are meta-flagged one-way, and a window's `_phone` is read at its build sites. **A window is built
+again instead**, through the same constructor `_ready()` uses, which is the one path that cannot differ from a cold boot.
+`window_represent.gd` (a `RefCounted`, no `class_name`) states the contract; `DccApp` runs it:
+
+- `REPRESENTED_WINDOWS` names the windows that take part; `_make_window(field)` builds one (the lines `_ready()` held, moved);
+- `_capture_windows()` runs first in `_remount_composition()`, before anything is unmounted: each window answers
+  `represent_capture() -> Dictionary` (it commits a half-typed field as its own re-open does, and holds no node);
+- `_represent_windows()` runs after `_republish_class()` and before the mount: the old instance is freed and a new one built for
+  the new class, **open or hidden** (a hidden window's `_phone` and presentation were baked for the old class too, which was
+  already wrong before S4.5 for every window a swap passed while closed), so the workspaces the mount builds connect to the new
+  instances;
+- `_restore_windows()` runs after the mount, one frame later (a window opened before the phone's insets and the dialogs' button
+  bars settle measured 27 px taller than the same window opened after): an open window calls its own `open*` for the carried
+  subject, which presents for the new class, and `WindowRepresent.restore_scroll()` puts the scroll back.
+- `DccShell._collect_window_blockers()` no longer reports "the X window is open" for a window with `represent_capture()`. What
+  such a window holds unconfirmed it still reports (`held_changes()`, `quiescent_blockers()`), so it still makes a swap wait
+  (Q-S4-2): the Place editor's unsubmitted event and the roster's open religion editor.
+
+### 18.2 Batch 1: what is converted, what each carries
+
+| Window | Carried | Not carried, and why |
+|---|---|---|
+| `faction_roster_window.gd` | `_selected`, `_tab`, `_pair`, the inspector's scroll (a half-typed field is committed first, FR-02) | `_religion_edit_id` (held: it makes the swap wait); the list pane's scroll (the phone has no list pane while an inspector shows) |
+| `place_editor_window.gd` | `_index`, `_active_tab`, `_sim_mode`, the scroll (committed first, PE-01) | the `_ae_*` event draft (held, waits) |
+
+### 18.3 Findings
+
+- **B5's "three windows open at once" is a desktop state only.** On the phone and the tablet an `AcceptDialog` is exclusive (PC-7's
+  `make_context()` clears the flag on the desktop only), so the engine refuses a second one ("Attempting to make child window
+  exclusive"), and a desktop never swaps (touch is hardware). The probe therefore opens one converted window at a time and checks
+  the vault's wait in its own step; the spec's B5 sentence stands as a desktop-shaped wording and S4.6 should read it so.
+- **A window's scroll is clamped by the engine's own resize before the swap reads it.** When the viewport grows, the old phone
+  window is stretched to it and the roster's scroll clamps (35 here), so the bar uses 20: a larger value would be lost to the
+  resize, not to the swap.
+- **A phone window as tall as the screen has nothing to scroll**, so the probe's phone is 880 x 800 dp, not the live leg's 880 x 1564
+  (the class depends on the width only, Ruling EG).
+- **The live leg's "a window is open" step used the faction roster**; it now uses the travel library, a window with no
+  re-present path yet, and asserts that it has none (so the step moves to the next unconverted window when that one is converted).
+
+### 18.4 Which windows are not converted (they still hold a swap while open, and are still wrong if opened after a swap)
+
+From section 5.3's table, all but the two above: `vault_window`, `data_manager_window`, `asset_library_window` (and its slicer),
+`new_world_dialog`, `open_project_dialog`, `phone_project_picker`, `travel_library_window`, `llm_assistant_window`,
+`llm_settings_window`, `layers_popover`, `quick_bar_window`, `quick_bar_phone_list`, `world_data_window`, `city_viewer_window`,
+`conflicts_window`, `saved_journeys_window`, `settlement_types_window`, `generation_rules_window`, `gen_info_dialog`,
+`shortcuts_dialog`, `export_dialog`, the credits sheet and the desktop search dialog. Each needs its `represent_capture()` /
+`represent_restore()` and a `_make_window()` arm; the ones `_ready()` builds with extra wiring (`quick_bar_window.pins_changed`,
+`vault_window.store_changed`, `assistant_settings_window.settings_changed`) need that wiring in the arm. The windows with a
+held-input state (the vault, New world, the slicer, Export, the Travel library draft) keep waiting by Q-S4-2 and need the
+re-present only for the moments they hold nothing. A pop-out (`PopoutHost`) window is a native window on the desktop only and a
+desktop never swaps, so a converted window's native state is not carried (PW owns that file).
