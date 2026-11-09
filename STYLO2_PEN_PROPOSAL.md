@@ -441,3 +441,34 @@ measured on the Pad 3; desktop runs only prove absence handling.
 | P9 | Ship Pen link in builds given to others, or only in the owner's own APKs? | Owner's own builds, labelled experimental, until SP-7 passes and the owner has considered the protocol's undocumented status |
 | P10 | Accept the Gradle build switch, if P1 is yes? | Yes; it is the only route for BLE callbacks (§6.1) |
 | P11 | Wait for the pack's `stylus-input.md` before SP-2? | No; fold it into the drafts when it arrives |
+
+---
+
+## 11. Build notes (Ruling EK, 2026-11-09 onward)
+
+Ruling EK revisited EE, so SP-2..SP-7 are building. This section records what each landed commit did and what is
+the owner's to do; it carries no status column (`STATUS.md` answers how far).
+
+### 11.1 SP-0, the raw-input check: the owner's exact commands (not run, not claimed)
+
+SP-0 needs a person holding the pen. Nothing here has been run. On the PC, with the Pad 3 on USB debugging
+(`adb devices` lists it) and the pen paired:
+
+```
+adb shell getevent -lt > sp0_mode_off.txt        # presentation mode OFF; Ctrl+C after the taps below
+```
+While it records: **20 double taps**, wait 2 s, then **10 full slides** (end to end of the side strip, then back).
+Then turn the pen's presentation mode **on** (OnePlus pen settings) and repeat into `sp0_mode_on.txt`.
+
+```
+adb shell getevent -il                           # lists every input device; name the one the pen shows as
+adb shell dumpsys input > sp0_dumpsys_input.txt  # is the pen an input device; any battery line
+adb shell dumpsys bluetooth_manager | findstr /i "stylo gatt" > sp0_bt.txt
+```
+Also note, by hand: while drawing in Cartalith, does the pen's writing feedback ever buzz (P6)? Does OnePlus Notes'
+double tap still act while Cartalith's Pen link is on (SP-4's two-actions risk)?
+
+Read the result as follows. A `KEY_*` or `BTN_*` line within about 100 ms of each double tap means the pen also sends
+a standard key, and SP-1 (a GDScript rule on an unknown key from the pen device) covers the double tap with no
+Bluetooth. Only `ABS_*` or `SYN_*` lines from the digitizer mean it does not. Put the four files under
+`cartalith-native/docs/evidence/stylus-<date>/` and fill SP-0's rows (20 double taps and 10 slides per mode).

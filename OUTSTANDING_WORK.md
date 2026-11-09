@@ -234,6 +234,8 @@ working copy in this repo" and "Everything, staged"; `html/README.md`)
   reads them over BLE, which Ruling EE puts off. The proposal asks the owner to revisit EE for one read-only plugin
   (§10 P1–P11); SP-0 (measure with `getevent`) and SP-1 (a key from the pen, if it sends one) sit inside EE. The
   pen's motor stays off in every option.
+  **Ruling EK (2026-11-09) revisits EE for the read-only plugin; its SP milestones are building** (`STYLO2_PEN_PROPOSAL.md`
+  section 11 has the build notes and SP-0's exact `getevent` commands, which need a person holding the pen).
 - **Stylus input, standard pointer input only (Ruling EE): SH-2, SH-3, SH-4, SH-5, SH-6 and SH-9 are in the shell**
   (`STATUS.md`'s *Standard stylus input built* entry has the evidence; this row never records status). **Left:** the Rust
   half of SH-5 (`tilt_size` / `tilt_min` in `paint_stroke_options`, its own parity-gated change, not started); sculpt's
