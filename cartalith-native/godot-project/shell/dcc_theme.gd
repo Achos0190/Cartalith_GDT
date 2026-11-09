@@ -1514,6 +1514,54 @@ static func width_class_of(width_dp: float) -> String:
 			out = String(row[0])
 	return out
 
+# -- MS-7: the tablet docking rule and the whole menu bar (`MOBILE_SHELL_PROPOSAL.md` section 2.2) --------------
+#
+# Inside the tablet shell only (Ruling EG: the tablet is 900 dp of shortest width and above; Ruling DY MQ-1 (c): the
+# width classes are layout classes inside it). Pure functions of numbers, so a probe asserts them with literals.
+
+## The narrowest the map may be while a dock is docked, in dp. The proposal's number (section 2.2, "a dock stays
+## docked only while the map keeps at least 520 dp"), itself a labelled judgement: a map any narrower than the dock
+## beside it stops being the thing the screen is for. Not measured on glass; revisit on the Pad 3.
+const TABLET_MAP_MIN_DP := 520.0
+
+## The width of a floating dock's edge tab, in dp: the touch floor (`PHONE_TAP_MIN`, 44) on the axis that is its
+## width; the tab is also 44 dp or more tall. A collapsed dock's strip is `W_RAIL_COLLAPSED` (40), under the floor.
+const TABLET_DOCK_TAB_DP := 44.0
+
+## From this width in dp the tablet's menu bar is the desktop's eight menus whole; below it, the short bar
+## `☰ · File · World · Records · Story` (Ruling DU Q7, amended by Ruling DY PQ6). The proposal's number, taken at
+## its word: the eight titles plus the touch padding need about this much beside the quick cluster (to be read
+## on glass; `_ms7_probe.gd` measures that no title clips at 900, 1 179 and 1 180 dp).
+const TABLET_WHOLE_BAR_DP := 1180.0
+
+## Which docks of a tablet stay docked, by the docking rule. `row_w` is the width of the row the rail, docks and
+## map share; `fixed_w` everything in it that is neither a dock nor the map (the rail); `left_w` and `right_w` the
+## docks' own widths. A dock that does not stay docked floats: an edge tab of `TABLET_DOCK_TAB_DP` stays in the
+## row and the dock opens over the map. The left dock has priority (the proposal: "the left dock docks if the map
+## keeps 520; the inspector floats"), then the right. Returns `{left: bool, right: bool, map: float}` where `map`
+## is the width the map has under that answer. Never returns a docked dock that leaves `map` under the floor
+## unless nothing docked can give more: with both floating the map is whatever the row leaves, reported as it is.
+static func tablet_dock_plan(row_w: float, fixed_w: float, left_w: float, right_w: float) -> Dictionary:
+	var tab := TABLET_DOCK_TAB_DP
+	var both := row_w - fixed_w - left_w - right_w
+	if both >= TABLET_MAP_MIN_DP:
+		return {"left": true, "right": true, "map": both}
+	var left_only := row_w - fixed_w - left_w - tab
+	if left_only >= TABLET_MAP_MIN_DP:
+		return {"left": true, "right": false, "map": left_only}
+	return {"left": false, "right": false, "map": row_w - fixed_w - 2.0 * tab}
+
+## True when a tablet of this width in dp shows the whole bar. Pure. `was` is the bar the shell has now: -1 for
+## none (a boot or a remount, the plain line), 0 for the short bar, 1 for the whole bar. A live window then needs to
+## pass the line by `BAND_DP` to change its bar, the same hysteresis the phone/tablet line has (`classify()`).
+static func tablet_bar_whole(width_dp: float, was: int = -1) -> bool:
+	var line := TABLET_WHOLE_BAR_DP
+	if was == 0:
+		line += BAND_DP
+	elif was == 1:
+		line -= BAND_DP
+	return width_dp >= line
+
 ## The last classification, published by `DccShell` (its single writer) for the static widget factories,
 ## which have no node to reach the shell through. `{}` until the shell has classified once; readers must
 ## treat an empty dictionary as "not classified yet", never as a phone or a tablet.

@@ -1876,8 +1876,11 @@ func _mount_app_composition() -> void:
 		DccMenus.ID_WIN_RAIL: rail_region(),
 	}
 	if not is_phone():
-		_region_nodes[DccMenus.ID_WIN_LEFT] = left_dock
-		_region_nodes[DccMenus.ID_WIN_RIGHT] = right_dock
+		## MS-7: on the tablet the dock sits in a slot, and Window's region check hides the SLOT (the dock's own
+		## `visible` belongs to the docking rule, which hides a closed floating dock; a hidden slot also gives its
+		## width back to the map, which a hidden dock inside a 400 dp slot would not).
+		_region_nodes[DccMenus.ID_WIN_LEFT] = left_dock if _left_slot == null else _left_slot
+		_region_nodes[DccMenus.ID_WIN_RIGHT] = right_dock if _right_slot == null else _right_slot
 		_region_nodes[DccMenus.ID_WIN_STATUS] = status_row.get_parent().get_parent()
 
 ## The relay `_mount_app_composition()` connects to `phone_insets_changed` on the phone. A field, not a bare

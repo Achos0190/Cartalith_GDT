@@ -683,10 +683,16 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	## Preferences · Window · Help (the mockup's A2), tablet ☰ · File · World ·
 	## Story (A7). The phone builds it too; `phone_menu.gd` re-presents it as the
 	## MORE screen's STORY section (A8).
-	if DccTheme.is_tablet():
+	## **MS-7 (Ruling DU Q7, amended by Ruling DY PQ6):** a tablet from `DccTheme.TABLET_WHOLE_BAR_DP` (1 180 dp)
+	## of width gets the PC's eight menus whole; below it, the short bar. `_tablet_bar_whole()` answers false before
+	## the first classification (`DccTheme.layout()` empty), which is the short bar this branch always was, never a
+	## guess at a width. A resize that crosses the line is a remount (`DccShell._swap_needed()`), which calls this
+	## again on a new bar, so `_generate_in_world` is written in both branches.
+	var short_bar := DccTheme.is_tablet() and not _tablet_bar_whole()
+	_generate_in_world = short_bar
+	if short_bar:
 		shell.add_menu("☰", _overflow)
 		## Ruling DY (PQ6): this bar's World menu holds Generate world, so File leaves its own out.
-		_generate_in_world = true
 		shell.add_menu("File", _file)
 		shell.add_menu("World", _world)
 		shell.add_menu("Records", _data)
@@ -709,6 +715,12 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	## SM-7: after every builder, so the Session-mode re-apply is connected
 	## after each popup's own refreshers and runs last (`_connect_session_gate()`).
 	_connect_session_gate()
+
+## True when the tablet this bar is built for is wide enough for the whole bar (`DccTheme.TABLET_WHOLE_BAR_DP`).
+## False before the first classification: an empty layout is "not classified yet", never a width.
+func _tablet_bar_whole() -> bool:
+	var dp: Vector2 = DccTheme.layout().get("dp", Vector2.ZERO)
+	return DccTheme.tablet_bar_whole(dp.x)
 
 ## Add an item the port cannot yet honour. Disabled, with the reason attached,
 ## so the menu never promises behaviour that does not exist.

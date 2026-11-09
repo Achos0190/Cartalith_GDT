@@ -4,7 +4,8 @@ extends Node
 ## menu bar and real key events through `Input.parse_input_event()`.
 ##
 ##   desktop: godot --path . --resolution 1600x1000 _pc9menus_probe.tscn -- --shots <dir>
-##   tablet:  godot --path . --resolution 1280x800  _pc9menus_probe.tscn -- --force-touch --shots <dir>
+##   tablet:  godot --path . --resolution 1024x768  _pc9menus_probe.tscn -- --force-touch --shots <dir>   (the short bar, below 1 180 dp: MS-7)
+##   wide tablet: godot --path . --resolution 1280x800  _pc9menus_probe.tscn -- --force-touch --shots <dir>   (the whole bar, read as desktop)
 ##   phone:   godot --path . --resolution 393x852   _pc9menus_probe.tscn -- --force-touch --shots <dir>
 ##
 ## **Windowed, never `--headless`**: it clicks the bar through the input system and captures the
@@ -201,7 +202,7 @@ func _close_menus() -> void:
 
 ## The popup that holds Edit's rows on this form factor: the bar's Edit, or ☰ ▸ Edit on the tablet.
 func _edit_popup() -> PopupMenu:
-	if DccTheme.is_tablet():
+	if _mode == "tablet":
 		var ov := _menu_button("☰")
 		return _sub(ov.get_popup(), "Edit") if ov != null else null
 	var mb := _menu_button("Edit")
@@ -209,7 +210,7 @@ func _edit_popup() -> PopupMenu:
 
 
 func _window_popup() -> PopupMenu:
-	if DccTheme.is_tablet():
+	if _mode == "tablet":
 		var ov := _menu_button("☰")
 		return _sub(ov.get_popup(), "Window") if ov != null else null
 	var mb := _menu_button("Window")
@@ -249,7 +250,12 @@ func _ready() -> void:
 	if _app.open_project_dialog:
 		_app.open_project_dialog.hide()
 	await _settle(6)
-	_mode = "phone" if _app.is_phone() else ("tablet" if DccTheme.is_tablet() else "desktop")
+	## MS-7: `_mode == "tablet"` means the tablet's SHORT bar (`☰ · File · World · Records · Story`), which a touch
+	## window shows below 1 180 dp. A tablet from 1 180 dp draws the PC's eight menus whole, and is read here as
+	## "desktop" (the bar and its rows are the PC's; the legs that only a pointer can run check `_touch`).
+	## Run the short bar at `--resolution 1024x768 --force-touch`, the whole bar at 1280x800 or 1600x1000.
+	var whole_bar: bool = DccTheme.tablet_bar_whole(float(DccTheme.layout().get("dp", Vector2.ZERO).x))
+	_mode = "phone" if _app.is_phone() else ("tablet" if DccTheme.is_tablet() and not whole_bar else "desktop")
 	print("== mode %s, viewport %s ==" % [_mode, get_viewport().get_visible_rect().size])
 	_bridge = _app.bridge
 	if _mode == "phone":
@@ -290,7 +296,8 @@ func _bar() -> void:
 		_ok(inside, "'%s' is drawn inside the bar and the window (rect %s, row %s)" % [(ch as MenuButton).text, str(r), str(row_rect)])
 		_ok(r.position.x >= prev_end - 0.5, "'%s' does not overlap the title before it" % (ch as MenuButton).text)
 		prev_end = r.end.x
-		_ok((ch as MenuButton).switch_on_hover == (_mode == "desktop"),
+		## MS-7: a wide touch tablet reads as "desktop" here, and has no hover (`switch_on_hover` is `not _touch`).
+		_ok((ch as MenuButton).switch_on_hover == (_mode == "desktop" and not DccTheme.is_touch()),
 			"'%s' switches on hover only on the desktop (got %s)" % [(ch as MenuButton).text, str((ch as MenuButton).switch_on_hover)])
 	await _shot("bar")
 
@@ -578,7 +585,7 @@ func _tool_options() -> void:
 	for l in row.find_children("*", "Label", true, false):
 		texts.append((l as Label).text)
 	_ok(texts.has("GENERATE · WORLD"), "the row names its context (labels %s)" % str(texts))
-	var hint := "Tap selects · hold opens the cartwheel and the card" if _mode == "tablet" \
+	var hint := "Tap selects · hold opens the cartwheel and the card" if (_mode == "tablet" or DccTheme.is_touch()) \
 		else "Click selects · right-click opens the card · Q opens the cartwheel"
 	_ok(texts.has(hint), "the row carries the one hint for this form factor")
 	_ok(_app._quick_bar != null and is_instance_valid(_app._quick_bar), "the quick bar is still mounted")

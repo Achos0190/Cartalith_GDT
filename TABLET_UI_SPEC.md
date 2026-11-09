@@ -14,6 +14,8 @@ project; `CAPTURE.md` in the same folder records the owner's *"Implement:
 Tablet"*). It needs `support.js`, `cartalith-dcc-parts.js` and
 `landmark-glyphs.js` beside it to render.
 
+**MS-7 (2026-11-09; state in `STATUS.md`) changes two things below inside the tablet shell (900 dp of shortest width and above, Ruling EG):** a dock docks only while the map keeps 520 dp, else it floats as a 44 dp edge tab over the map (`DccTheme.tablet_dock_plan()`); and from 1 180 dp the menu bar is the PC's eight menus, below it `☰ · File · World · Records · Story`. Figures below that assume two docked 400 dp docks hold only where the plan says both dock.
+
 **Adoption is decided.** Owner, 2026-09-07: *"All designs layouts and styles
 should match 100%. Check all designs, pc, tablet and phone."* "100% on tablet"
 means every layout and style with **two named exceptions**, both ruled the same

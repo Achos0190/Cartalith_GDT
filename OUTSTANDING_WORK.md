@@ -117,7 +117,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   (the `adb` commands are listed there); S4, the class swap, has its S4.0 per-item inventory written
   (`cartalith-native/docs/evidence/ms1-2026-11-07/S4_INVENTORY.md`, 2026-11-07: fields, connections, registries, windows, survivors,
   quiescence, the ordered plan and the B5 probe outline) and waits on its build, with MQ-5's re-present path in the 28 `phone_present()` files; B9's export half and B10's other 93 probes
-  were not re-run; the 11-inch tablet at true dp (346 dp map) and at UI scale 150 % (no map) wait on MS-7.
+  were not re-run. **MS-7 is built (2026-11-09; `STATUS.md`)**: the 520 dp docking rule and the 1 180 dp whole menu bar inside the tablet shell; left: the pin on a floating dock and the 1 920 dp menu-bar readouts, and the glass pass (MS-10).
   **Ruling EG (owner, 2026-11-07): below 900 dp of shortest width a touch window gets the phone shell at every aspect ratio, sized by density
   (`min(density x ui_scale, short / 412)`), never short / 412 alone.** Class swaps are then routine on tablets near 900 dp (split screen, freeform
   windows, a fold, Display size, UI scale; not rotation, since the shortest side does not change). The inventory carries the consequences, and

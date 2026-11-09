@@ -967,6 +967,12 @@ func _mount_composition() -> void:
 		get_tree().node_added.disconnect(_on_window_node_added)
 
 	_select_domain(_active_domain)
+	## MS-7: which menu bar this composition was built with (the swap compares it, `_swap_needed()`), and the
+	## docking rule for the width it was built at. The deferred call repeats the rule once the row has its real
+	## size: the first one ran on a row that had not been laid out, from the viewport's width.
+	_bar_whole_built = not _phone and DccTheme.is_tablet() 		and DccTheme.tablet_bar_whole(float(DccTheme.layout().get("dp", Vector2.ZERO).x))
+	_apply_dock_plan()
+	_apply_dock_plan.call_deferred()
 	## Deferred, and it has to be: this function runs as `super._ready()` from
 	## `DccApp._ready()`, which only creates `EngineBridge` and `ViewportHost` on
 	## the lines *after* it returns. A deferred call lands after every `_ready()`
@@ -1038,6 +1044,14 @@ func _unmount_composition() -> void:
 	tool_options_bar = null
 	rail_column = null
 	left_dock = null
+	_tablet_row = null
+	_left_slot = null
+	_right_slot = null
+	_left_tab = null
+	_right_tab = null
+	_left_floating = false
+	_right_floating = false
+	last_dock_plan = {}
 	left_dock_title = null
 	left_dock_body = null
 	viewport_area = null
@@ -1214,9 +1228,11 @@ func _restore_view_state() -> void:
 	if m.is_empty():
 		return
 	if left_dock != null and right_dock != null:
-		if bool(m.get("left_collapsed", false)):
+		## MS-7: a floating dock is left as the docking rule made it (closed): the memory's flag is about a docked
+		## dock, and `_toggle_dock()` flips rather than sets, so a closed floating dock would open here.
+		if bool(m.get("left_collapsed", false)) != _left_collapsed and not _left_floating:
 			_toggle_dock(true)
-		if bool(m.get("right_collapsed", false)):
+		if bool(m.get("right_collapsed", false)) != _right_collapsed and not _right_floating:
 			_toggle_dock(false)
 	if _phone:
 		if m.has("tab"):
@@ -1248,8 +1264,9 @@ func _republish_class(touch: bool) -> void:
 	## `_ms1swap_probe.gd --leg crossclass`; the per-class width memory hid it whenever the tablet had been visited).
 	DccTheme.set_phone(false)
 	DccTheme.set_phone_scale(1.0)
-	DccTheme.set_layout({})
-	_layout = {}
+	if not _swap_keeps_class:
+		DccTheme.set_layout({})
+		_layout = {}
 	_booted = false
 	_compute_layout_mode()
 	_booted = true
@@ -1277,9 +1294,17 @@ func _build_desktop_shell() -> void:
 	shell.add_child(main_row)
 
 	main_row.add_child(_build_rail())
-	main_row.add_child(_build_left_dock())
-	main_row.add_child(_build_viewport())
-	main_row.add_child(_build_right_dock())
+	## MS-7: on the tablet each dock sits in a slot, so that a dock the docking rule floats can open over the map
+	## while its slot stays an edge tab in the row (`_make_dock_slot()`). The desktop is built exactly as before.
+	if DccTheme.is_tablet():
+		_tablet_row = main_row
+		main_row.add_child(_make_dock_slot(_build_left_dock(), true))
+		main_row.add_child(_build_viewport())
+		main_row.add_child(_make_dock_slot(_build_right_dock(), false))
+	else:
+		main_row.add_child(_build_left_dock())
+		main_row.add_child(_build_viewport())
+		main_row.add_child(_build_right_dock())
 
 	timeline_bar = _build_timeline()
 	shell.add_child(timeline_bar)
@@ -1317,6 +1342,192 @@ func _build_desktop_shell() -> void:
 ## MS-1 S4.2: the root of the pointer-first / tablet composition (`_build_desktop_shell()`'s vertical stack), null
 ## on the phone, where `_phone_root` is the root. `_unmount_composition()` frees whichever one exists.
 var _desktop_root: Control
+
+# ===================== MS-7: the tablet's docking rule (`MOBILE_SHELL_PROPOSAL.md` section 2.2) =====================
+#
+# A dock stays docked only while the map keeps `DccTheme.TABLET_MAP_MIN_DP` (520 dp); otherwise it floats: its slot
+# in the row shrinks to a 44 dp edge tab and the dock opens over the map as a drawer, closed to start with, and
+# closes when the map is pressed (Ruling DU Q8). The decision is `DccTheme.tablet_dock_plan()`, a pure function a
+# probe asserts with literals; everything below is its effect on nodes. TABLET ONLY, inside the tablet shell (Ruling
+# EG puts the phone/tablet line at 900 dp of shortest width; Ruling DY MQ-1 (c) makes the width classes layout
+# classes inside it): `_make_dock_slot()` is called only when `DccTheme.is_tablet()`, so the desktop's nodes are the
+# nodes it always had. **Not built here:** the pin (a floating dock that stays open on a map press); the proposal
+# draws it, `OUTSTANDING_WORK.md` lists it.
+#
+# The unit: the tablet's root content scale makes `get_viewport_rect()` dp (MS-1 S2), so every width here is dp.
+
+## The tablet's rail/docks/map row (`_build_desktop_shell()`); null off the tablet.
+var _tablet_row: Control
+## The slot each tablet dock sits in; plain `Control`s, so a dock wider than its slot overflows over the map instead
+## of widening the row (a container would fold the dock's minimum size into the row). Null off the tablet.
+var _left_slot: Control
+var _right_slot: Control
+## True while the docking rule floats that dock.
+var _left_floating := false
+var _right_floating := false
+## The edge tab of each floating dock: the 44 dp target that opens it, and while it is open the handle that closes it.
+var _left_tab: Button
+var _right_tab: Button
+## The last `DccTheme.tablet_dock_plan()` result applied, `{}` before the first (probes read it).
+var last_dock_plan: Dictionary = {}
+
+## Wraps a freshly built tablet dock in its slot, with the floating state's edge tab. Called once per dock by
+## `_build_desktop_shell()`. The slot's width is the dock's, so a docked dock lays out exactly as it did in the row.
+func _make_dock_slot(dock: Control, is_left: bool) -> Control:
+	var slot := Control.new()
+	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slot.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	slot.custom_minimum_size.x = dock.custom_minimum_size.x
+	slot.add_child(dock)
+	dock.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var tab := Button.new()
+	tab.focus_mode = Control.FOCUS_NONE
+	tab.visible = false
+	var side := "left" if is_left else "right"
+	tab.tooltip_text = "Open or close the %s dock" % side
+	tab.accessibility_name = tab.tooltip_text
+	tab.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	for state in ["normal", "hover", "pressed", "focus"]:
+		tab.add_theme_stylebox_override(state, DccTheme.flat(DccTheme.c("panel")))
+	## 56 tall and `TABLET_DOCK_TAB_DP` wide: both at least the touch floor (`PHONE_TAP_MIN`, 44).
+	tab.custom_minimum_size = Vector2(DccTheme.TABLET_DOCK_TAB_DP, 56.0)
+	tab.pressed.connect(_toggle_dock.bind(is_left))
+	slot.add_child(tab)
+	if is_left:
+		_left_slot = slot
+		_left_tab = tab
+	else:
+		_right_slot = slot
+		_right_tab = tab
+	return slot
+
+## The width of the row's fixed parts, in dp: everything in the tablet row that is neither a dock slot nor the map
+## (the rail). Read from the nodes, so a rail that grows is counted.
+func _tablet_fixed_w() -> float:
+	var w := 0.0
+	for c in _tablet_row.get_children():
+		if c == _left_slot or c == _right_slot or c == viewport_area:
+			continue
+		if c is Control and (c as Control).visible:
+			w += (c as Control).get_combined_minimum_size().x
+	return w
+
+## Decides which docks float for the current width and applies it: a dock that starts floating is closed, a dock
+## that stops floating opens (a judgement: a docked dock is the tablet's default state, and a floating one is the
+## exception that starts closed, as the proposal says). Idempotent, so every caller may call it freely: a mount,
+## an orientation flip, a settled resize (a window, a UI scale), a restore. No-op off the tablet.
+func _apply_dock_plan() -> void:
+	if _left_slot == null or not is_instance_valid(_left_slot) or _tablet_row == null or not is_instance_valid(_tablet_row):
+		return
+	var row_w := _tablet_row.size.x
+	if row_w <= 0.0:
+		row_w = get_viewport_rect().size.x
+	var plan := DccTheme.tablet_dock_plan(row_w, _tablet_fixed_w(), _left_width, _right_width)
+	last_dock_plan = plan
+	_set_dock_floating(true, not bool(plan["left"]))
+	_set_dock_floating(false, not bool(plan["right"]))
+
+## Moves one dock into or out of the floating state, applying the open/closed default of the new state.
+func _set_dock_floating(is_left: bool, floating: bool) -> void:
+	var was := _left_floating if is_left else _right_floating
+	if is_left:
+		_left_floating = floating
+	else:
+		_right_floating = floating
+	if floating != was:
+		## Floating starts closed; docked starts open. `_toggle_dock()` flips, so only flip a dock that differs.
+		var collapsed := is_dock_collapsed("left" if is_left else "right")
+		if floating != collapsed:
+			_toggle_dock(is_left)
+	_sync_dock_slot(is_left)
+
+## Lays the slot, the dock and the tab out for the dock's state: docked (the slot is the dock's width, or the tab's
+## when the user collapsed it), floating closed (the slot is the tab), floating open (the slot is the tab, the dock
+## overlays the map above it, the tab moves to the dock's open edge to close it). Reads the three flags, writes
+## only layout; safe to call at any time.
+func _sync_dock_slot(is_left: bool) -> void:
+	var slot := _left_slot if is_left else _right_slot
+	var dock := left_dock if is_left else right_dock
+	var tab := _left_tab if is_left else _right_tab
+	if slot == null or not is_instance_valid(slot) or dock == null or tab == null:
+		return
+	var floating := _left_floating if is_left else _right_floating
+	var collapsed := is_dock_collapsed("left" if is_left else "right")
+	var width := _left_width if is_left else _right_width
+	var overlay := floating and not collapsed
+	## A closed floating dock is not drawn at all: its collapsed content has a minimum width of its own (127 dp on a
+	## 1 000 dp tablet, measured by `_ms7_probe.gd` before this was hidden) that would spill out of a 44 dp slot over
+	## the map. The tab, which fills the strip, is what is seen. A docked dock the user collapsed keeps its own strip
+	## and the slot is at least that wide.
+	dock.visible = not (floating and collapsed)
+	if not floating and not collapsed:
+		slot.custom_minimum_size.x = width
+	elif floating:
+		slot.custom_minimum_size.x = DccTheme.TABLET_DOCK_TAB_DP
+	else:
+		slot.custom_minimum_size.x = maxf(DccTheme.TABLET_DOCK_TAB_DP, dock.get_combined_minimum_size().x)
+	slot.z_index = 30 if overlay else 0
+	var t := DccTheme.TABLET_DOCK_TAB_DP
+	if overlay:
+		dock.anchor_top = 0.0
+		dock.anchor_bottom = 1.0
+		dock.offset_top = 0.0
+		dock.offset_bottom = 0.0
+		if is_left:
+			dock.anchor_left = 0.0
+			dock.anchor_right = 0.0
+			dock.offset_left = 0.0
+			dock.offset_right = width
+		else:
+			dock.anchor_left = 1.0
+			dock.anchor_right = 1.0
+			dock.offset_left = -width
+			dock.offset_right = 0.0
+	else:
+		dock.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	## The tab: shown while floating. Closed, it covers the strip's head; open, it sits on the dock's open edge.
+	tab.visible = floating
+	tab.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	var x := 0.0
+	if overlay:
+		x = width if is_left else -width - t
+	tab.anchor_left = 0.0 if is_left else 1.0
+	tab.anchor_right = tab.anchor_left
+	if not overlay and not is_left:
+		x = -t
+	tab.offset_left = x
+	tab.offset_right = x + t
+	## Closed, the tab is the whole strip (full height: the dock behind it is hidden, and a 44 x row-height target is
+	## the biggest, easiest thing to hit); open, a 56 dp handle at the dock's top edge.
+	tab.anchor_top = 0.0
+	tab.anchor_bottom = 0.0 if overlay else 1.0
+	tab.offset_top = 0.0
+	tab.offset_bottom = 56.0 if overlay else 0.0
+	var open_glyph: String = DccIcons.SYMBOLS["collapse"] if is_left else DccIcons.SYMBOLS["expand"]
+	var shut_glyph: String = DccIcons.SYMBOLS["expand"] if is_left else DccIcons.SYMBOLS["collapse"]
+	tab.text = open_glyph if overlay else shut_glyph
+
+## A press on the map while a floating dock is open closes it (Ruling DU Q8). Never consumes the event: the press
+## still reaches the map. A press inside the open dock, or outside the map (the menu bar, the rail), is left alone.
+func _input(ev: InputEvent) -> void:
+	if _left_slot == null and _right_slot == null:
+		return
+	var pressed := (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) \
+		or (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed)
+	if not pressed or viewport_area == null or not is_instance_valid(viewport_area):
+		return
+	var pos: Vector2 = (ev as InputEventMouse).position if ev is InputEventMouse else (ev as InputEventScreenTouch).position
+	if not viewport_area.get_global_rect().has_point(pos):
+		return
+	for is_left in [true, false]:
+		var floating: bool = _left_floating if is_left else _right_floating
+		var dock := left_dock if is_left else right_dock
+		var tab := _left_tab if is_left else _right_tab
+		## The tab is excluded: its own press closes the dock, and closing here as well would reopen it on release.
+		if floating and not is_dock_collapsed("left" if is_left else "right") \
+				and dock != null and not dock.get_global_rect().has_point(pos) \
+				and not tab.get_global_rect().has_point(pos):
+			_toggle_dock(is_left)
 
 ## Scales a fixed desktop pixel height for the current form factor: raw on a pointer
 ## build, the `DccTheme.TABLET` table entry (or a 44 px-floored `TOUCH_SCALE` multiple) on
@@ -1592,7 +1803,7 @@ func _on_resize_settled() -> void:
 		return
 	var d := _density()
 	var next := DccTheme.classify(px, float(d["value"]), _ui_scale(), _touch, bool(d["known"]), _layout)
-	if bool(next["phone"]) != _phone:
+	if _swap_needed(next):
 		_request_class_swap(next)
 		return
 	## The size came back to the current class while a swap was waiting (a split-screen divider dragged
@@ -1602,6 +1813,24 @@ func _on_resize_settled() -> void:
 	_layout = next
 	DccTheme.set_layout(_layout)
 	_apply_unit(_unit_factor())
+	## MS-7: a settled resize or a changed UI scale moves the row's width, so the docking rule is decided again.
+	_apply_dock_plan()
+
+## MS-7: whether the tablet's menu bar was built whole (the desktop's eight menus, from `TABLET_WHOLE_BAR_DP`).
+## Written by `_mount_composition()`; compared by `_swap_needed()`.
+var _bar_whole_built := false
+
+## Whether the classification `next` asks for a swap (a remount): the phone/tablet line crossed (MS-1), or, on a
+## tablet, the width crossed `TABLET_WHOLE_BAR_DP` (MS-7: the bar's menus are built once, so a new bar is a new
+## mount, spec section 3.5). The bar's line has the classifier's 16 dp hysteresis band, so a window dragged along
+## 1 180 dp does not rebuild the shell on every frame.
+func _swap_needed(next: Dictionary) -> bool:
+	if bool(next["phone"]) != _phone:
+		return true
+	if _phone or not DccTheme.is_tablet():
+		return false
+	var want := DccTheme.tablet_bar_whole(float((next["dp"] as Vector2).x), 1 if _bar_whole_built else 0)
+	return want != _bar_whole_built
 
 # ===================== MS-1 S4.1: quiescence (spec §3.5, `S4_INVENTORY.md` §8) =====================
 #
@@ -1729,6 +1958,10 @@ func _request_class_swap(next: Dictionary) -> void:
 	_clear_swap_wait_text()
 	_run_class_swap(next)
 
+## True while a swap that keeps the class runs (MS-7: the tablet's menu bar crossed `TABLET_WHOLE_BAR_DP`). Read by
+## `_republish_class()`, which then classifies with the old classification as `current`, so the hysteresis holds.
+var _swap_keeps_class := false
+
 ## The swap itself (MS-1 S4.4): `_perform_class_swap()` runs on the mount path, and the log line lets a probe see
 ## the request (the prefix `size class change requested` is what `_ms1class_probe.gd`'s runner greps). A coroutine
 ## (the restore waits two frames for the scroll offsets); `_request_class_swap()` does not await it, and
@@ -1737,9 +1970,14 @@ func _run_class_swap(next: Dictionary) -> void:
 	class_swap_runs += 1
 	print("Cartalith: size class change requested (phone=%s, %s dp)" % [str(next["phone"]), str(next["dp"])])
 	_swap_running = true
+	## MS-7: a swap that keeps the class (the tablet's menu bar changed, `_swap_needed()`) must not forget the
+	## classification it came from: `_republish_class()` would classify it from scratch, with no hysteresis, and a
+	## tablet 10 dp inside the 16 dp band would come back a phone.
+	_swap_keeps_class = bool(next["phone"]) == _phone
 	var t0 := Time.get_ticks_usec()
 	await _perform_class_swap()
 	last_swap_ms = (Time.get_ticks_usec() - t0) / 1000.0
+	_swap_keeps_class = false
 	_swap_running = false
 
 ## What a swap does. The base shell (the phone-chrome probes' bare `DccShell`) has no application and no composition
@@ -1760,7 +1998,7 @@ func _on_swap_wait_poll() -> void:
 		return
 	var d := _density()
 	var next := DccTheme.classify(px, float(d["value"]), _ui_scale(), _touch, bool(d["known"]), _layout)
-	if bool(next["phone"]) == _phone:
+	if not _swap_needed(next):
 		_cancel_swap_wait()
 		return
 	_request_class_swap(next)
@@ -1838,6 +2076,8 @@ func _on_tablet_resized() -> void:
 	_remember_dock_widths()
 	_compute_layout_mode()
 	_apply_dock_widths()
+	## MS-7: a different orientation is a different width, so the docking rule is decided again.
+	_apply_dock_plan()
 
 ## Pushes `_left_width`/`_right_width` onto the two docks. A collapsed dock is
 ## skipped rather than re-expanded -- its `custom_minimum_size.x` is
@@ -1849,6 +2089,9 @@ func _apply_dock_widths() -> void:
 		left_dock.custom_minimum_size.x = _left_width
 	if right_dock != null and not _right_collapsed:
 		right_dock.custom_minimum_size.x = _right_width
+	## MS-7: on the tablet the dock sits in a slot whose width follows it (and a floating dock's overlay width).
+	_sync_dock_slot(true)
+	_sync_dock_slot(false)
 
 ## Phone-only geometry: scaled off the real device's short side, no 44 px
 ## floor -- for chrome that is deliberately *not* tappable (the top safe area,
@@ -2466,6 +2709,10 @@ func add_menu(title: String, on_built: Callable) -> MenuButton:
 	open_box.content_margin_bottom = mpy
 	mb.add_theme_stylebox_override("pressed", open_box)
 	mb.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
+	## MS-7 (the 44 dp bar): the short tablet bar's `☰` measured 43 dp wide (one glyph and the padding), under the
+	## floor on that axis. Touch only; the pointer bar is untouched.
+	if _touch:
+		mb.custom_minimum_size.x = maxf(mb.custom_minimum_size.x, 44.0)
 	menu_bar_row.add_child(mb)
 	var popup := mb.get_popup()
 	style_popup(popup)
@@ -5269,6 +5516,8 @@ func _on_dock_drag_input(ev: InputEvent, is_left: bool) -> void:
 			_right_width = clampf(_right_width + delta,
 				float(DccTheme.W_RIGHT_DOCK_MIN), float(DccTheme.W_RIGHT_DOCK_MAX))
 			right_dock.custom_minimum_size.x = _right_width
+		## MS-7: the tablet's slot (and a floating dock's overlay) follows the dragged width.
+		_sync_dock_slot(is_left)
 
 ## Builds one dock's collapse/expand square (glyph-only, so it carries a tooltip and an
 ## accessibility name) and registers it in `_collapse_buttons` under `left`/`right`.
@@ -5668,6 +5917,8 @@ func _toggle_dock(is_left: bool) -> void:
 		var open_glyph: String = DccIcons.SYMBOLS["collapse"] if is_left else DccIcons.SYMBOLS["expand"]
 		var shut_glyph: String = DccIcons.SYMBOLS["expand"] if is_left else DccIcons.SYMBOLS["collapse"]
 		btn.text = shut_glyph if collapsed else open_glyph
+	## MS-7: the tablet's slot, tab and overlay follow the flag just written.
+	_sync_dock_slot(is_left)
 
 # -- §9 Viewport --------------------------------------------------------------
 

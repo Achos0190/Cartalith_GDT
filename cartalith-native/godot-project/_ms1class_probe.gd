@@ -313,8 +313,15 @@ func _live(leg: String) -> void:
 			## swap: the shell is the phone composition afterwards (`_ms1swap_probe.gd --leg live` is the full bar).
 			_ok(DccTheme.is_tablet(), "boots 900 x 1600 dp as a tablet")
 			await _resize(890, 1582)
-			_ok(not bool(DccTheme.layout().get("phone", true)) and DccTheme.is_tablet(),
-				"890 x 1582 stays a tablet (inside the 16 dp band), no request")
+			## MS-7: the boot was 1 800 dp wide, which draws the whole menu bar; 890 dp is the short bar, so this
+			## resize IS a request: a remount that KEEPS the tablet class (890 is inside the 16 dp band, so the
+			## hysteresis must hold across the remount, `DccShell._swap_keeps_class`). Before MS-7 it was no request.
+			var t1 := Time.get_ticks_msec()
+			while (bool(_app.get("_swap_running")) or not _app.pending_class_swap().is_empty()) and Time.get_ticks_msec() - t1 < 30000:
+				await _frames(5)
+			await _frames(10)
+			_ok(not bool(DccTheme.layout().get("phone", true)) and DccTheme.is_tablet() and String(_app.class_key()) == "tablet",
+				"890 x 1582 stays a tablet (inside the 16 dp band), also after the bar's remount (class %s)" % String(_app.class_key()))
 			await _resize(880, 1564)
 			## The settled classification says phone and the swap runs (a coroutine; wait it out).
 			var t0 := Time.get_ticks_msec()

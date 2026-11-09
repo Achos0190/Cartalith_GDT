@@ -855,6 +855,14 @@ func _live_swap(w: int, h: int, want: String) -> void:
 	_ok(String(_app.class_key()) == want and _app.class_swap_runs == runs0 + 1,
 		"%dx%d swaps to %s, once (class %s, runs %d -> %d)" % [w, h, want, _app.class_key(), runs0, _app.class_swap_runs])
 
+## MS-7: resizes and expects ONE swap that keeps the class `want` (the tablet's menu bar changed).
+func _live_bar_swap(w: int, h: int, want: String, why: String) -> void:
+	var runs0: int = _app.class_swap_runs
+	await _resize(w, h)
+	await _await_swap()
+	_ok(String(_app.class_key()) == want and _app.class_swap_runs == runs0 + 1 and _app.pending_class_swap().is_empty(),
+		"%dx%d stays %s through one bar swap (%s; class %s, runs %d -> %d)" % [w, h, want, why, _app.class_key(), runs0, _app.class_swap_runs])
+
 ## Resizes and expects NO swap: the class stays `want`, the counter does not move and nothing waits.
 func _live_stay(w: int, h: int, want: String, why: String) -> void:
 	var runs0: int = _app.class_swap_runs
@@ -947,7 +955,13 @@ func _live() -> void:
 	var ph := Vector2i(520, 1000) if _window_mode else Vector2i(880, 1564)
 	## ---- the hysteresis band, at the real resize path ----
 	print("-- hysteresis")
-	await _live_stay(890, 1000, "tablet", "890 dp is inside the band")
+	## MS-7: a tablet booted from 1 180 dp of width has the whole menu bar, and 890 dp is the short bar, so this
+	## resize is ONE swap that keeps the class (the hysteresis must hold across it: 890 is inside the band). A boot
+	## below 1 180 dp has the short bar already and no swap runs, as before MS-7.
+	if tab.x >= 1180:
+		await _live_bar_swap(890, 1000, "tablet", "890 dp is inside the band, and the bar crosses 1 180 dp")
+	else:
+		await _live_stay(890, 1000, "tablet", "890 dp is inside the band")
 	await _live_swap(880, 1000, "phone")
 	await _live_stay(900, 1000, "phone", "900 dp does not cross back")
 	await _live_swap(920, 1000, "tablet")
