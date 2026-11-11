@@ -67,6 +67,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
     - GGUF export;
     - integration, either embedded in Cartalith or through LM Studio as now.
   - **Builds on** `SMALL_LLM_ADDON_RESEARCH.md` (2026-10-26). Re-read it first and update it rather than duplicate it.
+  - **First deliverable written 2026-11-11:** `SMALL_LLM_ADDON_RESEARCH.md` Part B (sections 11 to 22): the hardware reality, the dataset from Cartalith's own symbols, evaluation and gate, integration options, an 11-lesson course outline, milestones SL-8 to SL-15 and owner questions Q-SL-1 to Q-SL-10. The owner's answers decide what is scheduled; nothing is.
 - **Consent UX (TOP PRIORITY).** The owner had to hunt for "Review consent" before Refresh or Send worked. Make consent
   reachable from the place the user is stuck. Owner: `LLM_ASSISTANT_SCOPE.md`; symbols `llm_consent.gd`, `llm_assistant_window.gd`.
   **Built 2026-10-27, mostly done:** the card now opens at once on Refresh, an entered address and Send when consent is the only refusal, Allow continues the action, and master-off shows "Turn on Assistant enabled first" with a button. Probed at 1600x1000, 1280x800, 393x852 against the in-test mock only; real LM Studio, a real remote host and a device are not done. `STATUS.md` has the entry.
