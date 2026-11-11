@@ -249,7 +249,8 @@ impl WorldGen {
         // Built for every plan, though only River Transport reads it: the
         // world tables are built before the plan's transport is final (auto
         // carriage can still change it). Its cost is not measured.
-        let (river_order, river_recv) = cartalith_civ::fresh_river_channels(
+        // Ruling ER: rebuilt along the tree the world was routed with.
+        let (river_order, river_recv) = cartalith_civ::fresh_river_channels_with(
             &ws.field,
             &ws.flow_discharge,
             gw,
@@ -259,6 +260,7 @@ impl WorldGen {
             self.params.river_density,
             self.map_width_km,
             ws.integrated_drainage,
+            cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, self.world).as_ref(),
         );
         JpWorldParts { jw, ocean, wind, river_order, river_recv }
     }

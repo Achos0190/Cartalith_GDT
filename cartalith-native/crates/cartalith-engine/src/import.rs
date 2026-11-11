@@ -352,6 +352,9 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         rainfall: std::sync::Arc::new(rainfall),
         flow_discharge: std::sync::Arc::new(flow_discharge),
         integrated_drainage: p.integrate_drainage,
+        // Ruling ER: an imported DEM is routed plain D8 -- its relief is real
+        // data, not a model's planar slopes, so no roughness is added to it.
+        routing_roughness: None,
         // River carving is likewise a height stage. The reference's
         // inferTectonics does not carve either -- it stops at computeFlow.
         channels: None,

@@ -209,7 +209,7 @@ use cartalith_erosion::{
     GlacialParams, StreamPowerParams, VelocityParams,
 };
 use cartalith_hydrology::{
-    build_channels_routed, compute_flow, compute_flow_routed, carve_channel_network, river_width_scale_k,
+    build_channels_routed_with, compute_flow_routed_with, compute_flow_with, carve_channel_network, river_width_scale_k,
     routing_view, strahler_from_receivers, trace_river_polylines, ChannelResult,
 };
 use cartalith_terrain::{
@@ -1011,6 +1011,22 @@ pub struct WorldParams {
     /// comb of parallel rivers); see `cartalith_hydrology::build_channels_routed`'s
     /// `integrated` section. At density 1 that changes nothing.
     pub integrate_drainage: bool,
+    /// **Rough routing** (owner Ruling ER, 2026-11-11;
+    /// `DELTA_GEOMETRY_RESEARCH.md` section 13): every flow routing of the
+    /// generation picks each cell's receiver with a seeded sub-grid roughness
+    /// ([`cartalith_hydrology::Roughness`]) among its strictly lower
+    /// neighbours, and the channel network follows that accumulation tree,
+    /// so a river crossing a planar slope wanders instead of running as a
+    /// ruler line on a grid axis (section 11 measured 32-58 % of every
+    /// network's length in such runs).
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p):
+    /// the reference and every golden route plain D8. It acts only with
+    /// [`Self::integrate_drainage`] on (the routing surface's fill is what
+    /// guarantees every land cell a strictly lower neighbour). The world's
+    /// rivers move -- Ruling ER overrides Ruling EN item 5 for new worlds;
+    /// a saved world keeps its rivers ([`WorldState::routing_roughness`]).
+    pub rough_routing: bool,
     /// The geology-first lithology model (`GEOLOGY_FIRST_SCOPE.md`, owner
     /// Rulings BH and BJ): run the geology stage and store its column on
     /// [`WorldState::geology`].
@@ -1210,6 +1226,9 @@ impl WorldParams {
             // Off: the reference this baseline reproduces has no fill. On at
             // the app boundary -- see the field's own doc comment.
             integrate_drainage: false,
+            // Off: the reference routes plain D8. On at the app boundary
+            // (Ruling ER) -- see the field's own doc comment.
+            rough_routing: false,
             // Off: the parity baseline. On at the app boundary (§6.1).
             geology_model: false,
             // Off: the parity baseline, and off in the app too until §5.6's
@@ -1502,6 +1521,15 @@ pub struct WorldState {
     /// trees need the same surface"). Read it from here, not from the live
     /// parameters, which may have moved since the world was made.
     pub integrated_drainage: bool,
+    /// **The seed of the routing roughness this world's flow and channels
+    /// were routed with** ([`WorldParams::rough_routing`], Ruling ER), or
+    /// `None` for plain D8 -- every world before the ruling, every golden and
+    /// every world generated with it off. Like
+    /// [`Self::integrated_drainage`], a property of *this world's* drainage:
+    /// a consumer that rebuilds a receiver tree from `field` and
+    /// `flow_discharge` ([`routing_roughness_of`]) must use it to rebuild the
+    /// same tree, whatever the live parameters say now.
+    pub routing_roughness: Option<i64>,
     /// **`ChannelResult::slope` is released before this is stored** and is
     /// an empty `Vec` here — see `generate_terrain`'s own note at the point
     /// it drops it (`MEMORY_OPTIMIZATION_SCOPE.md` R2). `recv` and `chan`
@@ -2683,7 +2711,19 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // device handshake failed; every call site below falls back to the real
     // `compute_flow` in that case (`HARDWARE_ACCELERATION.md` §27).
     let gpu_flow = gpu_device.map(cartalith_gpu::init_gpu_flow_with);
+    // Ruling ER: the routing roughness, built once and handed to every flow
+    // routing below and to the channel network, so the accumulation tree and
+    // the channel tree are one tree. `None` (rough routing off, or no
+    // integrated drainage) is plain D8: every call below is then the call it
+    // was before, cell for cell.
+    let rough = roughness_for(p);
+    let rough_seed = rough.as_ref().map(|_| p.tect.seed as i64);
+    // The GPU kernel routes plain D8 only, so with a roughness the CPU path
+    // runs (the same rule `use_gpu` off takes).
     let flow_on_gpu = |field: &[f32], rain: Option<&[f32]>, use_rain: bool| -> Option<Vec<f32>> {
+        if rough.is_some() {
+            return None;
+        }
         gpu_flow.as_ref().and_then(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world)).map(|r| r.acc)
     };
 
@@ -3098,7 +3138,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 gpu_stages_used.push("flow".to_string());
                 v
             }
-            None => compute_flow(gw, gh, &route, None, false, world),
+            None => compute_flow_with(gw, gh, &route, None, false, world, rough.as_ref()),
         }
     };
 
@@ -3228,7 +3268,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 }
                 v
             }
-            None => compute_flow(gw, gh, &route, Some(&rainfall), true, world),
+            None => compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref()),
         }
     };
     if !p.carve_rivers {
@@ -3343,7 +3383,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                     }
                     v
                 }
-                None => compute_flow(gw, gh, &route, Some(&rainfall), true, world),
+                None => compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref()),
             };
             drop(route);
             rock.coastal(
@@ -3390,12 +3430,12 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 }
                 v
             }
-            None => compute_flow(gw, gh, &route, Some(&runoff), true, world),
+            None => compute_flow_with(gw, gh, &route, Some(&runoff), true, world, rough.as_ref()),
         };
         drop(runoff);
 
         // (2) vector network -> distance-field channel carve + lock
-        let mut ch = build_channels_routed(
+        let mut ch = build_channels_routed_with(
             &field,
             &route,
             &flow_for_network,
@@ -3409,6 +3449,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             // (`build_channels_routed`'s `integrated` section, owner
             // 2026-10-05); off, this is the reference's threshold.
             integrate,
+            // Ruling ER: channels follow the rough accumulation tree.
+            rough.as_ref(),
         );
         // Kept past the channel build for one more reader: the carve below
         // leaves the depressions this surface fills standing as lakes rather
@@ -3529,7 +3571,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                     }
                     v
                 }
-                None => compute_flow(gw, gh, &route, Some(&rainfall), true, world),
+                None => compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref()),
             }
         };
         temperature = compute_temperature(gw, gh, &field, None, &climate_params);
@@ -3743,7 +3785,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 }
             }
             // discharge on the carved surface, before routing
-            flow_discharge = compute_flow_routed(gw, gh, &field, Some(&rainfall), true, world, sea_level, integrate);
+            flow_discharge = compute_flow_routed_with(gw, gh, &field, Some(&rainfall), true, world, sea_level, integrate, rough.as_ref());
             // GF-2 (§4.9): what routing deposits is regolith.
             let pre_route = rock.on.then(|| field.clone());
             route_sediment(&mut field, &flow_discharge, &supply, gw, gh, sea_level, q.sediment_capacity, world);
@@ -3978,6 +4020,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         rainfall: Arc::new(rainfall),
         flow_discharge: Arc::new(flow_discharge),
         integrated_drainage: integrate,
+        routing_roughness: rough_seed,
         channels,
         stream_order,
         river_mask,
@@ -4089,6 +4132,28 @@ pub fn weather_params_for(p: &WorldParams, sea_level: f64) -> WeatherParams {
 /// is always a valid outcome for any stage, and `WorldState.gpu_stages_used`
 /// reports what actually ran rather than what was asked for.
 #[allow(clippy::too_many_arguments)]
+/// **The routing roughness generation uses for parameters `p`**: `Some`
+/// exactly when [`WorldParams::rough_routing`] and
+/// [`WorldParams::integrate_drainage`] are both on (Ruling ER acts only over
+/// the depression-filled surface), seeded by the world's own seed
+/// (`p.tect.seed`, as `WorldState::routing_roughness` records it). `None` is
+/// plain D8: the reference path.
+pub fn roughness_for(p: &WorldParams) -> Option<cartalith_hydrology::Roughness> {
+    (p.rough_routing && p.integrate_drainage).then(|| cartalith_hydrology::Roughness::new(p.gw, p.gh, roughness_seed_bits(p.tect.seed as i64), p.world))
+}
+
+/// The roughness a stored world was routed with ([`WorldState::routing_roughness`]),
+/// for a consumer rebuilding its receiver tree; `None` for a plain-D8 world.
+pub fn routing_roughness_of(ws_seed: Option<i64>, gw: usize, gh: usize, world: bool) -> Option<cartalith_hydrology::Roughness> {
+    ws_seed.map(|s| cartalith_hydrology::Roughness::new(gw, gh, roughness_seed_bits(s), world))
+}
+
+/// The one mapping from a world's seed to the roughness noise's seed, so
+/// generation and every rebuild agree bit for bit.
+fn roughness_seed_bits(seed: i64) -> u64 {
+    seed as u64
+}
+
 pub fn refresh_climate(
     p: &WorldParams,
     sea_level: f64,
@@ -4104,8 +4169,9 @@ pub fn refresh_climate(
     *rainfall = simulate_weather_with(gw, gh, field, p.climate.w_iters, 0.0, weather_params, p.climate.rain_upsample());
     // Routed with the rainfall computed one line up, never the one this call
     // was handed -- see this function's own doc for why.
+    // Ruling ER: the same roughness generation routed with (`roughness_for`).
     *flow_discharge =
-        compute_flow_routed(gw, gh, field, Some(rainfall), true, world, sea_level, p.integrate_drainage);
+        compute_flow_routed_with(gw, gh, field, Some(rainfall), true, world, sea_level, p.integrate_drainage, roughness_for(p).as_ref());
     apply_climate_moisture_correctors_with(
         gw,
         gh,
@@ -4495,7 +4561,7 @@ mod tests {
         refresh_climate(&p, sea, &ws.field, &cp, &wp, &mut t, &mut r, &mut f);
         let chain = |weather: CoarseUpsample| {
             let mut rain = simulate_weather_with(p.gw, p.gh, &ws.field, p.climate.w_iters, 0.0, &wp, weather);
-            let flow = compute_flow_routed(p.gw, p.gh, &ws.field, Some(&rain), true, p.world, sea, p.integrate_drainage);
+            let flow = compute_flow_routed_with(p.gw, p.gh, &ws.field, Some(&rain), true, p.world, sea, p.integrate_drainage, roughness_for(&p).as_ref());
             apply_climate_moisture_correctors_with(p.gw, p.gh, &ws.field, &flow, &mut rain, sea, p.world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k, CoarseUpsample::CubicBSpline);
             rain
         };

@@ -1565,7 +1565,7 @@ mod tests {
             }],
         };
         let wet = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && (field[y as usize * gw + x as usize] as f64) < TEST_SEA;
-        let (fans, st) = crate::river_delta::delta_fans(&g, gw, gh, 1.0, &wet);
+        let (fans, st) = crate::river_delta::delta_fans(&g, gw, gh, 1.0, crate::river_stroke::start_share(40_075.0), &wet);
         assert!(st.branches >= 1, "positive control: the mouth fans: {st:?}");
         let tf = tw.fields(&ctx);
         // Tile (2, 2, 2) spans cells 127.5..191.25 on both axes: the apex

@@ -662,6 +662,7 @@ mod tests {
     /// the claimed-cell count against the raw grid. MUTATION: render `pop + 1` and the first assert fails.
     #[test]
     fn document_figures_equal_the_engine_on_three_seeds() {
+        let mut on_river_all = 0;
         for seed in SEEDS {
             let (input, civ, ws, _) = collect(seed);
             let docs = render_documents(&input);
@@ -736,7 +737,11 @@ mod tests {
                     None => assert!(body.contains("continent: not available"), "seed {seed} {}: {body}", s.name),
                 }
             }
-            assert!(on_river >= 1 && with_continent >= civ.settlements.len() / 2, "seed {seed}: on_river {on_river}, with_continent {with_continent}: the checks must see real data");
+            // The river line must be exercised with a real order somewhere: over the three seeds, not
+            // per seed. Rough routing (Ruling ER) moved seed 24601 from 1 of 40 settlements on a
+            // river to 0 (71077345: 2 -> 1), so a per-seed floor would test the seed, not the code.
+            on_river_all += on_river;
+            assert!(with_continent >= civ.settlements.len() / 2, "seed {seed}: with_continent {with_continent}: the checks must see real data");
             for f in 1..civ.faction_roster.0.len() {
                 let body = by_id[format!("W:faction:{f}").as_str()];
                 let mine: Vec<&cartalith_civ::NamedSettlement> = civ.settlements.iter().filter(|s| s.placement.faction == f as i32).collect();
@@ -748,6 +753,7 @@ mod tests {
                 assert!(body.contains(&format!("culture: {}\n", civ.faction_roster.0[f].culture)));
             }
         }
+        assert!(on_river_all >= 1, "no settlement of the three seeds sits on a river: the river line was never checked with a real order");
     }
 
     /// Protects the trade bar (the relational ground truth): for every settlement the partner ids in

@@ -3,6 +3,9 @@
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
 
 pub mod tile;
+pub mod rough;
+
+pub use rough::Roughness;
 
 use rayon::prelude::*;
 
@@ -136,6 +139,16 @@ fn flow_sort_desc(field: &[f32], n: usize) -> Vec<u32> {
 /// a running sum (not a max), so left sequential for the same
 /// floating-point-reordering reason `stream_power_kernel::ss` is.
 pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> Vec<f32> {
+    compute_flow_with(gw, gh, field, rain, use_rain, world, None)
+}
+
+/// [`compute_flow`] with an optional [`Roughness`] (Ruling ER, the world's
+/// `rough_routing`): with `None` it is `compute_flow` itself, the same code
+/// path cell for cell (the goldens' path); with `Some` each cell's receiver is
+/// [`rough::rough_receiver`]'s pick instead of [`d8_receiver`]'s. Both pick a
+/// strictly lower neighbour, so the descending-height accumulation order is
+/// valid for either. Must never be handed a roughness on a JS-parity path.
+pub fn compute_flow_with(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool, rough: Option<&Roughness>) -> Vec<f32> {
     let n = gw * gh;
     let order = flow_sort_desc(field, n);
 
@@ -159,7 +172,10 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
 
     for &i in &order {
         let i = i as usize;
-        let best = d8_receiver(field, gw, gh, i, world, &d8);
+        let best = match rough {
+            None => d8_receiver(field, gw, gh, i, world, &d8),
+            Some(r) => rough::rough_receiver(field, gw, gh, i, world, &d8, r),
+        };
         if best >= 0 {
             let best = best as usize;
             acc[best] = (acc[best] as f64 + acc[i] as f64) as f32;
@@ -350,14 +366,43 @@ pub fn compute_flow_routed(
     compute_flow(gw, gh, &routing_view(field, gw, gh, sea, world, integrate), rain, use_rain, world)
 }
 
+/// [`compute_flow_routed`] with the world's optional [`Roughness`] (Ruling
+/// ER): `None` is `compute_flow_routed` exactly.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_flow_routed_with(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    rain: Option<&[f32]>,
+    use_rain: bool,
+    world: bool,
+    sea: f64,
+    integrate: bool,
+    rough: Option<&Roughness>,
+) -> Vec<f32> {
+    compute_flow_with(gw, gh, &routing_view(field, gw, gh, sea, world, integrate), rain, use_rain, world, rough)
+}
+
 /// Every cell's single D8 receiver over `field` — the tree [`compute_flow`]
 /// accumulates along, `-1` where the cell has no strictly lower neighbour.
 /// Exposed for measurement: walking it to each chain's terminus is how §6g
 /// says integrated drainage must be verified ("do not verify this with a flow
 /// ratio").
 pub fn flow_receivers(field: &[f32], gw: usize, gh: usize, world: bool) -> Vec<i32> {
+    flow_receivers_with(field, gw, gh, world, None)
+}
+
+/// [`flow_receivers`] with the world's optional [`Roughness`] (Ruling ER):
+/// the tree [`compute_flow_with`] accumulates along with the same argument.
+/// `None` is `flow_receivers` exactly.
+pub fn flow_receivers_with(field: &[f32], gw: usize, gh: usize, world: bool, rough: Option<&Roughness>) -> Vec<i32> {
     let d8 = d8_table();
-    (0..gw * gh).map(|i| d8_receiver(field, gw, gh, i, world, &d8) as i32).collect()
+    (0..gw * gh)
+        .map(|i| match rough {
+            None => d8_receiver(field, gw, gh, i, world, &d8) as i32,
+            Some(r) => rough::rough_receiver(field, gw, gh, i, world, &d8, r) as i32,
+        })
+        .collect()
 }
 
 /// `D8[(dy+1)*3+(dx+1)] = hypot(dx, dy)` for `dx,dy` in `{-1,0,1}`; center
@@ -696,7 +741,44 @@ pub fn build_channels_routed(
     map_width_km: f64,
     integrated: bool,
 ) -> ChannelResult {
-    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km), integrated)
+    build_channels_routed_with(fld, route, flow, w, h, sea, world, river_density, map_width_km, integrated, None)
+}
+
+/// [`build_channels_routed`] with the world's optional [`Roughness`] (Ruling
+/// ER, `DELTA_GEOMETRY_RESEARCH.md` section 13). `None` is
+/// `build_channels_routed` exactly. With `Some`, every channel cell's receiver
+/// is its rough receiver on `route` -- the very tree
+/// [`compute_flow_with`] accumulated `flow` along with the same roughness --
+/// and the real-aspect steering is not used: steering toward the planar
+/// slope's aspect is what draws the ruler line back, and a channel that
+/// follows its own accumulation tree cannot break (its receiver carries at
+/// least its discharge). The channel mask, the threshold and the slope field
+/// are unchanged. Must never be called with `Some` while `integrated` is
+/// `false` (the reference path).
+#[allow(clippy::too_many_arguments)]
+pub fn build_channels_routed_with(
+    fld: &[f32],
+    route: &[f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+    integrated: bool,
+    rough: Option<&Roughness>,
+) -> ChannelResult {
+    let mut ch = build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km), integrated);
+    if let Some(r) = rough {
+        let tree = flow_receivers_with(route, w, h, world, Some(r));
+        for (i, rv) in ch.recv.iter_mut().enumerate() {
+            if ch.chan[i] != 0 {
+                *rv = tree[i];
+            }
+        }
+    }
+    ch
 }
 
 /// The shared body [`build_channels_with_threshold`] and [`build_channels_routed`]

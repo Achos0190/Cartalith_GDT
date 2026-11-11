@@ -309,7 +309,7 @@ once per network and is cached (`WorldGen::river_delta_fans`), so it is a one-of
 channel that would touch another (most often the main channel itself, which meanders) is dropped
 (`collided` 57 on the owner world, 14 and 11 on the smaller seeds). The rake drew at every eligible mouth because its straight branches never came back. A
 next step that keeps the no-comb rule: let a channel that meets the main channel END there (an anabranch loop:
-Tejedor et al. 2015 report recombination on real deltas), instead of dropping it. (2) The kinds split 7 % / 37 % /
+Tejedor et al. 2015 report recombination on real deltas), instead of dropping it. (Built in section 12.) (2) The kinds split 7 % / 37 % /
 56 % river / lobate / wave on the owner world, close to the source project's v2.41 target of about 10 % river-
 dominated (section 3.2). (3) The whole-view frames at x1 and x4 still show straight parallel strokes at the coast:
 those are the network's own streams (6.4), identical with the fans off, and are the subject of the separate
@@ -321,7 +321,8 @@ consumer path; the reference look draws no fan.
 ## 11. Straight river lines beyond the deltas (owner, 2026-11-11): measured by cause
 
 The owner, relayed: *"Investigate why sometimes we still get straight lines for rivers and correct it so we don't get
-these straight lines."* This section is the measurement; **no fix is built yet**, for the reason in 11.3.
+these straight lines."* This section is the measurement. The fix needed an owner ruling (11.4); Ruling ER answered it, and section 13 has
+what was built.
 
 11.1 **The metric** (`cartalith-godot/src/river_straight.rs::straight_stats`, tested): over each polyline, the
 maximal stretches whose every point lies within `tol` cells of the stretch's own chord and that are at least
@@ -367,3 +368,197 @@ are the same D8 runs on the coastal slope; the vector fallback strokes the same 
 - **Recommendation for the owner**: rule on the generation fix (it is the only one that changes x1 and x4, where the
   owner saw the lines), and take the bounded display meander for the deep zooms either way.
 
+
+## 12. "The deltas seem to have gone" (owner, 2026-11-11): diagnosed and fixed
+
+The owner, on the x16 frames of section 10 (relayed): *"the deltas seem to have gone"*. In
+`evidence/delta-2026-11-11/after_owner_mouth3246_ocean_z16.png` no distributary is drawn; the other mouths show faint
+forks. Three causes were candidates: the no-contact rule dropping channels that touch the meandering main channel;
+channels getting late visibility ranks, so the zoom law hides them at x16; widths too thin to read.
+
+12.1 **Measured** (`river_delta::fan_seen`, new: per zoom over the opening fit view, the fans whose river is drawn
+and the channels drawn, i.e. with some point at or above the picking line `PICK_MIN_VISIBILITY` 0.5, by the one
+visibility law; keys `seen_zNN_*` of `WorldGen::river_delta_stats`; `_riverzoom_probe.gd --stats-only --rim4`,
+windowed). Owner world (246371, 2048 x 1311, density 1.55), origin/main `0f722870` plus the measurement:
+
+| Zoom | Fans whose river is drawn | Channels drawn / built | Median channel rank | Median apex rank |
+|---|---|---|---|---|
+| x1 | 11 of 77 | 0 / 172 | 1.0 | 0.21 |
+| x4 | 24 | 0 / 172 | 1.0 | 0.21 |
+| x16 | 58 | **0 / 172** | 1.0 | 0.21 |
+| x64 | 77 | 172 / 172 (median 13.4 px wide) | 1.0 | 0.21 |
+
+**Cause: the ranks.** Every channel had been built (172) and every one was hidden until x64, where the law draws the
+whole network. The median channel ranked 1.0, the very last of the network, against 0.21 for its river.
+`RankOfDischarge` read the network's own `(discharge, rank)` pairs and took a running maximum of the rank down the
+discharges, so any run with a late rank and a large discharge pushed every smaller discharge to that rank. Ruling EQ
+item 3 (`hide_short_stubs`) raises a short run's ranks toward 1 whatever its discharge, which supplies exactly such
+runs. The no-contact rule did drop channels (57), but it is not why the built ones vanished. Width is not the cause
+either: nothing was drawn to be thin.
+
+12.2 **Fixed** (`river_delta.rs`):
+- **The rank table reads discharge only.** `RankOfDischarge` is now the share of the drawn network's length whose
+  discharge is at least `q`, which is what `visibility_ranks` computes. A rank raised for another reason cannot
+  leak in. Tested at literals: 0, 0.4643, 0.7321, 1 on a three-river fixture, unchanged when one river's rank is
+  raised to 1.
+- **Whole by x16** (`DELTA_FULL_ZOOM` 16, `delta_rank`): a channel's rank is its own discharge's, never ahead of its
+  river's, and never later than the share the law reaches at x16 (`start^(1/3)`, 0.353 for a whole world), unless
+  the river itself is later. Between the opening view and x16 the smaller channels still fade in by discharge
+  (Ruling EN's RZ-5). From x16 a fan is whole wherever its river is drawn. This is the coordinator's "floor a delta
+  channel's visibility to its parent river's", applied from x16 so the opening view keeps showing only big rivers
+  (the second addendum to Ruling EN). It does not depend on the window: the share at a zoom over the fit depends
+  on the start share only. `delta_fans` takes the start share, and the fan cache key carries it.
+- **Loops** (`LOOP_MIN_CELLS` 6): a distributary that meets the river's own course, after running at least six
+  cells and at least six cells from where it left, ends on the course. It forms an anabranch round an island
+  (Tejedor et al. 2015) instead of being dropped. A channel that meets another distributary is still dropped, so the
+  no-comb rule stands. A loop keeps its width to the river and does not reduce the share of the later offtakes.
+  `DeltaStats::rejoined` counts them.
+- **No width floor was added.** The measured widths at x16 are 2.2 px (10th percentile) and 3.3 px (median) on the
+  owner world, and 5.0 and 7.2 px on 483920, above the existing 1 px stroke floor. A wider floor would break
+  `w_a^2 + w_b^2 = w_p^2` (bar B5) for no visible gain.
+
+12.3 **After** (same probe, same worlds, D8 routing as before):
+
+| World | Zoom | Fans whose river is drawn | Channels drawn / built | Width p10 / p50, px |
+|---|---|---|---|---|
+| owner | x1 | 11 of 78 | 25 / 180 | 1.0 / 1.0 |
+| owner | x4 | 24 | 51 / 180 | 1.0 / 1.0 |
+| owner | x16 | 59 | **135 / 180**, all 59 drawn rivers with channels | 2.2 / 3.3 |
+| owner | x64 | 78 | 180 / 180 | 8.5 / 13.3 |
+| 483920 (1024 x 656) | x1 | 10 of 13 | 17 / 32 | 1.0 / 1.0 |
+| 483920 | x4 | 12 | 28 / 32 | 1.3 / 1.9 |
+| 483920 | x16 | 13 | **32 / 32** | 5.0 / 7.2 |
+| 483920 | x64 | 13 | 32 / 32 | 20.0 / 28.8 |
+
+At x16 the 45 channels not drawn on the owner world belong to the 19 fans whose river is itself not drawn yet.
+Loops: 6 on the owner world (collisions 57 -> 50), 0 on 483920. Fans 77 -> 78, channels 172 -> 180. The shape bars
+still pass on the owner world: sinuosity p50 1.042, `parallel_frac` 0.026, split angle 69.7 degrees. Derivation:
+38 ms (33.5 before).
+Frames: `cartalith-native/docs/evidence/rivers-straight-2026-11-11/delta_*`, and the composite there. The owner's
+"gone" mouth 3246 at zoom 1600 % now draws its forks, and lake mouth 2584 its branching fan.
+
+## 13. Ruling ER: the routing changed for new worlds, and a display meander (2026-11-11)
+
+The owner, on the options in 11.4: *"3, and would it change if we had 32 instead of 8 directions?"* (Ruling ER).
+So both are built, and the question is answered by measurement.
+
+13.1 **The candidates, on the same ground** (`cartalith-godot/tests/river_routing_measurement.rs`, `#[ignore]`d, run
+in release). Each world is generated with the app's parameters and `carve_rivers` off, so the field is the eroded
+terrain before any river is cut into it. A carved field would hold the shipped D8 channels as trenches and pull every
+candidate back onto them. Each candidate routes over that field's depression-filled surface, accumulates the world's
+rain, channelises at the app's threshold, and is traced. "Traced" is the traced path densified to one point a cell;
+"drawn curve" is the app's `river_render_polyline` steps (RDP at 0.5 cells, then Catmull-Rom at 0.25) without the
+pins. Straight means stretches of at least 8 cells within 0.25 cells of their chord, as in section 11. Plausibility:
+uphill steps between cells the fill did not raise, steps not strictly down the routing surface, and "dry ends" (a
+traced river ending on land, away from water, the map edge or another river). All three were 0 for every candidate
+except where noted.
+
+| Candidate | owner: traced / drawn curve | 483920 | 912345 | Length vs D8 (owner / 483920 / 912345) | Dry ends | Route ms, owner |
+|---|---|---|---|---|---|---|
+| **D8** (shipped until now) | 67.8 % / 63.1 % | 43.7 / 40.7 | 48.6 / 45.9 | 1 | 0 | 67 |
+| D8 + near-tie break (5 %) | 64.4 / 60.7 | 40.5 / 38.2 | 46.4 / 44.0 | 0.99 / 0.99 / 0.99 | 0 | 289 |
+| D16 (knight moves) | 55.1 / 59.8 | 25.1 / 36.3 | 36.2 / 44.8 | 1.05 / 1.04 / 1.05 | **557 / 388 / 305** | 204 |
+| **D32** | 55.1 / **62.0** | 30.4 / **41.7** | 37.8 / **47.5** | 1.10 / 1.08 / 1.08 | **1039 / 640 / 587** | 304 |
+| D-infinity, least transverse deviation | 38.9 / 45.2 | 14.2 / 21.2 | 29.9 / 33.1 | 1.01 / 0.99 / 0.99 | 0 | 328 |
+| rough k 1, L 8 | 66.4 / 61.7 | 42.3 / 39.3 | 47.9 / 45.0 | 0.97 / 0.99 / 0.99 | 0 | 192 |
+| rough k 4, L 8 | 45.6 / 37.3 | 29.6 / 25.8 | 31.5 / 27.2 | 0.69 / 0.89 / 0.83 | 0 | 197 |
+| rough k 8, L 8 | 35.1 / 28.2 | 20.7 / 17.5 | 21.9 / 18.6 | 0.60 / 0.83 / 0.76 | 0 | 183 |
+| rough k 2, L 4 | 32.7 / 26.9 | 18.7 / 16.8 | 20.8 / 18.1 | 0.70 / 0.82 / 0.77 | 0 | 184 |
+| rough k 3, L 4 | 23.9 / 19.8 | 13.0 / 12.1 | 15.5 / 13.7 | 0.65 / 0.76 / 0.71 | 0 | 183 |
+| **rough k 4, L 4 (built)** | **20.0 / 16.8** | **10.5 / 10.0** | **13.2 / 11.7** | 0.64 / 0.73 / 0.69 | 0 | 185 |
+| rough k 4, L 6 | 33.4 / 26.3 | 20.5 / 17.9 | 21.3 / 17.9 | 0.63 / 0.82 / 0.75 | 0 | 184 |
+| rough k 4, L 16 | 63.9 / 58.2 | 41.7 / 38.5 | 46.2 / 42.7 | 0.93 / 0.99 / 0.97 | 0 | 184 |
+
+The ms is one routing and accumulation, including building the roughness noise. Each was run once, so read it as an
+order of magnitude, not a benchmark.
+
+13.2 **The owner's question: would 32 directions change it?** On the drawn curve, no. D32 leaves the drawn rivers as
+straight as D8: 62.0 / 41.7 / 47.5 % against 63.1 / 40.7 / 45.9 %. It shrinks the angle steps from 45 degrees to about
+11, so the straight share on the traced path falls (55 / 30 / 38 %) and the runs are on a grid axis less often (72 /
+33 / 77 % against 100 %). But the runs are still straight, just at finer angles, and the spline draws them as the same
+ruler lines. Steepest descent over a planar slope picks one direction whatever the number of directions offered, so
+the expectation in the brief holds. D16 and D32 also break the drainage the way they were built here: neighbours
+two or three cells away let a channel step over a cell, 300 to 1 000 traced rivers end on dry land, and every consumer
+that walks the river cell by cell (carving, settlements, the planner, lakes) would need rework. A D-infinity direction
+(Tarboton 1997's aspect, made single-receiver by Orlandini et al. 2003's least-transverse-deviation rule) follows the
+true aspect rather than the grid. It helps (45 / 21 / 33 %), but it still follows a planar slope straight. **Only a
+perturbation of the choice makes a river wander.** It stands for the sub-grid relief the height field does not
+resolve.
+
+13.3 **Built: rough routing** (`cartalith_hydrology::rough`, `WorldParams::rough_routing`).
+- **The rule.** Among the strictly lower neighbours on the routing surface, the cell picks the largest
+  `(h_i - h_j + k * s_i * (n_i - n_j)) / d`. Here `n` is seeded value noise (amplitude 1, lattice
+  `ROUGH_WAVELENGTH_CELLS` = 4), `s_i` is the cell's own steepest drop per cell, and `k` is `ROUGH_STRENGTH` = 4. The
+  constants were chosen from the table.
+- **What it guarantees.** Only strictly lower cells are candidates, so no step goes up the routing surface. Every cell
+  that had a receiver still has one, and the descending-height accumulation order stays valid. On the fill's flats the
+  slope is a few ULPs, so the perturbation vanishes there and water leaves a lake by the plain D8 path.
+- **Where it applies.** Every flow routing of the generation uses it (the pre-carve, coastal, network and final
+  passes), and so does `refresh_climate`. The GPU flow kernel, which is plain D8, is skipped when it is on. The
+  channel network follows the rough accumulation tree (`build_channels_routed_with`) instead of real-aspect steering:
+  steering toward a planar slope's aspect is what draws the ruler line back.
+- **§7p.** It is off in `WorldParams::defaults`, so every golden and the reference path are unchanged by control flow.
+  It is on in `params::defaults` and acts only with `integrate_drainage`.
+- **Saves.** A save without the key loads it off. A world records its roughness seed (`WorldState::routing_roughness`;
+  the substrate manifest's optional `routing_roughness`, omitted for D8, so old archives and D8 manifests are
+  byte-identical). Every consumer that rebuilds the receiver tree uses it: `fresh_river_network_with` and
+  `fresh_river_channels_with` (settlements, Ruling N's river term, the planner's river transport, the route tool,
+  landmarks, the export), the pick bridges, and the draw plan's `down` tree.
+- **Saved worlds keep their rivers.** A save stores the channel receivers, the channel mask, the order and the
+  discharge as rasters (`substrate.rs`, `SAVEFILE_COMPAT.md` §8.3), so nothing is re-routed on load.
+- **Not changed.** A heightmap import routes plain D8 (its relief is data). The rock-paint pass's local coastal
+  discharge is plain D8 too: it is a sub-window estuary cut, and the noise is defined on the world's grid.
+
+13.4 **In the app, full pipeline** (`_riverzoom_probe.gd --stats-only --straight`, windowed). Before is the same
+build with `--rough-off`. Neither has the display meander of 13.5.
+
+| World | traced D8 run share | shipped curve | **drawn** | drawn at opening view | longest drawn stretch | traced length | drawn length | lakes |
+|---|---|---|---|---|---|---|---|---|
+| owner, before | 58.1 % | 54.2 % | **44.5 %** | 54.3 % | 114 cells | 302 783 | 161 281 | 79 |
+| owner, after | 17.9 % | 15.7 % | **16.8 %** | 25.9 % | 92 | 220 536 | 183 816 | 74 |
+| 483920, before | 32.1 % | 30.4 % | **30.3 %** | 32.7 % | 50 | 24 737 | 21 360 | 25 |
+| 483920, after | 17.5 % | 17.1 % | **17.3 %** | 18.8 % | 28 | 27 056 | 24 183 | 28 |
+| 912345, before | 40.9 % | 38.8 % | **35.3 %** | 37.4 % | 100 | 20 835 | 17 428 | 31 |
+| 912345, after | 17.9 % | 15.6 % | **15.0 %** | 17.4 % | 38 | 23 036 | 20 539 | 31 |
+
+The owner world's "before" reproduces section 11 exactly (58.1 % and 44.5 %).
+- **Network length.** The traced network on the owner world is 27 % shorter, because parallel one-cell strips on
+  smooth slopes now merge into fewer, larger channels. The drawn network is 14 % longer, because fewer of its rivers
+  are thinned as parallel to a heavier one. On the smaller worlds both grow 9-13 %.
+- **Lakes.** Lakes are classified from the field, and the field moves only through the carve: 79 -> 74, 25 -> 28 and
+  31 -> 31. The largest basins are the same. Channel-shaped lakes on the owner world fall from 11 to 6.
+- **Downstream consumers.** Settlements, the planner, ways, landmarks and deltas read the rebuilt network through the
+  `_with` functions above, and `cargo test --workspace` passes (13.6). The knowledge fixtures were regenerated,
+  because their worlds' rivers moved. One knowledge check asked for at least one settlement on a river per seed;
+  rough routing moved seed 24601 from 1 of 40 to 0, so it now asks across the three seeds. Siting is unchanged in
+  kind: the river term is still one term in the suitability ranking (Ruling N).
+
+13.5 **Built: the display meander** (`river_meander::display_meander`).
+- **What it does.** The drawn curve of every run is displaced sideways by a sine of `MEANDER_AMP_CELLS` (0.3 cells)
+  and `MEANDER_WAVELENGTH_CELLS` (4 cells) along its arc length. The phase comes from the run's first cell. The
+  displacement fades to zero over half a wavelength round both ends and every pinned junction cell, and is clamped
+  point by point so no point leaves the run's traced cells.
+- **Why it only shows from x16.** The amplitude is fixed on the ground, so on screen it grows with the zoom: 0.14 px
+  at the owner world's opening view, 0.55 at x4, 2.2 at x16 and 8.8 at x64.
+- **One law.** The meander is part of the one drawn geometry (`RiverGeometry`) that the screen's field, the deep-zoom
+  tiles, the export and picking all read, so they agree, and the visibility law is untouched. No shader changed.
+- **Render only.** No world field, save key or golden. A probe switch (`WorldGen::set_river_meander`, in the
+  network's cache key; `_riverzoom_probe.gd --meander-off`) draws without it.
+
+13.6 **Verified.**
+- `cargo test --workspace` (separate target dir): 268 result lines, 7 850 passed, 0 failed, 147 ignored.
+- Literal mutants (Python, exact replace, restored in `finally`, hash checked): 8 of 8 killed. They covered
+  `ROUGH_STRENGTH`, `ROUGH_WAVELENGTH_CELLS`, the strictly-lower test `hj < h`, `MEANDER_AMP_CELLS`,
+  `MEANDER_WAVELENGTH_CELLS`, `SHRINK_STEPS`, `LOOP_MIN_CELLS` and `DELTA_FULL_ZOOM`.
+- Tests updated, not weakened:
+  - `params_mapping` lists the twenty-first divergence, and an old save loads `rough_routing` off.
+  - `param_catalogue` counts 121 rows; `rough_routing` is excluded from the model's catalogue, like the geology
+    switches with no GUI control.
+  - `gf0_geology_harness`'s replica routes with the same roughness as `generate_terrain`.
+  - The knowledge fixtures were regenerated, and the on-river guard now applies across the three seeds.
+- `_riverzoom_probe.gd` and `shell/app.gd` pass `--check-only`. Every probe above ran windowed.
+
+13.7 **The metric and the meander.** With the meander on, the probe's `drawn` stage reads 0.7 % straight on the owner
+world and 0.5 % on 483920. That is an artefact of the metric's 0.25-cell tolerance against a 0.3-cell wander, which
+is invisible below x16. The routing's own effect is the 13.4 table, measured without the meander. The meander's
+effect is the x16 and x64 frames.

@@ -965,7 +965,16 @@ rebuild a world with no river orders).
 `integrated_drainage` is the one scalar in the set — whether flow and channels
 were routed over the depression-filled surface — and belongs here because it is
 a property of *these* grids, not of the parameters (which may since have
-moved). The five booleans record which optional grids the world had, because
+moved).
+
+**Optional `routing_roughness`** (an integer, owner Ruling ER, 2026-11-11). The
+seed of the sub-grid roughness the world's flow and channels were routed with
+(`WorldParams::rough_routing`, `cartalith_hydrology::rough`), so a reopened world
+rebuilds the same receiver tree for the planner, the pick and a run's
+continuation past its channel mask. **Absent means plain D8**: every archive
+written before the ruling, and every world generated with it off, carries no such
+key, and a plain-D8 world's manifest is byte-identical to before. A writer MUST
+omit it rather than write `null` or `0` (`0` is a real seed). The five booleans record which optional grids the world had, because
 they are not always together: river carving off leaves all of them absent, a
 sculpt commit then creates the carve lock alone, and recentring the landmasses
 can drop the channel network alone. **An absent grid is recorded absent and

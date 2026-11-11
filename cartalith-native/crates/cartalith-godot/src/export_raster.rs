@@ -2135,7 +2135,7 @@ impl AtlasFields {
         );
         let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
         let (river_order, river_polys) =
-            cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, sea, world, wg.params.river_density, map_width_km, ws.integrated_drainage);
+            cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea, world, wg.params.river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref());
         let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
         let ctx = cartalith_civ::SuitabilityCtx {
             water_bodies: Some(&wb.classification),
@@ -2732,7 +2732,7 @@ mod rv5_parity_tests {
         let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
         let cls = wb.classification.clone();
         let wet = move |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < GW && (y as usize) < GH && cls[y as usize * GW + x as usize] != 0;
-        let (fans, st) = crate::river_delta::delta_fans(&net, GW, GH, a.river_width as f32, &wet);
+        let (fans, st) = crate::river_delta::delta_fans(&net, GW, GH, a.river_width as f32, crate::river_stroke::start_share(40_075.0), &wet);
         assert!(st.branches >= 1, "positive control: the mouth fans: {st:?}");
         let plain = export(&w, &a, Some(&net), true);
         let with = export_with_fans(&w, &a, Some(&net), Some(&fans), true);

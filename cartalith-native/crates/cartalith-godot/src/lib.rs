@@ -83,6 +83,7 @@ mod progress_bridge;
 mod project_bridge;
 mod render;
 mod river_delta;
+mod river_meander;
 mod river_field;
 mod river_stroke;
 mod river_straight;
@@ -4797,7 +4798,8 @@ fn compute_civilisation(
     // crossing costs and the settlement diagnostics below, `river_polys` for
     // Ruling N's suitability river term.
     let (river_order, river_polys) =
-        cartalith_civ::fresh_river_network(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage);
+        // Ruling ER: rebuilt along the tree the world was routed with.
+        cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref());
     let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
     drop(river_polys);
 
@@ -6510,6 +6512,12 @@ struct WorldGen {
     /// fans ON, the default render path (`DECISIONS.md` 7p); a view setting,
     /// never a world field and never saved.
     river_delta_off: std::cell::Cell<bool>,
+    /// **Ruling ER part B's probe switch** (`set_river_meander`): when set, the
+    /// drawn rivers carry no display meander ([`river_meander`]) -- the
+    /// "before" of its frames. `false` = meander ON, the default render path;
+    /// a view setting, never a world field and never saved. Part of the
+    /// network's cache key, so every river raster rebuilds when it moves.
+    river_meander_off: std::cell::Cell<bool>,
     /// Ruling EQ item 4: the live map view's size in pixels, the window the river visibility law's opening fit is
     /// taken in (`river_stroke::fit_ppc_in`); [`river_stroke::REF_VIEW_PX`] until the shell reports one
     /// ([`Self::set_river_view_size`]). A view setting: never saved.
@@ -7256,6 +7264,7 @@ impl IRefCounted for WorldGen {
             river_field_width: std::cell::Cell::new(1.0),
             river_paint_off: std::cell::Cell::new(false),
             river_delta_off: std::cell::Cell::new(false),
+            river_meander_off: std::cell::Cell::new(false),
             river_view_px: std::cell::Cell::new(river_stroke::REF_VIEW_PX),
             rock_lod_detail_off: std::cell::Cell::new(false),
             river_delta_cache: std::cell::RefCell::new(None),
@@ -13247,7 +13256,8 @@ impl WorldGen {
         let down = {
             let (gw, gh) = (f.gw, f.gh);
             let route = cartalith_hydrology::routing_view(f.field, gw, gh, f.sea_level, self.world, ws.integrated_drainage);
-            let d8 = cartalith_hydrology::flow_receivers(&route, gw, gh, self.world);
+            // Ruling ER: the tree the world was routed along (rough or D8).
+            let d8 = cartalith_hydrology::flow_receivers_with(&route, gw, gh, self.world, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, self.world).as_ref());
             let chan = ws.channels.as_ref().map(|c| c.recv.as_slice()).unwrap_or(&[]);
             context_pick_bridge::combined_receivers(chan, &d8)
         };
@@ -13431,6 +13441,13 @@ impl WorldGen {
                 // drawn. `points` stays the traced entity.
                 let pts = &run_pts[i];
                 let mut rp = river_render_polyline(pts, |p| ends.contains(&cell(p)));
+                // Ruling ER part B: the display meander, a wander of under a
+                // third of a cell inside the traced cells, held still at the
+                // pinned junction cells and faded at both ends
+                // (`river_meander`). Render only; one geometry for every path.
+                if !self.river_meander_off.get() {
+                    river_meander::display_meander(&mut rp, pts, |p| ends.contains(&cell(p)));
+                }
                 let mut u = river_stroke::render_params(&rp, pts);
                 // A mouth on dry land beside the sea or a lake ends half a cell
                 // short of the shore, at its cell centre: carry the stroke on
@@ -13579,7 +13596,9 @@ impl WorldGen {
     /// world, a network or the classification. Records its `DeltaStats` for
     /// `river_delta_stats`. A rendering input; never a world field.
     pub(crate) fn river_delta_fans(&self, rw: f32) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
-        let key = format!("{};rw{:08x}", self.river_network_key_str(), rw.to_bits());
+        // The start share joins the key: the fans' ranks read it (`river_delta::delta_rank`).
+        let start = river_stroke::start_share(self.map_width_km as f32);
+        let key = format!("{};rw{:08x};st{:08x}", self.river_network_key_str(), rw.to_bits(), start.to_bits());
         if let Some((k, g, _, _)) = self.river_delta_cache.borrow().as_ref() {
             if *k == key {
                 return Some(g.clone());
@@ -13593,7 +13612,7 @@ impl WorldGen {
             return None;
         }
         let wet = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && water[y as usize * gw + x as usize] != 0;
-        let (fans, st) = river_delta::delta_fans(&geom, gw, gh, rw, &wet);
+        let (fans, st) = river_delta::delta_fans(&geom, gw, gh, rw, start, &wet);
         let fans = std::sync::Arc::new(fans);
         *self.river_delta_cache.borrow_mut() = Some((key, fans.clone(), st, t0.elapsed().as_secs_f64() * 1000.0));
         Some(fans)
@@ -13868,7 +13887,8 @@ impl WorldGen {
             // `f`: the forced-lake mask (Ruling BO). `river_draws` cuts each
             // stroke at the drawn water (`drawn_water_classification`), which
             // a forced lake moves without moving any stage version.
-            "e{};h{};c{};y{};{}x{};s{};w{};km{};f{}",
+            // `m`: the display meander's probe switch (Ruling ER part B).
+            "e{};h{};c{};y{};{}x{};s{};w{};km{};f{};m{}",
             self.world_epoch,
             vsum(PipelineStage::Height),
             vsum(PipelineStage::Climate),
@@ -13879,6 +13899,7 @@ impl WorldGen {
             self.world,
             self.map_width_km.to_bits(),
             self.forced_lakes_epoch,
+            u8::from(self.river_meander_off.get()),
         )
     }
 

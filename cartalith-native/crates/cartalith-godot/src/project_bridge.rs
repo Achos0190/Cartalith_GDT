@@ -9678,6 +9678,7 @@ mod substrate_tests {
         assert_eq!(a.boundary_mask, b.boundary_mask, "boundary_mask");
         assert_eq!(a.boundary_type, b.boundary_type, "boundary_type");
         assert_eq!(a.integrated_drainage, b.integrated_drainage, "integrated_drainage");
+        assert_eq!(a.routing_roughness, b.routing_roughness, "routing_roughness");
         assert_eq!(a.stream_order, b.stream_order, "stream_order");
         assert_eq!(a.river_mask, b.river_mask, "river_mask");
         assert_eq!(a.river_floor.as_deref().map(bits), b.river_floor.as_deref().map(bits), "river_floor");
@@ -9718,9 +9719,10 @@ mod substrate_tests {
         let (ocean, wind) = crate::coarse_ocean_wind_fields(&ws.field, GW, GH, p.world, ws.sea_level, p);
         // Ruling CD item 1: the river network `jp_world_parts` builds, built
         // the same way, so this mirror stays `jp_compute`'s construction.
-        let (river_order, river_recv) = cartalith_civ::fresh_river_channels(
+        let (river_order, river_recv) = cartalith_civ::fresh_river_channels_with(
             &ws.field, &ws.flow_discharge, GW, GH, ws.sea_level, p.world, p.river_density, p.map_width_km,
             ws.integrated_drainage,
+            cartalith_engine::routing_roughness_of(ws.routing_roughness, GW, GH, p.world).as_ref(),
         );
         let jpw = cartalith_civ::JpWorld {
             gw: GW,
@@ -10311,6 +10313,7 @@ mod substrate_tests {
             SubstrateManifest {
                 version: 1,
                 integrated_drainage: ws.integrated_drainage,
+                routing_roughness: ws.routing_roughness,
                 channels: true,
                 river_intensity: !ws.channels.as_ref().unwrap().intensity.is_empty(),
                 stream_order: true,
@@ -10371,6 +10374,7 @@ mod substrate_tests {
             rainfall: ws.rainfall.clone(),
             flow_discharge: ws.flow_discharge.clone(),
             integrated_drainage: ws.integrated_drainage,
+            routing_roughness: ws.routing_roughness,
             channels: ws.channels.as_ref().map(|c| cartalith_hydrology::ChannelResult {
                 recv: c.recv.clone(),
                 chan: c.chan.clone(),

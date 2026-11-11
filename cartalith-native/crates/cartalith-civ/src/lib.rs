@@ -4877,8 +4877,31 @@ pub fn fresh_river_network(
     map_width_km: f64,
     integrate: bool,
 ) -> (Vec<i16>, Vec<Vec<(f64, f64)>>) {
+    fresh_river_network_with(field, flow, gw, gh, sea, world, river_density, map_width_km, integrate, None)
+}
+
+/// [`fresh_river_network`] for a world routed with a roughness (Ruling ER):
+/// `rough` is `cartalith_engine::routing_roughness_of` of the world's own
+/// `WorldState::routing_roughness`, so the tree rebuilt here is the tree the
+/// world's discharge was accumulated along and its rivers were drawn on.
+/// `None` is `fresh_river_network` exactly. Must never be handed a roughness
+/// the world was not generated with: the network would then describe rivers
+/// the map does not draw.
+#[allow(clippy::too_many_arguments)]
+pub fn fresh_river_network_with(
+    field: &[f32],
+    flow: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+    integrate: bool,
+    rough: Option<&cartalith_hydrology::Roughness>,
+) -> (Vec<i16>, Vec<Vec<(f64, f64)>>) {
     let route = cartalith_hydrology::routing_view(field, gw, gh, sea, world, integrate);
-    let ch = cartalith_hydrology::build_channels_routed(
+    let ch = cartalith_hydrology::build_channels_routed_with(
         field,
         &route,
         flow,
@@ -4891,6 +4914,7 @@ pub fn fresh_river_network(
         // Same rule as `generate_terrain`'s network, so both describe one
         // set of rivers (`build_channels_routed`'s `integrated` section).
         integrate,
+        rough,
     );
     let order = cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan);
     // `min_order = 1`, the same argument `generate_terrain`'s carve loop and
@@ -4925,8 +4949,27 @@ pub fn fresh_river_channels(
     map_width_km: f64,
     integrate: bool,
 ) -> (Vec<i16>, Vec<i32>) {
+    fresh_river_channels_with(field, flow, gw, gh, sea, world, river_density, map_width_km, integrate, None)
+}
+
+/// [`fresh_river_channels`] for a world routed with a roughness (Ruling ER);
+/// see [`fresh_river_network_with`], whose pass this must stay identical to.
+/// `None` is `fresh_river_channels` exactly.
+#[allow(clippy::too_many_arguments)]
+pub fn fresh_river_channels_with(
+    field: &[f32],
+    flow: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+    integrate: bool,
+    rough: Option<&cartalith_hydrology::Roughness>,
+) -> (Vec<i16>, Vec<i32>) {
     let route = cartalith_hydrology::routing_view(field, gw, gh, sea, world, integrate);
-    let ch = cartalith_hydrology::build_channels_routed(
+    let ch = cartalith_hydrology::build_channels_routed_with(
         field,
         &route,
         flow,
@@ -4937,6 +4980,7 @@ pub fn fresh_river_channels(
         river_density,
         map_width_km,
         integrate,
+        rough,
     );
     let order = cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan);
     (order, ch.recv)

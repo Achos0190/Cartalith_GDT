@@ -39,10 +39,12 @@ use cartalith_llm::catalogue::{Catalogue, Group, Kind, PValue, Regen, Row};
 use crate::params;
 
 /// Keys never offered to a model (scope s.5b.1, a labelled judgement): `use_gpu`
-/// is a machine setting, not a property of the world, and the five geology-first
-/// switches have no GUI control by their own row comments in `params.rs`.
+/// is a machine setting, not a property of the world, the five geology-first
+/// switches have no GUI control by their own row comments in `params.rs`, and
+/// neither has `rough_routing` (Ruling ER: a row so a save records how its world
+/// was routed, not a setting to offer).
 pub const EXCLUDED: &[&str] =
-    &["use_gpu", "geology_model", "geology_processes", "relief_model", "geology_karst", "geology_carve"];
+    &["use_gpu", "geology_model", "geology_processes", "relief_model", "geology_karst", "geology_carve", "rough_routing"];
 
 /// One line per registry group: what a user means by it, in their words (scope
 /// s.5b.1's table and s.5b.6's prompt, as the stage-1 prototype measured them).

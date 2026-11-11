@@ -1154,6 +1154,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.volc.kind_caldera = false;
     expect.volc.kind_supervolcano = false;
     expect.volc.kind_flood_basalt = false;
+    // And Ruling ER's rough routing: a save without the key was routed D8.
+    expect.rough_routing = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1207,7 +1209,8 @@ use cartalith_engine::{WorldParams, WorldState};
 /// orogen relief, Ruling CX items 1, 4 and 6, Ruling DB items 3 and 2's
 /// `tect.high_ceiling` and `volc.lava_bench`, VA-6's `volc.kind_dome`, and
 /// owner Ruling DJ's `volc.kind_caldera`, `kind_maar`, `kind_supervolcano`
-/// and `kind_flood_basalt`.)
+/// and `kind_flood_basalt`; and the twenty-first, Ruling ER's
+/// `rough_routing`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1239,6 +1242,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.volc.kind_supervolcano && !parity.volc.kind_supervolcano, "VA-6 supervolcano, Ruling DJ item 3");
     assert!(app.volc.kind_flood_basalt && !parity.volc.kind_flood_basalt, "VA-6 flood basalt, Ruling DJ item 4");
     assert!(!app.volc.kinds_force_rare && !parity.volc.kinds_force_rare, "measurement only");
+    assert!(app.rough_routing && !parity.rough_routing, "rough routing for new worlds, Ruling ER");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1252,14 +1256,15 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the twenty must make the two identical --
-    // which catches a twenty-first divergence added without a ruling, in either
+    // And nothing else. Neutralising the twenty-one must make the two identical --
+    // which catches a twenty-second divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
     neutral.volc.exclude_transform = false;
     neutral.volc.edifice_model = false;
     neutral.integrate_drainage = false;
+    neutral.rough_routing = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;
@@ -1279,7 +1284,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twenty authorised fields"
+         twenty-one authorised fields"
     );
 }
 

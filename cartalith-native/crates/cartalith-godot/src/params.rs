@@ -159,6 +159,12 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, which the goldens compare against a reference
     // that has no fill.
     p.integrate_drainage = true;
+    // Owner Ruling ER (2026-11-11; `DELTA_GEOMETRY_RESEARCH.md` section 13):
+    // new worlds route flow and channels with a seeded sub-grid roughness, so
+    // rivers crossing planar slopes wander instead of running as ruler lines
+    // on a grid axis. Off in `WorldParams::defaults`, the goldens' plain D8.
+    // Acts only with `integrate_drainage` (on above).
+    p.rough_routing = true;
     // Source v2.57 (`RC_ENGINE_CHANGES.md` §6i; `DECISIONS.md` §7n registers
     // it, Ruling AP authorises carrying it): the plate-base blur narrows from
     // 0.35 to 0.18 of `tect.blur_r`, so the coastline stops tracing the plate
@@ -304,6 +310,14 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "integrate_drainage", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Integrated drainage (route over filled depressions)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.integrate_drainage), set_fn: |p, v| p.integrate_drainage = v != 0.0 },
+    // Ruling ER (2026-11-11): rough routing. ON at the app boundary, OFF in
+    // `WorldParams::defaults`; no reference control (the reference routes
+    // plain D8). A row so a save records how its world was routed; a save
+    // without the key loads OFF (`apply_saved_state`), the routing every
+    // world before the ruling had. No GUI control.
+    ParamSpec { key: "rough_routing", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Rough routing (rivers wander across smooth slopes)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.rough_routing), set_fn: |p, v| p.rough_routing = v != 0.0 },
     // Ruling BH's switch (`GEOLOGY_FIRST_SCOPE.md` §6.1): ON at the app
     // boundary, OFF in `WorldParams::defaults`. A row so a save records which
     // model its world was generated with; **no GUI control** (§6.1) -- no
@@ -914,6 +928,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // source's whole block (the `state.erosion` hazard in the module note).
     // Travels in `state.cartalith` only.
     ("integrate_drainage", ""),
+    // Port-only (Ruling ER); the reference routes plain D8.
+    ("rough_routing", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
     ("geology_model", ""),
     // Port-only (GF-2); the reference has no lithology model.
@@ -1221,6 +1237,10 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // is a constant there -- so this follows `integrate_drainage` here, not a
     // source loader.)
     p.tect.narrow_plate_base_blur = false;
+    // And rough routing (Ruling ER, 2026-11-11), the same way: every save
+    // without the key was generated with plain D8 routing, so a regenerate
+    // from its parameters reproduces its rivers.
+    p.rough_routing = false;
     // And the orogen relief term (Ruling CU item 1, 2026-10-19), the same way:
     // every save without the key was generated with smooth belts and clipped
     // summits, so a regenerate from its parameters reproduces them.

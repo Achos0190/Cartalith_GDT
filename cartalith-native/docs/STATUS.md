@@ -47,7 +47,35 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
-### Straight river lines: measured, cause found, fix needs an owner ruling (2026-11-11)
+### Straight rivers fixed (Ruling ER) and deltas readable again at x16 (2026-11-11/12)
+
+- **Deltas "gone" (owner): fixed.** Measured with `river_delta::fan_seen` (`river_delta_stats` `seen_zNN_*`): on the
+  owner world 0 of 172 delta channels were drawn below x64. The cause was the rank table: a running maximum over the
+  network's own ranks let stub-raised ranks (Ruling EQ item 3) push every channel to rank 1.0. Now the table reads
+  discharge only, every channel is whole by x16 wherever its river is drawn (`DELTA_FULL_ZOOM`), and a channel
+  meeting the river's own course ends there as a loop (`LOOP_MIN_CELLS`). After the fix, at x16, 135 of 180 channels
+  are drawn on the owner world (every drawn river has its fan) and 32 of 32 on 483920. Widths at x16 are 2.2-3.3 px,
+  so no width floor was needed. `DELTA_GEOMETRY_RESEARCH.md` section 12.
+- **Straight rivers (Ruling ER, owner: "3, and would it change if we had 32 instead of 8 directions?").**
+  - **Measured.** Ten routing candidates on three worlds (`tests/river_routing_measurement.rs`). D32 leaves the drawn
+    curve as straight as D8 (62 / 42 / 48 % against 63 / 41 / 46 %): the runs are only at finer angles, and D16/D32
+    break drainage. Only a perturbation makes rivers wander.
+  - **Built: rough routing** (`cartalith_hydrology::rough`, `WorldParams::rough_routing`, k 4, lattice 4 cells). Off
+    in `WorldParams::defaults` (goldens unchanged), on in the app. A saved world keeps its rivers (substrate rasters,
+    plus the optional manifest `routing_roughness`). Every tree rebuild uses it (`fresh_river_*_with`, picks).
+    In the app, the drawn straight share went 44.5 -> 16.8 % (owner), 30.3 -> 17.3 % (483920) and 35.3 -> 15.0 %
+    (912345). Lakes 79 -> 74, 25 -> 28, 31 -> 31. No uphill step on the routing surface, and no broken drainage.
+  - **Built: a display meander** (`river_meander`, 0.3 cells, 4-cell wavelength, inside the traced cells). It is part
+    of the one drawn geometry, so it shows from about x16 on the screen, tiles, export and picking alike.
+  - `DELTA_GEOMETRY_RESEARCH.md` section 13.
+- **Verified.** `cargo test --workspace` (separate target dir): 268 result lines, 7 850 passed, 0 failed, 147 ignored. 8 of 8 literal mutants killed. Probes run windowed. Frames and the composite are in
+  `cartalith-native/docs/evidence/rivers-straight-2026-11-11/`.
+- **Open.** The traced network on the owner world is 27 % shorter (parallel strips merge); the drawn network is 14 %
+  longer. Whether the owner wants the density retuned is a question for the owner. Rough routing makes each routing call
+  slower: 185 ms against 67 ms at 2048 x 1311, one run each, with the noise built on every call. Generation routes
+  several times, and it skips the GPU flow kernel.
+
+### Straight river lines: measured, cause found, fix needs an owner ruling (2026-11-11) -- superseded by the entry above (Ruling ER)
 
 - **Measured** (`river_straight::straight_stats`, `WorldGen::river_straightness`, `_riverzoom_probe.gd --straight`,
   four worlds): 32 to 58 % of the traced network's length is runs of one repeated D8 step, all on a grid axis or

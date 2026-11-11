@@ -1244,7 +1244,8 @@ impl WorldGen {
         let mut cont = |i: usize| -> i64 {
             let r = flow_recv.get_or_insert_with(|| {
                 let route = cartalith_hydrology::routing_view(&ws.field, gw, gh, self.sea_level, self.world, ws.integrated_drainage);
-                cartalith_hydrology::flow_receivers(&route, gw, gh, self.world)
+                // Ruling ER: the tree the world was routed along (rough or D8).
+                cartalith_hydrology::flow_receivers_with(&route, gw, gh, self.world, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, self.world).as_ref())
             });
             r.get(i).copied().unwrap_or(-1) as i64
         };
@@ -1291,7 +1292,8 @@ impl WorldGen {
         }
         let Some(ch) = ws.channels.as_ref() else { return PackedByteArray::new() };
         let route = cartalith_hydrology::routing_view(&ws.field, gw, gh, self.sea_level, self.world, ws.integrated_drainage);
-        let d8 = cartalith_hydrology::flow_receivers(&route, gw, gh, self.world);
+        // Ruling ER: the tree the world was routed along (rough or D8).
+        let d8 = cartalith_hydrology::flow_receivers_with(&route, gw, gh, self.world, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, self.world).as_ref());
         PackedByteArray::from(catchment_mask(&combined_receivers(&ch.recv, &d8), c).as_slice())
     }
 

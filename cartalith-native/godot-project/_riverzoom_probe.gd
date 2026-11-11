@@ -216,6 +216,12 @@ var _vx := false
 var _river_density := 1.0
 var _geology_model := false
 var _metropolis := false
+## `--rough-off`: generate with Ruling ER's rough routing OFF (plain D8, the
+## routing of every world before the ruling) -- the "before" of its frames.
+var _rough_off := false
+## `--meander-off`: draw without Ruling ER part B's display meander
+## (`WorldGen::set_river_meander(false)`), the "before" of its frames.
+var _meander_off := false
 var _rim5_zooms: Array = [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1.2, 1.35, 1.5, 1.75, 2.0]
 var _appearance := {}
 var _zooms: Array = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 240.0]
@@ -291,6 +297,8 @@ func _ready() -> void:
 			"--river-density": _river_density = float(args[i + 1]); i += 1
 			"--geology-model": _geology_model = true
 			"--metropolis": _metropolis = true
+			"--rough-off": _rough_off = true
+			"--meander-off": _meander_off = true
 			"--width-km": _width_km = float(args[i + 1]); i += 1
 			"--rim5-zooms":
 				_rim5_zooms.clear()
@@ -339,6 +347,10 @@ func _run_seed(seed_v: int) -> void:
 		_br.param_set("river_density", _river_density)
 	if _geology_model:
 		_br.param_set("geology_model", true)
+	if _rough_off:
+		_br.param_set("rough_routing", false)
+	if _meander_off:
+		_br.world_gen.set_river_meander(false)
 	_br.generate({"seed": seed_v, "width_km": _width_km, "grid_w": _grid.x, "grid_h": _grid.y,
 		"archetype": "", "villages": true, "metropolis": _metropolis, "sea_level": 0.42})
 	var spins := 0

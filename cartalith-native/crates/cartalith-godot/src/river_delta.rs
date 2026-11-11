@@ -24,7 +24,8 @@
 //! daughters' squared widths sum to the parent's. A channel that would touch
 //! another channel ([`clear_of_others`]) or meet no water within
 //! [`MAX_REACH_OVER_SETBACK`] setbacks is dropped, and its sibling takes the
-//! whole discharge. The plan shape follows the mouth's exposure
+//! whole discharge -- except one that meets the river's own course after a
+//! real run, which ends there as a loop (below). The plan shape follows the mouth's exposure
 //! ([`exposure`], [`DeltaKind::of_exposure`]): a sheltered mouth (a bay, a
 //! lake) grows the many-branched river-dominated tree, an open coast the
 //! few-channel wave-dominated one (Galloway 1975's classes; the tidal class is
@@ -48,7 +49,15 @@
 //! apex river: the delta's largest channels appear with the river and its
 //! smaller ones only as the zoom grows, by the one visibility law
 //! (`river_stroke::river_visibility`) the field's B channel already carries --
-//! no second texture.
+//! no second texture. From [`DELTA_FULL_ZOOM`] (x16 over the opening view) a
+//! fan is whole wherever its river is drawn ([`delta_rank`]; section 12, the
+//! owner's *"the deltas seem to have gone"*).
+//!
+//! **Loops (section 12).** A distributary that meets the river's own course
+//! after at least [`LOOP_MIN_CELLS`] ends there, rejoining it (an anabranch
+//! round an island: Tejedor et al. 2015 count such loops on real deltas)
+//! instead of being dropped by the no-contact rule; one that meets another
+//! distributary is still dropped, so the no-comb rule stands.
 //!
 //! **What it is not.** Not generation: a pure function of the drawn geometry
 //! and the drawn-water classification. Its "randomness" is a hash of each
@@ -198,6 +207,15 @@ pub const TERMINAL_TAPER: f32 = 0.25;
 /// comb.
 pub const CLEAR_CELLS: i32 = 1;
 
+/// The least path a distributary must have run, cells, before meeting the
+/// river's own course ends it as a loop rather than dropping it, and the least
+/// straight distance from its start to where it rejoins. **Labelled
+/// judgement** (section 12): twice [`EXEMPT_CELLS`], so the island a loop
+/// encloses is at least six cells across -- about 44 pixels at x16 on the
+/// owner world (7.4 pixels a cell), a shape that reads as an island and not a
+/// thickened stroke.
+pub const LOOP_MIN_CELLS: f32 = 6.0;
+
 /// How far from its own start a channel ignores [`CLEAR_CELLS`], in cells.
 /// **Labelled judgement**: two daughters parting at 58 degrees (the least
 /// [`BIFURCATION_ANGLE_DEG`] minus [`ANGLE_JITTER_DEG`]) are 3 x 2 sin 29 = 2.9
@@ -319,7 +337,7 @@ impl DeltaKind {
 
 /// What one [`delta_fans`] call did, for `WorldGen::river_delta_stats` and the
 /// probe. Every count is of MOUTHS (runs) unless it says channels or splits.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DeltaStats {
     /// Runs whose last piece ends meeting water.
     pub mouths: usize,
@@ -340,12 +358,23 @@ pub struct DeltaStats {
     pub collided: usize,
     /// Bifurcations that kept both daughters.
     pub splits: usize,
+    /// Channels kept as loops: they met the river's own course after
+    /// [`LOOP_MIN_CELLS`] and end on it (section 12) instead of being counted
+    /// in `collided`.
+    pub rejoined: usize,
     /// Fans of each [`DeltaKind`]: river-dominated, lobate, wave-dominated.
     pub kinds: [usize; 3],
     /// Eligible mouths skipped because the river is under
     /// [`MIN_SETBACK_CELLS`] long above its shore crossing, has no dry point,
     /// or its apex stands on water.
     pub skipped: usize,
+    /// Per fan, in output order: how many channels (runs) it put into the
+    /// returned geometry, so a reader can split the runs back into mouths
+    /// ([`fan_seen`]). Sums to `branches`.
+    pub fan_sizes: Vec<u32>,
+    /// Per fan, in output order: the apex river's own visibility rank (NaN
+    /// when the network is unranked -- never a guessed 0).
+    pub fan_apex_rank: Vec<f32>,
 }
 
 /// Whether grid cell `(i, j)` is drawn water -- the closure `river_draws`'
@@ -415,44 +444,90 @@ impl Rng {
 }
 
 /// **The visibility rank a network river of a given discharge has** (Ruling
-/// EN's `u`, `river_stroke::visibility_ranks`), read off the drawn network's
-/// own (discharge, rank) pairs, so a distributary carrying a fifth of its
-/// river's water appears at the zoom a river that size appears at (RZ-5's
-/// "fans fade in by their on-screen reach", through the existing law). Empty
-/// when the network carries no ranks (a hand-built test network): every fan
-/// then takes its apex's rank.
+/// EN's `u`): the share of the drawn network's length whose discharge is at
+/// least that, so a distributary carrying a fifth of its river's water appears
+/// at the zoom a river that size appears at (RZ-5's "fans fade in by their
+/// on-screen reach", through the existing law). `None` when the network
+/// carries no ranks (a hand-built test network): every fan then takes its
+/// apex's rank, i.e. is unranked.
+///
+/// **Why the length share and not the network's own ranks** (section 12,
+/// 2026-11-11; the owner: *"the deltas seem to have gone"*). Until then the
+/// table read the network's `(discharge, rank)` pairs with a running maximum
+/// of the rank down the discharges. Ruling EQ item 3 (`hide_short_stubs`)
+/// raises a short run's ranks toward 1 whatever its discharge, so one short
+/// run of large discharge carried rank 1 to every smaller discharge: measured
+/// on the owner world, the median fan channel ranked 1.0 against a median
+/// apex of 0.21, and no channel was drawn below x64. The length share is the
+/// definition `visibility_ranks` computes, read off discharge alone, so a rank
+/// raised for a reason other than discharge cannot leak into it.
 pub struct RankOfDischarge {
-    /// `(discharge, rank)`, discharge descending, rank a running maximum, so
-    /// the lookup is monotone: less water never ranks ahead of more.
+    /// `(discharge, share of drawn length at or above it)`, discharge
+    /// descending, the share non-decreasing: less water never ranks ahead of
+    /// more.
     pairs: Vec<(f32, f32)>,
 }
 
 impl RankOfDischarge {
-    /// Builds the table from every network point with both a finite
-    /// discharge and a rank.
+    /// Builds the table from every drawn network point with a finite
+    /// discharge, each weighted by the step from the point before it; empty
+    /// (every lookup `None`) when no run carries ranks, i.e. the network is
+    /// unranked.
     pub fn of(geom: &RiverGeometry) -> Self {
-        let mut pairs: Vec<(f32, f32)> = geom
-            .runs
-            .iter()
-            .flat_map(|r| r.discharge.iter().zip(r.ranks.iter()).filter(|(q, u)| q.is_finite() && u.is_finite()).map(|(&q, &u)| (q, u)))
-            .collect();
+        if geom.runs.iter().all(|r| r.ranks.is_empty()) {
+            return RankOfDischarge { pairs: Vec::new() };
+        }
+        let mut pairs: Vec<(f32, f32)> = Vec::new();
+        for r in &geom.runs {
+            for (k, &q) in r.discharge.iter().enumerate().take(r.pts.len()) {
+                if k > 0 && q.is_finite() {
+                    pairs.push((q, dist(r.pts[k], r.pts[k - 1])));
+                }
+            }
+        }
         pairs.sort_by(|a, b| b.0.total_cmp(&a.0));
-        let mut m = 0.0f32;
+        let total: f32 = pairs.iter().map(|p| p.1).sum();
+        if total <= 0.0 {
+            return RankOfDischarge { pairs: Vec::new() };
+        }
+        let mut acc = 0.0f32;
         for p in &mut pairs {
-            m = m.max(p.1);
-            p.1 = m;
+            acc += p.1;
+            p.1 = (acc / total).min(1.0);
         }
         RankOfDischarge { pairs }
     }
-    /// The rank of discharge `q`: that of the smallest-discharge network point
-    /// still carrying at least `q`; `None` with an empty table.
+    /// The rank of discharge `q`: the share of drawn length carrying at least
+    /// `q` (`0` above the largest discharge); `None` with an empty table.
     pub fn rank(&self, q: f32) -> Option<f32> {
         if self.pairs.is_empty() {
             return None;
         }
         let k = self.pairs.partition_point(|p| p.0 >= q);
-        Some(if k == 0 { self.pairs[0].1 } else { self.pairs[k - 1].1 })
+        Some(if k == 0 { 0.0 } else { self.pairs[k - 1].1 })
     }
+}
+
+/// The zoom, over the opening fit view, by which every channel of a fan whose
+/// river is drawn is drawn too. **The owner's, relayed 2026-11-11** (on the
+/// x16 frames, *"the deltas seem to have gone"*; the coordinator's fix: "a
+/// delta clearly reads at x16 and deeper"): a channel's rank is held at or
+/// below the share the law reaches at this zoom ([`delta_rank`]), so between
+/// the opening view and here the smaller channels fade in by their discharge
+/// (Ruling EN's RZ-5) and from here on a fan is whole wherever its river is.
+pub const DELTA_FULL_ZOOM: f32 = 16.0;
+
+/// **A fan channel's visibility rank**: the rank of its own discharge
+/// (`own`, [`RankOfDischarge`]), never ahead of its apex river's (`apex`,
+/// RZ-2: a channel cannot show where its river does not), and never later than
+/// the share the law reaches at [`DELTA_FULL_ZOOM`] for a map of start share
+/// `start` (`river_stroke::start_share`) -- unless its river itself is later,
+/// when it is the river's. `own` `None` (an unranked network) gives `apex`.
+/// Independent of the window: the share at a zoom over the fit view depends on
+/// the start share only.
+pub fn delta_rank(own: Option<f32>, apex: f32, start: f32) -> f32 {
+    let full = crate::river_stroke::visible_share_at(DELTA_FULL_ZOOM, 1.0, start);
+    own.map_or(apex, |u| u.min(full).max(apex))
 }
 
 /// One channel of a fan being grown: its centreline, its share of the apex
@@ -469,6 +544,8 @@ struct Chan {
     kids: Vec<usize>,
     /// Kept (reached water, or split into a kept daughter).
     alive: bool,
+    /// Ends on the river's own course (a loop), not on water.
+    rejoins: bool,
 }
 
 /// **The distance to drawn water round one mouth**, on the grid's cells in a
@@ -582,9 +659,21 @@ struct Grow<'a> {
     cap_scale: (f32, f32, f32),
     /// The way down to the water round this mouth.
     sea: SeaField,
+    /// The river's own course from the apex to the shore (the main channel),
+    /// sampled every [`STEP_CELLS`]: where a loop rejoins it.
+    course: Vec<(f32, f32)>,
+    /// Channels kept as loops onto the main channel.
+    rejoined: usize,
     dropped_dry: usize,
     collided: usize,
     splits: usize,
+}
+
+/// Whether the cell of `p` or a cell round it ([`CLEAR_CELLS`]) is the main
+/// channel's (`u32::MAX` in the occupancy grid).
+fn touches_main(occ: &HashMap<(i32, i32), u32>, p: (f32, f32)) -> bool {
+    let (ci, cj) = (p.0.floor() as i32, p.1.floor() as i32);
+    (-CLEAR_CELLS..=CLEAR_CELLS).any(|dj| (-CLEAR_CELLS..=CLEAR_CELLS).any(|di| occ.get(&(ci + di, cj + dj)) == Some(&u32::MAX)))
 }
 
 /// Whether the cell of `p` and the cells round it ([`CLEAR_CELLS`]) hold no
@@ -650,7 +739,7 @@ impl Grow<'_> {
     #[allow(clippy::too_many_arguments)]
     fn grow(&mut self, start: (f32, f32), h0: f32, q: f32, w_ref: f32, path0: f32, depth: u8) -> Result<usize, Fail> {
         let id = self.chans.len();
-        self.chans.push(Chan { pts: vec![start], q, w_ref, kids: Vec::new(), alive: false });
+        self.chans.push(Chan { pts: vec![start], q, w_ref, kids: Vec::new(), alive: false, rejoins: false });
         self.owned.push(Vec::new());
         let w = w_ref * q.sqrt();
         let lambda = (MEANDER_WAVELENGTH_WIDTHS * w).max(MIN_WAVELENGTH_CELLS);
@@ -704,6 +793,21 @@ impl Grow<'_> {
                 return fail(self, Fail::Dry);
             }
             if !wet_now && s > EXEMPT_CELLS && !clear_of_others(&self.occ, next, id as u32) {
+                // Section 12: meeting the river's own course after a real run
+                // ends the channel there, a loop round an island; anything else
+                // (another distributary, or too soon) is still dropped.
+                if s >= LOOP_MIN_CELLS && touches_main(&self.occ, next) {
+                    if let Some(&m) = self.course.iter().min_by(|a, b| dist(**a, next).total_cmp(&dist(**b, next))) {
+                        if dist(m, start) >= LOOP_MIN_CELLS {
+                            self.chans[id].pts.push(m);
+                            self.commit(id);
+                            self.chans[id].alive = true;
+                            self.chans[id].rejoins = true;
+                            self.rejoined += 1;
+                            return Ok(id);
+                        }
+                    }
+                }
                 return fail(self, Fail::Collided);
             }
             p = next;
@@ -806,13 +910,15 @@ impl Grow<'_> {
 ///    `q` the channel's share), constant on a channel that splits and
 ///    narrowing by [`TERMINAL_TAPER`] on one that does not; colour, order and
 ///    own order are the river's at the apex, discharge NaN (no reading), rank
-///    the larger of the apex's and [`RankOfDischarge`]'s for `q` times the
-///    river's discharge.
+///    [`delta_rank`] of [`RankOfDischarge`]'s for `q` times the river's
+///    discharge, the apex's and `start`.
 ///
 /// `river_width` is the preset's width multiplier (`river_width_factor`), used
-/// only for the water cap. Deterministic: a function of `geom`, the grid and
-/// `wet`. The network itself is only read.
-pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, wet: Wet) -> (RiverGeometry, DeltaStats) {
+/// only for the water cap; `start` is the map's `river_stroke::start_share`
+/// (the zoom law's opening share), used only for [`delta_rank`].
+/// Deterministic: a function of `geom`, the grid, `start` and `wet`. The
+/// network itself is only read.
+pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, start: f32, wet: Wet) -> (RiverGeometry, DeltaStats) {
     let mut st = DeltaStats::default();
     let mut out: Vec<DrawnRun> = Vec::new();
     let cells = (gw * gh) as f32;
@@ -907,6 +1013,8 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
             chans: Vec::new(),
             cap_scale: (river_width, s_min, 0.0),
             sea: SeaField::around(a, MAX_REACH_OVER_SETBACK * u_eff + 2.0, gw, gh, wet),
+            course: Vec::new(),
+            rejoined: 0,
             dropped_dry: 0,
             collided: 0,
             splits: 0,
@@ -920,6 +1028,7 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
                 let p = (course[k].0 + (course[k + 1].0 - course[k].0) * f, course[k].1 + (course[k + 1].1 - course[k].1) * f);
                 if !wet_at(wet, p) {
                     g.occ.insert((p.0.floor() as i32, p.1.floor() as i32), u32::MAX);
+                    g.course.push(p);
                 }
             }
         }
@@ -950,7 +1059,13 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
             match g.grow(p, hc + side * full * (1.0 - share), q_off, w_ref, at, 1) {
                 Ok(c) => {
                     roots.push(c);
-                    q_main -= q_off;
+                    // A loop gives its water back to the river further down;
+                    // the later offtakes' shares are of the river's remaining
+                    // water, so a loop does not reduce it (a labelled
+                    // simplification: where it rejoins is not tracked).
+                    if !g.chans[c].rejoins {
+                        q_main -= q_off;
+                    }
                 }
                 Err(f) => g.count(f),
             }
@@ -959,6 +1074,7 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
         st.dropped_dry += g.dropped_dry;
         st.collided += g.collided;
         st.splits += g.splits;
+        st.rejoined += g.rejoined;
         if roots.is_empty() {
             continue;
         }
@@ -966,6 +1082,7 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
         st.kinds[kind as usize] += 1;
         // 5. Every kept channel as a run, in growth order.
         let apex_rank = run.ranks.get(ai).copied().unwrap_or(0.0);
+        let runs_before = out.len();
         let mut stack: Vec<usize> = roots.iter().rev().copied().collect();
         while let Some(c) = stack.pop() {
             let ch = &g.chans[c];
@@ -974,7 +1091,9 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
             }
             stack.extend(ch.kids.iter().rev().copied());
             let w0 = ch.w_ref * ch.q.sqrt();
-            let taper = if ch.kids.is_empty() { TERMINAL_TAPER } else { 0.0 };
+            // A loop joins the river at its own width; only a channel ending in
+            // the water tapers.
+            let taper = if ch.kids.is_empty() && !ch.rejoins { TERMINAL_TAPER } else { 0.0 };
             let len = ch.pts.windows(2).map(|s| dist(s[0], s[1])).sum::<f32>().max(1e-6);
             let mut at = 0.0f32;
             let mut widths = Vec::with_capacity(ch.pts.len());
@@ -985,9 +1104,9 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
                 widths.push(w0 * (1.0 - taper * (at / len)));
             }
             let m = ch.pts.len();
-            // RZ-2 / RZ-5: never ahead of the apex river, and ranked as a river
-            // of its own discharge would be.
-            let rank = ranks.rank(ch.q * q_river).map_or(apex_rank, |u| u.max(apex_rank));
+            // RZ-2 / RZ-5: never ahead of the apex river, ranked as a river of
+            // its own discharge would be, and whole by x16 (section 12).
+            let rank = delta_rank(ranks.rank(ch.q * q_river), apex_rank, start);
             out.push(DrawnRun {
                 pts: ch.pts.clone(),
                 widths,
@@ -1001,8 +1120,87 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
             });
             st.branches += 1;
         }
+        st.fan_sizes.push((out.len() - runs_before) as u32);
+        st.fan_apex_rank.push(run.ranks.get(ai).copied().unwrap_or(f32::NAN));
     }
     (RiverGeometry { runs: out }, st)
+}
+
+/// **What of the fans a view shows** (the owner, 2026-11-11, on the x16
+/// frames: *"the deltas seem to have gone"*; `DELTA_GEOMETRY_RESEARCH.md`
+/// section 12), measured by the same law every raster applies.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FanSeen {
+    /// Fans built.
+    pub mouths: usize,
+    /// Fans whose apex river is itself drawn at this view (visibility at
+    /// least `PICK_MIN_VISIBILITY`); an unranked apex counts as drawn.
+    pub river_shown: usize,
+    /// Channels built, over all fans.
+    pub generated: usize,
+    /// Channels drawn at this view (some point at or above
+    /// `PICK_MIN_VISIBILITY`, the "hidden cannot be picked" line).
+    pub drawn: usize,
+    /// Of the fans whose river is shown, those drawing at least one channel.
+    pub shown_with_channel: usize,
+    /// Median full drawn width, screen pixels, over the drawn channels'
+    /// points (NaN when none is drawn).
+    pub width_px_p50: f32,
+    /// Tenth percentile of the same widths (NaN when none is drawn).
+    pub width_px_p10: f32,
+    /// Median visibility rank of the channels (first point; NaN when the fans
+    /// are unranked). Zoom-independent: the diagnosis of section 12.
+    pub rank_p50: f32,
+    /// Median apex-river rank over the fans (NaN when unranked).
+    pub apex_rank_p50: f32,
+}
+
+/// [`FanSeen`] of `fans` (split into mouths by `st.fan_sizes`) at `ppc`
+/// pixels per cell, with the law's scale given (`fit`, `start`) and the
+/// preset's river width `rw`. The width is the field's own rule
+/// (`river_field::edge_px`): ground width times `ppc`, the headwater
+/// narrowing and `rw`, floored at [`MIN_STROKE_PX`]. A measurement only;
+/// nothing draws from it.
+pub fn fan_seen(fans: &RiverGeometry, st: &DeltaStats, ppc: f32, fit: f32, start: f32, rw: f32) -> FanSeen {
+    use crate::river_stroke::{headwater_deemphasis, headwater_weight, river_visibility_at, PICK_MIN_VISIBILITY};
+    let mut out = FanSeen { mouths: st.fan_sizes.len(), ..FanSeen::default() };
+    let mut widths: Vec<f32> = Vec::new();
+    let mut ranks: Vec<f32> = fans.runs.iter().filter_map(|r| r.ranks.first().copied()).filter(|u| u.is_finite()).collect();
+    let mut apexes: Vec<f32> = st.fan_apex_rank.iter().copied().filter(|u| u.is_finite()).collect();
+    let p50 = |v: &mut Vec<f32>| {
+        v.sort_by(f32::total_cmp);
+        v.get(v.len() / 2).copied().unwrap_or(f32::NAN)
+    };
+    out.rank_p50 = p50(&mut ranks);
+    out.apex_rank_p50 = p50(&mut apexes);
+    let mut k0 = 0usize;
+    for (f, &n) in st.fan_sizes.iter().enumerate() {
+        let runs = &fans.runs[k0.min(fans.runs.len())..(k0 + n as usize).min(fans.runs.len())];
+        k0 += n as usize;
+        let apex = st.fan_apex_rank.get(f).copied().unwrap_or(f32::NAN);
+        let shown = river_visibility_at(apex, ppc, fit, start) >= PICK_MIN_VISIBILITY;
+        out.river_shown += shown as usize;
+        let mut any = false;
+        for r in runs {
+            out.generated += 1;
+            let mut drawn = false;
+            for (k, w) in r.widths.iter().enumerate() {
+                let u = r.ranks.get(k).copied().unwrap_or(f32::NAN);
+                if river_visibility_at(u, ppc, fit, start) >= PICK_MIN_VISIBILITY {
+                    drawn = true;
+                    let wm = 1.0 + (headwater_deemphasis(ppc) - 1.0) * headwater_weight(u);
+                    widths.push((w * ppc * wm * rw).max(MIN_STROKE_PX));
+                }
+            }
+            out.drawn += drawn as usize;
+            any |= drawn;
+        }
+        out.shown_with_channel += (shown && any) as usize;
+    }
+    widths.sort_by(f32::total_cmp);
+    out.width_px_p50 = widths.get(widths.len() / 2).copied().unwrap_or(f32::NAN);
+    out.width_px_p10 = widths.get(widths.len() / 10).copied().unwrap_or(f32::NAN);
+    out
 }
 
 /// **The shape of a set of fans**, for the probe and the bars
@@ -1169,6 +1367,10 @@ mod tests {
         assert!(MIN_ORDER > cartalith_hydrology::COMB_MAX_ORDER);
     }
 
+    /// The whole-world start share (`river_stroke::start_share(40 075 km)`,
+    /// 0.044) the fixtures rank their fans at.
+    const WORLD_START: f32 = 0.044;
+
     // Grid width of every fixture: a judgement -- large enough that a fan (a few cells) and the
     // `MIN_DISCHARGE_FRAC` share (2e-4 of cells) are both representable, small enough to be fast.
     const GW: usize = 100;
@@ -1235,7 +1437,7 @@ mod tests {
     /// Runs [`delta_fans`] on a single run over the fixture grid (cell scale 1.0) with
     /// the given wetness predicate; returns the fans and their stats.
     fn fans_of(r: DrawnRun, wet: Wet) -> (RiverGeometry, DeltaStats) {
-        delta_fans(&RiverGeometry { runs: vec![r] }, GW, GH, 1.0, wet)
+        delta_fans(&RiverGeometry { runs: vec![r] }, GW, GH, 1.0, WORLD_START, wet)
     }
 
     /// Whether run `r` of `fan` is a terminal channel: no other run starts at
@@ -1243,6 +1445,17 @@ mod tests {
     fn is_leaf(fan: &RiverGeometry, r: &DrawnRun) -> bool {
         let e = *r.pts.last().unwrap();
         !fan.runs.iter().any(|o| o.pts[0] == e)
+    }
+
+    /// Whether point `e` lies on the polyline of `river` (within 1e-3 cells):
+    /// where a loop ends (section 12).
+    fn on_course(river: &DrawnRun, e: (f32, f32)) -> bool {
+        river.pts.windows(2).any(|w| {
+            let (a, b) = (w[0], w[1]);
+            let (vx, vy) = (b.0 - a.0, b.1 - a.1);
+            let t = (((e.0 - a.0) * vx + (e.1 - a.1) * vy) / (vx * vx + vy * vy).max(1e-12)).clamp(0.0, 1.0);
+            dist(e, (a.0 + vx * t, a.1 + vy * t)) < 1e-3
+        })
     }
 
     /// Protects: the plan type follows the water in front of the mouth, with
@@ -1272,13 +1485,15 @@ mod tests {
     /// Protects: every fan exists and stays in bounds -- each eligible mouth on
     /// each coast gets one; every channel starts on the river's own course
     /// between the apex (`(own_order - 1) * SETBACK_PER_ORDER_CELLS` upstream
-    /// of the last dry point) and the shore, ends ON water, and never lies on
+    /// of the last dry point) and the shore, ends ON water or ON the river's
+    /// own course (a loop, section 12), and never lies on
     /// land farther than `MAX_REACH_OVER_SETBACK` setbacks from the apex; it
     /// carries no discharge reading and the river's colour and own order.
     #[test]
     fn every_fan_starts_on_the_river_and_ends_on_water() {
         for (name, w) in coasts() {
             for order in [3i16, 4, 5] {
+                let river = run(order, 5000.0, 62.5, true);
                 let (fan, st) = fans_of(run(order, 5000.0, 62.5, true), w);
                 assert_eq!((st.mouths, st.eligible, st.fans), (1, 1, 1), "{name} order {order}: {st:?}");
                 assert_eq!(fan.runs.len(), st.branches);
@@ -1287,7 +1502,7 @@ mod tests {
                 for r in &fan.runs {
                     let (a, e) = (r.pts[0], *r.pts.last().unwrap());
                     assert!(a.0 >= apex.0 - 1e-3 && a.0 < 60.0, "{name} order {order}: start {a:?}");
-                    assert!(!is_leaf(&fan, r) || wet_at(w, e), "{name}: a terminal channel ends on water: {e:?}");
+                    assert!(!is_leaf(&fan, r) || wet_at(w, e) || on_course(&river, e), "{name}: a terminal channel ends on water or on the river (a loop): {e:?}");
                     for p in &r.pts {
                         assert!(wet_at(w, *p) || dist(*p, apex) <= MAX_REACH_OVER_SETBACK * setback + 1e-3, "{name}: land point {p:?} too far from the apex");
                     }
@@ -1410,6 +1625,27 @@ mod tests {
         }
     }
 
+    /// Protects: section 12's loops. On the narrow-lake fixture (an order-5
+    /// river, the measured case) a distributary meets the river's own course;
+    /// it is kept as a loop (`rejoined` 1), ending ON the course at least
+    /// `LOOP_MIN_CELLS` (6, a literal) in a straight line from where it left,
+    /// having run at least that far, and at its full width (no taper).
+    /// Mutation: a `LOOP_MIN_CELLS` past the fixture's reach drops it again.
+    #[test]
+    fn a_channel_that_meets_the_river_rejoins_it_as_a_loop() {
+        let river = run(5, 5000.0, 62.5, true);
+        let (fan, st) = fans_of(run(5, 5000.0, 62.5, true), &narrow_lake);
+        assert_eq!(st.rejoined, 1, "{st:?}");
+        let loops: Vec<&DrawnRun> = fan.runs.iter().filter(|r| on_course(&river, *r.pts.last().unwrap())).collect();
+        assert_eq!(loops.len(), 1);
+        let l = loops[0];
+        let (a, e) = (l.pts[0], *l.pts.last().unwrap());
+        assert!(dist(a, e) >= 6.0, "the island is at least six cells: {a:?} -> {e:?}");
+        let len: f32 = l.pts.windows(2).map(|w| dist(w[0], w[1])).sum();
+        assert!(len >= 6.0, "{len}");
+        assert_eq!(l.widths.first(), l.widths.last(), "a loop keeps its width to the river");
+    }
+
     /// Protects: the comb measure sees a comb -- the old fan's failure. Two
     /// straight parallel runs one cell apart read `parallel_frac` near 1, two
     /// runs 30 degrees apart read 0 past their shared start, and a straight
@@ -1427,13 +1663,18 @@ mod tests {
 
     /// Protects: distributaries do not cross the river itself. Every land
     /// point of every channel more than `EXEMPT_CELLS` from its start lies
-    /// outside the 3 x 3 cells round the river's own course (`y = 50.5`).
+    /// outside the 3 x 3 cells round the river's own course (`y = 50.5`) --
+    /// except a loop's last two cells, where it rejoins the course (section
+    /// 12): a loop ENDS on the river and never crosses it.
     #[test]
     fn no_channel_runs_along_or_across_the_main_channel() {
         for (name, w) in coasts() {
+            let river = run(5, 5000.0, 62.5, true);
             let (fan, _) = fans_of(run(5, 5000.0, 62.5, true), w);
             for r in &fan.runs {
-                for p in r.pts.iter().filter(|&&p| !wet_at(w, p) && dist(p, r.pts[0]) > EXEMPT_CELLS) {
+                let e = *r.pts.last().unwrap();
+                let rejoin = on_course(&river, e);
+                for p in r.pts.iter().filter(|&&p| !wet_at(w, p) && dist(p, r.pts[0]) > EXEMPT_CELLS && !(rejoin && dist(p, e) <= 2.0)) {
                     assert!((p.1.floor() - 50.0).abs() > 1.0 || p.0 >= 60.0, "{name}: {p:?} on the river's course");
                 }
             }
@@ -1442,10 +1683,11 @@ mod tests {
 
     /// Protects: terminal channels taper and splitting ones do not -- a channel
     /// with no daughters narrows to 75 % of its start (`TERMINAL_TAPER` 0.25, a
-    /// literal), a channel that splits keeps its width; widths never rise along
+    /// literal), a channel that splits or rejoins the river keeps its width; widths never rise along
     /// a channel and never reach zero.
     #[test]
     fn terminal_channels_taper_and_parents_keep_their_width() {
+        let river = run(5, 5000.0, 62.5, true);
         let (fan, st) = fans_of(run(5, 5000.0, 62.5, true), &narrow_lake);
         assert!(st.splits >= 1, "{st:?}");
         let starts: Vec<(f32, f32)> = fan.runs.iter().map(|r| r.pts[0]).collect();
@@ -1453,7 +1695,8 @@ mod tests {
             let w0 = r.widths[0];
             let tip = *r.widths.last().unwrap();
             let parent = r.pts[1..].iter().any(|p| starts.contains(p));
-            if parent {
+            // A loop (section 12) joins the river at its own width, like a parent.
+            if parent || on_course(&river, *r.pts.last().unwrap()) {
                 assert!((tip - w0).abs() < 1e-6, "a splitting channel keeps its width: {w0} -> {tip}");
             } else {
                 assert!((tip / w0 - 0.75).abs() < 1e-3 && tip > 0.0, "tip {tip} of {w0}");
@@ -1520,10 +1763,11 @@ mod tests {
         let bay = |x: i64, y: i64| x >= 54 && y >= 52;
         let mut dropped = 0;
         for y in [48.5f32, 49.5, 50.5] {
+            let river = run_at(y, 5, 5000.0, 62.5, true);
             let (fan, st) = fans_of(run_at(y, 5, 5000.0, 62.5, true), &bay);
             dropped += st.dropped_dry + st.collided;
             let setback = 4.0 * SETBACK_PER_ORDER_CELLS;
-            for r in fan.runs.iter().filter(|r| is_leaf(&fan, r)) {
+            for r in fan.runs.iter().filter(|r| is_leaf(&fan, r) && !on_course(&river, *r.pts.last().unwrap())) {
                 let first_wet = r.pts.iter().position(|p| wet_at(&bay, *p)).expect("a kept terminal channel reaches water");
                 assert!(first_wet >= 1, "a channel starts dry");
                 let apex = (59.5 - setback, y);
@@ -1538,33 +1782,56 @@ mod tests {
         assert!(fan.runs.is_empty(), "no water, no fan: {st:?}");
     }
 
-    /// Protects: RZ-5 through Ruling EN's law -- a channel is ranked as a
-    /// network river of its own discharge would be, never ahead of its apex
-    /// river. The network here is the mouth (rank 0.1, discharge 5000) and two
-    /// rivers that are not mouths (1500 at rank 0.5, 100 at rank 0.9): every
-    /// distributary carries 1000 to 2250, so each takes rank 0.1 or 0.5 by
-    /// whether it carries at least 1500, and a narrower channel never ranks
-    /// ahead of a wider one. An unranked network gives unranked fans.
+    /// Protects: RZ-5 through Ruling EN's law and section 12's two fixes, at
+    /// LITERAL values. The network is the mouth (discharge 5000, 52 cells of
+    /// steps), a river of 1500 (30 cells) and one of 100 (30 cells); 112 cells
+    /// in all. The table is the share of drawn length carrying at least a
+    /// discharge: 0 above 5000, 52/112 = 0.4643 down to 5000, 82/112 = 0.7321
+    /// down to 1500, 1 below 100 -- and it never reads the network's ranks, so
+    /// the small river's rank raised to 1 (as `hide_short_stubs` raises a
+    /// stub's) changes nothing (the defect that hid every fan below x64). A
+    /// channel takes `delta_rank`: its own discharge's rank, never ahead of
+    /// the river's (0.1) and never later than the share at x16 for the map
+    /// (start 0.044: 0.044^(1/3) = 0.3530). An unranked network gives
+    /// unranked fans.
     #[test]
-    fn a_channel_takes_the_rank_of_its_own_discharge_never_ahead_of_its_river() {
+    fn a_channel_takes_the_rank_of_its_own_discharge_never_ahead_of_its_river_and_whole_by_x16() {
         let mut mouth = run(4, 5000.0, 62.5, true);
         mouth.ranks = vec![0.1; mouth.pts.len()];
         let mut mid = run_at(20.5, 3, 1500.0, 40.5, false);
         mid.ranks = vec![0.5; mid.pts.len()];
         let mut small = run_at(80.5, 1, 100.0, 40.5, false);
-        small.ranks = vec![0.9; small.pts.len()];
+        small.ranks = vec![1.0; small.pts.len()];
         let g = RiverGeometry { runs: vec![mid, mouth, small] };
-        let (fan, _) = delta_fans(&g, GW, GH, 1.0, &east_coast);
-        assert!(!fan.runs.is_empty());
-        for r in &fan.runs {
-            let u = r.ranks[0];
-            let q = (r.widths[0] / 1.0).powi(2) * 5000.0;
-            let want = if q >= 1500.0 { 0.1 } else { 0.5 };
-            assert_eq!(u, want, "a channel carrying {q} ranks {u}");
-            assert!(r.ranks.iter().all(|&v| v == u));
-        }
         let table = RankOfDischarge::of(&g);
-        assert_eq!((table.rank(6000.0), table.rank(5000.0), table.rank(2000.0), table.rank(1500.0), table.rank(50.0)), (Some(0.1), Some(0.1), Some(0.1), Some(0.5), Some(0.9)));
+        let r = |q: f32| table.rank(q).unwrap();
+        assert_eq!(r(6000.0), 0.0);
+        assert!((r(5000.0) - 0.464_286).abs() < 1e-5 && (r(2000.0) - 0.464_286).abs() < 1e-5, "{} {}", r(5000.0), r(2000.0));
+        assert!((r(1500.0) - 0.732_143).abs() < 1e-5, "{}", r(1500.0));
+        assert_eq!(r(50.0), 1.0);
+        let mut small2 = run_at(80.5, 1, 100.0, 40.5, false);
+        small2.ranks = vec![0.9; small2.pts.len()];
+        let (mut mid2, mut mouth2) = (run_at(20.5, 3, 1500.0, 40.5, false), run(4, 5000.0, 62.5, true));
+        mid2.ranks = vec![0.5; mid2.pts.len()];
+        mouth2.ranks = vec![0.1; mouth2.pts.len()];
+        let other = RankOfDischarge::of(&RiverGeometry { runs: vec![mid2, mouth2, small2] });
+        assert_eq!(other.rank(1500.0), table.rank(1500.0), "the table reads discharge only, never a raised rank");
+        // delta_rank at literals.
+        assert!((delta_rank(Some(0.9), 0.1, 0.044) - 0.353_035).abs() < 1e-5, "{}", delta_rank(Some(0.9), 0.1, 0.044));
+        assert_eq!(delta_rank(Some(0.05), 0.1, 0.044), 0.1, "never ahead of its river");
+        assert_eq!(delta_rank(Some(0.2), 0.1, 0.044), 0.2, "its own discharge's rank between the two");
+        assert_eq!(delta_rank(Some(0.9), 0.5, 0.044), 0.5, "a river later than x16 keeps its fan with it");
+        assert_eq!(delta_rank(None, 0.3, 0.044), 0.3);
+        let (fan, _) = delta_fans(&g, GW, GH, 1.0, WORLD_START, &east_coast);
+        assert!(!fan.runs.is_empty());
+        for f in &fan.runs {
+            let u = f.ranks[0];
+            assert!(f.ranks.iter().all(|&v| v == u));
+            assert!((0.1..=0.353_04).contains(&u), "a channel ranks between its river and x16: {u}");
+            // Every channel is fully drawn at x16 wherever its river is.
+            let fit = 0.46f32;
+            assert_eq!(crate::river_stroke::river_visibility_at(u, 16.0 * fit, fit, WORLD_START), 1.0);
+        }
         let (fan, _) = fans_of(run(4, 5000.0, 62.5, true), &east_coast);
         assert!(fan.runs.iter().all(|r| r.ranks.is_empty()), "an unranked network's fan is unranked (drawn at every zoom)");
     }
@@ -1582,6 +1849,8 @@ mod tests {
         assert_eq!((OFFTAKE_SPAN, EXPOSURE_SHELTERED, EXPOSURE_OPEN, SEAWARD_TURN_RAD_PER_CELL), ((0.15, 0.75), 0.55, 0.8, 0.06));
         // The shape measure's own thresholds (a mutated PARALLEL_DEG of 0 reads every comb as 0).
         assert_eq!((PARALLEL_DEG, SHAPE_MIN_CELLS), (15.0, 3.0));
+        // Section 12's two constants: loops from six cells, every channel whole by x16.
+        assert_eq!((LOOP_MIN_CELLS, DELTA_FULL_ZOOM), (6.0, 16.0));
         let k = [DeltaKind::RiverDominated, DeltaKind::Lobate, DeltaKind::WaveDominated];
         assert_eq!(k.map(|k| (k.offtakes(4), k.offtakes(5), k.generations())), [(2, 3, 3), (2, 3, 2), (1, 2, 1)]);
         assert_eq!(k.map(|k| k.meander_rad()), [0.45, 0.45, 0.35]);
@@ -1604,9 +1873,11 @@ mod tests {
         let g = RiverGeometry { runs: vec![run(5, 5000.0, 62.5, true)] };
         let before: Vec<(f32, f32)> = g.runs[0].pts.clone();
         let bits = |f: &RiverGeometry| f.runs.iter().flat_map(|r| r.pts.iter().map(|p| (p.0.to_bits(), p.1.to_bits())).chain(r.widths.iter().map(|w| (w.to_bits(), 0)))).collect::<Vec<_>>();
-        let (a, sa) = delta_fans(&g, GW, GH, 1.0, &narrow_lake);
-        let (b, sb) = delta_fans(&g, GW, GH, 1.0, &narrow_lake);
-        assert_eq!(sa, sb);
+        let (a, sa) = delta_fans(&g, GW, GH, 1.0, WORLD_START, &narrow_lake);
+        let (b, sb) = delta_fans(&g, GW, GH, 1.0, WORLD_START, &narrow_lake);
+        // Compared as text: an unranked fan's apex rank is NaN ("no value"),
+        // which `==` never equals.
+        assert_eq!(format!("{sa:?}"), format!("{sb:?}"));
         assert_eq!(bits(&a), bits(&b));
         assert_eq!(g.runs[0].pts, before);
         let (c, _) = fans_of(run_at(51.5, 5, 5000.0, 62.5, true), &narrow_lake);
@@ -1634,7 +1905,7 @@ mod tests {
         assert_eq!(plain.segments, off.segments);
         let empty = RiverGeometry { runs: vec![] };
         assert_eq!(plain.bits, field_of(&g, Some(&empty)).bits);
-        let (fans, _) = delta_fans(&g, GW, GH, 1.0, &narrow_lake);
+        let (fans, _) = delta_fans(&g, GW, GH, 1.0, WORLD_START, &narrow_lake);
         let on = field_of(&g, Some(&fans));
         assert!(on.segments > plain.segments && on.bits != plain.bits, "positive control: the fan changes the field");
     }
@@ -1648,7 +1919,7 @@ mod tests {
     #[test]
     fn a_fan_only_adds_coverage_and_only_near_its_mouth() {
         let g = RiverGeometry { runs: vec![run(4, 5000.0, 62.5, true)] };
-        let (fans, st) = delta_fans(&g, GW, GH, 1.0, &narrow_lake);
+        let (fans, st) = delta_fans(&g, GW, GH, 1.0, WORLD_START, &narrow_lake);
         assert!(st.branches >= 2, "{st:?}");
         let base = field_of(&g, None);
         let with = field_of(&g, Some(&fans));
@@ -1683,7 +1954,7 @@ mod tests {
     fn the_colour_field_gets_the_fans_and_keeps_the_network_as_it_was() {
         let a = crate::render::TerrainAppearance::default();
         let g = RiverGeometry { runs: vec![run(4, 5000.0, 62.5, true)] };
-        let (fans, _) = delta_fans(&g, GW, GH, 1.0, &narrow_lake);
+        let (fans, _) = delta_fans(&g, GW, GH, 1.0, WORLD_START, &narrow_lake);
         let plain = crate::river_stroke::rasterize_colour_field(&g, &a, GW, GH);
         let none = crate::river_stroke::rasterize_colour_field_with(&g, None, &a, GW, GH);
         let with = crate::river_stroke::rasterize_colour_field_with(&g, Some(&fans), &a, GW, GH);
@@ -1740,7 +2011,7 @@ mod tests {
     fn the_stroke_draws_the_fans_first_and_the_network_over_them() {
         let a = crate::render::TerrainAppearance::default();
         let g = RiverGeometry { runs: vec![run(4, 5000.0, 62.5, true)] };
-        let (mut fans, st) = delta_fans(&g, GW, GH, 1.0, &narrow_lake);
+        let (mut fans, st) = delta_fans(&g, GW, GH, 1.0, WORLD_START, &narrow_lake);
         assert!(st.branches >= 2, "positive control: the order-4 mouth fans, {st:?}");
         for r in &mut fans.runs {
             for c in &mut r.colors {
@@ -1799,7 +2070,7 @@ mod tests {
         let a = crate::render::TerrainAppearance::default();
         let rw = a.river_width as f32;
         let g = RiverGeometry { runs: vec![run(4, 5000.0, 62.5, true)] };
-        let (fans, st) = delta_fans(&g, GW, GH, rw, &narrow_lake);
+        let (fans, st) = delta_fans(&g, GW, GH, rw, WORLD_START, &narrow_lake);
         assert!(st.branches >= 2, "{st:?}");
         let field = crate::river_field::build_with(&g, Some(&fans), GW, GH, rw, &|_, _| 0.0).expect("a field");
         let plain = crate::river_field::build(&g, GW, GH, rw, &|_, _| 0.0).expect("a field");

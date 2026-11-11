@@ -1230,7 +1230,8 @@ impl RouteInputs {
         let wb = crate::render::water_bodies_floored_keep(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes, ws.volcanoes.as_deref().map(|v| v.as_slice()));
         let (biome, river_order) = if mode == RouteMode::Mixed {
             let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
-            let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage);
+            // Ruling ER: rebuilt along the tree the world was routed with.
+            let river_order = cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref()).0;
             (Some(biome), Some(river_order))
         } else {
             (None, None)

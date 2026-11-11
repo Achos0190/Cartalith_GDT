@@ -34,12 +34,13 @@ fn all_groups(c: &Catalogue) -> Vec<String> {
 
 /// Protects the LLM-6a bar: `DESCS` has a non-empty entry for 100% of the
 /// OFFERED keys, naming any key missing one; nothing in `DESCS` or `INERT_WHEN`
-/// names a key the registry lacks (a stale row); the registry still has the 120
-/// rows of 2026-10-26 and exactly six are excluded. MUTATION: delete one `DESCS`
+/// names a key the registry lacks (a stale row); the registry has the 121 rows
+/// of 2026-11-11 (Ruling ER's `rough_routing`, excluded, is the 121st) and
+/// exactly seven are excluded. MUTATION: delete one `DESCS`
 /// row and this goes red naming it.
 #[test]
 fn every_offered_key_has_a_description_and_no_row_is_stale() {
-    assert_eq!(params::PARAMS.len(), 120, "registry rows counted 2026-10-26; re-read the scope's counts if this moves");
+    assert_eq!(params::PARAMS.len(), 121, "registry rows counted 2026-11-11; re-read the scope's counts if this moves");
     let offered: Vec<&str> =
         params::PARAMS.iter().map(|s| s.key).filter(|k| !param_catalogue::EXCLUDED.contains(k)).collect();
     assert_eq!(offered.len(), 114);
@@ -434,7 +435,7 @@ fn changed_parameters_equal_an_independent_diff() {
 /// Protects `describe_parameter` over all 114 offered keys: the group, the description, the "had a
 /// control in the original" flag and the "what a change needs" word each equal an independent read
 /// of the registry (`ParamSpec::group`, `param_catalogue::desc`, `reference_control`,
-/// `params::invalidates`), and the six excluded keys are refused in words. MUTATION: swap the
+/// `params::invalidates`), and the seven excluded keys are refused in words. MUTATION: swap the
 /// climate and settlements words, or invert `from_reference`: red.
 #[test]
 fn describe_parameter_equals_the_registry_for_every_offered_key() {

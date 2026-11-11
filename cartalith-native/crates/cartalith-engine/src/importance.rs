@@ -758,6 +758,7 @@ mod tests {
             rainfall: std::sync::Arc::new(Vec::new()),
             flow_discharge: std::sync::Arc::new(Vec::new()),
             integrated_drainage: false,
+            routing_roughness: None,
             channels: None,
             stream_order: order,
             river_mask: None,

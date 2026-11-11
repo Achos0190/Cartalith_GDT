@@ -3018,7 +3018,7 @@ mod tests {
         };
         let field = i.field.clone();
         let wet = move |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && field[y as usize * gw + x as usize] < 0.42;
-        let (fans, st) = crate::river_delta::delta_fans(&net, gw, gh, 1.0, &wet);
+        let (fans, st) = crate::river_delta::delta_fans(&net, gw, gh, 1.0, crate::river_stroke::start_share(40_075.0), &wet);
         assert!(st.branches >= 1, "premise: the mouth fans: {st:?}");
         i.rivers = Some(Arc::new(net));
         (i, fans)

@@ -3534,3 +3534,22 @@ Four answers, given together:
 4. **The river opening share follows the live window**, not a fixed reference window. The opening view always
    shows the target share (5.5 % at world scale, scaled by map size). Tiles and exports may rebuild when the window
    is resized, and that cost is to be measured. An export uses its own size as its window.
+
+## Ruling ER: straight rivers are fixed at the root and in the drawing; more directions answered by measurement (owner, 2026-11-11)
+
+Answering `DELTA_GEOMETRY_RESEARCH.md` section 11 (`c6f96225`), which offered: (1) fix the routing; (2) a
+drawing-only meander; (3) both; (4) leave it. The owner, verbatim: *"3, and would it change if we had 32 instead of 8
+directions?"*
+
+1. **Both are built.**
+   - **A routing change for new worlds.** Rivers may move: this **overrides Ruling EN item 5** ("never moves: the
+     generated river network") **for this purpose only**. Everything else of EN stands. Per `DECISIONS.md` §7p it is
+     off in `WorldParams::defaults` (the goldens and every old world unchanged) and on in `params::defaults`. A saved
+     world keeps its rivers.
+   - **A bounded display meander for close zoom.** Render only: no world field, save key or golden. It stays inside
+     the traced cells, shows from about x16, and is part of the one drawn geometry, so the screen, the tiles, the
+     export and picking agree under the one visibility law in `river_stroke`.
+2. **"Would it change with 32 directions?" is answered by measurement** on the owner world and seeds 483920 and
+   912345: D8, D16, D32, a D-infinity direction (least transverse deviation) and D8 with a tie-break or a perturbation.
+   The best candidate by straightness, plausibility (no uphill flow, no broken drainage, lakes and outlets intact) and
+   cost is built. The answer and the table are in `DELTA_GEOMETRY_RESEARCH.md` section 13.

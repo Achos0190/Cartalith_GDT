@@ -6670,7 +6670,8 @@ mod tests {
         );
         let flood =
             crate::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
-        let (order, river_polys) = crate::fresh_river_network(
+        // Ruling ER: rebuilt along the tree the world was routed with.
+        let (order, river_polys) = crate::fresh_river_network_with(
             &ws.field,
             &ws.flow_discharge,
             gw,
@@ -6680,6 +6681,7 @@ mod tests {
             p.river_density,
             width_km,
             ws.integrated_drainage,
+            cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(),
         );
         let river_reach = crate::build_river_reach(&river_polys, &order, gw, gh);
         let ctx = crate::SuitabilityCtx {

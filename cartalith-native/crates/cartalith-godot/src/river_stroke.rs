@@ -2442,6 +2442,16 @@ impl WorldGen {
         self.river_delta_off.set(!on);
     }
 
+    /// **Ruling ER part B's probe switch**: `on = false` draws the rivers
+    /// without the display meander (`river_meander`), for a before/after
+    /// frame. The next repaint rebuilds every river raster (the switch is in
+    /// the network's cache key). Diagnostic; nothing in the shell calls it,
+    /// and it must never be wired to the UI or saved.
+    #[func]
+    fn set_river_meander(&self, on: bool) {
+        self.river_meander_off.set(!on);
+    }
+
     /// Whether the painted river draws delta fans ([`Self::set_river_deltas`]);
     /// `true` by default. This is the switch, not whether the current world
     /// has any fan -- `river_delta_stats` answers that.
@@ -2523,17 +2533,35 @@ impl WorldGen {
     /// Diagnostic; nothing in the shell reads it.
     #[func]
     fn river_delta_stats(&self) -> VarDictionary {
-        let Some((st, ms, fans)) = self.river_delta_cache.borrow().as_ref().map(|c| (c.2, c.3, c.1.clone())) else {
+        let Some((st, ms, fans)) = self.river_delta_cache.borrow().as_ref().map(|c| (c.2.clone(), c.3, c.1.clone())) else {
             return VarDictionary::new();
         };
         let mut d = vdict! {
             "built" => true, "mouths" => st.mouths as i64, "eligible" => st.eligible as i64, "no_discharge" => st.no_discharge as i64,
             "fans" => st.fans as i64, "branches" => st.branches as i64, "dropped_dry" => st.dropped_dry as i64, "skipped" => st.skipped as i64,
-            "collided" => st.collided as i64, "splits" => st.splits as i64,
+            "collided" => st.collided as i64, "splits" => st.splits as i64, "rejoined" => st.rejoined as i64,
             "kind_river" => st.kinds[0] as i64, "kind_lobate" => st.kinds[1] as i64, "kind_wave" => st.kinds[2] as i64,
             "min_order" => crate::river_delta::MIN_ORDER as i64, "min_discharge_frac" => crate::river_delta::MIN_DISCHARGE_FRAC as f64,
             "ms" => ms,
         };
+        // Section 12 (owner, 2026-11-11: "the deltas seem to have gone"): what of the fans the one visibility law
+        // draws at x1, x4, x16 and x64 over the opening fit view, at the scale in force and the default river width
+        // (1.0; the probe's presets keep it). `seen_zNN_<key>`; a NaN width (nothing drawn) is omitted.
+        let (fit, start) = scale();
+        for z in [1u32, 4, 16, 64] {
+            let s = crate::river_delta::fan_seen(&fans, &st, fit * z as f32, fit, start, 1.0);
+            let k = |name: &str| format!("seen_z{z:02}_{name}");
+            d.set(k("mouths").as_str(), s.mouths as i64);
+            d.set(k("river_shown").as_str(), s.river_shown as i64);
+            d.set(k("generated").as_str(), s.generated as i64);
+            d.set(k("drawn").as_str(), s.drawn as i64);
+            d.set(k("shown_with_channel").as_str(), s.shown_with_channel as i64);
+            for (name, v) in [("width_px_p50", s.width_px_p50), ("width_px_p10", s.width_px_p10), ("rank_p50", s.rank_p50), ("apex_rank_p50", s.apex_rank_p50)] {
+                if v.is_finite() {
+                    d.set(k(name).as_str(), v as f64);
+                }
+            }
+        }
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         if let Some(water) = self.drawn_water_classification().filter(|w| w.len() >= gw * gh) {
             let wet = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && water[y as usize * gw + x as usize] != 0;
@@ -3325,6 +3353,8 @@ mod tests {
         assert_eq!(r[2], vec![0.9, 0.5, 0.044, 0.044, 0.044, 0.044]);
         assert!(r[3].is_empty());
         assert_eq!(STUB_OPEN_CELLS, 3.0);
+    }
+
     /// Protects: Ruling EQ item 4's two pieces of plumbing, at LITERAL values. `fit_ppc_in` is the contain fit of
     /// the grid in a window (the owner's 942x603 over 2048x1311 is 0.46; a 1920x1080 window 0.8238; a degenerate
     /// grid or window 0.46, never a divide by zero), and a `ScaleGuard` holds a scale on its own thread only, nests,
