@@ -1065,6 +1065,89 @@ pub fn o1_distance_fade(ppc: f32) -> f32 {
 }
 
 // ---------------------------------------------------------------------------
+// RZ-1 (Ruling EN, `RIVER_ZOOM_VISIBILITY_RESEARCH.md` section 3): which part of
+// the drawn network a zoom shows. One pure function for the screen shader, the
+// deep-zoom tiles and the export; `map_shore.gdshader` carries a GLSL copy held
+// equal by `river_field`'s mirror test.
+// ---------------------------------------------------------------------------
+
+/// Toepfer's exponent: the share of the drawn network length kept falls as
+/// the square root of the scale ratio (Toepfer and Pillewizer 1966, the radical
+/// law, cited in the research section 1.2), and the scale denominator is
+/// inversely proportional to pixels per cell, so `f = (ppc / P_FULL)^0.5`. Kept
+/// by Ruling EN item 2 ("Toepfer's 0.5 exponent stays").
+pub const VISIBLE_EXPONENT: f32 = 0.5;
+
+/// The pixels per cell at and above which the whole network is drawn.
+/// **Derived from Ruling EN item 2 and a measurement, not assumed:** the owner
+/// asked for about half the drawn length at the opening (fit) view, so
+/// `f(ppc_fit) = 0.5` gives `P_FULL = ppc_fit / 0.5^(1/VISIBLE_EXPONENT) =
+/// ppc_fit / 0.25`; the contain-fit density measured on the owner's 2048x1311
+/// world is 0.46 pixels per cell (RIM-5's `_riverzoom_probe.gd` fit, recorded in
+/// the research's build notes beside RZ-0's table), and 0.46 / 0.25 = 1.84. A
+/// world drawn at a higher fit density (a smaller grid in the same window)
+/// therefore shows more of its network, which is the rule working. Never
+/// compare a km figure with it: pixels per cell is the raster's own density.
+pub const P_FULL_PPC: f32 = 1.84;
+
+/// Width of the rank band over which a stroke fades, in rank units (a share of
+/// the drawn length). **Labelled judgement.** The research proposed 0.12; RZ-1
+/// measured that band failing its own continuity bar (a 1 % zoom step moved a
+/// stroke's alpha by 0.058, bar 0.05, worst where f nears 1: the slope is
+/// 1.5 / band times df), and 0.15 passes it. Wide enough that one octave of zoom
+/// (f moves by about 1.41) never takes a stroke from fully drawn to gone in one
+/// step. RZ-3's frames judge it.
+pub const FADE_BAND: f32 = 0.15;
+
+/// The share `f` of the drawn network length visible at `ppc` pixels per cell:
+/// `min(1, (ppc / P_FULL_PPC)^VISIBLE_EXPONENT)`, `0` for a non-positive `ppc`.
+/// Strictly rising below [`P_FULL_PPC`], exactly `1` from it up.
+pub fn visible_share(ppc: f32) -> f32 {
+    if ppc <= 0.0 {
+        return 0.0;
+    }
+    (ppc / P_FULL_PPC).powf(VISIBLE_EXPONENT).min(1.0)
+}
+
+/// **The visibility rule: the alpha multiplier `0..=1` of a river point whose
+/// length-weighted discharge rank is `u`** (`0` the largest river, `1` the
+/// least; non-increasing downstream, so a river can lose its head and never its
+/// middle) at `ppc` pixels per cell: `1 - smoothstep(f, f + FADE_BAND, u)` with
+/// `f = ` [`visible_share`]. Continuous in both arguments with zero slope at both
+/// ends (no popping), `1` for every `u` once `f` is `1`, and `1` at `u = 0` at
+/// every density above `0`. It fades alpha only: a visible stroke keeps the
+/// [`MIN_STROKE_PX`] floor. A NaN `u` is "no rank" and draws (`1`), never a
+/// guessed hidden river.
+pub fn river_visibility(u: f32, ppc: f32) -> f32 {
+    if u.is_nan() {
+        return 1.0;
+    }
+    let f = visible_share(ppc);
+    let t = ((u - f) / FADE_BAND).clamp(0.0, 1.0);
+    1.0 - t * t * (3.0 - 2.0 * t)
+}
+
+/// Where in rank the headwater look begins (the width de-emphasis and the
+/// floodplain's absence, [`headwater_weight`]). **Labelled judgement**
+/// (research section 3.4): the lower half of the network by length keeps full
+/// width and tint, the upper end is the headwater class.
+pub const HEADWATER_U_LO: f32 = 0.5;
+/// Where the headwater look is complete; see [`HEADWATER_U_LO`].
+pub const HEADWATER_U_HI: f32 = 1.0;
+
+/// `0..=1`: how much of a headwater `u` is (`0` at or below
+/// [`HEADWATER_U_LO`], `1` at [`HEADWATER_U_HI`]), a smoothstep. It replaces the
+/// order-1 weight the field's B channel used to carry: it scales the width
+/// de-emphasis ([`o1_deemphasis`]) and removes the floodplain tint.
+pub fn headwater_weight(u: f32) -> f32 {
+    if u.is_nan() {
+        return 0.0;
+    }
+    let t = ((u - HEADWATER_U_LO) / (HEADWATER_U_HI - HEADWATER_U_LO)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+// ---------------------------------------------------------------------------
 // Colour along one course (OUTSTANDING_WORK.md, "Rivers change colour
 // abruptly mid-course", found 2026-09-27 on RV-2's before/after sheets).
 //
@@ -2601,6 +2684,66 @@ mod tests {
         let a = render::TerrainAppearance::default();
         let p = RiverPoint { width_cells: 1.0, order: 1, own_order: 1, discharge: f32::NAN };
         assert_eq!(river_px_width(p, 0.2, &a).map(|(_, al)| al), Some(O1_ALPHA_OPENING));
+    }
+
+    /// Protects: RZ-1's visibility law at LITERAL values (a test that read the
+    /// constants back would pass for any value): `f` is Toepfer's square root
+    /// of `ppc / 1.84`, so 0.46 pixels per cell shows exactly half the network
+    /// (Ruling EN's opening view), 1.84 and above all of it; the fade is a
+    /// smoothstep over 0.12 of rank; and mutating the exponent, `P_FULL` or the
+    /// band moves one of these numbers.
+    #[test]
+    fn the_visibility_rule_has_the_ruled_values() {
+        assert!((visible_share(0.46) - 0.5).abs() < 1e-6, "{}", visible_share(0.46));
+        assert!((visible_share(0.115) - 0.25).abs() < 1e-6, "{}", visible_share(0.115));
+        assert_eq!(visible_share(1.84), 1.0);
+        assert_eq!(visible_share(40.0), 1.0);
+        assert_eq!(visible_share(0.0), 0.0);
+        assert_eq!(visible_share(-1.0), 0.0);
+        // At ppc 0.46, f = 0.5: u = 0.5 is the band's start (fully drawn),
+        // 0.575 its midpoint (half), 0.65 its end (gone).
+        assert_eq!(river_visibility(0.5, 0.46), 1.0);
+        assert!((river_visibility(0.575, 0.46) - 0.5).abs() < 1e-5, "{}", river_visibility(0.575, 0.46));
+        assert_eq!(river_visibility(0.65, 0.46), 0.0);
+        assert_eq!(river_visibility(0.0, 0.01), 1.0, "the largest river is drawn at every density");
+        assert_eq!(river_visibility(1.0, 1.84), 1.0, "everything at P_FULL");
+        assert_eq!(river_visibility(1.0, 50.0), 1.0);
+        assert_eq!(river_visibility(f32::NAN, 0.1), 1.0, "no rank is drawn, never hidden");
+        assert_eq!(headwater_weight(0.5), 0.0);
+        assert_eq!(headwater_weight(1.0), 1.0);
+        assert!((headwater_weight(0.75) - 0.5).abs() < 1e-6);
+        assert_eq!(headwater_weight(f32::NAN), 0.0);
+    }
+
+    /// Protects: "no popping" and "zoom gains detail at every level" as
+    /// properties of the law: the alpha of any stroke is continuous in `ppc`
+    /// (under 0.05 per 1 % step over 0.1 to 40 pixels per cell, the research's
+    /// RZ-1 bar), non-decreasing in `ppc` and non-increasing in `u`, and `f` is
+    /// strictly increasing below `P_FULL`.
+    #[test]
+    fn the_visibility_rule_is_continuous_and_monotone() {
+        let mut ppc = 0.1f32;
+        let mut prev_f = visible_share(ppc);
+        let mut worst = 0.0f32;
+        while ppc < 40.0 {
+            let next = ppc * 1.01;
+            for k in 0..=200 {
+                let u = k as f32 / 200.0;
+                let (a0, a1) = (river_visibility(u, ppc), river_visibility(u, next));
+                assert!(a1 >= a0 - 1e-6, "alpha fell as the map zoomed in: u {u} ppc {ppc}");
+                worst = worst.max((a1 - a0).abs());
+                if k > 0 {
+                    assert!(a0 <= river_visibility((k - 1) as f32 / 200.0, ppc) + 1e-6, "alpha rose with rank at ppc {ppc}");
+                }
+            }
+            let f = visible_share(next);
+            if next < 1.84 {
+                assert!(f > prev_f, "f must strictly rise below P_FULL at {next}");
+            }
+            prev_f = f;
+            ppc = next;
+        }
+        assert!(worst < 0.05, "a 1 % zoom step moved a stroke's alpha by {worst}");
     }
 
     /// Protects: `RasterMap::tile` placing a stroke at the tile's SAMPLE

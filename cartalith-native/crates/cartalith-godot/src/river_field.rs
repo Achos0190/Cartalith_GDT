@@ -1117,6 +1117,31 @@ mod tests {
         assert!(src.contains("mix(1.0, dm.y * o1_distance_fade(ppc), o1)"), "the shader's order-1 alpha does not apply the fade");
     }
 
+    /// Protects: the shader's RZ-1 mirror -- `map_shore.gdshader` carries its
+    /// own copy of the visibility law's numbers and expressions (GLSL cannot
+    /// import Rust), read from the shader's text and held equal to
+    /// `river_stroke`'s, and the three expressions must be the law's: share
+    /// `(ppc / P_FULL)^p` capped at 1, `1 - smoothstep(f, f + band, u)`, and the
+    /// headwater smoothstep. A retuned Rust constant with a forgotten shader one
+    /// fails here.
+    #[test]
+    fn the_shader_mirrors_the_visibility_law() {
+        let src = include_str!("../../../godot-project/shell/map_shore.gdshader");
+        let konst = |name: &str| -> f32 {
+            let key = format!("const float {name} = ");
+            let at = src.find(&key).unwrap_or_else(|| panic!("the shader declares no `{name}`")) + key.len();
+            src[at..].split(';').next().unwrap().trim().parse().expect("a float literal")
+        };
+        assert_eq!(konst("VISIBLE_EXPONENT"), river_stroke::VISIBLE_EXPONENT);
+        assert_eq!(konst("P_FULL_PPC"), river_stroke::P_FULL_PPC);
+        assert_eq!(konst("FADE_BAND"), river_stroke::FADE_BAND);
+        assert_eq!(konst("HEADWATER_U_LO"), river_stroke::HEADWATER_U_LO);
+        assert_eq!(konst("HEADWATER_U_HI"), river_stroke::HEADWATER_U_HI);
+        assert!(src.contains("min(pow(max(ppc, 0.0) / P_FULL_PPC, VISIBLE_EXPONENT), 1.0)"), "the shader's share is not the radical law");
+        assert!(src.contains("1.0 - smoothstep(f, f + FADE_BAND, u)"), "the shader's fade is not the Rust band");
+        assert!(src.contains("smoothstep(HEADWATER_U_LO, HEADWATER_U_HI, u)"), "the shader's headwater weight is not the Rust one");
+    }
+
     /// Protects: a river whose width the preset scales (`river_width`) is
     /// built for that width, so its field edge is the stroke's edge at any
     /// slider value -- the build and the shader read the same `river_width`.

@@ -100,6 +100,30 @@ float o1_distance_fade(float ppc) {
 	return smoothstep(O1_GONE_PPC, O1_FADE_FULL_PPC, ppc);
 }
 
+// RZ-1 (Ruling EN), `river_stroke::river_visibility`: which part of the drawn
+// network a zoom shows. `u` is the river's length-weighted discharge rank
+// (0 the largest river, 1 the least), `ppc` the pixels per grid cell. The share
+// of the network drawn is (ppc / P_FULL_PPC)^VISIBLE_EXPONENT, Toepfer's square
+// root law; P_FULL_PPC is derived from Ruling EN's "about half at the opening
+// view" and the measured 0.46 px per cell fit (0.46 / 0.25). A stroke fades over
+// FADE_BAND of rank (labelled judgement). Keep every number in step with the
+// Rust: a test reads them from here.
+const float VISIBLE_EXPONENT = 0.5;
+const float P_FULL_PPC = 1.84;
+const float FADE_BAND = 0.15;
+const float HEADWATER_U_LO = 0.5;
+const float HEADWATER_U_HI = 1.0;
+float visible_share(float ppc) {
+	return min(pow(max(ppc, 0.0) / P_FULL_PPC, VISIBLE_EXPONENT), 1.0);
+}
+float river_visibility(float u, float ppc) {
+	float f = visible_share(ppc);
+	return 1.0 - smoothstep(f, f + FADE_BAND, u);
+}
+float headwater_weight(float u) {
+	return smoothstep(HEADWATER_U_LO, HEADWATER_U_HI, u);
+}
+
 // RIM-2, `river_field.rs`: the bank outline's full-strength width in screen
 // pixels, the margin it keeps from the field's valid band in cells, and that
 // band's guaranteed least (`river_field::BAND_CELLS`). Labelled judgement for

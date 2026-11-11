@@ -701,3 +701,11 @@ it is not the app's smoothed `DrawnRun`. Median over the worlds of a shape, min.
   working, a 512-wide grid fits at about 1.8 px per cell and draws all of it.
 - **Bars that move under Ruling EN.** RZ-3's "x4 at least 1.5 x x1" is replaced: f is 0.5, 0.71, 1.0 at x1, x2, x4 on
   the owner world, so the length grows 2x from x1 to x4 and is full from x4 (`ppc` 1.84). Width keeps growing above.
+
+### RZ-1 built (2026-11-11): the function and its mirror
+
+`river_stroke::{visible_share, river_visibility, headwater_weight}` with `VISIBLE_EXPONENT` 0.5, `P_FULL_PPC` 1.84 and
+`FADE_BAND` 0.15, a GLSL copy in `map_shore.gdshader` and `river_field`'s `the_shader_mirrors_the_visibility_law`. Nothing
+draws with them yet (RZ-2 wires B). **One number moved from the research:** the band is **0.15, not 0.12**: at 0.12 the
+continuity bar (|delta alpha| per 1 % ppc step under 0.05) measured 0.058, worst where f nears 1, and 0.15 passes it.
+Mutants of the exponent, `P_FULL_PPC` and the band each turn the literal-value tests red.

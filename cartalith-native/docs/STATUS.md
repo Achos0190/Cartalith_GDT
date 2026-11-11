@@ -47,34 +47,9 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
-### Edit any map element from its context: step 1 audit written, nothing built yet (2026-11-11)
+### Zoom-dependent river drawing (Ruling EN): RZ-0 measured, RZ-1 built (2026-11-11)
 
-- **Audited, not built.** `EDIT_FROM_CONTEXT_AUDIT.md` reads every drawn element at its symbols: six hit kinds exist (`settlement`, `landmark`, `label`, `icon`, `way`, `river`); verbs live in one domain each; landmark Rename and the saved name slot (Ruling EL item 1), label Move, and a Note row outside CIVIL settlements are the gaps. Region, conflict, journey-marker and colour-paint-mark picks do not exist.
-- **Touch is decided: Ruling EO** (`LARGE_ITEM_RULINGS.md`). A tap selects and shows the element's chips (Move, Delete, Rename, Note); a long-press keeps the full card. An owner decision, not a default.
-- **Step 2 (the families, one commit each) is open**; no code changed, no probe run in this step.
-
-### Assistant on the tablet: stacked exclusive dialogs, an off-screen consent card, a swap that freed its own popup (2026-11-11)
-
-Owner report 2026-11-09 ("the assistant on the tab seems buggy"), reproduced by `_asstfix_probe.gd` and read from the Pad's
-logcat. *Opened at the symbols:* `DccWidgets.modal_card`/`confirm`/`prompt`, `LlmConsent.present`, `LlmSettingsWindow.open`/
-`_models_refresh`, `LlmAssistantWindow._show_dialog`, `DccShell.ui_scale_changed`. Three defects, each fixed at its root:
-(1) **"already has another exclusive child"**: every shell dialog was added under `app`, so a second exclusive window (the consent
-card from Refresh or Send, the settings window from the phone's assistant sheet) was refused while another was showing.
-`DccWidgets.stack_host()` now picks the innermost showing exclusive embedded window as the parent of a new card/confirm/prompt, and
-`reparent_over()` does it for the long-lived settings and assistant windows. (2) **The consent card was taller than the window**
-(753 px in a 539 px window, so Allow and Not now were off screen and consent could not be given): its text now scrolls
-(`LlmConsent._fit_scroll`, height capped to the window) with the buttons pinned. (3) **"freed or unreferenced while a signal is
-being emitted"**: Preferences > UI scale ran the class swap inside the menu popup's own `id_pressed`, and the swap `free()`s that
-composition; `ui_scale_changed()` is now deferred to idle. *Verified:* probe on the tablet viewport (3392x2400, density 2.225)
-with a real LM Studio (qwen3-14b as loaded): Refresh opens consent over settings, Allow, model list ok, Commands request, proposal
-card, Apply, Edit > Undo. *Also:* mutants of `stack_host`, `reparent_over` and the consent height cap are each killed by `_asstfix_probe.gd` (three literal mutants, files restored); `_pc6ask`, `_ac3`, `_ac4`, `_ac7`, `_llmpanel`, `_llmview`, `_pc7windows` and `_ms1swap` quiet, represent and live pass; `_popdlg_probe.gd`'s "docked dialog is a child of the app" pin was the buggy parent and now reads "the app or the exclusive asker" (the assistant consent must be the asker). The freed-during-emit fix (`ui_scale_changed` deferred) is not covered by a probe (it needs the Pad's UI-scale path), only by reading the logcat. *Not covered:* the other hand-built dialogs that still `add_child` to `app` (they only matter when opened
-from inside an exclusive window); a stored 200 % UI scale leaves a 762 px-wide tablet layout whose docks overflow (a layout
-question, not changed here).
-
----
-### Zoom-dependent river drawing (Ruling EN): RZ-0 measured (2026-11-11)
-
-`cartalith-godot/tests/river_zoom_measurement.rs` (an `#[ignore]`d harness, 37 worlds, 42 s) ranks the drawn network by discharge, Strahler order and width at equal visible length. **Built: nothing in the app yet.** Result: ranking by discharge loses no top-decile outlet at f of 0.5 or more on any world (order loses 14 to 39 %), order-1 is 26 % of the owner world's top-10 % discharge length, width is a single value on the 40 075 km shapes (unusable as a key), and P_FULL = 1.84 px per cell derived from Ruling EN's f of about 0.5 at the measured 0.46 px per cell contain-fit opening. Numbers and the through-junction form RZ-2 will build: `RIVER_ZOOM_VISIBILITY_RESEARCH.md` *Build notes*. No generated output moved.
+`cartalith-godot/tests/river_zoom_measurement.rs` (an `#[ignore]`d harness, 37 worlds, 42 s) ranks the drawn network by discharge, Strahler order and width at equal visible length. **RZ-1 built:** the pure law `river_stroke::river_visibility` (share `(ppc/1.84)^0.5`, fade band 0.15 rather than the proposed 0.12, which failed the research's own continuity bar) and its shader mirror are in the tree and tested, but **nothing draws with them yet** (RZ-2 wires the rank into the field). Result: ranking by discharge loses no top-decile outlet at f of 0.5 or more on any world (order loses 14 to 39 %), order-1 is 26 % of the owner world's top-10 % discharge length, width is a single value on the 40 075 km shapes (unusable as a key), and P_FULL = 1.84 px per cell derived from Ruling EN's f of about 0.5 at the measured 0.46 px per cell contain-fit opening. Numbers and the through-junction form RZ-2 will build: `RIVER_ZOOM_VISIBILITY_RESEARCH.md` *Build notes*. No generated output moved.
 
 ### MS-6 built: the STORY sheet is a strip of four segments over the shown band's rows (2026-11-09)
 
