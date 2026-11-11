@@ -3454,3 +3454,24 @@ Answers the touch question of the "Edit any map element directly from its contex
 1. **A tap selects the element and shows its action chips**: Move, Delete, Rename and Note, as they apply to that element. A decision, not a default.
 2. **A long-press keeps the full context card** (`MAP_CONTEXT_SCOPE.md` fork F1 stands).
 3. **The chips are the card's own rows**, not a second set: each runs the existing path and one undo step.
+
+## Ruling EP: the custom Cartalith LLM is Qwen3.5-4B, and it waits until Cartalith is done (owner, 2026-11-11)
+
+Answering `SMALL_LLM_ADDON_RESEARCH.md` Part B (`d3fa6655`): *"Qwen 3.5 at 4b. But let's not do this until
+cartalith is done"*.
+
+- **The model is Qwen3.5-4B.** This answers Q-SL-1. Qwen3-4B stays the fallback if a step of the Qwen3.5 pipeline
+  fails to prove out.
+- **Deferred:** no training, data generation or model download starts until the rest of the outstanding Cartalith
+  work is finished. The course outline (Part B, lessons L0 to L11, milestones SL-8 to SL-15) stays on file as the plan.
+- **The other questions keep the plan's defaults for now:**
+  - local Qwen3.8-27B as the teacher;
+  - train on Windows first, then WSL2;
+  - two adapters;
+  - personal use first;
+  - serve through LM Studio first;
+  - the owner reviews the examples once;
+  - nights only on the GPU;
+  - no phone version yet.
+
+  The owner can change any of them when the work starts. This partly reopens Ruling DK.

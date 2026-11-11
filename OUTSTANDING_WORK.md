@@ -52,7 +52,7 @@ row below overlaps an older row further down, this one is newer. Rows finished s
 CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the industrial levy) are in `STATUS.md`, not here.
 
 **Assistant and consent (top priority first)**
-- **A Cartalith-specific small LLM, trained on the owner's own hardware (owner request, 2026-11-11).** The owner's
+- **A Cartalith-specific small LLM, trained on the owner's own hardware (owner request, 2026-11-11).** **Deferred by Ruling EP until the rest of Cartalith is done; the model is Qwen3.5-4B.** The owner's
   words: *"training a custom llm (qwen 3.8 or similar) so it can be smaller, good at writing prose for villages but
   also excellent at handling cartalith functions ... a course outline on the tools we need and how we could go about
   it on my own local hardware ... a cartalith specific llm and see how we integrate it. Directly via cartalith or as
