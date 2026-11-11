@@ -3464,6 +3464,23 @@ owner questions the same day.
 
 ### 2.12 Map context — the right-click context card and the tool ring (wheel menu)
 
+**Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
+click every element or label to edit it (move/delete/change the text/directly modify the vault information/etc) it
+should be intuitive to use and this felt missing the last time on pc. (also I suppose it should be a tap on touch
+devices)"*.
+- **Audit first, at the symbols.** List every drawn element: settlements, labels, icons, landmarks, roads and ways,
+  rivers, regions, conflicts, journeys, pins, colour-paint marks and notes. For each, record what the right-click
+  card (MAP_CONTEXT_SCOPE.md, `context_card.gd`, the context broker) offers today. Also record which elements cannot
+  be hit at all, such as labels.
+- **The target:** every element and label can be right-clicked on desktop to move, delete, rename or edit its text,
+  open or edit its vault note, and select it.
+- **Reuse:** each action goes through the existing path that action already has: `DccApp.select`, the tools' own
+  move and delete, undo groups, and the vault's `_write_now`.
+- **Touch: an owner question.** The owner suggests a tap. Today a tap selects and a long-press opens the card
+  (MAP_CONTEXT_SCOPE fork F1). The proposal's default: a tap selects and shows the element's action chips on the
+  card or strip, and a long-press stays as the full card. The owner confirms or changes this.
+- **Then a scope with milestones and bars.** Judge it at several zooms and on desktop, tablet and phone.
+
 Scheduled by the owner 2026-09-26 ("Add it to the outstanding work"), after the
 proposal and its prototype arrived on `main` (`MAP_CONTEXT_SCOPE.md`,
 `design/map-context-2026-09-25/`). The scope's §10 owner forks F1-F5 each carry a
