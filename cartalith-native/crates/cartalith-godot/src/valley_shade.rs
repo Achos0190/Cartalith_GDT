@@ -539,6 +539,7 @@ mod tests {
             discharge: vec![f32::NAN; n],
             pieces: vec![(0, n)],
             reach: Vec::new(),
+            ranks: Vec::new(),
             own_order: 1,
         }
     }

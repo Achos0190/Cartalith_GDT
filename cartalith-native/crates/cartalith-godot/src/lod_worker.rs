@@ -641,8 +641,13 @@ impl SnapshotInputs {
                     d.word(*o as u16 as u64);
                 }
                 d.f32s(&r.discharge);
+                d.f32s(&r.ranks);
                 d.word(r.own_order as u16 as u64);
             }
+            // RZ-2: the visibility rule's constants, so a retuned law never seeds from a pyramid stored under the old one.
+            d.word(crate::river_stroke::P_FULL_PPC.to_bits() as u64);
+            d.word(crate::river_stroke::VISIBLE_EXPONENT.to_bits() as u64);
+            d.word(crate::river_stroke::FADE_BAND.to_bits() as u64);
         }
         // RIM-7: the delta fans, hashed run by run as the network is. Only
         // when present (no tag word when absent), so a snapshot with no fans
@@ -670,6 +675,7 @@ impl SnapshotInputs {
                     d.word(*o as u16 as u64);
                 }
                 d.f32s(&r.discharge);
+                d.f32s(&r.ranks);
                 d.word(r.own_order as u16 as u64);
             }
         }
@@ -3003,6 +3009,7 @@ mod tests {
                 discharge: vec![5000.0; n],
                 pieces: vec![(0, n)],
                 reach: vec![(None, Some(crate::river_stroke::ShoreReach::default()))],
+                ranks: Vec::new(),
                 own_order: 4,
             }],
         };

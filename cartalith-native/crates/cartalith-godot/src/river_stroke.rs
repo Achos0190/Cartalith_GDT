@@ -906,6 +906,13 @@ pub struct DrawnRun {
     /// `WorldState::flow_discharge` of the traced cell nearest each point
     /// (NaN where the field had no reading -- never a plausible zero).
     pub discharge: Vec<f32>,
+    /// RZ-2 (Ruling EN): the length-weighted discharge rank `u` at each point
+    /// ([`visibility_ranks`]; `0` the largest river, `1` the least, non-increasing
+    /// downstream) -- the key of [`river_visibility`]. **Empty means "unranked"
+    /// and is drawn at every zoom** (a hand-built run in a test, or a run the
+    /// rank was never computed for): hiding a river for lack of data is the worse
+    /// failure (research section 3.1). Shorter than `pts` reads `0` past its end.
+    pub ranks: Vec<f32>,
     /// `[start, end)` into `pts`, one per drawn piece.
     pub pieces: Vec<(usize, usize)>,
     /// Per piece, `(head, tail)`: how much further each end meeting water is
@@ -936,6 +943,9 @@ pub struct RiverPoint {
     pub own_order: i16,
     /// Flow discharge at the traced cell nearest the point (NaN: none).
     pub discharge: f32,
+    /// The point's discharge rank `u` ([`DrawnRun::ranks`]), the key of
+    /// [`river_visibility`]; `0` where the run is unranked.
+    pub rank: f32,
 }
 
 /// **The one seam that decides how wide, how opaque and whether a river
@@ -943,21 +953,26 @@ pub struct RiverPoint {
 /// multiplier))`, or `None` for "not drawn at this scale".
 ///
 /// It takes everything a zoom-sensitive rule would key on -- the raster's
-/// density (`px_per_cell`), the point's stream order and discharge, its RV-2
-/// width, and the preset (`a`) -- so a future rule (select rivers by order per
-/// zoom, grow from a fixed pixel width toward the real metre width, hand over
-/// to a banked water polygon) replaces this body and nothing else. Today's
-/// body is RV-2's look exactly: the width on the ground times the preset's
-/// `river_width`, the order-1 de-emphasis ([`o1_deemphasis`]) by `own_order`,
-/// floored at [`MIN_STROKE_PX`], and every point drawn. `order` and
-/// `discharge` are carried and not yet read.
+/// density (`px_per_cell`), the point's discharge rank, its RV-2 width, and
+/// the preset (`a`). Since RZ-2 (Ruling EN) the body is the zoom rule: the
+/// width on the ground times the preset's `river_width`, narrowed toward the
+/// headwater look by [`headwater_weight`] of the rank ([`headwater_deemphasis`]),
+/// floored at [`MIN_STROKE_PX`]; the alpha multiplier is [`river_visibility`]
+/// of the rank at this density, and a point whose visibility is `0` returns
+/// `None` ("not drawn at this scale"). `order` and `discharge` are carried and
+/// not read: the key is the rank, which already folds the discharge in
+/// ([`visibility_ranks`]).
 ///
 /// Must never return a width below [`MIN_STROKE_PX`] for a drawn point (the
 /// owner's RV-2 floor) and must stay a pure function of its arguments: the
 /// tiles and the base view call it at different densities and must agree at
 /// equal ones.
 pub fn river_px_width(p: RiverPoint, px_per_cell: f32, a: &render::TerrainAppearance) -> Option<(f32, f32)> {
-    let (wm, am) = if p.own_order <= 1 { o1_deemphasis(px_per_cell) } else { (1.0, 1.0) };
+    let am = river_visibility(p.rank, px_per_cell);
+    if am <= 0.0 {
+        return None;
+    }
+    let wm = 1.0 + (headwater_deemphasis(px_per_cell) - 1.0) * headwater_weight(p.rank);
     let k = px_per_cell * wm * river_width_factor(a);
     Some(((p.width_cells * k).max(MIN_STROKE_PX), am))
 }
@@ -990,78 +1005,165 @@ pub struct RiverGeometry {
 
 /// `drawRiverWays`' anti-barcode rule (reference 9512, v0.96 + v1.41), which
 /// the first vector overlay shipped without: the network carries hundreds of
-/// order-1 trickles, and on a smooth slope they run downhill side by side --
+/// headwater trickles, and on a smooth slope they run downhill side by side --
 /// the reference owner's "green barcode" and this port's owner's "a lot of
-/// parallel lines ... chaotic" (2026-09-23). At the opening view an order-1
-/// run draws at this width and alpha; the de-emphasis fades out by
-/// [`O1_FADE_ZOOM`], where a headwater stream IS the subject.
+/// parallel lines ... chaotic" (2026-09-23). At the opening view a headwater
+/// (see [`headwater_weight`]) draws at this width multiplier; the
+/// de-emphasis fades out by [`HEADWATER_FADE_ZOOM`], where a headwater stream
+/// IS the subject. Since RZ-2 (Ruling EN) the reference's ALPHA half (0.4 at
+/// the opening view) is retired -- [`river_visibility`] fades a headwater out by
+/// rank instead -- and only this width half is kept (Ruling EN item 4).
 ///
 /// **Source: the reference's own numbers**, v2.11 lines 9577-9578:
-/// `deEmph = 1 - (zk-1)/7` (gone by `zk = 8`), `o1Alpha = 0.4 + 0.6*(1-deEmph)`,
-/// `o1Width = 0.55 + 0.45*(1-deEmph)` -- carried unchanged through
-/// `map_overlay.gd` (13062e5) into here.
-pub const O1_WIDTH_OPENING: f32 = 0.55;
-/// The order-1 alpha at the opening view -- reference v2.11 line 9578 (see
-/// [`O1_WIDTH_OPENING`]).
-pub const O1_ALPHA_OPENING: f32 = 0.4;
-/// Zoom (relative to one raster pixel per cell) at which the order-1
+/// `deEmph = 1 - (zk-1)/7` (gone by `zk = 8`), `o1Width = 0.55 + 0.45*(1-deEmph)`
+/// -- carried unchanged through `map_overlay.gd` (13062e5) into here.
+pub const HEADWATER_WIDTH_OPENING: f32 = 0.55;
+/// Zoom (relative to one raster pixel per cell) at which the headwater width
 /// de-emphasis has faded out completely -- the reference's `zk = 8`, "the LOD
 /// cap" (v2.11 line 9577).
-pub const O1_FADE_ZOOM: f32 = 8.0;
+pub const HEADWATER_FADE_ZOOM: f32 = 8.0;
 
-/// The order-1 `(width, alpha)` multipliers at `zk`, the raster's pixels per
-/// cell (`1` at the screen texture's one pixel per cell, the opening view's
-/// counterpart). The map_overlay rule this replaces measured `zk` as camera
-/// zoom over the opening view; a raster knows its own density instead, which
-/// for a deep-zoom tile is its level's. Must never go below the opening
-/// view's factors: `zk` under 1 is clamped to 1.
-pub fn o1_deemphasis(zk: f32) -> (f32, f32) {
-    let de = (1.0 - (zk.max(1.0) - 1.0) / (O1_FADE_ZOOM - 1.0)).clamp(0.0, 1.0);
-    (O1_WIDTH_OPENING + (1.0 - O1_WIDTH_OPENING) * (1.0 - de), O1_ALPHA_OPENING + (1.0 - O1_ALPHA_OPENING) * (1.0 - de))
+/// The headwater width multiplier at `zk`, the raster's pixels per cell (`1`
+/// at the screen texture's one pixel per cell, the opening view's
+/// counterpart): `0.55` at and below one pixel per cell, `1` from
+/// [`HEADWATER_FADE_ZOOM`], linear between. A raster knows its own density
+/// rather than the camera zoom, which for a deep-zoom tile is its level's. Must
+/// never go below the opening view's factor: `zk` under 1 is clamped to 1. Scaled
+/// by [`headwater_weight`] of the rank where it is applied.
+pub fn headwater_deemphasis(zk: f32) -> f32 {
+    let de = (1.0 - (zk.max(1.0) - 1.0) / (HEADWATER_FADE_ZOOM - 1.0)).clamp(0.0, 1.0);
+    HEADWATER_WIDTH_OPENING + (1.0 - HEADWATER_WIDTH_OPENING) * (1.0 - de)
 }
 
-/// **RIM-5** (`RIVERS_IN_MAP_SCOPE.md`): the density at or below which a
-/// headwater (order-1) stream of the PAINTED river has faded out completely --
-/// screen pixels per grid cell, i.e. the same cells-per-pixel input
-/// `LOD_DETAIL_SCOPE.md` D5 scales by, not an absolute km figure (a world's
-/// km per cell is a generation parameter; the density the eye sees is not).
-/// **Labelled judgement**, tuned on the owner's 2048x1311 world with
-/// `_riverzoom_probe.gd --rim5` (2026-10-04). Measured density in the probe's
-/// 950x858 map area: the contain fit (camera zoom 1.0) is 0.46 pixels per cell,
-/// but the OPENING view is a cover fit (`viewport_host.gd::reset_view`, zoom
-/// about 1.41) at 0.65, where the fade factor is about 0.85 (order-1 alpha 0.4
-/// becomes about 0.34) -- so the fade barely acts at the opening view and acts
-/// only once the painter zooms out; at the camera's minimum zoom (`ZOOM_MIN`,
-/// 0.4) the density is 0.19 and the headwater trickles that make a zoomed-out
-/// view a "barcode" (the owner, 2026-09-23) are gone. Other world sizes and
-/// window sizes were not measured. Mutation-tested in `river_field.rs`.
-pub const O1_GONE_PPC: f32 = 0.2;
-/// The density at and above which the RIM-5 fade has no effect and the
-/// order-1 stream is drawn at [`o1_deemphasis`]'s own alpha. **Labelled
-/// judgement**, paired with [`O1_GONE_PPC`]: about the owner world's fit on a
-/// wide window, and below the one pixel per cell (`zk` 1) where
-/// [`o1_deemphasis`] begins to open the stream up, so the two rules never act
-/// on the same density.
-pub const O1_FADE_FULL_PPC: f32 = 0.8;
+/// The visibility alpha at or above which a river counts as "drawn" for
+/// picking (RZ-6, Ruling EN item 4: "a hidden river cannot be picked").
+/// **Labelled judgement** from the research (section 3.8): half opacity is where
+/// a fading stroke starts to read as absent, so a click agrees with the eye.
+pub const PICK_MIN_VISIBILITY: f32 = 0.5;
 
-/// **RIM-5: the alpha multiplier that fades a headwater stream out as the map
-/// zooms out**, `0..=1` at `ppc` screen pixels per grid cell. A smoothstep from
-/// [`O1_GONE_PPC`] (0) to [`O1_FADE_FULL_PPC`] (1): continuous with zero slope
-/// at both ends, so a zoom sweep never pops a stream in or out (the scope's
-/// "fades rather than pops"), and exactly `1` from [`O1_FADE_FULL_PPC`] up, so
-/// every density from there to the order-1 de-emphasis's end at `zk` 8 is
-/// unchanged (measured: painted ink identical to before from 0.81 pixels per
-/// cell up).
+/// **RZ-6: is a river drawn at `ppc` within `radius_cells` of `(gx, gy)`?**
+/// True when any point of any run of `geom` within the radius (plus the
+/// three-quarter cell a render point may sit off its traced cell) has
+/// [`river_visibility`] of its rank at least [`PICK_MIN_VISIBILITY`]. An
+/// unranked run (empty `ranks`) counts as drawn, as it is drawn: the pick must
+/// never hide a river the map shows. Reads only; never changes a pick's result
+/// beyond refusing one the map does not draw.
+pub fn visible_near(geom: &RiverGeometry, gx: f64, gy: f64, radius_cells: f64, ppc: f32) -> bool {
+    let reach = (radius_cells.max(0.0) + 0.75) as f32;
+    let r2 = reach * reach;
+    let (gx, gy) = (gx as f32, gy as f32);
+    geom.runs.iter().any(|run| {
+        run.pts.iter().enumerate().any(|(k, p)| {
+            let (dx, dy) = (p.0 - gx, p.1 - gy);
+            dx * dx + dy * dy <= r2 && river_visibility(run.ranks.get(k).copied().unwrap_or(0.0), ppc) >= PICK_MIN_VISIBILITY
+        })
+    })
+}
+
+/// One run's input to [`visibility_ranks`].
+pub struct RankInput<'a> {
+    /// `flow_discharge` at each of the run's points (NaN = no reading; empty =
+    /// the run is not drawn and gets no ranks).
+    pub q: &'a [f32],
+    /// Each point's distance from the previous one in grid cells (`0` for the
+    /// first): the length weight the rank is cumulated over.
+    pub step: &'a [f32],
+    /// Where the run ends on another drawn run: `(that run, the point index it
+    /// meets it at)`, `river_draws`' `joins`.
+    pub join: Option<(usize, usize)>,
+}
+
+/// **RZ-2: the length-weighted discharge rank `u` of every point of every drawn
+/// run** (Ruling EN item 1; `RIVER_ZOOM_VISIBILITY_RESEARCH.md` section 3.1),
+/// `runs[i]`'s result at the same indices as its `q`, computed once per network.
 ///
-/// Applies to the order-1 share of a texel (`river_field`'s B channel) in the
-/// painted path alone -- `map_shore.gdshader` and the mirror in
-/// `river_field::coverage`. It is deliberately NOT part of [`river_px_width`]:
-/// the deep-zoom tiles and the export (RIM-7) and the vector-stroke fallback
-/// share that function and stay as they were. Must stay a pure function of
-/// `ppc`, and must never exceed 1 or go below 0.
-pub fn o1_distance_fade(ppc: f32) -> f32 {
-    let t = ((ppc - O1_GONE_PPC) / (O1_FADE_FULL_PPC - O1_GONE_PPC)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+/// 1. Discharge is made **non-decreasing downstream**: a running maximum from
+///    each run's head. A point with no reading takes the previous reading, a
+///    leading one the run's first reading (never a plausible zero), and a run with
+///    no reading at all gets `0`, "always drawn" -- hiding a river for lack of data
+///    is the worse failure.
+/// 2. **Through junctions** (RZ-0 measured this to leave fewer fragments than the
+///    per-run form): a run's final value is pushed into the trunk it joins, from
+///    the join point on, so a trunk is never ranked below a tributary that meets it
+///    (discharge is accumulated on another tree than the traced one, so the raw
+///    readings do not guarantee it). `order` lists the runs tributaries first (the
+///    draw order), so a trunk has received all its tributaries before it is
+///    pushed into its own.
+/// 3. Every point is sorted by that value, largest first, and `u` is the
+///    cumulative `step` length of points with a value at least this one's (ties
+///    share one rank) over the total, in `(0, 1]`: `0`-ish the biggest river, `1`
+///    the least. Non-increasing downstream by construction.
+///
+/// Reads only discharge and geometry; it must never touch the generated
+/// network, and a run's ranks are a property of the drawn network alone.
+pub fn visibility_ranks(runs: &[RankInput], order: &[usize]) -> Vec<Vec<f32>> {
+    let mut qs: Vec<Vec<f32>> = runs
+        .iter()
+        .map(|r| {
+            let mut run_max = f32::NAN;
+            let mut v: Vec<f32> = r
+                .q
+                .iter()
+                .map(|&q| {
+                    if q.is_finite() && !(run_max >= q) {
+                        run_max = q;
+                    }
+                    run_max
+                })
+                .collect();
+            // Back-fill a head with no reading from the run's first reading.
+            if let Some(first) = v.iter().copied().find(|x| x.is_finite()) {
+                for x in v.iter_mut().take_while(|x| !x.is_finite()) {
+                    *x = first;
+                }
+            }
+            v
+        })
+        .collect();
+    for &i in order {
+        let Some((j, k)) = runs.get(i).and_then(|r| r.join) else { continue };
+        let Some(v) = qs.get(i).and_then(|q| q.last().copied()).filter(|v| v.is_finite()) else { continue };
+        if j == i || qs.get(j).is_none_or(|t| t.is_empty()) {
+            continue;
+        }
+        let trunk = &mut qs[j];
+        for x in trunk.iter_mut().skip(k) {
+            if !x.is_finite() || *x < v {
+                *x = v;
+            }
+        }
+    }
+    let mut ix: Vec<(usize, usize)> = Vec::new();
+    let mut total = 0.0f64;
+    for (i, q) in qs.iter().enumerate() {
+        for (k, x) in q.iter().enumerate() {
+            if x.is_finite() {
+                ix.push((i, k));
+                total += runs[i].step.get(k).copied().unwrap_or(0.0) as f64;
+            }
+        }
+    }
+    let mut out: Vec<Vec<f32>> = qs.iter().map(|q| vec![0.0f32; q.len()]).collect();
+    if total <= 0.0 {
+        return out;
+    }
+    ix.sort_by(|&(ai, ak), &(bi, bk)| qs[bi][bk].total_cmp(&qs[ai][ak]));
+    let mut cum = 0.0f64;
+    let mut g = 0;
+    while g < ix.len() {
+        let key = qs[ix[g].0][ix[g].1];
+        let mut e = g;
+        while e < ix.len() && qs[ix[e].0][ix[e].1] == key {
+            cum += runs[ix[e].0].step.get(ix[e].1).copied().unwrap_or(0.0) as f64;
+            e += 1;
+        }
+        let u = (cum / total).clamp(0.0, 1.0) as f32;
+        for &(i, k) in &ix[g..e] {
+            out[i][k] = u;
+        }
+        g = e;
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,7 +1240,7 @@ pub const HEADWATER_U_HI: f32 = 1.0;
 /// `0..=1`: how much of a headwater `u` is (`0` at or below
 /// [`HEADWATER_U_LO`], `1` at [`HEADWATER_U_HI`]), a smoothstep. It replaces the
 /// order-1 weight the field's B channel used to carry: it scales the width
-/// de-emphasis ([`o1_deemphasis`]) and removes the floodplain tint.
+/// de-emphasis ([`headwater_deemphasis`]) and removes the floodplain tint.
 pub fn headwater_weight(u: f32) -> f32 {
     if u.is_nan() {
         return 0.0;
@@ -1161,7 +1263,7 @@ pub fn headwater_weight(u: f32) -> f32 {
 //    `river_draw_plan` continuation; [`settle_join_widths`]' `k == 0`) is one
 //    river, but the next run restarts the D8 order at its head: it began at
 //    the headwater colour and, when its own order stayed 1, at the order-1
-//    de-emphasis alpha ([`o1_deemphasis`]), so one visible course read as two
+//    de-emphasis alpha (the reference's order-1 alpha, retired by RZ-2), so one visible course read as two
 //    differently coloured pieces. 100/105/79 continuations per world stepped
 //    colour, 132/144/105 stepped alpha.
 // The fix blends the colour along the course and carries the order across a
@@ -1471,6 +1573,29 @@ fn for_each_span_in(
     to_raster: impl Fn((f32, f32)) -> (f32, f32),
     style: impl Fn([f32; 4], f32) -> [f32; 4],
     view: Option<(f32, f32, f32, f32)>,
+    sink: impl FnMut(StripMesh),
+) {
+    for_each_span_core(geom, runs, true, a, ppc, widen, to_raster, style, view, sink);
+}
+
+/// The one body of [`for_each_span_in`]. `ranked` false reads every point at
+/// rank `0`, i.e. drawn at full visibility and width: the **colour field's**
+/// walk, which is a lookup of what colour a river is and must contain every
+/// river at every zoom (RZ-2: the visibility law multiplies coverage where the
+/// water is drawn, "it is not baked into the colour", research section 3.8). A
+/// colour field built ranked would hide a headwater's colour at the opening
+/// view and the painted river would then have none to sample once zoomed in.
+#[allow(clippy::too_many_arguments)]
+fn for_each_span_core(
+    geom: &RiverGeometry,
+    runs: std::ops::Range<usize>,
+    ranked: bool,
+    a: &render::TerrainAppearance,
+    ppc: f32,
+    widen: f32,
+    to_raster: impl Fn((f32, f32)) -> (f32, f32),
+    style: impl Fn([f32; 4], f32) -> [f32; 4],
+    view: Option<(f32, f32, f32, f32)>,
     mut sink: impl FnMut(StripMesh),
 ) {
     let len = geom.runs.len();
@@ -1482,7 +1607,7 @@ fn for_each_span_in(
         }
         let seam: Vec<Option<(f32, f32)>> = (0..n)
             .map(|i| {
-                let p = RiverPoint { width_cells: run.widths[i], order: run.orders[i], own_order: run.own_order, discharge: run.discharge[i] };
+                let p = RiverPoint { width_cells: run.widths[i], order: run.orders[i], own_order: run.own_order, discharge: run.discharge[i], rank: if ranked { run.ranks.get(i).copied().unwrap_or(0.0) } else { 0.0 } };
                 river_px_width(p, ppc, a)
             })
             .collect();
@@ -1552,7 +1677,7 @@ fn for_each_span_in(
 /// The preset's own river treatment is applied here: its width multiplier
 /// (`river_width`, inside [`river_px_width`]) before the floor, its colour and
 /// opacity (`render::river_style_color`) on every vertex. The order-1
-/// de-emphasis is [`o1_deemphasis`] at this raster's density, also inside
+/// de-emphasis is [`headwater_deemphasis`] at this raster's density, also inside
 /// [`river_px_width`] -- the one seam a zoom rule replaces.
 ///
 /// Culled against the raster's own rectangle; `stroke_mesh` grows each
@@ -1733,9 +1858,10 @@ pub fn rasterize_colour_field_with(geom: &RiverGeometry, fans: Option<&RiverGeom
         [c[0], c[1], c[2], 1.0]
     };
     let to = |q: (f32, f32)| (map.offset.0 + q.0 * map.scale.0, map.offset.1 + q.1 * map.scale.1);
-    // One pixel per cell, as the raster is. An order-1 run's width here is
-    // the opening view's de-emphasised one (0.55x) -- a headwater under a
-    // cell wide, so the pad, not the width, is what the band's size is.
+    // One pixel per cell, as the raster is, and UNRANKED (`for_each_span_core`'s
+    // `ranked` false): every river at full visibility and width, because this is a
+    // colour lookup that the painted river samples at every zoom. (Before RZ-2 an
+    // order-1 run drew here at the opening view's de-emphasised 0.55x width.)
     //
     // **Two passes.** The padded bands first, then every river again at its
     // own width on top. With one pass a band drawn later in the order -- a
@@ -1744,12 +1870,12 @@ pub fn rasterize_colour_field_with(geom: &RiverGeometry, fans: Option<&RiverGeom
     // colour there: measured 21 levels/channel off the deep-zoom tile's
     // trunk at the same point, which is 1-2 levels when the trunk's own cells
     // are the trunk's (`_rivstyle_probe.gd`, z16).
-    for_each_span(geom, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    for_each_span_core(geom, 0..geom.runs.len(), false, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
     if let Some(f) = fans {
-        for_each_span(f, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
-        for_each_span(f, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+        for_each_span_core(f, 0..f.runs.len(), false, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+        for_each_span_core(f, 0..f.runs.len(), false, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
     }
-    for_each_span(geom, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    for_each_span_core(geom, 0..geom.runs.len(), false, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
     if opacity < 1.0 {
         layer.scale(opacity);
     }
@@ -1824,6 +1950,17 @@ impl WorldGen {
     #[func]
     fn river_run_count(&self) -> i64 {
         self.river_geometry().map_or(0, |g| g.runs.len() as i64)
+    }
+
+    /// **RZ-6 (Ruling EN item 4): is a river DRAWN within `radius_cells` of
+    /// `(gx, gy)` at `ppc` screen pixels per grid cell?** The pick calls this
+    /// beside `river_at` and refuses a river the zoom rule hides, so a click
+    /// never selects what the map does not show. `true` when there is no
+    /// network to ask (never hides a river for lack of data) and regardless of
+    /// the Rivers layer switch, which is not what hides a pick. Reads only.
+    #[func]
+    fn river_visible_near(&self, gx: f64, gy: f64, radius_cells: f64, ppc: f64) -> bool {
+        self.river_geometry_any().is_none_or(|g| visible_near(&g, gx, gy, radius_cells, ppc as f32))
     }
 }
 
@@ -2401,6 +2538,7 @@ mod tests {
                 discharge: vec![f32::NAN; n],
                 pieces: vec![(0, n)],
                 reach: Vec::new(),
+                ranks: Vec::new(),
                 own_order: order,
             }],
         }
@@ -2526,21 +2664,22 @@ mod tests {
     }
 
     /// Protects: `river_px_width`'s present rule: ground width times density
-    /// times the preset multiplier, the 1 px floor, and the order-1 de-emphasis
-    /// by own order (literal expected values).
+    /// times the preset multiplier, the 1 px floor, and the headwater de-emphasis
+    /// by rank (literal expected values).
     ///
-    /// The seam, at today's rule: RV-2's width on the ground, the preset's
-    /// multiplier, the 1 px floor, and the order-1 de-emphasis by own order.
+    /// The seam: RV-2's width on the ground, the preset's multiplier, the
+    /// 1 px floor, and the headwater de-emphasis by rank (RZ-2).
     #[test]
     fn the_width_seam_is_rv2s_rule() {
         let a = render::TerrainAppearance::default();
-        let p = RiverPoint { width_cells: 2.0, order: 3, own_order: 3, discharge: f32::NAN };
+        let p = RiverPoint { width_cells: 2.0, order: 3, own_order: 3, discharge: f32::NAN, rank: 0.0 };
         assert_eq!(river_px_width(p, 4.0, &a), Some((8.0, 1.0)));
         assert_eq!(river_px_width(RiverPoint { width_cells: 0.1, ..p }, 1.0, &a), Some((1.0, 1.0)), "floored at one pixel");
         let a2 = render::TerrainAppearance { river_width: 1.5, ..a.clone() };
         assert_eq!(river_px_width(p, 4.0, &a2), Some((12.0, 1.0)));
-        let o1 = RiverPoint { own_order: 1, order: 1, ..p };
-        assert_eq!(river_px_width(o1, 1.0, &a), Some((1.1, 0.4)));
+        // A rank-0.75 point (headwater weight 0.5) at one pixel per cell is half-way to the 0.55 headwater width.
+        let head = river_px_width(RiverPoint { rank: 0.75, ..p }, 1.0, &a).expect("drawn");
+        assert!((head.0 - 2.0 * 0.775).abs() < 1e-5, "{head:?}");
     }
 
     /// Protects: `RiverLayer::fill_triangles` filling every pixel of two
@@ -2627,70 +2766,132 @@ mod tests {
         assert_eq!(render::river_style_color(&a, c), c);
     }
 
-    /// Protects: `o1_deemphasis` values (0.55 width / 0.4 alpha at the opening
-    /// view, full by 8 pixels per cell, linear between) and the rasterizer
-    /// applying it to an order-1 run.
-    ///
-    /// The order-1 de-emphasis, as the overlay drew it: 0.55 width / 0.4
-    /// alpha at the opening view, gone by 8x, linear between.
+    /// Protects: the headwater width de-emphasis (0.55 at the opening view,
+    /// full by 8 pixels per cell, linear between; the reference's width half,
+    /// kept by Ruling EN item 4 while its alpha half is retired) and the
+    /// seam applying it, scaled by the rank's headwater weight, with the
+    /// visibility alpha beside it.
     #[test]
-    fn the_order_one_deemphasis_fades_by_eight_times() {
-        assert_eq!(o1_deemphasis(1.0), (0.55, 0.4));
-        assert_eq!(o1_deemphasis(0.5), (0.55, 0.4), "below one pixel per cell is the opening view");
-        assert_eq!(o1_deemphasis(8.0), (1.0, 1.0));
-        let (w, a) = o1_deemphasis(4.5);
-        assert!((w - 0.775).abs() < 1e-6 && (a - 0.7).abs() < 1e-6, "{w} {a}");
-        // And the rasterizer applies it: an order-1 run at one pixel per cell
-        // draws at 0.4 alpha.
-        let g = one_run((0..=72).map(|i| (2.5 + i as f32 * 0.25, 10.5)).collect(), 3.0, [0.5, 0.5, 0.5], true);
-        let p = rasterize(&g, &render::TerrainAppearance::default(), 32, 24, RasterMap::grid()).at(10, 10).unwrap();
-        assert!((p[3] - 0.4).abs() < 1e-6, "{p:?}");
+    fn the_headwater_width_deemphasis_survives_and_the_alpha_half_is_gone() {
+        assert_eq!(headwater_deemphasis(1.0), 0.55);
+        assert_eq!(headwater_deemphasis(0.5), 0.55, "below one pixel per cell is the opening view");
+        assert_eq!(headwater_deemphasis(8.0), 1.0);
+        assert!((headwater_deemphasis(4.5) - 0.775).abs() < 1e-6);
+        let a = render::TerrainAppearance::default();
+        let k = river_width_factor(&a);
+        let pt = |rank: f32| RiverPoint { width_cells: 4.0, order: 1, own_order: 1, discharge: 1.0, rank };
+        // Rank 0 (the largest river): full width, full alpha, at any density.
+        let (w0, a0) = river_px_width(pt(0.0), 1.0, &a).expect("drawn");
+        assert!((w0 - 4.0 * k).abs() < 1e-5 && a0 == 1.0, "{w0} {a0}");
+        // Rank 0.75 at one pixel per cell: half-way to the headwater look in width
+        // (headwater_weight 0.5), and almost fully visible (f is 0.737 there).
+        let (w1, a1) = river_px_width(pt(0.75), 1.0, &a).expect("drawn");
+        assert!((w1 - 4.0 * k * (1.0 - 0.45 * 0.5)).abs() < 1e-5, "{w1}");
+        assert!(a1 > 0.95 && a1 < 1.0, "{a1}");
+        // The least river at a zoomed-out density is not drawn at all.
+        assert!(river_px_width(pt(1.0), 0.3, &a).is_none());
+        // And no order-1 alpha any more: an order-1 point of rank 0 stays opaque.
+        assert_eq!(river_px_width(pt(0.0), 0.3, &a).map(|(_, al)| al), Some(1.0));
     }
 
-    /// Protects: RIM-5's fade law -- 0 at and below `O1_GONE_PPC`, exactly 1
-    /// from `O1_FADE_FULL_PPC` up (so every density the order-1 de-emphasis
-    /// already governs is unchanged), strictly rising and continuous between
-    /// (no pop), and a smoothstep's own midpoint -- and that it is NOT in
-    /// `river_px_width`, which the tiles, export and stroke fallback share.
+    /// Protects: the vector stroke follows the same rule as the painted river
+    /// (Ruling EN item 4): a rank-0 run draws at every density and the same
+    /// run with rank 1 draws nothing at 0.3 pixels per cell, and everything
+    /// from `P_FULL_PPC` up.
     #[test]
-    fn the_headwater_fade_is_a_continuous_ramp_that_tiles_do_not_see() {
-        assert_eq!(o1_distance_fade(0.0), 0.0);
-        assert_eq!(o1_distance_fade(O1_GONE_PPC), 0.0);
-        assert_eq!(o1_distance_fade(O1_FADE_FULL_PPC), 1.0);
-        assert_eq!(o1_distance_fade(1.0), 1.0, "from one pixel per cell up the de-emphasis alone governs");
-        assert!(O1_FADE_FULL_PPC < 1.0, "the fade must end before `zk` 1, where o1_deemphasis starts to open the stream up");
-        assert_eq!(o1_distance_fade(8.0), 1.0);
-        let mid = o1_distance_fade(0.5 * (O1_GONE_PPC + O1_FADE_FULL_PPC));
-        assert!((mid - 0.5).abs() < 1e-6, "{mid}");
-        // The two thresholds pinned by behaviour at literal densities (a test
-        // that reads the constants back would pass for any value): the tuned
-        // 0.2 / 0.8 pair (`_riverzoom_probe.gd --rim5`, 2026-10-04) puts the
-        // ramp's midpoint at 0.5 and its smoothstep values at these points.
-        assert_eq!(o1_distance_fade(0.19), 0.0);
-        assert_eq!(o1_distance_fade(0.81), 1.0);
-        assert!((o1_distance_fade(0.5) - 0.5).abs() < 1e-6);
-        assert!((o1_distance_fade(0.3) - 0.074074).abs() < 1e-4, "{}", o1_distance_fade(0.3));
-        assert!((o1_distance_fade(0.7) - 0.925926).abs() < 1e-4, "{}", o1_distance_fade(0.7));
-        let (mut prev, mut max_step) = (0.0f32, 0.0f32);
-        for i in 0..=1000 {
-            let f = o1_distance_fade(i as f32 * 0.001);
-            assert!(f >= prev - 1e-7, "not monotone at {i}: {prev} then {f}");
-            max_step = max_step.max(f - prev);
-            prev = f;
-        }
-        assert!(max_step < 0.005, "a 0.001 pixel-per-cell step moved the fade by {max_step}: it pops");
-        // The shared width/alpha function is untouched: an order-1 point at a
-        // density the painted path has faded out still draws at the opening alpha.
+    fn the_stroke_hides_a_low_rank_run_when_zoomed_out() {
+        let mut g = one_run((0..=72).map(|i| (2.5 + i as f32 * 0.25, 10.5)).collect(), 3.0, [0.5, 0.5, 0.5], false);
         let a = render::TerrainAppearance::default();
-        let p = RiverPoint { width_cells: 1.0, order: 1, own_order: 1, discharge: f32::NAN };
-        assert_eq!(river_px_width(p, 0.2, &a).map(|(_, al)| al), Some(O1_ALPHA_OPENING));
+        let n = g.runs[0].pts.len();
+        g.runs[0].ranks = vec![1.0; n];
+        let faint = |g: &RiverGeometry, ppc: f32| {
+            let m = RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) };
+            let (w, h) = ((32.0 * ppc) as usize, (24.0 * ppc) as usize);
+            let layer = rasterize(g, &a, w, h, m);
+            (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter_map(|(x, y)| layer.at(x, y)).filter(|p| p[3] > 0.0).count()
+        };
+        assert_eq!(faint(&g, 0.3), 0, "the least river is not drawn zoomed out");
+        assert!(faint(&g, 1.84) > 0, "it is drawn from P_FULL up");
+        g.runs[0].ranks = vec![0.0; n];
+        assert!(faint(&g, 0.3) > 0, "the largest river is drawn at every density");
+    }
+
+    /// Protects: RZ-6's pick rule -- a click near a stroke the zoom rule hides
+    /// finds nothing, a click near a drawn one finds it, an unranked run is
+    /// always found, and the click's radius decides what is near.
+    #[test]
+    fn a_hidden_river_cannot_be_picked() {
+        let pts: Vec<(f32, f32)> = (0..=20).map(|i| (5.0 + i as f32, 10.0)).collect();
+        let mut g = one_run(pts, 1.0, [0.5, 0.5, 0.5], false);
+        let n = g.runs[0].pts.len();
+        g.runs[0].ranks = vec![1.0; n];
+        assert!(!visible_near(&g, 10.0, 10.0, 1.0, 0.3), "the least river is hidden zoomed out, so it is not pickable");
+        assert!(visible_near(&g, 10.0, 10.0, 1.0, 1.84), "and pickable from P_FULL up");
+        assert!(!visible_near(&g, 10.0, 20.0, 1.0, 1.84), "nothing within the radius of a far click");
+        assert!(visible_near(&g, 10.0, 12.5, 2.0, 1.84), "a wider radius reaches it");
+        g.runs[0].ranks = vec![0.0; n];
+        assert!(visible_near(&g, 10.0, 10.0, 1.0, 0.1), "the largest river is always pickable");
+        g.runs[0].ranks = Vec::new();
+        assert!(visible_near(&g, 10.0, 10.0, 1.0, 0.1), "an unranked run is drawn, so it is pickable");
+    }
+
+    /// Protects: `visibility_ranks` -- length-weighted, ties sharing a rank,
+    /// non-increasing downstream along a run, a tributary's value pushed into
+    /// its trunk from the join point on (a trunk is never ranked below a
+    /// tributary that meets it), a head without a reading back-filled from its
+    /// run's first reading, a run with no reading at all ranked `0` (always
+    /// drawn), and an undrawn run (empty input) given nothing.
+    #[test]
+    fn the_ranks_are_length_weighted_and_run_through_junctions() {
+        // Run 0: a trunk of 4 points (one cell apart), raw discharge 5, 3, 9, 9. Run 1: a tributary of 3 points
+        // with discharge 20, 30, 40 that ends on run 0's point 1. Run 2: no reading anywhere. Run 3: not drawn.
+        let q0 = [5.0f32, 3.0, 9.0, 9.0];
+        let q1 = [20.0f32, 30.0, 40.0];
+        let q2 = [f32::NAN, f32::NAN];
+        let st4 = [0.0f32, 1.0, 1.0, 1.0];
+        let st3 = [0.0f32, 1.0, 1.0];
+        let st2 = [0.0f32, 1.0];
+        let runs = [
+            RankInput { q: &q0, step: &st4, join: None },
+            RankInput { q: &q1, step: &st3, join: Some((0, 1)) },
+            RankInput { q: &q2, step: &st2, join: None },
+            RankInput { q: &[], step: &[], join: None },
+        ];
+        let r = visibility_ranks(&runs, &[1, 0, 2, 3]);
+        assert_eq!(r[3].len(), 0, "an undrawn run gets no ranks");
+        assert_eq!(r[2], vec![0.0, 0.0], "a run with no reading is always drawn");
+        // The trunk's running max is 5, 5, 9, 9; the tributary's final value 40 is pushed into it from point 1 on.
+        // So the trunk's keys are 5, 40, 40, 40, the tributary's 20, 30, 40. Total length: 3 + 2 + (run 2: no reading,
+        // not counted) = 5. Sorted by key, ties sharing: 40 x4 (trunk 1..3 weigh 3, tributary's last weighs 1: 4/5),
+        // 30 (1 -> 5/5 = 1.0 is wrong: the cumulative share over 5 is 4/5 + 1/5 ...). Computed below from the fixture.
+        let total = 3.0 + 2.0;
+        let share_ge = |k: f32| -> f32 {
+            let keys: [(f32, f32); 7] = [(5.0, 0.0), (40.0, 1.0), (40.0, 1.0), (40.0, 1.0), (20.0, 0.0), (30.0, 1.0), (40.0, 1.0)];
+            keys.iter().filter(|(q, _)| *q >= k).map(|(_, w)| *w).sum::<f32>() / total
+        };
+        assert!((r[0][1] - share_ge(40.0)).abs() < 1e-6, "{:?}", r[0]);
+        assert!((r[0][3] - share_ge(40.0)).abs() < 1e-6, "{:?}", r[0]);
+        assert!((r[1][2] - share_ge(40.0)).abs() < 1e-6 && (r[1][1] - share_ge(30.0)).abs() < 1e-6, "{:?}", r[1]);
+        assert!((r[0][0] - share_ge(5.0)).abs() < 1e-6, "the trunk's head is the least: {:?}", r[0]);
+        // The trunk is never ranked below the tributary that joins it (smaller u is larger discharge).
+        assert!(r[0][1] <= r[1][2] + 1e-6);
+        // Non-increasing downstream on every run.
+        for run in &r {
+            assert!(run.windows(2).all(|w| w[1] <= w[0] + 1e-7), "{run:?}");
+        }
+        // A head with no reading takes its run's first reading.
+        let qn = [f32::NAN, 7.0, 7.0];
+        let st = [0.0f32, 1.0, 1.0];
+        let only = [RankInput { q: &qn, step: &st, join: None }];
+        let r = visibility_ranks(&only, &[0]);
+        assert!(r[0].iter().all(|&u| u == 1.0), "one tie of equal discharge covers all the length: {:?}", r[0]);
     }
 
     /// Protects: RZ-1's visibility law at LITERAL values (a test that read the
     /// constants back would pass for any value): `f` is Toepfer's square root
     /// of `ppc / 1.84`, so 0.46 pixels per cell shows exactly half the network
     /// (Ruling EN's opening view), 1.84 and above all of it; the fade is a
-    /// smoothstep over 0.12 of rank; and mutating the exponent, `P_FULL` or the
+    /// smoothstep over 0.15 of rank; and mutating the exponent, `P_FULL` or the
     /// band moves one of these numbers.
     #[test]
     fn the_visibility_rule_has_the_ruled_values() {
@@ -2819,7 +3020,7 @@ mod tests {
     fn a_sub_pixel_stroke_is_drawn_one_pixel_wide() {
         // 0.3 cells at 0.9 px/cell is 0.27 px on screen; 4 cells is 3.6 px.
         let a = render::TerrainAppearance::default();
-        let pt = |w: f32| RiverPoint { width_cells: w, order: 3, own_order: 3, discharge: f32::NAN };
+        let pt = |w: f32| RiverPoint { width_cells: w, order: 3, own_order: 3, discharge: f32::NAN, rank: 0.0 };
         let hw: Vec<f32> = [0.3f32, 4.0].iter().map(|&w| river_px_width(pt(w), 0.9, &a).unwrap().0 * 0.5).collect();
         assert_eq!(hw[0], 0.5, "floored at one pixel");
         assert!((hw[1] - 1.8).abs() < 1e-6, "a wide stroke is not touched: {hw:?}");

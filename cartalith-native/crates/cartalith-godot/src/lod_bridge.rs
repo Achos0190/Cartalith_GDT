@@ -1465,6 +1465,7 @@ mod tests {
                 discharge: vec![f32::NAN; n],
                 pieces: vec![(0, n)],
                 reach: Vec::new(),
+                ranks: Vec::new(),
                 own_order: 4,
             }],
         };
@@ -1514,6 +1515,7 @@ mod tests {
                 discharge: vec![f32::NAN; n],
                 pieces: vec![(0, n)],
                 reach: Vec::new(),
+                ranks: Vec::new(),
                 own_order: 4,
             }],
         };
@@ -1558,6 +1560,7 @@ mod tests {
                 discharge: vec![5000.0; n],
                 pieces: vec![(0, n)],
                 reach: vec![(None, Some(crate::river_stroke::ShoreReach::default()))],
+                ranks: Vec::new(),
                 own_order: 4,
             }],
         };
@@ -2837,6 +2840,7 @@ mod tests {
                     discharge: vec![f32::NAN; n],
                     pieces: vec![(0, n)],
                     reach: Vec::new(),
+                    ranks: Vec::new(),
                     own_order: 1,
                 }
             })

@@ -1,0 +1,244 @@
+warning: variable does not need to be mutable
+   --> crates\cartalith-terrain\src\edifice_pits.rs:370:9
+    |
+370 |     let mut seed = |i: usize, closed: &mut [bool], heap: &mut BinaryHeap<Reverse<(u32, usize)>>| {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-terrain` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-terrain` to apply 1 suggestion)
+warning: function `dispatch_gpu_height` is never used
+    --> crates\cartalith-gpu\src\lib.rs:1926:4
+     |
+1926 | fn dispatch_gpu_height(
+     |    ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `dispatch_gpu_resistance` is never used
+    --> crates\cartalith-gpu\src\lib.rs:2025:4
+     |
+2025 | fn dispatch_gpu_resistance(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `cartalith-gpu` (lib) generated 2 warnings
+warning: variable does not need to be mutable
+    --> crates\cartalith-civ\src\lib.rs:7275:9
+     |
+7275 |     let mut push = |c: (usize, usize), out: &mut Vec<usize>| {
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cartalith-civ` (lib) generated 1 warning (run `cargo fix --lib -p cartalith-civ` to apply 1 suggestion)
+   Compiling cartalith-godot v0.1.0 (C:\cw\rz\cartalith-native\crates\cartalith-godot)
+    Finished `release` profile [optimized] target(s) in 1.04s
+     Running tests\river_zoom_measurement.rs (C:/cw/rz_target\release\deps\river_zoom_measurement-45c03e5690149fd0.exe)
+
+running 1 test
+test river_zoom_measurement ... 
+=== 512x328, 40075 km, density 1, 12 seeds ===
+  drawn segments n                         median  20106.000  (12608.000..23934.000)
+  drawn length (cells)                     median  23779.911  (15078.784..28121.285)
+  order-1 share of length                  median      0.330  (0.289..0.367)
+  order-1 share of top-1% Q length         median      0.026  (0.014..0.078)
+  order-1 share of top-10% Q length        median      0.064  (0.039..0.135)
+  rank sort per key (ms)                   median      0.414  (0.237..0.484)
+  Q running-max breaks (must be 0)         median      0.000  (0.000..0.000)
+  f=0.1  discharge components              median    144.000  (93.000..197.000)
+  f=0.1  discharge top-decile outlets lost median      0.000  (0.000..0.256)
+  f=0.1  order     components              median     39.000  (21.000..112.000)
+  f=0.1  order     top-decile outlets lost median      0.674  (0.224..0.929)
+  f=0.1  width     components              median      0.000  (0.000..0.000)
+  f=0.1  width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.1  disch-net components              median    117.000  (76.000..165.000)
+  f=0.1  disch-net top-decile outlets lost median      0.000  (0.000..0.282)
+  f=0.24 discharge components              median    454.000  (322.000..537.000)
+  f=0.24 discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.24 order     components              median    154.000  (112.000..194.000)
+  f=0.24 order     top-decile outlets lost median      0.393  (0.121..0.613)
+  f=0.24 width     components              median      0.000  (0.000..0.000)
+  f=0.24 width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.24 disch-net components              median    371.000  (246.000..459.000)
+  f=0.24 disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.5  discharge components              median   1059.000  (826.000..1146.000)
+  f=0.5  discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.5  order     components              median    559.000  (446.000..667.000)
+  f=0.5  order     top-decile outlets lost median      0.217  (0.077..0.431)
+  f=0.5  width     components              median      0.000  (0.000..0.000)
+  f=0.5  width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.5  disch-net components              median    967.000  (779.000..1046.000)
+  f=0.5  disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.96 discharge components              median   2118.000  (1795.000..2412.000)
+  f=0.96 discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.96 order     components              median   2121.000  (1706.000..2292.000)
+  f=0.96 order     top-decile outlets lost median      0.097  (0.026..0.216)
+  f=0.96 width     components              median      0.000  (0.000..0.000)
+  f=0.96 width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.96 disch-net components              median   2111.000  (1788.000..2243.000)
+  f=0.96 disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    discharge components              median   2271.000  (1896.000..2494.000)
+  f=1    discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    order     components              median   2271.000  (1896.000..2494.000)
+  f=1    order     top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    width     components              median   2271.000  (1896.000..2494.000)
+  f=1    width     top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    disch-net components              median   2271.000  (1896.000..2494.000)
+  f=1    disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+
+=== 384x246, 800 km, density 1, 12 seeds ===
+  drawn segments n                         median   4729.000  (2615.000..5530.000)
+  drawn length (cells)                     median   5602.991  (3105.015..6524.527)
+  order-1 share of length                  median      0.520  (0.457..0.595)
+  order-1 share of top-1% Q length         median      0.000  (0.000..0.024)
+  order-1 share of top-10% Q length        median      0.015  (0.000..0.043)
+  rank sort per key (ms)                   median      0.121  (0.062..0.137)
+  Q running-max breaks (must be 0)         median      0.000  (0.000..0.000)
+  f=0.1  discharge components              median     21.000  (13.000..29.000)
+  f=0.1  discharge top-decile outlets lost median      0.111  (0.000..0.600)
+  f=0.1  order     components              median      8.000  (3.000..17.000)
+  f=0.1  order     top-decile outlets lost median      0.846  (0.308..1.000)
+  f=0.1  width     components              median     24.000  (10.000..41.000)
+  f=0.1  width     top-decile outlets lost median      0.556  (0.385..0.900)
+  f=0.1  disch-net components              median     17.000  (12.000..29.000)
+  f=0.1  disch-net top-decile outlets lost median      0.111  (0.000..0.600)
+  f=0.24 discharge components              median     52.000  (29.000..77.000)
+  f=0.24 discharge top-decile outlets lost median      0.000  (0.000..0.100)
+  f=0.24 order     components              median     25.000  (17.000..43.000)
+  f=0.24 order     top-decile outlets lost median      0.333  (0.000..0.700)
+  f=0.24 width     components              median     47.000  (20.000..77.000)
+  f=0.24 width     top-decile outlets lost median      0.300  (0.083..0.647)
+  f=0.24 disch-net components              median     49.000  (28.000..71.000)
+  f=0.24 disch-net top-decile outlets lost median      0.000  (0.000..0.100)
+  f=0.5  discharge components              median    106.000  (66.000..127.000)
+  f=0.5  discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.5  order     components              median    109.000  (24.000..135.000)
+  f=0.5  order     top-decile outlets lost median      0.143  (0.000..0.700)
+  f=0.5  width     components              median     65.000  (20.000..92.000)
+  f=0.5  width     top-decile outlets lost median      0.286  (0.000..0.647)
+  f=0.5  disch-net components              median     98.000  (62.000..123.000)
+  f=0.5  disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.96 discharge components              median    181.000  (148.000..206.000)
+  f=0.96 discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.96 order     components              median    110.000  (96.000..135.000)
+  f=0.96 order     top-decile outlets lost median      0.059  (0.000..0.222)
+  f=0.96 width     components              median     65.000  (20.000..92.000)
+  f=0.96 width     top-decile outlets lost median      0.286  (0.000..0.647)
+  f=0.96 disch-net components              median    176.000  (147.000..204.000)
+  f=0.96 disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    discharge components              median    189.000  (156.000..218.000)
+  f=1    discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    order     components              median    189.000  (156.000..218.000)
+  f=1    order     top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    width     components              median    189.000  (156.000..218.000)
+  f=1    width     top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    disch-net components              median    189.000  (156.000..218.000)
+  f=1    disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+
+=== 1024x656, 40075 km, density 1, 12 seeds ===
+  drawn segments n                         median  48636.000  (32572.000..59873.000)
+  drawn length (cells)                     median  56339.804  (38388.801..69450.446)
+  order-1 share of length                  median      0.399  (0.368..0.440)
+  order-1 share of top-1% Q length         median      0.061  (0.014..0.272)
+  order-1 share of top-10% Q length        median      0.123  (0.055..0.266)
+  rank sort per key (ms)                   median      1.039  (0.628..1.310)
+  Q running-max breaks (must be 0)         median      0.000  (0.000..0.000)
+  f=0.1  discharge components              median    133.000  (89.000..176.000)
+  f=0.1  discharge top-decile outlets lost median      0.192  (0.000..0.642)
+  f=0.1  order     components              median     49.000  (22.000..204.000)
+  f=0.1  order     top-decile outlets lost median      0.659  (0.064..0.872)
+  f=0.1  width     components              median      0.000  (0.000..0.000)
+  f=0.1  width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.1  disch-net components              median    111.000  (71.000..148.000)
+  f=0.1  disch-net top-decile outlets lost median      0.244  (0.000..0.642)
+  f=0.24 discharge components              median    403.000  (289.000..500.000)
+  f=0.24 discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.24 order     components              median    159.000  (109.000..239.000)
+  f=0.24 order     top-decile outlets lost median      0.242  (0.057..0.615)
+  f=0.24 width     components              median      0.000  (0.000..0.000)
+  f=0.24 width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.24 disch-net components              median    372.000  (254.000..454.000)
+  f=0.24 disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.5  discharge components              median   1080.000  (906.000..1195.000)
+  f=0.5  discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.5  order     components              median    551.000  (463.000..677.000)
+  f=0.5  order     top-decile outlets lost median      0.167  (0.019..0.359)
+  f=0.5  width     components              median      0.000  (0.000..0.000)
+  f=0.5  width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.5  disch-net components              median   1017.000  (853.000..1131.000)
+  f=0.5  disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.96 discharge components              median   2244.000  (1962.000..2384.000)
+  f=0.96 discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.96 order     components              median   2155.000  (1778.000..2211.000)
+  f=0.96 order     top-decile outlets lost median      0.091  (0.000..0.149)
+  f=0.96 width     components              median      0.000  (0.000..0.000)
+  f=0.96 width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.96 disch-net components              median   2213.000  (1934.000..2314.000)
+  f=0.96 disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    discharge components              median   2336.000  (2027.000..2551.000)
+  f=1    discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    order     components              median   2336.000  (2027.000..2551.000)
+  f=1    order     top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    width     components              median   2336.000  (2027.000..2551.000)
+  f=1    width     top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    disch-net components              median   2336.000  (2027.000..2551.000)
+  f=1    disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+
+=== 2048x1311, 40075 km, density 1.55, 1 seeds ===
+  drawn segments n                         median 157523.000  (157523.000..157523.000)
+  drawn length (cells)                     median 178842.572  (178842.572..178842.572)
+  order-1 share of length                  median      0.465  (0.465..0.465)
+  order-1 share of top-1% Q length         median      0.077  (0.077..0.077)
+  order-1 share of top-10% Q length        median      0.264  (0.264..0.264)
+  rank sort per key (ms)                   median      3.868  (3.868..3.868)
+  Q running-max breaks (must be 0)         median      0.000  (0.000..0.000)
+  f=0.1  discharge components              median    133.000  (133.000..133.000)
+  f=0.1  discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.1  order     components              median    127.000  (127.000..127.000)
+  f=0.1  order     top-decile outlets lost median      0.145  (0.145..0.145)
+  f=0.1  width     components              median      0.000  (0.000..0.000)
+  f=0.1  width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.1  disch-net components              median    116.000  (116.000..116.000)
+  f=0.1  disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.24 discharge components              median    461.000  (461.000..461.000)
+  f=0.24 discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.24 order     components              median    265.000  (265.000..265.000)
+  f=0.24 order     top-decile outlets lost median      0.029  (0.029..0.029)
+  f=0.24 width     components              median      0.000  (0.000..0.000)
+  f=0.24 width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.24 disch-net components              median    405.000  (405.000..405.000)
+  f=0.24 disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.5  discharge components              median   1398.000  (1398.000..1398.000)
+  f=0.5  discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.5  order     components              median    762.000  (762.000..762.000)
+  f=0.5  order     top-decile outlets lost median      0.029  (0.029..0.029)
+  f=0.5  width     components              median      0.000  (0.000..0.000)
+  f=0.5  width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.5  disch-net components              median   1302.000  (1302.000..1302.000)
+  f=0.5  disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.96 discharge components              median   2728.000  (2728.000..2728.000)
+  f=0.96 discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=0.96 order     components              median   2765.000  (2765.000..2765.000)
+  f=0.96 order     top-decile outlets lost median      0.014  (0.014..0.014)
+  f=0.96 width     components              median      0.000  (0.000..0.000)
+  f=0.96 width     top-decile outlets lost median      1.000  (1.000..1.000)
+  f=0.96 disch-net components              median   2689.000  (2689.000..2689.000)
+  f=0.96 disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    discharge components              median   2940.000  (2940.000..2940.000)
+  f=1    discharge top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    order     components              median   2940.000  (2940.000..2940.000)
+  f=1    order     top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    width     components              median   2940.000  (2940.000..2940.000)
+  f=1    width     top-decile outlets lost median      0.000  (0.000..0.000)
+  f=1    disch-net components              median   2940.000  (2940.000..2940.000)
+  f=1    disch-net top-decile outlets lost median      0.000  (0.000..0.000)
+
+37 worlds in 42s
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.71s
+

@@ -1129,6 +1129,7 @@ mod tests {
                 discharge: vec![10.0; n],
                 pieces: vec![(0, n)],
                 reach: Vec::new(),
+                ranks: Vec::new(),
                 own_order: 3,
             }],
         }

@@ -3244,7 +3244,7 @@ should be research done how other map tools handle this."*
   tiles and export.
 - **Hard requirement:** the owner's "zoom gains detail at every level". Judge at x1, x4, x16 and x64.
 - Research first, then a scope with owner questions. It changes drawing only, never the generated river network.
-- **Research filed 2026-11-11: `RIVER_ZOOM_VISIBILITY_RESEARCH.md`** (root): other tools' rules, what the port has at its symbols (RIM-5 keys on order-1 only; `river_px_width` is the unused seam), a proposed discharge-rank rule with milestones RZ-0 to RZ-7 and owner questions 1-10. Owner answered (Ruling EN, 2026-11-09). **RZ-0 measured 2026-11-11** (37 worlds; result and the derived P_FULL = 1.84 are in the research's *Build notes*). Next: RZ-1 onward; the research's build notes carry how far.
+- **Research filed 2026-11-11: `RIVER_ZOOM_VISIBILITY_RESEARCH.md`** (root): other tools' rules, what the port has at its symbols (RIM-5 keys on order-1 only; `river_px_width` is the unused seam), a proposed discharge-rank rule with milestones RZ-0 to RZ-7 and owner questions 1-10. Owner answered (Ruling EN, 2026-11-09). **RZ-0 measured 2026-11-11** (37 worlds; result and the derived P_FULL = 1.84 are in the research's *Build notes*). **Built 2026-11-11: RZ-1, RZ-2, RZ-4, RZ-6 (see `STATUS.md`). Left: RZ-5 (fans by reach), RZ-7 (cost), the owner's review of the frame pairs.**
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|

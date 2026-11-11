@@ -24,20 +24,20 @@ shader_type canvas_item;
 // `river_on` the same pass paints every river as water in the map's own
 // pixels, from `river_field` (`WorldGen::river_field_texture`: per texel the
 // distance to the nearest drawn centreline, that river's half-width and its
-// order-1 weight) and the styled colour `river_color`
+// discharge rank u, RZ-2) and the styled colour `river_color`
 // (`WorldGen::river_color_texture`, the map with every river at full
 // coverage): coverage is RV-2's own stroke law (`river_px_width` and the
 // one-pixel fringe: half-width in screen pixels `max(hw * ppc * wm * rw, 0.5)`,
-// alpha falling linearly to zero over one more pixel, the order-1 de-emphasis
-// on both) and is multiplied by one minus the shore's water coverage, so a
+// alpha falling linearly to zero over one more pixel, the headwater width
+// de-emphasis and the visibility law below) and is multiplied by one minus the shore's water coverage, so a
 // river meets a lake or the sea with no seam and is never drawn on water.
 // Just outside a river's edge a lighter, greener floodplain tint fades over a
 // band that scales with the channel (`river_field.rs` `FLOODPLAIN_*`).
 // `river_field.rs::coverage` is this law mirrored, pinned against the stroke.
-// **RIM-5**: the order-1 share's alpha also takes `o1_distance_fade(ppc)` (a
-// smoothstep from `O1_GONE_PPC` to `O1_FADE_FULL_PPC` pixels per cell, 1 from
-// `O1_FADE_FULL_PPC` up), so headwater streams thin out of a zoomed-out map
-// without popping. RIM-7 (2026-10-05): the deep-zoom tiles and the export
+// **RZ-2 (Ruling EN, replacing RIM-5)**: the alpha takes `river_visibility(u,
+// ppc)`, the river's discharge rank against the share of the network the zoom
+// shows, so the biggest rivers draw first and the rest fade in without popping.
+// RIM-7 (2026-10-05): the deep-zoom tiles and the export
 // paint the river by this same law in Rust (`river_field::pixel_paint`,
 // `PaintSource::raster`) -- keep the two in step; the mirror tests read this
 // file.
@@ -47,7 +47,7 @@ shader_type canvas_item;
 // as far as the river has a body (a 1 px stream takes no ink on its bed),
 // outward only as far as the field's valid band less a margin (it thins to
 // nothing at a zoomed-out view rather than ending on a step), times the same
-// order-1 alpha (RIM-5: no orphan outline on a faded stream) and plate-frame
+// visibility alpha (RZ-2: no orphan outline on a faded stream) and plate-frame
 // weight as the water. `river_bank` 0 -- every preset with no opinion -- runs
 // none of it, so the render is what it was, bar a measured 1-LSB single-pixel residue
 // in 5 of 32 probe frames (cause unproven, probably driver rounding after this recompile).
@@ -65,7 +65,7 @@ uniform bool shore_on = false;
 
 // RIM: the river's distance field (RGBA half float, `gw * k` by `gh * k`
 // texels, k 1 or 2: R distance in cells to the nearest centreline, G its
-// half-width in cells, B the order-1 weight, A the plate-frame weight) and its colour map, both read
+// half-width in cells, B the discharge rank u, A the plate-frame weight) and its colour map, both read
 // at the pixel's own UV with hardware linear filtering. `river_on` follows
 // the Rivers layer switch and the field being present; `river_width` is the
 // preset's multiplier the field was built for (`river_paint_params`).
@@ -83,21 +83,12 @@ uniform float floodplain_strength = 1.0;
 uniform float river_bank = 0.0;
 uniform vec3 river_bank_color = vec3(0.0);
 
-// The order-1 de-emphasis, `river_stroke::o1_deemphasis`: `zk` is pixels per
-// cell, clamped to 1 below; faded out by 8 (the reference's `zk = 8`).
-// x: width multiplier, y: alpha multiplier.
-vec2 o1_deemphasis(float zk) {
+// The headwater width de-emphasis, `river_stroke::headwater_deemphasis`: `zk`
+// is pixels per cell, clamped to 1 below; faded out by 8 (the reference's
+// `zk = 8`). The reference's alpha half is retired (RZ-2, Ruling EN item 4).
+float headwater_deemphasis(float zk) {
 	float de = clamp(1.0 - (max(zk, 1.0) - 1.0) / 7.0, 0.0, 1.0);
-	return vec2(0.55 + 0.45 * (1.0 - de), 0.4 + 0.6 * (1.0 - de));
-}
-
-// RIM-5, `river_stroke::o1_distance_fade`: 0 at or below `O1_GONE_PPC` pixels
-// per cell, 1 at or above `O1_FADE_FULL_PPC`, a smoothstep between. Labelled
-// judgement, tuned on the owner's world; keep both in step with the Rust.
-const float O1_GONE_PPC = 0.2;
-const float O1_FADE_FULL_PPC = 0.8;
-float o1_distance_fade(float ppc) {
-	return smoothstep(O1_GONE_PPC, O1_FADE_FULL_PPC, ppc);
+	return 0.55 + 0.45 * (1.0 - de);
 }
 
 // RZ-1 (Ruling EN), `river_stroke::river_visibility`: which part of the drawn
@@ -171,17 +162,18 @@ void fragment() {
 	float fp = 0.0;
 	float bnk = 0.0;
 	if (paint) {
-		float o1 = clamp(rf.b, 0.0, 1.0);
-		vec2 dm = o1_deemphasis(ppc);
-		float wm = mix(1.0, dm.x, o1);
-		float am = mix(1.0, dm.y * o1_distance_fade(ppc), o1);
+		// RZ-2: rf.b is the river's discharge rank u, not an order-1 weight.
+		float u = rf.b;
+		float hwk = headwater_weight(u);
+		float wm = mix(1.0, headwater_deemphasis(ppc), hwk);
+		float am = river_visibility(u, ppc);
 		float hw_px = max(rf.g * ppc * wm * river_width, 0.5);
 		// rf.a: the plate frame's weight (`river_field.rs`, `1 - border_cover`)
 		// -- the river never lies on the bare-paper margin the raster baked.
 		rcov = clamp(hw_px + 1.0 - rf.r * ppc, 0.0, 1.0) * am * rf.a;
 		float edge = rf.g * river_width;
 		float e = rf.r - edge;
-		fp = (1.0 - smoothstep(0.0, 1.0 + edge, e)) * (1.0 - o1) * smoothstep(0.35, 1.0, edge) * floodplain_strength * rf.a;
+		fp = (1.0 - smoothstep(0.0, 1.0 + edge, e)) * (1.0 - hwk) * am * smoothstep(0.35, 1.0, edge) * floodplain_strength * rf.a;
 		// RIM-2, `river_field::bank_coverage`: a line centred on the visible
 		// edge (`be` pixels outside it), reaching in only as far as the river
 		// has a body (a 1 px stream: not at all) and out only as far as the

@@ -157,6 +157,10 @@ own `RM-*` numbering.
   This folds in the "zoom-sensitive rivers" backlog row (`OUTSTANDING_WORK.md`,
   owner 2026-09-27) rather than leaving it a separate research task — see
   "Supersession" below.
+  **Replaced 2026-11-11 by `RIVER_ZOOM_VISIBILITY_RESEARCH.md` (RZ-2, Ruling EN):**
+  the order-1 fade and its two constants are gone; the key is the river's
+  length-weighted discharge rank `u` (the field's B channel) against the share of
+  the network the zoom shows. The text above is the design as first scoped.
 - **RIM-6 — retire the main-river overlay lines, except in line-art
   styles.** Once RIM-1 ships, `map_overlay.gd::_draw_rivers_into` and
   `render::paint_vector_rivers` stop drawing the stroke into the default

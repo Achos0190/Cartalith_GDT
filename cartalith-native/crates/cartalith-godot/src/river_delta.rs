@@ -307,6 +307,8 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
                             colors: vec![run.colors[ai]; m],
                             orders: vec![run.orders[ai]; m],
                             discharge: vec![f32::NAN; m],
+                            // RZ-2: a fan takes its apex river's rank, so it is never drawn without its river.
+                            ranks: vec![run.ranks.get(ai).copied().unwrap_or(0.0); m],
                             pieces: vec![(0, m)],
                             reach: vec![(None, None)],
                             own_order: run.own_order,
@@ -449,6 +451,7 @@ mod tests {
             discharge: vec![q; n],
             pieces: vec![(0, n)],
             reach: vec![(None, tail.then(ShoreReach::default))],
+            ranks: Vec::new(),
             own_order: order,
         }
     }

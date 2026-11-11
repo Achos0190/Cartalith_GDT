@@ -5617,6 +5617,8 @@ struct RiverDraw {
     /// on besides the width, so a zoom rule can select and size by them.
     orders: Vec<i16>,
     discharge: Vec<f32>,
+    /// RZ-2: the discharge rank `u` at each render point (`river_stroke::visibility_ranks`).
+    ranks: Vec<f32>,
     draw_rank: usize,
     parallel_of: Option<usize>,
     /// Per piece, `(head, tail)`: each end that meets water and how much
@@ -13371,6 +13373,36 @@ impl WorldGen {
         // blend runs on across a bridge instead of restarting there.
         let raised: Vec<Vec<i16>> = traced_orders.iter().zip(&carry).map(|(po, &(floor, _))| po.iter().map(|&o| o.max(floor)).collect()).collect();
         let incoming = river_stroke::incoming_orders(&raised, &drawn_joins, ramp);
+        // RZ-2 (Ruling EN): the length-weighted discharge rank of every traced
+        // point, once per network. Drawn runs only (`parallel_of` runs are never
+        // drawn and take no part in the ranking); tributaries pushed into their
+        // trunks in draw order. See `river_stroke::visibility_ranks`.
+        let rank_q: Vec<Vec<f32>> = run_pts
+            .iter()
+            .enumerate()
+            .map(|(i, pts)| {
+                if plan.parallel_of[i].is_some() {
+                    Vec::new()
+                } else {
+                    pts.iter().map(|&p| f.flow_discharge.get(cell_ix(p)).copied().unwrap_or(f32::NAN)).collect()
+                }
+            })
+            .collect();
+        let rank_step: Vec<Vec<f32>> = rank_q
+            .iter()
+            .zip(&run_pts)
+            .map(|(q, pts)| {
+                (0..q.len())
+                    .map(|k| if k == 0 { 0.0 } else { ((pts[k].0 - pts[k - 1].0).powi(2) + (pts[k].1 - pts[k - 1].1).powi(2)).sqrt() as f32 })
+                    .collect()
+            })
+            .collect();
+        let rank_in: Vec<river_stroke::RankInput> = (0..rank_q.len())
+            .map(|i| river_stroke::RankInput { q: &rank_q[i], step: &rank_step[i], join: drawn_joins[i] })
+            .collect();
+        let mut rank_order: Vec<usize> = (0..rank_q.len()).collect();
+        rank_order.sort_by_key(|&i| draw_rank[i]);
+        let traced_ranks = river_stroke::visibility_ranks(&rank_in, &rank_order);
         let draws = (0..rivers.len())
             .map(|i| {
                 // `river_draw_plan`: a run continued past a land pit onto the
@@ -13482,7 +13514,9 @@ impl WorldGen {
                 // nor blended): it is data for the width seam's zoom rule.
                 let orders = near.iter().map(|&k| po[k]).collect();
                 let discharge = near.iter().map(|&k| f.flow_discharge.get(cell_ix(pts[k])).copied().unwrap_or(f32::NAN)).collect();
-                RiverDraw { rp: s.pts, pieces: s.pieces, widths, own_order, colors, orders, discharge, draw_rank: draw_rank[i], parallel_of: plan.parallel_of[i], reach }
+                // RZ-2: each render point reads the rank of the traced point nearest it.
+                let ranks = near.iter().map(|&k| traced_ranks[i].get(k).copied().unwrap_or(0.0)).collect();
+                RiverDraw { rp: s.pts, pieces: s.pieces, widths, own_order, colors, orders, discharge, ranks, draw_rank: draw_rank[i], parallel_of: plan.parallel_of[i], reach }
             })
             .collect();
         Some((rivers, draws))
@@ -13849,7 +13883,7 @@ impl WorldGen {
             .filter_map(|d| {
                 let widths = d.widths?;
                 let n = d.rp.len();
-                if widths.len() != n || d.colors.len() != n || d.orders.len() != n || d.discharge.len() != n {
+                if widths.len() != n || d.colors.len() != n || d.orders.len() != n || d.discharge.len() != n || d.ranks.len() != n {
                     return None;
                 }
                 Some(river_stroke::DrawnRun {
@@ -13858,6 +13892,7 @@ impl WorldGen {
                     colors: d.colors.iter().map(|&(r, g, b)| [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]).collect(),
                     orders: d.orders,
                     discharge: d.discharge,
+                    ranks: d.ranks,
                     pieces: d.pieces,
                     reach: d.reach,
                     own_order: d.own_order.clamp(1, i16::MAX as i64) as i16,

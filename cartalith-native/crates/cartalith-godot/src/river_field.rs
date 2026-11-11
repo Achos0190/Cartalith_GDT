@@ -23,10 +23,12 @@
 //!   (`river_half_width_profile`, settled at confluences), so the taper from
 //!   spring to mouth survives. Not scaled by the preset's `river_width`: the
 //!   shader does that, as [`river_stroke::river_px_width`] does.
-//! - `B`: the order-1 weight, `1` where the nearest segment belongs to a run
-//!   whose own order is 1 (a headwater trickle), else `0`. Interpolated, so a
-//!   tributary meeting its trunk blends the two zoom rules instead of
-//!   punching a hole where a sign flips.
+//! - `B`: the river's discharge rank `u` (RZ-2, Ruling EN; it carried the
+//!   order-1 weight before): `0` the largest river, `1` the least, the
+//!   length-weighted rank of the segment's discharge made non-decreasing downstream
+//!   ([`river_stroke::visibility_ranks`]), interpolated along the segment like the
+//!   width. Bilinear filtering blends it across a confluence, so a tributary
+//!   meeting its trunk blends the two rules instead of punching a hole.
 //! - `A`: the plate-frame weight `1 - border_cover` at the texel's own
 //!   position (`render::border_cover_f`), `1` across the interior and fading
 //!   to `0` under the bare-paper margin the map's raster bakes over its own
@@ -45,13 +47,14 @@
 //! so the two agree to within the antialiasing band: half-width in screen
 //! pixels `max(hw * ppc * wm * river_width, 0.5)` (the 1 px floor,
 //! [`river_stroke::MIN_STROKE_PX`]), alpha ramping linearly over the one pixel
-//! fringe outside it ([`river_stroke::EDGE_FRINGE_PX`]), the order-1
-//! de-emphasis ([`river_stroke::o1_deemphasis`]) on the width and the alpha,
-//! and RIM-5's fade ([`river_stroke::o1_distance_fade`]) on the order-1 alpha
-//! below [`river_stroke::O1_FADE_FULL_PPC`] pixels per cell -- a headwater stream thins out of a zoomed-out
-//! map rather than popping, on every painted path (the vector stroke, which a
-//! look without `rivers_as_water` still draws, keeps `o1_deemphasis`'s opening
-//! look).
+//! fringe outside it ([`river_stroke::EDGE_FRINGE_PX`]), the headwater width
+//! de-emphasis ([`river_stroke::headwater_deemphasis`], scaled by
+//! [`river_stroke::headwater_weight`] of `u`) on the width, and the zoom
+//! visibility law ([`river_stroke::river_visibility`]) on the alpha: the share
+//! `(ppc / P_FULL)^0.5` of the network length, largest discharge first, so the
+//! biggest rivers draw first and the rest fade in without popping. It is on every
+//! painted path and, through [`river_stroke::river_px_width`], on the vector
+//! stroke a look without `rivers_as_water` still draws.
 //! The union with the shore field's own water coverage is how a river merges
 //! into a lake or the sea with no seam: where the water covers a pixel the
 //! river adds nothing, and the shore's contour is untouched
@@ -62,8 +65,8 @@
 //! the same `R`/`G`/`B`/`A` -- no new channel -- and gated per preset
 //! (`TerrainAppearance::river_bank`, 0 = off, the default, running no outline
 //! code in the shader at all). It is measured from the very edge the water
-//! uses ([`edge_px`]), so the two cannot disagree; it takes the order-1 alpha
-//! (RIM-5's fade removes the outline with the stream) and the plate-frame
+//! uses ([`edge_px`]), so the two cannot disagree; it takes the visibility alpha
+//! (RZ-2's fade removes the outline with the stream) and the plate-frame
 //! weight `A`; and it is clamped to the field's valid band so it thins to
 //! nothing at a zoomed-out view instead of ending on a step.
 //!
@@ -74,7 +77,7 @@
 //! evaluator the texture is built by ([`eval_window`] -- the nearest drawn
 //! segment by least edge distance, within [`band_cells`]), run exactly at each
 //! of their own pixels instead of read back bilinearly, and the SAME per-pixel
-//! law ([`pixel_paint`]: [`coverage`] with the order-1 rules and RIM-5's fade,
+//! law ([`pixel_paint`]: [`coverage`] with the rank's headwater width and visibility alpha,
 //! the floodplain weight, [`bank_coverage`]), in the river colour the screen
 //! samples (the colour field, `river_stroke::rasterize_colour_field_with`).
 //! So a river has one width taper, one colour, one floodplain, one bank line
@@ -164,18 +167,20 @@ struct Seg {
     b: (f32, f32),
     hwa: f32,
     hwb: f32,
-    o1: f32,
+    /// The discharge rank `u` at each end ([`river_stroke::DrawnRun::ranks`]); interpolated along the segment like the width.
+    ua: f32,
+    ub: f32,
 }
 
 impl Seg {
-    /// Distance to the segment from `q`, and the half-width at the foot.
-    fn nearest(&self, q: (f32, f32)) -> (f32, f32) {
+    /// Distance to the segment from `q`, the half-width and the rank `u` at the foot.
+    fn nearest(&self, q: (f32, f32)) -> (f32, f32, f32) {
         let (ex, ey) = (self.b.0 - self.a.0, self.b.1 - self.a.1);
         let l2 = ex * ex + ey * ey;
         let t = if l2 > 0.0 { (((q.0 - self.a.0) * ex + (q.1 - self.a.1) * ey) / l2).clamp(0.0, 1.0) } else { 0.0 };
         let (fx, fy) = (self.a.0 + ex * t, self.a.1 + ey * t);
         let d = ((q.0 - fx) * (q.0 - fx) + (q.1 - fy) * (q.1 - fy)).sqrt();
-        (d, self.hwa + (self.hwb - self.hwa) * t)
+        (d, self.hwa + (self.hwb - self.hwa) * t, self.ua + (self.ub - self.ua) * t)
     }
 }
 
@@ -199,20 +204,20 @@ fn segments(geoms: &[&RiverGeometry], gw: usize, river_width: f32) -> Vec<Seg> {
         if run.widths.len() != n {
             continue;
         }
-        let o1 = if run.own_order <= 1 { 1.0 } else { 0.0 };
+        let rk = |k: usize| run.ranks.get(k).copied().unwrap_or(0.0);
         let hw: Vec<f32> = run.widths.iter().map(|&w| (w * 0.5).max(0.0)).collect();
         for (pk, &(s0, e0)) in run.pieces.iter().enumerate() {
             let e0 = e0.min(n);
             if e0 < s0 + 2 {
                 continue;
             }
-            let mut push = |a: (f32, f32), b: (f32, f32), ha: f32, hb: f32| {
+            let mut push = |a: (f32, f32), b: (f32, f32), ha: f32, hb: f32, ua: f32, ub: f32| {
                 if (b.0 - a.0).abs() <= gw as f32 * 0.5 {
-                    out.push(Seg { a, b, hwa: ha, hwb: hb, o1 });
+                    out.push(Seg { a, b, hwa: ha, hwb: hb, ua, ub });
                 }
             };
             for k in s0..e0 - 1 {
-                push(run.pts[k], run.pts[k + 1], hw[k], hw[k + 1]);
+                push(run.pts[k], run.pts[k + 1], hw[k], hw[k + 1], rk(k), rk(k + 1));
             }
             // The cap a raster draws is the half-width (floored at one pixel)
             // plus the fringe, in cells at the coarsest density.
@@ -222,7 +227,7 @@ fn segments(geoms: &[&RiverGeometry], gw: usize, river_width: f32) -> Vec<Seg> {
                 let x = r.extra(cap(hw[s0] * river_width));
                 if x > 0.0 {
                     let q = (run.pts[s0].0 + r.dir.0 as f32 * x, run.pts[s0].1 + r.dir.1 as f32 * x);
-                    push(q, run.pts[s0], hw[s0], hw[s0]);
+                    push(q, run.pts[s0], hw[s0], hw[s0], rk(s0), rk(s0));
                 }
             }
             if let Some(r) = tail {
@@ -230,7 +235,7 @@ fn segments(geoms: &[&RiverGeometry], gw: usize, river_width: f32) -> Vec<Seg> {
                 let x = r.extra(cap(hw[last] * river_width));
                 if x > 0.0 {
                     let q = (run.pts[last].0 + r.dir.0 as f32 * x, run.pts[last].1 + r.dir.1 as f32 * x);
-                    push(run.pts[last], q, hw[last], hw[last]);
+                    push(run.pts[last], q, hw[last], hw[last], rk(last), rk(last));
                 }
             }
         }
@@ -280,7 +285,7 @@ impl Place {
 /// width, so a thin stream beside a trunk never wins a pixel inside the
 /// trunk's body -- among those whose band ([`band_cells`]) reaches the pixel.
 /// `best` (the winning edge distance, `INFINITY` = none) and `val` (`[d, hw,
-/// o1]`, `d` = [`SENTINEL`] = none) are the window's, row-major, `w * h`.
+/// u]`, `d` = [`SENTINEL`] = none) are the window's, row-major, `w * h`.
 ///
 /// `ids` must be in draw order (ascending): a tie goes to the first, which is
 /// what keeps the texture deterministic and the fans behind the network
@@ -317,7 +322,7 @@ fn eval_window(segs: &[Seg], ids: &[u32], pl: Place, raster: (usize, usize), win
             let qy = pl.at(0, j).1;
             let base = (j - wy0) * ww;
             for i in x0.max(wx0)..=x1.min(wx0 + ww - 1) {
-                let (d, hw) = sg.nearest((pl.at(i, j).0, qy));
+                let (d, hw, u) = sg.nearest((pl.at(i, j).0, qy));
                 if d > band_cells(hw, river_width) {
                     continue;
                 }
@@ -325,7 +330,7 @@ fn eval_window(segs: &[Seg], ids: &[u32], pl: Place, raster: (usize, usize), win
                 let k = base + i - wx0;
                 if e < best[k] {
                     best[k] = e;
-                    val[k] = [d, hw, sg.o1];
+                    val[k] = [d, hw, u];
                 }
             }
         }
@@ -422,7 +427,7 @@ pub fn build_with(
         let rows = out.len() / (w * CHANNELS);
         let row0 = c * CHUNK_ROWS;
         let mut best = vec![f32::INFINITY; rows * w];
-        // d, hw, o1 per texel; `d` starts at the sentinel.
+        // d, hw, u per texel; `d` starts at the sentinel.
         let mut val = vec![[SENTINEL, 0.0f32, 0.0f32]; rows * w];
         eval_window(&segs, bin, pl, (w, h), (0, row0, w, rows), river_width, &mut best, &mut val);
         for (k, v) in val.iter().enumerate() {
@@ -471,25 +476,25 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// **RIM-3's floodplain weight at a pixel** -- `map_shore.gdshader`'s `fp`:
 /// full inside and at the river's edge, fading to nothing over
 /// `FLOODPLAIN_BASE_CELLS + FLOODPLAIN_PER_HALF_WIDTH * edge` cells past it,
-/// none on an order-1 stream (`1 - o1`), ramped in with the river's width
+/// none on a headwater-rank river (`1 - headwater_weight(u)`) and faded by the visibility law, ramped in with the river's width
 /// ([`FLOODPLAIN_EDGE_LO`]..[`FLOODPLAIN_EDGE_HI`]), times the strength and the
 /// plate-frame weight `texel[3]`. In cells, so the band is the same ground at
 /// every zoom. The water drawn over it hides it where the river covers
 /// ([`pixel_paint`]'s caller multiplies by `1 - cov`, as the shader's
 /// `mix(floodplain(land, fp), river, rcov)` does).
-pub fn floodplain_weight(texel: [f32; 4], river_width: f32) -> f32 {
-    let o1 = texel[2].clamp(0.0, 1.0);
+pub fn floodplain_weight(texel: [f32; 4], ppc: f32, river_width: f32) -> f32 {
+    let u = texel[2];
     let edge = texel[1] * river_width;
     let e = texel[0] - edge;
     let band = FLOODPLAIN_BASE_CELLS + FLOODPLAIN_PER_HALF_WIDTH * edge;
-    (1.0 - smoothstep(0.0, band, e)) * (1.0 - o1) * smoothstep(FLOODPLAIN_EDGE_LO, FLOODPLAIN_EDGE_HI, edge) * FLOODPLAIN_STRENGTH * texel[3]
+    (1.0 - smoothstep(0.0, band, e)) * (1.0 - crate::river_stroke::headwater_weight(u)) * crate::river_stroke::river_visibility(u, ppc) * smoothstep(FLOODPLAIN_EDGE_LO, FLOODPLAIN_EDGE_HI, edge) * FLOODPLAIN_STRENGTH * texel[3]
 }
 
 /// What the painted river draws at one pixel ([`pixel_paint`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PixelPaint {
-    /// The water's coverage, `0..=1`: [`coverage`] times its order-1 alpha
-    /// (with RIM-5's fade) times the plate-frame weight -- the shader's `rcov`.
+    /// The water's coverage, `0..=1`: [`coverage`] times its visibility alpha
+    /// (RZ-2) times the plate-frame weight -- the shader's `rcov`.
     pub cov: f32,
     /// The floodplain tint's weight before the water hides it
     /// ([`floodplain_weight`]) -- the shader's `fp`.
@@ -501,14 +506,14 @@ pub struct PixelPaint {
 
 /// **RIM-7: the painted river at one pixel, the screen's law** -- what
 /// `map_shore.gdshader` computes from a texel, for the rasters that are not
-/// the screen: `texel` the field's four channels at the pixel (`[d, hw, o1,
+/// the screen: `texel` the field's four channels at the pixel (`[d, hw, u,
 /// frame weight]`), `ppc` the raster's pixels per cell, `river_width` the
 /// preset's width multiplier, `bank` its outline strength (0 = off). One
 /// function, so the tile and the export cannot weigh a pixel differently from
 /// each other; the shader is held to it by the mirror tests.
 pub fn pixel_paint(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32) -> PixelPaint {
     let (c, am) = coverage(texel, ppc, river_width);
-    PixelPaint { cov: c * am * texel[3], floodplain: floodplain_weight(texel, river_width), bank: bank_coverage(texel, ppc, river_width, bank) }
+    PixelPaint { cov: c * am * texel[3], floodplain: floodplain_weight(texel, ppc, river_width), bank: bank_coverage(texel, ppc, river_width, bank) }
 }
 
 /// **The one gate: does look `a` paint its rivers on a `gw x gh` map?**
@@ -687,7 +692,7 @@ impl PaintSource {
         Some((ww, wh, best, val))
     }
 
-    /// Test access: the winning `[d, hw, o1]` at every pixel of a `w x h`
+    /// Test access: the winning `[d, hw, u]` at every pixel of a `w x h`
     /// raster placed by `map`, through [`Self::block_texels`] block by block
     /// exactly as [`Self::raster`] evaluates it; `None` where no band reaches.
     #[cfg(test)]
@@ -856,7 +861,7 @@ impl RiverField {
 /// [`RiverField::sample`]; an exact evaluation on a tile or in an export,
 /// [`PaintSource::raster`]); `ppc` the raster's pixels per grid cell;
 /// `river_width` the preset's multiplier. Returns `(coverage 0..1, alpha
-/// multiplier)`: the stroke's own antialiased coverage and the order-1 alpha,
+/// multiplier)`: the stroke's own antialiased coverage and the visibility alpha,
 /// whose product (times the plate-frame weight `texel[3]`) is what composites.
 ///
 /// The 1 px floor and the one-pixel fringe are [`river_stroke::river_px_width`]
@@ -870,14 +875,15 @@ pub fn coverage(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
 
 /// The two numbers [`coverage`] and [`bank_coverage`] share, so the outline
 /// can never be measured from a different edge than the water: the half-width
-/// in screen pixels (`hw_px`, with the order-1 narrowing and the 1 px floor)
-/// and the order-1 alpha multiplier (`am`, with RIM-5's headwater fade).
+/// in screen pixels (`hw_px`, with the headwater narrowing and the 1 px floor)
+/// and the visibility alpha multiplier (`am`, [`crate::river_stroke::river_visibility`]).
 fn edge_px(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
-    let (wm_o1, am_o1) = crate::river_stroke::o1_deemphasis(ppc);
-    let o1 = texel[2].clamp(0.0, 1.0);
-    let wm = 1.0 + (wm_o1 - 1.0) * o1;
-    // RIM-5: the order-1 share also fades out as the map zooms out.
-    let am = 1.0 + (am_o1 * crate::river_stroke::o1_distance_fade(ppc) - 1.0) * o1;
+    // RZ-2: the texel's B channel is the discharge rank `u`. The headwater end of
+    // the rank narrows the stroke (the reference's width de-emphasis) and the
+    // visibility law fades the alpha by zoom; a stroke keeps its 1 px floor.
+    let u = texel[2];
+    let wm = 1.0 + (crate::river_stroke::headwater_deemphasis(ppc) - 1.0) * crate::river_stroke::headwater_weight(u);
+    let am = crate::river_stroke::river_visibility(u, ppc);
     let hw_px = (texel[1] * ppc * wm * river_width).max(0.5 * MIN_STROKE_PX);
     (hw_px, am)
 }
@@ -923,7 +929,7 @@ pub const BANK_BAND_MARGIN_CELLS: f32 = 1.0;
 ///   guaranteed least), so at a zoomed-out view where the band is narrower than a
 ///   pixel the line thins to nothing instead of ending on a step.
 ///
-/// It takes the order-1 alpha `am` (so RIM-5's headwater fade removes the
+/// It takes the visibility alpha `am` (so RZ-2's fade removes the
 /// outline with the water: no orphan outline on a faded stream) and the
 /// plate-frame weight `texel[3]` (none on the bare-paper margin) -- the same
 /// two factors [`coverage`]'s composite takes.
@@ -961,6 +967,8 @@ mod tests {
             discharge: vec![1.0; n],
             pieces: vec![(0, n)],
             reach: Vec::new(),
+            // RZ-2: an order-1 fixture is the headwater end of the rank (`u` 1), anything else the largest river (`u` 0).
+            ranks: vec![if own_order <= 1 { 1.0 } else { 0.0 }; n],
             own_order,
             pts,
         }
@@ -1003,7 +1011,7 @@ mod tests {
         assert!(near_end[0] > 1.5 && near_end[0] < 2.1, "{near_end:?}");
     }
 
-    /// Protects: the order-1 weight reaches the field (the zoom rule's input)
+    /// Protects: the discharge rank reaches the field (the zoom rule's input)
     /// and a thin stream beside a trunk loses the texels inside the trunk's
     /// body (the least `d - hw` wins, not the least `d`).
     #[test]
@@ -1019,7 +1027,7 @@ mod tests {
         // and 4.25 from the trunk's line (1.25 from its edge): the trunk still wins on edge distance.
         let u = f.texel(40, 2 * 24 + 1);
         assert!((u[1] - 3.0).abs() < 1e-3, "{u:?}");
-        // A lone trickle reports its own order-1 weight.
+        // A lone headwater-rank trickle reports its own rank.
         let g1 = geom(vec![run(20.0, 4.0, 36.0, 0.5, 1)]);
         let f1 = build(&g1, 48, 40, 1.0, &|_, _| 0.0).expect("a field");
         assert_eq!(f1.texel(40, 41)[2], 1.0);
@@ -1065,56 +1073,39 @@ mod tests {
         }
     }
 
-    /// Protects: RIM-5 in the painted path -- a headwater (order-1) river's
-    /// alpha is 0 at and below `O1_GONE_PPC`, the opening 0.4 from
-    /// `O1_FADE_FULL_PPC` up, continuous between; a higher-order river is untouched at
-    /// every density; and the fade is the order-1 SHARE (a half-weight texel
-    /// fades half as far), never a threshold that pops a stream in.
+    /// Protects: RZ-2 in the painted path -- the field's B channel is the
+    /// discharge rank `u`, and a river's alpha is [`river_stroke::river_visibility`]
+    /// of it: the largest river (`u` 0) is never faded, the least (`u` 1) is gone
+    /// at a zoomed-out density and fully drawn from `P_FULL_PPC` up, continuous
+    /// between (no pop), and a texel whose `u` is half-way fades half-way (the
+    /// bilinear blend of a tributary meeting its trunk).
     #[test]
-    fn a_headwater_stream_fades_out_as_the_map_zooms_out() {
+    fn a_low_rank_stream_fades_out_as_the_map_zooms_out() {
         let a = crate::render::TerrainAppearance::default();
         let rw = a.river_width as f32;
         let head = build(&geom(vec![run(20.0, 4.0, 60.0, 0.6, 1)]), 64, 40, rw, &|_, _| 0.0).expect("a field");
         let trunk = build(&geom(vec![run(20.0, 4.0, 60.0, 0.6, 3)]), 64, 40, rw, &|_, _| 0.0).expect("a field");
         let (th, tt) = (head.sample(30.0, 20.0), trunk.sample(30.0, 20.0));
-        assert!(th[2] > 0.99 && tt[2] < 0.01, "positive control: the fixtures are order 1 and order 3 ({} {})", th[2], tt[2]);
+        assert!(th[2] > 0.99 && tt[2] < 0.01, "positive control: the fixtures carry ranks 1 and 0 ({} {})", th[2], tt[2]);
         let alpha = |t: [f32; 4], ppc: f32| coverage(t, ppc, rw).1;
-        assert_eq!(alpha(th, river_stroke::O1_GONE_PPC), 0.0, "a headwater stream is gone at O1_GONE_PPC");
-        assert_eq!(alpha(th, 0.1), 0.0, "and below it");
-        assert!(alpha(th, 0.5) > 0.0 && alpha(th, 0.5) < 0.4, "mid-ramp is partly faded");
-        assert!((alpha(th, river_stroke::O1_FADE_FULL_PPC) - 0.4).abs() < 1e-6, "from O1_FADE_FULL_PPC it is the opening alpha");
-        for ppc in [0.1, 0.2, 0.5, 0.8, 3.0] {
-            assert_eq!(alpha(tt, ppc), 1.0, "a trunk is never faded (ppc {ppc})");
+        assert_eq!(alpha(th, 0.1), 0.0, "the least river is gone zoomed out");
+        assert_eq!(alpha(th, 0.46), 0.0, "and at the owner world's fit density, where f is 0.5");
+        assert_eq!(alpha(th, 1.84), 1.0, "and fully drawn from P_FULL (literal 1.84)");
+        assert!(alpha(th, 1.5) > 0.0 && alpha(th, 1.5) < 1.0, "mid-ramp is partly faded");
+        for ppc in [0.05, 0.2, 0.5, 0.8, 3.0] {
+            assert_eq!(alpha(tt, ppc), 1.0, "the largest river is never faded (ppc {ppc})");
         }
         let (mut prev, mut max_step) = (0.0f32, 0.0f32);
-        for i in 0..=100 {
-            let al = alpha(th, i as f32 * 0.01);
+        for i in 0..=400 {
+            let al = alpha(th, 0.1 + i as f32 * 0.005);
             max_step = max_step.max((al - prev).abs());
             prev = al;
         }
-        assert!(max_step < 0.02, "a 0.01 pixel-per-cell step moved the alpha by {max_step}");
-        let half = [th[0], th[1], 0.5, th[3]];
-        let want = 1.0 + (0.4 * crate::river_stroke::o1_distance_fade(0.6) - 1.0) * 0.5;
-        assert!((alpha(half, 0.6) - want).abs() < 1e-6, "the fade applies to the order-1 share only");
-    }
-
-    /// Protects: the shader's RIM-5 mirror -- `map_shore.gdshader` carries its
-    /// own copy of the two fade thresholds (GLSL cannot import Rust), so the
-    /// copy is read from the shader's text and held equal to
-    /// `river_stroke`'s, and the order-1 alpha line must apply the fade. A
-    /// retuned Rust constant with a forgotten shader one fails here.
-    #[test]
-    fn the_shader_mirrors_the_headwater_fade_thresholds() {
-        let src = include_str!("../../../godot-project/shell/map_shore.gdshader");
-        let konst = |name: &str| -> f32 {
-            let key = format!("const float {name} = ");
-            let at = src.find(&key).unwrap_or_else(|| panic!("the shader declares no `{name}`")) + key.len();
-            src[at..].split(';').next().unwrap().trim().parse().expect("a float literal")
-        };
-        assert_eq!(konst("O1_GONE_PPC"), river_stroke::O1_GONE_PPC);
-        assert_eq!(konst("O1_FADE_FULL_PPC"), river_stroke::O1_FADE_FULL_PPC);
-        assert!(src.contains("smoothstep(O1_GONE_PPC, O1_FADE_FULL_PPC, ppc)"), "the shader's fade is not the smoothstep the Rust law is");
-        assert!(src.contains("mix(1.0, dm.y * o1_distance_fade(ppc), o1)"), "the shader's order-1 alpha does not apply the fade");
+        assert!(max_step < 0.05, "a 0.005 pixel-per-cell step moved the alpha by {max_step}");
+        // Rank 0.5 at f = 0.5 (0.46 ppc) is the start of the band: drawn in full; the same texel at 0.3 ppc is not.
+        let mid = [th[0], th[1], 0.5, th[3]];
+        assert_eq!(alpha(mid, 0.46), 1.0);
+        assert!(alpha(mid, 0.3) < 0.5, "{}", alpha(mid, 0.3));
     }
 
     /// Protects: the shader's RZ-1 mirror -- `map_shore.gdshader` carries its
@@ -1283,31 +1274,30 @@ mod tests {
     }
 
     /// The outline's peak weight (at the visible edge) for a fabricated texel:
-    /// half-width `hw` cells, order-1 weight `o1`, frame weight `frame`.
+    /// half-width `hw` cells, discharge rank `o1` (named for the channel it replaced), frame weight `frame`.
     fn peak(hw: f32, o1: f32, frame: f32, ppc: f32, bank: f32) -> f32 {
         let (hw_px, _) = edge_px([0.0, hw, o1, frame], ppc, 1.0);
         bank_coverage([(hw_px + 0.5) / ppc, hw, o1, frame], ppc, 1.0, bank)
     }
 
-    /// Protects: the outline takes the same two factors the water does. RIM-5's
-    /// headwater fade removes it with the stream (zero at and below
-    /// `O1_GONE_PPC`, the opening 0.4 at `O1_FADE_FULL_PPC`, a trunk untouched),
-    /// so a faded stream leaves no orphan outline; and the plate-frame weight
-    /// scales it, so none lies on the bare-paper margin.
+    /// Protects: the outline takes the same two factors the water does. RZ-2's
+    /// visibility law removes it with the stream (zero for a least-rank river at
+    /// a zoomed-out density, a rank-0 river untouched), so a faded stream
+    /// leaves no orphan outline; and the plate-frame weight scales it, so none
+    /// lies on the bare-paper margin.
     #[test]
-    fn the_outline_fades_with_the_headwater_and_stops_at_the_frame() {
-        // A wide headwater (10 cells half-width) keeps room in the band at 0.2 px/cell,
+    fn the_outline_fades_with_the_stream_and_stops_at_the_frame() {
+        // A wide river (10 cells half-width) keeps room in the band at 0.2 px/cell,
         // so the zero below is the FADE, not the band clamp.
-        let (hw_px, _) = edge_px([0.0, 10.0, 1.0, 1.0], river_stroke::O1_GONE_PPC, 1.0);
-        let room = (10.0 + BAND_CELLS - BANK_BAND_MARGIN_CELLS) * river_stroke::O1_GONE_PPC - hw_px - 0.5;
+        let (hw_px, _) = edge_px([0.0, 10.0, 1.0, 1.0], 0.2, 1.0);
+        let room = (10.0 + BAND_CELLS - BANK_BAND_MARGIN_CELLS) * 0.2 - hw_px - 0.5;
         assert!(room > 0.5, "positive control: the band alone would leave the line room ({room})");
-        assert_eq!(peak(10.0, 1.0, 1.0, river_stroke::O1_GONE_PPC, 1.0), 0.0, "a faded headwater keeps no outline");
+        assert_eq!(peak(10.0, 1.0, 1.0, 0.2, 1.0), 0.0, "a faded stream keeps no outline");
         assert_eq!(peak(10.0, 1.0, 1.0, 0.1, 1.0), 0.0);
-        let at_full = peak(10.0, 1.0, 1.0, river_stroke::O1_FADE_FULL_PPC, 1.0);
-        assert!((at_full - 0.4).abs() < 1e-5, "from O1_FADE_FULL_PPC the order-1 alpha 0.4 scales it ({at_full})");
-        assert!((peak(10.0, 0.0, 1.0, river_stroke::O1_FADE_FULL_PPC, 1.0) - 1.0).abs() < 1e-5, "a trunk's line is full strength");
-        let mid = peak(10.0, 1.0, 1.0, 0.5, 1.0);
-        assert!(mid > 0.0 && mid < at_full, "mid-fade is partial ({mid})");
+        assert!((peak(10.0, 1.0, 1.0, 1.84, 1.0) - 1.0).abs() < 1e-5, "from P_FULL the line is full strength");
+        assert!((peak(10.0, 0.0, 1.0, 0.8, 1.0) - 1.0).abs() < 1e-5, "a rank-0 river's line is full strength zoomed out");
+        let mid = peak(10.0, 1.0, 1.0, 1.5, 1.0);
+        assert!(mid > 0.0 && mid < 1.0, "mid-fade is partial ({mid})");
         assert!((peak(10.0, 0.0, 0.5, 2.0, 1.0) - 0.5).abs() < 1e-5, "half frame weight, half the ink");
         assert_eq!(peak(10.0, 0.0, 0.0, 2.0, 1.0), 0.0, "no outline on the frame margin");
     }
@@ -1393,7 +1383,7 @@ mod tests {
     /// water" by the very evaluation the screen's texture holds.** A raster
     /// placed exactly on the texture's texels (`RasterMap { scale: s, offset:
     /// -0.5 }`) and evaluated block by block through the spatial index gives,
-    /// at every texel, the distance, half-width and order-1 weight
+    /// at every texel, the distance, half-width and rank
     /// `build_with` stored -- bit for bit in half-float -- and no texel more or
     /// fewer. A bin that missed a segment, a block seam, a different tie-break
     /// or a different band would each break it. Both field densities (2 and 1
@@ -1433,7 +1423,7 @@ mod tests {
     }
 
     /// Protects: `pixel_paint` is the shader's law term for term -- coverage
-    /// times the order-1 alpha times the frame weight, the floodplain weight,
+    /// times the visibility alpha times the frame weight, the floodplain weight,
     /// the bank line -- with each term's own literal anchor: full floodplain
     /// at the edge of a 1-cell half-width river, half of it one cell out (the
     /// smoothstep's midpoint over a 2-cell band), none on an order-1 stream
@@ -1464,7 +1454,7 @@ mod tests {
                 let (c, am) = coverage(t, ppc, 1.3);
                 assert_eq!(p.cov, c * am * t[3]);
                 assert_eq!(p.bank, bank_coverage(t, ppc, 1.3, 0.4));
-                assert_eq!(p.floodplain, floodplain_weight(t, 1.3));
+                assert_eq!(p.floodplain, floodplain_weight(t, ppc, 1.3));
             }
         }
         assert_eq!(pixel_paint([0.2, 1.0, 0.0, 1.0], 4.0, 1.0, 0.0).bank, 0.0, "no outline at strength 0");
@@ -1594,6 +1584,32 @@ mod tests {
                 assert!(rel < 0.02, "width {width} ppc {ppc}: stroke {stk:.1} px, raster {ras:.1} px ({:.1} %)", rel * 100.0);
             }
         }
+    }
+
+    /// Protects: RZ-4 (Ruling EN item 3) -- the deep-zoom tile and the export
+    /// follow the zoom rule at their OWN density: a least-rank river paints
+    /// nothing in a raster at 0.3 pixels per cell (a grid-resolution export, a
+    /// zoomed-out tile), paints from `P_FULL_PPC` up, and agrees there with the
+    /// screen texture's `coverage` at the same density; a rank-0 river paints at
+    /// both. The three paths answer one law.
+    #[test]
+    fn a_raster_follows_the_zoom_rule_at_its_own_density() {
+        let a = look();
+        let painted = |g: &RiverGeometry, ppc: f32| -> f32 {
+            let src = source(g, None, &a, 64, 40);
+            let (w, h) = ((64.0 * ppc) as usize, (40.0 * ppc) as usize);
+            let layer = src.raster(crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) }, w, h);
+            (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter_map(|(x, y)| layer.at(x, y)).map(|p| p[3]).sum()
+        };
+        let head = geom(vec![run(20.0, 4.0, 60.0, 3.0, 1)]);
+        let big = geom(vec![run(20.0, 4.0, 60.0, 3.0, 3)]);
+        assert_eq!(painted(&head, 0.3), 0.0, "the least river is not painted at 0.3 pixels per cell");
+        assert!(painted(&big, 0.3) > 1.0, "positive control: the largest river is");
+        let tex = build(&head, 64, 40, a.river_width as f32, &|_, _| 0.0).expect("a field");
+        let (c, am) = coverage(tex.sample(30.0, 20.0), 3.0, a.river_width as f32);
+        assert!(c > 0.9 && am == 1.0, "the screen draws it at 3 ppc ({c} {am})");
+        let drawn = painted(&head, 3.0);
+        assert!(drawn > 20.0, "and the raster draws it at 3 ppc ({drawn})");
     }
 
     /// Protects: the raster's post plane -- the floodplain beside a wide

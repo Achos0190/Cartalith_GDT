@@ -2456,6 +2456,7 @@ mod rv5_parity_tests {
                 discharge: vec![12.0; n],
                 pieces: vec![(0, n)],
                 reach: Vec::new(),
+                ranks: Vec::new(),
                 own_order: 3,
             }],
         }
@@ -4187,6 +4188,7 @@ mod band_identity_tests {
                 discharge: vec![12.0; n],
                 pieces: vec![(0, n)],
                 reach: Vec::new(),
+                ranks: Vec::new(),
                 own_order: 3,
             }],
         }

@@ -709,3 +709,59 @@ it is not the app's smoothed `DrawnRun`. Median over the worlds of a shape, min.
 draws with them yet (RZ-2 wires B). **One number moved from the research:** the band is **0.15, not 0.12**: at 0.12 the
 continuity bar (|delta alpha| per 1 % ppc step under 0.05) measured 0.058, worst where f nears 1, and 0.15 passes it.
 Mutants of the exponent, `P_FULL_PPC` and the band each turn the literal-value tests red.
+
+### RZ-2, RZ-4 and RZ-6 built (2026-11-11), RZ-3 measured; RZ-5 and RZ-7 open
+
+**Built (one commit; the three share `river_stroke.rs`).**
+- **RZ-2.** The field's B channel is `u`, the length-weighted discharge rank (`river_stroke::visibility_ranks`, computed
+  once per network in `WorldGen::river_draws`, carried as `DrawnRun::ranks`, interpolated along each segment). It is
+  the through-junction form RZ-0 chose: running maximum along a run, a tributary's final value pushed into its trunk
+  from the join point on (in draw order), a head with no reading back-filled from its run's first reading, a run
+  with none ranked 0 (always drawn). `river_visibility(u, ppc)` is the alpha in the shader, `river_field::coverage` and
+  `pixel_paint` (tiles, export), `bank_coverage` and the floodplain; `river_px_width` (the vector stroke fallback)
+  returns `None` where it is 0. The order-1 alpha, `o1_distance_fade` and `O1_GONE_PPC`/`O1_FADE_FULL_PPC` are
+  **removed**; the reference's width de-emphasis stays (`headwater_deemphasis`, scaled by `headwater_weight(u)`).
+  Fans take their apex run's rank. The colour field is built **unranked** (`for_each_span_core(.., ranked = false)`):
+  the first attempt ranked it, and `a_raster_follows_the_zoom_rule_at_its_own_density` caught a headwater with no colour
+  to sample once zoomed in. The lod pyramid fingerprint hashes the ranks and the law's three constants.
+- **RZ-4 (tiles and export).** Nothing separate to build: `pixel_paint` is the one law, so a tile or export paints the
+  rule at its own pixels per cell. The new test holds raster, screen `coverage` and stroke to it; the windowed
+  continuity-across-a-tile-level-switch bar (3 % of drawn length per frame, research RZ-4) is **not measured**.
+- **RZ-6.** `WorldGen::river_visible_near(gx, gy, radius, ppc)` (`river_stroke::visible_near`, visibility at least 0.5
+  within the radius) and `right_dock.gd::_on_map_clicked_river` calls it after `river_at`. Rust-tested; the GDScript
+  parses (`--check-only`) but the click itself is **not windowed-verified**. Hover highlight and the context card
+  were not searched for other pick sites.
+
+**Proof nothing generated moved.** `cargo test --workspace` (all goldens, `river_entities`, the planner and save
+tests) is green apart from one failure that pre-dates this work and is not from it
+(`cartalith-llm` `ac1_static_sources`: the shell has `world.sculpt_here` the data file lacks; another lane's).
+The rank only reads `flow_discharge` and the drawn geometry; no generation function was edited.
+
+**Windowed probe** (`_riverzoom_probe.gd --rim5 --rim5-zooms 0.4,1,4,16,64`, grid 1024x656, seeds 246371, 483920,
+912345, this build against origin/main 3fd9c3bd built the same way; logs and the seed-246371 frames are in
+`cartalith-native/docs/evidence/rz-2026-11-11/`). Painted river ink in pixels, new / origin:
+
+| | x0.4 (0.37 ppc) | x1 (0.93) | x4 (3.7) | x16 (14.8) | x64 (59) |
+|---|---|---|---|---|---|
+| seed 246371 | 9 222 / 14 185 | 41 697 / 50 325 | 42 905 / 47 258 | 394 977 / 423 099 | 424 256 / 391 923 |
+| seed 483920 | 9 396 / 15 259 | 43 052 / 52 525 | 104 644 / 131 411 | 47 525 / 47 525 | 59 763 / 59 763 |
+| seed 912345 | 7 407 / 12 409 | 34 678 / 42 415 | 69 533 / 72 416 | 21 / 21 | 0 / 0 |
+
+- Below `P_FULL` (x1 and under on this grid) the map draws 17 to 40 % fewer ink pixels, the biggest rivers kept (the
+  frame pair at x1 is in the evidence folder: the main stems stay and the order-1 trickles go). Above it the rule is the
+  identity and the remaining difference is the headwater width (now by rank, before by order 1).
+- Painted and stroke paths agree below `P_FULL` (kept 0.92 to 1.03 at x0.4 and x1), as they now share the law. **Two
+  disagreements are identical on origin/main and not this change's:** the paint-to-stroke ratio at x4 (1.2 to 4.9 there,
+  1.3 to 4.2 here) and seed 912345's empty view centre at x16/x64 (the probe's own positive control fails the same way on
+  both builds).
+- **Bars of RZ-3 as written cannot hold with this P_FULL** and were not applied: on a 1024-wide grid `P_FULL` (1.84
+  ppc) is reached at zoom 2, so x4 and above draw the whole network and ink grows with width alone. x1 to x4 does gain
+  length. A 2048-wide world (fit 0.46 ppc) is the case Ruling EN sized the rule for and shows the whole progression
+  (f = 0.5, 0.71, 1.0 at x1, x2, x4); it was not run windowed (the probe ran 1024x656 for time).
+
+**Open, in order.** RZ-5 (fans fade in by on-screen reach, 6..16 px): the field's four channels are full, so a
+per-fan datum needs a second texture or a rank-space approximation that does not match the ruling's pixel numbers; not
+built (fans do follow their apex river's rank, so a fan never shows without its river). RZ-7: the pan-frame cost and the
+sort cost at build (RZ-0 measured the sort at 2.3 ms per key on the owner world, 150k segments; `river_draws` adds a
+sort of the same size) were not measured windowed. RZ-3's owner review of the frame pairs, the 3 % tile-switch bar,
+the click pick in a window, and the 2048x1311 ladder.

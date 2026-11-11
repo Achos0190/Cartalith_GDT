@@ -38,18 +38,22 @@ extends Node
 ##    stroke); frame time while the view pans (median with min..max) and the
 ##    GPU render time when the driver reports it. A path that paints no pixel
 ##    fails the probe (positive control).
-##  - RIM-5 (`--rim5`, headwater streams fade out when zoomed out): over
+##  - RZ (`--rim5`, the name kept from RIM-5, which RZ-2 replaced: rivers drawn
+##    by zoom, ranked by discharge, Ruling EN): over
 ##    `--rim5-zooms` (camera zoom, default 0.4..2 in fine steps, the view held
-##    on the map centre) the river's ink pixels (ON-vs-OFF diff above 8 summed
-##    levels, floodplain off) on the painted path and on the stroke path, which
-##    keeps the unfaded order-1 look and so is the control. Two measures: `ink`
-##    counts the pixels at all touched (a faint stream still counts), `mass`
-##    sums the per-pixel colour change (a faded stream counts for less, which
-##    is what the eye sees). `kept` / `kept_mass` = painted / stroke: their
-##    fall below the fade's full density (`O1_FADE_FULL_PPC`) is the fade,
-##    their smoothness (`max_step` between neighbouring zooms) the "no popping"
-##    bar, and they must be about one wherever the fade is one. Each zoom's two frames are saved. Positive control: both paths must
-##    draw ink at the deepest swept zoom.
+##    on the map centre; `0.4,1,4,16,64` is RZ-3's x1/x4/x16/x64 ladder with the
+##    camera minimum) the river's ink pixels (ON-vs-OFF diff above 8 summed
+##    levels, floodplain off) on the painted path and on the stroke path. Since
+##    RZ-2 BOTH paths follow the one visibility law (`river_stroke::river_visibility`),
+##    so `kept` / `kept_mass` = painted / stroke should be about one at every
+##    zoom (the two paths drawing one set of rivers is the bar; the old
+##    control, an unfaded stroke, is gone). `ink` counts the pixels at all
+##    touched (a faint stream still counts), `mass` sums the per-pixel colour
+##    change (a faded stream counts for less, which is what the eye sees);
+##    `ink` per ppc rising with zoom is the "zoom gains detail" bar, and
+##    `max_step` between neighbouring zooms the "no popping" bar. Each zoom's
+##    two frames are saved. Positive control: both paths must draw ink at the
+##    deepest swept zoom.
 ##  - RIM-2 (`--rim2`, the bank outline): per preset (`--rim2-presets
 ##    "Ink,Natural Vibrant"`, default every `STYLE_PRESETS` entry, applied
 ##    through the render workspace's own `_apply_preset` so the shipped

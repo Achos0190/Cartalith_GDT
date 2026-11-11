@@ -852,6 +852,12 @@ func _on_map_clicked_river(gx: float, gy: float) -> void:
 		gx, gy, _river_pick_radius_cells(), RIVER_PICK_MIN_ORDER)
 	if hit.is_empty():
 		return
+	# RZ-6 (Ruling EN item 4): a river the zoom rule hides cannot be picked, so a
+	# click agrees with what the map draws. An older cdylib without the method
+	# keeps the old behaviour (every river pickable) rather than refusing all.
+	if bridge.world_gen.has_method("river_visible_near") \
+			and not bridge.world_gen.river_visible_near(gx, gy, _river_pick_radius_cells(), _river_px_per_cell()):
+		return
 	show_river(hit)
 
 ## Trace every river, headwater trickles included, so nothing drawn on the map
@@ -883,13 +889,22 @@ const RIVER_PICK_PX := 22.0
 ## world in exact proportion to the letterboxing, which is the wrong direction
 ## for a touch minimum to be wrong.
 func _river_pick_radius_cells() -> float:
+	var px_per_cell := _river_px_per_cell()
+	if px_per_cell <= 0.0:
+		return 0.0
+	return RIVER_PICK_PX / maxf(0.0001, px_per_cell)
+
+## Screen pixels per grid cell at the current zoom (the contain fit times the
+## camera zoom -- see `_river_pick_radius_cells`), `0` with no world. Also the
+## density the river visibility rule (`river_stroke::river_visibility`, RZ-6)
+## is asked at, so a pick and the map's drawing use one number.
+func _river_px_per_cell() -> float:
 	var gs := bridge.grid_size()
 	if gs.x <= 0 or gs.y <= 0 or app == null:
 		return 0.0
 	var panel := app.viewport.size
 	var drawn_w := minf(maxf(1.0, panel.x), maxf(1.0, panel.y) * float(gs.x) / float(gs.y))
-	var px_per_cell := drawn_w * maxf(0.01, app.viewport.zoom()) / float(gs.x)
-	return RIVER_PICK_PX / maxf(0.0001, px_per_cell)
+	return drawn_w * maxf(0.01, app.viewport.zoom()) / float(gs.x)
 
 # -- Selection API --------------------------------------------------------
 #
