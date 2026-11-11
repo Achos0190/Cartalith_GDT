@@ -1,5 +1,8 @@
 # MISTAKES_CANDIDATES_2026-10-26.md
 
+> **Merged into `MISTAKES.md` on 2026-11-11 at the owner's request** (section "Merged candidates"). Kept for history; add new candidates to MISTAKES.md directly.
+
+
 **Candidate entries for the owner to copy into `MISTAKES.md` if they agree.** This file is a staging area, not the register: `MISTAKES.md` itself was not edited, and nothing here is a rule until the owner moves it. Written 2026-10-25/26 from the LLM-3 to LLM-6 sessions and the local-model setup session (session `01664rQgzKuqZJNTsWcNrFHs` wrote this file; the other sessions are named per entry where known).
 
 **Evidence tags.** **[verified]** = checked in the repository by the writer of this file against a named place. **[reported by agent]** = told to the writer by the session that hit it (or by the briefing), not independently reproduced here; treat as unconfirmed until the owner or a verifier confirms. `MISTAKES.md`'s own rule is "do not record unverified guesses", so the [reported by agent] entries are the ones to hold back until confirmed.

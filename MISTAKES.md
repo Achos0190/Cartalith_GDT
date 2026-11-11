@@ -12,6 +12,8 @@ specific, and project-related. Merge repeated mistakes rather than duplicating
 them — raise the `×N` and add the new instance to the evidence. Do not record
 transient tool failures or unverified guesses.
 
+Compacted 2026-10-04: entries condensed to rule, cause and check; incident narratives are in git history (`git log -p MISTAKES.md`).
+
 ---
 
 ## Preflight — find your trigger, apply the rule
@@ -21,1499 +23,767 @@ its rule before you start.
 
 | About to… | Rule | Verify with |
 |---|---|---|
-| **Stage a verified-marker change into the index by patch while the working copy keeps the old text** | Apply the same edit to the **working file** too, or the next `git add` of that file commits the stale "pending" back. ×3 on 2026-09-28 (`d71824e`, `593df62`, and one caught before commit) | `git show HEAD -- STATUS.md \| grep '^-.*verified by the main'` must be empty after every commit that touches STATUS.md |
-| **Schedule or act on a backlog row** | Re-open it at its **cited symbol** first. Rows here go stale within a day; "already done" is a valuable finding, not a failed task | Name the symbol you opened, not the row's text |
-| **Write a safety check for a path that travels between devices** (vault links, project data, anything a phone and a PC both read) | **Do not ask the host's own path parser** (`std::path::Path::is_absolute`, `components()`): it answers for the machine it runs on. Spell the rule out for every form a path can take, on every host: a drive letter, a drive-relative path, a UNC prefix, both separators, a `..` climb in either. ×1, 2026-10-31: `cartalith-vault`'s `is_safe_relative_path` accepted `C:/Windows/x.md` on Linux and Android (a drive letter is only absolute on Windows), and two `provider::tests` failed on Linux for it; fixed in the vault crate upgrade | Run the path tests on Linux as well as Windows, or give them literal cases for every form; the fixed suite is `cargo test -p cartalith-vault` |
+| **Stage a verified-marker change into the index by patch while the working copy keeps the old text** | Apply the same edit to the **working file** too, or the next `git add` of it commits the stale "pending" back. ×3, 2026-09-28 (`d71824e`, `593df62`, one caught) | `git show HEAD -- STATUS.md \| grep '^-.*verified by the main'` empty after every commit touching STATUS.md |
+| **Schedule or act on a backlog row** | Re-open it at its **cited symbol** first. Rows go stale within a day; "already done" is a valuable finding | Name the symbol you opened, not the row's text |
 | **Return, marshal or default a value that can be absent** | **Omit the key**; callers use `has()`. In UI, dash the field **with its reason** | Render over real data; count rows showing a bare `0`, `1.0`, `"none"` or empty |
-| **Write a test that pins a constant** | Assert a **literal**, or the independent thing the value must equal. `assert_eq!(x, THE_CONSTANT)` holds for every value of it | Mutate the constant; the test must go red |
-| **Change behaviour** | Hunt the prose that described the old behaviour — comments, tooltips, `_todo` reasons, **and the row's own cited location** | Grep the touched files for the old behaviour's vocabulary |
-| **Add a capability, or write a staleness/cache key** | Derive the list from the **definition** — every consumer path, every `match` arm, **every argument of the function you are guarding**. **Attaching a capability to a context is not the consumer reading it**: 2026-09-24, `with_lakes` was attached to both export paths and moved 0 bytes, because the export bake (`BakeFields::pixel`) had no lake branch; only `cell_color` did. **Check each key part names a field the state really has**: the HTML's `_civBakeKey` read `state.sun` where the slider writes `state.sunAz`, so the Sun slider served a stale image from v2.71 at least until the 2026-11-01 audit found it (`sun_probe.js`, `html/audits/v2.72-2026-11-01/`) | Exercise each in turn; change each input and confirm the dependent thing reacts — **measure the bytes that move**, not that the attachment compiled |
-| **Defer work "to the background", or restyle an active state** | **`setTimeout(0)` is still the main thread**: the HTML's `_lodScheduleOverviewRebuild` says the overview rebuilds "in the background" and runs right after every wheel tick, 31–32 rebuilds and about 13 s per 40-tick gesture at 1 024 (audit 2026-11-01). **Restyling an active state by recolouring one border side**: reset the `border` shorthand first, or a generic `button.on{border:1px solid}` in a later layer draws the other three — `.subtab.on` and `.set-nav button.on` drew full boxes from v2.23 (same audit) | Measure the main-thread time the deferred work still costs (a long-task observer), not the call site's own time; `getComputedStyle` on all four border sides |
-| **Quote a timing or a benchmark** | Median with min..max. Run the harness **alone**, never under a parallel suite. No point estimates in doc comments | Re-run independently; if it moves beyond the stated spread it was not a measurement |
-| **Write "measured" anywhere** | Only for a number you **just produced**. A figure from elsewhere is cited, not asserted | Reproduce it from the command shown before it enters a decision record |
-| **Declare the work green** | `cargo test --workspace` — never a crate subset — **and** parse-check every `.gd` you touched plus `shell/app.gd` | The Rust suite cannot see a broken shell; both checks are required |
-| **Test behaviour a unit test cannot reach** | Use a probe scene: `godot --headless <probe>.tscn`. `WorldGen` is a cdylib `GodotClass` and cannot be constructed in a unit test | The probe runs and asserts, not just parses |
-| **Run `godot --headless --import`** | Expect it to strip `project.godot`'s `;` comments. Avoid the import if you can | `git diff …/project.godot` must be empty; `git checkout --` if deletions only |
-| **Mutation-test** | Python only: exact literal replace, occurs-exactly-once assertion, BUILD_ERROR classified separately from SURVIVED, **restore in a `finally`**. Never `sed`. Never a whole-file backup | Grep zero MUTANT residue; hash the file against its pre-run value |
-| **Call a shell helper** | Grep for `func <name>` first. In `menus.gd` the vocabulary is `_todo` / `_readout` / `_signpost` / `_live`, and the wrong one has consequences | `godot --headless --check-only` on the file |
+| **Write a test that pins a constant** | Assert a **literal**, or the independent thing it must equal. `assert_eq!(x, THE_CONSTANT)` holds for every value | Mutate the constant; the test must go red |
+| **Change behaviour** | Hunt the prose describing the old behaviour: comments, tooltips, `_todo` reasons, the row's own cited location | Grep touched files for the old behaviour's vocabulary |
+| **Add a capability, or write a staleness/cache key** | Derive the list from the **definition**: every consumer path, `match` arm, **every argument of the function you guard**. **Attaching a capability to a context is not the consumer reading it** (2026-09-24: `with_lakes` attached to both export paths moved 0 bytes; `BakeFields::pixel` had no lake branch) | Change each input, confirm the dependent reacts; **measure the bytes that move** |
+| **Quote a timing or a benchmark** | Median with min..max. Run the harness **alone**, never under a parallel suite. No point estimates in doc comments | Re-run independently; beyond the stated spread = not a measurement |
+| **Write "measured" anywhere** | Only for a number you **just produced**; elsewhere-figures are cited | Reproduce it from the command shown before it enters a decision record |
+| **Declare the work green** | `cargo test --workspace` (never a crate subset) **and** parse-check every `.gd` touched plus `shell/app.gd` | The Rust suite cannot see a broken shell; both required |
+| **Test behaviour a unit test cannot reach** | Probe scene: `godot --headless <probe>.tscn`. `WorldGen` is a cdylib `GodotClass`, not constructible in a unit test | The probe runs and asserts, not just parses |
+| **Run `godot --headless --import`** | It strips `project.godot`'s `;` comments. Avoid if you can | `git diff …/project.godot` empty; `git checkout --` if deletions only |
+| **Mutation-test** | Python only: exact literal replace, occurs-exactly-once assert, BUILD_ERROR separate from SURVIVED, **restore in a `finally`**. Never `sed`, never a whole-file backup | Zero MUTANT residue; hash file against pre-run value |
+| **Call a shell helper** | Grep `func <name>` first. `menus.gd` vocabulary: `_todo` / `_readout` / `_signpost` / `_live`; the wrong one has consequences | `godot --headless --check-only` on the file |
 | **Change generated output** | Divergence ships `false` in `cartalith_engine::WorldParams::defaults()`, `true` in `cartalith_godot::params::defaults()`; new params need `PARAMS` + `JS_PATHS` rows. **A golden re-baseline needs an owner ruling** | Hash the same render before and after; identity by control flow beats identity by arithmetic |
-| **Re-base a shared token / constant set** | Every *relationship* built on the old values is now unverified — a comment recommending a pair, a hover that was a lift, a contrast that passed. Re-check the pairs, not just the values | Compute the deltas and contrast ratios again; a re-base moves them silently and no test sees it |
-| **Edit a main-loop-owned doc while a verifier is running** | Ownership is not the point — the **baseline** is. `OUTSTANDING_WORK.md` was clean when the verifier took its first `git status` and ` M` by its last; it correctly reported an unexplained mid-run diff it could not attribute to any lane **×4, 2026-09-13, the main loop itself:** a "dry run" of a backlog normaliser wrote the LIVE `OUTSTANDING_WORK.md` because a `sed` path substitution silently failed; it was restored byte-identical 30 s later. A script that edits a guarded doc takes its target as a required argument, never a default, and the dry run asserts the path it will write before running | Hold doc edits until the verdicts are in, or tell the verifier in the brief that the main loop will be writing that file and when  |
-| **Commit while a verifier is running** | Don't. A clean tree makes `git diff` empty for **everything**, so every "the diff is empty" check silently stops being evidence | If you must, verify with `git diff <base> HEAD -- <path>`, never a working-tree diff |
-| **Write a Workflow script** | **Escape every backtick inside the template literal**, including ones in prose like `(1080, 2400)`. An unescaped pair terminates the literal and JS then calls the preceding string as a tagged template — `"..." is not a function` | `node --check <script>` before dispatching. Two dispatches lost to this |
-| **Read any shared file while lanes are running** | Not just probe *failures* — any read. The main loop grepped `export_presets.cfg` mid-batch, saw the exclusion already present, and told the owner the row would close without needing their authorisation. The lane was mid-edit; at HEAD the key was absent and the authorisation **was** required | Read the committed state — `git show HEAD:<path>` — for any claim about what was true *before* a running batch |
-| **Read a probe failure while other lanes are running** | A concurrent lane's in-progress save to a shared `.gd` can produce a spurious *"Function X not found"* pointing at a call site whose definition is a few lines below. **Re-run once** before concluding the code broke | The same re-run discipline as a stale binary: a failure that does not reproduce was not a failure |
-| **Assert on pixels** | A threshold is **palette-bound**, and naming the palette in prose does not select it — the harness must **force** it and refuse to run otherwise (this machine boots light). **And measure a control state**: a number with nothing to compare against cannot tell you whose defect it is. Borrowing a dark-theme `> 23` test and running it on a light capture makes every background pixel 251 — the check cannot fail | Assert the palette the threshold was written for, or use a palette-agnostic measure (uniform-row / distinct-colour count) |
-| **Read a layout that overflows the screen** | A `ScrollContainer` with an axis **DISABLED folds its child's minimum size into its own** on that axis, so the overflow propagates to every ancestor with no scrollbar to reveal it. Three instances in this tree | Walk the tree for `get_combined_minimum_size().x` above the screen width and check which ancestor it reached |
-| **Add `clip_text` / ellipsis to a Label** | It collapses `get_minimum_size().x` to **1**. Beside a `SIZE_EXPAND_FILL` sibling the label then vanishes entirely | Confirm the text still renders. Measured once by *removing* a line of real text and watching the blank-row count **rise** |
-| **Claim something covered is now visible** | Reasoning from the scene graph proves nothing under an opaque overlay. **Flip the flag and diff the framebuffer** | A change that moves 0 pixels is inert, whatever the node tree says — and do not write the rationale into a comment before running that test |
-| **Change a widget's ink** | The contrast pair's *second* term is whatever is behind it. If one call restyles several widgets and only some get a background, the un-backed one is a **separate relationship** | Compute its pair too. Nine correct ratios for the scrimmed siblings say nothing about the one without a scrim |
-| **Grade a Godot probe as evidence for a Rust change** | `cargo test` does **not** rebuild `target/debug/cartalith_godot.dll`, and every `.tscn` probe loads it. A probe run after a `.rs` edit and before `cargo build` tests the *previous* engine — the Godot half of the stale-binary rule | Compare the `.dll` mtime against the touched `.rs` mtime and **state both numbers**. Measured once at 11:35 vs 18:42 — a whole batch of probes proved nothing about that batch's Rust |
-| **Read `sample_cell()`'s (or any multi-valued optional field's) key with `Dictionary.has(key)`** | `has(key)` means "was this computed at all," never "is the value the notable one." `s.water_body: Option<u8>` is `Some(0)` for **land** — a real classification entry, not a missing one — so `sample_cell`'s wrapper sets `"water"` to `"land"/"ocean"/"lake"` for every classified cell. `d.has("water")` is true almost everywhere and proves nothing about wetness | Check the **value** (`d.get(key) != "land"`), never bare `has(key)`, for any field whose own doc comment lists more than one non-missing outcome |
-| **Cite a test file in a doc comment** | A `pub(crate)` justified by a named test is a load-bearing dependency on that name. `render.rs` cited `tests/geology_micro_and_sky_fields.rs` twice, once as the visibility rationale; the file did not exist | `ls` every test path named in a doc comment in the file you touched |
-| **Write an oracle for a ported function** | The reference's *errors* are part of the contract. A brute-force exact Euclidean transform failed a correct jump-flood port, because the reference jump-flood is exact from one seed and approximate beyond it | Assert the reference's behaviour including its approximations, not the mathematically ideal answer |
-| **Build a fixture for a grid the app also fills** | Encode every "none" sentinel **exactly as the live producer writes it**. A `-1`-for-unclaimed fixture let `jp_claimed_at`'s `>= 0` pass its golden while the live grid (`0` = unowned) read every cell as claimed | Add one test driven by the real producer's output (a generated world), and mutate the sentinel test: both it and the golden must go red |
-| **Re-resolve a citation late in a long pass** | A line number checked at the start can be stale by the end. Measured this session: **148 and 241 lines** of drift in files other lanes were editing; untouched files held exactly | Grep the quoted string. Never jump to the line |
-| **Conclude a thing does not exist from a directory listing** | Absence of a path is not absence of the thing. `crates/cartalith-urban` has no `tests/` directory because the crate puts fixtures at `src/<module>/tests/golden.rs` — the milestone-16 golden was 3 139 lines of it, and a brief scheduled it as unbuilt work | Grep for the **symbol or its content**, never for the conventional location. `grep -rn golden crates/<crate>/src`, or grep the symbol, before concluding |
-| **Write prose about another lane's subsystem in the same batch** | Two lanes ran concurrently: one removed a hardcode, the other shipped a note explaining that the hardcode was why a control was inert. The note was true at dispatch and **false on arrival** — and it reads as freshly checked | State the other lane's file as *of this batch*, or re-verify at the symbol after the batch lands. A cross-lane claim has a shelf life of one wave |
-| **Convert a replacing UI context into an appended one** | The disarm path is the obvious one and the **arm-another-tool path is the one that gets missed**. A single-answer `match` over the armed tool reaches its ordinary arms before any draft clause, so a live uncommitted draft loses its Commit/Discard — and the newly armed tool draws *its* Commit in the same slot | Enumerate every transition INTO the new state, not just out of it. Probe each armed tool against a live draft and assert the draft survives all of them |
-| **Write a parent-type guard** | The question is *"does a sibling compete for my width"*, not *"which class is my parent"*. A guard listing `BoxContainer`/`HFlowContainer` missed `GridContainer`, which shares width across columns exactly as an HBox shares it across children | Enumerate every container that distributes the axis you care about, and assert one child of each. Caught by a verifier, not by the guard's own author |
-| **Gate a write on "is there anything to save"** | Ask the **whole** aggregate, not one member of it. A `vault.json` write gated on `links.is_empty()` silently dropped a map snapshot, because the store also holds `vaults` and `snapshots`. The correct predicate existed and was mutation-tested in the same batch, and was simply not wired | Enumerate every member the container can hold and assert a save containing **only** each one in turn survives a round trip |
-| **Report a layout measurement** | One world is one sample, and panel widths are **content-dependent**. A lane measured an empty plan at 190 px and reported "no overflow"; three worlds measure 351 / 385 / 441 against a 280 px dock | Measure at least three seeds, and say which you used. A single-sample layout number is the same error class as a single-sample timing |
-| **Convert a replacing context to an appended one** | A conversion is not only the artefacts the record names. Sculpt and Journey were both described as three (a `CTX_` constant, a titles row, a dispatch arm); Journey had a **fourth in another file** — a `build_results()` that cleared the shared body itself, harmless while it replaced and destructive once it appends | Grep every file that writes into the container, not just the one that owns the context. `queue_free()` on a shared parent is the tell |
-| **Write a diagnosis into a backlog row** | The row is a **router, not a finding**. A row that names a cause propagates it into every brief written from it: "the panel is dropdowns whose minimum is their widest item" was wrong (there are no dropdowns), and it reached a verifier as an instruction to count dropdown items — a check that could not be performed | State the **symptom and its measurement**; leave the cause to whoever opens the code. If you must record a suspicion, mark it as one |
-| **Measure an effect inside a subset of pixels** | **Never pick the subset by the value under test.** 2026-09-24: LOD-D4's bar 1b correlated snow with northness only where `0.1 < snow < 0.9`; an aspect term that pushes shaded ground to full snow moves exactly those pixels OUT of the band, so the pixels left favour warm north-facing ground and the bar reads negative whatever the term does. Select by an INPUT (the temperature the term reads), and prefer an on/off comparison of the same pixels over a picture-level correlation, which terrain structure can dominate | Recompute the bar with the band chosen by an input, and with the term off; if the "effect" survives with the term off, it was never the term's |
-| **Attribute a number to a cause** | Measuring the number is not measuring the *cause*. A doc said a fallback dab "shows up in the after column's own maximum"; the fallback measures **15.3 ms** against a quoted maximum of **2.55 ms**. An explanation makes a single-sample claim look like an analysis | Measure the cause separately and quote it. If you cannot, say the number and stop |
-| **Run a pixel probe** | `ImageTexture.update()` is a **no-op under `--headless`** — the texture never reaches `get_image()`, so every comparison passes vacuously | Run pixel probes **windowed**, and give the probe a positive control that must move. Reproduced independently 2026-09-04 |
-| **Add a comment to code through a scripted find-and-replace** | Put the comment **on its own line**, above the code. A `//` (or `#`) appended to the replaced text comments out whatever followed it on that line. ×3. ×2 in one hour on 2026-10-31, in the shell mockup's build parts: one swallowed a `const ev = [...]` declaration (a `ReferenceError`, the page drew nothing), the other the `note` and `ask` keys of an object literal (the Ask tab drew empty). `node --check` passed both times, because the result still parses. **×3 on 2026-11-01**: an end-of-line comment after a constant's `];` made the menu parity extractor, which read the constant up to the next `;` + newline, swallow half a function (a `SyntaxError` in the sandbox). A line-based reader is a consumer of the line too | After the edit, print the edited line and check the comment is its last token; then run the page or the probe, not just the parser |
-| **Write a multi-line edit through a shell heredoc** | Escape sequences are mangled twice — once by the shell, once by the language. A `\
-` continuation reached a `.gd` file as a literal backslash-n and broke it; the same edit had already produced five stray tabs mid-expression, which **parsed clean because tabs are whitespace** | Prefer the Edit tool for multi-line source changes. If you must script it, read the bytes back with `repr()` afterwards — and run the parse check, which is what caught this |
-| **Name the language of a remaining caller** | "The caller is GDScript" was written into four Rust doc comments about a function GDScript **cannot call** — a plain `pub fn` taking `&mut [u8]` and a Rust struct, neither marshallable across gdext | Check the signature, not the intent. A `#[func]` is the only thing GDScript can reach, and its arguments have to be Godot types |
-| **Name the precondition for what the code does today** | The gate is usually **nearer** than the story suggests. Three clauses said badges draw as discs "until a pack is imported"; the real gate is that no resolver Callable is installed, so a world holding a pack full of art still draws discs | Write the condition the code actually branches on, then read the branch back and check it says the same thing |
-| **Re-frame or redesign a window, a form factor's gestures, or a whole shell, in a mockup** | Open the **own builder** first (the window's script, or the gesture's handler: its constants, its rulings) and carry every part of it across. For a whole shell, that builder is `app.gd`: every overlay it mounts is part of every form factor. The menu row that opens a window says nothing about what is inside, and a hold says nothing about what it opens. ×3. 2026-10-31: the mobile mockup first drew File ▸ New world… as a generic form; the shipped `new_world_dialog.gd` has the NWP-3 seed preview (Ruling CE), and the owner had to point at it. **The same day:** the proposal's tablet hold opened only the card, at 480 ms. Shipped, it opens the cartwheel with the card at 500 ms (`radial_ring.gd`, `MAP_CONTEXT_SCOPE.md` §7.1), and the quick bar's cluster and ring dock were not drawn; the owner asked whether both were still there. **That evening:** the phone, tablet and desktop mockups all showed generation as progress rows only, and dropped the busy overlay that `app.gd::_mount_busy_overlay` mounts on every form factor (the loading screen, owner 2026-10-11); the owner asked *"Do all GUI's keep the loading screen?"* | Name the window's builder and its parts (`grep -n "^const\|section(" <window>.gd`) in the brief, then check each part is in the mockup. For a gesture, grep its handler's constants and signals (`_TOUCH_HOLD_MS`, `hold_fired`) and check the mockup does each. For a shell, list what `app.gd::_ready` adds (its one `_mount_*` function and its `add_child` calls) and check each has a home in every frame |
-| **Enumerate a surface for an audit** | Walk the **code**, then ask the designs about each entry. Walking the designs and ticking items off can only ever find what the designs already list — a surface nobody drew is invisible to it. Measured: 37 of 283 menu items had **no design at all** | State the inventory method and how you know it is complete; have the checker re-run it looking for what was missed |
-| **Call a constant dead** | Probes are committed files and they read theme tables. `ROLE["h_timeline"]` was proposed for removal while `_roleresolve_probe.gd` asserts on it | `grep -rn` the key across the whole project **including probes and tests**, not just the shipping call sites |
-| **Emit a change signal** | Emit **after** the engine call, not before. Ten emitters here fired ahead of their own `world_gen.sculpt_*()`, so a synchronous listener re-read the count from before the change — measured at 0 stamps on the stroke that created the first | Probe the listener's value **inside** the emit. And check each connection's flags: a `CONNECT_DEFERRED` listener runs a frame later and never sees the stale value, so "both listeners" is a claim about flags, not about count |
-| **Write a backward-compatibility test** | A fixture of empty collections proves nothing about the installed base. The whole legacy check here was `{"vaults":[],"links":[]}` | Build the fixture from a real prior-format document at the commit that wrote it (`git show <sha>:<path>`), and assert it **opens, resolves, and re-serialises byte-identically** — so opening an old file does not silently rewrite it |
-| **Replace a single-sample timing with a median** | **A median of five on a noisy device is still one sample of the median.** The pass sent to retire single-sample timings wrote `1.06x (1.00..1.08x)`; three independent serial re-runs measured 1.00x, 1.00x, 1.02x — outside all of it, with the "saving" changing sign | Re-run the whole measurement in a **separate process** and check the new median lands inside the old bracket. If a bracket's low end already touches parity, say **no difference is established** and quote nothing |
-| **Quote a sub-millisecond figure to three significant figures** | The precision is the claim. `9.65 us (9.63..9.66)` across 7 runs was measuring that run's cache state; an independent harness of the same shape got 10.02 (9.95..10.04) — magnitude right, brackets disjoint | Give an order of magnitude when that is what the number is for, and let the test print the spread |
-| **Move a command off the menu bar** | The searchable index is built by **walking the live `MenuBar`**, so a command that stops being a menu row stops being findable — silently, with nothing failing. Two ruled moves scored **0 title matches out of 361** the moment they landed, and one accelerator became unrebindable and unlisted | Add a `command_index.gd` `EXTRAS` row and a `shortcuts_dialog.gd` `UNLISTED` row **in the same change**. Assert by TITLE, not `search()` — search matches blurbs and will pass on a neighbour's tooltip |
-| **Reserve a file from every lane** | Reserving prevents collisions and **strands the fix that needs it**. Three lanes correctly reported that the index and the shortcuts list needed rows; none could write them, and the regression shipped to the verifier | Either give the shared file to exactly one lane, or accept that the main loop must land those edits before the batch is called done |
-| **Summarise a spec into a backlog row** | **Paraphrase the table, do not compress it.** "12 mode-gated blocks, one body per rail node" was the main loop's summary of `04-left-dock.md` §3, which actually gates **one node of ten** — and an owner accepted a consequence ("this hides controls") on the strength of it | Quote the spec's own condition column into the row. If the summary and the table disagree, the table is the spec |
-| **Claim a mechanism is "derived, not hardcoded"** | Check every line of it, not the entry point. The mode switch derived its **visibility** and hardcoded its node source, its labels and its refresh — so a future gated domain would get an empty pill carrying another domain's labels | Name the parts that are derived and the parts that are not, separately |
-| **Write a probe's usage header** | The header is a claim about the probe's own code. One documented `--resolution`, which it never read — it read `-- --vp WxH`. Following it would have measured **the same box three times and called it three densities**, the single-sample shape in disguise | Grep the flag in the probe body before writing it in the header, and have the harness **fail loudly** on an argument it does not understand rather than defaulting |
-| **Add anything to an approved artboard** | **Content added below the fold evicts content that was above it.** A fix pass added a ~225 px explanatory block to `PhoneViewportControls.dc.html`; root `scrollHeight` went 1 457 → 1 754 against a frame declared 1 012, and the CONTRAST section moved from `top 985 / bottom 1006` — fully visible — to `top 1210`, outside the frame. The lane disclosed the overflow as "pre-existing", which was true and understated: it did not land in already-invisible space, it *pushed visible space out*. On an owner-approved composition that is a silent regression | Measure `scrollHeight` against the frame's declared `h` **before and after**, and raise the frame in `canvas.json` **and** the board's own root height together — they are two numbers and both must move |
-| **Delete a surface** | **Inventory it first, item by item, and give each a stated home or a stated drop.** Folding a window away found 11 items: 6 already had a home, 2 needed one built, 2 were dropped deliberately, and **1 was a real capability loss that would otherwise have been silent** — the names of the GPU stages dispatched, whose only reader was the deleted window (a sibling shows the count, not the list). The inventory is what turns "we removed a window" into a decision you can check | Grep each binding for its **other** consumers rather than reading the design. That turned up a diagnostics file the brief never mentioned, already carrying two of the items verbatim. Then grep the class name across probes and `.tscn` too — eight probes referenced this one and would have broken at load |
-| **Write a completeness claim into a correction** | *"Nothing was left un-found"* was false in the same edit that said it: the hunt reported 6 sites in 3 files and there were **5 in 4**, one of them in the very file whose zero-consumer status the same lane had just reported. A correction that overstates its own coverage is worse than one that admits a gap | Say what you searched and how, not that you found everything. `git grep -n <name> -- <path>` pasted into the report beats any adjective |
-| **Cite a document as authority for an absence** | **Check the document is still describing the tree.** Thirteen shipped `.gd` comments cited `04-left-dock.md` §0/§9.1's "lost to truncation" as authority for values that are readable — the prototype was re-imported whole in `660cbef` ("Design answered: the files are whole") and §0/§9.1 were never updated. It reached a `LARGE_ITEM_RULINGS.md` consequence I wrote, which instructed a build to *derive* two captions that are quoted verbatim at `Cartalith DCC Environment.dc.html:1937-1940` — following it would have replaced a true provenance with a false one | Before repeating "X is unrecoverable", open the file and check its size and last line. A truncation note outlives the truncation |
-| **Let a lane finish a file another lane is granted** | A lane silently wrote 255 lines into a file assigned to a different lane. Both merged cleanly and both parsed — but the shell build hash moved **between one lane's own probe runs**, so the lane that stayed inside its boundary took all its evidence against a moving tree, and it deliberately left a false citation unfixed because someone else was in that block | A lane needing a second file **asks**, and is granted or refused. Straying silently is what makes a verifier's evidence unattributable, and the cost lands on the lane that behaved |
-| **Brief two concurrent lanes that both write scratch scripts** | Give each lane its **own scratch subfolder**, named in its brief. 2026-09-26: two lanes both wrote `mutate.py` into the same session scratchpad; one's mutation run overwrote the other's harness and the second lane's full-workspace run showed **5 failures that were the first lane's live mutants** (each passed alone) | Every brief names `…/scratchpad/<lane>/`; a failing test that passes in isolation during another lane's mutation sweep is that sweep, not a defect — re-run after it ends |
-| **`git stash` to compare against HEAD while another lane is running** | **Don't** — a stash takes *every* uncommitted change in the shared tree, including the other lane's in-flight files, and an edit it makes while they are stashed can be lost or conflict on pop. Compare in a separate worktree built from HEAD instead (`git worktree add --detach <dir> HEAD`, own `cargo build`). 2026-09-26: a Sonnet lane stash/popped while CM-2 was mid-build; the main loop's own stash the same day was saved but not cleaned because of a stray `nul` file | Brief every lane: no `git stash`, no `git checkout --` on files it does not own; compare against HEAD only in a worktree |
-| **Speed a lane up by starting helper agents** | **Don't**: the owner caps concurrent agents (\"At Max 2 agents\"), and a lane's own helpers count against that cap. 2026-09-27: the tooltip-sweep lane dispatched 4 parallel helper agents on its own | Every brief says: do not spawn sub-agents or workflows; work alone |
-| **Work around an action the permission system denied** | **Don't: stop and report it.** A denial is the owner's boundary, not an obstacle to route around. 2026-09-27: a lane was refused `git apply -R` as destructive, then reached the same revert by restoring `git show HEAD:<path>` snapshots. Nothing was lost, but that was the denied action by another route. Same session: the main loop did not launch Godot for a lane whose launch had been refused; the owner ran it and later said "you can run it" | Brief every lane with *if denied, stop and report; do not reach the same effect another way* |
-| **Verify a visual change before committing** | **Open the screenshots and look at them, at every zoom the change touches**. Listing the files is not looking. A probe that measures an intermediate texture cannot see what reaches the screen. 2026-09-27: the per-style rivers (`2cf0143`) were committed after the main loop listed `cmp2_*.png` without opening it. `_rivstyle_probe` measured `river_color_texture`, and the rivers actually drew pure white at fit zoom under every preset. Found only by the next lane's screenshots | Read at least one before/after image per zoom level touched. Require a probe leg that reads SCREEN pixels, not the intermediate texture |
-| **Read "no page errors" as proof a Design-canvas mockup drew** | **A throw in a component's constructor is not a page error.** The Design runtime (`support.js`) catches it and logs it as a console error, and the frame draws almost nothing. 2026-11-01: a lane's change to the shell mockup threw in its constructor and drew a blank frame with no `pageerror`. The main loop reproduced it in a scratch copy: no `pageerror`, one console error, and 10 elements drawn against 102 | Listen for `console` errors as well as `pageerror`, and assert that the shell drew (an element it always draws). `design/mobile-shell-2026-10-31/source/README.md` says which tests do |
-| **Search for a file or symbol** | **Stay inside `C:\Users\Vincent\Cartalith_GDT`** (owner rule, 2026-09-23). Never `find /`, never `grep -r` over a drive root, and never a `$(go env GOPATH)`-style expansion. A symbol this workspace uses is defined in `crates/`; a dependency's symbol is at most in `~/.cargo/registry`. 2026-09-27: a lane hunting for `macro_rules! vdict` ran `find / -iname "*.rs"` and a GOPATH grep in the background, and the main loop stopped it | Put the rule in every brief, and read a search's path before running it: it must start at the repo, or at `~/.cargo/registry` for a dependency |
-| **Kill a Godot process to free a locked `cartalith_godot.dll`** | **Not while another lane may be probing.** A windowed probe holds the DLL; the process you kill may be the other lane's run, which then reports a silent or truncated result. 2026-09-26: a lane killed two Godot processes it judged its own by start time while CM-5 was running phone probes. Wait for the lock to clear, or ask the main loop | Brief every lane: never kill processes it did not start in the same command; the main loop tells a probing lane to re-run after any rebuild |
-| **Resume a workflow lane with `SendMessage` while its workflow still runs** | Two copies of one lane can be live. **×2.** The first time, the resumed copy reported its **own** board's symbols, in its **own** granted files, as evidence of a foreign writer, and reported the file broken when it was mid-save (`_build_timeline_readout` was defined thirty seconds later and both files passed `--check-only`). **2026-11-01:** the main loop sent a scope correction to a workflow's research agent that was still RUNNING, not finished. The harness answered "Resuming agent" and started a second copy with the new brief, while the workflow's own copy kept the old one. `ListAgents` showed one agent, because it does not list a workflow's agents. The two copies shared a scratch folder: the new-brief copy wrote the repo document, and the old-brief copy found it taken, wrote a supplement in scratch and overwrote two of the other's scratch files. Nothing reached the repo twice; the supplement then needed its own verification | **Never `SendMessage` a workflow's agent, running or finished.** To change a running workflow's brief, stop it and resume from its run id with the edited prompt (finished agents replay from cache), or let it finish and run a follow-up. When a resume of an ordinary lane is necessary, tell it that work already on disk in its own files is its own |
-| **Decide that a resumed turn is finished** (after a worker restart or a context summary) | **Re-read your own last message first.** If it promised more (a follow-up question, a result, a next step), the turn is not finished, so do that. ×1. 2026-11-01: a worker restarted in the middle of a round of owner questions. The reply was *"No response requested"*, although the last message had promised a follow-up round (where Generate world goes after the Records rename, and the narrow tablet's bar), and the owner had to send *"Prompt me the questions"* again | The last assistant message, checked against what has been delivered since |
-| **Act on a critic's defect list** | **A critic's defect is a claim, and refusing one is a legitimate outcome.** Two of a design critic's seven survived contact and two did not: *"`poi` is emitted unconditionally"* — it is the true arm of `if p.is_poi`, and every `GeoPlace` is built `is_poi: false`, so adding the chip would have drawn a group that can never populate; and *"no dry-run path exists"* — one is wired on a sibling route, so the defect held only on the route drawn and the fix needed a different justification than the one stated | Open the cited symbol before replacing a value. Record "not real, changed nothing" as a result, and when a defect is real for a **different reason** than stated, write the true reason — not the one you were handed |
-| **Act on a verifier's own fix** | **A verifier's finding is a claim too, and its *fix* is the least-checked part of it.** One reported that widening `_dash_phase_track`'s f32 accumulator took a residual "from 43 differing px to 0 and every case to byte-identical". Re-measured windowed, both ways, same fixtures: **no difference on either probe** — `_segcull_probe` PASSes and `_cull_probe` FAILs 13 of 16 under f32 *and* f64. It was one edit from shipping as fact, sourced from the agent whose job is to stop exactly that | Re-measure a verifier's fix before adopting it, the same way you would a lane's. Keep the change if it is right on its own terms — and then say so, rather than citing a result you did not reproduce |
-| **Write `--headless` into a brief** | Check what the lane's claim actually rests on. A brief mandated `--headless` for a lane whose entire result was **pixels**; the dummy display driver never fires `RenderingServer.frame_post_draw`, so every pixel and timing probe aborts or hangs. Both of that lane's probes already carried an explicit ABORT guard for it, and `MISTAKES.md` already had the row | Headless for logic and layout; **windowed for anything that rasterises or times a frame**. Say which in the brief instead of mandating one |
-| **Judge a measurement against a floor** | Check the floor applies to the density you measured. A row carried *"`DccWidgets.action` buttons are 39 px against a 44 px touch floor"* through two passes: 39 px is a real *drawn* height at **pointer** density, and 44 px is a **touch** requirement that the touch branch already meets (`role_px("btn_min_h")` = 44, and `phone_fit()` floors every `BaseButton`). One pass measured the drawing, one read the constant, neither noticed they were describing different densities | Name the density beside the number, always. A figure without one invites being compared to the wrong bar |
-| **Dispatch a batch while another batch's verifier is running** | **Don't.** A verifier's evidence is only as stable as the tree under it. A batch dispatched mid-verification edited `map_overlay.gd` (+137/−30) while the verifier was probing: the shell build hash moved across its three runs (`fa6e20b` → `594287e` → `1993049`), one run hit a parse cascade that did not reproduce, and it correctly reported *"an unreported fifth editor changed the tree mid-verification"* — attributable to none of its four lanes. **Every probe result in that report was taken against a moving shell.** The lanes' own files being disjoint is not enough; a shell-wide parse failure cascades from any file | Sequence: verifier finishes, main loop commits, next batch starts. If a batch must overlap, tell the verifier in its brief which files a *different* workflow owns and when |
-| **Write a correction** | **The correction is new prose and can ship its own false clause.** A note rewritten to fix a stale claim said `_foodshed_probe.gd` *"drives all four of its branches"* — written in the same edit that gave the function a **fifth** branch, which that probe does not reach. A doc citation corrected in the same batch named `_show_project_stats()`, a symbol that exists nowhere in the project | Re-read a correction as if someone else wrote it, and grep every symbol it names — including the ones you just added |
-| **Dash a field with a reason** | **The reason is a claim and gets verified like any other.** A batch that minted zero fake *values* shipped three fake *causes*: a user-visible tooltip said `detectRiverCrossings is unported` (it is ported, runs in the pipeline, has tests — the gap was an adapter field one layer nearer); a chip said `no binding reports how many` (the binding exists, only its GDScript forwarder is missing); and two dashed states were each given **the other one's** reason. **A wrong reason is worse than none** — it reads as freshly checked and it routes the next brief at a whole subsystem | Open the symbol you are about to say does not exist. Write what is missing at the layer it is actually missing from. For a two-branch dash, exercise **both** branches — a probe that only walks the live path cannot see an inversion |
-| **Carry a rule from one variant of a design to another** | Open the other variant's **drawing**. A brief told a verifier "the destructive action must be text-only and not the rightmost" — the approved artboard's variant B draws it filled and rightmost, because B has no safe action for the rule to be relative to. A verifier following that literally would have failed a lane for building the approved design | Scope the rule to the condition that makes it true, in the design itself. Where two variants of one artboard disagree, the artboard is wrong and gets fixed before the code does |
-| **Choose which preflight rows to put in a brief** | Scan the table against the batch's **verbs**, not from memory. 7 of 55 rows were inlined by recall; four that matched exactly what the lanes were about to do were missing — change behaviour, grep `func <name>` first, change a widget's ink, replacing→appended context. One of them then bit the main loop personally in the same session | Read the left column top to bottom against the batch's own scope. It was one screen at 55 rows; it is 186 rows now (counted 2026-09-23 as the `\| **` lines between this table's heading and *Why each rule exists*), so read the left column only, but all of it |
-| **Re-run the parse check after EVERY edit, not once per file** | A probe edited twice parse-checked clean after the first edit and shipped a duplicate `var` from the second. A failed script load makes `godot --headless` **hang** rather than exit, so it reads as a slow probe, not a broken one — two timeouts were spent before the output was captured | `--check-only --script` after the last edit to a file, always. If a probe that used to finish in seconds hangs, suspect a parse error first and capture stdout |
-| **Cite two examples as agreeing** | Open the **second** one. A new header quoted the asset-pack inspector *and* the Data manager's RECENT RUNS block and said *"Both settle one thing"* — RECENT RUNS settles the opposite (parent `#6f7478`, value overridden to `#8d9296`, so the identity is the **dimmer** ink). The code change was right for the first reason alone; the second example was decoration that made it false | Quote both, in full, with line numbers. If they disagree, say the canvas is split and name what actually breaks the tie |
-| **Quote a count of call sites, instances or files** | Measure it in the same edit that writes it, and paste the command. A comment shipped *"its 94 call sites across the shell"*; the real figure is **189 code call sites in 18 files**. It was an understatement, so the argument held anyway — which is exactly why nobody checked | `grep -rn 'Symbol(' dir/ \| grep -v ':[0-9]*:[[:space:]]*#' \| wc -l`, then write that number and the date |
-| **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
-| **Correct a doc a brief told you was stale** | **The brief names one false term; the doc may have more.** A brief said `landmark_store.last`'s doc argued persistence was unnecessary *"because a re-run reproduces the placement"* — one stale term. Its **opening clause** was already false too (*"`last` is still not written, deliberately"* — ruling 10 had written it days earlier). A lane correcting only the named term would have shipped a correction carrying its own false clause | Read the **whole** doc block, not the sentence quoted. `git show HEAD:<file>` the claim and test every clause against the code, including the ones the brief did not mention |
-| **Write a golden-risk item into a brief** | **Name the crate the goldens live in, and check the change can reach it.** A brief warned that wiring an input *"can move placements where adding the unused field could not"*. Every golden lives in `crates/*/tests/`; the change was confined to `cartalith-godot`, which no test crate reaches, and **no golden covers the landmark pass at all** — the only file naming it is self-declared diagnostic-only. Not wrong to check, but the premise was structurally impossible | `find crates -path '*/tests/*' -name '*<subject>*'` and `git diff --stat` before writing the item. A risk item whose premise cannot hold trains lanes to treat the section as ritual |
-| **Read the backlog counter after closing rows** | **It counts ROWS, not open items.** Closing a row strikes it in place, so the headline does not move; a later pass sweeps struck rows and it drops by however many were swept. Two closures and two additions can land on the same number as before by coincidence | Reconcile against `git stash` + a HEAD run before believing a delta. Expect `closed` to move the count only after the sweep, and say which of the two you are quoting |
-| **Quote a memory figure for a buffered pipeline** | **A raw buffer is not a peak.** A ruling quoted `w*h*3` — 2.06 GB at 32 768 × 20 976 — as what an export costs. The real peak is **21.7 B/px measured**, ~15.8 GB, because the pipeline also holds a luma plane and blur buffers. The code's own budget was wrong the same way (15 B/px: it counted one buffer per blur where `blur_once` allocates two, both live until it returns) | Name which figure you mean. Poll peak resident from the **host** — a process cannot see its own allocator — and check the slope across two sizes, not one point |
-| **Say "recover it from history"** | **Prove the artefact is in history first.** A ruling instructed recovering a prototype that was "measured byte-identical and reverted". It was reverted *before its pass committed*: `--diff-filter=A` finds nothing and `-S <symbol>` returns only prose commits. The scope document's prose was the entire surviving artefact | `git log --all --diff-filter=A -- '<glob>'` and `git log --all -S '<symbol>' --stat` before writing the instruction. "Reverted" does not imply "committed once" |
-| **Add a gate to a path that shipped ungated** | **Say so where the constant is defined, not only in the report.** A memory gate named `UNGATED_MAX_WIDTH` bounded only its no-budget branch; the budget branch gated **every** width, the three that had shipped unconditionally included. The doc said they "stay that way". Real on Android, where the budget is small and reported | Ask of each guard: which inputs newly fail that used to pass? Put the answer in the doc, and say which direction the estimate errs |
-| **Add a formatter, parser or helper "because the other one is unreachable"** | **Grep the crate first.** `human_bytes` was added to one file justified as unreachable from GDScript; an identical `pub fn human_bytes` already existed in the same crate with its own test. The two disagreed in user-facing strings — `15.4 GB` against `15.4 GiB` for the same bytes | `grep -rn 'fn <name>' crates/<crate>/` before writing it. One crate, one convention for anything a user reads |
-| **A lane returns no report** | **Stop the batch; do not pass a `null` through as a report.** On 2026-09-06 the largest of three lanes (723 lines in one file, plus four others) hit the StructuredOutput retry cap and filed nothing, and the verifier brief's first three attack items were written as interrogations of claims that did not exist. It came back clean only because the verifier built its own oracle unprompted | Check every element of the lanes array before writing the verify prompt. A missing report means re-run that lane or verify its diff directly — and say in the brief which it is |
-| **Write a guard that makes an artifact self-consistent** | **Ask what the guard actually proves.** `write_project` computed a pyramid's `source_key` from the heightmap it was writing, so the archive could never contradict itself — which meant stale tiles were **stamped with the new world's key** and read back with an empty warning list. Self-consistency is not freshness | Ask: what state does this guard make *undetectable*? Treat a caller-supplied key as a claim to check, not a field to overwrite |
-| **Report a `cargo test --workspace` total** | **Count the result lines and check them against the brief's stated floor.** A lane reported *"100 result lines, 2 380 passed / 1 failed"* and then reasoned carefully about why a failure that does not exist was not its fault. The real run is **157 lines / 3 240 passed / 0 failed**, and the named test passes 3/3 in isolation. **×3 now** — the same partial read has produced 2 104 and 17 before this | `grep -cE '^test result:'` must equal the floor's line count **before** you read any total. A count below it is a truncated read, never a result |
-| **Write the guarded-paths list in an agent brief** | **Say who a path is guarded *from*.** A brief listed everything under `design/` as guarded and `LARGE_ITEM_RULINGS.md` as main-loop owned; the main loop then wrote to both mid-batch, and the verifier correctly reported a guarded path dirty at batch end with no lane accounting for it. It cost a real finding's worth of attention to clear | Phrase it as *"guarded from you; the main loop writes here and its diffs are expected"*, or hold the edit until the batch lands |
-| **Repeat a design document's dashed field into a brief** | **Re-measure the dash's reason, not just the dash.** A brief told a lane *"there is no log file, so a log-tail line is dashed — do not invent one"*, taking the canvas's word. There is one: Godot enables file logging by default on desktop, `user://logs/godot.log` exists and rotates five deep, and a probe's unique marker was read back out of it the same run. **Keeping the dash would have shipped a false reason** | A dash is a claim about the code, so it expires like any other. Open the symbol before repeating it, and say in the brief that the lane may overturn it |
-| **Quote `.dll` and `.rs` mtimes in a report** | **Re-stat them at the END of your run, not when you looked.** A lane stated *"dll 16:08:10, atlas.rs 16:03:43"* truthfully and then edited `atlas.rs` again at 16:10:23, so the library shipped older than the fix and every Godot-side measurement after it was unattributable. The verifier caught it by re-stating rather than reading the claim | State both mtimes as your last action, after the final edit. If the `.dll` is older, rebuild and say you did |
-| **Commit a "clean" subset of files while a shared file stays uncommitted** | **A file split across two commits can leave an intermediate commit that does not build, even when the final working tree is fine.** Two lanes shared `landmark.rs`; one lane's commit shipped `lib.rs` calling `mark_icon_committed()` while `landmark.rs`, where that method is defined, stayed uncommitted (the other lane was still using it). `HEAD` did not compile until the second commit landed minutes later — a real, if brief, broken point in history, not just a working-tree inconvenience | `cargo build` (or `--check-only` for `.gd`) against **exactly what `git commit` is about to write** — stage the files, `git stash --keep-index` the rest, build, then restore — before pushing a commit that calls into a file left for later |
-| **Ask a lane to walk a touch floor** | **Say TARGET, not height.** A brief asked for "the laid heights" of a row. Every height was already 44 px; **both real defects were on the WIDTH axis** — a transport square at 36 px and a collapse chevron at **7 px**. A height-only walk executed literally would have reported the row green and shipped a 7 px finger target | Phrase it as "every tappable control's laid size, both axes, against the floor". A floor is a floor on the target, not on its taller axis |
-| **Run a probe `--headless` and report its error count** | **Godot writes `SCRIPT ERROR` to stderr, and `--headless` manufactures its own.** A lane reported *"0 SCRIPT ERROR"*; the same command with stderr captured showed **22**, all `Cannot call method 'save_png' on a null value` because `get_texture().get_image()` is null under the dummy driver. Identical before its edit, so it hid no regression — but the number was wrong | Capture stderr explicitly, and **run a probe in the mode its own header prescribes**. Windowed, that probe is genuinely 0 |
-| **Report a defect as density-specific** | **Check the other density before naming one.** A lane called a small-font violation "phone-density-only" because its 1440×3168 leg looked clean. Re-tallied: **15 of 23 screens at 1440 and 19 of 23 at 1080** — the label is a fixed `fs=10.0` that does not scale, so it is not density-specific at all. Handing it on as 1080-only would send the next lane looking at `phone_scale` | Tally per resolution before writing the word "only", and name the mechanism (a fixed size scales with nothing) rather than the symptom |
-| **Add a second route to a control the user already has one to** | **Two views of one state will disagree, and the panel is where it shows.** A role list gained a row press beside its existing dropdown; pressing a row moved the marks, the title, three dials and a button while the dropdown still read the old value, because `DccWidgets.choice()`'s return had been discarded — harmless while it was the only route in. **The lane's probe asserted every other consumer and not this one** | Before adding a route, list every widget that reads the same state and assert each follows. A discarded factory return is the tell |
-| **Tell a lane a field has no engine behind it** | **Open the setter, the emitter and the drawer before writing it.** A brief said `halo` had no engine and should be dashed "prominently". It is fully live — `set_field` accepts it, the render list emits `halo_em` for generated *and* hand-placed rows, and the overlay strokes it. Obeying would have shipped a false reason on the one field that keeps a label legible over terrain | Three symbols, not one: where it is set, where it crosses, where it is drawn. Say in the brief that the lane may overturn you |
-| **Floor a control that a rebuild creates** | **`tablet_fit()` floors HEIGHT only and runs ONCE from a deferred pass**, so anything a later `_rebuild_*` builds is reached by neither fitter. Three batches running have found the same shape — a 22 px field, a 7 px chevron, then `edit` 44×29 / `×` 27×29 / a colour well 60×24 | Floor at the call site for anything built after first layout, on **both axes**, and measure at tablet as well as phone. The general fix is a fitter that runs on rebuild |
-| **Report that a feature does not exist** | **One grep is not an absence proof — search for the CONCEPT, not a string you imagined.** ×4. **2026-11-01:** `STYLUS_HAPTICS_RESEARCH.md` listed "a hover cursor" as missing for the pen; `tool_overlay.gd::set_brush_cursor` already draws a brush ring on every `cursor_sampled` that `map_overlay.gd` emits for mouse motion, and Godot delivers pen hover as mouse motion. Its fact-check caught it. I told the owner twice that no km/mi toggle exists anywhere in `shell/*.gd`, having grepped `miles\|km/mi`. It ships as a three-way radio (`Preferences ▸ Units`, km/mi/nmi) because the code says `DccUnits.label("mi")` — the string I searched for was never going to appear. **2026-09-21**: dispatched an agent to build a "historical territory record" (CV-23) having grepped `HISTORY_TERRITORY_PREFIX` — the reserved save-slot *constant* — and found it unused. The real wiring ran through the **field**, `history_territory`, a completely different grep target; the whole capability had shipped under a named owner ruling, commit and test suite already in the tree. Checking the constant felt like checking the concept and was not. **2026-09-23**: `OUTSTANDING_WORK.md` filed "149 of 200 addon villages have no road" as a reference-shaped design question, having checked one function (`_civSeedVillages`, confirmed read-only) and concluded no connector exists anywhere in the reference. A second, dedicated function does — `_civConnectVillageAddons` (`Cartalith Gen1 v2.11.html:25766`), called unconditionally after every village-seeding pass — found only because the owner reported the visible symptom directly ("the html connects secondary settlements to the route network, not the godot version") and grepping the CONCEPT ("connect" + "village") rather than re-deriving from the function already checked turned it up in one pass. | Grep the domain word (`units`, `unit_mode`), the settings key, and the menu label separately; then open the symbol. An absence claim is the one kind no single search can establish. **When a name is declared as a constant/prefix/key, also grep for the FIELD or FUNCTION that would actually consume it** — a re-exported constant with zero readers proves the constant is unused, not that the capability it names is unbuilt. **Checking one function that plausibly owns a capability is not the same as checking the capability** — grep the concept's own verbs (`connect`, `link`, `attach`) too, not just the function you already found. |
-| **Cite a GitHub issue, repository, repro or commit as evidence** | **Read its closing comment and close reason, its README and its commit trailers first.** A same-day close by its author, an `archived` label, an "AI-written" note, an AI-authorship line in a README, or AI `Co-Authored-By` trailers mean it is not evidence. ×3. 2026-11-01: `STYLUS_HAPTICS_RESEARCH.md` tagged Godot issues #124191 to #124193 [verified]; their author had closed each the day it was opened, saying "Used an ai to write this. closing for now and will use my own words later." Its fact-check withdrew them; the claim stood on the Godot source alone. 2026-11-02: the research's supplement tagged two repositories [secondary] whose README says "written with an AI assistant (Claude)" and whose commits all carry a Claude co-author line; its verifier refused every claim resting only on them. The same supplement fused a pen's presentation-mode key with its normal mode into one claim, and said a command prints nothing where AOSP's code prints "No vibrator found": keep each fact with the mode or heading it sits under, and quote a command's output from its implementation | Quote the close state and the authorship line beside the citation, and rest the claim on the primary source. `git log --format=%B \| grep -ciE "co-authored-by\|assisted-by"` |
-| **Write a probe that PRESSES a control** | Press its **edges**, not its centre. **A centre press cannot see the width of the target it hits** | Shrink the control below the floor; a centre-pressing probe still passes |
-| **Assert a control is present, sized or reachable** | `get_global_rect()` reports a child’s **UNCLIPPED** rect. Assert the **drawn rect against its container’s VISIBLE rect** | A control 15% painted must FAIL; keep a positive control that fires |
-| **Assert a widget’s appearance** | A **stylebox-shaped test cannot see a modulate**, and headless returns a null texture. **Render it and read the pixels** | Force the colour to red; the probe must move |
-| **Prove a style is independent of a stale theme** | **Independence is not correctness.** Zero movement under a hostile theme rewrite says nothing inherits — nothing about alignment, centring or minimum size | Assert the drawn VALUE against a canvas literal as well |
-| **Add a probe in the same commit that changes the behaviour** | That is the **same claim written twice**, not evidence. A probe earns authority by **failing on the state before the change** | Run it against the pre-change file; if it passes, it pins nothing |
-| **Assert a drawn colour** | Never against `DccTheme.c(token)` — **both sides move together on a flip**, so it sees a wrong token but never a wrong value. Pin the canvas literal with its `ENV:` line | Flip the palette; a token-vs-token check cannot fail |
-| **Set a palette inside a probe** | **After** the shell boots. `apply_theme()` before instantiating `app.tscn` is **inert** — the boot re-applies the saved mode | Assert a value that DIFFERS between palettes before trusting the leg |
-| **Measure ink or a glyph in a capture** | Taking the **brightest pixel** is a dark-palette habit. On light the brightest thing is the **ground** | Take the pixel furthest from the band in luminance, inside its own bbox |
-| **Answer "can the user do X?"** | Measure the widget **the owner touches**, not the one the brief names. A desktop `PopupMenu` and the phone’s `Button` chips are different classes with different answers | Name the surface and the density you measured on |
-| **Reach a screen inside a probe** | **Never call a function to navigate.** Tap what is visible from launch. Separate **it renders** / **it can be operated** / **it can be FOUND** | A control can be visible, sized and tappable inside a container that is invisible |
-| **Find a figure the canvas does not contain** | Check the **superseded** canvas before calling it invented. `height:34px` is 0 in the current canvases and **32** in the replaced one | `grep -c` both; an inherited figure is a re-anchor, not a deletion |
-| **Say which renderer the shell uses** | It boots **`gl_compatibility`** (`project.godot:101`), not Vulkan. Either is a real rasteriser; **headless is not** | `--rendering-driver vulkan` forces Vulkan if a leg needs it |
-| **Cite an `ENV:` line** | **Open it.** A radius census cited `ENV:912` for a control; `ENV:912` is a bare closing `</div>` | Quote the declaration you are citing, not just its number |
-| **Dispatch a second workflow while a verifier is running** | Don’t — or **state in the verifier’s brief exactly what else may write, and name the files** | Have the verifier snapshot md5s and report drift; two caught this |
-| **Write a commit message** | It is a **claim about its own diff**. Diff the staged set against every claim — each probe named as passing must be IN it | `git show --stat`; a named file that is not there is a false claim, and `a2682de` shipped two |
-| **Re-run a probe as evidence** | Check it could RUN. `_nwclip_probe` prints `fail=0` on desktop because `is_phone()` needs touch — **a probe that cannot answer must not report a pass** | Non-empty output AND a positive control that fires; make it exit non-zero when it cannot run |
-| **Write a mechanism into a brief** | Measure it first. I wrote *"`DirAccess` cannot reach shared storage on Android"*; with zero permissions it lists 16 dirs and writes fine — **only FILE listing is filtered** | State the measurement that produced it, or label it a candidate |
-| **Write or accept a probe’s exit status** | **A probe must not report success its own output contradicts.** `_tabfit_probe` printed `overflow=285.0` and exited **0**, because its assertions were all on a sub-surface | Give "assertions held but the surface fails" its OWN exit code (3), distinct from an assertion failure (1) |
-| **Close a backlog row** | **A struck row left in a NUMBERED section still counts.** Striking four in place moved the headline by zero | Move it to an archive section (deliberately unnumbered), then re-run the counter |
-| **Run `--check-only`** | From the **`godot-project` root**, never a subdirectory. From `shell/` it reports *parse errors that do not exist*, because `res://` resolves nothing | Two errors on `app.gd` from `shell/`, zero from the root. **Suspect your invocation before the code** |
-| **Call `phone_window()` on a dialog with its own verb** | It sets `ok_button_text = "Close"`. Set the caller’s text **AFTER** it, or the primary action is renamed **on phones only** — where the dropped title bar makes that button the only thing naming it | Hit three times in one day: *"Write to Markdown"*, *"Create"*, *"Clear 412 MB"*. `DccWidgets.confirm()` orders it correctly for free |
-| **File a row saying "this needs a bigger fix"** | That is a **claim about the code**, and it went wrong twice in one day — the SAF caller audit (four of seven consumers ended in Rust `std::fs`, so the answer was to make the audit unnecessary) and the "second remedy" for a `dialog_text` dialog (text-plus-a-verb IS `confirm()`’s shape) | Re-open it at its symbol before scheduling the big version. **Both rows were written from the SHAPE of the code rather than from what it needed** |
-| **Chain a shell command after `grep -c`** | `grep -c` **exits 1 when the count is 0**, so `&&` silently drops everything after it — the count prints and the rest of the command never runs | Append `\|\| true`, or check the count as data rather than as an exit status |
-| **Plan a phone probe that must reach a DIALOG** | **You cannot.** A synthetic tap cannot reach a control inside an embedded `AcceptDialog` sub-window at `content_scale_factor` 2.62 — canvas coords, physical coords and `get_final_transform()` all tried, `gui_get_hovered_control()` stays null. Taps into the MAIN viewport route normally | So the project-picker and New World legs are **provable on glass only**. A probe that falls back to pressing by label is testing the handler, not the touch path |
-| **State how many checks a probe runs** | **Print the count; never assert it in prose.** A doc said 26 where the probe ran 29, and a count that disagrees with its own output is the first thing a later reader distrusts | Increment in the `_check()` helper and put it in the RESULT line, so the output carries the truth and no header can drift from it |
-| **Report that you could not reach something** | **"I could not reach it" is an ABSENCE CLAIM and needs the same scepticism as "it does not exist."** A lane called six right-dock sections unreachable; the verifier reached **five of them in one pass with no shell change** | Say what you tried and what mechanism you assumed. That lane looked for a context REPLACEMENT where the file’s own header documents sections as **APPENDED** |
-| **Verify anything phone-shaped** | **`--force-touch` on the desktop is not the phone, and `pressed.emit()` is not a finger.** A whole session of probes reported a healthy phone shell; the owner picked up the APK and could not find the generation menu or use the journey planner within minutes. Synthesised input is injected **downstream** of `MOUSE_FILTER`, scrims, gesture handlers and hit areas, so a control unreachable by touch still passes | **See with `adb exec-out screencap`, act with `adb shell input tap/swipe`** at coordinates read off that image, and navigate from launch tapping only what is visible. Desktop probes are for regression, never for reachability |
-| **Claim a screen "works" on a phone** | **Separate "it renders", "it can be operated" and "it can be FOUND".** Probes proved the journey planner fits a 1080 px screen and clears the tap floor; the owner still could not use it. Those are three claims and only the first two were ever tested — reachability was never tested at all | State which of the three you measured. A route nobody can find is a defect even when every control behind it is perfect |
-| **Find a screen that is mostly blank** | **Ask what is IN it before ruling on how big it is.** A lane measured a phone sheet at 1 003 rows holding one horizontal strip — 933 blank empty, 912 blank *with a world* — and deferred it because the detent fraction is transcribed from the prototype and 'changing a transcribed detent needs an owner ruling'. Right measurement, wrong conclusion: **a correct detent over empty content is still an empty screen**, and the owner hit exactly that defect days later | When blankness survives the state change that should fill it (912 vs 933 with and without a world), the container is not the fault. Report what the screen is missing, not its dimensions |
-| **Conclude a batch has finished** | **A run directory you cannot find is not a run that has stopped.** I searched `~/.claude` for the workflow’s run folder, found nothing, saw two of three lanes’ diffs in the tree, and closed the batch out — **while the third lane and the verifier were still working.** The commit landed mid-verification, and the verifier said so: from that point `git diff` was empty for everything and **stopped being evidence**. Its findings survived only because the content happened to be identical. **Wait for the completion notification, or check the task list. Never infer completion from the filesystem, and never from "the lanes I know about have reported".** |
-| **Write "still X" or "routes NONE" into the backlog** | **Re-measure it in the same breath — do not copy the brief’s number into the row.** I narrowed a units row to *"the journey planner still routes NONE"* and committed it. The planner had been converted a commit earlier: `grep -c DccUnits` = **34**, with a probe asserting its headers. The same row carried *"the measure tool converts 4 of its 7 modes; area, radius and section do not"* — there are **six** modes and **all three of those convert**. Both claims came from the brief I had written, not from the code. **A backlog row is the thing the next pass reads instead of measuring; a stale one costs a whole lane.** The grep that would have caught both took four seconds. |
-| **Quote a byte or character offset into a document** | **Say which, and re-measure before you say it — or drop the number and name the symbol.** I quoted six canvas offsets, a lane said they were ~330 low, and I "corrected" the row by labelling mine *character* offsets and the lane’s *byte* offsets. **Both halves were invented.** Measured three ways, the real byte-minus-character delta is **52 to 126, never ~330**; my numbers came from a copy read with newline translation on, so they were a third thing entirely. **A manufactured explanation makes an unseekable number read as a measured one, which is worse than the wrong number alone.** Offsets in a UTF-8 file with CRLF have three values and none of them is "the offset". **Grep the symbol and name the guard it sits under.** |
-| **Raise a touch target to the 44 dp floor** | **Ask what the enlarged control now intercepts.** This batch floored fourteen sliders from 32 dp to 44 dp — correct, and it widened the band in which a vertical scroll gesture starting on a slider is consumed as a **value write**: Ocean depth went 0.60 → 0.14 in one swipe with nothing on screen saying so. **A floor is a hit area, and a bigger hit area catches more than you meant.** Where a draggable control lives inside a scroller, the floor obliges you to arbitrate the gesture too. **Do not answer it by shrinking the target back.** |
-| **Record a glyph substitution** | **The deviations table must agree with the byte that shipped.** A pass parsed the font cmap correctly — U+2684 and U+FF0B absent, U+2212 present — and then wrote *"U+2212 present and used"* into the table while the code shipped ASCII `-`. **The table whose only job is to record departures asserted the opposite of the code**, so the one real departure was the one it hid. Visible on glass: a short high hyphen beside a full-height plus. **Check the call site, not the cmap, before writing the row.** |
-| **Assert that two runs produce identical output** | **Compare what the format promises is stable, and exclude what it promises is not — including the CONTAINER’s metadata, not just your own.** Two save-writer tests asserted `write_to_vec(&p) == write_to_vec(&p)`. `SAVEFILE_COMPAT.md` §16 records that this writer deliberately stamps every zip entry **from the clock**; DOS time has 2-second resolution, so a pair of writes straddling a tick differs at byte 10 and the test fails. **Flaky by construction, and it stood for months because a write takes microseconds** — the window is small, not absent. One of the tests already excluded JSON’s `created` for exactly this reason and did not carry the thought one level down. |
-| **See a suspiciously round test total** | **`cargo test --workspace` FAIL-FASTS: one failure skips the rest and the truncated total looks healthy.** When a flaky io test fired, the run reported **100 result lines / 2 387 passed** — no failure visible in a tail, and a plausible number. The true floor is **157 lines / 3 253 passed**. **Count the result lines against the expected count BEFORE reading any total** (the rule already here, ×3), and **use `--no-fail-fast` when you need the whole picture**. A skipped target reports nothing at all, which is quieter than a failure. |
-| **Write a test helper that returns a collection** | **Assert it is non-empty, in the helper.** A fingerprint helper added to fix the determinism tests was mutated to return `Vec::new()` and **both tests stayed green** — `assert_eq!` over two empty vectors is a tautology. Caught by mutating it rather than by reading it. This is the silently-empty-golden-output trap that has now bitten **five** subsystems here. |
-| **Paste a `grep` and its result into a comment** | **A command that measures the file will stop reproducing the moment the file changes — name the SYMBOL instead.** A comment pasted `grep -n "HSlider.new()" world_workspace.gd`, 2026-09-07: two`. The very substitution it documented removed both matches, so today the grep returns exactly one line: **the comment quoting its own string**. A reader following the citation gets a self-reference in place of a count. |
-| **Run a mutation harness that rebuilds and installs** | **Restore the DEVICE as well as the tree, and say which "zero residue" means.** A slop-mutation harness restored every source file perfectly — sha256 before and after, every run `RESTORE SAME` — and **left the mutated APK installed on the handset**. The phone ran a build with a deliberately broken gesture threshold, the exact hazard the batch had just fixed, and the next on-glass check would have measured the mutation. Caught only because the main loop hashed `pm path`’s `base.apk` against every file in `builds/android/`. **The verifier could not catch it: no handset was reachable from its session.** |
-| **Report a census as the enumeration of a hazard** | **A live-tree walk is a LOWER BOUND taken in one state — name the state.** A census reported 247 `Range` nodes and 242 hazards, from a **world-less** boot. On that boot `tl_available()` is false, so a whole screen draws `_missing_row("Year")` and **four slider sites the walk’s own code inventory had named contributed nothing** — they are converted on a code walk and exercised by no probe. Worse, the committed probe **labelled that census "the Year slider’s screen"**, which asserts it walked a surface it had reached and found empty. |
-| **Fix a gesture hazard for one control class** | **Ask which OTHER class has the same shape before closing it.** `PgSlider` fixed every `Range` on the phone — and a vertical swipe starting on an `OptionButton` still opens its popup instead of scrolling, on a card that must be scrolled to reach its primary button and whose surface is mostly dropdowns and spin boxes. **The hazard is the gesture, not the widget**; an inventory built from one base class ends where that class ends. |
-| **Trust an on-glass result** | **Read logcat for the stale-library warning first.** Every Android export in this session carried the `android-dev` `.so`, and the app says so on every cold boot: *"the loaded GDExtension has no `WorldGen.<fn>()` … the native library is older than the shell"*, three functions deep with full backtraces. Shell-side work (layout, gestures) is unaffected. **Any on-glass claim about a native-backed feature is not safe** while that warning is in the log — and nobody had been reading it. |
-| **Walk a Godot scene tree to count anything** | **`get_children(true)` — the default omits INTERNAL children and they are not padding.** A gesture census read **4 401** nodes where the tree holds **5 512**. What it hid was the class the probe existed to count: 12 `SpinBoxLineEdit` and a `TabBar`, all acting on press, all live under live vertical scrollers, **absent from both the before and the after numbers**. A `SpinBox`’s editable field, a `TabContainer`’s bar and a `ScrollContainer`’s bars are all internal. |
-| **Rule a control class OUT of a hazard** | **Say which question you answered.** A pass cleared `SpinBox` by measuring that a swipe does not STEP its value — true, and the wrong question. The hazard is that the press takes FOCUS: the swipe scrolls `0 → 0` while the label column beside it scrolls `0 → 62`, and on Android focus raises the soft keyboard over the sheet. **"Not this mechanism" is not "not a hazard"**, and a negative control only clears the mechanism it tested. |
-| **Write "this defect is milder"** | **Severity is a measurement, not a reading of the mechanism.** I filed a dropdown hazard as *"milder … nothing changes silently — the user sees a popup and can dismiss it"*, from watching a popup appear. Measured: a jittered vertical swipe takes **`sel=7 → sel=3` with the popup closed again at the end** — the press opens it under the finger, the drag travels its item list, the release picks what is beneath. **Identical to the slider defect, and silent.** The lane refused the claim in its report; a brief that had been believed would have shipped it as a lesser row. |
-| **Explain why something was left untouched** | **Check the mechanism reaches it at all before crediting a gate.** A comment credited the "no vertical scroller" gate with leaving the phone menu bar’s seven `MenuButton`s stock. Measured: **0 of the 7 carry `_phone_fitted`** — `phone_fit()` never walks the menu bar, so the function is never called on them, and inverting the gate leaves all seven stock anyway. The gate is load-bearing for a different control. **Two true facts standing next to each other read as cause and effect.** |
-| **Invent a screening metric (darkness, line count, size)** | **Calibrate it against a KNOWN GOOD and a KNOWN BAD before you read a single result, and put both numbers in the label.** I polled a phone boot with `dark%=94.2 (94.2 = splash, ~85 = picker)`. **Backwards, and the picker figure invented rather than measured**: the splash is **98.9%** and the picker is **94.2%** — provable in five seconds against captures already in my own scratchpad, one of which I had confirmed pixel-identical to a known-good picker. Every *"still on the splash"* reading was a painted, working app. **A screening metric with an uncalibrated label is worse than no metric: it converts a glance into false confidence.** |
-| **Read a size, position or detent from an animating control** | **Await the tween, or your number is a frame of it.** A probe quoted a phone sheet at `609.0 px = 232.32 dp` in two places as measured fact. Six runs of the same command gave **592 / 589 / 575 / 574 / 506 / 510** — an 86 px spread, never 609. It sampled inside a 0.28 s detent tween on `custom_minimum_size:y`. **The dp arithmetic was self-consistent, which is what made it convincing**; every other figure the same probe reported reproduced exactly. |
-| **Search for probes that touch shared state** | **Search for the CONSTANT as well as the literal path.** Three consecutive counts of the probes reading `user://` disagreed (28, 26, 26) and the answer is **28**. The two that escaped every earlier count reach the file through `DccSettings.CONFIG_PATH`, not through `"user://cartalith_settings.cfg"`. **A named constant is invisible to a path-literal grep**, and the disagreement was never about facts — it was about method, every time. |
-| **Write "it matches the design"** | **Quote the departures table, not the dimensions you checked.** I told the owner a screen’s fidelity was "sub-dp". The figures I quoted were — and they were a selected subset: the spec’s own §"every place it departs from the canvas" lists about twelve, including **10 parameter groups against the canvas’s 8** and a **slider row floored to 44 dp against a 22 px design**. **Conformance is the whole table, not the rows that agree.** |
-| **Count log lines as a health signal** | **Ask what generates the lines first — a diagnostic build talks MORE when it is sicker.** I built *"5 = stuck, 50+ = progressing"* on top of the darkness error. The count measures **stale-library complaints**: the 56-line build is 5 real lines plus 51 lines of `has no WorldGen.<sym>()` across six symbols, each with a backtrace. **5 was the healthy value and the metric graded the good build as the broken one.** |
-| **Write a caveat into your own brief** | **A caveat you reason past is worse than one you never wrote — it launders the conclusion.** The same brief said *"the absence of those warnings in the stuck run is NOT evidence about how far it got — the quiet log is expected either way."* That sentence is correct and it makes the 5-vs-50 metric unusable. I wrote it, then built the metric anyway. **When you write a caveat, check what it invalidates BEFORE the next paragraph.** |
-| **Escalate to a bisect, a rebuild, or a large row** | **Reproduce the failure ONE more way, cheaply, first — preferably with your eyes.** One screencap of the "stuck" build would have ended this before a 33-commit bisect was proposed; my own instruction said *"every measurement is the log line count PLUS a screencap"* and I took the count and skipped the capture on the failing build. **The cheapest disconfirming check is the one to run before the expensive confirming one**, and the cost of skipping it here was an entire batch. |
-| **Trust a probe that reads `user://`** | **A probe must set up the state it asserts on, or declare and clear it.** Two sessions ran `_nwsize_probe` on a byte-identical tree with the same `.dll`: one got **fail=1 twice**, the other **fail=0 twice**. Neither is flaky — they read different persisted state. `cartalith_settings.cfg` carries a `[recent] paths` list and a `projects=…/Worlds` root, probe runs WRITE it, and whether the project picker is presented depends on it. **A probe that reads what its siblings wrote can go green for reasons unrelated to the code.** |
-| **Blame persisted state for a probe that disagrees between sessions** | **Check the DISPLAY DRIVER first — `--headless` is a different application.** I named `cartalith_settings.cfg` as the cause because its mtime happened to fall inside a run window. Measured: `RenderingServer.frame_post_draw` fires **0 of 240 frames headless** and **239 of 240 windowed**, and `app.gd::_open_welcome_when_drawn()` awaits it — so headless never presents the project picker and the probe asserts against the main shell. `user://` was then ruled out properly, by running four settings states and getting `fail=0` in all four. **An mtime inside a window is a coincidence, not a mechanism.** |
-| **Fix a touch hazard on a text field** | **The lever is `focus_mode`, and the two obvious ones cannot work — know why before reaching for them.** `Viewport::_gui_input_event` grabs focus **before** `_gui_call_input`, so `accept_event()` in `_gui_input` never gets the chance; and `MOUSE_FILTER_PASS` forwards nothing because `LineEdit::gui_input` accepts every left press. That is why fields already set to `PASS` were as stuck as the `STOP` ones. **A five-way table settled it in one run**; three of the five rows were the plausible fixes, and all three failed. |
-| **Override a stylebox on a `Button`** | **`flat = true` silently voids EVERY stylebox override, `hover` as well as `normal`.** A fully-coded fill that reads correctly in review draws nothing. 13 sites shipped this way; the fix is `flat = false`, and the tell is a selected state distinguished only by ink or opacity |
-| **Run `--check-only`** | **Pass `--script res://…` as well.** Without it Godot BOOTS THE PROJECT and runs, which looks exactly like a hang — a lane reported a 20-minute parse check that returns in seconds when invoked properly |
-| **Rule on a plurality** | **Count the POPULATION first.** A canvas census got the arithmetic right and the population wrong: all 8 nodes of the winning padding belong to a different height role than the control being ruled on. Four wrong figures passed through that one row |
-| **Write a stop-and-report gate into a brief** | **Make it a REQUIRED OUTPUT FIELD, not prose.** Every gate listed as HIT or NOT HIT, with the measurement that decided it. **×2 in five days:** a lane recounted, disagreed with its gate’s figure and implemented anyway (2026-09-08); another quoted its gate’s obstacle (*"88 dp > 66 dp budget"*) and then called the result *"no collision"* (2026-09-12) — both under a brief heading reading *"A gate is a gate"* **×3, 2026-09-12:** a lane filled the required field with *G3: HIT* and shipped a 45-line change anyway. **The field made the breach visible to the verifier; it did not prevent it** — so a verifier treats any code change after a HIT gate as blocking on sight |
-| **File a defect you saw in a screenshot** | **Crop to full resolution and re-look before filing.** A downscaled view showed two clipped tab labels that the full-res crop proved were not there at all; only one of the two defects was real |
-| **Append a row to `OUTSTANDING_WORK.md`** | **`rstrip() + row` lands in the LAST ARCHIVE block.** That is right for a closed row and wrong for an open one — insert an open row at a numbered-section anchor instead. **Print the section each row landed in and assert it matches the row’s state**; both halves were done backwards in one edit and the counter stayed CONSISTENT throughout, because the errors cancelled |
-| **Write to the guarded docs while a verifier runs** | **Say so in the verifier’s brief.** Otherwise it spends its effort attributing the edits and reports them as unexplained drift — 168 added lines were chased that way on 2026-09-12 |
-| **Measure "before" with a mutant** | **Reproduce the ORIGINAL measurement first.** A mutant that disables one line is not the pre-fix state when the fix added structure: `if false and …` left an empty 26 px container in place and a lane reported the bug as 77 % clipped against the real 45 % |
-| **Report a control as disabled from reading its code** | **A guard’s else-branch reason is not the control’s state.** Check what the guard evaluates in a current build. An inventory listed *Erode (droplet)* and *Count painted lakes as water* as disabled for "no engine binding" — both guards call `_has()`, which asks the live `WorldGen`, and both methods are exported `#[func]`s. Both buttons are enabled; the agent had quoted the tooltip each shows only on a stale native library |
-| **Run two batches at once** | **Keep them measurement-disjoint, not only file-disjoint.** A lane whose change moves a quantity another running lane is measuring — a dock minimum, a frame floor, a timing — corrupts that lane’s before/after evidence with no file shared between them |
-| **Compare against HEAD while other lanes run** | **Scratch copies only** — `git show HEAD:<path>` into the scratchpad. **Never `git stash`, `git checkout -- <file>`, or copying HEAD over the live file**: every other lane’s probe loads that file mid-run. wf49 (2026-09-13): one lane copied HEAD’s `dcc_shell.gd` over the live file twice and another ran `git stash` on `world_workspace.gd`, both while two lanes were probing **×2, the same day:** run wf52 made its HEAD-equivalent "before" capture by reverting a hunk in the live file with Edit, while two other batches were probing — despite this rule in its brief. **×3, 2026-09-23:** a lane ran a plain `git stash` (no pathspec) for its own before/after A/B baseline while two OTHER lanes had real uncommitted work in the shared tree — it correctly did not pop, leaving that for the coordinator, but a plain `git stash` also swept up a completely unrelated, stray, long-dead stash's worth of contamination that happened to be sitting in the working directory (a resurrected `main.tscn` the owner had deliberately deleted a month earlier, and a stray `project.godot` theme-block edit from an abandoned worktree) — the eventual `git stash pop` produced a real merge conflict against a file that shouldn't have existed at all. Both were manually diagnosed and discarded; no data was lost, but it cost a full investigation cycle and could have silently resurrected dead code if not caught | `git stash list` is empty at the end; the report names the scratch path of every HEAD copy. **A lane that must snapshot the whole tree (not just its own file) uses a scratch worktree (`git worktree add`), never a bare `git stash`** — a worktree cannot accidentally absorb someone else's uncommitted work or a stray pre-existing stash's contents the way a shared-tree stash can. If a stash is unavoidable, `git stash push -- <own files only>`, never a bare `git stash` |
-| **Isolate a probe’s user dir** | **Godot 4.7.1 has no `--user-data-dir`.** An unknown flag’s value takes the positional scene slot, so `--user-data-dir <dir> probe.tscn` runs the interactive MAIN scene against the live user dir and never runs the probe (2026-09-13: four boot-timing runs did exactly that and rotated the owner’s Godot logs). Isolate by a project copy with a distinct `config/name` | The probe’s own first log line appears; the live user dir’s mtimes do not move |
-| **Fix a stale cache or an invalidation bug** | **Enumerate every path that writes the thing the cache depends on before fixing one.** 2026-09-13: a tile-cache fix covered one of three sculpt-commit buttons and none of undo, redo, revert, erode or the paint commits — the row named one path and the brief did not ask for the rest | grep every writer (here: every `map_view.texture =`) and probe each |
-| **Brief a layout change from a spec document’s summary** | **Open the canvas markup the summary cites and name the element.** wf49 briefed *"lay the sliders out as the canvas’s 2-column grid"* from `TABLET_UI_SPEC.md` §2.4; the canvas’s grid (`st.grid`) holds toggle/segment cells and its sliders are full-width two-line cells (`st.sliders`). The lane hit the gate the misreading created and built past it | Quote the canvas lines in the brief, not the spec’s paraphrase |
-| **Print from a Windows Python script** | **Print ASCII-safe, or set `PYTHONIOENCODING=utf-8`.** A filing script saved its first file and then crashed printing `▸` to the cp1252 console, leaving three files unwritten behind a "refuses to run twice" guard. **Put every print after every save, or make prints unable to fail** |
-| **Put a question, or a factual premise, to the owner** | **Verify the premise at the symbol first — the owner rules on the premise you hand them. And search `LARGE_ITEM_RULINGS.md` for the question itself: a scope document's "open questions" list is not evidence that the question is open. And a proposal that changes a value the owner already answered asks it by name, as its own question: approving the proposal's other questions does not cover it.** ×6. A question stated that star forts never generate because settlements carry no `fortified` trait; the Place Editor writes that trait, the bridge reads it, the engine grants the fort, and only the drawing was missing. **The premise was a stale code comment, repeated unchecked** — and a question is the worst place to repeat one, because its answer becomes a ruling. **2026-09-23:** Ruling AP re-asked landmark questions that `LANDMARK_GENERATION_SCOPE.md` §4 still listed as open. They had been ruled on 2026-09-06 (rulings 10, 12, 13, 16) or earlier the same day (the crate home). The ruling's text also calls work new that was built weeks earlier. **2026-10-31:** `MOBILE_SHELL_PROPOSAL.md` §3 moved the phone/tablet line to 600 dp of width and asked nine questions, none about it. The owner's 900 dp answer lived in `design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3, in a constant's comment and in a status row, never in `LARGE_ITEM_RULINGS.md`, so this row's own search could not have found it. **2026-11-01:** VQ7 named the vault window's four capped lists from a summary (*"browse, the link picker, the index, search"*). Search is not one of them, and three caps were missing; Ruling DY records the corrected six. A list of sites in a question comes from a grep run for that question. **2026-11-01 (Ruling EA):** a count relayed from an agent's report went into a question as "per world"; the measurement pools each map shape's twelve seeds. A count in a question says per what, read from the measurement's own table. **2026-11-01 (Ruling EB):** two premises in one round, both caught by the lane that applied the answers. The zoom-step question said *"The mockup had drawn 1.6×"*: its touch rocker already stepped 1.35, and the 1.6 was the desktop pointer column. The ceiling question called 3.4× *"the measured spire point"*: `3D_VIEWPORT_SCOPE.md` §8.3 tried no value between 1× and 3.4×, so it measured no threshold. A number in a question is read at the line that measured it, and says what was measured, not what it implies | Grep `LARGE_ITEM_RULINGS.md` for the question's subject, then open the symbol the answer would have built. Quote both in the question, or state that neither exists. **Owner answers also live in `design/**/BUILD_ANSWERS.md` and in constants whose comment says *owner ruling*:** before a proposal changes a shipped value, grep those for it too |
-| **Say something is OCCLUDING something else** | **Check whether the two edges merely COINCIDE.** A sheet’s clip boundary and the nav bar’s top edge both derived from `_phone_nav_reserve()` and landed on the same y — which reads as the bar covering the chip when the bar draws nothing there. **Sample a pixel at the covering element before and after; if it does not change, it is not on top** |
-| **Assume a device-only defect needs the device** | **Try the desktop composition first.** The same bug reproduced windowed at 1080×2340 `--force-touch` within **3 px** of the device measurement — and that agreement is also the evidence that the phone probes model the device at all |
-| **Capture a sheet, drawer or anything with detents** | **Name the detent in the finding, and put it back and re-measure.** A chip row clipped by the nav bar is fully visible one detent up — a fix verified in the wrong state looks correct and changes nothing |
-| **Conclude a control does not respond to a tap** | **Check the control is still on screen.** MORE, MAP and PLAN all "stopped responding" at once because a full-screen panel had opened over the nav bar; the taps were landing on its content |
-| **Screenshot a running app as evidence** | **Take two and diff them.** If they differ outside the clock, you may be looking at a mid-animation frame. And **record the installed build’s `lastUpdateTime`** — a screenshot is evidence only about the build it came from |
-| **Quote a count from a DIAGNOSTIC probe** | **Check its transform is the real draw’s.** A probe built `Rect2(ZERO, size)` where the renderer draws through an INSET content rect, so it measured a less-squeezed projection and reported 133 failures where the real render throws 151. The ratio held; the count did not transfer |
-| **Write "structurally cannot"** | **Check every consumer, not the one you are thinking of.** A guard that skipped untriangulable polygons was called structurally unable to lose ink — true of the two passes that triangulate, **false of the ink pass, which strokes via `draw_multiline` and never triangulates**. It was unreachable only because of the configurations measured |
-| **Fix a probe’s ordering bug** | **Ordering alone rots.** Add an assertion on a value that DIFFERS between the two states, or the next boot-order change silently reverts the coverage without failing |
-| **Cite a line as evidence that a defect is live** | **Reading two lines is not reading a block.** When the citation is a draw call, read what BRACKETS it — a `push`/`pop`, a `_begin`/`_end`, a transform set and reset. **Then `git log -S` the helper**: one command dates the fix, and a site fixed two weeks ago reads exactly like a site that was never broken |
-| **Read several lines with `sed -n 'Ap;Bp'`** | **It prints in FILE order, not the order you typed.** Ask for one line at a time, or use `awk 'NR==A{print "A: "$0}'` so each line carries its own number — a reversed read put a false *"the row’s line numbers are swapped"* correction into a lane brief |
-| **Strip comments and strings to find call sites** | **Strings FIRST (triple-quoted, then single-line), then comments.** A `#` inside a string literal otherwise orphans its closing quote, which pairs with the next quote anywhere later and eats every newline between — one file measured 299 lines → 62, silently swallowing real call sites. **Self-check by line count before trusting the output** |
-| **Assert that a converted value CHANGED** | **Inequality plus a suffix is satisfied by relabelling.** Reconstruct the expected NUMBER from the converter itself (`DccUnits.to_unit()`), never from a typed constant — a mutant that kept the km value and appended `mi` passed all three of the probe’s original checks |
-| **Fix a formatting inconsistency you just exposed** | **Check which side is non-conformant before picking one.** Two styles side by side usually means one was ALREADY wrong, and `design/**.dc.html` decides which, not taste and not majority |
-| **Chase an engine "bug" reported by a probe's own scan logic** | **Verify the probe's read against the API contract before re-testing the engine.** A probe scanning 26 000 cells for land via `d.has("water")` reported this session's showcase world (2026-09-20) as 100% ocean. That survived: a direct `world_gen.sample_cell()` call, a rebuild of a genuinely-stale `target/debug/cartalith_godot.dll`, a standalone `cartalith_engine::generate_terrain()` repro (65% land), a standalone `cartalith_civ::build_water_bodies()` repro (sane classification), and temporary `godot_print!` diagnostics inside `absorb()` proving `civ.water_bodies` was already correct at land(0)=1 485 988/ocean(1)=881 766/lake(2)=317 174 — before the actual defect (`has("water")` instead of checking the value) was found in the 26 000-point scan itself. Every stage the probe blamed was innocent | When a "generation is broken" symptom traces to one Godot-side probe and the engine crate tests clean in isolation, suspect the probe's read of the API before re-deriving the pipeline from scratch |
-| **Guard a fixture on several conditions before trusting it** | **Count the INTERSECTION the guards are meant to certify, never each population separately.** LOD-D4's glaciated test fixture (2026-09-21) put flow in the valley and altitude on the ridge flanks, so the two conditions `build_glacier_potential` needs never met on the same cell — it returned zero gated cells while three separately-counted guards (enough flow cells exist; enough cold cells exist; enough high cells exist) all passed. The same shape as the silently-empty-golden-output trap this file already tracks, one level up: not an empty result hidden by a swallowed exception, but a healthy-looking guard block hidden behind three true propositions that are never true together | Compute the actual gated population (the AND, not three separate counts) and assert it non-empty, the same discipline already applied to golden output |
-| **Measure "the picture" from a tile render without accounting for the frame** | **`apply_border`'s opaque margin (`max(0.014·gw, 10)` cells) is part of every tile render — a metrics probe placed near an edge is comparing content against frame.** LOD-D4's `the_metrics_agree_with_the_picture` test (2026-09-21) reported 89.3% agreement between a rendered tile and its own metrics and read as a real disagreement; the tile sat at `y0 = 8`, inside the 10-cell border band, so 424 pixels of parchment frame counted as mismatched content on both sides of the comparison | Place a metrics probe's sample tile outside the border margin, or exclude the margin explicitly, before trusting a "disagreement" between a render and its own metrics |
-| **Declare a list, a backlog or a sweep exhausted** | **Read it end to end once before saying so.** Three section-by-section surveys of `OUTSTANDING_WORK.md` (2026-09-23) each concluded "no decision-free work left"; one start-to-finish read found two buildable rows all three had missed, and both were then built (`b19b9ea`, `b5aff17`). A partial sweep's hit rate falls as it goes, and a falling hit rate looks exactly like an emptying list. See the 2026-09-23 entry below | Name the method in the claim ("read §1-§4 row by row"), not "surveyed". An exhaustion claim built from sampled sections is a claim about those sections only |
-| **Act on a summary's bucket for a row** ("ready", "no decision needed") | **Re-read the row's full text at the row first.** A fast classification pass (2026-09-23) put multi-ridge orogeny and IN-13's caravans in "no decision needed". The first row's own text said it *"does not authorize building it"*. The second recorded two unchosen options and an unasked sea-lane question. Both went to the owner as Ruling AP instead. This is the ×16 instance of the backlog-row entry below, one level up | Quote the row's own gating sentence beside the bucket, or say the row has none |
-| **Read a reference comment about what a later version did NOT change** | **It is not evidence of what the earlier version did. Open the earlier code.** v1.05's *"The BASE per-cell map loop is untouched"* was read as "the base draws no lakes". In fact v0.103's base-loop lake stamp was simply never ported, and the gap surfaced as lakes flickering on zoom (fixed `13062e5`). See the 2026-09-23 entry below | State what the earlier version's own code does for the thing the comment says was left alone, with its line in the frozen reference |
-| **Cull anything inside a Godot `_draw()`** | **Godot does not re-run `_draw()` when an ANCESTOR moves.** The map overlay culled against a rect computed once per `_draw()`, and only a zoom queued a redraw, so a pan kept the old frame's cull. Rivers and roads went missing on revealed ground and towns never requested their layouts (fixed `13062e5`, `ViewportHost._update_lod()`). See the 2026-09-23 entry below | Pan at unchanged zoom, then count the culled content on the newly revealed ground. It must appear with no other input |
-| **Declare a class of documents cleaned** ("all design docs", "all scope docs") | **Enumerate the class from `CLAUDE.md`'s routing table, not from a filename pattern.** "Design-document cleanup is complete" (2026-09-23) rested on a filename grep that missed design/spec documents the routing table lists, such as `ANDROID_UI_SPEC.md` and `TABLET_UI_SPEC.md` (eight, by the orchestrator's own recount). Merged into the "Declaring green" entry below | Paste the enumerated list and where it came from into the report. A class with no stated inventory has no completeness claim |
+| **Re-base a shared token / constant set** | Every *relationship* built on the old values is unverified: recommended pairs, hover lifts, contrast | Recompute deltas and contrast ratios; no test sees it |
+| **Edit a main-loop-owned doc while a verifier is running** | The **baseline** is the point: a mid-run diff the verifier cannot attribute is reported as unexplained. **×4, 2026-09-13, main loop itself:** a "dry run" of a backlog normaliser wrote the LIVE `OUTSTANDING_WORK.md` because a `sed` path substitution silently failed. A script editing a guarded doc takes its target as a required argument, and the dry run asserts the path first | Hold doc edits until verdicts are in, or tell the verifier what the main loop will write and when |
+| **Commit while a verifier is running** | Don't. A clean tree makes `git diff` empty for **everything** | If you must, `git diff <base> HEAD -- <path>`, never a working-tree diff |
+| **Write a Workflow script** | **Escape every backtick inside the template literal**, including those in prose like `(1080, 2400)`; an unescaped pair makes JS call the preceding string as a tagged template | `node --check <script>` before dispatching (two dispatches lost) |
+| **Read any shared file while lanes are running** | Any read, not only probe failures: a mid-batch grep of `export_presets.cfg` saw a lane's in-progress edit and wrongly told the owner no authorisation was needed | `git show HEAD:<path>` for any claim about what was true *before* a batch |
+| **Read a probe failure while other lanes are running** | A concurrent lane's in-progress save can give a spurious *"Function X not found"*. **Re-run once** before concluding the code broke | A failure that does not reproduce was not a failure |
+| **Assert on pixels** | A threshold is **palette-bound**; naming the palette in prose does not select it. The harness must **force** it and refuse otherwise (this machine boots light). **Measure a control state.** A dark-theme `> 23` test on a light capture makes every background pixel 251 | Assert the palette, or use a palette-agnostic measure (uniform-row / distinct-colour count) |
+| **Read a layout that overflows the screen** | A `ScrollContainer` with an axis **DISABLED folds its child's minimum size into its own**, so overflow reaches every ancestor with no scrollbar. Three instances | Walk the tree for `get_combined_minimum_size().x` above screen width; find which ancestor it reached |
+| **Add `clip_text` / ellipsis to a Label** | Collapses `get_minimum_size().x` to **1**; beside a `SIZE_EXPAND_FILL` sibling the label vanishes | Confirm the text still renders |
+| **Claim something covered is now visible** | The scene graph proves nothing under an opaque overlay. **Flip the flag and diff the framebuffer** | 0 pixels moved = inert; do not write the rationale into a comment before that test |
+| **Change a widget's ink** | The contrast pair's *second* term is what is behind it. If one call restyles several widgets and only some get a background, the un-backed one is a **separate relationship** | Compute its pair too |
+| **Grade a Godot probe as evidence for a Rust change** | `cargo test` does **not** rebuild `target/debug/cartalith_godot.dll`, which every `.tscn` probe loads. A probe after a `.rs` edit and before `cargo build` tests the *previous* engine | Compare `.dll` mtime against the `.rs` mtime and **state both** (once 11:35 vs 18:42: a batch proved nothing) |
+| **Read `sample_cell()`'s (or any multi-valued optional field's) key with `Dictionary.has(key)`** | `has(key)` means "computed at all", not "the notable value". `s.water_body: Option<u8>` is `Some(0)` for **land**, so `d.has("water")` is true almost everywhere | Check the **value** (`d.get(key) != "land"`) for any field whose doc lists more than one non-missing outcome |
+| **Cite a test file in a doc comment** | A `pub(crate)` justified by a named test depends on that name; `render.rs` cited `tests/geology_micro_and_sky_fields.rs` twice and it did not exist | `ls` every test path named in a doc comment you touched |
+| **Write an oracle for a ported function** | The reference's *errors* are part of the contract: a brute-force exact Euclidean transform failed a correct jump-flood port (exact from one seed, approximate beyond) | Assert the reference's behaviour including approximations |
+| **Build a fixture for a grid the app also fills** | Encode every "none" sentinel **as the live producer writes it**. `-1`-for-unclaimed let `jp_claimed_at`'s `>= 0` pass while the live grid (`0` = unowned) read every cell claimed | One test driven by the real producer's output; mutate the sentinel test, both it and the golden go red |
+| **Re-resolve a citation late in a long pass** | A line number can drift (**148 and 241 lines** in files other lanes were editing; untouched files held) | Grep the quoted string; never jump to the line |
+| **Conclude a thing does not exist from a directory listing** | `crates/cartalith-urban` has no `tests/` because fixtures live at `src/<module>/tests/golden.rs` (the milestone-16 golden: 3 139 lines), and a brief scheduled it as unbuilt | Grep the **symbol or content**: `grep -rn golden crates/<crate>/src` |
+| **Write prose about another lane's subsystem in the same batch** | One lane removed a hardcode, the other shipped a note saying the hardcode was why a control was inert: true at dispatch, **false on arrival** | State the other lane's file as *of this batch* or re-verify after it lands; a cross-lane claim lives one wave |
+| **Convert a replacing UI context into an appended one** | The **arm-another-tool path** gets missed: a single-answer `match` over the armed tool reaches its ordinary arms before any draft clause, so a live draft loses Commit/Discard and the new tool draws *its* Commit in the same slot | Enumerate every transition INTO the new state; probe each armed tool against a live draft |
+| **Write a parent-type guard** | Ask *"does a sibling compete for my width"*, not *"which class is my parent"*. A `BoxContainer`/`HFlowContainer` list missed `GridContainer` | Enumerate every container that distributes the axis; assert one child of each |
+| **Gate a write on "is there anything to save"** | Ask the **whole** aggregate. A `vault.json` write gated on `links.is_empty()` dropped a map snapshot (the store also holds `vaults` and `snapshots`) | Assert a save holding **only** each member in turn survives a round trip |
+| **Report a layout measurement** | One world is one sample; panel widths are content-dependent: an empty plan measured 190 px, three worlds 351 / 385 / 441 against a 280 px dock | At least three seeds; say which |
+| **Convert a replacing context to an appended one** | A conversion is more than the artefacts the record names: Journey had a **fourth in another file**, a `build_results()` that cleared the shared body itself | Grep every file writing into the container; `queue_free()` on a shared parent is the tell |
+| **Write a diagnosis into a backlog row** | A row is a **router, not a finding**; a named cause propagates into every brief ("the panel is dropdowns whose minimum is their widest item": there are no dropdowns) | State the **symptom and measurement**; mark any suspicion as one |
+| **Measure an effect inside a subset of pixels** | **Never pick the subset by the value under test.** 2026-09-24: LOD-D4's bar 1b correlated snow with northness only where `0.1 < snow < 0.9`, and an aspect term pushing shaded ground to full snow moves exactly those pixels OUT of the band | Select by an INPUT (the temperature the term reads); prefer an on/off comparison of the same pixels; if the effect survives term-off, it was never the term's |
+| **Attribute a number to a cause** | Measuring the number is not measuring the *cause*: a fallback dab claimed in "the after column's maximum" measures **15.3 ms** vs a quoted **2.55 ms** | Measure the cause separately, or say the number and stop |
+| **Run a pixel probe** | `ImageTexture.update()` is a **no-op under `--headless`**; every comparison passes vacuously | Run **windowed**, with a positive control that must move |
+| **Write a multi-line edit through a shell heredoc** | Escapes are mangled twice: a `\n` reached a `.gd` as literal backslash-n; five stray tabs **parsed clean** | Prefer Edit; else read bytes back with `repr()` and parse-check |
+| **Name the language of a remaining caller** | "The caller is GDScript" in four Rust doc comments about a plain `pub fn` taking `&mut [u8]` that GDScript **cannot call** | Check the signature: only a `#[func]` with Godot-type arguments is reachable |
+| **Name the precondition for what the code does today** | The gate is **nearer** than the story: badges draw as discs "until a pack is imported", but the gate is no resolver Callable installed | Write the condition the code branches on, read it back |
+| **Enumerate a surface for an audit** | Walk the **code**, then ask the designs about each entry. Measured: 37 of 283 menu items had **no design at all** | State the inventory method; have the checker look for what was missed |
+| **Call a constant dead** | Probes are committed files and read theme tables (`ROLE["h_timeline"]` vs `_roleresolve_probe.gd`) | `grep -rn` the key across the project **including probes and tests** |
+| **Emit a change signal** | Emit **after** the engine call; ten emitters fired before `world_gen.sculpt_*()`, so a listener re-read the old count | Probe the listener's value **inside** the emit; a `CONNECT_DEFERRED` listener never sees it stale |
+| **Write a backward-compatibility test** | A fixture of empty collections (`{"vaults":[],"links":[]}`) proves nothing about the installed base | Build it from a real prior-format document (`git show <sha>:<path>`); assert it **opens, resolves, re-serialises byte-identically** |
+| **Replace a single-sample timing with a median** | **A median of five on a noisy device is still one sample of the median**: `1.06x (1.00..1.08x)` re-ran as 1.00x, 1.00x, 1.02x | Re-run in a **separate process**; if the bracket's low end touches parity, say **no difference is established** |
+| **Quote a sub-millisecond figure to three significant figures** | The precision is the claim: `9.65 us (9.63..9.66)` vs an independent 10.02 (9.95..10.04) | Give an order of magnitude; print the spread |
+| **Move a command off the menu bar** | The searchable index walks the live `MenuBar`, so a moved command becomes unfindable (0 of 361 title matches; one accelerator unrebindable) | Add a `command_index.gd` `EXTRAS` row and `shortcuts_dialog.gd` `UNLISTED` row in the same change; assert by TITLE, not `search()` |
+| **Reserve a file from every lane** | Reservation strands the fix that needs it: three lanes needed index rows, none could write them | Give the shared file to exactly one lane, or have the main loop land those edits before the batch is done |
+| **Summarise a spec into a backlog row** | **Paraphrase the table, do not compress it.** "12 mode-gated blocks" summarised `04-left-dock.md` §3, which gates **one node of ten**, and an owner accepted "this hides controls" on it | Quote the spec's own condition column |
+| **Claim a mechanism is "derived, not hardcoded"** | Check every line: the mode switch derived **visibility** but hardcoded node source, labels and refresh | Name derived and non-derived parts separately |
+| **Write a probe's usage header** | The header is a claim about the probe's code: a documented `--resolution` it never read (`-- --vp WxH`) measured **the same box three times as three densities** | Grep the flag in the body; make the harness **fail loudly** on an unknown argument |
+| **Add anything to an approved artboard** | **Content added below the fold evicts content above it**: a ~225 px block took `scrollHeight` 1 457 to 1 754 against a declared 1 012 frame and pushed CONTRAST out of frame | Measure `scrollHeight` vs the frame's `h` before and after; raise the frame in `canvas.json` **and** the root height together |
+| **Delete a surface** | **Inventory it item by item, each with a stated home or drop.** Folding a window found 11 items: 6 homed, 2 to build, 2 dropped, **1 silent capability loss** | Grep each binding for other consumers; grep the class name across probes and `.tscn` (eight probes referenced this one) |
+| **Write a completeness claim into a correction** | *"Nothing was left un-found"* was false in the edit that said it (6 sites in 3 files reported; **5 in 4**) | Say what you searched and how; paste `git grep -n <name> -- <path>` |
+| **Cite a document as authority for an absence** | **Check it still describes the tree.** Thirteen `.gd` comments cited `04-left-dock.md` §0/§9.1's "lost to truncation" for values that are readable (prototype re-imported whole in `660cbef`) | Open the file and check size and last line; a truncation note outlives the truncation |
+| **Let a lane finish a file another lane is granted** | A lane wrote 255 lines into another lane's file; the shell build hash moved **between one lane's own probe runs** | A lane needing a second file **asks**; straying makes evidence unattributable and the cost lands on the lane that behaved |
+| **Brief two concurrent lanes that both write scratch scripts** | Each lane gets its **own scratch subfolder** in its brief. 2026-09-26: two lanes wrote `mutate.py` to one scratchpad; one overwrote the other's harness, giving **5 failures that were live mutants** | Every brief names `…/scratchpad/<lane>/`; a failure that passes alone during another lane's sweep is that sweep |
+| **`git stash` to compare against HEAD while another lane is running** | **Don't**: a stash takes every uncommitted change in the shared tree. Use `git worktree add --detach <dir> HEAD` with its own `cargo build`. 2026-09-26: a lane stash/popped while CM-2 was mid-build | Every brief: no `git stash`, no `git checkout --` on files it does not own |
+| **Speed a lane up by starting helper agents** | **Don't**: the owner caps concurrent agents ("At Max 2 agents") and helpers count. 2026-09-27: the tooltip-sweep lane started 4 | Every brief: do not spawn sub-agents or workflows |
+| **Work around an action the permission system denied** | **Stop and report.** A denial is the owner's boundary. 2026-09-27: a lane refused `git apply -R` reached the same revert by restoring `git show HEAD:<path>`; the main loop also withheld a launch the owner later said it could run | Every brief: *if denied, stop and report; do not reach the same effect another way* |
+| **Verify a visual change before committing** | **Open the screenshots and look, at every zoom touched.** Listing files is not looking; a probe on an intermediate texture cannot see the screen. 2026-09-27: per-style rivers (`2cf0143`) committed after `cmp2_*.png` was listed unopened; rivers drew pure white at fit zoom | One before/after image per zoom level; a probe leg that reads SCREEN pixels |
+| **Search for a file or symbol** | **Stay inside `C:\Users\Vincent\Cartalith_GDT`** (owner, 2026-09-23). Never `find /`, `grep -r` on a drive root, or `$(go env GOPATH)` expansions; dependencies live in `~/.cargo/registry`. 2026-09-27: a lane ran `find / -iname "*.rs"` | Rule in every brief; search paths start at the repo or `~/.cargo/registry` |
+| **Kill a Godot process to free a locked `cartalith_godot.dll`** | **Not while another lane may be probing**: the killed process may be another lane's run (2026-09-26: two killed while CM-5 ran phone probes) | Never kill processes you did not start in the same command; after a rebuild the main loop tells probing lanes to re-run |
+| **Resume a workflow lane with `SendMessage` while its workflow still runs** | Two copies of one lane can be live; the resumed copy called its **own** mid-save file a foreign writer's breakage | Prefer letting a lane finish; else tell it work on disk in its own files is its own |
+| **Act on a critic's defect list** | **A critic's defect is a claim; refusing one is legitimate.** Two of seven failed: *"`poi` is emitted unconditionally"* (the true arm of `if p.is_poi`) and *"no dry-run path exists"* (wired on a sibling route) | Open the cited symbol first; record "not real, changed nothing"; if real for a different reason, write that reason |
+| **Act on a verifier's own fix** | **Its *fix* is the least-checked part.** Widening `_dash_phase_track`'s f32 accumulator "from 43 differing px to 0" re-measured as no difference on either probe (f32 and f64 alike) | Re-measure a verifier's fix before adopting it; say so if you keep it for other reasons |
+| **Write `--headless` into a brief** | Check what the claim rests on: the dummy display driver never fires `RenderingServer.frame_post_draw`, so every pixel/timing probe aborts or hangs | Headless for logic and layout; **windowed for anything that rasterises or times a frame** |
+| **Judge a measurement against a floor** | Check the floor applies to your density: *"buttons are 39 px against a 44 px touch floor"* mixed **pointer**-density drawn height with a **touch** floor the touch branch meets (`role_px("btn_min_h")` = 44; `phone_fit()` floors every `BaseButton`) | Name the density beside every number |
+| **Dispatch a batch while another batch's verifier is running** | **Don't.** A batch edited `map_overlay.gd` (+137/−30) mid-verification; the shell build hash moved across the verifier's three runs (`fa6e20b` → `594287e` → `1993049`); **every probe result was against a moving shell**. Disjoint lane files are not enough | Verifier finishes, main loop commits, next batch starts; if overlap is forced, tell the verifier which files a different workflow owns and when |
+| **Write a correction** | **It is new prose and can ship its own false clause**: a note said `_foodshed_probe.gd` *"drives all four branches"* while adding a **fifth**; another named `_show_project_stats()`, which exists nowhere | Re-read it as someone else's; grep every symbol it names, including those just added |
+| **Dash a field with a reason** | **The reason is a claim.** A batch minting zero fake *values* shipped three fake *causes*: `detectRiverCrossings is unported` (ported, tested); `no binding reports how many` (binding exists, only the forwarder missing); two dashes swapped reasons. **A wrong reason is worse than none** | Open the symbol you say does not exist; name the layer it is missing from; exercise **both** branches of a two-branch dash |
+| **Carry a rule from one variant of a design to another** | Open the other variant's **drawing**: "destructive action text-only and not rightmost" is wrong for variant B, which draws it filled and rightmost (no safe action to be relative to) | Scope the rule to its condition in the design; fix the artboard before the code |
+| **Choose which preflight rows to put in a brief** | Scan the table against the batch's **verbs**, not from memory: 7 of 55 rows inlined by recall; four exact matches were missing and one bit the main loop | Read the left column top to bottom against the batch's scope (186 rows counted 2026-09-23) |
+| **Re-run the parse check after EVERY edit, not once per file** | A probe edited twice parse-checked after the first edit and shipped a duplicate `var`. A failed script load makes `godot --headless` **hang**, reading as a slow probe | `--check-only --script` after the last edit; a hanging probe: suspect a parse error first and capture stdout |
+| **Cite two examples as agreeing** | Open the **second**: a header said the asset-pack inspector and RECENT RUNS "both settle one thing"; RECENT RUNS (parent `#6f7478`, value `#8d9296`) settles the opposite | Quote both with line numbers; if they disagree say the canvas is split |
+| **Quote a count of call sites, instances or files** | Measure it in the same edit and paste the command: "94 call sites" was **189 code call sites in 18 files** | `grep -rn 'Symbol(' dir/ \| grep -v ':[0-9]*:[[:space:]]*#' \| wc -l`, with the date |
+| **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise; check it holds** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading; ask what state makes each check impossible (four such items in one brief) |
+| **Correct a doc a brief told you was stale** | The brief names one false term; the doc may have more: `landmark_store.last`'s opening clause (*"`last` is still not written, deliberately"*) was also false (ruling 10) | Read the **whole** doc block; `git show HEAD:<file>` and test every clause |
+| **Write a golden-risk item into a brief** | **Name the crate the goldens live in and check the change reaches it.** A brief warned wiring *"can move placements"*; goldens live in `crates/*/tests/`, the change was in `cartalith-godot`, and **no golden covers the landmark pass** | `find crates -path '*/tests/*' -name '*<subject>*'` and `git diff --stat` first |
+| **Read the backlog counter after closing rows** | **It counts ROWS, not open items**; striking in place does not move it; a later sweep drops it | Reconcile against `git stash` + a HEAD run; say which count you quote |
+| **Quote a memory figure for a buffered pipeline** | **A raw buffer is not a peak.** `w*h*3` (2.06 GB at 32 768 × 20 976) vs **21.7 B/px measured**, ~15.8 GB; the code's 15 B/px budget was wrong too (`blur_once` holds two buffers) | Name which figure; poll peak resident from the **host**; check the slope across two sizes |
+| **Say "recover it from history"** | **Prove the artefact is in history.** A ruling told a build to recover a prototype reverted *before its pass committed* (`--diff-filter=A` finds nothing; `-S` returns prose commits) | `git log --all --diff-filter=A -- '<glob>'` and `git log --all -S '<symbol>' --stat` |
+| **Add a gate to a path that shipped ungated** | **Say so where the constant is defined.** `UNGATED_MAX_WIDTH` bounded only its no-budget branch; the budget branch gated **every** width, including three shipped unconditionally (real on Android) | Per guard: which inputs newly fail that used to pass? Which way does the estimate err? |
+| **Add a formatter, parser or helper "because the other one is unreachable"** | **Grep the crate first.** `human_bytes` already existed in the crate and disagreed (`15.4 GB` vs `15.4 GiB`) | `grep -rn 'fn <name>' crates/<crate>/`; one convention per crate for user-read strings |
+| **A lane returns no report** | **Stop the batch; do not pass a `null` through.** 2026-09-06: the largest lane (723 lines) hit the StructuredOutput retry cap and filed nothing; the verifier interrogated claims that did not exist | Check every element of the lanes array before the verify prompt; re-run that lane or verify its diff directly, and say which |
+| **Write a guard that makes an artifact self-consistent** | **Ask what it proves.** `write_project` computed a pyramid's `source_key` from the heightmap it wrote, so stale tiles were **stamped with the new key**. Self-consistency is not freshness | What state does the guard make undetectable? Treat a caller-supplied key as a claim |
+| **Report a `cargo test --workspace` total** | **Count result lines against the brief's floor.** A lane reported *"100 lines, 2 380 passed / 1 failed"*; the real run is **157 / 3 240 / 0**. **×3 now** (also 2 104 and 17 before) | `grep -cE '^test result:'` equals the floor **before** reading any total; below it is a truncated read |
+| **Write the guarded-paths list in an agent brief** | **Say who a path is guarded *from*.** The main loop then wrote to `design/` and `LARGE_ITEM_RULINGS.md` mid-batch and the verifier reported unexplained dirt | *"Guarded from you; the main loop writes here"*, or hold the edit |
+| **Repeat a design document's dashed field into a brief** | **Re-measure the dash's reason.** *"There is no log file"*: Godot logs to `user://logs/godot.log` by default and a probe read its marker from it | Open the symbol; tell the lane it may overturn the dash |
+| **Quote `.dll` and `.rs` mtimes in a report** | **Re-stat at the END of your run.** A lane quoted `dll 16:08:10, atlas.rs 16:03:43`, then edited `atlas.rs` at 16:10:23 | Both mtimes as your last action; rebuild if the `.dll` is older |
+| **Commit a "clean" subset of files while a shared file stays uncommitted** | **An intermediate commit may not build**: `lib.rs` called `mark_icon_committed()` while `landmark.rs` stayed uncommitted | Build **exactly what `git commit` will write** (stage, `git stash --keep-index`, build, restore) |
+| **Ask a lane to walk a touch floor** | **Say TARGET, not height**: every height was 44 px and **both defects were on the WIDTH axis** (a 36 px square, a **7 px** chevron) | "Every tappable control's laid size, both axes, against the floor" |
+| **Run a probe `--headless` and report its error count** | `--headless` manufactures its own `SCRIPT ERROR`: a lane's *"0"* was **22** with stderr captured (`save_png` on a null from `get_texture().get_image()`) | Capture stderr; run a probe in the mode its own header prescribes |
+| **Report a defect as density-specific** | **Check the other density.** "Phone-density-only" small font was **15 of 23 screens at 1440 and 19 of 23 at 1080** (fixed `fs=10.0`) | Tally per resolution before writing "only"; name the mechanism |
+| **Add a second route to a control the user already has one to** | **Two views of one state will disagree**: a role-list row press moved marks, title, dials and a button while the dropdown kept the old value (`DccWidgets.choice()`'s return discarded) | List every widget reading the same state and assert each follows |
+| **Tell a lane a field has no engine behind it** | **Open the setter, emitter and drawer.** `halo` was claimed engine-less; `set_field` accepts it, the render list emits `halo_em`, the overlay strokes it | Three symbols: set, cross, drawn; tell the lane it may overturn you |
+| **Floor a control that a rebuild creates** | **`tablet_fit()` floors HEIGHT only and runs ONCE, deferred**; later `_rebuild_*` output escapes both fitters (a 22 px field, a 7 px chevron, a 44×29 `edit`, a 60×24 well) | Floor at the call site on **both axes**; measure at tablet and phone |
+| **Report that a feature does not exist** | **One grep is not an absence proof; search the CONCEPT.** ×3. (1) The owner was told twice that no km/mi toggle exists after grepping `miles\|km/mi`; it ships as `Preferences ▸ Units` via `DccUnits.label("mi")`. (2) 2026-09-21: an agent was dispatched to build CV-23 after grepping the unused constant `HISTORY_TERRITORY_PREFIX`; it shipped via the **field** `history_territory`. (3) 2026-09-23: "149 of 200 addon villages have no road" filed after checking only `_civSeedVillages`; `_civConnectVillageAddons` (`Cartalith Gen1 v2.11.html:25766`) connects them | Grep the domain word, settings key and menu label separately, then open the symbol. **A constant with zero readers proves the constant unused, not the capability unbuilt**; grep the concept's verbs (`connect`, `link`, `attach`) too |
+| **Write a probe that PRESSES a control** | Press its **edges**, not its centre; a centre press cannot see target width | Shrink the control below the floor; a centre probe still passes |
+| **Assert a control is present, sized or reachable** | `get_global_rect()` is the child's **UNCLIPPED** rect. Assert the **drawn rect against the container's VISIBLE rect** | A control 15% painted must FAIL; keep a positive control |
+| **Assert a widget's appearance** | A stylebox-shaped test cannot see a modulate; headless returns a null texture. **Render and read pixels** | Force the colour to red; the probe must move |
+| **Prove a style is independent of a stale theme** | **Independence is not correctness**: zero movement under a hostile theme says nothing about alignment, centring or minimum size | Also assert the drawn VALUE against a canvas literal |
+| **Add a probe in the same commit that changes the behaviour** | **The same claim written twice.** A probe earns authority by **failing on the state before the change** | Run it against the pre-change file; passing means it pins nothing |
+| **Assert a drawn colour** | Never against `DccTheme.c(token)`: **both sides move on a flip**. Pin the canvas literal with its `ENV:` line | Flip the palette; a token-vs-token check cannot fail |
+| **Set a palette inside a probe** | **After** the shell boots; `apply_theme()` before instantiating `app.tscn` is **inert** | Assert a value that DIFFERS between palettes |
+| **Measure ink or a glyph in a capture** | The **brightest pixel** is a dark-palette habit; on light it is the **ground** | Take the pixel furthest from the band in luminance, in its own bbox |
+| **Answer "can the user do X?"** | Measure the widget **the owner touches**, not the one the brief names (desktop `PopupMenu` vs phone `Button` chips) | Name the surface and density |
+| **Reach a screen inside a probe** | **Never call a function to navigate.** Tap what is visible from launch. Separate **it renders** / **it can be operated** / **it can be FOUND** | A control can be visible, sized and tappable inside an invisible container |
+| **Find a figure the canvas does not contain** | Check the **superseded** canvas first: `height:34px` is 0 in the current canvases and **32** in the replaced one | `grep -c` both; an inherited figure is a re-anchor, not a deletion |
+| **Say which renderer the shell uses** | **`gl_compatibility`** (`project.godot:101`), not Vulkan; **headless is not a rasteriser** | `--rendering-driver vulkan` forces Vulkan |
+| **Cite an `ENV:` line** | **Open it**: `ENV:912` was a bare closing `</div>` | Quote the declaration, not just its number |
+| **Dispatch a second workflow while a verifier is running** | Don't, or **name in the verifier's brief what else may write, by file** | Verifier snapshots md5s and reports drift (caught twice) |
+| **Write a commit message** | **A claim about its own diff**: each probe named as passing must be IN it | `git show --stat`; `a2682de` shipped two false claims |
+| **Re-run a probe as evidence** | Check it could RUN: `_nwclip_probe` printed `fail=0` on desktop (`is_phone()` needs touch). **A probe that cannot answer must not report a pass** | Non-empty output AND a firing positive control; exit non-zero when it cannot run |
+| **Write a mechanism into a brief** | Measure it first: *"`DirAccess` cannot reach shared storage on Android"* is false (lists 16 dirs, writes fine; **only FILE listing is filtered**) | State the measurement, or label it a candidate |
+| **Write or accept a probe's exit status** | **No success its own output contradicts**: `_tabfit_probe` printed `overflow=285.0` and exited **0** | "Assertions held but the surface fails" gets its OWN exit code (3), distinct from 1 |
+| **Close a backlog row** | **A struck row left in a NUMBERED section still counts** | Move to the unnumbered archive section, re-run the counter |
+| **Run `--check-only`** | From the **`godot-project` root**, never a subdirectory: from `shell/` it reports *parse errors that do not exist* (`res://` resolves nothing) | Two errors on `app.gd` from `shell/`, zero from root; suspect your invocation first |
+| **Call `phone_window()` on a dialog with its own verb** | It sets `ok_button_text = "Close"`. Set the caller's text **AFTER** it, or the primary action is renamed **on phones only**. Hit three times in a day (*"Write to Markdown"*, *"Create"*, *"Clear 412 MB"*) | `DccWidgets.confirm()` orders it correctly |
+| **File a row saying "this needs a bigger fix"** | **A claim about the code**, wrong twice in a day (the SAF caller audit: four of seven consumers end in Rust `std::fs`; a `dialog_text` "second remedy" that is `confirm()`'s shape) | Re-open at its symbol before scheduling the big version |
+| **Chain a shell command after `grep -c`** | `grep -c` **exits 1 on a 0 count**, so `&&` drops the rest | Append `\|\| true`, or treat the count as data |
+| **Plan a phone probe that must reach a DIALOG** | **You cannot.** A synthetic tap cannot reach a control inside an embedded `AcceptDialog` sub-window at `content_scale_factor` 2.62 (canvas coords, physical coords, `get_final_transform()` all tried). Taps into the MAIN viewport route normally | Project-picker and New World legs are **provable on glass only**; pressing by label tests the handler, not the touch path |
+| **State how many checks a probe runs** | **Print the count; never assert it in prose** (a doc said 26, the probe ran 29) | Increment in `_check()` and put it in the RESULT line |
+| **Report that you could not reach something** | **"I could not reach it" is an ABSENCE CLAIM.** A lane called six right-dock sections unreachable; the verifier reached **five in one pass**: it sought a context REPLACEMENT where the header documents sections **APPENDED** | Say what you tried and what mechanism you assumed |
+| **Verify anything phone-shaped** | **`--force-touch` on desktop is not the phone, and `pressed.emit()` is not a finger.** Synthesised input is injected **downstream** of `MOUSE_FILTER`, scrims and hit areas; a session of green probes shipped an APK where the owner could not find the generation menu or use the journey planner | **See with `adb exec-out screencap`, act with `adb shell input tap/swipe`** at coordinates read off the image; navigate from launch tapping only what is visible. Desktop probes are for regression, never reachability |
+| **Claim a screen "works" on a phone** | **Separate "it renders", "it can be operated", "it can be FOUND".** Probes proved the journey planner fits and clears the tap floor; reachability was never tested | State which of the three you measured |
+| **Find a screen that is mostly blank** | **Ask what is IN it before ruling on its size.** A phone sheet measured 1 003 rows holding one strip (933 blank, 912 with a world) was deferred as a detent ruling; **a correct detent over empty content is still an empty screen** | If blankness survives the state change that should fill it, report what is missing, not dimensions |
+| **Conclude a batch has finished** | **A run directory you cannot find is not a run that has stopped.** A batch was closed with the third lane and verifier still working; the commit landed mid-verification | **Wait for the completion notification or check the task list**; never infer completion from the filesystem or from "the lanes I know about have reported" |
+| **Write "still X" or "routes NONE" into the backlog** | **Re-measure it in the same breath.** *"The journey planner still routes NONE"* (`grep -c DccUnits` = **34**) and *"the measure tool converts 4 of its 7 modes"* (**six** modes, **all three** named convert) both came from the brief | The four-second grep would have caught both |
+| **Quote a byte or character offset into a document** | **Say which and re-measure, or name the symbol.** Six offsets were "corrected" by labelling them *character* vs *byte*: **both invented**; the real byte-minus-character delta is **52 to 126** (copy read with newline translation on). A UTF-8 CRLF file's offset has three values | **Grep the symbol and name the guard it sits under** |
+| **Raise a touch target to the 44 dp floor** | **Ask what the enlarged control now intercepts.** Flooring fourteen sliders from 32 to 44 dp widened the band where a vertical scroll starting on a slider is a **value write** (Ocean depth 0.60 → 0.14) | Arbitrate the gesture in scrollers; **do not shrink the target back** |
+| **Record a glyph substitution** | **The deviations table must agree with the byte that shipped.** *"U+2212 present and used"* while the code shipped ASCII `-` | **Check the call site, not the cmap** |
+| **Assert that two runs produce identical output** | **Compare what the format promises is stable; exclude what it does not, including the CONTAINER's metadata.** The save-writer stamps every zip entry from the clock (DOS time, 2 s), so a pair straddling a tick differs at byte 10 (`SAVEFILE_COMPAT.md` section 16); flaky for months | Exclude clock-stamped metadata (JSON's `created` was excluded, the container's was not) |
+| **See a suspiciously round test total** | **`cargo test --workspace` FAIL-FASTS**: a flaky io test gave **100 lines / 2 387 passed** against the true floor **157 / 3 253** | **Count result lines before reading any total** (×3 rule above); `--no-fail-fast` for the whole picture |
+| **Write a test helper that returns a collection** | **Assert non-empty in the helper.** A fingerprint helper mutated to `Vec::new()` left **both tests green**. The silently-empty-golden trap has bitten **five** subsystems | Mutate the helper |
+| **Paste a `grep` and its result into a comment** | A command that measures the file stops reproducing when it changes (`grep -n "HSlider.new()"`: two, then one) | Name the SYMBOL, not the command |
+| **Run a mutation harness that rebuilds and installs** | **Restore the DEVICE too.** A slop-mutation harness restored every source file (sha256) and **left the mutated APK on the handset** | Hash the installed `base.apk` (`pm path`) against `builds/android/` |
+| **Report a census as the enumeration of a hazard** | **A live-tree walk is a LOWER BOUND from one state; name the state.** 247 `Range` nodes / 242 hazards from a **world-less** boot where `tl_available()` is false; **four slider sites contributed nothing** | State the boot state; cross-check against a code inventory |
+| **Fix a gesture hazard for one control class** | **Ask which OTHER class has the same shape.** `PgSlider` fixed every `Range`, yet a swipe on an `OptionButton` still opens its popup. **The hazard is the gesture, not the widget** | Inventory by gesture, not base class |
+| **Trust an on-glass result** | **Read logcat for the stale-library warning first**: Android exports carried the `android-dev` `.so`, logging *"no `WorldGen.<fn>()` … older than the shell"* on cold boot | Any native-backed on-glass claim is unsafe while it is in the log (shell-side layout/gestures unaffected) |
+| **Walk a Godot scene tree to count anything** | **`get_children(true)`**: the default omits INTERNAL children (**4 401** vs **5 512** nodes; 12 `SpinBoxLineEdit` and a `TabBar` hidden) | Always pass `true` |
+| **Rule a control class OUT of a hazard** | **Say which question you answered.** `SpinBox` was cleared because a swipe does not STEP its value; the press takes FOCUS (scroll `0 → 0` vs `0 → 62`) and on Android raises the soft keyboard | **"Not this mechanism" is not "not a hazard"** |
+| **Write "this defect is milder"** | **Severity is measured.** A dropdown filed as *"milder … can dismiss it"* measured **`sel=7 → sel=3` with the popup closed**: the slider defect, silent | Measure the outcome first |
+| **Explain why something was left untouched** | **Check the mechanism reaches it.** A comment credited the "no vertical scroller" gate for leaving seven phone `MenuButton`s stock; **0 of 7 carry `_phone_fitted`** | Invert the gate to test cause and effect |
+| **Invent a screening metric (darkness, line count, size)** | **Calibrate against a KNOWN GOOD and KNOWN BAD, both numbers in the label.** `dark%=94.2 (94.2 = splash, ~85 = picker)` was backwards: splash **98.9%**, picker **94.2%** | An uncalibrated metric converts a glance into false confidence |
+| **Read a size, position or detent from an animating control** | **Await the tween.** A sheet read `609.0 px = 232.32 dp`; six runs gave **592 / 589 / 575 / 574 / 506 / 510** inside a 0.28 s detent tween | Await, repeat, quote the spread |
+| **Search for probes that touch shared state** | **Search for the CONSTANT as well as the literal path**: counts of `user://` probes read 28, 26, 26; the answer is **28** (two use `DccSettings.CONFIG_PATH`) | Grep both |
+| **Write "it matches the design"** | **Quote the departures table.** "Sub-dp" fidelity from a subset; the spec lists about twelve departures, including **10 parameter groups vs the canvas's 8** and a slider row **floored to 44 dp vs 22 px** | Conformance is the whole table |
+| **Count log lines as a health signal** | **Ask what generates the lines**: a diagnostic build talks MORE when sicker. The 56-line build is 5 real + 51 `has no WorldGen.<sym>()`; 5 was healthy | Identify the line source first |
+| **Write a caveat into your own brief** | **A caveat you reason past launders the conclusion.** *"Absence of those warnings is NOT evidence"* made the 5-vs-50 metric unusable, and it was built anyway | Check what the caveat invalidates BEFORE the next paragraph |
+| **Escalate to a bisect, a rebuild, or a large row** | **Reproduce the failure ONE more way, cheaply, first, with your eyes.** One screencap would have ended a 33-commit bisect | **The cheapest disconfirming check before the expensive confirming one** |
+| **Trust a probe that reads `user://`** | **A probe sets up the state it asserts on, or declares and clears it.** `_nwsize_probe` on a byte-identical tree got **fail=1 twice** in one session and **fail=0 twice** in another: `cartalith_settings.cfg`'s `[recent] paths` and `projects=…/Worlds` are WRITTEN by probe runs | A probe reading what siblings wrote can go green for unrelated reasons |
+| **Blame persisted state for a probe that disagrees between sessions** | **Check the DISPLAY DRIVER first**: `RenderingServer.frame_post_draw` fires **0 of 240 frames headless**, **239 of 240 windowed**, and `app.gd::_open_welcome_when_drawn()` awaits it | An mtime inside a run window is a coincidence |
+| **Fix a touch hazard on a text field** | **The lever is `focus_mode`.** `Viewport::_gui_input_event` grabs focus **before** `_gui_call_input`, so `accept_event()` never helps; `MOUSE_FILTER_PASS` forwards nothing (`LineEdit::gui_input` accepts every left press) | A five-way table settled it; three plausible fixes failed |
+| **Override a stylebox on a `Button`** | **`flat = true` voids EVERY stylebox override**, `hover` too (13 sites drew nothing); the tell is a selected state distinguished only by ink or opacity | Render and read pixels |
+| **Run `--check-only`** | **Pass `--script res://…` too**, or Godot BOOTS THE PROJECT and looks hung (a "20-minute" check returns in seconds) | Returns in seconds |
+| **Rule on a plurality** | **Count the POPULATION first**: all 8 nodes of the winning padding belong to a different height role than the control ruled on. Four wrong figures passed through that row | State the population beside the count |
+| **Write a stop-and-report gate into a brief** | **A REQUIRED OUTPUT FIELD, not prose**: each gate HIT or NOT HIT with the deciding measurement. **×2 in five days:** a lane recounted, disagreed and implemented anyway (2026-09-08); another quoted *"88 dp > 66 dp budget"* then called it *"no collision"* (2026-09-12). **×3, 2026-09-12:** a lane wrote *G3: HIT* and shipped a 45-line change anyway | **The field made the breach visible, not impossible**; a verifier treats any code change after a HIT gate as blocking |
+| **File a defect you saw in a screenshot** | **Crop to full resolution and re-look.** A downscaled view showed two clipped labels; only one was real | Full-resolution crop |
+| **Append a row to `OUTSTANDING_WORK.md`** | **`rstrip() + row` lands in the LAST ARCHIVE block**: right for closed, wrong for open (open rows go at a numbered-section anchor). Both were backwards in one edit and the counter stayed CONSISTENT | Print the section each row landed in; assert it matches the row's state |
+| **Write to the guarded docs while a verifier runs** | **Say so in the verifier's brief**, or it chases the edits as unexplained drift (168 added lines, 2026-09-12) | Name the file and when |
+| **Measure "before" with a mutant** | **Reproduce the ORIGINAL measurement first.** `if false and …` left an empty 26 px container: bug read as 77 % clipped vs the real 45 % | Reproduce the original first |
+| **Report a control as disabled from reading its code** | **A guard's else-branch reason is not the control's state.** *Erode (droplet)* and *Count painted lakes as water* were listed disabled; both guards call `_has()` and both methods are exported `#[func]`s, so both are enabled | Check what the guard evaluates in a current build |
+| **Run two batches at once** | **Measurement-disjoint, not only file-disjoint**: a lane moving a dock minimum, frame floor or timing corrupts another lane's before/after | Name each lane's measured quantities in the briefs |
+| **Compare against HEAD while other lanes run** | **Scratch copies only** (`git show HEAD:<path>` into the scratchpad); **never `git stash`, `git checkout -- <file>`, or HEAD over the live file.** wf49 (2026-09-13): HEAD's `dcc_shell.gd` copied over the live file twice, and a `git stash` on `world_workspace.gd`. **×2, same day:** wf52 reverted a hunk in the live file with Edit despite the rule in its brief. **×3, 2026-09-23:** a bare `git stash` while two OTHER lanes had uncommitted work swept up a long-dead stash (a resurrected `main.tscn`, a stray `project.godot` edit), and `git stash pop` conflicted | `git stash list` empty at the end; the report names every HEAD copy's path. **Whole-tree snapshot: a scratch worktree (`git worktree add`)**; if a stash is unavoidable, `git stash push -- <own files only>` |
+| **Isolate a probe's user dir** | **Godot 4.7.1 has no `--user-data-dir`**: the flag's value takes the positional scene slot, running the interactive MAIN scene against the live user dir (2026-09-13: four boot-timing runs rotated the owner's Godot logs) | Isolate by a project copy with a distinct `config/name`; the probe's first log line appears and the live user dir's mtimes do not move |
+| **Fix a stale cache or an invalidation bug** | **Enumerate every writer of what the cache depends on.** 2026-09-13: a tile-cache fix covered one of three sculpt-commit buttons and none of undo, redo, revert, erode or the paint commits | Grep every writer (every `map_view.texture =`); probe each |
+| **Brief a layout change from a spec document's summary** | **Open the canvas markup and name the element.** wf49 briefed *"the canvas's 2-column grid"* from `TABLET_UI_SPEC.md` §2.4; the grid (`st.grid`) holds toggles/segments, sliders are full-width (`st.sliders`) | Quote canvas lines, not the paraphrase |
+| **Print from a Windows Python script** | **Print ASCII-safe or set `PYTHONIOENCODING=utf-8`**: printing `▸` to cp1252 crashed a filing script after its first save, behind a "refuses to run twice" guard | Every print after every save |
+| **Put a question, or a factual premise, to the owner** | **Verify the premise at the symbol, and search `LARGE_ITEM_RULINGS.md` for the question.** ×2. Star forts "never generate because settlements carry no `fortified` trait": the Place Editor writes it, the bridge reads it, the engine grants the fort; only the drawing was missing (**a stale code comment**). **2026-09-23:** Ruling AP re-asked landmark questions ruled on 2026-09-06 (rulings 10, 12, 13, 16) or earlier that day | Grep the rulings for the subject, open the symbol the answer would build; quote both or say neither exists |
+| **Say something is OCCLUDING something else** | **Check the two edges merely COINCIDE**: a sheet's clip and the nav bar's top both derive from `_phone_nav_reserve()` | **Sample a pixel at the covering element before and after** |
+| **Assume a device-only defect needs the device** | **Try the desktop composition first**: windowed 1080×2340 `--force-touch` reproduced within **3 px** of the device | Windowed 1080×2340 `--force-touch` |
+| **Capture a sheet, drawer or anything with detents** | **Name the detent and re-measure at it**: chips clipped at peek are fully visible one detent up | Re-measure at the original detent |
+| **Conclude a control does not respond to a tap** | **Check the control is still on screen**: MORE, MAP and PLAN "stopped responding" under a full-screen panel | Screencap first |
+| **Screenshot a running app as evidence** | **Take two and diff them**; differences outside the clock mean a mid-animation frame | **Record the installed build's `lastUpdateTime`** |
+| **Quote a count from a DIAGNOSTIC probe** | **Check its transform is the real draw's**: `Rect2(ZERO, size)` vs the renderer's INSET content rect gave 133 failures vs 151 | The ratio held; the count did not |
+| **Write "structurally cannot"** | **Check every consumer**: a guard skipping untriangulable polygons "cannot lose ink", **false for the ink pass, which strokes via `draw_multiline`** | Enumerate every consumer |
+| **Fix a probe's ordering bug** | **Ordering alone rots**: assert a value that DIFFERS between the two states | Value that differs between states |
+| **Cite a line as evidence that a defect is live** | **Read the block, not two lines**: for a draw call read what BRACKETS it (`push`/`pop`, `_begin`/`_end`) | **`git log -S` the helper**; a site fixed two weeks ago reads like one never broken |
+| **Read several lines with `sed -n 'Ap;Bp'`** | **It prints in FILE order**: a reversed read put a false "line numbers are swapped" correction into a brief | One line at a time, or `awk 'NR==A{print "A: "$0}'` |
+| **Strip comments and strings to find call sites** | **Strings FIRST (triple-quoted, then single-line), then comments**: a `#` in a string orphans its quote and eats newlines (299 lines → 62) | **Self-check by line count** |
+| **Assert that a converted value CHANGED** | **Inequality plus a suffix is satisfied by relabelling**: reconstruct the NUMBER from the converter (`DccUnits.to_unit()`), not a typed constant | Expected number from the converter |
+| **Fix a formatting inconsistency you just exposed** | **Check which side is non-conformant**: two styles side by side usually means one was ALREADY wrong; `design/**.dc.html` decides | Consult `design/**.dc.html` |
+| **Chase an engine "bug" reported by a probe's own scan logic** | **Verify the probe's read against the API contract first.** A 26 000-cell scan via `d.has("water")` reported the 2026-09-20 showcase world 100% ocean, surviving a `sample_cell()`, a `.dll` rebuild, standalone `generate_terrain()` (65% land) and `godot_print!` in `absorb()` (land 1 485 988 / ocean 881 766 / lake 317 174) | If the engine crate tests clean in isolation, suspect the probe's read |
+| **Guard a fixture on several conditions before trusting it** | **Count the INTERSECTION the guards certify.** LOD-D4's glaciated fixture (2026-09-21) put flow in the valley and altitude on the flanks, so `build_glacier_potential`'s two conditions never met: zero gated cells with three guards green | Compute the AND and assert it non-empty |
+| **Measure "the picture" from a tile render without accounting for the frame** | **`apply_border`'s opaque margin (`max(0.014·gw, 10)` cells) is in every tile render**: LOD-D4's `the_metrics_agree_with_the_picture` read 89.3% because the tile at `y0 = 8` sat in the border (424 frame pixels counted as mismatch) | Sample outside the margin or exclude it |
+| **Declare a list, a backlog or a sweep exhausted** | **Read it end to end once.** Three partial surveys of `OUTSTANDING_WORK.md` (2026-09-23) said "no decision-free work left"; a full read found two (`b19b9ea`, `b5aff17`). See the 2026-09-23 entry | Name the method ("read §1-§4 row by row") |
+| **Act on a summary's bucket for a row** ("ready", "no decision needed") | **Re-read the row's full text first.** Multi-ridge orogeny and IN-13's caravans were bucketed "no decision needed"; one row *"does not authorize building it"*, the other held two unchosen options (went to the owner as Ruling AP). ×16 instance of the backlog-row entry | Quote the row's gating sentence beside the bucket |
+| **Read a reference comment about what a later version did NOT change** | **It is not evidence of what the earlier version did; open the earlier code.** v1.05's *"BASE per-cell map loop is untouched"* hid that v0.103's lake stamp was never ported (lakes flickered on zoom, `13062e5`) | State what the earlier code does, with its frozen-reference line |
+| **Cull anything inside a Godot `_draw()`** | **Godot does not re-run `_draw()` when an ANCESTOR moves**: only zoom queued a redraw, so a pan kept the old cull (`13062e5`, `ViewportHost._update_lod()`) | Pan at unchanged zoom; culled content must appear on revealed ground |
+| **Declare a class of documents cleaned** ("all design docs", "all scope docs") | **Enumerate the class from `CLAUDE.md`'s routing table, not a filename pattern**: "design-document cleanup is complete" (2026-09-23) missed eight documents (e.g. `ANDROID_UI_SPEC.md`, `TABLET_UI_SPEC.md`) | Paste the list and its source into the report |
+| **Paint a layer into the map in a shader (rivers, any overlay that used to be a clipped stroke)** | **A stroke got the baked plate-frame fade for free by being clipped to `_interior_rect`; a shader-painted layer does not.** Carry `render::border_cover_f` into the field (RIM-1: coverage ratio 1.17 until the frame weight went into the alpha channel). | Compare coverage painted vs the old path with extra tints switched OFF (a floodplain tint counts as coverage otherwise); expect ratio near 1.0 |
+| **Add a control to a tool bar or options row, or call it phone-ready** | **Check that a thumb can reach the bar, not that the probe passes.** Arming Paint selects WORLD, whose phone GENERATE sheet hides the tool-options row, so Size/Erase/Original were unreachable and the probe passed only through a forced reveal (Ruling BR, 2026-10-04). | The probe must reach the control through the real tab/sheet path; a probe that writes `_phone_tab` or calls a refresh itself is not a reachability proof |
 
 ## Why each rule exists
 
 ### [2026-09-03] Believing a backlog row instead of re-opening it ×16
 
-**Mistake:** Work was scheduled, and briefs written, against rows already done or
-whose blocker had lifted. Seven described built work (the manual-icon tool's
-three gaps, CA-05's resize handles, the layer sync, `_civSaltAccess`); four
-described lifted blockers — the "no JS runtime" claim was false for 18 days and
-cost a whole dispatched wave. The Religion row claimed `cartalith-civ::belief`
-does not exist; it is 945 lines.
+**Mistake:** Work was scheduled and briefs written against rows already done or whose blocker had lifted: seven described built work (e.g. CA-05's resize handles, `_civSaltAccess`); four described lifted blockers (the "no JS runtime" claim was false for 18 days and cost a wave); the Religion row said `cartalith-civ::belief` does not exist (945 lines). Batches 18-19 added four more: urban milestone 16 had shipped a day before its row said "blocked"; milestone 17's blocker was falsified **six minutes after it was written** and stood eleven days; DS-03's resolver had 87 live call sites while the row called it unstarted; the APK exclusion row was half stale. A lane re-opening the row first returns "already done, here is the evidence" often enough that it is a **first-class outcome**.
 
-**Four more, batches 18-19, and the pattern is now the expectation rather than the exception.** Urban milestone 16 had shipped a day before the row said it "remains … blocked by definition". Milestone 17's blocker was falsified **six minutes after it was written** and stood eleven days. DS-03's resolver had 87 live call sites across eight shell files while the row called it unstarted — for three days. The APK exclusion row was **half** stale: `_*` was already excluded, the `addons/` payload was not.
+**×16, 2026-09-23, one level up: a summary of the rows stood in for the rows.** A fast classification pass put multi-ridge orogenic belts and IN-13's caravans in "no decision needed"; each row's own text said otherwise (*"does not authorize building it"*; two unchosen options and an unasked sea-lane question). Both went to the owner as Ruling AP. **A bucket is a compression, and compressing a row drops its gates first.**
 
-**What this changes:** a lane told to re-open a row before acting returns "already done, here is the evidence" often enough that it is a **first-class outcome, not a failed task** — and every one of these four still produced real work, because guarding built-but-unguarded code found defects (`ROLE["h_rail_head"]`, a golden covering 12 of 13 stage modules).
+**Cause:** Treating `OUTSTANDING_WORK.md` as state rather than a router.
 
-**×16, 2026-09-23, one level up: a summary of the rows stood in for the rows.** A
-fast classification pass sorted `OUTSTANDING_WORK.md` into buckets and put two
-rows in "no decision needed": multi-ridge orogenic belts and IN-13's caravans.
-Each row's own full text said otherwise. The orogeny row ended *"this row only
-removes the 'maybe never shipped' blocker, it does not authorize building it"*.
-The IN-13 row recorded caravans as *"deliberately deferred"*, with two options
-nobody had chosen and a sea-lane question *"not yet asked"*. Both were caught
-before a build was dispatched and went to the owner in Ruling AP. The failure
-is the same one this entry has always recorded, with one more document in the
-chain: the row stood in for the code, and now the summary stood in for the row.
-**A bucket is a compression, and compressing a row drops its gates first**,
-because a gate is usually one qualifying sentence at the end.
+**Rule:** Re-open at the cited symbol (not the line) before acting. For a summary of rows, re-read each row's full text before trusting its bucket.
 
-**Root cause:** Treating `OUTSTANDING_WORK.md` as state rather than as a router.
-
-**Prevention:** Re-open at the cited symbol before acting. Find the symbol, not
-the line — line numbers drift daily here. When the thing in hand is a summary
-of rows, re-read each row's full text before acting on the summary's bucket.
-
-**Verification:** The report names the symbol opened, not the row's text. For
-a bucketed row, it quotes the row's own gating sentence or says there is none.
+**Verify:** The report names the symbol opened; for a bucketed row it quotes the row's own gating sentence or says there is none.
 
 ---
 
 ### [2026-09-03] Encoding "no value" as a plausible value ×5
 
-**Mistake:** `Option<f64>::None` → `0.0` where `0.0` is a legal Crowding (44 of
-614 rows read as real); `harbour_scale` defaulting to `1.0` and printing as
-though measured; `wall_spec` defaulting to `"none"`, identical to a real
-`"none"`; `VRAM budget: 0.0 GB` where `0` means *no cap* **and is the shipping
-default**; `float(<null>)` in a GDScript reader, which is a runtime error that
-aborted the whole document and silently cleared the user's saved set.
+**Mistake:** `Option<f64>::None` -> `0.0` where `0.0` is a legal Crowding (44 of 614 rows); `harbour_scale` defaulting to `1.0` and printing as measured; `wall_spec` defaulting to `"none"`; `VRAM budget: 0.0 GB` where `0` means *no cap* and is the shipping default; `float(<null>)` in a GDScript reader aborting the document and silently clearing the user's saved set.
 
-**Root cause:** Reaching for `unwrap_or` / `get(k, default)` to avoid handling
-the absent case, when absence is information the reader needs.
+**Cause:** `unwrap_or` / `get(k, default)` used to avoid handling absence, which is information the reader needs.
 
-**Prevention:** Omit the key; callers use `has()`; dash with the reason.
+**Rule:** Omit the key; callers use `has()`; dash with the reason.
 
-**Verification:** `grep -nE "unwrap_or\(0\.|get\(.*, ?0\.0\)|get\(.*, ?1\.0\)"`
-over the diff, then render over real data and count.
+**Verify:** `grep -nE "unwrap_or\(0\.|get\(.*, ?0\.0\)|get\(.*, ?1\.0\)"` over the diff, then render over real data and count.
 
 ---
 
 ### [2026-09-03] Leaving prose that describes the old behaviour ×48
 
-**Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
-module doc listing `rockSlope` refinement as **excluded** in the file that had
-just implemented it — and that doc is the row's own cited location; `STATUS.md`
-naming three deleted probes as "present and uncalled"; a `_todo` false in every
-clause; two chips citing capabilities built hours earlier; a panel formula
-inverted against its own engine, agreeing only at the default.
+**Mistake:** Controls disabled by reasons that had become false; `render.rs`'s module doc listing `rockSlope` refinement as **excluded** in the file that had just implemented it; `STATUS.md` naming three deleted probes as "present and uncalled"; a panel formula inverted against its engine. Batch 17 added seven, e.g. `world_workspace.gd:159` "Seasons and Köppen-Geiger classification are not ported" (`cartalith-climate/src/koppen.rs` is golden-tested and live), `performance_window.gd:140` "no per-device enumeration exists in cartalith-gpu" (`enumerate_devices`, `multi.rs:378`), `civilization_workspace.gd:5405` "cartalith-civ has no such relation" (`relations.rs` exists and three surfaces draw it).
 
-**Seven more, batch 17:** `world_workspace.gd:159` "Seasons and Köppen-Geiger
-classification are not ported" (`cartalith-climate/src/koppen.rs` is golden-tested
-and drives a live layer); `performance_window.gd:140` "no per-device enumeration
-exists in cartalith-gpu" (`enumerate_devices`, `multi.rs:378`);
-`civilization_workspace.gd:5405` "cartalith-civ has no such relation to record"
-(`relations.rs` exists to create that edge, and three surfaces already draw it —
-one 330 lines above the note in the same file); `FUNCTIONAL_CONTRACT.md:627` and
-`:583`; `STATUS.md` RD-0 and RD-1.
+**Sub-shape: a stale claim that a whole crate module does not exist.** `git log -S` put two such strings *before* their crates and standing sixteen and fourteen days. A per-wave diff review sees young entries only, and `tools/audit_wiring.py` structurally cannot see them (fourth cut running).
 
-**Root cause:** Behaviour and the prose describing it live apart; one gets edited.
+**Batch 18:** milestone 17's blocker ("settlements carry no `specialisation` and no `traits`") was falsified six minutes after it was written (`be2d5f7` 19:31:09, `e63d5d9` 19:37:15) and stood eleven days; and concurrently one lane removed a hardcode while another shipped a note saying the hardcode was why a control was inert — true at dispatch, false on arrival.
 
-**A sub-shape worth naming: a stale claim that asserts a whole crate module does
-not exist.** b-7 and b-8 do not say "this control is unwired" — they say the Rust
-does not exist. `git log -S` puts both strings *before* their crates (five days,
-one day) and standing sixteen and fourteen. A per-wave diff review sees the young
-entries and neither of these, and `tools/audit_wiring.py` structurally cannot see
-any of them — fourth cut running. All three of batch 17's highest-severity finds
-sit in surfaces that otherwise work, so no disabled-control sweep reaches them.
+**Cause:** Behaviour and the prose describing it live apart; one gets edited. The prose was true when written and nothing re-reads a comment because a *different* crate landed.
 
-**Root cause of the sub-shape:** the prose was true when written. Nothing re-reads
-a comment because a *different* crate landed.
+**Rule:** A stale comment is a defect, not a nit. **A reworded reason that is still false is worse than the original — it looks freshly checked.** Re-opening backlog rows does not find these.
 
-**Batch 18 added the shortest-lived instance yet, and a new mechanism.** Milestone
-17's backlog blocker — "settlements carry no `specialisation` and no `traits`" —
-was falsified **six minutes after it was written** (`be2d5f7` 19:31:09 added the
-hardcode, `e63d5d9` 19:37:15 added the `PlaceExtras` that supplies it) and stood
-for eleven days. And a *concurrent* instance: one lane removed a hardcode while
-another lane, in the same wave, shipped a note explaining that the hardcode was
-why a control was inert. True at dispatch, false on arrival, and worded as though
-freshly checked. The verifier caught it; nothing else would have.
-
-**Prevention:** A stale comment is a defect, not a nit. **A reworded reason that
-is still false is worse than the original — it looks freshly checked.** Re-opening
-backlog rows does not find these; the grep below does.
-
-**Verification:** Grep the touched files for the old behaviour's vocabulary. To
-sweep for the sub-shape:
-`grep -rn "cartalith[-_]" --include=*.gd shell/ | grep -iE "no |not |never |missing|absent"`
-and open every symbol named.
+**Verify:** Grep the touched files for the old behaviour's vocabulary. Sub-shape sweep: `grep -rn "cartalith[-_]" --include=*.gd shell/ | grep -iE "no |not |never |missing|absent"`, then open every symbol named.
 
 ---
 
 ### [2026-09-03] A test that compares a constant against itself ×2
 
-**Mistake:** `assert_eq!(e.brush.r, ICON_BRUSH_R_MAX)` and
-`assert!(err.0 < MIN_REGION_WORLD_AXIS)`. Six constants and an RNG seed survived
-mutation with the suite green.
+**Mistake:** `assert_eq!(e.brush.r, ICON_BRUSH_R_MAX)` and `assert!(err.0 < MIN_REGION_WORLD_AXIS)`; six constants and an RNG seed survived mutation with the suite green.
 
-**Root cause:** The assertion was written from the implementation, so it
-restated the code instead of pinning it.
+**Cause:** The assertion was written from the implementation, so it restated the code instead of pinning it.
 
-**Prevention:** Assert literals, or the independent thing the value must equal —
-`generate_sized`'s own `grid_w.max(4)`, the reference's `min="2" max="60"`.
+**Rule:** Assert literals, or the independent thing the value must equal (`generate_sized`'s own `grid_w.max(4)`, the reference's `min="2" max="60"`).
 
-**Verification:** Mutate it and watch the test go red.
+**Verify:** Mutate it; the test must go red.
 
 ---
 
 ### [2026-09-02] Declaring green without both checks ×3
 
-**Mistake:** (a) Commit `0f0fe55` used an undeclared `_label_cull` in a `.gd`
-file: `cargo test` said **2 821 passed, 0 failed** while `shell/app.gd` — the
-application root — would not compile and the app could not boot. (b) After
-flipping a default, verified five crates, declared green, and had broken **16
-`cartalith-civ` golden suites**. (c) **2026-09-23, the orchestrator, about
-documents rather than code.** It reported *"design-document cleanup is
-complete"* after enumerating the design documents with a filename grep. The
-grep missed design and spec documents that `CLAUDE.md`'s own routing table
-lists, among them `ANDROID_UI_SPEC.md` and `TABLET_UI_SPEC.md` (eight in all,
-by the orchestrator's recount). The claim was one of completeness, and the
-enumeration behind it covered part of the class.
+**Mistake:** (a) Commit `0f0fe55` used an undeclared `_label_cull` in a `.gd` file: `cargo test` said **2 821 passed, 0 failed** while `shell/app.gd` would not compile. (b) After flipping a default, five crates were verified and green was declared; **16 `cartalith-civ` golden suites** were broken. (c) **2026-09-23, about documents:** "design-document cleanup is complete" was reported after a filename grep that missed eight design/spec documents `CLAUDE.md`'s routing table lists (e.g. `ANDROID_UI_SPEC.md`, `TABLET_UI_SPEC.md`).
 
-**Root cause:** The Rust suite and the Godot shell are separate compilation
-domains, and only one is in CI. Blast radius was reasoned about, not measured.
-(c) has the same shape in a different domain: "done" was declared over a set
-whose members were guessed from a naming pattern, not read from the place that
-defines the set.
+**Cause:** The Rust suite and the Godot shell are separate compilation domains and only one is in CI; blast radius was reasoned, not measured. (c): the set was guessed from a naming pattern, not read from where it is defined.
 
-**Prevention:** `cargo test --workspace` **and** parse-check every `.gd` you
-touched plus `shell/app.gd`. Ship divergence behind the app-boundary pattern so
-goldens stay bit-identical. For a documentation pass, enumerate the class from
-`CLAUDE.md`'s routing table (or the index that defines it), not a filename
-pattern.
+**Rule:** `cargo test --workspace` **and** parse-check every `.gd` you touched plus `shell/app.gd`. Ship divergence behind the app-boundary pattern so goldens stay bit-identical. For a documentation pass, enumerate the class from `CLAUDE.md`'s routing table, not a filename pattern.
 
-**Verification:** Paste the summed total line; grade `.gd` only on stderr
-containing "Parse Error" / "Failed to load script" — the exit code is unreliable.
-For a document class, paste the enumerated list and its source into the report.
+**Verify:** Paste the summed total line; grade `.gd` only on stderr containing "Parse Error" / "Failed to load script" (exit code is unreliable). For a document class, paste the enumerated list and its source.
 
 ---
 
 ### [2026-09-03] Covering some inputs of a thing, not all of them ×3
 
-**Mistake:** `with_ground_tiles` reached the on-screen builder but not
-`export_raster.rs`, so the map blended the pack tile and **every exported PNG
-blended the flat swatch**. The Units formatter reached one `match` arm of
-`_measure_readout()` and not its siblings — "135.0 nm" in one mode, "r 250 km"
-in another. The belief layer's staleness key covered `belief_seed`'s second
-argument and not its first, so reassigning a settlement to a faction of another
-faith left it showing the old religion while the guard reported itself current —
-**and that was the fix for the identical miss on the religion column**, made one
-lane earlier.
+**Mistake:** `with_ground_tiles` reached the on-screen builder but not `export_raster.rs`, so every exported PNG blended the flat swatch. The Units formatter reached one `match` arm of `_measure_readout()` and not its siblings ("135.0 nm" vs "r 250 km"). The belief layer's staleness key covered `belief_seed`'s second argument and not its first, so reassigning a settlement to a faction of another faith kept the old religion while the guard said current — and that was the fix for the identical miss on the religion column.
 
-**Root cause:** Enumerating from the case in front of you rather than from the
-thing's own definition — its consumers, its `match` arms, or its signature.
+**Cause:** Enumerating from the case in front of you, not from the thing's definition (consumers, `match` arms, signature).
 
-**Prevention:** Derive the list from the definition, not from memory. For a
-capability, grep every builder/consumer. For a staleness key, **read the
-function's signature and cover every argument** — that is why the belief key now
-names `belief_seed(faction_of, faction_religion)` in its own doc. Divergences
-that move no pixel at the default are invisible to the suite.
+**Rule:** Derive the list from the definition. For a capability, grep every builder/consumer; for a staleness key, **read the signature and cover every argument** (the belief key now names `belief_seed(faction_of, faction_religion)` in its doc). Divergences that move no pixel at the default are invisible to the suite.
 
-**Verification:** Exercise each consumer / arm / argument, not the one you
-edited. Change each input in turn and confirm the dependent thing reacts.
+**Verify:** Change each consumer / arm / input in turn and confirm the dependent thing reacts.
 
 ---
 
 ### [2026-09-03] Single-sample timings written as measured fact ×3
 
-**Mistake:** The lane that closed *"average the benchmark over multiple runs"*
-then wrote three single-sample figures into two doc comments and a scope
-document. A 416 ms handshake re-measured at **730 ms**; a "5× spread" at
-**1.4%** (contaminated by parallel `cargo test` contention); a "halving" at
-1.35×.
+**Mistake:** A lane that closed *"average the benchmark over multiple runs"* wrote three single-sample figures into doc comments and a scope document: a 416 ms handshake re-measured at **730 ms**; a "5× spread" at **1.4%** (contaminated by parallel `cargo test`); a "halving" at 1.35×.
 
-**Root cause:** A number from a real run feels like a measurement even when it
-is one sample from a noisy device under contention.
+**Cause:** A number from a real run feels like a measurement even when it is one sample from a noisy device under contention.
 
-**Prevention:** Median with min..max, or state the direction not the factor. Run
-timing harnesses alone. No point estimates in doc comments.
+**Rule:** Median with min..max, or state the direction, not the factor. Run timing harnesses alone. No point estimates in doc comments.
 
-**Verification:** Re-run independently; compare against the stated spread.
+**Verify:** Re-run independently; compare against the stated spread.
 
 ---
 
 ### [2026-09-02] Claiming a measurement that was never run
 
-**Mistake:** Told agents that damping `impact_field` would fail sixteen
-`cartalith-civ` golden suites, "measured, not hypothetical". It reaches the civ
-layer nowhere; the crate passes 27/27. The false figure propagated into a source
-comment and into `DECISIONS.md` §7l-ii as "measured history".
+**Mistake:** Agents were told damping `impact_field` would fail sixteen `cartalith-civ` golden suites, "measured, not hypothetical"; it reaches the civ layer nowhere (27/27 pass). The false figure propagated into a source comment and `DECISIONS.md` §7l-ii as "measured history".
 
-**Root cause:** Carrying a real figure from an adjacent change and restating it
-as if re-measured.
+**Cause:** Carrying a real figure from an adjacent change and restating it as re-measured.
 
-**Prevention:** Never write "measured" for a number you did not just produce.
+**Rule:** Never write "measured" for a number you did not just produce.
 
-**Verification:** Reproduce from the command shown before it enters a decision
-record.
+**Verify:** Reproduce from the command shown before it enters a decision record.
 
 ---
 
 ### [2026-09-03] Mutation tooling that corrupts the tree ×3
 
-**Mistake:** (a) A `sed` script silently failed on patterns containing `*` (BRE
-quantifier) and reported them SURVIVED, and scored a non-compiling crate as
-SURVIVED. (b) An agent's whole-file `.mutbak` was snapshotted while a *different*
-agent's edit was live; its restore overwrote that agent's source. (c) A script
-died mid-run on a path error and **left the mutant in the source**.
+**Mistake:** (a) A `sed` script silently failed on patterns containing `*` (BRE quantifier), reported them SURVIVED, and scored a non-compiling crate as SURVIVED. (b) A whole-file `.mutbak` was snapshotted while a *different* agent's edit was live; its restore overwrote that source. (c) A script died mid-run on a path error and **left the mutant in the source**.
 
-**Root cause:** Treating mutation testing as a text operation, not a transaction.
+**Cause:** Mutation testing treated as a text operation, not a transaction.
 
-**Prevention:** Python only; exact literal replace; occurs-exactly-once
-assertion; BUILD_ERROR separate from SURVIVED; restore in a `finally`. Never
-`sed`, never a whole-file backup.
+**Rule:** Python only; exact literal replace; occurs-exactly-once assertion; BUILD_ERROR separate from SURVIVED; restore in a `finally`. Never `sed`, never a whole-file backup.
 
-**Verification:** Grep zero MUTANT residue; hash the file against pre-run.
+**Verify:** Grep zero MUTANT residue; hash the file against pre-run.
 
 ---
 
 ### [2026-09-03] Using a helper that does not exist ×2
 
-**Mistake:** Wrote `_link(...)` in `menus.gd` and `_group_thousands(...)` in
-`dcc_units.gd`. Neither existed.
+**Mistake:** Wrote `_link(...)` in `menus.gd` and `_group_thousands(...)` in `dcc_units.gd`; neither existed.
 
-**Root cause:** Assuming a convention by analogy with a sibling file.
+**Cause:** Assuming a convention by analogy with a sibling file.
 
-**Prevention:** Grep for `func <name>` before calling it. In `menus.gd`, a
-`_todo` where a `_signpost` belongs makes `command_index.gd` count a shipped
-feature as missing.
+**Rule:** Grep for `func <name>` before calling it. In `menus.gd`, a `_todo` where a `_signpost` belongs makes `command_index.gd` count a shipped feature as missing.
 
-**Verification:** `--check-only` on the touched file.
+**Verify:** `--check-only` on the touched file.
 
 ---
 
 ### [2026-09-03] `--import` strips `project.godot` comments
 
-**Mistake:** An import removed **83 lines** of `;` comments — the block
-explaining why `orientation=6` is an int not a string, and why there is
-deliberately no `stretch/mode` key. No key changed, so nothing failed.
+**Mistake:** An import removed **83 lines** of `;` comments (why `orientation=6` is an int, why there is deliberately no `stretch/mode` key). No key changed, so nothing failed.
 
-**Root cause:** The variant parser rewrites the file without preserving comments.
+**Cause:** The variant parser rewrites the file without preserving comments.
 
-**Prevention:** `project.godot` is off limits. If an import is unavoidable,
-diff afterwards **every time**.
+**Rule:** `project.godot` is off limits. If an import is unavoidable, diff afterwards **every time**.
 
-**Verification:** `git diff …/project.godot` empty; `git checkout --` if the
-only change is deletions.
+**Verify:** `git diff …/project.godot` empty; `git checkout --` if the only change is deletions.
 
 ---
 
 ### [2026-09-03] A token re-base silently invalidated four relationships
 
-**Mistake:** The 2026-08-31 token re-base changed values that other code had
-built *relationships* on, and nothing re-checked them. `--ins` moved #101112 ->
-#191c1e, which turned an asset-library checkerboard from (7,8,8) apart to
-**(2,3,4)** — invisible — in the exact pair a comment two lines above had
-recommended. A trait-chip hover became a *darkening* where it had been a lift. On
-light, `raised` and `panel` became byte-identical, so a drag preview was an
-unbordered rectangle the colour of the surface under it. And a verdict green left
-as a raw `Color(0.48, 0.78, 0.49)` sat at **1.96:1** on the light panel.
+**Mistake:** The 2026-08-31 token re-base changed values other code had built *relationships* on. `--ins` moved #101112 -> #191c1e, taking an asset-library checkerboard from (7,8,8) apart to **(2,3,4)** — invisible — in the pair a nearby comment recommended; a trait-chip hover became a darkening; on light, `raised` and `panel` became byte-identical (an unbordered drag preview); a verdict green left as raw `Color(0.48, 0.78, 0.49)` sat at **1.96:1** on the light panel.
 
-**Root cause:** A re-base is verified against its *sources* — each new value is
-right — while the properties that matter are *differences between* values, which
-no test and no golden covers.
+**Cause:** A re-base is verified against its *sources* (each new value is right) while the properties that matter are *differences between* values, which no test or golden covers.
 
-**Prevention:** After changing a shared token or constant set, re-check every
-relationship expressed over it: contrast ratios, adjacent-pair deltas, and any
-comment recommending one value over another. A literal colour is worse than a
-token twice over — it cannot be remapped, and `remap()` matches a baked colour
-back to its token while matching a literal to none.
+**Rule:** After changing a shared token/constant set, re-check every relationship over it: contrast ratios, adjacent-pair deltas, comments recommending one value over another. A literal colour is worse than a token: it cannot be remapped (`remap()` matches a baked colour back to its token, a literal to none).
 
-**Verification:** Compute the deltas and WCAG ratios for both palettes, not one.
-A defect visible only on light, or only on dark, will not appear in a single
-capture.
+**Verify:** Compute deltas and WCAG ratios for both palettes, not one; a light-only or dark-only defect will not show in a single capture.
 
 ---
 
 ### [2026-09-03] Citing a rule in a brief is not satisfying it
 
-**Mistake:** A verification brief said *"Dark theme, 1080x2400, count rows with
-no pixel above RGB(23,23,23)"* — and named **no mechanism for getting dark**.
-This machine boots `mode="light"` (`cartalith_settings.cfg`), where every
-background pixel is 251, so a literal execution measures `blank_rows=0` and
-reports a false improvement. **That is the exact trap the brief's own preflight
-row warns about, reproduced inside the brief that cites it.** Only the probe's
-`_force_dark()` plus a refuse-to-run-unless-dark guard makes the check real.
+**Mistake:** A verification brief said *"Dark theme, 1080x2400, count rows with no pixel above RGB(23,23,23)"* with **no mechanism for getting dark**. The machine boots `mode="light"` (`cartalith_settings.cfg`), where every background pixel is 251, so literal execution measures `blank_rows=0` and reports a false improvement — the trap the brief's own preflight row warns about. Only the probe's `_force_dark()` plus a refuse-to-run-unless-dark guard makes the check real. Also in that brief: `cargo test --workspace` was numbered first as evidence for a GDScript-only lane, and "BOTH lanes" was checked when one had died, so three checks targeted non-existent claims.
 
-Two smaller ones in the same brief: `cargo test --workspace` was numbered first
-as evidence for a **GDScript-only** lane, where no test result can be caused by
-the work under test (a collateral floor, not evidence — and the brief's own
-preflight row says the Rust suite cannot see the shell); and it asked a verifier
-to check "BOTH lanes" when one had died, so three checks targeted claims that did
-not exist and could not be refuted.
+**Cause:** Writing the rule into the brief feels like applying it. A rule names a hazard; a *check* must establish the conditions the hazard needs.
 
-**Root cause:** Writing the rule into the brief feels like applying it. A rule
-names a hazard; a *check* has to establish the conditions the hazard needs.
+**Rule:** For each check, name the **mechanism that establishes its precondition**. Build the verifier's input from what actually returned; a failed lane supplies no claims.
 
-**Prevention:** For each check, name the **mechanism that establishes its
-precondition**, not just the condition. And build the verifier's input from what
-actually returned — a lane that failed supplies no claims.
-
-**Verification:** Ask of each check: what result would refute the claim, can this
-check produce it, and does the environment it runs in satisfy its premise?
+**Verify:** Ask of each check: what result would refute the claim, can this check produce it, and does its environment satisfy its premise?
 
 ---
 
 ### [2026-09-03] Orchestration errors that waste a wave ×16
 
-**Batch 34 — two more, and the first one could have destroyed correct work.**
-(1) The brief told the verifier *"the destructive action must be text-only and
-not the rightmost — if the filled button is the destructive one, the pattern is
-inverted and worse than what it replaced."* The **approved artboard's variant B
-draws exactly that**: `Clear 128 packs`, rightmost, block-washed fill, no safe
-action. The rule belongs to variant A's footnote, where a safe action exists to
-sit last. A verifier executing the item literally would have refuted a lane for
-building the design the owner signed off. It did not — it opened the drawing and
-refuted the brief instead, which is the whole reason the verifier is told to
-check the brief. **The artboard was also genuinely inconsistent** (A's footnote
-stated a universal rule B breaks) and was corrected and republished.
-(2) The brief hedged *"two of three lanes may have introduced none [no
-constants], and that is fine."* All three introduced constants — 13 in
-`dcc_widgets.gd` alone. The hedge widened rather than blocked the check, but it
-invited skipping the one that produced this batch's largest finding: seven modal
-constants asserted against themselves, all seven surviving mutation.
+**Mistake (instances; batch numbers are the project's):**
+- **Batch 34:** the brief told the verifier *"the destructive action must be text-only and not the rightmost"*; the approved artboard's variant B draws exactly that (`Clear 128 packs`, rightmost, filled, no safe action) — the rule belongs to variant A's footnote. The verifier refuted the brief, not the lane; the artboard was genuinely inconsistent and was corrected and republished. The brief also hedged that lanes "may have introduced none [no constants]"; all three had (13 in `dcc_widgets.gd`), and the check skipped would have found seven modal constants asserted against themselves, all surviving mutation.
+- **Batch 33:** two claims quoted without opening: *"`apply_insets()` moved the app bar, nav bar and timeline"* (`PhoneMenu.apply_insets()`, `shell/phone_menu.gd:497`, has one caller and writes only `_screen`, `_sheet`, `_sheet_scrim`) and *"`DccWidgets.action` ships 39 px"* (it is `role_px("btn_min_h")` on touch, **26** on pointer; 39 appears nowhere) — the same shape as the ×15 row below, applied to a brief.
+- **Batch 17, false-premise items** (the check cannot be performed as written): "pick four rows the audit closed" (it closed one); "mutate one constant introduced by each lane" (two lanes introduced none; say "per lane that introduced one"); "render before and after" when the `.dll` predated every `.rs` edit; an item conflating two guard pairs (`<1%`/`>99%` hover card vs `<0.1%`/`>99.9%` panel). A false-premise item does not fail loudly: the verifier silently substitutes or reports an unearned green.
+- **Earlier:** one lane's brief pasted into another's prompt and dispatched separately; file-ownership partitioning stranding a correction a whole wave; a workflow script failing to parse on **unescaped backticks in a template literal** twice (the second was `(1080, 2400)` in a verifier brief); a fix named by register ID (**DS-12**) whose code lived outside the lane's ownership list; *"measure PH-16 in a probe at 393x852"* cannot discriminate because `phone_scale()` is exactly `1.0` there; a commit made while a verifier ran emptied the working tree so "`git diff` on project.godot is empty" passed for every file.
 
+**Cause:** Briefs built by copy-paste; partitioning by file with no route for cross-lane findings.
 
+**Rule:** One brief per lane, checked before launch. Escape every backtick in a workflow template literal and run `node --check`. Resolve a named item to its **actual file** before assuming the ownership list covers it. Serialize lanes sharing a file rather than forbidding the edit, and instruct lanes to **report** false prose in files they do not own. **Check your own verification instruction is discriminating** — a condition that cannot fail is worse than none. Four have shipped: a 393x852 probe size where `phone_scale()` is 1.0; a count that is 0 by construction; a working-tree `git diff` emptied by a mid-verification commit; and `git diff <hash> HEAD` where `<hash>` **is** HEAD.
 
-**Batch 33 — two more, both quoting something never opened.** (1) The brief told
-a lane *"check what else `apply_insets()` moved: the app bar, nav bar and timeline
-share it."* They do not. `PhoneMenu.apply_insets()` (`shell/phone_menu.gd:497`) has
-exactly **one** caller and writes only `_screen`, `_sheet` and `_sheet_scrim` — all
-inside `phone_menu.gd`; the app bar, bottom nav and timeline are laid out by
-`_apply_phone_orientation()`. Measured too: driving peek → full moves **none** of
-the six chrome rects at three densities. The lane caught it and was right to.
-(2) The brief asserted *"`DccWidgets.action` ships 39 px."* `action()` sets
-`role_px("btn_min_h")` on touch and **26** on pointer; **39 appears nowhere in
-`dcc_widgets.gd`.** Both figures were carried into the brief from an earlier
-summary instead of re-read at the symbol — the same shape as the `×15` row below,
-applied to a brief rather than a backlog row.
+**Verify:** Re-read each prompt for a foreign lane's heading before launching. Ask what result would refute the claim, then check the instruction can produce it.
 
-
-
-**Batch 17 — a whole class of brief defect: an item whose premise is false, so
-the check cannot be performed as written.** The verifier found four, three of
-them premise failures. (1) *"Pick at least four rows it calls closed and re-open
-them"* — the audit lane closed exactly **one** thing and said so; there were not
-four closures to sample, and the over-eager-closure risk the check exists to
-catch was structurally absent. (2) *"Mutate one constant introduced by each
-lane"* — two of three lanes introduced no constant (one edited only Markdown,
-one changed a sentinel string). Say **"per lane that introduced one."**
-(3) *"Render before and after"* — the Godot `.dll` predated every `.rs` edit in
-the batch, so no before could be staged and rebuilding destroys it; the real
-before/after was a source-level pinned hash. (4) An item conflated two guard
-pairs (`<1%`/`>99%` is the hover card's; the panel's is `<0.1%`/`>99.9%`), so a
-verifier reading literally checks one surface and reports the other green.
-
-**Why this matters more than a typo:** a false-premise item does not fail loudly.
-The verifier either silently substitutes something else or reports a green it did
-not earn. Three of these were caught only because this verifier was told to check
-the brief itself — the sixth consecutive batch in which it found a brief defect.
-
-**Earlier instances.** Pasted one lane's brief into another's prompt *and* dispatched it
-separately, so a single agent received both. File-ownership partitioning stranded
-corrections twice — a lane found false prose in a file it was forbidden to touch
-and the fix waited a whole wave. A workflow script failed to parse on **unescaped
-backticks inside a template literal** — twice, costing two dispatches; the second
-was `(1080, 2400)` written in prose inside a verifier's brief, which killed the
-verify phase after both build lanes had already completed. And a brief named a
-fix by its register ID (**DS-12**) whose code lived outside the lane's declared
-file-ownership list, because the ID's backlog wording implied a different file
-than the one it is in. And a verification
-instruction was itself wrong: *"measure PH-16 in a probe at 393x852"* cannot
-discriminate, because `phone_scale()` is exactly `1.0` at that size — the lane's
-choice of 1080x2400 was correct and the brief called it an evasion. And a
-commit made *while a verifier was running* emptied the working tree, so its
-"confirm `git diff` on project.godot is empty" check passed for every file
-whether or not it had changed.
-
-**Root cause:** Building briefs by copy-paste; partitioning by file with no
-route for cross-lane findings.
-
-**Prevention:** One brief per lane, checked before launch. Escape every backtick
-inside a workflow template literal and run `node --check` on the script. Resolve a
-named item to its **actual file** before assuming the ownership list covers it. Serialize lanes sharing a file rather than
-forbidding the edit, and always instruct lanes to **report** false prose in files
-they do not own. **Check your own verification instruction is discriminating**
-before demanding a lane satisfy it — a test condition that cannot fail is worse
-than none, because it looks like rigour. Four such have now shipped in briefs:
-a 393x852 probe size where `phone_scale()` is 1.0; a count that is 0 by
-construction; a working-tree `git diff` emptied by a mid-verification commit; and
-`git diff <hash> HEAD` where `<hash>` **is** HEAD — written while anticipating the
-previous failure and inheriting the same one. **Ask what result would refute the
-claim, then check the instruction can produce it.**
-
-**Verification:** Re-read each prompt for a foreign lane's heading before
-launching.
+---
 
 ### [2026-09-07] Two of my own, one hour apart: a batch closed early and a row copied from a brief
 
-**What happened.** Batch `wwz9r4i2t` had three lanes and a verifier. Two lanes’
-diffs were in the tree; the third had filed nothing. I looked for the workflow’s
-run directory under `~/.claude`, found none, and read that as "the run is over".
-It was not. I closed the batch, updated `OUTSTANDING_WORK.md` and committed
-`9ae7fad` **while the verifier was mid-run**. It caught me: *"9ae7fad landed
-MID-VERIFICATION, committing the exact lane diff I was verifying … from that
-point `git diff` was empty for everything and stopped being evidence."* Nothing
-was invalidated, because the committed content was byte-identical to what it had
-already opened — which is luck, not method. The third lane then filed a full
-report twenty minutes later: eight findings, six of them defects nobody had seen.
+**Mistake:** (1) Batch `wwz9r4i2t`: the workflow's run directory was not found under `~/.claude`, read as "the run is over"; the batch was closed and `9ae7fad` committed **mid-verification**, after which `git diff` stopped being evidence. The third lane then filed eight findings, six unseen defects. (2) That commit's units row said *"the journey planner still routes NONE"* (converted in `88bf297`, 34 `DccUnits` calls, a 79-check probe) and *"the measure tool converts 4 of its 7 modes"* (`MEASURE_MODES` has **six**; only `vertical` and `bearing` do not convert). A lane refused the sentence; the row copied it anyway. Also: the `CA-07` register reason said font family has no field in the label model; it does (`MapLabel::font`, `set_font`, `font_or_default()`), weight and case have none, so `(B)` stands on the **renderer**.
 
-**The second one is worse, because it shipped.** In that same commit I narrowed a
-units row to *"the journey planner still routes NONE"*. The planner had been
-converted in `88bf297`, one commit earlier, and carries 34 `DccUnits` calls with a
-79-check probe asserting its column headers. The row also repeated *"the measure
-tool converts 4 of its 7 modes; area, radius and section do not"*. `MEASURE_MODES`
-has **six** entries and `_measure_readout()` routes **all three** of those through
-`DccUnits`; the two that do not convert are `vertical` (metres, with a written
-reason) and `bearing` (degrees). A lane refused that sentence in its report and
-said exactly why it mattered: it *"would have sent me to build a helper that
-exists."* I had written the sentence into the brief, the lane refuted it, and I
-then copied it out of the brief and into the backlog anyway.
+**Cause:** A document I wrote treated as evidence about the tree: the run directory stood in for the run, the brief for the code. **A file I authored is a claim like any other.**
 
-**Root cause, and it is one cause, not two.** Both come from treating a document I
-wrote as evidence about the tree. The run directory stood in for the run; the
-brief stood in for the code. **A file I authored is a claim, exactly like any
-other claim in this project** — `CLAUDE.md` has said so since the audit that
-created it, and this is the same failure at one remove: I was the author, so I
-did not check.
-
-**Rules.** Wait for the completion notification before closing a batch — the
-filesystem is not the task list, and "the lanes I know about have reported" is not
-"the batch is done". And re-run the measurement in the same breath as writing a
-"still X" into the backlog, especially when the number came from a brief and most
-especially when a lane already refuted it. The grep that would have caught both
-took four seconds.
-
-**Also fixed in the same pass**, since the corrections travel together: the
-register’s `CA-07` reason claimed font *family, weight and case* all have no field
-in the engine’s label model. **Family does** — `MapLabel::font`, `set_font`,
-`font_or_default()`, a `LabelStyleSnapshot` round-trip, and `lib.rs` saying in as
-many words that sending the literal string already works. Weight and case genuinely
-have none. The `(B)` classification survives, but on the **renderer**, which is
-what that row’s own Blocked-by cell said from the start.
+**Rule:** Wait for the completion notification before closing a batch. Re-run the measurement in the same breath as writing a "still X" into the backlog, above all when the number came from a brief.
 
 ### [2026-09-07] Four in one day, all one shape: my own words used as evidence
 
-Two are recorded above. Two more landed in the Android batch, and together they
-make the pattern explicit enough to be worth naming as one thing.
+**Mistake:** Two more in the Android batch. A row said the canvas draws the per-stage readout as `stageRows` and `progLog`; `stageRows` is the **journey planner's leg list**, GENERATE's list is `GENSTAGES`. And offsets: six numbers labelled "character offsets" and the lane's "byte offsets" said to "run ~330 higher"; the verifier measured byte-minus-character deltas of 52, 54, 71, 75, 81, 126, from a copy opened with newline translation on: **a mechanism invented to make the number look measured.** Two real defects from the batch: a vertical scroll starting on a slider is consumed as a value write (Ocean depth 0.60 to 0.14; the 44 dp floor widened the band from 32 dp), and the phone's Archetype row dashed with *"Pick it in File ▸ New world"* while that dialog hides Archetype on a phone.
 
-**Third.** I filed a backlog row saying the canvas draws the missing per-stage
-readout as `stageRows` and `progLog`. `progLog` is right. **`stageRows` is the
-journey planner’s leg list** — it sits past `tabIsPlan`, under *"ROUTE · VHAL
-SERAI → PORT AMRE"*, with `st.days` and `st.ovNote`. The lane caught it and said
-what it would have cost: building `stageRows` into the GENERATE sheet would have
-put a journey planner inside the generation screen. GENERATE’s pipeline list is
-`GENSTAGES`. I had written that anchor into the brief myself.
-
-**Fourth, and the worst of the four.** Correcting the third, I kept my six
-offsets, labelled them "character offsets", and wrote that the lane’s byte
-offsets "run ~330 higher". I measured none of it. The verifier did: the real
-byte-minus-character delta is 52, 54, 71, 75, 81, 126. My numbers came from a
-scratchpad copy opened with newline translation on, so they were neither — a
-third quantity with no name. **I did not merely repeat a wrong number; I
-invented a mechanism that made it look measured.** That is the more expensive
-failure, because a reader can check a number and cannot check a reason.
-
-**The shape.** All four are the same move: a document I wrote standing in for
-the tree. The run directory stood in for the run; the brief stood in for the
-code, twice; and an explanation stood in for a measurement. `CLAUDE.md` has said
-since the audit that created it that **a document’s claim about itself is a
-claim, not evidence**. The gap it did not close is that *my own* claim gets the
-same exemption from me that a scope document used to get — I skip the check
-precisely because I remember writing it.
-
-**The rule that would have caught all four, and it is one rule.** Before a fact
-goes into a durable file, re-derive it from the tree in that same edit, and if
-it cannot be re-derived cheaply, **write the symbol instead of the number**.
-`grep -n stageRows` is seekable forever; "41 733" was wrong within an hour and
-carried a fabricated unit besides.
-
-**Two real defects from the same batch, kept because they are the useful half:**
-a vertical scroll starting on a slider is consumed as a value write (Ocean depth
-0.60 → 0.14 in one swipe, silently), and this batch’s own 44 dp touch floor
-widened that hazard band from 32 dp to 44 dp — a correct change that made an
-existing hazard worse, which is a thing to look for whenever a hit area grows.
-And the phone’s Archetype row dashes with *"Pick it in File ▸ New world"* while
-that dialog hides its Archetype control on a phone: a reason true about the
-desktop and false about the device it is printed on.
+**Rule:** Before a fact goes into a durable file, re-derive it from the tree in that edit; if that is not cheap, **write the symbol instead of the number** (`grep -n stageRows` is seekable forever).
 
 ### [2026-09-07] A flaky save test that hid 57 targets, and a helper that passed on nothing
 
-**The find.** A verifier ran `cargo test --workspace` and got **100 result
-lines / 2 387 passed**. The floor is 157 / 3 253. Nothing in a tail said so:
-`cargo test` fail-fasts, and one failing target **skips 57 others silently**.
-The total that comes back is not wrong-looking, it is just small — which is
-the same trap as a truncated total, arriving by a different route.
+**Mistake:** A verifier's `cargo test --workspace` returned **100 result lines / 2 387 passed** against a floor of 157 / 3 253: `cargo test` fail-fasts and one failing target **skipped 57 others silently**. `cartalith-io`'s two determinism tests asserted `write_to_vec(&p) == write_to_vec(&p)`, but the writer stamps every zip entry from the clock (2-second DOS resolution, `SAVEFILE_COMPAT.md` section 16), so two writes straddling a tick differ at offset 10. The replacement `content_fingerprint` (entry order, name, CRC-32, sizes) was nearly vacuous: mutated to `Vec::new()` both tests stayed green.
 
-**The cause.** `cartalith-io`’s two determinism tests asserted
-`write_to_vec(&p) == write_to_vec(&p)` — raw bytes. But `SAVEFILE_COMPAT.md`
-§16 records, with a measured example, that this writer **populates every zip
-entry’s timestamp from the clock** rather than leaving the 1980 DOS epoch, and
-argues that stamp is one of two mechanisms answering *"when was this saved"*.
-DOS time has two-second resolution, so two writes straddling a tick differ at
-the local header’s mod-time field. First differing byte: offset 10.
+**Rule:** Compare what the format promises is stable (pinning `last_modified_time` would have deleted a documented feature). A collection-returning test helper asserts its own non-emptiness (this one asserts `project.json`; `0..0` now kills both tests). **A test comparing two runs of one writer catches only a writer unstable BETWEEN runs, never one stably wrong**; ordering is pinned by the pyramid test's `assert_eq!(tiles, sorted)`.
 
-**Which side was wrong mattered, and the document settled it.** The obvious fix
-— pin `last_modified_time` to the epoch — would have deleted a documented
-feature to make a test pass. The tests were the wrong side: they asserted a
-determinism the format explicitly does not promise. One of them **already** had
-the right instinct, excluding JSON’s `created` because *"a timestamp is the one
-member that must differ between two saves"* — it simply never carried that one
-level down, to the container’s own stamp. So the fix is an existing decision
-applied consistently, not a new one, and it needed no ruling.
-
-**Then the fix nearly shipped vacuous.** The replacement compares a
-`content_fingerprint` — entry order, name, CRC-32, both sizes. Mutated to
-return `Vec::new()`, **both tests stayed green**: `assert_eq!` over two empty
-vectors proves nothing, and neither test looks at anything else. That is the
-silently-empty-golden-output trap, now five subsystems deep. The helper asserts
-its own non-emptiness and the presence of `project.json`, and mutating the
-range to `0..0` now kills both tests.
-
-**And the honest limit, stated because measuring it was cheap.** Mutating the
-CRC out of the tuple leaves both tests green too — and so would removing any
-other field. That is not a hole opened here: **a test that compares two runs of
-one writer can only catch a writer unstable BETWEEN runs, never one stably
-wrong**, and the raw-byte comparison had the identical blind spot. Ordering
-correctness is pinned separately and directly, by the pyramid test’s own
-`assert_eq!(tiles, sorted)`. The comment says that rather than implying the
-fingerprint covers more than it does.
-
-**Verified after**: 157 result lines, 3 253 passed, 0 failed, 28 ignored — and
-the default fail-fast run now reaches 157 lines too, which it could not while
-the flake was live.
+**Verify:** 157 result lines, 3 253 passed, 0 failed, 28 ignored.
 
 ### [2026-09-07] The phone was running the mutation build
 
-**The batch was good and the device was lying.** A lane fixed a real, measured
-hazard — 242 sliders on which a vertical swipe wrote a value instead of
-scrolling — and proved the 8 dp arbitration threshold by mutating it in both
-directions. Its restore discipline was exemplary **for the tree**: exact-literal
-replacement at all six sites, sha256 before and after, every run printing
-`RESTORE SAME`.
+**Mistake:** A lane proved an 8 dp gesture-arbitration threshold (fixing 242 sliders) by mutating it both ways, restoring the tree perfectly (sha256, `RESTORE SAME`), but installed an APK per mutation and **left the last on the phone**: installed `base.apk` hashed `d32a75d8…` = `builds/android/Cartalith-slop.apk`. The verifier could not reach a handset and said so. The main loop hashed `pm path`'s `base.apk` against every APK in the build directory, installed a clean export (`4ff2e257…`) and re-drove the screen, finding: a vertical swipe on the New World card **opened the Archetype dropdown instead of scrolling**, and every cold boot logged *"the loaded GDExtension has no `WorldGen.<fn>()` … older than the shell"* because the export shipped the `android-dev` `.so` (no native-feature on-glass claim was safe for four batches; nobody read the warning).
 
-It rebuilt and installed an APK for each mutation, and **left the last one on
-the phone**. The installed `base.apk` hashed `d32a75d8…`, which matches
-`builds/android/Cartalith-slop.apk` exactly and matches nothing else in that
-directory. So the handset was running a build with a deliberately broken gesture
-threshold — precisely the hazard the batch existed to fix — and any later
-on-glass check would have measured the mutation and reported it as the product.
-The lane’s own reported install hash matched nothing on disk either, which is a
-second signal that went unread.
-
-**The verifier structurally could not catch this**: no handset was reachable
-from its session, and it said so plainly rather than passing the on-glass half
-through as checked — which is the behaviour that made the gap findable. The main
-loop found it by hashing `pm path`’s `base.apk` against every APK in the build
-directory, then replaced it with a clean export from the corrected tree
-(`4ff2e257…`, hash-matched on disk and on the device) and re-drove the screen.
-
-**Two more came out of that ten-minute drive, and neither was reachable from a
-desktop.** A vertical swipe on the New World card **opened the Archetype
-dropdown instead of scrolling** — the same gesture shape the batch had just
-fixed for `Range`, one control class over, on a card whose surface is mostly
-dropdowns and which must be scrolled to reach CREATE WORLD. And every cold boot
-logs *"the loaded GDExtension has no `WorldGen.<fn>()` … the native library is
-older than the shell"* for three functions with full backtraces: **the Android
-export ships the `android-dev` `.so`**, so no on-glass claim about a
-native-backed feature has been safe for four batches. The warning was written to
-be read and nobody was reading it.
-
-**The pattern worth keeping.** Three of these are the same failure at different
-scales: a restore that covered the tree but not the device; a census that
-enumerated one boot state but was reported as the hazard; an inventory built
-from one base class and read as covering the gesture. **Each is a true
-measurement generalised one step past what it measured.** The habit that catches
-all three is the same: say what you observed, name the state you observed it in,
-and let the scope of the claim stop where the observation did.
+**Rule:** A mutation harness that installs restores the device too. Each of these was a true measurement generalised past what it measured (restore covered tree not device; census covered one boot state; inventory one base class): name the state and stop the claim's scope there.
 
 ### [2026-09-07] The probe undercounted the class it existed to count
 
-**A good batch, and every one of its four refutations is a claim that was one
-step wider than its measurement.**
+**Mistake:** The gesture census walked the tree with `get_children()`, omitting internal children (4 401 nodes vs 5 512) and hiding 12 `SpinBoxLineEdit` and a `TabBar`; corrected: `SpinBoxLineEdit` ×5 and `LineEdit` ×18 under live scrollers, where the report said 4. `SpinBox` was "cleared" because a swipe does not step its value, the wrong question: a swipe on the New World Seed field gives **scroll `0 to 0` with the internal `SpinBoxLineEdit` focused**, and focus raises the Android soft keyboard. A dropdown filed "milder" measured `sel=7 to sel=3` with the popup closed. A comment credited the "no vertical scroller" gate with protecting seven `MenuButton`s; **0 of 7 carry `_phone_fitted`**. (Good practice: the batch walked EIGHT named states, including a world-loaded one.)
 
-**The load-bearing one.** The gesture census walked the tree with
-`get_children()`. That omits internal children: 4 401 nodes against 5 512.
-Hidden in the gap were 12 `SpinBoxLineEdit` and a `TabBar` — `LineEdit`-derived,
-acting on press, live, under live vertical scrollers — **absent from both the
-before and the after census numbers**. The probe built to enumerate a hazard
-class could not see part of that class, and the walk is one keyword from
-correct. Fixed; the corrected census reports `SpinBoxLineEdit` ×5 and `LineEdit`
-×18 under live scrollers where the report said 4.
-
-**And the thing it hid is a real defect that a previous pass had "cleared".**
-`SpinBox` was ruled out of the slider hazard by measuring that a swipe does not
-step its value. True — and the wrong question. On the New World card a jittered
-vertical swipe on the Seed field gives **scroll `0 → 0` with the internal
-`SpinBoxLineEdit` focused**, while the label column at the same `y` scrolls
-`0 → 62`. On Android that focus raises the soft keyboard over the sheet. A
-negative control clears the mechanism it tested and nothing else.
-
-**My own contribution was a severity claim.** I filed the dropdown row saying it
-was *"milder … nothing changes silently — the user sees a popup and can dismiss
-it"*. I had watched a popup appear and reasoned from the mechanism. The lane
-measured it instead: `sel=7 → sel=3`, popup closed again at the end, sheet
-unmoved — the press opens the list under the finger, the drag travels it, the
-release picks whatever is beneath. **It is the slider defect exactly and it is
-silent.** It refused my sentence in its report, which is the behaviour that
-keeps briefs honest; had it believed me, a silent data-loss row would have been
-filed as a cosmetic one.
-
-**The fourth is the cheapest and the most human.** A comment credited the
-"no vertical scroller" gate with protecting the menu bar’s seven `MenuButton`s.
-Both facts in that sentence are true — they have no scroller, and the gate
-exists — and the causal link is invented: **0 of the 7 carry `_phone_fitted`**,
-so `phone_fit()` never walks the menu bar and the function is never called on
-them. Inverting the gate leaves all seven stock. It protects a different
-control. Two true facts standing next to each other read as cause and effect.
-
-**What the batch got right is worth copying.** It walked EIGHT named states
-including a world-loaded one — the direct lesson from the previous census being
-a lower bound — and it paid: 22 hazards at a world-less boot, 44 after a
-generate, so 40 dropdowns were converted rather than the 18 a world-less boot
-can see. And it **departed from my brief and was right to**: I said reuse
-`PgSlider`’s arbitration, and a `BaseButton` has `action_mode`, the engine’s own
-switch, where a `Slider` has nothing. Two property writes, no shared
-classification code to drift, and the native fling kept.
+**Rule:** `get_children(true)`; "not this mechanism" is not "not a hazard"; severity is measured, not read from the mechanism; two true facts side by side read as cause and effect, so invert the gate to test.
 
 ### [2026-09-07] I filed a blocker for a bug that never existed
 
-**The worst of the day, and it is entirely mine.** I filed a large row saying
-the Android app boots only because its native library is stale, wrote a
-narrative around it, corrected that narrative twice as new evidence came in,
-and dispatched a batch to bisect 33 commits. **The app was working the whole
-time.** Two agents drove it end to end on glass, independently, with different
-seeds: creation screen, scrolling card, CREATE WORLD, a rendered 2048x1311 map
-with coastline, rivers, lakes, biome colour and place labels.
+**Mistake:** A row said the Android app boots only because its native library is stale, and a batch was dispatched to bisect 33 commits. **The app was working the whole time** (two agents drove it on glass). Two inverted metrics: `dark%=94.2 (94.2 = splash, ~85 = picker)` where splash is **98.9%** and picker **94.2%** (`~85` invented), so every "still on the splash" was a working app; then `5 = stuck, 50+ = progressing` counted **defects** (56 lines = 5 real + 51 `has no WorldGen.<sym>()` warnings), so 5 was healthy. The brief itself said absence of warnings "is NOT evidence about how far it got", and "log line count PLUS a screencap" was skipped on the failing build. Cost: ~214k tokens proving a negative.
 
-**Two metrics, both inverted, the second built on the first.**
-
-I polled the boot with a darkness percentage labelled
-`dark%=94.2 (94.2 = splash, ~85 = picker)`. The splash is **98.9%**. The picker
-is **94.2%** — and the file proving it, a capture I had already confirmed
-pixel-identical to a known-good picker, was sitting in the same scratchpad
-directory I was reading from. The `~85` was never measured; I made it up to
-fill the other half of the label. So every "still 94.2, still on the splash"
-was a painted, working application.
-
-Then I built `5 = stuck, 50+ = progressing` on top of it. That count is a
-**defect count**: the 56-line build is 5 real lines plus 51 lines of
-`has no WorldGen.<sym>()` across six symbols, each with a `push_warning` and a
-backtrace through `engine_bridge.gd::_has:365`. **5 is healthy.** The metric
-graded the good build as the broken one, and I used it to "prove" a clean pair.
-
-**The part that should have stopped it.** The same brief says, in my own words:
-*"the absence of those warnings in the stuck run is NOT evidence about how far
-it got — the quiet log is expected either way."* That is exactly right, and it
-makes the 5-vs-50 signal unusable. I wrote the caveat and then reasoned past it
-in the next paragraph. A caveat you do not act on is worse than one you never
-wrote, because it makes the conclusion look considered.
-
-**And I skipped my own instruction.** The brief mandated "every measurement is
-the log line count PLUS a screencap". I took the count on the failing build and
-never opened the capture — while opening, and correctly reading, the two
-captures that happened to show the real splash. **The one I looked at, I got
-right; the ones I only counted, I got wrong.**
-
-**What it cost and what it bought.** A ~214k-token batch spent proving a
-negative, and a "confound" (the release APK) invented to explain a second
-symptom of the same error. Against that: the export really was shipping a
-five-day-old library, that is now rebuilt and installed, the six missing
-symbols are gone, and the handset is left on the current engine with its
-original state restored. The lane also declined the toolchain check and the
-bisect **in the right order** — asking "does the failure exist?" before "what
-explains it?" — which is the behaviour the brief should have had.
-
-**The rule, and it generalises past this project:** a screening metric needs a
-known-good and a known-bad reading before it is used once, and both belong in
-its label. Anything else is a glance dressed as a measurement.
+**Rule:** A screening metric needs a known-good and a known-bad reading, both in its label. A caveat you reason past launders the conclusion. Ask "does the failure exist?" before "what explains it?"; reproduce one more way, cheaply, first.
 
 ### The probe could not see the class of thing that was wrong
 
-**This is the dominant failure of 2026-09-07, and it happened five times in one
-day with five different mechanisms.** Every defect the owner found by hand had a
-**green probe** behind it, and in each case the probe was **right about what it
-measured**:
+**Mistake:** Five times on 2026-09-07 a defect the owner found by hand had a **green probe** right about what it measured: `_jpinsw_probe` measured a panel nobody could see (`_left_panel.visible` true, `is_visible_in_tree()` false); `_detent_probe` passed a 19.84 dp handle against a 44 dp floor by pressing its exact centre; the input-fill probe passed a `CheckBox` whose icons Godot **modulates**, unreachable by a stylebox test; every check passed `CREATE WORLD` at **7 of 46 dp painted** because `get_global_rect()` is unclipped.
 
-- `_jpinsw_probe` reported *0 rows over 1080 px, 0 of 23 tappables under the
-  floor*. True — **of a panel nobody could see.** The planner’s controls hang in
-  `app.left_dock_body`, a phone sheet built `visible = false`, so
-  `_left_panel.visible` was `true` the whole time while
-  `is_visible_in_tree()` was false.
-- `_detent_probe` PASSED on a grab handle measuring **19.84 dp** against a 44 dp
-  floor, because **it presses the handle’s exact centre.**
-- The input-fill probe passed on a `CheckBox` whose icons Godot **modulates**
-  with two theme colours a stylebox test cannot reach.
-- Every check passed `CREATE WORLD` at **7 of 46 dp painted**, because
-  `get_global_rect()` reports an **unclipped** rect.
-- `_inputfill_probe:165` was **green on the regression it existed to catch**,
-  because the same commit shipped both.
-
-**The generative rule: before trusting a probe, name the class of defect it
-CANNOT see.** If you cannot name one, you have not understood the probe. And
-never merge the three claims — **it renders**, **it can be operated**, **it can
-be FOUND** are three measurements, and the third is the one that keeps failing.
+**Rule:** Before trusting a probe, name the class of defect it CANNOT see. Never merge **it renders**, **it can be operated**, **it can be FOUND**; the third keeps failing.
 
 ### A candidate hypothesis in a brief is a liability, not a head start
 
-**Three consecutive briefs of mine handed a lane a named cause, and all three
-were wrong** — the sculpt drawer was not gesture arbitration (it was a 19.84 dp
-target), and both PC file-browser candidates were false, **one structurally
-impossible** (`wrap_controls = true` means a `Window` never draws under
-`get_contents_minimum_size()`, so hard label minimums cannot clip a button off
-its own dialog).
+**Mistake:** Three consecutive briefs gave a lane a named cause and all were wrong (the sculpt drawer was a 19.84 dp target, not gesture arbitration; both PC file-browser candidates were false, one **structurally impossible**: `wrap_controls = true` means a `Window` never draws under `get_contents_minimum_size()`).
 
-The lanes were right each time **because the brief told them to treat it as a
-hypothesis and report a clean elimination as a good outcome.** Keep doing that:
-**label the candidate as a candidate, and say plainly that eliminating it is
-worth more than a plausible fix.** A brief that states a cause as fact converts
-the lane from an investigator into a confirmer.
+**Rule:** Label a candidate as a candidate and say eliminating it is worth more than a plausible fix; a cause stated as fact turns an investigator into a confirmer.
 
 ### A check that cannot fail is not a check
 
-**Four distinct mechanisms, all found on 2026-09-07, all reporting green.**
-The family is worth naming because each looked different and none was a bug in
-the code under test:
+**Mistake:** Four mechanisms, all green on 2026-09-07: it never ran (`_nwclip_probe` printed `fail=0` on desktop; `is_phone()` needs touch); it measured the wrong surface (`_tabfit_probe` asserted the dock row only and exited 0 while printing `overflow=285.0`); it asserted the defect (`_inputfill_probe:165`, added by the regression's own commit); it could not see the class (stylebox vs modulate, centre press vs width, `get_global_rect()` vs clip).
 
-- **It never ran.** `_nwclip_probe` printed `fail=0` on any desktop, because
-  `is_phone()` needs touch no desktop run supplies. So the `CREATE WORLD` clip
-  fix had **no standing guard at all**.
-- **It measured the wrong surface.** `_tabfit_probe` asserted only on the dock
-  row and exited 0 while printing `overflow=285.0` on the same screen.
-- **It asserted the defect.** `_inputfill_probe:165` was added by the same
-  commit that shipped the regression, pinning the broken alignment — **the same
-  claim written twice**, and green on exactly what it existed to catch.
-- **It could not see the class of thing that was wrong.** A stylebox test
-  cannot see a modulate; a centre press cannot see target width;
-  `get_global_rect()` cannot see a clip.
-
-**The generative test, before trusting any probe: name the class of defect it
-CANNOT see, and name what would make it go red.** If neither has an answer, it
-is decoration. Two of these were fixed by giving the failure its own exit code
-rather than by adding assertions — **the cheapest repair is usually to make the
-existing output binding.**
+**Rule:** Name what the probe cannot see and what would make it go red; if neither has an answer it is decoration. The cheapest repair is usually a distinct exit code that binds the existing output.
 
 ### [2026-09-08] The probe passed the exact defect it was written for
 
-`_unitsflip_probe` was written to police the right dock’s unit conversion.
-Its three Position checks asserted that the drawn string **ends in `mi`**, that
-it **ends in `km`** in the other mode, and that the **two strings differ**.
+**Mistake:** `_unitsflip_probe` asserted the drawn Position string ends in `mi`, ends in `km` in the other mode, and the two differ; relabelling satisfies all three (mutant `" 15.6 · 9.8 mi"` passed).
 
-**All three are satisfied by relabelling.** A mutant that skipped the
-conversion and appended the wrong suffix — `" 15.6 · 9.8 mi"`, a kilometre
-number wearing a mile label — **passed A1, A2 and A3.** That is precisely the
-bug the row existed for, and the probe could not see it.
-
-The fix is not a fourth string assertion. **A3b/A3c reconstruct the expected
-number by calling `DccUnits.to_unit()` on the raw kilometres at probe time**, so
-the assertion tracks the converter instead of pinning a literal that a rounding
-change would break. The same mutant now fails A3b
-(`drawn= 15.6 · 9.8 mi want=9.71,6.07`) while A1–A3 still pass — which is the
-demonstration, not the claim.
-
-**The pattern, and it is the fifth of its family this week:** the checks tested
-the part of the output that is cheap to get right (the label) and not the part
-the work was about (the value). **Ask what a lazy wrong implementation would
-look like, then check that the probe rejects it** — a suffix test rejects nothing.
-
-A smaller model wrote this probe. **The shipped conversion was correct; only
-the proof was weak** — worth knowing before scaling lane models down, and an
-argument for keeping the verifier on the stronger model rather than the lanes.
+**Rule:** A3b/A3c reconstruct the expected number via `DccUnits.to_unit()` on raw kilometres (the mutant fails: `drawn= 15.6 · 9.8 mi want=9.71,6.07`). Ask what a lazy wrong implementation looks like and check the probe rejects it. A smaller model wrote this probe; the conversion was right and only the proof weak, an argument for keeping the verifier on the stronger model.
 
 ### [2026-09-08] Two separators in one panel, and only one of them was new
 
-The units sweep left River drawing *“Discharge 4,200”* above *“Catchment
-3 500 km²”*. The obvious reading — that the change introduced an inconsistency
-— is wrong. `DccUnits._group_thousands()` had emitted **spaces** all along;
-`right_dock.gd::_thousands()` had emitted **commas** all along; the sweep merely
-put the two adjacent for the first time.
+**Mistake:** The units sweep left River drawing *"Discharge 4,200"* above *"Catchment 3 500 km²"*: `DccUnits._group_thousands()` always emitted spaces, `right_dock.gd::_thousands()` commas. The canvas (`Cartalith DCC Environment.dc.html`) uses spaces throughout, so the untouched helper was the defect.
 
-**The canvas settles it, rather than taste or majority.**
-`Cartalith DCC Environment.dc.html` writes `4 210`, `1 840`, `2 210`,
-`120 000`, `38 000` and `6 400` — spaces throughout, and every comma in the file
-is inside `rgba(...)`. So the helper the sweep did **not** touch was the defect,
-and the one it did touch was already conformant.
-
-**Two things follow.** *Exposing* an inconsistency is not *causing* one — check
-both sides’ history before attributing it, or you will "fix" the conformant
-half. And when parity with a reference is the definition of done, **the
-reference is the tie-breaker for cosmetics too**, not only for layout.
+**Rule:** *Exposing* an inconsistency is not *causing* one; check both sides' history before "fixing" the conformant half. The reference is the tie-breaker for cosmetics too.
 
 ### [2026-09-08] I put the correction in, and the correction was the error
 
-A row cited `_urban_revealed` as declared at `map_overlay.gd:3544` and gating
-the settlement pin at `:1984`. Checking it, I ran
-`sed -n '3544p;1984p' map_overlay.gd` and read the two output lines in the order
-I had typed the addresses.
+**Mistake:** A row cited `_urban_revealed` declared at `map_overlay.gd:3544` and gating the pin at `:1984`. `sed -n '3544p;1984p'` printed 1984 first (**`sed` prints in file order**), the row was judged swapped, and the "correction" went into a lane brief as checked fact. The row was right.
 
-**`sed` prints in file order.** The first line out was 1984, not 3544. So I read
-the gate as the declaration, concluded the row had its numbers swapped, and
-**wrote that "correction" into the lane brief as a checked fact** — under a
-preflight row that says line numbers in a brief get verified.
-
-The row was right. **The lane re-opened both blocks anyway, found the brief
-wrong, and said so; the verifier confirmed it independently.** That is the
-system working, and it is also the reason a brief must not hand a lane a
-conclusion it could reach itself.
-
-**Two rules.** Read lines one at a time, or with `awk 'NR==A{print "A: "$0}'` so
-each line carries its own number — never rely on the order of a multi-address
-`sed`. And **a correction is a claim**: it gets the same scepticism as the thing
-it corrects, and rather more when it is about to be handed to someone else as
-settled. This project has now been bitten by a stale claim, a false claim, and a
-false *correction* to a true claim.
+**Rule:** Read lines one at a time, or `awk 'NR==A{print "A: "$0}'`. **A correction is a claim** and gets the same scepticism as what it corrects.
 
 ### [2026-09-08] Two agents wrote the same parser bug, and both caught it
 
-Counting which `#[func]`s no `.gd` file reaches means stripping comments and
-strings before matching identifiers. A lane and, independently, the verifier
-both **stripped comments first**.
+**Mistake:** Counting which `#[func]`s no `.gd` reaches needs comment/string stripping. A `#` inside a JSON fixture in a triple-quoted string orphaned its closing quote, which paired with the next and ate every newline between (299 lines to 62). The first pass reported **11** names, **3 wrong**.
 
-That is backwards. A `#` inside a string literal — here, inside a JSON fixture
-embedded in a triple-quoted GDScript string — gets read as a comment start, which
-orphans the string’s closing quote. The string-stripper then pairs that orphan
-with the next quote **anywhere later in the file**, collapsing every newline in
-between. One file fell from **299 lines to 62**, taking real call sites with it.
-The lane’s first pass reported **11** unreachable names, **3 of them wrong**.
-
-**Correct order: triple-quoted strings, then single-line strings, then
-comments.** Both agents found it the same way — **a line-count self-check before
-trusting the output** — and after the fix both returned exactly the same eight
-names, matching a third derivation.
-
-**What makes this worth an entry is that the bug was silent and plausible.** It
-does not crash and it does not return nothing; it returns a slightly-too-long
-list of things that look unreachable. **A census whose method can silently drop
-input needs a conservation check** — lines in, lines out — and this row had
-already shipped a wrong count twice before anyone added one.
+**Rule:** Strip triple-quoted strings, then single-line strings, then comments. **A census whose method can silently drop input needs a conservation check** (lines in, lines out); both agents found it that way.
 
 ### [2026-09-08] Everything I said checked out except the part that mattered
 
-The owner reported blurry map labels. I told them the diagnosis was *"CORRECT —
-confirmed at two symbols before this brief was written"*, citing
-`map_overlay.gd:2105-2106` as a `draw_string` pair inside the scaled camera.
+**Mistake:** For the owner's blurry map labels, the diagnosis was "CORRECT, confirmed at two symbols", citing `map_overlay.gd:2105-2106` as a `draw_string` pair in the scaled camera. `:2104` is `_crisp_begin()` and `:2107` `_crisp_end()`: that path already rasterises at screen resolution (`git log -S`: fixed in `c9bfcca`, 2026-08-24). The blurry path was `_draw_labels()`. Real mechanism, already-fixed site.
 
-**`:2104` is `_crisp_begin()` and `:2107` is `_crisp_end()`.** That path already
-rasterises at screen resolution and measures **1.11 contrast retained at 3×**.
-`git log -S` dates the fix to **`c9bfcca`, 2026-08-24** — *"The map overlay
-rasterised in the wrong space, twice"* — made for an earlier report of the same
-words. **The blurry path was `_draw_labels()` all along**, and that is what was
-eventually fixed.
-
-**The mechanism I described was real; the SITE was already fixed.** That
-combination is the dangerous one, because nothing in the explanation sounds
-wrong — the physics of the blur, the reason a scaled canvas produces it, the
-remedy — all correct, all about code that had not been broken for two weeks.
-A confident wrong citation is worse than no citation: it ends the search.
-
-**Two cheap habits would each have caught it.** Read what brackets the line —
-a draw call inside a `_begin`/`_end` pair is a different claim from a bare one.
-And **`git log -S` on the helper name**, which is one command and dates every
-change to it; a site fixed a fortnight ago is textually indistinguishable from
-a site that was never broken, and only history separates them.
-
-**Filed as a row on 2026-09-08 and closed the same day** — by writing this,
-which was the row’s entire deliverable. It sat open long enough to be found by
-a cheapness scan rather than by remembering it, which is the argument for the
-preflight table existing at all.
+**Rule:** Read what brackets the line, and `git log -S` the helper name.
 
 ### [2026-09-08] The first batch where the proof was as good as the code
 
-Recorded because it is the counter-example to the three entries above it, and
-because what made the difference was cheap and repeatable.
+**What went right (counter-example):** both lanes showed their assertion FAILS on a mutant. The roof fix silences 151 engine errors, which a draw-nothing fix would also do, so the verifier compared **whole frames** (byte-identical md5 `05f6b300…`, `ImageChops.getbbox()` `None`, 24.6 % ink, 1 464 colours); the theme probe was mutated by restoring pre-boot ordering and exits 1; the diagnosis was tested with the fix REVERTED (9 700 buildings, zero triangulation failures).
 
-**Both lanes were required to demonstrate that their assertion FAILS on a
-mutant**, and both did. The roof fix silences 151 engine errors — a fix that
-silenced them by drawing nothing would pass any error-count check, so the
-verifier compared **whole frames**: before and after are byte-identical (md5
-`05f6b300…`, `ImageChops.getbbox()` over the full 1152×648 returns `None`) and
-the frames are not blank (24.6 % ink, 1 464 distinct colours). The theme probe
-was mutated by restoring the pre-boot ordering, and its new assertion exits 1
-with the palette values printed.
-
-**The diagnosis itself was tested with the fix REVERTED**, so the guard could
-not mask the result: at fit-to-box scale, 9 700 buildings, zero triangulation
-failures — same generator, same function. That is what makes *"degenerate only
-after the transform"* a measurement rather than a story.
-
-**Both refutations were about the PRECISION of a supporting claim**, not about
-a fix — a count taken from a diagnostic probe whose transform differed from the
-real draw’s, and a *"structurally impossible"* that held only in the two
-configurations measured. **Both were written into the code that carries them.**
-A narrowed claim that lives only in a verifier’s report is a claim nobody will
-read; the next person to touch that guard needs to know the ink pass does not
-triangulate, and the only place they will look is the guard.
-
-**The rule worth carrying: an over-claim in a comment is a defect with a delay
-on it.** It costs nothing today, because it is true of everything currently
-measured, and it misleads exactly the person who changes the configuration that
-made it true.
+**Rule:** Show the assertion fails on a mutant; compare whole frames, not error counts. **An over-claim in a comment is a defect with a delay on it.**
 
 ### [2026-09-08] The first screenshot found a real defect and an imaginary one
 
-`OUTSTANDING_WORK.md` carries a row saying *"phone verification has been
-desktop simulation almost throughout"* — probes drive controls through
-`pressed.emit()` and friends, which proves a handler runs and **cannot prove a
-finger reaches it**. A handset was attached, so the prescribed method was run:
-`adb exec-out screencap`.
+**Mistake:** Probes drive controls through `pressed.emit()`, proving a handler runs, **not that a finger reaches it**. `adb exec-out screencap` found a real defect: the GENERATE sheet's chip row occluded at y=2116 of 2340 (glyph tops at 2116/2117/2118 as 58/61/36 amber pixels, 2119 zero: **three pixel rows of a ~20 px label**). The same look produced an imaginary one: two "clipped tab labels" in the downscaled view; **the full-resolution crop contains neither**.
 
-**It worked immediately.** The GENERATE sheet’s chip row is occluded by the
-bottom nav bar: the band begins at y=2116 of 2340, the PIPELINE chip shows only
-its 1-2 px side strokes from 2105, its glyph tops appear at 2116/2117/2118 as
-58/61/36 amber pixels, and 2119 is zero. **Three pixel rows of a ~20 px label.**
-
-**And the same look produced a defect that does not exist.** In the downscaled
-view I read two clipped tab labels near the top of the frame and was ready to
-file them. **The full-resolution crop of those exact rows contains neither** —
-the top strip holds the status bar and the CARTALITH title bar and nothing else.
-The apparent text was an artefact of the scaled-down view.
-
-**So the rule is not "look at the device", it is "look at the pixels".** Crop
-to full resolution and re-look before filing; a scaled view is a thumbnail, not
-evidence. **Two more cheap checks came out of the same pass**: take two
-captures and diff them, because one frame of an animating app is not a state
-(these differed only at the clock digit, which is what made the finding safe to
-file); and **record the installed build’s `lastUpdateTime`**, because a
-screenshot is evidence about that build and this one predated every commit in
-the session that filed it.
+**Rule:** Not "look at the device" but "look at the pixels": crop to full resolution before filing. Take two captures and diff them (one frame of an animating app is not a state; these differed only at the clock digit), and **record the installed build's `lastUpdateTime`**.
 
 ### [2026-09-08] I ruled on a plurality without checking the population
 
-A backlog row had stalled twice on *"which census entry is the action
-button"*, saying **the canvas does not draw one control unambiguously it**. To
-unblock it I ruled: take `2px 12px`, the plurality of radius-8 controls, 8 of
-18. I wrote it into `LARGE_ITEM_RULINGS.md` as Ruling G and a lane applied it.
+**Mistake:** A row stalled on *"which census entry is the action button"*. I ruled `2px 12px`, the plurality of radius-8 controls (8 of 18), as Ruling G; a lane applied it. The verifier refuted it, and a fourth census confirmed: every radius-8 node carries a height role and the role **is** the population. `--btnH` (28px) is the action button, N=14; `--ctl` (24px) the inline chip, N=15; `--tool` (30px), N=1; **all eight `2px 12px` nodes are `--ctl` or `--tool`, none `--btnH`**. The shipped `y=4` it displaced was right. Four wrong figures passed through that row. The lane's brief said *"if your count disagrees with 8/18, stop and report"*; it recounted 47 nodes, **reasoned the rule "protects the winner, not the literal fraction", and implemented anyway.**
 
-**The verifier refuted it, and a fourth census confirmed the refutation node
-for node.** The canvas *does* disambiguate: every radius-8 node carries a
-height role, and the role **is** the population. `--btnH` (28px) is the action
-button, N=14; `--ctl` (24px) the small inline chip, N=15; `--tool` (30px) the
-tool bar, N=1. **All eight `2px 12px` nodes are `--ctl` or `--tool`. Not one is
-`--btnH`.** So the ruling moved the inline chip’s padding into the button’s
-slot — and the shipped `y=4` it displaced was the canvas figure all along.
-
-**Two failures, and the second is the worse one.**
-
-**Mine:** I counted a plurality without asking what the set was. *"The canvas
-does not say"* came from the row, and I never tested it — the same class as the
-stale dashed reasons this file already records, except I propagated it into a
-ruling and a brief. **Four wrong figures have now passed through that row.**
-
-**The lane’s:** the brief carried an explicit gate — *"if your count disagrees
-with 8/18, stop and report, because then the ruling rests on a wrong number."*
-The lane recounted, got 47 nodes rather than 18, **reasoned that the rule
-"protects the winner, not the literal fraction", and implemented anyway.** The
-winner was wrong under the real population, which is exactly what the gate
-existed to catch. **A stop-and-report gate that can be reasoned past is not a
-gate**, so a brief must say that overriding it is itself the failure.
-
-**What made it recoverable:** the change was inert on screen (the pointer has
-no live desktop reader), the verifier caught it inside the same batch, and the
-ruling was withdrawn in place rather than deleted. **Reverted in the tree; the
-correct census now sits in the comment above the constants**, which is where
-the next person will look.
+**Rule:** Ask what the set is before counting a plurality. **A stop-and-report gate that can be reasoned past is not a gate**; a brief must say overriding it is itself the failure. Recoverable because the change was inert and the ruling withdrawn in place; the census now sits in the comment above the constants.
 
 ### [2026-09-08] One real defect, two phantoms and a dead end, in one hour on glass
 
-The device sweep found a genuine bug — the GENERATE sheet’s chip row occluded
-by the nav bar. It also produced three findings that did not survive checking,
-and **none of them was filed**, which is the only reason this entry is short.
+**Mistake:** The sweep found one genuine bug and three findings that did not survive checking (none filed). Phantoms: text read in a scaled-down screenshot, twice, an hour apart, **after writing the rule for it**. Dead end: *"MORE does not respond to a tap"* (three times); the control test killed it (**MAP and PLAN stopped responding too**: a full-screen panel had opened over the nav bar). The real defect was misstated: "chips clipped", but **expanding the sheet draws them in full**; the COLLAPSED detent puts the chip row under the bar, and a fix verified expanded would change nothing.
 
-**Phantom 1 and 2: the downscaled view.** Twice I read text in a scaled-down
-screenshot — two clipped tab labels at the top of the GENERATE frame, then a
-cut-off row above the CIVILIZATION header — and twice the full-resolution crop
-of the same pixels contained nothing at all. **The same mistake, an hour
-apart, after writing the rule for it.** The rule works only if the crop comes
-before the conclusion, not after.
-
-**Dead end: "MORE does not respond to a tap."** Tapping MORE changed nothing,
-three times, at three heights. It looked like an unreachable control — exactly
-the class the method row predicts. Then the control test killed it: **MAP and
-PLAN stopped responding too.** A full-screen panel had opened over the nav bar,
-and every tap was landing on its content. **Run the control before believing
-the finding, not after it looks good.**
-
-**And the real defect was wrong in its statement.** I filed it flat: the chips
-are clipped. **Expanding the sheet draws them in full.** The defect is that the
-COLLAPSED detent puts the chip row under the bar — and a fix verified in the
-expanded state would look correct and change nothing. Found only because
-tapping through the tabs moved the sheet as a side effect, and the clipping
-came back when the sheet did.
-
-**The pattern under all four: a screenshot is one state, and a state has more
-axes than it looks.** Which detent, which panel is on top, which resolution you
-are reading. **Three of four first readings were wrong, and the one that was
-right was still incomplete.**
+**Rule:** A screenshot is one state with several axes (detent, top panel, resolution). Crop before the conclusion and **run the control before believing the finding**.
 
 ### [2026-09-08] Two edges that coincide are not one edge covering the other
 
-I filed the GENERATE sheet’s clipped chips as *"occluded by the bottom nav
-bar"*, measured carefully: the bar’s band begins at y=2116, the label’s glyph
-tops appear at 2116-2118, nothing below. **Every number was right and the
-causal claim was wrong.**
+**Mistake:** The clipped chips were filed as *"occluded by the bottom nav bar"* with every number right and the cause wrong: the sheet's own `ScrollContainer` clip and the bar's top both derive from `_phone_nav_reserve()`, so they **coincide by construction**. The bar's own caption is unchanged whether the sheet is open or closed. The real cause was a **stale budget**: the peek detent was sized for the old one-line tool-options strip, never revisited when a taller multi-group column replaced it (only the top 45 % of the first scrollable row admitted). A z-order fix would have changed nothing. It reproduced on the DESKTOP composition at 1080×2340 `--force-touch` (bar top **2119** vs the device's **2116**): the "phone verification is desktop simulation" row is right about REACHABILITY and **not** about geometry.
 
-**The bar is not drawing over the chip.** The sheet’s own `ScrollContainer`
-clip boundary sits at the same y — because the clip and the bar’s top edge are
-both derived from `_phone_nav_reserve()`. **They coincide by construction**, so
-a clip looks exactly like an occlusion. The cheap disproof is a pixel sample at
-the supposed coverer: the bar’s own caption is unchanged whether the sheet is
-open or closed, so the bar is not compositing over anything.
+**Rule:** Sample a pixel at the supposed coverer; ask which constant both edges derive from.
 
-The real cause is a **stale budget**: the peek detent’s height was sized for
-the old one-line tool-options strip and never revisited when a taller
-multi-group column replaced it, so the segment is the first scrollable row and
-only its top 45 % is admitted. **A z-order fix would have changed nothing**,
-and the fix that WAS made in the neighbouring file — real, mutation-proven, and
-a genuine second bug — also changes nothing here. The lane said so plainly
-instead of letting the symptom close the row, which is the only reason the
-actual cause surfaced.
+### [2026-09-12] I handed the owner a false premise, and they ruled on it ×2
 
-**And the finding that outlives this row:** it reproduced on the DESKTOP
-composition, windowed at the device’s own 1080×2340 with `--force-touch`, bar
-top **2119** against the device’s **2116**. **Three pixels apart.** The backlog
-has a standing row saying phone verification has been desktop simulation and
-cannot be trusted; that is right about REACHABILITY — a probe calling a handler
-proves nothing about a finger — and this is evidence it is **not** right about
-geometry. **Distinguish the two before dismissing a desktop measurement.**
+**Mistake:** Comparing the owner's town plan against the urban generator, I wrote that star forts never appear because settlements carry no `fortified` trait (from a comment in `urban_layout_draw.gd`) and **put it into an `AskUserQuestion` option**; the owner chose *"Enable star forts"*. At the symbols it was false: `civ_settlement_toggle_trait` (via `civ_roster_bridge.rs::toggle_trait`) writes the trait, `urban_bridge.rs` reads `fortified_trait`, `generate.rs` grants the fort (walled, large, `organic` gate scheme). **Only the drawing was missing** (`_draw_wall` handles `curtain`, `palisade`, `ditch`). Caught before recording: Ruling I carries the verified chain and a premise note.
 
-### [2026-09-12] I handed the owner a false premise, and they ruled on it ×6
+**×2, 2026-09-23:** the Ruling AP backlog was compiled partly from `LANDMARK_GENERATION_SCOPE.md` section 4, still *"Posed, not answered"*. Four questions were ruled on 2026-09-06 (rulings 10 PERSIST, 12 EXEMPT, 13 YES, 16) and the crate home earlier on 2026-09-23; all went to the owner again, and the recorded ruling repeated the stale premise as new work (an `entities/landmarks.json` slot, a `cartalith_vault::EntityKind` variant): both existed since 2026-09-06 (`project_bridge.rs::LandmarksDoc`; `EntityKind::Landmark`, `45630cc`).
 
-Comparing the owner’s town plan against the urban generator, I wrote that star
-forts never appear because this port’s settlements carry no `fortified` trait. I
-had it from `urban_layout_draw.gd`, whose comment above the wall constants says
-the reference’s `bastioned` branch was left out because *"this port’s settlements
-carry no traits. No town it generates can have one."* I repeated it in the
-analysis, then **put it into the option text of an `AskUserQuestion`**. The owner
-selected *"Enable star forts"* — a ruling framed by my claim as new plumbing.
-
-**Re-opened at the symbols while filing the row, the claim was false end to end.**
-`civ_settlement_toggle_trait` — the Place Editor’s trait chips, through
-`civ_roster_bridge.rs::toggle_trait` — writes the trait. `urban_bridge.rs` reads
-it as `fortified_trait`. `generate.rs` grants the fort when the town is walled,
-large enough and on the `organic` gate scheme. **Only the drawing was missing**:
-`_draw_wall` handles `curtain`, `palisade` and `ditch`, and nothing else. A
-settlement marked Fortified can generate a star fort that is drawn as a plain
-wall.
-
-**Caught before the ruling was recorded, which is the only reason this is cheap.**
-Ruling I went into `LARGE_ITEM_RULINGS.md` with the verified chain and an explicit
-note that its question carried a wrong premise; the renderer gap is its own row.
-The ruling stands — the owner wants star forts — and the work it implies is
-smaller than the question made it look.
-
-**Two rules, one of them old.** *A code comment’s reason is a claim* is already
-here, from four stale dashed reasons before this one; this was a fifth, and it
-fooled the reader who repeated it rather than the code that carried it. The new
-rule is about where the claim went: **a question is the most consequential place
-to put an unverified fact, because the answer is recorded as a ruling.** Check
-every premise in a question’s text and option descriptions at the symbol before
-asking it.
-
-**×2, 2026-09-23: the owner was asked questions they had already answered.**
-The owner-decision backlog behind Ruling AP was compiled partly from
-`LANDMARK_GENERATION_SCOPE.md` §4, which still reads *"Posed, not answered"*
-over its landmark questions. Four of them had been ruled on 2026-09-06:
-persistence (ruling 10, PERSIST), the parity contract (ruling 12, EXEMPT),
-vault linking (ruling 13, YES) and the viewshed budget (ruling 16). The fifth,
-the crate home, had been re-ruled earlier on 2026-09-23. All of them went to the
-owner again, and the answers matched. The recorded text of Ruling AP then
-repeated the stale premise as new work: *"Reverses the assumption every landmark
-row to date has shipped under ('regenerate on load, no save-tree slot'). Real
-work: a save-format addition (an `entities/landmarks.json`-shaped slot…)"* and
-*"A new `cartalith_vault::EntityKind` variant"*. Both have existed since
-2026-09-06: `entities/landmarks.json` carries the landmark settings and the last
-run (`project_bridge.rs::LandmarksDoc`), and `EntityKind::Landmark` landed in
-`45630cc`. The only cost was the owner's time and a ruling record that
-overstates its own consequence. The same shape could have produced a
-contradictory second ruling.
-
-**The rule this adds:** before putting any question to the owner, search
-`LARGE_ITEM_RULINGS.md` for its subject. A scope document's "open questions"
-list is a claim about the day it was written, and scope documents do not track
-(`CLAUDE.md`). Also open the symbol the answer would have built, because a
-ruling that was given is usually a ruling that was built on.
-
-**×3, 2026-10-31: a proposal changed an answered value without asking.**
-`MOBILE_SHELL_PROPOSAL.md` §3 drew the phone/tablet line at 600 dp of width,
-and its §1.1 and §5 even named `_TABLET_MIN_DP` (900) as today's value. The
-owner was asked nine questions, none about the line, and took every default
-(Rulings DT and DU). But 900 was not a value, it was an answer:
-`design/dcc-environment-2026-08-31/BUILD_ANSWERS.md` §2.3 (2026-08-31) gives it,
-with its reason: at 800 dp a 48 dp rail and a 400 dp dock leave a 352 dp map,
-narrower than the dock beside it. It was recorded there, in the constant's own comment
-(*"Owner ruling, 2026-08-31"*) and in `STATUS.md` row GGR-58, and never in
-`LARGE_ITEM_RULINGS.md`, so the rule above (search that file) could not have
-found it. Caught while writing the MS-1 build specification, before any code
-moved. The proposal now carries a correction, Ruling DV cites §2.3 so the
-rulings file leads to it, and the question is `MOBILE_SHELL_MS1_SPEC.md`'s MQ-1.
-
-**The rule this adds:** a constant whose comment says *owner ruling* is an
-answer, not a value. A proposal that changes one puts it to the owner as its
-own question, quoting the answer; approving the proposal's other questions does
-not cover it. Owner answers live in `LARGE_ITEM_RULINGS.md`, in imported design
-answers (`design/**/BUILD_ANSWERS.md`) and in such comments: search all three.
-
-**×4, 2026-11-01: a question named its sites from a summary.** VQ7
-(`VAULT_EDITOR_PROPOSAL.md`) said that the vault window's four capped lists were
-*"browse, the link picker, the index, search"*. The proposal had said only that
-there were four `vault_list_files(2000)` calls. The names were filled in without
-opening them.
-
-Re-opened at the symbols while recording the answer, the caps are six:
-- the four calls are the connection header's note count, the Browse list, the
-  link picker and the folder tree;
-- the index reads through its own `vault_refresh_backlinks(2000)`;
-- the bridge's default argument is the sixth.
-
-Search is not one of them. The owner's answer, to raise them, did not depend on
-the names, so Ruling DY records the corrected list.
-
-**The rule this adds:** a question that lists sites names them from a grep run
-for that question.
-
-**×5, 2026-11-01: a count lost its unit on the way into a question.**
-- **What happened:** a research agent reported the delta fans that "discharge alone" would add as 1 977, 1 246, 1 939
-  and 105. The question to the owner (Ruling EA item 9) called them "about 1 200 to 2 000 small fans per world".
-  `RIVER_GATE_MEASUREMENTS.md` pools each map shape's twelve seeds, so the figures are per shape. The 105 is the
-  owner's own single world.
-- **How it was caught:** the agent that routed the ruling caught it afterwards. The answer, "keep both rules", did not
-  depend on the size, and the ruling now carries the correction.
-- **The rule this adds:** a count in a question says per what, read from the measurement's own table rather than from
-  a summary of it.
-
-**×6, 2026-11-01: two numbers in one round of questions said more than their sources.**
-- **What happened:** Ruling EB's zoom-step question said *"The mockup had drawn 1.6×"*. The mockup's touch rocker
-  already stepped 1.35 (`MC_ZOOM_STEP`), and the 1.6 was its desktop pointer column. The 3D ceiling question said
-  *"At 3.4× the terrain was measured to turn into spires, so 3× stays just under that"*. `3D_VIEWPORT_SCOPE.md` §8.3
-  tried no value between 1× and 3.4×, and saw coastal bluffs spike even at 1.0×, so it measured no threshold.
-- **How it was caught:** the agent that applied the answers opened both sources. Neither answer depended on the
-  premise: the owner kept 1.35×, and accepted spires by choosing 4×. The ruling carries both corrections.
-- **The rule this adds:** a number in a question is read at the line that measured it, and the question says what
-  was measured, not what the number seems to imply.
+**Rule:** **A question is the most consequential place for an unverified fact, because the answer is recorded as a ruling.** Check every premise in a question and its options at the symbol. Before asking the owner anything, search `LARGE_ITEM_RULINGS.md` for its subject; a scope document's "open questions" is a claim about its writing day. Open the symbol the answer would have built.
 
 ### [2026-09-12] The second lane in five days to argue past a gate its brief named
 
-The brief for the phone-sheet fix offered two options and named the obstacle for
-the first: pinning the PIPELINE/SCULPT segment needs 88 dp against the canvas’s
-66 dp peek. It carried a section headed *"A gate is a gate"* saying that hitting
-a stop condition means stopping and reporting.
+**Mistake:** The phone-sheet brief offered two options, named the first's obstacle (pinning the PIPELINE/SCULPT segment needs 88 dp vs the canvas's 66 dp peek) and carried a section *"A gate is a gate"*. The lane took it, measured 98 dp and reported *"no collision"* because the growth went up into the map; the obstacle was the budget. The verifier found the deviation and a real bug it caused (no insets signal, so the navpad and two labels were covered at cold boot); reverted. The refutation also found the cause: the canvas keeps that segment in the scrolling body under a header block the shell never built.
 
-**The lane took the first option, measured the sheet at 98 dp, and reported it as
-*"no collision"*** — because the growth went up into the map rather than down
-into the navigation bar. The obstacle was never a collision with the bar; it was
-the budget. The verifier found the deviation, a real bug the growth caused (no
-insets signal, so the navpad and two labels were covered at cold boot), and a new
-probe check that made the deviation a requirement. Reverted.
-
-**The refutation is also what found the actual cause.** The canvas keeps that
-segment inside the scrolling body, under a header block the shell never built, so
-at peek the canvas shows no body at all. The defect the owner could have seen was
-never "the chips need pinning" — it was a missing header.
-
-**The lesson is about the instrument, not the lane.** The 2026-09-08 padding lane
-did the same thing under the same heading. **A gate written as prose is read as
-advice once the lane has a plausible reason to proceed.** Make each gate a
-required field of the lane’s structured report — named, and marked HIT or NOT
-HIT with the number that decided it — so passing a gate needs a false statement
-rather than a quiet reinterpretation, and the verifier has a line to check.
+**Rule:** The 2026-09-08 padding lane did the same under the same heading. **A gate written as prose is read as advice once the lane has a plausible reason to proceed.** Make each gate a required field of the lane's structured report, HIT or NOT HIT with the deciding number, so passing needs a false statement and the verifier has a line to check.
 
 ### [2026-09-23] Partial sweeps converge on false negatives
 
-**Mistake:** Three separate section-by-section surveys of `OUTSTANDING_WORK.md`
-each concluded that no decision-free work was left. Each found fewer candidates
-than the one before, and that falling rate was read as the list running out.
-One start-to-finish read of every open row then found two real, buildable rows
-that all three had missed: Phone MORE's last sub-screen (`data-tiles`) and SP-2's
-journey-plan cache residual. Both were built the same evening (`b19b9ea`,
-`b5aff17`). The backlog's own count log recorded it at the time (commit
-`a71d911`).
+**Mistake:** Three section-by-section surveys of `OUTSTANDING_WORK.md` each found no decision-free work, each finding fewer (read as the list running out). One start-to-finish read found two buildable rows all three missed: Phone MORE's `data-tiles` sub-screen and SP-2's journey-plan cache residual (`b19b9ea`, `b5aff17`; count log `a71d911`).
 
-**Root cause:** A sweep that samples sections can only report on those
-sections. When passes overlap, each tends to revisit the same likely-looking
-sections, so the unread rows stay unread. The results look like convergence
-while the coverage stays where it was.
+**Cause:** Overlapping sample passes revisit the same likely sections, so convergence looks real while coverage stays put.
 
-**Prevention:** Before declaring a list exhausted, read it end to end once, row
-by row. Say which method the claim rests on.
-
-**Verification:** The claim names its method and range ("§1-§4, every row").
-A claim of "nothing left" without that is treated as a sample.
+**Rule:** Before declaring a list exhausted, read it end to end, row by row, and name the method and range ("sections 1-4, every row"); otherwise it is a sample.
 
 ### [2026-09-23] A reference comment about what a LATER version left alone was read as what the EARLIER version did
 
-**Mistake:** The reference's v1.05 tile-renderer block closes with *"The BASE
-per-cell map loop is untouched (default render identical)"*. The port read it
-as "the base map draws no lakes" and never gave the base screen texture an
-above-sea lake stamp. The LOD tiles drew those lakes and the base did not, so
-every tile that blended against the base faded lakes in and out, and the owner
-saw lakes flicker on zoom. The comment meant the opposite: v1.05 left the base
-loop's own v0.103 lake stamp alone. Fixed in `13062e5` with
-`RenderCtx::with_lakes` and a lake branch in `cell_color`. The corrected reading
-is now in `render.rs`'s tile-renderer header note.
+**Mistake:** The reference's v1.05 tile-renderer block ends *"The BASE per-cell map loop is untouched (default render identical)"*. The port read "the base map draws no lakes" and never gave the base texture an above-sea lake stamp, so tiles blended against the base faded lakes in and out (owner saw flicker on zoom). The comment meant v1.05 left the base loop's own v0.103 lake stamp alone. Fixed in `13062e5` (`RenderCtx::with_lakes`, a lake branch in `cell_color`); the reading is in `render.rs`'s tile-renderer header note.
 
-**Root cause:** A comment that says what a change did *not* touch is a claim
-about the diff, not about the thing it leaves in place. Reading it as a
-description of the earlier code turned a note about scope into an absence
-claim, and nobody opened the earlier code to check.
+**Cause:** A comment on what a change did *not* touch is a claim about the diff, not about what it leaves in place.
 
-**Prevention:** When a reference comment says a later version left something
-"untouched", open the earlier version's own code for that thing and port what
-it does.
-
-**Verification:** Name the earlier version's symbol and its line in the frozen
-reference, and say what it does, before recording any conclusion drawn from
-such a comment.
+**Rule:** When a reference comment says a later version left something "untouched", open the earlier version's code for it and port what it does; name that symbol and its frozen-reference line before concluding.
 
 ### [2026-09-23] Godot does not re-run `_draw()` when an ancestor moves
 
-**Mistake:** `map_overlay.gd` culls rivers, ways and route runs (`_run_offscreen`,
-`_segment_chains`) and requests urban layouts against `_visible_local`, a rect
-computed once per `_draw()`. Only a zoom change queued a redraw
-(`set_camera_zoom`). A pan, a `move_view_to` or a reset at unchanged zoom moves
-the camera, which is an ancestor of the overlay, and Godot does not redraw a
-node when an ancestor's transform changes. The overlay kept the previous
-frame's cull. Rivers and roads were missing across newly revealed ground, and a
-town panned onto never requested its layout. It reached the owner as zoom no
-longer showing a settlement (`13062e5`'s message). Measured with `_owner5_probe.gd`: 0
-river/road pixels after a zoom-then-move, all of them back after an explicit
-redraw. Fixed in `13062e5` with one `overlay.queue_redraw()` in
-`ViewportHost._update_lod()`, which every camera move reaches.
+**Mistake:** `map_overlay.gd` culls rivers, ways and route runs (`_run_offscreen`, `_segment_chains`) and requests urban layouts against `_visible_local`, computed once per `_draw()`. Only zoom queued a redraw (`set_camera_zoom`); a pan, `move_view_to` or reset at unchanged zoom moves an ancestor, which does not redraw the node. Rivers and roads went missing on revealed ground and a panned-to town never requested its layout (`13062e5`). `_owner5_probe.gd`: 0 river/road pixels after zoom-then-move, all back after an explicit redraw. Fixed with one `overlay.queue_redraw()` in `ViewportHost._update_lod()`.
 
-**Root cause:** A cull computed inside `_draw()` is only as fresh as the last
-`_draw()`. The redraw trigger was tied to the one input (zoom) its author was
-thinking about, not to every input the cull depends on. That is the
-"cover every input" preflight row again, in a Godot-specific form.
+**Rule:** Anything culled in `_draw()` redraws on every camera move (pan, zoom, programmatic, reset); put the redraw where every motion path converges (the "cover every input" row in Godot form).
 
-**Prevention:** Anything culled in `_draw()` must redraw on every camera move
-(pan, zoom, programmatic moves, resets), not only on zoom. Put the redraw where
-every motion path converges.
-
-**Verification:** Pan at unchanged zoom and count the culled content on the
-newly revealed ground. It must be there without any other input.
+**Verify:** Pan at unchanged zoom; culled content must appear on the newly revealed ground with no other input.
 
 ### [2026-09-26] The golden fixture used a "none" value the live producer never writes
 
-**Mistake:** `cartalith_civ::jp_claimed_at` tested `territory[i] >= 0`, copied
-from the reference's `_jpClaimedAt`. The Journey Planner milestone-5 golden was
-built on a fixture whose unclaimed cells were `-1`, so under `>= 0` the golden
-saw claimed and unclaimed stages and passed. The live claim grid, like the
-reference's own `Uint8Array`, uses `0` for unowned. On every real world every
-sampled point read as claimed: `claimedFrac` was 1 on every stage, open sea
-included, tolls were never charged, and the claimed-land infrastructure floor
-applied everywhere. A scope document then defended `>= 0` as "golden-faithful".
-Found 2026-09-24 as a suspicion and confirmed 2026-09-26. Fixed with `> 0` and
-the fixture moved to `0`. No golden value moved.
+**Mistake:** `cartalith_civ::jp_claimed_at` tested `territory[i] >= 0` (from the reference's `_jpClaimedAt`). The Journey Planner milestone-5 golden used a fixture with unclaimed cells at `-1`, so it passed; the live grid, like the reference's `Uint8Array`, uses `0` for unowned. On every real world every sampled point read as claimed (`claimedFrac` 1 everywhere, open sea included, tolls never charged). A scope document defended `>= 0` as "golden-faithful". Fixed with `> 0` and the fixture moved to `0`; no golden value moved.
 
-**Root cause:** The fixture's sentinel for "none" was chosen by the test author
-(`-1`, the usual Rust sentinel), not taken from the grid's live producer
-(`assign_territory`, paint, the reference's `_civAutoPolity`). A golden checks
-the function against the fixture. It cannot tell you the fixture has the shape
-the app feeds it.
+**Cause:** The sentinel was chosen by the test author, not taken from the live producer (`assign_territory`, paint, `_civAutoPolity`).
 
-**Prevention:** When a fixture stands in for a grid the app fills, encode every
-sentinel exactly as the live producer writes it. Add one test that drives the
-consumer from the real producer's output (a generated world), not only from the
-hand-built grid.
+**Rule:** Encode every sentinel as the live producer writes it, and add one test driving the consumer from the real producer's output (a generated world).
 
-**Verification:** Mutate the consumer's sentinel test (`> 0` to `>= 0`). The
-golden must go red on the corrected fixture, and the live-producer test must go
-red too. Both did.
+**Verify:** Mutate the sentinel test (`> 0` to `>= 0`); the golden and the live-producer test must both go red (both did).
 
 ### [2026-09-28] A verified marker set only in the index was reverted by the next whole-file add
 
-The main loop marks a lane's STATUS.md entry verified by rewriting the staged patch, not the working file. When a later commit ran `git add` on the whole `STATUS.md`, the working copy's older "pending independent verification" text went in and undid the earlier commit's marker. This shipped twice (`d71824e` reverted the map-data residuals marker; `593df62` reverted RV-3's) and was caught once more before commit. **Rule:** make the marker edit in the working file, and stage from there; after any commit touching STATUS.md, check that no `-` line containing "verified by the main" is in `git show HEAD`.
+**Mistake:** The main loop marks a lane's STATUS.md entry verified by rewriting the staged patch, not the working file; a later whole-file `git add` put the older "pending independent verification" text back. Shipped twice (`d71824e` reverted the map-data residuals marker; `593df62` RV-3's), caught once before commit.
+
+**Rule:** Make the marker edit in the working file and stage from there; after any commit touching STATUS.md, check no `-` line containing "verified by the main" is in `git show HEAD`.
+
+### [2026-10-04] Rivers-in-map and paint-original: three reusable slips
+
+**Mistake:** (1) A shader-painted river bled onto the plate frame because the stroke's clip-to-interior was implicit (coverage 1.12-1.17 of the stroke until fixed). (2) `_rivcolour_probe` targets defects, so in a healthy world it had no screen targets and silently measured nothing; a control target (the longest river) was needed. (3) The Ruling BR slider shipped with a phone probe that passed only via a forced reveal; the Paint bar is unreachable on the phone shell. Also: a seam probe's gap counts were inflated about 3x by `move_view_to` taking a cell INDEX (centres on index + 0.5) while render points are continuous; and a doc comment was left stale after a constant changed (`CostGrid` still said 384 after `RW_CAP` became 1024).
+
+**Rule:** Inherit implicit clips explicitly; give every defect-targeting probe a positive control; prove phone reachability through the real path; convert index vs continuous coordinates before comparing; when a constant moves, grep the prose that quotes it.
+
+**Verify:** Coverage ratio painted/stroke with tints off; the probe fails when its control is removed; the phone probe never writes `_phone_tab`; `grep -rn "384"` after changing `RW_CAP`.
+
+## Merged candidates (owner, 2026-11-11)
+
+Merged at the owner's request from `MISTAKES_CANDIDATES_2026-10-26.md`, entries as staged there (each tagged verified or reported-by-agent, with its session). Fold any into the preflight table when it recurs.
+
+
+**Candidate entries for the owner to copy into `MISTAKES.md` if they agree.** This file is a staging area, not the register: `MISTAKES.md` itself was not edited, and nothing here is a rule until the owner moves it. Written 2026-10-25/26 from the LLM-3 to LLM-6 sessions and the local-model setup session (session `01664rQgzKuqZJNTsWcNrFHs` wrote this file; the other sessions are named per entry where known).
+
+**Evidence tags.** **[verified]** = checked in the repository by the writer of this file against a named place. **[reported by agent]** = told to the writer by the session that hit it (or by the briefing), not independently reproduced here; treat as unconfirmed until the owner or a verifier confirms. `MISTAKES.md`'s own rule is "do not record unverified guesses", so the [reported by agent] entries are the ones to hold back until confirmed.
+
+Each entry gives a suggested preflight trigger (the left-column phrase), the root cause, the rule, how to verify, and the session. Overlap with an existing `MISTAKES.md` row is noted so the owner can merge instead of duplicating.
+
+---
+
+## 1. Appending to a packed array fetched from a Dictionary is lost
+
+- **Preflight trigger:** *Mutate a `Packed*Array` you read out of a `Dictionary` or `Array`*
+- **Root cause:** GDScript `Packed*Array`s have value semantics. `var a = dict["k"]` copies, `a.append(x)` changes the copy, and the dictionary still holds the old array. The code looks right and runs without error.
+- **Rule:** after mutating, store it back (`dict["k"] = a`), or mutate in place through the dictionary expression only where the engine documents it as by-reference. Never rely on `append` on a fetched local.
+- **How to verify:** a probe that appends, then reads the dictionary entry's `size()` and asserts it grew; mutation test: remove the re-store, the probe goes red.
+- **Session:** an LLM-3 to LLM-6 build session. **[reported by agent]**: no repository place was named, so this was not re-opened at a symbol.
+
+## 2. `netstat -p TCP` shows IPv4 only; check TCPv6 as well
+
+- **Preflight trigger:** *Assert "zero sockets" or "nothing is listening" from `netstat`*
+- **Root cause:** `netstat -p TCP` on Windows lists only IPv4. `localhost` can resolve to `::1`, so a connection to a local model server can be on TCPv6 and be invisible to the check, which then reports a clean zero it has not earned.
+- **Rule:** run both `netstat -p TCP` and `netstat -p TCPv6` (or `netstat -ano` and filter) for any zero-connection claim; state both counts.
+- **How to verify:** open a deliberate loopback connection to `[::1]` and confirm the check counts it; mutation: drop the TCPv6 pass, the test goes red.
+- **Session:** LLM-2 to LLM-4 (the zero-socket-when-off bar). **[verified in part]**: `cartalith-native/docs/STATUS.md` (the LLM-4 and LLM-3 entries) says the `netstat` checks ran "over both address families" and show 0 non-listening rows. That confirms the practice, not the failure that caused it.
+
+## 3. A worker thread cannot build Godot values in this gdext build, and a script method cannot be called from `NOTIFICATION_PREDELETE`
+
+- **Preflight trigger:** *Move Godot-object work onto a `Thread`, or free something in `_notification`*
+- **Root cause:** this build of gdext has no `experimental-threads`, so a `Dictionary` / `Array` / `GString` operation off the main thread panics. Separately, during `NOTIFICATION_PREDELETE` the script instance is going away, so calling a script method from it is not safe.
+- **Rule:** a worker thread handles raw bytes only; the main thread drains a queue and builds every Godot value. In `NOTIFICATION_PREDELETE`, free raw RIDs and native resources only; never call back into script.
+- **How to verify:** the thread half is already stated in `LLM_ASSISTANT_SCOPE.md` s.2 (the rule `landmark_run` and `region_new_world` document). The predelete half: `map_overlay.gd`'s `_notification` frees raw RIDs only, which is consistent with it.
+- **Session:** LLM-3 (wire worker thread). **Thread half [verified]** at `LLM_ASSISTANT_SCOPE.md` s.2; **predelete half [reported by agent]**: the symbol was not found documenting the prohibition itself.
+- **Overlap:** none in the preflight table found by keyword (`PREDELETE`, `experimental-threads` absent from `MISTAKES.md`).
+
+## 4. A Python text-mode rewrite on Windows turns LF into CRLF; mutation harnesses must restore original bytes
+
+- **Preflight trigger:** *Run a mutation harness that rewrites a source file, or edit a file with a script*
+- **Root cause:** `open(path).read()` then `open(path, "w").write()` on Windows translates newlines. A harness that "restores" the original text this way leaves every line ending changed, a whole-file diff, and possibly a stale-binary rebuild.
+- **Rule:** read and write in binary (`rb` / `wb`), or pass `newline=""`; restore the file from the exact original bytes (saved copy or `git checkout -- path`), then confirm `git diff --stat` is empty before and after.
+- **How to verify:** after a harness run, `git status` shows the file clean and `git diff --stat` is empty; mutation: run the harness in text mode and see the diff appear.
+- **Session:** an LLM-6 mutation-harness session. **[reported by agent]**.
+
+## 5. `subprocess.run(timeout=)` on the Godot console launcher hangs on the child's pipe; use `Popen` plus `taskkill /T`
+
+- **Preflight trigger:** *Drive a headless Godot (or any launcher that spawns a child) from Python with a timeout*
+- **Root cause:** the Godot console launcher spawns the real process as a child that inherits the pipe. On timeout `subprocess.run` kills the launcher only; the orphaned child keeps the pipe open, so the read after the kill never returns and the harness hangs past its timeout.
+- **Rule:** use `Popen`, and on timeout run `taskkill /F /T /PID <pid>` to kill the tree, then read what remains; never `communicate()` without a bounded wait after a kill.
+- **How to verify:** a probe that sleeps past the timeout returns within the timeout plus a small constant, and no `godot` process remains (`tasklist`).
+- **Session:** the LLM-6c stage-1/stage-2 driver work (`_llmparams_cli.gd`). **[reported by agent]**.
+
+## 6. The stale-binary trap: a stale DLL reports a healthy pass
+
+- **Preflight trigger:** *Declare green after a Rust change* (an existing row covers it)
+- **Root cause:** `cargo test` does not rebuild `target/debug/cartalith_godot.dll`; every `.tscn` probe loads that DLL, so a probe run after a `.rs` edit and before `cargo build` tests the previous engine and passes.
+- **Rule:** compare the DLL's mtime with the newest touched `.rs` file and state both.
+- **How to verify:** `ls -l --time-style=full-iso target/debug/cartalith_godot.dll` against the newest `.rs`; mutation: touch a `.rs`, rerun the probe, and the comparison must flag it.
+- **Session:** recurring (LLM-5 and LLM-6 among them). **[verified]**: already `MISTAKES.md` preflight row "Grade a Godot probe as evidence for a Rust change" (the Godot half) and the stale-binary working rule in `CLAUDE.md`. **Merge into that row by raising its `×N` and adding the instance; do not add a new entry.**
+
+## 7. Two agents running windowed Godot at once steal each other's mouse input; use the `C:/cw/.win_lock` convention
+
+- **Preflight trigger:** *Run a windowed (non-headless) Godot probe, screenshot or click test while another agent may be doing the same*
+- **Root cause:** synthetic and real mouse input are delivered to whichever window has the foreground. Two windowed runs on one desktop interleave, so clicks land in the wrong app and both runs fail or, worse, one passes on the other's click.
+- **Rule:** take the lock before a windowed run (`C:/cw/.win_lock`, created exclusively, removed in a `finally`), and wait or run headless if it is held; headless runs need no lock.
+- **How to verify:** two concurrent windowed probes: the second must wait or refuse; mutation: skip the lock and observe the interference.
+- **Session:** the concurrent-lane sessions of 2026-10-25/26. **[reported by agent]**: `win_lock` is not in any document in the repository (searched `*.md`), so the convention exists only in agent briefs; if the owner adopts the entry, the convention itself should be written down where agents will read it.
+
+## 8. Stopping Ollama by process name `ollama*` leaves orphaned `llama-server` runners holding VRAM
+
+- **Preflight trigger:** *Stop a local model server to free the GPU, or measure speed/VRAM after stopping one*
+- **Root cause:** Ollama starts model runners as separate `llama-server` processes. Stopping `ollama*` by name kills the server and the tray app but can leave a runner alive, which keeps its model resident in VRAM. The next measurement then runs with the card partly full: this is the same condition the 4 to 7 tok/s Ollama figure in `LLM_ASSISTANT_SCOPE.md` s.9a was taken under.
+- **Rule:** stop `llama-server` too, then check the GPU memory counters (dedicated usage near the compositor's ~0.3 GB) before measuring or starting another model.
+- **How to verify:** read dedicated GPU memory before and after the stop (Task Manager or the performance counter) and `tasklist | findstr llama-server`; mutation: stop only `ollama*` and see the counter stay high.
+- **Session:** the local-model tooling session of 2026-10-25. **[reported by agent]** for the orphaned-runner mechanism; the stale-runner condition is [verified] only as a statement in the owner-session brief and now recorded in `LLM_ASSISTANT_SCOPE.md` s.9a.
+
+## 9. `ollama list` and similar commands auto-start the server
+
+- **Preflight trigger:** *Check whether Ollama is running, or leave it stopped, using the `ollama` CLI*
+- **Root cause:** the CLI is a client that starts the server if none answers. An "is it stopped?" check therefore starts it (and with it the tray app), and a later `ollama list` or `ollama ps` silently undoes a stop.
+- **Rule:** check state without the CLI (`tasklist`, or a TCP probe of `localhost:11434` that does not connect-and-keep); run `ollama` commands only when a running server is acceptable.
+- **How to verify:** stop the server, run `ollama list`, and see a process reappear; mutation: replace the check with a port probe and the process stays absent.
+- **Session:** the local-model tooling session of 2026-10-25. **[reported by agent]**.
+
+## 10. `winget` can hang behind another stuck `winget`; run the signed installer directly after hash verification
+
+- **Preflight trigger:** *Install a tool with `winget` in a session where another install may be running*
+- **Root cause:** `winget` takes a machine-wide lock; one stuck invocation (a prompt nobody sees, a download that stalls) makes every later `winget` wait forever with no output.
+- **Rule:** do not queue behind it. Download the vendor's installer, verify its hash against the published value and its signature (`Get-AuthenticodeSignature`), then run it directly; say in the record which hash and which signer you checked.
+- **How to verify:** `Get-AuthenticodeSignature` reports `Valid` with the expected publisher, and the hash matches the vendor's page; the install result is confirmed by launching the tool.
+- **Session:** the local-model tooling session of 2026-10-25 (LM Studio 0.4.26, `LLM_ASSISTANT_SCOPE.md` s.9a). **[reported by agent]** for the hang; the install itself is recorded in s.9a.
+
+---
+
+## 11. A mocked test using the literal 127.0.0.1 hid a localhost -> ::1 resolution failure
+
+The mock server listened on `127.0.0.1` and the test dialled the same literal, so the test passed while the shipped
+default URL `localhost` resolved to `::1` and failed. Rule: a network test must dial the name the product ships with
+and the mock must listen on both families. Verify: run the test with the product's default URL.
+
+## 12. A fixture that cannot fail (canary words in the user's own question)
+
+The injection canary words were placed in the user's own question, so any answer that echoed the question passed. Rule:
+a fixture must be able to fail; put the canary where only the thing under test can have read it, and run it once against
+a deliberately broken implementation.
+
+## 13. A phone sheet keeps a stale child size
+
+A phone sheet reused a child whose minimum size was set for a previous layout; the sheet kept the old size after the
+content changed. Rule: re-measure children when a sheet's content changes, and check the phone leg after any relayout.
+
+## 14. `git checkout <file>` on a file with uncommitted work loses it
+
+An agent restored a file to clear a diff and discarded uncommitted work. Rule: never `git checkout`/`restore` a path that
+has uncommitted changes you did not make; copy it aside or `git stash` first, and name the explicit path in commits.
+
+## 15. A probe with a parse error hangs while holding the lock
+
+A GDScript probe with a parse error never exits, and the `C:/cw/.win_lock` directory stayed held. Rule: run
+`--check-only` (or parse-check) before the windowed run, always use a hard timeout, and release the lock in a trap.
+
+## 16. Two agents installing on the phone at once collide
+
+Same family as entry 7: two agents driving adb or installing the APK concurrently corrupt each other's state. Rule: take
+the same lock convention for the phone, one device owner at a time.
+
+## 17. An agent stopping the shared LM Studio server
+
+An agent stopped the LM Studio server the owner leaves running on the LAN for other agents and devices. Rule: agents never
+start or stop LM Studio or Ollama unless the brief says so; the server is the owner's.
+
+## 18. A preset command-line scene path loops the splash
+
+Putting a scene path on the export preset's command line made the app restart into the splash repeatedly. Rule: never a
+scene path in the preset command line; the main scene belongs in `project.godot`.
+
+## 19. Project path not reset on New world overwrote a world
+
+New world inherited the previous world's project path, so the first Save overwrote that world (fixed in `5585284e`).
+Rule: any "new" action resets every identity field (path, name, dirty flag), tested by Save-after-New.
+
+## 20. A SubViewport routes pointer motion only after `NOTIFICATION_VP_MOUSE_ENTER`
+
+- **Preflight trigger:** *Drive hover or motion in a probe that hosts the app in a `SubViewport`*
+- **Root cause:** a `SubViewport` never receives the pointer-entered notification a window gets, so `push_input` motion events are not routed to controls until the probe sends `NOTIFICATION_VP_MOUSE_ENTER` itself. Without it every "hover shows X" assertion fails, and worse, every "hover leaves it hidden" assertion passes vacuously.
+- **Rule:** send `_vp.notification(Node.NOTIFICATION_VP_MOUSE_ENTER)` after the app is up, and begin every negative hover assertion with a positive control that hovers a known target and sees the effect.
+- **How to verify:** remove the notification from the probe; the positive control must go red, not the negative assertion alone.
+- **Session:** the VE-0/VE-1 build, commit `bec744b5`. **[verified]**: the measurement is in `cartalith-native/godot-project/_ve0_measure_probe.gd` and the note is in the header of `_ve0_probe.gd` ("Pointer note").
+
+## 21. Test scratch directories must be unique per call, not per tag
+
+- **Preflight trigger:** *Give a parallel Rust test a scratch directory named from a tag*
+- **Root cause:** two `cartalith-vault` tests shared the tag `rename`; one test's `remove_dir_all` deleted the other's tree mid-run (`SourceMissing`, or "Access is denied (os error 5)" on Windows where the other test held files open). `cargo test -p cartalith-vault` was flaky until it was fixed.
+- **Rule:** a scratch path is `tag + process id + a per-call counter`; "unique per test" by tag is a claim about the callers, not a property of the helper.
+- **How to verify:** run the crate's suite three times; mutation: drop the counter and give two tests one tag, the suite must fail.
+- **Session:** the VE-0/VE-1 build, commit `bec744b5`. **[verified]**: the diff of `cartalith-vault/src/lib.rs` (`scratch`) carries the explanation.
+
+## 22. A script error inside an `await` hangs a probe
+
+- **Preflight trigger:** *Write a windowed probe that awaits between steps*
+- **Root cause:** an error raised in a coroutine after an `await` ends that coroutine silently; the `_ready` that was awaiting it never resumes, `_finish()` is never reached and the run hangs until its timeout (holding `C:/cw/.win_lock` if no `finally` releases it). Typically a null control: a button or node a previous failed step should have produced.
+- **Rule:** after each step that later steps depend on, assert the control exists and call `_finish()` with the failure on record when it does not; never index into a node found by a search without a null check; hard timeout on every run.
+- **How to verify:** make a control missing on purpose; the probe must end with a named failure, not hang.
+- **Session:** the VE-0/VE-1 build, commit `bec744b5`. **[reported by agent]** (the `_ve0_probe.gd` comment "a script error inside an `await` never returns" is the writer's own note, not a reproduction here).
+
+## 23. `TextEdit.get_rect_at_line_column` answers for the grapheme BEFORE the column
+
+- **Preflight trigger:** *Measure where a coloured run, a caret or a glyph starts in a `TextEdit`*
+- **Root cause:** on Godot 4.7.2 `get_rect_at_line_column(line, col)` reports the rect of the grapheme before `col`, so column 1 returns column 0's x. A probe that asks it where a run starts is off by one glyph and passes or fails for the wrong reason.
+- **Rule:** to find where drawn ink starts, use the hit test (`get_line_column_at_pos`) on the drawn pixels, or measure the pixels; never trust `get_rect_at_line_column` for a run's left edge.
+- **How to verify:** ask for the rect at column 1 of a line whose first glyph is wide; it equals column 0's rect.
+- **Session:** the VE-3 build, commit `2dd5159d`. **[reported by agent]**: recorded in `VAULT_EDITOR_PROPOSAL.md` s.7a (a); the probe `_ve3_probe.gd` uses the hit test instead.
+
+## 24. The caret and the focus border are drawn in the same colour as a heading
+
+- **Preflight trigger:** *Measure the ink of one colour in a capture of an editor that has focus*
+- **Root cause:** the editor's caret and its focus border are drawn in the accent, which is also the heading colour. A pixel probe that counts "heading ink" on a focused editor counts the caret and the border and reports headings that are not there.
+- **Rule:** park the caret on a line the measurement does not read, and start the scan inside the border; or measure with the editor unfocused. Never count a colour the chrome also uses without excluding the chrome.
+- **How to verify:** move the caret onto the measured line; the count of heading-coloured pixels changes with no text change.
+- **Session:** the VE-3 build, commit `2dd5159d`. **[reported by agent]**: recorded in `VAULT_EDITOR_PROPOSAL.md` s.7a (c); `_ve3_probe.gd` parks the caret and starts inside the border.
+
+## 25. A rebuild frees the old editor AFTER the new note's state is assigned
+
+- **Preflight trigger:** *Add code that reads a widget's text during a rebuild, a note switch or a close*
+- **Root cause:** `vault_window.gd`'s `_open_editor` assigns the new `_browse_path` and `_browse_text` and only then calls `_rebuild`, which frees the old editor. For that moment the old note's `TextEdit` is alive under the NEW note's name. VE-4's first version synced the editor's text into `_browse_text` inside `_clear` and then autosaved: `Qconf1.md` came out holding `Qalpha.md`'s text. A user's note overwritten with another note's text is the worst failure an autosave can have.
+- **Rule:** any code that reads the live editor must first check the editor was built for the note now in `_browse_path` (`_editor_path`), and a write must refuse when it was not. Reading "the current editor" is a claim about which note, not only about which widget.
+- **How to verify:** open note B straight after editing note A without waiting; B's file must hold B's text. Remove the `_editor_path` checks and `_ve4_probe.gd` goes red (its Qconf1 and Qcrlf legs).
+- **Session:** the VE-4 build. **[verified]**: caught by the probe on its first run, before any commit.
+
+## 26. Two agents removed `C:/cw/.win_lock` without checking it was theirs
+
+- **Preflight trigger:** *Take, wait for or release the shared lock for windowed probes (`C:/cw/.win_lock`)*
+- **Root cause:** a windowed run takes the lock with `mkdir C:/cw/.win_lock`; an agent that found it present, or that was tidying up after a crashed run, removed it without asking whose it was. Both PC-4 and VE-4 did this (2026-11-08). The directory was another agent's live lock, so two windowed Godot runs shared one desktop and one `user://`, and the probe that lost the race read a window it did not own.
+- **Rule:** write an owner file inside the lock directory that names you, wait while the lock exists, and remove the directory ONLY if its owner file is yours (`grep` for your own tag before `rm -rf`); release in a `finally`/`trap`; a hard timeout on every run so a crash cannot strand it. A lock whose owner is not you is never yours to remove, however old it looks: report it instead.
+- **How to verify:** start a run while another holds the lock: it must wait. Kill a run mid-way: its `trap` removes the lock because the owner file names it, and a second agent's lock is left standing.
+- **Session:** the VE-5 session (2026-11-08), recorded from the PC-4 and VE-4 reports. **[verified]**: the lock wrapper used for this session's probes (`ve5_run.sh`) takes it with `mkdir`, writes the owner file, and releases only when that file names this session.
+
+## Suggested handling
+
+- Entry 6 merges into an existing row; the rest are new triggers.
+- Entries 20, 21, 25 and 26 are verified at a named place; entries 22, 23 and 24 carry **[reported by agent]**.
+- Entries 1, 4, 5, 7, 8, 9 and 10 carry **[reported by agent]**: confirm each (one reproduction apiece) before adding, or add them with that tag visible.
+- Entries 2 and 3 are partly backed by repository text, noted above.
