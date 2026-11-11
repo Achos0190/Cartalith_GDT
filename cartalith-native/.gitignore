@@ -11,7 +11,9 @@ godot-project/android/
 # ponytail: whole addons/ dir ignored rather than picking entries, since
 # nothing currently in it belongs in the repo — un-ignore deliberately
 # if a real addon is ever adopted.
-godot-project/addons/
+godot-project/addons/*
+# fennara (MIT, editor MCP helper) is tracked at the owner's request, 2026-11-11.
+!godot-project/addons/fennara/
 godot-project/godot-ai-LICENSE.txt
 
 # Export signing — never committed.

@@ -15,6 +15,12 @@ run/main_scene="res://shell/app.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.png"
 
+[autoload]
+
+; fennara: an editor MCP helper (MIT, addons/fennara), committed at the owner's request 2026-11-11.
+; At runtime it frees itself unless FENNARA_RT_SPEC is set, so shipped builds do nothing with it.
+_fennara_game_capture="*res://addons/fennara/runtime/game_capture_helper.gd"
+
 [display]
 
 ; ONLY semicolons start a comment in this file. A ## line is NOT a comment --
