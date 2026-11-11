@@ -562,3 +562,12 @@ The owner world's "before" reproduces section 11 exactly (58.1 % and 44.5 %).
 world and 0.5 % on 483920. That is an artefact of the metric's 0.25-cell tolerance against a 0.3-cell wander, which
 is invisible below x16. The routing's own effect is the 13.4 table, measured without the meander. The meander's
 effect is the x16 and x64 frames.
+
+13.8 **Frames** (`cartalith-native/docs/evidence/rivers-straight-2026-11-11/`). `before_<world>_zNN` is rough routing
+and meander off; `after_<world>_zNN` is both on (with section 12's delta fix in both). They are taken at x1, x4, x16
+and x64 on the owner world and 483920, centred on the same cell (`targets.json`: owner lake mouth 2584 and a 483920
+lake mouth). `delta_after_*` are section 12's per-mouth frames; their "before" is the owner's frames in
+`evidence/delta-2026-11-11/`. **`composite_rivers_and_deltas.png`** puts them side by side for the owner. Logs:
+`d1_owner.log` (the delta diagnosis), `d2_*.log` (after), `r_*_off/on.log` (13.4) and `routing_candidates.txt`
+(13.1). Looked at: at x16 and x64 the after frames show winding channels where the before frames show parallel ruler
+lines down the lake shore, and the 2584 delta draws its branching fan.
