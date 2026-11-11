@@ -9494,6 +9494,23 @@ func vault_landmark_entity_id(key: String) -> Dictionary:
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_landmark_entity_id(key)
 
+## Ruling EQ item 2: the vault `entity_id` of the hand-placed label at `index` (`WorldGen.vault_label_entity_id`):
+## `{ok, entity_id, label}` or `{ok: false, error}`; `entity_id` is absent, never 0, for an index no label holds.
+func vault_label_entity_id(index: int) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_label_entity_id"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_label_entity_id(index)
+
+## Ruling EQ item 2: `vault_label_entity_id`'s twin for the placed icon at `index`.
+func vault_icon_entity_id(index: int) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_icon_entity_id"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_icon_entity_id(index)
+
 ## The last `landmark_run()`'s per-type funnel -- the "why fewer than I
 ## asked for" popover's own data (`LANDMARK_UI_DESIGN.md` §5): `[{kind,
 ## candidates,rejected_constraint,rejected_score,rejected_spacing,cap,

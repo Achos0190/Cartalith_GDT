@@ -57,7 +57,7 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
   drawing-only meander bounded to the traced cells is invisible below about x16. `DELTA_GEOMETRY_RESEARCH.md`
   section 11 has the table and the options. Ruling EQ item (3), short-stub hiding, is built (the
   zoom-dependent river entry below); item (4), the live window share, is not yet.
-  Ruling EQ item (1), colour-paint pen pressure, is built (below); item (2), vault notes on labels and icons, is not yet.
+  Ruling EQ items (1), colour-paint pen pressure, and (2), vault notes on labels and icons, are built (below).
 
 ### Natural-looking river deltas: redesigned and measured (2026-11-11)
 
@@ -460,6 +460,19 @@ neighbouring reading (`_strengths_for`); a stroke with no reading stores no stre
 `project_bridge.rs` archive round trip, a tile test and an export test (names in `SAVEFILE_COMPAT.md`); `_pressure_probe.gd` section
 `_t_colour` (synthetic device-0 pen events, labelled synthetic: stored strengths, off and mouse store none, pixels at strength 0, 1 and a 0 to 1 ramp).
 - **Results (2026-11-11, base `021821c1`):** `cargo test --workspace` 7837 passed, 0 failed (the tree with both Ruling EQ items); `_pressure_probe` 59/59 at 1600x1000 and at 2388x1668 @2 touch (a first run failed one check, the press point taking the last kept reading after simplification; fixed by back-filling over every sampled point, re-run green); `_sh_probe` 95 desktop and 111 phone (the 95/111 recorded for the Pressure controls batch), `_pc5note` 116/0, `_ve9b` 86/0, `_colourpaint_probe` desktop 47/0, `_edfc_probe` 127 and 144 touch, all 0 failed. Literal mutants, all killed: the opacity-times-strength line, the segment interpolation, the 0..1 clamp, the length check, the 3-decimal save rounding. Not run: a probe on `origin/main` (every probe is green on this tree, so there was nothing to compare), the pen on the glass, a GDScript-side mutant of the default (the probe asserts the literal `strength`).
+
+### Vault notes on labels and icons (Ruling EQ item 2, 2026-11-11)
+
+**Built in code; the verification line is below.** `cartalith-vault` `EntityKind` gained `Label` and `Icon` (`SAVEFILE_COMPAT.md` 13.3.4:
+the id is the first 13 hex digits of FNV-1a 64 over `label@<x>,<y>` / `icon@<x>,<y>`, the same derivation as a landmark's; old vaults hold
+no such link and re-serialise byte for byte). `WorldGen::vault_label_entity_id(index)` and `vault_icon_entity_id(index)` give the id
+(absent on a refusal); `label_move` and `icon_move` re-point the note with `LinkStore::reassign_entity`; two items in one cell resolve to
+nothing, like a landmark collision. `GlobalTools.element_rows` offers `el.label_note` and `el.icon_note` in every domain ("Attach note
+to ...", or "Open note for ..." once linked), opening the vault at the entity (`app.open_vault`), and the vault window resolves the name
+and cell (`_resolve_entity`). **Not built: the Note tab of the Context panel does not show a label's or icon's note**, because neither is a
+selection subject (a label has no Inspect page; the icon pick is a context, not a selection), so `ContextNote` has no subject to resolve;
+making them subjects is a separate change to `right_dock.gd`. Tests: `links.rs`, `vault_bridge.rs`, and `_edfc_probe.gd` legs LBN and ICN.
+- **Results (2026-11-11, base `021821c1`):** `cargo test --workspace` 7837 passed, 0 failed; `_edfc_probe` 127 (desktop) and 144 (touch) all ok, including 14 LBN and 6 ICN checks on real right-clicks (the Note row in all three domains, Attach then Open wording, the vault window opening for kind `label` at the entity, a move carrying the note to the new cell id for a label and an icon); `_ve9b_probe` 86/0, `_pc5note_probe` 116/0 (the vault and Note tab untouched by the new kinds). Literal mutants, all killed: the `label@` key text, `reassign_entity` writing the old id, the `Labels` folder name, the ambiguity refusal in `label_cell`. Not run: a touch tap on the Note chip (the chip set is Ruling EO's and unchanged: the Note row carries `tap: Note`), the phone form of the probe (its own header says it is not green), a GDScript-side mutant.
 
 ### Pressure controls: a per-tool choice of what a pen's pressure does (Ruling EM item 3, 2026-11-09)
 

@@ -303,6 +303,8 @@ impl WorldGen {
             EntityKind::Faction,
             EntityKind::Culture,
             EntityKind::Landmark,
+            EntityKind::Label,
+            EntityKind::Icon,
         ]
         .iter()
         .map(|k| GString::from(k.as_str()))
@@ -354,6 +356,41 @@ impl WorldGen {
         if let Some(n) = self.landmark_name_list().into_iter().find(|n| n.key == key) {
             d.set("label", n.name.as_str());
         }
+        d
+    }
+
+    /// Ruling EQ item 2: the `entity_id` to pass every `vault_*` call for the
+    /// hand-placed label at `index` (the index `label_list` and the context
+    /// hit carry), filed by its cell (`cartalith_vault::links::label_key`).
+    /// `{ok, error, entity_id, label}`; `entity_id` is **absent** on a refusal
+    /// (an index the list does not hold, or no labels yet), never `0`.
+    /// `label` is the label's text, or `Label (x, y)` for an untitled one, which
+    /// is what `vault_attach`'s `entity_label` and the suggested note path want.
+    #[func]
+    fn vault_label_entity_id(&self, index: i64) -> VarDictionary {
+        let Some(lb) = usize::try_from(index).ok().and_then(|i| self.labels.as_ref()?.labels.get(i)) else {
+            return err("No label at that index.");
+        };
+        let mut d = ok();
+        d.set("entity_id", cartalith_vault::links::label_entity_id(lb.x, lb.y));
+        let name = lb.name.trim();
+        let text = if name.is_empty() { format!("Label ({}, {})", lb.x.round(), lb.y.round()) } else { name.to_string() };
+        d.set("label", text.as_str());
+        d
+    }
+
+    /// Ruling EQ item 2: as [`WorldGen::vault_label_entity_id`], for the placed
+    /// icon at `index` (the index `icon_list` and the context hit carry). The
+    /// label is `<Slot> icon (x, y)`: an icon has no name of its own.
+    #[func]
+    fn vault_icon_entity_id(&self, index: i64) -> VarDictionary {
+        let Some(ic) = usize::try_from(index).ok().and_then(|i| self.icons.as_ref()?.icons.get(i)) else {
+            return err("No icon at that index.");
+        };
+        let mut d = ok();
+        d.set("entity_id", cartalith_vault::links::icon_entity_id(ic.x, ic.y));
+        let text = format!("{} icon ({}, {})", capitalise(&ic.slot), ic.x.round(), ic.y.round());
+        d.set("label", text.as_str());
         d
     }
 
@@ -2247,6 +2284,16 @@ impl WorldGen {
         // see [`landmark_with_entity_id`]. A landmark that is not in the
         // current run answers an empty map, which is `entity_values`' own
         // documented "an entity that has gone away is not an error here".
+        // Ruling EQ item 2: a label or an icon answers its type and its cell,
+        // before the `civ` guard for the landmark's reason (neither needs a
+        // civilisation layer). One that is no longer placed answers an empty map.
+        if kind == EntityKind::Label || kind == EntityKind::Icon {
+            let Some((x, y)) = self.item_cell_for_entity(kind, entity_id) else { return out };
+            out.insert("entity_type", kind.as_str().to_string());
+            out.insert("coordinates", format!("{}, {}", x.round(), y.round()));
+            self.append_snapshot_fields(&mut out, kind, entity_id);
+            return out;
+        }
         if kind == EntityKind::Landmark {
             let Some(lm) = self.landmark_for_entity(entity_id) else { return out };
             out.insert("entity_type", kind.as_str().to_string());
@@ -2445,6 +2492,8 @@ impl WorldGen {
             // hidden every landmark from a user who has never pressed
             // Recompute. Same empty-arm reasoning as the line above.
             EntityKind::Landmark => {}
+            // Answered above, before the `civ` guard (Ruling EQ item 2).
+            EntityKind::Label | EntityKind::Icon => {}
         }
         self.append_snapshot_fields(&mut out, kind, entity_id);
         out
@@ -2507,6 +2556,18 @@ impl WorldGen {
     /// nothing here removes one.
     fn landmark_for_entity(&self, entity_id: i64) -> Option<&cartalith_civ::landmark::Landmark> {
         landmark_with_entity_id(&self.landmark_store.last.as_ref()?.landmarks, entity_id)
+    }
+
+    /// Ruling EQ item 2: the cell `(x, y)` of the hand-placed label or placed
+    /// icon `entity_id` addresses, or `None` when it is no longer placed or
+    /// the id is ambiguous (two items in one cell: refused, like a landmark
+    /// collision, so a note is never attached to the wrong one).
+    fn item_cell_for_entity(&self, kind: EntityKind, entity_id: i64) -> Option<(f64, f64)> {
+        match kind {
+            EntityKind::Label => label_cell(&self.labels.as_ref()?.labels, entity_id),
+            EntityKind::Icon => icon_cell(&self.icons.as_ref()?.icons, entity_id),
+            _ => None,
+        }
     }
 
     /// Whether the image a filed snapshot points at is still on disk.
@@ -2641,6 +2702,11 @@ impl WorldGen {
                 (cap.placement.x as i64, cap.placement.y as i64)
             }
             EntityKind::Culture => return None,
+            // Ruling EQ item 2: the item's own cell, floored (a label or icon sits at a fractional grid position).
+            EntityKind::Label | EntityKind::Icon => {
+                let (fx, fy) = self.item_cell_for_entity(kind, entity_id)?;
+                (fx.floor() as i64, fy.floor() as i64)
+            }
         };
         (x >= 0 && y >= 0 && x < gw && y < gh).then_some((x, y))
     }
@@ -2696,6 +2762,21 @@ pub(crate) fn landmark_with_entity_id(
         .filter(|lm| cartalith_vault::links::landmark_entity_id(&lm.key()) == entity_id);
     let first = hits.next()?;
     hits.next().is_none().then_some(first)
+}
+
+/// Ruling EQ item 2: `(x, y)` of the hand-placed label `entity_id` addresses
+/// (`cartalith_vault::links::label_entity_id`), refusing an ambiguous id.
+pub(crate) fn label_cell(labels: &[cartalith_civ::labels::MapLabel], entity_id: i64) -> Option<(f64, f64)> {
+    let mut hits = labels.iter().filter(|lb| cartalith_vault::links::label_entity_id(lb.x, lb.y) == entity_id);
+    let first = hits.next()?;
+    hits.next().is_none().then_some((first.x, first.y))
+}
+
+/// Ruling EQ item 2: as [`label_cell`], for a placed icon.
+pub(crate) fn icon_cell(icons: &[cartalith_assets::manual::ManualIcon], entity_id: i64) -> Option<(f64, f64)> {
+    let mut hits = icons.iter().filter(|ic| cartalith_vault::links::icon_entity_id(ic.x, ic.y) == entity_id);
+    let first = hits.next()?;
+    hits.next().is_none().then_some((first.x, first.y))
 }
 
 /// `(x, y)` for the landmark `entity_id` addresses, in grid cells.
@@ -2967,6 +3048,31 @@ mod tests {
     /// grid-bounds check — stays there and is not reachable from here.
     /// Protects: the `(x, y)` order of `landmark_cell` (asymmetric fixtures) and
     /// that an absent landmark has no cell rather than the origin.
+    /// Protects Ruling EQ item 2's resolution: `label_cell` and `icon_cell`
+    /// find the item by the id of its own cell and answer `(x, y)` in that
+    /// order (asymmetric fixtures, fractional positions), answer `None` for an
+    /// id nothing holds (never the origin), and **refuse an ambiguous id**
+    /// (two labels or two icons in one cell) rather than take the first.
+    #[test]
+    fn a_label_or_icon_resolves_by_its_cell_and_refuses_a_shared_one() {
+        use cartalith_assets::manual::{IconOrigin, ManualIcon, ManualIconFamily};
+        use cartalith_civ::labels::MapLabel;
+        let labels = [MapLabel::new(12.5, 40.0, "Old Town"), MapLabel::new(3.0, 9.25, "Marsh")];
+        assert_eq!(label_cell(&labels, cartalith_vault::links::label_entity_id(12.5, 40.0)), Some((12.5, 40.0)));
+        assert_eq!(label_cell(&labels, cartalith_vault::links::label_entity_id(3.0, 9.25)), Some((3.0, 9.25)));
+        assert_eq!(label_cell(&labels, cartalith_vault::links::label_entity_id(0.0, 0.0)), None);
+        assert_eq!(label_cell(&[], 1), None);
+        let twin = [MapLabel::new(1.0, 2.0, "A"), MapLabel::new(1.0, 2.0, "B")];
+        assert_eq!(label_cell(&twin, cartalith_vault::links::label_entity_id(1.0, 2.0)), None, "two labels in one cell: refused");
+        let icon = |x: f64, y: f64| ManualIcon { x, y, family: ManualIconFamily::Feature, slot: "pine".into(), set: None, scale: 1.0, origin: IconOrigin::Manual };
+        let icons = [icon(7.0, 9.25), icon(20.5, 4.0)];
+        assert_eq!(icon_cell(&icons, cartalith_vault::links::icon_entity_id(20.5, 4.0)), Some((20.5, 4.0)));
+        assert_eq!(icon_cell(&icons, cartalith_vault::links::icon_entity_id(7.0, 9.25)), Some((7.0, 9.25)));
+        assert_eq!(icon_cell(&icons, cartalith_vault::links::label_entity_id(7.0, 9.25)), None, "a label id is not an icon id");
+        let stacked = [icon(5.0, 5.0), icon(5.0, 5.0)];
+        assert_eq!(icon_cell(&stacked, cartalith_vault::links::icon_entity_id(5.0, 5.0)), None, "two icons in one cell: refused");
+    }
+
     #[test]
     fn a_landmarks_cell_is_x_then_y() {
         let run = [lm(1, "peak", 40, 50), lm(2, "cliff", 7, 3)];

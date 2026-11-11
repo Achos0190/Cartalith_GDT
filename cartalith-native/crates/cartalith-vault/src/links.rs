@@ -70,7 +70,8 @@ use std::collections::BTreeMap;
 /// joined on 2026-09-06 and moved the number in the same edit. Counted from
 /// the definition on 2026-09-06:
 /// `awk '/^pub enum EntityKind \{/,/^\}/' links.rs | grep -cE '^    [A-Z][A-Za-z]+,$'`
-/// → `6`. A seventh needs this number moved in the same change.
+/// → `6`. **Ruling EQ item 2 (2026-11-11) added `Label` and `Icon`: the count is
+/// now `8`.** A ninth needs this number moved in the same change.
 ///
 /// §3 of the design also lists POIs and region labels. **POIs are not a
 /// ported concept** in this port at all — `civ_tools_bridge.rs`'s module doc
@@ -130,6 +131,45 @@ pub enum EntityKind {
     /// shows the stored `entity_label`, and nothing in this crate removes a
     /// link because its target went away.
     Landmark,
+    /// Ruling EQ item 2 (2026-11-11): a hand-placed map label
+    /// (`cartalith_civ::labels::MapLabel`), addressed by [`label_entity_id`]
+    /// over its cell. Like a landmark it has no id the engine issued -- the
+    /// shell holds an index that shifts on every delete -- so the identity is
+    /// its position. A **move re-points the link** (`LinkStore::reassign_entity`
+    /// from `label_move`); a delete leaves the link as an absent entity, never
+    /// deleted. Old vaults carry no such link, so they are unchanged.
+    Label,
+    /// Ruling EQ item 2: a placed map icon (`cartalith_assets::ManualIcon`),
+    /// addressed by [`icon_entity_id`] over its cell, with the same move and
+    /// delete rules as [`EntityKind::Label`].
+    Icon,
+}
+
+/// The wire key of a hand-placed label: `label@<x>,<y>` over the label's grid
+/// position, written with Rust's shortest round-trip `f64` text, which is also
+/// how the archive stores the position, so a saved and reopened label keeps
+/// its key (Ruling EQ item 2). The text is the identity; [`label_entity_id`]
+/// is only how it is written down as an integer (see [`landmark_entity_id`]).
+pub fn label_key(x: f64, y: f64) -> String {
+    format!("label@{x},{y}")
+}
+
+/// The wire key of a placed icon: `icon@<x>,<y>`, as [`label_key`].
+pub fn icon_key(x: f64, y: f64) -> String {
+    format!("icon@{x},{y}")
+}
+
+/// The `entity_id` a label is filed under: [`landmark_entity_id`]'s 52 bits of
+/// the content hash, over [`label_key`]. A label and a landmark cannot collide
+/// because their keys start with different words.
+pub fn label_entity_id(x: f64, y: f64) -> i64 {
+    landmark_entity_id(&label_key(x, y))
+}
+
+/// The `entity_id` an icon is filed under: [`landmark_entity_id`]'s 52 bits
+/// over [`icon_key`].
+pub fn icon_entity_id(x: f64, y: f64) -> i64 {
+    landmark_entity_id(&icon_key(x, y))
 }
 
 /// The `entity_id` a landmark is filed under: 52 bits of
@@ -316,6 +356,8 @@ impl EntityKind {
             EntityKind::Faction => "faction",
             EntityKind::Culture => "culture",
             EntityKind::Landmark => "landmark",
+            EntityKind::Label => "label",
+            EntityKind::Icon => "icon",
         }
     }
 
@@ -330,6 +372,8 @@ impl EntityKind {
             "faction" => Some(EntityKind::Faction),
             "culture" => Some(EntityKind::Culture),
             "landmark" => Some(EntityKind::Landmark),
+            "label" => Some(EntityKind::Label),
+            "icon" => Some(EntityKind::Icon),
             _ => None,
         }
     }
@@ -860,6 +904,31 @@ impl LinkStore {
         id
     }
 
+    /// Ruling EQ item 2: re-points every link of `kind` filed under `from` at
+    /// `to`, so a note follows a label or icon that was moved (its identity is
+    /// its cell). Returns how many links moved. Does nothing, and returns 0,
+    /// when `from == to` or no link is filed under `from`. A link already
+    /// filed under `to` for the same file and selection is superseded exactly
+    /// as [`LinkStore::attach`] supersedes it.
+    pub fn reassign_entity(&mut self, kind: EntityKind, from: i64, to: i64) -> usize {
+        if from == to {
+            return 0;
+        }
+        let moving: Vec<KnowledgeLink> = self.links.iter().filter(|l| l.entity_kind == kind && l.entity_id == from).cloned().collect();
+        if moving.is_empty() {
+            return 0;
+        }
+        self.links.retain(|l| !(l.entity_kind == kind && l.entity_id == from));
+        let n = moving.len();
+        for mut l in moving {
+            l.entity_id = to;
+            // A fresh id is minted from the new coordinates, as for any attach.
+            l.link_id.clear();
+            self.attach(l);
+        }
+        n
+    }
+
     /// Removes the link with this id. Returns whether anything was removed,
     /// so a caller can tell a stale id from a successful detach.
     pub fn detach(&mut self, link_id: &str) -> bool {
@@ -1205,6 +1274,8 @@ mod tests {
             (EntityKind::Faction, "faction"),
             (EntityKind::Culture, "culture"),
             (EntityKind::Landmark, "landmark"),
+            (EntityKind::Label, "label"),
+            (EntityKind::Icon, "icon"),
         ];
         for (k, s) in wire {
             assert_eq!(k.as_str(), *s, "as_str drifted from the wire name");
@@ -1314,6 +1385,79 @@ mod tests {
         );
         // The wire really says `landmark`, not a serde default.
         assert!(first.contains("\"entity_kind\": \"landmark\""), "{first}");
+    }
+
+    /// Protects Ruling EQ item 2: a label's and an icon's ids against
+    /// **literals** (FNV-1a 64 of the key, first 13 hex digits, computed
+    /// independently of this crate), that the key text is `label@x,y` with
+    /// Rust's shortest `f64` form (an integral value drops its `.0`), that a
+    /// label and an icon in one cell do not share an id, and that the new
+    /// kinds' wire names round-trip.
+    #[test]
+    fn a_label_and_an_icon_are_filed_by_their_cell() {
+        assert_eq!(label_key(12.5, 40.0), "label@12.5,40");
+        assert_eq!(icon_key(7.0, 9.25), "icon@7,9.25");
+        assert_eq!(label_entity_id(12.5, 40.0), 2_895_414_627_777_334);
+        assert_eq!(label_entity_id(12.5, 41.0), 2_895_414_359_341_878);
+        assert_eq!(icon_entity_id(12.5, 40.0), 3_974_666_430_238_492);
+        assert_eq!(icon_entity_id(7.0, 9.25), 3_864_475_331_504_343);
+        assert_ne!(label_entity_id(12.5, 40.0), icon_entity_id(12.5, 40.0));
+        assert_eq!(EntityKind::parse("label"), Some(EntityKind::Label));
+        assert_eq!(EntityKind::parse("icon"), Some(EntityKind::Icon));
+        assert_eq!(EntityKind::Label.as_str(), "label");
+        assert_eq!(EntityKind::Icon.as_str(), "icon");
+    }
+
+    fn link_for(kind: EntityKind, id: i64, vid: &str, path: &str) -> KnowledgeLink {
+        KnowledgeLink {
+            link_id: String::new(),
+            entity_kind: kind.into(),
+            entity_id: id,
+            entity_label: "A label".into(),
+            vault_id: vid.into(),
+            relative_path: path.into(),
+            selection: Selection::WholeDocument,
+            source_modified: 1,
+            source_hash: "h".into(),
+            imported_text: None,
+            edited_text: None,
+            imported_data: ImportedData::default(),
+        }
+    }
+
+    /// Protects Ruling EQ item 2's compatibility rule: a store with no label
+    /// or icon link (an old vault) re-serialises byte for byte; a label link
+    /// round-trips byte for byte and says `label` on the wire; and
+    /// `reassign_entity` moves a note with its label (the link is found under
+    /// the new id and not the old, other kinds under the same number are not
+    /// touched, and a no-op reports 0).
+    #[test]
+    fn label_links_round_trip_and_follow_a_move() {
+        let mut old = LinkStore::default();
+        let vid = old.add_vault("Elaris");
+        old.attach(link_for(EntityKind::Landmark, 5, &vid, "Landmarks/a.md"));
+        let before = old.to_json();
+        assert_eq!(LinkStore::from_json(&before).unwrap().to_json(), before, "an old vault is unchanged");
+        assert!(!before.contains("\"label\""), "premise: no label link in the old document");
+
+        let mut s = old.clone();
+        let from = label_entity_id(12.5, 40.0);
+        s.attach(link_for(EntityKind::Label, from, &vid, "Labels/Old Town.md"));
+        let other = s.attach(link_for(EntityKind::Settlement, from, &vid, "Settlements/x.md"));
+        let json = s.to_json();
+        assert!(json.contains("\"entity_kind\": \"label\""), "{json}");
+        assert_eq!(LinkStore::from_json(&json).unwrap().to_json(), json, "byte for byte");
+
+        let to = label_entity_id(13.0, 41.0);
+        assert_eq!(s.reassign_entity(EntityKind::Label, from, to), 1);
+        assert!(s.links_for(EntityKind::Label, from).is_empty(), "no longer under the old cell");
+        let moved = s.links_for(EntityKind::Label, to);
+        assert_eq!(moved.len(), 1);
+        assert_eq!(moved[0].relative_path, "Labels/Old Town.md");
+        assert_eq!(moved[0].entity_id, to);
+        assert!(s.get(&other).is_some(), "a settlement filed under the same number is not touched");
+        assert_eq!(s.reassign_entity(EntityKind::Label, from, to), 0, "nothing left under the old id");
+        assert_eq!(s.reassign_entity(EntityKind::Label, to, to), 0, "same id is a no-op");
     }
 
     /// Protects: **non-destruction.** Owner ruling 13's second requirement: a note for
@@ -1517,6 +1661,8 @@ mod tests {
             EntityKind::Faction,
             EntityKind::Culture,
             EntityKind::Landmark,
+            EntityKind::Label,
+            EntityKind::Icon,
         ] {
             assert!(
                 store.links_for(k, 7).is_empty(),

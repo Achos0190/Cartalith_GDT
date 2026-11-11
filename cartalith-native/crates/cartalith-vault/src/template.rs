@@ -268,6 +268,9 @@ pub fn suggested_path(kind: crate::EntityKind, name: &str) -> String {
         // Owner ruling 13, 2026-09-06: the owner's vault already names a
         // `Landmarks` folder (`Region Template/Landmarks/`).
         crate::EntityKind::Landmark => "Landmarks",
+        // Ruling EQ item 2, 2026-11-11.
+        crate::EntityKind::Label => "Labels",
+        crate::EntityKind::Icon => "Icons",
     };
     format!("{folder}/{}.md", sanitise(name))
 }
@@ -1151,6 +1154,8 @@ mod tests {
         assert_eq!(suggested_path(EntityKind::Faction, "Draumr League"), "Factions/Draumr League.md");
         assert_eq!(suggested_path(EntityKind::Culture, "Riverlands"), "Cultures/Riverlands.md");
         assert_eq!(suggested_path(EntityKind::Landmark, "Waterfall (120, 64)"), "Landmarks/Waterfall (120, 64).md");
+        assert_eq!(suggested_path(EntityKind::Label, "Old Town"), "Labels/Old Town.md");
+        assert_eq!(suggested_path(EntityKind::Icon, "Pine"), "Icons/Pine.md");
     }
 
     /// Protects: sanitise() replaces `/` and `:` with `-` (the reserved characters the

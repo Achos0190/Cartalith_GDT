@@ -15523,7 +15523,17 @@ impl WorldGen {
         let Ok(i) = usize::try_from(index) else { return false };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let Some(icons) = self.icons.as_mut() else { return false };
-        icons.move_to(i, gx, gy, gw, gh)
+        // Ruling EQ item 2: an icon's note is filed by its cell, so a move re-points it.
+        let from = icons.icons.get(i).map(|ic| (ic.x, ic.y));
+        let moved = icons.move_to(i, gx, gy, gw, gh);
+        if let (true, Some((x, y))) = (moved, from) {
+            self.vault.store.reassign_entity(
+                cartalith_vault::EntityKind::Icon,
+                cartalith_vault::links::icon_entity_id(x, y),
+                cartalith_vault::links::icon_entity_id(gx, gy),
+            );
+        }
+        moved
     }
 
     /// Removes a placed icon (`DCC_SHELL_SPEC.md` §4.5.6: "Delete removes
@@ -18988,7 +18998,17 @@ impl WorldGen {
     fn label_move(&mut self, index: i64, gx: f64, gy: f64) -> bool {
         let Ok(i) = usize::try_from(index) else { return false };
         let Some(labels) = self.labels.as_mut() else { return false };
-        labels.move_to(i, gx, gy)
+        // Ruling EQ item 2: a label's note is filed by its cell, so a move re-points it.
+        let from = labels.labels.get(i).map(|lb| (lb.x, lb.y));
+        let moved = labels.move_to(i, gx, gy);
+        if let (true, Some((x, y))) = (moved, from) {
+            self.vault.store.reassign_entity(
+                cartalith_vault::EntityKind::Label,
+                cartalith_vault::links::label_entity_id(x, y),
+                cartalith_vault::links::label_entity_id(gx, gy),
+            );
+        }
+        moved
     }
 
     /// Selects label `index` for editing, snapshotting its seven style

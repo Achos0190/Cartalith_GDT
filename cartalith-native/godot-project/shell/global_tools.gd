@@ -225,9 +225,9 @@ static var _move_target: Dictionary = {}
 ## (Ruling EO, `tap_chips`): a chip is the card's own row, never a second set.
 ##
 ## **Not rows, by design:** way, region, conflict, journey-marker and colour-mark picks (the audit files
-## them: a way has no name setter, the others have no hit). A label and an icon have no Note row because
-## `SAVEFILE_COMPAT.md` 13.3.4 fixes the entity kinds a note binds to (settlement, province, continent,
-## faction, culture, landmark); adding one is a format change the owner has not ruled on.
+## them: a way has no name setter, the others have no hit). A label and an icon carry a Note row since Ruling
+## EQ item 2 (2026-11-11): `SAVEFILE_COMPAT.md` 13.3.4's kinds gained `label` and `icon`, each filed by its
+## cell (`vault_label_entity_id`, `vault_icon_entity_id`); a Move re-points the note with the item.
 static func element_rows(app, req: Dictionary) -> Array:
 	var rows: Array = []
 	var bridge = app.bridge
@@ -357,6 +357,7 @@ static func _label_rows(app, domain: String, idx: int, text: String) -> Array:
 					func() -> void:
 						if app.bridge.label_delete(idx):
 							_annotations_changed(app))})
+	rows.append_array(_item_note_rows(app, "label", idx, t))
 	return rows
 
 ## Icon rows: Move in every domain (`icon_move`), Delete in WORLD and CIVIL (CARTO's provider carries it),
@@ -372,7 +373,25 @@ static func _icon_rows(app, domain: String, idx: int, name: String) -> Array:
 					func() -> void:
 						if app.bridge.icon_delete(idx):
 							_annotations_changed(app))})
+	rows.append_array(_item_note_rows(app, "icon", idx, name))
 	return rows
+
+## Ruling EQ item 2: the Note row of a label or an icon, in every domain. The vault entity id comes from the
+## engine (the item's cell, `vault_label_entity_id` / `vault_icon_entity_id`), never from the index, which
+## shifts when an earlier item is deleted. The row opens the vault at that entity (an existing note, or the
+## attach-or-create flow), the way a settlement's does. No row, rather than a dead one, when the engine
+## cannot name the item (an index the list no longer holds, or a build without the binding).
+static func _item_note_rows(app, kind: String, idx: int, name: String) -> Array:
+	var got: Dictionary = app.bridge.vault_label_entity_id(idx) if kind == "label" else app.bridge.vault_icon_entity_id(idx)
+	if not bool(got.get("ok", false)) or not got.has("entity_id"):
+		return []
+	var eid := int(got["entity_id"])
+	var nm := String(got.get("label", name))
+	var linked := int(app.bridge.vault_entity_summary(kind, eid).get("link_count", 0)) > 0
+	return [{"id": "el.%s_note" % kind,
+		"label": ("Open note for %s" % nm) if linked else ("Attach note to %s…" % nm),
+		"section": "info", "enabled": true, "tap": "Note",
+		"callable": func() -> void: app.open_vault(kind, eid, nm)}]
 
 ## Redraws the annotation layers and tells every workspace that lists them (`on_annotations_changed`).
 static func _annotations_changed(app) -> void:

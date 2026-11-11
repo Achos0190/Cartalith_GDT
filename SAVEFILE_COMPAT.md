@@ -2275,7 +2275,7 @@ clock-derived id, which makes the two devices' links permanently disjoint.
 | Member | Type | Required | Meaning |
 |---|---|---|---|
 | `link_id` | string, non-empty | MUST | Opaque, unique within `links`. A reader MUST NOT parse it. If two links share one, the reader MUST keep the first and report the rest (§3's duplicate rule, applied inside a document). |
-| `entity_kind` | string | MUST | One of `settlement`, `province`, `continent`, `faction`, `culture`, `landmark`. §13.3.4 fixes what each `entity_id` means. An unrecognised value MUST NOT drop the link — see §13.3.5. |
+| `entity_kind` | string | MUST | One of `settlement`, `province`, `continent`, `faction`, `culture`, `landmark`, `label`, `icon`. §13.3.4 fixes what each `entity_id` means. An unrecognised value MUST NOT drop the link — see §13.3.5. |
 | `entity_id` | integer | MUST | The entity's own id, subject to §14.1. |
 | `entity_label` | string | MUST | The entity's name **at the time the link was made**. May be empty. It is never used to resolve — §13.3.5. |
 | `vault_id` | string | MUST | Matches a `vaults[].id`. |
@@ -2310,6 +2310,8 @@ The link resolves against exactly one thing, and which one depends on
 | `faction` | a `factions[].id` from `entities/factions.json` (§9.2), which equals its array index |
 | `culture` | a **0-based index into the implementation's own culture vocabulary** — see below |
 | `landmark` | a **derived integer, not an id the generator issued** — see below |
+| `label` | a **derived integer over the label's cell** (added 2026-11-11, Ruling EQ item 2) — see below |
+| `icon` | a **derived integer over the icon's cell** (added 2026-11-11, Ruling EQ item 2) — see below |
 
 `landmark` (added 2026-09-06) is the second odd one, and it is odd in the
 opposite direction to `culture`: there is no id to carry. A generated landmark
@@ -2333,6 +2335,8 @@ and the properties a reader needs are these:
   unresolvable rather than choosing one.
 - It respects §14.1 by construction: 52 bits is one bit under the 2^53
   ceiling.
+
+`label` and `icon` (added 2026-11-11, Ruling EQ item 2) are derived the same way, for the same reason: a hand-placed map label or a placed icon has no id the engine issued, and the index the program holds shifts whenever an earlier one is deleted. The key is `label@<x>,<y>` or `icon@<x>,<y>` over the item's grid position, each coordinate in the shortest text that reads back as the same IEEE-754 double (an integral value has no `.0`: `label@12.5,40`), which is also how the archive stores the position. The `entity_id` is the first 13 hex digits of the same FNV-1a 64 over that key as a landmark's, so it is below 2^52. A reader MUST resolve by recomputing the key of every label (or icon) it has, and MUST treat two or more matches (two items in one cell) as unresolvable (§13.3.5). **A move changes the cell, so a writer that moves the item SHOULD re-point its links** (this port does, in `label_move` and `icon_move`); an item that is deleted leaves its link as an absent entity, never a deletion. **Old documents are unchanged:** they hold no such link, a vault with only the six older kinds re-serialises byte for byte, and a reader that does not know `label` or `icon` already keeps the link and reports it unresolved (§13.3.3, §13.3.5). Tests: `links.rs` `a_label_and_an_icon_are_filed_by_their_cell`, `label_links_round_trip_and_follow_a_move`; `vault_bridge.rs` `a_label_or_icon_resolves_by_its_cell_and_refuses_a_shared_one`.
 
 `culture` is the odd one in the other direction and is worth naming as such.
 A culture is not

@@ -86,7 +86,8 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   - **The welcome idle-mode fix:** applied; the handset check is the owner's.
   - **Pen pressure per tool:** answered (Ruling EM) and built (`STATUS.md`, "Pressure controls"). Closed. The
     one open item inside it was the owner's: colour paint's pressure mapping, answered by Ruling EQ item 1 and built
-    (`STATUS.md`, "Colour paint per-point pen strength").
+    (`STATUS.md`, "Colour paint per-point pen strength"). Ruling EQ item 2 (vault notes on labels and icons) is built too,
+    except the Context panel's Note tab for them (`STATUS.md`, "Vault notes on labels and icons").
 - **Performance pass across devices** (owner, 2026-11-08: *"Maybe we should just wait until all outstanding work is
   done and start thinking about improving performance across devices."*). It is scheduled **after** the rest of this
   list, by the owner's order. It starts with three owner reports from the OnePlus Pad 3 (APK `e02fadcb`):

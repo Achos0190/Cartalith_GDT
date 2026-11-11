@@ -80,6 +80,8 @@ const ADDRESSABLE: &[EntityKind] = &[
     EntityKind::Faction,
     EntityKind::Culture,
     EntityKind::Landmark,
+    EntityKind::Label,
+    EntityKind::Icon,
 ];
 /// Owner ruling 13's own three fields. Each is a member of
 /// `cartalith_civ::landmark::Landmark` this port measures rather than a
@@ -103,6 +105,8 @@ const PLACED: &[EntityKind] = &[
     EntityKind::Continent,
     EntityKind::Faction,
     EntityKind::Landmark,
+    EntityKind::Label,
+    EntityKind::Icon,
 ];
 /// A named list of member settlements, and the population that follows from
 /// it — a province partitions a faction, so both aggregate the same way, and

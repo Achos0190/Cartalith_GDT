@@ -1630,6 +1630,18 @@ func _resolve_entity(kind: String, id: int) -> Dictionary:
 						out["x"] = float(int(cell[0]))
 						out["y"] = float(int(cell[1]))
 					return out
+		"label", "icon":
+			## Ruling EQ item 2: a hand-placed label or a placed icon is filed by its cell, so it is found by
+			## asking the engine for each item's vault id (`vault_label_entity_id` / `vault_icon_entity_id`)
+			## and matching. `{name, x, y}` (its grid position, which Show on map centres on); `{}` when it is
+			## no longer placed, never a guessed position.
+			var items: Array = bridge.label_list() if kind == "label" else bridge.icon_list()
+			for it in items:
+				var d: Dictionary = it
+				var idx := int(d.get("index", -1))
+				var got: Dictionary = bridge.vault_label_entity_id(idx) if kind == "label" else bridge.vault_icon_entity_id(idx)
+				if bool(got.get("ok", false)) and got.has("entity_id") and int(got["entity_id"]) == id:
+					return {"name": String(got.get("label", "")), "x": float(d.get("x", 0.0)), "y": float(d.get("y", 0.0))}
 		"culture":
 			## VE-9. A culture is addressed by its `CIV_CULTURES` index (`get_cultures`' `id`), has no map
 			## position (so no Centre on map), and its name is the title-cased key the engine gives it.
