@@ -72,6 +72,9 @@ from inside an exclusive window); a stored 200 % UI scale leaves a 762 px-wide t
 question, not changed here).
 
 ---
+### Zoom-dependent river drawing (Ruling EN): RZ-0 measured (2026-11-11)
+
+`cartalith-godot/tests/river_zoom_measurement.rs` (an `#[ignore]`d harness, 37 worlds, 42 s) ranks the drawn network by discharge, Strahler order and width at equal visible length. **Built: nothing in the app yet.** Result: ranking by discharge loses no top-decile outlet at f of 0.5 or more on any world (order loses 14 to 39 %), order-1 is 26 % of the owner world's top-10 % discharge length, width is a single value on the 40 075 km shapes (unusable as a key), and P_FULL = 1.84 px per cell derived from Ruling EN's f of about 0.5 at the measured 0.46 px per cell contain-fit opening. Numbers and the through-junction form RZ-2 will build: `RIVER_ZOOM_VISIBILITY_RESEARCH.md` *Build notes*. No generated output moved.
 
 ### MS-6 built: the STORY sheet is a strip of four segments over the shown band's rows (2026-11-09)
 

@@ -654,3 +654,50 @@ Azgaar's Fantasy Map Generator
 search results).
 Not found: Google Maps, Wonderdraft, Inkarnate, Dungeondraft per-zoom river rules;
 swisstopo river selection rules; NHD display thresholds as rendered.
+
+
+---
+
+## Build notes
+
+### RZ-0 result (measured 2026-11-11; Ruling EN)
+
+Harness: `cartalith-native/crates/cartalith-godot/tests/river_zoom_measurement.rs` (`#[ignore]`, release, alone;
+`RZ_OWNER=1` adds the owner world), the gate harness's twelve seeds and three shapes plus the owner world: **37 worlds,
+42 s**. It reads `River` entities and `river_draw_plan` (the gate harness's proxy), one segment per traced cell step;
+it is not the app's smoothed `DrawnRun`. Median over the worlds of a shape, min..max in brackets, from
+`C:/cw/rz_rz0.log` of that run (not kept in the tree; re-run the command in the module doc).
+
+| Measure | 512x328 | 384x246 (800 km) | 1024x656 | owner 2048x1311 (1.55) |
+|---|---|---|---|---|
+| drawn length (cells) | 23 780 (15 079..28 121) | 5 603 (3 105..6 525) | 56 340 (38 389..69 450) | 178 843 |
+| order-1 share of length | 0.33 (0.29..0.37) | 0.52 (0.46..0.60) | 0.40 (0.37..0.44) | 0.465 |
+| order-1 share of the top-1 % Q length | 0.03 (0.01..0.08) | 0.00 (0..0.02) | 0.06 (0.01..0.27) | 0.077 |
+| order-1 share of the top-10 % Q length | 0.06 (0.04..0.14) | 0.015 (0..0.04) | 0.12 (0.06..0.27) | 0.264 |
+| rank sort, per key | 0.41 ms | 0.08 ms | 0.59 ms | 2.3 ms |
+
+- **Prediction of §2.4 item 2 confirmed:** order-1 is not absent from the heaviest discharge. On the owner world 26 %
+  of the top-10 % discharge length is order 1 (7.7 % of the top 1 %).
+- **Top-decile discharge outlets lost (the research's pass bar).** Rank by discharge: **0 lost at f = 0.5, 0.96 and 1
+  on all 37 worlds**; at f = 0.24, 0 lost on every world but one 384x246 world (one outlet of ten). Rank by order
+  loses a median 24 to 39 % at f = 0.24 on the two 40 075 km shapes (0.03 on the owner world), 14 to 22 % at f = 0.5.
+  **The bar passes at Ruling EN's opening share (f about 0.5).**
+- **Width is not a usable key.** On every 40 075 km shape (512x328, 1024x656, owner) the width
+  profile is one value for the whole network (the floor at `width_k` = 1/16, read from the table, cause not
+  traced further), so its rank is one tie and it keeps nothing until f = 1. On 384x246 at 800 km, where it varies,
+  it loses 29 to 56 % of top-decile outlets at f 0.1 to 0.5.
+  Settles §2.4 item 3.
+- **Connectivity.** The discharge key as a per-run running maximum has no break along a run (0 on 37 worlds) but
+  a visible tributary can meet a hidden trunk (discharge is accumulated on another tree than the traced one). Pushing
+  the running maximum downstream **through junctions** ("disch-net" in the harness: a trunk is never ranked below
+  a tributary that joins it) lowers the number of pieces at every f (owner world, f = 0.5: 1 302 against 1 398).
+  **RZ-2 builds the through-junction form.** Piece counts never exceed those at f = 1 (2 940 on the owner world;
+  each river is its own piece).
+- **P_FULL.** Ruling EN: f about 0.5 at the measured opening view. The contain-fit opening is 0.46 px per cell on
+  the owner world (RIM-5's measured fit, `_riverzoom_probe.gd`), so `f = sqrt(ppc / P_FULL) = 0.5` gives
+  **P_FULL = 0.46 / 0.25 = 1.84**, derived from Ruling EN and that measurement, not assumed. The reference's
+  `zk = 8` (the research's first guess) would give f = 0.24 there. P_FULL is a px-per-cell value, so a world
+  drawn at a higher fit density (a smaller grid in the same window) shows more of its network: that is the rule
+  working, a 512-wide grid fits at about 1.8 px per cell and draws all of it.
+- **Bars that move under Ruling EN.** RZ-3's "x4 at least 1.5 x x1" is replaced: f is 0.5, 0.71, 1.0 at x1, x2, x4 on
+  the owner world, so the length grows 2x from x1 to x4 and is full from x4 (`ppc` 1.84). Width keeps growing above.
