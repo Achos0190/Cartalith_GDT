@@ -143,6 +143,11 @@
     },
     {
       "file": "world_workspace.gd",
+      "id": "world.sculpt_here",
+      "label": "Sculpt here"
+    },
+    {
+      "file": "world_workspace.gd",
       "id": "world.sculpt_undo",
       "label": "Undo last stamp"
     },

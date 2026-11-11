@@ -642,6 +642,9 @@ pub const CONTEXT_REVIEW: &[(&str, ActionKind, Effect, bool, &str)] = &[
     ("world.river_trace", ActionKind::Query, Effect::Read, true, "Trace the river at a point downstream."),
     ("world.river_catchment", ActionKind::Query, Effect::Read, true, "Show the catchment area that drains to a point."),
     ("world.section_from", ActionKind::View, Effect::View, true, "Start a cross-section profile from a point."),
+    // 8fcab5fc (MS-5): the lead verb on empty ground. Handler read 2026-11-11: `app.arm_tool("sculpt")` only; it arms the tool and
+    // draws nothing (a stamp needs a drag), like `carto.region_start`. No map point is taken.
+    ("world.sculpt_here", ActionKind::Edit, Effect::View, false, "Arm the Sculpt tool; nothing changes until a drag stamps the terrain."),
 ];
 
 /// AC-5: the descriptions of rows and context actions that are LISTED but not reviewed to run
@@ -1255,6 +1258,16 @@ fn capitalise(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// MS-5 (8fcab5fc) added the context row `world.sculpt_here`. Its handler only calls `app.arm_tool("sculpt")` (arms a
+    /// tool, draws and deletes nothing), so the destructive guard must NOT drop it and the allow-list must NOT list it:
+    /// it passes on its own words. Literal ids, so a loosened guard or a stem added for `sculpt` fails here.
+    #[test]
+    fn the_sculpt_here_context_row_passes_the_guard_unexempted() {
+        assert!(refusal("world.sculpt_here", "Sculpt here").is_none());
+        assert!(!REFUSAL_EXEMPT.iter().any(|(id, _, _)| *id == "world.sculpt_here"));
+        assert!(refusal("world.sculpt_discard", "Discard sculpt draft").is_some());
+    }
 
     #[test]
     fn refusal_catches_the_destructive_words_and_spares_harmless_ones() {

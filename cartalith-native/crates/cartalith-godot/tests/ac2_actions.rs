@@ -124,11 +124,11 @@ fn ac1_counts_and_bars_over_the_real_rows() {
     assert_eq!(by("params"), 114, "every offered registry row is an entry");
     assert_eq!(by("view"), 10 + 3, "ten layers plus the style preset, zoom and the (withheld) landmark filter");
     assert_eq!(by("window"), 10);
-    assert_eq!(by("context"), 25, "30 scanned minus 5 refused: discard x3, erase and the sculpt draft's undo (AC-5 allow-listed region_start and river_clear)");
+    assert_eq!(by("context"), 26, "31 scanned minus 5 refused: discard x3, erase and the sculpt draft's undo (AC-5 allow-listed region_start and river_clear; world.sculpt_here, MS-5, passes unexempted)");
     assert_eq!(by("tool"), 13);
     assert_eq!(by("timeline"), 1);
     assert_eq!(by("menu"), 32, "66 rows less 10 merged into windows and 24 refused (AC-5 allow-listed undo_history)");
-    assert_eq!(c.entries().len(), 114 + 13 + 10 + 25 + 13 + 1 + 32);
+    assert_eq!(c.entries().len(), 114 + 13 + 10 + 26 + 13 + 1 + 32);
     assert_eq!(c.derived_desc_count(), 0, "AC-5: every real row carries a written description (the work list was 27 at AC-5's start)");
     // Accounting: each of the 66 rows is an entry, a merge or a refusal.
     for r in &facts.menu_rows {
@@ -639,7 +639,7 @@ fn ac3_every_proposable_entry_has_a_click_path_and_the_families_are_counted() {
     assert_eq!(by.get("view"), Some(&12), "ten layers, the style preset and zoom; the landmark filter is withheld on this world");
     assert!(by.get("menu").copied().unwrap_or(0) > 0, "the reviewed menu rows that are available");
     let ctx: Vec<&ActionEntry> = c.entries().iter().filter(|e| e.source == "context").collect();
-    assert_eq!(ctx.len(), 25);
+    assert_eq!(ctx.len(), 26);
     assert!(ctx.iter().all(|e| !e.available), "no context action can be proposed");
     assert!(ctx.iter().filter(|e| e.effect != Effect::Unreviewed).all(|e| e.why == CONTEXT_NOT_RUNNABLE));
 }
