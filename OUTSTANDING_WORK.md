@@ -3243,6 +3243,11 @@ Earlier `comb_*` captures exist for seeds 24601, 246371, 483920 and 71077345.
   world field or golden), so §7p applied as a replacement. **Still open:** mouths that lose their fan to the
   no-contact rule (let a channel end on the main channel as a loop), and the derivation's 4-34 ms.
 
+**Straight river lines (owner, 2026-11-11).** *"Investigate why sometimes we still get straight lines for rivers and
+correct it so we don't get these straight lines."* Measured (`DELTA_GEOMETRY_RESEARCH.md` section 11): runs of one
+repeated D8 step in the generated network, 32-58 % of its length. **Next step: an owner ruling** on a routing change
+(moves the network; §7p), then the bounded display meander for x16 and deeper.
+
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There
 should be research done how other map tools handle this."*

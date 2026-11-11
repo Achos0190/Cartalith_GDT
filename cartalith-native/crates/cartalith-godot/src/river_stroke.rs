@@ -2347,6 +2347,67 @@ impl WorldGen {
         !self.river_delta_off.get()
     }
 
+    /// **Straight river runs, measured by cause** (owner, 2026-11-11: *"Investigate why sometimes we still get
+    /// straight lines for rivers"*; `DELTA_GEOMETRY_RESEARCH.md` section 11), for a probe:
+    /// `river_straight::straight_stats` over each stage of the drawn river, so an ablation shows which stage makes a
+    /// run straight. Keys `<stage>_total`, `_straight`, `_count`, `_axis`, `_longest` (cells) for: `traced` (the
+    /// D8 cell path, `rivers_now(1)`), `traced_const` (its runs of one repeated step, the pure D8 signature, measured
+    /// with tolerance 0), `spline` (a Catmull-Rom through every traced cell, no simplification), `rdp` (the shipped
+    /// curve: `river_render_polyline`, simplification then spline, no pins), `drawn` (the drawn pieces as the
+    /// rasters stroke them) and `drawn_open` (their points visible at the opening fit view by Ruling EN's law), and
+    /// `fans` (the delta fans, when built). `min_len_cells` and `tol_cells` are the metric's (a stretch at least
+    /// that long whose points all lie within that distance of its chord). Diagnostic; nothing in the shell reads it.
+    #[func]
+    fn river_straightness(&self, min_len_cells: f64, tol_cells: f64) -> VarDictionary {
+        use crate::river_straight::{straight_stats, StraightStats};
+        let mut d = VarDictionary::new();
+        let mut put = |k: &str, s: StraightStats| {
+            d.set(format!("{k}_total").as_str(), s.total);
+            d.set(format!("{k}_straight").as_str(), s.straight);
+            d.set(format!("{k}_count").as_str(), s.count as i64);
+            d.set(format!("{k}_axis").as_str(), s.axis);
+            d.set(format!("{k}_longest").as_str(), s.longest);
+        };
+        let rivers = self.rivers_now(1);
+        let traced: Vec<&[(f64, f64)]> = rivers.iter().map(|r| r.pts.as_slice()).collect();
+        put("traced", straight_stats(traced.iter().copied(), min_len_cells, tol_cells));
+        put("traced_const", straight_stats(traced.iter().copied(), min_len_cells, 1e-9));
+        let spline: Vec<Vec<(f64, f64)>> = rivers.iter().map(|r| crate::way_render_polyline(&r.pts, &[]).0).collect();
+        put("spline", straight_stats(spline.iter().map(|v| v.as_slice()), min_len_cells, tol_cells));
+        let rdp: Vec<Vec<(f64, f64)>> = rivers.iter().map(|r| crate::river_render_polyline(&r.pts, |_| false)).collect();
+        put("rdp", straight_stats(rdp.iter().map(|v| v.as_slice()), min_len_cells, tol_cells));
+        if let Some(g) = self.river_geometry_any() {
+            let (fit, _) = scale();
+            let mut drawn: Vec<Vec<(f64, f64)>> = Vec::new();
+            let mut open: Vec<Vec<(f64, f64)>> = Vec::new();
+            for r in &g.runs {
+                for &(a, b) in &r.pieces {
+                    let b = b.min(r.pts.len());
+                    drawn.push(r.pts[a..b].iter().map(|p| (p.0 as f64, p.1 as f64)).collect());
+                    let mut cur: Vec<(f64, f64)> = Vec::new();
+                    for k in a..b {
+                        let u = r.ranks.get(k).copied().unwrap_or(0.0);
+                        if river_visibility(u, fit) > 0.0 {
+                            cur.push((r.pts[k].0 as f64, r.pts[k].1 as f64));
+                        } else if !cur.is_empty() {
+                            open.push(std::mem::take(&mut cur));
+                        }
+                    }
+                    if !cur.is_empty() {
+                        open.push(cur);
+                    }
+                }
+            }
+            put("drawn", straight_stats(drawn.iter().map(|v| v.as_slice()), min_len_cells, tol_cells));
+            put("drawn_open", straight_stats(open.iter().map(|v| v.as_slice()), min_len_cells, tol_cells));
+        }
+        if let Some(f) = self.river_delta_cache.borrow().as_ref().map(|c| c.1.clone()) {
+            let fans: Vec<Vec<(f64, f64)>> = f.runs.iter().map(|r| r.pts.iter().map(|p| (p.0 as f64, p.1 as f64)).collect()).collect();
+            put("fans", straight_stats(fans.iter().map(|v| v.as_slice()), min_len_cells, tol_cells));
+        }
+        d
+    }
+
     /// The last [`Self::river_delta_fans`] build, for a probe: `{built, mouths,
     /// eligible, no_discharge, fans, branches, dropped_dry, collided, splits,
     /// kind_river, kind_lobate, kind_wave, skipped, min_order,

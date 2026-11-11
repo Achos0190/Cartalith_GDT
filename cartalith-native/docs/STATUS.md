@@ -47,6 +47,17 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Straight river lines: measured, cause found, fix needs an owner ruling (2026-11-11)
+
+- **Measured** (`river_straight::straight_stats`, `WorldGen::river_straightness`, `_riverzoom_probe.gd --straight`,
+  four worlds): 32 to 58 % of the traced network's length is runs of one repeated D8 step, all on a grid axis or
+  diagonal, up to 162 cells; the drawn rivers 30 to 45 % (owner world 44.5 %, 50 % of what the opening view shows).
+  The spline and the simplification change it by 1 to 4 points. **Cause: D8 routing on planar slopes, in the
+  generated network.** Nothing built to change it: a root fix moves the network (Ruling EN item 5, §7p), and a
+  drawing-only meander bounded to the traced cells is invisible below about x16. `DELTA_GEOMETRY_RESEARCH.md`
+  section 11 has the table and the options. **Not started:** Ruling EQ items (3) short-stub hiding and (4) the live
+  window share.
+
 ### Natural-looking river deltas: redesigned and measured (2026-11-11)
 
 - **Built.** `river_delta::delta_fans` no longer draws a rake of 2 or 4 straight equal branches at fixed +-22/45

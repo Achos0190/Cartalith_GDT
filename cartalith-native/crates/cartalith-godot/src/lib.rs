@@ -85,6 +85,7 @@ mod render;
 mod river_delta;
 mod river_field;
 mod river_stroke;
+mod river_straight;
 mod sample_bridge;
 mod sculpt_bridge;
 mod region_edit_bridge;

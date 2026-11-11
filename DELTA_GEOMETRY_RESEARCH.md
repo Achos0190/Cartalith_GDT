@@ -317,3 +317,53 @@ straight-river investigation (section 11).
 
 **Not changed, by design**: the gate (which mouths), the setback, the reach limit, the off switch, `fans_drawn`, every
 consumer path; the reference look draws no fan.
+
+## 11. Straight river lines beyond the deltas (owner, 2026-11-11): measured by cause
+
+The owner, relayed: *"Investigate why sometimes we still get straight lines for rivers and correct it so we don't get
+these straight lines."* This section is the measurement; **no fix is built yet**, for the reason in 11.3.
+
+11.1 **The metric** (`cartalith-godot/src/river_straight.rs::straight_stats`, tested): over each polyline, the
+maximal stretches whose every point lies within `tol` cells of the stretch's own chord and that are at least
+`min_len` cells long; their share of the length, and the part whose chord lies within 3 degrees of a multiple of 45
+(a grid axis or diagonal: the D8 signature). `WorldGen::river_straightness` applies it to each stage of the drawn
+river, an ablation by stage: `traced` (the D8 cell path), `traced_const` (runs of ONE repeated D8 step), `spline`
+(Catmull-Rom through every traced cell, no simplification), `rdp` (the shipped curve, simplification then spline),
+`drawn` (the drawn pieces) and `drawn_open` (only what Ruling EN shows at the opening view). Probe:
+`_riverzoom_probe.gd --stats-only --straight` (windowed), `min_len` 8 cells, `tol` 0.25 cells, on origin/main before
+the delta redesign.
+
+11.2 **Measured** (share of length in straight stretches; axis-aligned share of that in brackets; longest stretch):
+
+| World | traced (D8) | traced, one repeated step | spline, no RDP | shipped curve | drawn | drawn at opening view |
+|---|---|---|---|---|---|---|
+| owner 2048x1311 (246371) | 58.1 % (100 %), 162 cells | 58.1 % | 58.5 % | 54.2 % | 44.5 % (82 %), 114 cells | 50.1 % (85 %) |
+| 483920, 1024x656 | 32.1 % (100 %), 61 | 32.1 % | 32.6 % | 30.4 % | 30.3 % (77 %), 50 | 31.3 % (77 %) |
+| 912345, 1024x656 | 40.9 % (100 %), 219 | 40.9 % | 41.2 % | 38.8 % | 35.3 % (75 %), 100 | 37.7 % (74 %) |
+| 24601, 1024x656 | 36.5 % (100 %), 93 | 36.5 % | 37.0 % | 33.8 % | 33.6 % (70 %), 64 | 33.3 % (70 %) |
+
+(The old fans were 92 % straight on the owner world, which the redesign in section 7 removes.)
+
+11.3 **Cause.** The straightness is in the **generated network**: a third to three fifths of every network's length
+is runs of one repeated D8 step, every one of them on a grid axis or diagonal, up to 162 cells (3 200 km on the owner
+world) in a line. D8 routing sends a whole smooth slope's water in one of eight directions, so a river crossing a
+planar slope is a ruler line. The drawing neither makes nor removes it: a spline through collinear cells is the same
+line (`spline` equals `traced`), and the simplification (`rdp`) changes the share by 1 to 4 points. Of the
+candidates the coordinator named: D8 straight runs are the cause; lakes are already cut out of the drawn pieces;
+the stroke applies its smoothing everywhere (it has nothing to smooth on a straight run); the coastal parallel runs
+are the same D8 runs on the coastal slope; the vector fallback strokes the same points.
+
+11.4 **What a fix needs, and why none is built here.**
+- **At the root (generation)**: routing that does not run a planar slope in one of eight directions -- for example a
+  seeded tie-break or a small deterministic noise term on the routing surface, or a multiple-direction method for the
+  trace. That moves the generated river network, which Ruling EN item 5 says never moves, and the goldens of the
+  reference path (`DECISIONS.md` §7p: a change to what the generator computes needs its own ruling and a disclosed
+  re-baseline). **An owner ruling is needed first.**
+- **Drawing only**: a deterministic, bounded display meander on the drawn curve, its amplitude limited by the cross
+  slope (so it never climbs out of a valley or over a ridge) and faded to zero at junctions and shore ends. Bounded to
+  stay inside the cells the river was traced through, it is under 0.5 cells: invisible at x1 and x4 (0.46 and 1.8
+  pixels a cell on the owner world), visible from about x16. Wide enough to break a 100-cell ruler line at x1 it would
+  leave the traced cells by several cells. So drawing alone fixes x16 and x64 only.
+- **Recommendation for the owner**: rule on the generation fix (it is the only one that changes x1 and x4, where the
+  owner saw the lines), and take the bounded display meander for the deep zooms either way.
+

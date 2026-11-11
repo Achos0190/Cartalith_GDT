@@ -180,6 +180,11 @@ var _rz_tag := ""
 ## `--rz-delta-pair`: each `--rz-frames` frame also saved with the delta fans off (`<tag>_zNN_nodelta.png`),
 ## so a frame pair shows exactly what the fans draw (delta redesign, 2026-11-11).
 var _rz_delta_pair := false
+## `--straight`: print `WorldGen::river_straightness` (straight river runs by stage, 2026-11-11) per seed, at
+## stretches of at least 8 cells within 0.25 cells of their chord (`--straight-len`, `--straight-tol`).
+var _straight := false
+var _straight_len := 8.0
+var _straight_tol := 0.25
 var _rim2 := false
 var _rim2_head := false
 var _rim2_presets: Array = []
@@ -238,6 +243,9 @@ func _ready() -> void:
 			"--rz-frames": _rz_frames = true
 			"--rz-tag": _rz_tag = args[i + 1]; i += 1
 			"--rz-delta-pair": _rz_delta_pair = true
+			"--straight": _straight = true
+			"--straight-len": _straight_len = float(args[i + 1]); i += 1
+			"--straight-tol": _straight_tol = float(args[i + 1]); i += 1
 			"--rim2": _rim2 = true
 			"--rim2-head": _rim2_head = true
 			"--rim2-presets":
@@ -357,6 +365,13 @@ func _run_seed(seed_v: int) -> void:
 	print("  lakes: ", sr["lakes"])
 	if _rim4_mouths:
 		sr["rim4_mouths"] = _rim4_mouth_stats(rivers)
+	if _straight:
+		## The fans are built lazily on the first paint that wants them; paint once so `fans_*` is reported.
+		_vh.map_view.texture = _br.color_texture()
+		await _settle(8)
+		var stv: Dictionary = _br.world_gen.river_straightness(_straight_len, _straight_tol)
+		sr["straight"] = stv
+		print("  straight runs (len>=%.1f tol %.2f): %s" % [_straight_len, _straight_tol, JSON.stringify(stv)])
 	_vh.reset_view()
 	await _settle(3)
 	var ppc_fit: float = minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()
