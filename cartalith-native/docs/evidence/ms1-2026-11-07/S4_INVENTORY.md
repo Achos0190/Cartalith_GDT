@@ -1100,13 +1100,13 @@ of each class), the runner's `diff` of the two dumps with an empty allow-list, a
 - **Result:** dumps equal a cold boot with an empty allow-list (4 082 lines on the phone, 3 877 on the tablet); `live` 118 checks; `b5` five
   runs of 105; 0 `SCRIPT ERROR`. Mutants (literal, `C:/cw/s46_mut.py`): the right dock's flag line, and `app.gd`'s window capture and restore calls, killed; **the left dock's line SURVIVES and is kept as the symmetric branch**: at the narrowest tablet the class allows (900 dp) the probe read the left dock still docked (only the right floats), so no width this harness can reach floats the left dock with the shipped dock widths; it would take a larger UI scale.
 - **Timing (five serial runs, each its own process, run alone, MEASURED ON THIS MACHINE; the median of the runs with min..max):** the swap's
-  synchronous part **776 ms (755..1437)**, whole with its frames **1193 ms (996..2012)**; a cold boot's instantiate and enter-tree
-  **545 ms (535..640)**; the engine's start-up before it **3 956 ms (3 768..4 333)**, so a restart is **4 537 ms (4 307..4 908)**.
+  synchronous part **753 ms (747..756)**, whole with its frames **966 ms (956..973)**; a cold boot's instantiate and enter-tree
+  **532 ms (527..536)**; the engine's start-up before it **3 710 ms (3 703..3 722)**, so a restart is **4 242 ms (4 232..4 256)**.
   **The spec's rule is "a swap costs less than a cold boot; if it does not, a restart would be the better design". Against a restart (what
-  the rule is about) the swap is about 5.8 times faster; against the in-process rebuild alone it is about 230 ms slower, and it is not like
+  the rule is about) the swap is about 5.6 times faster; against the in-process rebuild alone it is about 220 ms slower, and it is not like
   for like: the swaps ran with a world standing and a window open (re-presented), the cold boot with neither.** The owner should read both
-  figures; no design change is proposed. The medians are of one machine (this one) and of five processes; the spread shows the first run is
-  the slow one.
+  figures; no design change is proposed. The medians are of one machine (this one) and of five processes, re-run after the last rebase (an earlier set read
+  776 ms (755..1437) against 545 ms (535..640): the spread of a first run on a busy machine).
 
 
 ### 18.11 The assistant dialog's swap contract: chosen, not built (2026-11-12)

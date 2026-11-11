@@ -7691,9 +7691,9 @@ and `--leg b5` five times for the timing.
 - **A defect found and fixed, present on origin/main:** the tablet's dump differed from a cold boot by 232 lines. A tablet passed through 920 dp,
   where MS-7's docking rule floats and closes both docks, handed "collapsed" to the next 1 800 dp tablet because `_capture_shell_state()`
   remembered the rule's flag as the user's. A floating dock now keeps the last remembered value (`DccShell._capture_shell_state()`).
-- **Timing, five serial runs, measured on this machine (median, min..max):** swap synchronous 776 ms (755..1437), whole 1193 ms (996..2012); a
-  cold boot's instantiate 545 ms (535..640) and a restart (engine start-up included) 4 537 ms (4 307..4 908). The swap is about 5.8 times faster
-  than a restart and about 230 ms slower than rebuilding in a booted process; the swaps had a world and an open window, the cold boot neither.
+- **Timing, five serial runs, measured on this machine (median, min..max):** swap synchronous 753 ms (747..756), whole 966 ms (956..973); a
+  cold boot's instantiate 532 ms (527..536) and a restart (engine start-up included) 4 242 ms (4 232..4 256). The swap is about 5.6 times faster
+  than a restart and about 220 ms slower than rebuilding in a booted process; the swaps had a world and an open window, the cold boot neither.
   The spec's "a swap costs less than a cold boot" therefore holds against a restart and not against the bare rebuild: flagged for the owner.
 - **Not done:** the assistant dialog (S4.5's last window); the device rows (S0, B7).
 - **The assistant dialog's contract is chosen and written down, not built:** keep the instance and re-lay out in place (`S4_INVENTORY.md` section 18.11),
