@@ -78,6 +78,9 @@ class_name QuickBarWindow
 ## A pin was added, removed, moved or the list was reset.
 signal pins_changed
 
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18): the contract's shared helpers.
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
 ## The phone's tap floor in dp (`DccTheme.PHONE_TAP_MIN`, DESIGN_HANDOFF.md: 44, no exceptions). The window lays out in
 ## dp because `phone_present` sets its content scale factor to `phone_scale()`.
 const PHONE_FLOOR_DP := 44.0
@@ -1029,3 +1032,48 @@ func _pins_key(ev: InputEvent) -> void:
 	elif k.alt_pressed and k.keycode == KEY_DOWN:
 		_move(1)
 		_pins_list.accept_event()
+
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): what the user set in this visit, read BEFORE the swap
+## unmounts anything. `open()` resets the search, the toggle, the tab and the target to defaults ("a fresh look each time"), so a
+## window that was open carries them; one that was closed carries nothing but `open: false` (its next `open()` is the fresh look,
+## now built for the new class). The pins themselves are the store's (`DccSettings`), never this window's, so they are not carried.
+## Typed text: the search box is plain (no commit step), and it travels. Keys of the selected rows are carried by `pin_key`, not by
+## row index, because the catalogue is rebuilt from the live menus. A bag holds no node.
+func represent_capture() -> Dictionary:
+	if not visible or _search == null:
+		return {"open": false}
+	var cat_key := ""
+	var sel := _catalogue.get_selected_items()
+	if sel.size() > 0 and sel[0] < _cat_rows.size():
+		cat_key = String(_cat_rows[sel[0]].get("pin_key", ""))
+	var pin_key := ""
+	var pi := _selected_pin_index()
+	if pi >= 0 and pi < _pin_keys.size():
+		pin_key = String(_pin_keys[pi])
+	return {"open": true, "tab": _tabs.current_tab, "share_key": _share_key, "search": _search.text,
+		"unpinnable": _show_unpinnable.button_pressed, "page": _pages.current_tab if _pages != null else -1,
+		"cat_key": cat_key, "pin_key": pin_key, "scroll": WindowRepresent.scroll_value(_root_box)}
+
+## The other half, on the NEW window after the composition is mounted. A closed window has nothing to put back. An open one opens
+## through its own `open()` (which builds the class's layout), then the tab, the diagonal, the query, the toggle, the phone's page
+## and the selected rows are set and the lists drawn once more. The ring tabs exist on the desktop and the tablet only, so a tab
+## carried onto the phone is dropped (the phone edits the Bar list), and a phone page carried onto the tablet has no strip to land on.
+func represent_restore(bag: Dictionary) -> void:
+	if not bool(bag.get("open", false)):
+		return
+	await open()
+	if not _phone_ready and int(bag["tab"]) > 0:
+		_tabs.current_tab = int(bag["tab"])
+	_share_key = String(bag["share_key"]) if not _phone_ready else ""
+	_search.text = String(bag["search"])
+	_show_unpinnable.set_pressed_no_signal(bool(bag["unpinnable"]))
+	_rebuild_all()
+	for i in _cat_rows.size():
+		if String(bag["cat_key"]) != "" and String(_cat_rows[i].get("pin_key", "")) == String(bag["cat_key"]):
+			_catalogue.select(i)
+	_on_catalogue_selected()
+	_render_pins(String(bag["pin_key"]))
+	if _pages != null and int(bag["page"]) >= 0:
+		_pages.current_tab = int(bag["page"])
+	await WindowRepresent.restore_scroll(_root_box, int(bag["scroll"]))

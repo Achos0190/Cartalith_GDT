@@ -59,6 +59,9 @@ func _frames(n: int) -> void:
 	for k in n:
 		await get_tree().process_frame
 
+func _arg_int(name: String, dflt: int) -> int:
+	return int(_arg(name, str(dflt)))
+
 func _arg(name: String, dflt: String) -> String:
 	var args := OS.get_cmdline_user_args()
 	var k := args.find(name)
@@ -114,7 +117,7 @@ func _ready() -> void:
 		var a := String(args[i])
 		if a == "--force-touch" or a == "--names" or a == "--window" or a == "--clean" or a == "--world" or a == "--noworld":
 			i += 1
-		elif a in ["--leg", "--vp", "--density", "--out", "--steps", "--trips", "--only"]:
+		elif a in ["--leg", "--vp", "--density", "--out", "--steps", "--trips", "--only", "--fresh-frames"]:
 			i += 2
 		else:
 			print("ABORT: unknown argument ", a)
@@ -982,17 +985,18 @@ func _live() -> void:
 		_live_world = _world_hash()
 	## ---- a window open: the swap waits with a reason, loses nothing, and runs when the window closes ----
 	print("-- a window is open")
-	## A window with no re-present path yet (`REPRESENTED_WINDOWS` in app.gd): the travel library, until its batch lands
-	## (then this takes the next unconverted one, and `--leg represent` carries the converted windows' checks).
+	## S4.5 batch 4: every long-lived window is re-presented now, so merely being open no longer makes a swap wait; the example is a
+	## HELD-INPUT case: the travel library with a staged, unsaved definition edit (`_draft`), which Q-S4-2 keeps waiting for. The
+	## rail's filter box is typed in as well (not held: it is carried).
 	var roster = _app.travel_library_window
-	_ok(not roster.has_method("represent_capture"), "the window used for the wait check has no re-present path (else pick another)")
-	roster.open()
+	_ok(roster.has_method("represent_capture"), "the travel library is a re-presented window (an open one alone holds nothing)")
+	roster.open("animal")
 	await _frames(10)
-	var le: LineEdit = null
-	for n in roster.find_children("*", "LineEdit", true, false):
-		le = n
-		break
-	_ok(roster.visible, "the factions window is open")
+	roster._on_add_blank()
+	await _frames(4)
+	var le: LineEdit = roster._filter_edit
+	roster._draft = {"name": "staged name"}
+	_ok(roster.visible and String(roster._current_id) != "", "the travel library is open on a blank entry with a staged edit")
 	if le != null:
 		le.text = "typed text"
 	var runs0: int = _app.class_swap_runs
@@ -1002,16 +1006,22 @@ func _live() -> void:
 	_ok(String(_app.class_key()) == "tablet" and _app.class_swap_runs == runs0 and not _app.pending_class_swap().is_empty(),
 		"the swap waits while the window is open (class %s, runs %d, pending %s)" % [_app.class_key(), _app.class_swap_runs, str(_app.pending_class_swap().get("phone"))])
 	var reason := String(_app.status_slot_text("hint"))
-	_ok(str(_blockers()).contains("window is open"), "quiescent_blockers() names the window (%s)" % str(_blockers()))
-	_ok(reason.begins_with("Layout change waiting: the ") and reason.contains("window is open"), "the status line says why: '%s'" % reason)
+	_ok(str(_blockers()).contains("a travel definition has unsaved edits"), "quiescent_blockers() names the held edit (%s)" % str(_blockers()))
+	_ok(reason.begins_with("Layout change waiting: a travel definition has unsaved edits"), "the status line says why: '%s'" % reason)
 	if le != null:
 		_ok(le.text == "typed text", "the typed text is still there while waiting")
+	_ok(roster._draft.get("name", "") == "staged name", "the staged edit is still there while waiting")
 	roster.hide()
 	await _await_swap()
 	_ok(String(_app.class_key()) == "phone" and _app.class_swap_runs == runs0 + 1, "the swap ran once the window closed (class %s)" % _app.class_key())
 	_ok(not str(_app.status_slot_text("hint")).begins_with("Layout change waiting"), "and the wait's sentence is gone from the status line")
-	if le != null and is_instance_valid(le):
-		_ok(le.text == "typed text", "the window's typed text survived the swap")
+	## The window was built again, so the old filter box is gone: the new one holds the same text, and the staged edit came with it.
+	var roster2 = _app.travel_library_window
+	_ok(roster2 != roster and not is_instance_valid(roster), "the travel library is a new instance (the old one is freed)")
+	_ok(roster2._filter_edit.text == "typed text", "the rail filter's typed text survived the swap ('%s')" % roster2._filter_edit.text)
+	_ok(roster2._draft.get("name", "") == "staged name", "the staged definition edit survived the swap (%s)" % str(roster2._draft))
+	roster2._draft.clear()
+	roster2._filter_edit.text = ""
 	await _live_swap(tab.x, tab.y, "tablet")
 
 	## ---- the Ask tab SHOWN while the swap runs: its content is in the tab's body, which the unmount frees ----
@@ -1150,7 +1160,21 @@ const REP_CF_FILTER := "active"
 ## every one of them (open, state, expect, scroll node), so a half-added window fails loudly (`push_error`) and not silently.
 const REP_ORDER := ["faction_roster_window", "place_editor_window", "world_data_window", "city_viewer_window",
 	"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window",
-	"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list"]
+	"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list",
+	"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window"]
+## Batch 4's literals (S4_INVENTORY section 18.7). The Customise window's query; the settings window's typed model name (typed,
+## never committed by the probe: the capture commits it, as a close does); the travel library's tab and rail filter ("new" matches
+## the blank entry the fixture adds, whose name is "New Vessel"); the data manager's Maps options and its GIS destination, which
+## the window keeps only in these session fields.
+const REP_QB_QUERY := "view"
+const REP_AS_MODEL := "probe-model-x"
+const REP_TL_KIND := "vessel"
+const REP_TL_FILTER := "new"
+const REP_DM_ROUTE := "export_maps"
+const REP_DM_COLS := 6
+const REP_DM_ROWS := 3
+const REP_DM_DEST := "C:/probe_tiles/tiles.zip"
+const REP_DM_GIS := "C:/probe_gis/world.geojson"
 ## Batch 3's literals. The generation rules' lit preset chip (not the engine's rules: the leg must not change the world), the layers
 ## popover's filter, and the export form's choices: the second format (JPEG, which shows the quality row), a quality that is not the
 ## default (90), the third tier, a layer that is off by default switched on and one that is on by default switched off, and a path.
@@ -1162,7 +1186,8 @@ const REP_EX_TIER := 2
 const REP_EX_WIDTH := 4096
 const REP_EX_PATH := "C:/probe_export/map.jpg"
 ## The popover is a `PopupPanel` (always borderless) so the borderless check does not tell its class; its own `_phone` does.
-const REP_NO_BORDER_CHECK := ["layers_popover"]
+## The Data manager is borderless on every class (a full-bleed window with its own bar), so its `borderless` tells nothing either.
+const REP_NO_BORDER_CHECK := ["layers_popover", "data_manager_window"]
 ## The non-vacuity floor of "the layout equals a fresh open's" (8 lines by default): the phone's `All...` sheet, with no pins in
 ## this fixture, is one title, one count and the Customise row.
 ## The tablet's credits dialog is a scroll holding one text label: three lines.
@@ -1170,7 +1195,7 @@ const REP_MIN_LINES := {"quick_bar_phone_list": 6, "_credits_dialog": 2}
 ## The scroll check is vacuous for a window with nothing to scroll in this fixture, so the fixture asserts a scroll with room
 ## exists, and only for these.
 const REP_SCROLLED := ["faction_roster_window", "place_editor_window", "world_data_window", "settlement_types_window", "gen_info_dialog",
-	"shortcuts_dialog", "layers_popover", "_credits_dialog", "export_dialog"]
+	"shortcuts_dialog", "layers_popover", "_credits_dialog", "export_dialog", "assistant_settings_window", "data_manager_window"]
 ## The bags the fixture builds each window's expected state from, filled by `_rep_init()` (the settlement type's id is the
 ## store's, not a literal the probe could know).
 var _rep_bag := {}
@@ -1204,6 +1229,16 @@ func _rep_init() -> void:
 			"tier": REP_EX_TIER, "settle": true, "path": REP_EX_PATH, "layers": {"routes": true, "labels": false},
 			"space": "sRGB", "look": "Current look", "title": "Export map image", "note": "", "note_on": false},
 		"quick_bar_phone_list": {"open": true, "scroll": 0},
+		## The tab is 0 and the share key empty in this bag because the phone has no ring tabs (a round trip through it drops
+		## them, by design: `QuickBarWindow.represent_restore`); the ring tabs have their own block, `_rep_qb_tab()`.
+		"quick_bar_window": {"open": true, "tab": 0, "share_key": "", "search": REP_QB_QUERY, "unpinnable": true, "page": -1,
+			"cat_key": "", "pin_key": "", "scroll": 0},
+		"assistant_settings_window": {"open": true, "scroll": REP_SCROLL},
+		## `id` is the blank entry the fixture adds (the store names it), filled by `_rep_open`. `entry` is true both ways: the
+		## tablet's selected entry is the phone's inspector pane, and the phone's inspector pane is a selected entry.
+		"travel_library_window": {"open": true, "kind": REP_TL_KIND, "id": "", "filter": REP_TL_FILTER, "draft": {}, "entry": true, "scroll": 0},
+		"data_manager_window": {"open": true, "route": REP_DM_ROUTE, "pane": "", "scroll": REP_SCROLL, "fields": {"_tx_cols": REP_DM_COLS,
+			"_tx_rows": REP_DM_ROWS, "_tx_gzip": true, "_tx_dest": REP_DM_DEST, "_gis_dest": REP_DM_GIS, "_wd_width": 2048}},
 	}
 
 ## The structure lines of one window, visible nodes only, no names or text: what `_structure_lines()` gives a composition.
@@ -1217,7 +1252,7 @@ func _window_lines(w: Node) -> PackedStringArray:
 func _fresh_lines(field: String, bag: Dictionary) -> PackedStringArray:
 	var fresh: Node = _app._make_window(field)
 	await fresh.represent_restore(bag)
-	await _frames(6)
+	await _frames(_arg_int("--fresh-frames", 6))
 	var lines := _window_lines(fresh)
 	fresh.hide()
 	fresh.free()
@@ -1263,6 +1298,21 @@ func _rep_state(field: String) -> Dictionary:
 		"quick_bar_phone_list":
 			## No build-site branch: `phone_window()` makes it borderless on the phone and nothing else differs.
 			return {"open": w.visible, "phone": w.borderless}
+		"quick_bar_window":
+			## `_phone_ready` is set by the first `open()` on a phone, so it is the window's own record of the class it laid out for.
+			return {"open": w.visible, "search": String(w._search.text), "unpinnable": bool(w._show_unpinnable.button_pressed),
+				"tab": int(w._tabs.current_tab), "cat_key": _qb_cat_key(w), "phone": bool(w._phone_ready)}
+		"assistant_settings_window":
+			var mf = w.controls.get("model")
+			return {"open": w.visible, "model": String(mf.text) if mf is LineEdit else "(no field)", "stored": String(DccSettings.llm_value("model")),
+				"phone": bool(w._phone)}
+		"travel_library_window":
+			return {"open": w.visible, "kind": String(w._current_kind), "has_id": String(w._current_id) != "", "id": String(w._current_id),
+				"filter": String(w._filter_edit.text), "filter_state": String(w._filter_text), "phone": bool(w._phone),
+				"showing_entry": bool(w._phone_showing_entry) if w._phone else true}
+		"data_manager_window":
+			return {"open": w.visible, "route": String(w._selected_id), "cols": int(w._tx_cols), "rows": int(w._tx_rows), "gzip": bool(w._tx_gzip),
+				"dest": String(w._tx_dest), "gis": String(w._gis_dest), "wd_width": int(w._wd_width), "phone": bool(w._phone)}
 	push_error("_rep_state: no arm for " + field)
 	return {}
 
@@ -1281,6 +1331,9 @@ func _rep_scroll(field: String) -> int:
 		"place_editor_window": body = w._body
 		"world_data_window": body = w._settlements_body
 		"settlement_types_window", "conflicts_window", "saved_journeys_window": body = w._body
+		"assistant_settings_window": body = w._body
+		"travel_library_window": body = w._inspector_body
+		"data_manager_window": body = w._pane_body
 	if body == null:
 		return -1
 	var p := body.get_parent()
@@ -1306,6 +1359,12 @@ func _rep_expect(field: String) -> Dictionary:
 		"export_dialog": return {"open": true, "format": 1, "quality": 55.0, "tier": 2, "settle": true, "width": 4096,
 			"path": "C:/probe_export/map.jpg", "routes": true, "labels": false, "quality_row": true}
 		"quick_bar_phone_list": return {"open": true}
+		"quick_bar_window": return {"open": true, "search": "view", "unpinnable": true, "tab": 0, "cat_key": String(_rep_bag[field]["cat_key"])}
+		"assistant_settings_window": return {"open": true, "model": "probe-model-x", "stored": "probe-model-x"}
+		"travel_library_window": return {"open": true, "kind": "vessel", "has_id": true, "id": String(_rep_bag[field]["id"]), "filter": "new",
+			"filter_state": "new", "showing_entry": true}
+		"data_manager_window": return {"open": true, "route": "export_maps", "cols": 6, "rows": 3, "gzip": true, "dest": "C:/probe_tiles/tiles.zip",
+			"gis": "C:/probe_gis/world.geojson", "wd_width": 2048}
 	push_error("_rep_expect: no arm for " + field)
 	return {}
 
@@ -1372,6 +1431,48 @@ func _rep_open(field: String) -> void:
 					ex._sizes.select(i)
 			ex.set_destination(REP_EX_PATH)
 		"quick_bar_phone_list": _app.phone_quick.open_list()
+		"quick_bar_window":
+			_app.open_quick_bar_window()
+			await _frames(8)
+			var q = _app.quick_bar_window
+			q._search.text = REP_QB_QUERY
+			q._search.text_changed.emit(REP_QB_QUERY)
+			q._show_unpinnable.button_pressed = true
+			await _frames(4)
+			for i in q._cat_rows.size():
+				if bool(q._cat_rows[i].get("pinnable", false)):
+					q._catalogue.select(i)
+					q._on_catalogue_selected()
+					_rep_bag[field]["cat_key"] = String(q._cat_rows[i]["pin_key"])
+					break
+			_ok(String(_rep_bag[field]["cat_key"]) != "", "the Customise fixture selected a pinnable row (so the selection check is not vacuous)")
+		"assistant_settings_window":
+			_app.assistant_settings_window.open()
+			await _frames(8)
+			var mf: LineEdit = _app.assistant_settings_window.controls["model"]
+			_ok(String(DccSettings.llm_value("model")) == "", "the model name is unset before the fixture types one (so the carry is not vacuous)")
+			mf.text = REP_AS_MODEL
+		"travel_library_window":
+			_app.open_travel_library(REP_TL_KIND)
+			await _frames(8)
+			var tl = _app.travel_library_window
+			tl._on_add_blank()
+			_rep_bag[field]["id"] = String(tl._current_id)
+			tl._filter_edit.text = REP_TL_FILTER
+			tl._filter_edit.text_changed.emit(REP_TL_FILTER)
+			_ok(String(tl._current_id) != "", "the travel fixture selected the blank entry it added")
+		"data_manager_window":
+			var dm = _app.data_manager_window
+			for k in _rep_bag[field]["fields"]:
+				dm.set(k, _rep_bag[field]["fields"][k])
+			_app.data_manager_window.open_route(REP_DM_ROUTE)
+
+## The pin key of the catalogue row the Customise window has selected, or "".
+func _qb_cat_key(w: Node) -> String:
+	var sel: PackedInt32Array = w._catalogue.get_selected_items()
+	if sel.size() > 0 and sel[0] < w._cat_rows.size():
+		return String(w._cat_rows[sel[0]].get("pin_key", ""))
+	return ""
 
 ## The ScrollContainer this fixture scrolls (a `TextEdit` for the dump), or null.
 func _rep_scroll_target(w: Node, field: String) -> Node:
@@ -1434,6 +1535,10 @@ func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void
 			first = i
 			break
 	_ok(rl.size() > (REP_MIN_LINES[field] if REP_MIN_LINES.has(field) else 8) and rl == fr, "%s: the layout equals a fresh open's (%d lines vs %d; first difference %d: '%s' vs '%s')" % [tag, rl.size(), fr.size(), first, "" if first < 0 else rl[first], "" if first < 0 else fr[first]])
+	if first >= 0:
+		for j in range(maxi(0, first - 3), mini(mini(rl.size(), fr.size()), first + 2)):
+			print("    ctx %d  real: %s" % [j, rl[j]])
+			print("    ctx %d fresh: %s" % [j, fr[j]])
 	var back_bag: Dictionary = fresh_bag
 	win.represent_restore(back_bag)
 	await _frames(10)
@@ -1557,6 +1662,162 @@ func _rep_gr_scroll(ph: Vector2i, tab: Vector2i) -> void:
 	_app.generation_rules_window.hide()
 	await _swap_to("tablet", tab.x, tab.y)
 
+## The Customise window's ring tab and diagonal, which the table cannot test (the phone has no ring tabs, so a round trip through
+## it drops them by design). Open on "Ring slots" with the first diagonal that can share, carried across three same-class
+## remounts; then on the phone, the page strip's second segment across two more; then back to the tablet on the Bar tab.
+func _rep_qb_tab(ph: Vector2i, tab: Vector2i) -> void:
+	print("-- the Customise window: the ring tab and diagonal across three same-class remounts, then the phone's page")
+	for other in REP_ORDER:
+		if _app.get(other) != null:
+			_app.get(other).hide()
+	_app.open_quick_bar_window()
+	await _frames(8)
+	var q = _app.quick_bar_window
+	q._tabs.current_tab = 2
+	await _frames(4)
+	var key := String(q._share_key)
+	_ok(key != "" and String(q._target) == "share", "the Customise window is on Ring slots with a diagonal (key '%s', target %s)" % [key, q._target])
+	for t in range(1, 4):
+		var old = _app.quick_bar_window
+		await _app._remount_composition(null)
+		await _frames(14)
+		var n = _app.quick_bar_window
+		_ok(n != old and not is_instance_valid(old) and n.visible, "qb tab remount %d: a new instance, open" % t)
+		_ok(int(n._tabs.current_tab) == 2 and String(n._target) == "share" and String(n._share_key) == key, "qb tab remount %d: Ring slots on '%s' (tab %d, target %s, key '%s')" % [t, key, n._tabs.current_tab, n._target, n._share_key])
+	_app.quick_bar_window.hide()
+	await _swap_to("phone", ph.x, ph.y)
+	_app.open_quick_bar_window()
+	await _frames(10)
+	var qp = _app.quick_bar_window
+	_ok(qp._pages != null and int(qp._pages.current_tab) == 0, "on the phone the Customise window has its page strip on Commands")
+	qp._pages.current_tab = 1
+	await _frames(4)
+	for t in range(1, 3):
+		await _app._remount_composition(null)
+		await _frames(14)
+		var np = _app.quick_bar_window
+		_ok(np.visible and int(np._pages.current_tab) == 1 and not np._left.visible and np._right.visible, "qb page remount %d: the Pinned page is still shown (page %d)" % [t, np._pages.current_tab])
+	_app.quick_bar_window.hide()
+	await _swap_to("tablet", tab.x, tab.y)
+	await _frames(4)
+
+## The travel library's staged edit across a swap, and what makes it wait. A field the user is typing in has staged nothing (`_draft`
+## takes the text on Enter or on losing focus), so a focused, unstaged name is staged by the capture; a staged draft makes a real
+## swap wait with its reason (Q-S4-2) and is carried by a remount that bypasses the gate.
+func _rep_tl_draft(ph: Vector2i, tab: Vector2i) -> void:
+	print("-- the travel library: a staged definition edit waits and is carried; a focused unstaged field is staged by the capture")
+	for other in REP_ORDER:
+		if _app.get(other) != null:
+			_app.get(other).hide()
+	_app.open_travel_library("preset")
+	await _frames(8)
+	var tl = _app.travel_library_window
+	tl._on_add_blank()
+	await _frames(4)
+	var id0: String = String(tl._current_id)
+	var name_le: LineEdit = null
+	for n in tl._inspector_body.find_children("*", "LineEdit", true, false):
+		if (n as LineEdit).editable:
+			name_le = n
+			break
+	_ok(name_le != null, "the blank custom entry has an editable text field")
+	if name_le == null:
+		return
+	name_le.grab_focus()
+	name_le.text = "typed unstaged"
+	await _frames(2)
+	_ok(tl._draft.is_empty(), "nothing is staged yet: the text is only in the focused field")
+	_ok(not str(_blockers()).contains("unsaved"), "so the swap would not wait for it (%s)" % str(_blockers()))
+	await _app._remount_composition(null)
+	await _frames(14)
+	var t2 = _app.travel_library_window
+	_ok(t2 != tl and t2.visible and String(t2._current_id) == id0, "a same-class remount: a new instance, open on the same entry")
+	var staged := false
+	for k in t2._draft:
+		staged = staged or String(t2._draft[k]) == "typed unstaged"
+	_ok(staged, "the focused field's text was staged by the capture and carried (%s)" % str(t2._draft))
+	_ok(str(_blockers()).contains("a travel definition has unsaved edits"), "and the new window holds the swap for it, by name (%s)" % str(_blockers()))
+	var runs0: int = _app.class_swap_runs
+	await _resize(ph.x, ph.y)
+	await _frames(20)
+	await get_tree().create_timer(1.3).timeout
+	_ok(String(_app.class_key()) == "tablet" and _app.class_swap_runs == runs0, "a real swap waits for the staged edit (class %s)" % _app.class_key())
+	t2._draft.clear()
+	await _await_swap()
+	_ok(String(_app.class_key()) == "phone" and _app.class_swap_runs == runs0 + 1, "and runs once the edit is saved or reverted (class %s)" % _app.class_key())
+	_ok(_app.travel_library_window.visible, "the travel library is open on the phone")
+	_app.travel_library_window.hide()
+	await _live_swap(tab.x, tab.y, "tablet")
+
+## The project picker across a swap: `OpenProjectDialog` on the tablet, `PhoneProjectPicker` on the phone. Same-class remounts keep the
+## gallery open with its scope chip and its typed search; a swap to the phone opens the phone's list instead of the dialog (and
+## hides the dialog); back on the tablet the dialog is opened again; the welcome composition stays the welcome composition.
+func _rep_open_project(ph: Vector2i, tab: Vector2i) -> void:
+	print("-- the project picker: scope and search across remounts, then to the phone's list and back")
+	for other in REP_ORDER:
+		if _app.get(other) != null:
+			_app.get(other).hide()
+	var d = _app.open_project_dialog
+	d.open()
+	await _frames(8)
+	d._set_scope("all")
+	d._search.text = "zz"
+	d._search.text_changed.emit("zz")
+	await _frames(4)
+	for t in range(1, 4):
+		var old = _app.open_project_dialog
+		await _app._remount_composition(null)
+		await _frames(14)
+		var n = _app.open_project_dialog
+		_ok(n != old and not is_instance_valid(old) and n.visible, "picker remount %d: a new dialog, open" % t)
+		_ok(String(n._scope) == "all" and String(n._search.text) == "zz" and not bool(n._welcome), "picker remount %d: scope 'all', search 'zz' (%s, '%s')" % [t, n._scope, n._search.text])
+		_ok(not str(_blockers()).contains("window is open"), "picker remount %d: it holds nothing (%s)" % [t, str(_blockers())])
+	await _swap_to("phone", ph.x, ph.y)
+	var pk = _app.phone_project_picker
+	_ok(pk != null and pk.visible, "on the phone the entry screen is open instead of the dialog")
+	_ok(not _app.open_project_dialog.visible, "and the dialog is closed")
+	_ok(not str(_blockers()).contains("window is open"), "the phone's entry screen holds nothing (%s)" % str(_blockers()))
+	await _swap_to("tablet", tab.x, tab.y)
+	await _frames(10)
+	_ok(_app.phone_project_picker == null and _app.open_project_dialog.visible and not bool(_app.open_project_dialog._welcome), "back on the tablet the gallery dialog is open and the phone's screen is gone")
+	_app.open_project_dialog.open_welcome()
+	await _frames(8)
+	await _app._remount_composition(null)
+	await _frames(14)
+	_ok(_app.open_project_dialog.visible and bool(_app.open_project_dialog._welcome), "the cold-start welcome is still the welcome after a remount")
+	await _swap_to("phone", ph.x, ph.y)
+	_ok(_app.phone_project_picker != null and _app.phone_project_picker.visible and bool(_app.phone_project_picker.welcome), "the welcome carried onto the phone is the phone's entry screen, marked as the welcome")
+	await _swap_to("tablet", tab.x, tab.y)
+	await _frames(10)
+	_ok(_app.open_project_dialog.visible and bool(_app.open_project_dialog._welcome), "and back on the tablet it is the welcome again, not the gallery")
+	_app.open_project_dialog.hide()
+	await _frames(4)
+
+## The settings window's typed API key: it is cleared by design on every rebuild, so a typed one holds the swap by name. The key
+## field only exists with an OS credential store, so the probe stands a field in `controls` the way the window's own builder does.
+func _rep_settings_key() -> void:
+	print("-- the assistant settings window: a typed API key holds the swap, an empty one does not")
+	for other in REP_ORDER:
+		if _app.get(other) != null:
+			_app.get(other).hide()
+	var w = _app.assistant_settings_window
+	w.open()
+	await _frames(8)
+	var had = w.controls.get("key_field")
+	var kf := LineEdit.new()
+	w.controls["key_field"] = kf
+	_ok(w.quiescent_blockers().is_empty(), "an empty key field holds nothing")
+	kf.text = "sk-probe"
+	_ok(w.quiescent_blockers() == ["an API key is typed but not saved"], "a typed key holds the swap and says so (%s)" % str(w.quiescent_blockers()))
+	_ok(str(_blockers()).contains("an API key is typed but not saved"), "the shell's gate reports it (%s)" % str(_blockers()))
+	w.hide()
+	_ok(w.quiescent_blockers().is_empty(), "a closed window holds nothing")
+	if had != null:
+		w.controls["key_field"] = had
+	else:
+		w.controls.erase("key_field")
+	kf.free()
+
 func _represent() -> void:
 	await _settle_at_rest()
 	var boot := String(_app.class_key())
@@ -1596,12 +1857,21 @@ func _represent() -> void:
 		await _rep_search(ph, tab)
 	if only == "" or only == "gr_scroll":
 		await _rep_gr_scroll(ph, tab)
+	if only == "" or only == "qb_tab":
+		await _rep_qb_tab(ph, tab)
+	if only == "" or only == "tl_draft":
+		await _rep_tl_draft(ph, tab)
+	if only == "" or only == "open_project":
+		await _rep_open_project(ph, tab)
+	if only == "" or only == "settings_key":
+		await _rep_settings_key()
 	_ok(_world_hash() == _live_world and absf(float(_app.viewport.zoom()) - _live_zoom) < 1e-6, "the world and the camera are untouched")
 	print("-- the vault holds the swap until its text is saved (a converted window is hidden by then: only one modal window can be shown)")
 	var vw = _app.vault_window
 	_ok(not vw.has_method("represent_capture"), "the vault has no re-present path yet (this block moves when it gets one)")
-	_app.faction_roster_window.hide()
-	_app.place_editor_window.hide()
+	for other in REP_ORDER:
+		if _app.get(other) != null:
+			_app.get(other).hide()
 	vw._browse_path = "probe.md"
 	vw._browse_saved = "saved"
 	vw._browse_text = "typed but not saved"

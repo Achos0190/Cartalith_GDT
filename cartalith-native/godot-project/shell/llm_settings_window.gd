@@ -43,6 +43,9 @@ class_name LlmSettingsWindow
 ## Emitted after any stored setting changed and the dependent state was resynced.
 signal settings_changed()
 
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): the contract's shared helpers.
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
 ## The owning `DccApp` (untyped, like sibling windows).
 var app
 ## The engine bridge; every `llm_*` call goes through it.
@@ -1342,3 +1345,30 @@ func _on_withdraw_consent() -> void:
 	DccSettings.llm_withdraw_consent()
 	_refresh_dynamic()
 	settings_changed.emit()
+
+
+## MS-1 S4.5: a typed API key is held input. The key field is cleared by design on every rebuild and on close (it is never
+## echoed or kept), so a class swap, which builds this window again, would discard what the user typed and not yet Saved. It makes
+## the swap wait with this reason until the key is Saved or cleared; nothing else here is unconfirmed (the address, model and
+## variable-name fields commit through `_commit_pending_fields()` when captured, exactly as a close does). A pure query.
+func quiescent_blockers() -> Array[String]:
+	var kf = controls.get("key_field")
+	if visible and kf is LineEdit and is_instance_valid(kf) and (kf as LineEdit).text != "":
+		return ["an API key is typed but not saved"]
+	return []
+
+## MS-1 S4.5: the window's state is the store's (`DccSettings` `[llm]`, `LlmProfiles`), re-read by `open()`; what the user holds
+## beyond it is the three text fields (committed here, as a close commits them) and the scroll. A closed window carries nothing.
+func represent_capture() -> Dictionary:
+	if not visible:
+		return {"open": false}
+	_commit_pending_fields()
+	return {"open": true, "scroll": WindowRepresent.scroll_value(_body)}
+
+## On the NEW window, after the mount: opens through `open()` (which rebuilds from the store and asks the model list, as any open
+## does) and puts the scroll back. `settings_changed` is wired by `DccApp._make_window()`, so the open assistant panel follows.
+func represent_restore(bag: Dictionary) -> void:
+	if not bool(bag.get("open", false)):
+		return
+	open()
+	await WindowRepresent.restore_scroll(_body, int(bag["scroll"]))

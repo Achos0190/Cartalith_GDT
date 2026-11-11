@@ -1638,19 +1638,11 @@ func _ready() -> void:
 	gen_info_dialog = _make_window("gen_info_dialog")
 	shortcuts_dialog = _make_window("shortcuts_dialog")
 
-	assistant_settings_window = LlmSettingsWindow.new()
-	add_child(assistant_settings_window)
-	assistant_settings_window.setup(self, bridge)
+	assistant_settings_window = _make_window("assistant_settings_window")
 	## CQ-3: the Customise window for the quick bar's pins, and the right-click-a-menu-row pin
 	## gesture (Q11). Pins changed in the window refresh the cluster in the same frame.
-	quick_bar_window = QuickBarWindow.new()
-	add_child(quick_bar_window)
-	quick_bar_window.setup(self)
-	quick_bar_window.pins_changed.connect(func():
-		if _quick_bar != null:
-			_quick_bar.refresh()
-		if phone_quick != null:
-			phone_quick.refresh())
+	## MS-1 S4.5: through `_make_window()`, which also wires `pins_changed` (the arm's comment says why it is there).
+	quick_bar_window = _make_window("quick_bar_window")
 	quick_bar_menu_pin = QuickBarMenuPin.new()
 	add_child(quick_bar_menu_pin)
 	quick_bar_menu_pin.setup(self)
@@ -1667,7 +1659,7 @@ func _ready() -> void:
 	bridge.generation_finished.connect(func(_ok: bool): phone_quick.refresh.call_deferred())
 	phone_quick.refresh.call_deferred()
 	## A setting changed in the settings window must reach the open panel's status and reasons.
-	assistant_settings_window.settings_changed.connect(func(): assistant_window._refresh())
+	## MS-1 S4.5: wired in `_make_window("assistant_settings_window")`, which a class swap runs again.
 	## Ruling DF at boot: if a local provider was left active, point the compute path at the
 	## low-power adapter again (the switch is never persisted, so a restart starts clean).
 	## Ruling DQ: wire the assistant profiles to this bridge, then restore the last used one (only when
@@ -1681,21 +1673,15 @@ func _ready() -> void:
 		if LlmGpuRule.is_pending():
 			LlmGpuRule.sync(bridge))
 
-	data_manager_window = DataManagerWindow.new()
-	add_child(data_manager_window)
-	data_manager_window.setup(self, bridge)
+	data_manager_window = _make_window("data_manager_window")
 
 	asset_library_window = AssetLibraryWindow.new()
 	add_child(asset_library_window)
 	asset_library_window.setup(self, bridge)
 
-	travel_library_window = TravelLibraryWindow.new()
-	add_child(travel_library_window)
-	travel_library_window.setup(self, bridge)
+	travel_library_window = _make_window("travel_library_window")
 
-	open_project_dialog = OpenProjectDialog.new()
-	add_child(open_project_dialog)
-	open_project_dialog.setup(self)
+	open_project_dialog = _make_window("open_project_dialog")
 
 	## The Markdown Vault panel (`MARKDOWN_VAULT_SCOPE.md` milestone 1).
 	## Long-lived like its neighbours: it holds an entity scope, an open
@@ -2093,7 +2079,8 @@ func _perform_class_swap() -> void:
 ## (`--leg represent`); `S4_INVENTORY.md` section 18 says which windows are still not here and so still hold a swap.
 const REPRESENTED_WINDOWS := ["place_editor_window", "faction_roster_window", "world_data_window", "city_viewer_window",
 		"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window",
-		"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list"]
+		"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list",
+		"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window", "open_project_dialog"]
 ## The represented windows that are built on first use (`open_conflicts_list()`, `open_saved_journeys()`) and are null until
 ## then: the swap leaves a never-built one unbuilt (its first open builds it for the class it is then in, as before) and
 ## rebuilds one that exists.
@@ -2112,6 +2099,9 @@ var quick_bar_phone_list: QuickBarPhoneList:
 var _window_bags: Dictionary = {}
 ## The desktop Find dialog's share of the same swap (`DccShell.search_represent_capture()`), which is the shell's own plain dialog.
 var _search_bag: Dictionary = {}
+## The phone's entry screen is built by the composition (not through `_make_window()`), so its share of the swap is held here:
+## `{open}` read before the unmount, used after the mount (a phone opens the list again; a tablet opens its own dialog).
+var _picker_bag: Dictionary = {}
 
 ## Builds the long-lived window `field` for the class the shell is in now, exactly as `_ready()` did at boot: the one
 ## constructor both paths use, so a re-presented window cannot differ from a cold boot's. Returns the new window (already
@@ -2174,6 +2164,38 @@ func _make_window(field: String) -> Node:
 			w = QuickBarPhoneList.new()
 			add_child(w)
 			w.setup(self)
+		"quick_bar_window":
+			w = QuickBarWindow.new()
+			add_child(w)
+			w.setup(self)
+			## A pin changed in the window refreshes both clusters in the same frame. The lambda reads the fields when it
+			## runs, so it follows the quick bar and the phone's bar a swap builds again.
+			w.pins_changed.connect(func():
+				if _quick_bar != null:
+					_quick_bar.refresh()
+				if phone_quick != null:
+					phone_quick.refresh())
+		"assistant_settings_window":
+			w = LlmSettingsWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+			## A setting changed in the settings window must reach the open panel's status and reasons. The panel is read
+			## when the signal fires, not captured: it is built after this window at boot, and a swap does not rebuild it.
+			w.settings_changed.connect(func():
+				if assistant_window != null and is_instance_valid(assistant_window):
+					assistant_window._refresh())
+		"travel_library_window":
+			w = TravelLibraryWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"data_manager_window":
+			w = DataManagerWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"open_project_dialog":
+			w = OpenProjectDialog.new()
+			add_child(w)
+			w.setup(self)
 		_:
 			push_error("_make_window: no builder for '%s'" % field)
 	return w
@@ -2182,6 +2204,9 @@ func _make_window(field: String) -> Node:
 func _capture_windows() -> void:
 	_window_bags = {}
 	_search_bag = search_represent_capture()
+	_picker_bag = {}
+	if phone_project_picker != null and is_instance_valid(phone_project_picker):
+		_picker_bag = phone_project_picker.represent_capture()
 	for f in REPRESENTED_WINDOWS:
 		var w = get(f)
 		if w != null and is_instance_valid(w):
@@ -2224,6 +2249,18 @@ func _restore_windows() -> void:
 			if w != null and is_instance_valid(w):
 				w.call("represent_restore", _window_bags[f])
 	_window_bags = {}
+	## The phone's entry screen: open again on the phone (it is a new node, built by the mount); a tablet or desktop has none, so
+	## its own dialog stands in (the dialog's restore above does the reverse, tablet to phone).
+	if bool(_picker_bag.get("open", false)):
+		if phone_project_picker != null and is_instance_valid(phone_project_picker):
+			phone_project_picker.represent_restore(_picker_bag)
+		elif open_project_dialog != null and is_instance_valid(open_project_dialog):
+			## The welcome stays the welcome on the way back from the phone (which does not tell the two apart).
+			if bool(_picker_bag.get("welcome", false)):
+				open_project_dialog.open_welcome()
+			else:
+				open_project_dialog.open()
+	_picker_bag = {}
 
 ## **The class swap** (MS-1 S4.4, `MOBILE_SHELL_MS1_SPEC.md` section 3.5, `S4_INVENTORY.md` sections 15 to 17):
 ## unmounts the whole composition and mounts it again, at the class the host's size names, carrying what the user
@@ -4759,6 +4796,7 @@ func open_new_world() -> void:
 ## header, "Dismissal").
 func open_project_picker() -> void:
 	if is_phone() and phone_project_picker != null:
+		phone_project_picker.welcome = false
 		phone_project_picker.open()
 	else:
 		open_project_dialog.open()
@@ -4772,6 +4810,7 @@ func open_project_picker() -> void:
 ## layout rather than the desktop gallery scaled down).
 func open_welcome() -> void:
 	if is_phone() and phone_project_picker != null:
+		phone_project_picker.welcome = true
 		phone_project_picker.open()
 	else:
 		open_project_dialog.open_welcome()

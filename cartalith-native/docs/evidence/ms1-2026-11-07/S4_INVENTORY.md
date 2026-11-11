@@ -974,9 +974,9 @@ back.
 
 ### 18.4 Which windows are not converted (they still hold a swap while open, and are still wrong if opened after a swap)
 
-From section 5.3's table, all but the fifteen converted in batches 1 to 3 (18.2, 18.5, 18.6). **10 remain:** `vault_window`, `data_manager_window`, `asset_library_window` (and its slicer),
+From section 5.3's table, all but the twenty-one converted in batches 1 to 4 (18.2, 18.5, 18.6, 18.7). **4 remain:** `vault_window`, `asset_library_window` (and its slicer), `new_world_dialog` and `llm_assistant_window`. (Before batch 4 the ten were: **10 remain:** `vault_window`, `data_manager_window`, `asset_library_window` (and its slicer),
 `new_world_dialog`, `open_project_dialog`, `phone_project_picker`, `travel_library_window`, `llm_assistant_window`,
-`llm_settings_window` (`assistant_settings_window`) and `quick_bar_window`. Each needs its `represent_capture()` /
+`llm_settings_window` (`assistant_settings_window`) and `quick_bar_window`; batch 4 converted six of them.) Each needs its `represent_capture()` /
 `represent_restore()` and a `_make_window()` arm; the ones `_ready()` builds with extra wiring (`quick_bar_window.pins_changed`,
 `vault_window.store_changed`, `assistant_settings_window.settings_changed`) need that wiring in the arm. The windows with a
 held-input state (the vault, New world, the slicer, Export, the Travel library draft) keep waiting by Q-S4-2 and need the
@@ -1010,3 +1010,18 @@ tablet, so its scroll is checked on the phone across three same-class `_remount_
 `PopupPanel` opened in the frame a dialog was hidden is closed by the engine's focus hand-back (seen in the full leg only), so the
 probe lets the focus settle first. (6) `represent_restore()` of the credits dialog presents ITSELF (`_present_credits(dlg)`), so the
 probe's fresh oracle cannot be silently satisfied by the field's instance.
+
+### 18.7 Batch 4: six windows (Customise quick bar, assistant settings, Travel library, Data manager, Open project, the phone project picker)
+
+Built on the contract of 18.1; verified by `_ms1swap_probe.gd --leg represent` (four more table rows, plus four blocks of their own).
+
+| Window | Carried | Not carried, and why |
+|---|---|---|
+| `quick_bar_window.gd` | open, the search text, the "cannot be pinned" toggle, the selected catalogue row and pin (by `pin_key`), the ring tab and diagonal (desktop and tablet), the phone's Commands/Pinned page, scroll | the ring tab on a round trip through the phone (the phone has no ring tabs: dropped by design) |
+| `llm_settings_window.gd` | open, scroll; the address, model and variable-name fields are committed at capture exactly as a close commits them | a typed API key: it is cleared by design on every rebuild, so it is **held input** (`quiescent_blockers()`: "an API key is typed but not saved") |
+| `travel_library_window.gd` | open, tab, selected entry, the rail filter's text, the staged `_draft`, the phone's pane, scroll; a focused, unstaged field is staged by the capture | nothing; a staged draft still makes a real swap wait (Q-S4-2) |
+| `data_manager_window.gd` | open, route, every session option of every route (`REPRESENT_FIELDS`: `_tx_*`, `_wd_*`, `_gis_*`, the run log, the Validation result), the phone pane, scroll | `_wd_widths` (the binding's answer, re-asked) |
+| `open_project_dialog.gd` | open, welcome or gallery mode, scope chip, search text, selected tile | on the phone it opens `PhoneProjectPicker` instead |
+| `phone_project_picker.gd` | open (it is not in `REPRESENTED_WINDOWS`: the composition already frees and builds it; `DccApp._picker_bag` carries the flag, and a tablet gets its dialog opened) | the error line (`open()` clears it) |
+
+**Findings.** (1) The Travel library stages a field only on Enter or focus loss, so unstaged typed text would have been lost; `represent_capture()` releases the focused inspector field first. (2) The rail filter's text was a local `LineEdit`; it is a field now (`_filter_edit`) and the capture reads its text, not `_filter_text` (a probe or paste can change the box without the signal). (3) Every Data manager route keeps its options only in session fields, so a rebuild would have silently reset an export the user had configured. (4) `DccApp._make_window()` carries the two `_ready()` wirings these windows had (`pins_changed`, `settings_changed`), reading the other windows when the signal fires. (5) The live leg's wait example was the Travel library merely being open; it is now the Travel library with a staged definition edit, the only kind of wait left for these windows. (6) Still not converted, and still holding a swap while open: the vault, the asset library and slicer, New world and the assistant dialog; New world's form state and the assistant's conversation need their own contracts (New world re-reads flags and extent from the engine on every open, so only seed, size, grid, archetype, plates and history are its own).

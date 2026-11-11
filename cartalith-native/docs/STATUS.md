@@ -7505,3 +7505,19 @@ settings window, the quick-bar window), so S4.5 is not finished and B5's window 
   phone 2, `_pc6ask` desktop 74, tablet 70, phone 7, `_ve5` 83, `_ve8` 87, `_quickbar_window` desktop 108, `_llmprofiles` desktop PASS.
   The tablet and phone forms of `_pc8planner`, `_pc4context` and `_pc6ask`, which batch 2 did not re-run, are included.
 - **Not done:** 10 windows (above); the ring and B5's full bar (S4.6).
+
+### MS-1 S4.5 batch 4 built: Customise quick bar, assistant settings, Travel library, Data manager, Open project, the phone project picker (2026-11-09)
+
+Read at the symbols; the per-item account is `S4_INVENTORY.md` section 18.7. A class swap no longer waits for any of these six while
+open. With batches 1 to 3 that is **twenty-one converted windows; 4 long-lived windows still hold a swap while open** (the vault, the
+asset library and its slicer, New world, the assistant dialog), so S4.5 is not finished and B5's window bar is not met.
+- **Carried:** see the table in section 18.7. Held input still waits: a typed, unsaved API key (new `quiescent_blockers()`) and a staged
+  Travel library definition edit. A focused Travel library field is staged by the capture, so typing is never lost.
+- **Mechanism additions:** `_make_window()` arms for the five windows (with `pins_changed` and `settings_changed` wired there), the
+  phone picker's flag in `DccApp._picker_bag`.
+- **Bar (`_ms1swap_probe.gd --leg represent`, 1800 x 1000 tablet to 880 x 800 phone and back, three round trips each):** quick bar 52
+  checks, assistant settings 60, Travel library 52, Data manager 59, plus blocks `--only qb_tab` 22, `tl_draft` 20, `open_project` 26 and
+  `settings_key` 14: all 0 failed. The live leg's wait example is now the Travel library with a staged edit.
+- **Mutants (literal, one at a time, restored by the script, `s45d_run/mutate.py`):** 9 of 9 (the quick bar's search, its toggle, its tab and share key; the settings commit and typed-key blocker; the Travel library draft; Data manager fields; Open project's search and phone mapping; the quick-bar list entry) killed.
+- **Regression:** after the rebase onto origin/main 29ebd976, every run 0 failed and 0 `SCRIPT ERROR`: `_ms1swap` quiet 24, roundtrip 11, carry 68, live 167 (`--trips 2`), the whole represent leg 957, `_ms1class --live swap` 3, `_pc7windows` desktop 138 and tablet 23, `_pc8planner` desktop 105, tablet 7, phone 1, `_pc4context` desktop 145, tablet 145, phone 2, `_pc6ask` desktop 74, tablet 70, phone 7, `_ve5` 83, `_ve8` 87, `_quickbar_window` desktop 108 and phone 3, `_llmprofiles` desktop, `_scrollfix` 5. The tablet form of _quickbar_window fails identically on a pristine origin/main (one menu-group check, 'Preferences'), so it is not this change's; _ms1swap roundtrip had one failure caused by this batch (a rebuilt Open-project dialog drew differently from the one the old instance left) and passes after the fix
+- **Not done:** the vault, the asset library and slicer, New world, the assistant dialog (4 windows); the ring and B5's full bar (S4.6).

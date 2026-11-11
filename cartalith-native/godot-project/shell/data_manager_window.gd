@@ -1,6 +1,15 @@
 extends AcceptDialog
 class_name DataManagerWindow
 
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): the contract's shared helpers.
+const WindowRepresent := preload("res://shell/window_represent.gd")
+## The session-scoped options a rebuilt window would reset to their defaults (every `_tx_*`, `_wd_*` and `_gis_*` field that a
+## route's controls write, the run log and the Validation pane's last result). `_wd_widths` is the binding's answer and is
+## re-asked, not carried; the nodes and `_selected_id` are handled by name in `represent_capture()`.
+const REPRESENT_FIELDS := ["_tx_cols", "_tx_rows", "_tx_scheme", "_tx_zmax", "_tx_retina", "_tx_tile", "_tx_gzip", "_tx_visual",
+	"_tx_ridged", "_tx_dest", "_wd_width", "_wd_tiled", "_wd_layers", "_wd_space", "_wd_format", "_gis_dest", "_gis_doc_layers",
+	"_runs", "_checks_last"]
+
 ## §9's Data manager window -- Data ▸ Import/Export/Sources/Validation's actual
 ## destination. `world_data_window.gd`'s own doc comment draws the line this
 ## file is the other side of: that window is the settlement/province/economy
@@ -4212,3 +4221,31 @@ func _push_tile_grid_preview() -> void:
 ## "keep what you were told last". What told it is `_push_tile_grid_preview()`
 ## above, on every grid change -- so the numbers are already there and a
 ## getter would only offer a second way to disagree with them.
+
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): everything the user set, read BEFORE the swap unmounts
+## anything. Every route's options are session-only fields of this window (nothing persists them), so a window built again
+## would show defaults and forget the export the user had configured: they are carried by name (`REPRESENT_FIELDS`, deep
+## copies), with the route on screen, the phone's pane and the pane's scroll. Nothing here is unconfirmed input: a running pass
+## is synchronous (`_busy`), so it cannot be mid-flight when a swap runs. A closed window carries the same options.
+func represent_capture() -> Dictionary:
+	var fields := {}
+	for f in REPRESENT_FIELDS:
+		var v = get(f)
+		fields[f] = v.duplicate(true) if (v is Array or v is Dictionary) else v
+	return {"open": visible, "route": _selected_id, "pane": _phone_pane, "fields": fields,
+		"scroll": WindowRepresent.scroll_value(_pane_body)}
+
+## On the NEW window, after the mount: the options go back first (the route's pane is built from them), then an open window
+## opens on its route, the phone's pane and scroll are put back. A closed window gets the options and nothing else.
+func represent_restore(bag: Dictionary) -> void:
+	var fields: Dictionary = bag["fields"]
+	for f in fields:
+		var v = fields[f]
+		set(f, v.duplicate(true) if (v is Array or v is Dictionary) else v)
+	if not bool(bag["open"]):
+		return
+	open_route(String(bag["route"]))
+	if _phone and String(bag["pane"]) != "":
+		_show_phone_pane(String(bag["pane"]))
+	await WindowRepresent.restore_scroll(_pane_body, int(bag["scroll"]))

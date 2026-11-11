@@ -109,6 +109,10 @@ var _phone := false
 ## Lane GATE part B, 2026-09-13 -- see `_show_error()`/`_pick_world()` below.
 ## The inline warning box above the list (see `_build`); hidden until a refused
 ## open has a sentence to show.
+## MS-1 S4.5: whether the screen stands in for the tablet's cold-start welcome (set by `DccApp.open_welcome()` and by a tablet
+## dialog carried onto the phone), so the way back to the tablet opens the welcome again, not the gallery. The phone draws both alike.
+var welcome := false
+
 var _error_wrap: PanelContainer
 ## The text inside `_error_wrap`; empty whenever the box is hidden.
 var _error_label: Label
@@ -500,3 +504,18 @@ static func _ignore_mouse(node: Node) -> void:
 		if child is Control:
 			(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_ignore_mouse(child)
+
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): the phone's entry screen holds nothing unconfirmed (a list
+## of worlds and an error line that `open()` clears), so a swap no longer waits for it. It is not in `DccApp.REPRESENTED_WINDOWS`,
+## because the composition already frees and builds it (`_unmount_app_composition()`, `_mount_app_composition()`, phone only,
+## "the node not existing off the phone is load-bearing"); `DccApp` calls these two itself. Only whether it was open is carried.
+func represent_capture() -> Dictionary:
+	return {"open": visible, "welcome": welcome}
+
+## On the NEW picker (phone to phone), or, when the new class is not the phone, on nothing: `DccApp._restore_windows()` opens the
+## tablet's `OpenProjectDialog` instead. Opens the list again when it was open.
+func represent_restore(bag: Dictionary) -> void:
+	welcome = bool(bag.get("welcome", false))
+	if bool(bag.get("open", false)):
+		open()

@@ -1,6 +1,9 @@
 extends AcceptDialog
 class_name TravelLibraryWindow
 
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): the contract's shared helpers.
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
 ## `TRAVEL_LIBRARY_SPEC.md`'s Data ▸ Travel library… window (⇧L) --
 ## `design/Journey Planner DCC.dc.html`'s `2a` (menu item, already wired in
 ## `menus.gd`) and `2b` (this window: list + inspector). An ADDITION to the
@@ -208,6 +211,8 @@ var _current_kind := "animal"
 var _current_id := ""
 ## Text typed in the rail's filter box; `_refresh_rail` lowercases and applies it.
 var _filter_text := ""
+## The rail's filter box, held so a class swap can put the typed text back (`represent_restore()`).
+var _filter_edit: LineEdit
 var _draft: Dictionary = {}       ## staged, uncommitted field edits
 var _entry: Dictionary = {}       ## last tl_get(_current_kind, _current_id) result
 
@@ -527,6 +532,7 @@ func _build_rail() -> Control:
 	col.add_child(DccTheme.rule())
 
 	var filter := LineEdit.new()
+	_filter_edit = filter
 	filter.placeholder_text = "filter…"
 	var filter_pad := MarginContainer.new()
 	for m in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
@@ -1193,3 +1199,38 @@ func quiescent_blockers() -> Array[String]:
 	if not _draft.is_empty():
 		return ["a travel definition has unsaved edits"]
 	return []
+
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): what the user set, read BEFORE the swap unmounts anything.
+## The tab, the selected entry, the rail's filter text, the phone's pane, the staged `_draft` and the inspector's scroll. A staged
+## draft is held input and makes the swap WAIT (`quiescent_blockers()`, Q-S4-2), so a real swap never reaches here with one; it is
+## carried anyway so a caller that bypasses the gate (a probe, a later change to Q-S4-2) cannot lose typed edits. A closed window
+## carries `open: false` and the same fields (a later open shows the tab it was left on, as before). No node is held.
+func represent_capture() -> Dictionary:
+	## A field the user is typing in has staged nothing yet (`_draft` takes a value on Enter or when the field loses focus), so
+	## the focused inspector field is released first: its `focus_exited` handler stages the text, and the draft below holds it.
+	var f := gui_get_focus_owner()
+	if f is LineEdit and _inspector_body.is_ancestor_of(f):
+		f.release_focus()
+	return {"open": visible, "kind": _current_kind, "id": _current_id, "filter": _filter_edit.text, "draft": _draft.duplicate(true),
+		"entry": _phone_showing_entry if _phone else _current_id != "", "scroll": WindowRepresent.scroll_value(_inspector_body)}
+
+## On the NEW window, after the mount. The tab, the entry, the filter box and the draft are put back as fields; an open window is
+## then redrawn from them, presented, and given its phone pane and scroll.
+func represent_restore(bag: Dictionary) -> void:
+	## A closed window only gets its fields back: the nodes were built for the new class and a refresh here would change what a
+	## window that was never opened looks like (`--leg roundtrip` compares a swapped composition with a cold boot's); `open()`
+	## refreshes from these fields when the user next opens it.
+	_current_kind = String(bag["kind"])
+	_current_id = String(bag["id"])
+	_filter_text = String(bag["filter"])
+	_filter_edit.text = _filter_text
+	_draft = (bag["draft"] as Dictionary).duplicate(true)
+	if bool(bag["open"]):
+		_refresh_tab_labels()
+		_refresh_rail()
+		_refresh_inspector()
+		if not DccWidgets.phone_present(self, _host):
+			popup_centered()
+		_show_phone_entry(bool(bag["entry"]))
+		await WindowRepresent.restore_scroll(_inspector_body, int(bag["scroll"]))

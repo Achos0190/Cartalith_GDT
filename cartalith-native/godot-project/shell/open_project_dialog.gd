@@ -217,6 +217,10 @@ var _subtitle_label: Label
 ## cleared by `open()`, and read by `_refresh()`, which is the **only** place
 ## that decides which of the two compositions below is on screen.
 var _welcome := false
+## MS-1 S4.5: true once `_refresh()` has drawn the inner screens at least once. A closed dialog that was drawn is drawn again when it
+## is rebuilt, so a swapped composition equals the one the old instance left (`--leg roundtrip`: the picker's tile row is hidden
+## once drawn with no worlds); a dialog that was never opened is left as built.
+var _drawn := false
 var _gallery: VBoxContainer      ## `File ▸ Open project…` -- the 08-23 artboard.
 var _picker: Control             ## Cold start -- the 08-31 canvas's `scr:'picker'`.
 ## The cold-start picker's `HFlowContainer` of tiles, created in `_build_picker`.
@@ -921,6 +925,7 @@ func _welcome_paths() -> Array:
 ## first keystroke in the search well) would rebuild on top of tiles that are
 ## still parented.
 func _refresh() -> void:
+	_drawn = true
 	for holder in [_grid, _picker_tiles]:
 		for c in holder.get_children():
 			holder.remove_child(c)
@@ -1778,3 +1783,40 @@ func _pad(child: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
 	m.add_theme_constant_override("margin_bottom", b)
 	m.add_child(child)
 	return m
+
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.7): what the user set in the picker, read BEFORE the swap
+## unmounts anything. A closed dialog carries `open: false` and nothing else (every open starts clean: `open()` clears the
+## selection and `open_welcome()` is a fresh start). An open one carries the mode (the gallery, or the cold-start welcome), the
+## scope chip, the typed search text (plain text, no commit step) and the selected tile's path. A bag holds no node.
+func represent_capture() -> Dictionary:
+	if not visible:
+		return {"open": false, "welcome": _welcome, "drawn": _drawn}
+	return {"open": true, "welcome": _welcome, "scope": _scope, "search": _search.text, "selected": _selected}
+
+## On the NEW dialog, after the mount. On the phone this picker is not the surface (the phone has `PhoneProjectPicker`,
+## `DccApp.open_project_picker()`'s own branch), so an open dialog carried into the phone class opens that instead, with nothing of
+## the tablet's search or scope to put into it. Otherwise it opens in the mode it was in, then the scope, the search and the
+## selection (a tile whose file has gone since is not selected: `_tiles` has no entry for it).
+func represent_restore(bag: Dictionary) -> void:
+	if not bool(bag.get("open", false)):
+		## A closed dialog keeps the mode its inner screens were last drawn in (`_refresh()` sets both), as the old instance did.
+		_welcome = bool(bag.get("welcome", false))
+		_gallery.visible = not _welcome
+		_picker.visible = _welcome
+		if bool(bag.get("drawn", false)):
+			_refresh()
+		return
+	if _host.is_phone() and _host.phone_project_picker != null:
+		_host.phone_project_picker.welcome = bool(bag["welcome"])
+		_host.phone_project_picker.open()
+		return
+	if bool(bag["welcome"]):
+		open_welcome()
+	else:
+		open()
+		_set_scope(String(bag["scope"]))
+		_search.text = String(bag["search"])
+		_refresh()
+		if _tiles.has(String(bag["selected"])):
+			_select(String(bag["selected"]))
