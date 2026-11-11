@@ -3480,6 +3480,7 @@ devices)"*.
   open or edit its vault note, and select it.
 - **Reuse:** each action goes through the existing path that action already has: `DccApp.select`, the tools' own
   move and delete, undo groups, and the vault's `_write_now`.
+- **Touch: decided, Ruling EO (2026-11-11).** A tap selects and shows the element's chips (Move, Delete, Rename, Note); a long-press keeps the full card. Step 1's audit is `EDIT_FROM_CONTEXT_AUDIT.md`; step 2 (build per family) is open. (Superseded text follows.)
 - **Touch: an owner question.** The owner suggests a tap. Today a tap selects and a long-press opens the card
   (MAP_CONTEXT_SCOPE fork F1). The proposal's default: a tap selects and shows the element's action chips on the
   card or strip, and a long-press stays as the full card. The owner confirms or changes this.

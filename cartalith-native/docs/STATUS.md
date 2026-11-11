@@ -47,6 +47,12 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Edit any map element from its context: step 1 audit written, nothing built yet (2026-11-11)
+
+- **Audited, not built.** `EDIT_FROM_CONTEXT_AUDIT.md` reads every drawn element at its symbols: six hit kinds exist (`settlement`, `landmark`, `label`, `icon`, `way`, `river`); verbs live in one domain each; landmark Rename and the saved name slot (Ruling EL item 1), label Move, and a Note row outside CIVIL settlements are the gaps. Region, conflict, journey-marker and colour-paint-mark picks do not exist.
+- **Touch is decided: Ruling EO** (`LARGE_ITEM_RULINGS.md`). A tap selects and shows the element's chips (Move, Delete, Rename, Note); a long-press keeps the full card. An owner decision, not a default.
+- **Step 2 (the families, one commit each) is open**; no code changed, no probe run in this step.
+
 ### Assistant on the tablet: stacked exclusive dialogs, an off-screen consent card, a swap that freed its own popup (2026-11-11)
 
 Owner report 2026-11-09 ("the assistant on the tab seems buggy"), reproduced by `_asstfix_probe.gd` and read from the Pad's

@@ -3446,3 +3446,11 @@ Answering `RIVER_ZOOM_VISIBILITY_RESEARCH.md` (`01fd37ef`):
 5. **Never moves:** the generated river network, goldens, the planner or saves. Painted pixels move, and the new
    probe captures are signed off against this ruling. RZ-0 (measuring the three keys on the 37 worlds) is still
    run first, and its result is recorded.
+
+## Ruling EO: on touch, a tap on a map element selects it and shows its action chips (owner, 2026-11-11)
+
+Answers the touch question of the "Edit any map element directly from its context" row (`OUTSTANDING_WORK.md` §2.12; audit in `EDIT_FROM_CONTEXT_AUDIT.md`).
+
+1. **A tap selects the element and shows its action chips**: Move, Delete, Rename and Note, as they apply to that element. A decision, not a default.
+2. **A long-press keeps the full context card** (`MAP_CONTEXT_SCOPE.md` fork F1 stands).
+3. **The chips are the card's own rows**, not a second set: each runs the existing path and one undo step.
