@@ -13410,7 +13410,11 @@ impl WorldGen {
         let mut rank_order: Vec<usize> = (0..rank_q.len()).collect();
         rank_order.sort_by_key(|&i| draw_rank[i]);
         let rank_t0 = std::time::Instant::now();
-        let traced_ranks = river_stroke::visibility_ranks(&rank_in, &rank_order);
+        let mut traced_ranks = river_stroke::visibility_ranks(&rank_in, &rank_order);
+        // Ruling EQ item 3: a run's visible piece shorter than about 3 cells at the opening view's scale is held back
+        // until the zoom makes it long enough on screen (`river_stroke::hide_short_stubs`), by raising its ranks: the
+        // one law then hides it on the screen, the tiles and the export alike.
+        river_stroke::hide_short_stubs(&mut traced_ranks, &rank_step, river_stroke::start_share(self.map_width_km as f32));
         // RZ-7 measurement: the rank sort's own wall time, kept for `river_rank_ms` (a probe reads it; nothing else does).
         LAST_RANK_NS.store(rank_t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
         let draws = (0..rivers.len())

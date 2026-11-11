@@ -1214,6 +1214,48 @@ pub fn open_share(width_km: f32) -> f32 {
     (OPEN_SHARE_GLOBAL * (GLOBAL_WIDTH_KM / width_km).sqrt()).min(1.0)
 }
 
+/// **Ruling EQ item 3 (owner, 2026-11-11): "A visible piece of river shorter than about 3 cells on screen is not
+/// drawn until zoom makes it longer."** The on-screen length is read at the opening fit view's cell size: a visible
+/// piece must be at least this many cells long at zoom 1 over the fit, and `STUB_OPEN_CELLS / z` at zoom `z` (it
+/// is the same few screen cells' worth of pixels). **Labelled interpretation** of "about 3 cells on screen"; the
+/// stubs measured in `STATUS.md`'s RZ entry are 3-cell pieces.
+pub const STUB_OPEN_CELLS: f32 = 3.0;
+
+/// **Hides short visible stubs (Ruling EQ item 3)** by raising ranks, so the one visibility law
+/// ([`river_visibility`]) holds them back on every path. `ranks[i]` and `steps[i]` are run `i`'s per-point rank and
+/// step length in cells ([`visibility_ranks`]' input order); `start` is the map's [`start_share`].
+///
+/// A run's rank never rises downstream, so what the law shows of a run at share `f` is the downstream stretch of
+/// points with `u <= f`, ending where the run ends (a mouth or its trunk). With `S_j` the length from point `j` to
+/// the run's end and `z(u)` the zoom at which share `u` is reached, the stretch headed at `j` is long enough from
+/// zoom `max(z(u_j), STUB_OPEN_CELLS / S_j)`; the run first shows at the least of those over its points, and every
+/// rank of the run is raised to the share `f` at that zoom (never lowered). A run long enough at the opening view
+/// is unchanged. Pure, a function of its arguments; never touches the network. Lake breaks inside a run are not
+/// split out (the run is measured whole): a known simplification.
+pub fn hide_short_stubs(ranks: &mut [Vec<f32>], steps: &[Vec<f32>], start: f32) {
+    // f at zoom z (fit taken as 1, so ppc is z).
+    let f_at = |z: f32| visible_share_at(z, 1.0, start);
+    for (u, st) in ranks.iter_mut().zip(steps) {
+        let n = u.len().min(st.len());
+        if n == 0 {
+            continue;
+        }
+        // Suffix length from point j to the end: the steps after j.
+        let mut g = f32::INFINITY;
+        let mut suffix = 0.0f32;
+        for j in (0..n).rev() {
+            let need = if suffix > 0.0 { f_at(STUB_OPEN_CELLS / suffix) } else { f32::INFINITY };
+            g = g.min(u[j].max(need));
+            suffix += st[j];
+        }
+        if g.is_finite() {
+            for v in u.iter_mut() {
+                *v = v.max(g.min(1.0));
+            }
+        }
+    }
+}
+
 /// The share `f` the fade STARTS at, at the opening view of a map `width_km` across: [`open_share`] divided by
 /// the fade's `1 + FADE_BAND_REL / 2` (the share seen is `f` plus half the band), capped at 1.
 pub fn start_share(width_km: f32) -> f32 {
@@ -3201,6 +3243,27 @@ mod tests {
         assert_eq!(headwater_weight(1.0), 1.0);
         assert!((headwater_weight(0.75) - 0.5).abs() < 1e-6);
         assert_eq!(headwater_weight(f32::NAN), 0.0);
+    }
+
+    /// Protects: Ruling EQ item 3 at LITERAL values (start 0.044, the whole-world share): a 2-cell stub of rank
+    /// 0.01 (visible by rank at the opening view) is held back to the zoom where 2 cells reach 3 opening cells
+    /// (z 1.5, f 0.0597); a 30-cell run of the same rank is unchanged (it is 3 opening cells long even zoomed out to z 0.1); a run whose last 3 cells have rank 0.02
+    /// shows from the opening view (z 1, f 0.044) and no earlier, so those ranks rise to 0.044 and its head keeps
+    /// 0.9 and 0.5; a run with no points is left alone; and no rank is ever lowered.
+    #[test]
+    fn short_stubs_wait_for_the_zoom_that_makes_them_three_cells() {
+        let start = 0.044f32;
+        let mut r = vec![vec![0.01f32, 0.01, 0.01], vec![0.01; 31], vec![0.9, 0.5, 0.02, 0.02, 0.02, 0.02], vec![]];
+        let st = vec![vec![0.0f32, 1.0, 1.0], vec![1.0; 31], vec![0.0, 1.0, 1.0, 1.0, 1.0, 1.0], vec![]];
+        hide_short_stubs(&mut r, &st, start);
+        let want = visible_share_at(1.5, 1.0, start);
+        assert!((want - 0.05966).abs() < 1e-4, "{want}");
+        assert!(r[0].iter().all(|&u| (u - want).abs() < 1e-6), "{:?}", r[0]);
+        assert!(r[1].iter().all(|&u| u == 0.01), "a long run is unchanged");
+        // Run 2: the 0.02 stretch is 3 cells long, enough from z 1 (f = start = 0.044) only.
+        assert_eq!(r[2], vec![0.9, 0.5, 0.044, 0.044, 0.044, 0.044]);
+        assert!(r[3].is_empty());
+        assert_eq!(STUB_OPEN_CELLS, 3.0);
     }
 
     /// Protects: "no popping" and "zoom gains detail at every level" as properties of the law, for a whole world

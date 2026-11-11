@@ -55,8 +55,8 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
   The spline and the simplification change it by 1 to 4 points. **Cause: D8 routing on planar slopes, in the
   generated network.** Nothing built to change it: a root fix moves the network (Ruling EN item 5, §7p), and a
   drawing-only meander bounded to the traced cells is invisible below about x16. `DELTA_GEOMETRY_RESEARCH.md`
-  section 11 has the table and the options. **Not started:** Ruling EQ items (3) short-stub hiding and (4) the live
-  window share.
+  section 11 has the table and the options. Ruling EQ item (3), short-stub hiding, is built (the
+  zoom-dependent river entry below); item (4), the live window share, is not yet.
 
 ### Natural-looking river deltas: redesigned and measured (2026-11-11)
 
@@ -84,6 +84,15 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 - **Verified (Windows, windowed, wiped `APPDATA`, one lock at a time).** `_edfc_probe.gd` (new, real right clicks / real touches through the host viewport): desktop 1600x1000 and the touch tablet (1600x1000 `--force-touch`) green; the phone form (1080x2340 @2.8125) only partly: the landmark and the first settlement checks pass, the later legs fail in the probe's phone hold handling and are NOT claimed. See the commit message for the regression table and the mutants.
 
 ### Zoom-dependent river drawing (Ruling EN and its 2026-11-11 addenda): RZ-0 to RZ-4, RZ-6, RZ-7 built and measured; RZ-5 not built (2026-11-11)
+
+**Ruling EQ item 3 (short stubs hidden), built 2026-11-11:** `river_stroke::hide_short_stubs`, called on the ranks
+in `WorldGen::river_draws`, raises a run's ranks so its visible piece is not drawn until it is at least
+`STUB_OPEN_CELLS` (3) cells long at the opening view's scale (`3 / z` cells at zoom `z`; a labelled reading of "about
+3 cells on screen"). One law, so the screen, tiles, export and the pick all follow; the network does not move. Owner
+world, windowed (`_riverzoom_probe.gd --rz`, `rz-2026-11-11`'s ladder): visible pieces under 3 cells 463 -> 8 at x1,
+691 -> 34 at x2, 1 034 -> 341 at x4, 1 873 -> 604 at x16, 0 at x64 either way; the opening share seen 5.2 % -> 4.9 %;
+x64 frame identical, 224-881 pixels moved at x1-x16. 483920 at 1024x656: 248 -> 3, 390 -> 23, 580 -> 163, 1 079 -> 331, opening share 4.7 % -> 4.4 %. (Both runs fail the probe's RZ-3 opening bar, which still read the 7.5 % band; corrected with Ruling EQ item 4.) Test `short_stubs_wait_for_the_zoom_that_makes_them_three_cells`
+(literals). Not split at lake breaks inside a run (measured whole).
 
 **Second addendum (5.5 %), built 2026-11-11:** `river_stroke::OPEN_SHARE_GLOBAL` 0.075 -> 0.055 (the owner: "push down
 to 5.5%"), the map-size rule kept (`0.055 sqrt(40 075 / width_km)`, capped at 1); the default scale and the shader's
