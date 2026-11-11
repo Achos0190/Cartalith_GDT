@@ -3228,6 +3228,18 @@ record, not a status tracker, per this repository's `CLAUDE.md`.
 
 ### 2.5 Rendering, terrain appearance and export-adjacent
 
+**Natural-looking river deltas (owner, 2026-11-11).** On seeing the Ruling EN before/after frames, the owner said:
+*"deltas don't look natural"*. At the coast, the distributary fans draw as parallel, comb-like straight channels.
+Earlier `comb_*` captures exist for seeds 24601, 246371, 483920 and 71077345.
+- **Research first.** Cover how real deltas branch: bifurcation angles, avulsion, distributary counts against
+  discharge and slope, and the shapes of river-, wave- and tide-dominated deltas, with citations. Also cover how map
+  tools draw deltas: OSM and Natural Earth delta polygons against lines, and Azgaar's FMG.
+- **Then read Cartalith's delta and fan generation at the symbols.** The fans take their apex river's discharge rank.
+- **Then propose a delta-geometry change with numeric bars**, judged at x1, x4, x16 and x64.
+- **The open decision on fan fading.** RZ-5 is fading fans by their on-screen reach. The option already built is that
+  fans follow their apex river's rank; the alternative is a second texture. It belongs with this redesign.
+- **Hard part.** Delta geometry is generated output, so DECISIONS §7p re-baseline discipline applies.
+
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There
 should be research done how other map tools handle this."*
