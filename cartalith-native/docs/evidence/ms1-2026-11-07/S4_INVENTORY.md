@@ -1107,3 +1107,35 @@ of each class), the runner's `diff` of the two dumps with an empty allow-list, a
   for like: the swaps ran with a world standing and a window open (re-presented), the cold boot with neither.** The owner should read both
   figures; no design change is proposed. The medians are of one machine (this one) and of five processes; the spread shows the first run is
   the slow one.
+
+
+### 18.11 The assistant dialog's swap contract: chosen, not built (2026-11-12)
+
+Documentation only. Section 18.8 named two contracts; this picks one after reading `llm_assistant_window.gd` at `setup()`, `_rebuild()`,
+`present_in()`, `release_dock()`, `_show_dialog()`, `_relayout_phone()` and `quiescent_blockers()`, and `DccWidgets.phone_window()`.
+
+**Chosen: (a), keep the instance and re-lay out in place.** The cheaper and the safer, because it keeps everything the user can lose by
+construction. The instance survives, so the conversation (`_msgs` and every card in it, each connected to this instance), a pending card's
+Apply state, the draft, the settings and the `LlmRun` (and a reply streaming into `_reply_label`, which lives in `_msgs`) are not carried: they
+are never touched. (b), a transcript model, would have to re-express five card kinds (proposal, view, edit, action, source) as data and draw
+them from one function: a second implementation of the panel, and the place a pending card would be lost.
+
+What (a) takes, read at the symbols (none of it built):
+1. **`_phone` re-read** from `DccTheme.is_phone()` on a class change, and a no-op when it did not change (a tablet to tablet bar swap).
+2. **The dialog layer made idempotent.** `phone_window()` sets `borderless`, connects a static lambda to `phone_insets_changed` once per call, and on
+   the other branch `_desktop_window_size()` and `PopoutHost.prepare()`; none has an inverse, so running it again would stack relays. The window
+   keeps its own relay `Callable` and connects it when the class becomes phone, sets `borderless` and the desktop size either way. `phone_present()`
+   already returns false off the phone, so a stale relay is harmless.
+3. **`_rebuild(keep_msgs)`**: detach `_msgs` from `_scroll` before `_clear(_body)` frees the controls; skip `cards.clear()`, `source_cards.clear()`,
+   the "dropped" note, the intro message and the `_reply` reset; put `_msgs` into the new `_scroll`; then put back the draft, `_task`, the note
+   action's index and the chosen groups. Every control is re-derived by `_refresh()`, which already reads `run.busy()`.
+4. **The host's own parts**: the phone's `phone_head` and the pad's bottom margin (60 on the phone, 10 otherwise) are made or removed for the class.
+5. **Quiescence**: the window declares `represent_capture()` (returning `{"open": visible}`) so the shell's walk stops reporting an open assistant
+   sheet as "the Assistant window is open", and `quiescent_blockers()` keeps holding a swap for a running reply ("the assistant is replying"),
+   which is why a real swap never meets a running request; `DccApp` calls the relayout after the mount and shows the dialog again if it was open.
+6. **A probe leg** (`--leg assistant`): a conversation with a card, a draft and a chosen task and group, swapped phone and tablet and back; the
+   `_msgs` instance and its children unchanged and the card's Apply still working; `_body`'s layout equal to a FRESH window built in that class
+   (the oracle, as for the other windows); orphans and connections stable over three round trips; literal mutants.
+
+**Not built in this pass, for budget.** Until it is, the assistant's content keeps the layout of the class it was built in after a swap (its
+conversation, card and draft are kept, as S4.4 built), and the one hold is the running reply.

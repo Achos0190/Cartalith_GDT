@@ -7696,3 +7696,6 @@ and `--leg b5` five times for the timing.
   than a restart and about 230 ms slower than rebuilding in a booted process; the swaps had a world and an open window, the cold boot neither.
   The spec's "a swap costs less than a cold boot" therefore holds against a restart and not against the bare rebuild: flagged for the owner.
 - **Not done:** the assistant dialog (S4.5's last window); the device rows (S0, B7).
+- **The assistant dialog's contract is chosen and written down, not built:** keep the instance and re-lay out in place (`S4_INVENTORY.md` section 18.11),
+  the cheaper and the safer, because the conversation, a pending card and a running request are never touched. Until it is built the assistant's content
+  keeps the layout of the class it was built in after a swap; its conversation is kept and a running reply still holds the swap.
