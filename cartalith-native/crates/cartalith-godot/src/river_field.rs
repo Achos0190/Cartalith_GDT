@@ -743,6 +743,13 @@ impl PaintSource {
     /// identity with the monolithic one (`export_raster::band_identity_tests`).
     /// `origin = (0, 0)` is [`Self::raster`] exactly.
     pub fn raster_at(&self, map: crate::river_stroke::RasterMap, origin: (usize, usize), w: usize, h: usize) -> crate::render::RiverLayer {
+        self.raster_at_law(map, origin, w, h, None)
+    }
+
+    /// [`Self::raster_at`] under a visibility scale of its own (`law`, `(fit_ppc, start_share)`; `None` is the
+    /// process-wide one): Ruling EQ item 4's export, which takes its own size as its window. Each rayon block holds
+    /// the law on its own thread ([`crate::river_stroke::ScaleGuard`]).
+    pub fn raster_at_law(&self, map: crate::river_stroke::RasterMap, origin: (usize, usize), w: usize, h: usize, law: Option<(f32, f32)>) -> crate::render::RiverLayer {
         use crate::render::RIVER_BLOCK as B;
         let mut layer = crate::render::RiverLayer::new(w, h);
         layer.set_bank_rgb(self.bank_rgb);
@@ -757,6 +764,7 @@ impl PaintSource {
         let blocks: Vec<Block> = (0..nbx * nby)
             .into_par_iter()
             .filter_map(|bi| {
+                let _law = crate::river_stroke::ScaleGuard::hold(law);
                 let (bx, by) = (bi % nbx, bi / nbx);
                 let (wx0, wy0) = (bx * B, by * B);
                 let (ww, wh, best, val) = self.block_texels(pl, w, h, bx, by)?;

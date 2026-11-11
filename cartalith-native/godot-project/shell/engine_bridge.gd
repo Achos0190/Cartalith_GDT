@@ -1459,6 +1459,15 @@ func river_paint_params() -> Dictionary:
 		return {}
 	return world_gen.river_paint_params()
 
+## Ruling EQ item 4 (owner, 2026-11-11): the map view's live size, the window the river opening share is taken
+## in (`WorldGen::set_river_view_size`). True when the law's fit moved, so the caller re-applies the shader's
+## river parameters and drops its live deep-zoom tiles. False while generating, against a binary without it, or
+## for a size that keeps the fit.
+func set_river_view_size(sz: Vector2) -> bool:
+	if generating or not _has("set_river_view_size"):
+		return false
+	return bool(world_gen.set_river_view_size(sz.x, sz.y))
+
 ## Read-back for `set_rivers_in_map()`. `true` against a binary built before
 ## it existed, which draws its rivers whatever this says.
 func rivers_in_map() -> bool:

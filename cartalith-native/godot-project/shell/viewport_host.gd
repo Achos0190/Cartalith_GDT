@@ -1043,6 +1043,9 @@ func _ready() -> void:
 	## threshold would leave existing tiles positioned against the old
 	## window size until the next zoom/pan event.
 	resized.connect(_update_lod)
+	## Ruling EQ item 4: the river opening share follows the live window. A resize that moves the river law's fit
+	## re-applies the shader's river parameters and drops the live deep-zoom tiles, which are keyed on it.
+	resized.connect(_on_river_view_resized)
 	## ...and the navpad is the one piece of chrome positioned absolutely
 	## against the *right/bottom* edge rather than anchored there, so unlike
 	## the three labels it does not track a resize on its own.
@@ -3082,6 +3085,10 @@ func _chrome(preset: int, align: int, scrim: bool = true) -> Label:
 func refresh() -> void:
 	if not _engine_readable():
 		return
+	## Ruling EQ item 4: the live window, reported before the base texture is read (a resize made while a world
+	## was generating was refused by the bridge's `generating` gate).
+	if size.x > 0.0 and size.y > 0.0:
+		_bridge.set_river_view_size(size)
 	map_view.texture = _bridge.color_texture()
 	territory_view.texture = _bridge.territory_texture()
 	province_view.texture = _bridge.province_boundary_texture()
@@ -5244,6 +5251,15 @@ func _clear_lod_tiles() -> void:
 ## Cheap no-op when the pyramid has nothing live: `_lod_tiles` and
 ## `_lod_backlog` both empty means there is nothing to free or rebuild, so
 ## this returns before paying even `_update_lod()`'s own guard checks.
+## Ruling EQ item 4: report the map view's size to the engine (`EngineBridge.set_river_view_size`); when the
+## river law's fit moved, re-apply the shader's river parameters (`_apply_shore_field`) and rebuild the live tiles.
+func _on_river_view_resized() -> void:
+	if _bridge == null or size.x <= 0.0 or size.y <= 0.0:
+		return
+	if _bridge.set_river_view_size(size):
+		_apply_shore_field()
+		invalidate_lod_tiles()
+
 func invalidate_lod_tiles() -> void:
 	if _lod_tiles.is_empty() and _lod_backlog.is_empty():
 		return

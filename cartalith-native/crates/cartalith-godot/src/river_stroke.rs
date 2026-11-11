@@ -1262,21 +1262,25 @@ pub fn start_share(width_km: f32) -> f32 {
     (open_share(width_km) / (1.0 + FADE_BAND_REL * 0.5)).min(1.0)
 }
 
-/// The window the fit density is taken in: the owner's, where RIM-5 measured the 2048x1311 world's contain fit as
-/// 0.46 pixels per cell (`_riverzoom_probe.gd`; 942 / 2048). **A labelled judgement and a deviation from "the live
-/// viewport's fit":** the live fit changes with every window resize, which would rebuild every deep-zoom tile (the
-/// pyramid fingerprint hashes it) and make an export depend on the window it was made in; a fixed reference keeps
-/// both deterministic, and on the owner's own window it IS the opening fit view. On another window the share at
-/// the opening view is a little off [`open_share`], never a discontinuity. For the owner to rule on.
+/// The window the fit density is taken in **until the shell reports its own** (`WorldGen::set_river_view_size`):
+/// the owner's, where RIM-5 measured the 2048x1311 world's contain fit as 0.46 pixels per cell (942 / 2048). Since
+/// Ruling EQ item 4 (owner, 2026-11-11: "the river opening share follows the live window") the live map view's size
+/// replaces it as soon as the shell has one, so the opening view always shows the target share; this default only
+/// serves a world painted before the first report, and the unit tests.
 pub const REF_VIEW_PX: (f32, f32) = (942.0, 603.0);
 
-/// The contain-fit density, pixels per cell, of a `gw` x `gh` grid in [`REF_VIEW_PX`]. Never `0` (a degenerate
-/// grid reads as the owner world's 0.46, never a divide by zero).
-pub fn ref_fit_ppc(gw: usize, gh: usize) -> f32 {
-    if gw == 0 || gh == 0 {
+/// The contain-fit density, pixels per cell, of a `gw` x `gh` grid in a `view` (width, height) pixel window. Never
+/// `0`: a degenerate grid or window reads as the owner world's 0.46, never a divide by zero.
+pub fn fit_ppc_in(view: (f32, f32), gw: usize, gh: usize) -> f32 {
+    if gw == 0 || gh == 0 || !(view.0 > 0.0 && view.1 > 0.0) {
         return 0.46;
     }
-    (REF_VIEW_PX.0 / gw as f32).min(REF_VIEW_PX.1 / gh as f32)
+    (view.0 / gw as f32).min(view.1 / gh as f32)
+}
+
+/// [`fit_ppc_in`] of [`REF_VIEW_PX`].
+pub fn ref_fit_ppc(gw: usize, gh: usize) -> f32 {
+    fit_ppc_in(REF_VIEW_PX, gw, gh)
 }
 
 /// The scale the law reads, as bits of two `f32`s: the fit density and the start share. Set from the world by
@@ -1294,8 +1298,42 @@ pub fn set_scale(fit: f32, start: f32) {
     }
 }
 
-/// The scale in force: `(fit_ppc, start_share)`.
+thread_local! {
+    /// Ruling EQ item 4: a scale held for one raster on this thread ([`ScaleGuard`]), read by [`scale`] before the
+    /// process-wide one -- an export's own window, while the screen and the tiles keep the live window's.
+    static SCALE_OVERRIDE: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Holds a scale for this thread until dropped (then restores the one before it), so an export can paint by its
+/// own window ([`ScaleGuard::hold`]). `None` holds nothing. Must be created on the thread that rasterizes:
+/// a rayon worker sets its own (`river_field::PaintSource::raster_at_law`).
+pub struct ScaleGuard(Option<(f32, f32)>);
+
+impl ScaleGuard {
+    /// Holds `law` (`(fit_ppc, start_share)`) on this thread.
+    pub fn hold(law: Option<(f32, f32)>) -> ScaleGuard {
+        ScaleGuard(SCALE_OVERRIDE.with(|c| {
+            let prev = c.get();
+            if law.is_some() {
+                c.set(law);
+            }
+            prev
+        }))
+    }
+}
+
+impl Drop for ScaleGuard {
+    fn drop(&mut self) {
+        SCALE_OVERRIDE.with(|c| c.set(self.0));
+    }
+}
+
+/// The scale in force: `(fit_ppc, start_share)` -- this thread's [`ScaleGuard`] if one is held, else the
+/// process-wide one.
 pub fn scale() -> (f32, f32) {
+    if let Some(v) = SCALE_OVERRIDE.with(|c| c.get()) {
+        return v;
+    }
     (
         f32::from_bits(FIT_PPC_BITS.load(std::sync::atomic::Ordering::Relaxed)),
         f32::from_bits(START_BITS.load(std::sync::atomic::Ordering::Relaxed)),
@@ -2360,6 +2398,29 @@ impl WorldGen {
         }
     }
 
+    /// **Ruling EQ item 4: the live window the river opening share is taken in** (owner, 2026-11-11: "The river
+    /// opening share follows the live window, not a fixed reference window"). `w` x `h` is the map view's size in
+    /// pixels. Sets the visibility law's fit at once (`set_scale`), so the next shader parameters
+    /// (`river_paint_params`) and every tile built after it read it; the deep-zoom key carries it (`vf`), so the
+    /// shell must drop its live tiles (`invalidate_lod_tiles`) for a change to show there. Returns whether the fit
+    /// moved (a resize that keeps the fit, or a non-positive size, changes nothing and returns false). Never saved.
+    #[func]
+    fn set_river_view_size(&self, w: f64, h: f64) -> bool {
+        let v = (w as f32, h as f32);
+        if !(v.0 > 0.0 && v.1 > 0.0) {
+            return false;
+        }
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let before = fit_ppc_in(self.river_view_px.get(), gw, gh);
+        self.river_view_px.set(v);
+        let after = fit_ppc_in(v, gw, gh);
+        if after == before {
+            return false;
+        }
+        set_scale(after, start_share(self.map_width_km as f32));
+        true
+    }
+
     /// **RIM-4's single off switch**: whether the painted river draws delta
     /// fans (`river_delta`) -- a few short distributaries at the mouth of each
     /// large river -- on the screen's painted path. `true` is the default
@@ -3264,6 +3325,31 @@ mod tests {
         assert_eq!(r[2], vec![0.9, 0.5, 0.044, 0.044, 0.044, 0.044]);
         assert!(r[3].is_empty());
         assert_eq!(STUB_OPEN_CELLS, 3.0);
+    /// Protects: Ruling EQ item 4's two pieces of plumbing, at LITERAL values. `fit_ppc_in` is the contain fit of
+    /// the grid in a window (the owner's 942x603 over 2048x1311 is 0.46; a 1920x1080 window 0.8238; a degenerate
+    /// grid or window 0.46, never a divide by zero), and a `ScaleGuard` holds a scale on its own thread only, nests,
+    /// and restores the one before it on drop -- so an export's own window never leaks into the screen's.
+    #[test]
+    fn the_window_fit_and_the_held_scale() {
+        assert!((fit_ppc_in((942.0, 603.0), 2048, 1311) - 0.459961).abs() < 1e-5);
+        assert!((fit_ppc_in((1920.0, 1080.0), 2048, 1311) - 0.823799).abs() < 1e-5);
+        assert_eq!(fit_ppc_in((0.0, 600.0), 2048, 1311), 0.46);
+        assert_eq!(fit_ppc_in((942.0, 603.0), 0, 1311), 0.46);
+        let outside = scale();
+        {
+            let _a = ScaleGuard::hold(Some((2.0, 0.5)));
+            assert_eq!(scale(), (2.0, 0.5));
+            {
+                let _b = ScaleGuard::hold(Some((3.0, 0.25)));
+                assert_eq!(scale(), (3.0, 0.25));
+                let _none = ScaleGuard::hold(None);
+                assert_eq!(scale(), (3.0, 0.25), "None holds nothing");
+            }
+            assert_eq!(scale(), (2.0, 0.5));
+            let other = std::thread::spawn(scale).join().unwrap();
+            assert_eq!(other, outside, "another thread never sees this thread's held scale");
+        }
+        assert_eq!(scale(), outside);
     }
 
     /// Protects: "no popping" and "zoom gains detail at every level" as properties of the law, for a whole world

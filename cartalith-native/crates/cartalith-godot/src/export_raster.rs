@@ -876,9 +876,16 @@ pub(crate) fn with_export_rivers<T>(
                 let map = river_stroke::RasterMap::tile(0.0, 0.0, r.cx, r.cy);
                 let origin = |b: f64, c: f64| if c > 0.0 && b > 0.0 { (b / c).round() as usize } else { 0 };
                 let at = (origin(r.bx, r.cx), origin(r.by, r.cy));
+                // Ruling EQ item 4: "An export uses its own size as its window." The whole image is the map at
+                // 1 / cx pixels a cell, so its own contain fit is that density: an export of the whole map is its own
+                // opening view (the target share), whatever its resolution, and never reads the screen's window.
+                let law = Some(((1.0 / r.cx.max(r.cy)) as f32, river_stroke::scale().1));
                 match paint {
-                    Some(p) => p.raster_at(map, at, r.w, r.h),
-                    None => river_stroke::rasterize_with_at(g, fans, a, r.w, r.h, map, at),
+                    Some(p) => p.raster_at_law(map, at, r.w, r.h, law),
+                    None => {
+                        let _law = river_stroke::ScaleGuard::hold(law);
+                        river_stroke::rasterize_with_at(g, fans, a, r.w, r.h, map, at)
+                    }
                 }
             };
             run(ExportRivers { vector: Some(&raster), save_flag })

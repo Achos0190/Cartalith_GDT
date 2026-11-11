@@ -6510,6 +6510,10 @@ struct WorldGen {
     /// fans ON, the default render path (`DECISIONS.md` 7p); a view setting,
     /// never a world field and never saved.
     river_delta_off: std::cell::Cell<bool>,
+    /// Ruling EQ item 4: the live map view's size in pixels, the window the river visibility law's opening fit is
+    /// taken in (`river_stroke::fit_ppc_in`); [`river_stroke::REF_VIEW_PX`] until the shell reports one
+    /// ([`Self::set_river_view_size`]). A view setting: never saved.
+    river_view_px: std::cell::Cell<(f32, f32)>,
     /// **GF-6 §4.10's off switch** (`set_rock_lod_detail`): when set, the
     /// deep-zoom tiles are not styled by the exposed rock even on a world
     /// whose processes read rock ([`Self::rock_detail_for_tiles`] returns
@@ -7252,6 +7256,7 @@ impl IRefCounted for WorldGen {
             river_field_width: std::cell::Cell::new(1.0),
             river_paint_off: std::cell::Cell::new(false),
             river_delta_off: std::cell::Cell::new(false),
+            river_view_px: std::cell::Cell::new(river_stroke::REF_VIEW_PX),
             rock_lod_detail_off: std::cell::Cell::new(false),
             river_delta_cache: std::cell::RefCell::new(None),
             river_colour_cache: std::cell::RefCell::new(None),
@@ -12239,7 +12244,8 @@ impl WorldGen {
         // touches neither (colour, grade, paper) does not rebuild it.
         // RZ (owner, 2026-11-11): the visibility law reads the opening fit density and the map-size start share, set here from
         // the world BEFORE any raster is built (the screen field, the deep-zoom tiles and the export all read them).
-        river_stroke::set_scale(river_stroke::ref_fit_ppc(gw, gh), river_stroke::start_share(self.map_width_km as f32));
+        // Ruling EQ item 4: the fit is the LIVE view's (`set_river_view_size`).
+        river_stroke::set_scale(river_stroke::fit_ppc_in(self.river_view_px.get(), gw, gh), river_stroke::start_share(self.map_width_km as f32));
         let want_river_field = appearance.smooth_shores && appearance.rivers_as_water && self.shore_field_tex.borrow().is_some();
         let rw = river_stroke::river_width_factor(&appearance);
         // RIM-4: the delta fans, only where the painted path will draw them --
@@ -19945,7 +19951,9 @@ impl WorldGen {
             // the view switch is on). A world regenerated with the processes
             // switched moves `e` already; this covers `set_params` and
             // `set_rock_lod_detail` without a regeneration.
-            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{};rd{}{}",
+            // `vf`: Ruling EQ item 4 -- the river law's opening fit, from the live window, which every tile's river
+            // visibility reads; a resize that moves it is a new snapshot (its cost: `DELTA_GEOMETRY_RESEARCH.md` 12).
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{};rd{}{};vf{:08x}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
             self.stages.version(PipelineStage::Climate.id(), 0),
@@ -19973,6 +19981,7 @@ impl WorldGen {
             // raster draw. Empty with no visible marks, so every key without
             // paint is the string it was before CP-2.
             self.colour_paint_key_term(),
+            river_stroke::fit_ppc_in(self.river_view_px.get(), self.gw.max(0) as usize, self.gh.max(0) as usize).to_bits(),
         )
     }
 

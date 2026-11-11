@@ -176,6 +176,9 @@ var _rim5 := false
 var _rz := false
 var _rz_cost := false
 var _rz_frames := false
+## `--resize-cost` (Ruling EQ item 4): with the view zoomed past the deep-zoom switch, resize the window and time
+## until the tiles settle, against a resize that keeps the river fit (the control). Prints `resize cost`.
+var _resize_cost := false
 var _rz_tag := ""
 ## `--rz-delta-pair`: each `--rz-frames` frame also saved with the delta fans off (`<tag>_zNN_nodelta.png`),
 ## so a frame pair shows exactly what the fans draw (delta redesign, 2026-11-11).
@@ -241,6 +244,7 @@ func _ready() -> void:
 			"--rz": _rz = true
 			"--rz-cost": _rz_cost = true
 			"--rz-frames": _rz_frames = true
+			"--resize-cost": _resize_cost = true
 			"--rz-tag": _rz_tag = args[i + 1]; i += 1
 			"--rz-delta-pair": _rz_delta_pair = true
 			"--straight": _straight = true
@@ -444,6 +448,8 @@ func _run_seed(seed_v: int) -> void:
 		sr["rim5"] = await _rim5_run()
 	if _rz and not _stats_only:
 		sr["rz"] = await _rz_run(targets)
+	if _resize_cost:
+		sr["resize_cost"] = await _resize_cost_run()
 	if _rz_frames and not _stats_only:
 		await _rz_frames_run(targets)
 	if _rz_cost and not _stats_only:
@@ -1347,14 +1353,16 @@ func _rz_run(targets: Dictionary) -> Dictionary:
 		prev_ppc = ppc
 	res["growth"] = rows
 	if rows.size() >= 3:
-		## Owner, 2026-11-11 (Ruling EN addendum): about 7.5 % of the drawn length at the opening view of a whole-world
-		## map (5 to 10 %), more on a smaller map (0.075 * sqrt(40075 / width_km), capped at 1), growing at every zoom
-		## to the whole network at x64. `open_expected` is that figure from the world's width.
-		var open_expected := minf(1.0, 0.075 * sqrt(40075.0 / maxf(1.0, _width_km)))
+		## Owner, 2026-11-11 (Ruling EN's second addendum): about 5.5 % of the drawn length at the opening view of a
+		## whole-world map, more on a smaller map (0.055 * sqrt(40075 / width_km), capped at 1), growing at every zoom
+		## to the whole network at x64. `open_expected` is that figure from the world's width; the band is +-0.025
+		## round it while it is small (the fade's tail reads a little under it), +-0.05 above 0.11. Was the first
+		## addendum's 7.5 % with a 5-10 % band, which the 5.5 % build failed on 1024x656 (0.047).
+		var open_expected := minf(1.0, 0.055 * sqrt(40075.0 / maxf(1.0, _width_km)))
 		var s1: float = rows[0]["visible_share"]
 		var s4: float = rows[2]["visible_share"]
-		var lo := 0.05 if open_expected < 0.11 else open_expected - 0.05
-		var hi := 0.10 if open_expected < 0.11 else minf(1.0, open_expected + 0.05)
+		var lo := open_expected - 0.025 if open_expected < 0.11 else open_expected - 0.05
+		var hi := open_expected + 0.025 if open_expected < 0.11 else minf(1.0, open_expected + 0.05)
 		var ok_open := s1 >= lo and s1 <= hi
 		var ok_full := float(rows[rows.size() - 1]["visible_share"]) >= 0.99
 		var ok_x4 := s4 > s1 * 1.3 or s1 >= 0.77
@@ -2834,3 +2842,43 @@ func _vx_diff_px(pa: String, pb: String) -> int:
 			n += 1
 		i += 20
 	return n
+
+
+## Ruling EQ item 4: the cost of a window resize with the river law following the live window. At camera zoom 4
+## (deep-zoom tiles live) on the map centre, three rounds of: a resize that MOVES the fit (width -20 %, then back) and
+## one that keeps it (height +1 px with the width binding, or the reverse: whichever leaves the contain fit
+## unchanged is not guaranteed, so the control is a resize back to the same size). Each timed from the call to the
+## settled pyramid (`_settle_lod`), with the fit read back from `river_paint_params`. Prints medians and ranges.
+func _resize_cost_run() -> Dictionary:
+	var base: Vector2i = DisplayServer.window_get_size()
+	var small := Vector2i(int(base.x * 0.8), base.y)
+	_vh.reset_view()
+	await _settle(3)
+	_vh.zoom_step(4.0 / _vh.zoom())
+	await _settle_lod()
+	var moved: Array = []
+	var same: Array = []
+	var fits: Array = []
+	for round in 3:
+		for target in [small, base]:
+			var t0 := Time.get_ticks_usec()
+			DisplayServer.window_set_size(target)
+			await _settle(2)
+			await _settle_lod()
+			moved.append((Time.get_ticks_usec() - t0) / 1000.0)
+			fits.append(float(_br.world_gen.river_paint_params().get("fit_ppc", -1.0)))
+		var t1 := Time.get_ticks_usec()
+		DisplayServer.window_set_size(base)
+		await _settle(2)
+		await _settle_lod()
+		same.append((Time.get_ticks_usec() - t1) / 1000.0)
+	moved.sort()
+	same.sort()
+	var out := {"moved_ms_median": moved[moved.size() / 2], "moved_ms_min": moved[0], "moved_ms_max": moved[-1],
+		"same_ms_median": same[same.size() / 2], "same_ms_min": same[0], "same_ms_max": same[-1], "fits": fits}
+	print("  resize cost: ", JSON.stringify(out))
+	if fits.size() >= 2 and fits[0] == fits[1]:
+		printerr("PROBE-FAIL: the river fit did not follow the window (", fits, ")")
+		_report["fail"] = true
+	return out
+
