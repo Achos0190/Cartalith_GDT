@@ -1078,3 +1078,32 @@ published, restore in `_restore_windows()` once the new workspaces exist); verif
 - **Mutants (literal, one at a time, restored by the script, `C:/cw/s46_mut.py`):** 11 of 11 killed (the ring's free, the card's hide before
   its free, the peek sheet's close, the ring restore, the subject restore, the sticky flag, the Q flag, the centre, and the capture, free
   and restore calls in `app.gd`).
+
+
+### 18.10 S4.6 part 2: B5's bar, its runner, and the two findings it made (2026-11-11)
+
+B5 is checked by four things, each a leg of `_ms1swap_probe.gd` that the runner `cartalith-native/tools/ms1_b5.sh` drives (windowed, under the
+shared window lock, with a wiped user directory; any `SCRIPT ERROR` in a captured log fails it): `--leg live --clean --noworld --trips 10`
+(the hysteresis band at the real resize path including the 16:10 case; ten round trips with the orphan count and the receivers of the seven
+named signals equal to the first visit's at every trip; the world, camera zoom and the carried state each visit), `--leg norm` (a cold boot
+of each class), the runner's `diff` of the two dumps with an empty allow-list, and `--leg b5` five times.
+
+- **The windows, adapted.** On a phone and a tablet an `AcceptDialog` is exclusive (18.3), so "the roster, the Place editor and the vault open
+  at once" is read as the three IN TURN, each opened with state and held open across two round trips (`--leg b5`: `_rep_step()`, the same
+  checks `--leg represent` makes: not made to wait, a new instance, state back, baked for the class, layout equal to a fresh open's), plus the
+  world hash, camera zoom and pan offset and the domain unchanged over all twelve swaps. 105 checks per process, five processes.
+- **Finding 1, fixed: the tablet's dump did not equal a cold boot, on origin/main before this change.** 232 lines differed (the Context panel's
+  rows were hidden): the right dock came back COLLAPSED. MS-7's docking rule floats a tablet's docks below a width and closes them by writing
+  `_left_collapsed` / `_right_collapsed`, and `_capture_shell_state()` remembered that flag as the user's, so the next 1 800 dp tablet restored
+  a collapse nobody made. A floating dock now keeps the value last remembered for the class. Found by the runner's dump comparison; the same
+  difference was identical with the ring and card changes removed. `--leg live --clean` asserts neither dock is collapsed on the tablet.
+- **Result:** dumps equal a cold boot with an empty allow-list (4 082 lines on the phone, 3 877 on the tablet); `live` 118 checks; `b5` five
+  runs of 105; 0 `SCRIPT ERROR`. Mutants (literal, `C:/cw/s46_mut.py`): the right dock's flag line, and `app.gd`'s window capture and restore calls, killed; **the left dock's line SURVIVES and is kept as the symmetric branch**: at the narrowest tablet the class allows (900 dp) the probe read the left dock still docked (only the right floats), so no width this harness can reach floats the left dock with the shipped dock widths; it would take a larger UI scale.
+- **Timing (five serial runs, each its own process, run alone, MEASURED ON THIS MACHINE; the median of the runs with min..max):** the swap's
+  synchronous part **776 ms (755..1437)**, whole with its frames **1193 ms (996..2012)**; a cold boot's instantiate and enter-tree
+  **545 ms (535..640)**; the engine's start-up before it **3 956 ms (3 768..4 333)**, so a restart is **4 537 ms (4 307..4 908)**.
+  **The spec's rule is "a swap costs less than a cold boot; if it does not, a restart would be the better design". Against a restart (what
+  the rule is about) the swap is about 5.8 times faster; against the in-process rebuild alone it is about 230 ms slower, and it is not like
+  for like: the swaps ran with a world standing and a window open (re-presented), the cold boot with neither.** The owner should read both
+  figures; no design change is proposed. The medians are of one machine (this one) and of five processes; the spread shows the first run is
+  the slow one.

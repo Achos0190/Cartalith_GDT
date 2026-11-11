@@ -547,6 +547,7 @@ func _norm_text() -> String:
 	for sl in ["pass", "stale", "atlas", "progress", "autosave", "hint", "mid"]:
 		slots.append("%s='%s'" % [sl, _app.status_slot_text(sl)])
 	print("  info status slots: ", ", ".join(slots))
+	print("  info right dock: tab ", _app.right_dock_ctrl.get("_tab"), " pinned ", _app.right_dock_ctrl.is_pinned(), " collapsed l/r ", _app._left_collapsed, "/", _app._right_collapsed, " floating l/r ", _app._left_floating, "/", _app._right_floating, " subject ", _app.right_dock_ctrl.shown_subject())
 	var strips := 0
 	for n in get_tree().root.find_children("*", "PanelContainer", true, false):
 		if n.get_script() != null and String((n.get_script() as Script).resource_path).get_file() == "tool_strip.gd":
@@ -1108,6 +1109,11 @@ func _live_visit_now(cls: String, trip: int) -> void:
 	var tag := "trip %d, %s" % [trip, cls]
 	if _clean:
 		_ok(_world_hash() == _live_world, "%s: the world is byte-identical" % tag)
+		## A clean run set nothing, so no dock may be collapsed on the tablet: the hysteresis steps passed through 920 dp, where
+		## the docking rule floats and closes both docks, and that closed flag is the rule's, not the user's (`DccShell.
+		## _capture_shell_state()`). Without the fix the 1 800 dp tablet came back with its right dock collapsed.
+		if cls == "tablet":
+			_ok(not _app.is_dock_collapsed("left") and not _app.is_dock_collapsed("right"), "%s: neither dock is collapsed (the user collapsed none; a floating dock's closed flag is the docking rule's)" % tag)
 		await _live_visit(cls, trip)
 		return
 	_check_common(tag)

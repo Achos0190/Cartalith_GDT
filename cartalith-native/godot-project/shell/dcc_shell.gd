@@ -1187,7 +1187,15 @@ func class_key() -> String:
 func _capture_shell_state() -> void:
 	var key := class_key()
 	_remember_dock_widths()
-	var m: Dictionary = {"left_collapsed": _left_collapsed, "right_collapsed": _right_collapsed}
+	## **A floating dock's collapse flag is the docking rule's, not the user's** (MS-7: `_set_dock_floating()` closes a dock
+	## that starts floating by writing `_*_collapsed`, and `_toggle_dock()` is the only writer). Remembered as it stands, a
+	## tablet passed through 920 dp (both docks float, closed) would hand "collapsed" to the next 1 800 dp tablet, which would
+	## then differ from a cold boot of the same size by a dock the user never closed (found by `tools/ms1_b5.sh`'s dump
+	## comparison, 232 differing lines on origin/main). So a floating dock keeps the value last remembered for this class.
+	var prev: Dictionary = _class_memory.get(key, {})
+	var lc: bool = bool(prev.get("left_collapsed", false)) if _left_floating else _left_collapsed
+	var rc: bool = bool(prev.get("right_collapsed", false)) if _right_floating else _right_collapsed
+	var m: Dictionary = {"left_collapsed": lc, "right_collapsed": rc}
 	if _phone:
 		m["detent"] = _phone_detent
 		m["tab"] = _phone_tab

@@ -7678,4 +7678,21 @@ scales up, so a kept ring would have kept the tablet's radius on a window that h
 - **Regression, against the same tree without these edits:** `_ctxring` 132, `_ctxcard` 159 (desktop and tablet), `_ms5` 93, `_ms5b` 119, `_pc6ask`
   desktop 74 and tablet 70, `_asstfix` 16, `_ms1swap` quiet 25, roundtrip 11, carry 68, live 167 (`--trips 2`): all 0 failed. `_ctxfan` has 14
   pixel-palette failures (the glow ring and the slot labels) that are identical on the unedited tree (see the commit message).
-- **Not done:** the assistant dialog; B5's bar and timing runner (S4.6 part 2).
+- **Not done in this part:** the assistant dialog; B5's bar and timing runner (next section).
+
+### MS-1 S4.6 part 2 built: B5's bar, its runner and timing, and a collapsed-dock defect it found (2026-11-11)
+
+Read at the symbols; the account is `S4_INVENTORY.md` section 18.10. `cartalith-native/tools/ms1_b5.sh` runs the parts of B5 that need more than
+one process: `--leg live --clean --noworld --trips 10`, a cold boot of each class (`--leg norm`) and a `diff` of the dumps (empty allow-list),
+and `--leg b5` five times for the timing.
+- **Bar:** the phone and tablet dumps equal a cold boot (4 082 and 3 877 lines); `live` 118 checks over ten round trips (orphans and the seven
+  named signals' receivers equal the first visit's at every trip); `b5` 105 checks per process (the roster, the Place editor and the vault in
+  turn, each open across two round trips, adapted to "one exclusive dialog at a time" on the touch classes); 0 `SCRIPT ERROR`.
+- **A defect found and fixed, present on origin/main:** the tablet's dump differed from a cold boot by 232 lines. A tablet passed through 920 dp,
+  where MS-7's docking rule floats and closes both docks, handed "collapsed" to the next 1 800 dp tablet because `_capture_shell_state()`
+  remembered the rule's flag as the user's. A floating dock now keeps the last remembered value (`DccShell._capture_shell_state()`).
+- **Timing, five serial runs, measured on this machine (median, min..max):** swap synchronous 776 ms (755..1437), whole 1193 ms (996..2012); a
+  cold boot's instantiate 545 ms (535..640) and a restart (engine start-up included) 4 537 ms (4 307..4 908). The swap is about 5.8 times faster
+  than a restart and about 230 ms slower than rebuilding in a booted process; the swaps had a world and an open window, the cold boot neither.
+  The spec's "a swap costs less than a cold boot" therefore holds against a restart and not against the bare rebuild: flagged for the owner.
+- **Not done:** the assistant dialog (S4.5's last window); the device rows (S0, B7).
