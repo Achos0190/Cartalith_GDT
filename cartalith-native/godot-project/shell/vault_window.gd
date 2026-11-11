@@ -1,6 +1,9 @@
 extends AcceptDialog
 class_name VaultWindow
 
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.8): the contract's shared helpers.
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
 ## The Markdown Vault panel — `MARKDOWN_VAULT_INTEGRATION.md` §28 and §29,
 ## `MARKDOWN_VAULT_SCOPE.md` milestone 1.
 ##
@@ -5300,7 +5303,52 @@ func _build_footer() -> void:
 ## MS-1 S4.1 (`S4_INVENTORY.md` §8, Q-S4-2's default): a class swap waits while the open note holds text
 ## that is not on disk (`_is_dirty()`, measured against `_browse_saved`). `DccShell.quiescent_blockers()`
 ## asks this only while the window is visible. A pure query: it never saves, discards or prompts.
+## MS-1 S4.5 batch 5: this is now the ONLY thing the vault holds a swap for (`represent_capture()` carries the rest), and a
+## text the capture's own `_write_now()` could save is saved before the swap runs, so what waits is a refused or conflicted save.
 func quiescent_blockers() -> Array[String]:
 	if _is_dirty():
 		return ["a note has unsaved text"]
 	return []
+
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.8): what the user set, read BEFORE the swap unmounts
+## anything. **One writer:** the text is flushed through `_write_now()`, the same call the autosave timer and a close use,
+## so there is never a second path that writes a note (a refused or conflicted save leaves the text dirty, and
+## `quiescent_blockers()` then holds the swap: unsaved text is never dropped). Carried: the scope (an entity, the browser, or the
+## overview), the note and the reader's pick, the mode (Write, Split or Preview), the phone's pane, the scroll, the session undo
+## (`_hist`, the checkpoints back to the note as first opened: memory only, so a rebuilt window would otherwise lose it) and the
+## link trail. A closed window carries `open: false` and the same session undo, because a Note tab that docks a note after the
+## swap reads `_hist` too. A bag holds no node; strings and arrays are copied.
+func represent_capture() -> Dictionary:
+	_write_now()
+	return {
+		"open": visible, "kind": _kind, "entity": _entity_id, "label": _entity_label, "browse_only": _browse_only,
+		"path": _browse_path if not is_docked() else "", "pick": _pick_file, "reader": _reader_link, "heading": _pick_heading,
+		"mode": _editor_mode, "pane": _browse_phone_pane, "hist": _hist.duplicate(true), "back": _link_back.duplicate(true),
+		"scroll": WindowRepresent.scroll_value(_body),
+	}
+
+## On the NEW window, after the mount: the session undo and the trail first (a note opened next seeds its editor from them),
+## then, when it was open, the same scope through the window's own openers (which clear the privacy state and rebuild, as any
+## open does), the note through `_enter_note()`, the mode through `_editor_mode` (read by the editor's `setup()`) and a rebuild.
+## A note that has since gone from disk is left unopened and the status line says why (`_load_note_state()`).
+func represent_restore(bag: Dictionary) -> void:
+	_hist = (bag["hist"] as Dictionary).duplicate(true)
+	if not bool(bag["open"]):
+		return
+	if String(bag["kind"]) != "":
+		open_for(String(bag["kind"]), int(bag["entity"]), String(bag["label"]))
+	elif bool(bag["browse_only"]):
+		open_browse()
+	else:
+		open_overview()
+	if String(bag["path"]) != "":
+		_enter_note(String(bag["path"]))
+	elif String(bag["pick"]) != "":
+		_pick_file = String(bag["pick"])
+		_reader_link = String(bag["reader"])
+		_pick_heading = String(bag["heading"])
+	_link_back = (bag["back"] as Array).duplicate(true)
+	_editor_mode = String(bag["mode"])
+	_browse_phone_pane = String(bag["pane"]) if _phone else "preview" if String(bag["path"]) != "" else _browse_phone_pane
+	_rebuild()
+	await WindowRepresent.restore_scroll(_body, int(bag["scroll"]))

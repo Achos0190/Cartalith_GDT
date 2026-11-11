@@ -274,6 +274,8 @@ const FAMILIES_NOTE := "Nine families: the reference engine's eight, frozen, plu
 ##
 ## Hoisted to a constant so the desktop and phone wells cannot drift apart
 ## again, and so it sits one screen from the function that has to keep it true.
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.8): the contract's shared helpers.
+const WindowRepresent := preload("res://shell/window_represent.gd")
 const SEARCH_PLACEHOLDER := "Search name · id · code · set · tag…"
 
 ## AS-07 closed 2026-08-23: `as_set_item_transform`/`as_reset_item_transform`
@@ -782,6 +784,11 @@ var _current_family := ""
 ## The header search box's text, applied by `_refresh_grid()` as a filter over the
 ## current slot list.
 var _search_text := ""
+## MS-1 S4.5 batch 5: the search box (the phone's and the desktop's are one field here; a local variable before), so the
+## re-present path can write what was typed. `represent_capture()` reads `_search_text`, which the box's own signal keeps.
+var _search_edit: LineEdit
+## MS-1 S4.5 batch 5: the grid's zoom slider (a local before), for the same reason.
+var _zoom_slider: HSlider
 var _sort_mode := 0          ## 0 = slot order, 1 = name
 ## Thumbnail edge in pixels, driven by the zoom control; starts at the desktop tile size
 ## `H_TILE_ART` and is set to 120 on a phone in `setup()`.
@@ -1499,6 +1506,7 @@ func _build_window_bar() -> Control:
 		search_phone.placeholder_text = SEARCH_PLACEHOLDER
 		search_phone.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_well(search_phone)
+		_search_edit = search_phone
 		search_phone.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
 		col.add_child(search_phone)
 		col.add_child(row)
@@ -1528,6 +1536,7 @@ func _build_window_bar() -> Control:
 		## the real width, 160..340, from the room the window has.
 		search.custom_minimum_size.x = 340
 		_hdr_search = search
+		_search_edit = search
 		_hdr_row = row as HBoxContainer
 		_well(search)
 		search.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
@@ -2516,6 +2525,11 @@ func _build_slot_grid() -> Control:
 		mods.tooltip_text = mods.text
 		foot.add_child(drop_hint)
 		foot.add_child(mods)
+	else:
+		## MS-1 S4.5 batch 5: the phone does not draw the hint, but it was built above for every class and only parented on the
+		## desktop, so each phone build left one unparented `Label` alive for the session. A swap that rebuilds this window
+		## per class change turned that into one per round trip (`_ms1swap_probe.gd --leg represent`, "orphan nodes equal trip 1's").
+		drop_hint.free()
 	foot.add_child(DccTheme.spacer())
 	var zoom_label := DccTheme.mono_label("zoom", "text_faint", DccTheme.FS_TINY)
 	zoom_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -2525,6 +2539,7 @@ func _build_slot_grid() -> Control:
 	zoom.max_value = 132
 	zoom.step = 4
 	zoom.value = _cell_px
+	_zoom_slider = zoom
 	zoom.custom_minimum_size = Vector2(96, 14)
 	zoom.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	zoom.focus_mode = Control.FOCUS_NONE
@@ -4714,6 +4729,8 @@ func _slug_name(s: String) -> String:
 func _build_slicer_modal() -> void:
 	_slicer = AcceptDialog.new()
 	_slicer.title = "▦ SPRITE SHEET SLICER"
+	## The library carries this window across a class swap (`represent_capture()`), so the shell's walk must not count it as open.
+	_slicer.set_meta(DccShell.REPRESENTED_BY_OWNER_META, true)
 	_slicer.get_ok_button().hide()
 	_slicer.borderless = true
 	## The canvas floats this card on `box-shadow:0 30px 90px rgba(0,0,0,.7)` --
@@ -5374,11 +5391,129 @@ func _on_slice() -> void:
 	_refresh_pack_status()
 	_refresh_slicer_summary()
 
-## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8): an open slicer session holds unapplied cuts. The slicer is its
-## own window parented to the host (`_slicer`), so the app asks this whether the library is visible or not
-## (`DccApp._app_quiescent_blockers()`), and the shell's window walk asks it too while the library is
-## visible. A pure query: it never closes the slicer.
+## MS-1 S4.5 batch 5 (`S4_INVENTORY.md` section 18.8): an open slicer session no longer holds a swap, because
+## `represent_capture()` carries its sheet (the decoded `Image`, a resource, not a node) and every parameter, and the engine's
+## own decoded sheet is left loaded (`represent_release()` frees the slicer window WITHOUT `_close_slicer()`, which would drop it).
+## Nothing here is unconfirmed any more, so the list is empty; kept as a method so the shell's walk and
+## `DccApp._app_quiescent_blockers()` keep asking. A pure query: it never closes the slicer.
 func quiescent_blockers() -> Array[String]:
-	if _slicer != null and is_instance_valid(_slicer) and _slicer.visible:
-		return ["the asset slicer is open"]
 	return []
+
+## MS-1 S4.5: what the user set, read BEFORE the swap unmounts anything. Library: the view (a family, a collection, the
+## unassigned imports or a pinned list), the search text and sort, the grid zoom, batch selection (the mode and the selected
+## uids), the focused slot and its preview variant, the preview backdrop, the phone's pane, the grid's scroll, and the pack
+## fields (committed first, as their own focus loss commits them: typed text is never lost). Slicer: whether it is open and
+## every parameter it holds (the sheet image, its readout, the dragged lines, the grid numbers, the toggles, the key colour and
+## tolerance, the target, the family, the fill mode, the new name and the set), which a close would have dropped. Not carried:
+## the sheet preview's pan and zoom (it reopens fit-to-view). `_dirty` is carried: it is the unsaved-changes flag. A bag holds no node.
+func represent_capture() -> Dictionary:
+	_commit_pack_info()
+	var sw := 1
+	for i in PREVIEW_SWATCHES.size():
+		if String(PREVIEW_SWATCHES[i]["mode"]) == _preview_bg and (PREVIEW_SWATCHES[i]["color"] as Color).is_equal_approx(_preview_color):
+			sw = i
+	var slicer_open: bool = _slicer != null and is_instance_valid(_slicer) and _slicer.visible
+	return {
+		"open": visible, "family": _current_family, "collection": _current_collection, "unassigned": _current_unassigned,
+		"pinned": _current_pinned, "search": _search_text, "sort": _sort_mode, "cell_px": _cell_px,
+		"select_mode": _select_mode, "selected": _selected.duplicate(), "last_index": _last_index,
+		"focused": _focused_uid, "preview_index": _preview_index, "swatch": sw, "phone_pane": _phone_pane if _phone else "",
+		"dirty": _dirty, "scroll": WindowRepresent.scroll_value(_grid),
+		"slicer": {
+			"open": slicer_open, "image": _sheet_image, "loaded": _sheet_loaded,
+			"readout": _sheet_readout.text if _sheet_readout != null else "",
+			"cell": _sheet_preview.selected_cell if _sheet_preview != null else -1,
+			"col_lines": _slicer_col_lines, "row_lines": _slicer_row_lines,
+			"cols": _slicer_cols.value, "rows": _slicer_rows.value, "margin": _slicer_margin.value, "spacing": _slicer_spacing.value,
+			"trim": _slice_trim, "skip": _slice_skip_empty, "chroma": _slice_chroma, "key": _slicer_chroma_color.color,
+			"tol": _slicer_chroma_tol.value, "target": _slice_target_index, "family_index": _slice_family_index,
+			"overwrite": _slice_overwrite, "name": _slicer_name.text, "set": _slicer_set.text,
+		},
+	}
+
+## Called by `DccApp._represent_windows()` on the OLD instance just before it is freed. The slicer is parented to the SHELL
+## (PH-12, `_build_slicer_modal()`), not to this window, so freeing the library would strand it and a second one would stack per
+## swap; it is freed here instead. Never through `_close_slicer()`, which drops the engine's decoded sheet: the new slicer
+## takes the sheet over through the bag.
+func represent_release() -> void:
+	if _slicer != null and is_instance_valid(_slicer):
+		_slicer.hide()
+		_slicer.free()
+		_slicer = null
+
+## On the NEW window, after the mount: opens when it was open (`open()` pops the window in the class's own form), restores the
+## view and its state, then the slicer. A closed library keeps the view it was last on, as the old instance did.
+func represent_restore(bag: Dictionary) -> void:
+	if bool(bag["open"]):
+		open()
+	if bool(bag["unassigned"]):
+		_select_unassigned()
+	elif String(bag["collection"]) != "":
+		_select_collection(String(bag["collection"]))
+	elif String(bag["pinned"]) != "":
+		_select_pinned(String(bag["pinned"]))
+	elif String(bag["family"]) != "":
+		_select_family(String(bag["family"]))
+	_search_text = String(bag["search"])
+	_search_edit.text = _search_text
+	_sort_mode = int(bag["sort"])
+	_sort_button.select(_sort_mode)
+	_cell_px = float(bag["cell_px"])
+	_zoom_slider.set_value_no_signal(_cell_px)
+	_pick_preview_bg(int(bag["swatch"]))
+	_refresh_grid()
+	_select_mode = bool(bag["select_mode"])
+	_selected = (bag["selected"] as Dictionary).duplicate()
+	_last_index = int(bag["last_index"])
+	_focused_uid = String(bag["focused"])
+	_preview_index = int(bag["preview_index"])
+	_refresh_selection_visuals()
+	_refresh_inspector()
+	_refresh_import_button()
+	_dirty = bool(bag["dirty"])
+	## The phone's pane: the one it was on; coming from a class with no panes, the slot's pane when a slot is focused, else the
+	## slots (`_select_family()` already moved it to the slots).
+	var pane := String(bag["phone_pane"])
+	if pane == "":
+		pane = "slot" if _focused_uid != "" else "slots"
+	_show_phone_pane(pane)
+	_represent_slicer(bag["slicer"])
+	if bool(bag["open"]):
+		await WindowRepresent.restore_scroll(_grid, int(bag["scroll"]))
+
+## The slicer's share of `represent_restore()`: the parameters first (so the summary the sheet's load refreshes describes them),
+## then the sheet, then the window. The engine's decoded sheet is still loaded when `loaded` is true (see `represent_release()`).
+func _represent_slicer(sb: Dictionary) -> void:
+	_slicer_cols.set_value_no_signal(float(sb["cols"]))
+	_slicer_rows.set_value_no_signal(float(sb["rows"]))
+	_slicer_margin.set_value_no_signal(float(sb["margin"]))
+	_slicer_spacing.set_value_no_signal(float(sb["spacing"]))
+	_slicer_trim.button_pressed = bool(sb["trim"])
+	_slicer_skip.button_pressed = bool(sb["skip"])
+	_slicer_chroma.button_pressed = bool(sb["chroma"])
+	_slicer_chroma_color.color = sb["key"]
+	_slicer_chroma_tol.set_value_no_signal(float(sb["tol"]))
+	_slice_target_index = int(sb["target"])
+	_slicer_target.select(_slice_target_index)
+	_slice_family_index = int(sb["family_index"])
+	_slicer_family.select(_slice_family_index)
+	_set_fill(bool(sb["overwrite"]))
+	_slicer_name.text = String(sb["name"])
+	_slicer_set.text = String(sb["set"])
+	if sb["image"] != null:
+		_sheet_image = sb["image"]
+		_sheet_loaded = bool(sb["loaded"])
+		_sheet_preview.img_tex = ImageTexture.create_from_image(_sheet_image)
+		_sheet_preview.reset_view()
+		_sheet_preview.selected_cell = int(sb["cell"])
+		_sheet_readout.text = String(sb["readout"])
+	_slicer_col_lines = sb["col_lines"]
+	_slicer_row_lines = sb["row_lines"]
+	_refresh_slicer_summary()
+	## After the summary: it clears the picked cell, because a grid edit makes the index stale (`_refresh_slicer_summary()`).
+	## Here the grid is the one the cell was picked on, so the pick is put back (a probe run with this block removed reads -1).
+	if sb["image"] != null:
+		_sheet_preview.selected_cell = int(sb["cell"])
+		_sheet_preview.queue_redraw()
+	if bool(sb["open"]):
+		_open_slicer()

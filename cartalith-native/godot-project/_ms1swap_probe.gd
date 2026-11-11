@@ -239,7 +239,13 @@ func _quiet() -> void:
 	_app.bridge.generating = false
 	_app.new_world_dialog.popup_centered()
 	await _frames(3)
-	_ok(_has_blocker("the New world form is open"), "an open New world form is reported (got %s)" % str(_blockers()))
+	## S4.5 batch 5: merely being open no longer holds a swap (the form is carried); a pending large-grid confirmation does, because its
+	## `proceed` callable belongs to the instance.
+	_ok(not _has_blocker("the New world form"), "an open New world form holds nothing (got %s)" % str(_blockers()))
+	_app.new_world_dialog._confirm_phone_memory(8192, 8192, func(): pass, func(): pass)
+	await _frames(3)
+	_ok(_has_blocker("the New world form is asking to confirm a large grid"), "a pending large-grid confirmation is reported (got %s)" % str(_blockers()))
+	_app.new_world_dialog._memory_confirm.hide()
 	_app.new_world_dialog.hide()
 	await _frames(3)
 	_ok(_app.vault_window.quiescent_blockers().is_empty(), "the vault with no note open reports nothing")
@@ -1161,7 +1167,26 @@ const REP_CF_FILTER := "active"
 const REP_ORDER := ["faction_roster_window", "place_editor_window", "world_data_window", "city_viewer_window",
 	"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window",
 	"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list",
-	"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window"]
+	"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window",
+	"new_world_dialog", "asset_library_window", "vault_window"]
+## The vault (batch 5): a bound folder with two notes; the first is open in Preview with a two-step session undo.
+const REP_VT_NOTE := "Alpha.md"
+const REP_VT_FIRST := "alpha first"
+const REP_VT_LATER := "alpha later"
+## Asset library and slicer (batch 5): a family, a search and the name sort, and every slicer parameter set off its default.
+const REP_AL_FAMILY := "biomes"
+const REP_AL_SEARCH := "o"
+const REP_SL_NAME := "Probe Icon"
+const REP_SL_SET := "ProbeSet"
+## Batch 5's literals (S4_INVENTORY section 18.8). New world: a row count TYPED and never committed (a typed SEED has its own block, `_rep_nw_seed()`: committing one pushes a history entry) (the capture commits
+## them), a custom grid (640 x 480, aspect Custom = 7), the plates dial moved by hand from the 3 000 km default (21 -> 22), and two
+## history entries with these seeds.
+const REP_NW_SEED := 31337
+const REP_NW_KM := 3000.0
+const REP_NW_GW := 640
+const REP_NW_GH := 480
+const REP_NW_PLATES := 22
+const REP_NW_HIST := [11, 22]
 ## Batch 4's literals (S4_INVENTORY section 18.7). The Customise window's query; the settings window's typed model name (typed,
 ## never committed by the probe: the capture commits it, as a close does); the travel library's tab and rail filter ("new" matches
 ## the blank entry the fixture adds, whose name is "New Vessel"); the data manager's Maps options and its GIS destination, which
@@ -1187,14 +1212,14 @@ const REP_EX_WIDTH := 4096
 const REP_EX_PATH := "C:/probe_export/map.jpg"
 ## The popover is a `PopupPanel` (always borderless) so the borderless check does not tell its class; its own `_phone` does.
 ## The Data manager is borderless on every class (a full-bleed window with its own bar), so its `borderless` tells nothing either.
-const REP_NO_BORDER_CHECK := ["layers_popover", "data_manager_window"]
+const REP_NO_BORDER_CHECK := ["layers_popover", "data_manager_window", "asset_library_window"]
 ## The non-vacuity floor of "the layout equals a fresh open's" (8 lines by default): the phone's `All...` sheet, with no pins in
 ## this fixture, is one title, one count and the Customise row.
 ## The tablet's credits dialog is a scroll holding one text label: three lines.
 const REP_MIN_LINES := {"quick_bar_phone_list": 6, "_credits_dialog": 2}
 ## The scroll check is vacuous for a window with nothing to scroll in this fixture, so the fixture asserts a scroll with room
 ## exists, and only for these.
-const REP_SCROLLED := ["faction_roster_window", "place_editor_window", "world_data_window", "settlement_types_window", "gen_info_dialog",
+const REP_SCROLLED := ["new_world_dialog", "faction_roster_window", "place_editor_window", "world_data_window", "settlement_types_window", "gen_info_dialog",
 	"shortcuts_dialog", "layers_popover", "_credits_dialog", "export_dialog", "assistant_settings_window", "data_manager_window"]
 ## The bags the fixture builds each window's expected state from, filled by `_rep_init()` (the settlement type's id is the
 ## store's, not a literal the probe could know).
@@ -1207,12 +1232,39 @@ var _rep_bag := {}
 ## so the engine clamps the scroll to 0 before the capture, as for Settlement types; on the tablet's own 720 px measure the text is
 ## 1 139 px tall and scrolls again.
 const REP_SCROLL_ONE_WAY := ["settlement_types_window", "_credits_dialog"]
+## New world's scroll is clamped on the way back too, but not to 0: the phone card is stretched to the tablet viewport (1800 x 1000)
+## before the swap captures it, which leaves it a scroll range of 12 (measured; the same clamp as the one-way windows, with room).
+const REP_SCROLL_BACK := {"new_world_dialog": 12}
+## Frames a window needs to finish laying itself out after it opens, where ten (the default wait) is not enough: New world's card
+## settles over about thirty (measured: its content was 15 px taller at frame 10 than at frame 40). Applied to the real window and
+## to the fresh oracle alike, so the comparison is between two settled layouts.
+const REP_SETTLE := {"new_world_dialog": 40}
 
 func _rep_init() -> void:
 	## Two library entries so "the second" is a selection and not the default the window would fall back to.
 	SettlementTypeStore.new_type("Probe A")
 	var b_id: String = SettlementTypeStore.new_type(REP_ST_NAME)
+	var hist: Array = []
+	for hs in REP_NW_HIST:
+		var im := Image.create(8, 8, false, Image.FORMAT_RGB8)
+		im.fill(Color(float(hs) / 100.0, 0.5, 0.5))
+		hist.append({"seed": hs, "world": false, "km": 800.0, "plates": 12, "manual": false, "tex": ImageTexture.create_from_image(im), "land": 40.0})
 	_rep_bag = {
+		"vault_window": {"open": true, "kind": "", "entity": 0, "label": "", "browse_only": true, "path": REP_VT_NOTE, "pick": REP_VT_NOTE,
+			"reader": "", "heading": "", "mode": "preview", "pane": "preview", "hist": {REP_VT_NOTE: [REP_VT_FIRST, REP_VT_LATER]}, "back": [],
+			"scroll": 0},
+		## `focused`, the slicer's `image` and the `cell` are filled by `_rep_open` (the uid is the engine's, the image is the fixture's).
+		"asset_library_window": {"open": true, "family": REP_AL_FAMILY, "collection": "", "unassigned": false, "pinned": "",
+			"search": REP_AL_SEARCH, "sort": 1, "cell_px": 100.0, "select_mode": true, "selected": {}, "last_index": 0, "focused": "",
+			"preview_index": 0, "swatch": 3, "phone_pane": "", "dirty": false, "scroll": 0,
+			"slicer": {"open": true, "image": null, "loaded": true, "readout": "probe_sheet.png · 64 × 48", "cell": 5,
+				"col_lines": PackedFloat64Array(), "row_lines": PackedFloat64Array(),
+				"cols": 4.0, "rows": 3.0, "margin": 2.0, "spacing": 1.0, "trim": true, "skip": false, "chroma": true,
+				"key": Color(0.2, 0.4, 0.6), "tol": 55.0, "target": 2, "family_index": 1, "overwrite": true,
+				"name": REP_SL_NAME, "set": REP_SL_SET}},
+		"new_world_dialog": {"open": true, "seed": REP_NW_SEED, "locked": false, "km": REP_NW_KM, "grid_w": REP_NW_GW, "grid_h": REP_NW_GH,
+			"aspect": 7, "archetype": "", "plates_manual": true, "plates": REP_NW_PLATES, "history": hist, "push_pending": false,
+			"more": false, "scroll": REP_SCROLL},
 		"faction_roster_window": {"open": true, "selected": 2, "tab": REP_TAB, "pair": -1, "scroll": REP_SCROLL},
 		"place_editor_window": {"open": true, "index": 1, "tab": REP_PLACE_TAB, "sim_mode": REP_SIM, "scroll": REP_SCROLL},
 		"world_data_window": {"open": true, "tab": REP_WD_TAB, "search": REP_WD_SEARCH, "scroll": REP_SCROLL},
@@ -1252,9 +1304,12 @@ func _window_lines(w: Node) -> PackedStringArray:
 func _fresh_lines(field: String, bag: Dictionary) -> PackedStringArray:
 	var fresh: Node = _app._make_window(field)
 	await fresh.represent_restore(bag)
-	await _frames(_arg_int("--fresh-frames", 6))
+	await _frames(maxi(_arg_int("--fresh-frames", 6), int(REP_SETTLE.get(field, 0))))
 	var lines := _window_lines(fresh)
 	fresh.hide()
+	## A window that owns another (the asset library's slicer, parented to the shell) lets it go first, as `_represent_windows()` does.
+	if fresh.has_method("represent_release"):
+		fresh.represent_release()
 	fresh.free()
 	await _frames(2)
 	return lines
@@ -1263,6 +1318,28 @@ func _fresh_lines(field: String, bag: Dictionary) -> PackedStringArray:
 func _rep_state(field: String) -> Dictionary:
 	var w = _app.get(field)
 	match field:
+		"vault_window":
+			var hh: Array = w._hist.get(REP_VT_NOTE, [])
+			return {"open": w.visible, "path": String(w._browse_path), "mode": String(w._editor_mode), "browse_only": bool(w._browse_only),
+				"hist": hh.size(), "hist0": String(hh[0]) if hh.size() > 0 else "", "editor": w._editor != null and is_instance_valid(w._editor),
+				"text": String(w._browse_text), "phone": bool(w._phone)}
+		"asset_library_window":
+			var sl = w._slicer
+			return {"open": w.visible, "family": String(w._current_family), "search": String(w._search_text), "box": String(w._search_edit.text),
+				"sort": int(w._sort_mode), "sort_ui": int(w._sort_button.selected), "cell_px": float(w._cell_px), "select_mode": bool(w._select_mode),
+				"sel": int(w._selected.size()), "focused": String(w._focused_uid), "swatch": String(w._preview_bg),
+				"slicer_open": bool(sl.visible), "cols": int(w._slicer_cols.value), "rows": int(w._slicer_rows.value),
+				"margin": int(w._slicer_margin.value), "spacing": int(w._slicer_spacing.value), "trim": bool(w._slice_trim),
+				"skip": bool(w._slice_skip_empty), "chroma": bool(w._slice_chroma), "tol": float(w._slicer_chroma_tol.value),
+				"key": w._slicer_chroma_color.color.to_html(false), "target": int(w._slice_target_index), "family_index": int(w._slice_family_index),
+				"overwrite": bool(w._slice_overwrite), "name": String(w._slicer_name.text), "set": String(w._slicer_set.text),
+				"sheet": w._sheet_image != null and bool(w._sheet_loaded), "sheet_size": Vector2i(w._sheet_image.get_size()) if w._sheet_image != null else Vector2i.ZERO,
+				"cell": int(w._sheet_preview.selected_cell), "phone": bool(w._phone)}
+		"new_world_dialog":
+			return {"open": w.visible, "seed": int(w.seed_input.value), "km": float(w.width_input.value), "gw": int(w.grid_w_input.value),
+				"gh": int(w.grid_h_input.value), "aspect": int(w.aspect_input.selected), "manual": bool(w._plates_manual),
+				"plates": int(w.effective_plates()), "hist": w._history.size(), "hist0": int(w._history[0]["seed"]) if w._history.size() > 0 else -1,
+				"phone": bool(w._phone)}
 		"faction_roster_window":
 			return {"open": w.visible, "sel": int(w._selected), "tab": String(w._tab), "phone": bool(w._phone)}
 		"place_editor_window":
@@ -1323,6 +1400,7 @@ func _rep_scroll(field: String) -> int:
 		return int(w._text.scroll_vertical)
 	var body: Node = null
 	match field:
+		"new_world_dialog": body = w._rep_scroll_node()
 		"shortcuts_dialog", "layers_popover": body = w._list
 		"generation_rules_window": body = w._street_body
 		"_credits_dialog": body = w.get_node("%CreditsText")
@@ -1344,6 +1422,14 @@ func _rep_scroll(field: String) -> int:
 ## The literals the state must read after every swap (the bag's values written out, not read from it).
 func _rep_expect(field: String) -> Dictionary:
 	match field:
+		"vault_window": return {"open": true, "path": "Alpha.md", "mode": "preview", "browse_only": true, "hist": 2, "hist0": "alpha first",
+			"editor": true, "text": "alpha later"}
+		"asset_library_window": return {"open": true, "family": "biomes", "search": "o", "box": "o", "sort": 1, "sort_ui": 1, "cell_px": 100.0,
+			"select_mode": true, "sel": 1, "focused": String(_rep_bag[field]["focused"]), "swatch": "color", "slicer_open": true, "cols": 4, "rows": 3,
+			"margin": 2, "spacing": 1, "trim": true, "skip": false, "chroma": true, "tol": 55.0, "key": "336699", "target": 2, "family_index": 1,
+			"overwrite": true, "name": "Probe Icon", "set": "ProbeSet", "sheet": true, "sheet_size": Vector2i(64, 48), "cell": 5}
+		"new_world_dialog": return {"open": true, "seed": 31337, "km": 3000.0, "gw": 640, "gh": 480, "aspect": 7, "manual": true,
+			"plates": 22, "hist": 2, "hist0": 11}
 		"faction_roster_window": return {"open": true, "sel": 2, "tab": REP_TAB}
 		"place_editor_window": return {"open": true, "idx": 1, "tab": REP_PLACE_TAB, "sim": REP_SIM}
 		"world_data_window": return {"open": true, "tab": "Settlements", "search": "A", "filter": "a"}
@@ -1371,6 +1457,97 @@ func _rep_expect(field: String) -> Dictionary:
 ## Opens the window on the tablet with the state of its bag, the way the user would (the window's own open call).
 func _rep_open(field: String) -> void:
 	match field:
+		"vault_window":
+			var root := ProjectSettings.globalize_path("user://probe_vault")
+			DirAccess.make_dir_recursive_absolute(root)
+			for nm in [["Alpha.md", REP_VT_LATER], ["Beta.md", "beta"]]:
+				var f := FileAccess.open(root + "/" + String(nm[0]), FileAccess.WRITE)
+				f.store_string(String(nm[1]))
+				f.close()
+			var conn: Dictionary = _app.bridge.vault_connect(root, "Probe")
+			_ok(bool(conn.get("ok", false)), "the vault fixture folder connected (%s)" % str(conn).substr(0, 120))
+			var vw = _app.vault_window
+			vw.open_browse()
+			await _frames(8)
+			vw.open_note(REP_VT_NOTE)
+			await _frames(8)
+			vw._editor.set_mode("preview")
+			await _frames(4)
+			vw._hist[REP_VT_NOTE] = [REP_VT_FIRST, REP_VT_LATER]
+			_ok(vw._editor_mode == "preview" and vw._browse_path == REP_VT_NOTE, "the vault fixture has %s open in Preview (%s, %s)" % [REP_VT_NOTE, vw._browse_path, vw._editor_mode])
+		"asset_library_window":
+			var al = _app.asset_library_window
+			al.open(REP_AL_FAMILY, false)
+			await _frames(8)
+			al._search_edit.text = REP_AL_SEARCH
+			al._search_edit.text_changed.emit(REP_AL_SEARCH)
+			al._sort_button.select(1)
+			al._sort_button.item_selected.emit(1)
+			al._zoom_slider.value = 100.0
+			al._pick_preview_bg(3)
+			await _frames(4)
+			_ok(al._slot_order.size() > 0, "the asset fixture's search leaves slots to focus (%d)" % al._slot_order.size())
+			var uid := String(al._slot_order[0]["uid"])
+			al._selected = {uid: true}
+			al._focused_uid = uid
+			al._last_index = 0
+			al._select_mode = true
+			al._refresh_selection_visuals()
+			al._refresh_inspector()
+			_rep_bag[field]["focused"] = uid
+			_rep_bag[field]["selected"] = {uid: true}
+			var sh := Image.create(64, 48, false, Image.FORMAT_RGBA8)
+			for yy in 48:
+				for xx in 64:
+					sh.set_pixel(xx, yy, Color(float(xx) / 64.0, float(yy) / 48.0, 0.5, 1.0))
+			sh.save_png("user://probe_sheet.png")
+			al._open_slicer()
+			await _frames(6)
+			al._load_sheet_image(ProjectSettings.globalize_path("user://probe_sheet.png"))
+			al._slicer_cols.value = 4
+			al._slicer_rows.value = 3
+			al._slicer_margin.value = 2
+			al._slicer_spacing.value = 1
+			al._slicer_trim.button_pressed = true
+			al._slicer_skip.button_pressed = false
+			al._slicer_chroma.button_pressed = true
+			al._slicer_chroma_color.color = Color(0.2, 0.4, 0.6)
+			al._slicer_chroma_tol.value = 55
+			al._slicer_target.select(2)
+			al._slicer_target.item_selected.emit(2)
+			al._slicer_family.select(1)
+			al._slicer_family.item_selected.emit(1)
+			al._set_fill(true)
+			al._slicer_name.text = REP_SL_NAME
+			al._slicer_set.text = REP_SL_SET
+			await _frames(6)
+			al._sheet_preview.selected_cell = 5
+			await _frames(4)
+			_ok(al._sheet_preview.selected_cell == 5, "the asset fixture has picked sheet cell 5 (so the cell check is not vacuous)")
+			_rep_bag[field]["slicer"]["image"] = sh
+			_rep_bag[field]["slicer"]["readout"] = String(al._sheet_readout.text)
+			_ok(al._slicer.visible and al._sheet_loaded, "the asset fixture has the slicer open with a sheet loaded")
+		"new_world_dialog":
+			_app.open_new_world()
+			await _frames(8)
+			var nw = _app.new_world_dialog
+			nw.width_input.value = REP_NW_KM
+			nw.grid_w_input.value = REP_NW_GW
+			nw.aspect_input.selected = 7
+			nw._refresh_dimensions()
+			## Typed and NEVER committed: the capture must commit them (Android BACK leaves a SpinBox exactly like this).
+			nw.seed_input.set_value_no_signal(float(REP_NW_SEED))
+			nw.seed_input.get_line_edit().text = str(REP_NW_SEED)
+			nw.grid_h_input.get_line_edit().text = str(REP_NW_GH)
+			nw.grid_h_input.get_line_edit().text_changed.emit(str(REP_NW_GH))
+			nw._plates_manual = false
+			nw._plates_step(1)
+			nw._history.clear()
+			for he in _rep_bag[field]["history"]:
+				nw._history.append(he)
+			nw._history_push_pending = false
+			nw._refresh_history_strip()
+			_ok(nw.effective_plates() == 22 and nw._plates_manual, "the New world fixture moved the plates dial by hand to 22 (%d)" % nw.effective_plates())
 		"faction_roster_window": _app.faction_roster_window.open(2, REP_TAB)
 		"place_editor_window":
 			_app.place_editor_window.open_for_tab(1, REP_PLACE_TAB)
@@ -1492,7 +1669,7 @@ func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void
 	var old = _app.get(field)
 	await _resize(w, h)
 	await _await_swap()
-	await _frames(10)
+	await _frames(int(REP_SETTLE.get(field, 10)))
 	_ok(String(_app.class_key()) == want and _app.class_swap_runs == runs0 + 1, "%s: swapped to %s once, without waiting (class %s, runs %d -> %d)" % [tag, want, _app.class_key(), runs0, _app.class_swap_runs])
 	_ok(not str(_blockers()).contains("window is open"), "%s: no open window is holding anything (%s)" % [tag, str(_blockers())])
 	var win = _app.get(field)
@@ -1514,7 +1691,11 @@ func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void
 			if String(c.name).begins_with("WindFxLayer"):
 				fx += 1
 		_ok(fx == 1, "%s: exactly one wind/current layer is attached to the overlay (%d)" % [tag, fx])
-	var want_scroll := 0 if (want == "tablet" and REP_SCROLL_ONE_WAY.has(field)) else REP_SCROLL
+	var want_scroll := REP_SCROLL
+	if want == "tablet" and REP_SCROLL_ONE_WAY.has(field):
+		want_scroll = 0
+	elif want == "tablet" and REP_SCROLL_BACK.has(field):
+		want_scroll = int(REP_SCROLL_BACK[field])
 	if REP_SCROLLED.has(field):
 		_ok(_rep_scroll(field) == want_scroll, "%s: the scroll is %d (%d)" % [tag, want_scroll, _rep_scroll(field)])
 	if field == "city_viewer_window":
@@ -1542,17 +1723,26 @@ func _rep_step(field: String, w: int, h: int, want: String, tag: String) -> void
 	var back_bag: Dictionary = fresh_bag
 	win.represent_restore(back_bag)
 	await _frames(10)
-	if want == "tablet" and REP_SCROLL_ONE_WAY.has(field):
+	if want == "tablet" and (REP_SCROLL_ONE_WAY.has(field) or REP_SCROLL_BACK.has(field)):
 		var sc: Node = _rep_scroll_target(win, field)
 		_ok(sc != null, "%s: the tablet window has room to scroll again" % tag)
 		if sc != null:
 			(sc as ScrollContainer).scroll_vertical = REP_SCROLL
 			await _frames(4)
 
-func _rep_fixture(field: String) -> void:
+## Hides every window this leg drives, and the asset slicer with them: the slicer is parented to the shell, so hiding the library
+## alone leaves it up, and an open exclusive window refuses every window opened after it ("Attempting to make child window
+## exclusive"), which silently emptied a later block's gate check.
+func _rep_hide_all() -> void:
 	for other in REP_ORDER:
-		if other != field and _app.get(other) != null:
+		if _app.get(other) != null:
 			_app.get(other).hide()
+	var al = _app.asset_library_window
+	if al != null and is_instance_valid(al) and al._slicer != null and is_instance_valid(al._slicer):
+		al._slicer.hide()
+
+func _rep_fixture(field: String) -> void:
+	_rep_hide_all()
 	await _rep_open(field)
 	await _frames(12)
 	var w = _app.get(field)
@@ -1574,9 +1764,7 @@ func _rep_fixture(field: String) -> void:
 ## World data's tab, which the main loop cannot test (the Settlements tab is the default, and the only long one): open on the
 ## Economy tab, swap to the phone and back, and the tab is still Economy each time.
 func _rep_world_tab(ph: Vector2i, tab: Vector2i) -> void:
-	for other in REP_ORDER:
-		if _app.get(other) != null:
-			_app.get(other).hide()
+	_rep_hide_all()
 	_app.open_world_data("Economy")
 	await _frames(8)
 	for t in 2:
@@ -1596,9 +1784,7 @@ func _rep_world_tab(ph: Vector2i, tab: Vector2i) -> void:
 const REP_SEARCH_TEXT := "a"
 func _rep_search(ph: Vector2i, tab: Vector2i) -> void:
 	print("-- the desktop Find dialog: open with a query, three same-class remounts, then the phone and back")
-	for other in REP_ORDER:
-		if _app.get(other) != null:
-			_app.get(other).hide()
+	_rep_hide_all()
 	_app.open_find_on_map()
 	await _frames(6)
 	_app._desktop_search_field.text = REP_SEARCH_TEXT
@@ -1633,9 +1819,7 @@ func _rep_search(ph: Vector2i, tab: Vector2i) -> void:
 ## probe's direct call, which bypasses the gate), with the lit preset chip.
 func _rep_gr_scroll(ph: Vector2i, tab: Vector2i) -> void:
 	print("-- generation rules: the scroll on the phone, across three same-class remounts")
-	for other in REP_ORDER:
-		if _app.get(other) != null:
-			_app.get(other).hide()
+	_rep_hide_all()
 	await _swap_to("phone", ph.x, ph.y)
 	_app.generation_rules_window._active_preset = REP_GR_PRESET
 	_app.generation_rules_window.open()
@@ -1667,9 +1851,7 @@ func _rep_gr_scroll(ph: Vector2i, tab: Vector2i) -> void:
 ## remounts; then on the phone, the page strip's second segment across two more; then back to the tablet on the Bar tab.
 func _rep_qb_tab(ph: Vector2i, tab: Vector2i) -> void:
 	print("-- the Customise window: the ring tab and diagonal across three same-class remounts, then the phone's page")
-	for other in REP_ORDER:
-		if _app.get(other) != null:
-			_app.get(other).hide()
+	_rep_hide_all()
 	_app.open_quick_bar_window()
 	await _frames(8)
 	var q = _app.quick_bar_window
@@ -1701,14 +1883,57 @@ func _rep_qb_tab(ph: Vector2i, tab: Vector2i) -> void:
 	await _swap_to("tablet", tab.x, tab.y)
 	await _frames(4)
 
+## New world's two paths the main loop cannot take (S4_INVENTORY section 18.8): a TYPED, never committed seed (committing it pushes a
+## history entry, so it cannot share the main fixture's oracle) is committed by the capture and survives three remounts; and an
+## archetype (a name, applied to the engine ONCE when chosen: the re-present must select it again without applying it again,
+## so a parameter the user changed after choosing it is left alone). `remounts` are same-class, which is what `_remount_composition()`
+## does; the cross-class trips are the main loop's.
+func _rep_nw_extra(ph: Vector2i, tab: Vector2i) -> void:
+	print("-- New world: a typed seed is committed by the capture, and an archetype is selected without being applied again")
+	_rep_hide_all()
+	_app.open_new_world()
+	await _frames(8)
+	var nw = _app.new_world_dialog
+	nw.seed_input.get_line_edit().text = "424242"
+	nw.seed_input.get_line_edit().text_changed.emit("424242")
+	_ok(int(nw.seed_input.value) != 424242, "the typed seed is NOT committed before the swap (so the carry is not vacuous)")
+	await _swap_to("phone", ph.x, ph.y)
+	nw = _app.new_world_dialog
+	_ok(nw.visible and int(nw.seed_input.value) == 424242 and not bool(nw._seed_dirty), "the typed seed was committed and carried to the phone (%d)" % int(nw.seed_input.value))
+	_ok(int(nw.request()["seed"]) == 424242, "and request() reads it (%d)" % int(nw.request()["seed"]))
+	nw.hide()
+	await _swap_to("tablet", tab.x, tab.y)
+	nw = _app.new_world_dialog
+	_ok(int(nw.seed_input.value) == 424242, "and back on the tablet (%d)" % int(nw.seed_input.value))
+	var names: PackedStringArray = nw._archetype_names
+	_ok(names.size() > 0, "the engine publishes archetypes")
+	if names.size() > 0:
+		_app.open_new_world()
+		await _frames(6)
+		nw.archetype_input.select(1)
+		nw._on_archetype_selected(1)
+		_ok(String(nw._archetype) == String(names[0]), "the fixture chose the first archetype (%s)" % String(nw._archetype))
+		var plates_before = _app.bridge.param_get("tect.plates")
+		_app.bridge.param_set("tect.plates", int(plates_before) + 3)
+		for t in range(1, 4):
+			await _app._remount_composition(null)
+			await _frames(10)
+			nw = _app.new_world_dialog
+			_ok(String(nw._archetype) == String(names[0]) and nw.archetype_input.selected == 1, "archetype remount %d: still '%s' (item %d)" % [t, names[0], nw.archetype_input.selected])
+			_ok(int(_app.bridge.param_get("tect.plates")) == int(plates_before) + 3, "archetype remount %d: the plates parameter the user changed after choosing it is untouched (%s)" % [t, str(_app.bridge.param_get("tect.plates"))])
+		_app.bridge.param_set("tect.plates", plates_before)
+		nw = _app.new_world_dialog
+		nw.archetype_input.select(0)
+		nw._on_archetype_selected(0)
+	_app.new_world_dialog.hide()
+	await _frames(4)
+
 ## The travel library's staged edit across a swap, and what makes it wait. A field the user is typing in has staged nothing (`_draft`
 ## takes the text on Enter or on losing focus), so a focused, unstaged name is staged by the capture; a staged draft makes a real
 ## swap wait with its reason (Q-S4-2) and is carried by a remount that bypasses the gate.
 func _rep_tl_draft(ph: Vector2i, tab: Vector2i) -> void:
 	print("-- the travel library: a staged definition edit waits and is carried; a focused unstaged field is staged by the capture")
-	for other in REP_ORDER:
-		if _app.get(other) != null:
-			_app.get(other).hide()
+	_rep_hide_all()
 	_app.open_travel_library("preset")
 	await _frames(8)
 	var tl = _app.travel_library_window
@@ -1754,9 +1979,7 @@ func _rep_tl_draft(ph: Vector2i, tab: Vector2i) -> void:
 ## hides the dialog); back on the tablet the dialog is opened again; the welcome composition stays the welcome composition.
 func _rep_open_project(ph: Vector2i, tab: Vector2i) -> void:
 	print("-- the project picker: scope and search across remounts, then to the phone's list and back")
-	for other in REP_ORDER:
-		if _app.get(other) != null:
-			_app.get(other).hide()
+	_rep_hide_all()
 	var d = _app.open_project_dialog
 	d.open()
 	await _frames(8)
@@ -1797,9 +2020,7 @@ func _rep_open_project(ph: Vector2i, tab: Vector2i) -> void:
 ## field only exists with an OS credential store, so the probe stands a field in `controls` the way the window's own builder does.
 func _rep_settings_key() -> void:
 	print("-- the assistant settings window: a typed API key holds the swap, an empty one does not")
-	for other in REP_ORDER:
-		if _app.get(other) != null:
-			_app.get(other).hide()
+	_rep_hide_all()
 	var w = _app.assistant_settings_window
 	w.open()
 	await _frames(8)
@@ -1848,7 +2069,12 @@ func _represent() -> void:
 				c0 = _live_conn_sets()
 			else:
 				_ok(_orphans() == o0, "%s trip %d: orphan nodes %d equal trip 1's %d" % [field, t, _orphans(), o0])
-				_ok(_live_conn_sets() == c0, "%s trip %d: the named signals have trip 1's receivers" % [field, t])
+				var cs_now := _live_conn_sets()
+				_ok(cs_now == c0, "%s trip %d: the named signals have trip 1's receivers" % [field, t])
+				if cs_now != c0:
+					for ck in cs_now:
+						if cs_now[ck] != c0.get(ck, []):
+							print("    conn %s: now %s ; trip 1 %s" % [ck, str(cs_now[ck]).substr(0, 600), str(c0.get(ck, [])).substr(0, 600)])
 		_app.get(field).hide()
 		await _frames(4)
 	if only == "" or only == "world_data_window":
@@ -1859,6 +2085,8 @@ func _represent() -> void:
 		await _rep_gr_scroll(ph, tab)
 	if only == "" or only == "qb_tab":
 		await _rep_qb_tab(ph, tab)
+	if only == "" or only == "nw_extra":
+		await _rep_nw_extra(ph, tab)
 	if only == "" or only == "tl_draft":
 		await _rep_tl_draft(ph, tab)
 	if only == "" or only == "open_project":
@@ -1868,10 +2096,8 @@ func _represent() -> void:
 	_ok(_world_hash() == _live_world and absf(float(_app.viewport.zoom()) - _live_zoom) < 1e-6, "the world and the camera are untouched")
 	print("-- the vault holds the swap until its text is saved (a converted window is hidden by then: only one modal window can be shown)")
 	var vw = _app.vault_window
-	_ok(not vw.has_method("represent_capture"), "the vault has no re-present path yet (this block moves when it gets one)")
-	for other in REP_ORDER:
-		if _app.get(other) != null:
-			_app.get(other).hide()
+	_ok(vw.has_method("represent_capture"), "the vault re-presents itself, and still holds the swap for unsaved text (this block is that wait)")
+	_rep_hide_all()
 	vw._browse_path = "probe.md"
 	vw._browse_saved = "saved"
 	vw._browse_text = "typed but not saved"

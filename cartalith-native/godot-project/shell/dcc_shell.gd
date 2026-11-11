@@ -1903,6 +1903,11 @@ func quiescent_blockers() -> Array[String]:
 func _app_quiescent_blockers() -> Array[String]:
 	return []
 
+## MS-1 S4.5 batch 5: a window that has no `represent_capture()` of its own because its OWNER carries it across a class swap
+## (the asset slicer: `AssetLibraryWindow.represent_capture()` holds its sheet and parameters and rebuilds it). Such a window is
+## not "an open window that holds the layout"; what it holds that is unconfirmed, it reports through `quiescent_blockers()`.
+const REPRESENTED_BY_OWNER_META := "represented_by_owner"
+
 ## Walks `node` for visible windows. A window that declares `quiescent_blockers()` answers for itself (its
 ## held changes, which only it can read). Any other visible `ConfirmationDialog` is a pending decision, the
 ## shape `DccWidgets.confirm()` and `prompt()` build (`S4_INVENTORY.md` §5.3, "Transient dialogs"), as is a
@@ -1936,7 +1941,7 @@ func _collect_window_blockers(node: Node, out: Array[String]) -> void:
 				## S4.5: a window that re-presents itself (`window_represent.gd`) is not a reason to wait; what it holds
 				## unconfirmed it has already said above.
 				## The desktop Find dialog is a plain AcceptDialog the shell re-presents itself (`search_represent_*`).
-				if out.size() == before and not w.has_method("represent_capture") and w != _desktop_search_dialog:
+				if out.size() == before and not w.has_method("represent_capture") and not w.has_meta(REPRESENTED_BY_OWNER_META) and w != _desktop_search_dialog:
 					if w is Popup:
 						out.append("a menu is open")
 					else:

@@ -7545,3 +7545,34 @@ asset library and its slicer, New world, the assistant dialog), so S4.5 is not f
 - **Mutants (literal, one at a time, restored by the script, `s45d_run/mutate.py`):** 9 of 9 (the quick bar's search, its toggle, its tab and share key; the settings commit and typed-key blocker; the Travel library draft; Data manager fields; Open project's search and phone mapping; the quick-bar list entry) killed.
 - **Regression:** after the rebase onto origin/main 29ebd976, every run 0 failed and 0 `SCRIPT ERROR`: `_ms1swap` quiet 24, roundtrip 11, carry 68, live 167 (`--trips 2`), the whole represent leg 957, `_ms1class --live swap` 3, `_pc7windows` desktop 138 and tablet 23, `_pc8planner` desktop 105, tablet 7, phone 1, `_pc4context` desktop 145, tablet 145, phone 2, `_pc6ask` desktop 74, tablet 70, phone 7, `_ve5` 83, `_ve8` 87, `_quickbar_window` desktop 108 and phone 3, `_llmprofiles` desktop, `_scrollfix` 5. The tablet form of _quickbar_window fails identically on a pristine origin/main (one menu-group check, 'Preferences'), so it is not this change's; _ms1swap roundtrip had one failure caused by this batch (a rebuilt Open-project dialog drew differently from the one the old instance left) and passes after the fix
 - **Not done:** the vault, the asset library and slicer, New world, the assistant dialog (4 windows); the ring and B5's full bar (S4.6).
+
+### MS-1 S4.5 batch 5 built: New world, the asset library with its slicer, the vault (2026-11-11)
+
+Read at the symbols; the per-item account, and the reason the assistant dialog is not here, are `S4_INVENTORY.md` section 18.8. A class
+swap no longer waits for any of these three while open. With batches 1 to 4 that is **twenty-four converted windows; 1 long-lived
+window still holds a swap while open** (the assistant dialog, `llm_assistant_window.gd`), so S4.5 is not finished and B5's window bar
+is not met. The assistant needs its own contract, not a batch: its content is connected to the window instance and to a running
+`LlmRun`, so a rebuilt window cannot adopt it; section 18.8 names the two designs that would work (re-lay out in place, or a transcript
+model) and what each costs.
+- **Carried:** see the table in section 18.8. Held input still waits: an unsaved vault note whose save was refused (the capture flushes
+  through `_write_now()` first, the one writer) and New world's pending large-grid confirmation. A typed New world seed or grid row is
+  committed by the capture (only the boxes the user typed in: `set_value_no_signal()` leaves stale display text), and an archetype is
+  selected again without being applied again.
+- **Mechanism additions:** `_make_window()` arms for the three windows (the vault's `store_changed` wired there), an optional
+  `represent_release()` hook called on the old instance (the asset library's slicer is parented to the shell and is freed there, not
+  through `_close_slicer()`, so the decoded sheet stays loaded), and `DccShell.REPRESENTED_BY_OWNER_META` so the shell's walk does not
+  report that slicer as an open window.
+- **A bug found and fixed on the way:** a phone build of the asset library left one unparented `Label` alive per build (the grid foot's
+  drop hint, parented only on the desktop). Found by diffing `Node.get_orphan_node_ids()`; a swap that rebuilds the window made it one
+  per round trip.
+- **Bar (`_ms1swap_probe.gd --leg represent`, 1800 x 1000 tablet to 880 x 800 phone and back, three round trips each):** vault 53
+  checks, asset library 54, New world 63, plus `--only nw_extra` 24; the whole leg 1111 ok, 0 failed, 0 `SCRIPT ERROR`.
+- **Mutants (literal, one at a time, restored by the script, `C:/cw/s45e_mut.py`):** 10 of 10 killed (New world's grid columns, typed-box
+  commit and archetype; the library's sort, loaded flag, slicer meta, picked cell and the phone drop hint; the vault's mode and session
+  undo). One mutant first read SURVIVED because it had produced a parse error and no check ran; the script now reports that as INVALID.
+- **Regression:** before the rebase `_ve4` 80, `_ve8` 87, `_ac3` desktop 49 and touch 49, `_ac7` desktop 47 and touch 47 and `_assetsearch` failures=0; after the rebase onto origin/main 54e3aace (DLL rebuilt, the whole represent leg again) `_ms1swap` quiet 25, roundtrip 11, carry 68, live 167 (`--trips 2`), the whole represent leg 1111, `_ms1class --live swap` 3, `_pc6ask` desktop 74, tablet 70, phone 7, `_asstfix` 16, `_ve5` 83: all 0 failed, 0 `SCRIPT ERROR`. `_nwsize` (p1080) has one `SCRIPT ERROR` in `_leg_gestures` (a stale dock-category access) that
+  is identical on a pristine origin/main d3fa6655, so it is not this change's. The quiet leg's "an open New world form is reported"
+  check became "holds nothing, and a pending large-grid confirmation is reported".
+- **Not done:** the assistant dialog (1 window); the ring, the context card and B5's full bar (S4.6): `radial_ring._apply_touch_scale`
+  only scales up, so the ring and the card must be freed and rebuilt on a swap, and B5's window bar is "one exclusive dialog at a time"
+  on the touch classes (18.3).

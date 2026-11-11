@@ -1646,9 +1646,7 @@ func _ready() -> void:
 	## MS-1 S4.2: the safe-insets relay and `menus.build()` moved to `_mount_app_composition()`, after the
 	## windows below (their order there is documented in `S4_INVENTORY.md` section 15).
 
-	new_world_dialog = NewWorldDialog.new()
-	add_child(new_world_dialog)
-	new_world_dialog.setup(bridge)
+	new_world_dialog = _make_window("new_world_dialog")
 
 	## MS-1 S4.5: these windows are built through `_make_window()`, the one path a class swap rebuilds them by.
 	world_data_window = _make_window("world_data_window")
@@ -1708,9 +1706,7 @@ func _ready() -> void:
 
 	data_manager_window = _make_window("data_manager_window")
 
-	asset_library_window = AssetLibraryWindow.new()
-	add_child(asset_library_window)
-	asset_library_window.setup(self, bridge)
+	asset_library_window = _make_window("asset_library_window")
 
 	travel_library_window = _make_window("travel_library_window")
 
@@ -1739,12 +1735,8 @@ func _ready() -> void:
 	## of the two writers owns the links this session — see `vault_store.gd`'s
 	## own header for the rule and for what happens to a sidecar written
 	## before it.
-	vault_window = VaultWindow.new()
-	add_child(vault_window)
-	vault_window.setup(self, bridge)
-	vault_window.store_changed.connect(func():
-		VaultStore.save_from(bridge, current_project_path != "")
-		bridge.mark_world_dirty())
+	## MS-1 S4.5: through `_make_window()`, which also wires `store_changed`.
+	vault_window = _make_window("vault_window")
 	VaultStore.load_into(bridge)
 
 	layers_popover = _make_window("layers_popover")
@@ -2113,7 +2105,8 @@ func _perform_class_swap() -> void:
 const REPRESENTED_WINDOWS := ["place_editor_window", "faction_roster_window", "world_data_window", "city_viewer_window",
 		"settlement_types_window", "gen_info_dialog", "conflicts_window", "saved_journeys_window",
 		"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list",
-		"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window", "open_project_dialog"]
+		"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window", "open_project_dialog",
+		"new_world_dialog", "asset_library_window", "vault_window"]
 ## The represented windows that are built on first use (`open_conflicts_list()`, `open_saved_journeys()`) and are null until
 ## then: the swap leaves a never-built one unbuilt (its first open builds it for the class it is then in, as before) and
 ## rebuilds one that exists.
@@ -2229,6 +2222,22 @@ func _make_window(field: String) -> Node:
 			w = OpenProjectDialog.new()
 			add_child(w)
 			w.setup(self)
+		"vault_window":
+			w = VaultWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+			## A link or entity change in the vault is saved with the project the same way, however many times a swap rebuilds it.
+			w.store_changed.connect(func():
+				VaultStore.save_from(bridge, current_project_path != "")
+				bridge.mark_world_dirty())
+		"asset_library_window":
+			w = AssetLibraryWindow.new()
+			add_child(w)
+			w.setup(self, bridge)
+		"new_world_dialog":
+			w = NewWorldDialog.new()
+			add_child(w)
+			w.setup(bridge)
 		_:
 			push_error("_make_window: no builder for '%s'" % field)
 	return w
@@ -2256,6 +2265,9 @@ func _represent_windows() -> void:
 		var old = get(f)
 		existed[f] = old != null and is_instance_valid(old)
 		if existed[f]:
+			## A window that owns another (the asset library's slicer is parented to the shell) lets it go first.
+			if old.has_method("represent_release"):
+				old.represent_release()
 			(old as Node).free()
 	## The freed windows' header labels are still in `DccTheme._elide_labels` (a window's header registers there on a tablet and
 	## the composition's own pruning ran before these windows were freed): without this the registry grows by one batch of

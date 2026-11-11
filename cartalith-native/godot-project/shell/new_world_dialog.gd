@@ -1,6 +1,9 @@
 extends AcceptDialog
 class_name NewWorldDialog
 
+## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.8): the contract's shared helpers.
+const WindowRepresent := preload("res://shell/window_represent.gd")
+
 ## File ▸ New world… (`DCC_SHELL_SPEC.md` §2.1): name, seed, extent
 ## (region/world) and working resolution.
 ##
@@ -345,6 +348,8 @@ var _dim_syncing := false
 ## `request()`'s own comment for why an unconditional `apply()` (the
 ## 2026-09-12 attempt, reverted) broke a rolled seed instead.
 var _seed_dirty := false
+## MS-1 S4.5: the number boxes (`SpinBox` -> true) whose line edit holds typed text not yet committed; see `setup()`.
+var _typed: Dictionary = {}
 ## §6.7's card (phone only, `null` on desktop and tablet) and the two extent
 ## chips, which every density builds since NWP-3 (`_build_extent_chips()`).
 var _card: PanelContainer
@@ -578,6 +583,11 @@ func setup(b: EngineBridge) -> void:
 		_narrow_dropdowns(body)
 		if DccTheme.is_touch():
 			_floor_touch_tree(body)
+	## MS-1 S4.5: remember which number boxes have text the user typed and nothing has committed (`represent_capture()`).
+	## `text_changed` is emitted only by typing, never by a value written from code, which is what tells a typed edit from the
+	## stale display text a `set_value_no_signal()` leaves behind (the hazard `request()`'s comment records).
+	for sb in [seed_input, width_input, grid_w_input, grid_h_input]:
+		(sb as SpinBox).get_line_edit().text_changed.connect(func(_t: String): _typed[sb] = true)
 	_update_extent_state()
 	_build_preview_timers()
 	## `PARITY_AUDIT.md` §23 F14: this dialog is a persistent singleton
@@ -2672,8 +2682,78 @@ func request() -> Dictionary:
 		"ocean_currents": bridge.param_get("climate.currents"),
 	}
 
-## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8, Q-S4-2's default): the New world form holds every value typed
-## into it until Create or Cancel, so while it is open a class swap waits. `DccShell.quiescent_blockers()`
-## asks this only while the dialog is visible. A pure query: it never creates, cancels or closes.
+## MS-1 S4.5 batch 5 (`S4_INVENTORY.md` section 18.8): the form no longer holds a swap merely by being open, because
+## `represent_capture()` carries everything typed into it. What is still unconfirmed is the phone-memory confirmation (its
+## `proceed` callable belongs to this instance, and freeing the dialog would drop a Create the user has just pressed).
+## `DccShell.quiescent_blockers()` asks this only while the dialog is visible. A pure query: it never creates, cancels or closes.
 func quiescent_blockers() -> Array[String]:
-	return ["the New world form is open"]
+	if _memory_confirm != null and is_instance_valid(_memory_confirm) and _memory_confirm.visible:
+		return ["the New world form is asking to confirm a large grid"]
+	return []
+
+## MS-1 S4.5 (`window_represent.gd`): what the user set, read BEFORE the swap unmounts anything. The engine's own state (the
+## four experimental flags and the extent, re-read by `_sync_from_engine()` on every open, and the sea level and the other
+## parameters `request()` reads live) is NOT carried: carrying it would let a stale copy overwrite the engine's. Carried: the seed
+## (a typed one is committed first, as `request()` does: Android BACK can leave typed text uncommitted, so every `SpinBox` is
+## `apply()`-ed here and nothing typed is lost), its lock, the width, the grid, the aspect, the archetype, the plates dial and
+## the history strip (its entries hold `ImageTexture` resources, not nodes, so they outlive the window). Closed or open: a
+## closed form is a persistent singleton whose values the next open shows, so a rebuilt one must show them too.
+func represent_capture() -> Dictionary:
+	for sb in _typed:
+		if is_instance_valid(sb):
+			(sb as SpinBox).apply()
+	_typed.clear()
+	_seed_dirty = false
+	return {
+		"open": visible, "seed": int(seed_input.value), "locked": seed_locked,
+		"km": float(width_input.value), "grid_w": int(grid_w_input.value), "grid_h": int(grid_h_input.value),
+		"aspect": aspect_input.selected, "archetype": _archetype,
+		"plates_manual": _plates_manual, "plates": _plates_value,
+		"history": _history.duplicate(), "push_pending": _history_push_pending,
+		"more": _more_body != null and _more_body.visible,
+		"scroll": WindowRepresent.scroll_value(_rep_scroll_node()),
+	}
+
+## On the NEW dialog, after the mount. Opens first when it was open (`about_to_popup` re-reads the flags and extent from the
+## engine, which is the point), then puts the carried values in with the no-signal setters so no handler pushes a history entry
+## or re-applies an archetype (`apply_archetype` would reset parameters the user had since changed). `_restoring` is held
+## around the writes for the same reason `restore_history()` holds it.
+func represent_restore(bag: Dictionary) -> void:
+	if bool(bag.get("open", false)):
+		_represent_form()
+	_restoring = true
+	_set_spin(seed_input, float(bag["seed"]))
+	_seed_dirty = false
+	_set_seed_locked(bool(bag["locked"]))
+	_set_spin(width_input, float(bag["km"]))
+	_set_spin(grid_w_input, float(bag["grid_w"]))
+	aspect_input.selected = int(bag["aspect"])
+	_set_spin(grid_h_input, float(bag["grid_h"]))
+	_archetype = String(bag["archetype"])
+	var ai := 0 if _archetype.is_empty() else _archetype_names.find(_archetype) + 1
+	archetype_input.select(maxi(ai, 0))
+	_plates_manual = bool(bag["plates_manual"])
+	_plates_value = int(bag["plates"])
+	_history.clear()
+	for e in bag["history"]:
+		_history.append(e)
+	set_more_open(bool(bag["more"]))
+	_refresh_dimensions()
+	_restoring = false
+	_history_push_pending = bool(bag["push_pending"])
+	_refresh_history_strip()
+	if bool(bag.get("open", false)):
+		await WindowRepresent.restore_scroll(_rep_scroll_node(), int(bag["scroll"]))
+
+## The node whose enclosing `ScrollContainer` is the form's scroll: the phone's card form, else the child of the desktop and
+## tablet's outer scroll (`WindowRepresent.scroll_above()` looks from a node upwards, so it needs a node inside the scroll).
+func _rep_scroll_node() -> Node:
+	if _card_form != null:
+		return _card_form
+	return _outer_scroll.get_child(0) if _outer_scroll != null and _outer_scroll.get_child_count() > 0 else null
+
+## Writes a number box's value AND its display text with no signal: `set_value_no_signal()` leaves the line edit's text stale,
+## and a later `apply()` (or a focus loss) would parse that stale text back over the value (`request()`'s comment).
+func _set_spin(sb: SpinBox, v: float) -> void:
+	sb.set_value_no_signal(v)
+	sb.get_line_edit().text = str(int(v)) if is_equal_approx(v, round(v)) else String.num(v)
