@@ -1,0 +1,19 @@
+  PROBE-OK: no free end stops short of adjacent water
+    rz frame before_483920 z 1 fans on vs off: {"mad":0.0339589381126678,"px8":846,"px_any":1090}
+    rz frame before_483920 z 4 fans on vs off: {"mad":0.0420564600950818,"px8":913,"px_any":1378}
+    rz frame before_483920 z 16 fans on vs off: {"mad":0.312663974083891,"px8":6285,"px_any":9976}
+    rz frame before_483920 z 64 fans on vs off: {"mad":1.14443392654298,"px8":16559,"px_any":21447}
+  rim4 engine stats: { "built": true, "mouths": 185, "eligible": 15, "no_discharge": 0, "fans": 15, "branches": 23, "dropped_dry": 11, "skipped": 0, "min_order": 3, "min_discharge_frac": 0.00019999999495, "ms": 0.1359 }
+    rim4 rim4_r457_lake_z1.0  { "mad": 0.03395893811267, "px8": 846, "px_any": 1090 }
+    rim4 rim4_r457_lake_z4.0  { "mad": 0.0229126172746, "px8": 532, "px_any": 995 }
+    rim4 rim4_r457_lake_z16.0  { "mad": 0.34444865160503, "px8": 6366, "px_any": 13770 }
+    rim4 rim4_r457_lake_z64.0  { "mad": 3.36627876646052, "px8": 60541, "px_any": 137683 }
+    rim4 rim4_r369_lake_z1.0  { "mad": 0.03403929487989, "px8": 851, "px_any": 1092 }
+    rim4 rim4_r369_lake_z4.0  { "mad": 0.06880937355379, "px8": 1102, "px_any": 1921 }
+    rim4 rim4_r369_lake_z16.0  { "mad": 0.92339433716185, "px8": 10543, "px_any": 22761 }
+    rim4 rim4_r369_lake_z64.0  { "mad": 3.30170936934663, "px8": 36517, "px_any": 81748 }
+    rim4 rim4_r331_lake_z1.0  { "mad": 0.03395893811267, "px8": 846, "px_any": 1090 }
+    rim4 rim4_r331_lake_z4.0  { "mad": 0.06880937355379, "px8": 1102, "px_any": 1921 }
+    rim4 rim4_r331_lake_z16.0  { "mad": 0.91917665867306, "px8": 10511, "px_any": 20293 }
+    rim4 rim4_r331_lake_z64.0  { "mad": 3.84475367074761, "px8": 34186, "px_any": 71294 }
+PROBE-RESULT: DONE

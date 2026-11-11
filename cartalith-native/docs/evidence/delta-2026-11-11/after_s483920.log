@@ -1,0 +1,19 @@
+  PROBE-OK: no free end stops short of adjacent water
+    rz frame after_483920 z 1 fans on vs off: {"mad":0.0118010854474315,"px8":385,"px_any":556}
+    rz frame after_483920 z 4 fans on vs off: {"mad":0.0189322226429383,"px8":598,"px_any":782}
+    rz frame after_483920 z 16 fans on vs off: {"mad":0.246397829105137,"px8":4796,"px_any":5830}
+    rz frame after_483920 z 64 fans on vs off: {"mad":0.876192098952417,"px8":12970,"px_any":15529}
+  rim4 engine stats: { "built": true, "mouths": 185, "eligible": 15, "no_discharge": 0, "fans": 13, "branches": 38, "dropped_dry": 15, "skipped": 0, "collided": 14, "splits": 5, "kind_river": 4, "kind_lobate": 4, "kind_wave": 5, "min_order": 3, "min_discharge_frac": 0.00019999999495, "ms": 3.8379, "shape_channels": 28, "shape_splits": 5, "sinuosity_p10": 1.01217532157898, "sinuosity_p50": 1.03968000411987, "sinuosity_p90": 1.06468117237091, "parallel_frac": 0.0, "split_angle_mean": 61.0677604675293, "split_angle_sd": 7.53456258773804, "minor_share_mean": 0.29441806674004 }
+    rim4 rim4_r457_lake_z1.0  { "mad": 0.01180108544743, "px8": 385, "px_any": 556 }
+    rim4 rim4_r457_lake_z4.0  { "mad": 0.00568892254617, "px8": 158, "px_any": 308 }
+    rim4 rim4_r457_lake_z16.0  { "mad": 0.09073751525096, "px8": 1889, "px_any": 3944 }
+    rim4 rim4_r457_lake_z64.0  { "mad": 1.46005216879128, "px8": 28118, "px_any": 57357 }
+    rim4 rim4_r369_lake_z1.0  { "mad": 0.01190079515335, "px8": 383, "px_any": 554 }
+    rim4 rim4_r369_lake_z4.0  { "mad": 0.03470066052421, "px8": 649, "px_any": 1285 }
+    rim4 rim4_r369_lake_z16.0  { "mad": 0.59527451722832, "px8": 6860, "px_any": 15410 }
+    rim4 rim4_r369_lake_z64.0  { "mad": 4.27430434599689, "px8": 47293, "px_any": 102029 }
+    rim4 rim4_r331_lake_z1.0  { "mad": 0.01180108544743, "px8": 385, "px_any": 556 }
+    rim4 rim4_r331_lake_z4.0  { "mad": 0.03470066052421, "px8": 649, "px_any": 1285 }
+    rim4 rim4_r331_lake_z16.0  { "mad": 0.56271656359123, "px8": 6518, "px_any": 12954 }
+    rim4 rim4_r331_lake_z64.0  { "mad": 5.32327906096176, "px8": 52827, "px_any": 98757 }
+PROBE-RESULT: DONE

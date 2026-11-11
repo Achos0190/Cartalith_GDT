@@ -47,6 +47,23 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Natural-looking river deltas: redesigned and measured (2026-11-11)
+
+- **Built.** `river_delta::delta_fans` no longer draws a rake of 2 or 4 straight equal branches at fixed +-22/45
+  degrees from one apex. Distributaries leave the river's own course at several points, split again at mouth bars
+  (unequal shares 0.2-0.45, about 70 degrees, every ~10 widths), meander as sine-generated curves, bend seaward over a
+  distance-to-water field, keep `w^2` at every split, and are dropped if they would touch another channel. The plan
+  type follows the water in front of the mouth (river-dominated, lobate, wave-dominated). Each channel is ranked by
+  its own discharge for Ruling EN (RZ-5's fade, through the existing rank channel; no second texture). Render-only:
+  no world field, save key or golden; the reference look draws none; §7p applied (the rake is removed).
+- **Verified.** `cargo test --workspace` 7 827 passed, 0 failed; 21 of 21 literal mutants killed; fans-off frames
+  pixel-identical to origin/main at x1-x64 on three worlds (the network did not move). Frames in
+  `cartalith-native/docs/evidence/delta-2026-11-11/`.
+- **Open, measured.** Fewer mouths get a fan (owner world 94 -> 77 of 96; 912345 9 -> 5 of 10), because a channel
+  touching the meandering main channel is dropped; derivation 4-34 ms once per network (was under 1 ms). The straight
+  parallel strokes still seen at the coast at x1/x4 are the network's own streams, not fans. Detail:
+  `DELTA_GEOMETRY_RESEARCH.md` section 10.
+
 ### Edit any map element from its context: step 2 built (2026-11-11)
 
 - **Built.** One shared provider, `GlobalTools.element_rows` (called from `GlobalTools.context_actions`, so every domain asks it), gives a hit its verbs in every domain through existing paths: settlement Rename (all domains) and Edit / Delete (confirmed) / Note (WORLD, CARTO); landmark Rename, Clear custom name, Note, Select; label Rename, Move, Delete (confirmed, outside CARTO); icon Move (new `icon_move` in `icon_bridge.rs`, bound in `lib.rs` and `engine_bridge.gd`) and Delete (confirmed, outside CARTO); CIVIL route Rename (`route_set_name`). Move is a destination click through the `move_element` pseudo-tool.

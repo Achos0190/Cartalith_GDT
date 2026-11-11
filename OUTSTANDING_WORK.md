@@ -3239,6 +3239,9 @@ Earlier `comb_*` captures exist for seeds 24601, 246371, 483920 and 71077345.
 - **The open decision on fan fading.** RZ-5 is fading fans by their on-screen reach. The option already built is that
   fans follow their apex river's rank; the alternative is a second texture. It belongs with this redesign.
 - **Hard part.** Delta geometry is generated output, so DECISIONS §7p re-baseline discipline applies.
+- **2026-11-11: researched and built** (`DELTA_GEOMETRY_RESEARCH.md`; `STATUS.md`). The fans are render-only (no
+  world field or golden), so §7p applied as a replacement. **Still open:** mouths that lose their fan to the
+  no-contact rule (let a channel end on the main channel as a loop), and the derivation's 4-34 ms.
 
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There

@@ -2348,20 +2348,49 @@ impl WorldGen {
     }
 
     /// The last [`Self::river_delta_fans`] build, for a probe: `{built, mouths,
-    /// eligible, no_discharge, fans, branches, dropped_dry, skipped, min_order,
-    /// min_discharge_frac, ms}` (`ms` is the derivation time, which `river_paint_stats`' own `ms` excludes); `{}` before one. Diagnostic; nothing in the shell
-    /// reads it.
+    /// eligible, no_discharge, fans, branches, dropped_dry, collided, splits,
+    /// kind_river, kind_lobate, kind_wave, skipped, min_order,
+    /// min_discharge_frac, ms}` (`ms` is the derivation time, which
+    /// `river_paint_stats`' own `ms` excludes), plus the fans' measured shape
+    /// (`river_delta::shape_of`: `shape_channels`, `sinuosity_p10/p50/p90`,
+    /// `parallel_frac`, `shape_splits`, `split_angle_mean/sd`,
+    /// `minor_share_mean`; a NaN statistic -- no channel or no split to
+    /// measure -- is omitted, never written as a number); `{}` before one.
+    /// Diagnostic; nothing in the shell reads it.
     #[func]
     fn river_delta_stats(&self) -> VarDictionary {
-        let Some((st, ms)) = self.river_delta_cache.borrow().as_ref().map(|c| (c.2, c.3)) else {
+        let Some((st, ms, fans)) = self.river_delta_cache.borrow().as_ref().map(|c| (c.2, c.3, c.1.clone())) else {
             return VarDictionary::new();
         };
-        vdict! {
+        let mut d = vdict! {
             "built" => true, "mouths" => st.mouths as i64, "eligible" => st.eligible as i64, "no_discharge" => st.no_discharge as i64,
             "fans" => st.fans as i64, "branches" => st.branches as i64, "dropped_dry" => st.dropped_dry as i64, "skipped" => st.skipped as i64,
+            "collided" => st.collided as i64, "splits" => st.splits as i64,
+            "kind_river" => st.kinds[0] as i64, "kind_lobate" => st.kinds[1] as i64, "kind_wave" => st.kinds[2] as i64,
             "min_order" => crate::river_delta::MIN_ORDER as i64, "min_discharge_frac" => crate::river_delta::MIN_DISCHARGE_FRAC as f64,
             "ms" => ms,
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if let Some(water) = self.drawn_water_classification().filter(|w| w.len() >= gw * gh) {
+            let wet = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && water[y as usize * gw + x as usize] != 0;
+            let sh = crate::river_delta::shape_of(&fans, &wet);
+            d.set("shape_channels", sh.channels as i64);
+            d.set("shape_splits", sh.splits as i64);
+            for (k, v) in [
+                ("sinuosity_p10", sh.sinuosity[0]),
+                ("sinuosity_p50", sh.sinuosity[1]),
+                ("sinuosity_p90", sh.sinuosity[2]),
+                ("parallel_frac", sh.parallel_frac),
+                ("split_angle_mean", sh.split_angle_mean),
+                ("split_angle_sd", sh.split_angle_sd),
+                ("minor_share_mean", sh.minor_share_mean),
+            ] {
+                if v.is_finite() {
+                    d.set(k, v as f64);
+                }
+            }
         }
+        d
     }
 
     /// **Diagnostic, probe-only**: `on = false` forces `rivers_as_water` off in

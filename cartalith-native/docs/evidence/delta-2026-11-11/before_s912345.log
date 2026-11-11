@@ -1,0 +1,19 @@
+  PROBE-OK: no free end stops short of adjacent water
+    rz frame before_912345 z 1 fans on vs off: {"mad":0.0154314443182296,"px8":427,"px_any":529}
+    rz frame before_912345 z 4 fans on vs off: {"mad":0.00672977407547646,"px8":159,"px_any":397}
+    rz frame before_912345 z 16 fans on vs off: {"mad":0.0766006142454457,"px8":1297,"px_any":3929}
+    rz frame before_912345 z 64 fans on vs off: {"mad":0.685426816441584,"px8":8043,"px_any":22632}
+  rim4 engine stats: { "built": true, "mouths": 103, "eligible": 10, "no_discharge": 0, "fans": 9, "branches": 18, "dropped_dry": 4, "skipped": 1, "min_order": 3, "min_discharge_frac": 0.00019999999495, "ms": 0.1271 }
+    rim4 rim4_r91_ocean_z1.0  { "mad": 0.0155143253818, "px8": 427, "px_any": 530 }
+    rim4 rim4_r91_ocean_z4.0  { "mad": 0.00672977407548, "px8": 159, "px_any": 397 }
+    rim4 rim4_r91_ocean_z16.0  { "mad": 0.0, "px8": 0, "px_any": 0 }
+    rim4 rim4_r91_ocean_z64.0  { "mad": 0.0, "px8": 0, "px_any": 0 }
+    rim4 rim4_r395_ocean_z1.0  { "mad": 0.0155143253818, "px8": 427, "px_any": 530 }
+    rim4 rim4_r395_ocean_z4.0  { "mad": 0.02036896798351, "px8": 787, "px_any": 1499 }
+    rim4 rim4_r395_ocean_z16.0  { "mad": 0.23069081576844, "px8": 6922, "px_any": 10952 }
+    rim4 rim4_r395_ocean_z64.0  { "mad": 0.9003374142791, "px8": 15075, "px_any": 19588 }
+    rim4 rim4_r291_ocean_z1.0  { "mad": 0.46606798771509, "px8": 12296, "px_any": 13897 }
+    rim4 rim4_r291_ocean_z4.0  { "mad": 0.00672977407548, "px8": 159, "px_any": 397 }
+    rim4 rim4_r291_ocean_z16.0  { "mad": 0.07659977281333, "px8": 1297, "px_any": 3929 }
+    rim4 rim4_r291_ocean_z64.0  { "mad": 0.7509297824898, "px8": 11791, "px_any": 42736 }
+PROBE-RESULT: DONE

@@ -3019,7 +3019,7 @@ mod tests {
         let field = i.field.clone();
         let wet = move |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && field[y as usize * gw + x as usize] < 0.42;
         let (fans, st) = crate::river_delta::delta_fans(&net, gw, gh, 1.0, &wet);
-        assert!(st.branches >= 2, "premise: the mouth fans: {st:?}");
+        assert!(st.branches >= 1, "premise: the mouth fans: {st:?}");
         i.rivers = Some(Arc::new(net));
         (i, fans)
     }
@@ -3063,7 +3063,10 @@ mod tests {
             // the last dry point 63.5) to the shore, at most 1.6 setbacks out.
             assert!(x > 36.0 && x < 72.0 && (y - 36.0).abs() < 40.0, "a change far from the mouth at cell ({x:.1}, {y:.1})");
         }
-        assert!(changed > w / 2, "the fans changed only {changed} tile pixels");
+        // An open coast's fan is wave-dominated, one channel (`river_delta::DeltaKind`,
+        // the 2026-11-11 redesign; it changed 118 pixels of this 0/0/0 tile), so the
+        // positive control asks for a visible line, not the old four-branch rake's area.
+        assert!(changed > w / 4, "the fans changed only {changed} tile pixels");
     }
 
     /// Protects: **the fans' separator word** in the stored-pyramid digest

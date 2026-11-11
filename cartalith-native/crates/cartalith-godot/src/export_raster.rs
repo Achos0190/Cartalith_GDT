@@ -2746,8 +2746,15 @@ mod rv5_parity_tests {
             moved += 1;
             // Export pixel x sits on grid coordinate x / K (`bake_steps`), river space + 0.5.
             let (gx, gy) = ((i % ow) as f64 / K as f64, (i / ow) as f64 / K as f64);
-            let cell = (gy.round() as usize).min(GH - 1) * GW + (gx.round() as usize).min(GW - 1);
-            assert!((w.field[cell] as f64) >= SEA, "a fan moved a pixel on the water at ({gx}, {gy})");
+            // On land: the pixel's own cell, or one of the cells its bilinear footprint
+            // touches -- the smooth shore puts the land/water edge between cell centres,
+            // so a fan tip ending at a shore corner (the redesigned fan's, 2026-11-11, at
+            // (14.5, 32.5) beside land cell (15, 32)) antialiases there. A fan pixel out
+            // on open water, a cell or more from any land, still fails.
+            let land = |x: f64, y: f64| (w.field[(y as usize).min(GH - 1) * GW + (x as usize).min(GW - 1)] as f64) >= SEA;
+            let (fx, fy) = (gx.floor().max(0.0), gy.floor().max(0.0));
+            let near_land = land(gx.round(), gy.round()) || land(fx, fy) || land(fx + 1.0, fy) || land(fx, fy + 1.0) || land(fx + 1.0, fy + 1.0);
+            assert!(near_land, "a fan moved a pixel on the water at ({gx}, {gy})");
             let (rx, ry) = (gx as f32 + 0.5, gy as f32 + 0.5);
             assert!(rx >= lo.0 - 2.0 && rx <= hi.0 + 2.0 && ry >= lo.1 - 2.0 && ry <= hi.1 + 2.0, "a change outside the fans' box at ({rx}, {ry})");
         }

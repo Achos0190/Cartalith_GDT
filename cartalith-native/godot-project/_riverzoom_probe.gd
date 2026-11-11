@@ -177,6 +177,9 @@ var _rz := false
 var _rz_cost := false
 var _rz_frames := false
 var _rz_tag := ""
+## `--rz-delta-pair`: each `--rz-frames` frame also saved with the delta fans off (`<tag>_zNN_nodelta.png`),
+## so a frame pair shows exactly what the fans draw (delta redesign, 2026-11-11).
+var _rz_delta_pair := false
 var _rim2 := false
 var _rim2_head := false
 var _rim2_presets: Array = []
@@ -234,6 +237,7 @@ func _ready() -> void:
 			"--rz-cost": _rz_cost = true
 			"--rz-frames": _rz_frames = true
 			"--rz-tag": _rz_tag = args[i + 1]; i += 1
+			"--rz-delta-pair": _rz_delta_pair = true
 			"--rim2": _rim2 = true
 			"--rim2-head": _rim2_head = true
 			"--rim2-presets":
@@ -1550,6 +1554,15 @@ func _rz_frames_run(targets: Dictionary) -> void:
 		if img != null:
 			img.save_png(_out.path_join("%s_z%02d.png" % [_rz_tag, int(z)]))
 			print("    rz frame %s z %d ppc %.3f saved" % [_rz_tag, int(z), _ppc_at(_vh.zoom())])
+		if _rz_delta_pair:
+			await _set_deltas(false)
+			await _settle_lod()
+			var bare := await _grab()
+			if bare != null:
+				bare.save_png(_out.path_join("%s_z%02d_nodelta.png" % [_rz_tag, int(z)]))
+				if img != null:
+					print("    rz frame %s z %d fans on vs off: %s" % [_rz_tag, int(z), JSON.stringify(_frame_diff(img, bare))])
+			await _set_deltas(true)
 
 
 ## ---- RIM-2: the bank outline -------------------------------------------------

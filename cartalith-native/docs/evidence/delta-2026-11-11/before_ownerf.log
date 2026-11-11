@@ -1,0 +1,6 @@
+  PROBE-OK: no free end stops short of adjacent water
+    rz frame before_owner z 1 fans on vs off: {"mad":0.0431355967857293,"px8":927,"px_any":1005}
+    rz frame before_owner z 4 fans on vs off: {"mad":0.149537212335395,"px8":4942,"px_any":7878}
+    rz frame before_owner z 16 fans on vs off: {"mad":0.0,"px8":0,"px_any":0}
+    rz frame before_owner z 64 fans on vs off: {"mad":0.0,"px8":0,"px_any":0}
+PROBE-RESULT: DONE

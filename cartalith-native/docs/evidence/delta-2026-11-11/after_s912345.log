@@ -1,0 +1,19 @@
+  PROBE-OK: no free end stops short of adjacent water
+    rz frame after_912345 z 1 fans on vs off: {"mad":0.00562497370524633,"px8":153,"px_any":186}
+    rz frame after_912345 z 4 fans on vs off: {"mad":0.00298455972064454,"px8":80,"px_any":160}
+    rz frame after_912345 z 16 fans on vs off: {"mad":0.0434709074845387,"px8":859,"px_any":2251}
+    rz frame after_912345 z 64 fans on vs off: {"mad":0.0,"px8":0,"px_any":0}
+  rim4 engine stats: { "built": true, "mouths": 103, "eligible": 10, "no_discharge": 0, "fans": 5, "branches": 14, "dropped_dry": 3, "skipped": 1, "collided": 11, "splits": 2, "kind_river": 1, "kind_lobate": 3, "kind_wave": 1, "min_order": 3, "min_discharge_frac": 0.00019999999495, "ms": 4.3623, "shape_channels": 12, "shape_splits": 2, "sinuosity_p10": 1.01591730117798, "sinuosity_p50": 1.03980398178101, "sinuosity_p90": 1.06244468688965, "parallel_frac": 0.0, "split_angle_mean": 49.9697723388672, "split_angle_sd": 2.53517532348633, "minor_share_mean": 0.37824809551239 }
+    rim4 rim4_r91_ocean_z1.0  { "mad": 0.00564054019942, "px8": 153, "px_any": 186 }
+    rim4 rim4_r91_ocean_z4.0  { "mad": 0.00298455972064, "px8": 80, "px_any": 160 }
+    rim4 rim4_r91_ocean_z16.0  { "mad": 0.0, "px8": 0, "px_any": 0 }
+    rim4 rim4_r91_ocean_z64.0  { "mad": 0.0, "px8": 0, "px_any": 0 }
+    rim4 rim4_r395_ocean_z1.0  { "mad": 0.00564054019942, "px8": 153, "px_any": 186 }
+    rim4 rim4_r395_ocean_z4.0  { "mad": 0.00293828095418, "px8": 82, "px_any": 100 }
+    rim4 rim4_r395_ocean_z16.0  { "mad": 0.03668812318566, "px8": 859, "px_any": 1430 }
+    rim4 rim4_r395_ocean_z64.0  { "mad": 0.54242080020194, "px8": 8525, "px_any": 14542 }
+    rim4 rim4_r291_ocean_z1.0  { "mad": 0.00562497370525, "px8": 153, "px_any": 186 }
+    rim4 rim4_r291_ocean_z4.0  { "mad": 0.00298455972064, "px8": 80, "px_any": 160 }
+    rim4 rim4_r291_ocean_z16.0  { "mad": 0.04347090748454, "px8": 859, "px_any": 2251 }
+    rim4 rim4_r291_ocean_z64.0  { "mad": 0.67183390130001, "px8": 12461, "px_any": 35042 }
+PROBE-RESULT: DONE
