@@ -1089,7 +1089,7 @@ mod tests {
         assert!(th[2] > 0.99 && tt[2] < 0.01, "positive control: the fixtures carry ranks 1 and 0 ({} {})", th[2], tt[2]);
         let alpha = |t: [f32; 4], ppc: f32| coverage(t, ppc, rw).1;
         assert_eq!(alpha(th, 0.1), 0.0, "the least river is gone zoomed out");
-        assert_eq!(alpha(th, 0.46), 0.0, "and at the owner world's fit density, where f is 0.06");
+        assert_eq!(alpha(th, 0.46), 0.0, "and at the owner world's fit density, where f is 0.044");
         assert_eq!(alpha(th, 30.0), 1.0, "and fully drawn from Z_FULL (literal ppc 30, zoom 65 over the fit 0.46)");
         assert!(alpha(th, 21.0) > 0.0 && alpha(th, 21.0) < 1.0, "mid-ramp (ppc 21: f 0.80, the rank-1 stroke inside the band) is partly faded");
         for ppc in [0.05, 0.2, 0.5, 0.8, 3.0] {
@@ -1103,8 +1103,9 @@ mod tests {
             prev = al;
         }
         assert!(max_step < 0.05, "a 0.05 pixel-per-cell step (about 0.3 % of zoom) moved the alpha by {max_step}");
-        // Rank 0.06 at f = 0.06 (0.46 ppc, the fit view) is the start of the band: drawn in full; the same texel at 0.3 ppc (f 0.045) is not.
-        let mid = [th[0], th[1], 0.06, th[3]];
+        // Rank 0.044 at f = 0.044 (0.46 ppc, the fit view; the 5.5 % opening share over 1.25) is the start of the
+        // band: drawn in full; the same texel at 0.3 ppc (f 0.032) is not.
+        let mid = [th[0], th[1], 0.044, th[3]];
         assert_eq!(alpha(mid, 0.46), 1.0);
         assert!(alpha(mid, 0.3) < 0.5, "{}", alpha(mid, 0.3));
     }

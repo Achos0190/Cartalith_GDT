@@ -1182,7 +1182,7 @@ pub const Z_FULL: f32 = 64.0;
 
 /// Width of the rank band over which a stroke fades, **as a fraction of the share `f` at that zoom** (the band is
 /// `FADE_BAND_REL * f` wide, starting at `f`). **Labelled judgement.** A fixed 0.15 (RZ-1) is twice the whole
-/// share at a 7.5 % opening view; a band that scales with `f` keeps the fade proportionate. The alpha's
+/// share at a 5.5 % opening view; a band that scales with `f` keeps the fade proportionate. The alpha's
 /// length-weighted sum is `f * (1 + FADE_BAND_REL / 2)`, so the share a viewer sees at the opening view is
 /// [`OPEN_SHARE_GLOBAL`] when `f` is that over `1.25`. Continuity: the alpha's slope per unit of ln(zoom) is at most
 /// `1.5 * dln(f)/dlnz / FADE_BAND_REL`, about 2.0 for a world, so a 1 % zoom step moves an alpha by about 0.02
@@ -1192,20 +1192,21 @@ pub const FADE_BAND_REL: f32 = 0.5;
 
 /// The share of the drawn network length a viewer SEES at the opening fit view of a whole-world map
 /// ([`GLOBAL_WIDTH_KM`] across). **The owner's, 2026-11-11:** "On opening view, global/world I'd like to see maybe
-/// 5~10%", taken at 7.5 %, the middle. The biggest rivers only: the rank is by discharge. Replaces Ruling EN
-/// item 2's "about half".
-pub const OPEN_SHARE_GLOBAL: f32 = 0.075;
+/// 5~10%", taken at 7.5 %, the middle; then, the same day, "I'd actually like to push down to 5.5%" (second
+/// addendum to Ruling EN). The biggest rivers only: the rank is by discharge. Replaces Ruling EN item 2's "about
+/// half".
+pub const OPEN_SHARE_GLOBAL: f32 = 0.055;
 
 /// A whole-world map's width in km, the reference of [`OPEN_SHARE_GLOBAL`] (the owner: "about 40 000 km"; the
-/// equator, 40 075, is what the shell's whole-world preset uses, so that preset opens at exactly 7.5 %).
+/// equator, 40 075, is what the shell's whole-world preset uses, so that preset opens at exactly 5.5 %).
 pub const GLOBAL_WIDTH_KM: f32 = 40_075.0;
 
 /// **How much a map shows at its opening view, by its extent** (the owner, same day: "that should scale to map
 /// size as well"; the coordinator's form): `OPEN_SHARE_GLOBAL * sqrt(GLOBAL_WIDTH_KM / width_km)`, capped at 1.
 /// Toepfer and Pillewizer's radical law (1966): the share of a network that fits a map falls as the square root
 /// of the scale denominator, and at the fit view the scale denominator is the map's width over the screen's, so a
-/// map `k` times narrower shows `sqrt(k)` times more. A 2 000 km continent opens at 0.34 and a 500 km province
-/// at 0.67; a 40 075 km world at 0.075. A non-positive width reads as a whole world (never a plausible guess).
+/// map `k` times narrower shows `sqrt(k)` times more. A 2 000 km continent opens at 0.25 and a 500 km province
+/// at 0.49; a 40 075 km world at 0.055; 121 km and below the whole network. A non-positive width reads as a whole world (never a plausible guess).
 pub fn open_share(width_km: f32) -> f32 {
     if width_km.is_nan() || width_km <= 0.0 {
         return OPEN_SHARE_GLOBAL;
@@ -1238,10 +1239,10 @@ pub fn ref_fit_ppc(gw: usize, gh: usize) -> f32 {
 
 /// The scale the law reads, as bits of two `f32`s: the fit density and the start share. Set from the world by
 /// `WorldGen`'s repaint ([`set_scale`]) before any raster is built; the owner world's (0.46, the whole-world start
-/// share 0.06) until then. A process-wide value because the law is also called from tile worker threads and the
+/// share 0.044 = 0.055 / 1.25) until then. A process-wide value because the law is also called from tile worker threads and the
 /// export, which hold no world. Tests of the law pass the scale explicitly (the `_at` functions) and never set this.
 static FIT_PPC_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3EEB851F); // 0.46f32
-static START_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3D75C28F); // 0.06f32
+static START_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3D343958); // 0.044f32
 
 /// Set the scale: `fit` is [`ref_fit_ppc`] of the world's grid, `start` is [`start_share`] of its width in km.
 pub fn set_scale(fit: f32, start: f32) {
@@ -3077,8 +3078,8 @@ mod tests {
 
     /// Protects: the visibility law at LITERAL values (a test that read the constants back would pass for any value),
     /// at the owner world's scale (fit 0.46 px per cell, start share 0.06): the share is 0.06 at the fit view, 0.245
-    /// at zoom 8 (halfway in octaves: 0.06^0.5), 1 from zoom 64; the map-size rule gives a 40 075 km world 0.075, a
-    /// 2 000 km map 0.336 and a 500 km map 0.672 SEEN at the opening, 1 at 225 km and below; the fade is a
+    /// at zoom 8 (halfway in octaves: 0.06^0.5), 1 from zoom 64; the map-size rule (second addendum to Ruling EN, 5.5 %) gives a 40 075 km
+    /// world 0.055, a 2 000 km map 0.246 and a 500 km map 0.492 SEEN at the opening, 1 at 121 km and below; the fade is a
     /// smoothstep over half of f; and mutating the start, Z_FULL, the band or the size rule moves one number here.
     #[test]
     fn the_visibility_rule_has_the_ruled_values() {
@@ -3091,12 +3092,13 @@ mod tests {
         assert_eq!(visible_share_at(0.0, fit, st), 0.0);
         assert_eq!(visible_share_at(-1.0, fit, st), 0.0);
         assert_eq!(visible_share_at(0.01, fit, 1.0), 1.0, "a start of 1 draws everything at any zoom");
-        assert!((open_share(40_075.0) - 0.075).abs() < 1e-6);
-        assert!((open_share(2000.0) - 0.33573).abs() < 1e-4, "{}", open_share(2000.0));
-        assert!((open_share(500.0) - 0.67147).abs() < 1e-4, "{}", open_share(500.0));
+        assert!((open_share(40_075.0) - 0.055).abs() < 1e-6);
+        assert!((open_share(2000.0) - 0.24620).abs() < 1e-4, "{}", open_share(2000.0));
+        assert!((open_share(500.0) - 0.49240).abs() < 1e-4, "{}", open_share(500.0));
+        assert!(open_share(125.0) < 1.0 && open_share(120.0) == 1.0, "capped at the whole network from 121 km");
         assert_eq!(open_share(50.0), 1.0, "capped at the whole network");
-        assert_eq!(open_share(0.0), 0.075, "no width reads as a whole world");
-        assert!((start_share(40_075.0) - 0.06).abs() < 1e-6);
+        assert_eq!(open_share(0.0), 0.055, "no width reads as a whole world");
+        assert!((start_share(40_075.0) - 0.044).abs() < 1e-6);
         // At the fit view f = 0.06, so u = 0.06 is the band start (fully drawn), 0.075 its midpoint
         // (half) and 0.09 its end (gone): the viewer SEES 0.075 of the length.
         assert_eq!(river_visibility_at(0.06, 0.46, fit, st), 1.0);

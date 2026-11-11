@@ -102,7 +102,7 @@ float headwater_deemphasis(float zk) {
 const float Z_FULL = 64.0;
 const float FADE_BAND_REL = 0.5;
 uniform float river_fit_ppc = 0.46;
-uniform float river_open_start = 0.06;
+uniform float river_open_start = 0.044;
 const float HEADWATER_U_LO = 0.5;
 const float HEADWATER_U_HI = 1.0;
 float visible_share(float ppc) {

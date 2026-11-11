@@ -40,9 +40,10 @@ use cartalith_hydrology::{River, river_draw_plan, river_entities, river_flow_thr
 const SEEDS: [i32; 12] = [246_371, 483_920, 912_345, 24_601, 404, 505, 808, 707, 71_077_345, 1_001, 31_337, 123_456];
 /// Same three shapes `(gw, gh, km)` as the gate harness.
 const SHAPES: [(usize, usize, f64); 3] = [(512, 328, 40_075.0), (384, 246, 800.0), (1024, 656, 40_075.0)];
-/// The shares `f` the research asks for, plus 0.5 (Ruling EN's opening view).
-/// A segment counts "visible" when its rank `u <= f`.
-const FS: [f64; 7] = [0.075, 0.1, 0.24, 0.5, 0.531, 0.96, 1.0];
+/// The shares `f` the research asks for, plus 0.5 (Ruling EN's opening view),
+/// 0.075 (its first addendum) and 0.055 (its second, 2026-11-11: "push down to
+/// 5.5%"). A segment counts "visible" when its rank `u <= f`.
+const FS: [f64; 8] = [0.055, 0.075, 0.1, 0.24, 0.5, 0.531, 0.96, 1.0];
 const KEYS: [&str; 4] = ["discharge", "order", "width", "disch-net"];
 
 fn env_list<T: std::str::FromStr + Copy>(key: &str, default: &[T]) -> Vec<T> {

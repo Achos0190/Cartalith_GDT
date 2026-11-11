@@ -3475,6 +3475,20 @@ These **replace item 2** ("about half at the opening view", "Toepfer's 0.5 expon
 Open for the owner: the fit density is taken in a fixed reference window (the owner's own, 942 x 603) rather than the
 live viewport, so tiles and exports do not depend on the window; on another window the opening share is a little off.
 
+### Second addendum to Ruling EN (owner, 2026-11-11, relayed by the coordinator)
+
+The owner: *"I'd actually like to push down to 5.5%"*.
+
+This replaces only the 7.5 % of the first addendum's item 1: **a whole-world map opens at 5.5 % of the drawn network
+length**. The map-size scaling stands: the share seen at the opening fit view is `0.055 * sqrt(40 075 km / width_km)`,
+capped at 1 (0.25 at 2 000 km, 0.49 at 500 km, the whole network at 121 km and below). Everything else of EN and its
+first addendum stands. Built as `river_stroke::OPEN_SHARE_GLOBAL` 0.055 (the start share `0.044` = 0.055 / 1.25 is
+the default scale and the shader's default uniform).
+
+Recorded, not a blocker: at a hard cut of `f = 0.055` (`river_zoom_measurement.rs`, discharge key, median over 12
+seeds) the share of top-decile outlets not drawn at the opening view is 39 % on 512x328 (15 % at 7.5 %), 55 % on
+1024x656 (48 %) and **16 % on the owner world** (4 %).
+
 ## Ruling EO: on touch, a tap on a map element selects it and shows its action chips (owner, 2026-11-11)
 
 Answers the touch question of the "Edit any map element directly from its context" row (`OUTSTANDING_WORK.md` §2.12; audit in `EDIT_FROM_CONTEXT_AUDIT.md`).
