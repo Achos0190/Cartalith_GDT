@@ -52,6 +52,21 @@ row below overlaps an older row further down, this one is newer. Rows finished s
 CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the industrial levy) are in `STATUS.md`, not here.
 
 **Assistant and consent (top priority first)**
+- **A Cartalith-specific small LLM, trained on the owner's own hardware (owner request, 2026-11-11).** The owner's
+  words: *"training a custom llm (qwen 3.8 or similar) so it can be smaller, good at writing prose for villages but
+  also excellent at handling cartalith functions ... a course outline on the tools we need and how we could go about
+  it on my own local hardware ... a cartalith specific llm and see how we integrate it. Directly via cartalith or as
+  current with a server."*
+  - **The first deliverable** is a course outline and plan, not training. It covers:
+    - the toolchain on a Ryzen 7 9800X3D with 31 GB RAM and an RX 7800 XT 16 GB (ROCm, Windows; WSL2 or native);
+    - LoRA/QLoRA tooling that runs on ROCm;
+    - base model choice and licences;
+    - dataset generation from Cartalith: the action catalogue, the AC-0/AC-4 tasks, the parameter schema and vault
+      prose;
+    - evaluation with `ac4_live.rs` and the prose tests;
+    - GGUF export;
+    - integration, either embedded in Cartalith or through LM Studio as now.
+  - **Builds on** `SMALL_LLM_ADDON_RESEARCH.md` (2026-10-26). Re-read it first and update it rather than duplicate it.
 - **Consent UX (TOP PRIORITY).** The owner had to hunt for "Review consent" before Refresh or Send worked. Make consent
   reachable from the place the user is stuck. Owner: `LLM_ASSISTANT_SCOPE.md`; symbols `llm_consent.gd`, `llm_assistant_window.gd`.
   **Built 2026-10-27, mostly done:** the card now opens at once on Refresh, an entered address and Send when consent is the only refusal, Allow continues the action, and master-off shows "Turn on Assistant enabled first" with a button. Probed at 1600x1000, 1280x800, 393x852 against the in-test mock only; real LM Studio, a real remote host and a device are not done. `STATUS.md` has the entry.
