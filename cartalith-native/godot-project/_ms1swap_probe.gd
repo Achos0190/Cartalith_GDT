@@ -16,6 +16,8 @@ extends Node
 ##         each; writes `<prefix>.phone` and `<prefix>.tablet` for the runner to compare with a cold boot.
 ##         `--clean` sets no user state, `--noworld` also stands no world, so the end state equals `--leg norm`'s.)
 ##   ... -- --leg represent --force-touch --vp 1800x1000 --density 1          (S4.5: open windows are re-presented in place)
+##   ... -- --leg ringcard --force-touch --vp 1800x1000 --density 1       (S4.6: the radial ring and the context card across a swap)
+##   ... -- --leg b5 --force-touch --vp 1800x1000 --density 1       (S4.6: B5's three windows in turn, each open across the swap, and the swap's timing)
 ##   ... -- --leg norm [--world] --force-touch --vp 880x1564 --density 1 --out <file>   (cold boot, optionally with a world)
 ##
 ## Legs:
@@ -74,6 +76,10 @@ var _window_mode := false
 ## How long `app.tscn` took to instantiate and enter the tree at boot, in ms; the cold-boot figure the live leg's swap
 ## timing is set against (measured on this machine, labelled so in the report).
 var _cold_boot_ms := 0.0
+## Milliseconds from the engine's start to this probe's `_ready()` (`Time.get_ticks_msec()` counts from engine start): the
+## process, the extension and the scripts, which a swap never pays and which a RESTART does. B5's timing reads the swap against
+## `_cold_boot_ms` alone and against `_engine_ms + _cold_boot_ms`, and says which it is (`_b5()`).
+var _engine_ms := 0
 
 ## Resizes the host and tells the shell, then waits past the 150 ms debounce (0.4 s).
 func _resize(w: int, h: int) -> void:
@@ -103,6 +109,7 @@ func _hint() -> String:
 	return String(_app.status_slot_text("hint"))
 
 func _ready() -> void:
+	_engine_ms = Time.get_ticks_msec()
 	var wd := Timer.new()
 	wd.wait_time = 400.0
 	wd.one_shot = true
@@ -126,8 +133,8 @@ func _ready() -> void:
 	var leg := _arg("--leg", "")
 	_debug_names = "--names" in OS.get_cmdline_user_args()
 	var parts := _arg("--vp", "").split("x")
-	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry", "live", "represent"] or parts.size() != 2:
-		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry|live|represent and --vp WxH")
+	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry", "live", "represent", "ringcard", "b5"] or parts.size() != 2:
+		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry|live|represent|ringcard|b5 and --vp WxH")
 		get_tree().quit(2)
 		return
 	var vw := int(parts[0])
@@ -171,6 +178,10 @@ func _ready() -> void:
 		await _live()
 	elif leg == "represent":
 		await _represent()
+	elif leg == "ringcard":
+		await _ringcard()
+	elif leg == "b5":
+		await _b5()
 	else:
 		await _roundtrip()
 	print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
@@ -2038,6 +2049,214 @@ func _rep_settings_key() -> void:
 	else:
 		w.controls.erase("key_field")
 	kf.free()
+
+## -- S4.6: the radial ring and the context card across a class swap --------------------------------------------------
+
+## The tablet ring's radius, as a literal worked out by hand from the two constants it is made of, never read back from them:
+## `RING_RADIUS` 92 x `DccTheme.TOUCH_SCALE` 1.53 = 140.76 (above the 96 floor). The un-scaled figure is 92. A ring that
+## lived through a swap without being rebuilt keeps whichever it was built with, so these two literals tell the instances apart.
+const RING_TABLET_RADIUS := 140.76
+const RING_PLAIN_RADIUS := 92.0
+
+## The overlay's centre in its own local space: where a held touch would open the ring and the card.
+func _rc_local() -> Vector2:
+	return _app.viewport.overlay.size * 0.5
+
+## Opens the ring and the card the way a hold does (`ContextBroker.ring_touch_open()`: the ring first, then the card through
+## `resolve()`), so the probe is on the shipped path.
+func _rc_open_hold() -> void:
+	_app.context_broker.ring_touch_open(_rc_local())
+	await _frames(6)
+
+## The world-pause depth every open surface adds one to (`DccApp.pause_for_context_surface()`): a freed-while-open ring or
+## card that did not release its share would leave it too high for good.
+func _rc_depth() -> int:
+	return int(_app._context_surface_depth)
+
+## Closes whatever the broker has open and waits, so the next block starts from depth 0.
+func _rc_close_all() -> void:
+	var b = _app.context_broker
+	if b.ring != null and is_instance_valid(b.ring):
+		b.ring.close()
+	if b.card != null and is_instance_valid(b.card):
+		b.card.hide()
+	var pm = _app._phone_menu
+	if pm != null and is_instance_valid(pm) and pm.peek_card_is_open():
+		pm.close()
+	await _frames(4)
+
+func _ringcard() -> void:
+	await _settle_at_rest()
+	var boot := String(_app.class_key())
+	_ok(boot == "tablet", "boots as a tablet (class_key %s)" % boot)
+	await _make_world()
+	var parts := _arg("--vp", "").split("x")
+	var tab := Vector2i(int(parts[0]), int(parts[1]))
+	var ph := Vector2i(880, 800)
+	var b = _app.context_broker
+	_ok(b != null and b.ring == null and b.card == null, "the broker has built neither the ring nor the card yet")
+	_ok(_rc_depth() == 0, "no surface is open: the world pause depth is 0 (got %d)" % _rc_depth())
+
+	print("-- tablet: a hold opens the ring and the card; their figures are the tablet's")
+	await _rc_open_hold()
+	_ok(b.ring != null and b.ring.is_open(), "the ring is open after the hold")
+	_ok(b.card != null and b.card.visible, "the card is open beside it")
+	if b.ring == null or b.card == null:
+		return
+	var st1: Dictionary = b.ring.debug_state()
+	_ok(absf(float(st1["radius"]) - RING_TABLET_RADIUS) < 0.01, "the tablet ring's radius is %.2f (literal 92 x 1.53; got %.2f)" % [RING_TABLET_RADIUS, float(st1["radius"])])
+	_ok(int(b.card._m("row")) == 44, "the card draws its tablet row height, 44 (got %d)" % int(b.card._m("row")))
+	_ok(_rc_depth() == 2, "the ring and the card each hold the world pause: depth 2 (got %d)" % _rc_depth())
+	var gx0 := float(b.last_request["gx"])
+	var gy0 := float(b.last_request["gy"])
+	_ok(String(b.last_request["form"]) == "tablet", "the subject was resolved in the tablet form")
+
+	print("-- a REAL swap waits while the ring and the card are open, and runs once they close")
+	var old_ring: Object = b.ring
+	var old_card: Object = b.card
+	var runs0: int = _app.class_swap_runs
+	_ok(str(_blockers()).contains("a context card is open"), "an open ring and card are reported (got %s)" % str(_blockers()))
+	await _resize(ph.x, ph.y)
+	await _frames(10)
+	_ok(String(_app.class_key()) == "tablet" and _app.class_swap_runs == runs0 and not _app.pending_class_swap().is_empty(), "880 x 800 under them: pending, not run (class %s, runs %d)" % [_app.class_key(), _app.class_swap_runs])
+	await _rc_close_all()
+	await _await_swap()
+	_ok(String(_app.class_key()) == "phone" and _app.class_swap_runs == runs0 + 1, "closed, the swap ran once (class %s, runs %d)" % [_app.class_key(), _app.class_swap_runs])
+	_ok(not is_instance_valid(old_ring) and not is_instance_valid(old_card), "the CLOSED ring and card, built for the tablet, were freed")
+	_ok(b.ring == null and b.card == null, "and neither was built again (the broker builds them on first use)")
+	_ok(_rc_depth() == 0, "the world pause depth is 0 (got %d)" % _rc_depth())
+
+	print("-- a ring built on the phone has the PLAIN figures (it is a new instance, not the tablet's)")
+	b.ring_touch_open(_rc_local())
+	await _frames(6)
+	_ok(b.ring != null, "the ring exists on the phone once armed (a probe-only arming: the phone never arms one)")
+	var ph_radius := float(b.ring.debug_state()["radius"]) if b.ring != null else -1.0
+	_ok(absf(ph_radius - RING_PLAIN_RADIUS) < 0.01, "its radius is %.1f (literal 92, un-scaled; got %.2f). A ring kept from the tablet would read %.2f" % [RING_PLAIN_RADIUS, ph_radius, RING_TABLET_RADIUS])
+	await _rc_close_all()
+	await _live_swap(tab.x, tab.y, "tablet")
+	_ok(b.ring == null and b.card == null, "back on the tablet the phone's ring was freed too")
+	await _rc_open_hold()
+	_ok(b.ring != null and absf(float(b.ring.debug_state()["radius"]) - RING_TABLET_RADIUS) < 0.01, "a hold on the tablet builds a ring with radius %.2f again" % RING_TABLET_RADIUS)
+	await _rc_close_all()
+
+	print("-- the carry, on the path that bypasses the gate (a direct remount): tablet to phone with both open")
+	await _rc_open_hold()
+	old_ring = b.ring
+	old_card = b.card
+	_ok(_rc_depth() == 2, "depth 2 with both open (got %d)" % _rc_depth())
+	## The host is resized with NO `size_changed`, so no swap is requested; the direct call re-decides the class from the size.
+	_vp.size = ph
+	await _frames(3)
+	_app._remount_composition()
+	await _frames(14)
+	_ok(String(_app.class_key()) == "phone", "the direct remount is at the phone's class (%s)" % _app.class_key())
+	_ok(not is_instance_valid(old_ring) and not is_instance_valid(old_card), "the open ring and card were freed")
+	_ok(b.ring == null and b.card == null, "the phone has neither (its form is the peek sheet)")
+	var pm = _app._phone_menu
+	_ok(pm != null and pm.peek_card_is_open(), "the card's subject is open again as the phone's peek sheet")
+	_ok(absf(float(b.last_request["gx"]) - gx0) < 1e-6 and absf(float(b.last_request["gy"]) - gy0) < 1e-6 and String(b.last_request["form"]) == "phone",
+		"it is the same point (%.3f, %.3f), now resolved in the phone form" % [float(b.last_request["gx"]), float(b.last_request["gy"])])
+	_ok(_rc_depth() == 1, "the freed ring and card gave back their pause and the peek sheet holds one share: depth 1, not 2 or 3 (got %d)" % _rc_depth())
+
+	print("-- and phone to tablet: the peek sheet's subject becomes the card; no ring (the phone had none)")
+	_vp.size = tab
+	await _frames(3)
+	_app._remount_composition()
+	await _frames(14)
+	_ok(String(_app.class_key()) == "tablet", "the tablet again (%s)" % _app.class_key())
+	_ok(b.card != null and b.card.visible and b.ring == null, "the card is open in the tablet's form, with no ring")
+	_ok(absf(float(b.last_request["gx"]) - gx0) < 1e-6 and absf(float(b.last_request["gy"]) - gy0) < 1e-6 and String(b.last_request["form"]) == "tablet", "the same point, in the tablet form")
+	_ok(_rc_depth() == 1, "the card holds one share of the pause, and the closed peek sheet left none (got %d)" % _rc_depth())
+	await _rc_close_all()
+	_ok(_rc_depth() == 0, "closed: depth 0 (got %d)" % _rc_depth())
+
+	print("-- a same-class remount with both open: the carry is exact")
+	await _rc_open_hold()
+	## A hold arms the ring in its Q form (not sticky); set the other form by hand so the two flags carry a value that differs
+	## from what `arm()` writes (else a restore that forgot them would pass).
+	b.ring._sticky = true
+	b.ring._q = false
+	var st2: Dictionary = b.ring.debug_state()
+	var centre2: Vector2 = st2["centre"]
+	var sticky2: bool = bool(st2["sticky"])
+	var q2: bool = bool(st2["q"])
+	_ok(sticky2 and not q2, "the ring is sticky and not the Q form before the remount (sticky %s, q %s)" % [str(sticky2), str(q2)])
+	var ring_b = b.ring
+	var card_b = b.card
+	_app._remount_composition()
+	await _frames(14)
+	_ok(not is_instance_valid(ring_b) and not is_instance_valid(card_b), "the ring and the card were freed")
+	_ok(b.ring != null and b.ring.is_open() and b.card != null and b.card.visible, "and both are open again")
+	if b.ring == null or b.card == null:
+		return
+	var st3: Dictionary = b.ring.debug_state()
+	_ok(absf(float(st3["radius"]) - RING_TABLET_RADIUS) < 0.01, "with the tablet radius %.2f" % float(st3["radius"]))
+	_ok(((st3["centre"] as Vector2) - centre2).length() < 1.0, "at the same centre (%s -> %s)" % [str(centre2), str(st3["centre"])])
+	_ok(bool(st3["sticky"]) == sticky2 and bool(st3["q"]) == q2, "the sticky and Q flags are carried (sticky %s, q %s)" % [str(sticky2), str(q2)])
+	_ok(absf(float(b.last_request["gx"]) - gx0) < 1e-6 and absf(float(b.last_request["gy"]) - gy0) < 1e-6 and String(b.last_request["form"]) == "tablet", "the card's subject is the same point, in the tablet form")
+	_ok(_rc_depth() == 2, "depth is 2 again, not 4 and not 0 (got %d)" % _rc_depth())
+	await _rc_close_all()
+	_ok(_rc_depth() == 0, "closing both leaves depth 0 (got %d)" % _rc_depth())
+	print("-- nothing open: a remount builds neither")
+	_app._remount_composition()
+	await _frames(14)
+	_ok(b.ring == null and b.card == null and _rc_depth() == 0, "no ring, no card, depth 0 after a remount with neither open")
+	var freed := 0
+	for l in _connection_lines():
+		if String(l).contains("freed/"):
+			freed += 1
+	_ok(freed == 0, "no connection keeps a freed receiver (%d)" % freed)
+
+## -- S4.6: B5's window and timing legs ------------------------------------------------------------------------------------
+
+## The three windows B5 names (`MOBILE_SHELL_MS1_SPEC.md` section 5): the faction roster, the Place editor and the vault. **Adapted
+## to what the shell allows** (`S4_INVENTORY.md` section 18.3): on a phone or a tablet an `AcceptDialog` is exclusive, so only ONE of
+## them can be open at a time, and the bar's "three windows open at once" is read as three windows IN TURN, each opened with state
+## on the tablet and held open across two round trips through the REAL resize path. For each: it was not made to wait, it is a new
+## instance with the old one freed, its state came back, it is baked for the class, and its layout equals a fresh open's (all of that
+## is `_rep_step()`, the same checks `--leg represent` makes for every window). On top of those, B5's own: the world hash, the camera
+## and the domain are unchanged across the whole leg, and the time of every swap is recorded for the runner.
+const B5_WINDOWS := ["faction_roster_window", "place_editor_window", "vault_window"]
+
+func _b5() -> void:
+	await _settle_at_rest()
+	var boot := String(_app.class_key())
+	_ok(boot == "tablet", "boots as a tablet (class_key %s)" % boot)
+	await _make_world()
+	_rep_init()
+	var parts := _arg("--vp", "").split("x")
+	var tab := Vector2i(int(parts[0]), int(parts[1]))
+	var ph := Vector2i(880, 800)
+	_live_world = _world_hash()
+	_live_zoom = float(_app.viewport.zoom())
+	var cam0: Vector2 = _app.viewport._camera.position
+	var dom0 := String(_app.active_domain())
+	var sync: Array = []
+	var full: Array = []
+	for field in B5_WINDOWS:
+		print("-- %s: open on the tablet with state, held open across two round trips" % field)
+		await _rep_fixture(field)
+		for t in range(1, 3):
+			await _rep_step(field, ph.x, ph.y, "phone", "%s trip %d to the phone" % [field, t])
+			sync.append(float(_app.last_swap_sync_ms))
+			full.append(float(_app.last_swap_ms))
+			await _rep_step(field, tab.x, tab.y, "tablet", "%s trip %d back to the tablet" % [field, t])
+			sync.append(float(_app.last_swap_sync_ms))
+			full.append(float(_app.last_swap_ms))
+		_app.get(field).hide()
+		await _frames(4)
+	_ok(_world_hash() == _live_world, "the world is byte-identical after all the swaps (map texture and engine cells)")
+	_ok(absf(float(_app.viewport.zoom()) - _live_zoom) < 1e-6, "the camera zoom is unchanged (%.6f, was %.6f)" % [_app.viewport.zoom(), _live_zoom])
+	_ok((_app.viewport._camera.position - cam0).length() < 1e-6, "the camera's pan offset is unchanged (%s, was %s)" % [str(_app.viewport._camera.position), str(cam0)])
+	_ok(String(_app.active_domain()) == dom0, "the domain is unchanged (%s)" % String(_app.active_domain()))
+	_ok(sync.size() == 12, "twelve swaps were timed (%d)" % sync.size())
+	var freed := 0
+	for l in _connection_lines():
+		if String(l).contains("freed/"):
+			freed += 1
+	_ok(freed == 0, "no connection keeps a freed receiver (%d)" % freed)
+	## One line the runner (`ms1_b5.sh`) reads: this process's cold boot and the median of its twelve swaps, both in ms.
+	print("B5TIME cold_boot=%.1f swap_sync_median=%.1f swap_whole_median=%.1f engine_start=%d n=%d" % [_cold_boot_ms, _median(sync), _median(full), _engine_ms, sync.size()])
 
 func _represent() -> void:
 	await _settle_at_rest()

@@ -7662,3 +7662,20 @@ model) and what each costs.
 - **Not done:** the assistant dialog (1 window); the ring, the context card and B5's full bar (S4.6): `radial_ring._apply_touch_scale`
   only scales up, so the ring and the card must be freed and rebuilt on a swap, and B5's window bar is "one exclusive dialog at a time"
   on the touch classes (18.3).
+
+### MS-1 S4.6 part 1 built: the radial ring and the context card across a swap (2026-11-11)
+
+Read at the symbols; the account is `S4_INVENTORY.md` section 18.9. A swap now frees the ring, the context card and the broker's fallback
+`PopupMenu` (`ContextBroker.represent_free()`) and they are built again, lazily, for the new class: `RadialRing._apply_touch_scale()` only
+scales up, so a kept ring would have kept the tablet's radius on a window that had become a desktop or a phone.
+- **A real swap never meets an open ring or card** (`_app_quiescent_blockers()` reports "a context card is open" while the world-pause depth is
+  above 0), so the carry (the card's subject as data, re-resolved in the new class's form; the ring's centre, sticky and Q flags) serves the
+  paths that bypass the gate: a direct `_remount_composition()` and a surface opened after the gate looked.
+- **A leak found and fixed:** the phone's peek sheet holds one share of the world pause and was freed with the phone composition, so a phone
+  to tablet swap with it open left `_context_surface_depth` one too high for good. `represent_free()` closes it first.
+- **Bar (`_ms1swap_probe.gd --leg ringcard`, 1800 x 1000 and 880 x 800 at density 1):** 44 checks, 0 failed, 0 `SCRIPT ERROR`; literals 140.76 (the
+  tablet ring) and 92 (a ring built on the phone). Mutants: 11 of 11 killed (`C:/cw/s46_mut.py`).
+- **Regression, against the same tree without these edits:** `_ctxring` 132, `_ctxcard` 159 (desktop and tablet), `_ms5` 93, `_ms5b` 119, `_pc6ask`
+  desktop 74 and tablet 70, `_asstfix` 16, `_ms1swap` quiet 25, roundtrip 11, carry 68, live 167 (`--trips 2`): all 0 failed. `_ctxfan` has 14
+  pixel-palette failures (the glow ring and the slot labels) that are identical on the unedited tree (see the commit message).
+- **Not done:** the assistant dialog; B5's bar and timing runner (S4.6 part 2).

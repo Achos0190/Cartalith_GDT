@@ -419,6 +419,88 @@ func _on_id(id: int) -> void:
 	(a["callable"] as Callable).call()
 
 
+## ── MS-1 S4.6: the surfaces across a class swap ──────────────────────────────────────────────────────────────
+##
+## This object survives a swap (`S4_INVENTORY.md` section 2.2: it is a `RefCounted` made once by `_wire_selection()`),
+## but the two nodes it builds lazily do not stay valid for the new class: the ring's touch figures are computed once at
+## `setup()` and only ever scale UP (`radial_ring.gd::_apply_touch_scale()`), and the card's own `_m()` figures and
+## chrome were drawn for the class of its last `open()`. So a swap **frees** the ring, the card and the phone's fallback
+## `PopupMenu` (`represent_free()`) and they are built again, lazily, for the new class. Three calls, in the order
+## `DccApp._remount_composition()` runs them: capture before the unmount, free, restore after the mount.
+##
+## **What a real swap does with an OPEN surface, and what the carry is for.** An open ring or card holds a real swap:
+## `DccApp._app_quiescent_blockers()` reports "a context card is open" while `_context_surface_depth` is above 0 (S4.1;
+## the ring and the card each add one), so the swap waits until the user has finished with it, and nothing open is carried.
+## What every real swap has is a CLOSED ring or card that was built for the old class, and that is what the free is for
+## (a ring left alive keeps its tablet figures on a phone: `_apply_touch_scale()` only scales up). The carry covers the
+## paths that bypass the gate: a direct `_remount_composition()` (the probes, and any caller that has already decided),
+## and a surface that opened between the gate's last look and the capture. A subject is data (`last_request`) and the
+## rows are collected again, so the carry never holds a callable bound to a freed node.
+
+## What the swap carries, as data. **The card's subject**: `last_request`, the request the card (or the phone's peek
+## sheet) was resolved from (the point, the hits under it, the picked hit if Select narrowed it, the source). Not the
+## card's own filter text, expanded sub-lists or a stepped parameter: those are the card's, and a card is one
+## decision's worth of surface (reopened by a long-press). **The ring** if one is open and drawn
+## (`radial_ring.gd::represent_capture()`). `{}` when neither is open. Reads only; never emits.
+func represent_capture() -> Dictionary:
+	var bag := {}
+	if ring != null and is_instance_valid(ring):
+		var rb: Dictionary = ring.represent_capture()
+		if not rb.is_empty():
+			bag["ring"] = rb
+			bag["ring_press_local"] = _ring_press_local
+	var card_open: bool = card != null and is_instance_valid(card) and card.visible
+	var pm = app.get("_phone_menu")
+	var sheet_open: bool = pm != null and is_instance_valid(pm) and pm.has_method("peek_card_is_open") 		and bool(pm.call("peek_card_is_open"))
+	if (card_open or sheet_open) and not last_request.is_empty():
+		bag["subject"] = last_request.duplicate(true)
+	return bag
+
+
+## Closes and frees the ring, the card and the fallback popup, closes the phone's peek sheet, and forgets them (`ring`, `card` and `popup` are null
+## until the next presentation builds them for the class then current). Each is closed BEFORE it is freed, on purpose:
+## `radial_ring.gd::close()` and the card's `hide()` (its `popup_hide`) are what release the world pause
+## (`pause_for_context_surface()` is ref-counted by the surfaces that opened), and freeing an open one would leave the
+## count one too high for good. `last_request` and `last_actions` are kept: they are data, and `represent_capture()`
+## has already read them. Idempotent.
+func represent_free() -> void:
+	if ring != null and is_instance_valid(ring):
+		ring.close()
+		ring.free()
+	ring = null
+	if card != null and is_instance_valid(card):
+		card.hide()
+		card.free()
+	card = null
+	if popup != null and is_instance_valid(popup):
+		popup.hide()
+		popup.free()
+	popup = null
+	## The phone's peek sheet is part of the composition that is about to be freed, and it holds one share of the same pause
+	## (`phone_menu.gd`: `peek_card()` pauses, `close()` and a dismiss resume). Freed while open it would leave the count one too
+	## high for good (found by `_ms1swap_probe.gd --leg ringcard`: depth 2 after a phone to tablet swap with only a card open).
+	## `close()`, not a dismiss: the shell replacing one overlay with another does not fire the sheet's own dismiss callback.
+	var pm = app.get("_phone_menu")
+	if pm != null and is_instance_valid(pm) and pm.has_method("peek_card_is_open") and bool(pm.call("peek_card_is_open")):
+		pm.call("close")
+
+
+## The restore half, after the new composition is mounted and its workspaces exist (`collect()` asks them). The ring
+## first (so the card's placement clears it, `_ring_clearance()`), and only off the phone, which has no ring. The ring is
+## armed in its open form at the same centre and then given its flags back (`radial_ring.gd::represent_restore()`); the
+## card or sheet is the ordinary `resolve()` of the carried subject, so the new class draws it in its own form (a
+## tablet's card where a phone had its peek sheet, and the reverse) and the rows are collected again from the new
+## workspaces, never carried as callables bound to freed nodes.
+func represent_restore(bag: Dictionary) -> void:
+	if bag.has("ring") and not DccTheme.is_phone():
+		_ring_press_local = bag.get("ring_press_local", Vector2.ZERO)
+		var rb: Dictionary = bag["ring"]
+		_ensure_ring().arm(rb["centre"], ring_collect(ring_domain_req()), true, QuickBarRing.dock_items(app))
+		ring.represent_restore(rb)
+	if bag.has("subject"):
+		resolve(bag["subject"])
+
+
 ## ── The ring (CM-3, `MAP_CONTEXT_SCOPE.md` §5, §6, §9.1) ─────────────────────
 ##
 ## The ring needs none of `resolve()`'s machinery above: it never touches

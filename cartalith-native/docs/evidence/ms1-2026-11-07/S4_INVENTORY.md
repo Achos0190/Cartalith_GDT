@@ -1040,3 +1040,41 @@ Built on the contract of 18.1; verified by `_ms1swap_probe.gd --leg represent` (
 
 **Why `llm_assistant_window` is not converted (a design finding, not a postponement).** Its content (`_host`: the transcript, the cards, the draft, the chips) is built once and every control in it is connected to a method or a lambda **of the window instance**, and so are `run` (the `LlmRun` child, with a worker thread that may be streaming) and the nine `run.*` signals. A rebuilt window cannot adopt that content the way PC-6's `release_dock()` hands it back to the SAME window: the connections of the freed instance die with it, and re-wiring every card (proposal, view, edit, action and source cards, each with its own Apply state and callables) is a second implementation of the panel. The two contracts that would work are: (a) **keep the instance and re-lay out in place**: `_phone` is read in about twelve build conditionals plus `phone_window()` and `phone_fit()` at `setup()`, none with an inverse, so the content would be rebuilt around the preserved `_msgs` children (reparented, not recreated) while the dialog layer (borderless, scale, relay) is presented once more, which needs `phone_window()` to become idempotent first; or (b) **a transcript model**: the messages and cards as data, drawn by one function, so a new instance can draw the same conversation. Either is a milestone of its own; neither is a batch. Today the assistant's dialog form is correct only for the class it was built in, and the Ask tab's content is carried through a swap (S4.4) with its stale `_phone`.
 
+
+
+### 18.9 S4.6 part 1: the radial ring and the context card (2026-11-11)
+
+Built at the symbols `ContextBroker.represent_capture()`, `represent_free()` and `represent_restore()`, `RadialRing.represent_capture()` and
+`represent_restore()`, and the three calls in `DccApp._remount_composition()` (capture before the unmount, free before the new class is
+published, restore in `_restore_windows()` once the new workspaces exist); verified by `_ms1swap_probe.gd --leg ringcard`, not by this prose.
+
+- **The decision, and the finding that shaped it.** Section 2.3 said "free both and let the broker rebuild them lazily", and that is what is
+  built, for a reason the section did not have: a real swap never meets an OPEN ring or card, because `DccApp._app_quiescent_blockers()`
+  already reports "a context card is open" while `_context_surface_depth` is above 0 (the ring and the card each add one). What every real
+  swap meets is a **closed ring or card built for the old class**: `RadialRing._apply_touch_scale()` only scales up (`if not is_tablet():
+  return`, never a reset) and the card's `_m()` figures and chrome were drawn for its last `open()`, so a kept ring would keep the
+  tablet's 140.76 px radius on a desktop-size window. So the swap frees the ring, the card and the broker's fallback `PopupMenu` and nulls
+  the three fields; `_ensure_ring()` and `present()` build them for the class then current. The `_apply_touch_scale()` comment, which said
+  S4 would have to re-run it, now says the rule is the other one.
+- **The carry covers the paths that bypass the gate** (a direct `_remount_composition()`, which the probes and any caller that has already
+  decided take, and a surface opened between the gate's last look and the capture). Carried: the **card's subject** (`last_request`: the
+  point, the hits under it, the picked hit if Select narrowed it, the source; the rows are collected again from the new workspaces, so no
+  callable bound to a freed node is carried) and the **ring** (its centre, its sticky flag and its Q-form flag, re-armed with the new
+  class's slots and geometry, off the phone only). A phone's peek sheet is the card's phone form: its subject becomes the tablet's card
+  and the reverse. **Not carried:** the card's filter text, expanded lists and a stepped parameter (a card is one decision's worth of
+  surface), a sub-ring (re-opened with one flick), the ring's hover, and the phone's sample pin on a phone to tablet swap (the sheet is
+  closed, not dismissed).
+- **Found by the probe, fixed:** the phone's peek sheet holds one share of the same world pause (`phone_menu.gd`: `peek_card()` pauses,
+  `close()` resumes) and is freed with the phone composition. A phone to tablet swap with the sheet open left `_context_surface_depth` one
+  too high for good (the probe read 2 with only a card open); `represent_free()` now closes the sheet first. A ring or card freed while open
+  would have done the same, which is why each is closed before it is freed.
+- **Bar (`--leg ringcard`, tablet 1800 x 1000 and phone 880 x 800 at density 1, 44 checks):** the tablet ring's radius is the literal 140.76
+  (92 x 1.53) and a ring armed on the phone after a swap is the literal 92, so the two instances are told apart; a real swap WAITS while
+  the ring and card are open (named "a context card is open") and runs once they close; the old, closed instances are invalid afterwards and
+  the broker's fields are null; a direct tablet to phone remount with both open leaves depth 1 (the peek sheet) and the same point (gx, gy to
+  1e-6) in the phone form; phone to tablet gives the card in the tablet form with no ring and depth 1; a same-class remount with both
+  open carries the radius, the centre (within 1 px), the sticky and Q flags and the subject, and depth returns to 2, then 0 when closed; a
+  remount with neither open builds neither; no connection keeps a freed receiver.
+- **Mutants (literal, one at a time, restored by the script, `C:/cw/s46_mut.py`):** 11 of 11 killed (the ring's free, the card's hide before
+  its free, the peek sheet's close, the ring restore, the subject restore, the sticky flag, the Q flag, the centre, and the capture, free
+  and restore calls in `app.gd`).

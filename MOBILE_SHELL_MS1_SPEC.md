@@ -486,6 +486,7 @@ The bars:
     - *S4.4 (2026-11-09): until S4.5 builds the re-present, an open long-lived window makes the swap wait, named on the
       status line, and the swap runs when it closes (`_ms1swap_probe.gd --leg live` checks the wait and that typed text
       survives). The other B5 items above are checked by that leg; the three-window re-present bar is S4.6's.* *S4.5 batch 1 (2026-11-09): on the phone and the tablet an `AcceptDialog` is exclusive, so the engine allows one open window at a time there and a desktop never swaps; "three windows open at once" is read as three windows in turn, each open across the swap (`S4_INVENTORY.md` section 18.3).*
+      *S4.6 part 1 (2026-11-11): the ring and the context card are freed and rebuilt for the class on every swap, and an open one is carried only on a path that bypasses the gate, because an open one holds a real swap (`S4_INVENTORY.md` section 18.9; `_ms1swap_probe.gd --leg ringcard`).*
 
   Over ten round trips, the orphan node count (`Performance.OBJECT_ORPHAN_NODE_COUNT`) and the number of connections on
   `root.size_changed` and on `node_added` return to their values before the first swap. Captured stderr holds no

@@ -2242,6 +2242,10 @@ func _make_window(field: String) -> Node:
 			push_error("_make_window: no builder for '%s'" % field)
 	return w
 
+## What `ContextBroker.represent_capture()` read before the swap (an open ring, an open card's subject), handed back by
+## `_restore_windows()`. Empty between swaps.
+var _surface_bag: Dictionary = {}
+
 ## Step 1 of a swap's windows, BEFORE anything is unmounted: each represented window says what the user set.
 func _capture_windows() -> void:
 	_window_bags = {}
@@ -2286,6 +2290,10 @@ func _restore_windows() -> void:
 	## the mount, and a window opened before it was measured 27 px taller than the same window opened after (`_ms1swap_
 	## probe.gd --leg represent`, "equals a fresh open's").
 	await get_tree().process_frame
+	## S4.6: the ring and the card, once the workspaces that supply their rows exist and the phone's insets are settled.
+	if context_broker != null:
+		context_broker.represent_restore(_surface_bag)
+	_surface_bag = {}
 	search_represent_restore(_search_bag)
 	_search_bag = {}
 	for f in REPRESENTED_WINDOWS:
@@ -2324,6 +2332,11 @@ func _remount_composition(touch: Variant = null) -> void:
 	var status := status_snapshot()
 	_capture_class_state()
 	_capture_windows()
+	## S4.6: the ring and the card are built for the class they opened in; read what they hold, then free them
+	## (the broker is a survivor, the two nodes are not: `ContextBroker.represent_free()`).
+	_surface_bag = context_broker.represent_capture() if context_broker != null else {}
+	if context_broker != null:
+		context_broker.represent_free()
 	_unmount_app_composition()
 	_republish_class(_touch if touch == null else bool(touch))
 	_represent_windows()

@@ -215,11 +215,13 @@ func setup(app_ref) -> void:
 	_apply_touch_scale()
 
 
-## §7.2's touch figures, computed once. The composition class is fixed after boot
-## (MS-1 S3: `DccShell._phone` is written by the boot classification only, and a
-## resize across the line only requests a swap), so there is no class-change hook to
-## re-run this from. **MS-1 S4 changes that**: a swap that keeps this ring alive must
-## re-run `_apply_touch_scale()` (`MOBILE_SHELL_MS1_SPEC.md` §3.5, R9).
+## §7.2's touch figures, computed once **per ring instance**. The composition class changes at run time since MS-1
+## S4 (a window dragged across the 900 dp line swaps phone and tablet), and this function only scales UP (`if not
+## is_tablet(): return` leaves the desktop figures in place and never resets them), so it must not be re-run on a ring
+## that has lived through a swap: a tablet to desktop-or-phone swap would keep the scaled values. The rule is the other
+## one: **`ContextBroker.represent_free()` frees the ring on every swap and `_ensure_ring()` builds a new one**, whose
+## `setup()` runs this once for the class it was built in (`MOBILE_SHELL_MS1_SPEC.md` section 3.5, `S4_INVENTORY.md`
+## sections 2.3 and 18.9; `_ms1swap_probe.gd --leg ringcard` reads the live radius on both sides of a swap).
 ##
 ## `DccTheme.TOUCH_SCALE` (1.53) is this shell's one documented general-
 ## purpose touch multiplier -- reused here rather than inventing a ring-only
@@ -267,6 +269,27 @@ func _sub_disc_radius() -> float:
 ## Diameter of the centre CLOSE/BACK button (live, touch-scaled).
 func _centre_size() -> float:
 	return _r_slot * CENTRE_RATIO
+
+
+## MS-1 S4.6: what a class swap carries of an open ring, as data: the centre it was drawn at (this node is a top-level
+## control, so the centre is in viewport pixels, which a swap does not change), whether it is sticky and whether it is
+## the Q-key form. `{}` when no ring is open (a gesture still armed, or only waiting out its flick delay, is not carried:
+## the swap closes it and the user's finger has no ring to follow). The sub-ring, the hover and the dock hover are not
+## carried: a sub-ring is a transient second level (re-opened with one flick), and the hover is re-derived from the next
+## pointer sample. Reads only.
+func represent_capture() -> Dictionary:
+	if not (_active and _visible):
+		return {}
+	return {"centre": _centre, "sticky": _sticky, "q": _q}
+
+
+## The other half: `ContextBroker.represent_restore()` has just called `arm(centre, ..., true)` on this NEW ring (so it is
+## open, visible and has the new class's slots and geometry), and this puts back the two flags `arm()` resets, so a sticky
+## ring is still sticky (waiting for a click) and a Q ring still belongs to the Q key.
+func represent_restore(bag: Dictionary) -> void:
+	_sticky = bool(bag.get("sticky", false))
+	_q = bool(bag.get("q", true))
+	queue_redraw()
 
 
 ## True while the ring is a live gesture or sticky surface, drawn or not.
