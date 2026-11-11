@@ -3424,3 +3424,25 @@ Three answers to the open questions of 2026-11-09 (`OUTSTANDING_WORK.md`), and t
 Also found the same day, not a decision: a finger on the phone MENU, a sheet or a window panned the map behind it,
 because `ViewportHost._on_map()` tested geometry only. Fixed by requiring the topmost picked control at the press to be
 the map's own (`STATUS.md`, "Scroll-fix").
+
+## Ruling EN: rivers are drawn by zoom, ranked by discharge, about half the network at the opening view; exports follow the rule (owner, 2026-11-09)
+
+Answering `RIVER_ZOOM_VISIBILITY_RESEARCH.md` (`01fd37ef`):
+
+1. **The key is discharge, not stream order or width.** The research's length-weighted discharge rank `u` is
+   non-decreasing downstream, so a river can lose its head but never its middle. The biggest rivers show first.
+2. **Denser than proposed.** About **half** the drawn network length is visible at the opening (fit) view, not the
+   proposed 25-30 %. It fills in smoothly to the whole network as zoom grows. `P_FULL` (or the equivalent constant)
+   is set so that `f` is about 0.5 at the measured opening view; it is labelled as derived from this ruling and
+   measured, not assumed. Töpfer's 0.5 exponent stays.
+3. **Exports follow the zoom rule**, at their own scale: an export looks like the map at that scale.
+4. **The research's other defaults are taken:**
+   - a hidden river cannot be picked;
+   - the order-1 alpha is retired, keeping a width de-emphasis;
+   - delta fans fade in by their on-screen reach;
+   - no estuary or braided-channel model;
+   - the vector fallback follows the same rule;
+   - river labels are out of scope.
+5. **Never moves:** the generated river network, goldens, the planner or saves. Painted pixels move, and the new
+   probe captures are signed off against this ruling. RZ-0 (measuring the three keys on the 37 worlds) is still
+   run first, and its result is recorded.
