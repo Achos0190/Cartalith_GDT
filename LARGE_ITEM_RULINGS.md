@@ -3447,6 +3447,34 @@ Answering `RIVER_ZOOM_VISIBILITY_RESEARCH.md` (`01fd37ef`):
    probe captures are signed off against this ruling. RZ-0 (measuring the three keys on the 37 worlds) is still
    run first, and its result is recorded.
 
+### Addendum to Ruling EN (owner, 2026-11-11, after the RZ-2 before/after pairs of seed 246371, x0.4 to x16)
+
+The owner looked at the frames and said, in four messages relayed by the coordinator:
+
+- "The difference should be more extreme and also deltas don't look natural." (Deltas are another agent's redesign;
+  not touched here.)
+- "On opening view, global/world I'd like to see maybe 5~10%."
+- "And that should scale to map size as well."
+
+These **replace item 2** ("about half at the opening view", "Toepfer's 0.5 exponent stays") and nothing else of EN:
+
+1. **A whole-world map (about 40 000 km wide) opens at about 7.5 % of the drawn network length** (the middle of
+   the owner's 5 to 10 %): the biggest rivers only. The rank by discharge is unchanged (items 1, 3, 4, 5 stand).
+2. **A smaller map opens with more**: the share SEEN at the opening fit view is `0.075 * sqrt(40 075 km / width_km)`,
+   capped at 1 (Toepfer and Pillewizer's square-root law on the map's scale at the fit view, the coordinator's
+   form): 0.34 at 2 000 km, 0.67 at 500 km, the whole network at 225 km and below.
+3. **Zooming in grows it to the whole network at x64 relative to the opening fit view**, geometrically (a constant
+   factor per octave), not at an absolute pixels-per-cell: `f(z) = start^(1 - ln z / ln 64)`, `z = ppc / fit_ppc`.
+   A 1024-wide and a 2048-wide grid therefore show the same progression. The visible share rises x1 to x64 as
+   0.075, 0.12, 0.19, 0.49, 1.0 on a world. This **retires** the absolute `P_FULL` of 1.84 px per cell and the
+   0.5 exponent. The constants (`Z_FULL` 64, the band as half of `f`, the start share 0.06 = 0.075 / 1.25, the
+   reference window 942 x 603 px) are labelled as derived from these remarks in `river_stroke.rs`.
+4. **One function** (`river_stroke::river_visibility`, with `open_share` / `start_share` / `set_scale`) serves the screen
+   shader (a GLSL copy held equal by a test), the tiles and the export.
+
+Open for the owner: the fit density is taken in a fixed reference window (the owner's own, 942 x 603) rather than the
+live viewport, so tiles and exports do not depend on the window; on another window the opening share is a little off.
+
 ## Ruling EO: on touch, a tap on a map element selects it and shows its action chips (owner, 2026-11-11)
 
 Answers the touch question of the "Edit any map element directly from its context" row (`OUTSTANDING_WORK.md` §2.12; audit in `EDIT_FROM_CONTEXT_AUDIT.md`).

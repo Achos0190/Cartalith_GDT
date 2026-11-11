@@ -1,0 +1,57 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build fca99d87aab6
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cb32013dd0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cb32013dd0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cb32013dd0, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+
+======== seed 246371  grid 1024x656 ========
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cb32401f50, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cb32401f50, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cb32401f50, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  rivers traced 10707, drawn 5080
+  carve: { "trace_to_line_cells": { "n": 45966, "median": 0.0897730588913, "p90": 0.44720676541328, "max": 8.9375 }, "depth_vs_1cell_m": { "n": 1500, "median": 12.2824621200562, "p90": 135.029388427734, "max": 417.117401123047 }, "depth_vs_3to4cell_m": { "n": 1500, "median": 17.4768009185791, "p90": 163.341705322266, "max": 402.273193359375 } }
+  channel lakes: { "drawn": 5080, "traced_cells": 51046, "lake_cells_on_path": 603, "ocean_cells_on_path": 0, "lake_runs": 62, "lake_runs_len_le3": 23, "mask_toggles": 0, "rivers_cut_into_3plus_pieces": 0, "pieces_hist": { 0: 5080 } }
+  lakes: { "count": 41, "area_cells": 34211, "count_le3": 20, "count_ge10": 12, "area_ge10": 34134, "count_ge100": 7, "channel_shaped_ge10": 8, "channel_shaped_area": 2522, "basins_ge100": [111, 402, 31083] }
+  stroke: { "drawn": 5080, "pieces_hist": { 1: 5037, 2: 37, 3: 6 }, "rivers_2plus_pieces": 43, "rivers_3plus_pieces": 6, "breaks": 49, "breaks_with_water_past_them": 49, "width_narrowing_steps": 0, "rivers_that_narrow": 0, "rivers_one_width": 5080, "rivers_under_1px_at_x1": 2100, "continuations": 392, "continuations_that_narrow": 0, "shared_ends": 89, "joins": 3947, "join_gap_max_cells": 0.0416259765625, "joins_trib_wider_than_trunk": 0, "joins_joined_river_drawn_last": 3947, "join_width_ratio": { "n": 3947, "median": 1.0, "p90": 1.0, "max": 1.0 }, "free_ends_on_shore": 624, "free_ends_short_of_adjacent_water": 0, "short_end_gap_cells": { "n": 0 }, "short_ends_where": "[]" }
+  PROBE-OK: no free end stops short of adjacent water
+  draw cost (median frame ms, rivers on/off): { "on": 16.6690006256104, "off": 16.7210006713867 }
+  target trunk at cell 76.7,105.1 (river 131, width_cells 1.00)
+    z    1.0  lod=false  ppc 0.9  stroke_px 6292  comps 173  interior 168  small(<40px) 128
+    z    2.0  lod=false  ppc 1.9  stroke_px 13559  comps 126  interior 121  small(<40px) 92
+    z    4.0  lod=true  ppc 3.7  stroke_px 48022  comps 113  interior 104  small(<40px) 76
+    z    8.0  lod=true  ppc 7.4  stroke_px 94248  comps 125  interior 114  small(<40px) 104
+    z   16.0  lod=true  ppc 14.8  stroke_px 123832  comps 121  interior 108  small(<40px) 103
+    z   32.0  lod=true  ppc 29.7  stroke_px 159958  comps 14  interior 7  small(<40px) 5
+    z   64.0  lod=true  ppc 59.4  stroke_px 189859  comps 21  interior 18  small(<40px) 18
+    z  128.0  lod=true  ppc 118.8  stroke_px 266133  comps 2  interior 0  small(<40px) 0
+    z  240.0  lod=true  ppc 222.7  stroke_px 414944  comps 2  interior 0  small(<40px) 0
+    rz frame after_1024 z 1 ppc 0.928 saved
+    rz frame after_1024 z 4 ppc 3.711 saved
+    rz frame after_1024 z 16 ppc 14.844 saved
+    rz frame after_1024 z 64 ppc 59.375 saved
+
+PROBE-RESULT: DONE
+WARNING: 3 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
+exit 0

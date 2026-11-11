@@ -1,0 +1,65 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build fca99d87aab6
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20cb75feed0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20cb75feed0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20cb75feed0, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+
+======== seed 246371  grid 2048x1311 ========
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20d21aacb40, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20d21aacb40, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x20d21aacb40, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  rivers traced 16589, drawn 7853
+  carve: { "trace_to_line_cells": { "n": 131487, "median": 0.13088135421276, "p90": 0.58771556615829, "max": inf }, "depth_vs_1cell_m": { "n": 1500, "median": 57.8434295654297, "p90": 610.996948242188, "max": 1333.7900390625 }, "depth_vs_3to4cell_m": { "n": 1500, "median": 61.8756828308105, "p90": 715.937255859375, "max": 1342.13842773438 } }
+  channel lakes: { "drawn": 7853, "traced_cells": 139340, "lake_cells_on_path": 3841, "ocean_cells_on_path": 0, "lake_runs": 243, "lake_runs_len_le3": 109, "mask_toggles": 0, "rivers_cut_into_3plus_pieces": 0, "pieces_hist": { 0: 7853 } }
+  lakes: { "count": 79, "area_cells": 155708, "count_le3": 29, "count_ge10": 24, "area_ge10": 155533, "count_ge100": 10, "channel_shaped_ge10": 11, "channel_shaped_area": 15871, "basins_ge100": [101, 171, 221, 2786, 135978] }
+  stroke: { "drawn": 7853, "pieces_hist": { 1: 7725, 2: 83, 0: 38, 3: 7 }, "rivers_2plus_pieces": 90, "rivers_3plus_pieces": 7, "breaks": 97, "breaks_with_water_past_them": 97, "width_narrowing_steps": 0, "rivers_that_narrow": 0, "rivers_one_width": 7853, "rivers_under_1px_at_x1": 7815, "continuations": 314, "continuations_that_narrow": 0, "shared_ends": 103, "joins": 6684, "join_gap_max_cells": 0.02024132199585, "joins_trib_wider_than_trunk": 0, "joins_joined_river_drawn_last": 6684, "join_width_ratio": { "n": 6684, "median": 1.0, "p90": 1.0, "max": 1.0 }, "free_ends_on_shore": 670, "free_ends_short_of_adjacent_water": 0, "short_end_gap_cells": { "n": 0 }, "short_ends_where": "[]" }
+  PROBE-OK: no free end stops short of adjacent water
+  draw cost (median frame ms, rivers on/off): { "on": 16.6760005950928, "off": 16.67799949646 }
+  target trunk at cell 75.3,41.9 (river 121, width_cells 1.00)
+    z    1.0  lod=false  ppc 0.5  stroke_px 5499  comps 115  interior 111  small(<40px) 88
+    z    2.0  lod=false  ppc 0.9  stroke_px 8588  comps 103  interior 98  small(<40px) 74
+    z    4.0  lod=true  ppc 1.9  stroke_px 34127  comps 201  interior 193  small(<40px) 162
+    z    8.0  lod=true  ppc 3.7  stroke_px 54230  comps 134  interior 126  small(<40px) 119
+    z   16.0  lod=true  ppc 7.4  stroke_px 64699  comps 253  interior 240  small(<40px) 225
+    z   32.0  lod=true  ppc 14.8  stroke_px 85587  comps 44  interior 30  small(<40px) 28
+    z   64.0  lod=true  ppc 29.7  stroke_px 140544  comps 38  interior 31  small(<40px) 30
+    z  128.0  lod=true  ppc 59.4  stroke_px 161128  comps 1  interior 0  small(<40px) 0
+    z  240.0  lod=true  ppc 111.3  stroke_px 247681  comps 4  interior 1  small(<40px) 1
+    rz cost z   1.0 rivers ON : median 16.68 ms (min 16.09 max 17.14) gpu median 0.42
+    rz cost z   1.0 rivers OFF: median 16.68 ms (min 16.05 max 17.41) gpu median 0.29
+    rz cost z   4.0 rivers ON : median 16.68 ms (min 13.22 max 20.07) gpu median 0.32
+    rz cost z   4.0 rivers OFF: median 16.67 ms (min 11.15 max 22.29) gpu median 0.31
+    rz cost z  16.0 rivers ON : median 16.67 ms (min 11.88 max 21.45) gpu median 0.31
+    rz cost z  16.0 rivers OFF: median 16.68 ms (min 12.26 max 21.04) gpu median 0.29
+    rz cost z  64.0 rivers ON : median 16.67 ms (min 12.17 max 20.94) gpu median 0.29
+    rz cost z  64.0 rivers OFF: median 16.68 ms (min 12.29 max 21.00) gpu median 0.29
+    rz cost z 240.0 rivers ON : median 16.68 ms (min 14.91 max 18.44) gpu median 0.26
+    rz cost z 240.0 rivers OFF: median 16.67 ms (min 1.83 max 32.51) gpu median 0.25
+  rz cost build: rank sort ms over 5 serial runs [14.9927997589111, 14.3397998809814, 14.5572004318237, 14.8522996902466, 14.4561004638672]  whole river_draws ms [707.524291992188, 692.706298828125, 687.451599121094, 687.233703613281, 683.3623046875]
+  rz bar RZ-7 sort: worst 15.0 ms (bar 50)  PASS
+
+PROBE-RESULT: DONE
+WARNING: 3 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
+exit 0

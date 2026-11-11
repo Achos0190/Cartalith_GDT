@@ -173,6 +173,10 @@ var _fixed_targets: Dictionary = {}
 var _stats_only := false
 var _paint_compare := false
 var _rim5 := false
+var _rz := false
+var _rz_cost := false
+var _rz_frames := false
+var _rz_tag := ""
 var _rim2 := false
 var _rim2_head := false
 var _rim2_presets: Array = []
@@ -226,6 +230,10 @@ func _ready() -> void:
 			"--stats-only": _stats_only = true
 			"--paint-compare": _paint_compare = true
 			"--rim5": _rim5 = true
+			"--rz": _rz = true
+			"--rz-cost": _rz_cost = true
+			"--rz-frames": _rz_frames = true
+			"--rz-tag": _rz_tag = args[i + 1]; i += 1
 			"--rim2": _rim2 = true
 			"--rim2-head": _rim2_head = true
 			"--rim2-presets":
@@ -415,6 +423,12 @@ func _run_seed(seed_v: int) -> void:
 		sr["paint"] = await _paint_compare_run(rivers, targets)
 	if _rim5 and not _stats_only:
 		sr["rim5"] = await _rim5_run()
+	if _rz and not _stats_only:
+		sr["rz"] = await _rz_run(targets)
+	if _rz_frames and not _stats_only:
+		await _rz_frames_run(targets)
+	if _rz_cost and not _stats_only:
+		sr["rz_cost"] = await _rz_cost_run(targets)
 	if _rim2:
 		sr["rim2"] = await _rim2_run(targets)
 	if _rim4:
@@ -1229,6 +1243,313 @@ func _rim5_run() -> Dictionary:
 		printerr("PROBE-FAIL: a path drew no river ink at the deepest rim5 zoom (positive control)")
 		_report["fail"] = true
 	return {"rows": rows, "max_step_kept": max_step, "min_kept": kept_min}
+
+
+## ---- RZ-3 / RZ-4 / RZ-6 / RZ-7: the windowed bars of Ruling EN ----------------
+##
+## `--rz` (growth, tile-switch continuity, click pick) and `--rz-cost` (pan frame
+## time, rank-sort build time). Measurement only: no constant is read back from
+## here and no bar is retuned to pass; a failed bar prints `PROBE-FAIL` and sets
+## the exit code, and the cause is for the owner to judge. Run at the owner's
+## window (`--vp 942x603`, the 0.46 px per cell contain fit `P_FULL_PPC` 1.84 was
+## derived from) and world (`--grid 2048x1311 --river-density 1.55 --width-km
+## 40075 --geology-model --metropolis`). The length figures read the drawn
+## network through `WorldGen::river_visibility_stats` (grid cells; a segment is
+## visible when its alpha is at least the pick's 0.5), the ink figures are the
+## pixels as `_rim5_ink` counts them.
+
+## The `rz` leg's zoom ladder (camera zoom 1 is the opening view).
+const RZ_LADDER := [1.0, 2.0, 4.0, 16.0, 64.0]
+
+
+## Painted-path ink at zoom `z` centred on `c`, the pyramid settled first (a tile
+## is a different raster from the screen texture, and a half-built one would read
+## as the parent). `{ink, mass, ppc}`, `ink = -1` when a frame is missing.
+func _rz_ink(z: float, c: Vector2, tag: String) -> Dictionary:
+	_vh.reset_view()
+	await _settle(3)
+	_vh.zoom_step(z / _vh.zoom())
+	_vh.move_view_to(c.x, c.y)
+	await _settle_lod()
+	var mat := _vh.map_view.material as ShaderMaterial
+	mat.set_shader_parameter("floodplain_strength", 0.0)
+	await _settle(4)
+	var on := await _grab()
+	_vh.set_layer_visible("rivers", false)
+	await _settle_lod()
+	var off := await _grab()
+	_vh.set_layer_visible("rivers", true)
+	mat.set_shader_parameter("floodplain_strength", 1.0)
+	await _settle_lod()
+	if on == null or off == null:
+		return {"ink": -1, "mass": -1, "ppc": 0.0}
+	if tag != "":
+		on.save_png(_out.path_join(tag + ".png"))
+	var m := _diff_masks(on, off)
+	var n := 0
+	for b in (m["m8"] as PackedByteArray):
+		if b == 1: n += 1
+	var da := on.get_data(); var db := off.get_data()
+	var mass := 0
+	for i in on.get_width() * on.get_height():
+		var o := i * 4
+		mass += absi(da[o] - db[o]) + absi(da[o + 1] - db[o + 1]) + absi(da[o + 2] - db[o + 2])
+	return {"ink": n, "mass": mass, "ppc": _ppc_at(_vh.zoom())}
+
+
+func _rz_run(targets: Dictionary) -> Dictionary:
+	var wg = _br.world_gen
+	var res := {}
+	if not wg.has_method("river_visibility_stats"):
+		printerr("PROBE-FAIL: this build has no river_visibility_stats (the --rz leg needs the RZ-3 measurement build)")
+		_report["fail"] = true
+		return res
+	var mid := Vector2(_grid.x * 0.5, _grid.y * 0.5)
+	var centre: Vector2 = targets["trunk"]["p"] if targets.has("trunk") else mid
+	## ---- RZ-3: growth ladder, law-level length and pixels ----
+	var rows := []
+	var prev_ppc := 0.0
+	for z: float in RZ_LADDER:
+		if z > _vh._zoom_max + 1e-6:
+			continue
+		_vh.reset_view()
+		await _settle(3)
+		_vh.zoom_step(z / _vh.zoom())
+		var ppc := _ppc_at(_vh.zoom())
+		var st: Dictionary = wg.river_visibility_stats(ppc, prev_ppc)
+		var ink := await _rz_ink(z, mid if z <= 2.0 else centre, "rz_z%05.2f" % z)
+		var tot := maxf(1.0, float(st["total"]))
+		var row := {"z": z, "ppc": ppc, "total": st["total"], "visible": st["visible"], "full": st["full"],
+			"visible_share": float(st["visible"]) / tot, "full_share": float(st["full"]) / tot,
+			"gone_vs_prev": st["gone_vs_prev"], "fragments": st["fragments"], "ink": ink["ink"], "mass": ink["mass"]}
+		rows.append(row)
+		print("    rz z %5.1f ppc %6.3f  drawn %8.0f visible %8.0f (%.3f) full %8.0f (%.3f) gone_vs_prev %.1f fragments %d  ink %d mass %d"
+			% [z, ppc, st["total"], st["visible"], row["visible_share"], st["full"], row["full_share"], st["gone_vs_prev"], st["fragments"], ink["ink"], ink["mass"]])
+		prev_ppc = ppc
+	res["growth"] = rows
+	if rows.size() >= 3:
+		## Owner, 2026-11-11 (Ruling EN addendum): about 7.5 % of the drawn length at the opening view of a whole-world
+		## map (5 to 10 %), more on a smaller map (0.075 * sqrt(40075 / width_km), capped at 1), growing at every zoom
+		## to the whole network at x64. `open_expected` is that figure from the world's width.
+		var open_expected := minf(1.0, 0.075 * sqrt(40075.0 / maxf(1.0, _width_km)))
+		var s1: float = rows[0]["visible_share"]
+		var s4: float = rows[2]["visible_share"]
+		var lo := 0.05 if open_expected < 0.11 else open_expected - 0.05
+		var hi := 0.10 if open_expected < 0.11 else minf(1.0, open_expected + 0.05)
+		var ok_open := s1 >= lo and s1 <= hi
+		var ok_full := float(rows[rows.size() - 1]["visible_share"]) >= 0.99
+		var ok_x4 := s4 > s1 * 1.3 or s1 >= 0.77
+		var ok_top := float(rows[0]["full_share"]) >= 0.8 * float(rows[0]["visible_share"]) * 0.8
+		res["open_expected"] = open_expected
+		res["x4_over_x1_length"] = float(rows[2]["visible"]) / maxf(1.0, float(rows[0]["visible"]))
+		var ok_all := ok_open and ok_full and ok_x4 and ok_top
+		print("  rz bar RZ-3 length: x1 visible share %.3f (expected %.3f, window %.3f..%.3f) x4/x1 %.2f; full by x64 %s; x1 full-alpha share %.3f  %s"
+			% [s1, open_expected, lo, hi, res["x4_over_x1_length"], str(ok_full), rows[0]["full_share"], "PASS" if ok_all else "FAIL"])
+		if not ok_all:
+			printerr("PROBE-FAIL: RZ-3 length bar (open %s, x4 %s, x64 full %s, top %s)" % [str(ok_open), str(ok_x4), str(ok_full), str(ok_top)])
+			_report["fail"] = true
+	for k in range(1, rows.size()):
+		if float(rows[k]["visible"]) + 1e-3 < float(rows[k - 1]["visible"]):
+			printerr("PROBE-FAIL: RZ-3 visible length fell between zoom %.1f and %.1f" % [rows[k - 1]["z"], rows[k]["z"]])
+			_report["fail"] = true
+		if float(rows[k]["gone_vs_prev"]) > 1e-3 and float(rows[k]["z"]) >= 16.0:
+			printerr("PROBE-FAIL: RZ-3 a previously visible river is gone at zoom %.1f" % rows[k]["z"])
+			_report["fail"] = true
+		if int(rows[k]["fragments"]) > 0:
+			print("  rz note: %d pieces show a fragment under 3 cells at zoom %.1f" % [rows[k]["fragments"], rows[k]["z"]])
+	## ---- RZ-4: continuity across the tile level switch ----
+	res["continuity"] = await _rz_continuity(wg, centre)
+	## ---- RZ-6: the click pick, through the dock's own handler ----
+	res["pick"] = await _rz_pick(wg)
+	return res
+
+
+## Law-level visible-length change per step (no pixels) at 1 % ppc steps over two
+## octaves, then the pixels (ink mass per ppc per visible cell, which should not
+## jump) at 24 geometric steps from 1.1 to 4.4, across the deep-zoom switch.
+func _rz_continuity(wg, c: Vector2) -> Dictionary:
+	var out := {}
+	var ppc0 := _ppc_at(1.1)
+	var prev := -1.0
+	var worst_law := 0.0
+	var ppc := ppc0
+	while ppc <= ppc0 * 4.0:
+		var st: Dictionary = wg.river_visibility_stats(ppc, 0.0)
+		var tot := maxf(1.0, float(st["total"]))
+		if prev >= 0.0:
+			worst_law = maxf(worst_law, absf(float(st["visible"]) - prev) / tot)
+		prev = float(st["visible"])
+		ppc *= 1.01
+	out["law_max_step_1pct_of_total"] = worst_law
+	print("  rz RZ-4 law: worst visible-length change per 1 %% ppc step over 2 octaves = %.4f of total drawn length (bar 0.03)  %s"
+		% [worst_law, "PASS" if worst_law <= 0.03 else "FAIL"])
+	if worst_law > 0.03:
+		printerr("PROBE-FAIL: RZ-4 law-level visible length moves more than 3 % of total in a 1 % ppc step")
+		_report["fail"] = true
+	var rows := []
+	var steps := 24
+	var last_norm := -1.0
+	var worst_norm := 0.0
+	var worst_at := -1.0
+	var law_prev := -1.0
+	var worst_law24 := 0.0
+	for k in steps + 1:
+		var z := 1.1 * pow(4.0, float(k) / float(steps))
+		if z > _vh._zoom_max + 1e-6:
+			break
+		var ink := await _rz_ink(z, c, "")
+		var ppc_k: float = ink["ppc"]
+		var st: Dictionary = wg.river_visibility_stats(ppc_k, 0.0)
+		var norm := float(ink["mass"]) / maxf(1.0, ppc_k * maxf(1.0, float(st["visible"])))
+		var step_rel := (absf(norm - last_norm) / last_norm) if last_norm > 0.0 else 0.0
+		var law_step := (absf(float(st["visible"]) - law_prev) / maxf(1.0, float(st["total"]))) if law_prev >= 0.0 else 0.0
+		if last_norm > 0.0 and step_rel > worst_norm:
+			worst_norm = step_rel
+			worst_at = z
+		worst_law24 = maxf(worst_law24, law_step)
+		rows.append({"z": z, "ppc": ppc_k, "lod": _vh.lod_active(), "mass": ink["mass"], "visible": st["visible"], "norm": norm, "norm_step": step_rel, "law_step": law_step})
+		print("    rz sweep z %6.3f ppc %6.3f lod=%s  mass %d  visible %.0f  mass/(ppc*visible) %.3f  step %.3f  law step %.4f"
+			% [z, ppc_k, str(_vh.lod_active()), ink["mass"], st["visible"], norm, step_rel, law_step])
+		last_norm = norm
+		law_prev = float(st["visible"])
+	out["sweep"] = rows
+	out["law_max_step_24"] = worst_law24
+	out["pixel_worst_norm_step"] = worst_norm
+	out["pixel_worst_at_zoom"] = worst_at
+	print("  rz RZ-4 sweep (24 steps, ratio 1.0595): law worst %.4f of total (the research's metric at a 5.9 %% step); pixel mass-per-ppc-per-visible-cell worst step %.3f at zoom %.3f (informational: a popped tile would spike here)"
+		% [worst_law24, worst_norm, worst_at])
+	return out
+
+
+## The pick through `right_dock._on_map_clicked_river` (the real handler): a click
+## on a river the rule hides must not select it, a click on a drawn one must.
+func _rz_pick(wg) -> Dictionary:
+	var out := {}
+	var rd = _app.right_dock_ctrl
+	if rd == null or not wg.has_method("river_visible_near"):
+		printerr("PROBE-FAIL: no right dock or no river_visible_near (RZ-6)")
+		_report["fail"] = true
+		return out
+	var rivers: Array = _br.rivers(1)
+	for z: float in [1.0, 2.0]:
+		_vh.reset_view()
+		await _settle(3)
+		_vh.zoom_step(z / _vh.zoom())
+		await _settle(6)
+		var ppc: float = rd._river_px_per_cell()
+		var rad: float = rd._river_pick_radius_cells()
+		var hid = null
+		var vis = null
+		for r: Dictionary in rivers:
+			if r.has("parallel_of") or not r.has("render_points"):
+				continue
+			var rp: PackedVector2Array = r["render_points"]
+			for k in range(0, rp.size(), 3):
+				var p := rp[k]
+				if not _inner(p):
+					continue
+				if wg.river_at(p.x, p.y, rad, 1).is_empty():
+					continue
+				var seen: bool = wg.river_visible_near(p.x, p.y, rad, ppc)
+				if seen and vis == null:
+					vis = p
+				if not seen and hid == null:
+					hid = p
+			if hid != null and vis != null:
+				break
+		var row := {"z": z, "ppc": ppc, "radius_cells": rad, "hidden_found": hid != null, "visible_found": vis != null}
+		_app.armed_tool = "inspect"
+		for name in ["hidden", "visible"]:
+			var p = hid if name == "hidden" else vis
+			if p == null:
+				continue
+			rd._context = rd.CTX_SAMPLE
+			rd._river = {}
+			rd._on_map_clicked_river(p.x, p.y)
+			var picked: bool = rd._context == rd.CTX_RIVER and not rd._river.is_empty()
+			row[name + "_click_picked"] = picked
+			var good: bool = (picked == (name == "visible"))
+			print("    rz pick z %.1f ppc %.3f radius %.1f cells: click on a %s river at (%.1f, %.1f) -> %s  %s"
+				% [z, ppc, rad, name, p.x, p.y, "PICKED" if picked else "not picked", "PASS" if good else "FAIL"])
+			if not good:
+				printerr("PROBE-FAIL: RZ-6 a %s river was %s" % [name, "picked" if picked else "not picked"])
+				_report["fail"] = true
+		if hid == null:
+			print("    rz pick z %.1f: no hidden river stands a click-radius clear of every drawn one here (radius %.1f cells): recorded, not a pass" % [z, rad])
+		out["z%.1f" % z] = row
+		rd._context = rd.CTX_SAMPLE
+		rd._river = {}
+	var any_hidden := false
+	var any_visible := false
+	for k in out.keys():
+		any_hidden = any_hidden or bool(out[k]["hidden_found"])
+		any_visible = any_visible or bool(out[k]["visible_found"])
+	if not any_visible:
+		printerr("PROBE-FAIL: RZ-6 positive control: no drawn river found to click")
+		_report["fail"] = true
+	if not any_hidden:
+		print("  rz pick: NO hidden river could be clicked at any zoom tried: the hidden half of the bar is UNMEASURED here")
+		out["hidden_unmeasured"] = true
+	return out
+
+
+## RZ-7: pan-frame time at the ladder's zooms with rivers ON and OFF (a build with
+## no `river_rank_cost` is the pre-change build: the same probe runs on both), and
+## the rank sort's build cost, five serial runs.
+func _rz_cost_run(targets: Dictionary) -> Dictionary:
+	var wg = _br.world_gen
+	var out := {}
+	var mid := Vector2(_grid.x * 0.5, _grid.y * 0.5)
+	var centre: Vector2 = targets["trunk"]["p"] if targets.has("trunk") else mid
+	var rows := []
+	for z: float in [1.0, 4.0, 16.0, 64.0, 240.0]:
+		if z > _vh._zoom_max + 1e-6:
+			continue
+		var row := {"z": z}
+		for on in [true, false]:
+			_vh.set_layer_visible("rivers", on)
+			await _settle_lod()
+			var pc := await _pan_cost(mid if z <= 2.0 else centre, z)
+			row["on" if on else "off"] = pc
+			print("    rz cost z %5.1f rivers %s: median %.2f ms (min %.2f max %.2f) gpu median %.2f"
+				% [z, "ON " if on else "OFF", pc["median_ms"], pc["min_ms"], pc["max_ms"], pc["gpu_median_ms"]])
+		_vh.set_layer_visible("rivers", true)
+		rows.append(row)
+	out["pan"] = rows
+	if wg.has_method("river_rank_cost"):
+		var rc: Dictionary = wg.river_rank_cost(5)
+		out["rank"] = {"rank_ms": Array(rc["rank_ms"]), "draws_ms": Array(rc["draws_ms"])}
+		print("  rz cost build: rank sort ms over 5 serial runs ", Array(rc["rank_ms"]), "  whole river_draws ms ", Array(rc["draws_ms"]))
+		var mx := 0.0
+		for v in rc["rank_ms"]:
+			mx = maxf(mx, v)
+		print("  rz bar RZ-7 sort: worst %.1f ms (bar 50)  %s" % [mx, "PASS" if mx <= 50.0 else "FAIL"])
+		if mx > 50.0:
+			printerr("PROBE-FAIL: RZ-7 rank sort over 50 ms")
+			_report["fail"] = true
+	else:
+		print("  rz cost: no river_rank_cost in this build (the pre-change baseline)")
+	return out
+
+
+## `--rz-frames`: the frame pair material. One frame as the user sees it (floodplain tint on) at each ladder zoom,
+## the pyramid settled, saved as `<tag>_s<seed>_z<zoom>.png`; run on the pre-change and the new build with different
+## `--rz-tag`s. Works on any build (no new method is needed).
+func _rz_frames_run(targets: Dictionary) -> void:
+	var mid := Vector2(_grid.x * 0.5, _grid.y * 0.5)
+	var centre: Vector2 = targets["trunk"]["p"] if targets.has("trunk") else mid
+	for z: float in [1.0, 4.0, 16.0, 64.0]:
+		if z > _vh._zoom_max + 1e-6:
+			continue
+		_vh.reset_view()
+		await _settle(3)
+		_vh.zoom_step(z / _vh.zoom())
+		_vh.move_view_to((mid if z <= 2.0 else centre).x, (mid if z <= 2.0 else centre).y)
+		await _settle_lod()
+		var img := await _grab()
+		if img != null:
+			img.save_png(_out.path_join("%s_z%02d.png" % [_rz_tag, int(z)]))
+			print("    rz frame %s z %d ppc %.3f saved" % [_rz_tag, int(z), _ppc_at(_vh.zoom())])
 
 
 ## ---- RIM-2: the bank outline -------------------------------------------------

@@ -1089,21 +1089,22 @@ mod tests {
         assert!(th[2] > 0.99 && tt[2] < 0.01, "positive control: the fixtures carry ranks 1 and 0 ({} {})", th[2], tt[2]);
         let alpha = |t: [f32; 4], ppc: f32| coverage(t, ppc, rw).1;
         assert_eq!(alpha(th, 0.1), 0.0, "the least river is gone zoomed out");
-        assert_eq!(alpha(th, 0.46), 0.0, "and at the owner world's fit density, where f is 0.5");
-        assert_eq!(alpha(th, 1.84), 1.0, "and fully drawn from P_FULL (literal 1.84)");
-        assert!(alpha(th, 1.5) > 0.0 && alpha(th, 1.5) < 1.0, "mid-ramp is partly faded");
+        assert_eq!(alpha(th, 0.46), 0.0, "and at the owner world's fit density, where f is 0.06");
+        assert_eq!(alpha(th, 30.0), 1.0, "and fully drawn from Z_FULL (literal ppc 30, zoom 65 over the fit 0.46)");
+        assert!(alpha(th, 21.0) > 0.0 && alpha(th, 21.0) < 1.0, "mid-ramp (ppc 21: f 0.80, the rank-1 stroke inside the band) is partly faded");
         for ppc in [0.05, 0.2, 0.5, 0.8, 3.0] {
             assert_eq!(alpha(tt, ppc), 1.0, "the largest river is never faded (ppc {ppc})");
         }
         let (mut prev, mut max_step) = (0.0f32, 0.0f32);
         for i in 0..=400 {
-            let al = alpha(th, 0.1 + i as f32 * 0.005);
+            // ppc 10 to 30: the whole fade ramp of the rank-1 stroke at the default scale (f 0.41 to 1).
+            let al = alpha(th, 10.0 + i as f32 * 0.05);
             max_step = max_step.max((al - prev).abs());
             prev = al;
         }
-        assert!(max_step < 0.05, "a 0.005 pixel-per-cell step moved the alpha by {max_step}");
-        // Rank 0.5 at f = 0.5 (0.46 ppc) is the start of the band: drawn in full; the same texel at 0.3 ppc is not.
-        let mid = [th[0], th[1], 0.5, th[3]];
+        assert!(max_step < 0.05, "a 0.05 pixel-per-cell step (about 0.3 % of zoom) moved the alpha by {max_step}");
+        // Rank 0.06 at f = 0.06 (0.46 ppc, the fit view) is the start of the band: drawn in full; the same texel at 0.3 ppc (f 0.045) is not.
+        let mid = [th[0], th[1], 0.06, th[3]];
         assert_eq!(alpha(mid, 0.46), 1.0);
         assert!(alpha(mid, 0.3) < 0.5, "{}", alpha(mid, 0.3));
     }
@@ -1123,13 +1124,12 @@ mod tests {
             let at = src.find(&key).unwrap_or_else(|| panic!("the shader declares no `{name}`")) + key.len();
             src[at..].split(';').next().unwrap().trim().parse().expect("a float literal")
         };
-        assert_eq!(konst("VISIBLE_EXPONENT"), river_stroke::VISIBLE_EXPONENT);
-        assert_eq!(konst("P_FULL_PPC"), river_stroke::P_FULL_PPC);
-        assert_eq!(konst("FADE_BAND"), river_stroke::FADE_BAND);
+        assert_eq!(konst("Z_FULL"), river_stroke::Z_FULL);
+        assert_eq!(konst("FADE_BAND_REL"), river_stroke::FADE_BAND_REL);
         assert_eq!(konst("HEADWATER_U_LO"), river_stroke::HEADWATER_U_LO);
         assert_eq!(konst("HEADWATER_U_HI"), river_stroke::HEADWATER_U_HI);
-        assert!(src.contains("min(pow(max(ppc, 0.0) / P_FULL_PPC, VISIBLE_EXPONENT), 1.0)"), "the shader's share is not the radical law");
-        assert!(src.contains("1.0 - smoothstep(f, f + FADE_BAND, u)"), "the shader's fade is not the Rust band");
+        assert!(src.contains("pow(river_open_start, 1.0 - log(z) / log(Z_FULL))"), "the shader's share is not the geometric law");
+        assert!(src.contains("1.0 - smoothstep(f, f + FADE_BAND_REL * f, u)"), "the shader's fade is not the Rust band");
         assert!(src.contains("smoothstep(HEADWATER_U_LO, HEADWATER_U_HI, u)"), "the shader's headwater weight is not the Rust one");
     }
 
@@ -1294,9 +1294,9 @@ mod tests {
         assert!(room > 0.5, "positive control: the band alone would leave the line room ({room})");
         assert_eq!(peak(10.0, 1.0, 1.0, 0.2, 1.0), 0.0, "a faded stream keeps no outline");
         assert_eq!(peak(10.0, 1.0, 1.0, 0.1, 1.0), 0.0);
-        assert!((peak(10.0, 1.0, 1.0, 1.84, 1.0) - 1.0).abs() < 1e-5, "from P_FULL the line is full strength");
+        assert!((peak(10.0, 1.0, 1.0, 30.0, 1.0) - 1.0).abs() < 1e-5, "from Z_FULL the line is full strength");
         assert!((peak(10.0, 0.0, 1.0, 0.8, 1.0) - 1.0).abs() < 1e-5, "a rank-0 river's line is full strength zoomed out");
-        let mid = peak(10.0, 1.0, 1.0, 1.5, 1.0);
+        let mid = peak(10.0, 1.0, 1.0, 21.0, 1.0);
         assert!(mid > 0.0 && mid < 1.0, "mid-fade is partial ({mid})");
         assert!((peak(10.0, 0.0, 0.5, 2.0, 1.0) - 0.5).abs() < 1e-5, "half frame weight, half the ink");
         assert_eq!(peak(10.0, 0.0, 0.0, 2.0, 1.0), 0.0, "no outline on the frame margin");
@@ -1589,7 +1589,7 @@ mod tests {
     /// Protects: RZ-4 (Ruling EN item 3) -- the deep-zoom tile and the export
     /// follow the zoom rule at their OWN density: a least-rank river paints
     /// nothing in a raster at 0.3 pixels per cell (a grid-resolution export, a
-    /// zoomed-out tile), paints from `P_FULL_PPC` up, and agrees there with the
+    /// zoomed-out tile), paints from `Z_FULL` up, and agrees there with the
     /// screen texture's `coverage` at the same density; a rank-0 river paints at
     /// both. The three paths answer one law.
     #[test]
@@ -1606,10 +1606,10 @@ mod tests {
         assert_eq!(painted(&head, 0.3), 0.0, "the least river is not painted at 0.3 pixels per cell");
         assert!(painted(&big, 0.3) > 1.0, "positive control: the largest river is");
         let tex = build(&head, 64, 40, a.river_width as f32, &|_, _| 0.0).expect("a field");
-        let (c, am) = coverage(tex.sample(30.0, 20.0), 3.0, a.river_width as f32);
-        assert!(c > 0.9 && am == 1.0, "the screen draws it at 3 ppc ({c} {am})");
-        let drawn = painted(&head, 3.0);
-        assert!(drawn > 20.0, "and the raster draws it at 3 ppc ({drawn})");
+        let (c, am) = coverage(tex.sample(30.0, 20.0), 30.0, a.river_width as f32);
+        assert!(c > 0.9 && am == 1.0, "the screen draws it at 30 ppc, past Z_FULL ({c} {am})");
+        let drawn = painted(&head, 30.0);
+        assert!(drawn > 20.0, "and the raster draws it at 30 ppc ({drawn})");
     }
 
     /// Protects: the raster's post plane -- the floodplain beside a wide

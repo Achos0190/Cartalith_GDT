@@ -1,0 +1,152 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build fca99d87aab6
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x269ab8478f0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x269ab8478f0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x269ab8478f0, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+
+======== seed 246371  grid 1024x656 ========
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x26a14a61730, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x26a14a61730, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x26a14a61730, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+  rivers traced 10707, drawn 5080
+  carve: { "trace_to_line_cells": { "n": 45966, "median": 0.0897730588913, "p90": 0.44720676541328, "max": 8.9375 }, "depth_vs_1cell_m": { "n": 1500, "median": 12.2824621200562, "p90": 135.029388427734, "max": 417.117401123047 }, "depth_vs_3to4cell_m": { "n": 1500, "median": 17.4768009185791, "p90": 163.341705322266, "max": 402.273193359375 } }
+  channel lakes: { "drawn": 5080, "traced_cells": 51046, "lake_cells_on_path": 603, "ocean_cells_on_path": 0, "lake_runs": 62, "lake_runs_len_le3": 23, "mask_toggles": 0, "rivers_cut_into_3plus_pieces": 0, "pieces_hist": { 0: 5080 } }
+  lakes: { "count": 41, "area_cells": 34211, "count_le3": 20, "count_ge10": 12, "area_ge10": 34134, "count_ge100": 7, "channel_shaped_ge10": 8, "channel_shaped_area": 2522, "basins_ge100": [111, 402, 31083] }
+  stroke: { "drawn": 5080, "pieces_hist": { 1: 5037, 2: 37, 3: 6 }, "rivers_2plus_pieces": 43, "rivers_3plus_pieces": 6, "breaks": 49, "breaks_with_water_past_them": 49, "width_narrowing_steps": 0, "rivers_that_narrow": 0, "rivers_one_width": 5080, "rivers_under_1px_at_x1": 2100, "continuations": 392, "continuations_that_narrow": 0, "shared_ends": 89, "joins": 3947, "join_gap_max_cells": 0.0416259765625, "joins_trib_wider_than_trunk": 0, "joins_joined_river_drawn_last": 3947, "join_width_ratio": { "n": 3947, "median": 1.0, "p90": 1.0, "max": 1.0 }, "free_ends_on_shore": 624, "free_ends_short_of_adjacent_water": 0, "short_end_gap_cells": { "n": 0 }, "short_ends_where": "[]" }
+  PROBE-OK: no free end stops short of adjacent water
+  draw cost (median frame ms, rivers on/off): { "on": 16.6760005950928, "off": 16.6800003051758 }
+  target trunk at cell 76.7,105.1 (river 131, width_cells 1.00)
+    z    1.0  lod=false  ppc 0.9  stroke_px 6292  comps 173  interior 168  small(<40px) 128
+    z    2.0  lod=false  ppc 1.9  stroke_px 13559  comps 126  interior 121  small(<40px) 92
+    z    4.0  lod=true  ppc 3.7  stroke_px 48022  comps 113  interior 104  small(<40px) 76
+    z    8.0  lod=true  ppc 7.4  stroke_px 94248  comps 125  interior 114  small(<40px) 104
+    z   16.0  lod=true  ppc 14.8  stroke_px 123832  comps 121  interior 108  small(<40px) 103
+    z   32.0  lod=true  ppc 29.7  stroke_px 159958  comps 14  interior 7  small(<40px) 5
+    z   64.0  lod=true  ppc 59.4  stroke_px 189859  comps 21  interior 18  small(<40px) 18
+    z  128.0  lod=true  ppc 118.8  stroke_px 266133  comps 2  interior 0  small(<40px) 0
+    z  240.0  lod=true  ppc 222.7  stroke_px 414944  comps 2  interior 0  small(<40px) 0
+    rz z   1.0 ppc  0.928  drawn    62663 visible     4290 (0.068) full     3507 (0.056) gone_vs_prev 0.0 fragments 369  ink 9084 mass 859167
+    rz z   2.0 ppc  1.855  drawn    62663 visible     6875 (0.110) full     5676 (0.091) gone_vs_prev 0.0 fragments 532  ink 10892 mass 1228667
+    rz z   4.0 ppc  3.711  drawn    62663 visible    11101 (0.177) full     9044 (0.144) gone_vs_prev 0.0 fragments 702  ink 55010 mass 5550215
+    rz z  16.0 ppc 14.844  drawn    62663 visible    29279 (0.467) full    23968 (0.382) gone_vs_prev 0.0 fragments 1165  ink 133023 mass 16147700
+    rz z  64.0 ppc 59.375  drawn    62663 visible    62663 (1.000) full    62663 (1.000) gone_vs_prev 0.0 fragments 0  ink 192647 mass 27479767
+  rz bar RZ-3 length: x1 visible share 0.068 (expected 0.075, window 0.050..0.100) x4/x1 2.59; full by x64 true; x1 full-alpha share 0.056  PASS
+  rz note: 532 pieces show a fragment under 3 cells at zoom 2.0
+  rz note: 702 pieces show a fragment under 3 cells at zoom 4.0
+  rz note: 1165 pieces show a fragment under 3 cells at zoom 16.0
+  rz RZ-4 law: worst visible-length change per 1 % ppc step over 2 octaves = 0.0018 of total drawn length (bar 0.03)  PASS
+    rz sweep z  1.100 ppc  1.021 lod=false  mass 725675  visible 4584  mass/(ppc*visible) 155.110  step 0.000  law step 0.0000
+    rz sweep z  1.165 ppc  1.081 lod=false  mass 690950  visible 4769  mass/(ppc*visible) 134.005  step 0.136  law step 0.0029
+    rz sweep z  1.235 ppc  1.145 lod=false  mass 655318  visible 4952  mass/(ppc*visible) 115.522  step 0.138  law step 0.0029
+    rz sweep z  1.308 ppc  1.214 lod=false  mass 693104  visible 5157  mass/(ppc*visible) 110.736  step 0.041  law step 0.0033
+    rz sweep z  1.386 ppc  1.286 lod=false  mass 1215080  visible 5372  mass/(ppc*visible) 175.902  step 0.588  law step 0.0034
+    rz sweep z  1.468 ppc  1.362 lod=false  mass 1330360  visible 5590  mass/(ppc*visible) 174.694  step 0.007  law step 0.0035
+    rz sweep z  1.556 ppc  1.443 lod=false  mass 1387453  visible 5792  mass/(ppc*visible) 165.982  step 0.050  law step 0.0032
+    rz sweep z  1.648 ppc  1.529 lod=false  mass 1474856  visible 6027  mass/(ppc*visible) 160.034  step 0.036  law step 0.0038
+    rz sweep z  1.746 ppc  1.620 lod=false  mass 1543418  visible 6273  mass/(ppc*visible) 151.889  step 0.051  law step 0.0039
+    rz sweep z  1.850 ppc  1.716 lod=false  mass 1547728  visible 6530  mass/(ppc*visible) 138.099  step 0.091  law step 0.0041
+    rz sweep z  1.960 ppc  1.818 lod=false  mass 1586781  visible 6783  mass/(ppc*visible) 128.651  step 0.068  law step 0.0040
+    rz sweep z  2.077 ppc  1.926 lod=false  mass 1585192  visible 7057  mass/(ppc*visible) 116.603  step 0.094  law step 0.0044
+    rz sweep z  2.200 ppc  2.041 lod=false  mass 1711986  visible 7350  mass/(ppc*visible) 114.116  step 0.021  law step 0.0047
+    rz sweep z  2.331 ppc  2.162 lod=true  mass 1737380  visible 7621  mass/(ppc*visible) 105.429  step 0.076  law step 0.0043
+    rz sweep z  2.469 ppc  2.291 lod=true  mass 2394277  visible 7976  mass/(ppc*visible) 131.032  step 0.243  law step 0.0057
+    rz sweep z  2.616 ppc  2.427 lod=true  mass 2667513  visible 8251  mass/(ppc*visible) 133.204  step 0.017  law step 0.0044
+    rz sweep z  2.772 ppc  2.572 lod=true  mass 2671860  visible 8574  mass/(ppc*visible) 121.179  step 0.090  law step 0.0052
+    rz sweep z  2.937 ppc  2.724 lod=true  mass 2959448  visible 8939  mass/(ppc*visible) 121.517  step 0.003  law step 0.0058
+    rz sweep z  3.111 ppc  2.886 lod=true  mass 2806457  visible 9268  mass/(ppc*visible) 104.910  step 0.137  law step 0.0052
+    rz sweep z  3.296 ppc  3.058 lod=true  mass 3288008  visible 9670  mass/(ppc*visible) 111.191  step 0.060  law step 0.0064
+    rz sweep z  3.492 ppc  3.240 lod=true  mass 5335342  visible 10049  mass/(ppc*visible) 163.870  step 0.474  law step 0.0061
+    rz sweep z  3.700 ppc  3.433 lod=true  mass 5345715  visible 10503  mass/(ppc*visible) 148.276  step 0.095  law step 0.0072
+    rz sweep z  3.920 ppc  3.637 lod=true  mass 5543972  visible 10945  mass/(ppc*visible) 139.287  step 0.061  law step 0.0070
+    rz sweep z  4.153 ppc  3.853 lod=true  mass 5496801  visible 11392  mass/(ppc*visible) 125.231  step 0.101  law step 0.0071
+    rz sweep z  4.400 ppc  4.082 lod=true  mass 5511499  visible 11867  mass/(ppc*visible) 113.779  step 0.091  law step 0.0076
+  rz RZ-4 sweep (24 steps, ratio 1.0595): law worst 0.0076 of total (the research's metric at a 5.9 % step); pixel mass-per-ppc-per-visible-cell worst step 0.588 at zoom 1.386 (informational: a popped tile would spike here)
+    rz pick z 1.0 ppc 0.928 radius 23.7 cells: click on a hidden river at (71.5, 40.5) -> not picked  PASS
+    rz pick z 1.0 ppc 0.928 radius 23.7 cells: click on a visible river at (45.1, 40.2) -> PICKED  PASS
+    rz pick z 2.0 ppc 1.855 radius 11.9 cells: click on a hidden river at (45.1, 40.2) -> not picked  PASS
+    rz pick z 2.0 ppc 1.855 radius 11.9 cells: click on a visible river at (42.3, 40.4) -> PICKED  PASS
+
+======== seed 483920  grid 1024x656 ========
+  rivers traced 11232, drawn 5340
+  carve: { "trace_to_line_cells": { "n": 49401, "median": 0.12370228767395, "p90": 0.71114867925644, "max": inf }, "depth_vs_1cell_m": { "n": 1500, "median": 6.24862194061279, "p90": 87.1526794433594, "max": 517.722839355469 }, "depth_vs_3to4cell_m": { "n": 1500, "median": 11.2778158187866, "p90": 139.073150634766, "max": 524.637634277344 } }
+  channel lakes: { "drawn": 5340, "traced_cells": 54741, "lake_cells_on_path": 4319, "ocean_cells_on_path": 0, "lake_runs": 542, "lake_runs_len_le3": 247, "mask_toggles": 0, "rivers_cut_into_3plus_pieces": 0, "pieces_hist": { 0: 5340 } }
+  lakes: { "count": 24, "area_cells": 57672, "count_le3": 14, "count_ge10": 4, "area_ge10": 57629, "count_ge100": 3, "channel_shaped_ge10": 1, "channel_shaped_area": 515, "basins_ge100": [12091, 44999] }
+  stroke: { "drawn": 5340, "pieces_hist": { 1: 4990, 2: 13, 0: 336, 3: 1 }, "rivers_2plus_pieces": 14, "rivers_3plus_pieces": 1, "breaks": 15, "breaks_with_water_past_them": 15, "width_narrowing_steps": 0, "rivers_that_narrow": 0, "rivers_one_width": 5340, "rivers_under_1px_at_x1": 1916, "continuations": 413, "continuations_that_narrow": 0, "shared_ends": 87, "joins": 3951, "join_gap_max_cells": 0.02978515625, "joins_trib_wider_than_trunk": 0, "joins_joined_river_drawn_last": 3950, "join_width_ratio": { "n": 3951, "median": 1.0, "p90": 1.0, "max": 1.0 }, "free_ends_on_shore": 530, "free_ends_short_of_adjacent_water": 0, "short_end_gap_cells": { "n": 0 }, "short_ends_where": "[]" }
+  PROBE-OK: no free end stops short of adjacent water
+  draw cost (median frame ms, rivers on/off): { "on": 16.6879997253418, "off": 16.6879997253418 }
+  target trunk at cell 672.5,65.2 (river 202, width_cells 1.00)
+    z    1.0  lod=false  ppc 0.9  stroke_px 5582  comps 37  interior 33  small(<40px) 18
+    z    2.0  lod=false  ppc 1.9  stroke_px 6710  comps 41  interior 34  small(<40px) 20
+    z    4.0  lod=true  ppc 3.7  stroke_px 21945  comps 90  interior 83  small(<40px) 61
+    z    8.0  lod=true  ppc 7.4  stroke_px 27208  comps 111  interior 104  small(<40px) 90
+    z   16.0  lod=true  ppc 14.8  stroke_px 81036  comps 84  interior 81  small(<40px) 75
+    z   32.0  lod=true  ppc 29.7  stroke_px 154306  comps 1  interior 0  small(<40px) 0
+    z   64.0  lod=true  ppc 59.4  stroke_px 248815  comps 4  interior 2  small(<40px) 2
+    z  128.0  lod=true  ppc 118.8  stroke_px 296339  comps 1  interior 0  small(<40px) 0
+    z  240.0  lod=true  ppc 222.7  stroke_px 444298  comps 2  interior 1  small(<40px) 1
+    rz z   1.0 ppc  0.928  drawn    62505 visible     4014 (0.064) full     3279 (0.052) gone_vs_prev 0.0 fragments 322  ink 8549 mass 1048003
+    rz z   2.0 ppc  1.855  drawn    62505 visible     6550 (0.105) full     5319 (0.085) gone_vs_prev 0.0 fragments 465  ink 10038 mass 1399464
+    rz z   4.0 ppc  3.711  drawn    62505 visible    10725 (0.172) full     8713 (0.139) gone_vs_prev 0.0 fragments 680  ink 25042 mass 3706669
+    rz z  16.0 ppc 14.844  drawn    62505 visible    28645 (0.458) full    23441 (0.375) gone_vs_prev 0.0 fragments 1116  ink 89660 mass 11803480
+    rz z  64.0 ppc 59.375  drawn    62505 visible    62505 (1.000) full    62505 (1.000) gone_vs_prev 0.0 fragments 0  ink 251452 mass 44925171
+  rz bar RZ-3 length: x1 visible share 0.064 (expected 0.075, window 0.050..0.100) x4/x1 2.67; full by x64 true; x1 full-alpha share 0.052  PASS
+  rz note: 465 pieces show a fragment under 3 cells at zoom 2.0
+  rz note: 680 pieces show a fragment under 3 cells at zoom 4.0
+  rz note: 1116 pieces show a fragment under 3 cells at zoom 16.0
+  rz RZ-4 law: worst visible-length change per 1 % ppc step over 2 octaves = 0.0015 of total drawn length (bar 0.03)  PASS
+    rz sweep z  1.100 ppc  1.021 lod=false  mass 682371  visible 4273  mass/(ppc*visible) 156.473  step 0.000  law step 0.0000
+    rz sweep z  1.165 ppc  1.081 lod=false  mass 499603  visible 4459  mass/(ppc*visible) 103.640  step 0.338  law step 0.0030
+    rz sweep z  1.235 ppc  1.145 lod=false  mass 460330  visible 4643  mass/(ppc*visible) 86.548  step 0.165  law step 0.0030
+    rz sweep z  1.308 ppc  1.214 lod=false  mass 469188  visible 4839  mass/(ppc*visible) 79.889  step 0.077  law step 0.0031
+    rz sweep z  1.386 ppc  1.286 lod=false  mass 1276372  visible 5051  mass/(ppc*visible) 196.518  step 1.460  law step 0.0034
+    rz sweep z  1.468 ppc  1.362 lod=false  mass 1297304  visible 5225  mass/(ppc*visible) 182.259  step 0.073  law step 0.0028
+    rz sweep z  1.556 ppc  1.443 lod=false  mass 1252199  visible 5454  mass/(ppc*visible) 159.080  step 0.127  law step 0.0037
+    rz sweep z  1.648 ppc  1.529 lod=false  mass 1207846  visible 5668  mass/(ppc*visible) 139.376  step 0.124  law step 0.0034
+    rz sweep z  1.746 ppc  1.620 lod=false  mass 1111878  visible 5919  mass/(ppc*visible) 115.965  step 0.168  law step 0.0040
+    rz sweep z  1.850 ppc  1.716 lod=false  mass 1060755  visible 6171  mass/(ppc*visible) 100.154  step 0.136  law step 0.0040
+    rz sweep z  1.960 ppc  1.818 lod=false  mass 1055568  visible 6444  mass/(ppc*visible) 90.082  step 0.101  law step 0.0044
+    rz sweep z  2.077 ppc  1.926 lod=false  mass 1022358  visible 6729  mass/(ppc*visible) 78.862  step 0.125  law step 0.0046
+    rz sweep z  2.200 ppc  2.041 lod=false  mass 1077706  visible 7003  mass/(ppc*visible) 75.405  step 0.044  law step 0.0044
+    rz sweep z  2.331 ppc  2.162 lod=true  mass 982041  visible 7305  mass/(ppc*visible) 62.170  step 0.176  law step 0.0048
+    rz sweep z  2.469 ppc  2.291 lod=true  mass 1561947  visible 7616  mass/(ppc*visible) 89.518  step 0.440  law step 0.0050
+    rz sweep z  2.616 ppc  2.427 lod=true  mass 1930368  visible 7912  mass/(ppc*visible) 100.525  step 0.123  law step 0.0047
+    rz sweep z  2.772 ppc  2.572 lod=true  mass 1955333  visible 8204  mass/(ppc*visible) 92.682  step 0.078  law step 0.0047
+    rz sweep z  2.937 ppc  2.724 lod=true  mass 1878092  visible 8563  mass/(ppc*visible) 80.507  step 0.131  law step 0.0057
+    rz sweep z  3.111 ppc  2.886 lod=true  mass 1874682  visible 8959  mass/(ppc*visible) 72.491  step 0.100  law step 0.0063
+    rz sweep z  3.296 ppc  3.058 lod=true  mass 2084196  visible 9345  mass/(ppc*visible) 72.932  step 0.006  law step 0.0062
+    rz sweep z  3.492 ppc  3.240 lod=true  mass 3372930  visible 9732  mass/(ppc*visible) 106.969  step 0.467  law step 0.0062
+    rz sweep z  3.700 ppc  3.433 lod=true  mass 3510744  visible 10124  mass/(ppc*visible) 101.024  step 0.056  law step 0.0063
+    rz sweep z  3.920 ppc  3.637 lod=true  mass 3665027  visible 10586  mass/(ppc*visible) 95.201  step 0.058  law step 0.0074
+    rz sweep z  4.153 ppc  3.853 lod=true  mass 3744683  visible 11039  mass/(ppc*visible) 88.044  step 0.075  law step 0.0072
+    rz sweep z  4.400 ppc  4.082 lod=true  mass 3916956  visible 11467  mass/(ppc*visible) 83.683  step 0.050  law step 0.0068
+  rz RZ-4 sweep (24 steps, ratio 1.0595): law worst 0.0074 of total (the research's metric at a 5.9 % step); pixel mass-per-ppc-per-visible-cell worst step 1.460 at zoom 1.386 (informational: a popped tile would spike here)
+    rz pick z 1.0 ppc 0.928 radius 23.7 cells: click on a hidden river at (676.7, 40.6) -> not picked  PASS
+    rz pick z 1.0 ppc 0.928 radius 23.7 cells: click on a visible river at (675.0, 54.0) -> PICKED  PASS
+    rz pick z 2.0 ppc 1.855 radius 11.9 cells: click on a hidden river at (676.7, 40.6) -> not picked  PASS
+    rz pick z 2.0 ppc 1.855 radius 11.9 cells: click on a visible river at (676.6, 45.1) -> PICKED  PASS
+
+PROBE-RESULT: DONE
+WARNING: 3 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)
+exit 0

@@ -812,6 +812,9 @@ func _apply_river_paint() -> void:
 	mat.set_shader_parameter("river_field", fld)
 	mat.set_shader_parameter("river_color", col)
 	mat.set_shader_parameter("river_width", float(params.get("width", 1.0)))
+	## RZ (owner, 2026-11-11): the visibility law's scale, from the world (`river_stroke::set_scale`).
+	mat.set_shader_parameter("river_fit_ppc", float(params.get("fit_ppc", 0.46)))
+	mat.set_shader_parameter("river_open_start", float(params.get("open_start", 0.06)))
 	## RIM-2: the bank outline. A cdylib without the keys hands 0.0 -- off --
 	## never a plausible strength; the ink is the preset's own river ink and is
 	## only read by the shader when the strength is above 0.

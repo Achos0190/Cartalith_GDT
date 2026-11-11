@@ -645,9 +645,12 @@ impl SnapshotInputs {
                 d.word(r.own_order as u16 as u64);
             }
             // RZ-2: the visibility rule's constants, so a retuned law never seeds from a pyramid stored under the old one.
-            d.word(crate::river_stroke::P_FULL_PPC.to_bits() as u64);
-            d.word(crate::river_stroke::VISIBLE_EXPONENT.to_bits() as u64);
-            d.word(crate::river_stroke::FADE_BAND.to_bits() as u64);
+            d.word(crate::river_stroke::Z_FULL.to_bits() as u64);
+            d.word(crate::river_stroke::FADE_BAND_REL.to_bits() as u64);
+            // The scale in force (fit density and start share, set per world and map width): a different map extent is a different pyramid.
+            let (fit, start) = crate::river_stroke::scale();
+            d.word(fit.to_bits() as u64);
+            d.word(start.to_bits() as u64);
         }
         // RIM-7: the delta fans, hashed run by run as the network is. Only
         // when present (no tag word when absent), so a snapshot with no fans

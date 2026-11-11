@@ -1173,59 +1173,140 @@ pub fn visibility_ranks(runs: &[RankInput], order: &[usize]) -> Vec<Vec<f32>> {
 // equal by `river_field`'s mirror test.
 // ---------------------------------------------------------------------------
 
-/// Toepfer's exponent: the share of the drawn network length kept falls as
-/// the square root of the scale ratio (Toepfer and Pillewizer 1966, the radical
-/// law, cited in the research section 1.2), and the scale denominator is
-/// inversely proportional to pixels per cell, so `f = (ppc / P_FULL)^0.5`. Kept
-/// by Ruling EN item 2 ("Toepfer's 0.5 exponent stays").
-pub const VISIBLE_EXPONENT: f32 = 0.5;
+/// Zoom, relative to the opening fit view, at and above which the whole network is drawn. **Labelled judgement
+/// from the owner's remark** of 2026-11-11 on the RZ-2 frame pairs ("The difference should be more extreme" and
+/// the whole network "only around x64, not at about x2"), replacing the absolute `P_FULL_PPC` of 1.84 pixels per
+/// cell: the threshold is relative to the world's own fit density, so a small grid, which fits at many pixels per
+/// cell, shows the same progression as the owner's.
+pub const Z_FULL: f32 = 64.0;
 
-/// The pixels per cell at and above which the whole network is drawn.
-/// **Derived from Ruling EN item 2 and a measurement, not assumed:** the owner
-/// asked for about half the drawn length at the opening (fit) view, so
-/// `f(ppc_fit) = 0.5` gives `P_FULL = ppc_fit / 0.5^(1/VISIBLE_EXPONENT) =
-/// ppc_fit / 0.25`; the contain-fit density measured on the owner's 2048x1311
-/// world is 0.46 pixels per cell (RIM-5's `_riverzoom_probe.gd` fit, recorded in
-/// the research's build notes beside RZ-0's table), and 0.46 / 0.25 = 1.84. A
-/// world drawn at a higher fit density (a smaller grid in the same window)
-/// therefore shows more of its network, which is the rule working. Never
-/// compare a km figure with it: pixels per cell is the raster's own density.
-pub const P_FULL_PPC: f32 = 1.84;
+/// Width of the rank band over which a stroke fades, **as a fraction of the share `f` at that zoom** (the band is
+/// `FADE_BAND_REL * f` wide, starting at `f`). **Labelled judgement.** A fixed 0.15 (RZ-1) is twice the whole
+/// share at a 7.5 % opening view; a band that scales with `f` keeps the fade proportionate. The alpha's
+/// length-weighted sum is `f * (1 + FADE_BAND_REL / 2)`, so the share a viewer sees at the opening view is
+/// [`OPEN_SHARE_GLOBAL`] when `f` is that over `1.25`. Continuity: the alpha's slope per unit of ln(zoom) is at most
+/// `1.5 * dln(f)/dlnz / FADE_BAND_REL`, about 2.0 for a world, so a 1 % zoom step moves an alpha by about 0.02
+/// (RZ-1's bar is 0.05); the test `the_visibility_rule_is_continuous_and_monotone` holds it. At `f = 1` the band
+/// lies above every rank, so a full network is exactly opaque.
+pub const FADE_BAND_REL: f32 = 0.5;
 
-/// Width of the rank band over which a stroke fades, in rank units (a share of
-/// the drawn length). **Labelled judgement.** The research proposed 0.12; RZ-1
-/// measured that band failing its own continuity bar (a 1 % zoom step moved a
-/// stroke's alpha by 0.058, bar 0.05, worst where f nears 1: the slope is
-/// 1.5 / band times df), and 0.15 passes it. Wide enough that one octave of zoom
-/// (f moves by about 1.41) never takes a stroke from fully drawn to gone in one
-/// step. RZ-3's frames judge it.
-pub const FADE_BAND: f32 = 0.15;
+/// The share of the drawn network length a viewer SEES at the opening fit view of a whole-world map
+/// ([`GLOBAL_WIDTH_KM`] across). **The owner's, 2026-11-11:** "On opening view, global/world I'd like to see maybe
+/// 5~10%", taken at 7.5 %, the middle. The biggest rivers only: the rank is by discharge. Replaces Ruling EN
+/// item 2's "about half".
+pub const OPEN_SHARE_GLOBAL: f32 = 0.075;
 
-/// The share `f` of the drawn network length visible at `ppc` pixels per cell:
-/// `min(1, (ppc / P_FULL_PPC)^VISIBLE_EXPONENT)`, `0` for a non-positive `ppc`.
-/// Strictly rising below [`P_FULL_PPC`], exactly `1` from it up.
-pub fn visible_share(ppc: f32) -> f32 {
-    if ppc <= 0.0 {
+/// A whole-world map's width in km, the reference of [`OPEN_SHARE_GLOBAL`] (the owner: "about 40 000 km"; the
+/// equator, 40 075, is what the shell's whole-world preset uses, so that preset opens at exactly 7.5 %).
+pub const GLOBAL_WIDTH_KM: f32 = 40_075.0;
+
+/// **How much a map shows at its opening view, by its extent** (the owner, same day: "that should scale to map
+/// size as well"; the coordinator's form): `OPEN_SHARE_GLOBAL * sqrt(GLOBAL_WIDTH_KM / width_km)`, capped at 1.
+/// Toepfer and Pillewizer's radical law (1966): the share of a network that fits a map falls as the square root
+/// of the scale denominator, and at the fit view the scale denominator is the map's width over the screen's, so a
+/// map `k` times narrower shows `sqrt(k)` times more. A 2 000 km continent opens at 0.34 and a 500 km province
+/// at 0.67; a 40 075 km world at 0.075. A non-positive width reads as a whole world (never a plausible guess).
+pub fn open_share(width_km: f32) -> f32 {
+    if width_km.is_nan() || width_km <= 0.0 {
+        return OPEN_SHARE_GLOBAL;
+    }
+    (OPEN_SHARE_GLOBAL * (GLOBAL_WIDTH_KM / width_km).sqrt()).min(1.0)
+}
+
+/// The share `f` the fade STARTS at, at the opening view of a map `width_km` across: [`open_share`] divided by
+/// the fade's `1 + FADE_BAND_REL / 2` (the share seen is `f` plus half the band), capped at 1.
+pub fn start_share(width_km: f32) -> f32 {
+    (open_share(width_km) / (1.0 + FADE_BAND_REL * 0.5)).min(1.0)
+}
+
+/// The window the fit density is taken in: the owner's, where RIM-5 measured the 2048x1311 world's contain fit as
+/// 0.46 pixels per cell (`_riverzoom_probe.gd`; 942 / 2048). **A labelled judgement and a deviation from "the live
+/// viewport's fit":** the live fit changes with every window resize, which would rebuild every deep-zoom tile (the
+/// pyramid fingerprint hashes it) and make an export depend on the window it was made in; a fixed reference keeps
+/// both deterministic, and on the owner's own window it IS the opening fit view. On another window the share at
+/// the opening view is a little off [`open_share`], never a discontinuity. For the owner to rule on.
+pub const REF_VIEW_PX: (f32, f32) = (942.0, 603.0);
+
+/// The contain-fit density, pixels per cell, of a `gw` x `gh` grid in [`REF_VIEW_PX`]. Never `0` (a degenerate
+/// grid reads as the owner world's 0.46, never a divide by zero).
+pub fn ref_fit_ppc(gw: usize, gh: usize) -> f32 {
+    if gw == 0 || gh == 0 {
+        return 0.46;
+    }
+    (REF_VIEW_PX.0 / gw as f32).min(REF_VIEW_PX.1 / gh as f32)
+}
+
+/// The scale the law reads, as bits of two `f32`s: the fit density and the start share. Set from the world by
+/// `WorldGen`'s repaint ([`set_scale`]) before any raster is built; the owner world's (0.46, the whole-world start
+/// share 0.06) until then. A process-wide value because the law is also called from tile worker threads and the
+/// export, which hold no world. Tests of the law pass the scale explicitly (the `_at` functions) and never set this.
+static FIT_PPC_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3EEB851F); // 0.46f32
+static START_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3D75C28F); // 0.06f32
+
+/// Set the scale: `fit` is [`ref_fit_ppc`] of the world's grid, `start` is [`start_share`] of its width in km.
+pub fn set_scale(fit: f32, start: f32) {
+    if fit.is_finite() && fit > 0.0 && start.is_finite() && start > 0.0 {
+        FIT_PPC_BITS.store(fit.to_bits(), std::sync::atomic::Ordering::Relaxed);
+        START_BITS.store(start.min(1.0).to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// The scale in force: `(fit_ppc, start_share)`.
+pub fn scale() -> (f32, f32) {
+    (
+        f32::from_bits(FIT_PPC_BITS.load(std::sync::atomic::Ordering::Relaxed)),
+        f32::from_bits(START_BITS.load(std::sync::atomic::Ordering::Relaxed)),
+    )
+}
+
+/// The share `f` of the drawn network length at which the fade starts, at `ppc` pixels per cell, when the
+/// opening fit view is `fit` pixels per cell and the map's start share is `start` ([`start_share`]):
+/// `f = start ^ (1 - ln z / ln Z_FULL)` with `z = ppc / fit`, so `f(1) = start`, `f(Z_FULL) = 1` and the growth
+/// between is geometric (a constant ratio per octave of zoom: `Z_FULL = 64` is six octaves, so `f` is multiplied
+/// by `start ^ (-1/6)` each, 1.6 for a world and 1.2 for a small map). `1` from `Z_FULL` up or when `start >= 1`;
+/// `0` for a non-positive `ppc`. Strictly rising while it is below 1.
+pub fn visible_share_at(ppc: f32, fit: f32, start: f32) -> f32 {
+    if ppc <= 0.0 || fit <= 0.0 {
         return 0.0;
     }
-    (ppc / P_FULL_PPC).powf(VISIBLE_EXPONENT).min(1.0)
+    let z = ppc / fit;
+    if z >= Z_FULL || start >= 1.0 {
+        return 1.0;
+    }
+    start.max(1e-6).powf(1.0 - z.ln() / Z_FULL.ln()).min(1.0)
+}
+
+/// [`visible_share_at`] at the scale in force ([`scale`]).
+pub fn visible_share(ppc: f32) -> f32 {
+    let (fit, start) = scale();
+    visible_share_at(ppc, fit, start)
 }
 
 /// **The visibility rule: the alpha multiplier `0..=1` of a river point whose
 /// length-weighted discharge rank is `u`** (`0` the largest river, `1` the
 /// least; non-increasing downstream, so a river can lose its head and never its
-/// middle) at `ppc` pixels per cell: `1 - smoothstep(f, f + FADE_BAND, u)` with
-/// `f = ` [`visible_share`]. Continuous in both arguments with zero slope at both
-/// ends (no popping), `1` for every `u` once `f` is `1`, and `1` at `u = 0` at
-/// every density above `0`. It fades alpha only: a visible stroke keeps the
-/// [`MIN_STROKE_PX`] floor. A NaN `u` is "no rank" and draws (`1`), never a
-/// guessed hidden river.
+/// middle) at `ppc` pixels per cell: `1 - smoothstep(f, f + FADE_BAND_REL * f, u)`
+/// with `f = ` [`visible_share`]. One function for the screen shader (a GLSL copy
+/// held equal by a test), the deep-zoom tiles and the export. Continuous in both
+/// arguments with zero slope at both ends (no popping), `1` for every `u` once `f`
+/// is `1`, and `1` at `u = 0` at every density above `0`. It fades alpha only: a
+/// visible stroke keeps the [`MIN_STROKE_PX`] floor. A NaN `u` is "no rank" and
+/// draws (`1`), never a guessed hidden river.
 pub fn river_visibility(u: f32, ppc: f32) -> f32 {
+    let (fit, start) = scale();
+    river_visibility_at(u, ppc, fit, start)
+}
+
+/// [`river_visibility`] with the scale given (what the tests and the measurement call).
+pub fn river_visibility_at(u: f32, ppc: f32, fit: f32, start: f32) -> f32 {
     if u.is_nan() {
         return 1.0;
     }
-    let f = visible_share(ppc);
-    let t = ((u - f) / FADE_BAND).clamp(0.0, 1.0);
+    let f = visible_share_at(ppc, fit, start);
+    if f <= 0.0 {
+        return if u <= 0.0 { 1.0 } else { 0.0 };
+    }
+    let t = ((u - f) / (FADE_BAND_REL * f)).clamp(0.0, 1.0);
     1.0 - t * t * (3.0 - 2.0 * t)
 }
 
@@ -1962,6 +2043,83 @@ impl WorldGen {
     fn river_visible_near(&self, gx: f64, gy: f64, radius_cells: f64, ppc: f64) -> bool {
         self.river_geometry_any().is_none_or(|g| visible_near(&g, gx, gy, radius_cells, ppc as f32))
     }
+
+    /// **RZ-7 measurement: the rank sort's cost.** Rebuilds the traced network `repeats` times (`river_draws(1)`, which
+    /// ranks every run) and returns the milliseconds the `visibility_ranks` call alone took in each, then the whole
+    /// `river_draws` build in each, as `{rank_ms: [..], draws_ms: [..]}`. Wall-clock on whatever machine runs it.
+    /// Read-only; for `_riverzoom_probe.gd`.
+    #[func]
+    fn river_rank_cost(&self, repeats: i64) -> VarDictionary {
+        let (mut rank, mut whole) = (PackedFloat32Array::new(), PackedFloat32Array::new());
+        for _ in 0..repeats.clamp(1, 20) {
+            let t = std::time::Instant::now();
+            let _ = self.river_draws(1);
+            whole.push((t.elapsed().as_secs_f64() * 1e3) as f32);
+            rank.push((crate::LAST_RANK_NS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e6) as f32);
+        }
+        let mut d = VarDictionary::new();
+        d.set("rank_ms", &rank);
+        d.set("draws_ms", &whole);
+        d
+    }
+
+    /// **RZ-3 measurement** ([`visibility_stats`]): `{total, visible, full, gone_vs_prev, fragments}` in grid cells for the
+    /// drawn network at `ppc`, `gone_vs_prev` against `ppc_prev` (0 or less: not asked). Empty when there is no network.
+    /// Read-only; for `_riverzoom_probe.gd`, nothing in the shell calls it.
+    #[func]
+    fn river_visibility_stats(&self, ppc: f64, ppc_prev: f64) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        if let Some(g) = self.river_geometry_any() {
+            let (fit, start) = scale();
+            let (t, v, f, gone, fr) = visibility_stats(&g, ppc as f32, ppc_prev as f32, fit, start);
+            d.set("fit_ppc", fit as f64);
+            d.set("start_share", start as f64);
+            d.set("total", t); d.set("visible", v); d.set("full", f); d.set("gone_vs_prev", gone); d.set("fragments", fr as i64);
+        }
+        d
+    }
+}
+
+/// **RZ-3 measurement (Ruling EN): what the visibility rule draws at `ppc`**, read from the drawn network
+/// itself, in grid cells. A segment (two neighbouring points of one piece) counts as *visible* when
+/// [`river_visibility`] of its midpoint rank is at least [`PICK_MIN_VISIBILITY`], the same half-opacity
+/// line the pick uses. Returns `(total_len, visible_len, full_len, gone_vs_prev, fragments)`:
+/// drawn length of every piece; length visible at `ppc`; length at full alpha (>= 0.99); the length
+/// visible at `ppc_prev` but NOT at `ppc` (the "no previously visible river is gone" count, 0 when
+/// `ppc_prev <= 0`); and the number of pieces whose visible
+/// part is a nonzero stretch under 3 cells while the piece is longer (the research's "isolated fragment
+/// of fewer than 3 cells" bar). Labelled proxies, measuring the law over the real geometry, never a
+/// replacement for the pixels. Reads only; an unranked run counts as fully visible, as it is drawn.
+pub fn visibility_stats(geom: &RiverGeometry, ppc: f32, ppc_prev: f32, fit: f32, start: f32) -> (f64, f64, f64, f64, usize) {
+    let (mut total, mut vis, mut full, mut gone, mut frags) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0usize);
+    for run in &geom.runs {
+        let pieces: Vec<(usize, usize)> = if run.pieces.is_empty() { vec![(0, run.pts.len())] } else { run.pieces.clone() };
+        for (a, b) in pieces {
+            let (mut plen, mut pvis) = (0.0f64, 0.0f64);
+            for k in a..b.saturating_sub(1) {
+                let (p, q) = (run.pts[k], run.pts[k + 1]);
+                let len = (((q.0 - p.0) as f64).powi(2) + ((q.1 - p.1) as f64).powi(2)).sqrt();
+                let u = if run.ranks.is_empty() { f32::NAN } else { 0.5 * (run.ranks.get(k).copied().unwrap_or(0.0) + run.ranks.get(k + 1).copied().unwrap_or(0.0)) };
+                let al = river_visibility_at(u, ppc, fit, start);
+                plen += len;
+                if al >= PICK_MIN_VISIBILITY {
+                    pvis += len;
+                }
+                if al >= 0.99 {
+                    full += len;
+                }
+                if ppc_prev > 0.0 && river_visibility_at(u, ppc_prev, fit, start) >= PICK_MIN_VISIBILITY && al < PICK_MIN_VISIBILITY {
+                    gone += len;
+                }
+            }
+            total += plen;
+            vis += pvis;
+            if pvis > 0.0 && pvis < 3.0 && plen > pvis + 1e-6 {
+                frags += 1;
+            }
+        }
+    }
+    (total, vis, full, gone, frags)
 }
 
 /// The base view's stroke over the runs `runs` as flat arrays -- the whole of
@@ -2154,6 +2312,8 @@ impl WorldGen {
             "width" => self.river_field_width.get() as f64,
             "bank" => a.river_bank.clamp(0.0, 1.0),
             "bank_color" => Vector3::new(ink(a.river_ink_r), ink(a.river_ink_g), ink(a.river_ink_b)),
+            "fit_ppc" => scale().0 as f64,
+            "open_start" => scale().1 as f64,
         }
     }
 
@@ -2677,9 +2837,13 @@ mod tests {
         assert_eq!(river_px_width(RiverPoint { width_cells: 0.1, ..p }, 1.0, &a), Some((1.0, 1.0)), "floored at one pixel");
         let a2 = render::TerrainAppearance { river_width: 1.5, ..a.clone() };
         assert_eq!(river_px_width(p, 4.0, &a2), Some((12.0, 1.0)));
-        // A rank-0.75 point (headwater weight 0.5) at one pixel per cell is half-way to the 0.55 headwater width.
-        let head = river_px_width(RiverPoint { rank: 0.75, ..p }, 1.0, &a).expect("drawn");
-        assert!((head.0 - 2.0 * 0.775).abs() < 1e-5, "{head:?}");
+        // A rank-0.75 point is a headwater: hidden at one pixel per cell now (the share at the opening view is 0.1
+        // there), and from Z_FULL up (ppc 30 at the default fit 0.46) drawn in full width, since the width
+        // de-emphasis has faded out by 8 pixels per cell, long before such a stream is visible. (The de-emphasis is
+        // therefore inert at world scale; see the research build notes, 2026-11-11.)
+        assert!(river_px_width(RiverPoint { rank: 0.75, ..p }, 1.0, &a).is_none());
+        let head = river_px_width(RiverPoint { rank: 0.75, ..p }, 30.0, &a).expect("drawn");
+        assert!((head.0 - 2.0 * 30.0).abs() < 1e-3, "{head:?}");
     }
 
     /// Protects: `RiverLayer::fill_triangles` filling every pixel of two
@@ -2783,11 +2947,12 @@ mod tests {
         // Rank 0 (the largest river): full width, full alpha, at any density.
         let (w0, a0) = river_px_width(pt(0.0), 1.0, &a).expect("drawn");
         assert!((w0 - 4.0 * k).abs() < 1e-5 && a0 == 1.0, "{w0} {a0}");
-        // Rank 0.75 at one pixel per cell: half-way to the headwater look in width
-        // (headwater_weight 0.5), and almost fully visible (f is 0.737 there).
-        let (w1, a1) = river_px_width(pt(0.75), 1.0, &a).expect("drawn");
-        assert!((w1 - 4.0 * k * (1.0 - 0.45 * 0.5)).abs() < 1e-5, "{w1}");
-        assert!(a1 > 0.95 && a1 < 1.0, "{a1}");
+        // Rank 0.75 (headwater weight 0.5): hidden at one pixel per cell (the share there is 0.1), and at ppc 30
+        // (past Z_FULL) fully visible at full width, the de-emphasis having faded out by 8 pixels per cell.
+        assert!(river_px_width(pt(0.75), 1.0, &a).is_none());
+        let (w1, a1) = river_px_width(pt(0.75), 30.0, &a).expect("drawn");
+        assert!((w1 - 4.0 * k * 30.0).abs() < 1e-2, "{w1}");
+        assert_eq!(a1, 1.0);
         // The least river at a zoomed-out density is not drawn at all.
         assert!(river_px_width(pt(1.0), 0.3, &a).is_none());
         // And no order-1 alpha any more: an order-1 point of rank 0 stays opaque.
@@ -2797,7 +2962,7 @@ mod tests {
     /// Protects: the vector stroke follows the same rule as the painted river
     /// (Ruling EN item 4): a rank-0 run draws at every density and the same
     /// run with rank 1 draws nothing at 0.3 pixels per cell, and everything
-    /// from `P_FULL_PPC` up.
+    /// from `Z_FULL` (zoom 64 over the fit) up.
     #[test]
     fn the_stroke_hides_a_low_rank_run_when_zoomed_out() {
         let mut g = one_run((0..=72).map(|i| (2.5 + i as f32 * 0.25, 10.5)).collect(), 3.0, [0.5, 0.5, 0.5], false);
@@ -2811,7 +2976,7 @@ mod tests {
             (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter_map(|(x, y)| layer.at(x, y)).filter(|p| p[3] > 0.0).count()
         };
         assert_eq!(faint(&g, 0.3), 0, "the least river is not drawn zoomed out");
-        assert!(faint(&g, 1.84) > 0, "it is drawn from P_FULL up");
+        assert!(faint(&g, 30.0) > 0, "it is drawn from Z_FULL up (ppc 30 is zoom 65 at the default fit 0.46)");
         g.runs[0].ranks = vec![0.0; n];
         assert!(faint(&g, 0.3) > 0, "the largest river is drawn at every density");
     }
@@ -2826,13 +2991,36 @@ mod tests {
         let n = g.runs[0].pts.len();
         g.runs[0].ranks = vec![1.0; n];
         assert!(!visible_near(&g, 10.0, 10.0, 1.0, 0.3), "the least river is hidden zoomed out, so it is not pickable");
-        assert!(visible_near(&g, 10.0, 10.0, 1.0, 1.84), "and pickable from P_FULL up");
-        assert!(!visible_near(&g, 10.0, 20.0, 1.0, 1.84), "nothing within the radius of a far click");
-        assert!(visible_near(&g, 10.0, 12.5, 2.0, 1.84), "a wider radius reaches it");
+        assert!(visible_near(&g, 10.0, 10.0, 1.0, 30.0), "and pickable from Z_FULL up");
+        assert!(!visible_near(&g, 10.0, 20.0, 1.0, 30.0), "nothing within the radius of a far click");
+        assert!(visible_near(&g, 10.0, 12.5, 2.0, 30.0), "a wider radius reaches it");
         g.runs[0].ranks = vec![0.0; n];
         assert!(visible_near(&g, 10.0, 10.0, 1.0, 0.1), "the largest river is always pickable");
         g.runs[0].ranks = Vec::new();
         assert!(visible_near(&g, 10.0, 10.0, 1.0, 0.1), "an unranked run is drawn, so it is pickable");
+    }
+
+    /// Protects: `visibility_stats` (RZ-3's measurement) over a hand-built run of 20 one-cell segments whose rank falls
+    /// linearly from 1 (head) to 0 (mouth), at the owner world's scale (fit 0.46, start 0.06) given as LITERALS so a
+    /// changed law moves a number. A segment is visible while its midpoint rank is at most 1.25 f (the band's half
+    /// opacity). At ppc 10 (f = 0.4818, threshold 0.602) 12 cells are visible; at ppc 30 (zoom 65, past Z_FULL) all 20,
+    /// at full alpha; going from ppc 30 out to 10 loses exactly the 8 head cells and going in loses none; at ppc 0.3
+    /// (f = 0.0449, threshold 0.056) only the last cell stays, one fragment under 3 cells.
+    #[test]
+    fn visibility_stats_counts_what_the_law_draws() {
+        let mut g = one_run((0..=20).map(|i| (5.0 + i as f32, 10.0)).collect(), 1.0, [0.5, 0.5, 0.5], false);
+        g.runs[0].ranks = (0..=20).map(|k| 1.0 - k as f32 / 20.0).collect();
+        let (fit, start) = (0.46, 0.06);
+        let (t, v, _f, gone, fr) = visibility_stats(&g, 10.0, 0.0, fit, start);
+        assert!((t - 20.0).abs() < 1e-4 && (v - 12.0).abs() < 1e-4 && gone == 0.0 && fr == 0, "{t} {v} {gone} {fr}");
+        let (_, v, f, _, _) = visibility_stats(&g, 30.0, 0.0, fit, start);
+        assert!((v - 20.0).abs() < 1e-4 && (f - 20.0).abs() < 1e-4, "all drawn, at full alpha, from Z_FULL: {v} {f}");
+        let (_, _, _, gone, _) = visibility_stats(&g, 10.0, 30.0, fit, start);
+        assert!((gone - 8.0).abs() < 1e-4, "zooming out loses the 8 head cells: {gone}");
+        let (_, _, _, gone, _) = visibility_stats(&g, 30.0, 10.0, fit, start);
+        assert_eq!(gone, 0.0, "zooming in loses none");
+        let (_, v, _, _, fr) = visibility_stats(&g, 0.3, 0.0, fit, start);
+        assert!((v - 1.0).abs() < 1e-4 && fr == 1, "a 1-cell stub of a 20-cell river is one fragment: {v} {fr}");
     }
 
     /// Protects: `visibility_ranks` -- length-weighted, ties sharing a rank,
@@ -2887,64 +3075,73 @@ mod tests {
         assert!(r[0].iter().all(|&u| u == 1.0), "one tie of equal discharge covers all the length: {:?}", r[0]);
     }
 
-    /// Protects: RZ-1's visibility law at LITERAL values (a test that read the
-    /// constants back would pass for any value): `f` is Toepfer's square root
-    /// of `ppc / 1.84`, so 0.46 pixels per cell shows exactly half the network
-    /// (Ruling EN's opening view), 1.84 and above all of it; the fade is a
-    /// smoothstep over 0.15 of rank; and mutating the exponent, `P_FULL` or the
-    /// band moves one of these numbers.
+    /// Protects: the visibility law at LITERAL values (a test that read the constants back would pass for any value),
+    /// at the owner world's scale (fit 0.46 px per cell, start share 0.06): the share is 0.06 at the fit view, 0.245
+    /// at zoom 8 (halfway in octaves: 0.06^0.5), 1 from zoom 64; the map-size rule gives a 40 075 km world 0.075, a
+    /// 2 000 km map 0.336 and a 500 km map 0.672 SEEN at the opening, 1 at 225 km and below; the fade is a
+    /// smoothstep over half of f; and mutating the start, Z_FULL, the band or the size rule moves one number here.
     #[test]
     fn the_visibility_rule_has_the_ruled_values() {
-        assert!((visible_share(0.46) - 0.5).abs() < 1e-6, "{}", visible_share(0.46));
-        assert!((visible_share(0.115) - 0.25).abs() < 1e-6, "{}", visible_share(0.115));
-        assert_eq!(visible_share(1.84), 1.0);
-        assert_eq!(visible_share(40.0), 1.0);
-        assert_eq!(visible_share(0.0), 0.0);
-        assert_eq!(visible_share(-1.0), 0.0);
-        // At ppc 0.46, f = 0.5: u = 0.5 is the band's start (fully drawn),
-        // 0.575 its midpoint (half), 0.65 its end (gone).
-        assert_eq!(river_visibility(0.5, 0.46), 1.0);
-        assert!((river_visibility(0.575, 0.46) - 0.5).abs() < 1e-5, "{}", river_visibility(0.575, 0.46));
-        assert_eq!(river_visibility(0.65, 0.46), 0.0);
-        assert_eq!(river_visibility(0.0, 0.01), 1.0, "the largest river is drawn at every density");
-        assert_eq!(river_visibility(1.0, 1.84), 1.0, "everything at P_FULL");
-        assert_eq!(river_visibility(1.0, 50.0), 1.0);
-        assert_eq!(river_visibility(f32::NAN, 0.1), 1.0, "no rank is drawn, never hidden");
+        let (fit, st) = (0.46f32, 0.06f32);
+        assert!((visible_share_at(0.46, fit, st) - 0.06).abs() < 1e-6, "{}", visible_share_at(0.46, fit, st));
+        assert!((visible_share_at(0.46 * 8.0, fit, st) - 0.244949).abs() < 1e-5);
+        assert!((visible_share_at(0.46 / 64.0, fit, st) - 0.0036).abs() < 1e-6);
+        assert_eq!(visible_share_at(29.44, fit, st), 1.0);
+        assert_eq!(visible_share_at(40.0, fit, st), 1.0);
+        assert_eq!(visible_share_at(0.0, fit, st), 0.0);
+        assert_eq!(visible_share_at(-1.0, fit, st), 0.0);
+        assert_eq!(visible_share_at(0.01, fit, 1.0), 1.0, "a start of 1 draws everything at any zoom");
+        assert!((open_share(40_075.0) - 0.075).abs() < 1e-6);
+        assert!((open_share(2000.0) - 0.33573).abs() < 1e-4, "{}", open_share(2000.0));
+        assert!((open_share(500.0) - 0.67147).abs() < 1e-4, "{}", open_share(500.0));
+        assert_eq!(open_share(50.0), 1.0, "capped at the whole network");
+        assert_eq!(open_share(0.0), 0.075, "no width reads as a whole world");
+        assert!((start_share(40_075.0) - 0.06).abs() < 1e-6);
+        // At the fit view f = 0.06, so u = 0.06 is the band start (fully drawn), 0.075 its midpoint
+        // (half) and 0.09 its end (gone): the viewer SEES 0.075 of the length.
+        assert_eq!(river_visibility_at(0.06, 0.46, fit, st), 1.0);
+        assert!((river_visibility_at(0.075, 0.46, fit, st) - 0.5).abs() < 1e-5);
+        assert_eq!(river_visibility_at(0.09, 0.46, fit, st), 0.0);
+        assert_eq!(river_visibility_at(0.0, 0.01, fit, st), 1.0, "the largest river is drawn at every density");
+        assert_eq!(river_visibility_at(1.0, 30.0, fit, st), 1.0, "everything from Z_FULL");
+        assert_eq!(river_visibility_at(f32::NAN, 0.1, fit, st), 1.0, "no rank is drawn, never hidden");
         assert_eq!(headwater_weight(0.5), 0.0);
         assert_eq!(headwater_weight(1.0), 1.0);
         assert!((headwater_weight(0.75) - 0.5).abs() < 1e-6);
         assert_eq!(headwater_weight(f32::NAN), 0.0);
     }
 
-    /// Protects: "no popping" and "zoom gains detail at every level" as
-    /// properties of the law: the alpha of any stroke is continuous in `ppc`
-    /// (under 0.05 per 1 % step over 0.1 to 40 pixels per cell, the research's
-    /// RZ-1 bar), non-decreasing in `ppc` and non-increasing in `u`, and `f` is
-    /// strictly increasing below `P_FULL`.
+    /// Protects: "no popping" and "zoom gains detail at every level" as properties of the law, for a whole world
+    /// (start 0.06) and a small map (start 0.425): the alpha of any stroke is continuous in `ppc` (under 0.05 per 1 %
+    /// step over 0.1 to 40 pixels per cell, the research's RZ-1 bar), non-decreasing in `ppc` and non-increasing in
+    /// `u`, and `f` is strictly increasing below Z_FULL.
     #[test]
     fn the_visibility_rule_is_continuous_and_monotone() {
-        let mut ppc = 0.1f32;
-        let mut prev_f = visible_share(ppc);
-        let mut worst = 0.0f32;
-        while ppc < 40.0 {
-            let next = ppc * 1.01;
-            for k in 0..=200 {
-                let u = k as f32 / 200.0;
-                let (a0, a1) = (river_visibility(u, ppc), river_visibility(u, next));
-                assert!(a1 >= a0 - 1e-6, "alpha fell as the map zoomed in: u {u} ppc {ppc}");
-                worst = worst.max((a1 - a0).abs());
-                if k > 0 {
-                    assert!(a0 <= river_visibility((k - 1) as f32 / 200.0, ppc) + 1e-6, "alpha rose with rank at ppc {ppc}");
+        for start in [0.06f32, 0.425] {
+            let fit = 0.46f32;
+            let mut ppc = 0.1f32;
+            let mut prev_f = visible_share_at(ppc, fit, start);
+            let mut worst = 0.0f32;
+            while ppc < 40.0 {
+                let next = ppc * 1.01;
+                for k in 0..=200 {
+                    let u = k as f32 / 200.0;
+                    let (a0, a1) = (river_visibility_at(u, ppc, fit, start), river_visibility_at(u, next, fit, start));
+                    assert!(a1 >= a0 - 1e-6, "alpha fell as the map zoomed in: u {u} ppc {ppc} start {start}");
+                    worst = worst.max((a1 - a0).abs());
+                    if k > 0 {
+                        assert!(a0 <= river_visibility_at((k - 1) as f32 / 200.0, ppc, fit, start) + 1e-6, "alpha rose with rank at ppc {ppc}");
+                    }
                 }
+                let f = visible_share_at(next, fit, start);
+                if next < 29.0 {
+                    assert!(f > prev_f, "f must strictly rise below Z_FULL at {next} (start {start})");
+                }
+                prev_f = f;
+                ppc = next;
             }
-            let f = visible_share(next);
-            if next < 1.84 {
-                assert!(f > prev_f, "f must strictly rise below P_FULL at {next}");
-            }
-            prev_f = f;
-            ppc = next;
+            assert!(worst < 0.05, "a 1 % zoom step moved a stroke's alpha by {worst} (start {start})");
         }
-        assert!(worst < 0.05, "a 1 % zoom step moved a stroke's alpha by {worst}");
     }
 
     /// Protects: `RasterMap::tile` placing a stroke at the tile's SAMPLE

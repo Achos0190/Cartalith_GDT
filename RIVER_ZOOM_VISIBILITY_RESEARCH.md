@@ -765,3 +765,84 @@ built (fans do follow their apex river's rank, so a fan never shows without its 
 sort cost at build (RZ-0 measured the sort at 2.3 ms per key on the owner world, 150k segments; `river_draws` adds a
 sort of the same size) were not measured windowed. RZ-3's owner review of the frame pairs, the 3 % tile-switch bar,
 the click pick in a window, and the 2048x1311 ladder.
+
+### The law changed on the owner's remarks (2026-11-11), RZ-3, RZ-4, RZ-6 and RZ-7 measured
+
+**Supersedes the P_FULL = 1.84, exponent 0.5 and band 0.15 above.** After the RZ-2 frame pairs the owner said "the
+difference should be more extreme", "on opening view, global/world I'd like to see maybe 5~10%" and "that should scale
+to map size as well" (recorded as the addendum to Ruling EN in `LARGE_ITEM_RULINGS.md`). The law is now one function,
+`river_stroke::river_visibility(u, ppc)`, over `z = ppc / fit_ppc`:
+
+- the share the fade starts at is `f = start ^ (1 - ln z / ln 64)`: `start` at the fit view, the whole network at z = 64,
+  geometric between (`Z_FULL` 64);
+- the band is `0.5 f` wide (a share-relative band: the old fixed 0.15 was twice the whole share at 7.5 %); a viewer
+  sees `1.25 f` (the alpha-weighted length), so `start = open_share / 1.25`;
+- `open_share(width_km) = 0.075 sqrt(40 075 / width_km)`, capped at 1 (Toepfer's square root on the scale at the fit
+  view): 0.075 for a whole world, 0.34 at 2 000 km, 0.67 at 500 km, 1 at 225 km and below. Over the 37 RZ-0 worlds it
+  gives 0.075 on the 25 worlds 40 075 km wide (twelve each of 512x328 and 1024x656, plus the owner world) and 0.53 on the
+  twelve 384x246 worlds at 800 km (start 0.425);
+- `fit_ppc` is the contain fit of the grid in a FIXED reference window, 942 x 603 px (the owner's: RIM-5 measured 0.46 px
+  per cell on the 2048 world), not the live viewport, so tiles and exports do not depend on the window. **A deviation
+  from "the opening fit view" for the owner to rule on:** on a smaller window the opening share is lower (the probe's
+  first run, at an accidental 400 px map width, showed 3.9 % at x1 on the owner world).
+
+`set_scale(fit, start)` is called from `WorldGen`'s repaint before any raster is built; the shader gets
+`river_fit_ppc` and `river_open_start` from `river_paint_params`; the pyramid fingerprint hashes both. Constants and
+the property tests (literal values; mutants of `OPEN_SHARE_GLOBAL`, `Z_FULL` and `FADE_BAND_REL` each turn tests red).
+
+**Windowed bars** (probe `_riverzoom_probe.gd --rz`, default 1600x1000 window, the map area 952 px wide so the 2048 world
+fits at 0.464 px per cell; logs and frames in `cartalith-native/docs/evidence/rz-2026-11-11/`). The length is read from the
+drawn network (`WorldGen::river_visibility_stats`: a segment is visible at alpha >= 0.5); the ink is the painted pixels.
+
+| World | x1 | x2 | x4 | x16 | x64 |
+|---|---|---|---|---|---|
+| 2048x1311, 40 075 km, seed 246371 (owner) | 7.2 % | 11.4 % | 18.4 % | 47.7 % | 100 % |
+| same, seed 483920 | 6.3 % | 10.3 % | 16.9 % | 46.0 % | 100 % |
+| same, seed 912345 | 6.3 % | 10.4 % | 17.4 % | 46.5 % | 100 % |
+| 1024x656, 40 075 km, seed 246371 / 483920 | 6.8 / 6.4 % | 11.0 / 10.5 % | 17.7 / 17.2 % | 46.7 / 45.8 % | 100 % |
+| 1024x656, **2 000 km**, seed 246371 | 32.4 % | 40.5 % | 50.8 % | 79.4 % | 100 % |
+
+- **RZ-3 growth: PASS** on every world: the share at the opening view lands in the owner's 5 to 10 % (6.3 to 7.2 %,
+  the target 7.5 % less the fade's tail), rises at every level, is full at x64 on both ladders (1024 and 2048), no
+  previously visible river is gone at x16 and above (0 cells at every step), and the 2 000 km map opens at 32 % against
+  the rule's 34 %. Painted ink grows with zoom on the owner world (10.6k, 12.5k, 41k, 74k, 148k pixels at x1..x64; the
+  view moves from the map centre to the trunk above x2, so ink is not strictly comparable across levels).
+  **The research's "no top-decile outlet lost" does NOT hold at 7.5 %** (`river_zoom_measurement.rs`, hard cut at
+  f = 0.075, discharge key: lost share of top-decile outlets, median over 12 seeds: 15 % on 512x328, 48 % on 1024x656,
+  36 % on 384x246 (800 km; its opening share is 0.53 and it loses 0 there), **4 % on the owner world**); at 10 % (the
+  top of the owner's range) it is 0 on the owner world, 19 % on 1024. Inherent to showing 7.5 % of the length, not a
+  fault of the key; for the owner: raise the opening to 10 % to lose none on the owner world.
+- **RZ-4 continuity: the law PASSES, the pixel check is unresolved.** Visible-length change per 1 % ppc step over two
+  octaves across the tile-level switch (zoom 2.2 on the 2048 world, `lod_active` flips between 2.2 and 2.33): worst
+  0.0014 to 0.0032 of the total drawn length (bar 3 %); at the probe's 5.9 % steps 0.7 to 1.0 %. The pixel check (ON-vs-OFF
+  ink mass per ppc per visible cell, 24 steps) shows jumps of 45 to 126 % between adjacent frames at zoom 1.386, 2.47
+  and 3.49 on the owner world; the 1.386 jump appears at the **same zoom on every grid** (1024 and 2048, so at different
+  ppc), which points at the viewport's own re-render levels rather than at this law, but that is not demonstrated: the
+  pre-change build has no length reading to normalise by, so it was not run. Open: frame pairs across those zooms.
+- **RZ-6 click pick: PASS** through `right_dock._on_map_clicked_river` on all six worlds and two zooms each: a click
+  on a river the rule hides (`river_visible_near` false) is not picked, a click on a visible one is.
+- **RZ-7 cost.** The rank sort (`visibility_ranks`, timed inside `river_draws`) takes **14.4 to 15.0 ms** on the owner
+  world, 5 serial runs (debug-optimised build, this machine, with other lanes running; bar 50 ms: PASS); the whole
+  `river_draws` build is about 0.7 s. Pan-frame time with rivers on versus off, at x1, x4, x16, x64 and x240, 80 frames
+  each: **16.67 ms median in every case on the new build and on the pre-change build (3fd9c3bd)**, i.e. vsync-bound at
+  60 Hz (the frame time cannot show a cost under 16.7 ms); the GPU render time is 0.25 to 0.42 ms with rivers on and
+  0.25 to 0.31 with them off on both builds. No measurable cost; PASS within that resolution.
+
+**Fragments.** The count of pieces whose visible part is a stub under 3 cells grows from hundreds at x1 to ~1 900 at x16
+(and 0 at x64): the rank cut ends tributaries partway, and at a 7.5 % share many pieces are short. The research's "no
+isolated fragment under 3 cells" bar is **not met and was not tuned for**; the cut is by rank along a river, which can
+leave a short stub where the rank crosses the threshold. A minimum-length rule would address it; for the owner.
+
+**Deltas.** Not touched (another agent's redesign). What the frames show: at x1 on the owner world the fans at the mouths
+of the surviving big rivers (the Arcnovimpica and Gornkragward coast) draw as hatched parallel straight stripes, the
+look the owner called unnatural; before this change they were lost among the dense network, now they stand out.
+
+**Not built:** RZ-5 (fans by on-screen reach), per the owner's call. **Found:** the width de-emphasis
+(`headwater_deemphasis`, fades by 8 px per cell) is now inert at world scale, since a headwater stream is only visible
+from about 10 px per cell; it could be made relative to the zoom if wanted.
+
+**Frames** (floodplain tint on, as the user sees them; before = 3fd9c3bd, the pre-RZ build, after = this build):
+`before_owner_z01/04/16/64.png` and `after_owner_*.png` (2048x1311 owner world, seed 246371), `before_1024_*` and
+`after_1024_*` (1024x656, same seed), `before_small_*` and `after_small_*` (1024x656 at 2 000 km). At x16 and x64 the
+view is centred on the world's widest trunk.
+

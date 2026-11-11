@@ -99,17 +99,28 @@ float headwater_deemphasis(float zk) {
 // view" and the measured 0.46 px per cell fit (0.46 / 0.25). A stroke fades over
 // FADE_BAND of rank (labelled judgement). Keep every number in step with the
 // Rust: a test reads them from here.
-const float VISIBLE_EXPONENT = 0.5;
-const float P_FULL_PPC = 1.84;
-const float FADE_BAND = 0.15;
+const float Z_FULL = 64.0;
+const float FADE_BAND_REL = 0.5;
+uniform float river_fit_ppc = 0.46;
+uniform float river_open_start = 0.06;
 const float HEADWATER_U_LO = 0.5;
 const float HEADWATER_U_HI = 1.0;
 float visible_share(float ppc) {
-	return min(pow(max(ppc, 0.0) / P_FULL_PPC, VISIBLE_EXPONENT), 1.0);
+	float z = max(ppc, 0.0) / max(river_fit_ppc, 1e-6);
+	if (z >= Z_FULL || river_open_start >= 1.0) {
+		return 1.0;
+	}
+	if (z <= 0.0) {
+		return 0.0;
+	}
+	return min(pow(river_open_start, 1.0 - log(z) / log(Z_FULL)), 1.0);
 }
 float river_visibility(float u, float ppc) {
 	float f = visible_share(ppc);
-	return 1.0 - smoothstep(f, f + FADE_BAND, u);
+	if (f <= 0.0) {
+		return u <= 0.0 ? 1.0 : 0.0;
+	}
+	return 1.0 - smoothstep(f, f + FADE_BAND_REL * f, u);
 }
 float headwater_weight(float u) {
 	return smoothstep(HEADWATER_U_LO, HEADWATER_U_HI, u);

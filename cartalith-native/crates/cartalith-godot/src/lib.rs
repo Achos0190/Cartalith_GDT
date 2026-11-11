@@ -17,6 +17,9 @@ use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, InitStage, gdextension};
 use godot::prelude::*;
 
+/// RZ-7 measurement: nanoseconds the last `river_draws` spent in `river_stroke::visibility_ranks` (0 before the first).
+static LAST_RANK_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 // The adjustment stacks (ET-C1/C2) are `render::adjust`, declared inside
 // `render.rs` so that file's standalone `#[path]` test targets compile them
 // too; see that declaration's doc.
@@ -12233,6 +12236,9 @@ impl WorldGen {
         // (`WorldGen::rivers_painted`). Cached on the network's key and the
         // preset's river width and the frame's width, its only inputs, so a style change that
         // touches neither (colour, grade, paper) does not rebuild it.
+        // RZ (owner, 2026-11-11): the visibility law reads the opening fit density and the map-size start share, set here from
+        // the world BEFORE any raster is built (the screen field, the deep-zoom tiles and the export all read them).
+        river_stroke::set_scale(river_stroke::ref_fit_ppc(gw, gh), river_stroke::start_share(self.map_width_km as f32));
         let want_river_field = appearance.smooth_shores && appearance.rivers_as_water && self.shore_field_tex.borrow().is_some();
         let rw = river_stroke::river_width_factor(&appearance);
         // RIM-4: the delta fans, only where the painted path will draw them --
@@ -13402,7 +13408,10 @@ impl WorldGen {
             .collect();
         let mut rank_order: Vec<usize> = (0..rank_q.len()).collect();
         rank_order.sort_by_key(|&i| draw_rank[i]);
+        let rank_t0 = std::time::Instant::now();
         let traced_ranks = river_stroke::visibility_ranks(&rank_in, &rank_order);
+        // RZ-7 measurement: the rank sort's own wall time, kept for `river_rank_ms` (a probe reads it; nothing else does).
+        LAST_RANK_NS.store(rank_t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
         let draws = (0..rivers.len())
             .map(|i| {
                 // `river_draw_plan`: a run continued past a land pit onto the
