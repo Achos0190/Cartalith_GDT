@@ -3228,6 +3228,7 @@ should be research done how other map tools handle this."*
   tiles and export.
 - **Hard requirement:** the owner's "zoom gains detail at every level". Judge at x1, x4, x16 and x64.
 - Research first, then a scope with owner questions. It changes drawing only, never the generated river network.
+- **Research filed 2026-11-11: `RIVER_ZOOM_VISIBILITY_RESEARCH.md`** (root): other tools' rules, what the port has at its symbols (RIM-5 keys on order-1 only; `river_px_width` is the unused seam), a proposed discharge-rank rule with milestones RZ-0 to RZ-7 and owner questions 1-10. Next step: the owner's answers, then RZ-0's measurement.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
