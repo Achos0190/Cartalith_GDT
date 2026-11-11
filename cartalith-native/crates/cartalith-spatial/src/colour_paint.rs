@@ -226,6 +226,19 @@ pub struct ColourMark {
     /// document is the CP-1 bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emissive: Option<EmissiveMaterial>,
+    /// Ruling EQ item 1: per-point pen **strength** for a stroke, one value
+    /// per `points_km` entry, each `0..=1` (clamped on build), the fraction
+    /// of the mark's `opacity` that goes on at that point -- the way a sculpt
+    /// stamp's strength scales with pressure. Between two points it is
+    /// interpolated along the segment the pixel is nearest to. `None` (the
+    /// default, and what every mark drawn with a mouse or finger stores) means
+    /// the whole stroke goes on at its own `opacity`, by control flow in
+    /// [`composite`]: no value is invented for "no pressure". Omitted from
+    /// the saved JSON when `None`, so every pre-EQ document re-serialises
+    /// byte for byte. A stroke only: an area carrying it is refused
+    /// ([`ColourPaintError::BadStrength`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength: Option<Vec<f64>>,
 }
 
 fn default_true() -> bool {
@@ -536,6 +549,9 @@ pub enum ColourPaintError {
     TooManyLayers(usize),
     /// Layer `i`'s name is blank or longer than [`MAX_LAYER_NAME_CHARS`].
     BadLayerName(usize),
+    /// Mark `i`'s per-point `strength` (Ruling EQ item 1) is not one finite
+    /// value per point, or sits on an area.
+    BadStrength(usize),
 }
 
 impl std::fmt::Display for ColourPaintError {
@@ -549,6 +565,7 @@ impl std::fmt::Display for ColourPaintError {
             ColourPaintError::BadRadius(i) => write!(f, "mark {i}'s radius or edge is below {MIN_RADIUS_KM} km"),
             ColourPaintError::UnknownVersion(v) => write!(f, "colour paint version {v} is not one this build reads ({DOC_VERSION} or {DOC_VERSION_LAYERS})"),
             ColourPaintError::TooManyLayers(n) => write!(f, "{n} paint layers (at most {MAX_LAYERS})"),
+            ColourPaintError::BadStrength(i) => write!(f, "mark {i}'s strength is not one finite value per point of a stroke"),
             ColourPaintError::BadLayerName(i) => write!(f, "layer {}'s name is blank or longer than {MAX_LAYER_NAME_CHARS} characters", i + 1),
         }
     }
@@ -563,6 +580,10 @@ struct Prepared {
     opacity: f64,
     blend: ColourBlend,
     land_only: bool,
+    /// Ruling EQ item 1: the stroke's per-point strength, clamped to `0..=1`;
+    /// `None` = every point at full strength (the control flow that keeps an
+    /// unpressured mark's arithmetic exactly CP-1's).
+    strength: Option<Vec<f64>>,
     /// The soft band's width in km (strokes: `radius * (1 - hardness)`;
     /// areas: `edge_km`).
     band: f64,
@@ -796,7 +817,7 @@ impl ColourPaint {
                     continue;
                 }
                 let s = signed_distance_full(m, p);
-                composite(m, p, s, || along(m, p, 0..segment_count(m)), px, &mut out, &mut emis, &mut group);
+                composite(m, p, s, || along(m, p, 0..segment_count(m)), || strength_at(m, p, 0..segment_count(m)), px, &mut out, &mut emis, &mut group);
             }
             group.flush(p, px, &mut out, &mut emis);
             return (out, emis);
@@ -819,7 +840,7 @@ impl ColourPaint {
             }
             let segs = &ix.segs[e.segs.0 as usize..e.segs.1 as usize];
             let s = signed_distance_local(m, p, centre, e.centre_inside, segs);
-            composite(m, p, s, || along(m, p, segs.iter().map(|&k| k as usize)), px, &mut out, &mut emis, &mut group);
+            composite(m, p, s, || along(m, p, segs.iter().map(|&k| k as usize)), || strength_at(m, p, segs.iter().map(|&k| k as usize)), px, &mut out, &mut emis, &mut group);
         }
         group.flush(p, px, &mut out, &mut emis);
         (out, emis)
@@ -848,6 +869,11 @@ fn prepare(i: usize, m: &ColourMark) -> Result<Prepared, ColourPaintError> {
         return Err(ColourPaintError::NotFinite(i));
     }
     let opacity = m.opacity.clamp(0.0, 1.0);
+    let strength = match (&m.strength, &m.shape) {
+        (None, _) => None,
+        (Some(s), MarkShape::Line { points_km, .. }) if s.len() == points_km.len() && s.iter().all(|v| v.is_finite()) => Some(s.iter().map(|v| v.clamp(0.0, 1.0)).collect::<Vec<f64>>()),
+        _ => return Err(ColourPaintError::BadStrength(i)),
+    };
     let hardness = m.hardness.clamp(0.0, 1.0);
     let (band, half) = match &m.shape {
         MarkShape::Line { radius_km, .. } => {
@@ -909,7 +935,7 @@ fn prepare(i: usize, m: &ColourMark) -> Result<Prepared, ColourPaintError> {
             (Some(r), cum)
         }
     };
-    Ok(Prepared { shape: m.shape.clone(), rgb, opacity, blend: m.blend, land_only: m.land_only, band, half, bbox, emissive, cum })
+    Ok(Prepared { shape: m.shape.clone(), rgb, opacity, blend: m.blend, land_only: m.land_only, strength, band, half, bbox, emissive, cum })
 }
 
 /// The emissive marks reaching one pixel since the last flat mark that
@@ -964,8 +990,12 @@ impl<'a> LavaGroup<'a> {
 /// the pixel's [`LavaGroup`]. `along` yields the pixel's fraction along a
 /// stroke, evaluated only when the material reads it.
 #[allow(clippy::too_many_arguments)]
-fn composite<'a>(m: &'a Prepared, p: [f64; 2], s: f64, along: impl FnOnce() -> f64, px: f64, out: &mut [f64; 3], emis: &mut [f64; 3], group: &mut LavaGroup<'a>) {
-    let a = coverage(s, m.half, m.band, px) * m.opacity;
+fn composite<'a>(m: &'a Prepared, p: [f64; 2], s: f64, along: impl FnOnce() -> f64, strength: impl FnOnce() -> f64, px: f64, out: &mut [f64; 3], emis: &mut [f64; 3], group: &mut LavaGroup<'a>) {
+    // Ruling EQ item 1: the opacity that goes on at this pixel. A mark with no
+    // per-point strength takes its own `opacity` untouched (no multiply by an
+    // invented 1.0), so every unpressured mark is CP-1's arithmetic bit for bit.
+    let opacity = if m.strength.is_some() { m.opacity * strength() } else { m.opacity };
+    let a = coverage(s, m.half, m.band, px) * opacity;
     match &m.emissive {
         None => {
             if a > 0.0 {
@@ -983,7 +1013,7 @@ fn composite<'a>(m: &'a Prepared, p: [f64; 2], s: f64, along: impl FnOnce() -> f
             // The material's ragged edge: the signed distance moved by its
             // km-keyed lobes before anything reads it.
             let s = s + r.edge_offset(p, px);
-            let a = coverage(s, m.half, m.band, px) * m.opacity;
+            let a = coverage(s, m.half, m.band, px) * opacity;
             // km outside the half-coverage contour (negative inside).
             let outside = m.half - s;
             if a <= 0.0 && (outside <= 0.0 || outside >= r.glow_km) {
@@ -1000,11 +1030,11 @@ fn composite<'a>(m: &'a Prepared, p: [f64; 2], s: f64, along: impl FnOnce() -> f
                     group.hottest = Some((m, r, base));
                 }
             }
-            if a < m.opacity {
+            if a < opacity {
                 // The halo where the mark does not fully cover: outside its
                 // edge, falling to nothing at the glow radius.
                 let h = r.halo(outside.max(1e-9), u);
-                let w = m.opacity - a;
+                let w = opacity - a;
                 for (v, x) in group.halo.iter_mut().zip(h) {
                     *v += x * w;
                 }
@@ -1033,6 +1063,32 @@ fn along(m: &Prepared, p: [f64; 2], segs: impl Iterator<Item = usize>) -> f64 {
         }
     }
     (best.1 / total).clamp(0.0, 1.0)
+}
+
+/// Ruling EQ item 1: a stroke's strength at `p`, `0..=1`: the per-point values
+/// interpolated at the nearest point of the segments `segs` (the bucket's own
+/// list, or every segment). Called only for a mark that has strength; the
+/// "no strength = full" case is reached by control flow in [`composite`],
+/// never here. A one-point stroke (a dab) is its point's value. With no
+/// listed segment (the pixel is past every ink reach, where coverage is
+/// already 0) the answer is moot and is the first point's.
+fn strength_at(m: &Prepared, p: [f64; 2], segs: impl Iterator<Item = usize>) -> f64 {
+    let Some(st) = m.strength.as_ref() else { return 1.0 };
+    if st.len() == 1 {
+        return st[0];
+    }
+    let mut best = (f64::INFINITY, st[0]);
+    for k in segs {
+        let (a, b) = segment(m, k);
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 > 0.0 { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+        let d2 = seg_dist2(p, a, b);
+        if d2 < best.0 {
+            best = (d2, st[k] + t * (st[k + 1] - st[k]));
+        }
+    }
+    best.1
 }
 
 /// How far past its vertices' bounding box a mark's ink can reach, in km,
@@ -1281,7 +1337,7 @@ mod tests {
     use super::*;
 
     fn line(pts: &[[f64; 2]], r: f64, rgb: [u8; 3], blend: ColourBlend) -> ColourMark {
-        ColourMark { shape: MarkShape::Line { points_km: pts.to_vec(), radius_km: r }, rgb, opacity: 1.0, hardness: 1.0, blend, land_only: true, emissive: None }
+        ColourMark { shape: MarkShape::Line { points_km: pts.to_vec(), radius_km: r }, rgb, opacity: 1.0, hardness: 1.0, blend, land_only: true, emissive: None, strength: None }
     }
 
     fn layer(marks: Vec<ColourMark>) -> ColourPaint {
@@ -1382,7 +1438,7 @@ mod tests {
             let r = 20.0 + 6.0 * (3.0 * a).sin();
             [40.0 + r * a.cos(), 50.0 + r * a.sin()]
         }).collect();
-        marks.push(ColourMark { shape: MarkShape::Area { ring_km: ring, edge_km: 0.7 }, rgb: [250, 20, 10], opacity: 0.8, hardness: 1.0, blend: ColourBlend::Colour, land_only: true, emissive: None });
+        marks.push(ColourMark { shape: MarkShape::Area { ring_km: ring, edge_km: 0.7 }, rgb: [250, 20, 10], opacity: 0.8, hardness: 1.0, blend: ColourBlend::Colour, land_only: true, emissive: None, strength: None });
         let l = layer(marks);
         // The same document with a zero margin forces every query (px > 0)
         // through the brute-force path.
@@ -1522,7 +1578,7 @@ mod tests {
     #[test]
     fn area_fills_its_interior_only() {
         let sq = vec![[10.0, 10.0], [30.0, 10.0], [30.0, 30.0], [10.0, 30.0]];
-        let l = layer(vec![ColourMark { shape: MarkShape::Area { ring_km: sq, edge_km: 0.0 }, rgb: [255, 0, 0], opacity: 1.0, hardness: 1.0, blend: ColourBlend::Replace, land_only: true, emissive: None }]);
+        let l = layer(vec![ColourMark { shape: MarkShape::Area { ring_km: sq, edge_km: 0.0 }, rgb: [255, 0, 0], opacity: 1.0, hardness: 1.0, blend: ColourBlend::Replace, land_only: true, emissive: None, strength: None }]);
         assert_eq!(l.apply(GREY, q(20.0, 20.0, 0.1)), [255.0, 0.0, 0.0]);
         assert_eq!(l.apply(GREY, q(10.5, 29.5, 0.1)), [255.0, 0.0, 0.0]);
         assert_eq!(l.apply(GREY, q(5.0, 20.0, 0.1)), GREY);
@@ -1730,5 +1786,76 @@ mod tests {
         l.delete_layer(0).unwrap();
         assert_eq!(l.layers.len(), 2);
         assert!(serde_json::to_string(&l).unwrap().contains(r#""locked":true"#));
+    }
+    fn with_strength(mut m: ColourMark, st: &[f64]) -> ColourMark {
+        m.strength = Some(st.to_vec());
+        m
+    }
+
+    /// Protects Ruling EQ item 1: per-point strength scales the opacity that
+    /// goes on, interpolated along the stroke, against literal channel values
+    /// (Replace red over grey 128 at alpha `a` has green `128 - 128 a`): zero
+    /// at the first point leaves the ground alone, 0.25 a quarter of the way,
+    /// 0.5 half-way, 1 at the end paints it fully; and it multiplies the
+    /// mark's own opacity (0.5 x 0.5 = 0.25). The wide-footprint fallback
+    /// (px 2.0 > the index margin 1.0) answers the same as the bucket index.
+    #[test]
+    fn per_point_strength_scales_opacity_along_the_stroke() {
+        let base = line(&[[0.0, 0.0], [10.0, 0.0]], 2.0, [255, 0, 0], ColourBlend::Replace);
+        let l = layer(vec![with_strength(base.clone(), &[0.0, 1.0])]);
+        let g = |x: f64, px: f64| l.apply(GREY, q(x, 0.0, px))[1];
+        assert_eq!(g(0.0, 0.01), 128.0, "strength 0 puts no colour on");
+        assert!((g(2.5, 0.01) - 96.0).abs() < 1e-9, "a quarter of the way: strength 0.25");
+        assert!((g(5.0, 0.01) - 64.0).abs() < 1e-9, "half-way: strength 0.5");
+        assert!((g(10.0, 0.01) - 0.0).abs() < 1e-9, "strength 1 at the end paints fully");
+        assert!((g(5.0, 2.0) - 64.0).abs() < 1e-9, "the fallback path (px > margin) agrees with the index");
+        let mut half = base.clone();
+        half.opacity = 0.5;
+        let l2 = layer(vec![with_strength(half, &[0.5, 0.5])]);
+        assert!((l2.apply(GREY, q(5.0, 0.0, 0.01))[1] - 96.0).abs() < 1e-9, "strength multiplies the mark's opacity");
+        let dab = layer(vec![with_strength(line(&[[3.0, 3.0]], 2.0, [255, 0, 0], ColourBlend::Replace), &[0.75])]);
+        assert!((dab.apply(GREY, q(3.0, 3.0, 0.01))[1] - 32.0).abs() < 1e-9, "a one-point dab takes its point's strength");
+        let out_of_range = layer(vec![with_strength(base.clone(), &[-3.0, 7.0])]);
+        assert_eq!(out_of_range.apply(GREY, q(0.0, 0.0, 0.01))[1], 128.0, "clamped to 0..=1 on build");
+        assert!((out_of_range.apply(GREY, q(10.0, 0.0, 0.01))[1]).abs() < 1e-9);
+    }
+
+    /// Protects the absence rule: a mark with no strength paints exactly as
+    /// it did before Ruling EQ (full opacity, the same bits), and a stroke
+    /// whose strength is all 1.0 paints the same pixel -- but the absent field
+    /// is not stored as 1.0s.
+    #[test]
+    fn no_strength_is_full_by_control_flow_not_a_stored_one() {
+        let m = line(&[[0.0, 0.0], [10.0, 0.0]], 2.0, [255, 0, 0], ColourBlend::Replace);
+        assert!(m.strength.is_none());
+        let plain = layer(vec![m.clone()]);
+        assert_eq!(plain.apply(GREY, q(5.0, 0.0, 0.01)), [255.0, 0.0, 0.0]);
+        let ones = layer(vec![with_strength(m, &[1.0, 1.0])]);
+        assert_eq!(ones.apply(GREY, q(5.0, 0.0, 0.01)), [255.0, 0.0, 0.0]);
+        assert!(!serde_json::to_string(plain.doc()).unwrap().contains("strength"), "an unpressured mark writes no strength key");
+    }
+
+    /// Protects the saved form: `strength` round-trips; a pre-EQ document
+    /// (no `strength` key, from the v1 fixture shape) parses to `None` and
+    /// re-serialises byte for byte; a wrong-length, non-finite or area
+    /// strength is refused whole.
+    #[test]
+    fn strength_round_trips_old_documents_are_unchanged_and_bad_strength_is_refused() {
+        let old = r#"{"version":1,"visible":true,"marks":[{"shape":{"kind":"line","points_km":[[0.0,0.0],[1.0,1.0]],"radius_km":1.0},"rgb":[1,2,3],"opacity":1.0,"hardness":1.0,"blend":"colour","land_only":true}]}"#;
+        let d: ColourPaintDoc = serde_json::from_str(old).unwrap();
+        assert_eq!(d.marks[0].strength, None);
+        assert_eq!(serde_json::to_string(&d).unwrap(), old, "an old document re-serialises byte for byte");
+        let new = old.replace(r#""land_only":true}"#, r#""land_only":true,"strength":[0.25,1.0]}"#);
+        let n: ColourPaintDoc = serde_json::from_str(&new).unwrap();
+        assert_eq!(n.marks[0].strength, Some(vec![0.25, 1.0]));
+        assert_eq!(serde_json::to_string(&n).unwrap(), new, "a strength-bearing document re-serialises byte for byte");
+        let two = |st: &[f64]| ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![with_strength(line(&[[0.0, 0.0], [1.0, 1.0]], 1.0, [1, 2, 3], ColourBlend::Colour), st)] }, 1.0);
+        assert!(two(&[0.5, 0.5]).is_ok());
+        assert!(matches!(two(&[0.5]), Err(ColourPaintError::BadStrength(0))), "one value per point");
+        assert!(matches!(two(&[0.5, 0.5, 0.5]), Err(ColourPaintError::BadStrength(0))));
+        assert!(matches!(two(&[0.5, f64::NAN]), Err(ColourPaintError::BadStrength(0))));
+        let ring = [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0]];
+        let area = ColourMark { shape: MarkShape::Area { ring_km: ring.to_vec(), edge_km: 0.5 }, rgb: [1, 2, 3], opacity: 1.0, hardness: 1.0, blend: ColourBlend::Colour, land_only: true, emissive: None, strength: Some(vec![1.0, 1.0, 1.0]) };
+        assert!(matches!(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![area] }, 1.0), Err(ColourPaintError::BadStrength(0))), "an area takes no strength");
     }
 }

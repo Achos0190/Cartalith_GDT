@@ -57,6 +57,7 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
   drawing-only meander bounded to the traced cells is invisible below about x16. `DELTA_GEOMETRY_RESEARCH.md`
   section 11 has the table and the options. Ruling EQ item (3), short-stub hiding, is built (the
   zoom-dependent river entry below); item (4), the live window share, is not yet.
+  Ruling EQ item (1), colour-paint pen pressure, is built (below); item (2), vault notes on labels and icons, is not yet.
 
 ### Natural-looking river deltas: redesigned and measured (2026-11-11)
 
@@ -444,6 +445,22 @@ Installed with `adb install -r`; the user's worlds on the device were untouched.
 - **Welcome:** idle mode is held off across the two frame waits and restored. Pad check: not yet made. The APK (debug certificate, Gradle route with the pen plugin, 105 897 314 bytes) is built at `C:\cw\Cartalith-scrollfix-EM.apk`; the Pad 3 was not reachable by `adb` at the time (no mDNS service, only the 6T on USB), so it is **not installed**, and neither the tablet form after Ruling EM nor the welcome card without a touch has been seen on the glass.
 - **Pen pressure:** answered, then built the same day: see "Pressure controls" below.
 
+### Colour paint per-point pen strength (Ruling EQ item 1, 2026-11-11)
+
+**Built in code; the verification line is below. The pen on the glass is the owner's.** Colour marks gained an optional
+`strength` (`cartalith-spatial` `colour_paint.rs` `ColourMark::strength`): one 0..1 value per stroke point, the fraction of the mark's
+`opacity` that goes on there, interpolated along the nearest segment (`strength_at`, called from `composite`). Absent = full opacity by
+control flow (`if m.strength.is_some()`), so every old document and every mouse or finger stroke is CP-1's arithmetic bit for bit and
+writes no key (`SAVEFILE_COMPAT.md`, `appearance_paint.json`). The screen, the deep-zoom tiles and both export paths all read it through
+the one `apply_lit`; the tile key hashes the document, so strength moves it. The Pressure controls colour row now offers **strength | off,
+strength by default** (`DccSettings.PRESSURE_CHOICES["colour"]`, the tool's option row `build_pressure_control`, `Preferences > Stylus`
+ids 1030-1038). `colour_paint_tool.gd` caches `map_stroke_sample`, matches it to the drag by position, remaps through the user's curve and
+maximum, carries the readings through the simplification by index, and back-fills a press point or an unread point from a real
+neighbouring reading (`_strengths_for`); a stroke with no reading stores no strength. Tests: the three `colour_paint.rs` unit tests, the
+`project_bridge.rs` archive round trip, a tile test and an export test (names in `SAVEFILE_COMPAT.md`); `_pressure_probe.gd` section
+`_t_colour` (synthetic device-0 pen events, labelled synthetic: stored strengths, off and mouse store none, pixels at strength 0, 1 and a 0 to 1 ramp).
+- **Results (2026-11-11, base `021821c1`):** `cargo test --workspace` 7837 passed, 0 failed (the tree with both Ruling EQ items); `_pressure_probe` 59/59 at 1600x1000 and at 2388x1668 @2 touch (a first run failed one check, the press point taking the last kept reading after simplification; fixed by back-filling over every sampled point, re-run green); `_sh_probe` 95 desktop and 111 phone (the 95/111 recorded for the Pressure controls batch), `_pc5note` 116/0, `_ve9b` 86/0, `_colourpaint_probe` desktop 47/0, `_edfc_probe` 127 and 144 touch, all 0 failed. Literal mutants, all killed: the opacity-times-strength line, the segment interpolation, the 0..1 clamp, the length check, the 3-decimal save rounding. Not run: a probe on `origin/main` (every probe is green on this tree, so there was nothing to compare), the pen on the glass, a GDScript-side mutant of the default (the probe asserts the literal `strength`).
+
 ### Pressure controls: a per-tool choice of what a pen's pressure does (Ruling EM item 3, 2026-11-09)
 
 **Built and probed against the real engine at three form factors; the pen on the glass is the owner's.** GDScript only: no Rust file
@@ -451,7 +468,8 @@ changed, so `cargo test` for any crate is unaffected and no generated output or 
 setting applied to the user's own edits, not `WorldParams`; `DECISIONS.md` section 7p's defaults rule concerns generated output).
 - **Setting:** `DccSettings.pressure_control(kind)` for `sculpt`, `paint`, `colour`, stored per install (the `stylus` section), never in
   a world save. Each kind offers only what its engine can do (`PRESSURE_CHOICES`): sculpt strength | off, paint size | off, colour
-  off. A write the kind does not offer is refused, and a stored value it does not offer reads as the default.
+  strength | off since Ruling EQ item 1 (it was off only; see "Colour paint per-point pen strength"). A write the kind does not offer
+  is refused, and a stored value it does not offer reads as the default.
 - **Defaults:** sculpt = strength (unchanged: `sculpt.rs` k = cov x intensity x p, radius untouched). **Biome paint = off, which
   changes the paint default:** `paint_bridge.rs` `StrokeOptions::pressure_size` is still true in the engine, but the shell now sends
   `pressure_size` on every stroke begin from the choice (`WorldWorkspace._paint_click`), so a pen no longer shrinks the dab unless

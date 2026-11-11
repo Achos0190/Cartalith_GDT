@@ -2677,6 +2677,13 @@ pub(crate) fn colour_paint_save_doc(layer: Option<&cartalith_spatial::colour_pai
         if let Some(e) = m.emissive.as_mut() {
             e.glow_radius_km = r(e.glow_radius_km);
         }
+        // Ruling EQ item 1: per-point pen strength, 3 decimals like the
+        // coordinates (idempotent, so a re-save writes the same text).
+        if let Some(st) = m.strength.as_mut() {
+            for v in st.iter_mut() {
+                *v = r(*v);
+            }
+        }
     }
     Some(doc)
 }
@@ -7383,7 +7390,7 @@ mod tests {
             hardness: 0.5,
             blend: ColourBlend::Replace,
             land_only: true,
-            emissive: None,
+            emissive: None, strength: None,
         };
         let lava = ColourMark {
             shape: MarkShape::Area { ring_km: vec![[300.0, 300.0], [320.000_7, 300.0], [310.0, 318.3]], edge_km: 0.25 },
@@ -7392,7 +7399,7 @@ mod tests {
             hardness: 1.0,
             blend: ColourBlend::Replace,
             land_only: false,
-            emissive: Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.75, crack_density: 0.5, glow_radius_km: 1.5, heat_along: 0.0 }),
+            emissive: Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.75, crack_density: 0.5, glow_radius_km: 1.5, heat_along: 0.0 }), strength: None,
         };
         ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: false, marks: vec![flat, lava] }, 1.0).unwrap()
     }
@@ -7417,6 +7424,47 @@ mod tests {
         let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("read_project should succeed");
         assert!(data.warnings.is_empty(), "{:?}", data.warnings);
         (data, buf.len())
+    }
+
+    /// Protects Ruling EQ item 1 (`SAVEFILE_COMPAT.md`, `appearance_paint.json`):
+    /// per-point pen strength is written rounded to 3 decimals, survives a
+    /// real archive round trip equal to the rounded document, and re-saving
+    /// the opened document writes the same text; a layer drawn with no
+    /// pressure (the pre-EQ `sample_colour_paint`) writes no `strength` key at
+    /// all, so an old project's slot text is unchanged.
+    #[test]
+    fn colour_paint_strength_round_trips_and_an_unpressured_layer_writes_no_key() {
+        use cartalith_spatial::colour_paint::*;
+        let plain = colour_paint_save_doc(Some(&sample_colour_paint())).unwrap();
+        let mut plain_docs = BTreeMap::new();
+        insert_doc(&mut plain_docs, SLOT_COLOUR_PAINT, &plain);
+        assert!(!plain_docs[SLOT_COLOUR_PAINT].contains("strength"), "no pressure, no key");
+        let m = ColourMark {
+            shape: MarkShape::Line { points_km: vec![[10.0, 10.0], [20.0, 10.0], [30.0, 12.0]], radius_km: 1.0 },
+            rgb: [10, 20, 30],
+            opacity: 1.0,
+            hardness: 1.0,
+            blend: ColourBlend::Colour,
+            land_only: true,
+            emissive: None,
+            strength: Some(vec![0.123_456, 1.0, 0.0004]),
+        };
+        let layer = ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![m] }, 1.0).unwrap();
+        let saved = colour_paint_save_doc(Some(&layer)).unwrap();
+        assert_eq!(saved.layers[0].marks[0].strength, Some(vec![0.123, 1.0, 0.0]), "3 decimals");
+        let mut docs = BTreeMap::new();
+        insert_doc(&mut docs, SLOT_COLOUR_PAINT, &saved);
+        let text = docs[SLOT_COLOUR_PAINT].clone();
+        assert!(text.contains("\"strength\""));
+        let (data, _) = round_trip_with(docs);
+        let mut warnings = Vec::new();
+        let back = colour_paint_from_data(&data, &mut warnings).expect("restored");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(back, saved);
+        let reopened = ColourPaint::from_layers(back, 1.0).unwrap();
+        let mut again = BTreeMap::new();
+        insert_doc(&mut again, SLOT_COLOUR_PAINT, &colour_paint_save_doc(Some(&reopened)).unwrap());
+        assert_eq!(again[SLOT_COLOUR_PAINT], text, "re-saving writes the same bytes");
     }
 
     /// Protects CP-3 (`COLOUR_PAINT_SCOPE.md` §9): the colour paint survives a

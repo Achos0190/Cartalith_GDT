@@ -245,7 +245,7 @@ const ID_PEN_STATUS := 963
 const ID_PEN_TAP_BASE := 970
 const ID_PEN_SLIDE_BASE := 1000
 ## Ruling EM item 3, Preferences > Stylus > Pressure controls: 1030 + kind*3 + choice (kind 0 sculpt, 1 paint; choice
-## index into `DccSettings.PRESSURE_CHOICES`). Colour paint reads no pressure, so its row is a disabled note.
+## index into `DccSettings.PRESSURE_CHOICES`; kind 2 colour, Ruling EQ item 1). Ids 1030..1038.
 ## Grepped for 103x across `shell/` before taking them; slide rows end at 1029.
 const ID_PRESSURE_CTRL_BASE := 1030
 ## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
@@ -4169,7 +4169,7 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 		_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
 			"The pressure that counts as full strength. If you never press past 70 %, choose 70 % and that press reaches full strength.")
 	_stylus_popup.add_separator("Pressure controls")
-	for ki in 2:
+	for ki in DccSettings.PRESSURE_KINDS.size():
 		var kind: String = DccSettings.PRESSURE_KINDS[ki]
 		for ci in (DccSettings.PRESSURE_CHOICES[kind] as Array).size():
 			var mode: String = DccSettings.PRESSURE_CHOICES[kind][ci]
@@ -4177,10 +4177,6 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 				else "%s: pressure ignored" % kind.capitalize(), ID_PRESSURE_CTRL_BASE + ki * 3 + ci)
 			_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
 				"Ruling EM: what a pen's pressure does on this tool. Also in the tool's option bar. Stored on this device, never in a world.")
-	_stylus_popup.add_item("Colour paint: pressure ignored", ID_PRESSURE_CTRL_BASE + 6)
-	_stylus_popup.set_item_disabled(_stylus_popup.item_count - 1, true)
-	_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
-		"A colour mark stores one radius and one opacity for the whole stroke, so there is no per-dab amount for pressure to scale.")
 	_build_penlink_submenu(_stylus_popup)
 	_refresh_stylus_menu()
 	_stylus_popup.id_pressed.connect(_on_stylus_choice)
@@ -4301,7 +4297,7 @@ func _refresh_stylus_menu() -> void:
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_CURVE_SOFT), curve == "soft")
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_CURVE_LINEAR), curve == "linear")
 	_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PREF_CURVE_FIRM), curve == "firm")
-	for ki in 2:
+	for ki in DccSettings.PRESSURE_KINDS.size():
 		var pk: String = DccSettings.PRESSURE_KINDS[ki]
 		for ci in (DccSettings.PRESSURE_CHOICES[pk] as Array).size():
 			_stylus_popup.set_item_checked(_stylus_popup.get_item_index(ID_PRESSURE_CTRL_BASE + ki * 3 + ci),
@@ -4329,7 +4325,7 @@ func _on_stylus_choice(id: int) -> void:
 		ID_PREF_CURVE_FIRM:
 			DccSettings.set_pen_pressure_curve("firm")
 		_:
-			if id >= ID_PRESSURE_CTRL_BASE and id < ID_PRESSURE_CTRL_BASE + 6:
+			if id >= ID_PRESSURE_CTRL_BASE and id < ID_PRESSURE_CTRL_BASE + 9:
 				var pk2: String = DccSettings.PRESSURE_KINDS[(id - ID_PRESSURE_CTRL_BASE) / 3]
 				DccSettings.set_pressure_control(pk2, DccSettings.PRESSURE_CHOICES[pk2][(id - ID_PRESSURE_CTRL_BASE) % 3])
 				_refresh_stylus_menu()

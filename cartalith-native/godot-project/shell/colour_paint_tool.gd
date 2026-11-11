@@ -124,6 +124,14 @@ var heat_along := 0.0
 var _pts_km: Array = []
 var _pts_grid := PackedVector2Array()
 var _open := false
+## Ruling EQ item 1: the pen pressure each kept point carried, parallel to `_pts_km`, as the remapped 0..1 float a pen
+## reported or `null` where none was (a mouse, a finger, the press event, or the Pressure controls choice off). Never a
+## guessed number: a `null` stays `null` until `_strengths_for` back-fills it from a real neighbour, or the stroke
+## stores no strength at all.
+var _pts_pressure: Array = []
+## `map_stroke_sample`'s latest payload `{gx, gy, pressure}`, cached for the `map_dragged` that follows it in the same
+## motion event (`viewport_host.gd` emits the sample first). Empty = none pending.
+var _pending_sample: Dictionary = {}
 
 ## Undo/redo: whole documents ("" = no layer), newest last, with labels.
 var _undo: Array = []
@@ -235,9 +243,9 @@ func build_into(parent: Control) -> void:
 	DccWidgets.slider(body, "Opacity", 0.0, 1.0, 0.05, opacity, "", func(v: float): opacity = v)
 	DccWidgets.toggle(body, "Land only", land_only, func(v: bool): land_only = v,
 		"On: sea and lakes under the stroke keep their colour. Off: water is painted too (a crater lake inside a painted crater).")
-	## Ruling EM item 3: colour paint reads no pen pressure (`DccSettings.PRESSURE_DEFAULTS["colour"]` is "off", the only
-	## choice it offers): a mark stores one radius and one opacity for the whole stroke, so nothing is per dab.
-	DccWidgets.note(body, "Pressure controls: off. A colour mark has one size and one opacity for the stroke, so pen pressure does not change it.")
+	## Ruling EQ item 1 (after EM item 3): the colour row offers strength / off, strength by default. Strength is stored
+	## per point on the mark (`ColourMark::strength`); a mouse or finger reports none and paints at the full opacity.
+	DccToolBar.build_pressure_control(body, app, "colour")
 	_mat_rows = []
 	_mat_rows.append(DccWidgets.slider(body, "Heat", 0.0, 1.0, 0.05, heat, "", func(v: float): heat = v,
 		"How much of the surface is open and hot: 0 a cooled crust with faint seams, 1 a molten, white-hot lake."))
@@ -349,8 +357,12 @@ func _on_press(gx: float, gy: float) -> void:
 			app.set_status("hint", "Not done: colour paint needs a world with a map width.", "warn")
 		return
 	_open = true
+	_connect_stroke_sample()
+	_pending_sample = {}
 	_pts_km = [Vector2(gx * kpc, gy * kpc)]
 	_pts_grid = PackedVector2Array([Vector2(gx, gy)])
+	## A press event carries no pressure (`world_workspace.gd::_paint_click`): `null`, never a default.
+	_pts_pressure = [null]
 	_preview()
 
 func _on_drag(gx: float, gy: float) -> void:
@@ -360,31 +372,99 @@ func _on_drag(gx: float, gy: float) -> void:
 	if kpc <= 0.0:
 		return
 	var p := Vector2(gx * kpc, gy * kpc)
+	## Consumed whether or not the point is kept, so a cached sample never leaks into the next one.
+	var pressure: Variant = _take_pressure(gx, gy)
 	if p.distance_to(_pts_km[_pts_km.size() - 1]) < radius_km * SPACING:
 		return
 	_pts_km.append(p)
 	_pts_grid.append(Vector2(gx, gy))
+	_pts_pressure.append(pressure)
 	_preview()
+
+## Subscribes once to the viewport's `map_stroke_sample` (idempotent; a no-op without the viewport or the signal).
+func _connect_stroke_sample() -> void:
+	var vp = app.viewport if app != null else null
+	if vp == null or not vp.has_signal("map_stroke_sample"):
+		return
+	if not vp.is_connected("map_stroke_sample", _on_stroke_sample):
+		vp.connect("map_stroke_sample", _on_stroke_sample)
+
+func _on_stroke_sample(gx: float, gy: float, pressure: Variant, _tx: Variant, _ty: Variant, _is_pen: bool) -> void:
+	_pending_sample = {"gx": gx, "gy": gy, "pressure": pressure}
+
+## The remapped pen pressure of the motion event at (`gx`, `gy`), or `null`. `null` when the Pressure controls choice
+## for colour paint is not "strength", when the cached sample is for another position (none arrived), and for a mouse
+## or a finger (`map_stroke_sample` passes `null` unless a pen) -- never a default of 1.0 or 0.0, because absent
+## pressure means the stroke goes on at its own opacity by control flow in the engine. Remapped through the user's
+## curve and comfortable maximum exactly as `world_workspace.gd::_apply_pen_pressure` does. Consumes the sample.
+func _take_pressure(gx: float, gy: float) -> Variant:
+	var ps := _pending_sample
+	_pending_sample = {}
+	if DccSettings.pressure_control("colour") != "strength":
+		return null
+	if ps.is_empty() or not is_equal_approx(float(ps["gx"]), gx) or not is_equal_approx(float(ps["gy"]), gy):
+		return null
+	var raw: Variant = ps["pressure"]
+	if not (raw is float):
+		return null
+	return StylusInput.remap_pressure(float(raw), float(StylusInput.PRESSURE_CURVES[DccSettings.pen_pressure_curve()]),
+		DccSettings.pen_pressure_max())
+
+## The per-point strengths of a stroke whose kept points carry `pressures` (floats or `null`), or `[]` when no point
+## carried any (a mouse or finger stroke: the mark then stores no strength). A `null` between or before real readings
+## (the press point, a point whose event had none) takes the nearest earlier reading, else the first later one -- a
+## real reading of the same pen stroke, not an invented number.
+static func _strengths_for(pressures: Array) -> Array:
+	var first := -1
+	for i in pressures.size():
+		if pressures[i] != null:
+			first = i
+			break
+	if first < 0:
+		return []
+	var out: Array = []
+	var last: float = float(pressures[first])
+	for v in pressures:
+		if v != null:
+			last = float(v)
+		out.append(last)
+	return out
 
 func _on_release(gx: float, gy: float, valid: bool) -> void:
 	if not _open:
 		return
 	if valid:
 		_on_drag(gx, gy)
-	var pts := _simplify(_pts_km, radius_km * SIMPLIFY)
+	var keep := _simplify_keep(_pts_km, radius_km * SIMPLIFY)
+	## Back-filled over EVERY sampled point first, so the press point takes the first real reading of the stroke and
+	## not whichever reading the simplification happened to keep; then the kept points pick their values.
+	var all_strengths := _strengths_for(_pts_pressure)
+	var pts: Array = []
+	var strengths: Array = []
+	for i in keep:
+		pts.append(_pts_km[i])
+		if not all_strengths.is_empty():
+			strengths.append(all_strengths[i])
 	_cancel_stroke()
-	commit_line(pts)
+	commit_line(pts, strengths)
 
-## Appends one stroke (km points) with the current brush as one undo step.
-## Public so a probe can paint without synthesising pointer events.
-func commit_line(points_km: Array) -> bool:
+## Appends one stroke (km points) with the current brush as one undo step. `strengths` (Ruling EQ item 1) is one 0..1
+## value per point, or `[]` for a stroke with none (the mark then stores no `strength` key). Public so a probe can paint
+## without synthesising pointer events.
+func commit_line(points_km: Array, strengths: Array = []) -> bool:
 	if points_km.is_empty() or bridge == null or bridge.generating:
 		return false
+	if not strengths.is_empty() and strengths.size() != points_km.size():
+		strengths = []
 	while points_km.size() > MAX_POINTS:
 		var thin: Array = []
+		var thin_s: Array = []
 		for i in range(0, points_km.size(), 2):
 			thin.append(points_km[i])
+			if not strengths.is_empty():
+				thin_s.append(strengths[i])
 		points_km = thin
+		strengths = thin_s
 	var pts: Array = []
 	for p in points_km:
 		var v: Vector2 = p
@@ -397,6 +477,11 @@ func commit_line(points_km: Array) -> bool:
 		"blend": blend,
 		"land_only": land_only,
 	}
+	if not strengths.is_empty():
+		var st: Array = []
+		for v in strengths:
+			st.append(snappedf(clampf(float(v), 0.0, 1.0), 0.001))
+		mark["strength"] = st
 	if material != "colour":
 		var m: Dictionary = MATERIALS[_material_index()]
 		mark["emissive"] = {"ramp": String(m["ramp"]), "heat": heat, "crack_density": crack, "glow_radius_km": glow_km, "heat_along": heat_along}
@@ -422,14 +507,23 @@ func _preview() -> void:
 func _cancel_stroke() -> void:
 	_open = false
 	_pts_km = []
+	_pts_pressure = []
+	_pending_sample = {}
 	_pts_grid = PackedVector2Array()
 	if app != null and app.viewport != null and app.viewport.tool_overlay != null:
 		app.viewport.tool_overlay.set_path_preview(PackedVector2Array())
 
 ## Ramer-Douglas-Peucker on km points; keeps the ends.
 static func _simplify(pts: Array, tol: float) -> Array:
+	var out := []
+	for i in _simplify_keep(pts, tol):
+		out.append(pts[i])
+	return out
+
+## The same simplification as the INDICES kept, ascending, so a caller can carry per-point data (pen pressure) along.
+static func _simplify_keep(pts: Array, tol: float) -> Array:
 	if pts.size() < 3:
-		return pts.duplicate()
+		return range(pts.size())
 	var keep := []
 	keep.resize(pts.size())
 	keep.fill(false)
@@ -456,7 +550,7 @@ static func _simplify(pts: Array, tol: float) -> Array:
 	var out := []
 	for i in pts.size():
 		if keep[i]:
-			out.append(pts[i])
+			out.append(i)
 	return out
 
 # -- Paint layers (Ruling CS) ------------------------------------------------------

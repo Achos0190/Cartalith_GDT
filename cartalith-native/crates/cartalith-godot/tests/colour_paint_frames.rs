@@ -404,7 +404,7 @@ fn shoelace(r: &[[f64; 2]]) -> f64 {
 }
 
 fn mark(shape: MarkShape, rgb: [u8; 3], opacity: f64, hardness: f64, blend: ColourBlend) -> ColourMark {
-    ColourMark { shape, rgb, opacity, hardness, blend, land_only: true, emissive: None }
+    ColourMark { shape, rgb, opacity, hardness, blend, land_only: true, emissive: None, strength: None }
 }
 
 fn appearance() -> TerrainAppearance {

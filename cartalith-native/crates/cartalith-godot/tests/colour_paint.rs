@@ -70,7 +70,7 @@ fn doc(marks: Vec<ColourMark>) -> ColourPaintDoc {
 }
 
 fn line(pts: &[[f64; 2]], radius_km: f64, rgb: [u8; 3], blend: ColourBlend, hardness: f64) -> ColourMark {
-    ColourMark { shape: MarkShape::Line { points_km: pts.to_vec(), radius_km }, rgb, opacity: 1.0, hardness, blend, land_only: true, emissive: None }
+    ColourMark { shape: MarkShape::Line { points_km: pts.to_vec(), radius_km }, rgb, opacity: 1.0, hardness, blend, land_only: true, emissive: None, strength: None }
 }
 
 /// A horizontal hard stroke across the north of the map, 40 km in radius:
@@ -540,7 +540,7 @@ fn lava(shape: MarkShape, heat: f64, heat_along: f64) -> ColourMark {
         hardness: 1.0,
         blend: ColourBlend::Replace,
         land_only: true,
-        emissive: Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat, crack_density: 0.0, glow_radius_km: 15.0, heat_along }),
+        emissive: Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat, crack_density: 0.0, glow_radius_km: 15.0, heat_along }), strength: None,
     }
 }
 

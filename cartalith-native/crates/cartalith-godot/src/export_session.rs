@@ -1390,7 +1390,7 @@ mod tests {
             hardness: 1.0,
             blend: ColourBlend::Replace,
             land_only: false,
-            emissive: None,
+            emissive: None, strength: None,
         };
         let layer = Arc::new(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![m] }, 2.0 * kpc).unwrap());
         let plain = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
@@ -1402,6 +1402,39 @@ mod tests {
         let moved = a.iter().zip(&b).filter(|(x, y)| x != y).count();
         assert!(moved > 100, "the export must draw the colour paint ({moved} bytes moved)");
         assert_eq!(bands(&painted, &p1000), b, "banded = monolithic with colour paint");
+    }
+
+    /// Protects Ruling EQ item 1 on the export path: a stroke with per-point
+    /// strength 0 -> 1 exports differently from the same stroke at full
+    /// strength (fewer bytes of paint at its weak start), and its banded
+    /// output is still identical at 7 and at 1 000 rows per band.
+    #[test]
+    fn per_point_strength_reaches_the_export() {
+        use cartalith_spatial::colour_paint::*;
+        let w = world();
+        let (p7, p1000) = (plan(150, 7), plan(150, 1000));
+        let bands = |s: &ExportSnapshot, p: &ExportBandPlan| -> Vec<u8> { p.bands().flat_map(|b| s.render_band(p, b, ColorSpace::Srgb).expect("band")).collect() };
+        let kpc = KM / GW as f64;
+        let build = |st: Option<Vec<f64>>| {
+            let m = ColourMark {
+                shape: MarkShape::Line { points_km: vec![[GW as f64 * 0.3 * kpc, GH as f64 * 0.5 * kpc], [GW as f64 * 0.7 * kpc, GH as f64 * 0.5 * kpc]], radius_km: 3.0 * kpc },
+                rgb: [255, 0, 0],
+                opacity: 1.0,
+                hardness: 1.0,
+                blend: ColourBlend::Replace,
+                land_only: false,
+                emissive: None,
+                strength: st,
+            };
+            let mut i = inputs(&w, KM, true);
+            i.colour_paint = Some(Arc::new(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![m] }, 2.0 * kpc).unwrap()));
+            ExportSnapshot::build_plain(i).expect("snapshot")
+        };
+        let (full, faded) = (build(None), build(Some(vec![0.0, 1.0])));
+        let (a, b) = (bands(&full, &p7), bands(&faded, &p7));
+        let moved = a.iter().zip(&b).filter(|(x, y)| x != y).count();
+        assert!(moved > 100, "strength must change the export ({moved} bytes moved)");
+        assert_eq!(bands(&faded, &p1000), b, "banded = monolithic with strength");
     }
 
     /// Protects: an above-sea lake reaching the export (2026-09-24). Both export paths

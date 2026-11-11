@@ -7,7 +7,7 @@ extends Node
 ## What it proves, against the REAL engine (no stub): per tool kind, `DccSettings.pressure_control` decides what a pen's
 ## pressure does. Sculpt strength puts the pen's pressure on the stamp and leaves the stamp's params (radius) alone;
 ## sculpt off puts none; a mouse puts none. Biome paint off ignores pressure (same painted area at 0.1 and 1.0), size
-## shrinks the dab at low pressure, and a mouse paints the full-radius area. Colour paint offers only off.
+## shrinks the dab at low pressure, and a mouse paints the full-radius area. Colour paint offers strength / off (Ruling EQ item 1), strength by default.
 ##
 ## Windowed, wiped user dir, under the shared lock (`C:/cw/.win_lock`):
 ##   godot --path . --resolution 1600x1000 _pressure_probe.tscn -- --vp 1600x1000
@@ -188,6 +188,7 @@ func _run(vw: int, vh: int) -> void:
 	await _t_controls()
 	await _t_sculpt(P)
 	await _t_paint(P)
+	await _t_colour(P)
 
 ## A mouse stroke (device 0, button + motion): Godot reports pressure 1.0 for it, which must read as no pressure.
 func _mouse_stroke(a: Vector2, b: Vector2) -> void:
@@ -226,16 +227,19 @@ func _t_settings() -> void:
 	## The shipped defaults, read before anything is set (the harness wipes the user dir): Ruling EM item 3.
 	_ok(DccSettings.pressure_control("sculpt") == "strength", "default: sculpt = strength")
 	_ok(DccSettings.pressure_control("paint") == "off", "default: biome paint = off (the owner: area from the slider)")
-	_ok(DccSettings.pressure_control("colour") == "off", "default: colour paint = off")
+	_ok(DccSettings.pressure_control("colour") == "strength", "default: colour paint = strength (Ruling EQ item 1)")
 	DccSettings.set_pressure_control("sculpt", "strength")
 	DccSettings.set_pressure_control("paint", "off")
 	_ok(DccSettings.pressure_control("sculpt") == "strength", "sculpt reads strength once set to strength")
 	_ok(DccSettings.pressure_control("paint") == "off", "paint reads off")
-	_ok(DccSettings.pressure_control("colour") == "off", "colour paint reads off")
+	DccSettings.set_pressure_control("colour", "off")
+	_ok(DccSettings.pressure_control("colour") == "off", "colour paint reads off once set off")
+	DccSettings.set_pressure_control("colour", "strength")
+	_ok(DccSettings.pressure_control("colour") == "strength", "colour paint reads strength once set")
 	_ok(not DccSettings.set_pressure_control("paint", "strength"), "paint refuses strength (categorical)")
 	_ok(not DccSettings.set_pressure_control("sculpt", "size"), "sculpt refuses size (one radius per stamp)")
 	_ok(not DccSettings.set_pressure_control("colour", "size"), "colour refuses size")
-	_ok(not DccSettings.set_pressure_control("colour", "strength"), "colour refuses strength")
+	_ok(DccSettings.pressure_why_not("colour", "size") != "" and DccSettings.pressure_why_not("colour", "strength") == "", "colour offers strength, not size")
 	_ok(not DccSettings.set_pressure_control("bogus", "off"), "an unknown kind is refused")
 	_ok(DccSettings.pressure_control("paint") == "off" and DccSettings.pressure_control("sculpt") == "strength", "a refused write stores nothing")
 	_ok(DccSettings.pressure_why_not("paint", "strength") != "" and DccSettings.pressure_why_not("paint", "size") == "", "why-not text only for an unoffered mapping")
@@ -252,7 +256,8 @@ func _t_tester() -> void:
 	_ok(DccSettings.pressure_effect_text("paint", 0.5) == "size x 0.600", "tester: paint size at 0.5 is 0.2 + 0.8 x 0.5 = x 0.600")
 	_ok(DccSettings.pressure_effect_text("paint", 0.0) == "size x 0.200", "tester: paint size at zero pressure is the 0.2 floor (zero is a reading)")
 	_ok(DccSettings.pressure_effect_text("sculpt", -1.0) == "no pen pressure: stroke unchanged", "tester: no pen pressure never yields a multiplier")
-	_ok(DccSettings.pressure_effect_text("colour", 0.5) == "pressure ignored", "tester: colour paint ignores pressure")
+	_ok(DccSettings.pressure_effect_text("colour", 0.5) == "strength x 0.500", "tester: colour strength at 0.5 is x 0.500")
+	_ok(DccSettings.pressure_effect_text("colour", -1.0) == "no pen pressure: stroke unchanged", "tester: no pen pressure never yields a colour multiplier")
 	DccSettings.set_pressure_control("paint", "off")
 	_ok(DccSettings.pressure_effect_text("paint", 0.5) == "pressure ignored", "tester: paint off is ignored")
 	DccSettings.set_pen_pressure_curve("firm")
@@ -378,3 +383,120 @@ func _t_paint(P: Vector2) -> void:
 	_ok(sz_ms == sz_hi, "paint size: a mouse (no pressure) makes exactly the full-radius footprint (%s vs %s)" % [str(sz_ms), str(sz_hi)])
 	_ok(sz_hi == off_hi, "paint: size at full pressure equals off (the slider's footprint, %s)" % str(off_hi))
 	DccSettings.set_pressure_control("paint", "off")
+
+
+# ---- Ruling EQ item 1: colour paint's per-point strength -----------------------------------------------------------
+
+func _cartography() -> Node:
+	for ws in _app._workspaces:
+		if ws is CartographyWorkspace:
+			return ws
+	return null
+
+## The saved marks of every layer, parsed from the engine's own document (version 1 keeps `marks` at the top, version 2
+## under `layers`).
+func _colour_marks() -> Array:
+	var d: Variant = JSON.parse_string(_app.bridge.colour_paint_document())
+	var out: Array = []
+	if d is Dictionary:
+		if (d as Dictionary).has("marks"):
+			out = (d as Dictionary)["marks"]
+		else:
+			for l in (d as Dictionary).get("layers", []):
+				out.append_array((l as Dictionary).get("marks", []))
+	return out
+
+func _t_colour(P: Vector2) -> void:
+	var carto := _cartography()
+	var tool = carto.colour_paint if carto != null else null
+	_ok(tool != null, "CARTO owns the colour-paint tool")
+	if tool == null:
+		return
+	## The pure helper first: a null takes the nearest earlier real reading, else the first later one; no reading at
+	## all stores nothing (never a guessed number).
+	var cp := load("res://shell/colour_paint_tool.gd")
+	_ok(cp._strengths_for([null, 0.2, null, 0.8]) == [0.2, 0.2, 0.2, 0.8], "strengths: nulls take a real neighbouring reading")
+	_ok(cp._strengths_for([null, null]).is_empty(), "strengths: no reading at all = no strengths (a mouse stroke)")
+	_ok(cp._strengths_for([0.0, 1.0]) == [0.0, 1.0], "strengths: zero is a reading, kept")
+	await _arm("colour_paint")
+	DccSettings.set_pen_pressure_curve("linear")
+	DccSettings.set_pen_pressure_max(1.0)
+	DccSettings.set_pressure_control("colour", "strength")
+	tool.clear()
+	await _frames(2)
+	var a := P
+	var b := P + Vector2(70.0, 0.0)
+	## A pen stroke whose pressure rises 0.2 -> 0.8 (synthetic device-0 events).
+	await _pen_down(a)
+	var cur := a
+	var ps := [0.2, 0.4, 0.6, 0.8]
+	for k in ps.size():
+		var nxt := a.lerp(b, float(k + 1) / float(ps.size()))
+		await _pen_move(nxt, cur, float(ps[k]))
+		cur = nxt
+	await _pen_up(b)
+	var marks := _colour_marks()
+	_ok(marks.size() == 1, "colour strength: one pen stroke = one mark (%d)" % marks.size())
+	if marks.size() == 1:
+		var m: Dictionary = marks[0]
+		var pts: Array = (m["shape"] as Dictionary)["points_km"]
+		var st: Array = m.get("strength", [])
+		_ok(m.has("strength") and st.size() == pts.size() and pts.size() >= 2, "colour strength: the mark stores one strength per point (%d vs %d)" % [st.size(), pts.size()])
+		_ok(st.size() >= 2 and absf(float(st[0]) - 0.2) < 0.001 and absf(float(st[st.size() - 1]) - 0.8) < 0.001, "colour strength: first 0.2 (the press takes the first reading), last 0.8 (%s)" % str(st))
+	tool.clear()
+	## Off: the same pen stroke stores no strength key at all.
+	DccSettings.set_pressure_control("colour", "off")
+	await _pen_stroke(a, b, 0.5)
+	marks = _colour_marks()
+	_ok(marks.size() == 1 and not (marks[0] as Dictionary).has("strength"), "colour off: a pen stroke stores NO strength key")
+	tool.clear()
+	## A mouse (Godot's flat 1.0 reads as no pressure) stores none in strength mode.
+	DccSettings.set_pressure_control("colour", "strength")
+	await _mouse_stroke(a, b)
+	marks = _colour_marks()
+	_ok(marks.size() == 1 and not (marks[0] as Dictionary).has("strength"), "colour strength: a mouse stroke stores NO strength key (control flow, not 1.0)")
+	tool.clear()
+	## Pixels (the screen path): a stroke at strength 0 leaves the raster alone, at strength 1 matches the plain stroke,
+	## and a 0 -> 1 stroke is lighter at its start than at its end.
+	var br = _app.bridge
+	var kpc := float(br.colour_paint_info()["km_per_cell"])
+	var y0 := 90.0
+	var line := [Vector2(40.0, y0) * kpc, Vector2(120.0, y0) * kpc]
+	tool.radius_km = 4.0 * kpc
+	tool.hardness = 1.0
+	tool.opacity = 1.0
+	tool.blend = "replace"
+	tool.land_only = false
+	tool.rgb = Color8(255, 0, 0)
+	var shot := func() -> Image:
+		await _settle()
+		var img: Image = br.color_texture().get_image()
+		if img.is_compressed():
+			img.decompress()
+		return img
+	var base: Image = await shot.call()
+	tool.commit_line(line, [0.0, 0.0])
+	var zero: Image = await shot.call()
+	tool.clear()
+	tool.commit_line(line)
+	var full: Image = await shot.call()
+	tool.clear()
+	tool.commit_line(line, [0.0, 1.0])
+	var ramp: Image = await shot.call()
+	tool.clear()
+	var box := Rect2i(40, 86, 80, 9)
+	var diff := func(x: Image, y: Image, r: Rect2i) -> int:
+		var n := 0
+		for yy in range(r.position.y, r.end.y):
+			for xx in range(r.position.x, r.end.x):
+				var p := x.get_pixel(xx, yy)
+				var q := y.get_pixel(xx, yy)
+				n += absi(p.r8 - q.r8) + absi(p.g8 - q.g8) + absi(p.b8 - q.b8)
+		return n
+	_ok(int(diff.call(base, zero, box)) == 0, "colour strength 0: the raster is untouched (%d)" % int(diff.call(base, zero, box)))
+	_ok(int(diff.call(base, full, box)) > 20000, "premise: the plain stroke paints (%d)" % int(diff.call(base, full, box)))
+	var lft := Rect2i(44, 86, 20, 9)
+	var rgt := Rect2i(96, 86, 20, 9)
+	_ok(int(diff.call(base, ramp, lft)) < int(diff.call(base, ramp, rgt)) / 2, "colour strength 0 -> 1: the weak start paints far less than the strong end (%d vs %d)" % [int(diff.call(base, ramp, lft)), int(diff.call(base, ramp, rgt))])
+	_ok(int(diff.call(full, ramp, rgt)) < int(diff.call(base, full, rgt)) / 5, "colour strength 0 -> 1: the strong end matches the plain stroke (%d)" % int(diff.call(full, ramp, rgt)))
+	DccSettings.set_pressure_control("colour", "strength")

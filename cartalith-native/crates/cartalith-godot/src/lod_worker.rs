@@ -3237,7 +3237,7 @@ mod tests {
             hardness: 1.0,
             blend: ColourBlend::Replace,
             land_only: false,
-            emissive: Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.9, crack_density: 0.5, glow_radius_km: kpc, heat_along: 0.0 }),
+            emissive: Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.9, crack_density: 0.5, glow_radius_km: kpc, heat_along: 0.0 }), strength: None,
         };
         Arc::new(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![m] }, 2.0 * kpc).expect("layer"))
     }
@@ -3286,5 +3286,54 @@ mod tests {
         assert!(a.iter().any(|&v| v != 0), "an empty tile proves nothing");
         let moved = a.iter().zip(&b).filter(|(x, y)| x != y).count();
         assert!(moved > 100, "the colour paint must reach the centre tile ({moved} bytes moved)");
+    }
+    /// Protects Ruling EQ item 1 on the tile path (the same `apply_lit` the
+    /// screen and export call): a stroke's per-point strength moves the tile
+    /// key (the fingerprint hashes the whole document), and a stroke fading
+    /// from strength 0 to 1 draws a centre tile with less colour at its start
+    /// than the same stroke at full strength, while its far end matches it.
+    #[test]
+    fn per_point_strength_reaches_the_tiles_and_keys_them() {
+        use cartalith_spatial::colour_paint::*;
+        let (gw, gh) = (96usize, 72usize);
+        let i0 = inputs(gw, gh);
+        let kpc = i0.map_width_km / gw as f64;
+        let (cx, cy) = (gw as f64 * 0.5 * kpc, gh as f64 * 0.5 * kpc);
+        let stroke = |st: Option<Vec<f64>>| {
+            let m = ColourMark {
+                shape: MarkShape::Line { points_km: vec![[cx - 20.0 * kpc, cy], [cx + 20.0 * kpc, cy]], radius_km: 6.0 * kpc },
+                rgb: [255, 0, 0],
+                opacity: 1.0,
+                hardness: 1.0,
+                blend: ColourBlend::Replace,
+                land_only: false,
+                emissive: None,
+                strength: st,
+            };
+            let mut i = inputs(gw, gh);
+            i.colour_paint = Some(Arc::new(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![m] }, 2.0 * kpc).expect("layer")));
+            i
+        };
+        let (full, faded) = (stroke(None), stroke(Some(vec![0.0, 1.0])));
+        assert_ne!(full.fingerprint(), faded.fingerprint(), "strength is part of the tile key");
+        let tile = |i: SnapshotInputs| LodSnapshot::build(i).expect("snapshot").render_tile(2, 2, 2).expect("tile").0;
+        let (a, b) = (tile(full), tile(faded));
+        let red = |t: &[u8], lo: usize, hi: usize| -> u64 {
+            let w = (t.len() / 4) as f64;
+            let side = w.sqrt() as usize;
+            let mut sum = 0u64;
+            for y in 0..side {
+                for x in lo..hi {
+                    let o = (y * side + x) * 4;
+                    sum += t[o] as u64 + 255 - t[o + 1] as u64;
+                }
+            }
+            sum
+        };
+        let side = ((a.len() / 4) as f64).sqrt() as usize;
+        let (left, right) = ((side / 5, side * 2 / 5), (side * 3 / 5, side * 4 / 5));
+        assert!(red(&b, left.0, left.1) < red(&a, left.0, left.1), "the weak start of the stroke carries less colour");
+        assert!(red(&a, left.0, left.1) - red(&b, left.0, left.1) > 1000, "and measurably so");
+        assert!(red(&a, right.0, right.1) - red(&b, right.0, right.1) < red(&a, left.0, left.1) - red(&b, left.0, left.1), "the strong end is closer to the full stroke");
     }
 }

@@ -672,21 +672,24 @@ static func set_pen_pressure_max(value: float) -> void:
 ## a world's. The kinds are the three pressure-aware brush tools. Each lists only the mappings its engine can honour:
 ## sculpt scales the stamp's strength (`cartalith-terrain` `sculpt.rs`, k = cov x intensity x p; the stamp's radius is
 ## fixed per stamp, so it has no size mapping), biome paint scales the dab size (a categorical layer has no strength),
-## and colour paint reads no pressure at all (a mark stores ONE radius and ONE opacity for the whole stroke, so there
-## is nothing per dab to scale; a mapping would need a change to the mark format and its parity gate, not built).
+## and colour paint scales how much colour goes on at each point (Ruling EQ item 1: a mark stores an optional per-point
+## `strength`, `cartalith-spatial` `colour_paint.rs` `ColourMark::strength`; its radius stays one value per stroke, so it
+## has no size mapping).
 const PRESSURE_KINDS: Array[String] = ["sculpt", "paint", "colour"]
 
 ## The choices each kind offers, first = the mapping it can do. "off" is always last.
 const PRESSURE_CHOICES := {
 	"sculpt": ["strength", "off"],
 	"paint": ["size", "off"],
-	"colour": ["off"],
+	"colour": ["strength", "off"],
 }
 
 ## The defaults. Sculpt keeps today's behaviour (strength). Biome paint is OFF by the owner's ruling ("area is from
 ## the slider"): it used to default to size (`paint_bridge.rs` `StrokeOptions::pressure_size` is still true in the
-## engine; the shell now sends the choice on every stroke begin). Colour paint is off because it cannot do otherwise.
-const PRESSURE_DEFAULTS := {"sculpt": "strength", "paint": "off", "colour": "off"}
+## engine; the shell now sends the choice on every stroke begin). Colour paint defaults to strength (Ruling EQ item 1,
+## the owner: "with strength as the default"); a mouse or finger reports no pressure and paints at full strength by
+## control flow, so the default changes nothing without a pen.
+const PRESSURE_DEFAULTS := {"sculpt": "strength", "paint": "off", "colour": "strength"}
 
 ## Why a mapping is not offered for a kind, for the control's tooltip and the tester. "" when it is offered.
 static func pressure_why_not(kind: String, mode: String) -> String:
@@ -699,8 +702,8 @@ static func pressure_why_not(kind: String, mode: String) -> String:
 			return "a sculpt stamp has one radius for the whole stroke"
 		"paint:strength":
 			return "biome paint is categorical and has no strength"
-		"colour:size", "colour:strength":
-			return "a colour mark stores one radius and one opacity per stroke"
+		"colour:size":
+			return "a colour mark stores one radius per stroke"
 	return "not available for this tool"
 
 ## The stored choice for `kind`, always one the kind offers: an unset, unknown or unsupported stored value reads as
