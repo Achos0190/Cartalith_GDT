@@ -330,6 +330,8 @@ func open_window() -> void:
 func _show_dialog() -> void:
 	if _phone:
 		app.phone_fit(self, 1.0)
+	## Opened from the settings window (exclusive) it must be that window's child (`DccWidgets.reparent_over`).
+	DccWidgets.reparent_over(self, app)
 	if not DccWidgets.phone_present(self, app):
 		var vp := get_tree().root.get_visible_rect().size
 		size = Vector2i(560, int(minf(800.0, vp.y - 60.0)))

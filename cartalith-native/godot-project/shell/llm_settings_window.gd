@@ -210,6 +210,9 @@ func open() -> void:
 	_models_refresh()
 	if _phone:
 		app.phone_fit(self, 1.0)
+	## Over the phone's assistant sheet (itself exclusive) this window must be the sheet's child, or the
+	## engine refuses it (`DccWidgets.reparent_over`).
+	DccWidgets.reparent_over(self, app)
 	if not DccWidgets.phone_present(self, app):
 		popup_centered()
 

@@ -47,6 +47,26 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Assistant on the tablet: stacked exclusive dialogs, an off-screen consent card, a swap that freed its own popup (2026-11-11)
+
+Owner report 2026-11-09 ("the assistant on the tab seems buggy"), reproduced by `_asstfix_probe.gd` and read from the Pad's
+logcat. *Opened at the symbols:* `DccWidgets.modal_card`/`confirm`/`prompt`, `LlmConsent.present`, `LlmSettingsWindow.open`/
+`_models_refresh`, `LlmAssistantWindow._show_dialog`, `DccShell.ui_scale_changed`. Three defects, each fixed at its root:
+(1) **"already has another exclusive child"**: every shell dialog was added under `app`, so a second exclusive window (the consent
+card from Refresh or Send, the settings window from the phone's assistant sheet) was refused while another was showing.
+`DccWidgets.stack_host()` now picks the innermost showing exclusive embedded window as the parent of a new card/confirm/prompt, and
+`reparent_over()` does it for the long-lived settings and assistant windows. (2) **The consent card was taller than the window**
+(753 px in a 539 px window, so Allow and Not now were off screen and consent could not be given): its text now scrolls
+(`LlmConsent._fit_scroll`, height capped to the window) with the buttons pinned. (3) **"freed or unreferenced while a signal is
+being emitted"**: Preferences > UI scale ran the class swap inside the menu popup's own `id_pressed`, and the swap `free()`s that
+composition; `ui_scale_changed()` is now deferred to idle. *Verified:* probe on the tablet viewport (3392x2400, density 2.225)
+with a real LM Studio (qwen3-14b as loaded): Refresh opens consent over settings, Allow, model list ok, Commands request, proposal
+card, Apply, Edit > Undo. *Also:* mutants of `stack_host`, `reparent_over` and the consent height cap are each killed by `_asstfix_probe.gd` (three literal mutants, files restored); `_pc6ask`, `_ac3`, `_ac4`, `_ac7`, `_llmpanel`, `_llmview`, `_pc7windows` and `_ms1swap` quiet, represent and live pass; `_popdlg_probe.gd`'s "docked dialog is a child of the app" pin was the buggy parent and now reads "the app or the exclusive asker" (the assistant consent must be the asker). The freed-during-emit fix (`ui_scale_changed` deferred) is not covered by a probe (it needs the Pad's UI-scale path), only by reading the logcat. *Not covered:* the other hand-built dialogs that still `add_child` to `app` (they only matter when opened
+from inside an exclusive window); a stored 200 % UI scale leaves a 762 px-wide tablet layout whose docks overflow (a layout
+question, not changed here).
+
+---
+
 ### MS-6 built: the STORY sheet is a strip of four segments over the shown band's rows (2026-11-09)
 
 `MOBILE_SHELL_PROPOSAL.md` §2.1 and §6 (MS-6: *the planner, timeline, conflicts and notes reachable without MENU*), Ruling DT Q1. GDScript only, no Rust change, no draft (draft 05's STORY half had landed with MS-2 as four drill rows; the drafts README says so). *Re-opened at the symbols first (origin/main `3af1e0ac`):* `phone_menu.gd` (`STORY_ROWS`, `_fill_story_rows()`, `_fill_story()`, `open_story()`, `_push_screen()`), `dcc_shell.gd::_pick_phone_tab()` and the mockup's `Shell.dc.html` STORY branch (chips `TIME · JOURNEYS · CONFLICTS · NOTES` over `rowsStory`).

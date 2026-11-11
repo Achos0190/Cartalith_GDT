@@ -250,7 +250,14 @@ func _sites(mode: String) -> void:
 			continue
 		seen_names.append(String(row["name"]))
 		if mode == "docked":
-			_ok(dlg.get_parent() == _app, "%s: docked, the dialog is a child of the app (unchanged): parent %s" % [row["name"], dlg.get_parent().name])
+			## 2026-11-11 (assistant-on-tablet fix): a dialog built by the shared helpers (`DccWidgets.stack_host`) and
+			## opened FROM an exclusive embedded window is that window's child, because the engine allows one exclusive
+			## child per parent and refused the consent card over the assistant window. Hand-built dialogs elsewhere
+			## stay the app's, unchanged. So the parent is the app or the asker, and the assistant consent must be the asker.
+			var pn: Node = dlg.get_parent()
+			_ok(pn == _app or pn == w, "%s: docked, the dialog is a child of the app or of its asker: parent %s" % [row["name"], pn.name])
+			if String(row["name"]) == "assistant consent" and w.exclusive:
+				_ok(pn == w, "assistant consent: opened over the exclusive assistant window it is that window's child (the engine allows one exclusive child per parent)")
 			_ok(dlg.is_embedded() and _nwin() == n0, "%s: docked, embedded, no extra OS window (%d)" % [row["name"], _nwin()])
 		else:
 			_ok(dlg.get_parent() == w, "%s: popped out, the dialog is a child of the POP-OUT, not the app (parent %s)" % [row["name"], dlg.get_parent().name])

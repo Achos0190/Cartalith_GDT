@@ -4044,6 +4044,58 @@ static func _phone_dialog_body(dlg: AcceptDialog, title: String) -> VBoxContaine
 	scroll.add_child(inner)
 	return inner
 
+## **Where a new EXCLUSIVE dialog must be added so it can open on top of another exclusive one.**
+##
+## The engine allows one exclusive child per transient parent window ("Attempting to make child window
+## exclusive, but the parent window already has another exclusive child", Pad logcat 2026-11-09). A dialog
+## added to `app` has the root window as its transient parent, so while ANY exclusive embedded dialog is
+## showing (the Assistant settings window, the phone's assistant sheet, a faction roster, a place editor)
+## a second one -- the consent card most of all, which Refresh and Send open from inside those windows -- is
+## refused: it never appears and the first stays up. The owner reported it as the assistant "not working".
+## The cure the engine intends is nesting: a dialog added under the exclusive window is that window's own
+## exclusive child. This returns that window when one is showing (the innermost, if several are stacked),
+## else `host` unchanged -- so every caller that has no dialog open behaves exactly as before. Only an
+## EMBEDDED exclusive window counts: a native pop-out is `PopoutHost.dialog_host()`'s concern, and nesting
+## under a native window would clip the dialog to it.
+##
+## MUST NEVER: return a hidden window, the window being created (it is not visible yet, and the caller
+## adds it after this), a window outside `host`'s own viewport (its transient parent would be another
+## window's), or null when `host` is non-null.
+static func stack_host(host: Node) -> Node:
+	if host == null or not host.is_inside_tree():
+		return host
+	var vp := host.get_viewport()
+	if vp == null:
+		return host
+	var top: Window = null
+	for w in vp.find_children("*", "Window", true, false):
+		var win := w as Window
+		if win == null or not win.visible or not win.exclusive or not win.is_embedded():
+			continue
+		## The innermost: a candidate that sits inside the current best replaces it.
+		if top == null or top.is_ancestor_of(win):
+			top = win
+	return host if top == null else top
+
+## **Opens a long-lived exclusive window (`AcceptDialog` the shell built once) over whatever exclusive
+## window is already showing.** The persistent twin of `stack_host()`: such a window cannot be built under
+## the right parent at show time, so it is moved. Before it is shown, `win` is re-parented to `stack_host(
+## home)`: under the showing exclusive window if there is one (the phone's assistant sheet when its gear is
+## pressed), else back under `home`. Without it the engine refuses the second exclusive window ("already has
+## another exclusive child", reproduced on the phone form by `_asstfix_probe.gd`, 2026-11-09) and the
+## settings window never opened from the sheet. `win` must be hidden; a visible window is left where it is.
+## MUST NEVER: re-parent a visible window, nest a window under itself or under one of its own descendants.
+static func reparent_over(win: Window, home: Node) -> void:
+	if win == null or win.visible or home == null:
+		return
+	var target := stack_host(home)
+	if target == win or win.is_ancestor_of(target):
+		target = home
+	if win.get_parent() != target:
+		if win.get_parent() != null:
+			win.get_parent().remove_child(win)
+		target.add_child(win)
+
 ## The text-only confirmation, protocol-complete.
 ##
 ## Six sites in this shell hand-build exactly this shape and **not one of the
@@ -4079,7 +4131,7 @@ static func confirm(host: Node, title: String, text: String, ok_text: String,
 	else:
 		dlg.dialog_text = text
 		dlg.min_size = Vector2i(width, 0)
-	host.add_child(dlg)
+	stack_host(host).add_child(dlg)
 	_wire_dismiss(dlg, on_confirm, on_cancel)
 	if phone and host.has_method("phone_fit"):
 		host.phone_fit(dlg, 1.0)
@@ -4125,7 +4177,7 @@ static func prompt(host: Node, title: String, field_label: String,
 	body.add_child(le)
 	if hint != "":
 		note(body, hint)
-	host.add_child(dlg)
+	stack_host(host).add_child(dlg)
 
 	var submit := func():
 		var typed := le.text.strip_edges()
@@ -4329,7 +4381,7 @@ static func modal_card(host: Node, title: String, variant: int = MODAL_CONFIRM,
 	body_pad.add_child(body)
 
 	if host != null:
-		host.add_child(dlg)
+		stack_host(host).add_child(dlg)
 	dlg.transient = true
 	dlg.exclusive = true
 	return {"dialog": dlg, "root": root, "body": body, "title": t,

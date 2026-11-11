@@ -54,7 +54,21 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 	var origin := String(info.get("origin", ""))
 	var class_label := String(info.get("class_label", "unknown"))
 	var card := DccWidgets.modal_card(host, "Before the first request", DccWidgets.MODAL_CONFIRM, CARD_W)
-	var body: VBoxContainer = card["body"]
+	## **The text scrolls; the Allow / Not now row never leaves the screen.** The card's text is long
+	## (every ticked source adds a bullet) and the stock card does not scroll: on the OnePlus Pad 3 at its
+	## stored 200 % UI scale the window is 762 x 539 logical px and the card came up 753 px tall with its
+	## header and its buttons above and below the screen (probe `_asstfix_probe.gd`, 2026-11-09), so consent
+	## could not be given and the assistant looked dead. The text goes in a `ScrollContainer` whose height is
+	## capped to the window in `_fit_scroll()`; the buttons stay below it.
+	var outer: VBoxContainer = card["body"]
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outer.add_child(sc)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 11)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(body)
 
 	_wrap(DccWidgets.modal_prose(body, "Turning this on sends text to %s (%s). Each request sends:" % [origin, class_label]), 0)
 	var sent := DccWidgets.modal_inset(body)
@@ -132,15 +146,30 @@ static func present(host, info: Dictionary, preset: Dictionary, on_agree: Callab
 	## frame later the content is right; `reset_size()` takes the window back to it, and
 	## `move_to_center()` undoes the centring the oversized first size caused. A phone card is
 	## full-screen by `phone_present`, so it is left alone.
-	if not DccTheme.is_phone():
-		var dlg: Window = card["dialog"]
-		var refit := func() -> void:
-			await host.get_tree().process_frame
-			if is_instance_valid(dlg) and dlg.visible:
-				dlg.reset_size()
-				dlg.move_to_center()
-		refit.call_deferred()
+	var dlg: Window = card["dialog"]
+	var refit := func() -> void:
+		await host.get_tree().process_frame
+		if not is_instance_valid(dlg) or not dlg.visible:
+			return
+		_fit_scroll(sc, body, host)
+		await host.get_tree().process_frame
+		if is_instance_valid(dlg) and dlg.visible and not DccTheme.is_phone():
+			dlg.reset_size()
+			dlg.move_to_center()
+	refit.call_deferred()
 	return {"card": card, "choices": choices, "terms": terms}
+
+## Sets the text scroller's height to its content, capped so the card (header, scroller, button row,
+## margin) fits the window the card is shown in. `CHROME_H` is the header plus the button row plus the
+## card's padding, a labelled judgement measured on the Pad probe (about 150 px at the card's own scale);
+## the cap is 90 % of the window's height less that. Never below `MIN_SCROLL_H`, so a tiny window still
+## shows some text.
+const CHROME_H := 170
+const MIN_SCROLL_H := 120
+static func _fit_scroll(sc: ScrollContainer, body: Control, host: Node) -> void:
+	var vp := host.get_viewport()
+	var avail := 100000.0 if vp == null else vp.get_visible_rect().size.y * 0.9 - CHROME_H
+	sc.custom_minimum_size.y = maxf(float(MIN_SCROLL_H), minf(body.get_combined_minimum_size().y, avail))
 
 ## One bullet row inside the inset.
 static func _line(parent: Control, text: String) -> void:

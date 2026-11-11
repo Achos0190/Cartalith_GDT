@@ -1634,10 +1634,18 @@ func _ui_scale() -> float:
 ## MS-1 S5: re-runs the class question and the unit after the UI scale changed (`Preferences ▸ UI scale`).
 ## The same path as a settled resize, so a scale that crosses the line requests a class swap instead of
 ## flipping the composition in place.
+##
+## **Deferred to idle, never run inside the caller.** The caller is `menus.gd::_on_ui_scale_choice`, the
+## `id_pressed` of a `PopupMenu` that is part of the composition, and a swap `free()`s that composition
+## (`_unmount_composition()`: "never from a signal the composition itself is emitting"). Run inline it freed
+## the popup in the middle of its own emission, which the Pad logged as "Object ... was freed or unreferenced
+## while a signal is being emitted from it" at UI scale 200 % the moment the tablet bar crossed
+## `TABLET_WHOLE_BAR_DP` (logcat 2026-11-09, `size class change requested` one line before). Deferring lets
+## the emission end first; the result is the same swap one idle step later.
 func ui_scale_changed() -> void:
 	if not _touch:
 		return
-	_on_resize_settled()
+	_on_resize_settled.call_deferred()
 
 ## S2 (spec §3.3, MQ-3 (a), Ruling DY's answer): the phone's unit from density. It is capped at today's
 ## short/412, so a phone narrower than 412 dp keeps its 412-unit layout until MS-2 to MS-6 rebuild those
