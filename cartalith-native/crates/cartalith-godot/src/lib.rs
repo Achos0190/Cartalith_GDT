@@ -6925,10 +6925,10 @@ struct WorldGen {
     landmark_store: cartalith_civ::landmark::LandmarkStore,
 
     /// Ruling EI: names the user gave landmarks, `Landmark::key()` to name, read by
-    /// `landmark_names()` ahead of the generated one. **Session-only and not saved**:
-    /// nothing in a project archive stores a landmark name today (the ruling adds none to a
-    /// save), so a name set here is gone on a reload or a new world (cleared where the landmark
-    /// settings are reset on a project open). The key is kind and cell, so a stale entry for a
+    /// `landmark_names()` ahead of the generated one. **Saved since Ruling EL**
+    /// (2026-11-09) as the optional `user_names` member of `entities/landmarks.json`
+    /// (`project_bridge.rs::LandmarksDoc`); cleared where the landmark settings are reset, so
+    /// a new world or a project without the member starts with none. The key is kind and cell, so a stale entry for a
     /// landmark that is no longer placed is inert.
     landmark_user_names: std::collections::BTreeMap<String, String>,
 
@@ -15508,6 +15508,17 @@ impl WorldGen {
         let Ok(i) = usize::try_from(index) else { return VarDictionary::new() };
         let Some(ic) = self.icons.as_ref().and_then(|s| s.icons.get(i)) else { return VarDictionary::new() };
         icon_dict(ic)
+    }
+
+    /// Moves placed icon `index` to grid `(gx, gy)` (`icon_bridge::IconEditor::move_to`).
+    /// `false` -- nothing changed -- for an unknown index, an off-grid or non-finite
+    /// destination, or before any `generate()` call. For the context card's Move row.
+    #[func]
+    fn icon_move(&mut self, index: i64, gx: f64, gy: f64) -> bool {
+        let Ok(i) = usize::try_from(index) else { return false };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let Some(icons) = self.icons.as_mut() else { return false };
+        icons.move_to(i, gx, gy, gw, gh)
     }
 
     /// Removes a placed icon (`DCC_SHELL_SPEC.md` §4.5.6: "Delete removes
@@ -26848,7 +26859,7 @@ impl WorldGen {
 
     /// Ruling EI: gives the landmark `key` a name of the user's own, replacing the generated one.
     /// An empty (or blank) `name` removes it. `false` when no placed landmark has that key.
-    /// **Session-only** (see `landmark_user_names`): no project file carries it yet.
+    /// Saved with the project (`landmark_user_names`, Ruling EL).
     #[func]
     fn landmark_set_user_name(&mut self, key: GString, name: GString) -> bool {
         let key = key.to_string();

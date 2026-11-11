@@ -721,6 +721,21 @@ impl IconEditor {
         true
     }
 
+    /// Edit-from-context (`EDIT_FROM_CONTEXT_AUDIT.md`, Ruling EO): moves icon `index` to grid
+    /// `(x, y)`. The same bound `place_manual_icon` applies to a placement (`0 <= x < gw`,
+    /// `0 <= y < gh`) -- a destination off the grid, a non-finite one or an unknown `index` is
+    /// refused (`false`) and nothing changes, so a move can never put an icon where a click could
+    /// not have. Only `x`/`y` change: family, slot, scale, origin and the selection are kept.
+    pub fn move_to(&mut self, index: usize, x: f64, y: f64, gw: usize, gh: usize) -> bool {
+        if !x.is_finite() || !y.is_finite() || x < 0.0 || x >= gw as f64 || y < 0.0 || y >= gh as f64 {
+            return false;
+        }
+        let Some(ic) = self.icons.get_mut(index) else { return false };
+        ic.x = x;
+        ic.y = y;
+        true
+    }
+
     /// Run the generated placement pass over `candidates` and append what
     /// survives to [`Self::icons`].
     ///
@@ -993,6 +1008,27 @@ mod tests {
         let before = e.armed.clone();
         assert!(!e.arm("feature", 999, 1.0, 0.0, 0.0));
         assert_eq!(e.armed, before);
+    }
+
+    /// Protects: `move_to` rewrites only `x`/`y` of the named icon, and refuses (changing nothing)
+    /// an unknown index, a destination on or past the grid edge, a negative one and a non-finite
+    /// one -- the same bound a placement obeys. Literal coordinates, so the bound is not asserted
+    /// against itself.
+    #[test]
+    fn move_to_moves_one_icon_and_refuses_what_a_click_could_not_place() {
+        let mut e = IconEditor::new();
+        assert!(e.arm("feature", 0, 1.0, 0.0, 0.0));
+        assert_eq!(e.place(3.0, 4.0, 48, 32), Some(0));
+        assert_eq!(e.place(10.0, 11.0, 48, 32), Some(1));
+        assert!(e.move_to(0, 20.5, 7.25, 48, 32));
+        assert_eq!((e.icons[0].x, e.icons[0].y), (20.5, 7.25));
+        assert_eq!((e.icons[1].x, e.icons[1].y), (10.0, 11.0), "another icon moved");
+        assert_eq!(e.icons[0].slot, "mountain");
+        for (i, x, y) in [(2, 1.0, 1.0), (0, 48.0, 1.0), (0, 1.0, 32.0), (0, -0.5, 1.0), (0, f64::NAN, 1.0), (0, 1.0, f64::INFINITY)] {
+            assert!(!e.move_to(i, x, y, 48, 32), "({i},{x},{y}) was accepted");
+        }
+        assert_eq!((e.icons[0].x, e.icons[0].y), (20.5, 7.25), "a refused move changed the icon");
+        assert!(e.move_to(0, 47.9, 31.9, 48, 32));
     }
 
     /// Protects: arm-time scale clamps to the resize bounds and NaN or non-positive falls back to 1.0.

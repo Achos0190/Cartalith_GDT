@@ -65,3 +65,14 @@ Windowed probes with real right-clicks (desktop 1600x1000) and real touches (tab
 `--density 2.8125 --force-touch`) per family and action including undo; the landmark-name save round trip; literal
 mutants; and a re-run of `_ctxcard`, `_ctxring`, `_ctxfan`, `_ms5`, `_ms5b`, `_pc4context`, `_pc5note`, `_ve6`,
 `_ve9b`, `_culturesel`, `_scrollfix` against origin/main.
+
+## Build notes, step 2 (2026-11-11)
+
+Built as one change, not one commit per family (the families share `global_tools.gd`). The shared provider is
+`GlobalTools.element_rows`. Deviations from the plan above, each for a reason read at the symbol: **settlement Move**
+is not built (no engine path relocates a settlement); **label and icon Note** are not built (`SAVEFILE_COMPAT.md`
+13.3.4 fixes the bindable kinds); **way Rename** is not built (no setter; only a route has `route_set_name`);
+**Select** rows exist for landmarks only (a way, label, icon and route are not selection kinds); **icon Move** needed
+a new engine call, `icon_move`. Undo: labels, icons and names are on no undo history, so Delete confirms and Rename /
+Move are reversed by repeating them. The touch chips are `shell/element_chips.gd`; the strip is placed at the tapped
+point, because the host fills the window and the bars are drawn over it. Probe: `_edfc_probe.gd`.

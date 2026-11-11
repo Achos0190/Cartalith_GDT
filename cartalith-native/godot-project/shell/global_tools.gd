@@ -126,6 +126,10 @@ static func install(app) -> void:
 	app.register_tool_backspace_handler("measure", func(): _measure_drop_last(app))
 	app.tool_armed.connect(func(id: String): _on_armed(app, id))
 
+	## Edit-from-context: the Move row's destination click (`element_rows`, `_begin_move`).
+	app.register_tool_click_handler(MOVE_TOOL, func(gx, gy): _move_click(app, gx, gy))
+	app.register_tool_escape_handler(MOVE_TOOL, func(): _move_target = {})
+
 	app.register_tool_drag_handler("region", func(gx, gy): _region_drag(app, gx, gy))
 	app.register_tool_release_handler("region", func(gx, gy, valid): _region_release(app, gx, gy, valid))
 	app.register_tool_escape_handler("region", func(): _region_escape(app))
@@ -193,7 +197,214 @@ static func context_actions(app, req: Dictionary) -> Array:
 	if not copy.is_empty():
 		rows.append({"id": "global.copy_coordinate", "label": "Copy coordinate", "section": "info",
 			"enabled": true, "children": copy})
+	rows.append_array(element_rows(app, req))
 	return rows
+
+# ===========================================================================
+# Edit any map element from its context (`EDIT_FROM_CONTEXT_AUDIT.md`; Rulings EI, EL, EO)
+# ===========================================================================
+
+## The pseudo-tool a Move row arms: its one map click is the destination. A tap tool
+## (`DccApp.tool_kind`), so a touch drag still pans and the click lands where the finger lifts.
+const MOVE_TOOL := "move_element"
+
+## What the next `MOVE_TOOL` click moves: `{kind: "label"|"icon", id: int, name: String}`, or `{}` when
+## nothing is pending. Cleared by the click, by Escape and by `_begin_move` replacing it.
+static var _move_target: Dictionary = {}
+
+## **The one provider of the element rows every domain asks** (audit, structural gap 1). A map hit is
+## domain-independent, and until this function its verbs were written once per domain, so a settlement,
+## landmark, label or icon had verbs in one domain and none in the others. Each row below calls a path
+## that already existed (`civ_edit_settlement`, `landmark_set_user_name`, `label_set`, `label_move`,
+## `icon_move`, `app.open_vault`, the Place editor's confirm) and reimplements none of them; a domain
+## that already carries the same verb in its own provider (CIVIL's Edit / Delete / Open note on a
+## settlement, CARTO's Edit text / Delete on a label and Delete on an icon) is not given a second copy.
+##
+## Only the **first** hit of each kind gets rows, the rule every provider follows; Select > narrows the
+## request to reach another. `tap` on a row names the chip it becomes when a touch tap selects the element
+## (Ruling EO, `tap_chips`): a chip is the card's own row, never a second set.
+##
+## **Not rows, by design:** way, region, conflict, journey-marker and colour-mark picks (the audit files
+## them: a way has no name setter, the others have no hit). A label and an icon have no Note row because
+## `SAVEFILE_COMPAT.md` 13.3.4 fixes the entity kinds a note binds to (settlement, province, continent,
+## faction, culture, landmark); adding one is a format change the owner has not ruled on.
+static func element_rows(app, req: Dictionary) -> Array:
+	var rows: Array = []
+	var bridge = app.bridge
+	var domain := String(req.get("domain", ""))
+	var first := {}
+	for h in req.get("hits", []):
+		var k := String((h as Dictionary).get("kind", ""))
+		if not first.has(k):
+			first[k] = h
+	if first.has("settlement"):
+		var si := int((first["settlement"] as Dictionary)["id"])
+		var all: Array = bridge.settlements()
+		if si >= 0 and si < all.size():
+			rows.append_array(_settlement_rows(app, domain, si, all[si]))
+	if first.has("landmark"):
+		rows.append_array(_landmark_rows(app, int((first["landmark"] as Dictionary)["id"])))
+	if first.has("label"):
+		var h: Dictionary = first["label"]
+		rows.append_array(_label_rows(app, domain, int(h["id"]), String(h.get("label", ""))))
+	if first.has("icon"):
+		var h2: Dictionary = first["icon"]
+		rows.append_array(_icon_rows(app, domain, int(h2["id"]), String(h2.get("label", "icon"))))
+	return rows
+
+## A one-field rename prompt: `DccWidgets.prompt` hosted on the app (so the phone form is the protocol's own);
+## `on_submit(trimmed_text)` runs only for a non-empty answer.
+static func rename_prompt(app, title: String, initial: String, on_submit: Callable) -> void:
+	DccWidgets.prompt(app, title, "Name", initial, "Rename", on_submit)
+
+## Settlement rows. **Rename** in every domain (CIVIL's Edit opens the whole Place editor; this is the one
+## field); in WORLD and CARTO also Edit, Delete (the Place editor's own confirm) and the note row, which CIVIL's
+## provider already carries (`civ.edit`, `civ.delete`, `civ.vault_note`). Move: the engine has no settlement
+## relocation (`civ_edit_settlement`'s keys are name, kind, faction, population, specialisation, history, age,
+## walls), so none is offered: filed, not invented.
+static func _settlement_rows(app, domain: String, si: int, s: Dictionary) -> Array:
+	var rows: Array = []
+	var nm := String(s.get("name", "(unnamed)"))
+	rows.append({"id": "el.settlement_rename", "label": "Rename %s…" % nm, "section": "object", "enabled": true,
+		"tap": "Rename", "callable": func() -> void:
+			rename_prompt(app, "Rename place", nm, func(t: String) -> void:
+				if app.bridge.civ_edit_settlement(si, {"name": t}):
+					app.place_editor_window.place_changed.emit()
+					app.set_status("hint", "Renamed %s to %s" % [nm, t], "text_ghost")
+				else:
+					app.set_status("hint", "Rename refused.", "accent"))})
+	if domain == "civilization":
+		return rows
+	rows.append({"id": "el.settlement_edit", "label": "Edit %s" % nm, "section": "object", "enabled": true,
+		"callable": func() -> void: app.open_place_editor(si)})
+	rows.append({"id": "el.settlement_delete", "label": "Delete %s" % nm, "section": "object", "enabled": true,
+		"danger": true, "tap": "Delete", "callable": func() -> void: app.place_editor_window.confirm_delete(si)})
+	var tid := int(s.get("tid", si))
+	var linked := int(app.bridge.vault_entity_summary("settlement", tid).get("link_count", 0)) > 0
+	rows.append({"id": "el.settlement_note",
+		"label": ("Open note for %s" % nm) if linked else ("Attach note to %s…" % nm),
+		"section": "info", "enabled": true, "tap": "Note",
+		"callable": func() -> void: app.open_vault("settlement", tid, nm)})
+	return rows
+
+## Landmark rows (Ruling EI, saved by Ruling EL): Rename (the user's own name, replacing the generated one;
+## saved with the world), Clear custom name (only while a user name is set; the generated name returns), the
+## note (the vault entity id from the landmark's key, as `context_note.gd` binds it) and Select. Move and
+## Delete are absent by design: a landmark is generated, not placed by hand.
+static func _landmark_rows(app, li: int) -> Array:
+	var rows: Array = []
+	var lms: Array = app.bridge.landmarks()
+	var names: Array = app.bridge.landmark_names()
+	if li < 0 or li >= lms.size() or li >= names.size():
+		return rows
+	var lm: Dictionary = lms[li]
+	var nd: Dictionary = names[li]
+	var nm := String(nd.get("name", "landmark"))
+	var key := String(nd.get("key", "%s@%d,%d" % [String(lm.get("kind", "")), int(lm.get("x", 0)), int(lm.get("y", 0))]))
+	## Only a landmark that is already the selection is re-selected (so its Inspect page shows the new name): a
+	## rename must not open the Inspect sheet over the map on a touch form.
+	var after := func() -> void:
+		if String(app.selection.get("kind", "")) == "landmark" and int(app.selection.get("id", -1)) == li:
+			app.select("landmark", li)
+		if app.viewport != null and app.viewport.has_method("refresh_annotations"):
+			app.viewport.refresh_annotations()
+	rows.append({"id": "el.landmark_rename", "label": "Rename %s…" % nm, "section": "object", "enabled": true,
+		"tap": "Rename", "callable": func() -> void:
+			rename_prompt(app, "Rename landmark", nm, func(t: String) -> void:
+				if app.bridge.landmark_set_user_name(key, t):
+					app.set_status("hint", "Landmark named %s (saved with the world)" % t, "text_ghost")
+					after.call()
+				else:
+					app.set_status("hint", "Rename refused: that landmark is no longer placed.", "accent"))})
+	if String(nd.get("source", "")) == "user":
+		rows.append({"id": "el.landmark_clear_name", "label": "Clear custom name", "section": "object",
+			"enabled": true, "callable": func() -> void:
+				if app.bridge.landmark_set_user_name(key, ""):
+					app.set_status("hint", "Custom name cleared", "text_ghost")
+					after.call()})
+	var got: Dictionary = app.bridge.vault_landmark_entity_id(key)
+	if bool(got.get("ok", false)) and got.has("entity_id"):
+		var eid := int(got["entity_id"])
+		var linked := int(app.bridge.vault_entity_summary("landmark", eid).get("link_count", 0)) > 0
+		rows.append({"id": "el.landmark_note",
+			"label": ("Open note for %s" % nm) if linked else ("Attach note to %s…" % nm),
+			"section": "info", "enabled": true, "tap": "Note",
+			"callable": func() -> void: app.open_vault("landmark", eid, nm)})
+	rows.append({"id": "el.landmark_select", "label": "Select %s" % nm, "section": "info", "enabled": true,
+		"callable": func() -> void: app.select("landmark", li)})
+	return rows
+
+## Label rows. Rename (the text, through `label_set`) and Move in every domain; Delete in WORLD and CIVIL (CARTO's
+## provider carries it), confirmed first: the engine's label store has no undo history.
+static func _label_rows(app, domain: String, idx: int, text: String) -> Array:
+	var rows: Array = []
+	var t := text if text != "" else "(untitled)"
+	rows.append({"id": "el.label_rename", "label": "Rename “%s”…" % t, "section": "object", "enabled": true,
+		"tap": "Rename", "callable": func() -> void:
+			rename_prompt(app, "Rename label", text, func(nt: String) -> void:
+				var r: Dictionary = app.bridge.label_set(idx, {"text": nt})
+				if bool(r.get("ok", false)):
+					_annotations_changed(app)
+					app.set_status("hint", "Label renamed to %s" % nt, "text_ghost")
+				else:
+					app.set_status("hint", "Rename refused.", "accent"))})
+	rows.append({"id": "el.label_move", "label": "Move “%s”" % t, "section": "object", "enabled": true,
+		"tap": "Move", "callable": func() -> void: _begin_move(app, "label", idx, t)})
+	if domain != "cartography":
+		rows.append({"id": "el.label_delete", "label": "Delete label “%s”" % t, "section": "object",
+			"enabled": true, "danger": true, "tap": "Delete", "callable": func() -> void:
+				DccWidgets.confirm(app, "Delete label?", "Delete “%s”? Labels have no undo history." % t, "Delete",
+					func() -> void:
+						if app.bridge.label_delete(idx):
+							_annotations_changed(app))})
+	return rows
+
+## Icon rows: Move in every domain (`icon_move`), Delete in WORLD and CIVIL (CARTO's provider carries it),
+## confirmed for the reason a label's is.
+static func _icon_rows(app, domain: String, idx: int, name: String) -> Array:
+	var rows: Array = []
+	rows.append({"id": "el.icon_move", "label": "Move icon “%s”" % name, "section": "object", "enabled": true,
+		"tap": "Move", "callable": func() -> void: _begin_move(app, "icon", idx, name)})
+	if domain != "cartography":
+		rows.append({"id": "el.icon_delete", "label": "Delete icon “%s”" % name, "section": "object",
+			"enabled": true, "danger": true, "tap": "Delete", "callable": func() -> void:
+				DccWidgets.confirm(app, "Delete icon?", "Delete “%s”? Icons have no undo history." % name, "Delete",
+					func() -> void:
+						if app.bridge.icon_delete(idx):
+							_annotations_changed(app))})
+	return rows
+
+## Redraws the annotation layers and tells every workspace that lists them (`on_annotations_changed`).
+static func _annotations_changed(app) -> void:
+	if app.viewport != null:
+		app.viewport.refresh_annotations()
+	for ws in app._workspaces:
+		if ws.has_method("on_annotations_changed"):
+			ws.on_annotations_changed()
+
+## Arms the Move destination click for one label or icon and says so on the status line.
+static func _begin_move(app, kind: String, id: int, name: String) -> void:
+	_move_target = {"kind": kind, "id": id, "name": name}
+	app.arm_tool(MOVE_TOOL)
+	app.set_status("hint", "Move “%s”: click the new spot (Esc cancels)" % name, "text_ghost")
+
+## The Move destination click: moves the pending label or icon through its own engine call, redraws, and
+## hands the map back to Inspect. A refused move (off the grid) says so and keeps the tool armed.
+static func _move_click(app, gx: float, gy: float) -> void:
+	if _move_target.is_empty():
+		app.arm_tool("inspect")
+		return
+	var kind := String(_move_target["kind"])
+	var id := int(_move_target["id"])
+	var ok: bool = app.bridge.label_move(id, gx, gy) if kind == "label" else app.bridge.icon_move(id, gx, gy)
+	if not ok:
+		app.set_status("hint", "Cannot move there. Click a spot on the map.", "accent")
+		return
+	var nm := String(_move_target["name"])
+	_move_target = {}
+	_annotations_changed(app)
+	app.arm_tool("inspect")
+	app.set_status("hint", "Moved “%s”" % nm, "text_ghost")
 
 ## The Copy coordinate ▸ submenu. Empty when the engine reports no frame.
 static func _coordinate_rows(app, gx: float, gy: float) -> Array:

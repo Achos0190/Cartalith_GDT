@@ -3496,7 +3496,7 @@ owner questions the same day.
 
 ### 2.12 Map context — the right-click context card and the tool ring (wheel menu)
 
-**Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
+**Step 2 built 2026-11-11 (status: `STATUS.md`, "Edit any map element from its context"); still open: settlement Move, label/icon Note, way Rename, region/conflict/journey-marker/colour-mark picks, a phone-form probe pass.** **Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
 click every element or label to edit it (move/delete/change the text/directly modify the vault information/etc) it
 should be intuitive to use and this felt missing the last time on pc. (also I suppose it should be a tap on touch
 devices)"*.

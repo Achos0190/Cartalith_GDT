@@ -1571,6 +1571,15 @@ struct LandmarksDoc {
     /// member existed, re-serialises byte-identically.
     #[serde(skip_serializing_if = "Option::is_none")]
     viewshed_refined: Option<serde_json::Value>,
+    /// Ruling EL item 1 (2026-11-09): names the user gave landmarks, `Landmark::key()` to
+    /// name (`WorldGen::landmark_user_names`). **Optional and absent when empty**:
+    /// `skip_serializing_if` writes nothing for an empty map, so every document written
+    /// before this member existed, and every project with no user name, parses to an empty
+    /// map and re-serialises byte-identically (`SAVEFILE_COMPAT.md` 9.8). A `BTreeMap`, so
+    /// the written order is the key order and a round trip is byte-exact. The generated
+    /// name stays the fallback; nothing generated moves.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    user_names: std::collections::BTreeMap<String, String>,
 }
 
 /// The stored refined viewshed (Ruling AT) as `entities/landmarks.json`'s
@@ -3580,6 +3589,7 @@ impl WorldGen {
                 settings: LandmarkSettingsDto::from(&self.landmark_store.settings),
                 results: self.landmark_store.last.as_ref().map(LandmarkRunDto::from),
                 viewshed_refined: self.landmark_store.refined_view.as_ref().map(encode_viewshed_refined),
+                user_names: self.landmark_user_names.clone(),
             },
         );
 
@@ -3933,6 +3943,14 @@ impl WorldGen {
         if let Some(Ok(doc)) = data.parse::<LandmarksDoc>(SLOT_LANDMARKS) {
             self.landmark_store.settings = doc.settings.into_settings();
             restored.push("landmark settings");
+            // Ruling EL: the user's own landmark names. Blank values are dropped (the setter
+            // never stores one), so a hand-edited file cannot plant an empty name that would
+            // read as "named nothing". A key with no placed landmark is inert, as in session.
+            self.landmark_user_names = doc
+                .user_names
+                .into_iter()
+                .filter(|(_, v)| !v.trim().is_empty())
+                .collect();
             // Owner ruling 10. `load_save` a few dozen lines above called
             // `LandmarkStore::invalidate()`, and its comment gives the reason:
             // *"a landmark sits at grid coordinates over terrain readings
@@ -7856,6 +7874,7 @@ mod tests {
             settings: LandmarkSettingsDto::from(&tuned),
             results: None,
             viewshed_refined: None,
+            user_names: Default::default(),
         };
         let text = serde_json::to_string(&doc).expect("serializes");
         // A store that has never run writes no `results` member at all --
@@ -7887,6 +7906,7 @@ mod tests {
             settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
             results: Some(LandmarkRunDto::from(&r)),
             viewshed_refined: None,
+            user_names: Default::default(),
         };
         let text = serde_json::to_string_pretty(&doc).expect("serializes");
         let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
@@ -7959,6 +7979,7 @@ mod tests {
             settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
             results: Some(LandmarkRunDto::from(&r)),
             viewshed_refined: None,
+            user_names: Default::default(),
         };
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&doc).expect("serializes")).unwrap();
@@ -8063,6 +8084,7 @@ mod tests {
             settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
             results: None,
             viewshed_refined: Some(encode_viewshed_refined(&rv)),
+            user_names: Default::default(),
         };
         let text = serde_json::to_string_pretty(&doc).expect("serializes");
         assert!(text.contains("\"fedcba9876543210\"") && text.contains("\"0123456789abcdef\""), "{text}");
@@ -8089,12 +8111,43 @@ mod tests {
             settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
             results: None,
             viewshed_refined: None,
+            user_names: Default::default(),
         };
         let text = serde_json::to_string_pretty(&doc).expect("serializes");
         assert!(!text.contains("viewshed_refined"), "an absent member was written: {text}");
         let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
         assert!(back.viewshed_refined.is_none());
         assert_eq!(serde_json::to_string_pretty(&back).unwrap(), text, "an old document did not re-serialise identically");
+    }
+
+    /// Protects: Ruling EL item 1 -- a user-given landmark name is saved with the world as an
+    /// optional member. (a) An empty map writes no `user_names` member, and a document with none
+    /// (every file written before Ruling EL) parses to an empty map and re-serialises to the same
+    /// bytes; (b) a document carrying names round-trips byte-exact, in key order, with the literal
+    /// text asserted so the member name and shape cannot drift to match themselves.
+    #[test]
+    fn user_landmark_names_round_trip_and_old_documents_are_unchanged() {
+        let mut doc = LandmarksDoc {
+            settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
+            results: None,
+            viewshed_refined: None,
+            user_names: Default::default(),
+        };
+        let old = serde_json::to_string_pretty(&doc).expect("serializes");
+        assert!(!old.contains("user_names"), "an empty map was written: {old}");
+        let back: LandmarksDoc = serde_json::from_str(&old).expect("parses");
+        assert!(back.user_names.is_empty());
+        assert_eq!(serde_json::to_string_pretty(&back).unwrap(), old, "an old document changed");
+
+        doc.user_names.insert("peak@9,9".into(), "The Weeping Stair".into());
+        doc.user_names.insert("lake@2,3".into(), "Mirror".into());
+        let text = serde_json::to_string_pretty(&doc).expect("serializes");
+        let lake = text.find("\"lake@2,3\": \"Mirror\"").expect("lake name written");
+        let peak = text.find("\"peak@9,9\": \"The Weeping Stair\"").expect("peak name written");
+        assert!(text.contains("\"user_names\": {") && lake < peak, "{text}");
+        let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
+        assert_eq!(back.user_names.len(), 2);
+        assert_eq!(serde_json::to_string_pretty(&back).unwrap(), text, "names did not round-trip byte-exact");
     }
 
     /// Protects: §6.4a "untrusted input costs the member, not the document".

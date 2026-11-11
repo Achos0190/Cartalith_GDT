@@ -819,7 +819,8 @@ func context_actions(req: Dictionary) -> Array:
 			"enabled": true, "header": head, "callable": _run_ctx.bind(5, hit, gx, gy),
 			"chip": STORY_CHIP_CITY, "chip_label": "City viewer"})
 		rows.append({"id": "civ.delete", "label": "Delete %s" % nm, "section": "object",
-			"enabled": true, "danger": true, "header": head, "callable": _run_ctx.bind(2, hit, gx, gy)})
+			"enabled": true, "danger": true, "header": head, "callable": _run_ctx.bind(2, hit, gx, gy),
+			"tap": "Delete"})
 		## CM-2 residual (§4.3 CIVIL Info row): "Open vault note / Attach vault
 		## note… (for a vault-kind hit)". `open_vault()`'s own doc says
 		## `entity_id` is the entity's **tid**, not its index into
@@ -855,7 +856,7 @@ func context_actions(req: Dictionary) -> Array:
 		rows.append({"id": "civ.vault_note", "label": vlabel, "section": "info",
 			"enabled": true, "header": head,
 			"callable": func() -> void: app.open_vault("settlement", tid, nm),
-			"chip": STORY_CHIP_NOTE, "chip_label": "Open note" if linked else "Attach note"})
+			"chip": STORY_CHIP_NOTE, "chip_label": "Open note" if linked else "Attach note", "tap": "Note"})
 	## §4.3's Landmark row (**P**, `MAP_CONTEXT_SCOPE.md` §9.2 row 1): the hit
 	## itself is already `map_overlay.gd::hits_at`'s own "landmark" kind (CM-1
 	## put it there for the hover/select pair, and a multi-hit hit list makes
@@ -894,6 +895,17 @@ func context_actions(req: Dictionary) -> Array:
 		rows.append({"id": "civ.route_open_planner", "label": "Open “%s” in Journey Planner" % rname,
 			"section": "object", "enabled": true,
 			"callable": func() -> void: app.open_journey_planner_with_route(route_hit)})
+		## Edit-from-context: Rename through `route_set_name` (the planner's and the dock's own setter); a
+		## way has no name setter at all, so only a route gets this row.
+		rows.append({"id": "civ.route_rename", "label": "Rename “%s”…" % rname, "section": "object",
+			"enabled": true, "tap": "Rename", "callable": func() -> void:
+				GlobalTools.rename_prompt(app, "Rename route", rname, func(t: String) -> void:
+					if bridge.route_set_name(route_hit, t):
+						app.viewport.refresh_annotations()
+						_infra._refresh_manual_routes()
+						app.set_status("hint", "Route renamed to %s" % t, "text_ghost")
+					else:
+						app.set_status("hint", "Rename refused.", "accent"))})
 		rows.append({"id": "civ.route_delete", "label": "Delete “%s”" % rname, "section": "object",
 			"enabled": true, "danger": true, "callable": _delete_route_ctx.bind(route_hit)})
 	## §4.3's Way row (**P** + **E**, `MAP_CONTEXT_SCOPE.md` §9.2 row 4; Ruling

@@ -205,7 +205,7 @@ static func tool_kind(id: String) -> int:
 	match id:
 		"inspect":
 			return ViewportHost.TOOL_NONE
-		"measure", "settlement", "label", "icon", "conflict", "route":
+		"measure", "settlement", "label", "icon", "conflict", "route", "move_element":
 			return ViewportHost.TOOL_PLACING
 	return ViewportHost.TOOL_DRAWING
 
@@ -512,6 +512,39 @@ func _on_map_released(gx: float, gy: float, valid: bool) -> void:
 		return
 	if _release_handlers.has(armed_tool):
 		_release_handlers[armed_tool].call(gx, gy, valid)
+
+## Ruling EO's touch chips (`element_chips.gd`). The strip the tapped element's chips are drawn in.
+const ElementChipsScript := preload("res://shell/element_chips.gd")
+var element_chips: PanelContainer
+
+## `map_overlay.gd::element_tapped`: a finger tapped a map element. With Inspect armed on a touch form the element is
+## selected by the overlay's own signals already; this asks the broker for the same rows a long press would present and
+## shows the ones that carry a `tap` key as chips. Desktop (no tap gesture), another armed tool (a tap then places
+## something) and a generating engine show nothing.
+func _on_element_tapped(raw: Dictionary) -> void:
+	if armed_tool != "inspect" or not (DccTheme.is_phone() or DccTheme.is_tablet()):
+		return
+	if bridge == null or bridge.generating or context_broker == null:
+		return
+	var req := context_broker.build_request(raw)
+	var rows := context_broker.collect(req)
+	var title := ""
+	for h in req.get("hits", []):
+		if String((h as Dictionary).get("label", "")) != "":
+			title = String((h as Dictionary)["label"])
+			break
+	element_chips.show_for(title, rows)
+	## Placed from the tapped point, which is on the map by definition (a layout guess about the bars is not):
+	## centred above the finger, or below it when there is no room above, clamped inside the host's insets.
+	var ins: Dictionary = viewport._safe_insets
+	var at: Vector2 = viewport.get_global_transform().affine_inverse() * (viewport.overlay.get_global_transform() * Vector2(raw.get("screen_pos", Vector2.ZERO)))
+	var w: float = element_chips.size.x
+	var h: float = element_chips.size.y
+	var x := clampf(at.x - w * 0.5, float(ins.get("left", 10.0)), maxf(viewport.size.x - float(ins.get("right", 10.0)) - w, 0.0))
+	var y := at.y - h - 28.0
+	if y < float(ins.get("top", 10.0)):
+		y = at.y + 28.0
+	element_chips.position = Vector2(x, y)
 
 ## `_civCtxShow`'s right click, since CM-1 (`MAP_CONTEXT_SCOPE.md` §3). Unlike
 ## the three tool primitives above it is NOT dispatched by armed tool -- the
@@ -3153,6 +3186,17 @@ func _wire_selection() -> void:
 	context_broker = ContextBroker.new(self)
 	viewport.overlay.set_context_pick_resolver(context_broker.engine_picks)
 	viewport.context_requested.connect(context_broker.resolve)
+	## Ruling EO: on touch a tap on an element shows its Move / Rename / Note / Delete chips (the card's own rows
+	## carrying a `tap` key); a long press still opens the full card. `element_chips.gd` has the whole story.
+	element_chips = ElementChipsScript.new()
+	viewport.add_child(element_chips)
+	element_chips.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	viewport.overlay.map_clicked.connect(func(_gx: float, _gy: float) -> void: element_chips.hide_chips())
+	viewport.overlay.element_tapped.connect(_on_element_tapped)
+	tool_armed.connect(func(_id: String) -> void: element_chips.hide_chips())
+	selection_changed.connect(func(cur: Dictionary) -> void:
+		if cur.is_empty():
+			element_chips.hide_chips())
 	## CM-3's ring (`MAP_CONTEXT_SCOPE.md` §5, §6, §9.1): five plain
 	## `Callable`s installed on the overlay, the same seam
 	## `set_context_pick_resolver` above already uses. Q's own press/release

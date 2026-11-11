@@ -1686,6 +1686,12 @@ already lets an older reader carry.
 - **`settings` is written on every save**, because
   `LandmarkSettings::default()` is a full per-kind table, not "nothing" — absent
   and at-defaults are the same state.
+- **`user_names` — optional, added 2026-11-11 (Ruling EL item 1).** `Landmark::key()` (kind and cell, e.g.
+  `peak@23,81`) to the name the user gave that landmark, replacing the generated one. **Absent when empty**: a
+  document with no such member (every file written before 2026-11-11, and every project that named no landmark)
+  parses to an empty map and re-serialises byte-identically; no `format_version` change. Written in key order, so a
+  round trip is byte-exact. A blank value is dropped on open; a key with no placed landmark is inert. The generated
+  name stays the fallback and nothing generated moves.
 - **`results` is the last run, written only when there is one.** Absent means
   no run is retained (never run, or invalidated since) — not "it ran and placed
   nothing". Ruling 10's reason for persisting it: the run's state cannot be

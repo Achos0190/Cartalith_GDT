@@ -6598,6 +6598,15 @@ func label_set(index: int, values: Dictionary) -> Dictionary:
 	mark_world_dirty()
 	return world_gen.label_set(index, values)
 
+## Moves placed icon `index` to grid `(gx, gy)` (`WorldGen.icon_move`): the context card's Move row. `false` for a bad
+## index or an off-grid destination (nothing changes). Marks the world dirty first.
+## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
+func icon_move(index: int, gx: float, gy: float) -> bool:
+	if generating or not _has("icon_move"):
+		return false
+	mark_world_dirty()
+	return world_gen.icon_move(index, gx, gy)
+
 ## Removes label `index` (`WorldGen.label_delete`). `false` for a bad index. Marks the
 ## world dirty first.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers false.
@@ -9469,8 +9478,8 @@ func landmark_names() -> Array:
 		return []
 	return world_gen.landmark_names()
 
-## Ruling EI: gives the landmark `key` a name of its own (empty clears it). Session-only: no project file
-## carries a landmark name yet. `false` when no placed landmark has that key.
+## Ruling EI: gives the landmark `key` a name of its own (empty clears it). Saved with the project (Ruling EL):
+## the optional `user_names` member of `entities/landmarks.json`. `false` when no placed landmark has that key.
 func landmark_set_user_name(key: String, name: String) -> bool:
 	if generating or not _has("landmark_set_user_name"):
 		return false

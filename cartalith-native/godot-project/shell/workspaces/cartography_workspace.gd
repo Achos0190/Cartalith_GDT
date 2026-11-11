@@ -1078,6 +1078,11 @@ func _jump_style_presets() -> void:
 	app.select_domain_category("cartography", "Style")
 	app.set_phone_detent("half")
 
+## The shared element rows (`GlobalTools.element_rows`) changed a label or icon: redraw this workspace's two lists.
+func on_annotations_changed() -> void:
+	_rebuild_label_panel()
+	_rebuild_icon_panel()
+
 ## The Layers popover's eight hot-keyed views, in its own order: the first
 ## eight *available* `debug_layers()` items (`layers_popover.gd::rebuild`'s
 ## `_hotkey_ids`), each with its digit and a `●` on the one drawn now.

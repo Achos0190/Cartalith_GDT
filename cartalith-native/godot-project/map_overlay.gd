@@ -1025,6 +1025,12 @@ signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 ## knows (domain, armed tool, form) and asks every provider for rows.
 signal context_requested(req: Dictionary)
 
+## Ruling EO: a finger TAP (a released, un-held touch press) landed on at least one map element. Carries the same
+## request a hold would (`request_at(.., "touch")`), emitted after the selection signals and `map_clicked` of that tap,
+## so a listener that hides stale chips on `map_clicked` can show the new ones here. Never emitted for a mouse, a hold
+## or a tap on bare ground.
+signal element_tapped(req: Dictionary)
+
 ## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, Ruling AX F1): the phone's own hold
 ## drops the sample pin at the same moment it opens the verbs
 ## (`context_requested` above, emitted in the same `_process()` frame). This
@@ -8307,6 +8313,9 @@ func _release_touch_press() -> void:
 	if bool(p.get("valid", false)):
 		_last_stroke_pt = {"gx": p["gx"], "gy": p["gy"], "valid": true}
 		map_clicked.emit(p["gx"], p["gy"])
+	var tapped := request_at(_touch_press.get("pos", Vector2.ZERO), "touch")
+	if not tapped.is_empty() and not (tapped["hits"] as Array).is_empty():
+		element_tapped.emit(tapped)
 
 ## MS-5: the hold this control uses right now, in milliseconds -- the phone's 480 or the tablet's 500, picked by
 ## the same `DccTheme.is_tablet()` test `_process()` uses. Public so the host's double-tap detector can call a

@@ -1540,7 +1540,21 @@ func _on_map(pos: Vector2) -> bool:
 	## did not scroll Preferences). The finger is the map's only when the topmost control that picks at the point
 	## is this host or one of its own descendants.
 	var top: Node = _topmost_pick(get_viewport(), pos)
-	return top == null or top == self or is_ancestor_of(top)
+	if top == null or top == self:
+		return true
+	if not is_ancestor_of(top):
+		return false
+	## Edit-from-context (Ruling EO): `element_chips.gd`'s strip is a child of this host drawn over the map, and a
+	## finger on one of its chips must press the chip, not pan or tap the map under it. Flagged by `MAP_CHROME_META`.
+	var n: Node = top
+	while n != null and n != self:
+		if n.has_meta(MAP_CHROME_META):
+			return false
+		n = n.get_parent()
+	return true
+
+## Meta key a control sets (to true) to say a finger on it is its own and never the map's (see `_on_map`).
+const MAP_CHROME_META := "map_chrome"
 
 ## Whether `ctl` takes a finger away from the map: every STOP control, and a PASS one only when it does something with
 ## a touch (a button, slider, text box, list, tree, scroller, or a `gui_input` listener). A PASS control with none of
