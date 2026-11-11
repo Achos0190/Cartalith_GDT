@@ -3517,3 +3517,20 @@ cartalith is done"*.
   - no phone version yet.
 
   The owner can change any of them when the work starts. This partly reopens Ruling DK.
+
+## Ruling EQ: colour paint gets pen pressure, labels and icons get notes, short river stubs hide, the river share follows the live window (owner, 2026-11-11)
+
+Four answers, given together:
+
+1. **Colour paint gets per-point pressure.** Pressure sets how much colour goes on at each point, the way sculpt
+   strength works. Colour marks store it as a new **optional** field. Old saves load unchanged and re-serialise byte
+   for byte (`SAVEFILE_COMPAT.md`). The colour-paint row in the Pressure controls (Ruling EM) then offers
+   strength / off, with strength as the default.
+2. **Vault notes on labels and icons.** The note-binding kinds (`SAVEFILE_COMPAT.md` §13.3.4) gain label and icon.
+   The change is optional, so old vaults are unchanged. Right-click > Note on a label or icon opens or creates its note.
+3. **Short river stubs are hidden.** A visible piece of river shorter than about 3 cells **on screen** is not drawn
+   until zoom makes it longer. It is part of the one shared Ruling EN visibility function for screen, tiles and
+   export, and the generated network never moves.
+4. **The river opening share follows the live window**, not a fixed reference window. The opening view always
+   shows the target share (5.5 % at world scale, scaled by map size). Tiles and exports may rebuild when the window
+   is resized, and that cost is to be measured. An export uses its own size as its window.
