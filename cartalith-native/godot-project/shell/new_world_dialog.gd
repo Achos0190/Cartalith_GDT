@@ -2508,6 +2508,12 @@ func _format_km(v: float) -> String:
 ## archetype are both redraw inputs.
 func _on_archetype_selected(index: int) -> void:
 	if index <= 0:
+		## Back to Classic from a named archetype: the archetype wrote `world_structure.enabled = true` (and derives the plate
+		## count from its fragmentation), so Classic must switch the steering off again or the plate count this dialog shows is
+		## ignored (owner bug report 2026-11-12, `WorldGen::apply_archetype`'s own doc: "set it back to false for Classic").
+		## Only when an archetype was chosen here: a Classic dialog never touches a steering the user turned on in the dock.
+		if not _archetype.is_empty() and bridge != null:
+			bridge.param_set("world_structure.enabled", false)
 		_archetype = ""
 	else:
 		var name := String(_archetype_names[index - 1])
@@ -2540,6 +2546,9 @@ func _on_archetype_selected(index: int) -> void:
 ## regenerate with whatever `tect.plates` holds.
 func _on_create() -> void:
 	_apply_plates_to_engine()
+	## No archetype write here: picking it already wrote its five dials into the stored parameters (`_on_archetype_selected`),
+	## the preview drew from those same parameters, and `generate_request()` sends the plain path over them -- so Create makes
+	## exactly the world the preview showed, and a dial moved in the dock after the pick is part of that world.
 	generate_checked(_represent_form, true, auto_populate_plan())
 
 ## **Every generate at this dialog's size goes through here** -- Create, WORLD ▸
@@ -2555,7 +2564,7 @@ func _on_create() -> void:
 ## `populate` (MS-8) is the passes to run once the world has generated (`auto_populate_plan()`); only Create passes
 ## one. Empty for every other route, so a regenerate never repopulates over a hand-built world.
 func generate_checked(on_cancel: Callable = Callable(), new_world: bool = false, populate: Array = []) -> void:
-	var r := request()
+	var r := generate_request()
 	confirm_phone_memory_then(int(r["grid_w"]), int(r["grid_h"]),
 		func(): _generate_then_populate(r, new_world, populate), on_cancel)
 
@@ -2770,6 +2779,20 @@ func _sync_from_engine() -> void:
 			and (extent_input.selected == 1) != bool(world_now):
 		extent_input.selected = 1 if bool(world_now) else 0
 		_update_extent_state()
+
+## The request a GENERATE sends: `request()`, with the archetype folded into the stored parameters instead of re-applied on top
+## of them. Before 2026-11-12 every generate from this dialog's size (the dock's Generate, a slider release, the tool-options
+## row) re-sent the archetype name, and the engine's one-shot `generate_world_structure_sized` overwrote the five World-structure
+## dials and forced steering on, so nothing the user changed in the dock could survive (owner bug report: "a preset ... is
+## completely overridden when we use the more regular terrain generator settings"). Now the archetype is written once, at
+## pick/Create (`apply_archetype`), the stored parameters are the single truth, and this request is the plain path. On a build
+## without `apply_archetype` the name is kept so the old one-shot route still works.
+func generate_request() -> Dictionary:
+	var r := request()
+	if not String(r["archetype"]).is_empty() and bridge != null and not bridge.archetypes().is_empty():
+		r["archetype"] = ""
+	return r
+
 
 ## **`seed_input.apply()` only when `_seed_dirty` says a real edit is
 ## actually pending** -- not unconditionally. The 2026-09-12 attempt called

@@ -775,6 +775,11 @@ func _on_generation_finished(ok: bool) -> void:
 	## alone never fires for that path. Cheap even when nothing changed: three
 	## property writes per row, no rebuild, and `world_structure.enabled` is
 	## re-read live rather than trusted from any argument here.
+	## Owner bug report 2026-11-12: a World that New World generated (its plate count, an archetype's five dials, its lake toggle)
+	## showed the values the dock was built with. The engine is the one source of truth; read it back into every row first, so
+	## the gates below judge what the world was really made with.
+	if ok:
+		_resync_param_rows()
 	_refresh_ws_override_rows()
 	## GF-7: `geology_processes` reaches its value only through set_params or a
 	## load, so the geological-age row re-gates here too.
@@ -797,6 +802,8 @@ func _on_world_loaded() -> void:
 	## at all, so any timing left over from a previous run is stale and the
 	## readout should show a plain "resolved" for every row.
 	_reset_stage_progress()
+	## A save carries its own dials: read them into every row (the old comment below called this a "real, separate gap").
+	_resync_param_rows()
 	## A loaded save can carry `world_structure.enabled == true` too --
 	## `EngineBridge.load_save`'s own comment: "The dials moved to whatever
 	## the save carried, so anything reading param_get has to re-read them."
@@ -1996,6 +2003,16 @@ func _carve_fjords() -> void:
 ## through `bridge.param_set`, so there is nothing here for a generate to
 ## resync.
 var _ws_override_sliders: Dictionary = {}
+
+## Every parameter control this dock built, by dotted key: `{"bool": CheckBox}` or `{"slider": HSlider}`. The registry
+## `_resync_param_rows()` reads. Before it existed a row showed the value it was BUILT with and nothing wrote it back, so a value
+## set anywhere else -- New World's plate count, an archetype's five World-structure dials, the dialog's lake toggle, a
+## loaded save -- left the dock showing a stale number over a world generated with another (owner bug report, 2026-11-12).
+var _param_ctrls: Dictionary = {}
+## True while `_resync_param_rows()` writes the controls. Their handlers (`_on_float_row_input`, `_on_bool_row_changed`) then
+## return at once: a resync is a READ of the engine into the dock, and must never write a quantised slider value back (which
+## would drift the engine off the value the world was generated with) nor regenerate.
+var _resyncing := false
 ## The same three keys -> their tooltip text with `WS_OVERRIDE_REASON` left
 ## out -- what the row reads while World Structure is off. Kept alongside the
 ## slider so the live re-gate needs no second call to `param_info` /
@@ -2288,6 +2305,7 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 		## release distinct from a press).
 		var cb := DccWidgets.toggle(parent, label, bool(bridge.param_get(key)),
 			_on_bool_row_changed.bind(key, stage_index), hint)
+		_param_ctrls[key] = {"bool": cb}
 		if reset_to != null:
 			## Writing `button_pressed` re-emits `toggled`, so the reset lands
 			## through `_on_bool_row_changed` -- the same one path a click uses.
@@ -2308,6 +2326,7 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 		_on_float_row_input.bind(key, is_int), hint,
 		_on_float_row_released.bind(key, is_int, stage_index))
 	var s := made["slider"] as HSlider
+	_param_ctrls[key] = {"slider": s}
 	## `_wrap_slider_cell`'s own header: tablet only (both orientations), so a
 	## later rotation can reflow this row -- `row_ref` is either the plain
 	## `HBoxContainer` `DccWidgets.slider()` returned (every non-tablet
@@ -2491,11 +2510,45 @@ func _wire_row_reset(control: Control, revert: Callable, extra: Array = []) -> v
 ## `stage_index` stale, then `_regenerate_live()`. The shell refuses edits
 ## while generating; never call it to start a generate directly.
 func _on_bool_row_changed(v: bool, key: String, stage_index: int) -> void:
+	if _resyncing:
+		return
 	bridge.param_set(key, v)
 	if key == "world_structure.enabled":
 		_refresh_ws_override_rows()
 	_mark_stale_from(stage_index)
 	_regenerate_live()
+
+## Reads the engine's parameter table into every control `_build_param_row` made, so the dock shows exactly what the current
+## world was generated with and a Generate with no edits reproduces it. Writes the controls under `_resyncing` so no handler
+## runs: no `param_set`, no regenerate, no stale badge. A key the engine does not publish (`null`, no table on this build) leaves
+## its row alone -- "no value" is never written as a plausible one. A freed control is skipped. Returns the number of rows written.
+## Must never be called while `bridge.generating` (the table would be the pre-run snapshot): both callers run after it ends.
+func _resync_param_rows() -> int:
+	if bridge == null or bridge.generating:
+		return 0
+	var table: Dictionary = bridge.param_snapshot()
+	if table.is_empty():
+		return 0
+	var n := 0
+	_resyncing = true
+	for key in _param_ctrls:
+		if not table.has(key):
+			continue
+		var entry: Dictionary = _param_ctrls[key]
+		if entry.has("bool"):
+			var cb := entry["bool"] as CheckBox
+			if is_instance_valid(cb):
+				cb.set_pressed_no_signal(bool(table[key]))
+				n += 1
+		elif entry.has("slider"):
+			var s := entry["slider"] as HSlider
+			if is_instance_valid(s):
+				## `value` (not `set_value_no_signal`): the readout label hangs off `value_changed`, and `_resyncing` keeps the
+				## write handler out.
+				s.value = float(table[key])
+				n += 1
+	_resyncing = false
+	return n
 
 ## Live counterpart to `_build_param_row`'s own gate, re-applied to whichever
 ## `WS_OVERRIDDEN_KEYS` rows survived from the one `_build_categories()` pass
@@ -2549,6 +2602,8 @@ func _refresh_ws_override_rows() -> void:
 ## here as well would set `params_dirty` ("a dial moved, regenerate") for a
 ## dial whose effect lands without one.
 func _on_float_row_input(v: float, key: String, is_int: bool) -> void:
+	if _resyncing:
+		return
 	if key == SEA_LEVEL_KEY and _sea_live_available():
 		_sea_pending = v
 		return
