@@ -79,7 +79,7 @@ Two, and neither is actionable.
 
 | Row | Tier | Checked at | Why it stays open |
 |---|---|---|---|
-| **The 3D viewport** — `3D viewport defaults` and `Anti-aliasing · anisotropy` are `_todo` rows in `menus.gd` | Large | no `Camera3D` or `MeshInstance3D` in `shell/` or any `.tscn`; the only hits are the vendored `addons/godot_ai/` plugin, which is not this shell | **Deferred by ruling, research first** (`LARGE_ITEM_RULINGS.md`, "Deferred, with research first"), then parked; the research is `cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md`. Both `_todo` reasons ("there is no 3D viewport") are true |
+| **The 3D viewport** — `3D viewport defaults` and `Anti-aliasing · anisotropy` are `_todo` rows in `menus.gd` | Large | *Re-checked 2026-11-12 (audit C):* `shell/view3d.gd` holds a `SubViewport` with a `Camera3D` and draws no terrain (3D-1, `c0ca18a9`); the only `MeshInstance3D` is `shell/view3d_gate.gd`'s capability probe. *(Until 2026-10-19 this cell read "no `Camera3D` or `MeshInstance3D` in `shell/`".)* | **No longer deferred:** Ruling CS (2026-10-19) approved the vertex-mesh viewport (`DECISIONS.md` §4a); 3D-0 and 3D-1 are built and 3D-2 to 3D-8 are `3D_VIEWPORT_SCOPE.md`'s (state: `STATUS.md`). Both `_todo` reasons now say the 3D view draws no terrain yet, which is true; the rows close with 3D-2's terrain |
 | **Bounded sculpt preview** — the sculpt half of "Previews re-upload the whole texture" | Medium | `build_sculpt_preview_texture`'s doc | **Declined at its own doc:** a bounded preview needs `render.rs`'s AO, wetness and sea passes reworked over a caller-supplied window, and `golden_parity_render.rs` pins that file bit for bit. Routed as `STATUS.md` SL-1 (`SCULPT_LIVE_SCOPE.md` L1) |
 
 ## 3. Closed rows
