@@ -837,7 +837,11 @@ func _render_catalogue() -> void:
 	for r in rows:
 		if bool(r.get("pinnable", false)):
 			pinnable_n += 1
-	_foot.text = "%d listed, %d pinnable. %d colour-picker preset rows are left out." % [rows.size(), pinnable_n, hidden_picker_rows]
+	## MS-9 (`763448c3`) stopped indexing the embedded ColorPicker popups, so `hidden_picker_rows` is 0 in the shipped index and
+	## the sentence is only said when something was left out ("0 colour-picker preset rows are left out" read as a defect).
+	_foot.text = "%d listed, %d pinnable." % [rows.size(), pinnable_n]
+	if hidden_picker_rows > 0:
+		_foot.text += " %d colour-picker preset rows are left out." % hidden_picker_rows
 	_on_catalogue_selected()
 
 ## Fills the pins list from the store, selecting `select_key` (else keeping the selection).

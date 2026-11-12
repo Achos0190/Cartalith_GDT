@@ -112,6 +112,10 @@ var _form := ""
 ## True for the length of `represent_restore()`'s re-layout. The window's own hide handler (`setup()`) ends a running
 ## reply; a re-layout hides the sheet for a moment and must not (the same guard `PopoutHost.is_moving()` gives a move).
 var _relaying := false
+## MS-1 S4.5 edge: true when `represent_rehome()` took this window out from under a window the swap frees WHILE it was
+## shown (the window form, or the phone's sheet over another sheet). `represent_restore()` shows it again, in its place, and
+## clears this. A window that was hidden when it was moved never sets it.
+var _rehomed_shown := false
 ## The phone form's header row (made by `DccWidgets.phone_head()`), or null off the phone: the host's first child.
 var _head_wrap: Control
 ## The margin container around `_body`; its bottom margin is the phone's 60 px (the sheet's Close row) or 10.
@@ -2832,6 +2836,26 @@ func _relayout(form: String) -> void:
 	_relaying = false
 
 
+## `DccApp._represent_windows()` calls this on a kept window BEFORE it frees the represented ones: `DccWidgets.reparent_over()`
+## parents a dialog opened over an exclusive window under that window, and freeing the window would free this one with it
+## (the instance, the transcript and a running request lost; `app.assistant_window` left dangling). So a window that is not a
+## direct child of the app is taken out and put back under it. A SHOWN window is hidden for the move without ending a reply
+## (`_relaying`, the same guard `_relayout()` uses) and shown again by `represent_restore()`. Never frees, never changes the
+## content; a window already under the app is left alone.
+func represent_rehome() -> void:
+	if app == null or get_parent() == app:
+		return
+	var was_shown := visible
+	_relaying = true
+	if was_shown:
+		hide()
+	if get_parent() != null:
+		get_parent().remove_child(self)
+	app.add_child(self)
+	_relaying = false
+	_rehomed_shown = was_shown
+
+
 ## What the swap reads BEFORE anything is unmounted (`window_represent.gd`'s contract, kept-window form). `open` is true for
 ## the phone's sheet and for the Ask tab on the screen: either is "the assistant is open", and it opens again in the
 ## new form's own place. Never holds a node, never changes anything.
@@ -2844,7 +2868,12 @@ func represent_capture() -> Dictionary:
 ## (a tablet's bar change) does nothing: the right dock's own restore puts the Ask tab back and a sheet never closed.
 func represent_restore(bag: Dictionary) -> void:
 	var now := _form_now()
+	var was_shown := _rehomed_shown
+	_rehomed_shown = false
 	if now == _form:
+		## The form is unchanged, but `represent_rehome()` hid a window that was shown: show it again where it was.
+		if was_shown:
+			_show_dialog()
 		return
 	_relayout(now)
 	if bool(bag.get("open", false)):

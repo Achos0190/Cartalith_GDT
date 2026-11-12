@@ -313,8 +313,10 @@ func _catalogue() -> void:
 	_ok(pinnable >= 60, "the default list holds %d pinnable commands (CQ-0 measured 65-66)" % pinnable)
 	_ok(unpinnable_listed == 0, "and no unpinnable row by default (%d)" % unpinnable_listed)
 	_ok(bad_group == 0, "and no row with an empty group (colour-picker presets): %d" % bad_group)
-	_ok(_win.hidden_picker_rows > 100, "the footer counts the %d colour-picker rows it left out" % _win.hidden_picker_rows)
-	_ok(_win._foot.text.contains("%d colour-picker" % _win.hidden_picker_rows), "footer reads: %s" % _win._foot.text)
+	## MS-9 (`763448c3`) dropped the embedded ColorPicker popups from the index: none are left out (a literal 0, not a count read back
+	## from the window), and the footer must not claim any ("0 colour-picker preset rows are left out" read as a defect).
+	_ok(_win.hidden_picker_rows == 0, "no colour-picker rows are left out, the index no longer holds them (%d)" % _win.hidden_picker_rows)
+	_ok(not _win._foot.text.contains("colour-picker") and _win._foot.text.ends_with(" pinnable."), "footer reads: %s" % _win._foot.text)
 	_ok(_win._catalogue.get_item_text(0).contains("›"), "a row reads Group › Title: '%s'" % _win._catalogue.get_item_text(0))
 	_ok(_win._count.text == "ON THE BAR  0 / 24", "the count starts at 0 / 24: '%s'" % _win._count.text)
 	_ok(_win._add_btn.disabled and _win._up_btn.disabled and _win._down_btn.disabled and _win._remove_btn.disabled and _win._reset_btn.disabled, "with nothing selected and no pins, Add / Up / Down / Remove / Reset are all disabled")
@@ -483,7 +485,7 @@ func _unpinnable() -> void:
 	_ok(unpinnable > 100 and disabled_ok == unpinnable, "all %d listed unpinnable rows are disabled (%d)" % [unpinnable, disabled_ok])
 	_ok(wrong_state == 0, "and no pinnable row is disabled (%d wrong)" % wrong_state)
 	_ok(no_reason == 0, "and every one carries a non-empty reason in its own text (%d without)" % no_reason)
-	_ok(_win.hidden_picker_rows > 100 and not _win._cat_rows.any(func(r): return not r.is_empty() and String(r["group"]) == ""), "colour-picker rows stay out even with the toggle on")
+	_ok(_win.hidden_picker_rows == 0 and not _win._cat_rows.any(func(r): return not r.is_empty() and String(r["group"]) == ""), "colour-picker rows stay out even with the toggle on")
 	## a real click on a disabled row selects nothing
 	var drow := {}
 	for i in n:

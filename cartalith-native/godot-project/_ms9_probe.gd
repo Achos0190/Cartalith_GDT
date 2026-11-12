@@ -684,7 +684,10 @@ func _stale_bit_guard() -> void:
 	var b := _button_for(row)
 	_ok(b != null, "stale-bit guard: the row is listed")
 	if b != null:
-		var want := "On" if truth == 1 else "Off"
+		## The words are literals, a check's and a radio's differ (`CommandIndex.state_word()` documents the same two pairs, but
+		## the probe does not call it): the first candidate on the desktop is a radio, which says "Selected" / "Not selected".
+		var is_radio := bool(target.get("radio", false))
+		var want := ("Selected" if truth == 1 else "Not selected") if is_radio else ("On" if truth == 1 else "Off")
 		_ok(_second_line(b).begins_with(want), "stale-bit guard: a planted wrong bit is shown as the app's truth '%s' (%s)" % [want, _second_line(b)])
 	_close()
 

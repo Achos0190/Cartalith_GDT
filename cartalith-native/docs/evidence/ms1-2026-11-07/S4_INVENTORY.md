@@ -1150,7 +1150,7 @@ What (a) takes, read at the symbols (none of it built):
 - **The dialog chrome has an inverse here** (`_apply_dialog_form()`): borderless, minimum size, content scale, the oversample override and the resize grip.
   The grip is found by its cursor shape, so `dcc_widgets.gd` is untouched.
 - **A hidden kept window is moved back under the app before the windows are freed** (`_represent_windows()`): `DccWidgets.reparent_over()` may have stacked it
-  under the settings window, which a swap frees. Not covered by a probe; a visible one stacked under a freed window is not handled.
+  under the settings window, which a swap frees. **A VISIBLE one stacked under a freed window was not handled and crashed the swap (exit 139), fixed 2026-11-12:** `LlmAssistantWindow.represent_rehome()` takes it out from under any window, hidden or shown (a shown one is hidden for the move without ending a reply and shown again by `represent_restore()`); `_ms1swap_probe.gd --leg assistant` covers both cases (`_assistant_stacked()`, 92 checks in all).
 - **Found and fixed:** `_rebuild()` built an `HBoxContainer` and replaced it with an `HFlowContainer` off the phone, leaving one parentless node per build (also
   on New). Found because the leg counts orphans across round trips (213 after each of three trips, was +1 per rebuild).
 - **Not carried, by design:** a transcript entry keeps the form it was drawn in (its heading wrap and its card buttons' phone touch floors); new entries use

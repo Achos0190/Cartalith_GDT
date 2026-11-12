@@ -346,7 +346,9 @@ func _find() -> void:
 	for c in _live_children(_app.get("_desktop_search_results")):
 		if c is Button and not (c as Button).disabled:
 			inert = false
-	_ok("every command row is inert (no popup/id/Callable exists to press)", inert, true)
+	## Inverted by MS-9 (`763448c3`, "search runs every command"): a command row is a live button now and pressing it runs the
+	## command (`_ms9_probe.gd` sweeps every row). A first cut of this check, "every row is inert", was the pre-MS-9 contract.
+	_ok("search runs commands now (MS-9): at least one drawn command row is a live, enabled button", inert, false)
 	_q(". zoom")
 	await _frames(6)
 	var cbands := _bands_of()
@@ -376,7 +378,11 @@ func _find() -> void:
 		_q("l ")
 		await _frames(8)
 		var lrows := _rows_of()
-		_ok("the landmarks scope lists every placed landmark, by name", lrows.size(), names.size())
+		## The results column builds at most CAP rows (`ad613410`), so a world with more landmarks than that shows the first CAP
+		## and says so; the count line, which reads the index, is what must name the whole scope.
+		_ok("the landmarks scope lists every placed landmark, by name, to the 60-row cap", lrows.size(), mini(names.size(), CAP))
+		if names.size() > CAP:
+			_ok("...and a landmarks list cut at the cap says so", _cap_footer_text().begins_with("Showing the first 60 of %d" % names.size()), true)
 		var first_key := String((names[0] as Dictionary)["key"])
 		_ok("...the first by its derived name", lrows.has(String((names[0] as Dictionary)["name"]).to_upper()), true)
 		_ok("a landmark row is NOT in the settlements scope", _q_rows("s " + String((names[0] as Dictionary)["name"])).has(String((names[0] as Dictionary)["name"]).to_upper()), false)
@@ -448,7 +454,9 @@ func _phone_find() -> void:
 	print("  info sheet %.0f px · chips %.0f px · count %.0f px · scroll %.0f px · row %.0f px · %d rows fit"
 		% [panel.size.y, chips.size.y, count.size.y, scroll.size.y, row_h, fits])
 	_ok("the overlay is open", overlay.visible, true)
-	_ok("the chips row drew all six", _live_children(chips).size(), 6)
+	## Eight, like the desktop dialog's eight scope chips (settlements, factions, cultures, labels, routes, notes, commands, landmarks); the
+	## literal 6 predates the `.` and `l` chips.
+	_ok("the chips row drew all eight", _live_children(chips).size(), 8)
 	_ok("the count line is not blank", count.text != "", true)
 	_ok("the whole index is listed at rest", rows > 0, true)
 	_ok("the result scroll still fits more than four rows", fits > 4, true)

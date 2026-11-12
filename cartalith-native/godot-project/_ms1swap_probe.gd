@@ -2404,6 +2404,63 @@ func _assistant() -> void:
 	_ok(win.visible and _asst_layout(win) == cold_o, "opened later on the phone, its layout equals a cold window's")
 	win.hide()
 	await _live_swap(tab.x, tab.y, "tablet")
+	await _assistant_stacked(win, tab, ph)
+
+## The open edge of `S4_INVENTORY.md` 18.11: a SHOWN kept window stacked under a window the swap frees. `DccWidgets.reparent_over()`
+## parents the assistant dialog under the exclusive window showing when it opens (here the assistant settings window, which the
+## swap frees and builds again); without `LlmAssistantWindow.represent_rehome()` the swap freed the assistant with it. Two
+## cases: a same-class remount (the form does not change, so the window must be shown again in place) and a tablet to phone
+## swap (it opens again in the phone's sheet). Each ends with the conversation's own instances, which a freed window could not have.
+## The resize grip `DccWidgets._desktop_window_size()` adds to the dialog's button row, found by its cursor shape as the window's own
+## `_apply_dialog_form()` finds it; null when the window was never shown in a pointer form.
+func _asst_grip(win) -> Control:
+	for c in win.get_ok_button().get_parent().get_children():
+		if c is Control and (c as Control).mouse_default_cursor_shape == Control.CURSOR_FDIAGSIZE:
+			return c as Control
+	return null
+
+func _assistant_stacked(win, tab: Vector2i, ph: Vector2i) -> void:
+	print("-- a SHOWN assistant window stacked under a window the swap frees")
+	var before := _asst_snapshot(win)
+	for case_name in ["same class", "tablet to phone"]:
+		## Fetched each time: the swap frees the settings window and builds a new one.
+		var sw = _app.assistant_settings_window
+		sw.open()
+		await _frames(6)
+		win.open_window()
+		await _frames(8)
+		_ok(win.visible and not win.is_docked(), "%s: control: the assistant is shown as a window" % case_name)
+		var grip0 = _asst_grip(win)
+		_ok(grip0 != null and grip0.visible, "%s: control: the window form has its resize grip, shown" % case_name)
+		_ok(win.get_parent() == sw, "%s: control: it is the settings window's child, so freeing that window would free it (parent %s)" % [case_name, str(win.get_parent())])
+		_ok(win.run != null and not win.run.busy(), "%s: control: no request is running" % case_name)
+		if case_name == "same class":
+			await _app._remount_composition()
+			await _frames(10)
+		else:
+			await _live_swap(ph.x, ph.y, "phone")
+			await _frames(10)
+		_ok(is_instance_valid(win) and not is_instance_valid(sw), "%s: the settings window was freed and the assistant window was not" % case_name)
+		## Under the app, or under the NEW settings window: it was open, so the swap opened it again and showing the assistant over it
+		## stacks the assistant under that one (`reparent_over()`), which the next swap moves out again.
+		_ok(_app.assistant_window == win and (win.get_parent() == _app or win.get_parent() == _app.assistant_settings_window),
+			"%s: it is still the app's assistant window, under the app or the rebuilt settings window (parent %s)" % [case_name, str(win.get_parent())])
+		_ok(_asst_snapshot(win) == before, "%s: the conversation is the same instances" % case_name)
+		_ok(win.visible, "%s: it is shown again, where it was open" % case_name)
+		if case_name == "tablet to phone":
+			_ok(win._phone and not win.is_docked(), "%s: in the phone's sheet" % case_name)
+			var grip1 = _asst_grip(win)
+			_ok(grip1 == null or not grip1.visible, "%s: the sheet has no resize grip (it is a window-form control)" % case_name)
+			_ok(win._head_wrap != null and win._host.get_child(0) == win._head_wrap, "%s: the phone header is the host's FIRST child" % case_name)
+		_ok(not win.is_docked() or case_name == "same class", "%s: placement is the form's" % case_name)
+		win.hide()
+		await _frames(4)
+		if case_name == "tablet to phone":
+			await _live_swap(tab.x, tab.y, "tablet")
+	var shut: Variant = _app.assistant_settings_window
+	if shut != null and is_instance_valid(shut) and shut.visible:
+		shut.hide()
+	await _frames(4)
 
 func _b5() -> void:
 	await _settle_at_rest()

@@ -411,7 +411,9 @@ func _ready() -> void:
 	await _type("pre")
 	var tree := _tree()
 	var wleaf := _leaf_in(tree.get_root(), "Wren.md") if tree != null else null
-	_ok("1: the tree lists Wren.md", wleaf != null)
+	## The two-pane browser (desktop, tablet) draws the tree; the phone's one-pane browser draws none beside an open note, which
+	## the next branch already relied on. Both halves are asserted, so neither form can pass for the other.
+	_ok("1: the tree lists Wren.md on desktop and tablet, and the phone's one-pane browser draws no tree", (wleaf != null) == (not _phone))
 	if _phone or wleaf == null:
 		print("VE10 info: the tree is not on screen in this form; the tree menu is driven by its own call")
 		vw.request_rename_of("Wren.md")
@@ -485,13 +487,15 @@ func _ready() -> void:
 	app.select("settlement", 0)  ## select() takes the settlement's INDEX in settlements() (s0 is index 0), not its tid
 	await _frames(6)
 	var tab_btn := _vis_button(app, "CtxTabNote")
-	_ok("3: the Context panel draws a NOTE tab for the selected place", tab_btn != null)
+	## The Context panel and its Note tab are desktop and tablet; the phone's form of the panel is the selection sheet
+	## (`DccApp.open_context_tab()`'s own doc), which has no tab strip, so on the phone the tab must be ABSENT.
+	_ok("3: the Context panel draws a NOTE tab for the selected place (the phone has no tab strip)", (tab_btn != null) == (not _phone))
 	if tab_btn != null:
 		await _click_main(tab_btn)
-	_ok("3: the tab docks Brindle.md", await _until(func(): return vw.is_docked() and vw.docked_path() == "Brindle.md", 3000) >= 0)
+	_ok("3: the tab docks Brindle.md (desktop and tablet)", _phone or await _until(func(): return vw.is_docked() and vw.docked_path() == "Brindle.md", 3000) >= 0)
 	var slot := app.find_child("NoteSlot", true, false) as Control
 	var rbtn := _vis_button(slot, "NoteRename") if slot != null else null
-	_ok("3: the docked editor has a Rename button", rbtn != null and rbtn.is_visible_in_tree())
+	_ok("3: the docked editor has a Rename button (desktop and tablet)", _phone or (rbtn != null and rbtn.is_visible_in_tree()))
 	if rbtn != null:
 		await _click_main(rbtn)
 		var ok3 := await _finish_rename("Brindle Dock")
@@ -635,7 +639,9 @@ func _ready() -> void:
 		if sb != null:
 			await _press(sb)
 	_ok("6: the search ran for #saltroad", vw._search_query == "#saltroad", vw._search_query)
-	_ok("6: ... in the browser's own field", vw._search_field != null and is_instance_valid(vw._search_field) and vw._search_field.text == "#saltroad")
+	## The browser's own field exists in the two-pane browser only; the phone's one-pane form has none, and the results box shows the hits.
+	var field_live: bool = vw._search_field != null and is_instance_valid(vw._search_field)
+	_ok("6: ... in the browser's own field (the phone's one-pane browser has none)", (field_live and vw._search_field.text == "#saltroad") if not _phone else not field_live)
 	var hits: Array = (vw._search_result as Dictionary).get("hits", [])
 	var rels: Array = []
 	for h in hits:
@@ -643,6 +649,7 @@ func _ready() -> void:
 	_ok("6: it finds the inline-tag notes (Salt1, Wren)", rels.has("Salt1.md") and rels.has("Wren.md"), str(rels))
 	_ok("6: ... and not the prose note that only says the word", not rels.has("Prose.md"), str(rels))
 	tree = _tree()
-	_ok("6: the file tree still lists every note (a #tag is not a name filter)", tree != null and _leaf_in(tree.get_root(), "Hub.md") != null)
+	_ok("6: the file tree still lists every note (a #tag is not a name filter); the phone's one-pane browser draws no tree",
+		(tree != null and _leaf_in(tree.get_root(), "Hub.md") != null) if not _phone else (tree == null or _leaf_in(tree.get_root(), "Hub.md") == null))
 
 	_finish()

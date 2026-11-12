@@ -2320,13 +2320,14 @@ func _capture_windows() -> void:
 ## otherwise show the wrong layout.
 func _represent_windows() -> void:
 	search_represent_free()
-	## A kept window must not be freed with a window it was stacked under (`DccWidgets.reparent_over()` parents a hidden
-	## dialog under the exclusive window showing at its last open, such as the settings window, which is freed just below).
+	## A kept window must not be freed with a window it was stacked under (`DccWidgets.reparent_over()` parents a dialog
+	## under the exclusive window showing at its last open, such as the settings window, which is freed just below). Hidden
+	## or SHOWN: a shown one is hidden for the move and shown again by its `represent_restore()` (the window's own
+	## `represent_rehome()`, which ends no reply; `_ms1swap_probe.gd --leg assistant`, "stacked under a freed window").
 	for f in KEPT_WINDOWS:
 		var kept = get(f)
-		if kept != null and is_instance_valid(kept) and not kept.visible and kept.get_parent() != self:
-			kept.get_parent().remove_child(kept)
-			add_child(kept)
+		if kept != null and is_instance_valid(kept) and kept.get_parent() != self and kept.has_method("represent_rehome"):
+			kept.call("represent_rehome")
 	var existed := {}
 	for f in REPRESENTED_WINDOWS:
 		var old = get(f)
