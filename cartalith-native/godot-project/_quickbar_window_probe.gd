@@ -517,7 +517,7 @@ func _ghost() -> void:
 	_win.open()
 	await _settle(4)
 	var titles := _pin_titles()
-	_ok(titles == ["Gone command  --  not in this build", "Markdown vault"], "the window lists the ghost with its stored title and the reason: %s" % str(titles))
+	_ok(titles == ["Gone command  --  no longer available", "Markdown vault"], "the window lists the ghost with its stored title and the reason: %s" % str(titles))
 	await _click_item(_win._pins_list, 0)
 	await _click(_win._remove_btn)
 	_ok(_stored_keys() == [kv], "Remove deletes the ghost by hand and keeps the live pin: %s" % str(_stored_keys()))

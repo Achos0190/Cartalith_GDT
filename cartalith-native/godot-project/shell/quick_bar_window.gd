@@ -200,7 +200,7 @@ static func add_refusal(row: Dictionary) -> String:
 ## dropped). `row` is the live index row or `{}`.
 static func pin_text(row: Dictionary, stored_title: String, pin_key: String) -> String:
 	if row.is_empty():
-		return "%s  --  not in this build" % (stored_title if stored_title != "" else pin_key)
+		return "%s  --  no longer available" % (stored_title if stored_title != "" else pin_key)
 	if not bool(row.get("pinnable", false)):
 		return "%s  --  unavailable: %s" % [String(row["title"]), String(row.get("why_not", ""))]
 	return String(row["title"])

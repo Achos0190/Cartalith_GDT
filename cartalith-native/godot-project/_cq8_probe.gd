@@ -331,7 +331,7 @@ func _shell_legs() -> void:
 	_ok(counts == {"Inspect": 1, "Measure": 1, "Region select": 1}, "Inspect, Measure and Region select are catalogued once each as tool rows (%s)" % str(counts))
 	_ok(k_auto != "" and k_dark != "" and k_diag != "", "Autosave, Dark and Diagnostics overlay are pinnable toggle rows (%s, %s, %s)" % [k_auto, k_dark, k_diag])
 	var unreg := idx.find_pin("menu:%d" % DccMenus.ID_PREF_UNITS_MI)
-	_ok(unreg.is_empty() or (not bool(unreg.get("pinnable", false)) and String(unreg.get("why_not", "")).contains("no live state source is registered")),
+	_ok(unreg.is_empty() or (not bool(unreg.get("pinnable", false)) and String(unreg.get("why_not", "")).contains("whose state a button cannot show")),
 		"a radio row nobody registered stays unpinnable and says why (%s)" % str(unreg.get("why_not", "-")))
 	## Seed: a restricted tool, a plain toggle, a corrupt-d toggle, a civ-only toggle, and a junk entry.
 	var path := _cfg_path()

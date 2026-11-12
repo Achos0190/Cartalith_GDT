@@ -166,10 +166,10 @@ const EXTRAS: Array = [
 	{"title": "Import image", "blurb": "Moved: Assets ▸ ⧉ Asset library (Shift+A; ☰ on a tablet) opens the library, and its own Import image… in the rail foot imports into the focused slot.", "group": "Assets", "alias": true},
 	{"title": "Notes for this place", "blurb": "Now Story ▸ Note for the selection (Ctrl+Shift+N): the Context panel's Note tab, for the selected place or faction (any other subject says why it has no note).", "group": "Story", "alias": true},
 	{"title": "Right dock", "blurb": "Now the Context panel: Window ▸ Context panel (☰ ▸ Window on a tablet; on a phone, the selection sheet) shows or hides it, and the submenu under it opens Inspect, Note and Ask (Ctrl+1, Ctrl+2, Ctrl+3).", "group": "Window", "alias": true},
-	{"title": "Run pipeline", "blurb": "Now Generate world (Ctrl+R): File ▸ Generate world, or World ▸ Generate world on a tablet whose bar has a World menu. The same command under one label (Ruling DX).", "group": "File", "alias": true},
-	{"title": "Records (was World)", "blurb": "The menu called World is Records now (Ruling DY): ⧉ Data manager, Factions… (Ctrl+Shift+F), Places…, Markdown vault… (Ctrl+Shift+V), Browse & edit a note…, Places without notes…, World data tables…, Import and Sources & validation. Generate world (Ctrl+R) is in File. On a tablet whose bar has a World menu, that menu holds the WORLD domain's own rows.", "group": "Records"},
-	{"title": "Landmark icons", "blurb": "Moved into Assets ▸ Landmark types… (Ruling EH): its foot button opens the Asset library on the points-of-interest family, whose slots landmark types draw with.", "group": "Assets"},
-	{"title": "Landmark label style", "blurb": "Moved into Assets ▸ Landmark types… (Ruling EH): its foot button opens Cartography ▸ Labels, where a landmark's label style lives.", "group": "Assets"},
+	{"title": "Run pipeline", "blurb": "Now Generate world (Ctrl+R): File ▸ Generate world, or World ▸ Generate world on a tablet whose bar has a World menu. The same command under one label.", "group": "File", "alias": true},
+	{"title": "Records (was World)", "blurb": "The menu called World is Records now: ⧉ Data manager, Factions… (Ctrl+Shift+F), Places…, Markdown vault… (Ctrl+Shift+V), Browse & edit a note…, Places without notes…, World data tables…, Import and Sources & validation. Generate world (Ctrl+R) is in File. On a tablet whose bar has a World menu, that menu holds the WORLD domain's own rows.", "group": "Records"},
+	{"title": "Landmark icons", "blurb": "Moved into Assets ▸ Landmark types…: its foot button opens the Asset library on the points-of-interest family, whose slots landmark types draw with.", "group": "Assets"},
+	{"title": "Landmark label style", "blurb": "Moved into Assets ▸ Landmark types…: its foot button opens Cartography ▸ Labels, where a landmark's label style lives.", "group": "Assets"},
 ]
 
 ## The index: one dictionary per entry (`title`, `blurb`, `group`, `kind`, `key`,
@@ -272,7 +272,7 @@ func _add_parameters() -> void:
 			"why": "" if has_world else "Takes effect on the next Generate",
 			"pin_key": "param:" + String(key),
 			"pinnable": false,
-			"why_not": "A generation parameter applies on a Generate and has its own dock control; a chip would only duplicate it.",
+			"why_not": "A generation setting takes effect on Generate and has its own control, so a button would only duplicate it.",
 		})
 
 ## CQ-8: the state getter `DccMenus.state_source(id)` registered for action `id`, or an invalid `Callable`
@@ -510,18 +510,18 @@ func _open_handlers(popup: PopupMenu) -> Array:
 ## "nothing to do" itself (CUSTOM_QUICK_BAR_SCOPE.md s.3.3, availability).
 func _why_not_pinnable(popup: PopupMenu, i: int, id: int, is_readout: bool, menu_name: String, has_state: bool = false) -> String:
 	if menu_name == "":
-		return "Not an app menu: an embedded control's own popup (a ColorPicker's presets)."
+		return "This belongs to a control, not a menu, so it cannot be pinned."
 	if is_readout:
 		return "A readout shows a value; there is nothing to run."
 	if popup.is_item_disabled(i):
 		return "Not available yet: " + popup.get_item_tooltip(i)
 	if popup.is_item_checkable(i) and not has_state:
-		return "A check or radio row mirrors state a chip cannot read without opening the menu, and no live state source is registered for this one."
+		return "This is an on/off or choice row whose state a button cannot show, so it cannot be pinned."
 	if _is_dynamic_id(id) or _is_index_popup(popup):
-		return "A generated row (a ladder or list); its meaning changes with the data."
+		return "This row is generated from your data and changes with it, so it cannot be pinned."
 	for h in _open_handlers(popup):
 		if UNSAFE_OPEN_HANDLERS.has(String(h)):
-			return "Its menu runs " + String(h) + " when opened (it evicts or enumerates); a chip cannot repeat that safely."
+			return "Opening its menu does work that a button cannot repeat safely, so it cannot be pinned."
 	return ""
 
 ## Makes `pin_key` unique among pinnable rows. First, a later row with the SAME id
@@ -539,7 +539,7 @@ func _disambiguate_pin_keys() -> int:
 		var sig := "%s|%s" % [String(r["pin_key"]), String(r["title"])]
 		if first.has(sig):
 			r["pinnable"] = false
-			r["why_not"] = "The same command as %s ▸ %s (same id, same title)." % [String(first[sig]["group"]), String(r["title"])]
+			r["why_not"] = "The same command as %s ▸ %s." % [String(first[sig]["group"]), String(r["title"])]
 		else:
 			first[sig] = r
 	var seen := {}

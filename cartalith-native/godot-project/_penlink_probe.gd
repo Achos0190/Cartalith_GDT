@@ -252,7 +252,7 @@ func _t_tap() -> void:
 	DccSettings.set_pen_double_tap("placing", "pin:tool:inspect")
 	fb.pen_double_tap.emit()
 	_ok(_app.armed_tool == "inspect", "pin:tool:inspect arms Inspect through the quick bar's path")
-	_ok(_link.run_tap_action("pin:nope:zzz") == "Not in this build.", "an unknown pinned command is refused with the quick bar's sentence")
+	_ok(_link.run_tap_action("pin:nope:zzz") == "No longer available.", "an unknown pinned command is refused with the quick bar's sentence")
 	# The misfire guard.
 	DccSettings.set_pen_double_tap("none", "last_tool")
 	_tool("measure")

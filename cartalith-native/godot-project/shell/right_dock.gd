@@ -4460,12 +4460,9 @@ func _build_river(body: Control) -> void:
 	var sec := DccWidgets.section(body, "River")
 	if _river.is_empty():
 		DccWidgets.note(sec,
-			"No river selected. Arm Inspect and click a river on the map -- the " +
-			"pick tests every traced channel run, headwater trickles included, " +
-			"inside a 44 px-wide target centred on the pointer. A river the map does not draw " +
-			"cannot be picked: a world opened from a project archive carries no " +
-			"channel topology at all (SAVEFILE_COMPAT.md stores none), so its " +
-			"rivers are in the baked raster and nowhere else.")
+			"No river selected. Arm Inspect and click a river on the map. " +
+			"A river the map does not draw cannot be picked: a world opened from a project " +
+			"file keeps no river channels, so its rivers exist only in the map image.")
 		return
 
 	## §6's one big accent readout per context. Length, matching Route's --
@@ -4482,8 +4479,8 @@ func _build_river(body: Control) -> void:
 	## system covers continents, provinces, bays, mountain ranges and lakes,
 	## but has no river form, so there is no toponym to print.
 	_field(sec, "Name", "—",
-		"Rivers are not named in this build -- inventing one here would put a " +
-		"name on the map that nothing else in the world knows about.", false)
+		"Rivers are not named: a name made up here would appear " +
+		"nowhere else in the world.", false)
 	## The Strahler order, rescanned over every cell of this run and reported
 	## as its maximum, which also decides the drawn stroke's colour. A
 	## tributary's last point is its trunk's junction cell, so a short
@@ -5850,10 +5847,8 @@ func _build_measure_section(body: Control) -> void:
 		## unchanged and the reason is now the real one: `naming::FeatureKind`
 		## has no river form, so nothing names a river in the first place.
 		DccWidgets.note(cr,
-			"Rivers are described by Strahler order, not by name. The entity does cross the boundary now " +
-			"(get_rivers(), and this dock's own River context), but nothing in the engine NAMES a river: " +
-			"naming::FeatureKind covers continents, provinces, bays, mountain ranges and lakes, and no river form. " +
-			"So there is still no toponym to print here.")
+			"Rivers are described by Strahler order, not by name: nothing in Cartalith names a river, " +
+			"so there is no name to print here.")
 	_build_measure_actions(body)
 
 # ======================================= Saved measurements, on disk (F10) ====

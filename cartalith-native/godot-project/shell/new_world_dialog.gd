@@ -245,9 +245,9 @@ const PREVIEW_DISCLAIMER := "Approximate preview: plate layout and land/ocean sp
 ## The dash reasons. Each names the state the code branches on (`MISTAKES.md`,
 ## "Dash a field with a reason": the reason is a claim). The first is the
 ## proposal's own wording for the missing binding (§8 NWP-3).
-const PREVIEW_REASON_NO_BINDING := "this engine build has no preview (WorldGen.preview_land_mask is missing; rebuild the engine)"
-const PREVIEW_REASON_NO_PARAMS := "no preview: this engine build publishes no parameter table"  ## Dash reason when the build publishes no parameter table (state `no_params`).
-const PREVIEW_REASON_REFUSED := "no preview: the engine refused these settings (the reason is in the console)"  ## Dash reason when the engine rejected the settings (state `refused`).
+const PREVIEW_REASON_NO_BINDING := "no preview: the land preview is not available in this version of Cartalith"
+const PREVIEW_REASON_NO_PARAMS := "no preview: the settings table is not available in this version of Cartalith"  ## Dash reason when the build publishes no parameter table (state `no_params`).
+const PREVIEW_REASON_REFUSED := "no preview: these settings were refused (details are in the console)"  ## Dash reason when the engine rejected the settings (state `refused`).
 ## While a world generates the worker thread owns `WorldGen`, so nothing here
 ## touches the engine (proposal §6, "Where it runs"); the last drawn mask stays
 ## up and the stats line says it is held.
@@ -911,7 +911,7 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 	_build_placement_dials(gen_sec)
 	_build_lake_balance(gen_sec)
 	DccWidgets.note(gen_sec,
-		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
+		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live settings, not part of this dialog -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
 
 	## §6.7's card carries no advisory prose, and both of these are kept
 	## anyway: one says the choice above cannot be revisited later and the
@@ -1257,7 +1257,7 @@ func _build_preview(parent: VBoxContainer) -> void:
 func _set_preview_title(h: int) -> void:
 	if _preview_title == null:
 		return
-	_preview_title.text = "§ PREVIEW · LAND VS OCEAN · %d × %s" % [PREVIEW_W, str(h) if h > 0 else "—"]
+	_preview_title.text = "PREVIEW · LAND VS OCEAN · %d × %s" % [PREVIEW_W, str(h) if h > 0 else "—"]
 
 ## The debounce and the open-dialog poll, and the signals that start them.
 ## Built once, after the form exists, so no handler fires into half a dialog.
@@ -1661,7 +1661,7 @@ func _refresh_plates() -> void:
 	_plates_plus.disabled = arche or n >= rng.y
 	if arche:
 		_plates_source.text = "from archetype (read-only)" if n >= 0 \
-			else "from archetype: this build publishes no fragmentation dial"
+			else "from archetype: not available in this version of Cartalith"
 	elif _plates_manual:
 		_plates_source.text = "set by hand ·"
 	else:

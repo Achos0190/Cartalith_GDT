@@ -67,7 +67,7 @@ static func _item(app, idx: CommandIndex, pin: Dictionary) -> Dictionary:
 		out["label"] = (DccQuickBar.MARK_ON if bool((row["_state"] as Callable).call()) else DccQuickBar.MARK_OFF) + String(out["label"])
 	if row.is_empty():
 		out["enabled"] = false
-		out["reason"] = "Not in this build"
+		out["reason"] = "No longer available"
 		return out
 	out["shortcut"] = DccQuickBar.accelerator_text(row)
 	if not bool(row.get("pinnable", false)):

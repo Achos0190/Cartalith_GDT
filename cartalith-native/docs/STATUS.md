@@ -31,11 +31,11 @@ PW-3, RK-0 to RK-7 with term interning, profiles (DQ), New world is untitled (`5
   settings" call has never been run on a device.
 - Apply-and-regenerate (Ruling DS, `ad1a40c9`): verified on the desktop only.
 - LLM-7 (Ruling DR, `29fa45e4`, `c19ae198`, `0550e1b1`): the apply-path mutation tests were not run.
-- UI copy pass: the first cut (`93b80da8`) covered the Assistant surfaces; the second pass (2026-11-12) reworded about 160
-  strings across the rest of the shell. Not covered: the files other agents were editing (`llm_*.gd`, command index,
-  `new_world_dialog.gd`, `auto_populate.gd`, `world_workspace.gd`, `quick_bar*.gd`, `phone_menu.gd`, vault editor, river
-  context card), so the quick bar's `Not in this build` wording and the LLM-7 strings are still open. Detail and probe
-  results: `docs/evidence/ui-copy-2026-10-26/COPY_CHANGES.md`.
+- UI copy pass: the first cut (`93b80da8`) covered the Assistant surfaces, the second pass (2026-11-12) reworded about 160
+  strings across the rest of the shell, and the third pass (2026-11-12) did the surfaces the second deferred (`llm_*.gd`, the
+  command index reasons, `new_world_dialog.gd`, `world_workspace.gd`, `quick_bar*.gd` with `Not in this build` now `No longer
+  available`, `phone_menu.gd`, `vault_window.gd`, the river context card): 65 strings. Detail, probe results (three
+  failures reproduced on the unedited baseline) and screenshots: `docs/evidence/ui-copy-2026-10-26/COPY_CHANGES.md`.
 - Phone scroll and Assistant save (`2d5b1e5d`): partial fix; the central touch-scroll fix has since been built (2026-11-08, entry below), and the consent UX fix is built
   too (2026-10-27, `beee4808`; entry "Consent card on Refresh and Send" below; real LM Studio, a remote host and a device not run; audit 2026-11-12 C).
 - **Gate run 2026-10-26 on head `e2cd6832` (clean worktree, fresh target dir): `cargo test --workspace -j 2` exited 0: 262 test suites, 7 670 passed, 0 failed, 142 ignored.** It does not exercise the Godot shell (GDScript probes), so the failing probes above stand.

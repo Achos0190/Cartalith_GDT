@@ -7835,7 +7835,7 @@ func _on_open_window(id: int) -> void:
 const HELP_KEYBOARD_REFERENCE_TIP := "Every keyboard shortcut, read from the menus each time it opens, and the keys no menu carries. Read-only: Preferences ▸ Keyboard shortcuts… changes them."
 
 ## Help ▸ Gesture reference…'s tooltip, which the phone draws as the row's second line. Says what the screen is,
-## in the words its own header uses (`phone_menu.gd::SCREEN_TITLES`' "the touch vocabulary this build has").
+## in the words its own header uses (`phone_menu.gd::SCREEN_TITLES`' "the gestures Cartalith understands").
 const HELP_GESTURES_TIP := "Every touch gesture the map and the sheets answer to."
 
 ## Help ▸ Gesture reference…, on the phone only (MS-4; mobile-shell draft 09): opens `PhoneMenu`'s `gestures`

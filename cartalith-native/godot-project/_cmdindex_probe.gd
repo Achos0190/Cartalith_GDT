@@ -170,12 +170,12 @@ func _cq0(app: Node, idx: CommandIndex) -> void:
 			if String(r["kind"]) == "param": cat = "param"
 			elif String(r["kind"]) == "readout": cat = "readout"
 			elif w.begins_with("Not available"): cat = "unavailable (_todo)"
-			elif w.begins_with("A check"): cat = "check/radio"
-			elif w.begins_with("A generated"): cat = "dynamic"
+			elif w.begins_with("This is an on/off"): cat = "check/radio"
+			elif w.begins_with("This row is generated"): cat = "dynamic"
 			elif w.begins_with("The same command"): cat = "alias of another menu row"
-			elif w.begins_with("Its menu runs"): cat = "unsafe about_to_popup"
-			elif w.begins_with("Not an app menu"): cat = "embedded ColorPicker popup"
-			elif w.begins_with("No registered"): cat = "extra without handler"
+			elif w.begins_with("Opening its menu"): cat = "unsafe about_to_popup"
+			elif w.begins_with("This belongs to a control"): cat = "embedded ColorPicker popup"
+			elif w.begins_with("This is a search result"): cat = "extra without handler"
 			by_reason[cat] = int(by_reason.get(cat, 0)) + 1
 	print("  info total rows %d · pinnable %d · unpinnable %d" % [idx.size(), pinnable, idx.size() - pinnable])
 	print("  info unpinnable by reason: ", by_reason)

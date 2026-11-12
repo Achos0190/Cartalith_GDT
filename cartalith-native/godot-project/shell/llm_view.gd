@@ -92,8 +92,8 @@ static func facts(app, bridge) -> Dictionary:
 	var withheld := {}
 	var vp = app.viewport
 	if vp == null:
-		return {"withheld": {"set_layer_visible": "The map is not built yet.", "set_style_preset": "The map is not built yet.",
-			"zoom_to": "The map is not built yet.", "set_landmark_filter": "The map is not built yet.", "open_window": "The map is not built yet."}}
+		return {"withheld": {"set_layer_visible": "There is no map yet.", "set_style_preset": "There is no map yet.",
+			"zoom_to": "There is no map yet.", "set_landmark_filter": "There is no map yet.", "open_window": "There is no map yet."}}
 	# -- layers: the ten ids `ViewportHost.set_layer_visible` takes, in the Layers popover's order.
 	var layers: Array = []
 	for l in CartographyWorkspace.LIVE_LAYERS:

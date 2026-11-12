@@ -174,11 +174,11 @@ static func gather(bridge: Object, stream: Object, index: int) -> Dictionary:
 	# ---- trade flows that touch the place (the engine caps its list at 4000 rows) ----
 	var tf: Dictionary = bridge.civ_trade_flows()
 	if tf.is_empty():
-		unavailable["trade flows"] = "the engine returned no trade network for this world"
+		unavailable["trade flows"] = "this world has no trade network"
 	else:
 		var rows: Array = tf.get("flows", [])
 		if rows.size() >= 4000:
-			unavailable["trade flows (complete list)"] = "the engine returned its 4000-row cap, so this place's flows may be incomplete"
+			unavailable["trade flows (complete list)"] = "the list stopped at its 4000-row limit, so this place's flows may be incomplete"
 		var mine := []
 		for fr in rows:
 			var f: Dictionary = fr
@@ -282,7 +282,7 @@ static func _trim_sample(c: Dictionary) -> Dictionary:
 ## must read "not available", not "none".
 static func _landmarks(wg: Object) -> Dictionary:
 	if wg == null or not wg.has_method("landmarks"):
-		return {"available": false, "reason": "this build of the library has no landmark getter"}
+		return {"available": false, "reason": "landmarks are not available in this version of Cartalith"}
 	var rows: Array = wg.call("landmarks")
 	if rows.is_empty() and wg.has_method("landmark_last_run"):
 		var lr: Dictionary = wg.call("landmark_last_run")

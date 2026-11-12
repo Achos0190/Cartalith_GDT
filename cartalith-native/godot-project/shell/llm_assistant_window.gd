@@ -1231,7 +1231,7 @@ func _refresh() -> void:
 	elif request == "":
 		reason = "Type a request first."
 	elif _task == "edit":
-		var ep: Dictionary = run.stream.edit_preview({"request": request, "edit": _edit_facts_json()}) if run.available() else {"ok": false, "reason": "This build has no assistant support."}
+		var ep: Dictionary = run.stream.edit_preview({"request": request, "edit": _edit_facts_json()}) if run.available() else {"ok": false, "reason": "The assistant is not available in this version of Cartalith."}
 		if bool(ep.get("ok", false)):
 			sent_text = "This will send: your request (%d characters) and the region you chose, as numbers only: its bounding box, %d cells and area, %d rows of x ranges, and its lowest, mean and highest height, land share and slope (%d characters; \"View what is sent\" shows the exact text). The model may propose raising, lowering or smoothing inside that region; nothing changes until you press Apply. No picture of the map is sent, and only a model on this computer or your local network receives it." % [int(ep["request_chars"]), int(ep["cells"]), int(ep["rows"]), int(ep["region_chars"])]
 		else:

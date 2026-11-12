@@ -180,11 +180,11 @@ const STAGES: Array = [
 	{"name": "Ecology & biomes", "needs": "07 Hydrology, 08 Climate",
 	 "produces": "biome classification, ecotones → 10 Resources & soils",
 	 "groups": [], "keys": [],
-	 "gap": "Not parameterised. Biome classification runs off the finished elevation/temperature/rainfall fields with no dials of its own in cartalith-engine."},
+	 "gap": "Not parameterised. Biome classification runs off the finished elevation/temperature/rainfall fields with no settings of its own."},
 	{"name": "Resources & soils", "needs": "04 Tectonics, 08 Climate, 09 Ecology & biomes",
 	 "produces": "soil depth, ore, fertility → nothing downstream in this pipeline",
 	 "groups": [], "keys": [],
-	 "gap": "Not parameterised. No dials exist in cartalith-engine for soil, ore or fertility generation."},
+	 "gap": "Not parameterised. Soil, ore and fertility have no settings."},
 ]
 
 const EROSION_STAGE_INDEX := 5 ## Zero-based -- STAGES[5] is "Erosion".
@@ -1283,16 +1283,14 @@ func _fill_ecology(parent: Control) -> void:
 	var sec2 := DccWidgets.section(parent, "Not parameterised")
 	DccWidgets.note(sec2,
 		"Vegetation density and soil are computed off the finished biome, climate "
-		+ "and lithology fields with no dials of their own in cartalith-engine, "
-		+ "and neither has productivity: the Miami model's only tunable is "
-		+ "state.climate.maxRainMm, which this port pins at the reference's own "
-		+ "3000 default. Everything above is derived, not set.")
+		+ "and lithology fields with no dials of their own, "
+		+ "and neither has productivity: the only tunable is the rainfall ceiling, "
+		+ "which stays at its original 3000 mm default. Everything above is derived, not set.")
 	DccWidgets.note(sec2,
-		"Still missing (GUI_GAP_REGISTER.md WW-14): *flora* distribution as a "
+		"Not available yet: *flora* distribution as a "
 		+ "species-level counterpart to the fauna rosters. The wildlife tables are "
-		+ "animals only -- there is no plant-species vocabulary anywhere in "
-		+ "cartalith-civ or in the reference, and biome class is as fine as the "
-		+ "vegetation answer gets.")
+		+ "animals only -- there is no plant-species list in Cartalith or in the "
+		+ "original, and biome class is as fine as the vegetation answer gets.")
 
 ## `1234567` -> `1,234,567`. Local rather than a `DccWidgets` addition: the two
 ## call sites are both in this file's Ecology readout.
@@ -1390,8 +1388,7 @@ func _build_crs(parent: Control) -> void:
 		+ "Every field is grid space and nothing reprojects, so the planar "
 		+ "kilometres are not a projection of the latitudes beside them, and a GIS "
 		+ "reading them as WGS84 degrees is misreading the file. Which projection "
-		+ "a fictional world should claim is an authoring decision, not a defect "
-		+ "(GUI_GAP_REGISTER.md WW-15).\n"
+		+ "a fictional world should claim is an authoring decision, not a defect.\n"
 		+ "The frame itself is declared and honest -- the export's own note says "
 		+ "exactly this, and Coordinate system above reads it back in-app.")
 
@@ -1744,10 +1741,9 @@ func _build_erosion_hillslope(parent: Control) -> void:
 ## Ruling L now draws them in two different categories and two divergent
 ## transcriptions of the same disclosure is how a stale one survives.
 func _erosion_pass_note() -> String:
-	return ("Ported. This port runs it as a generation-time toggle rather than a button "
-		+ "(DECISIONS.md §7d) -- its passes.* switch and dials are in Hydrology ▸ 06 Erosion · "
-		+ "water & ice ▸ Stream-power carve, off by default. There is no separate run button "
-		+ "because the pass is part of generate().")
+	return ("This runs as a switch when the world is generated, not as a button: its switch and dials are in "
+		+ "Hydrology ▸ 06 Erosion · water & ice ▸ Stream-power carve, off by default. There is no "
+		+ "separate run button because the pass is part of generating the world.")
 
 # -- §23 F11 · the reference's `erode()` op --------------------------------------
 #
@@ -1894,7 +1890,7 @@ func _build_droplet_erosion(grp: Control) -> void:
 	## The disabled-state message names `WorldGen.erode_op()`, the missing binding.
 	btn.tooltip_text = ("The reference's #erodeBtn. Runs over the whole map and pushes one " +
 		"undo step; 60k droplets is not instant at 2048².") if live else \
-		"This build of the app is missing the droplet-erosion binding -- rebuild it to enable this button."
+		"Droplet erosion is not available in this version of Cartalith."
 
 	## Writing `HSlider.value` re-emits `value_changed`, which is what updates
 	## both the readout and `_erode_op` -- so the dictionary is restored by the
@@ -1908,13 +1904,10 @@ func _build_droplet_erosion(grp: Control) -> void:
 	## own `ErodeOpts::default()`, or (when that binding is unavailable) the
 	## shell's own transcribed copy of the legacy defaults.
 	if _erode_defaults_from_engine:
-		reset.tooltip_text = ("Back to the built-in defaults -- read from the engine's own "
-			+ "parameter table.")
+		reset.tooltip_text = "Back to the built-in defaults."
 	else:
-		reset.tooltip_text = ("Back to the built-in defaults, which are this panel's own copy "
-			+ "of the original defaults (reference HTML line 2268), not read from the engine -- "
-			+ "droplet erosion is an operation on the finished field, not a generation stage, "
-			+ "so these are transcribed rather than looked up.")
+		reset.tooltip_text = ("Back to the built-in defaults, which are copied from the original version "
+			+ "of Cartalith. Droplet erosion works on the finished terrain, not as a generation stage.")
 
 ## Slider handler for one droplet-erosion parameter: stores `v` in
 ## `_erode_op[key]`, rounded to int for `is_int` rows (droplets, thermal
@@ -2537,7 +2530,7 @@ func _refresh_geo_age_row() -> void:
 		## pretends to work.
 		s.editable = false
 		if _geo_age_note != null and is_instance_valid(_geo_age_note):
-			_geo_age_note.text = "Unavailable: this engine build has no geological clock."
+			_geo_age_note.text = "Not available in this version of Cartalith."
 		return
 	var r: Dictionary = wg.geo_clock_readout(s.value)
 	var active := bool(r.get("active", false))
@@ -2737,7 +2730,7 @@ func _apply_sea_level_live() -> void:
 	_sea_pending = NAN
 	var r: Dictionary = bridge.sea_level_live(level)
 	if r.is_empty():
-		app.set_status("hint", "Sea level: the engine could not take a live move right now (a generation is running, or this build lacks it).", "accent")
+		app.set_status("hint", "Sea level could not be moved live right now (a generation is running, or this version of Cartalith cannot do it).", "accent")
 		return
 	if not bool(r.get("ok", false)):
 		app.set_status("hint", "Sea level: %s" % String(r.get("reason", "refused")), "accent")
@@ -3228,7 +3221,7 @@ func _ring_feature_group(label: String, glyph: String, keys: Array, features: Ar
 		row["reason"] = "world finalized"
 	elif children.is_empty():
 		row["enabled"] = false
-		row["reason"] = "no engine feature behind this build"
+		row["reason"] = "not available in this version of Cartalith"
 	else:
 		row["enabled"] = true
 	return row
@@ -3251,7 +3244,7 @@ func _ring_freehand_group(armed: String, current_feature: String, finalized: boo
 		row["reason"] = "world finalized"
 	elif children.is_empty():
 		row["enabled"] = false
-		row["reason"] = "no engine freehand modes behind this build"
+		row["reason"] = "not available in this version of Cartalith"
 	else:
 		row["enabled"] = true
 	return row
@@ -3284,7 +3277,7 @@ func _ring_paint_group(armed: String, finalized: bool) -> Dictionary:
 		row["reason"] = "world finalized"
 	elif children.is_empty():
 		row["enabled"] = false
-		row["reason"] = "no paint layers in this build"
+		row["reason"] = "no paint layers available"
 	else:
 		row["enabled"] = true
 	return row
@@ -3553,13 +3546,10 @@ func _build_sculpt_unbuilt_note(parent: Control) -> void:
 	DccWidgets.note(sec,
 		"Brush shape (8 shape chips, Import brush, a hand-drawn falloff curve), Stroke & grid " +
 		"(Add point / Duplicate / Rotate / Scale / Tilt / Push / Pull / Align control-point " +
-		"editing) and Actions (Flip X/Y, Rot Left/Right, Flatten) have no engine behind them. " +
+		"editing) and Actions (Flip X/Y, Rot Left/Right, Flatten) are not available yet. " +
 		"Falloff's four named presets (Smooth/Linear/Sharp/Constant) are not on this list -- " +
-		"they are built and live as their own dropdown in Brush & noise · global above; only a " +
-		"hand-drawn curve beyond those four remains unbuilt. " +
-		"The design's own prototype mocks the rest too (04-left-dock.md §5.5-§5.6: every one of " +
-		"its 13 Stroke & grid chips just toasts \"edits the stamp control points, not the " +
-		"heightfield (mock)\") -- new, unscoped design work, not a port gap.")
+		"they work as their own dropdown in Brush & noise · global above; only a " +
+		"hand-drawn curve beyond those four is missing.")
 
 ## **Phone only, Ruling EH item 1.** The brush dynamics and symmetry controls, and Paint's Original slider,
 ## were reachable by thumb only in the retired GENERATE column (`_pg_brush_block`, `_pg_paint`): on a phone the
@@ -3691,7 +3681,7 @@ func _build_force_lake_row(parent: Control) -> void:
 	## Backed by `cartalith_civ::apply_force_lake`; the disabled message names
 	## the missing `WorldGen.apply_force_lake()` binding.
 	btn.tooltip_text = "Reclassifies painted lake cells over this world's live water-body classification." \
-		if live else "This build of the app is missing the painted-lake binding -- rebuild it to enable this button."
+		if live else "Painted lakes are not available in this version of Cartalith."
 
 ## Painted-lakes button: `world_gen.apply_force_lake()` (Ruling BO)
 ## reclassifies painted lake cells, then repaints the map and LOD tiles without
@@ -4488,8 +4478,7 @@ func _build_paint(parent: Control) -> void:
 
 	var sec := DccWidgets.section(parent, "Biome paint")
 	DccWidgets.note(sec,
-		"§4.5.2's PAINT · BIOME tool options row, hosted in this dock -- this port's real " +
-		"tool options bar (app.gd) is outside this file's own task boundary.")
+		"Brush options for painting biomes, shown in this panel.")
 
 	## GF-8: `rock_status()` first -- it also drops a stale Rock selection (a new world
 	## without geology) back to Biome before anything below reads `_paint_layer`.
@@ -4747,7 +4736,7 @@ func _build_rock_paint(sec: Control, st: Dictionary) -> void:
 			if int(pd.get("index", -1)) == int(_paint_brush["value"]):
 				sel = i
 		var ob := DccWidgets.choice(sec, "Rock", opts, sel, _on_paint_value_changed.bind(palette),
-			"s is the rock's strength (0-1) and κ its stream-power erodibility multiplier, from the engine's rock table (GEOLOGY_FIRST_SCOPE.md §2.3). Lower s and higher κ wear down faster.")
+			"s is the rock's strength (0-1) and κ its stream-power erodibility multiplier, from the rock table. Lower s and higher κ wear down faster.")
 		for i in palette.size():
 			var pd2: Dictionary = palette[i]
 			if pd2.has("theta_c"):

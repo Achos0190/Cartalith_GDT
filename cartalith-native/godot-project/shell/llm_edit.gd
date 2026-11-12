@@ -125,8 +125,8 @@ static func apply(app, bridge, ug, info: Dictionary, valid: Array) -> Dictionary
 		return {"ok": false, "reason": "The undo history has no room for another terrain step."}
 	var r: Dictionary = bridge.region_edit_apply(_REGION.spec(), ops_of(valid), "Assistant edit")
 	if not bool(r.get("ok", false)):
-		ug.abort(String(r.get("reason", "the engine refused")))
-		return {"ok": false, "reason": String(r.get("reason", "The engine refused the edit."))}
+		ug.abort(String(r.get("reason", "the edit was refused")))
+		return {"ok": false, "reason": String(r.get("reason", "The edit was refused."))}
 	var c: Dictionary = ug.commit()
 	if not bool(c.get("ok", false)):
 		return {"ok": false, "reason": String(c.get("reason", "The undo step could not be made."))}

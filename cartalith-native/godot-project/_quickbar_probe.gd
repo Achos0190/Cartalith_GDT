@@ -29,7 +29,7 @@ extends Node
 ##   5. OVERFLOW: with 24 pins `⋯` is shown, its real-click menu lists exactly the hidden pins in
 ##      pin order, and choosing one runs it;
 ##   6. UNAVAILABLE: a pin whose command is disabled stays, is disabled, with a non-empty reason;
-##      a pin whose command is removed from this build shows "not in this build", is NOT deleted
+##      a pin whose command is removed from this build shows "no longer available", is NOT deleted
 ##      (it survives a workspace change and a reload from disk) and can be removed by hand;
 ##   7. REBUILD: three workspace changes lose no pin and no order;
 ##   8. TOOLTIP: a pin with an accelerator names it; a chip is as tall as a palette cell and, on a
@@ -274,7 +274,7 @@ func _ready() -> void:
 	await _shot("03_journey_open")
 	_hide_windows()
 	await _settle(3)
-	_ok(_qb.run_pin("menu:99999") == "Not in this build.", "running a pin the build lacks answers a reason, not silence")
+	_ok(_qb.run_pin("menu:99999") == "No longer available.", "running a pin the build lacks answers a reason, not silence")
 
 	print("== 8a. tooltip and accelerator ==")
 	var acc_row := {}
@@ -316,7 +316,7 @@ func _ready() -> void:
 	ppop.set_item_tooltip(pix, old_tip)
 	await _set_pins([pkey, "menu:99999"])
 	var ghost := _chip("menu:99999")
-	_ok(ghost != null and ghost.disabled and ghost.tooltip_text.begins_with("Not in this build"), "a removed command renders as 'Not in this build': '%s'" % (ghost.tooltip_text if ghost else "?"))
+	_ok(ghost != null and ghost.disabled and ghost.tooltip_text.begins_with("No longer available"), "a removed command renders as 'No longer available': '%s'" % (ghost.tooltip_text if ghost else "?"))
 	_ok(_stored_keys() == [pkey, "menu:99999"], "and is NOT deleted from the store")
 	DccSettings._loaded = false
 	DccSettings._cfg = null

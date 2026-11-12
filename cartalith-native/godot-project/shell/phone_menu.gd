@@ -104,7 +104,7 @@ const SCREEN_TITLES: Dictionary = {
 	## The other fourteen §6.6 screens (`project`, `civ`, `data`, `data-tiles`, `sim`, `prefs`, `assets`, `assets-grid`,
 	## `asset-slot`, `travel`, `travel-item`, `landmarks`, `lm-fam`, `help`) were deleted by MS-4, each row of them
 	## re-homed in the desktop menus (`drafts/mobile-shell/README.md`, "Where each phone-only row goes").
-	"gestures": ["Gesture reference", "the touch vocabulary this build has"],
+	"gestures": ["Gesture reference", "the gestures Cartalith understands"],
 }
 
 
@@ -1664,7 +1664,7 @@ func open_screen(id: String) -> void:
 func _fill_story(body: VBoxContainer, band: String) -> void:
 	var p := _menu_popup("Story")
 	if p == null:
-		_add(body, _missing_row("Story", "The Story menu is not on this build's menu bar."))
+		_add(body, _missing_row("Story", "The Story menu is not available here."))
 		return
 	var start := -1
 	var stop := p.item_count
@@ -1678,7 +1678,7 @@ func _fill_story(body: VBoxContainer, band: String) -> void:
 			break
 	if start < 0:
 		_add(body, _missing_row(band.capitalize(),
-			"The Story menu has no %s band in this build." % band))
+			"The Story menu has no %s section." % band))
 		return
 	var drawn := {}
 	for i in p.item_count:

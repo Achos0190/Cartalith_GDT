@@ -103,7 +103,7 @@ const _SWITCHES := [
 	{"key": "actions_pre", "label": "Find matching actions first",
 		"note": "Before asking the model, Cartalith looks through its menus, layers, windows and tools for the ones your words name, and sends their descriptions along. Only Cartalith's own action names are sent, never your world. On by default because it helped a local model pick the right action; turn it off to send only the Commands button's short list."},
 	{"key": "regen_on_apply", "label": "Regenerate when I apply a proposal",
-		"note": "Applying a settings proposal also rebuilds the world with the new settings (asking first if you have hand edits that a rebuild would discard). Turn off to only change the settings and press Generate yourself."},
+		"note": "Applying a settings suggestion also regenerates the world (asking first if you have hand edits). Turn off to change only the settings and press Generate yourself."},
 	{"key": "edit", "label": "Edit actions: raise, lower, smooth",
 		"note": "The model proposes terrain edits to an area you paint or box on the map (Assistant > Edit). You see a preview computed by the app; nothing changes until you press Apply, and one Apply is one undo step. It never generates, erodes or changes settings. Only raise, lower and smooth in this release; painting colours comes later. Needs the region source below, and goes only to a model on this computer or your network."},
 	{"key": "local_allowed", "label": "Local providers allowed", "note": "Models on this computer or your network.",
@@ -616,11 +616,11 @@ func _rebuild() -> void:
 func _edit_unavailable() -> String:
 	var ug = app.get("undo_groups") if app != null else null
 	if ug == null or not (ug.has_method("begin") and ug.has_method("commit") and ug.has_method("abort")):
-		return "Not available in this build: edit actions need the grouped undo, which is missing."
+		return "Not available in this version of Cartalith."
 	if not (bridge.has_method("region_describe") and bridge.has_method("region_edit_preview") and bridge.has_method("region_edit_apply")):
-		return "Not available in this build: the shell has no region editing."
+		return "Not available in this version of Cartalith."
 	if not (bridge._has("region_describe") and bridge._has("region_edit_preview") and bridge._has("region_edit_apply")):
-		return "Not available: the Cartalith library is older than the shell and cannot edit a region. Update it."
+		return "Not available in this version of Cartalith."
 	return ""
 
 

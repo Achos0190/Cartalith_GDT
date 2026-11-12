@@ -4251,7 +4251,7 @@ func _build_reader(parent: Control) -> void:
 	var write := DccWidgets.action(sec, "Insert updated section into source…", func():
 		bridge.vault_set_link_text(_reader_link, _reader_edit.text)
 		_confirm_section_write(), true)
-	write.tooltip_text = "§15's one write-back path: replaces only this section, previewed first, and refuses outright if the file changed since the preview."
+	write.tooltip_text = "The only way a note is written back: replaces only this section, previewed first, and refuses outright if the file changed since the preview."
 
 	## The per-link view of the same copy `_build_entity_data` shows for the
 	## whole entity. Memory only — `vault_link_data` reads the link, not the
@@ -4351,7 +4351,7 @@ func _build_snapshots(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.custom_minimum_size.y = 24
-	row.tooltip_text = "Where snapshots go, relative to the vault folder. §22's own proposal is .cartalith/maps — change it if your vault is arranged differently. Nothing is written until you press a Generate button."
+	row.tooltip_text = "Where snapshots go, relative to the vault folder. the suggested folder is .cartalith/maps — change it if your vault is arranged differently. Nothing is written until you press a Generate button."
 	var lab := DccTheme.mono_label("Folder", "text_dim", DccTheme.FS_SMALL, 0)
 	lab.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
 	row.add_child(lab)
@@ -5269,7 +5269,7 @@ func _pwn_table(sec: Control, got: Dictionary, dashed: bool) -> void:
 		more.name = "PwnMore"
 		more.disabled = dashed
 	DccWidgets.note(sec,
-		"New from template… writes Settlements/{name}.md (or the kind's own folder) from one of your templates and links it (the existing VA-02 flow). Attach existing… opens the place's own view, where any note in the tree can be attached. A row leaves this list once a link exists.")
+		"New from template… writes Settlements/{name}.md (or the kind's own folder) from one of your templates and links it. Attach existing… opens the place's own view, where any note in the tree can be attached. A row leaves this list once a link exists.")
 
 ## One table row: the name (a press moves the map to it, when the place has a
 ## position), class and faction, then the two link actions. Phone: two lines
@@ -5361,7 +5361,7 @@ func _build_index(parent: Control) -> void:
 	var st := bridge.vault_backlink_stats()
 	if not bool(st.get("built", false)):
 		DccWidgets.note(sec,
-			"Not built. Building it reads every note in this vault once and keeps, per note, "
+			"No index yet. Building it reads every note in this vault once and keeps, per note, "
 			+ "its size and modified time, the links it points at, and a 64-bit word "
 			+ "fingerprint — never the prose. After that, a refresh only re-opens the files "
 			+ "that changed.")
@@ -5436,10 +5436,10 @@ func _build_index_report(parent: Control) -> void:
 ## names.
 func _build_footer() -> void:
 	DccWidgets.note(_body,
-		"Not built here, each for a stated reason: two-way sync and an Obsidian plugin — an "
-		+ "explicit V1 non-goal and a deferred wish. The map snapshot (§21) is built, in an "
+		"Not available, each for a stated reason: two-way sync and an Obsidian plugin — left out of "
+		+ "this first version, and a deferred wish. The map snapshot is available, in an "
 		+ "entity's own view: three radii cropped from the live renderer, and a row that says so "
-		+ "when its image has gone missing from the vault. Compare-with-source (§14) is built now — the diff sits beside a stale "
+		+ "when its image has gone missing from the vault. Compare-with-source is available now — the diff sits beside a stale "
 		+ "link's Reload source button. Links themselves ride inside a saved project: File ▸ Save "
 		+ "writes them into the project archive's own vault.json, beside the settlements and "
 		+ "factions the same archive already carries, and opening that project restores them "

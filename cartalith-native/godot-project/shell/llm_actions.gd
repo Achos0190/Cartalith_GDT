@@ -242,11 +242,11 @@ static func preflight(app, bridge, valid: Array) -> String:
 		match String(cd.get("route", "")):
 			"param":
 				if bridge.param_get(id.substr("param:".length())) == null:
-					why.append("%s is not a setting this build has" % title)
+					why.append("%s is not a setting Cartalith has" % title)
 			"view":
 				var vc := view_change(cd)
 				if vc.is_empty():
-					why.append("%s is not a view change this build can run" % title)
+					why.append("%s is not a view change Cartalith can run" % title)
 				else:
 					views.append(vc)
 			"window":
@@ -276,7 +276,7 @@ static func preflight(app, bridge, valid: Array) -> String:
 					"select.none":
 						pass
 					_:
-						why.append("%s is not a selection this build can run" % title)
+						why.append("%s is not a selection Cartalith can run" % title)
 			"tool":
 				if not app.has_method("arm_tool"):
 					why.append("tools cannot be armed here")

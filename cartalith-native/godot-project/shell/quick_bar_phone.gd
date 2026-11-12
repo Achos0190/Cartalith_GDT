@@ -103,7 +103,7 @@ static func pin_entry(row: Dictionary, pin_key: String, stored_title: String) ->
 	var live := not row.is_empty() and bool(row.get("pinnable", false))
 	var reason := ""
 	if row.is_empty():
-		reason = "Not in this build. The pin is kept; remove it in Customise."
+		reason = "No longer available. The pin is kept; remove it in Customise."
 	elif not live:
 		reason = "Unavailable: " + String(row.get("why_not", ""))
 	var label := DccQuickBar.label_for(title)

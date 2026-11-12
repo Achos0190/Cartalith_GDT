@@ -729,7 +729,7 @@ func _phone() -> void:
 			data_txt.append((b as Button).text)
 		var dj := " | ".join(PackedStringArray(data_txt))
 		print("  info MORE data screen: ", dj.substr(0, 600))
-		_ok(not dj.contains("is not on this build's menu bar"), "MENU's Records popup finds the Records menu (EDIT W8)")
+		_ok(not dj.contains("The Story menu is not available here"), "MENU's Records popup finds the Records menu (EDIT W8)")
 		_ok(dj.contains("Factions"), "the data screen draws Records' rows (Factions…)")
 		await _shot("more_data")
 		pm.close()

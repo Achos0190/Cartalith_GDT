@@ -288,7 +288,7 @@ func _chip_for(pin_key: String, stored_title: String) -> Button:
 	var tip := title
 	if row.is_empty():
 		b.disabled = true
-		b.tooltip_text = "Not in this build: \"%s\". The pin is kept; right-click to remove it." % title
+		b.tooltip_text = "No longer available: \"%s\". The pin is kept; right-click to remove it." % title
 		return b
 	var accel := accelerator_text(row)
 	if accel != "":
@@ -413,7 +413,7 @@ static func run_pin_on(app, pin_key: String) -> String:
 	idx.build(app, app.bridge)
 	var row := idx.find_pin(pin_key)
 	if row.is_empty():
-		return "Not in this build."
+		return "No longer available."
 	if not bool(row.get("pinnable", false)):
 		return "Unavailable: " + String(row.get("why_not", "this command cannot be run from a chip."))
 	return "" if idx.run_row(row) else "Could not run it."

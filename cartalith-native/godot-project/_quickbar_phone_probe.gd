@@ -524,7 +524,7 @@ func _drawer_pins() -> void:
 		if String((b.get_meta("entry", {}) as Dictionary).get("title", "")) == "Gone command":
 			ghost = b
 	_ok(ghost != null and not bool(ghost.get_meta("live")), "its row is kept and marked not live")
-	_ok(ghost != null and ghost.text.contains("Not in this build"), "with the reason 'Not in this build...' on its second line")
+	_ok(ghost != null and ghost.text.contains("No longer available"), "with the reason 'No longer available...' on its second line")
 	if ghost != null:
 		await _click(d.grip())
 		await _wait(0.5)
