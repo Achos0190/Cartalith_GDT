@@ -92,8 +92,8 @@ mirrored in `map_shore.gdshader` (`the_shader_mirrors_the_realism_law`).
   slope was resolution-bound, so the clear end is the world's 75th-percentile river-cell gradient
   (`TURBID_CLEAR_PCTL`): median turbidity 0.45-0.47 on all three worlds.
 - **RR-1 width** `w = W_MAX_CELLS * sqrt(Q / Q_max)` over the rank's own discharge
-  (`river_stroke::effective_discharge`, factored out of `visibility_ranks`). **`W_MAX_CELLS` 1.0, pending the owner's
-  pick of 1 or 2**; probe knob `WorldGen::set_river_width_max_cells`. `channel_disc` stays the intensity stamp's law.
+  (`river_stroke::effective_discharge`, factored out of `visibility_ranks`). **`W_MAX_CELLS` 1.0, decided by the owner
+  2026-11-12 ("1 cell", Ruling ES)**; probe knob `WorldGen::set_river_width_max_cells`. `channel_disc` stays the intensity stamp's law.
 - **RR-2** tone by discharge rank (`tone_order`, palette 6 to 3.5, blended along the course by `blended_orders`,
   now over palette positions), small-water translucency (`river_translucency`), turbidity (`river_turbidity`, by
   slope and aridity), the floodplain lift gated off green land (`river_floodplain_arid`). Three new look keys, 1 in
@@ -116,7 +116,7 @@ mirrored in `map_shore.gdshader` (`the_shader_mirrors_the_realism_law`).
   20 709 -> 18 717 (-9.6 %): within RR-1's +-15 %. **Missed:** RR-2's "mean river colour at x1/x4 moves under 8
   levels" -- the x1 mean ink colour moved (81.8, 111.8, 117.7) -> (75.2, 93.6, 95.7) on the owner world and
   (112.5, 146.6, 139.1) -> (84.9, 103.9, 101.0) on 483920, because the biggest rivers (the ones x1 shows) are now
-  palette 6 (`TONE_ORDER_TRUNK`); that constant is the knob if the owner finds the opening view too dark. White
+  palette 6 (`TONE_ORDER_TRUNK`); that constant is the knob if the owner finds the opening view too dark. **The owner, shown it, chose "Keep it darker" (2026-11-12, Ruling ES): the missed bar is accepted, not a defect.** White
   water 1-8 % bracket: met on 912345 only (above). Not measured: the per-biome hue bar, the x64 bank bar (no wet bank),
   RR-3's first-2-px head alpha (unit-tested in `river_field`, not probed), pan-frame time.
 - **Gate:** `cargo test --workspace -j 4` exited 0: 270 suites, 7 873 passed, 0 failed, 149 ignored; after the

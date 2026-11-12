@@ -3262,8 +3262,7 @@ network's width on a 40 075 km map; `RIVER_ORDER_RGB`; `build_water_bodies` fill
 cited literature, proposals RR-1 (width `∝ Q^0.5`, render only) to RR-8 with bars at x1/x4/x16/x64, milestones
 RR-0…RR-9 and owner questions Q1–Q6 with defaults. RR-6 (lake water balance) and RR-7 (channel heads by area and
 slope) move generated output and each need a ruling (§7p). **Ruling ES (2026-11-12) answered Q1–Q4; RR-0, RR-1,
-RR-2, RR-3, RR-4, RR-8 and RR-6's harness are built** (render only; `STATUS.md`). **Still open:** the owner's pick of
-`W_MAX_CELLS` 1.0 or 2.0 (comparison frames in `cartalith-native/docs/evidence/river-realism-2026-11-12/`); RR-5
+RR-2, RR-3, RR-4, RR-8 and RR-6's harness are built** (render only; `STATUS.md`). `W_MAX_CELLS` 1.0 is **decided** (owner, 2026-11-12, "1 cell") and the darker trunk tone is **accepted** ("Keep it darker"). **Still open:** RR-5
 (lake depth tone, not built); RR-6 is **built and ON for new worlds** (Ruling ET, 2026-11-12; `STATUS.md`; open follow-ups: a salt-flat tint for a playa, and the trade salt-lake source reading playas); RR-7 (waits, Q5);
 RR-2's wet-bank darkening (not built); RR-9's close-out (pan-frame timing not measured).
 

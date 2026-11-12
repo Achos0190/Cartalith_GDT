@@ -490,7 +490,7 @@ RR-0 measures it, and the measurement, not this text, pins it.
   at RR-0; the palette's ends are 156 vs 22 in R alone, so today's spread is wider than realism wants);
   a desert river (sampled where `material_weights` is desert-dominant) and a forest river of equal rank
   differ by **at least 10 levels** in hue; at **x4** and **x1** the frames' mean river colour moves by
-  under **8 levels** (subtle at the opening view: the owner's "more subtle"); at **x64** the bank strip is
+  under **8 levels** (subtle at the opening view: the owner's "more subtle"; **this bar was missed by the built trunk tone and the owner accepted it, 2026-11-12: "Keep it darker", Ruling ES**); at **x64** the bank strip is
   measurable as a 1 px darker ring in at least 80 % of the trunk's edge pixels (ON/OFF diff), and the
   floodplain weight over green land is **0** (pixel-identical with the lift off) while over desert it is
   the lift. Night and the inked presets keep their ink (`river_style_color` runs after). No golden moves.
@@ -672,7 +672,7 @@ RR-0 measures it, and the measurement, not this text, pins it.
 
 ## 6. Owner questions, with recommended defaults
 
-1. **How wide is the biggest river?** Default: **symbolic, `W_MAX_CELLS = 1.0`** (the trunk as wide as
+1. **How wide is the biggest river?** **Decided by the owner, 2026-11-12: "1 cell" (Ruling ES); `W_MAX_CELLS = 1.0`.** Default was: **symbolic, `W_MAX_CELLS = 1.0`** (the trunk as wide as
    today, everything smaller narrower, hierarchy visible from x16). Alternative: true scale (0.16 cells
    on the owner world: sub-pixel until x64, the most honest and the least visible), or a larger symbolic
    value (2.0: trunks twice today's at every zoom). A per-look `river_width` still multiplies whichever.
