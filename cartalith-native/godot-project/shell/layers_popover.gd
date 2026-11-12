@@ -712,7 +712,7 @@ func rebuild() -> void:
 		## Unchanged: no binding is not the same as no match, and it is said in
 		## the same words it was said in before the field existed.
 		DccWidgets.note(_list,
-			"No field views: this build's engine has no debug_layers() binding.")
+			"No field views are available in this version of Cartalith.")
 	elif not kept_groups.is_empty():
 		_band("Data overlays", first)
 		first = false

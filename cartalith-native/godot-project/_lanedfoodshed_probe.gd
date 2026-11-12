@@ -263,8 +263,8 @@ func _ready() -> void:
 	_check(not dashed.strip_edges().is_empty(),
 		"an absent pass still draws -- a blank field is what is forbidden")
 	_check("—" in dashed, "the em dash is present")
-	_check("civ_food_shed()" in dashed and "ECONOMY_SCOPE.md" in dashed,
-		"and its reason names the symbol and the milestone: %s" % JSON.stringify(dashed))
+	_check("returned nothing" in dashed and "older version of Cartalith" in dashed,
+		"and its reason says the engine returned nothing, as an older version would: %s" % JSON.stringify(dashed))
 	## The stated reason is "an engine build older than milestone 2". On THIS
 	## build that cause is false, and the check that says so is the native
 	## export -- the question `menus.gd::_engine_has()` splits out.
@@ -300,9 +300,9 @@ func _ready() -> void:
 	_check(not TradeStore.is_smelting_matched() and not TradeStore.is_salt_matched(),
 		"negative control: both say NO once the passes are dropped")
 	var ss_absent := _render_ss(0)
-	_check("civ_place_smelting()" in ss_absent and "civ_salt_access()" in ss_absent,
-		"an absent pass names the binding instead: %s" % JSON.stringify(ss_absent))
-	_check("without the binding" in ss_absent,
+	_check(ss_absent.count("returned nothing") == 2 and ss_absent.contains("Smelting:") and ss_absent.contains("Salt:"),
+		"an absent pass says the engine returned nothing, for both readouts: %s" % JSON.stringify(ss_absent))
+	_check("older version of Cartalith" in ss_absent,
 		"and states the cause that is actually true on that branch")
 	TradeStore.refresh(bridge)
 	_check(TradeStore.is_smelting_matched() and TradeStore.is_salt_matched(),

@@ -31,8 +31,11 @@ PW-3, RK-0 to RK-7 with term interning, profiles (DQ), New world is untitled (`5
   settings" call has never been run on a device.
 - Apply-and-regenerate (Ruling DS, `ad1a40c9`): verified on the desktop only.
 - LLM-7 (Ruling DR, `29fa45e4`, `c19ae198`, `0550e1b1`): the apply-path mutation tests were not run.
-- UI copy pass (`93b80da8`): verified only for Assistant settings, the Assistant panel and the quick-bar chip; the rest
-  of the shell was not covered.
+- UI copy pass: the first cut (`93b80da8`) covered the Assistant surfaces; the second pass (2026-11-12) reworded about 160
+  strings across the rest of the shell. Not covered: the files other agents were editing (`llm_*.gd`, command index,
+  `new_world_dialog.gd`, `auto_populate.gd`, `world_workspace.gd`, `quick_bar*.gd`, `phone_menu.gd`, vault editor, river
+  context card), so the quick bar's `Not in this build` wording and the LLM-7 strings are still open. Detail and probe
+  results: `docs/evidence/ui-copy-2026-10-26/COPY_CHANGES.md`.
 - Phone scroll and Assistant save (`2d5b1e5d`): partial fix; the central touch-scroll fix has since been built (2026-11-08, entry below), and the consent UX fix is still not:
   the consent UX fix (the owner had to hunt for "Review consent" before Refresh/Send worked; top priority).
 - **Gate run 2026-10-26 on head `e2cd6832` (clean worktree, fresh target dir): `cargo test --workspace -j 2` exited 0: 262 test suites, 7 670 passed, 0 failed, 142 ignored.** It does not exercise the Godot shell (GDScript probes), so the failing probes above stand.

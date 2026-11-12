@@ -398,9 +398,9 @@ const ROUTES: Array[Dictionary] = [
 	{"group": "Export", "id": "export_assets", "label": "Assets", "badge": ".zip", "kind": "route",
 		"sub": "routes to the Asset library"},
 	{"group": "Sources", "id": "sources_external", "label": "External Sources", "badge": "", "kind": "gap",
-		"sub": "no registry", "reason": "No source registry exists anywhere in the workspace. §9 designs no pane for this route either -- GUI_GAP_REGISTER.md DM-06 is classed (C), needing a design before it can need code."},
+		"sub": "no registry", "reason": "There is no source registry yet, so this route has nothing to show."},
 	{"group": "Sources", "id": "sources_connected", "label": "Connected Sources", "badge": "", "kind": "gap",
-		"sub": "no registry", "reason": "Same -- no source registry exists. The canvas's `1` badge on this row is mockup data, not a count this build could produce, so no badge is drawn."},
+		"sub": "no registry", "reason": "There is no source registry yet, so no count is shown."},
 	{"group": "Sources", "id": "sources_registry", "label": "Source Registry", "badge": "", "kind": "gap",
 		"sub": "no registry", "reason": "Same -- no source registry exists."},
 	{"group": "Validation", "id": "val_defs", "label": "Definitions", "badge": "", "kind": "live",
@@ -439,7 +439,7 @@ const STYLE_NOTE := "Not built. No style model exists to write a style.json from
 const ZOOM_NOTE := "The pyramid export shares the atlas bake's depth ceiling (MAX_BAKE_DEPTH = 6, 5 461 tiles per pixel density) and builds the whole archive in memory, so levels past 6 are refused rather than attempted."
 
 ## Disclosure under the CRS row: the export stays in the world's own cell grid; its own text cites the deleted Conversion group (`GUI_GAP_REGISTER.md` §7.4) as the reason there is no reprojection.
-const CRS_NOTE := "The export is in the world's own cell grid. No CRS handling exists anywhere in the workspace -- reprojection was the substance of the Conversion group the owner deleted on 2026-08-20 (GUI_GAP_REGISTER.md §7.4), and no import or export path has carried a projection since."
+const CRS_NOTE := "The export is in the world's own cell grid. Cartalith does not reproject: no import or export carries a coordinate system."
 
 ## **Corrected 2026-09-01.** This used to say the political tint, labels/icons
 ## and rivers "are drawn by render.rs into the live viewport texture". None of
@@ -493,12 +493,12 @@ const PRESET_NOTE := "No export-preset store exists: DccSettings has no preset s
 ## vault's `EntityKind` has six (settlement, province, continent, faction,
 ## culture, landmark). Still open is DM-14's export half; two-way sync is
 ## MARKDOWN_VAULT_INTEGRATION.md §33's V1 non-goal.
-const VAULT_NOTE := "The vault connection itself is live (Records ▸ Markdown vault): it indexes a folder of .md files and links settlements, provinces, continents, factions, cultures and landmarks to notes in it. Not built yet is the export half -- obsidian:// links in exported tiles and note links in exported GeoJSON -- plus two-way sync, which is deliberately left out of this first version. The three checkboxes below are those three items."
+const VAULT_NOTE := "The vault connection itself is live (Records ▸ Markdown vault): it indexes a folder of .md files and links settlements, provinces, continents, factions, cultures and landmarks to notes in it. Not available yet: obsidian:// links in exported tiles, note links in exported GeoJSON and two-way sync. The three checkboxes below are those three items."
 
 ## The disabled reason for the three checkboxes specifically, which is a
 ## narrower statement than `VAULT_NOTE`: these three are unbuilt, not the
 ## connection above them.
-const VAULT_EXPORT_NOTE := "Not built. cartalith-vault deliberately generates no obsidian:// URLs (its own module doc: \"no obsidian:// scheme here, no wikilink generation\"), cartalith-engine::geojson writes no note property, and two-way sync is MARKDOWN_VAULT_INTEGRATION.md §33's explicit V1 non-goal. Linking an entity to a note is live and lives in Data ▸ Markdown vault."
+const VAULT_EXPORT_NOTE := "Not available yet. Linking an entity to a note works today, in Data ▸ Markdown vault."
 
 ## Disclosure under the Packaging row: both exports write one stored (uncompressed) .zip; loose-folder and MBTiles writers do not exist.
 const PACKAGING_NOTE := "Both exports produce one stored (uncompressed) .zip. A loose folder tree and MBTiles are both new writers; MBTiles would take the XYZ/TMS pyramid the scheme row above now writes as its input."
@@ -742,7 +742,7 @@ const WD_ATLAS_NOTE := "chanAtlasChk: soil fertility, water access and carrying 
 ## Disclosure for the layer-previews option (`layersPreviewChk`, `_wd_layers`): the four previews written into a `layers/` folder.
 const WD_LAYERS_NOTE := "layersPreviewChk: the reference's own four human-viewable previews of the f32 data layers -- biome, hillshade, temperature, rainfall -- written into a layers/ folder beside whatever this run just wrote. Each is built from the pass the reference's own layerBytes(mode, debug) branch would have taken: bake_rect for biome, render::hillshade_raster for renderNow's mode==='shade' branch, and the temp/rain debug rasters, which are whole-image palette replacements rather than overlays because the reference's debugOpacity defaults to 1. Always at the GRID's size, not the raster width above: the .f32 blobs these preview are one value per cell, and the README line calls them reference only. Generated worlds only."
 ## Disclosure that this route writes loose files and not a project .zip (`cartalith_io::write_save` exists; the full `exportZip` archive is not assembled here).
-const WD_ZIP_NOTE := "This route writes loose files, not one project .zip. The save writer (cartalith_io::write_save, FI-01) and these two rasters are both real now; assembling exportZip's full archive -- params.json, the f32 layer blobs, map.png, the atlas and features.json in one file -- is the remaining third piece and is not wired here."
+const WD_ZIP_NOTE := "This route writes loose files, not one project .zip. Use File ▸ Save for the full project archive."
 
 ## Session-scoped run log -- `[{stamp, label, bytes, secs, ok}]`, newest first.
 ## DM-12 asks for the canvas's `last run 14:02 · 62 MB`; nothing persists a run
@@ -984,7 +984,7 @@ func _build_window_bar() -> Control:
 		var sub := DccTheme.mono_label("import · export · sources · validation",
 			"text_ghost", DccTheme.FS_SMALL)
 		sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		sub.tooltip_text = "Four areas, not §9's five. The Conversion group (Coordinate Systems / Format Conversion / Data Transformation) was deleted on the owner's 2026-08-20 decision -- GUI_GAP_REGISTER.md §7.4 found no serious GIS application carries a top-level Conversion route, because reprojection belongs to the import or export step actually reading the file. The design canvas predates that decision and still shows it."
+		sub.tooltip_text = "Four areas: Import, Export, Sources and Vault. Reprojection belongs to the import or export step that reads the file."
 		sub.mouse_filter = Control.MOUSE_FILTER_STOP
 		row.add_child(sub)
 
@@ -1803,7 +1803,7 @@ func _gis_count(key: String) -> Dictionary:
 			## h, 2), w, None) pair -- river_entities() calls it on one
 			## side, export_geojson() on the other.
 			var n: int = _bridge.rivers(2).size()
-			return {"count": n, "how": "Rivers of at least the exported channel order. Built from the same trace as the exported file's river lines, so the count and the written document always agree by construction, not by coincidence. The receipt still measures the file itself."} if n > 0 else {"why": "This window cannot tell which absence that is: a loaded .zip save retains no channel topology at all (SAVEFILE_COMPAT.md), a generation may still be in flight, and a generated world can simply have no river reaching the exported order. The exported file carries no river feature either way."}
+			return {"count": n, "how": "Rivers of at least the exported channel order. Built from the same trace as the exported file's river lines, so the count and the written document always agree by construction, not by coincidence. The receipt still measures the file itself."} if n > 0 else {"why": "There are no rivers to export. A loaded .zip save keeps no river channels, a generation may still be running, or the world has no river of that order. The exported file carries no river either way."}
 		"provinces":
 			## EngineBridge.provinces() -> get_provinces().
 			var n: int = _bridge.provinces().size()
@@ -2094,7 +2094,7 @@ func _pattern_actions(route: Dictionary) -> void:
 					hide()
 					_host.open_heightmap_import(), true, 16, 6)
 			else:
-				_footer_note("binding missing in this build")
+				_footer_note("not available in this version of Cartalith")
 		"import_gis":
 			_footer_note("places settlements + territory into the current world")
 			var go_import := DccWidgets.chip(_pane_footer, "Import GeoJSON…", func():
@@ -2848,7 +2848,7 @@ func _build_wd_raster_column(col: Control, api: bool) -> void:
 func _build_wd_atlas_column(col: Control, api: bool) -> void:
 	_col_header(col, "CHANNEL ATLAS", WD_ATLAS_NOTE)
 	if not api:
-		DccWidgets.note(col, "Same -- rebuild cartalith-godot for WorldGen::export_channel_atlas.")
+		DccWidgets.note(col, "Not available in this version of Cartalith.")
 		return
 	var gen := _bridge != null and _bridge.has_world
 	## "8 PNGs" is the measured count, not an estimate: habitat, settlement,
@@ -2900,7 +2900,7 @@ func _build_wd_output_column(col: Control, api: bool) -> void:
 func _build_wd_footer(api: bool) -> void:
 	var gen := _bridge != null and _bridge.has_world
 	if not api:
-		_footer_note("binding missing in this build")
+		_footer_note("not available in this version of Cartalith")
 		return
 	_footer_note("writes into %s" % DccSettings.storage_root("exports"))
 	var atlas := DccWidgets.chip(_pane_footer, "Export channel atlas…", func():
@@ -3585,7 +3585,7 @@ func _build_vault_block(col: Control) -> void:
 	var prose := DccTheme.label(
 		("Settlements, provinces and continents link to notes in this folder; the panel that owns those links is Records ▸ Markdown vault. What is missing HERE is the export half -- exported tiles carry no obsidian:// link and exported GeoJSON carries no note property (DM-14)."
 			if bound else
-			"Connect any folder of .md files -- Obsidian is one such folder, and nothing requires it -- and settlements, provinces and continents can be linked to notes in it. Cartalith reads only the folder you choose, and writes only where you tell it to."),
+			"Connect any folder of Markdown (.md) notes -- Obsidian is one such folder, and nothing requires it -- and settlements, provinces and continents can be linked to notes in it. Cartalith reads only the folder you choose, and writes only where you tell it to."),
 		"text_ghost", DccTheme.FS_MICRO)
 	prose.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	prose.custom_minimum_size.x = 200
@@ -3632,7 +3632,7 @@ func _build_vault_block(col: Control) -> void:
 				"accent" if bool(r.get("ok", false)) else "warn")
 		_rebuild_tile_export(), false, 0, 6)
 	rescan.disabled = not bound
-	rescan.tooltip_text = ("Throws the backlink index away and reads the folder again (vault_rebuild_backlinks, then vault_refresh_backlinks)."
+	rescan.tooltip_text = ("Throws the backlink index away and reads the folder again."
 		if bound else "No vault is connected. Use Change folder… first.")
 
 	## Change folder routes to the panel that owns connecting rather than opening
@@ -3657,7 +3657,7 @@ func _build_vault_block(col: Control) -> void:
 		_vault_store_changed()
 		_rebuild_tile_export(), false, 0, 6)
 	unlink.disabled = not bound
-	unlink.tooltip_text = ("Drops this device's binding (vault_disconnect). The links themselves survive -- that is the difference between disconnecting and detaching."
+	unlink.tooltip_text = ("Disconnects this device from the vault folder. The links themselves survive -- that is the difference between disconnecting and detaching."
 		if bound else "Nothing is connected to unlink.")
 
 	for b in [rescan, change, unlink]:
@@ -3803,7 +3803,7 @@ func _run_geojson_export(path: String) -> void:
 		_gis_doc_layers = {}
 		_record_geojson_run(0, secs, false, path, {})
 		_host.set_status("hint",
-			"export failed — no world is loaded, or this build's GDExtension predates export_geojson", "warn")
+			"export failed — no world is loaded, or GeoJSON export is not available in this version of Cartalith", "warn")
 	else:
 		var f := FileAccess.open(path, FileAccess.WRITE)
 		if f == null:

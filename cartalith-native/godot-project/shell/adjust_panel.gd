@@ -986,6 +986,6 @@ func _refresh_persist_note() -> void:
 		return
 	var text := ""
 	if _layer == OVERLAY and app != null and app.has_method("overlay_adjust_persists_state") and int(app.overlay_adjust_persists_state()) == 0:
-		text = "These adjustments last for this session only: this build's project file has no place to store them yet, so saving does not keep them."
+		text = "These adjustments last for this session only; saving does not keep them."
 	_persist.text = text
 	_persist.visible = text != ""

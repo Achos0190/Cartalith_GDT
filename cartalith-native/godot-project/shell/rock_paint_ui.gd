@@ -33,7 +33,7 @@ const SAVE_SHORT := "saved with the project once committed; drafts and undo are 
 
 ## The short caveat for an engine that does not report `saved`: a binary from before
 ## the geology save set, which reopens a project without its column.
-const SAVE_SHORT_OLD := "not saved with the project by this build of the engine"
+const SAVE_SHORT_OLD := "not saved with the project by this version of Cartalith"
 
 ## The short save line for `st` (`rock_paint_status()`): `SAVE_SHORT` when the engine
 ## says a committed rock is saved, `SAVE_SHORT_OLD` otherwise -- never claims a save

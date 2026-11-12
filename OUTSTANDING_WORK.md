@@ -76,7 +76,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   mutation tests were not run. `LLM_ASSISTANT_SCOPE.md` LLM-7.
 - **Probe failures not yet attributed:** `_llmpanel_probe` (reported green again in `STATUS.md`'s PC-6 entries, audit 2026-11-12), `_nethint_probe` phone leg (1 check). Also the JNI
   "Open app settings" call has never run on a device; check LineageOS "Allow network access".
-- **UI copy pass, remaining surfaces:** only Assistant settings, the panel and the quick-bar chip were verified.
+- **UI copy pass, remaining surfaces:** the second pass (2026-11-12) did the rest of the shell; the files held by other agents are still open (see the section 2 row).
   `ui-copy-2026-10-26/COPY_CHANGES.md` in the evidence folder.
 - **Retrieval:** the live runs of RK-8 to RK-11 (the machinery is built, 2026-11-12; `RAG_KNOWLEDGE_BASE_RESEARCH.md` section 8.4). `STATUS.md` holds what is built.
 
@@ -2969,7 +2969,7 @@ own row in §2.10.*
 
 ## 1. In flight right now
 
-**UI copy pass (owner feedback 2026-10-26): first cut landed, remainder open.** Status is in `STATUS.md`. Left: the rest of the shell outside the Assistant (quick-bar `Not in this build` wording, engine-bridge `... on this binary` errors), the LLM-7 strings, a windowed phone check at 393x852, before/after screenshots, and running the unrun probes listed in COPY_CHANGES.md. Owner: `cartalith-native/docs/evidence/ui-copy-2026-10-26/COPY_CHANGES.md`.
+**UI copy pass (owner feedback 2026-10-26): first cut landed, remainder open.** Status is in `STATUS.md`. The second pass (2026-11-12) did the engine-bridge errors and the rest of the shell. Left: the files that were held by other agents (`llm_*.gd` and the assistant window including the LLM-7 strings, the command index and its search UI, `new_world_dialog.gd`, `auto_populate.gd`, `world_workspace.gd`, `quick_bar*.gd` with its `Not in this build` wording and pinned probes, `phone_menu.gd`, the vault editor files, the river context card). Owner: `cartalith-native/docs/evidence/ui-copy-2026-10-26/COPY_CHANGES.md`.
 
 Code exists for these; they are neither startable nor blocked, they are
 half-landed. Each needs finishing. (The "and, in most cases, committing" this

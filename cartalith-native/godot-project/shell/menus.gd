@@ -1527,7 +1527,7 @@ const DESELECT_ONE_TIP := "Clears the selection: everything that shows it emptie
 ## shell holds three separate selections (`app.gd::clear_selection()`'s own header: "none of them
 ## knew about the others"), and nothing in `shell/` records past ones (`grep -rn -i "selection
 ## history\|select_back\|previous selection" shell/` finds nothing).
-const SELECTION_HISTORY_TODO := "Not built yet: each workspace keeps its own selection and nothing records the ones before, so there is nothing to step back or forward to. It arrives with the one shared selection (PC_SHELL_PROPOSAL.md §3.1, milestone PC-1)."
+const SELECTION_HISTORY_TODO := "Not built yet: each workspace keeps its own selection and nothing records the ones before, so there is nothing to step back or forward to. This comes later, with one shared selection."
 
 ## Previous selection's tooltip once it is live.
 const SELECT_BACK_TIP := "Selects what was selected before, like a browser's Back. Everything that shows the selection follows."
@@ -3001,7 +3001,7 @@ func _open_pack_metadata() -> void:
 			fields[0].text.strip_edges(), fields[1].text.strip_edges(),
 			fields[2].text.strip_edges())
 		_host.set_status("hint",
-			"pack metadata updated" if ok else "this build has no as_set_pack_info()",
+			"pack metadata updated" if ok else "pack info cannot be saved in this version of Cartalith",
 			"accent" if ok else "text_dim")
 		_refresh_asset_pack_stats()
 		d.queue_free())
@@ -3402,7 +3402,7 @@ func _build_file_export(p: PopupMenu) -> void:
 	_todo(sub, "Print sheet (PDF)…",
 		"No print or PDF writer exists. The streaming writer has PNG, BigTIFF and JPEG only (export_options.rs FORMAT_NAMES).")
 	_todo(sub, "VTT battle map (grid + walls)…",
-		"No virtual-tabletop format exists in this build: no grid calibration, wall or light data is computed or written.")
+		"There is no virtual-tabletop export: no grid calibration, wall or light data is written.")
 	sub.add_separator("DATA")
 	_add_route_rows(sub, "Export")
 	var tips := {player_idx: EXPORT_PLAYER_TIP, dm_idx: EXPORT_DM_TIP, image_idx: EXPORT_MAP_IMAGE_TIP}
@@ -3761,8 +3761,8 @@ func _refresh_story_menu() -> void:
 		text += " — no world"
 		tip = STORY_NO_WORLD
 	elif not _engine_has("conflict_campaigns"):
-		text += " — not in this build"
-		tip = "This build of the engine has no conflict_campaigns binding."
+		text += " — not available"
+		tip = "Conflict campaigns are not available in this version of Cartalith."
 	else:
 		var year := int(_bridge.get_civ_year())
 		var rows: Array = _bridge.conflict_campaigns(year)
@@ -3874,15 +3874,15 @@ func _build_vault_rows(p: PopupMenu) -> void:
 		"Connect or re-link a vault folder (any folder of .md files -- Obsidian is one, "
 		+ "and nothing here requires it), browse it, attach a settlement, province or "
 		+ "continent to a note section, and see every link in this world. Also carries "
-		+ "v3's frontmatter mapping and sync direction, as a per-write choice rather "
+		+ "the frontmatter mapping and sync direction, as a per-write choice rather "
 		+ "than a global setting: the field-fill picker chooses which derived keys go "
 		+ "in, fills only empty ones by default, previews every write, and refuses if "
 		+ "the note changed since the preview. Cartalith never rewrites a note's body. "
 		+ "The panel itself opens on an index of missing & orphan notes "
-		+ "(GUI_GAP_REGISTER.md VA-01) and an Attach-or-create-a-note picker onto any "
+		+ "and an Attach-or-create-a-note picker onto any "
 		+ "settlement, province or continent, whose New-note-from-a-template block "
 		+ "writes Settlements/{name}.md (or the matching folder) from one of your own "
-		+ "templates -- Cartalith ships none of its own (GUI_GAP_REGISTER.md VA-02).")
+		+ "templates -- Cartalith ships none of its own.")
 	## Owner request, 2026-09-21: the file browser gained a raw-text preview
 	## and edit panel, and the owner wanted it reachable without attaching a
 	## note to an entity first. A second row rather than folding it into
@@ -4144,7 +4144,7 @@ func _build_handedness_submenu(p: PopupMenu) -> void:
 	_hand_popup.add_radio_check_item("Left", ID_PREF_HAND_LEFT)
 	_hand_popup.add_radio_check_item("Right", ID_PREF_HAND_RIGHT)
 	_hand_popup.set_item_tooltip(0,
-		"The tablet's touch-hold ring and card dock on the side away from this hand, so the palm does not cover the card (MAP_CONTEXT_SCOPE.md §7.1). No effect on desktop or phone.")
+		"The tablet's touch-hold ring and card dock on the side away from this hand, so the palm does not cover the card. No effect on desktop or phone.")
 	_hand_popup.set_item_tooltip(1, _hand_popup.get_item_tooltip(0))
 	_refresh_handedness_menu()
 	_hand_popup.id_pressed.connect(_on_handedness_choice)
@@ -4188,7 +4188,7 @@ func _build_stylus_submenu(p: PopupMenu) -> void:
 			_stylus_popup.add_radio_check_item("%s: pressure sets %s" % [kind.capitalize(), mode] if mode != "off"
 				else "%s: pressure ignored" % kind.capitalize(), ID_PRESSURE_CTRL_BASE + ki * 3 + ci)
 			_stylus_popup.set_item_tooltip(_stylus_popup.item_count - 1,
-				"Ruling EM: what a pen's pressure does on this tool. Also in the tool's option bar. Stored on this device, never in a world.")
+				"What a pen's pressure does on this tool. Also in the tool's option bar. Stored on this device, never in a world.")
 	_build_penlink_submenu(_stylus_popup)
 	_refresh_stylus_menu()
 	_stylus_popup.id_pressed.connect(_on_stylus_choice)
@@ -4374,7 +4374,7 @@ func _build_ui_scale_submenu(p: PopupMenu) -> void:
 		p.add_item("UI scale", ID_PREF_UI_SCALE_100)
 		var idx := p.item_count - 1
 		p.set_item_disabled(idx, true)
-		p.set_item_tooltip(idx, "Phones follow Android's Display size setting until the phone layout reflows below 412 dp (MOBILE_SHELL_PROPOSAL.md MS-2 to MS-6).")
+		p.set_item_tooltip(idx, "Phones follow Android's Display size setting until the phone layout reflows below 412 dp.")
 		return
 	_ui_scale_popup = PopupMenu.new()
 	_ui_scale_popup.name = "UiScaleChoice"
@@ -4526,7 +4526,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 		_build_gpu_vram_menu(p)
 		_build_gpu_fallback_menu(p)
 	else:
-		_todo(p, "VRAM budget", "Same -- this build predates the multi-GPU API.")
+		_todo(p, "VRAM budget", "Not available in this version of Cartalith.")
 		_todo(p, "Fallback when VRAM full", "Same.")
 	## `cartalith-gpu`'s own `multi.rs::clear_readback_failures()`, whose doc
 	## asks for exactly this row: *"for a 'try the GPU again' affordance after
@@ -4855,7 +4855,7 @@ func _build_relief_exag_menu(p: PopupMenu) -> void:
 		ID_GFX_EXAG_ENGINE)
 	## The renderer's own built-in exaggeration (`render.rs`) is 3.4.
 	_exag_popup.set_item_tooltip(_exag_popup.item_count - 1,
-		"The app's own default, 3.4x -- what this build renders with when nothing is stored here. It is not one of the three rungs on purpose -- rounding the shipped default onto the nearest one would change every untouched install's render the moment this preference existed.")
+		"The app's own default, 3.4x, used when nothing is stored here. It is not one of the three choices on purpose, so existing installs render as before.")
 	_exag_popup.id_pressed.connect(_on_relief_exag)
 	_exag_popup.about_to_popup.connect(_refresh_relief_exag_menu)
 	## Refreshed at build time as well as on `about_to_popup`, matching the
@@ -6084,7 +6084,7 @@ func _refresh_atlas_cache_menu() -> void:
 		_host.set_status("hint", "atlas trimmed to the cap -- %s freed" % _gb(freed), "text_dim")
 	var st: Dictionary = _bridge.atlas_status()
 	if st.is_empty():
-		_atlas_popup.set_item_text(_atlas_stats_idx, "No atlas in this build")
+		_atlas_popup.set_item_text(_atlas_stats_idx, "No atlas available")
 		## `atlas_status()` missing.
 		_atlas_popup.set_item_tooltip(_atlas_stats_idx,
 			"This version of the app can't report the atlas cache yet -- an update is needed to add it.")
@@ -6572,7 +6572,7 @@ func _refresh_quality_row(p: PopupMenu) -> void:
 		## Not "none recommended" dressed up as a tier name: an empty string is
 		## a binding that answered nothing, and it is dashed with that reason.
 		p.set_item_tooltip(_quality_pref_row,
-			"%s No recommendation is available for this machine on this build." % QUALITY_TIP_LEAD)
+			"%s No recommendation is available for this machine." % QUALITY_TIP_LEAD)
 		return
 	p.set_item_tooltip(_quality_pref_row,
 		"%s Recommended for this machine: %s -- currently %s." % [QUALITY_TIP_LEAD, rec, _bridge.quality_tier()])
@@ -7297,7 +7297,7 @@ func _layout_readout(parent: Control, snap: Dictionary) -> void:
 		var row := DccWidgets.modal_stat(stats, "domain · mode", "%s · %s" % [rail, mode])
 		row.tooltip_text = ("Restores the %s rail node \"%s\"." % [rail, String(node["label"])]) \
 			if not node.is_empty() else \
-			("Stored as (%s, %s), which is not a rail node this build has." % [domain, mode])
+			("Stored as (%s, %s), which is not a place the rail can show." % [domain, mode])
 	else:
 		DccWidgets.modal_stat_absent(stats, "domain · mode",
 			"No domain is active on the shell this modal was opened from, so there is none to record.")
@@ -7487,17 +7487,17 @@ const CONTEXT_PANEL_LABEL := "Context panel"
 ## Why Window ▸ Context panel ▸ Inspect is disabled before PC-4. Checked 2026-11-01 at `a38e0ac`:
 ## `right_dock.gd` holds one `_context` at a time and builds no tabs (`grep -c 'TabBar\|TabContainer'
 ## shell/right_dock.gd` is 0).
-const CTX_INSPECT_TODO := "Not built yet: the right dock shows one thing at a time and has no tabs. Inspect, Note and Ask arrive when it becomes the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4)."
+const CTX_INSPECT_TODO := "Not built yet: the right dock shows one thing at a time and has no tabs. Inspect, Note and Ask come later, with the Context panel."
 ## Why Note is disabled before PC-5. Points at the row that does the nearest thing today, which is
 ## Story's shipped form until PC-5 (`04_menus_story.gd`).
-const CTX_NOTE_TODO := "Not built yet: the Note tab arrives with milestone PC-5 (PC_SHELL_PROPOSAL.md §3.4). Meanwhile Story ▸ Notes for this place opens a settlement's note in the vault window."
+const CTX_NOTE_TODO := "Not built yet: the Note tab comes later. Meanwhile Story ▸ Notes for this place opens a settlement's note in the vault window."
 ## Why Ask is disabled before PC-6. Points at Story's shipped assistant row.
-const CTX_ASK_TODO := "Not built yet: the Ask tab arrives with milestone PC-6 (PC_SHELL_PROPOSAL.md §3.5). Meanwhile Story ▸ Assistant panel… opens the assistant in its own window."
+const CTX_ASK_TODO := "Not built yet: the Ask tab comes later. Meanwhile Story ▸ Assistant panel… opens the assistant in its own window."
 ## Why Pin is disabled before PC-4. `right_dock.gd` has no pinned state of its own: its "pin" words
 ## are map pins and the settlement it shows, which every pick replaces.
-const CTX_PIN_TODO := "Not built yet: the right dock always shows the latest pick and cannot hold one subject while you select another. Pinning arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4)."
+const CTX_PIN_TODO := "Not built yet: the right dock always shows the latest pick and cannot hold one subject while you select another. Pinning comes later, with the Context panel."
 ## Why Follow is disabled before PC-4: with no pin there is nothing to release.
-const CTX_FOLLOW_TODO := "Not built yet: there is no pin to release, because the right dock always follows the latest pick. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, milestone PC-4)."
+const CTX_FOLLOW_TODO := "Not built yet: there is no pin to release, because the right dock always follows the latest pick. This comes later, with the Context panel."
 
 ## The five rows' tooltips once each is live, from §3.3 and §3.5. `CTX_NOTE_TIP` follows Ruling DY's VQ4
 ## (2026-11-01, "Open in Write"): a note opens in Write, with Preview a toggle. It said "in Preview", the
@@ -7535,7 +7535,7 @@ const CTX_MODULES: Array = [
 ## then where that content lives (`CTX_MODULE_TODAY`), so the reason is a door, not only a "not yet". Since
 ## PC-10 (2026-11-08) every module is registered (`DccApp.context_module_registry()`), so no row takes this
 ## form in a shipped build; it stays as the row's form should a module ever be withdrawn from the registry.
-const CTX_MODULE_TODO := "Not built yet: %s arrives as a tab of the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-10). %s"
+const CTX_MODULE_TODO := "Not built yet: %s comes later, as a tab of the Context panel. %s"
 
 ## Where each module's content lives today, each read at its builder on 2026-11-01 at `3099309`
 ## (`90_pc_milestone_stubs.gd::context_module_registry()` names the symbols). Recent & bookmarks has no
@@ -7550,7 +7550,7 @@ const CTX_MODULE_TODAY: Dictionary = {
 	"here": "Meanwhile the right dock's cursor sample, its default view, reads the terrain under the cursor.",
 	"routes": "Meanwhile the right dock shows a picked route, and Story ▸ Journey planner and Saved journeys… plan and list journeys.",
 	"links": "Meanwhile the Place editor's Vault notes tab and the Markdown vault window list a note's backlinks.",
-	"recent": "Nothing shows the selection history yet: it arrives with one selection (milestone PC-1), and bookmarks are new.",
+	"recent": "Nothing shows the selection history yet: it comes later, with one shared selection, and bookmarks are new.",
 }
 
 ## Each MODULES row's tooltip once its module is built: what the tab shows, in the words of the owner's
@@ -7569,7 +7569,7 @@ const CTX_MODULE_TIPS: Dictionary = {
 }
 
 ## Why Reset panel is disabled before PC-4: there is no arrangement to reset.
-const CTX_RESET_TODO := "Not built yet: there are no tabs to rearrange. It arrives with the Context panel (PC_SHELL_PROPOSAL.md §3.3, Ruling DY; milestone PC-4)."
+const CTX_RESET_TODO := "Not built yet: there are no tabs to rearrange. This comes later, with the Context panel."
 ## Reset panel's tooltip once it is live.
 const CTX_RESET_TIP := "Puts the Context panel back to its three tabs, Inspect · Note · Ask, in that order. Added modules are removed; their content is not touched."
 ## Status line when a module could not be added or removed (`set_context_module_shown()` answered false):
@@ -7836,7 +7836,7 @@ const HELP_KEYBOARD_REFERENCE_TIP := "Every keyboard shortcut, read from the men
 
 ## Help ▸ Gesture reference…'s tooltip, which the phone draws as the row's second line. Says what the screen is,
 ## in the words its own header uses (`phone_menu.gd::SCREEN_TITLES`' "the touch vocabulary this build has").
-const HELP_GESTURES_TIP := "The touch vocabulary this build has: every gesture the map and the sheets answer to, each checked against the code that answers it."
+const HELP_GESTURES_TIP := "Every touch gesture the map and the sheets answer to."
 
 ## Help ▸ Gesture reference…, on the phone only (MS-4; mobile-shell draft 09): opens `PhoneMenu`'s `gestures`
 ## screen through `DccShell.phone_open_menu_screen()`. It is the mockup's own row (`Shell.dc.html`, Help,
@@ -7884,11 +7884,11 @@ func _help(p: PopupMenu, full: bool = true) -> void:
 	var docs := _docs_dir()
 	if docs == "":
 		_todo(p, "Documentation",
-			"No in-app documentation exists, and SS2.7 names no URL to open instead. The reference is the repository's own documents (README.md, DECISIONS.md, ARCHITECTURE.md and the scope documents), which are not present beside this build -- an exported build ships res:// inside the .pck and nothing else. Running from the repository enables this row.")
+			"There is no in-app manual. The documents live in the project folder, which an installed copy does not carry; this row works when Cartalith runs from the project folder.")
 	else:
 		_live(p, "Documentation", ID_HELP_DOCS)
 		p.set_item_tooltip(p.item_count - 1,
-			"Opens the repository's documents in the OS file manager: %s. There is no in-app manual, and SS2.7 names no URL -- this is the reference CLAUDE.md itself calls the reading entry point." % docs)
+			"Opens the project's documents in your file manager: %s. There is no in-app manual." % docs)
 	## Was a `_todo` reading "No shortcut table yet." There is no table now
 	## either, and that is the point: `ShortcutsDialog` walks these very menus
 	## and reports what it finds, so the list cannot disagree with the app.
@@ -7924,7 +7924,7 @@ func _help(p: PopupMenu, full: bool = true) -> void:
 	## than any canvas.
 	_live(p, "Save diagnostic report…", ID_HELP_REPORT)
 	p.set_item_tooltip(p.item_count - 1,
-		"Shows you generation info, missing bindings, the project format version, GPU state, the last error this session saw and the tail of the log — each with the symbol it was read from — and writes the ones you keep to a text file. Nothing is sent anywhere and no tracker is opened: attach the file yourself.")
+		"Shows generation info, the project format version, GPU state, the last error this session saw and the end of the log, and writes the ones you keep to a text file. Nothing is sent anywhere and no tracker is opened: attach the file yourself.")
 	if full:
 		_live(p, "About", ID_HELP_ABOUT)
 	p.id_pressed.connect(_on_help)
@@ -8067,7 +8067,7 @@ func refine_current_view() -> void:
 	if _host == null or _host.viewport == null:
 		return
 	if not _host.viewport.has_method("visible_grid_rect"):
-		_host.set_status("hint", "this build has no visible_grid_rect() — refine needs it", "text_dim")
+		_host.set_status("hint", "refine is not available in this version of Cartalith", "text_dim")
 		return
 	var r: Dictionary = _host.viewport.visible_grid_rect()
 	if not bool(r.get("ok", false)):
@@ -8160,7 +8160,7 @@ func refine_viewshed_for_view() -> void:
 	if _host == null or _host.viewport == null or _bridge == null:
 		return
 	if not _host.viewport.has_method("visible_grid_rect"):
-		_host.set_status("hint", "this build has no visible_grid_rect() — refine needs it", "text_dim")
+		_host.set_status("hint", "refine is not available in this version of Cartalith", "text_dim")
 		return
 	var r: Dictionary = _host.viewport.visible_grid_rect()
 	if not bool(r.get("ok", false)):

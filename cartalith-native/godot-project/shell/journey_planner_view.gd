@@ -1205,7 +1205,7 @@ func _build_left_panel() -> void:
 
 	if not _bound:
 		DccWidgets.note(_left_panel,
-			"jp_options / jp_default_plan / jp_compute / route_count / route_get are not exposed by this build's GDExtension binary -- rebuild cartalith-godot.")
+			"The journey planner is not available in this version of Cartalith.")
 		return
 
 	_left_route_section = DccWidgets.section(_left_panel, "Journeys")
@@ -1636,7 +1636,7 @@ func _auto_carriage_note() -> String:
 			if bool(auto.get("fodder_infeasible", false)):
 				txt += "  ⚠ No animal count solves this trip: at this length one animal can no longer carry its own fodder, so every animal added makes the shortfall worse. The count shown is an honest floor (cargo + supplies), not an answer — shorten the trip, raise grazing, or resupply."
 			return txt
-	return "Auto ran but reported no outcome this build understands (\"%s\")." % reason
+	return "Auto ran but reported no outcome Cartalith understands (\"%s\")." % reason
 
 ## Row with two small spin boxes bound to `key_a` / `key_b`. They are read-only while `_carriage_auto` is on, because auto-carriage then owns those numbers. The 0..2000 range is a judgement ceiling for a UI spinner, not an engine limit.
 func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: String) -> void:
@@ -2459,7 +2459,7 @@ func _build_center_panel() -> void:
 
 	if not _bound:
 		var note := DccTheme.label(
-			"jp_options / jp_default_plan / jp_compute / route_count / route_get are not exposed by this build.",
+			"The journey planner is not available in this version of Cartalith.",
 			"text_ghost", DccTheme.FS_SMALL)
 		note.set_anchors_preset(Control.PRESET_CENTER)
 		_center_panel.add_child(note)
@@ -3989,7 +3989,7 @@ func _delete_journey(i: int) -> void:
 ## reference refuses `reachable:false` outright.
 func _reroute_journey() -> void:
 	if _route_index < 0 or not bridge.world_gen.has_method("jp_reroute"):
-		app.set_status("hint", "jp_reroute is not exposed by this build's GDExtension binary -- rebuild cartalith-godot.", "warn")
+		app.set_status("hint", "Rerouting is not available in this version of Cartalith.", "warn")
 		return
 	var transport := String(_plan_values.get("transport", "Walking"))
 	var r: Dictionary = bridge.world_gen.jp_reroute(_route_index, transport, "")
@@ -4039,7 +4039,7 @@ func _preset_controls(row: HBoxContainer) -> void:
 				_apply_preset(String(ids[i])),
 		"Applies a Travel Library party set-up to the form below (§3.4: party-form values only — no route, and per-stage overrides are left untouched).")
 	DccWidgets.action(row, "capture party…", _capture_preset).tooltip_text = \
-		"Writes the current party form into a new Travel Library party set-up (TRAVEL_LIBRARY_SPEC.md §3.4)."
+		"Writes the current party form into a new Travel Library party set-up."
 
 ## Copies a Travel Library party set-up into the form. Only keys the default plan owns are applied (`tl_get` also returns metadata that is not plan data), per-stage overrides are untouched, then rebuilds and recomputes.
 func _apply_preset(id: String) -> void:
@@ -5087,7 +5087,7 @@ func _build_trace_group(body: Control) -> void:
 	var calc: Dictionary = r.get("land", r.get("water", {}))
 	var trace: Array = calc.get("trace", [])
 	if trace.is_empty():
-		DccWidgets.note(g, "This build's GDExtension binary returns no trace -- rebuild cartalith-godot.")
+		DccWidgets.note(g, "No route trace is available in this version of Cartalith.")
 		return
 	var km := float(r.get("km", 0.0))
 	DccWidgets.note(g, "Stage %02d · %s — click a band on the spine to trace another stage. Each row substitutes one term and shows what the leg becomes once it is applied; the source names the control that term's INPUT is read off, not a second printing of the multiplier." % [idx + 1, String(r.get("cat", ""))])

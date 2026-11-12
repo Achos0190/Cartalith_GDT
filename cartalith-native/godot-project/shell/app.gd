@@ -4972,7 +4972,7 @@ func open_welcome() -> void:
 ## the engine derives that from the image's own aspect ratio.
 func open_heightmap_import() -> void:
 	if not bridge.import_api:
-		set_status("hint", "this build's engine has no heightmap import", "accent")
+		set_status("hint", "heightmap import is not available in this version of Cartalith", "accent")
 		return
 	if bridge.generating:
 		return
@@ -5107,7 +5107,7 @@ func _restore_project_documents() -> PackedStringArray:
 		else:
 			var rejected: int = (tr.get("rejected", PackedStringArray()) as PackedStringArray).size()
 			if rejected > 0:
-				notes.append("%d travel-library field(s) in this archive are not recognised by this build" % rejected)
+				notes.append("%d travel-library field(s) in this archive are not recognised by this version of Cartalith" % rejected)
 
 	var assets := String(docs.get("library/assets.json", ""))
 	if assets != "":
@@ -5134,7 +5134,7 @@ func _restore_project_documents() -> PackedStringArray:
 			## claiming either: the document's grid is not this world's (the
 			## common one, and a refusal rather than a scramble), or its shape
 			## is one this build could not read. It is still in the file.
-			notes.append("%s in this archive came from a different grid, or in a shape this build could not read, and were left as they are in the file" % pair[2])
+			notes.append("%s in this archive came from a different grid, or in a shape this version of Cartalith could not read, and were left as they are in the file" % pair[2])
 	## ET-C4: the labels/overlays adjustment stack. Called unconditionally, like the
 	## measurements slot: an ABSENT slot is a genuine "this project has none" and must clear the
 	## outgoing project's stack. Then the adjustment panels re-read every layer, because the
@@ -5624,7 +5624,7 @@ func overlay_adjust_document() -> String:
 	if not overlay_adjust_persists():
 		if _overlay_adjust_unsaved_told != _OverlayAdjust.revision:
 			_overlay_adjust_unsaved_told = _OverlayAdjust.revision
-			_report_failure("Labels & overlays adjustments were not saved: this build of the engine has no slot for them in the project file.")
+			_report_failure("Labels & overlays adjustments were not saved: this version of Cartalith cannot store them in the project file.")
 		return ""
 	return _OverlayAdjust.get_stack_json()
 
@@ -5684,7 +5684,7 @@ func style_document() -> String:
 	if _style_slot_state != 1:
 		if _style_slot_state == 0 and not _style_unsaved_told:
 			_style_unsaved_told = true
-			_report_failure("The map style variant was not saved: this build of the engine has no slot for it in the project file.")
+			_report_failure("The map style variant was not saved: this version of Cartalith cannot store it in the project file.")
 		return ""
 	return doc
 
@@ -5991,7 +5991,7 @@ func new_world_from_selection() -> void:
 	## nothing behind a status line that claims it is working. Verifier
 	## finding 2026-09-20: this file's other three guards did not cover it.
 	if bridge.world_gen == null or not bridge.world_gen.has_method("region_new_world"):
-		set_status("hint", "this build has no region resample binding", "accent")
+		set_status("hint", "region resampling is not available in this version of Cartalith", "accent")
 		return
 	if bridge.region_get().is_empty():
 		set_status("hint",
@@ -6101,7 +6101,7 @@ func confirm_unsaved_world(prompt_title: String, question: String,
 	else:
 		## Names the missing `get_seed()` binding.
 		DccWidgets.modal_stat_absent(stats, "seed",
-			"this build of the app can't read the world's seed")
+			"the world's seed is not available in this version of Cartalith")
 	if current_project_path == "":
 		DccWidgets.modal_stat_absent(stats, "project file",
 			"this world has never been saved, so there is no project file yet")
@@ -6428,7 +6428,7 @@ func _import_asset_pack(path: String, apply_to_map: bool) -> void:
 		if apply_to_map and not bridge.load_asset_pack(path):
 			set_status("hint", "asset pack failed — see console", "accent")
 		elif not apply_to_map:
-			set_status("hint", "this build cannot open a pack in the library", "warn")
+			set_status("hint", "opening a pack in the library is not available in this version of Cartalith", "warn")
 		return
 	var bytes := _read_pack_file(path)
 	if bytes.is_empty():

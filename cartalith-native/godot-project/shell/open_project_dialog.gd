@@ -961,7 +961,7 @@ func _refresh_gallery() -> void:
 
 	var root := DccSettings.storage_root("projects")
 	if _scope == "shared":
-		_foot_note.text = "Shared projects are not a concept in this port"
+		_foot_note.text = "Shared projects are not available"
 	elif shown == 0 and query != "":
 		_foot_note.text = "no match · projects read from %s" % root
 	elif shown == 0:

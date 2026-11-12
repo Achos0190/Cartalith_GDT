@@ -1145,12 +1145,12 @@ func _build_identity_paint_notes(sec: Control) -> void:
 		app.select_domain_category("cartography", "Feature style"))
 	paint.name = "PaintLink"
 	paint.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	paint.tooltip_text = "v3's own split: which colour a faction *is* belongs here, how heavily the wash is laid on belongs to CARTO."
+	paint.tooltip_text = "Which colour a faction is belongs here; how heavily the wash is laid on belongs to CARTO."
 	DccWidgets.note(sec,
-		"Not built: a faction emblem (GUI_GAP_REGISTER.md CV-21). The banner is procedural -- a "
-		+ "port of _civFactionBannerCanvas' own composition, driven by the faction id and its "
-		+ "colour -- and there is no image slot, no charge vocabulary and no asset-library "
-		+ "binding for an authored one.").name = "EmblemNotBuilt"
+		"Not built: a faction emblem. The banner is drawn from the faction's id and colour -- a "
+		+ "fixed composition, driven by the faction id and its "
+		+ "colour -- and there is no way to attach an image or an asset-library "
+		+ "piece as an authored emblem.").name = "EmblemNotBuilt"
 
 
 ## The Relations tab (FH-6, `FACTION_HUB_DESIGN.md` §3.6): the pairs this
@@ -2288,7 +2288,7 @@ func _government_choice(parent: Control, d: Dictionary) -> void:
 				ob.get_popup().set_item_as_separator(i, true)
 	var hint_text := String(hints.get(current, ""))
 	if stray >= 0:
-		hint_text = ("This faction's stored government is not one this build knows; it is kept as saved. Pick a form to replace it."
+		hint_text = ("This faction's government is not one this version of Cartalith knows; it is kept as saved. Pick a form to replace it."
 			if d.has("government") else "No government is recorded for this faction. Pick a form to set one.")
 	var hint_label := DccWidgets.note(parent, hint_text)
 	hint_label.name = "GovernmentHint"
@@ -2518,7 +2518,7 @@ func _fill_religion_library(box: VBoxContainer) -> void:
 	head.name = "ReligionsLibraryHead"
 	box.add_child(head)
 	if not bridge.has_custom_religion_api():
-		DccWidgets.note(box, "This build's engine has no custom-religion binding. Rebuild the native library before treating it as a missing feature.").name = "ReligionsNoApi"
+		DccWidgets.note(box, "Custom religions are not available in this version of Cartalith.").name = "ReligionsNoApi"
 		return
 	DccWidgets.note(box, "Custom religions are named variants of the built-in religions. " + RELIGION_R1_LIMIT).name = "ReligionsLimitNote"
 	_ensure_custom_religions()
@@ -2933,7 +2933,7 @@ func _fill_culture_card(key: String) -> void:
 	var row := _culture_row(key)
 	if row.is_empty():
 		DccWidgets.note(host,
-			"No profile for the culture \"%s\": this build's engine has no get_cultures() row for it." % key)
+			"No profile for the culture \"%s\"." % key)
 		return
 	var cname := String(row.get("name", key.capitalize()))
 	var affinity := String(row.get("terrain_affinity", ""))
@@ -3965,7 +3965,7 @@ func _build_settlement_sublist(parent: Control) -> void:
 				app.open_place_editor(idx))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.tooltip_text = "Centre the map on it and open its editor -- the reference's own sublist row action."
+		b.tooltip_text = "Centre the map on it and open its editor."
 		var t := DccWidgets.action(row, "Transfer…",
 			func(): _open_transfer_menu(row.get_node("Transfer_%d" % idx) as Control, idx))
 		t.name = "Transfer_%d" % idx

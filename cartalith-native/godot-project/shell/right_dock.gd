@@ -325,7 +325,7 @@ const SAMPLE_FIELDS := [
 	{"label": "Soluble · permeable", "key": "rock_soluble",
 		"tip": "Whether the exposed rock dissolves (karst: limestone only), and its permeability class."},
 	{"label": "Regolith", "key": "regolith_m",
-		"tip": "Unconsolidated material on bedrock, in metres. 0 m is a real reading: bare rock. Deposition does not write it yet, so every cell reads bare rock in this build."},
+		"tip": "Unconsolidated material on bedrock, in metres. 0 m is a real reading: bare rock. Deposition does not write it yet, so every cell reads bare rock for now."},
 	## `WorldState::temperature`, degrees Celsius.
 	{"label": "Temperature", "key": "temperature_c",
 		"tip": "Air temperature at this cell, in degrees Celsius."},
@@ -4203,7 +4203,7 @@ func _build_conflict(body: Control) -> void:
 	outcome_row.add_theme_constant_override("separation", 8)
 	var ol := DccTheme.label("Outcome", "text_dim", DccTheme.FS_SMALL)
 	ol.custom_minimum_size.x = _FIELD_LABEL_W
-	ol.tooltip_text = "Authored, in your words. Nothing here decides who wins (STORY_PLANNING_SCOPE.md §5)."
+	ol.tooltip_text = "Authored, in your words. Nothing here decides who wins."
 	outcome_row.add_child(ol)
 	var out_edit := LineEdit.new()
 	out_edit.text = String(c.get("outcome", ""))
@@ -7552,7 +7552,7 @@ func _on_paint_discard_from_dock() -> void:
 func _build_stops(body: Control) -> void:
 	if not bridge.ramp_api:
 		DccWidgets.note(DccWidgets.section(body, "Ramp · stops"),
-			"No colour-ramp editor: this build's engine has no set_color_ramp() binding.")
+			"No colour-ramp editor is available in this version of Cartalith.")
 		return
 	var sec := DccWidgets.section(body, "Ramp · stops")
 	## Fresh widgets are about to be built; the previous rebuild's were freed.

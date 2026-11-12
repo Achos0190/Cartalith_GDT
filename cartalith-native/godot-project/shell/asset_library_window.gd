@@ -259,7 +259,7 @@ const SZ_SWATCH := 20
 ## now on the FAMILIES band's tooltip so the rail can look like the canvas.
 ## Backed by `cartalith-assets::slots`/`library` and `AssetDB::slots_in_family`;
 ## the eight-vs-24 count is recorded in `ASSET_LIBRARY_SCOPE.md` §1.
-const FAMILIES_NOTE := "Nine families: the reference engine's eight, frozen, plus this port's own Sea marks -- not the design mockup's 24. The mockup subdivides more finely (splitting, for example, \"Feature icons\" into \"Trees & cover\" / \"Rock & scree\"); nothing in this build draws that finer split. Capacity and fill counts shown here are both real."
+const FAMILIES_NOTE := "Nine families, including Sea marks. Capacity and fill counts shown here are both real."
 
 ## **One string for both compositions, and it lists exactly what
 ## `_slot_matches()` looks at.** The two wells carried different placeholders
@@ -2271,7 +2271,7 @@ func _on_delete_collection() -> void:
 	else:
 		## Names the missing `as_collections()` binding.
 		DccWidgets.modal_stat_absent(stats, "members",
-			"this build of the app can't read collection membership")
+			"collection membership is not available in this version of Cartalith")
 	DccWidgets.modal_foot(card["body"],
 		"the assets in it are not deleted — only the grouping is")
 	DccWidgets.modal_choices(card, {
@@ -2506,7 +2506,7 @@ func _build_slot_grid() -> Control:
 		"text_faint", DccTheme.FS_TINY)
 	## `as_batch_collect` backs the tile-drag path; `Window.files_dropped` fires
 	## for an OS file drop but nothing hit-tests it against the grid slots yet.
-	drop_hint.tooltip_text = "Real: drag one or more selected tiles onto a Collections-rail row. Dropping a file from outside the app straight onto a slot is not wired up yet -- that needs the drop point matched against the grid, a real but unscheduled piece of work, not an impossibility. Use Import image… meanwhile."
+	drop_hint.tooltip_text = "Drag one or more selected tiles onto a Collections row. Dropping a file from outside the app onto a slot does not work yet; use Import image… instead."
 	drop_hint.mouse_filter = Control.MOUSE_FILTER_STOP
 	## PH-12: both foot hints describe pointer modifiers. `⇧-click ranges ·
 	## Ctrl-click adds` has no touch equivalent at all, and the drop hint's
@@ -3660,7 +3660,7 @@ func _refresh_inspector() -> void:
 		var tc := _segment(_insp_tags, String(t), Callable())
 		tc.disabled = true
 		## Backed by `as_batch_tag`.
-		tc.tooltip_text = "Tags are added in batch; removing one has no binding yet."
+		tc.tooltip_text = "Tags are added in batch; removing one is not available yet."
 	var add_tag := _segment(_insp_tags, DccIcons.SYMBOLS["add"], func(): _on_tag_focused())
 	## Backed by `as_batch_tag` on the focused slot.
 	add_tag.tooltip_text = "Add tag(s) to this slot."
@@ -3776,7 +3776,7 @@ func _refresh_refine_verbs(item_count: int) -> void:
 		elif item_count == 0:
 			why = "No art in this slot yet."
 		elif not rules.has(key):
-			why = "Not available on this binary."
+			why = "Not available in this version of Cartalith."
 		elif not bool(rules[key].get("ok", false)):
 			why = String(rules[key].get("reason", "Does not apply to this family."))
 			why = why.substr(0, 1).to_upper() + why.substr(1) + "."
@@ -4042,7 +4042,7 @@ func _on_clear_library() -> void:
 	else:
 		## Names the missing `as_pack_info()`/`total_items` binding.
 		DccWidgets.modal_stat_absent(stats, "items",
-			"this build of the app can't read the item total")
+			"the item total is not available in this version of Cartalith")
 	DccWidgets.modal_stat(stats, "filled slots",
 		"%d / %d" % [totals["filled"], totals["slots"]])
 	if totals.has("collections"):
@@ -4050,7 +4050,7 @@ func _on_clear_library() -> void:
 	else:
 		## Names the missing `as_collections()` binding.
 		DccWidgets.modal_stat_absent(stats, "collections",
-			"this build of the app can't read the collection count")
+			"the collection count is not available in this version of Cartalith")
 	## Nothing in the asset library engine code tracks a byte size.
 	DccWidgets.modal_stat_absent(stats, "on disk",
 		"the library doesn't track a byte size for itself")
@@ -4860,7 +4860,7 @@ func _build_slicer_modal() -> void:
 
 	_slicer_trim = _slicer_check(side, "Trim transparent edges", false,
 		func(v: bool): _slice_trim = v,
-		"Crops each cell to its content. Note: the reference slicer has no trim -- this is a port-side addition (DCC_SHELL_SPEC.md §8), using the reference's own alpha>8 threshold so it agrees with Skip empty cells about what content is.")
+		"Crops each cell to its content, using the same transparency threshold as Skip empty cells.")
 	_slicer_skip = _slicer_check(side, "Skip empty cells", true,
 		func(v: bool): _slice_skip_empty = v; _refresh_slicer_summary(),
 		"isBlank: a cell with no pixel over alpha 8 is dropped rather than added. On by default, as in the reference.")
@@ -4931,7 +4931,7 @@ func _build_slicer_modal() -> void:
 	_slicer_target = OptionButton.new()
 	_slicer_target.focus_mode = Control.FOCUS_NONE
 	_slicer_target.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_slicer_target.tooltip_text = "Where the cells land. The first four are the reference's own targets; \"a family, slot by slot\" is DCC_SHELL_SPEC.md §8's instead."
+	_slicer_target.tooltip_text = "Where the cells land. The last option fills a family slot by slot."
 	for t2 in SLICE_TARGETS:
 		_slicer_target.add_item(String(t2["label"]))
 	_style_option(_slicer_target, true)

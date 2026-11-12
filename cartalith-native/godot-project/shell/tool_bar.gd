@@ -1513,7 +1513,7 @@ func _build_measure_options(row: HBoxContainer) -> void:
 		## handles are **not** built: a third click starts a new section
 		## instead, which is the same two clicks and no new hit-testing.
 		_bar_hint(row, "click A then B · a third click starts a new section · scrub the profile to track the map",
-			"The canvas's draggable A/B handles are not built -- re-clicking is the same two clicks and needs no on-canvas hit test of its own.")
+			"Click the map again to move point A or B.")
 	elif mode_id == "area":
 		_bar_hint(row, "the ring closes itself from three points on · water inside it is subtracted",
 			"Projected area is the exact shoelace; the water split, the true surface and the mean elevation are sampled from the cells inside the ring.")

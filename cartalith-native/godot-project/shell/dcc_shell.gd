@@ -9831,7 +9831,7 @@ const SEARCH_SCOPES: Array = [
 	## (a follow-up filed in `STATUS.md`). Drawn disabled rather than omitted so a searcher who expects
 	## landmarks is told, and typing `l ` says the same thing where the result list would be.
 	{"prefix": "l", "label": "landmarks",
-		"why": "Placed landmarks are named now (Ruling EI: type plus nearest place, as the vault links them) but are not in this index yet. Link to one from a note with [[ instead."},
+		"why": "Placed landmarks are named by type and nearest place, but are not in this index yet. Link to one from a note with [[ instead."},
 ]
 
 ## The band a returned row fell in, recomputed here rather than re-ranked.

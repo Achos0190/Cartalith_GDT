@@ -882,7 +882,7 @@ func _refresh_inspector() -> void:
 	## had no live effect while the planner offered it and it re-planned.
 	if _current_kind == "animal" and String(_entry.get("species_slot", "")) == "":
 		DccWidgets.note(_inspector_body,
-			"No live effect yet: this is not one of the four built-in party-form species (donkey/mule/camel/horse), and its Substitutes for field reaches none of them. It is real, validated, inspectable data, but the party form's JpParty shape has no slot for a new species to occupy, so it does not change a computed journey (TRAVEL_LIBRARY_SPEC.md §6). Set Substitutes for to one of the four, or duplicate one of them, and it DOES affect computed journeys.")
+			"No effect on journeys yet: this is not one of the four built-in party species (donkey, mule, camel, horse), and its Substitutes for field names none of them. Set Substitutes for to one of the four, or duplicate one of them, and it will affect computed journeys.")
 	elif _current_kind == "animal" and String(_entry.get("species_key", "")) == "":
 		DccWidgets.note(_inspector_body,
 			"Live through its substitute: the Journey planner offers this entry in the %s slot, which its Substitutes for chain reaches, and it changes computed journeys." % String(_entry.get("species_slot", "")))
@@ -896,7 +896,7 @@ func _refresh_inspector() -> void:
 	## is the two halves of one feature disagreeing on screen.
 	elif _current_kind == "vehicle":
 		DccWidgets.note(_inspector_body,
-			"No live effect yet: vehicles are real, validated, inspectable data, but no resolver hook exists for jp_capacity's vehicle constants -- there is no vehicle_overrides() beside vessel_overrides(), so nothing a vehicle carries reaches a computed journey (TRAVEL_LIBRARY_SPEC.md §6).")
+			"No effect on journeys yet: vehicles are saved and checked, but the journey planner does not use them.")
 	elif _current_kind == "vessel":
 		DccWidgets.note(_inspector_body,
 			"Live: this definition reaches the Journey planner. jp_compute resolves a vessel by NAME through vessel_overrides -> vessel_resolver_fn, so speed, hold, crew and water rating drive the water legs. An entry still missing one of those four numbers is declined by the resolver -- it falls back to the built-in table rather than sailing a hull with a zero hold, and the planner's Vessel field draws it disabled. One limit worth knowing: §3.3 has no per-water-type blacklist field, so a custom vessel is constrained by its mode and water rating only.")

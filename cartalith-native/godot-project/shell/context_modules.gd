@@ -222,7 +222,7 @@ func build_history(parent: Control, subject: Dictionary, _year: int) -> void:
 				_roster_host(parent, int(subject["id"]))._build_tab_history(parent)
 				return
 		"landmark":
-			_note(parent, "A landmark has no dated history in this build: its note's dated entries are not indexed (the chronos index reads settlement and faction notes only), and the engine records no event for a landmark.")
+			_note(parent, "A landmark has no dated history: dated entries in its note are not on the timeline, which reads settlement and faction notes only.")
 			return
 	_note(parent, String(spec("history")["empty"]))
 

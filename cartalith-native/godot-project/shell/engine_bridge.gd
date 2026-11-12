@@ -2126,7 +2126,7 @@ func adjust_get(layer: String) -> Dictionary:
 ## called). `{"entries":[]}` clears the layer.
 func adjust_set(layer: String, stack_json: String) -> Dictionary:
 	if not adjust_api:
-		return {"ok": false, "error": "this build has no adjustment stacks"}
+		return {"ok": false, "error": "Adjustments are not available in this version of Cartalith."}
 	if generating:
 		return {"ok": false, "error": "the world is generating; try again when it finishes"}
 	var r: Dictionary = world_gen.appearance_set_adjust(layer, stack_json)
@@ -4060,7 +4060,7 @@ func bake_all(max_z: int) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": "the world is generating -- try again when it finishes"}
 	if not _has("bake_all"):
-		return {"ok": false, "error": "this build has no bake_all()"}
+		return {"ok": false, "error": "Baking is not available in this version of Cartalith."}
 	if not atlas_ready():
 		return {"ok": false, "error": "no atlas cache directory"}
 	return world_gen.bake_all(max_z)
@@ -4072,7 +4072,7 @@ func bake_visible(z: int, x0: float, y0: float, x1: float, y1: float) -> Diction
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("bake_visible"):
-		return {"ok": false, "error": "this build has no bake_visible()"}
+		return {"ok": false, "error": "Baking is not available in this version of Cartalith."}
 	if not atlas_ready():
 		return {"ok": false, "error": "no atlas cache directory"}
 	return world_gen.bake_visible(z, x0, y0, x1, y1)
@@ -4104,7 +4104,7 @@ func export_heightmap_png(path: String, width: int) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("export_heightmap_png"):
-		return {"ok": false, "error": "this build of the engine has no heightmap export"}
+		return {"ok": false, "error": "Heightmap export is not available in this version of Cartalith."}
 	return world_gen.export_heightmap_png(path, width)
 
 ## ET-E1: does this binary's `WorldGen.export_raster_png` take the optional 4th
@@ -4146,7 +4146,7 @@ func export_color_spaces() -> Array:
 ## color_space, files, bytes, ms}` or `{ok: false, error}`; it never throws.
 func export_raster_png(path: String, width: int, tiled: bool, color_space: String = "sRGB") -> Dictionary:
 	if not _has("export_raster_png"):
-		return {"ok": false, "error": "this build of the engine has no raster export"}
+		return {"ok": false, "error": "Image export is not available in this version of Cartalith."}
 	if generating:
 		return {"ok": false, "error": "a generation is still running -- wait for it to finish, then export"}
 	if export_raster_takes_color_space():
@@ -4159,7 +4159,7 @@ func export_raster_png(path: String, width: int, tiled: bool, color_space: Strin
 		## already said the binding takes four.
 		return world_gen.callv("export_raster_png", [path, width, tiled, color_space])
 	if color_space.to_lower() != "srgb":
-		return {"ok": false, "error": "this build of the engine cannot embed a %s profile -- rebuild cartalith-godot" % color_space}
+		return {"ok": false, "error": "This version of Cartalith cannot embed a %s colour profile." % color_space}
 	return world_gen.export_raster_png(path, width, tiled)
 
 ## ── The export overlay session (`EXPORT_SCOPE.md` §7 E4) ─────────────────────
@@ -4182,7 +4182,7 @@ func _export_session_gate(method: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT, "busy": true}
 	if not _has(method):
-		return {"ok": false, "error": "this build of the engine has no %s -- rebuild cartalith-godot" % method}
+		return {"ok": false, "error": "This version of Cartalith does not offer %s." % method}
 	return {}
 
 ## `WorldGen.export_session_begin(path, opts)`: snapshot the world and open the file.
@@ -4284,7 +4284,7 @@ func atlas_import_zip(bytes: PackedByteArray) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("atlas_import_zip"):
-		return {"ok": false, "error": "this build has no atlas_import_zip()"}
+		return {"ok": false, "error": "Atlas import is not available in this version of Cartalith."}
 	if not atlas_ready():
 		return {"ok": false, "error": "no atlas cache directory"}
 	return world_gen.atlas_import_zip(bytes)
@@ -5478,7 +5478,7 @@ func civ_add_religion(religion_name: String, base_key: String, c: Color, notes: 
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("civ_add_religion"):
-		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
+		return {"ok": false, "error": "Custom religions are not available in this version of Cartalith."}
 	var r: Dictionary = world_gen.civ_add_religion(religion_name, base_key, c.r8, c.g8, c.b8, notes)
 	if bool(r.get("ok", false)):
 		mark_world_dirty()
@@ -5492,7 +5492,7 @@ func civ_edit_religion(id: int, fields: Dictionary) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("civ_edit_religion"):
-		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
+		return {"ok": false, "error": "Custom religions are not available in this version of Cartalith."}
 	var r: Dictionary = world_gen.civ_edit_religion(id, fields)
 	if bool(r.get("ok", false)):
 		mark_world_dirty()
@@ -5506,7 +5506,7 @@ func civ_delete_religion(id: int) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("civ_delete_religion"):
-		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
+		return {"ok": false, "error": "Custom religions are not available in this version of Cartalith."}
 	var r: Dictionary = world_gen.civ_delete_religion(id)
 	if bool(r.get("ok", false)):
 		mark_world_dirty()
@@ -6163,7 +6163,7 @@ func journey_set_resupply(id: int, stops: Array) -> bool:
 ## party preset exactly as before the ruling.
 func journey_set_plan(id: int, request: Dictionary) -> Dictionary:
 	if not _has("journey_set_plan"):
-		return {"ok": false, "error": "journey_set_plan is not exposed by this build's GDExtension binary -- rebuild cartalith-godot.", "rejected": PackedStringArray()}
+		return {"ok": false, "error": "The journey planner is not available in this version of Cartalith.", "rejected": PackedStringArray()}
 	mark_world_dirty()
 	return world_gen.journey_set_plan(id, request)
 
@@ -6538,7 +6538,7 @@ func export_geojson() -> String:
 func apply_geojson_document(text: String) -> Dictionary:
 	if not _has("apply_geojson_document"):
 		return {"ok": false,
-			"error": "this build's GDExtension predates apply_geojson_document -- rebuild cartalith-godot"}
+			"error": "GeoJSON import is not available in this version of Cartalith."}
 	var result: Dictionary = world_gen.apply_geojson_document(text)
 	if bool(result.get("ok", false)):
 		mark_world_dirty()
@@ -7316,7 +7316,7 @@ func civ_run_collapse_simulation(request: Dictionary) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("civ_run_collapse_simulation"):
-		return {"ok": false, "error": "civ_run_collapse_simulation not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	return world_gen.civ_run_collapse_simulation(request)
 
@@ -7369,7 +7369,7 @@ func tl_duplicate(kind: String, id: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("tl_duplicate"):
-		return {"ok": false, "error": "tl_duplicate not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	return world_gen.tl_duplicate(kind, id)
 
@@ -7380,7 +7380,7 @@ func tl_add_blank(kind: String, name: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("tl_add_blank"):
-		return {"ok": false, "error": "tl_add_blank not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	return world_gen.tl_add_blank(kind, name)
 
@@ -7415,7 +7415,7 @@ func tl_edit(kind: String, id: String, fields: Dictionary) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT, "rejected": []}
 	if not _has("tl_edit"):
-		return {"ok": false, "error": "tl_edit not available on this binary", "rejected": []}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith.", "rejected": []}
 	mark_world_dirty()
 	return world_gen.tl_edit(kind, id, fields)
 
@@ -7427,7 +7427,7 @@ func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("tl_capture_preset_from_plan"):
-		return {"ok": false, "error": "tl_capture_preset_from_plan not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	return world_gen.tl_capture_preset_from_plan(name, plan)
 
@@ -7445,7 +7445,7 @@ func as_import_item(uid: String, item_name: String, bytes: PackedByteArray) -> D
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_import_item"):
-		return {"ok": false, "error": "as_import_item not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	return world_gen.as_import_item(uid, item_name, bytes)
 
@@ -7459,7 +7459,7 @@ func as_import_pack(bytes: PackedByteArray, source: String, mode: String) -> Dic
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_import_pack"):
-		return {"ok": false, "error": "as_import_pack not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	if mode != "dry_run":
 		mark_world_dirty()
 	return world_gen.as_import_pack(bytes, source, mode)
@@ -7475,7 +7475,7 @@ func as_import_folder(path: String, mode: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_import_folder"):
-		return {"ok": false, "error": "as_import_folder not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	if mode != "dry_run":
 		mark_world_dirty()
 	return world_gen.as_import_folder(path, mode)
@@ -7488,7 +7488,7 @@ func as_pack_diff(bytes: PackedByteArray, source: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_pack_diff"):
-		return {"ok": false, "error": "as_pack_diff not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.as_pack_diff(bytes, source)
 
 ## AP-9: merge a pack's bytes into the library (`WorldGen.as_pack_merge`).
@@ -7499,7 +7499,7 @@ func as_pack_merge(bytes: PackedByteArray, source: String, policy: String) -> Di
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_pack_merge"):
-		return {"ok": false, "error": "as_pack_merge not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	return world_gen.as_pack_merge(bytes, source, policy)
 
@@ -7511,7 +7511,7 @@ func as_pack_report() -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_pack_report"):
-		return {"ok": false, "error": "as_pack_report not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.as_pack_report()
 
 ## The largest pack file `as_import_pack` will read, in bytes, or -1 when this
@@ -7532,7 +7532,7 @@ func as_add_custom_slot(slot_name: String, set_name: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_add_custom_slot"):
-		return {"ok": false, "error": "as_add_custom_slot not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	return world_gen.as_add_custom_slot(slot_name, set_name)
 
@@ -7602,7 +7602,7 @@ func as_seam_check(uid: String, index: int) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_seam_check"):
-		return {"ok": false, "error": "as_seam_check not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.as_seam_check(uid, index)
 
 ## AP-4: make one ground-texture variant seamless as a NEW variant
@@ -7616,7 +7616,7 @@ func as_make_seamless(uid: String, index: int) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_make_seamless"):
-		return {"ok": false, "error": "as_make_seamless not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	var r: Dictionary = world_gen.as_make_seamless(uid, index)
 	if bool(r.get("changed", false)):
 		mark_world_dirty()
@@ -7634,7 +7634,7 @@ func as_line_art(uid: String, index: int, ink: Color, weight: float, closing: in
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_line_art"):
-		return {"ok": false, "error": "as_line_art not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	var r: Dictionary = world_gen.as_line_art(uid, index, ink, weight, closing)
 	if bool(r.get("ok", false)):
 		mark_world_dirty()
@@ -7662,7 +7662,7 @@ func as_refine(uid: String, index: int, verb: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_refine"):
-		return {"ok": false, "error": "as_refine not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	var r: Dictionary = world_gen.as_refine(uid, index, verb)
 	if bool(r.get("changed", false)):
 		mark_world_dirty()
@@ -7679,7 +7679,7 @@ func as_fit_all(uids: PackedStringArray) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_fit_all"):
-		return {"ok": false, "error": "as_fit_all not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	var r: Dictionary = world_gen.as_fit_all(uids)
 	if not (r.get("moved", []) as Array).is_empty():
 		mark_world_dirty()
@@ -7723,7 +7723,7 @@ func as_export_pack_bytes() -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_export_pack_bytes"):
-		return {"ok": false, "error": "as_export_pack_bytes not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.as_export_pack_bytes()
 
 ## Compiles the current session into a pack and loads it straight into the renderer
@@ -7734,7 +7734,7 @@ func as_apply_to_map() -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_apply_to_map"):
-		return {"ok": false, "error": "as_apply_to_map not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	var result: Dictionary = world_gen.as_apply_to_map()
 	if bool(result.get("ok", false)):
@@ -7805,7 +7805,7 @@ func as_load_sheet(sheet_name: String, bytes: PackedByteArray) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT, "w": 0, "h": 0}
 	if not _has("as_load_sheet"):
-		return {"ok": false, "error": "as_load_sheet not available on this binary", "w": 0, "h": 0}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith.", "w": 0, "h": 0}
 	return world_gen.as_load_sheet(sheet_name, bytes)
 
 ## Drops the loaded sheet (the slicer modal closing).
@@ -7825,9 +7825,9 @@ func as_clear_sheet() -> bool:
 func as_slice_preview(opts: Dictionary) -> Dictionary:
 	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
 	if generating:
-		return {"ok": false, "error": "as_slice_preview not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	if not _has("as_slice_preview"):
-		return {"ok": false, "error": "as_slice_preview not available on this binary",
+		return {"ok": false, "error": "This action is not available in this version of Cartalith.",
 			"total": 0, "non_empty": 0, "usable": false, "blank": PackedInt32Array(),
 			"col_x0": PackedFloat64Array(), "col_x1": PackedFloat64Array(),
 			"row_y0": PackedFloat64Array(), "row_y1": PackedFloat64Array(),
@@ -7843,7 +7843,7 @@ func as_slice_apply(opts: Dictionary) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT, "added": 0, "skipped_blank": 0, "unplaced": 0, "uids": PackedStringArray()}
 	if not _has("as_slice_apply"):
-		return {"ok": false, "error": "as_slice_apply not available on this binary",
+		return {"ok": false, "error": "This action is not available in this version of Cartalith.",
 			"added": 0, "skipped_blank": 0, "unplaced": 0, "uids": PackedStringArray()}
 	mark_world_dirty()
 	return world_gen.as_slice_apply(opts)
@@ -8727,9 +8727,9 @@ func vault_private_marks(rels: PackedStringArray, max_reads: int = 0) -> Diction
 func vault_search(query: String, limit: int = 0, max_reads: int = 0) -> Dictionary:
 	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
 	if generating:
-		return {"ok": false, "error": "vault_search not available on this binary", "hits": []}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith.", "hits": []}
 	if not _has("vault_search"):
-		return {"ok": false, "error": "vault_search not available on this binary", "hits": []}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith.", "hits": []}
 	return world_gen.vault_search(query, limit, max_reads)
 
 ## One note's frontmatter and template fields, read from disk right now and
@@ -8738,9 +8738,9 @@ func vault_search(query: String, limit: int = 0, max_reads: int = 0) -> Dictiona
 func vault_file_data(rel: String) -> Dictionary:
 	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
 	if generating:
-		return {"ok": false, "error": "vault_file_data not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	if not _has("vault_file_data"):
-		return {"ok": false, "error": "vault_file_data not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.vault_file_data(rel)
 
 ## Every linked note's imported data for one entity, one Dictionary per link.
@@ -8761,9 +8761,9 @@ func vault_entity_data(kind: String, entity_id: int) -> Array:
 func vault_entity_chronos(kind: String, entity_id: int) -> Dictionary:
 	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
 	if generating:
-		return {"ok": false, "error": "vault_entity_chronos not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	if not _has("vault_entity_chronos"):
-		return {"ok": false, "error": "vault_entity_chronos not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.vault_entity_chronos(kind, entity_id)
 
 ## Writes one authored event into the note `rel` as a Chronos line (Ruling AM),
@@ -8779,16 +8779,16 @@ func vault_add_chronos_event(rel: String, expect_hash: String, event: Dictionary
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_add_chronos_event"):
-		return {"ok": false, "error": "vault_add_chronos_event not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.vault_add_chronos_event(rel, expect_hash, event)
 
 ## One link's imported data.
 func vault_link_data(link_id: String) -> Dictionary:
 	# Mid-generation gate: the worker holds `WorldGen` (see `settlements()`).
 	if generating:
-		return {"ok": false, "error": "vault_link_data not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	if not _has("vault_link_data"):
-		return {"ok": false, "error": "vault_link_data not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.vault_link_data(link_id)
 
 ## Which write confirmations the user has switched off: `{section, block,
@@ -8847,7 +8847,7 @@ func vault_remove_block(rel: String, kind: String, entity_id: int, expect_hash: 
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("vault_remove_block"):
-		return {"ok": false, "error": "vault_remove_block not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	mark_world_dirty()
 	return world_gen.vault_remove_block(rel, kind, entity_id, expect_hash)
 
@@ -8875,7 +8875,7 @@ func project_save_with_documents(path: String, extra_documents: Dictionary) -> D
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("project_save_with_documents"):
 		if not _has("project_save"):
-			return {"ok": false, "error": "project_save_with_documents not available on this binary"}
+			return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 		if not extra_documents.is_empty():
 			push_warning("Cartalith: this binary has no project_save_with_documents -- %d caller-owned document(s) were not written to %s"
 				% [extra_documents.size(), path])
@@ -8918,7 +8918,7 @@ func sculpt_restore_document(text: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("sculpt_restore_document"):
-		return {"ok": false, "error": "sculpt_restore_document not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	var restored: Dictionary = world_gen.sculpt_restore_document(text)
 	sculpt_draft_changed.emit()
 	return restored
@@ -8936,7 +8936,7 @@ func paint_restore_document(text: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("paint_restore_document"):
-		return {"ok": false, "error": "paint_restore_document not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.paint_restore_document(text)
 
 ## Puts a `library/assets.json` back. Returns `{ok, error, slots, items}`.
@@ -8949,7 +8949,7 @@ func asset_library_restore_document(text: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("asset_library_restore_document"):
-		return {"ok": false, "error": "asset_library_restore_document not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.asset_library_restore_document(text)
 
 ## Puts a `library/travel.json` back. Returns `{ok, error, restored,
@@ -8962,7 +8962,7 @@ func travel_library_restore_document(text: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("travel_library_restore_document"):
-		return {"ok": false, "error": "travel_library_restore_document not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.travel_library_restore_document(text)
 
 ## Every slot the format defines.
@@ -9319,7 +9319,7 @@ func as_drop_collection(name: String) -> Dictionary:
 	if generating:
 		return {"ok": false, "error": _BUSY_TEXT}
 	if not _has("as_drop_collection"):
-		return {"ok": false, "error": "as_drop_collection not available on this binary"}
+		return {"ok": false, "error": "This action is not available in this version of Cartalith."}
 	return world_gen.as_drop_collection(name)
 
 # -- F13 · the two Journey Planner readouts ---------------------------------

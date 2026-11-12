@@ -357,14 +357,14 @@ static func _gpu_section(bridge: EngineBridge) -> String:
 
 	lines.append("Compute GPU (wgpu -- generation, civilisation-layer and Erode stages):")
 	if bridge == null or not bridge.gpu_api:
-		lines.append("  unavailable -- this build predates the multi-GPU API (WorldGen.gpu_enumerate_devices/gpu_set_multi_mode missing).")
+		lines.append("  unavailable -- multi-GPU is not supported in this version of Cartalith.")
 		return "\n".join(lines)
 	lines.append("  requested (Preferences > GPU acceleration): %s" % ("on" if bool(bridge.param_get("use_gpu")) else "off"))
 	var backend := bridge.gpu_last_backend()
 	if backend != "":
 		lines.append("  backend of the last generate (measured): %s" % backend)
 	elif "gpu_last_backend" in bridge.missing_bindings():
-		lines.append("  backend of the last generate: unavailable -- this build predates gpu_last_backend().")
+		lines.append("  backend of the last generate: unavailable -- the GPU backend of the last run is not reported in this version of Cartalith.")
 	else:
 		lines.append("  backend of the last generate: not measured yet -- no GPU generate has completed this session.")
 

@@ -2297,9 +2297,9 @@ func _food_shed_note(sec: Control) -> void:
 	var shed := TradeStore.food_shed_for(_index)
 	if shed.is_empty():
 		if not TradeStore.is_food_shed_matched():
-			DccWidgets.note(sec, "Food shed: — no row for this settlement. civ_food_shed() "
-				+ "returned nothing, which is what an engine build older than ECONOMY_SCOPE.md "
-				+ "milestone 2 does.")
+			DccWidgets.note(sec, "Food shed: — no row for this settlement. "
+				+ "The engine returned nothing for it, as an older version of "
+				+ "Cartalith would.")
 		else:
 			## Counted off the existing public reader rather than through a new
 			## `row_count()` on `TradeStore`: one call site does not earn API.
@@ -2357,9 +2357,9 @@ func _smelting_salt_note(sec: Control) -> void:
 	var smelt := TradeStore.smelting_for(_index)
 	if smelt.is_empty():
 		if not TradeStore.is_smelting_matched():
-			DccWidgets.note(sec, "Smelting: — no row for this settlement. civ_place_smelting() "
-				+ "returned nothing, the same defensive case civ_food_shed()'s own reader states "
-				+ "above for an engine build without the binding.")
+			DccWidgets.note(sec, "Smelting: — no row for this settlement. "
+				+ "The engine returned nothing for it, as an older version of "
+				+ "Cartalith would.")
 		else:
 			DccWidgets.note(sec, "Smelting: — the pass ran but has no row at index %d. " % _index
 				+ "Re-run Civilization ▸ Economy ▸ Trade flows ▸ Match trade flows.")
@@ -2383,9 +2383,9 @@ func _smelting_salt_note(sec: Control) -> void:
 	var salt := TradeStore.salt_access_for(_index)
 	if salt.is_empty():
 		if not TradeStore.is_salt_matched():
-			DccWidgets.note(sec, "Salt: — no row for this settlement. civ_salt_access() "
-				+ "returned nothing, the same defensive case civ_food_shed()'s own reader states "
-				+ "above for an engine build without the binding.")
+			DccWidgets.note(sec, "Salt: — no row for this settlement. "
+				+ "The engine returned nothing for it, as an older version of "
+				+ "Cartalith would.")
 		else:
 			DccWidgets.note(sec, "Salt: — the pass ran but has no row at index %d. " % _index
 				+ "Re-run Civilization ▸ Economy ▸ Trade flows ▸ Match trade flows.")
@@ -2424,7 +2424,7 @@ func _build_traits(parent: Control, details: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Traits")
 	var vocab := bridge.civ_trait_vocabulary()
 	if vocab.is_empty():
-		DccWidgets.note(sec, "No trait vocabulary -- the engine build is older than civ_trait_vocabulary().")
+		DccWidgets.note(sec, "No trait list is available in this version of Cartalith.")
 		return
 	var on: PackedStringArray = details.get("traits", PackedStringArray())
 	var flow := HFlowContainer.new()
@@ -2715,7 +2715,7 @@ func confirm_delete(index: int) -> void:
 func _build_footer(parent: Control) -> void:
 	_footer = DccWidgets.note(parent,
 		"Not built here, each for a stated reason: Category (settlement ↔ POI) -- POI is not a "
-		+ "ported concept (GUI_GAP_REGISTER.md CV-01); the inline town-layout thumbnail (UM-03) "
+		+ "ported concept; the inline town-layout thumbnail (UM-03) "
 		+ "-- no layout renders at icon size yet, though its City Viewer launcher above is live; "
 		+ "\"Connect to road network\" -- no civ_connect_place_to_network binding; Econ. "
 		+ "importance and Trade volume -- NamedSettlement carries neither field.")

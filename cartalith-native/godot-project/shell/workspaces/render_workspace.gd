@@ -1834,7 +1834,7 @@ func _on_variant_chip(index: int, variant: String) -> void:
 func _look_line(look: String, look_names: Array) -> String:
 	if look_names.is_empty() or look_names.has(look):
 		return look
-	return "%s -- not in this build" % look
+	return "%s -- not available" % look
 
 ## What a preset's bundle actually does, derived from its own overrides rather
 ## than authored beside them: the two can therefore never disagree, which is
@@ -3390,7 +3390,7 @@ func _layer_row(parent: Control, d: Dictionary, index: int) -> void:
 		## The engine named a mode this build's own list does not carry. Said
 		## rather than silently shown as the first entry, which would claim the
 		## picture is Normal when it is not.
-		DccWidgets.note(col, "Blend mode \"%s\" is not in this build's picker." % String(d["blend"]))
+		DccWidgets.note(col, "Blend mode \"%s\" is not available in the picker." % String(d["blend"]))
 
 ## True only when this row is Colour relief **and the engine has said** its ramp
 ## strength is zero.

@@ -355,7 +355,7 @@ func _ready() -> void:
 		if engine_looks.has(want_look):
 			_ok(lk == want_look, "tile %d names its base look plainly" % i)
 		elif not engine_looks.is_empty():
-			_ok(lk.contains("not in this build"),
+			_ok(lk.contains("not available"),
 				"tile %d discloses a look this build does not have" % i)
 
 	## **Both branches of the disclosure, driven directly.** Every preset in the
@@ -368,7 +368,7 @@ func _ready() -> void:
 	_p("_look_line(no API)  = %s" % rw._look_line("No Such Look", []))
 	_ok(String(rw._look_line(String(engine_looks[0]), engine_looks)) == String(engine_looks[0]),
 		"a look this build has is drawn plain")
-	_ok(String(rw._look_line("No Such Look", engine_looks)).contains("not in this build"),
+	_ok(String(rw._look_line("No Such Look", engine_looks)).contains("not available"),
 		"a look this build lacks is disclosed")
 	_ok(String(rw._look_line("No Such Look", [])) == "No Such Look",
 		"with no look list, nothing is claimed either way")

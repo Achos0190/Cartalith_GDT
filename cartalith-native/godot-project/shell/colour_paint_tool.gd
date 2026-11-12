@@ -189,7 +189,7 @@ func km_per_cell() -> float:
 func build_into(parent: Control) -> void:
 	var body := DccWidgets.section(parent, "Paint colour")
 	if bridge == null or not bridge.colour_paint_api:
-		DccWidgets.note(body, "This build's engine has no colour-paint binding (colour_paint_info), so the tool cannot paint.")
+		DccWidgets.note(body, "Colour paint is not available in this version of Cartalith, so the tool cannot paint.")
 		return
 	var arm := DccWidgets.action(body, "Paint on the map", func(): app.arm_tool(TOOL_ID), true)
 	arm.tooltip_text = "Arms the colour brush: press and drag on the map to paint one stroke. Paint is presentation only -- it never changes the world."
@@ -324,7 +324,7 @@ func _refresh_ui() -> void:
 		return
 	var info: Dictionary = bridge.colour_paint_info()
 	if info.is_empty():
-		_status.text = "Colour paint: not available while the world is generating." if bridge.generating else "Colour paint: no binding."
+		_status.text = "Colour paint: not available while the world is generating." if bridge.generating else "Colour paint: not available in this version of Cartalith."
 		return
 	if not info.has("km_per_cell"):
 		_status.text = "This world has no map width, so paint (stored in kilometres) cannot be placed."

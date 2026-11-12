@@ -3123,7 +3123,7 @@ func _diag_card(parent: Control, settlement: Dictionary, d: Dictionary, index: i
 	## `""`, not `"none"`: `"none"` is a real `um_wall_spec` answer and must
 	## not double as "the key was missing".
 	var wall := String(d.get("wall_spec", ""))
-	var wall_text := "— wall rung not in this build's diagnostics" if wall.is_empty() \
+	var wall_text := "— wall rung not available" if wall.is_empty() \
 		else ("unwalled" if wall == "none" else "%s walls" % wall.capitalize())
 
 	var river_text: String
@@ -3144,7 +3144,7 @@ func _diag_card(parent: Control, settlement: Dictionary, d: Dictionary, index: i
 
 	var harbour_text: String
 	if not d.has("harbour_scale"):
-		harbour_text = "Harbour — scale not in this build's diagnostics"
+		harbour_text = "Harbour — scale not available"
 	elif bool(d.get("has_harbour", false)):
 		harbour_text = "Harbour scale %.1f× if built" % float(d.get("harbour_scale", -1.0))
 	else:

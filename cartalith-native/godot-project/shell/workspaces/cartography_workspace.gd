@@ -667,7 +667,7 @@ func _build_data_overlays(parent: Control) -> void:
 		n += (g as Dictionary).get("items", []).size()
 	if n == 0:
 		DccWidgets.note(sec,
-			"No field views: this build's engine has no debug_layers() binding.")
+			"No field views are available in this version of Cartalith.")
 	else:
 		DccWidgets.note(sec,
 			("%d analysis fields across %d groups -- elevation, slope, aspect, "

@@ -265,7 +265,7 @@ func _build_detail(parent: Control) -> void:
 	# -- Specialisation ---------------------------------------------------------
 	var specs := bridge.civ_specialisation_vocabulary()
 	if specs.is_empty():
-		DccWidgets.note(sec, "No specialisation vocabulary -- the engine build is older than civ_specialisation_vocabulary().")
+		DccWidgets.note(sec, "No specialisation list is available in this version of Cartalith.")
 	else:
 		var keys: Array = []
 		var labels: Array = []
@@ -325,7 +325,7 @@ func _build_traits_chips(parent: Control, id: String, t: Dictionary) -> void:
 	var sec := DccWidgets.section(parent, "Traits applied on drop")
 	var vocab := bridge.civ_trait_vocabulary()
 	if vocab.is_empty():
-		DccWidgets.note(sec, "No trait vocabulary -- the engine build is older than civ_trait_vocabulary().")
+		DccWidgets.note(sec, "No trait list is available in this version of Cartalith.")
 		return
 	var on: Array = t.get("traits", [])
 	var flow := HFlowContainer.new()
