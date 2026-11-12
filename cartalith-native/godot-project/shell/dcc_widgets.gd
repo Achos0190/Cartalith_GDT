@@ -3469,6 +3469,15 @@ static func _floor_dialog_bar(dlg: Window, target: Vector2i) -> void:
 		if c != null and c != hbox and c.visible:
 			c.size.y = maxf(1.0, c.size.y - short)
 
+## Re-applies the 44 dp button-bar floor to a phone dialog that is ALREADY open, after something other than
+## `phone_present()` laid it out again. 2026-11-12, OUTSTANDING_WORK.md "Phone Close button is 29 px, under the 44 px
+## floor": `AcceptDialog` resets its buttons' `custom_minimum_size` whenever its window is re-laid (measured on the
+## Assistant sheet, `llm_assistant_window.gd::_relayout_phone()`'s one-pixel size nudge: the OK button's minimum went
+## 44 -> 0 and the bar 44 -> 29 dp two frames after the floor was set), so a caller that nudges the size must call this
+## afterwards. Idempotent, like `_floor_dialog_bar()` it wraps; a no-op off a phone dialog's own geometry.
+static func reseat_dialog_bar(dlg: Window) -> void:
+	_floor_dialog_bar(dlg, dlg.size)
+
 ## **A content scale does not scale the font raster, and this engine does not
 ## work it out on its own** (`GUI_GAP_REGISTER.md` HD-01). Everything above maps
 ## a desktop-authored composition onto 393 dp and lets the compositor do the

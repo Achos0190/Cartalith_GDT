@@ -1023,6 +1023,10 @@ func apply_insets(top: float, left: float, bottom: float) -> void:
 
 # -- Navigation ---------------------------------------------------------------
 
+## Emitted when the overlay goes from open to closed, by whatever route (back, a row that opens a window, another
+## overlay taking the screen). `DccShell` listens to un-light the MENU or STORY tab; see `_on_phone_menu_closed()`.
+signal closed
+
 ## True while the MORE overlay is visible. Read by `dcc_shell.gd`, for example to close it when a phone tab is chosen.
 func is_open() -> bool:
 	return visible
@@ -1155,8 +1159,15 @@ func open_sheet(popup: PopupMenu, title: String, trail: String) -> void:
 ## WITHOUT calling its dismiss callback, because this is the shell swapping one overlay for
 ## another rather than the user dismissing the card; the shell is told to resume instead.
 func close() -> void:
+	var was_open := visible
 	visible = false
 	_stack.clear()
+	## 2026-11-12, OUTSTANDING_WORK.md "After a MORE window closes the tab stays lit": tell the shell the overlay
+	## is gone so the MENU or STORY tab that opened it stops reading as the screen the user is on.
+	## Only on a real open-to-closed edge, so the shell's `_close_all_phone_overlays()` sweep before every
+	## other overlay (which calls this on a menu that is already shut) does not fire it.
+	if was_open:
+		closed.emit()
 	## CM-5: a fresh `open()`/`open_sheet()` while the peek/half card is up
 	## (`_close_all_phone_overlays()` calls this before every phone overlay,
 	## `phone_present_peek_card()` included) must not leave it drawn behind

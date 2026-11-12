@@ -1519,6 +1519,9 @@ func _relayout_phone() -> void:
 	var s := size
 	size = s + Vector2i(0, 1)
 	size = s
+	## The re-layout above resets the dialog's button minimums, which left Close at the stock 29 dp
+	## (`OUTSTANDING_WORK.md`, "Phone Close button is 29 px"); put the 44 dp floor back.
+	DccWidgets.reseat_dialog_bar(self)
 
 
 func _on_note_picked(index: int) -> void:

@@ -7297,6 +7297,7 @@ func _build_phone_shell() -> void:
 	_phone_menu = PhoneMenu.new()
 	_phone_root.add_child(_phone_menu)
 	_phone_menu.setup(self)
+	_phone_menu.closed.connect(_on_phone_menu_closed)
 
 	## CM-6: the armed-tool pill lives in `_phone_content_gap` (clear of the
 	## tool sheet AND the bottom nav, the same bound `_build_phone_undo_chip()`
@@ -7956,6 +7957,9 @@ func _build_phone_tab_cell(t: Dictionary) -> Dictionary:
 var _phone_tab_cells: Dictionary = {}
 ## Which of `PHONE_TABS` is lit. Starts on the domain tab: WORLD is the first domain, and was GENERATE.
 var _phone_tab := "domain"
+## The tab that was lit when MENU or STORY took the screen, so closing the overlay can give the lit state back.
+## Empty when no overlay tab is lit: never a stand-in tab id (`MISTAKES.md`, a value for "none").
+var _phone_tab_under_overlay := ""
 
 ## Every tab. `toggle` is false when a domain switch re-picks the domain tab: the sheet then stays open
 ## (or opens to half from peek) instead of folding to peek as a second tap on the same tab does.
@@ -7974,6 +7978,8 @@ func _pick_phone_tab(id: String, toggle: bool = true) -> void:
 	if id == "map" and _session_refuses("cartography"):
 		return
 	var was_tab := _phone_tab
+	if (id == "menu" or id == "story") and was_tab != "menu" and was_tab != "story":
+		_phone_tab_under_overlay = was_tab
 	_phone_tab = id
 	match id:
 		"menu":
@@ -8164,6 +8170,30 @@ func _phone_tab_for_domain(id: String) -> String:
 	if _phone_tab == "story" or _phone_tab == "menu":
 		return _phone_tab
 	return "domain"
+
+## 2026-11-12 (`OUTSTANDING_WORK.md`, "After a MORE window closes the tab stays lit"): `PhoneMenu` closed, by back,
+## by a row that opens a window (`_activate()` closes it so the window is not hidden behind it) or by another
+## overlay. The MENU or STORY tab that opened it must stop reading as the screen the user is on, or it stays lit
+## over the map after the window it launched is dismissed. Deferred one frame: `_pick_phone_tab("menu")` closes the
+## menu in `_close_all_phone_overlays()` and reopens it in the same call, and by the next frame it is open again
+## and this does nothing. The tab given back is the one lit before the overlay (MAP stays MAP only while the
+## domain is still CARTOGRAPHY, as `_phone_tab_for_domain()` has it), else the domain tab.
+func _on_phone_menu_closed() -> void:
+	_restore_phone_tab_after_overlay.call_deferred()
+
+func _restore_phone_tab_after_overlay() -> void:
+	if _phone_menu == null or _phone_menu.is_open():
+		return
+	if _phone_tab != "menu" and _phone_tab != "story":
+		return
+	var back := _phone_tab_under_overlay
+	if back == "" or back == "menu" or back == "story" or (back == "map" and _active_domain != "cartography"):
+		back = "domain"
+	_phone_tab = back
+	_phone_tab_under_overlay = ""
+	_refresh_phone_tabs()
+	_refresh_phone_sheet_header()
+	_refresh_phone_sheet_body()
 
 ## MAP and the domain tab drive the bottom sheet; STORY and MENU open PhoneMenu over it.
 func _phone_tab_drives_sheet(id: String) -> bool:
@@ -9843,6 +9873,7 @@ const SEARCH_SCOPES: Array = [
 ## appearing twice -- not a list in a different order from the one `search()`
 ## chose. That is the whole reason the grouping is computed instead of re-sorted.
 const PLACE_BANDS: Array = ["STARTS WITH", "CONTAINS", "MATCHED ON KIND OR SUBTITLE"]
+
 ## Band headers for `CommandIndex` results, in ranker order: title, group, blurb.
 const COMMAND_BANDS: Array = ["MATCHED THE NAME", "MATCHED THE MENU", "MATCHED THE DESCRIPTION"]
 
