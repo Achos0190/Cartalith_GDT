@@ -795,3 +795,92 @@ fn ea0_ecological_ordering_diagnostic() {
     // 18 at 50a6fc6d).
     assert_eq!(default.capped, 21, "field armies at FIELD_CAP of the levy");
 }
+
+// ============================================== G1 comparison (2026-11-12)
+
+/// The owner's question after G1 shipped (2026-11-12): *"check which version
+/// is relatively better"* -- the G1 build (seventeen forms, the khanate levy
+/// bonus, Ruling DE's ordering) against the reference model (the original
+/// nine forms). This is **measurement only**; it asserts nothing about which
+/// is better and changes no model. It prints one `G1CMP` CSV line per
+/// reading for `GOVERNMENTS_SCOPE.md` §11's tables.
+///
+/// What it reads. On each of the twenty harness worlds, **every real
+/// faction in turn is set to each of the sixteen non-`none` forms** (the
+/// reference's eight, then the eight G1 forms) and read through the app's own
+/// chain ([`read`]). Forcing all factions at once is sound only because no
+/// faction's reading depends on another's government (`world_land_reference`
+/// sums land and population, never a government, `GOVERNMENTS_SCOPE.md` §5);
+/// the test checks that rather than assuming it: faction 1's reading with
+/// every faction forced to a form is compared, bit for bit, with its reading
+/// when it alone is forced (the control, `G1CMP independence`).
+///
+/// Columns: world index, faction (1-based), form, then total population,
+/// standing, professional core, field, levy, citizen fraction and state
+/// capacity (each `{:.9e}` so a reader can compare them exactly), the era
+/// name, and the two band verdicts. A faction with no population reads
+/// `0 / 0 / 0` and is skipped and counted (`MISTAKES.md`: no army is not a
+/// healthy army).
+///
+/// What it must never do: assert a preference, or edit any pinned literal.
+/// Run alone: `cargo test -p cartalith-godot --lib g1_comparison_report -j 2
+/// -- --ignored --nocapture --test-threads 1`.
+#[test]
+#[ignore = "G1 build-versus-reference measurement over 20 generated worlds; run alone with --ignored"]
+fn g1_comparison_report() {
+    use cartalith_civ::roster::{CIV_GOVERNMENTS, CIV_GOVERNMENTS_REFERENCE_LEN};
+    let forms: Vec<&str> = CIV_GOVERNMENTS[1..].iter().map(|&(k, _)| k).collect();
+    assert_eq!(forms.len(), 16, "the sixteen non-none forms");
+    let (mut lines, mut empty, mut checked) = (0usize, 0usize, 0usize);
+    for (wi, &(seed, width, factions)) in worlds().iter().enumerate() {
+        let (ws, mut civ, gh, p) = generate_world(seed, f64::from(width), factions, GW);
+        let saved: Vec<String> = civ.faction_roster.0.iter().map(|e| e.government.clone()).collect();
+        for &form in forms.iter() {
+            for e in civ.faction_roster.0.iter_mut().skip(1) {
+                e.government = form.to_string();
+            }
+            let all = read(&civ, &ws, gh, p.map_width_km, seed, true);
+            for (fi, m) in all.rows.iter().enumerate() {
+                if !(m.total_population > 0.0) {
+                    empty += 1;
+                    continue;
+                }
+                println!(
+                    "G1CMP,{wi},{},{form},{:.9e},{:.9e},{:.9e},{:.9e},{:.9e},{:.9e},{:.9e},{},{},{}",
+                    fi + 1,
+                    m.total_population,
+                    m.standing_army,
+                    m.professional_core,
+                    m.field_army,
+                    m.emergency_mobilization,
+                    m.drivers.citizen_fraction,
+                    m.drivers.state_capacity,
+                    m.era_band.name,
+                    m.era_standing_verdict,
+                    m.era_mobilization_verdict,
+                );
+                lines += 1;
+            }
+            // Independence control: restore everyone, force faction 1 alone.
+            for (e, g) in civ.faction_roster.0.iter_mut().zip(saved.iter()) {
+                e.government = g.clone();
+            }
+            civ.faction_roster.0[1].government = form.to_string();
+            let one = read(&civ, &ws, gh, p.map_width_km, seed, true);
+            let (a, b) = (&all.rows[0], &one.rows[0]);
+            assert_eq!(a.standing_army.to_bits(), b.standing_army.to_bits(), "world {wi} {form}: standing depends on another faction's government");
+            assert_eq!(a.field_army.to_bits(), b.field_army.to_bits(), "world {wi} {form}: field depends on another faction's government");
+            assert_eq!(a.emergency_mobilization.to_bits(), b.emergency_mobilization.to_bits(), "world {wi} {form}: levy depends on another faction's government");
+            checked += 1;
+        }
+        for (e, g) in civ.faction_roster.0.iter_mut().zip(saved.iter()) {
+            e.government = g.clone();
+        }
+    }
+    println!(
+        "G1CMP totals: {lines} readings, {empty} empty factions skipped, independence checked on {checked} (world, form) pairs; reference forms are the first {} of the vocabulary",
+        CIV_GOVERNMENTS_REFERENCE_LEN - 1
+    );
+    assert_eq!(checked, 20 * 16);
+    assert!(lines > 0, "silently empty comparison output");
+}

@@ -498,3 +498,99 @@ for a strong builder. A separate verifier should re-run G1-1's mutations.
 - **Cross-lane drift.** `manpower.rs` and `roster.rs` have been edited by other lanes before. Re-open each
   symbol at G1-1's start rather than trusting this document's description of it (`MISTAKES.md`, "re-open a
   backlog row at its symbol").
+
+---
+
+## 11. Findings, 2026-11-12: the G1 build against the reference model (measurement only)
+
+**The question** (owner, on the G1 report, 2026-11-12: *"check which version is relatively better"*). Read as: the
+G1 build (seventeen forms, their authored rows, the khanate levy bonus, Ruling DE's ordering) against the reference
+model (the original nine forms), on the 20 FH-R2 harness worlds, by this scope's own criteria. **No model code was
+changed.** The only addition is an ignored harness, `cartalith-godot/src/g1_baseline.rs::g1_comparison_report`,
+which prints one `G1CMP` line per reading.
+
+**Method (run 2026-11-12 on origin/main `d3873d70`, one run, alone, 82 s).** On each of the 20 worlds, every real
+faction in turn takes each of the 16 non-`none` forms, 8 reference and 8 G1, and is read through the app's own
+military chain. That is 16 forms x 290 non-empty factions = 4 640 readings (160 empty factions, zero population,
+are skipped and counted, never read as armies). Forcing every faction at once is sound only if no faction's reading
+depends on another's government, and the harness checks that instead of assuming it: faction 1's standing, field
+and levy are bit-identical whether it alone or every faction is forced, on 320 of 320 (world, form) pairs.
+Ratios below are per faction against the same faction under the anchor row. The G1 forms leave the reference rows
+unchanged (G1-0's columns: 0 of 20 worlds moved), so "the reference model" is the same code read on the reference
+eight; a separate "G1 off" tree was not built.
+
+**Limit that applies to every row below.** All harness factions are generated on the `traditionalAgrarian`
+ag-tech row, so one form reads one era row on all 290 factions. The comparison therefore fixes the agricultural
+labour ratio and varies the form. How a form reads at the other brackets is not measured here
+(`ECOLOGICAL_ARMY_TERM_SCOPE.md`'s ag-tech sweep varies it for default governments only).
+
+### 11.1 Per form (n = 290 each; ordered means standing < field < levy)
+
+| Form | Set | Ordered | Standing band (within / above / below) | Mobilization band (within / above / below) | Median standing, % of people | Median citizen body | Era row |
+|---|---|---|---|---|---|---|---|
+| chiefdom | ref | 290 | 137 / 0 / 153 | 32 / 0 / 258 | 0.449 | 0.978 | Bronze Age state |
+| tribal_confederacy | ref | 290 | 146 / 0 / 144 | 117 / 0 / 173 | 0.488 | 0.958 | Bronze Age state |
+| monarchy | ref | 290 | 149 / 0 / 141 | 115 / 0 / 175 | 0.680 | 0.628 | Iron Age agrarian state |
+| theocracy | ref | 290 | 149 / 0 / 141 | 115 / 0 / 175 | 0.680 | 0.628 | Iron Age agrarian state |
+| oligarchy | ref | 290 | 163 / 0 / 127 | 283 / 0 / 7 | 0.719 | 0.478 | Iron Age agrarian state |
+| republic | ref | 290 | 157 / 0 / 133 | 283 / 0 / 7 | 0.757 | 0.578 | Iron Age agrarian state |
+| city_state | ref | 290 | 161 / 0 / 129 | 283 / 0 / 7 | 0.757 | 0.528 | Iron Age agrarian state |
+| empire | ref | 290 | 55 / 124 / 111 | 281 / 9 / 0 | 0.873 | 0.378 | Classical agrarian state |
+| merchant_republic | G1 | 290 | 157 / 0 / 133 | 283 / 0 / 7 | 0.757 | 0.578 | Iron Age agrarian state |
+| city_league | G1 | 290 | 174 / 0 / 116 | 290 / 0 / 0 | 0.565 | 0.578 | Bronze Age state |
+| sacral_monarchy | G1 | 290 | 151 / 0 / 139 | 283 / 0 / 7 | 0.719 | 0.628 | Iron Age agrarian state |
+| holy_order | G1 | 290 | 163 / 0 / 127 | 283 / 0 / 7 | 0.719 | 0.478 | Iron Age agrarian state |
+| feudal_realm | G1 | 290 | 171 / 0 / 119 | 290 / 0 / 0 | 0.565 | 0.628 | Bronze Age state |
+| nomad_khanate | G1 | 290 | 149 / 0 / 141 | 290 / 0 / 0 | 0.526 | 0.958 | Bronze Age state |
+| stratocracy | G1 | 290 | 47 / 131 / 112 | 260 / 30 / 0 | 0.796 | 0.378 | Iron Age agrarian state |
+| tributary_hegemony | G1 | 290 | 51 / 120 / 119 | 278 / 12 / 0 | 0.642 | 0.378 | Iron Age agrarian state |
+
+### 11.2 Each G1 form against its anchor row (same faction; min / median / max over 290)
+
+| G1 form (anchor) | Standing | Field | Levy | Professional core | Identical to the anchor in every output? |
+|---|---|---|---|---|---|
+| merchant_republic (republic) | 1.000 | 1.000 | 1.000 | 1.000 | **yes, 290 of 290**, citizen body included |
+| city_league (republic) | 0.746 | 0.711 / 0.783 / 0.848 | same as field | 0.557 | no (era row differs on 290) |
+| sacral_monarchy (monarchy) | 1.057 | 1.032 / 1.048 / 1.065 | same as field | 1.116 | no |
+| holy_order (oligarchy) | 1.000 | 1.000 | 1.000 | 1.000 | **yes, 290 of 290**, citizen body included |
+| feudal_realm (monarchy) | 0.830 | 0.804 / 0.857 / 0.903 | same as field | 0.690 | no (era row differs on 290) |
+| nomad_khanate (tribal_confederacy) | 1.079 | 1.670 / 2.081 / 2.680 | same as field | 1.164 | no; field and levy carry the G1-5 bonus (levy 8.33 / 10.05 / 13.02 % of citizens against 3.11 / 4.83 / 7.80 % for its anchor) |
+| stratocracy (empire) | 0.912 | 0.902 / 0.923 / 0.944 | same as field | 0.832 | no (era row differs on 290) |
+| tributary_hegemony (empire) | 0.735 | 0.705 / 0.770 / 0.833 | same as field | 0.541 | no (era row differs on 290) |
+
+Standing and core ratios have one value because every harness faction shares one ag-tech row; the field and levy
+ratios spread because the ecological term (Ruling DE) is faction-specific. The field and levy ratios are equal in this sample: the median field-to-levy share
+is 0.450 for every one of the 16 forms (measured; why the share is the same for every form was not investigated).
+
+### 11.3 Criteria
+
+| Criterion | Reference (8 real forms) | G1 build (16 real forms) | Verdict |
+|---|---|---|---|
+| Ordering, standing < field < levy | 2 320 of 2 320 | 4 640 of 4 640 (the G1 eight: 2 320 of 2 320) | equal; both are Ruling DE's |
+| Standing inside its era band | 48.1 % within, 5.3 % above, 46.5 % below | 47.0 / 8.1 / 44.9 (the G1 eight: 45.8 / 10.8 / 43.4) | not different in kind; the added "above" readings are the two `empire`-bodied forms, as the scope projected (§5), with `empire`'s own 124 of 290 above band the reference case |
+| Mobilization inside its era band | 65.0 % within, 0.4 % above, 34.6 % below | 81.2 % within, 1.1 % above, 17.7 % below (the G1 eight: 97.3 % within) | G1 is ahead: the low-levy forms (the khanate, the weak-centre pair) sit in their band, where `chiefdom`, `tribal_confederacy` and `monarchy` / `theocracy` read below it on 258, 173 and 175 of 290 |
+| Plausibility against the cited anchor | not applicable (these are the anchors) | standing 0.735 to 1.079 of the anchor on 2 320 of 2 320 readings (bar 0.5 to 2.0) | G1 meets its own bar. **A comparison against history cannot be made**: every G1 row is an authored ordering (§3) and no figure exists to check it against |
+| Distinct headcount behaviours (distinct standing values per faction) | 6 of 8 | 10 of 16 | G1 widens the range from 6 to 10; the spread of standing across forms (max / min, 1.94) is the same, because `empire`'s 0.70 is the top and `chiefdom`'s 0.15 the bottom |
+| Degenerate or duplicate forms | `theocracy` = `monarchy` in every output; `city_state` = `republic` in every headcount (differing in the citizen body, so in verdicts) | adds `merchant_republic` and `holy_order`, **identical to their anchors in every output**; `sacral_monarchy` = `oligarchy` and `feudal_realm` = `city_league` in every headcount (differing in the citizen body) | six of the 16 forms repeat another's headcounts; the G1 eight add four new behaviours (extraction 0.25, 0.30, 0.40 and 0.60); `merchant_republic` and `holy_order` are labels, as §10 says and their picker hints state |
+| Never chosen | no reference form is unreachable | all eight G1 forms are never a generated faction's default (Ruling CZ Q6, by design) and are chosen by hand only | by design, not a defect |
+| Other ag-tech brackets | | | **not comparable here**: the harness holds the bracket fixed |
+
+### 11.4 Verdict, and whether anything in G1 should change
+
+**G1 is the better build, with one qualification.** It is a superset: the reference rows read bit-identically
+(G1-0's columns, 0 of 20 worlds moved) and the ordering holds in both. Where the two differ, G1 is ahead or level:
+it widens the distinct headcount behaviours from 6 to 10, and puts the low-levy forms inside their mobilization
+band (97.3 % of the G1 readings against 65.0 % of the reference's). On standing-army plausibility the two are
+not different in kind; the extra "above band" readings are the two `empire`-bodied forms, which behave as
+`empire` does.
+
+**The qualification.** Six of the 16 forms repeat another form's headcounts, and two of them (`merchant_republic`,
+`holy_order`) are indistinguishable from their anchors in every output, citizen body included. That was designed and
+disclosed (§5, §10, the picker hints) and it is not a defect. It can be removed only by Q8, giving a government a reach
+into the economy, relations or religion, which Ruling CZ keeps out of G1 and which would be its own ruled row.
+Whether those two labels are worth shipping before then is the owner's call; the hints already tell the user what
+they do.
+
+**Recommendation: change nothing in G1.** No plain defect was found, so no model code was touched. If the owner wants
+more behavioural separation between the forms, the lever is a Q8 ruling (and, for khanate-style cases, a further
+authored knob like G1-5's), not a change to the rows.
