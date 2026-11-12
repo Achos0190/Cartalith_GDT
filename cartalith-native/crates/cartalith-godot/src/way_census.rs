@@ -32,10 +32,24 @@ use cartalith_civ::{Way, WayType};
 /// the owner world is checked against that in [`fit_px_per_cell`]'s test.
 pub(crate) const FIT_HOST: (f64, f64) = (1104.0, 923.0);
 
+/// The same opening view with the right dock open, the narrower map area the
+/// rebased probe runs read off `ViewportHost` on 2026-11-12 (950 x 834 px:
+/// 0.6362 px a cell on the owner world, `STATUS.md` "Shared road trunks").
+/// Strokes sit about 10 % closer on screen here than at [`FIT_HOST`], so a
+/// bundle count can only be the same or higher; [`measure_way_bundles`]
+/// reports both rows so neither host is assumed for the other.
+pub(crate) const DOCKED_HOST: (f64, f64) = (950.0, 834.0);
+
 /// Screen pixels per map cell at the opening view for a `gw x gh` world:
 /// `ViewportHost.reset_view`'s cover scale over [`FIT_HOST`].
 pub(crate) fn fit_px_per_cell(gw: usize, gh: usize) -> f64 {
-    (FIT_HOST.0 / gw as f64).max(FIT_HOST.1 / gh as f64)
+    host_px_per_cell(FIT_HOST, gw, gh)
+}
+
+/// `ViewportHost.reset_view`'s cover scale over an arbitrary map area `host`
+/// (screen px): the map covers the box, so the larger of the two ratios wins.
+pub(crate) fn host_px_per_cell(host: (f64, f64), gw: usize, gh: usize) -> f64 {
+    (host.0 / gw as f64).max(host.1 / gh as f64)
 }
 
 /// `map_overlay.gd`'s `WAY_STYLE` under-stroke widths (`under_w`), screen px:
@@ -184,12 +198,27 @@ pub(crate) struct Row {
 /// Every census figure for one civ layer over its world.
 ///
 /// `climb_ref`: the OFF layer's per-edge raw-path climb, for the ON layer's
-/// per-edge climb ratio (W5); `None` on the OFF row itself.
+/// per-edge climb ratio (W5); `None` on the OFF row itself. Measured at the
+/// opening view over [`FIT_HOST`]; [`audit_at`] takes another map area.
 pub(crate) fn audit(
     ws: &cartalith_engine::WorldState,
     p: &cartalith_engine::WorldParams,
     c: &CivView,
     climb_ref: Option<&[f64]>,
+) -> (Row, Vec<f64>) {
+    audit_at(ws, p, c, climb_ref, FIT_HOST)
+}
+
+/// [`audit`] at the opening view over the map area `host` (screen px), and at
+/// four times that view. Only the screen-scale measures (bundles, overlaps,
+/// near-duplicates, junction ends at x4) read `host`; every map-space figure
+/// is the same at any host.
+pub(crate) fn audit_at(
+    ws: &cartalith_engine::WorldState,
+    p: &cartalith_engine::WorldParams,
+    c: &CivView,
+    climb_ref: Option<&[f64]>,
+    host: (f64, f64),
 ) -> (Row, Vec<f64>) {
     let (gw, gh) = (p.gw, p.gh);
     let geo = drawn(c);
@@ -199,7 +228,7 @@ pub(crate) fn audit(
         .collect();
     let places: Vec<(f64, f64)> = c.settlements.iter().map(|s| (s.placement.x as f64, s.placement.y as f64)).collect();
     let km_per_cell = p.map_width_km / gw as f64;
-    let fit = AuditView { px_per_cell: fit_px_per_cell(gw, gh) };
+    let fit = AuditView { px_per_cell: host_px_per_cell(host, gw, gh) };
     let x4 = AuditView { px_per_cell: fit.px_per_cell * 4.0 };
     let mut r = Row {
         ways: ways.len(),
@@ -382,10 +411,20 @@ fn the_fit_scale_matches_the_probe_on_the_owner_world() {
     assert!((fit_px_per_cell(2048, 1311) - 0.7041).abs() < 0.001, "{}", fit_px_per_cell(2048, 1311));
 }
 
+/// Protects: [`DOCKED_HOST`] reproduces the 0.6362 px a cell the rebased probe
+/// runs read on the owner world with the right dock open (2026-11-12). A
+/// literal, not the formula against itself.
+#[test]
+fn the_docked_scale_matches_the_probe_on_the_owner_world() {
+    let v = host_px_per_cell(DOCKED_HOST, 2048, 1311);
+    assert!((v - 0.6362).abs() < 0.001, "{v}");
+}
+
 /// Measurement (Ruling EU item 1, MW-0 and MW-4): OFF then ON on the three
-/// main worlds, the owner world first. Protects: nothing; red can only mean a
-/// panic or an empty network (asserted, so a world that stops reaching the code
-/// fails loudly).
+/// main worlds, the owner world first, each at both opening-view map areas
+/// ([`FIT_HOST`], then [`DOCKED_HOST`], tagged `@1104` and `@950`). Protects:
+/// nothing; red can only mean a panic or an empty network (asserted, so a
+/// world that stops reaching the code fails loudly).
 #[test]
 #[ignore = "measurement; run alone in release"]
 fn measure_way_bundles() {
@@ -395,12 +434,14 @@ fn measure_way_bundles() {
         let off_p = params_for(&s, false);
         let off = civ_for(&ws, &off_p);
         assert!(off.ways.len() > 3, "{}: no network", s.tag);
-        let (r_off, climbs) = audit(&ws, &off_p, &CivView::of(&off), None);
-        println!("{}", line(s.tag, "OFF", &r_off));
         let on_p = params_for(&s, true);
         let on = civ_for(&ws, &on_p);
-        let (r_on, _) = audit(&ws, &on_p, &CivView::of(&on), Some(&climbs));
-        println!("{}", line(s.tag, "ON", &r_on));
+        for (host, at) in [(FIT_HOST, "@1104"), (DOCKED_HOST, "@950")] {
+            let (r_off, climbs) = audit_at(&ws, &off_p, &CivView::of(&off), None, host);
+            println!("{}", line(s.tag, &format!("OFF{at}"), &r_off));
+            let (r_on, _) = audit_at(&ws, &on_p, &CivView::of(&on), Some(&climbs), host);
+            println!("{}", line(s.tag, &format!("ON{at}"), &r_on));
+        }
     }
 }
 
@@ -563,5 +604,68 @@ fn diagnose_remaining_overlaps() {
             "overlap {:.0}px sep {:.2}px | {} ({:?}) | {} ({:?}) | {gap}",
             st.len_px, st.mean_sep_px, wp.name, wp.way_type, wq.name, wq.way_type
         );
+    }
+}
+
+/// Diagnosis (Ruling EU item 1's residue, R5): on the 18 small worlds with
+/// villages on and the merge ON, every convergent bundle stretch left at the
+/// opening view and at x4, counted by the pair of way classes it runs between
+/// (track-track, track-road, road-road; "road" is any non-track class). Says
+/// which pair the residue is, so a fix can aim at it. Protects nothing; red
+/// can only mean a panic.
+#[test]
+#[ignore = "measurement; run alone in release"]
+fn diagnose_residual_bundle_pairs() {
+    let mut tot: std::collections::BTreeMap<(&str, &str), (usize, f64)> = std::collections::BTreeMap::new();
+    for size in [256usize, 384, 512] {
+        for seed in [12345, 24601, 314159, 7, 99991, 719004] {
+            let s = Spec {
+                tag: "small",
+                seed,
+                gw: size,
+                gh: size * 3 / 4,
+                km: crate::params::defaults().map_width_km,
+                density: 1.0,
+                metropolis: false,
+                villages: true,
+            };
+            let p = params_for(&s, true);
+            let ws = cartalith_engine::generate_terrain(&p);
+            let on = civ_for(&ws, &p);
+            if on.road_edges.is_empty() {
+                continue;
+            }
+            let geo = drawn(&CivView::of(&on));
+            let ways: Vec<AuditWay> = geo
+                .iter()
+                .map(|(pts, brks, w)| AuditWay { pts, brks, under_px: under_px(w.way_type), ends: (w.a_idx, w.b_idx) })
+                .collect();
+            let places: Vec<(f64, f64)> =
+                on.settlements.iter().map(|x| (x.placement.x as f64, x.placement.y as f64)).collect();
+            let fit = AuditView { px_per_cell: fit_px_per_cell(p.gw, p.gh) };
+            let kind = |i: usize| if geo[i].2.way_type == WayType::Ancient { "track" } else { "road" };
+            for (view, at) in [(fit, "fit"), (AuditView { px_per_cell: fit.px_per_cell * 4.0 }, "x4")] {
+                for st in way_audit::bundle_stretches(&ways, &places, view) {
+                    if st.overlap || !st.convergent {
+                        continue;
+                    }
+                    let (a, b) = (kind(st.p), kind(st.q));
+                    let pair = if a <= b { (a, b) } else { (b, a) };
+                    let key = (at, if pair == ("road", "road") { "road-road" } else if pair == ("track", "track") { "track-track" } else { "road-track" });
+                    let e = tot.entry(key).or_default();
+                    e.0 += 1;
+                    e.1 += st.len_px / view.px_per_cell * p.map_width_km / p.gw as f64;
+                    let (pa, pb) = (geo[st.p].0[0], *geo[st.p].0.last().unwrap());
+                    println!(
+                        "{size}/{seed} {at} {} | {:.0}px sep {:.2}px | {} ({:?}) {:.0},{:.0} -> {:.0},{:.0} | {} ({:?})",
+                        key.1, st.len_px, st.mean_sep_px, geo[st.p].2.name, geo[st.p].2.way_type, pa.0, pa.1, pb.0, pb.1,
+                        geo[st.q].2.name, geo[st.q].2.way_type
+                    );
+                }
+            }
+        }
+    }
+    for ((at, pair), (n, km)) in &tot {
+        println!("TOTAL {at} {pair}: {n} stretches, {km:.0} km");
     }
 }

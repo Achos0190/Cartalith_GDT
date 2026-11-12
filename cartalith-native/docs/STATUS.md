@@ -63,7 +63,8 @@ metropolis pick, so pairs, tiers and seats are unchanged by construction; only p
   edge uses at `REUSE_FACTOR` 0.25 (the reference's own way discount). A re-trace is kept only within `DETOUR_TOL` 15 % of the
   original path's undiscounted cost. A merged network is consolidated **without the extend-back pass**, which drew each shared
   trunk twice (this was most of the OFF "overlap" figure below, and is a defect of the reference-parity path too; it is left there).
-  Village tracks end where they first come within 3 cells of a road. Junction ends are joined onto the drawn trunk.
+  Village tracks end where they first come within 3 cells of a road or (follow-up below) of an earlier village track.
+  Junction ends are joined onto the drawn trunk.
 - **Measured (release, `way_census::measure_way_bundles` and `_small_worlds`, opening view `FIT_HOST` 1104 x 923 px; OFF → ON):**
   - Owner world (2048 x 1311, 246371): convergent bundles at the opening view 2 (2 474 km) → 0. Strokes drawn over each other
     for 30 px or more: 31 (89 440 km) → 0. Convergent bundles at x4: 21 (8 755 km) → 1 (250 km). Network km drawn 217 267 → 155 394.
@@ -71,7 +72,7 @@ metropolis pick, so pairs, tiers and seats are unchanged by construction; only p
   - 483920 and 912345 (1024 x 656): convergent at the opening view 3 → 0 and 0 → 0. Overlaps 29 → 0 and 26 → 0. x4 convergent
     34 → 0 and 43 → 1.
   - 18 small worlds (256/384/512 x six seeds), network only: convergent 34 (1 148 km) → 0; overlaps 229 → 2; x4 convergent
-    119 → 8. With villages: convergent 2 328 km → 456 km (−80 %); overlaps 312 → 39; x4 convergent 317 → 72. The residue is
+    119 → 8. With villages: convergent 2 328 km → 456 km (−80 %); overlaps 312 → 39; x4 convergent 317 → 72 (→ 8 after the follow-up below). The residue was
     village tracks.
   - Every world: no duplicate or near-duplicate stroke either way. Every settlement an edge joins keeps a drawn way within
     1.5 cells (0 unreached). Junction ends more than 1 px off another way at x4: main 0 of 634; small 1 of 199 and 1 of 3 736 (OFF: 5 of 14 and 5 of 3 613).
@@ -86,7 +87,8 @@ metropolis pick, so pairs, tiers and seats are unchanged by construction; only p
     machine's noise (other agents were running); both are inside the +25 % bar.
 - **Bars not met, reported:** W1 (no drawn sample on water) is not 0 in either variant (pre-existing; halved by merging).
   W6's maximum stays above 1.15 because it is measured against the direct optimum, not against the original path the guard reads.
-  "No convergent bundle at x4" holds on 483920 only; the residue is 1-2 on the other main worlds and village tracks on the small ones.
+  "No convergent bundle at x4" held on 483920 only at first; after the follow-up below it holds on 483920 and the owner
+  world, and 912345 keeps 1 (7.4 km, road beside road); the small worlds keep 8 road-road stretches (50 km).
 - **Moves, disclosed (§7p re-baseline):** a trunk is one `Way` named after its busiest pair ("A → B"). Deleting it strands the
   branches riding it. IN-13's way load credits only that pair. Military `road_km` counts shared km once. Junction towns have
   fewer way endpoints (urban gates). Village positions follow the merged roads. `assert_endpoints_reach_settlements` is
@@ -103,8 +105,8 @@ metropolis pick, so pairs, tiers and seats are unchanged by construction; only p
   different way (for example, its share of the network's traffic) rather than one cell's count.
 - **Opening-view scale depends on the dock layout.** The census measures at `FIT_HOST` 1104 x 923 px (0.7041 px a cell on
   the owner world), what the probe read when it was set. The rebased probe runs read the map host at 950 x 834 px (0.6362
-  px a cell), with the right dock open. The census was not re-run at the smaller scale (see the build note below), so its
-  opening-view figures hold for the wider host only; at 0.6362 px a cell two strokes sit about 10 % closer on screen.
+  px a cell), with the right dock open. At 0.6362 px a cell two strokes sit about 10 % closer on screen. The census now measures both hosts
+  (`way_census::DOCKED_HOST`, follow-up below): the ON figures are the same at either.
 - **Verified on the tree rebased onto `origin/main` `eef64483`**, then rebased again onto `bca53cb9`, which changes shell
   `.gd` files and documents only (the touch-scroll fling), so neither the Rust nor the probes below were re-run for it
   (no generation code moved upstream since the census's base,
@@ -118,7 +120,7 @@ metropolis pick, so pairs, tiers and seats are unchanged by construction; only p
   civilisation layer. For the same reason the `#[ignore]`d harnesses that read `params::defaults()` worlds were **not
   re-run**: `g1_baseline` (`g1_0_baseline_columns`, `ea0_ecological_ordering_diagnostic`), `fh_r2_baseline` and
   `bugsweep_seed707`. Ways feed military `road_km`, trade and village siting, so their pins are expected to move with this
-  ruling and must be re-run and re-recorded (`OUTSTANDING_WORK.md`). One edit was made after the test run and is a doc
+  ruling; they were re-run and re-recorded in the follow-up below. One edit was made after the test run and is a doc
   comment only (`way_merge::civ_merge_network_paths`, the class finding above). DLL rebuilt from the rebased tree
   (`target/debug/cartalith_godot.dll` 17:47:35, after the last `.rs` edit except that comment); `godot --headless --import`
   left `project.godot` byte-identical; `--check-only` on `_waybundle_probe.gd` and `shell/app.gd` (no shell `.gd` changed).
@@ -137,6 +139,38 @@ metropolis pick, so pairs, tiers and seats are unchanged by construction; only p
   14 of 47 edge groups end more than 2 cells from their own settlement. On a merged network a group may end at a junction
   (the restated rule above), but this probe does not check that those 14 ends lie on another way; the Rust test does, on the
   256 x 192 fixture only.
+- **Follow-up, same day (on `8f1740ef`):**
+  - **Village tracks join earlier tracks.** `way_census::diagnose_residual_bundle_pairs` (18 small worlds, villages on, ON)
+    found every convergent bundle left at the opening view (16 of 16, 456 km) and 64 of the 72 at x4 between two village
+    tracks, none between a track and a road, 8 between two roads. `civ_join_tracks_to_network` now adds each finished track
+    to the lines later tracks join, so a track running beside an earlier one into town ends where it first comes within
+    `JUNCTION_SNAP_CELLS` of it. Behind `civ.merge_ways` (the reference path is untouched). Re-measured (release census, ON):
+    small worlds with villages, convergent at the opening view 0 (was 456 km), overlaps 2 (was 39), x4 convergent 8 (was 72,
+    all road-road); owner world x4 1 → 0, river crossings 755 → 724 (bridge class 271 → 254), drawn km 189 552 → 184 780;
+    483920 and 912345 still 0 convergent and 0 overlaps at the opening view, x4 0 and 1 as before; 0 unreached and junction ends off another way 1 of
+    3 736 as before. New test `a_village_track_ends_where_it_reaches_an_earlier_track`; two literal mutants (drop the push,
+    `JUNCTION_SNAP_CELLS` 1.9) both killed.
+    Frames (windowed `_waybundle_probe`, 1600 x 1000, under the window lock; the DLL built at 20:34 from this tree and at 21:00 from the
+    same tree with the join's one line removed, restored and hash-checked after): seed 24601, 256 x 192, 800 km, focus 30,136,
+    where the census had put three track pairs. `tracks_s24601_x4_before_after.png` and `tracks_s24601_x16_before_after.png` in
+    `cartalith-native/docs/evidence/ways-planner-2026-11-12/`, opened and looked at: the two tracks running side by side
+    south of Ulavesulavale and into Revavenreach are one each after; 1 262 and 511 pixels changed at x4 and x16, and 0 in the
+    opening view's visible area. The probe read the map host as 950 x 834 on this tree, `DOCKED_HOST`'s figure.
+  - **Both opening-view hosts.** `measure_way_bundles` reports every world at `FIT_HOST` (1104 x 923) and `DOCKED_HOST`
+    (950 x 834, the right dock open). ON is identical at both on all three worlds (0 convergent, 0 overlaps; x4 0 / 0 / 1);
+    OFF differs a little (owner 2 → 1 convergent at the narrower host, 483920 3 → 1, overlaps 31 → 31 / 29 → 32 / 26 → 27).
+  - **The ignored harnesses, re-run** (release test profile, one at a time; `civ.merge_ways` forced off in
+    `params::defaults()` for the attribution runs, restored and hash-checked). `g1_baseline`: `G1_0`'s manpower column moved on
+    15 of 20 worlds with the merge on and 0 of 20 with it off; governments 0 of 20; the EA-0 counts are unchanged and only
+    its six ag-tech sweep hashes moved (identical with the merge off). Both **re-recorded** with the pre-merge values beside
+    the new, citing Ruling EU; the track join moves neither (re-run: 4 of 4 pass). `fh_r2_baseline`'s `AT_CURRENT` was
+    **already red with the merge off** (relations, belief and urban on 20 of 20, roster 0): an earlier ruled terrain change,
+    not bisected (the tree before Ruling ER does not compile its tests); the merge then moved belief on 20 and urban on 19.
+    **Re-baselined, disclosed**, each row carrying its merge-off value and the previous table's; the other five FH-R2
+    harnesses pass. `bugsweep_seed707` runs (it pins nothing).
+  - **Verified:** `cargo test --workspace --no-fail-fast` (now including `cartalith-knowledge`'s integration tests and the
+    doc-tests): **272 result lines, 7 997 passed, 0 failed, 157 ignored**. No `.gd` changed; `--check-only` on `shell/app.gd`
+    passes; `godot --headless --import` left `project.godot` byte-identical.
 - **Not built:** Ruling EU items 2 (the planner joins a way) and 3 (river stretches per stretch, with the best vessel).
   `OUTSTANDING_WORK.md` routes them.
 

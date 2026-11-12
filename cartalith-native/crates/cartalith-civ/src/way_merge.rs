@@ -606,8 +606,8 @@ fn nearest_on(curves: &[&Vec<Vec<(f64, f64)>>], p: (f64, f64), r: f64, gw: usize
     best
 }
 
-/// Ends every village track where it first reaches the road network, joined
-/// onto that road's drawn line (owner Ruling EU item 1).
+/// Ends every village track where it first reaches the road network or an
+/// earlier village track, joined onto that line (owner Ruling EU item 1).
 ///
 /// The village connector (`tools::civ_connect_village_addons`, the reference's
 /// `_civConnectVillageAddons`) routes each track from its village to the nearest
@@ -618,8 +618,20 @@ fn nearest_on(curves: &[&Vec<Vec<(f64, f64)>>], p: (f64, f64), r: f64, gw: usize
 /// once the network itself is merged; `STATUS.md`, 2026-11-12). Here a track
 /// (`WayType::Ancient`, not hidden) is cut at its first control point, walking
 /// from the village end, within [`JUNCTION_SNAP_CELLS`] of a visible non-track
-/// way's drawn curve, and that point is moved onto the curve. A track that never
-/// comes that close (it joins another village) is left whole. A village already
+/// way's drawn curve, and that point is moved onto the curve.
+///
+/// Tracks are taken in order, and each track's kept line (cut or whole) is
+/// added to the lines later tracks join, so two tracks running side by side
+/// into the same town become one: the later one ends where it first comes
+/// within [`JUNCTION_SNAP_CELLS`] of the earlier one. Measured on the census's
+/// 18 small worlds with villages before this was added
+/// (`way_census::diagnose_residual_bundle_pairs`, 2026-11-12): every
+/// convergent bundle left at the opening view (16 of 16) and 64 of the 72 at
+/// x4 ran between two tracks, none between a track and a road. A track joined
+/// onto another track still reaches the network through it (the earlier track
+/// is final when it is added), and the order is the connector's own, so the
+/// result is deterministic. A track that never comes that close to a road or
+/// an earlier track is left whole. A village already
 /// on a road keeps a two-point track from its pin to the road; one whose pin is
 /// exactly on the line is hidden (nothing to draw). `km` is scaled by the share
 /// of the control polyline kept, a labelled approximation of the consolidation's
@@ -628,13 +640,13 @@ fn nearest_on(curves: &[&Vec<Vec<(f64, f64)>>], p: (f64, f64), r: f64, gw: usize
 /// Called only with `CivParams::merge_ways` on; it must never move a track's
 /// village end, and never touch a non-track way.
 pub fn civ_join_tracks_to_network(ways: &mut [Way], gw: usize) {
-    let roads: Vec<Vec<Vec<(f64, f64)>>> = ways
+    // The lines a track may join: every visible road first, then each track's
+    // kept line as it is finished (see the doc).
+    let mut lines: Vec<Vec<Vec<(f64, f64)>>> = ways
         .iter()
-        .map(|w| {
-            if w.hidden || w.pts.len() < 2 || w.way_type == crate::WayType::Ancient { Vec::new() } else { drawn_runs(w) }
-        })
+        .filter(|w| !w.hidden && w.pts.len() >= 2 && w.way_type != crate::WayType::Ancient)
+        .map(drawn_runs)
         .collect();
-    let refs: Vec<&Vec<Vec<(f64, f64)>>> = roads.iter().filter(|r| !r.is_empty()).collect();
     let length = |pts: &[(f64, f64)], brks: &[usize]| -> f64 {
         pts.windows(2)
             .enumerate()
@@ -646,30 +658,31 @@ pub fn civ_join_tracks_to_network(ways: &mut [Way], gw: usize) {
         if w.hidden || w.pts.len() < 2 || w.way_type != crate::WayType::Ancient {
             continue;
         }
-        let Some((k, (q, d))) = w
+        let refs: Vec<&Vec<Vec<(f64, f64)>>> = lines.iter().collect();
+        let hit = w
             .pts
             .iter()
             .enumerate()
-            .find_map(|(k, &p)| nearest_on(&refs, p, JUNCTION_SNAP_CELLS, gw).map(|hit| (k, hit)))
-        else {
-            continue;
-        };
-        let before = length(&w.pts, &w.brks);
-        if k == 0 {
-            if d <= 0.0 {
-                w.hidden = true;
-                continue;
+            .find_map(|(k, &p)| nearest_on(&refs, p, JUNCTION_SNAP_CELLS, gw).map(|hit| (k, hit)));
+        if let Some((k, (q, d))) = hit {
+            let before = length(&w.pts, &w.brks);
+            if k == 0 {
+                if d <= 0.0 {
+                    w.hidden = true;
+                    continue;
+                }
+                w.pts = vec![w.pts[0], q];
+                w.brks.clear();
+            } else {
+                w.pts.truncate(k + 1);
+                w.pts[k] = q;
+                w.brks.retain(|&b| b <= k);
             }
-            w.pts = vec![w.pts[0], q];
-            w.brks.clear();
-        } else {
-            w.pts.truncate(k + 1);
-            w.pts[k] = q;
-            w.brks.retain(|&b| b <= k);
+            if before > 0.0 {
+                w.km *= length(&w.pts, &w.brks) / before;
+            }
         }
-        if before > 0.0 {
-            w.km *= length(&w.pts, &w.brks) / before;
-        }
+        lines.push(drawn_runs(w));
     }
 }
 
@@ -856,6 +869,32 @@ mod tests {
         assert!((end.0 - 20.0).abs() < 1e-9 && (end.1 - 10.0).abs() < 1e-9, "joined onto the road: {end:?}");
         assert!(ways[1].km < 10.0 && ways[1].km > 0.0);
         assert_eq!(ways[2], lone, "a track that never nears a road is left whole");
+    }
+
+    /// Protects: a village track that runs beside an earlier village track into
+    /// the same town is cut where it first comes within 3 cells of that track's
+    /// kept line, and joined onto it; the earlier track is untouched; the order
+    /// is the slice's (the earlier track never joins the later one). Fixture:
+    /// no road at all; track A from a village at (0, 10) east along y = 10 to a
+    /// town at (40, 10); track B from a village at (0, 30) to (10, 14.5), then
+    /// beside A at y = 12 to the same town. Negative control: (10, 14.5) is 4.5
+    /// cells off A, past the reach; (20, 12), 2 off, is the first within it.
+    #[test]
+    fn a_village_track_ends_where_it_reaches_an_earlier_track() {
+        let way = |pts: Vec<(f64, f64)>, a, b| Way {
+            tid: 0, pts, brks: Vec::new(), km: 10.0, name: String::new(), way_type: crate::WayType::Ancient, a_idx: a, b_idx: b,
+            hidden: false,
+        };
+        let a = way(vec![(0.0, 10.0), (10.0, 10.0), (20.0, 10.0), (30.0, 10.0), (40.0, 10.0)], 0, 2);
+        let b = way(vec![(0.0, 30.0), (10.0, 14.5), (20.0, 12.0), (30.0, 12.0), (40.0, 10.0)], 1, 2);
+        let mut ways = vec![a.clone(), b];
+        civ_join_tracks_to_network(&mut ways, 64);
+        assert_eq!(ways[0], a, "the earlier track is left whole");
+        assert_eq!(ways[1].pts.len(), 3, "cut at (20, 12): {:?}", ways[1].pts);
+        assert_eq!(ways[1].pts[0], (0.0, 30.0), "the village end never moves");
+        let end = ways[1].pts[2];
+        assert!((end.0 - 20.0).abs() < 1e-6 && (end.1 - 10.0).abs() < 1e-6, "joined onto track A: {end:?}");
+        assert!(ways[1].km < 10.0 && ways[1].km > 0.0);
     }
 
     /// Protects: the window. Its margin is `max(16, ceil(0.25 * longer side))`

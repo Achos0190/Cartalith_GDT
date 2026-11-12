@@ -3272,12 +3272,11 @@ become a single way to the same destination"*, then the same for the planner and
 ruling (`LARGE_ITEM_RULINGS.md`) has three parts. **Item 1 (generated ways merge into shared trunks) is built and ON for
 new worlds** (`cartalith_civ::way_merge`, `civ.merge_ways`; `STATUS.md`, 2026-11-12). **Still open:** item 1's owner
 questions (a trunk is named after its busiest pair, and IN-13's way load credits only that pair; and a trunk's class: on the
-owner world the merged network has no highway, because the one cell 8 edges used is used by 7) and its residue (village
-tracks still bundle on small worlds; drawn samples on water are halved, not zero, and were not zero before). **Item 1's
-unrun checks:** the `#[ignore]`d harnesses that read `params::defaults()` worlds (`g1_baseline`'s `g1_0_baseline_columns`
-and `ea0_ecological_ordering_diagnostic`, `fh_r2_baseline`, `bugsweep_seed707`) were not re-run after `civ.merge_ways` went
-on, nor were `cartalith-knowledge`'s integration tests and the doc-tests (the machine stopped starting new executables
-during the build; `STATUS.md`); run them, and re-record any pin the ruling moves, not weaken it. **Item 2,
+owner world the merged network has no highway, because the one cell 8 edges used is used by 7) and its residue (drawn
+samples on water are halved, not zero, and were not zero before; 8 road-beside-road stretches at x4 on the small census
+worlds and 1 on 912345; `_roadsettle_probe` does not yet check that an edge group's junction end lies on another drawn
+way). The village-track bundles, the census at the docked host and the ignored harnesses are done (`STATUS.md`,
+follow-up of 2026-11-12). **Item 2,
 the planner joins a way heading toward the destination: not built.** Its plan is the read-only map of 2026-11-12 (split
 `civ_dijkstra_path_guided` into a cost grid and a path step, score join and exit cells by `dS + ride + dD` under a margin,
 splice the way's own drawn line, report `way_spans`), with owner questions Q1-Q5 (world parameter or shell preference;
