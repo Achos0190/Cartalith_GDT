@@ -11696,6 +11696,14 @@ func phone_show_right_sheet() -> void:
 	if DccTheme.is_phone():
 		_set_sheet_open("right", true)
 
+## Closes the phone's right sheet if it is open; a no-op otherwise and off the phone. The twin of
+## `phone_show_right_sheet()`: `DccApp._on_element_tapped` calls it once a tap's action chips are up, because the
+## selection that tap made opened this sheet over the map and the chips (children of the map host) sit under it
+## (Ruling EO: a tap shows the chips; the sheet is a swipe away). Never touches the left sheet or the menu.
+func phone_hide_right_sheet() -> void:
+	if DccTheme.is_phone() and _right_sheet_open:
+		_set_sheet_open("right", false)
+
 ## Shows or hides the left or right dock as a phone sheet. Opening first closes all other phone
 ## overlays, then resets that dock's scroll to the top.
 func _set_sheet_open(side: String, open: bool) -> void:

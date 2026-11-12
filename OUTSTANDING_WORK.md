@@ -3521,7 +3521,7 @@ owner questions the same day.
 
 ### 2.12 Map context — the right-click context card and the tool ring (wheel menu)
 
-**Step 2 built 2026-11-11 (status: `STATUS.md`, "Edit any map element from its context"); still open: settlement Move, label/icon Note, way Rename, region/conflict/journey-marker/colour-mark picks, a phone-form probe pass.** **Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
+**Steps 2 and 3 built 2026-11-11 and 2026-11-12 (status: `STATUS.md`, "Edit any map element from its context"); still open: settlement Move and way Rename (no engine path), region/conflict/journey-marker/colour-mark picks and route chips (designs), undo for label, icon and name edits (what it takes is in `EDIT_FROM_CONTEXT_AUDIT.md`, "Build notes, step 3"), a real-device pass of the phone chips.** **Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
 click every element or label to edit it (move/delete/change the text/directly modify the vault information/etc) it
 should be intuitive to use and this felt missing the last time on pc. (also I suppose it should be a tap on touch
 devices)"*.
@@ -3533,7 +3533,7 @@ devices)"*.
   open or edit its vault note, and select it.
 - **Reuse:** each action goes through the existing path that action already has: `DccApp.select`, the tools' own
   move and delete, undo groups, and the vault's `_write_now`.
-- **Touch: decided, Ruling EO (2026-11-11).** A tap selects and shows the element's chips (Move, Delete, Rename, Note); a long-press keeps the full card. Step 1's audit is `EDIT_FROM_CONTEXT_AUDIT.md`; step 2 (build per family) is open. (Superseded text follows.)
+- **Touch: decided, Ruling EO (2026-11-11).** A tap selects and shows the element's chips (Move, Delete, Rename, Note); a long-press keeps the full card. Step 1's audit is `EDIT_FROM_CONTEXT_AUDIT.md`; steps 2 and 3 (the families, then the phone form and the label and icon Note tab) are built. (Superseded text follows.)
 - **Touch: an owner question.** The owner suggests a tap. Today a tap selects and a long-press opens the card
   (MAP_CONTEXT_SCOPE fork F1). The proposal's default: a tap selects and shows the element's action chips on the
   card or strip, and a long-press stays as the full card. The owner confirms or changes this.

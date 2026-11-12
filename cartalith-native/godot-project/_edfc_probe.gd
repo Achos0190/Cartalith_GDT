@@ -4,9 +4,10 @@ extends Node
 ##
 ##   godot --path . --resolution 1600x1000 _edfc_probe.tscn -- --vp 1600x1000                    (desktop)
 ##   godot --path . --resolution 1600x1000 _edfc_probe.tscn -- --vp 1600x1000 --force-touch      (the touch tablet: window-capped, no --density)
-##   ... -- --vp 1080x2340 --density 2.8125 --force-touch   (phone: NOT green, 25-34 failures in the probe's phone hold handling; do not cite)
+##   ... -- --vp 1080x2340 --density 2.8125 --force-touch   (the phone: its WORLD and CIVIL legs use the DOMAIN tab, not MAP, which selects CARTO)
 ## A 2388x1668 @2 run classifies as a PHONE (the 1600x1000 window is 800 dp), so it is not the tablet form.
-## Arguments read by THIS file: `--vp WxH`. Accepted because the shell reads them: `--density D`, `--force-touch`.
+## Arguments read by THIS file: `--vp WxH`, `--shots DIR` (evidence frames, never asserted), `--only LM,TC,...` (a debugging aid; only a
+## full run is a result). Accepted because the shell reads them: `--density D`, `--force-touch`.
 ## Anything else aborts with exit 2. Windowed, with a wiped user dir (`APPDATA`), one window lock at a time.
 ##
 ## Legs (each asserts with literals written by hand, never against the constant it came from):
@@ -17,6 +18,8 @@ extends Node
 ##   IC  icon: Move in every domain, Delete (confirms) outside CARTO
 ##   RT  route: Rename in CIVIL
 ##   TC  touch: a tap shows the element's chips, a long press keeps the full card
+##   WY  touch: a finger's way pick (22 px, not the mouse's 6) and the way's Delete chip, deleted and undone
+##   NT  selection kinds: a click or tap selects a label or icon, and the Context panel's Note tab resolves its note
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument.
 
 const SEED := 24601
@@ -27,6 +30,8 @@ var _vp: SubViewport
 var _app: Node
 var _ov: Control
 var _touch := false
+## The probe viewport's width in px (set by `_run`): the phone leg derives its 44-reference-px floor from it.
+var _vw := 0
 var _lm_key := ""
 
 
@@ -68,7 +73,7 @@ func _ready() -> void:
 		if a == "--force-touch":
 			_touch = true
 			i += 1
-		elif a in ["--vp", "--density"]:
+		elif a in ["--vp", "--density", "--shots", "--only"]:
 			i += 2
 		else:
 			print("ABORT: unknown argument ", a)
@@ -233,6 +238,9 @@ func _press(id: String) -> bool:
 	var row := _row_of(id)
 	if row.is_empty() or not row.has("callable"):
 		return false
+	## The phone sheet closes itself when a row is pressed (and releases its share of the world pause); running the
+	## callable alone left it, and its scrim, over the map for every later leg. Closed first, as the sheet does.
+	await _close_card()
 	(row["callable"] as Callable).call()
 	await _frames(3)
 	return true
@@ -248,6 +256,7 @@ func _answer_prompt(text: String) -> bool:
 		return false
 	le.text = text
 	dlg.confirmed.emit()
+	dlg.hide()  # the OK button hides its dialog before it emits; emitting alone left a phone-sized one on top of the map
 	await _frames(4)
 	return true
 
@@ -258,11 +267,25 @@ func _answer_confirm(yes: bool) -> bool:
 		return false
 	if yes:
 		dlg.confirmed.emit()
+		dlg.hide()
 	else:
 		dlg.canceled.emit()
 		dlg.hide()
 	await _frames(4)
 	return true
+
+
+## How many `ConfirmationDialog`s are visible right now.
+func _visible_dialogs() -> int:
+	var n := 0
+	var stack: Array = [_app]
+	while not stack.is_empty():
+		var nd: Node = stack.pop_back()
+		if nd is ConfirmationDialog and (nd as ConfirmationDialog).visible and not nd.is_queued_for_deletion():
+			n += 1
+		for c in nd.get_children():
+			stack.append(c)
+	return n
 
 
 func _find_dialog() -> ConfirmationDialog:
@@ -290,6 +313,12 @@ func _find_line_edit(n: Node) -> LineEdit:
 # ---- fixtures ------------------------------------------------------------------------------------------------------
 
 ## A screen position (host space) over `cell`, from the overlay's own transform, or (-1,-1) when it is off the plate.
+## Whether host point `hp` is on the phone's own chrome rather than the map: outside the band between the app bar and the
+## tool row, or on the layers button (top left). Always false off the phone.
+func _phone_chrome(hp: Vector2) -> bool:
+	return DccTheme.is_phone() and (not Rect2(20.0, 230.0, float(_vw) - 40.0, 1390.0).has_point(hp) or Rect2(0.0, 200.0, 160.0, 170.0).has_point(hp))
+
+
 func _pos_of_cell(cell: Vector2) -> Vector2:
 	var rect: Rect2 = _ov._displayed_rect()
 	var p: Vector2 = _ov._cell_to_screen(cell, rect)
@@ -297,6 +326,12 @@ func _pos_of_cell(cell: Vector2) -> Vector2:
 	if not inter.grow(-24.0).has_point(p):
 		return Vector2(-1, -1)
 	var hp: Vector2 = _ov.get_global_transform() * p
+	## On the phone the map host also carries the layers button (top left), the tool buttons and the control row; a
+	## point beside them is the BUTTON's tap (`_on_map` counts any host descendant as the map). Taps stay in the
+	## band between the app bar and the tool row, clear of the layers button (measured: a pin at (123, 237) sat under it and its tap never
+	## reached the map).
+	if _phone_chrome(hp):
+		return Vector2(-1, -1)
 	return hp if _app.viewport._on_map(hp) else Vector2(-1, -1)
 
 
@@ -314,7 +349,10 @@ func _domain(d: String) -> void:
 	_app.select_domain(d)
 	await _frames(5)
 	if DccTheme.is_phone():
-		_app._pick_phone_tab("map")
+		## The phone's MAP tab SELECTS CARTOGRAPHY (`_pick_phone_tab("map")`), which silently turned every WORLD and
+		## CIVIL leg into a CARTO one; its DOMAIN tab keeps the domain just selected. The sheet is dropped to peek so
+		## the map stays uncovered.
+		_app._pick_phone_tab("domain", false)
 		_app.set_phone_detent("peek")
 	await get_tree().create_timer(0.4).timeout
 	await _frames(3)
@@ -335,6 +373,7 @@ func _wait_gen(bridge) -> void:
 # ---- the run -------------------------------------------------------------------------------------------------------
 
 func _run(vw: int, vh: int) -> void:
+	_vw = vw
 	DisplayServer.window_set_size(Vector2i(mini(vw, 1600), mini(vh, 1000)))
 	_vp = SubViewport.new()
 	_vp.size = Vector2i(vw, vh)
@@ -367,12 +406,29 @@ func _run(vw: int, vh: int) -> void:
 	_app.viewport.refresh_annotations()
 	await _frames(4)
 
-	await _leg_landmark(bridge)
-	await _leg_settlement(bridge)
-	await _leg_label_icon(bridge)
-	await _leg_route(bridge)
-	await _leg_touch(bridge)
-	await _leg_save(bridge)
+	if _runs("LM"):
+		await _leg_landmark(bridge)
+	if _runs("ST"):
+		await _leg_settlement(bridge)
+	if _runs("LB"):
+		await _leg_label_icon(bridge)
+	if _runs("RT"):
+		await _leg_route(bridge)
+	if _runs("TC"):
+		await _leg_touch(bridge)
+	if _runs("WY"):
+		await _leg_way(bridge)
+	if _runs("NT"):
+		await _leg_note(bridge)
+	if _runs("SAVE"):
+		await _leg_save(bridge)
+
+
+## Whether leg `name` runs: all of them by default, or only those listed in `--only LM,TC` (a debugging aid; the
+## committed result is always a full run, which is what `RESULT:` reports).
+func _runs(name: String) -> bool:
+	var only := _arg("--only", "")
+	return only == "" or only.split(",").has(name)
 
 
 # ---- LM ------------------------------------------------------------------------------------------------------------
@@ -494,6 +550,22 @@ func _settlement_pos(i: int) -> Vector2:
 	return Vector2(-1, -1)
 
 
+## The most populous settlement: a small place is hidden by the overlay's zoom rules on a phone-sized, zoomed view
+## (measured: the one nearest the map centre had no pin and only a road under it), and a pin that is not drawn
+## cannot be tapped. The biggest place is drawn at every zoom.
+func _inland_settlement() -> int:
+	var best := 0
+	var best_pop := -1.0
+	var all: Array = _app.bridge.settlements()
+	for i in all.size():
+		var pop := float((all[i] as Dictionary).get("population", 0.0))
+		if pop > best_pop:
+			best_pop = pop
+			best = i
+	return best
+
+
+
 func _st_cell(i: int) -> Vector2:
 	var s: Dictionary = _app.bridge.settlements()[i]
 	return Vector2(float(s["x"]), float(s["y"]))
@@ -560,6 +632,17 @@ func _leg_settlement(bridge) -> void:
 
 ## An empty land spot (host space) at least `away` px from `other`, scanning a lattice of the map interior.
 func _empty_spot(other: Vector2, away: float) -> Vector2:
+	## A phone's map is narrow and a WORLD pick also hits rivers, so the requested distance is relaxed (to 2/3, then
+	## 1/3) before the probe gives up; the CALLER still gets the farthest spot the view allows.
+	for k in [1.0, 0.66, 0.33]:
+		var s := _empty_spot_at(other, away * k)
+		if s.x >= 0.0:
+			return s
+	## A phone's WORLD map can be all river: take any spot that is clear of an ELEMENT, at the shortest distance.
+	return _empty_spot_at(other, away * 0.33, false)
+
+
+func _empty_spot_at(other: Vector2, away: float, strict := true) -> Vector2:
 	var rect: Rect2 = _ov._displayed_rect()
 	var inter: Rect2 = _ov._interior_rect(rect).grow(-60.0)
 	var y := inter.position.y
@@ -569,9 +652,20 @@ func _empty_spot(other: Vector2, away: float) -> Vector2:
 			var lp := Vector2(x, y)
 			x += 17.0
 			var hp: Vector2 = _ov.get_global_transform() * lp
-			if (other.x >= 0.0 and hp.distance_to(other) < away) or not _app.viewport._on_map(hp):
+			## 90 px off the screen edges: the phone opens its dock sheets on an edge swipe, so a finger that lands there
+			## is not the map's (measured: a Move destination at x = 43 never completed its tap).
+			if (other.x >= 0.0 and hp.distance_to(other) < away) or not _app.viewport._on_map(hp) \
+					or hp.x < 90.0 or hp.x > float(_vw) - 90.0 or _phone_chrome(hp):
 				continue
-			if not _ov.hits_at(lp).is_empty():
+			## Never under the chip strip (a tap there is a chip press, not bare ground).
+			if _app.element_chips != null and _app.element_chips.visible and _app.element_chips.get_global_rect().grow(24.0).has_point(hp):
+				continue
+			## On touch the pick is a finger's (a way within 22 px counts), so bare ground must be bare for THAT request.
+			var spot_hits: Array = _ov.request_at(lp, "touch").get("hits", []) if _touch else _ov.hits_at(lp)
+			if strict and not spot_hits.is_empty():
+				continue
+			## Loose: a river or road under the spot is allowed (a destination click does not mind), an element is not.
+			if not strict and spot_hits.any(func(h): return String((h as Dictionary)["kind"]) in ["settlement", "landmark", "label", "icon"]):
 				continue
 			var g: Dictionary = _ov._grid_point(lp, rect, _ov._interior_rect(rect))
 			var cell: Dictionary = _app.bridge.sample_cell(int(g["gx"]), int(g["gy"]))
@@ -650,16 +744,20 @@ A note for a label.
 	_ok(await _press("el.label_rename"), "LB press Rename")
 	_ok(await _answer_prompt("Renamed label"), "LB prompt answered")
 	_ok(String(bridge.label_get(li).get("text", "")) == "Renamed label", "LB the label text changed")
-	var dest := _empty_spot(pa, 120.0)
-	_ok(dest.x >= 0.0, "LB a destination spot exists")
 	await _domain("civilization")
 	pa = await _label_hit_pos(li)
 	await _context_at(pa)
 	_ok(await _press("el.label_move"), "LB press Move")
 	_ok(_app.armed_tool == "move_element", "LB Move armed the destination click (armed %s)" % _app.armed_tool)
-	await _close_card()
-	await _map_click(dest)
+	await _close_card()  # closing the phone sheet re-lays the map out: choose the destination only after it
+	## The destination is chosen NOW, in the view the click lands in: a domain switch and the label re-find above
+	## re-centre the view, which made a spot picked earlier point at other ground on a phone-sized map.
+	var dest := _empty_spot(pa, 120.0)
+	_ok(dest.x >= 0.0, "LB a destination spot exists")
+	## The expected cell is read BEFORE the click: a move can re-fit the view (it did, by 36 cells), and a cell read
+	## afterwards names other ground than the tap landed on.
 	var cd := _cell_of(dest)
+	await _map_click(dest)
 	var lb: Dictionary = bridge.label_get(li)
 	_ok(absf(float(lb.get("x", -99)) - cd.x) < 1.0 and absf(float(lb.get("y", -99)) - cd.y) < 1.0, "LB the label moved to the clicked cell (%s,%s vs %s)" % [str(lb.get("x")), str(lb.get("y")), str(cd)])
 	_ok(_app.armed_tool == "inspect", "LB the map is handed back to Inspect")
@@ -718,8 +816,8 @@ A note for a label.
 	await _context_at(pb)
 	_ok(await _press("el.icon_move"), "IC press Move")
 	await _close_card()
-	await _map_click(dest2)
 	var cd2 := _cell_of(dest2)
+	await _map_click(dest2)
 	var ic: Dictionary = bridge.icon_get(ii)
 	_ok(absf(float(ic.get("x", -99)) - cd2.x) < 1.0 and absf(float(ic.get("y", -99)) - cd2.y) < 1.0, "IC the icon moved to the clicked cell")
 	var ieid2 := int(bridge.vault_icon_entity_id(ii).get("entity_id", 0))
@@ -737,22 +835,24 @@ A note for a label.
 	await _close_card()
 
 
-func _label_hit_pos(li: int) -> Vector2:
+func _label_hit_pos(li: int, only := false) -> Vector2:
 	var lb: Dictionary = _app.bridge.label_get(li)
 	var cell := Vector2(float(lb.get("x", 0)), float(lb.get("y", 0)))
 	await _centre(cell)
-	return _scan_for("label", li, _pos_of_cell(cell))
+	return _scan_for("label", li, _pos_of_cell(cell), only)
 
 
-func _icon_hit_pos(ii: int) -> Vector2:
+func _icon_hit_pos(ii: int, only := false) -> Vector2:
 	var ic: Dictionary = _app.bridge.icon_get(ii)
 	var cell := Vector2(float(ic.get("x", 0)) + 0.5, float(ic.get("y", 0)) + 0.5)
 	await _centre(cell)
-	return _scan_for("icon", ii, _pos_of_cell(cell))
+	return _scan_for("icon", ii, _pos_of_cell(cell), only)
 
 
-## The host position near `base` whose first hit of `kind` has `id`, scanning a small square, or (-1,-1).
-func _scan_for(kind: String, id: int, base: Vector2) -> Vector2:
+## The host position near `base` whose first hit of `kind` has `id`, scanning a small square, or (-1,-1). With `only`,
+## the position must also be one where a pick SELECTS that element: it is the nearest hit of the request a click (or
+## a tap, on touch) would make, and no settlement or landmark is under it (those win the selection).
+func _scan_for(kind: String, id: int, base: Vector2, only := false) -> Vector2:
 	if base.x < 0.0:
 		return base
 	for dy in range(-14, 15, 2):
@@ -760,7 +860,16 @@ func _scan_for(kind: String, id: int, base: Vector2) -> Vector2:
 			var p := base + Vector2(dx, dy)
 			if not _app.viewport._on_map(p):
 				continue
-			for h in _ov.hits_at(_local(p)):
+			var hits: Array = _ov.request_at(_local(p), "touch" if _touch else "mouse").get("hits", []) if only else _ov.hits_at(_local(p))
+			if only:
+				var clean := not hits.is_empty() and String((hits[0] as Dictionary)["kind"]) == kind and int((hits[0] as Dictionary)["id"]) == id
+				for h in hits:
+					if String((h as Dictionary)["kind"]) in ["settlement", "landmark"]:
+						clean = false
+				if clean:
+					return p
+				continue
+			for h in hits:
 				if String((h as Dictionary)["kind"]) == kind:
 					if int((h as Dictionary)["id"]) == id:
 						return p
@@ -822,10 +931,15 @@ func _leg_touch(bridge) -> void:
 	_ok(chips.visible, "TC a tap on a landmark shows the chips")
 	var words: Array = chips.chip_words()
 	_ok(words.has("Rename") and words.has("Note") and not words.has("Delete") and not words.has("Move"), "TC landmark chips are Rename and Note (got %s)" % str(words))
+	if DccTheme.is_phone():
+		## The tap's selection opens the phone's right sheet over the map, which would cover the chips (found by this
+		## probe: a finger on Rename pressed the sheet's "Why it is here"). With chips up the sheet must be closed.
+		_ok(not _app.right_dock.visible, "TC phone: the right sheet is closed while the chips are up")
 	# Press Rename through the real chip, answer the prompt.
 	var cc := _chip_center("Rename")
 	await _move_to(cc)
 	await _tap(cc)
+	_ok(_visible_dialogs() == 1, "TC one tap on a chip opens ONE prompt, not one per delivered event (%d)" % _visible_dialogs())
 	_ok(await _answer_prompt("Chip name"), "TC the Rename chip opened the prompt")
 	var nm := String((bridge.landmark_names()[li] as Dictionary)["name"])
 	_ok(nm == "Chip name", "TC the landmark is now Chip name (got %s)" % nm)
@@ -838,7 +952,7 @@ func _leg_touch(bridge) -> void:
 	_ok(ids.has("global.centre") and ids.has("el.landmark_rename"), "TC a long press keeps the full card (ids %s)" % str(ids))
 	await _close_card()
 	# Settlement in CIVIL: Rename, Note, Delete chips; Delete confirms.
-	await _centre(_st_cell(0))
+	await _centre(_st_cell(_inland_settlement()))
 	var fs := _find_settlement()
 	_ok(int(fs[0]) >= 0, "TC a settlement is pickable")
 	var si: int = fs[0]
@@ -894,6 +1008,243 @@ func _leg_save(bridge) -> void:
 		if String((n as Dictionary)["key"]) == key:
 			found = String((n as Dictionary)["name"]) == "The Weeping Stair" and String((n as Dictionary)["source"]) == "user"
 	_ok(found, "SAVE the user name survived save and reopen")
+
+
+# ---- NT: selection kinds and the Note tab -----------------------------------------------------------------------------
+
+## Saves the probe's root window to `<--shots dir>/<name>.png` when `--shots` was given. Evidence only: never asserted.
+func _shot(name: String) -> void:
+	var dir := _arg("--shots", "")
+	if dir == "":
+		return
+	DirAccess.make_dir_recursive_absolute(dir)
+	await _frames(2)
+	_vp.get_texture().get_image().save_png(dir.path_join(name + ".png"))
+
+
+## The Note tab's resolver: the dock's own when it built one (desktop, tablet), else a fresh instance (the phone's
+## sheet has no tab strip, so the dock never builds the tab; the resolver is the same class either way).
+func _resolver(dock):
+	return dock._note if dock._note != null else load("res://shell/context_note.gd").new(_app)
+
+
+## A label and an icon become SELECTION subjects (a click on desktop, a tap with chips on touch) and the Context
+## panel's Note tab resolves the bound note for them (Ruling EQ item 2, "Note tab" follow-up). Legs, each with literals:
+##   NTL  label: the pick selects {label, index}; the header names it; Note resolves no_note, then note after an attach
+##   NTI  icon: the same
+##   NTD  deleting a label that sits before the selected one drops the selection (indices shift)
+##   NTP  the phone's equivalent (no tabs): the sheet's page offers the Note row; a chip press leaves the world pause level
+func _leg_note(bridge) -> void:
+	print("== NT selection and the Note tab ==")
+	await _domain("world")
+	await _centre(Vector2(128, 96))
+	_app.arm_tool("inspect")
+	var root := ProjectSettings.globalize_path("user://") + "nt_vault"
+	DirAccess.make_dir_recursive_absolute(root + "/Notes")
+	var wf := FileAccess.open(root + "/Notes/Note label.md", FileAccess.WRITE)
+	wf.store_string("# Note label\n\nbody\n")
+	wf.close()
+	_ok(bool(bridge.vault_connect(root, "NT").get("ok", false)), "NT a vault folder is connected")
+	var a := _empty_spot(Vector2(-1, -1), 0.0)
+	var b := _empty_spot(a, 150.0)
+	_ok(a.x >= 0.0 and b.x >= 0.0, "NT two empty land spots")
+	if a.x < 0.0 or b.x < 0.0:
+		return
+	var ca := _cell_of(a)
+	var cb := _cell_of(b)
+	var early: int = bridge.label_create(cb.x, cb.y, "Early label")
+	var li: int = bridge.label_create(ca.x, ca.y, "Note label")
+	## An earlier leg may have left a note linked to a cell id (a deleted label's link stays), and a label created on
+	## that cell would inherit it: step along until this label's own id has no link, so "unlinked" is true by
+	## construction and not by luck.
+	var tries := 0
+	while tries < 8 and not bridge.vault_links_for("label", int(bridge.vault_label_entity_id(li).get("entity_id", 0))).is_empty():
+		bridge.label_delete(li)
+		ca.x += 3.0
+		li = bridge.label_create(ca.x, ca.y, "Note label")
+		tries += 1
+	_ok(tries < 8, "NT a fresh cell with no inherited link (%d tries)" % tries)
+	_ok(early >= 0 and li > early, "NT two labels, the one under test after the other (%d, %d)" % [early, li])
+	_app.viewport.refresh_annotations()
+	await _frames(4)
+	var dock = _app.right_dock_ctrl
+	var depth0: int = _app._context_surface_depth
+	# --- NTL: pick the label ---
+	var pl := await _label_hit_pos(li, true)
+	_ok(pl.x >= 0.0, "NTL the label is pickable")
+	if pl.x < 0.0:
+		return
+	await _map_click(pl)
+	await _frames(4)
+	_ok(_app.selection == {"kind": "label", "id": li}, "NTL a %s on a label selects it (%s)" % ["tap" if _touch else "click", str(_app.selection)])
+	_ok(dock.shown_subject() == {"kind": "label", "id": li}, "NTL the Context panel shows that subject (%s)" % str(dock.shown_subject()))
+	_ok(dock.subject_name(_app.selection) == "Note label", "NTL the header names the label (%s)" % dock.subject_name(_app.selection))
+	await _shot("nt_label_selected")
+	var r: Dictionary = _resolver(dock).resolve(_app.selection)
+	_ok(String(r.get("state", "")) == "no_note" and String(r.get("vk", "")) == "label", "NTL unlinked: the Note tab resolves no_note for kind label (%s)" % str(r))
+	var eid := int(bridge.vault_label_entity_id(li).get("entity_id", 0))
+	_ok(eid != 0 and int(r.get("vid", -1)) == eid, "NTL the tab's entity id is the engine's cell id, not the index")
+	_ok(bool(bridge.vault_attach("label", eid, "Note label", "Notes/Note label.md", "").get("ok", false)), "NTL a note is attached")
+	r = _resolver(dock).resolve(_app.selection)
+	_ok(String(r.get("state", "")) == "note" and String(r.get("rel", "")) == "Notes/Note label.md", "NTL linked: the tab resolves the note (%s)" % str(r))
+	if not DccTheme.is_phone():
+		_ok(dock.show_tab("note"), "NTL the Note tab opens")
+		await _frames(6)
+		var vw = _app.vault_window
+		_ok(vw.is_docked() and vw.docked_path().ends_with("Note label.md"), "NTL the tab docks the label's note editor (%s)" % vw.docked_path())
+		dock.show_tab("inspect")
+		await _frames(3)
+	else:
+		# The phone has no tabs: its sheet's Inspect page carries the Note row, and the chip opens the vault.
+		dock.refresh_shown()  # the page was built before the note was attached
+		_app.phone_show_right_sheet()
+		await _frames(4)
+		var act = _app.right_dock_body.find_child("Act_el_label_note", true, false)
+		_ok(act != null, "NTP the phone sheet's label page offers the Note row")
+		if act != null:
+			_ok(String((act as Button).text).to_lower() == "open note for note label", "NTP the row reads Open note for Note label (%s)" % (act as Button).text)
+			## 44 reference px of a 412-wide canvas, in this viewport's physical px, less 5 % for rounding: derived from
+			## the viewport width the probe was started with, not from the shell's own scale.
+			var floor_px := 44.0 * float(_vw) / 412.0 * 0.95
+			_ok((act as Button).size.y >= floor_px, "NTP the Note row is at least 44 dp tall: %.0f px >= %.0f (%s)" % [(act as Button).size.y, floor_px, str((act as Button).size)])
+	if DccTheme.is_phone():
+		await _shot("nt_phone_sheet_open")
+		_app._close_all_phone_overlays()
+		await _frames(3)
+	# --- NTD: an earlier label's deletion drops the selection ---
+	_ok(bridge.label_delete(early), "NTD the earlier label is deleted")
+	await _frames(3)
+	_ok(_app.selection.is_empty(), "NTD the selection is dropped, not left on a neighbour (%s)" % str(_app.selection))
+	li -= 1
+	# --- NTI: an icon ---
+	var pack: String = ProjectSettings.globalize_path("res://") + "../crates/cartalith-assets/tests/fixtures/reference_pack.zip"
+	_ok(bridge.world_gen.load_asset_pack(pack), "NTI the fixture pack loaded")
+	var c := _empty_spot(a, 150.0)
+	var cc := _cell_of(c)
+	_ok(bridge.icon_arm("feature", 0, 1.0, 0.0, 0.0), "NTI an icon armed")
+	var ii: int = bridge.icon_place(cc.x, cc.y)
+	bridge.icon_disarm()
+	_ok(ii >= 0, "NTI an icon placed")
+	_app.viewport.refresh_annotations()
+	await _frames(4)
+	var pi := await _icon_hit_pos(ii, true)
+	_ok(pi.x >= 0.0, "NTI the icon is pickable")
+	if pi.x < 0.0:
+		return
+	await _map_click(pi)
+	await _frames(4)
+	_ok(_app.selection == {"kind": "icon", "id": ii}, "NTI a %s on an icon selects it (%s)" % ["tap" if _touch else "click", str(_app.selection)])
+	_ok(dock.shown_subject() == {"kind": "icon", "id": ii}, "NTI the panel shows the icon as the subject")
+	await _shot("nt_icon_tapped")
+	r = _resolver(dock).resolve(_app.selection)
+	_ok(String(r.get("state", "")) == "no_note" and String(r.get("vk", "")) == "icon", "NTI unlinked: the Note tab resolves no_note for kind icon (%s)" % str(r))
+	var ieid := int(bridge.vault_icon_entity_id(ii).get("entity_id", 0))
+	var wf2 := FileAccess.open(root + "/Notes/Icon note.md", FileAccess.WRITE)
+	wf2.store_string("# Icon note\n")
+	wf2.close()
+	_ok(bool(bridge.vault_attach("icon", ieid, "Icon", "Notes/Icon note.md", "").get("ok", false)), "NTI a note is attached to the icon")
+	r = _resolver(dock).resolve(_app.selection)
+	_ok(String(r.get("state", "")) == "note" and String(r.get("rel", "")) == "Notes/Icon note.md", "NTI linked: the tab resolves the icon's note (%s)" % str(r))
+	if _touch:
+		# The chip strip is up after a tap; its Note chip opens the vault at the icon, and the world pause is level.
+		var chips = _app.element_chips
+		_ok(chips.visible and chips.chip_words().has("Note"), "NTP the icon's chips include Note (%s)" % str(chips.chip_words()))
+		var nb: Button = chips.chip_button("Note")
+		if nb != null:
+			var chip_floor := 44.0 * float(_vw) / 412.0 * 0.95 if DccTheme.is_phone() else 44.0
+			_ok(nb.size.x >= chip_floor and nb.size.y >= chip_floor, "NTP the Note chip is at least 44 dp square: %s >= %.0f" % [str(nb.size), chip_floor])
+			await _tap(_chip_center("Note"))
+			await _frames(6)
+			_ok(_app.vault_window.visible and String(_app.vault_window._kind) == "icon", "NTP the Note chip opened the vault at kind icon")
+			_app.vault_window.hide()
+			await _frames(3)
+	_ok(_app._context_surface_depth == depth0, "NT the world pause is level after every pick, chip and sheet (%d vs %d)" % [_app._context_surface_depth, depth0])
+	# --- a click on bare ground clears it ---
+	var empty := _empty_spot(pi, 80.0)
+	await _map_click(empty)
+	await _frames(3)
+	_ok(_app.selection.is_empty(), "NT a pick of bare ground clears the label/icon selection")
+
+
+# ---- WY: a finger's way pick and the way's Delete chip -----------------------------------------------------------------
+
+## The pick tolerance of a LINE (a way) is a finger's on touch (`ContextBroker.PICK_LINE_TOUCH_PX`, 22 px) and the mouse's
+## 6 px otherwise, and a way's Delete chip is offered only when the way is the nearest hit. Literals, not the constants:
+##   WYA  a touch request finds a way 10..22 px off the line that the mouse request does not (kills 22 -> 6)
+##   WYB  no touch request reports a way farther than 22.5 px, and no mouse request one farther than 6.5 (kills 22 -> 44)
+##   WYC  tapping such a spot shows exactly the Delete chip; pressing it deletes the way, and Undo puts it back
+func _leg_way(bridge) -> void:
+	print("== WY way pick and chip ==")
+	if not _touch:
+		return
+	await _domain("civilization")
+	_app.arm_tool("inspect")
+	await _centre(_st_cell(_inland_settlement()))
+	var rect: Rect2 = _ov._displayed_rect()
+	var inter: Rect2 = _ov._interior_rect(rect)
+	var found_lp := Vector2(-1, -1)
+	var found_hit := {}
+	var max_touch := 0.0
+	var max_mouse := 0.0
+	var seen_way := 0
+	var y := inter.position.y + 10.0
+	while y < inter.end.y - 10.0:
+		var x := inter.position.x + 10.0
+		while x < inter.end.x - 10.0:
+			var lp := Vector2(x, y)
+			x += 5.0
+			var hp: Vector2 = _ov.get_global_transform() * lp
+			if not _app.viewport._on_map(hp) or _phone_chrome(hp):
+				continue
+			var th: Array = _ov.request_at(lp, "touch").get("hits", [])
+			var mh: Array = _ov.hits_at(lp)
+			for h in mh:
+				if String((h as Dictionary)["kind"]) == "way":
+					max_mouse = maxf(max_mouse, float((h as Dictionary)["dist"]))
+			var touch_way := {}
+			var only_ways := not th.is_empty()
+			for h in th:
+				var k := String((h as Dictionary)["kind"])
+				if k == "way":
+					seen_way += 1
+					max_touch = maxf(max_touch, float((h as Dictionary)["dist"]))
+					if touch_way.is_empty():
+						touch_way = h
+				else:
+					only_ways = false
+			var mouse_has_way := false
+			for h in mh:
+				if String((h as Dictionary)["kind"]) == "way":
+					mouse_has_way = true
+			if found_lp.x < 0.0 and only_ways and not touch_way.is_empty() and not mouse_has_way \
+					and float(touch_way["dist"]) > 10.0 and float(touch_way["dist"]) <= 22.0:
+				found_lp = lp
+				found_hit = touch_way
+		y += 5.0
+	_ok(seen_way > 0, "WY the view holds ways to pick (%d touch way hits)" % seen_way)
+	_ok(max_touch <= 22.5, "WYB no touch way hit farther than 22.5 px (max %.1f)" % max_touch)
+	_ok(max_mouse <= 6.5, "WYB no mouse way hit farther than 6.5 px (max %.1f)" % max_mouse)
+	_ok(found_lp.x >= 0.0, "WYA a touch request finds a way 10..22 px off the line that the mouse request does not")
+	if found_lp.x < 0.0:
+		return
+	var fhp: Vector2 = _ov.get_global_transform() * found_lp
+	var store := String(found_hit["store"])
+	var idx := int(found_hit["index"])
+	var before: Dictionary = bridge.way_get(store, idx)
+	_ok(not before.is_empty(), "WYC the picked way exists before the tap")
+	await _tap(fhp)
+	var chips = _app.element_chips
+	_ok(chips.visible and chips.chip_words() == ["Delete"], "WYC tapping beside a way shows exactly the Delete chip (%s)" % str(chips.chip_words()))
+	if not chips.visible:
+		return
+	await _tap(_chip_center("Delete"))
+	await _frames(4)
+	## Later indices shift down on a delete, so "gone" is "the way at that index is no longer this one".
+	_ok(bridge.way_get(store, idx) != before, "WYC the Delete chip deleted the way (index %d of %s now holds another)" % [idx, store])
+	_ok(not chips.visible, "WYC pressing the chip hides the strip")
+	var undone: String = bridge.undo_last()
+	await _frames(4)
+	_ok(undone != "" and bridge.way_get(store, idx) == before, "WYC Edit > Undo put the same way back at the same index (%s)" % undone)
 
 
 func _desc(n: Node) -> String:

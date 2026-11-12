@@ -149,7 +149,8 @@ func engine_picks(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -
 	## Select ▸ slot from the things that do have rows. `x`/`y` are the nearest
 	## point on the way / the picked cell's centre, so `hits_at()`'s distance
 	## sort measures to the line, not to an arbitrary anchor.
-	var tol := PICK_LINE_PX / px_per_cell if px_per_cell > 0.0 else PICK_LINE_FALLBACK_CELLS
+	var line_px := PICK_LINE_TOUCH_PX if (app.viewport != null and app.viewport.overlay != null and app.viewport.overlay.pick_touch) else PICK_LINE_PX
+	var tol := line_px / px_per_cell if px_per_cell > 0.0 else PICK_LINE_FALLBACK_CELLS
 	var domain := String(app.active_domain()) if app.has_method("active_domain") else ""
 	if domain == "civilization":
 		var w: Dictionary = bridge.way_pick(gx, gy, tol)
@@ -173,6 +174,10 @@ func engine_picks(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -
 ## a route are equally easy to hit. With no world on screen to measure a
 ## pixel-per-cell ratio from, a fixed 1.5 cells, the same fallback.
 const PICK_LINE_PX := 6.0
+## The same pick for a finger (Edit-from-context on the phone and tablet): half the 44 px touch floor
+## (`06-phone.md` section 13), so a line is reachable by a fingertip that lands within a target's radius of it.
+## A labelled judgement; used only while `map_overlay.gd::pick_touch` is set, so a mouse pick keeps its 6 px.
+const PICK_LINE_TOUCH_PX := 22.0
 ## The 1.5-cell fallback tolerance used when `px_per_cell` is not positive
 ## (see `PICK_LINE_PX` above); `engine_picks`' line branch is its only reader.
 const PICK_LINE_FALLBACK_CELLS := 1.5

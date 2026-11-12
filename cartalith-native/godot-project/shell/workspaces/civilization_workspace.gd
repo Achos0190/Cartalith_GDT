@@ -934,11 +934,20 @@ func context_actions(req: Dictionary) -> Array:
 				"enabled": true, "callable": _inspect_way.bind(w)})
 			## A generated way comes back with the next network rebuild -- said
 			## on the row itself, not left for the user to discover.
-			rows.append({"id": "civ.way_delete",
+			var way_row := {"id": "civ.way_delete",
 				"label": ("Delete %s — generated; Generate roads brings it back" % wtitle) if generated
 					else ("Delete %s" % wtitle),
 				"section": "object", "enabled": true, "danger": true,
-				"callable": _delete_way_ctx.bind(wstore, widx, wtitle, generated)})
+				"callable": _delete_way_ctx.bind(wstore, widx, wtitle, generated)}
+			## Ruling EO chip: a way's delete is already one engine undo step (Ruling BA), so the chip runs it
+			## without a confirm, like the card row. **Only when the way is the NEAREST hit**: a finger's pick
+			## tolerance (22 px) catches a road beside a landmark or label, and a Delete chip offered next to
+			## that element's own Rename and Note would be a misclick waiting to happen (the same reasoning as the
+			## settlement-pin precedence above).
+			var hits_now: Array = req.get("hits", [])
+			if not hits_now.is_empty() and String((hits_now[0] as Dictionary).get("kind", "")) == "way":
+				way_row["tap"] = "Delete"
+			rows.append(way_row)
 	## CM-2 follow-up (`MAP_CONTEXT_SCOPE.md` §4.3 CIVIL "Territory under cell"
 	## row; `OUTSTANDING_WORK.md` "CM-2 follow-ups", part 1): who controls the
 	## cell, from `sample_cell`'s `controlling_faction` -- the stored claim grid

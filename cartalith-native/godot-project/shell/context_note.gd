@@ -57,7 +57,12 @@ var _wired := false
 ## into `bridge.landmarks()`, so `resolve` turns it into the vault entity id through the landmark's key
 ## (`vault_landmark_entity_id`) and names it by its generated or user-given name (`landmark_names`). Culture,
 ## conflict and note are not bound here.
-const BINDABLE := {"settlement": "settlement", "faction": "faction", "landmark": "landmark"}
+## **Label and icon are bound too** (Ruling EQ item 2, edit-from-context): a hand-placed label's or a placed
+## icon's selection id is its index in the engine's store, which shifts when an earlier item is deleted, so
+## `resolve` turns it into the vault entity id through the engine (`vault_label_entity_id` /
+## `vault_icon_entity_id`: the item's cell, never the index) and refuses, saying why, when two items share a cell.
+const BINDABLE := {"settlement": "settlement", "faction": "faction", "landmark": "landmark",
+	"label": "label", "icon": "icon"}
 
 
 func _init(a) -> void:
@@ -158,6 +163,16 @@ func resolve(subject: Dictionary) -> Dictionary:
 		if not bool(got.get("ok", false)) or not got.has("entity_id"):
 			return {"state": "unsupported", "why": "This landmark cannot be bound to a note now: %s" % String(got.get("error", "no vault id")), "name": nm}
 		vid = int(got["entity_id"])
+	if kind == "label" or kind == "icon":
+		var live: Dictionary = bridge.label_get(vid) if kind == "label" else bridge.icon_get(vid)
+		if vid < 0 or live.is_empty():
+			return {"state": "none"}
+		var eid: Dictionary = bridge.vault_label_entity_id(vid) if kind == "label" else bridge.vault_icon_entity_id(vid)
+		if not bool(eid.get("ok", false)) or not eid.has("entity_id"):
+			return {"state": "unsupported", "why": "This %s cannot be bound to a note now: %s" % [kind,
+				String(eid.get("error", "no vault id"))], "name": nm}
+		vid = int(eid["entity_id"])
+		nm = String(eid.get("label", nm))
 	if kind == "settlement":
 		var all: Array = bridge.settlements()
 		if vid < 0 or vid >= all.size():
@@ -227,7 +242,7 @@ func refresh(subject: Dictionary) -> void:
 func _empty(r: Dictionary) -> void:
 	match String(r["state"]):
 		"none":
-			_notice("NoteNothing", "Nothing is selected. Select a place or a faction to read and write its note here.")
+			_notice("NoteNothing", "Nothing is selected. Select a place, a faction, a landmark, a label or an icon to read and write its note here.")
 		"unsupported":
 			_notice("NoteUnsupported", String(r["why"]))
 		"novault":

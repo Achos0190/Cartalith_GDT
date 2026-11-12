@@ -526,6 +526,9 @@ func _on_element_tapped(raw: Dictionary) -> void:
 		return
 	if bridge == null or bridge.generating or context_broker == null:
 		return
+	## The tap SELECTS the element it hit (Ruling EO item 1), so a label's or icon's note reaches the Context
+	## panel's Note tab; the chips follow. Done before the chips so a selection change cannot hide them.
+	_select_pick(raw)
 	var req := context_broker.build_request(raw)
 	var rows := context_broker.collect(req)
 	var title := ""
@@ -533,7 +536,14 @@ func _on_element_tapped(raw: Dictionary) -> void:
 		if String((h as Dictionary).get("label", "")) != "":
 			title = String((h as Dictionary)["label"])
 			break
-	element_chips.show_for(title, rows)
+	var unit := float(_phone_scale) if DccTheme.is_phone() else 1.0
+	element_chips.show_for(title, rows, Callable(), unit)
+	## **On the phone the selection above has just opened the right sheet over the map** (`RightDock._show_on_phone`),
+	## and the chips are children of the map host, so they would sit UNDER it: measured, a finger on the Rename chip
+	## pressed the sheet's "Why it is here" button instead. With chips up the sheet goes away (it is one swipe off);
+	## a tap that made no chips (a river, bare ground that selected something) keeps the sheet it opened.
+	if element_chips.visible:
+		phone_hide_right_sheet()
 	## Placed from the tapped point, which is on the map by definition (a layout guess about the bars is not):
 	## centred above the finger, or below it when there is no room above, clamped inside the host's insets.
 	var ins: Dictionary = viewport._safe_insets
@@ -541,10 +551,35 @@ func _on_element_tapped(raw: Dictionary) -> void:
 	var w: float = element_chips.size.x
 	var h: float = element_chips.size.y
 	var x := clampf(at.x - w * 0.5, float(ins.get("left", 10.0)), maxf(viewport.size.x - float(ins.get("right", 10.0)) - w, 0.0))
-	var y := at.y - h - 28.0
+	var gap := 28.0 * unit  ## clear of the fingertip, in the form's own unit
+	var y := at.y - h - gap
 	if y < float(ins.get("top", 10.0)):
-		y = at.y + 28.0
+		y = at.y + gap
 	element_chips.position = Vector2(x, y)
+
+## Edit-from-context, the Note tab: a mouse click on the plate (`map_overlay.gd::element_clicked`). With Inspect armed
+## it asks the overlay what is under the pointer and selects a label or icon there (`_select_pick`). Every other armed
+## tool, and an engine that is generating, do nothing: a click then places or paints something.
+func _on_element_clicked(local_pos: Vector2) -> void:
+	if armed_tool != "inspect" or bridge == null or bridge.generating:
+		return
+	_select_pick(viewport.overlay.request_at(local_pos, "mouse"))
+
+## Selects the nearest label or icon of request `raw` (`map_overlay.gd::request_at`'s shape), but only when the same
+## gesture selected nothing else: a settlement or landmark under the pointer already won the selection through the
+## overlay's own signals, and an icon the overlay already selected is left as it is. A request with no label or icon
+## hit leaves the selection exactly as the gesture's own signals set it (bare ground has already cleared it). The hit
+## `id` is the engine's index (`ContextBroker.engine_picks`), the handle `select()` takes.
+func _select_pick(raw: Dictionary) -> void:
+	if not selection.is_empty():
+		return
+	for h in raw.get("hits", []):
+		var k := String((h as Dictionary).get("kind", ""))
+		if k == "label" or k == "icon":
+			select(k, int((h as Dictionary)["id"]))
+			return
+		if k == "settlement" or k == "landmark":
+			return  ## a nearer settlement or landmark: not this function's to override.
 
 ## `_civCtxShow`'s right click, since CM-1 (`MAP_CONTEXT_SCOPE.md` §3). Unlike
 ## the three tool primitives above it is NOT dispatched by armed tool -- the
@@ -764,7 +799,8 @@ func _apply_lighting_defaults() -> void:
 const SELECTION_HISTORY_MAX := 64
 
 ## PC-1. The one selection: `{"kind": String, "id": int}`, kind one of "settlement", "landmark",
-## "faction", "culture", "conflict", "note"; `{}` when nothing is selected (never a plausible default
+## "faction", "culture", "conflict", "note", "label", "icon" (the last two Edit-from-context: the id is the index in the
+## engine's label or icon store, dropped by `EngineBridge.annotations_removed`); `{}` when nothing is selected (never a plausible default
 ## such as settlement 0: `MISTAKES.md`, "Return, marshal or default a value that can be absent").
 ## Written only by `select()` (and through it by `select_back()`, `select_forward()` and
 ## `clear_selection()`). Every surface reads it or is told by `_apply_selection()`; none keeps a copy
@@ -807,6 +843,12 @@ func select(kind: String, id: int, opts: Dictionary = {}) -> void:
 	## A culture's id is its index in `bridge.get_cultures()`; one the list does not hold selects nothing.
 	if String(next.get("kind", "")) == "culture" and id >= bridge.get_cultures().size():
 		next = {}
+	## Edit-from-context: a label's or icon's id is its index in the engine's store (`label_get` / `icon_get`); an
+	## index the store does not hold (deleted, or the engine busy) selects nothing, never a neighbour.
+	if String(next.get("kind", "")) == "label" and bridge.label_get(id).is_empty():
+		next = {}
+	if String(next.get("kind", "")) == "icon" and bridge.icon_get(id).is_empty():
+		next = {}
 	if bool(opts.get("history", true)) and next != selection:
 		_selection_back.append(selection.duplicate())
 		while _selection_back.size() > SELECTION_HISTORY_MAX:
@@ -839,7 +881,9 @@ func culture_index(key: String) -> int:
 ## builder, and a pinned panel keeps its subject (§3.3). The other surfaces still read settlements
 ## only: a selection of another kind empties them, which is true, since no settlement is selected.
 ## A culture selection is shown by Inspect's culture page (`RightDock.show_culture()`); a note selection has no producer and no Inspect builder yet, and the panel shows Sample.
-## The icon pick keeps its own shipped path (`_wire_selection()`): an icon is not a selection kind.
+## **A label and an icon are selection kinds** (Edit-from-context, Ruling EQ item 2): the panel shows their Inspect page
+## and the Note tab shows their bound note (`RightDock.show_subject()`, `ContextNote.BINDABLE`). An icon pick that arrives
+## together with a settlement or landmark keeps that selection and the dock's direct icon view (`_wire_selection()`).
 func _apply_selection() -> void:
 	var data: Variant = null
 	var idx := -1
@@ -3153,6 +3197,11 @@ func _wire_selection() -> void:
 	## PC-1: a new world renumbers settlements, so the selection and its history go with the old one.
 	bridge.generation_finished.connect(func(_ok: bool): _reset_selection())
 	bridge.world_loaded.connect(_reset_selection)
+	## Edit-from-context: deleting a label or icon renumbers the ones after it, so a selection of that kind would
+	## now name a neighbour. It is dropped (`select("", -1)`: a history step, so Alt+Left still returns to it).
+	bridge.annotations_removed.connect(func(kind: String) -> void:
+		if String(selection.get("kind", "")) == kind:
+			select("", -1))
 	## PC-10: a generated world is a new world, and a bookmark names a subject by its index in the old
 	## one, so the bookmarks go with it (an open restores the project's own, `_restore_project_documents()`).
 	bridge.generation_finished.connect(func(ok: bool):
@@ -3178,7 +3227,14 @@ func _wire_selection() -> void:
 				ws.on_landmark_selected(data, index))
 	## And an icon glyph (2026-09-27), the same fan-out; emitted after
 	## `landmark_selected` for the same click.
+	## **Edit-from-context: an icon is a selection kind now** (so its note shows in the Context panel's Note tab):
+	## when the same click hit no settlement and no landmark (the selection is empty), the icon is selected by its
+	## engine index. A click that also hit a settlement or landmark keeps that selection and the dock's direct icon
+	## view, the shipped behaviour (the landmark handler above does the same).
 	viewport.icon_selected.connect(func(data, index):
+		if data is Dictionary and index >= 0 and selection.is_empty():
+			select("icon", index)
+			return
 		for ws in _workspaces:
 			if ws.has_method("on_icon_selected"):
 				ws.on_icon_selected(data, index))
@@ -3218,6 +3274,7 @@ func _wire_selection() -> void:
 	element_chips.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	viewport.overlay.map_clicked.connect(func(_gx: float, _gy: float) -> void: element_chips.hide_chips())
 	viewport.overlay.element_tapped.connect(_on_element_tapped)
+	viewport.overlay.element_clicked.connect(_on_element_clicked)
 	tool_armed.connect(func(_id: String) -> void: element_chips.hide_chips())
 	selection_changed.connect(func(cur: Dictionary) -> void:
 		if cur.is_empty():

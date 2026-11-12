@@ -33,6 +33,11 @@ signal params_changed()            ## A dial moved; downstream is stale.
 signal params_applied()            ## A generate landed; nothing is stale.
 signal world_loaded()              ## A save or asset pack changed the world.
 signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
+## Edit-from-context: items were REMOVED from a hand-placed store, so the indices of the ones after them shifted.
+## `kind` is `"label"` or `"icon"`. Emitted after a successful `label_delete` / `icon_delete` and after
+## `label_clear_all` / `icon_clear_all`; `DccApp` drops a selection of that kind (its id would now name a neighbour).
+## Not emitted for a move, a rename or a create, which keep every index.
+signal annotations_removed(kind: String)
 ## The sculpt draft stack changed shape (a stamp added, removed, reordered,
 ## undone, redone, committed or discarded). Added 2026-09-01 for
 ## `world_workspace.gd`'s WORLD - Terrain - Draft section, which reads
@@ -4504,7 +4509,10 @@ func icon_delete(index: int) -> bool:
 	if not _has("icon_delete"):
 		return false
 	mark_world_dirty()
-	return world_gen.icon_delete(index)
+	var ok: bool = world_gen.icon_delete(index)
+	if ok:
+		annotations_removed.emit("icon")
+	return ok
 
 ## Every placed icon in placement order, each `icon_get`'s shape plus `index`,
 ## `selected` and `primary` (`WorldGen.icon_list`). `[]` for none or no API.
@@ -4523,6 +4531,7 @@ func icon_clear_all() -> void:
 		return
 	mark_world_dirty()
 	world_gen.icon_clear_all()
+	annotations_removed.emit("icon")
 
 
 # icon_bridge/generate.rs -- the generated placement pass (owner ruling
@@ -6626,7 +6635,10 @@ func label_delete(index: int) -> bool:
 	if not _has("label_delete"):
 		return false
 	mark_world_dirty()
-	return world_gen.label_delete(index)
+	var ok: bool = world_gen.label_delete(index)
+	if ok:
+		annotations_removed.emit("label")
+	return ok
 
 ## Drops every hand-placed label and ends any edit session (`WorldGen.label_clear_all`).
 ## The generated label run survives. Marks the world dirty first.
@@ -6635,6 +6647,7 @@ func label_clear_all() -> void:
 		return
 	mark_world_dirty()
 	world_gen.label_clear_all()
+	annotations_removed.emit("label")
 
 ## `px_per_cell` sizes the hit box off `map_overlay.gd`'s own font model
 ## (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23) -- pass

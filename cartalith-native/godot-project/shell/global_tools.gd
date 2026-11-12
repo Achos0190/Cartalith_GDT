@@ -301,11 +301,13 @@ static func _landmark_rows(app, li: int) -> Array:
 	var nd: Dictionary = names[li]
 	var nm := String(nd.get("name", "landmark"))
 	var key := String(nd.get("key", "%s@%d,%d" % [String(lm.get("kind", "")), int(lm.get("x", 0)), int(lm.get("y", 0))]))
-	## Only a landmark that is already the selection is re-selected (so its Inspect page shows the new name): a
-	## rename must not open the Inspect sheet over the map on a touch form.
+	## A landmark that is already the selection has its Inspect page redrawn (so it shows the new name) through
+	## `refresh_shown()`, NOT `select()`: a tap now selects the element it chips, and `select()` ends in
+	## `_show_on_phone()`, which opened the phone's right sheet over the map after every rename.
 	var after := func() -> void:
-		if String(app.selection.get("kind", "")) == "landmark" and int(app.selection.get("id", -1)) == li:
-			app.select("landmark", li)
+		if String(app.selection.get("kind", "")) == "landmark" and int(app.selection.get("id", -1)) == li \
+				and app.right_dock_ctrl != null:
+			app.right_dock_ctrl.refresh_shown()
 		if app.viewport != null and app.viewport.has_method("refresh_annotations"):
 			app.viewport.refresh_annotations()
 	rows.append({"id": "el.landmark_rename", "label": "Rename %s…" % nm, "section": "object", "enabled": true,
@@ -397,6 +399,9 @@ static func _item_note_rows(app, kind: String, idx: int, name: String) -> Array:
 static func _annotations_changed(app) -> void:
 	if app.viewport != null:
 		app.viewport.refresh_annotations()
+	## A selected label or icon (Context panel page, header) re-reads what a rename or move just changed.
+	if app.right_dock_ctrl != null and String(app.selection.get("kind", "")) in ["label", "icon"]:
+		app.right_dock_ctrl.refresh_shown()
 	for ws in app._workspaces:
 		if ws.has_method("on_annotations_changed"):
 			ws.on_annotations_changed()

@@ -1031,6 +1031,13 @@ signal context_requested(req: Dictionary)
 ## or a tap on bare ground.
 signal element_tapped(req: Dictionary)
 
+## Edit-from-context, the Note tab: a mouse LEFT click on the plate at `local_pos` (this control's local space),
+## emitted after that click's selection signals and `map_clicked`. It carries a POSITION and not a request on purpose:
+## building a request runs the engine picks (labels, icons, ways, rivers), which most clicks (a sculpt stroke, a tool
+## placing something) must not pay for, so the listener (`DccApp._on_element_clicked`) builds it only while Inspect is
+## armed. A touch tap is `element_tapped` above and never this. Must never be emitted for a touch, a drag or a hold.
+signal element_clicked(local_pos: Vector2)
+
 ## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, Ruling AX F1): the phone's own hold
 ## drops the sample pin at the same moment it opens the verbs
 ## (`context_requested` above, emitted in the same `_process()` frame). This
@@ -8004,8 +8011,17 @@ func request_at(mouse: Vector2, source: String) -> Dictionary:
 	var p := _grid_point(mouse, rect, _interior_rect(rect))
 	if not p["valid"]:
 		return {}
+	## Edit-from-context: the engine's line picks (a way) read `pick_touch` to take a finger-sized tolerance. Set for
+	## exactly the span of this one `hits_at` call and cleared after, so a later mouse pick is never widened.
+	pick_touch = source == "touch"
+	var hit_list := hits_at(mouse)
+	pick_touch = false
 	return {"gx": p["gx"], "gy": p["gy"], "screen_pos": mouse,
-		"hits": hits_at(mouse), "source": source}
+		"hits": hit_list, "source": source}
+
+## True only while `request_at()` is resolving a TOUCH request (see there): `ContextBroker.engine_picks` reads it to
+## widen a line pick (a way) from the mouse's 6 px to a finger's. Never left true between calls.
+var pick_touch := false
 
 
 ## Returns `{valid, gx, gy}` -- the inverse of `_cell_to_screen`, shared by
@@ -8216,6 +8232,7 @@ func _gui_input(event: InputEvent) -> void:
 			icon_selected.emit(_manual_icons[ihit] if ihit != -1 else null, ihit)
 			if p["valid"]:
 				map_clicked.emit(p["gx"], p["gy"])
+				element_clicked.emit(mb.position)
 		else:
 			## CM-5: the pin's own release -- re-resolve the card at its new spot
 			## through the ordinary `context_requested` path (`context_broker.gd`

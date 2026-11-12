@@ -43,7 +43,11 @@ func _init() -> void:
 
 ## Shows the chips for `rows` (the broker's merged rows for the tapped point) under `title`. Only a row with a `tap` key
 ## becomes a chip, at most one per word, in `ORDER`; no chip, no strip. `after` runs once a chip has been pressed.
-func show_for(title: String, rows: Array, after: Callable = Callable()) -> void:
+## `unit` is the form's UI unit (the phone's `DccApp._phone_scale`, short side / 412; 1.0 on the tablet, which draws
+## unscaled): the strip is a child of the map host, which is NOT scaled, so on the phone the 44 reference px floor and
+## the type size are multiplied by it here, or the chips measure ~20 dp on a real handset (found by `_edfc_probe`'s
+## phone leg: the screenshot showed 55 px chips on a 1080 px screen). Never below 1.0.
+func show_for(title: String, rows: Array, after: Callable = Callable(), unit: float = 1.0) -> void:
 	for c in _row.get_children():
 		_row.remove_child(c)
 		c.queue_free()
@@ -55,8 +59,9 @@ func show_for(title: String, rows: Array, after: Callable = Callable()) -> void:
 	if by_word.is_empty():
 		hide_chips()
 		return
-	_title = DccTheme.label(title, "text_dim", DccTheme.FS_SMALL)
-	_title.custom_minimum_size = Vector2(0, MIN_TARGET)
+	var u := maxf(unit, 1.0)
+	_title = DccTheme.label(title, "text_dim", int(round(DccTheme.FS_SMALL * u)))
+	_title.custom_minimum_size = Vector2(0, MIN_TARGET * u)
 	_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_title.clip_text = true
 	_title.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
@@ -70,12 +75,18 @@ func show_for(title: String, rows: Array, after: Callable = Callable()) -> void:
 		b.name = "Chip" + w
 		b.text = w
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(MIN_TARGET, MIN_TARGET)
+		b.custom_minimum_size = Vector2(MIN_TARGET * u, MIN_TARGET * u)
+		b.add_theme_font_size_override("font_size", int(round(DccTheme.FS_BODY * u)))
 		b.set_meta("row_id", String(row.get("id", "")))
 		if bool(row.get("danger", false)):
 			b.add_theme_color_override("font_color", DccTheme.c("accent"))
 		var cb: Callable = row.get("callable", Callable())
 		b.pressed.connect(func() -> void:
+			## A press on a hidden strip is stale: a touch is delivered as a ScreenTouch AND its emulated mouse
+			## button, and a Button answers both, so one tap emitted `pressed` twice (measured by `_edfc_probe`:
+			## two Rename prompts). The first press hides the strip, so the second finds it hidden and does nothing.
+			if not visible:
+				return
 			hide_chips()
 			if cb.is_valid():
 				cb.call()

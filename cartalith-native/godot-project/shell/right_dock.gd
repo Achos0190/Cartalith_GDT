@@ -41,6 +41,10 @@ const CTX_LANDMARK := "landmark"
 ## A drawn icon glyph clicked on the map (`on_icon_selected`, 2026-09-27) -- the
 ## owner's "POI markers aren't clickable for more information in the right pane".
 const CTX_ICON := "icon"
+## Edit-from-context (Ruling EO / EQ item 2): a hand-placed map label picked on the map (a click, or a tap with its
+## chips). A selection kind like the landmark and the icon, so its bound vault note shows in the Context panel's
+## Note tab (`context_note.gd::BINDABLE`). Its id is the label's index in the engine's store (`label_get`).
+const CTX_LABEL := "label"
 ## `STORY_PLANNING_SCOPE.md` SP-4: a drawn conflict, selected from CIVIL ▸
 ## Military ▸ Conflicts or just committed by the Conflict tool. A selection,
 ## so a context -- the tool itself appends nothing here.
@@ -466,6 +470,9 @@ var _landmark: Dictionary = {}
 var _icon_index := -1
 ## The picked icon's row as it was clicked (see the block above).
 var _icon_data: Dictionary = {}
+## `CTX_LABEL`'s selection: the label's index in `bridge.label_list()` / `label_get()`, re-read on every rebuild.
+## -1 when no label is shown (never a plausible index such as 0: `MISTAKES.md`, "no value as a plausible value").
+var _label_index := -1
 ## `CTX_CONFLICT`'s selection: an id, re-read from `conflict_get()` on every
 ## rebuild so the form can never show a copy the engine has moved past.
 var _conflict_id := -1
@@ -699,7 +706,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## right -- an imported heightmap is a new world.
 		if ok:
 			clear_measurements()
-		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON:
+		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON or _context == CTX_LABEL:
 			_context = CTX_SAMPLE
 		## And the pinned settlement, which had no clause here at all until
 		## 2026-09-05 and kept drawing a town out of the world that was just
@@ -739,7 +746,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## `journey_planner_view.gd` already draws for its own list.
 		if not bridge.has_world:
 			clear_measurements()
-		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON:
+		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON or _context == CTX_LABEL:
 			_context = CTX_SAMPLE
 		## Unconditional, unlike the measurements two lines up, and that is a
 		## decision rather than an oversight: this signal's emitters split in
@@ -1121,11 +1128,30 @@ func show_subject(sel: Dictionary) -> void:
 				show_culture(id)
 				_show_on_phone()
 				return
+		"label":
+			if id >= 0 and not bridge.label_get(id).is_empty():
+				_context = CTX_LABEL
+				_label_index = id
+				_rebuild()
+				_show_on_phone()
+				return
+		"icon":
+			## The icon's context is `on_icon_selected`'s, minus its pin release (a selection follows the pin
+			## rules of PC-4 like a landmark's). `icon_get` is the engine's row at that index.
+			var ic: Dictionary = bridge.icon_get(id) if id >= 0 else {}
+			if not ic.is_empty():
+				_context = CTX_ICON
+				_icon_index = id
+				_icon_data = ic
+				_rebuild()
+				_show_on_phone()
+				return
 	on_settlement_selected(null, -1)
 
 ## PC-4. The subject the panel shows now, as a `DccApp.selection` value, or `{}` when it shows no
 ## selectable subject (Sample, or a context that is not a selection: a route, a river, a measure, a
-## region, an ecoregion, the history ledger, an icon). Derived from `_context` and its own field on
+## region, an ecoregion, the history ledger, or an icon the dock was handed directly). A label and an icon picked on the
+## map ARE selections (Edit-from-context, `show_subject()`). Derived from `_context` and its own field on
 ## every call, never stored.
 func shown_subject() -> Dictionary:
 	match _context:
@@ -1144,6 +1170,12 @@ func shown_subject() -> Dictionary:
 		CTX_CULTURE:
 			if _culture_id >= 0:
 				return {"kind": "culture", "id": _culture_id}
+		CTX_LABEL:
+			if _label_index >= 0:
+				return {"kind": "label", "id": _label_index}
+		CTX_ICON:
+			if _icon_index >= 0:
+				return {"kind": "icon", "id": _icon_index}
 	return {}
 
 ## PC-4. Whether the panel is pinned. Read by the header, `DccApp` and the probes.
@@ -1213,7 +1245,7 @@ func pin_to_selection() -> void:
 		_rebuild()
 
 ## PC-4. Drops the pin without drawing anything: a context that is not a selection (a route row, a
-## river, a measurement, a region, an ecoregion, the history ledger, an icon) was asked for directly,
+## river, a measurement, a region, an ecoregion, the history ledger, an icon handed over by `on_icon_selected`) was asked for directly,
 ## so the panel shows it and no longer claims to hold the pinned subject. A labelled judgement
 ## (PC-4, 2026-11-08): the proposal pins the selection; these readings are the user's own request for
 ## this dock, and a Measure reading that a pin hid would be a tool that silently stopped answering.
@@ -1292,7 +1324,7 @@ func show_tab(tab: String) -> bool:
 	return true
 
 ## PC-6. A reading the user asked this dock for (a route row, a river, a measurement, a region, an
-## ecoregion, the history ledger, an icon: each a context that is not a selection) is drawn in Inspect,
+## ecoregion, the history ledger, an icon handed over by `on_icon_selected`: each a context that is not a selection) is drawn in Inspect,
 ## so the panel switches there and releases a pin (`_release_pin()`, PC-4's judgement). A labelled
 ## judgement (PC-6, 2026-11-08): a tool that answered into a hidden tab would look like one that
 ## stopped answering. A selection does NOT switch tabs: Ask follows the selection where it is.
@@ -1486,6 +1518,16 @@ func _subject_text(subj: Dictionary) -> Array:
 				var fc := int(cr.get("faction_count", 0))
 				return [String(cr.get("name", String(cr.get("key", "")).capitalize())),
 					"Culture · %d faction%s" % [fc, "" if fc == 1 else "s"]]
+		"label":
+			var lb: Dictionary = bridge.label_get(id) if id >= 0 else {}
+			if not lb.is_empty():
+				var lt := String(lb.get("text", ""))
+				return [lt if lt != "" else "(untitled label)", "Label · cell %d, %d" % [
+					floori(float(lb.get("x", 0.0))), floori(float(lb.get("y", 0.0)))]]
+		"icon":
+			var ic: Dictionary = bridge.icon_get(id) if id >= 0 else {}
+			if not ic.is_empty():
+				return [_icon_title(ic), "Icon · %s" % _icon_family_label(String(ic.get("family", "")))]
 	if kind == "":
 		return ["Nothing selected", ""]
 	return ["%s #%d" % [kind.capitalize(), id], _GONE_FACTS]
@@ -2038,6 +2080,14 @@ func on_landmark_selected(data: Variant, _index: int) -> void:
 	_rebuild()
 	_show_on_phone()
 
+## Edit-from-context: redraws the page of the subject already shown (a rename or a move just changed what it reads)
+## WITHOUT presenting anything: `show_subject()` ends in `_show_on_phone()`, which opens the phone's right sheet over
+## the map, and an edit made from a tap's chips must not pop that sheet up under the user's finger. A no-op when
+## nothing selectable is shown.
+func refresh_shown() -> void:
+	if not shown_subject().is_empty():
+		_rebuild()
+
 ## PC-4. The index in `bridge.landmarks()` of landmark row `data`, matched on its cell and kind (the
 ## overlay's own list can be filtered by the landmark filter, so its index is not the bridge's), or
 ## -1 when the live list holds no such row.
@@ -2058,7 +2108,9 @@ func landmark_index_of(data: Variant) -> int:
 func on_icon_selected(data: Variant, index: int) -> void:
 	if not (data is Dictionary) or index < 0:
 		return
-	## PC-4: an icon is not a selection, so asking for it releases a pin and shows Inspect (`_show_reading()`).
+	## PC-4: this direct path is reached only when the same click also hit a settlement or a landmark (which won the
+	## selection; `app.gd::_wire_selection()` selects the icon itself otherwise), so it is a reading: it releases a pin
+	## and shows Inspect (`_show_reading()`).
 	_show_reading()
 	_context = CTX_ICON
 	_icon_index = index
@@ -2412,7 +2464,7 @@ const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History", CTX_LANDMARK: "Landmark", CTX_ICON: "Icon",
-	CTX_CONFLICT: "Conflict", CTX_CULTURE: "Culture",
+	CTX_CONFLICT: "Conflict", CTX_CULTURE: "Culture", CTX_LABEL: "Label",
 }
 
 ## Tears the dock body down and redraws it: frees every child of `app.right_dock_body`,
@@ -2615,6 +2667,9 @@ func _dock_readout_text() -> String:
 			return _landmark_label(String(_landmark.get("kind", ""))) if not _landmark.is_empty() else "no landmark"
 		CTX_ICON:
 			return _icon_title(_icon_data) if not _icon_data.is_empty() else "no icon"
+		CTX_LABEL:
+			var lbr: Dictionary = bridge.label_get(_label_index) if _label_index >= 0 else {}
+			return String(lbr.get("text", "")) if not lbr.is_empty() else "no label"
 		CTX_CULTURE:
 			var cn: String = String(_subject_text({"kind": "culture", "id": _culture_id})[0])
 			return cn if _culture_id >= 0 and bridge.get_cultures().size() > _culture_id else "no culture"
@@ -2650,6 +2705,8 @@ func _dispatch(body: Control) -> void:
 			_build_landmark(body)
 		CTX_ICON:
 			_build_icon(body)
+		CTX_LABEL:
+			_build_label(body)
 		CTX_CONFLICT:
 			_build_conflict(body)
 		CTX_CULTURE:
@@ -4617,6 +4674,8 @@ func _build_icon(body: Control) -> void:
 	var generated := String(ic.get("origin", "")) == "generated"
 	_accent_readout(sec, "Kind", _icon_title(ic),
 		"The icon's slot -- '%s' in the %s family." % [String(ic.get("slot", "")), _icon_family_label(fam)])
+	## Edit-from-context: the card's own icon verbs (Move, Delete, Note) on the page.
+	_element_actions(sec, "icon", _icon_index, _icon_title(ic))
 	_field(sec, "Family", _icon_family_label(fam),
 		"Which icon family the glyph belongs to; the family decides its shape on the map.")
 	_field(sec, "Placed by", "Automatic placement" if generated else "Icon tool, by hand",
@@ -4664,6 +4723,52 @@ func _build_icon(body: Control) -> void:
 		_:
 			DccWidgets.note(src, "Scattered over the terrain by automatic placement; it " +
 				"stands for its kind, not for a single feature.")
+
+## The Context panel's page for a selected label (Edit-from-context, Ruling EO / EQ item 2). What the engine's
+## store holds for it (`label_get`: text, cell, size mode) and the card's own verbs as buttons. Reads fresh from the
+## bridge on every rebuild; an index the store no longer holds says so rather than showing a neighbour.
+func _build_label(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Label")
+	var lb: Dictionary = bridge.label_get(_label_index) if _label_index >= 0 else {}
+	if lb.is_empty():
+		DccWidgets.note(sec, "That label is no longer in the label list -- it was deleted or the world was replaced " +
+			"since it was picked. Pick it again on the map.")
+		return
+	var txt := String(lb.get("text", ""))
+	_accent_readout(sec, "Text", txt if txt != "" else "(untitled)", "The label's text, as drawn on the map.")
+	_field(sec, "Cell", "%d, %d" % [floori(float(lb.get("x", 0.0))), floori(float(lb.get("y", 0.0)))],
+		"Grid cell (x, y) the label's anchor stands in.", true, true)
+	_field(sec, "Size", "%.0f · %s" % [float(lb.get("size", 0.0)), String(lb.get("size_mode", ""))],
+		"The label's size and whether it scales with the zoom.", true, true)
+	_element_actions(sec, "label", _label_index, txt)
+
+## The selected element's verbs as buttons: the SAME rows a right click or a tap's chips present
+## (`GlobalTools.element_rows`), asked with a one-hit request, so this page is a third view of one implementation and
+## never a second one (Ruling EO item 3). Rows are skipped when they only re-select (`Select`) -- the element is
+## already selected here. On a touch form each button is floored to the 44 dp row (`role_px("row_min_h")`) on both
+## axes, because this group is built on every rebuild after the fitters have run (`MISTAKES.md`, "Floor a control
+## that a rebuild creates"). Draws nothing when the element has no row, rather than a dead control.
+func _element_actions(parent: Control, kind: String, id: int, label: String) -> void:
+	var req := {"domain": app.active_domain() if app != null else "", "hits": [{"kind": kind, "id": id, "label": label}]}
+	var rows: Array = GlobalTools.element_rows(app, req)
+	var grp: Control = null
+	for r in rows:
+		var rid := String((r as Dictionary).get("id", ""))
+		if rid.ends_with("_select") or not bool((r as Dictionary).get("enabled", true)):
+			continue
+		if grp == null:
+			grp = DccWidgets.group(parent, "Actions")
+			grp.name = "ElementActions"
+		var cb: Callable = (r as Dictionary).get("callable", Callable())
+		var b := DccWidgets.action(grp, String((r as Dictionary).get("label", rid)), cb)
+		b.name = "Act_" + rid.replace(".", "_")  ## a node name cannot hold a dot
+		if bool((r as Dictionary).get("danger", false)):
+			b.add_theme_color_override("font_color", DccTheme.c("accent"))
+		if DccTheme.is_tablet() or DccTheme.is_phone():
+			## The phone's floor is in its own unit (`DccApp._ptap`: 44 reference px x short side / 412), the
+			## tablet's the `row_min_h` role; neither fitter reaches a button built after the sheet was fitted.
+			var t := float(app._ptap(44)) if DccTheme.is_phone() else float(DccTheme.role_px("row_min_h"))
+			b.custom_minimum_size = Vector2(maxf(b.custom_minimum_size.x, t), maxf(b.custom_minimum_size.y, t))
 
 # -- Faction ------------------------------------------------------------
 
