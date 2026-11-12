@@ -785,6 +785,23 @@ pub struct Journey {
     pub party_preset: String,
     pub route: JourneyRoute,
     pub start_year: i64,
+    /// SP-2 residual (`OUTSTANDING_WORK.md`, "the journey's departure date"):
+    /// the day of `start_year` the party sets out, **0-based in Chronos's
+    /// 365-day calendar** (`cartalith_vault::chronos::MONTH_DAYS`; `0` is
+    /// 1 January, `364` is 31 December) -- the unit of the year cursor's own
+    /// day, `WorldGen::civ_day`, so one number moves both.
+    ///
+    /// **`None` means "no departure day was ever set"**, which is every
+    /// journey saved before this field and any a writer without a date picker
+    /// made. It is deliberately not `Some(0)`: 1 January is a real departure a
+    /// user can choose, and a journey that never chose one must stay
+    /// distinguishable from it (`MISTAKES.md`: never encode "no value" as a
+    /// plausible value). Readers plan an undated journey from 1 January --
+    /// the behaviour before the field existed -- and say the day is unset
+    /// rather than showing 1 January as if it had been picked. Always
+    /// `<= 364` when `Some`; [`Journey::set_start_day`] and the project reader
+    /// enforce it.
+    pub start_day: Option<u16>,
     /// Ruling BS: the resupply stops accepted in the planner when this
     /// journey was saved, planned into it wherever it is replanned (SP-2's
     /// progression included). Empty for every journey saved before the
@@ -846,6 +863,123 @@ pub struct JourneyPlan {
     /// `jp_compute`'s `auto_stage`: run the per-stage auto pick and merge
     /// its picks over the saved overrides.
     pub auto_stage: bool,
+    /// Ruling EA item 10 (2026-11-01, *"Detect, drop and tell me"*): for each
+    /// manual per-stage override in [`JpPlan::stage_overrides`], the
+    /// [`leg_key`] of the leg it was set on, so a replan can tell whether the
+    /// stage number still names that leg.
+    ///
+    /// **A stage index with no entry here is "unverified", never "matches"**:
+    /// every journey saved before this field has overrides and no keys, and
+    /// [`check_override_legs`] applies those as before and reports them
+    /// separately instead of pretending they were checked. Only an index that
+    /// is also a key of `plan.stage_overrides` means anything; a stray key is
+    /// inert. `BTreeMap` so the saved bytes are deterministic.
+    pub override_legs: std::collections::BTreeMap<usize, String>,
+}
+
+// ---------------------------------------------------------------------------
+// Per-leg override fingerprints (Ruling EA item 10)
+// ---------------------------------------------------------------------------
+
+/// A small, readable fingerprint of one planner leg: its category, the route
+/// points it spans and its midpoint cell -- `"river:12-19@44,31"`.
+///
+/// **What it must catch.** `JpPlan::stage_overrides` is keyed by stage number,
+/// and the stages are re-cut from the current world every time
+/// ([`crate::jp_derive_stages`]): the port-only River Transport legs come from
+/// the live heights, so a regenerate, a sculpt, or an engine change can cut
+/// the same route into different legs and an override keyed `3` then lands on
+/// a leg it was never set on. Each term moves when that happens: `cat` when a
+/// stretch changes from land to river or sea; `i0`/`i1` when a cut moves;
+/// the midpoint cell when the span is the same indices over different ground.
+///
+/// **What it leaves out on purpose.** `km` (a float sum that adds nothing the
+/// indices and the saved route do not already fix, and would make the key
+/// flip on rounding), and the terrain, biome, road condition and infrastructure
+/// the leg reads from the world: a sculpt that only recolours a leg does not
+/// move the override onto a different leg, and dropping it would be a loss the
+/// owner did not ask for. Those are the planner's inputs to the override's
+/// *effect*, not to which leg it names.
+///
+/// The midpoint is rounded to the nearest whole cell (`f64::round`, ties away
+/// from zero): the same route in the same world gives bit-identical floats, so
+/// the rounding only absorbs a sub-cell drift, a labelled judgement.
+pub fn leg_key(stage: &crate::JpDerivedStage) -> String {
+    format!("{}:{}-{}@{},{}", stage.cat, stage.i0, stage.i1, stage.mx.round() as i64, stage.my.round() as i64)
+}
+
+/// The category word of a [`leg_key`] (`"river"`, `"land"`, `"sea"`), or the
+/// whole text when it has no `:` -- for notices, so a person is told "a river
+/// leg" and not shown the key.
+pub fn leg_key_category(key: &str) -> &str {
+    key.split_once(':').map_or(key, |(c, _)| c)
+}
+
+/// One manual override [`check_override_legs`] refused to apply.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DroppedOverride {
+    /// The stage number the override was keyed to.
+    pub stage: usize,
+    /// The [`leg_key`] it was saved against.
+    pub was: String,
+    /// The [`leg_key`] of the stage that now carries that number, or `None`
+    /// when the route now has fewer stages and the number names nothing.
+    pub now: Option<String>,
+}
+
+/// The outcome of [`check_override_legs`]: every override index in exactly one
+/// of three lists.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct OverrideLegCheck {
+    /// Saved key equals the leg now at that stage: applied, verified.
+    pub verified: Vec<usize>,
+    /// No key was ever saved for it (a journey from before Ruling EA item 10):
+    /// applied as before, **and not counted as checked**.
+    pub unverified: Vec<usize>,
+    /// Key saved and the leg has changed: not applied. Ascending by stage.
+    pub dropped: Vec<DroppedOverride>,
+}
+
+/// Ruling EA item 10: sorts each manual override in `overrides` into verified,
+/// unverified or dropped by comparing the [`leg_key`] saved with it
+/// (`saved_legs`) to the leg `stages` now has at that number. `stages` must be
+/// the stages of the plan the override would be applied to
+/// (`JpJourneyPlan::stages`); they do not depend on the overrides themselves
+/// ([`crate::jp_derive_stages`] never reads `stage_overrides`), so one plan run
+/// is enough to decide, and a caller replans only if something was dropped.
+///
+/// **Nothing is ever applied to a different leg**: an index past the end of
+/// `stages` is dropped as surely as a mismatching one. Pure; reads no world.
+pub fn check_override_legs(
+    overrides: &std::collections::HashMap<usize, crate::JpStageOverride>,
+    saved_legs: &std::collections::BTreeMap<usize, String>,
+    stages: &[crate::JpDerivedStage],
+) -> OverrideLegCheck {
+    let mut out = OverrideLegCheck::default();
+    let mut idxs: Vec<usize> = overrides.keys().copied().collect();
+    idxs.sort_unstable();
+    for i in idxs {
+        let now = stages.get(i).map(leg_key);
+        match saved_legs.get(&i) {
+            None => out.unverified.push(i),
+            Some(was) if now.as_deref() == Some(was.as_str()) => out.verified.push(i),
+            Some(was) => out.dropped.push(DroppedOverride { stage: i, was: was.clone(), now }),
+        }
+    }
+    out
+}
+
+impl Journey {
+    /// Sets [`Journey::start_day`]. `Err` (nothing written) for a day past 364:
+    /// a clamp would turn a typo into a plausible 31 December.
+    pub fn set_start_day(&mut self, day_of_year: Option<i64>) -> Result<(), String> {
+        match day_of_year {
+            None => self.start_day = None,
+            Some(d) if (0..=364).contains(&d) => self.start_day = Some(d as u16),
+            Some(d) => return Err(format!("day of year {d} is outside 0..=364")),
+        }
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1796,5 +1930,116 @@ mod tests {
         overrides.insert("donkey".to_string(), donkey);
         let (stats, _) = animal_resolver_fns(&overrides);
         assert_eq!(stats("donkey"), None);
+    }
+    // ---- Ruling EA item 10: leg fingerprints; SP-2 residual: departure day ----
+
+    /// A derived stage with only the terms [`leg_key`] reads set to chosen
+    /// values; everything else is an arbitrary filler no fingerprint may read.
+    fn leg(cat: &str, i0: usize, i1: usize, mx: f64, my: f64) -> crate::JpDerivedStage {
+        crate::JpDerivedStage {
+            cat: cat.into(),
+            biome: "Temperate Forest".into(),
+            terrain: "Dirt Track".into(),
+            route_cond: "Standard".into(),
+            derived_cond: None,
+            infra: "Stable Settlements".into(),
+            km: 12.3,
+            i0,
+            i1,
+            rx: 0,
+            gain: 0.0,
+            loss: 0.0,
+            settlements: 0,
+            claimed_frac: 0.0,
+            dry_km: 0.0,
+            mx,
+            my,
+            slope: None,
+        }
+    }
+
+    /// Protects: the fingerprint's wire text -- category, point span and the
+    /// rounded midpoint cell -- as a literal (a saved file stores exactly
+    /// this, so a change of format must be deliberate), and that it reads
+    /// **only** those terms: km, biome, terrain and road condition may change
+    /// without the key moving, because they do not change which leg a stage
+    /// number names.
+    #[test]
+    fn leg_key_is_a_literal_over_category_span_and_midpoint_only() {
+        assert_eq!(leg_key(&leg("river", 12, 19, 44.4, 30.6)), "river:12-19@44,31");
+        assert_eq!(leg_key(&leg("land", 0, 3, 2.0, 1.0)), "land:0-3@2,1");
+        let base = leg("land", 0, 3, 2.0, 1.0);
+        let mut recoloured = base.clone();
+        recoloured.km = 99.0;
+        recoloured.biome = "Desert".into();
+        recoloured.terrain = "Marsh".into();
+        recoloured.route_cond = "Poor".into();
+        assert_eq!(leg_key(&recoloured), leg_key(&base), "a leg that only changed colour is the same leg");
+        // Each term moves the key, one at a time.
+        for other in [leg("river", 0, 3, 2.0, 1.0), leg("land", 1, 3, 2.0, 1.0), leg("land", 0, 4, 2.0, 1.0), leg("land", 0, 3, 3.0, 1.0), leg("land", 0, 3, 2.0, 2.0)] {
+            assert_ne!(leg_key(&other), leg_key(&base));
+        }
+        assert_eq!(leg_key_category("river:12-19@44,31"), "river");
+    }
+
+    /// Protects: [`check_override_legs`]' three-way sort. Stage 0's saved key
+    /// matches (verified); stage 1's saved key names a land leg but the leg now
+    /// at 1 is a river leg (dropped, with both keys); stage 2 has no saved key
+    /// (unverified, applied but not counted as checked); stage 5 is past the
+    /// end of the route (dropped with `now: None`, never applied to nothing).
+    #[test]
+    fn check_override_legs_sorts_verified_unverified_and_dropped() {
+        let stages = vec![leg("land", 0, 3, 2.0, 1.0), leg("river", 3, 8, 5.0, 4.0), leg("land", 8, 11, 9.0, 6.0)];
+        let ov = |i: usize| (i, crate::JpStageOverride { hours: Some(9.0), ..Default::default() });
+        let overrides: std::collections::HashMap<usize, crate::JpStageOverride> = [ov(0), ov(1), ov(2), ov(5)].into_iter().collect();
+        let saved: std::collections::BTreeMap<usize, String> = [
+            (0, "land:0-3@2,1".to_string()),
+            (1, "land:3-8@5,4".to_string()),
+            (5, "land:20-22@30,30".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let c = check_override_legs(&overrides, &saved, &stages);
+        assert_eq!(c.verified, vec![0]);
+        assert_eq!(c.unverified, vec![2]);
+        assert_eq!(
+            c.dropped,
+            vec![
+                DroppedOverride { stage: 1, was: "land:3-8@5,4".into(), now: Some("river:3-8@5,4".into()) },
+                DroppedOverride { stage: 5, was: "land:20-22@30,30".into(), now: None },
+            ]
+        );
+        // A key saved for a stage with no override is inert.
+        let mut stray = saved.clone();
+        stray.insert(9, "x".into());
+        assert_eq!(check_override_legs(&overrides, &stray, &stages), c);
+        // No overrides, nothing to sort.
+        assert_eq!(check_override_legs(&Default::default(), &saved, &stages), OverrideLegCheck::default());
+    }
+
+    /// Protects: the departure day's validation -- 0 and 364 are the calendar's
+    /// ends and are accepted, 365 and negatives are refused **without writing**
+    /// (no clamp to 31 December), and `None` clears a set day.
+    #[test]
+    fn set_start_day_accepts_the_calendar_and_refuses_the_rest_unchanged() {
+        let mut j = Journey {
+            id: 1,
+            name: "n".into(),
+            party_preset: "p".into(),
+            route: JourneyRoute { points: vec![], breaks: vec![], length_km: 0.0, mode: crate::tools::RouteMode::Land },
+            start_year: 0,
+            start_day: None,
+            resupply_stops: vec![],
+            plan: None,
+        };
+        assert!(j.set_start_day(Some(0)).is_ok());
+        assert_eq!(j.start_day, Some(0));
+        assert!(j.set_start_day(Some(364)).is_ok());
+        assert_eq!(j.start_day, Some(364));
+        assert!(j.set_start_day(Some(365)).is_err());
+        assert!(j.set_start_day(Some(-1)).is_err());
+        assert_eq!(j.start_day, Some(364), "a refused day leaves the old one");
+        assert!(j.set_start_day(None).is_ok());
+        assert_eq!(j.start_day, None);
     }
 }

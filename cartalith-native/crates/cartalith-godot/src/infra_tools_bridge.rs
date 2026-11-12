@@ -404,6 +404,10 @@ impl InfraTools {
                 mode: r.mode,
             },
             start_year,
+            // SP-2 residual: no day until `journey_set_departure` writes one,
+            // so this signature (and every caller of it) is unchanged and an
+            // undated journey stays distinguishable from a 1 January one.
+            start_day: None,
             // Ruling BS: set afterwards through `journey_set_resupply`, so
             // this signature (and every caller of it) is unchanged.
             resupply_stops: Vec::new(),
@@ -1601,6 +1605,7 @@ mod tests {
             party_preset: "p".into(),
             route: cartalith_civ::travel_library::JourneyRoute { points: pts, breaks: vec![], length_km: 1.0, mode: RouteMode::Land },
             start_year: 5,
+            start_day: None,
             resupply_stops: vec![],
             plan: None,
         };

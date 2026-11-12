@@ -16,10 +16,11 @@
 //! - **Carrying journeys across a generate**, which drops every other piece of
 //!   tool state (`release_world`/`absorb`).
 //!
-//! **A departure is 1 January of `Journey::start_year`.** A saved journey
-//! carries a start year and no finer date (SP-1's entity, persisted as such in
-//! `entities/journeys.json`); widening it to a full departure date is a
-//! format change left for a follow-up, stated rather than assumed.
+//! **A departure is `Journey::start_year` plus, when one was set,
+//! `Journey::start_day`** (a day of the 365-day calendar, the cursor's own
+//! unit). A journey with **no day set** departs 1 January, as every journey did
+//! before the field, and says so: the dictionaries below carry a `start_day` key
+//! only when one was chosen.
 //!
 //! **A saved journey's timeline is cached** ([`JourneyPlanCache`]), because
 //! re-planning it through `JourneyWorld::build` + `jp_plan_full` on every
@@ -152,6 +153,9 @@ fn hash_saved_plan(h: &mut DefaultHasher, saved: &cartalith_civ::travel_library:
     hash_debug(h, &saved.animal_entries);
     hash_debug(h, &(saved.trim.0.to_bits(), saved.trim.1.to_bits()));
     hash_debug(h, &(saved.auto_carriage, saved.auto_stage));
+    // Ruling EA item 10: the drop decision reads the saved fingerprints, so a
+    // changed set can change the plan and must change the key.
+    hash_debug(h, &saved.override_legs);
 }
 
 /// The per-journey half of the key, over the world half.
@@ -414,41 +418,16 @@ impl WorldGen {
                     // Ruling AR: the journey's whole saved plan, replayed
                     // through the same `jp_plan_with_autos` the planner's
                     // `jp_compute` runs -- so the dates here are the dates
-                    // the planner showed when it was saved. The trim cuts the
-                    // route first (as `jp_compute` does), every stage index
-                    // in the saved overrides belonging to the trimmed route.
-                    // The preset is not read: the plan already carries every
-                    // field the preset would have written.
-                    let mut plan = saved.plan.clone();
-                    // Ruling BS: the journey's own accepted stops are the
-                    // single copy (the saved plan's is empty by construction).
-                    plan.accepted_resupply = journey.resupply_stops.clone();
-                    match cartalith_civ::jp_trim_points(&journey.route.points, saved.trim.0, saved.trim.1) {
-                        Some(pts) if pts.len() >= 2 => {
-                            let own_overrides = entry_overrides(journey);
-                            let (stats_fn, terrain_fn) =
-                                cartalith_civ::travel_library::animal_resolver_fns(&own_overrides);
-                            let own = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
-                            let layovers: cartalith_civ::JpLayovers =
-                                saved.layovers.iter().map(|(k, v)| (k.clone(), *v)).collect();
-                            crate::jp_plan_with_autos(
-                                &world,
-                                &pts,
-                                plan,
-                                &layovers,
-                                &forage,
-                                Some(&own),
-                                Some(&vessel_resolver),
-                                saved.auto_carriage,
-                                saved.auto_stage,
-                            )
-                            .journey
-                        }
-                        // A trim that leaves no route: no timeline, the same
-                        // answer `jp_compute` gives ("that trim leaves no
-                        // route to plan").
-                        _ => None,
-                    }
+                    // the planner showed when it was saved. The preset is not
+                    // read: the plan already carries every field the preset
+                    // would have written. Ruling EA item 10: an override whose
+                    // leg has changed is dropped inside
+                    // [`plan_saved_journey_checked`], so nothing here is
+                    // applied to a leg it was not set on.
+                    let own_overrides = entry_overrides(journey);
+                    let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&own_overrides);
+                    let own = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
+                    plan_saved_journey_checked(&world, &forage, &own, &vessel_resolver, journey, saved).0
                 } else {
                     let base = cartalith_civ::JpPlan::default();
                     let mut plan = preset.map_or_else(|| base.clone(), |p| p.apply_to(&base));
@@ -595,6 +574,75 @@ fn date_text(day_number: i64) -> String {
     chronos::format_date(y, Some(md))
 }
 
+/// The chronos day number a journey sets out on: its `start_year` and, when one
+/// was set, its `start_day` (`Journey::start_day`); **1 January when no day was
+/// set**, which is how every journey was planned before the field existed. The
+/// fallback is for arithmetic only -- whether a day was chosen is
+/// `start_day.is_some()`, which the dictionaries report as the presence of a
+/// `start_day` key.
+pub(crate) fn departure_day_number(j: &cartalith_civ::travel_library::Journey) -> i64 {
+    chronos::day_number(j.start_year, j.start_day.and_then(|d| MonthDay::from_day_of_year(i64::from(d))))
+}
+
+/// The departure as `YYYY-MM-DD` text (see [`departure_day_number`]).
+pub(crate) fn departure_text(start_year: i64, start_day: Option<u16>) -> String {
+    date_text(chronos::day_number(start_year, start_day.and_then(|d| MonthDay::from_day_of_year(i64::from(d)))))
+}
+
+/// Plans one saved journey from its stored plan exactly as `jp_compute` would
+/// (Ruling AR), **dropping every manual override whose leg has changed**
+/// (Ruling EA item 10) before the result is used.
+///
+/// Returns the planned journey (`None` is "no derivable stages", or a trim that
+/// leaves no route -- the same answer `jp_compute` gives) and the
+/// [`cartalith_civ::travel_library::OverrideLegCheck`] of the saved overrides
+/// against the stages the plan was cut into. The trim cuts the route first (as
+/// `jp_compute` does), so every stage index belongs to the trimmed route.
+///
+/// **Two passes only when something is dropped.** The stages do not depend on
+/// the overrides (`jp_derive_stages` never reads them), so the first run, with
+/// every override, already shows which legs the indices now name; if any
+/// override fails its check it is removed and the plan run again. The check
+/// looks only at the user's saved overrides, before `auto_stage` merges its own
+/// picks in `jp_plan_with_autos`: those are chosen against the current stages
+/// and cannot be stale. Never writes the journey: the store keeps what the
+/// author saved, so a world edited back to match re-applies the override and a
+/// re-save is what makes a drop permanent.
+fn plan_saved_journey_checked(
+    world: &cartalith_civ::JpWorld<'_>,
+    forage: &dyn Fn(f64, f64) -> f64,
+    own: &cartalith_civ::JpAnimalResolver<'_>,
+    vessels: &cartalith_civ::JpVesselResolver<'_>,
+    journey: &cartalith_civ::travel_library::Journey,
+    saved: &cartalith_civ::travel_library::JourneyPlan,
+) -> (Option<cartalith_civ::JpJourneyPlan>, cartalith_civ::travel_library::OverrideLegCheck) {
+    let mut plan = saved.plan.clone();
+    // Ruling BS: the journey's own accepted stops are the single copy (the
+    // saved plan's is empty by construction).
+    plan.accepted_resupply = journey.resupply_stops.clone();
+    let Some(pts) = cartalith_civ::jp_trim_points(&journey.route.points, saved.trim.0, saved.trim.1).filter(|p| p.len() >= 2)
+    else {
+        return (None, cartalith_civ::travel_library::OverrideLegCheck::default());
+    };
+    let layovers: cartalith_civ::JpLayovers = saved.layovers.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    let run = |p: cartalith_civ::JpPlan| {
+        crate::jp_plan_with_autos(world, &pts, p, &layovers, forage, Some(own), Some(vessels), saved.auto_carriage, saved.auto_stage)
+            .journey
+    };
+    let mut planned = run(plan.clone());
+    let mut check = cartalith_civ::travel_library::OverrideLegCheck::default();
+    if let Some(jp) = &planned {
+        check = cartalith_civ::travel_library::check_override_legs(&plan.stage_overrides, &saved.override_legs, &jp.stages);
+        if !check.dropped.is_empty() {
+            for d in &check.dropped {
+                plan.stage_overrides.remove(&d.stage);
+            }
+            planned = run(plan);
+        }
+    }
+    (planned, check)
+}
+
 #[godot_api(secondary)]
 impl WorldGen {
     /// The year cursor's day, 0-based (`0` = 1 January) in
@@ -633,11 +681,79 @@ impl WorldGen {
         }
     }
 
+    /// Ruling EA item 10: does journey `id`'s saved manual overrides still sit
+    /// on the legs they were set on? Plans the journey from its stored plan
+    /// (the same replay `journey_positions` runs, uncached -- it is called when
+    /// a person opens one journey, not per frame) and returns:
+    ///
+    /// - `ok`, `error` (`ok: false` for an unknown id, no stored plan, no
+    ///   world, or a journey that plans to nothing -- the check cannot run);
+    /// - `verified`, `unverified`: stage numbers (`Array<int>`). *Unverified*
+    ///   overrides have no saved fingerprint (the journey predates the field):
+    ///   they apply as before and are **not** counted as checked;
+    /// - `dropped`: one `{stage, was, now}` per override that no longer sits
+    ///   on its leg -- `was` and `now` the leg's category (`land`/`river`/
+    ///   `sea`); `now` is **absent** when the route now has no such stage.
+    ///   These are not applied by the engine's own replans either.
+    ///
+    /// Reads only; the stored plan keeps the dropped overrides (a world edited
+    /// back re-matches them, and a re-save is what drops them for good).
+    #[func]
+    fn journey_override_report(&mut self, id: i64) -> VarDictionary {
+        let fail = |msg: &str| vdict! { "ok" => false, "error" => msg };
+        let Ok(id) = u64::try_from(id) else { return fail("no such journey") };
+        // Builds the wildlife cache `forage` reads (its fingerprint is not needed here).
+        if self.refresh_wildlife_cache().is_none() {
+            return fail("no world to plan against");
+        }
+        let (Some(WorldSource::Generated(ws)), Some(civ), Some(infra)) =
+            (self.source.as_ref(), self.civ.as_ref(), self.infra.as_ref())
+        else {
+            return fail("no world to plan against");
+        };
+        let Some(journey) = infra.journeys.iter().find(|j| j.id == id) else { return fail("no such journey") };
+        let Some(saved) = &journey.plan else { return fail("this journey has no stored plan") };
+        let vessel_overrides = self.travel_library.vessel_overrides();
+        let entries: HashMap<String, String> = saved.animal_entries.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let own_overrides = self.travel_library.animal_overrides_selected(&entries).0;
+        let parts = self.jp_world_parts(ws, civ);
+        let world = self.jp_world(ws, civ, &parts);
+        let forage = |mx: f64, my: f64| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my));
+        let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&own_overrides);
+        let own = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
+        let vessel_fn = cartalith_civ::travel_library::vessel_resolver_fn(&vessel_overrides);
+        let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
+        let (planned, check) = plan_saved_journey_checked(&world, &forage, &own, &vessel_resolver, journey, saved);
+        if planned.is_none() {
+            return fail("this journey's route plans to nothing, so its overrides cannot be checked");
+        }
+        let ints = |v: &[usize]| -> Array<i64> { v.iter().map(|&i| i as i64).collect() };
+        let mut dropped: Array<VarDictionary> = Array::new();
+        for d in &check.dropped {
+            let mut row = vdict! {
+                "stage" => d.stage as i64,
+                "was" => cartalith_civ::travel_library::leg_key_category(&d.was),
+            };
+            if let Some(now) = &d.now {
+                row.set("now", cartalith_civ::travel_library::leg_key_category(now));
+            }
+            dropped.push(&row);
+        }
+        vdict! {
+            "ok" => true,
+            "error" => "",
+            "verified" => &ints(&check.verified),
+            "unverified" => &ints(&check.unverified),
+            "dropped" => &dropped,
+        }
+    }
+
     /// SP-2: every saved journey at the cursor date. One Dictionary per
     /// journey, `journey_list()`'s `id`/`name`/`party_preset`/`start_year`
     /// plus:
     ///
-    /// - `departure` (`YYYY-MM-DD`, 1 January of `start_year`),
+    /// - `departure` (`YYYY-MM-DD`: `start_year` and `start_day`, 1 January
+    ///   when no day was set -- `start_day` is present only when one was),
     ///   `elapsed_days` (cursor minus departure; negative before it).
     /// - When the plan has a timeline: `phase` (`not_departed`/`en_route`/
     ///   `arrived`), `x`/`y` (grid coordinates on the route), `km_done`,
@@ -666,7 +782,7 @@ impl WorldGen {
         let mut out = Array::new();
         for (ji, preset_missing, timeline) in planned {
             let j = &infra.journeys[ji];
-            let departure = chronos::day_number(j.start_year, None);
+            let departure = departure_day_number(j);
             let elapsed = cursor - departure;
             let mut d = vdict! {
                 "id" => j.id as i64,
@@ -676,6 +792,9 @@ impl WorldGen {
                 "departure" => date_text(departure).as_str(),
                 "elapsed_days" => elapsed,
             };
+            if let Some(day) = j.start_day {
+                d.set("start_day", day as i64);
+            }
             if let Some((_, _, o)) = infra.resnap_report.iter().find(|(id, _, _)| *id == j.id) {
                 d.set("resnap", &outcome_dict(o));
             }
@@ -722,7 +841,7 @@ impl WorldGen {
     /// planner's own dedup), in route-date order where dated:
     ///
     /// - `id`, `name`, `party_preset`, `start_year`, `departure`
-    ///   (`YYYY-MM-DD`, 1 January of `start_year`, as `journey_positions`).
+    ///   (`YYYY-MM-DD`, as `journey_positions` reads it).
     /// - When the plan has a timeline: `day_offset` (whole calendar days from
     ///   departure, floored), `date` (`YYYY-MM-DD`) and `year` of the pass.
     ///   Read off the same `jp_plan_full` plan `journey_positions` moves the
@@ -777,7 +896,7 @@ impl WorldGen {
             .map(|(ji, _, timeline)| {
                 let j = &infra.journeys[ji];
                 let pi = passes[&ji];
-                let departure = chronos::day_number(j.start_year, None);
+                let departure = departure_day_number(j);
                 let mut d = vdict! {
                     "id" => j.id as i64,
                     "name" => j.name.as_str(),
@@ -785,6 +904,9 @@ impl WorldGen {
                     "start_year" => j.start_year,
                     "departure" => date_text(departure).as_str(),
                 };
+                if let Some(day) = j.start_day {
+                    d.set("start_day", day as i64);
+                }
                 // Undated rows sort after every dated one.
                 let mut key = i64::MAX;
                 match timeline {
@@ -851,6 +973,36 @@ impl WorldGen {
 /// `plan_saved_journeys` hands the planner and to nothing else.
 #[cfg(test)]
 mod tests {
+
+    /// Protects: (SP-2 residual) a departure is the year plus the set day, in
+    /// the 365-day calendar as literals -- day 0 is 1 January, day 59 is
+    /// 1 March (31 + 28 days before it), day 73 is 15 March, day 364 is
+    /// 31 December; and **no day set departs on 1 January** (the pre-field
+    /// behaviour), the same date text as day 0, which is why the readers also
+    /// report `start_day` as present or absent.
+    #[test]
+    fn a_departure_is_the_year_plus_the_set_day_and_an_unset_day_is_1_january() {
+        assert_eq!(departure_text(412, Some(0)), "412-01-01");
+        assert_eq!(departure_text(412, Some(59)), "412-03-01");
+        assert_eq!(departure_text(412, Some(73)), "412-03-15");
+        assert_eq!(departure_text(412, Some(364)), "412-12-31");
+        assert_eq!(departure_text(412, None), "412-01-01");
+        assert_eq!(departure_text(-3, Some(73)), "-3-03-15", "a year before zero keeps its day");
+        // The arithmetic the marker uses: a set day is that many days later.
+        let mut j = cartalith_civ::travel_library::Journey {
+            id: 1,
+            name: "n".into(),
+            party_preset: "p".into(),
+            route: cartalith_civ::travel_library::JourneyRoute { points: vec![], breaks: vec![], length_km: 0.0, mode: RouteMode::Land },
+            start_year: 412,
+            start_day: None,
+            resupply_stops: vec![],
+            plan: None,
+        };
+        let jan = departure_day_number(&j);
+        j.start_day = Some(73);
+        assert_eq!(departure_day_number(&j) - jan, 73);
+    }
     use super::*;
     use cartalith_civ::travel_library::PartyPreset;
 /// `Debug`-hashes `v` exactly as the key does, for the map-ordering test.
@@ -901,6 +1053,7 @@ mod tests {
             trim: (0.0, 1.0),
             auto_carriage: false,
             auto_stage: false,
+            override_legs: BTreeMap::new(),
         }
     }
 
@@ -946,6 +1099,13 @@ mod tests {
         let mut m = base.clone();
         m.auto_stage = true;
         assert_ne!(k, key(&m), "auto stage");
+        // Ruling EA item 10: the drop decision reads the saved fingerprints.
+        let mut m = base.clone();
+        m.override_legs.insert(0, "land:0-3@2,1".into());
+        assert_ne!(k, key(&m), "a saved leg fingerprint");
+        let mut m2 = m.clone();
+        m2.override_legs.insert(0, "river:0-3@2,1".into());
+        assert_ne!(key(&m), key(&m2), "a changed leg fingerprint");
         let ov: HashMap<String, cartalith_civ::travel_library::AnimalDef> =
             HashMap::from([("horse".to_string(), cartalith_civ::travel_library::AnimalDef::blank("e1", "Horse"))]);
         assert_ne!(k, journey_key(7, Some(&p), &pts, &[], Some(&base), &ov), "the animal overrides its entries select");

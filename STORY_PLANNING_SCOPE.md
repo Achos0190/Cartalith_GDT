@@ -195,7 +195,9 @@ Each was ruled twice. The later ruling is the one that stands.
   date system. The calendar, from AO's SP-2 addendum:
   `cartalith_vault::chronos::MONTH_DAYS` — the Gregorian month lengths with
   February fixed at 28, 365 days, no leap year. A saved journey departs on
-  1 January of `Journey::start_year`; rest days are spread evenly; arrival is
+  `Journey::start_year` plus its `start_day` (a day of that calendar, saved
+  since 2026-11-12; the Timeline cursor's date at save, settable to the cursor
+  afterwards), and on 1 January when no day was ever set; rest days are spread evenly; arrival is
   departure + `ceil(total_days)` from `jp_plan`'s own figure.
 - **What a conflict is attached to (SP-4).** Ruling 8 (2026-09-06): geometry
   with optional references — a deleted referenced entity leaves the geometry

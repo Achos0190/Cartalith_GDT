@@ -6202,6 +6202,42 @@ func journey_set_plan(id: int, request: Dictionary) -> Dictionary:
 	mark_world_dirty()
 	return world_gen.journey_set_plan(id, request)
 
+## SP-2 residual: sets journey `id`'s departure. `year` is required; `day_of_year`
+## (0-based, 0..364, the year cursor's own day) is **optional and its absence
+## clears the day** -- the journey then has "no day set" and departs 1 January as
+## before, rather than storing `0` (a real 1 January). Returns `{ok, error}`;
+## nothing is written on `ok: false`. Refused while `generating`.
+func journey_set_departure(id: int, year: int, day_of_year = null) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": "A generation is running."}
+	if not _has("journey_set_departure"):
+		return {"ok": false, "error": "Departure dates are not available in this version of Cartalith."}
+	var spec := {"year": year}
+	if day_of_year != null:
+		spec["day_of_year"] = int(day_of_year)
+	mark_world_dirty()
+	return world_gen.journey_set_departure(id, spec)
+
+## Ruling EA item 10: records which leg (`plan.stages[i].leg`) each saved manual
+## override of journey `id` was set on, `{stage: leg}`. Call right after
+## `journey_set_plan`, which clears them. `false` for no plan, or a bad key.
+func journey_set_override_legs(id: int, legs: Dictionary) -> bool:
+	if generating or not _has("journey_set_override_legs"):
+		return false
+	mark_world_dirty()
+	return world_gen.journey_set_override_legs(id, legs)
+
+## Ruling EA item 10: whether journey `id`'s saved overrides still sit on the
+## legs they were set on -- `{ok, error, verified: [stage], unverified: [stage],
+## dropped: [{stage, was, now?}]}` (`now` absent = the route no longer has that
+## stage). Reads only. `{ok: false}` while `generating` or without a world.
+func journey_override_report(id: int) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": "A generation is running."}
+	if not _has("journey_override_report"):
+		return {"ok": false, "error": "Override checks are not available in this version of Cartalith."}
+	return world_gen.journey_override_report(id)
+
 ## One journey's full detail by stable `id` (`WorldGen.journey_get`), including route
 ## points. `{}` for an unknown id.
 ##

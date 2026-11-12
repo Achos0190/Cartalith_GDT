@@ -18068,14 +18068,23 @@ impl WorldGen {
             .journeys
             .iter()
             .map(|j| {
-                vdict! {
+                let mut d = vdict! {
                     "id" => j.id as i64,
                     "name" => j.name.as_str(),
                     "party_preset" => j.party_preset.as_str(),
                     "start_year" => j.start_year,
+                    // SP-2 residual: the date text a reader can show
+                    // (`story_bridge::departure_text`), always present; and
+                    // `start_day` ONLY when a day was set, so `has("start_day")`
+                    // is the question "was a departure day chosen".
+                    "departure" => story_bridge::departure_text(j.start_year, j.start_day).as_str(),
                     "km" => j.route.length_km,
                     "mode" => project_bridge::route_mode_key(j.route.mode),
+                };
+                if let Some(day) = j.start_day {
+                    d.set("start_day", day as i64);
                 }
+                d
             })
             .collect()
     }
@@ -18098,6 +18107,7 @@ impl WorldGen {
             "name" => j.name.as_str(),
             "party_preset" => j.party_preset.as_str(),
             "start_year" => j.start_year,
+            "departure" => story_bridge::departure_text(j.start_year, j.start_day).as_str(),
             "km" => j.route.length_km,
             "mode" => project_bridge::route_mode_key(j.route.mode),
             "points" => &points,
@@ -18113,6 +18123,10 @@ impl WorldGen {
         // test `has("plan")`, and an empty plan would look authored.
         if let Some(p) = &j.plan {
             d.set("plan", &journey_plan_to_dict(p));
+        }
+        // SP-2 residual: omitted, not zeroed, when no departure day was set.
+        if let Some(day) = j.start_day {
+            d.set("start_day", day as i64);
         }
         d
     }
@@ -18146,6 +18160,72 @@ impl WorldGen {
         };
         j.plan = Some(plan);
         vdict! { "ok" => true, "error" => "", "rejected" => &rejected }
+    }
+
+    /// SP-2 residual: sets journey `id`'s departure. `spec` carries `year`
+    /// (int, required) and `day_of_year` (int `0..=364`, 0-based in Chronos's
+    /// 365-day calendar, the year cursor's own day). **An absent `day_of_year`
+    /// clears the day** -- the journey is then "no day set", planned from
+    /// 1 January as before and reported as such -- rather than writing `0`,
+    /// which would make an undated journey indistinguishable from one the user
+    /// sent off on 1 January. Returns `{ok, error}`; nothing is written on
+    /// `ok: false` (unknown id, missing or ill-typed `year`, a day outside
+    /// `0..=364`: never clamped). The planned timelines need no cache drop:
+    /// `story_bridge::journey_key` deliberately excludes the date, which is
+    /// applied after the plan (`journey_positions`).
+    #[func]
+    fn journey_set_departure(&mut self, id: i64, spec: VarDictionary) -> VarDictionary {
+        let fail = |msg: &str| vdict! { "ok" => false, "error" => msg };
+        let Ok(id) = u64::try_from(id) else { return fail("no such journey") };
+        let Some(year) = spec.get("year").and_then(|v| v.try_to::<i64>().ok()) else {
+            return fail("`year` must be an integer");
+        };
+        let day = match spec.get("day_of_year") {
+            None => None,
+            Some(v) => match v.try_to::<i64>() {
+                Ok(d) => Some(d),
+                Err(_) => return fail("`day_of_year` must be an integer"),
+            },
+        };
+        let Some(j) = self.infra.as_mut().and_then(|i| i.journeys.iter_mut().find(|j| j.id == id)) else {
+            return fail("no such journey");
+        };
+        if let Err(msg) = j.set_start_day(day) {
+            return fail(&msg);
+        }
+        j.start_year = year;
+        vdict! { "ok" => true, "error" => "" }
+    }
+
+    /// Ruling EA item 10: records, for journey `id`'s saved overrides, the leg
+    /// each was set on -- `legs` is `{stage: fingerprint}` with each
+    /// fingerprint the `leg` key of the planner's own `plan.stages` entry
+    /// (`jp_stage_dict`). Replaces any stored set. A stage that has no saved
+    /// override is ignored (it would be inert). Returns `false` (nothing
+    /// written) for an unknown id, a journey with no stored plan, or a
+    /// non-integer stage / non-string fingerprint. Call it right after
+    /// `journey_set_plan`, which clears the keys (it is `jp_compute`'s shared
+    /// request vocabulary and carries none).
+    #[func]
+    fn journey_set_override_legs(&mut self, id: i64, legs: VarDictionary) -> bool {
+        let Ok(id) = u64::try_from(id) else { return false };
+        let mut parsed = std::collections::BTreeMap::new();
+        for (k, v) in legs.iter_shared() {
+            let (Ok(stage), Ok(key)) = (k.try_to::<i64>(), v.try_to::<GString>()) else { return false };
+            let Ok(stage) = usize::try_from(stage) else { return false };
+            parsed.insert(stage, key.to_string());
+        }
+        let Some(p) = self
+            .infra
+            .as_mut()
+            .and_then(|i| i.journeys.iter_mut().find(|j| j.id == id))
+            .and_then(|j| j.plan.as_mut())
+        else {
+            return false;
+        };
+        parsed.retain(|stage, _| p.plan.stage_overrides.contains_key(stage));
+        p.override_legs = parsed;
+        true
     }
 
     /// Ruling BS: replaces the accepted resupply stops saved with journey
@@ -20893,6 +20973,10 @@ fn journey_plan_from_request(
             trim: parsed.trim.unwrap_or((0.0, 1.0)),
             auto_carriage: parsed.auto_carriage,
             auto_stage: parsed.auto_stage,
+            // Ruling EA item 10: never part of the request vocabulary (which
+            // `jp_compute` shares); the fingerprints go in separately through
+            // `journey_set_override_legs`, so this replaces a plan with none.
+            override_legs: std::collections::BTreeMap::new(),
         },
         parsed.rejected,
     ))
@@ -20922,7 +21006,7 @@ fn journey_plan_to_dict(p: &cartalith_civ::travel_library::JourneyPlan) -> VarDi
     for (k, id) in &p.animal_entries {
         entries.set(k.as_str(), id.as_str());
     }
-    vdict! {
+    let mut d = vdict! {
         "plan" => &jp_pairs_dict(&journey_bridge::plan_to_pairs(&p.plan)),
         "stage_overrides" => &overrides,
         "layovers" => &layovers,
@@ -20930,7 +21014,18 @@ fn journey_plan_to_dict(p: &cartalith_civ::travel_library::JourneyPlan) -> VarDi
         "trim" => Vector2::new(p.trim.0 as f32, p.trim.1 as f32),
         "auto_carriage" => p.auto_carriage,
         "auto_stage" => p.auto_stage,
+    };
+    // Ruling EA item 10: `{stage: leg fingerprint}`. **Omitted when none was
+    // saved** (callers test `has()`): an empty dictionary would read as
+    // "every override was checked", where the truth is "none were recorded".
+    if !p.override_legs.is_empty() {
+        let mut legs = VarDictionary::new();
+        for (i, k) in &p.override_legs {
+            legs.set(*i as i64, k.as_str());
+        }
+        d.set("override_legs", &legs);
     }
+    d
 }
 
 /// A `Dictionary` as the `(key, JpValue)` list `journey_bridge`'s parsers
@@ -21141,6 +21236,9 @@ fn jp_stage_dict(s: &cartalith_civ::JpDerivedStage) -> VarDictionary {
         "dry_km" => s.dry_km,
         "mx" => s.mx,
         "my" => s.my,
+        // Ruling EA item 10: the leg's fingerprint, which a saved journey
+        // stores beside each override it holds for this stage.
+        "leg" => cartalith_civ::travel_library::leg_key(s).as_str(),
     };
     if let Some(sl) = s.slope {
         d.set("slope_grade", sl.grade());

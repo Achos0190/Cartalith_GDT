@@ -920,6 +920,15 @@ struct JourneyDto {
     route: JourneyRouteDto,
     #[serde(default)]
     start_year: i64,
+    /// SP-2 residual: the departure day within `start_year`, 0-based in the
+    /// 365-day calendar (`Journey::start_day`). **Absent means "no day was
+    /// set"** (every journey written before the field) and is never read as
+    /// `0` (1 January); skipped when `None`, so re-saving such a journey writes
+    /// the bytes it was read from. `u16` so a negative or huge number fails
+    /// to parse as a number; a `u16` above 364 is dropped to absent by
+    /// [`dto_to_journey`], never clamped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    start_day: Option<u16>,
     /// Ruling BS (2026-09-28): the accepted resupply stops. `default` so a
     /// document written before the ruling loads with none -- which is how
     /// those journeys were planned -- and skipped when empty so re-saving
@@ -971,6 +980,14 @@ struct JourneyPlanDto {
     auto_carriage: bool,
     #[serde(default)]
     auto_stage: bool,
+    /// Ruling EA item 10: per override, the fingerprint of the leg it was set
+    /// on (`cartalith_civ::travel_library::leg_key`), keyed like
+    /// `stage_overrides` by stage index as a decimal string. Optional and
+    /// additive: **absent or short means "unverified", not "matches"** (a
+    /// journey saved before the field has overrides and no keys), and it is
+    /// skipped when empty so such a journey re-saves byte-identically.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    stage_override_legs: BTreeMap<String, String>,
 }
 
 /// [`JourneyPlanDto::trim`]'s serde default: the untrimmed route, the
@@ -2279,6 +2296,7 @@ fn journey_to_dto(j: &cartalith_civ::travel_library::Journey) -> JourneyDto {
             mode: route_mode_key(j.route.mode).to_string(),
         },
         start_year: j.start_year,
+        start_day: j.start_day,
         resupply_stops: j
             .resupply_stops
             .iter()
@@ -2309,6 +2327,7 @@ fn journey_plan_to_dto(p: &cartalith_civ::travel_library::JourneyPlan) -> Journe
         trim: [p.trim.0, p.trim.1],
         auto_carriage: p.auto_carriage,
         auto_stage: p.auto_stage,
+        stage_override_legs: p.override_legs.iter().map(|(i, k)| (i.to_string(), k.clone())).collect(),
     }
 }
 
@@ -2329,6 +2348,10 @@ fn dto_to_journey_plan(d: &JourneyPlanDto) -> cartalith_civ::travel_library::Jou
         trim: (d.trim[0], d.trim[1]),
         auto_carriage: d.auto_carriage,
         auto_stage: d.auto_stage,
+        // An unparsable index is dropped (the tolerance rule above); a key for
+        // an index with no override is kept here and is inert -- the checker
+        // only ever looks up indices the overrides hold.
+        override_legs: d.stage_override_legs.iter().filter_map(|(i, k)| Some((i.parse::<usize>().ok()?, k.clone()))).collect(),
     }
 }
 
@@ -2347,6 +2370,9 @@ fn dto_to_journey(d: &JourneyDto) -> cartalith_civ::travel_library::Journey {
             mode: route_mode_from(&d.route.mode),
         },
         start_year: d.start_year,
+        // Out of range = absent: a clamp would turn a corrupt number into a
+        // plausible 31 December (`Journey::set_start_day`'s own rule).
+        start_day: d.start_day.filter(|&day| day <= 364),
         resupply_stops: d
             .resupply_stops
             .iter()
@@ -6043,6 +6069,8 @@ mod tests {
                 mode: cartalith_civ::tools::RouteMode::Mixed,
             },
             start_year: 412,
+            // SP-2 residual: a set day (day 73 = 14 March), so the field round-trips.
+            start_day: Some(73),
             // Ruling BS: one accepted stop, so the new field round-trips too.
             resupply_stops: vec![cartalith_civ::JpAcceptedStop {
                 key: "resupply:Kessra|town|11|5".to_string(),
@@ -6149,6 +6177,9 @@ mod tests {
                 mode: cartalith_civ::tools::RouteMode::Mixed,
             },
             start_year: 412,
+            // SP-2 residual: day 0 is a REAL departure (1 January), chosen so
+            // this fixture cannot be satisfied by "absent" decoding to 0.
+            start_day: Some(0),
             resupply_stops: Vec::new(),
             plan: Some(cartalith_civ::travel_library::JourneyPlan {
                 plan,
@@ -6157,6 +6188,9 @@ mod tests {
                 trim: (0.25, 0.75),
                 auto_carriage: true,
                 auto_stage: true,
+                // Ruling EA item 10: one fingerprint per saved override (the
+                // fixture's overrides are stages 0 and 3).
+                override_legs: BTreeMap::from([(0, "land:0-3@2,1".to_string()), (3, "river:4-9@7,5".to_string())]),
             }),
         }
     }
@@ -6207,6 +6241,99 @@ mod tests {
         assert_eq!(journeys[0].resupply_stops.len(), 1, "the BS member came through");
         let again = JourneysDoc { next_id: doc.next_id, journeys: journeys.iter().map(journey_to_dto).collect() };
         assert_eq!(serde_json::to_string(&again).unwrap(), old);
+    }
+
+    /// Protects: (SP-2 residual, `SAVEFILE_COMPAT.md` 9.6) the departure day
+    /// is written under `start_day` and **an unset day is absent, not 0**: a
+    /// journey that never chose a day, one sent off on 1 January (day 0) and
+    /// one on 14 March (day 73) are three distinct states that each survive a
+    /// round trip, and the year 0 does not stand in for "no date".
+    #[test]
+    fn a_departure_day_round_trips_and_unset_is_not_day_zero() {
+        let mut undated = full_plan_journey();
+        undated.id = 20;
+        undated.start_year = 0; // year 0 is a real year too
+        undated.start_day = None;
+        let mut jan_first = undated.clone();
+        jan_first.id = 21;
+        jan_first.start_day = Some(0);
+        let mut march = undated.clone();
+        march.id = 22;
+        march.start_day = Some(73);
+        let (_, back) = journeys_round_trip(23, &[undated.clone(), jan_first.clone(), march.clone()]);
+        assert_eq!(back[0].start_day, None, "no day stays no day");
+        assert_eq!(back[1].start_day, Some(0), "1 January stays 1 January");
+        assert_eq!(back[2].start_day, Some(73));
+        assert_eq!(back.iter().map(|j| j.start_year).collect::<Vec<_>>(), vec![0, 0, 0], "year 0 survives beside an unset day");
+        // The wire text: absent key for unset, literal numbers otherwise.
+        let u = serde_json::to_value(journey_to_dto(&undated)).unwrap();
+        assert!(u.get("start_day").is_none(), "an unset day writes no key");
+        let j = serde_json::to_value(journey_to_dto(&jan_first)).unwrap();
+        assert_eq!(j["start_day"], 0);
+        let m = serde_json::to_value(journey_to_dto(&march)).unwrap();
+        assert_eq!(m["start_day"], 73);
+    }
+
+    /// Protects: (SP-2 residual, 14.3 tolerance) a `start_day` outside the
+    /// calendar -- 365 or more, from a corrupt or hand-edited file -- reads as
+    /// **absent**, never clamped to 31 December; a negative or fractional
+    /// number cannot parse as the `u16` and fails the document's slot as a
+    /// type error would (6.4a rung 3), it is not coerced.
+    #[test]
+    fn an_out_of_range_departure_day_reads_as_unset() {
+        let base = |day: &str| format!(r#"{{"id":7,"name":"n","party_preset":"p","route":{{"points":[[0.0,0.0],[1.0,1.0]],"breaks":[],"length_km":1.0,"mode":"mixed"}},"start_year":5,"start_day":{day}}}"#);
+        for (text, want) in [("364", Some(364u16)), ("365", None), ("40000", None)] {
+            let dto: JourneyDto = serde_json::from_str(&base(text)).unwrap();
+            assert_eq!(dto_to_journey(&dto).start_day, want, "start_day {text}");
+        }
+        assert!(serde_json::from_str::<JourneyDto>(&base("-1")).is_err());
+        assert!(serde_json::from_str::<JourneyDto>(&base("1.5")).is_err());
+    }
+
+    /// Protects: (Ruling EA item 10) the per-override leg fingerprints are
+    /// written under `plan.stage_override_legs` keyed like `stage_overrides`,
+    /// round-trip field for field, and are **absent when none were saved**.
+    #[test]
+    fn override_leg_fingerprints_are_written_under_the_documented_key() {
+        let v = serde_json::to_value(journey_to_dto(&full_plan_journey())).unwrap();
+        assert_eq!(v["plan"]["stage_override_legs"]["0"], "land:0-3@2,1");
+        assert_eq!(v["plan"]["stage_override_legs"]["3"], "river:4-9@7,5");
+        let mut bare = full_plan_journey();
+        bare.plan.as_mut().unwrap().override_legs.clear();
+        let v = serde_json::to_value(journey_to_dto(&bare)).unwrap();
+        assert!(v["plan"].get("stage_override_legs").is_none(), "no fingerprints means no member, not an empty object");
+        let (_, back) = journeys_round_trip(9, &[full_plan_journey()]);
+        assert_eq!(back[0].plan.as_ref().unwrap().override_legs.len(), 2);
+    }
+
+    /// Protects: (Ruling EA item 10 and SP-2 residual, backward compatibility)
+    /// a journeys document written by the build just before both -- a real
+    /// prior shape with a plan, stage overrides and **neither** new member --
+    /// opens with no departure day and no fingerprints (so its overrides are
+    /// "unverified", never "matches") and saving it invents neither member
+    /// (a plan re-writes its whole field list, so the old text itself is not
+    /// reproduced byte for byte; the journey-without-a-plan case is, in
+    /// `a_pre_ruling_ar_journey_loads_with_no_plan_and_resaves_byte_identically`).
+    #[test]
+    fn a_pre_departure_pre_fingerprint_document_loads_unchanged_and_resaves_stably() {
+        let old = r#"{"next_id":8,"journeys":[{"id":7,"name":"The salt road","party_preset":"merchant_caravan","route":{"points":[[10.0,4.0],[11.5,5.25],[13.0,6.0]],"breaks":[0],"length_km":120.5,"mode":"mixed"},"start_year":412,"plan":{"fields":{"hours":6.5},"stage_overrides":{"2":{"camel":3}},"trim":[0.0,1.0],"auto_carriage":false,"auto_stage":false}}]}"#;
+        let doc: JourneysDoc = serde_json::from_str(old).expect("the prior shape parses");
+        let journeys: Vec<_> = doc.journeys.iter().map(dto_to_journey).collect();
+        assert_eq!(journeys[0].start_day, None, "no day member means no day, not 1 January");
+        let plan = journeys[0].plan.as_ref().expect("plan");
+        assert_eq!(plan.plan.stage_overrides.len(), 1);
+        assert!(plan.override_legs.is_empty(), "a journey from before the fingerprints has none");
+        // A plan re-serialises its whole field list, so the old text cannot
+        // come back byte for byte; what must hold is that neither new member
+        // is invented, and that saving what was loaded is a fixed point.
+        let again = JourneysDoc { next_id: doc.next_id, journeys: journeys.iter().map(journey_to_dto).collect() };
+        let once = serde_json::to_string(&again).unwrap();
+        assert!(!once.contains("start_day"), "an unset day is not invented on save");
+        assert!(!once.contains("stage_override_legs"), "no fingerprint is invented for an old override");
+        assert!(once.contains(r#""stage_overrides":{"2":{"camel":3}}"#), "the override itself is kept");
+        let reparsed: JourneysDoc = serde_json::from_str(&once).unwrap();
+        let twice = JourneysDoc { next_id: reparsed.next_id, journeys: reparsed.journeys.iter().map(dto_to_journey).map(|j| journey_to_dto(&j)).collect() };
+        assert_eq!(serde_json::to_string(&twice).unwrap(), once);
     }
 
     /// Protects: (Ruling AR, `SAVEFILE_COMPAT.md` 9.6 / 14.3) a reader

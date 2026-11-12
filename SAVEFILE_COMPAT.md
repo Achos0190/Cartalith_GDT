@@ -1552,6 +1552,7 @@ no journey. Written only when at least one journey exists. The shape:
       "route": { "points": [[10.0,4.0]], "breaks": [], "length_km": 120.0,
                  "mode": "land" },
       "start_year": 412,
+      "start_day": 73,
       "resupply_stops": [ { "key": "resupply:Kessra|town|11|5",
                             "kind": "settlement", "name": "Kessra",
                             "at": [11.5, 5.25] } ],
@@ -1559,6 +1560,7 @@ no journey. Written only when at least one journey exists. The shape:
         "fields": { "rest_cadence": "Heavy \u2014 1 in 3", "hours": 7.5,
                     "group_size": 12, "pace": "Cautious / Scouting" },
         "stage_overrides": { "0": { "hours": 11.5 }, "3": { "camel": 6 } },
+        "stage_override_legs": { "0": "land:0-3@2,1", "3": "river:4-9@7,5" },
         "layovers": { "resupply:Kessra|town|11|5": 3 },
         "animal_entries": { "horse": "custom_horse" },
         "trim": [0.25, 0.75],
@@ -1574,6 +1576,21 @@ one — which is why it is its own entity and not a fifth array in
 a reader MUST tolerate a name that resolves to nothing and MUST show the
 journey rather than drop it.
 
+**`start_day` (added 2026-11-12, SP-2 residual).** The day of `start_year` the
+party sets out, an integer `0..=364`, **0-based in the 365-day calendar of
+`cartalith_vault::chronos::MONTH_DAYS`** (0 = 1 January, 59 = 1 March, 364 = 31
+December; the same number as the year cursor's own day). **Absent means "no
+departure day was ever set"** and is not the same as `0`: a journey from before
+this member, and one saved by a writer with no date control, has no day, and
+`0` is a real departure on 1 January. A reader plans an undated journey from
+1 January (what every journey did before the member existed) and SHOULD say the
+day is unset rather than present 1 January as chosen. A value above 364 is read
+as absent (never clamped to 31 December); a negative or non-integer value is a
+type error on the journey, which §6.4a rung 3 already treats as the slot being
+skipped, not coerced. A writer omits the member when it has no day, so a file
+without it re-saves without it. `start_year` is unchanged and may be any
+integer, `0` and negatives included.
+
 **`plan` (added 2026-10-06, Ruling AR).** Until then a saved journey kept only
 its party preset: the rest of what the Journey Planner had set -- rest cadence,
 pace, season, per-stage overrides, layovers, the trim -- was lost on reopen, and
@@ -1585,18 +1602,43 @@ writer stores exactly what it computed the journey's dates from:
 |---|---|
 | `fields` | the planner's party-form keys with their values (strings, numbers and booleans; an unset optional choice -- mount animal, route condition, rest cadence, ... -- is the empty string, the form's own "auto") |
 | `stage_overrides` | per-stage overrides keyed by stage index as a decimal string; each holds only the members that stage overrides, in `fields`' vocabulary |
+| `stage_override_legs` | **optional, added 2026-11-12 (Ruling EA item 10).** For an override in `stage_overrides`, the fingerprint of the leg it was set on, under the same decimal-string stage key. Form: `"<cat>:<i0>-<i1>@<mx>,<my>"` -- the leg's category (`land`, `river` or `sea`), the first and last route-point index it spans, and its midpoint cell rounded to whole cells (`travel_library::leg_key`); km, terrain, biome and road condition are deliberately not in it. See "Override fingerprints" below |
 | `layovers` | stop key -> days |
 | `animal_entries` | species slot -> Travel Library entry id |
 | `trim` | `[from, to]`, fractions of the route's arc length; `[0.0, 1.0]` is the whole route |
 | `auto_carriage`, `auto_stage` | the planner's two auto-pick switches; a reader that replays the plan MUST run the same picks, since they change the plan they act on |
 
-`stage_overrides`, `layovers` and `animal_entries` are omitted when empty.
+`stage_overrides`, `stage_override_legs`, `layovers` and `animal_entries` are
+omitted when empty.
 **The accepted resupply stops are not in `plan`**: they have one home, the
 journey's own `resupply_stops` (Ruling BS), and a reader MUST NOT expect them
 under `plan`.
 
+**Override fingerprints (Ruling EA item 10, 2026-11-12).** `stage_overrides` is
+keyed by stage number, but the stages are re-cut from the live world on every
+plan -- the River Transport legs from the current heights -- so after a
+regenerate, a sculpt or an engine change the number can name a different leg.
+`stage_override_legs` records which leg each override was set on. On replan a
+reader compares the saved key with the leg now at that stage number: equal =
+applied; different, or the route no longer has that stage = **dropped, never
+applied to another leg**, and the person is told which override and why;
+**no key saved for an override = unverified**: applied exactly as before and
+reported as unchecked, never as matching. Dropping is a read-time decision:
+the stored override and its key are left in the file (a world edited back
+re-matches them), and saving the journey again from the planner is what
+removes a dropped override from the file. A key for a stage with no override
+is inert; an unparsable stage index is dropped (14.3). The writer is the
+planner at the moment it saves, so the key it writes is the leg the override is
+being shown on.
+
 Compatibility, both directions:
 
+- **A missing `start_day` or `stage_override_legs` is a legitimate, common
+  file** (every journey before 2026-11-12): it opens with no departure day and
+  with its overrides unverified, plans as it always did, and re-saves without
+  either member. Neither addition changes `format_version`; an older reader
+  carries both as unknown members (14.3) or ignores them, and plans every
+  override as before.
 - **A missing `plan` is a legitimate, common file** -- every journey written
   before this ruling, and any journey whose writer has no planner. A reader
   MUST open it, MUST treat the journey as having *no stored plan* (not as a

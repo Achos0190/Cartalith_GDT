@@ -273,6 +273,10 @@ var _route_index := -1
 ## compute); readers check its `ok` flag before using `plan`.
 var _last_result: Dictionary = {}
 var _stage_overrides: Dictionary = {}   ## int stage idx -> Dictionary (JpStageOverride field pairs)
+## Ruling EA item 10: the notice `_load_journey()` leaves when a saved journey's manual overrides no longer sit on the
+## legs they were set on and were dropped (`""` = nothing was dropped). Shown under the Journeys list beside the
+## journey it names, until another journey is loaded, this one is forgotten, or a world change clears the list.
+var _override_notice: String = ""
 var _layovers: Dictionary = {}          ## stop key (String) -> int days
 ## Ruling BS: the resupply stops the user accepted -- each the very
 ## `plan.resupply_suggestions` Dictionary it was offered as, sent back to
@@ -1289,6 +1293,9 @@ func _refresh_route_choice() -> void:
 		del_btn.pressed.connect(func(): _delete_journey(i))
 		jrow.add_child(del_btn)
 	if not _journeys.is_empty():
+		_build_departure_row()
+		if _override_notice != "":
+			DccWidgets.note(_left_route_section, _override_notice)
 		_left_route_section.add_child(DccTheme.rule())
 
 	var labels: Array = []
@@ -3911,6 +3918,18 @@ func _commit_saved_journey(jname: String) -> void:
 				var set_plan: Dictionary = bridge.journey_set_plan(engine_id, _plan_request())
 				if not bool(set_plan.get("ok", false)):
 					push_warning("journey_set_plan failed: %s" % String(set_plan.get("error", "")))
+				else:
+					## Ruling EA item 10: each manual override is saved with the leg the planner is showing it on
+					## right now (`set_plan` cleared the keys; the request vocabulary carries none).
+					var legs := _override_legs_now()
+					if not legs.is_empty():
+						bridge.journey_set_override_legs(engine_id, legs)
+				## SP-2 residual: the journey departs on the Timeline cursor's date, year AND day -- the cursor is
+				## what the user moved to choose it. `journey_save` took the year; this adds the day so the saved
+				## journey has a departure date and is not merely "1 January of the cursor's year".
+				var dep: Dictionary = bridge.journey_set_departure(engine_id, bridge.get_civ_year(), bridge.get_civ_day_of_year())
+				if not bool(dep.get("ok", false)):
+					push_warning("journey_set_departure failed: %s" % String(dep.get("error", "")))
 	_journeys.append({
 		"name": jname,
 		"route": _route_index,
@@ -3936,6 +3955,107 @@ func _commit_saved_journey(jname: String) -> void:
 		app.viewport.refresh_journey_markers()
 	app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent")
 
+## Ruling EA item 10: `{stage: leg fingerprint}` for every manual override held now, read from the stages of the plan
+## the planner last computed (`plan.stages[i].leg`) -- the leg each override is being applied to at this moment. A stage
+## the last result does not have, or one that reports no `leg`, is left out rather than keyed to an empty string: an
+## override with no recorded leg is "unverified" in the engine, never "matches".
+func _override_legs_now() -> Dictionary:
+	var legs: Dictionary = {}
+	var stages: Array = (_last_result.get("plan", {}) as Dictionary).get("stages", [])
+	for idx in _stage_overrides:
+		var i := int(idx)
+		if i < 0 or i >= stages.size():
+			continue
+		var leg := String((stages[i] as Dictionary).get("leg", ""))
+		if leg != "":
+			legs[i] = leg
+	return legs
+
+## Ruling EA item 10: asks the engine whether journey `engine_id`'s saved overrides still sit on their legs, erases
+## each one that does not from `_stage_overrides`, and returns the notice that names them (`""` when nothing was
+## dropped, no engine journey backs this entry, or the check could not run). Stages are numbered from 1 in the
+## notice, as everywhere else the planner names one. The report's `unverified` list (a journey saved before the
+## fingerprints existed) is deliberately not a drop: those overrides apply as they always did.
+func _prune_stale_overrides(journey_name: String, engine_id: int) -> String:
+	if engine_id < 0 or _stage_overrides.is_empty():
+		return ""
+	var rep: Dictionary = bridge.journey_override_report(engine_id)
+	if not bool(rep.get("ok", false)):
+		return ""
+	var parts: PackedStringArray = []
+	for d in (rep.get("dropped", []) as Array):
+		var row: Dictionary = d
+		_stage_overrides.erase(int(row.get("stage", -1)))
+		var now := ("now a %s leg" % String(row["now"])) if row.has("now") else "and the route no longer has that stage"
+		parts.append("stage %d (was a %s leg, %s)" % [int(row.get("stage", 0)) + 1, String(row.get("was", "")), now])
+	if parts.is_empty():
+		return ""
+	return "Dropped %d manual override%s on \"%s\" because the leg moved since %s set: %s. Nothing was applied to a different leg." % [
+		parts.size(), "" if parts.size() == 1 else "s", journey_name, "it was" if parts.size() == 1 else "they were", ", ".join(parts)]
+
+## The departure line for the active saved journey, under the Journeys list: when it sets out, whether a day was ever
+## chosen, and two buttons that tie it to the Timeline's cursor -- "set to cursor" writes the cursor's year and day as
+## the departure; "go to" moves the cursor to it (`tl_set_year`/`tl_set_day`, the only writers). Nothing is drawn when
+## no engine journey is active. A journey with no day set says so ("day not set, planned from 1 January") rather
+## than showing 1 January as if it had been picked.
+func _build_departure_row() -> void:
+	if _active_journey < 0 or _active_journey >= _journeys.size():
+		return
+	var engine_id := int((_journeys[_active_journey] as Dictionary).get("engine_id", -1))
+	if engine_id < 0:
+		return
+	var row_data: Dictionary = {}
+	for r in bridge.journey_list():
+		if int((r as Dictionary).get("id", -1)) == engine_id:
+			row_data = r
+			break
+	if row_data.is_empty():
+		return
+	var text := "departs %s" % String(row_data.get("departure", ""))
+	if not row_data.has("start_day"):
+		text += " · day not set, planned from 1 January"
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 13)
+	pad.add_theme_constant_override("margin_right", 13)
+	var box := HBoxContainer.new()
+	box.name = "JourneyDeparture"
+	box.add_theme_constant_override("separation", 4)
+	pad.add_child(box)
+	_left_route_section.add_child(pad)
+	var lbl := DccTheme.mono_label(text, "text_dim", DccTheme.FS_SMALL)
+	lbl.name = "DepartureText"
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.tooltip_text = "The date this journey's party sets out. The Timeline's year and day place the party along the route, and the arrival is derived from the plan."
+	box.add_child(lbl)
+	var set_btn := DccWidgets.action(box, "set to cursor", func(): _set_departure_to_cursor(engine_id))
+	set_btn.name = "DepartureSet"
+	set_btn.tooltip_text = "Sets this journey's departure to the Timeline cursor's date: move the cursor first (the strip's year and day)."
+	var go_btn := DccWidgets.action(box, "go to", func(): _goto_departure(row_data))
+	go_btn.name = "DepartureGo"
+	go_btn.tooltip_text = "Moves the Timeline cursor to this journey's departure."
+
+## Writes the Timeline cursor's year and day as journey `engine_id`'s departure, then redraws the list (the line and
+## the party markers). The cursor is read through `app.tl_year()` and `bridge.get_civ_day_of_year()`, the values the
+## map's own markers are placed from.
+func _set_departure_to_cursor(engine_id: int) -> void:
+	var res: Dictionary = bridge.journey_set_departure(engine_id, app.tl_year(), bridge.get_civ_day_of_year())
+	if not bool(res.get("ok", false)):
+		app.set_status("hint", "Could not set the departure: %s" % String(res.get("error", "")), "warn")
+		return
+	if app.viewport != null:
+		app.viewport.refresh_journey_markers()
+	_refresh_route_choice()
+	app.set_status("hint", "Departure set to the cursor date, %s." % app.tl_date_text(), "accent")
+
+## Moves the Timeline cursor to a saved journey's departure (`row_data` is its `journey_list` row). A journey with no
+## day set moves the year only and leaves the day where it is -- there is no day to go to.
+func _goto_departure(row_data: Dictionary) -> void:
+	app.tl_set_year(int(row_data.get("start_year", 0)), true)
+	if row_data.has("start_day"):
+		app.tl_set_day(int(row_data["start_day"]))
+	app.set_status("hint", "Timeline moved to the departure, %s." % app.tl_date_text(), "accent")
+
 ## Restores a saved journey into the live planner state (copying every container so edits do not write back into the saved entry), then rebuilds the form and recomputes. A journey saved before Ruling AR has no auto flags and keeps the session's current ones.
 func _load_journey(i: int) -> void:
 	if i < 0 or i >= _journeys.size():
@@ -3958,10 +4078,19 @@ func _load_journey(i: int) -> void:
 		_stage_auto = bool(j["stage_auto"])
 	_selected_stage = 0
 	_isolated_stage = -1
+	## Ruling EA item 10: drop (and name) every manual override whose leg has changed since it was set, BEFORE the
+	## first compute, so a stage number is never applied to a leg it was not set on. The engine's stored plan is not
+	## rewritten: re-saving this journey is what makes a drop permanent.
+	_override_notice = _prune_stale_overrides(String(j.get("name", "")), int(j.get("engine_id", -1)))
 	_rebuild_party_form()
 	_tool_options_journey()
 	_compute()
-	app.set_status("hint", "Loaded journey \"%s\"." % String(j.get("name", "")), "accent")
+	## Redrawn so the active-journey dot, the departure line and any drop notice follow the journey just loaded.
+	_refresh_route_choice()
+	if _override_notice != "":
+		app.set_status("hint", _override_notice, "warn")
+	else:
+		app.set_status("hint", "Loaded journey \"%s\"." % String(j.get("name", "")), "accent")
 
 ## Forgets journey `i`, mirroring the delete to the engine's own store, and keeps `_active_journey` pointing at the same entry (cleared if it was the one removed, decremented if it was after it).
 func _delete_journey(i: int) -> void:
@@ -3976,6 +4105,7 @@ func _delete_journey(i: int) -> void:
 		if app.viewport != null:
 			app.viewport.refresh_journey_markers()
 	_journeys.remove_at(i)
+	_override_notice = ""
 	if _active_journey == i:
 		_active_journey = -1
 	elif _active_journey > i:
@@ -6021,6 +6151,7 @@ func clear_journeys() -> void:
 		return
 	_journeys = []
 	_active_journey = -1
+	_override_notice = ""
 	if _bound:
 		_refresh_route_choice()
 		_refresh_side()

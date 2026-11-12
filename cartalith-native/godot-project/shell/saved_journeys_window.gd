@@ -22,7 +22,9 @@ extends AcceptDialog
 ## **What a row shows is only what the engine stores** (`lib.rs::journey_list`):
 ## `name`, `party_preset` (a Travel library preset id, named through
 ## `tl_get("preset", id)` and shown as the raw id when the library no longer
-## holds it), `start_year`, `km` (the route's length at save time) and `mode`
+## holds it), the departure (`departure` as `YYYY-MM-DD` when `start_day` is
+## present, else `start_year` alone: a journey with no day set shows its year
+## only), `km` (the route's length at save time) and `mode`
 ## (`land` / `water` / `mixed`, `project_bridge.rs::route_mode_key`). No
 ## duration, cost or arrival is drawn: those are the planner's computation
 ## over the current world, not stored fields, and reading them here would mean
@@ -167,7 +169,7 @@ func _refresh() -> void:
 func _header_row() -> Control:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 10)
-	for spec in [["JOURNEY", 0], ["PARTY", 150], ["START", 60], ["LENGTH", 80], ["MODE", 60]]:
+	for spec in [["JOURNEY", 0], ["PARTY", 150], ["START", 84], ["LENGTH", 80], ["MODE", 60]]:
 		var l := DccTheme.mono_label(String(spec[0]), "text_faint", DccTheme.FS_MICRO, 2)
 		if int(spec[1]) == 0:
 			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -189,7 +191,9 @@ func _add_row(r: Dictionary, preset_names: Dictionary) -> void:
 	var party := String(preset_names.get(pid, ""))
 	if party == "":
 		party = pid if pid != "" else "no party preset"
-	var start := "year %d" % int(r.get("start_year", 0))
+	## SP-2 residual: the departure DATE when a day was set (`start_day` present), else only the year -- a journey with
+	## no day set is not shown as 1 January, because nobody picked it.
+	var start := String(r.get("departure", "")) if r.has("start_day") else "year %d" % int(r.get("start_year", 0))
 	var length := DccUnits.format(float(r.get("km", 0.0)))
 	var mode := String(r.get("mode", ""))
 	var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
@@ -219,7 +223,7 @@ func _add_row(r: Dictionary, preset_names: Dictionary) -> void:
 		row.add_child(DccTheme.mono_label("%s · %s · %s · %s" % [party, start, length, mode],
 			"text_ghost", DccTheme.FS_TINY, 0))
 	else:
-		for spec in [[party, 150], [start, 60], [length, 80], [mode, 60]]:
+		for spec in [[party, 150], [start, 84], [length, 80], [mode, 60]]:
 			var l := DccTheme.mono_label(String(spec[0]), "text_dim", DccTheme.FS_TINY, 0)
 			l.custom_minimum_size.x = int(spec[1])
 			l.clip_text = true
