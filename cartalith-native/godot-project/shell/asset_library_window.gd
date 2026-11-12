@@ -328,6 +328,10 @@ class SlotCell extends Control:
 	## `draggable`, never set here.
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
+		## A tile, swatch or variant cell is a `STOP` control that handles its own taps, which would swallow a touch
+		## drag meant for the grid, rail or inspector scroller it sits in. This asks the shell for the shared touch
+		## scroll (`DccWidgets.TAP_META`); the tap handlers use `DccWidgets.is_tap()` so a scroll selects nothing.
+		set_meta(DccWidgets.TAP_META, true)
 
 	## Dragging a tile carries either the whole current multi-selection (if
 	## this tile is part of one) or just itself -- `owner_window` decides
@@ -2883,7 +2887,9 @@ func _build_cell(entry: Dictionary) -> Control:
 	cell.variant_count = count
 	cell.show_check = true
 	cell.draw_border = false
-	cell.draggable = true
+	## Not on a touch composition: a finger dragging a tile is the grid scrolling (the shared touch scroll,
+	## `SlotCell._ready`), and collections are reached by the Collect... verb. Drag-and-drop stays on a pointer.
+	cell.draggable = not DccTheme.is_touch()
 	cell.owner_window = self
 	if filled:
 		var png: PackedByteArray = _bridge.as_thumbnail_png(uid, 0, 128)
@@ -2891,7 +2897,7 @@ func _build_cell(entry: Dictionary) -> Control:
 			var img := Image.new()
 			if img.load_png_from_buffer(png) == OK:
 				cell.thumb = ImageTexture.create_from_image(img)
-	cell.gui_input.connect(_on_cell_input.bind(uid))
+	cell.gui_input.connect(_on_cell_input.bind(uid, cell))
 	col.add_child(cell)
 	col.add_child(_rule_soft())
 
@@ -2928,8 +2934,9 @@ static func _tile_box(selected: bool) -> StyleBoxFlat:
 ## toggles, a plain click selects only this tile; every click focuses it and resets
 ## the preview to variant 0. On a phone a tap outside select mode moves to the SLOT
 ## pane. Only the left button, only on press.
-func _on_cell_input(ev: InputEvent, uid: String) -> void:
-	if not (ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT):
+func _on_cell_input(ev: InputEvent, uid: String, cell: Control = null) -> void:
+	## A tap: the left press on a pointer, the left release of a gesture that did not scroll on touch.
+	if not DccWidgets.is_tap(ev, cell):
 		return
 	var index := -1
 	for i in _slot_order.size():
@@ -3371,7 +3378,7 @@ func _build_inspector() -> Control:
 		sw.selected = String(swatch["mode"]) == _preview_bg
 		var idx := i
 		sw.gui_input.connect(func(ev: InputEvent):
-			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			if DccWidgets.is_tap(ev, sw):
 				_pick_preview_bg(idx))
 		sw_box.add_child(sw)
 		_insp_swatches.append(sw)
@@ -3695,7 +3702,7 @@ func _refresh_inspector() -> void:
 		var idx := i
 		vc.tooltip_text = "Show variant %d in the preview above." % (i + 1)
 		vc.gui_input.connect(func(ev: InputEvent):
-			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			if DccWidgets.is_tap(ev, vc):
 				_preview_index = idx
 				_refresh_inspector())
 		_insp_variants.add_child(vc)

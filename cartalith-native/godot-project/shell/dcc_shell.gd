@@ -3742,9 +3742,9 @@ func _touch_arbitrate(ctl: Control, unit: float) -> void:
 		## `DccWidgets.PgSpin`. Same slop as the field and slider; stock
 		## wheel/mouse stay untouched (see `PgSpin`'s gates).
 		DccWidgets.touch_spinbox(ctl as SpinBox, 8.0 * unit)
-	## **Superseded 2026-11-08 for the READ-ONLY `TextEdit` (and `ItemList`, passive cards, popups):**
-	## `_touch_scroll_arbitrate()` below gives them the central touch scroll; an editable `TextEdit`
-	## stays as the next paragraph says.
+	## **Superseded 2026-11-08 for the READ-ONLY `TextEdit` (and `ItemList`, passive cards, popups), and
+	## 2026-11-12 for the EDITABLE `TextEdit`:** `_touch_scroll_arbitrate()` below gives them the central
+	## touch scroll. The next paragraph is the reasoning that held until then.
 	_touch_scroll_arbitrate(ctl, unit)
 	## `TextEdit` is deliberately not in that list. It is the other
 	## touch-DOWN text class, but it carries its OWN vertical scroll, so
@@ -3778,20 +3778,27 @@ func _touch_arbitrate(ctl: Control, unit: float) -> void:
 ##
 ## `unit` scales the 8 dp slop (Android's `ViewConfiguration.getScaledTouchSlop()`) like the slider's:
 ##
+## * a button in a scroller fires on release and lets the drag through (`DccWidgets.touch_release_button()`).
 ## * a passive STOP card, colour rect, label or non-scrolling text block becomes PASS
 ##   (`DccWidgets.touch_passive()`). The `PanelContainer` the arbitration used to leave alone "because
 ##   several carry their own `gui_input`" is handled by that function's own gate (no listener, no
 ##   handler script) instead of by skipping the class. Measured at 393x852 on the CARTO domain sheet:
 ##   every one of 12 repeated strokes that started on a theme chip was swallowed by the STOP
 ##   `PanelContainer` holding the chip, the `Button` inside it being PASS already.
-## * an `ItemList` or read-only `TextEdit` gets a touch-scroll proxy (`DccWidgets.touch_list()`):
-##   the engine scrolls neither by touch.
+## * an `ItemList` or `TextEdit` (editable ones keep their caret) gets a touch-scroll proxy
+##   (`DccWidgets.touch_list()`): the engine scrolls neither by touch. So does a control a window marked
+##   `DccWidgets.TAP_META` (a drawn tile that handles taps itself).
 ## * an `OptionButton`/`MenuButton` popup gets the same proxy (`DccWidgets.touch_popup()`):
 ##   `PopupMenu` picks an item on touch and cannot be dragged. The popup is an internal child, which
 ##   `get_children()` (the walks' iterator) never visits, so it is asked for by name here.
 func _touch_scroll_arbitrate(ctl: Control, unit: float) -> void:
 	DccWidgets.touch_passive(ctl)
-	if ctl is ItemList or ctl is TextEdit:
+	## A button inside a scroller fires on release and lets the drag through (`touch_release_button()`, the same call
+	## `_touch_arbitrate()` makes). Added here 2026-11-12 because a window on the tablet never goes through
+	## `_touch_arbitrate()`, and the Asset library's inspector Button swallowed every drag that began on it (0 px).
+	if ctl is BaseButton:
+		DccWidgets.touch_release_button(ctl as BaseButton)
+	if ctl is ItemList or ctl is TextEdit or ctl.has_meta(DccWidgets.TAP_META):
 		DccWidgets.touch_list(ctl, 8.0 * unit)
 	if ctl is OptionButton:
 		DccWidgets.touch_popup((ctl as OptionButton).get_popup(), 8.0 * unit)

@@ -1982,13 +1982,19 @@ class PgSlider extends HSlider:
 	## value. Events it does not own are returned unaccepted so Godot's stock
 	## `Slider` handling runs. Must never write a disabled slider.
 	func _gui_input(event: InputEvent) -> void:
-		## A disabled slider is not ours to write, and a slider with nothing to
-		## scroll has no second axis to lose the gesture to. Returning WITHOUT
-		## `accept_event()` is what hands the event back to `Slider::gui_input`
-		## unchanged -- these two lines are the difference between "arbitrate"
-		## and "replace".
-		if not editable or _scroll() == null:
+		## A slider with nothing to scroll has no second axis to lose the gesture to.
+		## Returning WITHOUT `accept_event()` is what hands the event back to
+		## `Slider::gui_input` unchanged -- this line is the difference between
+		## "arbitrate" and "replace".
+		if _scroll() == null:
 			return
+		## A DISABLED slider (`editable` off: the Asset library's greyed Anchor row) is not
+		## ours to write, but it is still a `STOP` control, and left to the base class it
+		## swallowed every drag that began on it (2026-11-12, `_flingscroll_probe.gd`: 0 px).
+		## It takes the gesture as a pure scroll: the verdict below is forced to "scroller" and
+		## the value is never written. `inert` is read per event, so a slider enabled later is
+		## arbitrated again with no re-attach.
+		var inert := not editable
 		var family := 0
 		var kind := 0           ## 1 press, 2 move, 3 release.
 		var pos := Vector2.ZERO
@@ -2036,7 +2042,7 @@ class PgSlider extends HSlider:
 			if _verdict == 0:
 				if maxf(absf(d.x), absf(d.y)) < slop:
 					return
-				_verdict = -1 if absf(d.y) > absf(d.x) else 1
+				_verdict = -1 if (inert or absf(d.y) > absf(d.x)) else 1
 				if _verdict > 0:
 					_begin_drag()
 			if _verdict > 0:
@@ -2044,7 +2050,7 @@ class PgSlider extends HSlider:
 			elif _scroll() != null:
 				_scroller.scroll_vertical = _origin_scroll - int(round(d.y))
 			return
-		if _verdict == 0:
+		if _verdict == 0 and not inert:
 			_begin_drag()
 			_apply_x(pos.x)     ## A tap: Godot's own jump-to-the-tap, deferred.
 		## Only a gesture that actually moved the value announces itself.
@@ -2212,10 +2218,8 @@ static func vertical_scroller_above(n: Node) -> ScrollContainer:
 ##
 ## **Two gates**, both carried over from `PgSlider`'s own widening:
 ##
-## * already `ACTION_MODE_BUTTON_RELEASE` -> nothing to do, and say so by
-##   returning `false`. `ColorPickerButton` measures `1` (RELEASE) on 4.7.1 and
-##   is not this defect; whether its `MOUSE_FILTER_STOP` blocks a scroll is a
-##   separate question, unmeasured here and deliberately not changed.
+## * (retired 2026-11-12, see the function body: "already RELEASE -> nothing to
+##   do" left a RELEASE button's `STOP` mouse filter, which swallows the drag.)
 ## * no vertical-scrolling ancestor -> stock behaviour. There is nothing to
 ##   arbitrate against, so a press-to-open dropdown should keep opening on
 ##   press.
@@ -2246,14 +2250,22 @@ static func vertical_scroller_above(n: Node) -> ScrollContainer:
 ##
 ## Returns whether it changed anything, so a walk can count what it converted.
 static func touch_release_button(b: BaseButton) -> bool:
-	if b == null or b.action_mode == BaseButton.ACTION_MODE_BUTTON_RELEASE:
+	if b == null or vertical_scroller_above(b) == null:
 		return false
-	if vertical_scroller_above(b) == null:
-		return false
-	b.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+	## **2026-11-12: the first gate ("already RELEASE -> nothing to do") is gone.** A plain `Button` is RELEASE
+	## already AND `STOP`, and a `STOP` control ends a touch drag before the scroller above ever sees it:
+	## `_flingscroll_probe.gd` measured a tablet window's inspector `Button` (RELEASE, STOP) at 0 px of scroll on
+	## 4.7.2, and 110 px once it was `PASS`. So the two writes are independent: the action mode only where it is
+	## still PRESS, the mouse filter wherever it is still STOP. (`ColorPickerButton`, which the note above left
+	## unmeasured, is `STOP` too and is covered by the same rule.)
+	var changed := false
+	if b.action_mode != BaseButton.ACTION_MODE_BUTTON_RELEASE:
+		b.action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+		changed = true
 	if b.mouse_filter == Control.MOUSE_FILTER_STOP:
 		b.mouse_filter = Control.MOUSE_FILTER_PASS
-	return true
+		changed = true
+	return changed
 
 ## **A text field is the third member of the touch-DOWN family, and neither of
 ## the two fixes above reaches it.** Measured by a verifier on the New World
@@ -2707,10 +2719,24 @@ static func touch_spinbox(sb: SpinBox, slop_px: float) -> bool:
 ##   selects on release through the emulated mouse press/release, which
 ##   `project.godot` leaves on (`emulate_mouse_from_touch`).
 ##
-## **Stated costs, not hidden:** no inertia on a list or popup scrolled this way
-## (the stock `ScrollContainer` keeps its fling everywhere else), and an
-## `ItemList` still selects the row under the first press (its own mouse
-## handling runs after this proxy and cannot be vetoed from a signal).
+## * **Fling (inertia), one law for every proxied control.** On release the
+##   proxy reads the finger's speed over the last `FLING_WINDOW` and keeps the
+##   content moving, slowing at `FLING_DECEL` -- the figure the stock
+##   `ScrollContainer` uses, so a proxied list and a stock one coast alike. It
+##   lives here, in the shared helper, and is not a per-list feature; a press
+##   stops it.
+## * **An EDITABLE `TextEdit` scrolls by touch too, and keeps its caret.** The
+##   emulated mouse press places the caret and starts a selection drag; a drag
+##   that crosses the slop is therefore undone: the caret, the selection and the
+##   focus the box had at the press are restored, and the emulated mouse motion
+##   that follows is swallowed (`_edit_before`, `_edit_scroll_began`). A tap or a
+##   long-press that never crosses the slop is stock handling untouched.
+##
+## **Stated costs, not hidden:** a touch drag cannot extend a text selection in an
+## editable box (a drag IS the scroll; select with a double tap, the handles or
+## the keyboard), an `ItemList` still selects the row under the first press (its
+## own mouse handling runs after this proxy and cannot be vetoed from a signal;
+## a press that only stops a fling selects it too).
 ##
 ## The slop is Android's `ViewConfiguration.getScaledTouchSlop()` = 8 dp, the
 ## same figure `PgSlider.slop` carries; the caller passes it in the pixels the
@@ -2729,11 +2755,94 @@ class TouchScroll extends RefCounted:
 	var _anc_f := 0.0
 	var _te_f := 0.0
 
+	## Deceleration after the finger lifts, in px/s^2 of the target's own units. 1000 is the figure Godot's stock
+	## `ScrollContainer` subtracts from its kinetic speed each second (`scene/gui/scroll_container.cpp`,
+	## `val -= 1000 * delta`; recalled, not read from a source tree here) -- so the claim that stands is the measured
+	## one: `_flingscroll_probe.gd` coasts a stock container and a proxied list with the same stroke and compares the
+	## distances. One consistent fling, not one tuned per list (owner, 2026-11-12).
+	const FLING_DECEL := 1000.0
+	## Only the last part of the stroke counts for the release speed: the finger's speed at the lift, not the
+	## stroke's average. 100 ms is the horizon of Android's `VelocityTracker` (recalled; a labelled judgement).
+	const FLING_WINDOW := 0.1
+	## Android's `ViewConfiguration` minimum and maximum fling velocity, 50 and 8000 dp/s (recalled; labelled). The
+	## proxy's `slop` is 8 dp in the caller's pixels, so `slop / 8` is one dp -- no second density source.
+	const FLING_MIN_DP := 50.0
+	const FLING_MAX_DP := 8000.0
+
+	## Recent drag samples of the current stroke: Vector2(seconds, y in the caller's pixels).
+	var _samples: Array = []
+	## Whether a fling is running, its signed content speed (px/s, positive = further down), the time of its last tick
+	## and the distance not yet applied (a popup and the scroller above take whole pixels, so the rest waits).
+	var _flinging := false
+	var _fling_v := 0.0
+	var _fling_last := 0.0
+	var _fling_pending := 0.0
+	## What the coast itself last left in the target and in the scroller above (whole px for the scroller, the target's own
+	## unit for the target), and whether each was set. If either differs at the next frame, someone else is scrolling
+	## that scroller (another finger on a sibling, the wheel, a layout change) and the coast ends rather than fight them.
+	var _seen_anc := 0
+	var _seen_anc_set := false
+	var _seen_own := 0.0
+	var _seen_own_set := false
+	## The caret, selection and focus an editable `TextEdit` had BEFORE the press that began the current gesture.
+	## Empty when none was taken. Taken from whichever of the touch press and the emulated mouse press arrives
+	## first, because the box's own mouse handling runs after this signal and moves the caret.
+	var _snap := {}
+
+	static func _now() -> float:
+		return float(Time.get_ticks_usec()) / 1000000.0
+
 	## Gui-input entry point for an `ItemList`/`TextEdit` (connected to `gui_input`).
 	func on_control_input(ev: InputEvent) -> void:
 		var c := target as Control
-		if c != null:
-			_feed(ev, c.get_global_transform_with_canvas())
+		if c == null:
+			return
+		var te := c as TextEdit
+		var editing := te != null and te.editable
+		if editing:
+			_edit_before(te, ev)
+		var was := scrolling
+		_feed(ev, c.get_global_transform_with_canvas())
+		if editing and scrolling and not was:
+			_edit_scroll_began(te)
+
+	## EDITABLE `TextEdit`, before the box's own handling of `ev`. Takes the caret/selection/focus snapshot on a press
+	## (a second press event of the same touch, within 50 ms, keeps the first), and swallows the emulated mouse motion
+	## of a gesture that has become a scroll: left in, it would extend a selection and pull the view back to the caret
+	## after every step. `accept_event()` here is honoured because the `gui_input` signal is emitted before the
+	## control's own handler (`Control::_call_gui_input`); `_flingscroll_probe.gd` measures it.
+	func _edit_before(te: TextEdit, ev: InputEvent) -> void:
+		var pressed := false
+		if ev is InputEventScreenTouch:
+			pressed = (ev as InputEventScreenTouch).pressed
+		elif ev is InputEventMouseButton:
+			var mb := ev as InputEventMouseButton
+			pressed = mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT
+		if pressed:
+			var now := _now()
+			if _snap.is_empty() or now - float(_snap["t"]) > 0.05:
+				_snap = {"t": now, "line": te.get_caret_line(), "col": te.get_caret_column(),
+					"sel": te.has_selection(), "oline": te.get_selection_origin_line(),
+					"ocol": te.get_selection_origin_column(), "focus": te.has_focus()}
+		elif scrolling and _down and ev is InputEventMouseMotion:
+			te.accept_event()
+
+	## EDITABLE `TextEdit`, the moment a gesture crosses the slop: puts back what the press changed (the caret under the
+	## finger, a selection a few pixels of drag had started, focus and so the keyboard) so a scroll leaves the box as it
+	## was. Only the first caret is kept; a multi-caret box is a desktop feature. Writes the scroll position last,
+	## because `select()` may move the view.
+	func _edit_scroll_began(te: TextEdit) -> void:
+		if _snap.is_empty():
+			return
+		if bool(_snap["sel"]):
+			te.select(int(_snap["oline"]), int(_snap["ocol"]), int(_snap["line"]), int(_snap["col"]))
+		else:
+			te.deselect()
+		te.set_caret_line(int(_snap["line"]), false)
+		te.set_caret_column(int(_snap["col"]), false)
+		if not bool(_snap["focus"]) and te.has_focus():
+			te.release_focus()
+		te.scroll_vertical = _te_f
 
 	## `window_input` entry point for a `PopupMenu`. The events are only OBSERVED, and
 	## three ways of vetoing the pick were measured on 4.7.2 before this one:
@@ -2787,6 +2896,8 @@ class TouchScroll extends RefCounted:
 		if ev is InputEventScreenTouch:
 			var t := ev as InputEventScreenTouch
 			if t.pressed:
+				_stop_fling()
+				_samples.clear()
 				_down = true
 				scrolling = false
 				_origin = xf * t.position
@@ -2800,7 +2911,10 @@ class TouchScroll extends RefCounted:
 			else:
 				## `scrolling` stays set until the next press so the popup path can
 				## still swallow the emulated mouse release that follows.
+				var was_down := _down
 				_down = false
+				if was_down and scrolling:
+					_begin_fling()
 		elif ev is InputEventScreenDrag and _down:
 			var p := xf * (ev as InputEventScreenDrag).position
 			if not scrolling:
@@ -2810,11 +2924,132 @@ class TouchScroll extends RefCounted:
 				_last_y = p.y
 			var dy := p.y - _last_y      ## > 0: finger moved down, content follows.
 			_last_y = p.y
+			_samples.append(Vector2(_now(), p.y))
+			if _samples.size() > 16:
+				_samples.pop_front()
 			_scroll_by(-dy)
 
+	## Starts the coast after the finger lifts, from the speed over the last `FLING_WINDOW` of the stroke. Nothing
+	## starts (no value is NOT a zero speed) when the stroke has fewer than two samples, spans under 5 ms, ended
+	## more than `FLING_WINDOW` before the lift (the finger rested) or is slower than Android's minimum fling.
+	func _begin_fling() -> void:
+		var n := _samples.size()
+		if n < 2:
+			return
+		var last: Vector2 = _samples[n - 1]
+		if _now() - last.x > FLING_WINDOW:
+			return
+		var first := last
+		for k in range(n - 2, -1, -1):
+			var smp: Vector2 = _samples[k]
+			if last.x - smp.x > FLING_WINDOW:
+				break
+			first = smp
+		var span := last.x - first.x
+		if span < 0.005:
+			return
+		var v := -(last.y - first.y) / span        ## content speed: the finger moving up scrolls further down.
+		var dp := slop / 8.0
+		if absf(v) < FLING_MIN_DP * dp:
+			return
+		_fling_v = clampf(v, -FLING_MAX_DP * dp, FLING_MAX_DP * dp)
+		_fling_pending = 0.0
+		_fling_last = _now()
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree == null:
+			return
+		_flinging = true
+		_note_positions()
+		## A touch anywhere in the scroller above stops a coast on Android. A press on a child that lets events through
+		## (most of them, after the arbitration) reaches the scroller's `gui_input`, so listen there too.
+		if _anc != null and not _anc.gui_input.is_connected(_on_anc_input):
+			_anc.gui_input.connect(_on_anc_input)
+		if not tree.process_frame.is_connected(_fling_tick):
+			tree.process_frame.connect(_fling_tick)
+
+	## A press (touch or mouse) reaching the scroller above ends the coast.
+	func _on_anc_input(ev: InputEvent) -> void:
+		if (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed) 				or (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed):
+			_stop_fling()
+
+	## The target's own scroll offset in its own unit, or nothing: `[has_value, value]`. An `ItemList` and a `TextEdit` keep
+	## it in their scroll bar, a popup in the `ScrollContainer` inside it; any other target scrolls only the scroller above.
+	func _own_offset() -> Array:
+		if target is ItemList:
+			return [true, (target as ItemList).get_v_scroll_bar().value]
+		if target is TextEdit:
+			return [true, (target as TextEdit).scroll_vertical]
+		if target is PopupMenu:
+			var sc := _popup_scroller(target as PopupMenu)
+			if sc != null:
+				return [true, float(sc.scroll_vertical)]
+		return [false, 0.0]
+
+	## Remembers where the coast left both scrollers (see `_seen_anc`).
+	func _note_positions() -> void:
+		_seen_anc_set = _anc != null
+		if _seen_anc_set:
+			_seen_anc = _anc.scroll_vertical
+		var own := _own_offset()
+		_seen_own_set = bool(own[0])
+		if _seen_own_set:
+			_seen_own = float(own[1])
+
+	## Whether either scroller is somewhere the coast did not leave it.
+	func _moved_by_someone_else() -> bool:
+		if _seen_anc_set and (_anc == null or not is_instance_valid(_anc) or _anc.scroll_vertical != _seen_anc):
+			return true
+		if _seen_own_set:
+			var own := _own_offset()
+			if not bool(own[0]) or absf(float(own[1]) - _seen_own) > 0.01:
+				return true
+		return false
+
+	## One frame of the coast: speed falls linearly at `FLING_DECEL`, the distance is the mean speed times the
+	## step (the step is capped at 50 ms so a stalled frame cannot throw the list). Stops at zero speed, when the
+	## target is gone or hidden, or when the content cannot move though a whole pixel is owed (the end of the list).
+	func _fling_tick() -> void:
+		## Gone or hidden ends the coast. A `PopupMenu` is a `Window`, not a `CanvasItem`, so it has its own test.
+		var shown := false
+		if is_instance_valid(target):
+			if target is CanvasItem:
+				shown = (target as CanvasItem).is_visible_in_tree()
+			elif target is Window:
+				shown = (target as Window).visible
+		if not _flinging or not shown or _moved_by_someone_else():
+			_stop_fling()
+			return
+		var now := _now()
+		var dt := clampf(now - _fling_last, 0.0, 0.05)
+		_fling_last = now
+		var speed := absf(_fling_v)
+		var next := speed - FLING_DECEL * dt
+		if next <= 0.0:
+			_stop_fling()
+			return
+		_fling_pending += (speed + next) * 0.5 * dt * signf(_fling_v)
+		_fling_v = signf(_fling_v) * next
+		var took := _scroll_by(_fling_pending)
+		_fling_pending -= took
+		_note_positions()
+		if absf(_fling_pending) >= 1.0 and absf(took) < 0.01:
+			_stop_fling()
+
+	## Ends a coast (a press, the end of the list, zero speed). Safe to call when none is running.
+	func _stop_fling() -> void:
+		_flinging = false
+		_fling_v = 0.0
+		_fling_pending = 0.0
+		if _anc != null and is_instance_valid(_anc) and _anc.gui_input.is_connected(_on_anc_input):
+			_anc.gui_input.disconnect(_on_anc_input)
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree != null and tree.process_frame.is_connected(_fling_tick):
+			tree.process_frame.disconnect(_fling_tick)
+
 	## Scrolls `amount` px (positive = further down the content): the target first,
-	## whatever it could not take goes to the ancestor scroller.
-	func _scroll_by(amount: float) -> void:
+	## whatever it could not take goes to the ancestor scroller. Returns the px actually moved, so a coast
+	## can carry what a whole-pixel scroller could not yet take.
+	func _scroll_by(amount: float) -> float:
 		var left := amount
 		if target is ItemList:
 			left = _bar((target as ItemList).get_v_scroll_bar(), left, 1.0)
@@ -2833,7 +3068,9 @@ class TouchScroll extends RefCounted:
 			## Keep the (invisible) caret on a visible line without scrolling to it. Measured on
 			## 4.7.2: with the caret left on line 0, the view snapped back to it as soon as the
 			## gesture ended and the whole scroll was lost (bar written to 12.7, read back 0.0).
-			te.set_caret_line(te.get_first_visible_line(), false)
+			## Not for an EDITABLE box: its caret is the user's, restored by `_edit_scroll_began`.
+			if not te.editable:
+				te.set_caret_line(te.get_first_visible_line(), false)
 		elif target is PopupMenu:
 			var sc := _popup_scroller(target as PopupMenu)
 			if sc != null:
@@ -2841,9 +3078,12 @@ class TouchScroll extends RefCounted:
 				sc.scroll_vertical = before + int(round(left))
 				left -= float(sc.scroll_vertical - before)
 		if absf(left) >= 0.5 and _anc != null:
+			var anc_before := _anc.scroll_vertical
 			_anc_f += left
 			_anc.scroll_vertical = int(round(_anc_f))
 			_anc_f = float(_anc.scroll_vertical)
+			left -= float(_anc.scroll_vertical - anc_before)
+		return amount - left
 
 	## The `ScrollContainer` inside a `PopupMenu`. 4.7.2 nests it three internal levels down
 	## (PanelContainer > VBoxContainer > [search LineEdit, ScrollContainer], measured in
@@ -2896,25 +3136,54 @@ static func touch_passive(c: Control) -> bool:
 	c.mouse_filter = Control.MOUSE_FILTER_PASS
 	return true
 
-## Gives an `ItemList` or a READ-ONLY `TextEdit` the touch scroll the engine lacks. A list
+## Meta key a window sets on a control that HANDLES TAPS ITSELF (a drawn tile, a swatch: a `STOP` control with a
+## `gui_input` listener, which `touch_passive()` rightly leaves alone) to ask the shell for the touch scroll. The
+## shell's arbitration (`DccShell._touch_scroll_arbitrate`) then gives it the shared proxy through `touch_list()`, so a
+## drag that starts on it scrolls the scroller above. The control must act on a tap through `is_tap()`, not on the
+## press, or a scroll would also select it (the Asset library's `SlotCell`, 2026-11-12).
+const TAP_META := "touch_tap_control"
+
+## Whether `ev` is the event a tap on `c` acts on. On a pointer build that is the left press, as it has always been. On
+## a touch composition it is the left RELEASE of a gesture that did not become a scroll: acting on the press would
+## select the tile (and in the Asset library move to the inspector pane) at the moment a scroll begins, and rebuild the
+## nodes under the finger. `c` is the control the listener is on; one without the shared proxy attached (it has no
+## scroller above, or the shell has not walked it yet) counts as "did not scroll".
+static func is_tap(ev: InputEvent, c: Control) -> bool:
+	var mb := ev as InputEventMouseButton
+	if mb == null or mb.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	if not DccTheme.is_touch():
+		return mb.pressed
+	if mb.pressed:
+		return false
+	if c != null and c.has_meta("_touch_scroll"):
+		var ts = c.get_meta("_touch_scroll")
+		if ts is TouchScroll and (ts as TouchScroll).scrolling:
+			return false
+	return true
+
+## Gives an `ItemList`, a `TextEdit` or a control carrying `TAP_META` the touch scroll the engine lacks. A list
 ## with no scroller above it still scrolls itself, so this is not gated on one.
 static func touch_list(c: Control, slop_px: float) -> bool:
 	if c == null or c.has_meta("_touch_scroll"):
 		return false
 	if c is TextEdit:
-		## An EDITABLE text area keeps stock handling: a drag in it means "select", and its caret
-		## would pull the view back anyway. A READ-ONLY one (credits, generation info, diagnostics)
-		## has nothing to select that a finger needs, and measured on 4.7.2 its emulated mouse drag
-		## runs `adjust_viewport_to_caret` after every step and undoes each scroll this proxy makes
-		## (bar written, value read back 0.0). Selecting is therefore switched off for it; the
-		## cost, stated: no touch selection or copy in a read-only text box on the phone.
+		## A READ-ONLY text area (credits, generation info, diagnostics) has nothing to select that a
+		## finger needs, and measured on 4.7.2 its emulated mouse drag runs `adjust_viewport_to_caret`
+		## after every step and undoes each scroll this proxy makes (bar written, value read back 0.0).
+		## Selecting is therefore switched off for it; the cost, stated: no touch selection or copy in a
+		## read-only text box on the phone.
+		##
+		## An EDITABLE one (2026-11-12) keeps its focus, caret and selection handling, and the proxy
+		## undoes what a press did once the gesture turns into a scroll (`TouchScroll._edit_before` and
+		## `_edit_scroll_began`). `editable` is read at each press, not here, so a box that is switched
+		## between the two later is treated as what it is at the moment.
 		var te := c as TextEdit
-		if te.editable:
-			return false
-		te.selecting_enabled = false
-		te.focus_mode = Control.FOCUS_NONE
-		te.drag_and_drop_selection_enabled = false
-		te.context_menu_enabled = false
+		if not te.editable:
+			te.selecting_enabled = false
+			te.focus_mode = Control.FOCUS_NONE
+			te.drag_and_drop_selection_enabled = false
+			te.context_menu_enabled = false
 	var ts := TouchScroll.new()
 	ts.target = c
 	ts.slop = maxf(1.0, slop_px)

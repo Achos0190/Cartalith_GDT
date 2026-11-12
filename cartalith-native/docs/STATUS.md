@@ -50,6 +50,54 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Touch-scroll leftovers closed: a shared fling, editable text boxes, the Asset library (2026-11-12)
+
+**Built, verified on the probes named; the handset check (the owner's finger on the Pad) stays open.** Read at `dcc_widgets.gd`:
+`TouchScroll` (`_begin_fling`, `_fling_tick`, `_stop_fling`, `_edit_before`, `_edit_scroll_began`), `touch_list()`, `TAP_META`,
+`is_tap()`, `touch_release_button()`, `PgSlider._gui_input`; `dcc_shell.gd::_touch_scroll_arbitrate()`;
+`asset_library_window.gd`: `SlotCell._ready`, `_build_cell`, `_on_cell_input`, the swatch and variant handlers. One helper,
+no second implementation: all three items go through the 2026-11-08 `TouchScroll`.
+
+- **Fling (inertia), item 3.** On release the proxy reads the finger's speed over the last 100 ms of the stroke and coasts the
+  content at a constant 1 000 px/s^2 (`FLING_DECEL`), with Android's 50 and 8 000 dp/s as the floor and ceiling (1 dp is
+  `slop / 8`, no second density source). It lives in the shared helper, so an `ItemList`, a text box (read-only or editable), a
+  dropdown's popup and the scroller above them all coast the same; a press on the control, or anywhere in the scroller above it, stops it, and so does someone else
+  scrolling that scroller; a finger that rested 100 ms before the lift or a stroke under 50 dp/s starts none. Chosen to match the stock `ScrollContainer`, and measured against it, not
+  assumed: with one stroke fed to both, a proxied list coasts `0.000500` px per (px/s)^2 against the stock container's
+  `0.000503 (phone) and 0.000507 (Pad)` (the law's own 1/2 000 is 0.000500), at the phone and the Pad class. The probe feeds both the same
+  100 ms-window speed: with the last frame's own speed, one stalled frame inflated the stock container's coast several-fold (3.3x measured once). Not covered, said plainly: `PgSlider`'s own
+  scroll (a stroke that begins on a slider) still carries no inertia, as before.
+- **Editable `TextEdit`, item 2.** A drag in a focused or unfocused editable box now scrolls it (or the scroller above, once
+  its own end is reached) and leaves the box as it was: the caret, a selection and the focus the press found are put back
+  when the gesture crosses the slop, and the emulated mouse motion after that is swallowed (`accept_event()` in the
+  `gui_input` signal, which runs before the control's own handler: measured). A tap and a long-press that does not travel are
+  stock handling untouched, so the caret lands under the finger (the probe compares it with `get_line_column_at_pos`). A scroll
+  on an unfocused box does not focus it, so no soft keyboard for a scroll (`Viewport` grabs focus before any `gui_input`
+  handler runs, so the box is let go again at the crossing). Stated cost: **a touch drag cannot extend a selection in an
+  editable box**; select by double tap, handles or keyboard. Every editable box reaches this through the shell's window
+  hook, the vault editor, the place editor and the assistant's composer included, with no edit to those files.
+- **Asset library, item 1.** Read at the symbols, the survey rows were two defects, not "a sibling pane": (a) a slot tile,
+  swatch and variant cell is a `STOP` `Control` that handles its own taps and was a drag source, so a drag that started on
+  one scrolled nothing and, in the library's phone panes, the very touch-down selected it and moved to the slot pane. Now they
+  carry `DccWidgets.TAP_META`, the shell gives them the shared proxy, `is_tap()` makes a tap act on the release of a gesture
+  that did not scroll (the pointer keeps the press), and tiles are no longer drag sources on a touch composition
+  (`draggable = not DccTheme.is_touch()`; collections are reached by Collect...). (b) A disabled `HSlider` (the greyed
+  Anchor row) is `STOP` and `PgSlider` returned without taking the gesture, so it swallowed every drag; it now takes the
+  gesture as a pure scroll and never writes the value. (c) On the tablet class a window never goes through
+  `_touch_arbitrate()`, so a plain `Button` (RELEASE already, `STOP`) in the inspector swallowed the drag: the "already RELEASE,
+  nothing to do" gate in `touch_release_button()` was wrong and is gone, and the window hook now makes the call.
+  Stated cost: **no finger drag-and-drop of a tile on a touch composition**; if the owner wants it back, it should be a
+  long-press, a separate decision.
+- **Probes.** New `_flingscroll_probe.gd` (windowed, SubViewport, real `ScreenTouch`/`ScreenDrag` plus their emulated mouse
+  events; fling, editable text, Asset library, desktop legs): phone class 1080x2340 @2.8125 `65 checks, 0 failed`; Pad class 3392x2400
+  @2.225 `66 checks, 0 failed`; desktop pointer 1600x1000 `3 checks, 0 failed` (no proxy anywhere, the wheel scrolls). Existing probes re-run on this
+  tree: `on the rebased tree (old Rust DLL, the cdylib rebuild did not finish; no Rust change touches this): `_touchscroll_probe` 38 checks at 1080x2340 @2.625 and @2.8125, 37 landscape and at 2388x1668, 32 on the touch tablet, 5 on the desktop, each of the phone-class ones with one failure, its Preferences check, which fails the same way on pristine origin/main (headless, 1 of 42); `_phonescroll_probe` full survey at 393x852 10 failed of 177 against pristine origin/main 14 of 180 (4 script errors there, 0 here): the 4 MENU rows are broken on both and the three Asset library rows only on origin/main, and the four surfaces that fail in the full run (MENU, Generation info, Journey, MORE) pass alone on both trees (24, 3, 10 and 9 checks); `_rangeswipe`, `_gestclass` and `_paintorig` fail=0; `_ms2` 52, `_ms3` 33, `_phonemap` 67, `_pc9menus` phone 9, `_ve5` 90, `_ve6` 70, `_ve7` 44, `_ve8` 87, all 0 failed`. Literal mutants of the new code: `25 of 25 killed (run headless, the probe pacing itself to 60 fps; min-speed gate, decel x100 and /10, press-stop, rest gate, begin never called, sign flip, scroll_by return, pending, popup visibility, external-scroll detection, anc-press stop, editable gate, caret, selection, mouse-motion veto, focus release, read-only caret hack, tap arbitration, tap-on-press, scrolled-gesture tap, tile drag source, disabled slider, STOP release button, window-hook buttons)`.
+- **Needs the owner's finger on the Pad:** the feel of the fling (the law is the stock container's, the speed reading is a
+  100 ms window; both are labelled judgements in `TouchScroll`), whether a long-press in an editable box behaves as expected
+  with the real keyboard, and the loss of tile drag-and-drop on touch.
+
+---
+
 ### Vault editor open edges (2026-11-12)
 
 `VAULT_EDITOR_PROPOSAL.md` s.6, s.7 (VE-0, VE-5, VE-6, VE-9), Ruling DY, Ruling EL. One bullet per item, each committed when its own checks held. *Re-opened at the symbols first, and what that found:* `vault_saf.rs` (`SafVaultProvider` had no `move_file`, so `can_move` was the trait's `false`), `engine_bridge.gd::vault_connect_saf` and `_vaultsaf_probe.gd` (the only `_saf_dispatch` in the tree was the probe's fake; no shell script defined one and no shell surface called `vault_connect_saf`), `vault_window.gd` (`_request_rename`, `_rename_follow`, `_build_browse_tree`), `vault_side_panel.gd` (`_build_props`, `_build_tags`), `lib.rs` (`landmark_set_user_name`, `landmark_user_names`) and `project_bridge.rs` (`LandmarksDoc.user_names`: **Ruling EL's save was already built** and round-trip tested), `place_search.gd` (no landmark rows), `grep` of `godot-project/_*.gd` for the 17 `#[func]`s (none named).
@@ -814,7 +862,7 @@ pointer is never touched (the hook is connected only for phone and tablet).
 - **Not reproduced, said plainly:** GENERATE with all 20 sections opened one at a time, repeated strokes from every start
   point (sliders included), Preferences 12 down and 12 back, strokes after focusing a field or dismissing a dropdown, all
   moved the list on `origin/main` too. The nearest real defect found is CARTO above; whether that is what the owner saw
-  as "Generation parameters" is unknown. Only a finger confirms. No inertia on a list or popup scrolled by the proxy.
+  as "Generation parameters" is unknown. Only a finger confirms. (Inertia on a proxied list was added 2026-11-12, see "Touch-scroll leftovers closed".)
 - **Probes:** new `_touchscroll_probe.gd` (touch bed of every hazard class, popup, taps, sliders, CARTO, Customise window,
   after-state, Preferences, desktop wheel). `origin/main`: 12 failed of 39 at 6T portrait; new tree: 0 failed at 6T
   1080x2340 @2.625 and @2.8125 (the 6T's measured density), landscape, 2388x1668 @2 (phone GUI) and 1600x1000 touch
@@ -829,7 +877,7 @@ pointer is never touched (the hook is connected only for phone and tablet).
   pristine captures; the other 4 differ between the two pristine captures themselves, so no identity claim for them.
   In a real window the synthetic tap on a dropdown opens and re-closes it with or without this change; the probe opens
   that list with `show_popup()` there and asserts the tap-opens check headless.
-- **Not done:** the handset check (owner); the Asset library survey rows; an editable `TextEdit` keeps stock handling.
+- **Not done:** the handset check (owner). The Asset library survey rows, the editable `TextEdit` and the missing inertia were closed 2026-11-12 (the entry "Touch-scroll leftovers closed" above).
 
 ### PC-5 built: the Context panel's Note tab, in the vault editor, one note focus with one writer (2026-11-08)
 
