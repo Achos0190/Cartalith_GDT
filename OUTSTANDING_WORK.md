@@ -3251,6 +3251,20 @@ repeated D8 step in the generated network, 32-58 % of its length. **Ruling ER (2
 routing for new worlds and a bounded display meander (section 13; `STATUS.md`). **Still open:** the owner's view
 on the changed network density (owner world: traced -27 %, drawn +14 %).
 
+**River realism: subtle, volume-matched rivers, waterfalls, river sources and lakes that accumulate (owner,
+2026-11-11/12).** *"graphically I'd like an opus or fable agent think about improving how realistic rivers look
+visually. (and add. Features as waterfalls, think about where rivers start, water actually accumulates for a lake."*
+— *"the current lines don't look very realistic. The effect and visuals should be more subtle and realistic."* —
+*"And à width that matches the volume of the river."* **Researched and scoped 2026-11-12: `RIVER_REALISM_SCOPE.md`**
+(root), which owns the design: what ships read at the symbols (`channel_disc`'s 0.5-cell floor is the whole
+network's width on a 40 075 km map; `RIVER_ORDER_RGB`; `build_water_bodies` fills to the spill with no budget;
+`pool_waterfall` and `carve_width::knickpoints`, the latter gated on `geology_processes`, off in the app), the
+cited literature, proposals RR-1 (width `∝ Q^0.5`, render only) to RR-8 with bars at x1/x4/x16/x64, milestones
+RR-0…RR-9 and owner questions Q1–Q6 with defaults. RR-6 (lake water balance) and RR-7 (channel heads by area and
+slope) move generated output and each need a ruling (§7p). **Next step:** the owner's answers to Q1–Q6, then RR-0
+(measure) once the Ruling ER lane has landed in `river_stroke.rs`. Frames of the current look:
+`cartalith-native/docs/evidence/river-realism-2026-11-12/`.
+
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There
 should be research done how other map tools handle this."*
