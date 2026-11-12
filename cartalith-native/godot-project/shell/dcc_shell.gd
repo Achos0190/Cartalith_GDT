@@ -528,11 +528,10 @@ var _phone_tool_sheet: PanelContainer
 ## for WORLD, CIVIL and CARTO. At most one is visible -- see `_refresh_phone_sheet_body()`. (Ruling EH item 1
 ## retired the third body, the phone's own GENERATE column.)
 var _phone_tool_scroll: ScrollContainer
-## The phone tool sheet's content column, kept so the quick row (CQ-6) can be mounted into it.
+## The phone tool sheet's content column.
 var _phone_sheet_col: VBoxContainer
-## The chip row of pinned commands (`QuickBarPhoneRow`, CQ-6), or null while nothing is pinned. Mounted
-## between the sheet's header and its scroller by `set_phone_quick_row()`, shown from the half detent up.
-var _phone_quick_row: Control
+## MS-11: the phone's quick drawer lives over the map, mounted by `set_phone_quick_drawer()`; the shell keeps no
+## handle to it (`QuickBarPhone` owns it, and a class swap lets it go through `represent_capture()`).
 ## MS-3: the domain sheet's host inside the phone tool sheet, and the three pieces of the LEFT dock that
 ## move into it while a WORLD, CIVIL or CARTO domain sheet is up (WORLD since Ruling EH item 1) (`_mount_dock_in_sheet()`). The dock is the
 ## builder (`_build_left_dock()`, `register_workspace()`, `apply_mode()`), so nothing is rebuilt for the
@@ -1107,7 +1106,6 @@ func _unmount_composition() -> void:
 	_phone_tool_sheet = null
 	_phone_tool_scroll = null
 	_phone_sheet_col = null
-	_phone_quick_row = null
 	_phone_dom_host = null
 	_phone_dom_journeys_row = null
 	_phone_map_row = null
@@ -7977,6 +7975,9 @@ func _pick_phone_tab(id: String, toggle: bool = true) -> void:
 		return
 	if id == "map" and _session_refuses("cartography"):
 		return
+	## MS-11: a tab press closes an open quick drawer (it is a surface over the map; MENU or STORY would otherwise
+	## draw over it and the world would stay paused under it).
+	_close_quick_drawer_for_back()
 	var was_tab := _phone_tab
 	if (id == "menu" or id == "story") and was_tab != "menu" and was_tab != "story":
 		_phone_tab_under_overlay = was_tab
@@ -8007,7 +8008,6 @@ func _pick_phone_tab(id: String, toggle: bool = true) -> void:
 			_set_phone_detent("peek")
 		elif _phone_detent == "peek":
 			_set_phone_detent("half")
-	_sync_phone_quick_row()
 	_refresh_phone_tabs()
 	_refresh_phone_sheet_header()
 	## After the detent, not before: `_refresh_phone_sheet_body()` mounts the dock's scroller, whose height the
@@ -8836,11 +8836,6 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	_phone_dom_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_phone_dom_host.visible = false
 	col.add_child(_phone_dom_host)
-	## CQ-6: a quick row handed over BEFORE this sheet existed (pins stored on disk and refreshed at boot) is
-	## mounted now, directly under the header. `set_phone_quick_row` does the same when the sheet is already built.
-	if _phone_quick_row != null and is_instance_valid(_phone_quick_row) and _phone_quick_row.get_parent() == null:
-		col.add_child(_phone_quick_row)
-		col.move_child(_phone_quick_row, 1)
 	return sheet
 
 ## Chooses the phone tool sheet's body, and (re)mounts it: the dock's own categories (WORLD, CIVIL, CARTO on
@@ -8995,50 +8990,33 @@ func _phone_sheet_box(docked: bool) -> StyleBoxFlat:
 ## gesture inset, the bottom bar, and (this shell's own addition, which the
 ## prototype has no row for) the timeline when it is up. The prototype folds the
 ## first two into one `navH = 84` literal.
-## CQ-6 (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.2): mounts `row` (a `QuickBarPhoneRow`) between the MAP sheet's header
-## and its scroller, or removes the mounted one when `row` is null. The row is hidden until
-## `_sync_phone_quick_row()` says it should show. Safe to call before the sheet exists (it does nothing then).
-func set_phone_quick_row(row: Control) -> void:
-	if _phone_quick_row != null and is_instance_valid(_phone_quick_row) and _phone_quick_row != row:
-		if _phone_quick_row.get_parent() != null:
-			_phone_quick_row.get_parent().remove_child(_phone_quick_row)
-	_phone_quick_row = row
-	if row == null or _phone_sheet_col == null:
-		refresh_phone_quick()
+
+## MS-11: mounts the phone's quick drawer (`quick_drawer.gd`, built by `QuickBarPhone.refresh()`) over the map: above
+## the map surface and its floating controls, below the tool sheet, the bar and every sheet added after the map, so
+## the drawer covers the map's controls and never the sheet's grab handle or the bottom bar. A null drawer or a
+## non-phone shell does nothing; the caller frees the drawer itself. Replaced `set_phone_quick_row` (CQ-6).
+func set_phone_quick_drawer(d: Control) -> void:
+	if d == null or not _phone or _phone_root == null:
 		return
-	if row.get_parent() != _phone_sheet_col:
-		_phone_sheet_col.add_child(row)
-		## Child 0 is the grab header; the row sits directly under it, above the tool options.
-		_phone_sheet_col.move_child(row, 1)
-	refresh_phone_quick()
+	if d.get_parent() == null:
+		_phone_root.add_child(d)
+	## Directly after the top-level child of `_phone_root` that holds the map: everything built after it stays on top.
+	var map_child: Node = viewport_content
+	while map_child != null and map_child.get_parent() != _phone_root:
+		map_child = map_child.get_parent()
+	if map_child != null:
+		_phone_root.move_child(d, map_child.get_index() + 1)
 
-## The mounted quick row, or null (for `QuickBarPhone` and the probes).
-func phone_quick_row() -> Control:
-	return _phone_quick_row if _phone_quick_row != null and is_instance_valid(_phone_quick_row) else null
+## The first step of the phone's system-back chain after windows and the domain fan (proposal section 4's order:
+## window, fan, quick drawer, ...): an open quick drawer closes. True when it closed one.
+func _close_quick_drawer_for_back() -> bool:
+	var qb = get("phone_quick")   ## `DccApp`'s QuickBarPhone; a bare `DccShell` has none
+	if qb == null:
+		return false
+	var d: Control = qb.call("drawer")
+	return d != null and is_instance_valid(d) and bool(d.call("close_if_open"))
 
-## True when the quick row should be on screen: the MAP tab is lit and the sheet is above the 66 dp peek
-## (the peek keeps carrying only what it carried before -- scope s.3.2), or the phone is in landscape,
-## where the sheet is a docked drawer with no detents.
-func _phone_quick_wanted() -> bool:
-	return _phone and _phone_tab == "map" and (_landscape or _phone_detent != "peek")
-
-## Shows or hides the quick row by [`_phone_quick_wanted`]. Does not move the sheet.
-func _sync_phone_quick_row() -> void:
-	if _phone_quick_row == null or not is_instance_valid(_phone_quick_row):
-		return
-	var want := _phone_quick_wanted()
-	if _phone_quick_row.visible != want:
-		_phone_quick_row.visible = want
-
-## Re-decides the quick row's visibility and, because the row's height is part of the half detent's content
-## height, re-snaps the sheet when the row exists on a lit MAP tab above the peek. Called by `QuickBarPhone`
-## after it mounts, unmounts or redraws the row.
-func refresh_phone_quick() -> void:
-	_sync_phone_quick_row()
-	if _phone and _phone_tab == "map" and _phone_detent != "peek":
-		_snap_phone_sheet(false)
-
-## Public phone-geometry accessors for the quick bar's own nodes (`QuickBarPhoneRow`), which are not
+## Public phone-geometry accessors for the quick bar's own nodes (`quick_drawer.gd`), which are not
 ## part of this file but must size in the same units: `phone_px` is `_pscale`, `phone_tap` is `_ptap`
 ## (raised to the 44 dp floor), `phone_font` is `_pfont`. They exist so nothing computes its own scale
 ## (see `phone_scale()`'s comment).
@@ -9158,13 +9136,7 @@ func _phone_map_sheet_content_height() -> float:
 		row_h = tool_options_row.get_combined_minimum_size().y
 	var sheet_style := _phone_sheet_box(false)
 	var vpad := sheet_style.get_margin(SIDE_TOP) + sheet_style.get_margin(SIDE_BOTTOM)
-	## CQ-6: the pinned-chip row is part of what the half detent has to hold, so it is counted whether or not
-	## it is shown yet (at peek it is hidden, and half is computed while it still is). Absent -> 0, which is
-	## what keeps the empty-bar sheet exactly as tall as before.
-	var quick_h := 0.0
-	if _phone_quick_row != null and is_instance_valid(_phone_quick_row):
-		quick_h = _phone_quick_row.get_combined_minimum_size().y
-	return header_h + quick_h + row_h + float(_pscale(10)) + vpad
+	return header_h + row_h + float(_pscale(10)) + vpad
 
 ## The phone tool sheet's current detent, and the way back to one.
 ##
@@ -9257,9 +9229,6 @@ func _set_phone_detent(det: String, animate: bool = true) -> void:
 ## delta, which is why `phone_insets_changed` only has to reach
 ## `ViewportHost`'s floating chrome and not the chrome column.
 func _snap_phone_sheet(animate: bool) -> void:
-	## CQ-6: the quick row's visibility follows the detent, and the detent's height counts it, so decide
-	## it BEFORE the height is read -- including in landscape, which returns just below.
-	_sync_phone_quick_row()
 	if _phone_tool_sheet == null or _landscape:
 		return
 	var target := _phone_detent_height(_phone_detent)
@@ -11749,6 +11718,10 @@ func _notification(what: int) -> void:
 		return
 	## MS-2 (draft 03): an open domain fan closes first (proposal section 4's order: window, fan, ...).
 	if _close_domain_fan_for_back():
+		_haptic("back")
+		return
+	## MS-11: an open quick drawer closes next (proposal section 4's order: window, fan, quick drawer, ...).
+	if _close_quick_drawer_for_back():
 		_haptic("back")
 		return
 	if _phone_menu != null and _phone_menu.go_back():

@@ -2400,6 +2400,10 @@ func _remount_composition(touch: Variant = null) -> void:
 	_surface_bag = context_broker.represent_capture() if context_broker != null else {}
 	if context_broker != null:
 		context_broker.represent_free()
+	## MS-11: the phone's quick drawer is a child of the composition about to be freed. Read whether it is open and let
+	## it go first, which gives back the world-pause depth an open drawer holds (a freed open drawer would leave the
+	## timeline paused for good); `represent_restore()` builds it again for the new class.
+	var drawer_bag: Dictionary = phone_quick.represent_capture() if phone_quick != null else {}
 	_unmount_app_composition()
 	_republish_class(_touch if touch == null else bool(touch))
 	_represent_windows()
@@ -2411,6 +2415,8 @@ func _remount_composition(touch: Variant = null) -> void:
 	if viewport != null and is_instance_valid(viewport) and viewport.has_method("rebuild_chrome"):
 		viewport.call("rebuild_chrome")
 	_mounting_composition = false
+	if phone_quick != null:
+		phone_quick.represent_restore(drawer_bag)
 	_on_workspace_changed(active_domain())
 	_mount_journey_planner()
 	_build_stale_recompute()

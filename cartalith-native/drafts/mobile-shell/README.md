@@ -38,6 +38,16 @@ coach mark (H2) reads "MAP · domain · STORY switch tasks here — hold the dom
 everything else.", with `_coachcoldboot_probe.gd` and `_pandraghint_probe.gd` re-pinned. `check_symbols.sh` no longer
 anchors draft 03's coach-mark text (replaced); its "TAKEN" lines for MS-1's and MS-2's names are expected now that drafts 1 to 4 are in.
 
+**Drafts 6 and 7 landed with MS-11 (2026-11-12)**, as `shell/quick_drawer.gd` and edits to `shell/quick_bar_phone.gd` and `shell/dcc_shell.gd`
+(`set_phone_quick_drawer()`, `_close_quick_drawer_for_back()`). Departures from the drafts as pasted, each commented where it lives: the drawer's root
+*is* the map band (position and size set from `phone_content_insets()`, `clip_contents` on), so a sliding panel is cut at the band instead of
+covering the landscape rail; it holds the world pause (`pause_for_context_surface()` / `resume_from_context_surface()`, ref-counted, released on
+every way out); the grip is `max(44 x 88 phone units, 44 x 88 real dp)`, because on a 360 dp phone one unit is 0.87 dp; it closes itself when the band
+becomes too short (the FULL detent) rather than hide itself open; a tab press and system back close it; the row buttons are named by position
+(a pin key holds a colon, which a node name cannot); a class swap goes through `QuickBarPhone.represent_capture()` / `represent_restore()` (called
+from `DccApp._remount_composition()`). `QuickBarPhoneRow`, `set_phone_quick_row()`, `refresh_phone_quick()`, `_sync_phone_quick_row()` and the row's
+share of `_phone_map_sheet_content_height()` are deleted; `QuickBarPhone.CHIP_DP` stays for the search result's pin star.
+
 **MS-6 (2026-11-09) landed without a draft.** Draft 05's STORY half had given the tab four drill rows (`_fill_story_rows()`), each a push and a
 back away from the next band. MS-6 replaces them with the mockup's segment strip: `_fill_story_rows(body, band)` draws four 52-unit segments
 (`STORY_ROWS`' new `chip` key) and then `_fill_story()`'s rows for the shown band; `_story_pick()` rewrites the top step in place; `open_story()`

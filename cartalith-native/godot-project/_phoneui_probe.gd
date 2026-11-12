@@ -343,9 +343,23 @@ func _more_scroll() -> void:
 	await _settle(6)
 
 
+## MS-11: the Assistant entry now lives in the phone's quick drawer (CQ-6's MAP-sheet chip row is retired). Opens
+## the drawer with a real click on its grip (closing it first if a previous step left it open) and returns the
+## Assistant row, or null when there is no drawer or no such row.
+func _drawer_assistant_row() -> Button:
+	var d: Control = _app.phone_quick.drawer()
+	if d == null:
+		return null
+	d.close_if_open()
+	await _settle(10)
+	await _click_at(d.grip().get_global_rect().get_center())
+	await _settle(10)
+	var b := d.find_child("Assistant", true, false)
+	return b as Button
+
 ## Section 5.
 func _chip() -> void:
-	print("== 5. the Assistant chip is tappable when the gate refuses ==")
+	print("== 5. the Assistant row is tappable when the gate refuses ==")
 	_app._pick_phone_tab("map")
 	_app.set_phone_detent("half")
 	await _settle(20)
@@ -358,11 +372,8 @@ func _chip() -> void:
 	await _settle(10)
 	var st := AssistantChip.state_for_app(_app)
 	_ok(String(st["state"]) == AssistantChip.DISABLED, "the gate refuses (state %s, code '%s')" % [st["state"], st.get("code", "")])
-	var chip: Button = null
-	for b in _app.phone_quick_row().find_children("*", "Button", true, false):
-		if (b as Button).text == "Assistant":
-			chip = b
-	_ok(chip != null and not (chip as Button).disabled, "the chip is on the MAP sheet and is an enabled (tappable) button")
+	var chip: Button = await _drawer_assistant_row()
+	_ok(chip != null and not (chip as Button).disabled, "the Assistant row is in the quick drawer and is an enabled (tappable) button")
 	if chip == null:
 		return
 	_app.assistant_settings_window.hide()
@@ -382,10 +393,7 @@ func _chip() -> void:
 	st = AssistantChip.state_for_app(_app)
 	print("second state: %s / %s / %s" % [st["state"], st.get("code", ""), st.get("reason", "")])
 	if String(st["state"]) == AssistantChip.DISABLED and String(st.get("code", "")) == "consent_needed":
-		chip = null
-		for b in _app.phone_quick_row().find_children("*", "Button", true, false):
-			if (b as Button).text == "Assistant":
-				chip = b
+		chip = await _drawer_assistant_row()
 		_app.assistant_window.hide()
 		await _click_at(chip.get_global_rect().get_center())
 		await _settle(10)

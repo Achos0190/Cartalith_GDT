@@ -1,8 +1,9 @@
 extends Node
 ## Probe for the PHONE form of the custom quick bar -- milestone CQ-6 of `CUSTOM_QUICK_BAR_SCOPE.md`
-## (Ruling DH Q9), inside the real shell: the pinned-chip row in the MAP sheet, the `Quick` section in MORE,
-## the `All...` list sheet, the Customise window's phone layout, the search-result star and the Assistant chip
-## on the phone.
+## (Ruling DH Q9), inside the real shell: the quick drawer (MS-11 retired CQ-6's pinned-chip row in the MAP sheet
+## and its `All...` chip), the `Quick` section in MENU, the Customise window's phone layout, the search-result star
+## and the Assistant entry on the phone. The drawer's gestures, sizes and class swap are `_ms11_probe.gd`'s; this
+## file keeps the pin store's end-to-end behaviour on the phone.
 ##
 ##   portrait: godot --path . --resolution 393x852   _quickbar_phone_probe.tscn -- --force-touch --shots <dir>
 ##             godot --path . --resolution 720x1600  _quickbar_phone_probe.tscn -- --force-touch
@@ -29,15 +30,15 @@ extends Node
 ##      (no ring tabs, a Commands / Pinned strip, every control at least 44 dp on both axes, list rows tall
 ##      enough to touch), and three adds by real clicks, a reorder, a removal and a reload all store the
 ##      literal expected order;
-##   3. THE MAP-SHEET ROW: hidden at the 66 dp peek and on other tabs, shown from half up; the peek, half cap
-##      and full heights keep the budget; chips are 48 dp (floor 44) on both axes; a press runs the menu row's
-##      own handler (vault window, planner view); a pin whose command is gone is dim and says why;
-##   4. 24 PINS: the row scrolls, can never widen the shell, and `All...` lists all 24 plus Customise;
+##   3. THE DRAWER: pins mount it, the sheet is exactly as tall as the empty reference at every detent (the drawer
+##      takes no room in the sheet), the rows are in pin order, a real click on the grip opens it and a row runs the
+##      menu row's own handler (vault window, planner view); a pin whose command is gone is dim and says why;
+##   4. 24 PINS: the drawer lists all 24 plus Customise, scrolls, and can never widen the shell;
 ##   5. MORE > QUICK: first band, one 52 dp row per pin, a tap closes MORE and runs it, Customise opens the window;
-##   6. THE ASSISTANT: hidden / greyed with the gate's reason / live, in the row and in MORE, the chip appears
+##   6. THE ASSISTANT: hidden / greyed with the gate's reason / live, in the drawer and in MENU, the entry appears
 ##      within a frame of the write, and a live tap opens the panel;
 ##   7. THE STAR: a pinnable command in the `.` search shows a star; tapping pins and unpins through the store;
-##   8. EMPTY AGAIN: the row is unmounted and the sheet is exactly as tall as before any pin.
+##   8. EMPTY AGAIN: the drawer is unmounted and the sheet is exactly as tall as before any pin.
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument or watchdog.
 
 const FAKE_PORT := 59871
@@ -260,7 +261,7 @@ func _ready() -> void:
 
 	await _empty()
 	await _first_pin()
-	await _map_row()
+	await _drawer_pins()
 	await _many_pins()
 	await _more_quick()
 	await _assistant()
@@ -279,7 +280,7 @@ var _ref_full := 0.0
 
 func _empty() -> void:
 	_ok(_app.phone_quick != null, "the app owns a phone quick-bar controller")
-	_ok(_app.phone_quick.row() == null and _app.phone_quick_row() == null, "nothing is mounted with an empty bar and the assistant off")
+	_ok(_app.phone_quick.drawer() == null and _app._phone_root.find_child("QuickDrawer", true, false) == null, "nothing is mounted with an empty bar and the assistant off")
 	_ok(QuickBarPhone.entries(_app).is_empty(), "QuickBarPhone.entries() is empty")
 	## reference heights, taken on the empty bar, for the budget bars below and for 'empty again' (section 8)
 	await _show("map", "peek")
@@ -465,109 +466,107 @@ func _first_pin() -> void:
 
 # -- 3 ------------------------------------------------------------------------------------
 
-func _chip_dp_ok(row: QuickBarPhoneRow, label: String) -> void:
-	var worst_w := 1.0e9
-	var worst_h := 1.0e9
-	for b in row.chips():
-		worst_w = minf(worst_w, _dp(b.size.x))
-		worst_h = minf(worst_h, _dp(b.size.y))
-	_ok(worst_w >= FLOOR_DP - 0.6 and worst_h >= FLOOR_DP - 0.6, "%s: every chip is at least 44 dp on both axes (min %.1f x %.1f dp)" % [label, worst_w, worst_h])
-	var tall := _dp(row.chips()[0].size.y)
-	_ok(tall >= CHIP_DP - 0.6, "%s: chips are 48 dp tall (%.1f)" % [label, tall])
-
-
-func _map_row() -> void:
-	print("== 3. the MAP-sheet chip row ==")
+func _drawer_pins() -> void:
+	print("== 3. the quick drawer ==")
 	var ctl: QuickBarPhone = _app.phone_quick
-	_ok(ctl.row() != null and _app.phone_quick_row() == ctl.row(), "the pins mounted the row (it was created when the first pin was stored)")
+	var d: Control = ctl.drawer()
+	_ok(d != null and d.get_parent() == _app._phone_root, "the pins mounted the drawer, directly under the phone's root")
+	if d == null:
+		return
+	## The drawer takes no room in the sheet: every detent is the empty reference (CQ-6's row grew the half detent).
 	await _show("map", "peek")
-	var row: QuickBarPhoneRow = ctl.row()
 	if not _landscape:
-		_ok(not row.visible, "hidden at the peek detent")
 		_ok(absf(_sheet_h() - _ref_peek) < 0.5, "the peek is exactly as tall as with no pins (%.1f vs %.1f px)" % [_sheet_h(), _ref_peek])
 	await _show("map", "half")
-	_ok(row.visible and row.is_visible_in_tree(), "shown at the half detent on the MAP tab")
-	var sheet: Control = _app._phone_tool_sheet
-	var rr := row.get_global_rect()
-	var sr := sheet.get_global_rect()
-	_ok(sr.encloses(rr), "the row lies inside the sheet")
-	_ok(row.get_parent() == _app._phone_sheet_col and row.get_index() == 1, "it is mounted directly under the header, above the tool options")
-	var fh: float = get_viewport().get_visible_rect().size.y - _app._phone_nav_reserve()
-	var cap := roundf(fh * 0.46)
-	if not _landscape:
-		_ok(_sheet_h() <= cap + 1.0, "half stays within the 0.46 budget (%.1f of %.1f px)" % [_sheet_h(), cap])
-		_ok(_sheet_h() >= _ref_half - 0.5, "half grew by the row's height or stayed (%.1f vs the empty %.1f px)" % [_sheet_h(), _ref_half])
-		print("  info  half with the row: %.1f px (%.1f dp), without %.1f px, cap %.1f px, row %.1f px" % [_sheet_h(), _dp(_sheet_h()), _ref_half, cap, row.size.y])
-		## When the empty half had room under the cap, the row's height must have been added to it (the content
-		## height the half detent holds counts the row); when it was already at the cap there is nothing to add.
-		if cap - _ref_half >= row.size.y + 2.0:
-			_ok(_sheet_h() >= _ref_half + row.size.y - 1.5, "half grew by the row's height (%.1f -> %.1f px, row %.1f)" % [_ref_half, _sheet_h(), row.size.y])
-		else:
-			print("  note  the empty half (%.1f px) is already within a row of the cap (%.1f px): the growth bar has nothing to measure on this viewport" % [_ref_half, cap])
+	_ok(absf(_sheet_h() - _ref_half) < 0.5, "half is as tall as with no pins (%.1f vs %.1f px)" % [_sheet_h(), _ref_half])
+	_ok(d.visible and d.grip().is_visible_in_tree(), "the grip is drawn at the half detent")
 	var titles: Array = []
-	for b in row.chips():
-		titles.append(b.text)
-	_ok(titles.size() == 3 and titles[2] == "All…", "the row holds 2 pins and 'All…' last (got %s)" % str(titles))
-	_ok(titles.size() == 3 and titles[0] == "Journey planner" and titles[1] == "Markdown vault", "in pin order: Journey planner, Markdown vault")
-	_chip_dp_ok(row, "MAP row")
-	_floors(row, "MAP row (tappables)", _app.phone_scale())
-	var vp: Vector2 = get_viewport().get_visible_rect().size
+	for e in d.entries():
+		titles.append(String(e["title"]))
+	_ok(titles == ["Journey planner", "Markdown vault"], "the drawer holds the 2 pins in pin order (got %s)" % str(titles))
+	var rows: Array = d.rows()
+	_ok(rows.size() == 3 and String(rows[2].name) == "Customise", "two pin rows and Customise last (%d rows)" % rows.size())
+	await _click(d.grip())
+	await _wait(0.5)
+	_ok(d.is_open(), "a real click on the grip opens the drawer")
 	var worst := _widest_visible_minimum(_app)
 	_ok(float(worst[0]) > 100.0, "the walk reads real minimums (widest visible node: %s at %.1f)" % [worst[1], float(worst[0])])
-	_ok(float(worst[0]) <= vp.x + 0.5, "no visible node's minimum width (%.1f, %s) exceeds the %.0f px screen with the row shown" % [float(worst[0]), worst[1], vp.x])
+	var vp: Vector2 = get_viewport().get_visible_rect().size
+	_ok(float(worst[0]) <= vp.x + 0.5, "no visible node's minimum width (%.1f, %s) exceeds the %.0f px screen with the drawer open" % [float(worst[0]), worst[1], vp.x])
 	_width_two_pins = float(worst[0])
-	_ok(row.get_combined_minimum_size().x <= 1.0, "the row's own minimum width is %.0f px: it takes its width from the sheet, not from its chips" % row.get_combined_minimum_size().x)
-	await _shot("03_map_row_half")
+	var small := 0
+	for b in rows:
+		if _dp(b.size.y) < FLOOR_DP - 0.6:
+			small += 1
+	_ok(small == 0, "every drawer row is at least 44 dp tall (row 0: %.1f dp)" % _dp(rows[0].size.y))
+	await _shot("03_drawer_open")
 	## a real press runs the menu row's own handler
-	await _click(row.chips()[1])
+	await _click(rows[1])
 	await _wait(0.5)
-	_ok(_app.vault_window.visible, "a real click on the Markdown vault chip opens the vault window (same handler as the menu)")
+	_ok(_app.vault_window.visible, "a real click on the Markdown vault row opens the vault window (same handler as the menu)")
+	_ok(not d.is_open(), "and the drawer closed")
 	_app.vault_window.hide()
 	await _show("map", "half")
-	await _click(row.chips()[0])
+	await _click(d.grip())
 	await _wait(0.5)
-	_ok(_app.journey_planner_view != null and _app.journey_planner_view.visible, "a real click on the Journey planner chip opens the planner view")
+	await _click(d.rows()[0])
+	await _wait(0.5)
+	_ok(_app.journey_planner_view != null and _app.journey_planner_view.visible, "a real click on the Journey planner row opens the planner view")
 	_app.journey_planner_view.hide()
 	await _show("map", "half")
 	## a pin whose command is gone: dim, kept, says why
 	_ok(DccSettings.quick_bar_add("bar", "menu:99999", "Gone command") == "", "a pin to a command that does not exist can be stored")
 	ctl.refresh()
 	await _settle(3)
-	row = ctl.row()
+	d = ctl.drawer()
 	var ghost: Button = null
-	for b in row.chips():
-		if b.text == "Gone command":
+	for b in d.rows():
+		if String((b.get_meta("entry", {}) as Dictionary).get("title", "")) == "Gone command":
 			ghost = b
-	_ok(ghost != null and not bool(ghost.get_meta("live")), "its chip is kept and marked not live")
-	_ok(ghost != null and String(ghost.get_meta("reason")).begins_with("Not in this build"), "with the reason 'Not in this build...' (%s)" % (String(ghost.get_meta("reason")) if ghost != null else ""))
+	_ok(ghost != null and not bool(ghost.get_meta("live")), "its row is kept and marked not live")
+	_ok(ghost != null and ghost.text.contains("Not in this build"), "with the reason 'Not in this build...' on its second line")
 	if ghost != null:
+		await _click(d.grip())
+		await _wait(0.5)
 		var toasts_before := _count_toasts()
 		await _click(ghost)
 		await _settle(4)
 		_ok(_count_toasts() == toasts_before + 1, "tapping it toasts instead of staying silent (%d -> %d toasts)" % [toasts_before, _count_toasts()])
+		_ok(d.is_open(), "and the drawer stays open")
 		_ok(_stored_keys().has("menu:99999"), "and the pin is still stored")
+		d.close_if_open()
+		await _wait(0.4)
 	DccSettings.quick_bar_remove("bar", "menu:99999")
 	ctl.refresh()
 	await _settle(3)
-	row = ctl.row()
-	## tab switches lose no pin; the row follows the tab
+	d = ctl.drawer()
+	## tab switches lose no pin; the drawer follows the tab it is on
 	for t in ["gen", "map", "more", "map", "gen", "map"]:
 		await _show(t, "half")
 	_ok(_stored_keys() == ["menu:726", "menu:45"], "after cycling the tabs the store still holds both pins")
-	_ok(ctl.row() != null and ctl.row().chips().size() == 3, "and the row still has 3 chips")
-	await _show("gen", "half")
-	_ok(not ctl.row().visible, "the row is hidden on the GENERATE tab")
+	_ok(ctl.drawer() != null and ctl.drawer().rows().size() == 3, "and the drawer still has its 2 pins and Customise")
 	await _show("map", "full")
-	_ok(ctl.row().visible, "shown at full")
 	if not _landscape:
+		_ok(not ctl.drawer().visible, "at the FULL detent the drawer is not drawn (the map band is one tap target tall)")
 		_ok(absf(_sheet_h() - _ref_full) < 1.5, "full is as tall as with no pins (%.1f vs %.1f px)" % [_sheet_h(), _ref_full])
 	await _show("map", "peek")
 	if not _landscape:
-		_ok(not ctl.row().visible and absf(_sheet_h() - _ref_peek) < 0.5, "back at peek the row is hidden and the sheet is %.1f px again" % _sheet_h())
+		_ok(ctl.drawer().visible and absf(_sheet_h() - _ref_peek) < 0.5, "back at peek the drawer is drawn and the sheet is %.1f px again" % _sheet_h())
 	var tabs := PackedStringArray()
 	for t in _app.PHONE_TABS:
 		tabs.append(String(t["caption"]))
 	_ok(tabs == PackedStringArray(["MAP", "", "STORY", "MENU"]), "PHONE_TABS is MAP, the domain tab (caption from DOMAIN_TAB), STORY, MENU: %s" % str(tabs))
+	## a tab change closes an open drawer and gives the pause back
+	await _show("map", "peek")
+	await _click(ctl.drawer().grip())
+	await _wait(0.5)
+	_ok(ctl.drawer().is_open() and int(_app._context_surface_depth) == 1, "opened again: depth 1")
+	_app._pick_phone_tab("menu")
+	await _wait(0.5)
+	_ok(not ctl.drawer().is_open(), "switching to MENU closes the drawer")
+	_app._phone_menu.close()
+	await _settle(3)
+	_ok(int(_app._context_surface_depth) == 0, "and everything closed leaves the pause depth at 0 (got %d)" % int(_app._context_surface_depth))
 
 
 func _count_toasts() -> int:
@@ -589,7 +588,6 @@ func _many_pins() -> void:
 		if keys.size() < 24 and bool(r.get("pinnable", false)) and String(r.get("group", "")) != "" and not keys.has(k):
 			keys.append(k)
 	_ok(keys.size() == 24, "24 distinct pinnable commands found")
-	var min_before: float = _app.phone_quick.row().get_combined_minimum_size().x
 	for k in keys:
 		if not _stored_keys().has(k):
 			var why := DccSettings.quick_bar_add("bar", k, String(idx.find_pin(k)["title"]))
@@ -599,40 +597,35 @@ func _many_pins() -> void:
 	_ok(DccSettings.quick_bar_add("bar", "menu:99998", "One too many") != "", "a 25th is refused by the store")
 	_app.phone_quick.refresh()
 	await _show("map", "half")
-	var row: QuickBarPhoneRow = _app.phone_quick.row()
-	_ok(row.chips().size() == 25, "the row holds 24 pins and 'All…' (%d chips)" % row.chips().size())
+	var d: Control = _app.phone_quick.drawer()
+	_ok(d.rows().size() == 25, "the drawer holds 24 pins and Customise (%d rows)" % d.rows().size())
+	await _click(d.grip())
+	await _wait(0.5)
 	var vp: Vector2 = get_viewport().get_visible_rect().size
 	var worst24 := _widest_visible_minimum(_app)
 	_ok(float(worst24[0]) <= vp.x + 0.5, "no visible node's minimum width (%.1f, %s) exceeds the screen with 24 pins (%.0f px)" % [float(worst24[0]), worst24[1], vp.x])
 	_ok(absf(float(worst24[0]) - _width_two_pins) < 0.5, "and the widest minimum is the same with 24 pins as with 2 (%.1f vs %.1f px): the pin count never reaches the layout" % [float(worst24[0]), _width_two_pins])
-	_ok(row.get_combined_minimum_size().x <= maxf(min_before, 1.0) + 0.5, "the row's own minimum width does not grow with the pin count (%.0f -> %.0f px)" % [min_before, row.get_combined_minimum_size().x])
-	var hs := row.get_h_scroll_bar()
-	_ok(hs.max_value > hs.page + 1.0, "the row scrolls: content %.0f px against %.0f px visible" % [hs.max_value, hs.page])
-	_ok(row.get_global_rect().end.x <= vp.x + 0.5, "the row itself ends inside the screen (%.0f px)" % row.get_global_rect().end.x)
-	_ok(_dp(row.chips()[0].size.y) >= CHIP_DP - 0.6 and _dp(row.chips()[24].size.y) >= CHIP_DP - 0.6, "chips keep 48 dp at 24 pins")
-	var sheet_h_24 := _sheet_h()
-	_ok(sheet_h_24 <= roundf((vp.y - _app._phone_nav_reserve()) * 0.46) + 1.0 or _landscape, "half is still within the 0.46 budget with 24 pins (%.1f px)" % sheet_h_24)
-	row.scroll_horizontal = int(hs.max_value)
+	var panel: Control = d.get("_panel")
+	_ok(panel.get_global_rect().end.y <= vp.y + 0.5 and panel.get_global_rect().position.y >= 0.0, "the panel stays inside the screen vertically")
+	var sc: ScrollContainer = panel.get_child(0)
+	var vs := sc.get_v_scroll_bar()
+	_ok(vs.max_value > vs.page + 1.0, "the list scrolls: content %.0f px against %.0f px visible" % [vs.max_value, vs.page])
+	var small := 0
+	for b in d.rows():
+		if _dp(b.size.y) < FLOOR_DP - 0.6:
+			small += 1
+	_ok(small == 0, "every row keeps at least 44 dp at 24 pins")
+	var last: Button = d.rows()[24]
+	sc.ensure_control_visible(last)
 	await _settle(4)
-	var all_chip := row.all_chip
-	var visible_rect := row.get_global_rect()
-	_ok(visible_rect.encloses(all_chip.get_global_rect().grow(-1.0)), "scrolled to the end, 'All…' is fully inside the row's visible area")
-	await _shot("04_row_24")
-	await _click(all_chip)
+	_ok(panel.get_global_rect().encloses(last.get_global_rect().grow(-1.0)), "scrolled to the end, Customise is fully inside the panel")
+	_ok(String(last.name) == "Customise", "and it is the last row")
+	await _shot("04_drawer_24")
+	await _click(last)
 	await _wait(0.6)
-	var lst: QuickBarPhoneList = _app.phone_quick.list_sheet()
-	_ok(lst != null and lst.visible, "a real click on 'All…' opens the list sheet")
-	if lst != null:
-		_ok(lst.rows.size() == 25, "it lists all 24 pins and the Customise row (%d rows)" % lst.rows.size())
-		var small := 0
-		for b in lst.rows:
-			if b.size.y < FLOOR_DP - 0.6:
-				small += 1
-		_ok(small == 0, "every list row is at least 44 dp tall (row 0: %.1f dp)" % lst.rows[0].size.y)
-		var sv: Vector2 = get_viewport().get_visible_rect().size
-		_ok(lst.size.x >= int(sv.x) - 1, "the sheet fills the screen's width")
-		await _shot("04_all_sheet")
-		lst.hide()
+	_ok(not d.is_open(), "a real click on Customise closes the drawer")
+	_ok(_app.quick_bar_window.visible, "and opens the Customise window")
+	_app.quick_bar_window.hide()
 	# restore to two pins for the next sections
 	for k in _stored_keys().duplicate():
 		if k != "menu:726" and k != "menu:45":
@@ -700,22 +693,26 @@ func _assistant() -> void:
 	await _reset_llm()
 	await _show("map", "half")
 	var ctl: QuickBarPhone = _app.phone_quick
-	_ok(ctl.row().chips().size() == 3 and ctl.row().chips()[0].text != AssistantChip.LABEL, "hidden: no Assistant chip")
+	_ok(ctl.drawer().entries().size() == 2 and String(ctl.drawer().entries()[0]["kind"]) == "pin", "hidden: no Assistant entry")
 	DccSettings.set_llm_value("enabled", true)
 	DccSettings.set_llm_value("preset_id", "ollama")
 	DccSettings.set_llm_value("base_url", "http://127.0.0.1:%d/v1" % FAKE_PORT)
 	DccSettings.set_llm_value("model", "mock-model")
-	_ok(ctl.row().entries.size() == 3 and String(ctl.row().entries[0]["kind"]) == "assistant", "the row follows the write inside the same call (3 entries, the Assistant first)")
+	_ok(ctl.drawer().entries().size() == 3 and String(ctl.drawer().entries()[0]["kind"]) == "assistant", "the drawer follows the write inside the same call (3 entries, the Assistant first)")
 	await get_tree().process_frame
-	var row: QuickBarPhoneRow = ctl.row()
-	_ok(row.chips()[0].text == AssistantChip.LABEL and row.chips()[0].is_visible_in_tree(), "one process frame later the Assistant chip is drawn first")
+	var dr: Control = ctl.drawer()
+	var drow: Button = dr.rows()[0]
+	_ok(String((drow.get_meta("entry") as Dictionary)["title"]) == AssistantChip.LABEL and drow.name == "Assistant", "one process frame later the Assistant row is first")
+	await _click(dr.grip())
+	await _wait(0.5)
+	_ok(dr.is_open() and drow.is_visible_in_tree(), "and it is drawn once the drawer is open")
 	var gate := _gate()
 	_ok(not bool(gate.get("ok", true)) and String(gate.get("reason", "")) != "", "the real gate refuses, with a reason: '%s'" % String(gate.get("reason", "")).left(70))
-	_ok(not bool(row.chips()[0].get_meta("live")) and String(row.chips()[0].get_meta("reason")) == "Assistant unavailable: " + String(gate["reason"]), "greyed, and its reason is the gate's own sentence")
-	_chip_dp_ok(row, "row with the Assistant")
+	_ok(not bool(drow.get_meta("live")) and String((drow.get_meta("entry") as Dictionary)["reason"]) == "Assistant unavailable: " + String(gate["reason"]), "greyed, and its reason is the gate's own sentence")
+	_ok(_dp(drow.size.y) >= FLOOR_DP - 0.6, "the row is at least 44 dp tall (%.1f)" % _dp(drow.size.y))
 	await _shot("06_assistant_greyed")
 	var before := _count_toasts()
-	await _click(row.chips()[0])
+	await _click(drow)
 	await _settle(4)
 	## Owner decision 2026-10-26 (phone pass, OnePlus 6T): the phone's greyed chip is a way in, not a dead button. It still
 	## toasts the reason, and now also opens the Assistant settings (`QuickBarPhone.press`); it never opens the panel.
@@ -736,16 +733,20 @@ func _assistant() -> void:
 	await get_tree().process_frame
 	_ok(bool(_gate().get("ok", false)), "after consent the real gate allows")
 	await _show("map", "half")
-	row = ctl.row()
-	_ok(bool(row.chips()[0].get_meta("live")), "the chip is live")
-	await _click(row.chips()[0])
+	dr = ctl.drawer()
+	await _click(dr.grip())
+	await _wait(0.5)
+	drow = dr.rows()[0]
+	_ok(bool(drow.get_meta("live")), "the Assistant row is live")
+	await _click(drow)
 	await _wait(0.6)
-	_ok(_app.assistant_window.visible, "a real click on the live chip opens the assistant panel")
+	_ok(_app.assistant_window.visible, "a real click on the live row opens the assistant panel")
+	_ok(not dr.is_open(), "and the drawer closed")
 	_app.assistant_window.hide()
 	_ok(DccSettings.quick_bar_value("bar").size() == 2, "the chip is not a pin: still 2 stored pins")
 	DccSettings.set_quick_bar_value("assistant_button", false)
 	await get_tree().process_frame
-	_ok(ctl.row().chips().size() == 3 and ctl.row().chips()[0].text != AssistantChip.LABEL, "switched off: gone within a frame although the gate allows")
+	_ok(ctl.drawer().entries().size() == 2 and String(ctl.drawer().entries()[0]["kind"]) == "pin", "switched off: gone within a frame although the gate allows")
 	await _reset_llm()
 	await _settle(2)
 
@@ -791,8 +792,8 @@ func _star() -> void:
 
 func _empty_again() -> void:
 	print("== 8. empty again ==")
-	## The sheet is left at HALF on the MAP tab while the last pins go, so the row's height has to leave the
-	## sheet by the unmount itself (`refresh_phone_quick` re-snaps); changing the detent would hide a miss.
+	## The sheet is left at HALF on the MAP tab while the last pins go; the drawer takes no room in the sheet, so the
+	## sheet must not move at all (changing the detent would hide a miss).
 	DccSettings.quick_bar_add("bar", "menu:726", "Journey planner")
 	DccSettings.quick_bar_add("bar", "menu:45", "Markdown vault")
 	_app.phone_quick.refresh()
@@ -802,9 +803,10 @@ func _empty_again() -> void:
 	DccSettings.quick_bar_remove("bar", "menu:45")
 	_app.phone_quick.refresh()
 	await _settle(3)
-	_ok(absf(_sheet_h() - _ref_half) < 0.5 and (with_row > _ref_half + 1.0 or _landscape), "removing the last pin at half re-snaps the sheet at once (%.1f -> %.1f px; empty reference %.1f)" % [with_row, _sheet_h(), _ref_half])
+	_ok(absf(_sheet_h() - _ref_half) < 0.5 and absf(with_row - _ref_half) < 0.5, "the sheet is the empty reference with the drawer and after it goes (%.1f -> %.1f px; empty reference %.1f)" % [with_row, _sheet_h(), _ref_half])
 	_ok(DccSettings.has_quick_bar_value("bar") and _stored_keys().is_empty(), "the empty list is stored (clearing the last pin still writes)")
-	_ok(_app.phone_quick.row() == null and _app.phone_quick_row() == null, "the row is unmounted")
+	_ok(_app.phone_quick.drawer() == null and _app._phone_root.find_child("QuickDrawer", true, false) == null, "the drawer is unmounted and freed")
+	_ok(int(_app._context_surface_depth) == 0, "with the pause depth at 0")
 	await _show("map", "peek")
 	_ok(absf(_sheet_h() - _ref_peek) < 0.5, "peek is %.1f px = the empty reference" % _sheet_h())
 	await _show("map", "half")
@@ -833,14 +835,14 @@ func _second_boot() -> void:
 	await _settle(8)
 	_bridge = _app.bridge
 	var ctl: QuickBarPhone = _app.phone_quick
-	_ok(ctl.row() != null and _app.phone_quick_row() == ctl.row(), "the row is mounted a few frames after launch, from the stored pins alone")
-	_ok(ctl.row() != null and ctl.row().get_parent() == _app._phone_sheet_col, "inside the MAP sheet's column")
+	_ok(ctl.drawer() != null, "the drawer is mounted a few frames after launch, from the stored pins alone")
+	_ok(ctl.drawer() != null and ctl.drawer().get_parent() == _app._phone_root, "under the phone's root")
 	await _show("map", "half")
-	_ok(ctl.row() != null and ctl.row().visible and ctl.row().chips().size() == 3, "and it shows at half with 2 pins and 'All…'")
-	_ok(ctl.row() != null and ctl.row().chips()[0].text == "Journey planner", "in the stored order")
+	_ok(ctl.drawer() != null and ctl.drawer().visible and ctl.drawer().rows().size() == 3, "and it shows at half with 2 pins and Customise")
+	_ok(ctl.drawer() != null and String((ctl.drawer().rows()[0].get_meta("entry") as Dictionary)["title"]) == "Journey planner", "in the stored order")
 	await _shot("09_second_boot")
 	for k in _stored_keys().duplicate():
 		DccSettings.quick_bar_remove("bar", k)
 	ctl.refresh()
 	await _settle(3)
-	_ok(ctl.row() == null, "removing them unmounts it again")
+	_ok(ctl.drawer() == null, "removing them unmounts it again")

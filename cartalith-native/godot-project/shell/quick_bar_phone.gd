@@ -2,10 +2,10 @@ extends RefCounted
 class_name QuickBarPhone
 
 ## The phone's quick bar: where a pinned command lives on a handset
-## (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.2, milestone CQ-6, Ruling DH Q9: "both" -- a chip row in the MAP sheet AND
-## a Quick section in MORE). The phone has no tool palette bar and no cartwheel, so neither of CQ-2's and
-## CQ-4's surfaces exists there; this is the whole of the phone's form, and it reads the SAME `[quick_bar]`
-## store (`DccSettings`, key `bar`) and the same Assistant rule (`AssistantChip`) the other two forms do.
+## (`CUSTOM_QUICK_BAR_SCOPE.md` s.3.2, milestone CQ-6, Ruling DH Q9, and MS-11 of `MOBILE_SHELL_PROPOSAL.md` s.2.4,
+## Ruling DY Q10 to Q12). The phone has no tool palette bar and no cartwheel, so neither of CQ-2's and CQ-4's
+## surfaces exists there; this is the whole of the phone's form, and it reads the SAME `[quick_bar]` store
+## (`DccSettings`, key `bar`) and the same Assistant rule (`AssistantChip`) the other two forms do.
 ##
 ## ## A pin is still a pointer (scope s.0 rule 1)
 ##
@@ -14,45 +14,48 @@ class_name QuickBarPhone
 ## signal a menu click emits. A pin whose command is gone is kept and shown as unavailable with a stated
 ## reason; it is never dropped and never re-pointed.
 ##
-## ## The three surfaces this controller feeds
+## ## The surfaces this controller feeds
 ##
-##  * [`QuickBarPhoneRow`] -- the chip row at the top of the MAP sheet's content, shown from the HALF
-##    detent up (the 66 dp peek carries only what it carried before). Mounted into the sheet by
-##    `DccShell.set_phone_quick_row`.
-##  * MORE's root screen -- a `Quick` section first in the list (`phone_menu.gd::_fill_quick`), built from
+##  * the side drawer (`quick_drawer.gd`, MS-11) -- a grip at the map band's edge on the side away from the
+##    dominant hand that opens a list of every entry. It REPLACED CQ-6's chip row in the MAP sheet
+##    (`QuickBarPhoneRow`, deleted with its `set_phone_quick_row` hooks in the shell). Mounted over the map by
+##    `DccShell.set_phone_quick_drawer`.
+##  * MENU's root screen -- a `Quick` section first in the list (`phone_menu.gd::_fill_quick`), built from
 ##    the same [`entries`].
-##  * [`QuickBarPhoneList`] -- the full-height list the row's last chip, `All...`, opens: every pin, 52 dp
-##    rows, with the reason on every unavailable one and a `Customise...` row.
+##  * [`QuickBarPhoneList`] -- the full-height list sheet. Nothing on the phone opens it now that the chip row's
+##    `All...` chip is gone (the drawer lists every pin itself); it is kept for the class-swap probe and is a
+##    candidate for deletion (`OUTSTANDING_WORK.md`).
 ##
 ## ## Nothing exists until it is needed (the pixel-identity bar)
 ##
-## With an EMPTY quick bar and the assistant off, [`entries`] is empty and **no node is created, no row is
-## mounted, no section is drawn**: the phone's screens are pixel-identical to the tree before this
-## milestone (`_quickbar_phoneid_probe.gd`, measured). This is deliberate and not only tidy: CQ-4 and CQ-7
-## each found that creating controls, or connecting a signal, in a `setup()` that ran at boot moved 26 014
+## With an EMPTY quick bar and the assistant off, [`entries`] is empty and **no node is created, no drawer is
+## mounted, no section is drawn, and no grip is drawn**: the phone's screens are pixel-identical to the tree
+## before this milestone (`_quickbar_phoneid_probe.gd`, measured). This is deliberate and not only tidy: CQ-4 and
+## CQ-7 each found that creating controls, or connecting a signal, in a `setup()` that ran at boot moved 26 014
 ## pixels of the phone's Cartography sheet, for a window the phone never opened (scope s.14 and s.15; the
-## cause was never traced). So this controller's `setup()` only remembers the app; the row, the list
-## sheet and the hub connection are created on first need.
+## cause was never traced). So this controller's `setup()` only remembers the app; the drawer, the list sheet
+## and the hub connection are created on first need.
 ##
-## The one way to a FIRST pin on an empty bar is therefore `MORE > Preferences > Quick bar...`
-## (`menus.gd`, no longer hidden from the phone), or a star on a command in the phone's search. An empty
-## row with only a `+` chip would be the scope's "one small + chip", but the owner's CQ-6 bar is that the
-## phone be pixel-identical with nothing pinned, which a permanent chip cannot be.
-
-## A chip's height and minimum width in dp: Android's 48 dp (`DESIGN_HANDOFF.md`: "take the larger of the
-## two platform minimums"). The hard floor under it is `DccTheme.PHONE_TAP_MIN` (44), enforced by `_ptap`.
-const CHIP_DP := 48.0
-## The chip row's inset and gaps, in dp (the MAP sheet's own 14 dp side padding; a labelled judgement for
-## the rest: 6 above and 8 below keep the row clear of the header and the tool options under it).
-const ROW_SIDE_DP := 14.0
-const ROW_TOP_DP := 6.0
-const ROW_BOTTOM_DP := 8.0
-const ROW_GAP_DP := 8.0
-## The label of the row's last chip. It opens [`QuickBarPhoneList`].
-const ALL_LABEL := "All…"
+## The one way to a FIRST pin on an empty bar is therefore `MENU > Preferences > Quick bar...`
+## (`menus.gd`, no longer hidden from the phone), or a star on a command in the phone's search.
+##
+## ## Across a class swap (MS-1 S4)
+##
+## The drawer is a child of the phone's composition, which a swap frees. [`represent_capture`] reads whether it is
+## open and lets go of it (giving back the world-pause depth it holds) BEFORE the unmount; [`represent_restore`]
+## builds it again for the new class from the stored pins and, if it was open, opens it again. This controller
+## itself is the app's, so it survives.
 
 var _app
-var _row: QuickBarPhoneRow
+## A phone pin control's size in dp: Android's 48 dp (`DESIGN_HANDOFF.md`: "take the larger of the two platform
+## minimums"); the hard floor under it is `DccTheme.PHONE_TAP_MIN` (44), enforced by `_ptap`. Today the one reader is the
+## search result's pin star (`dcc_shell.gd`); the chip row that gave it its name is gone (MS-11).
+const CHIP_DP := 48.0
+
+## The drawer, loaded by path (no `class_name`, so no class-cache entry is needed).
+const _QuickDrawer := preload("res://shell/quick_drawer.gd")
+## The mounted drawer, or null while there is nothing to show (that null is what keeps an empty bar drawing nothing).
+var _drawer: Control
 var _list: QuickBarPhoneList
 
 ## Remembers the app and follows the Assistant rule's inputs (module header). No node is created.
@@ -158,36 +161,57 @@ static func say(app, text: String, near: Control = null) -> void:
 
 # -- the controller --------------------------------------------------------------------
 
-## The mounted chip row, or null while nothing is wanted (for tests).
-func row() -> QuickBarPhoneRow:
-	return _row
+## The mounted drawer, or null while nothing is wanted (for tests).
+func drawer() -> Control:
+	return _drawer
 
 ## The `All...` list sheet, or null until it was first opened (for tests).
 func list_sheet() -> QuickBarPhoneList:
 	return _list
 
-## Brings the phone's chip row up to date with the store and the Assistant rule. Does NOTHING when there is
-## nothing to show and nothing is mounted (the identity bar); mounts the row on the first need; unmounts and
-## frees it when the last entry goes. Called after a world load, a generation, a pin change and a change to
-## any setting the Assistant chip reads. Safe on a non-phone app: it returns at once.
+## Brings the phone's drawer up to date with the store and the Assistant rule. Does NOTHING when there is
+## nothing to show and nothing is mounted (the identity bar); mounts the drawer on the first need; frees it when
+## the last entry goes (releasing the world-pause depth first if it was open). Called after a world load, a
+## generation, a pin change and a change to any setting the Assistant chip reads. Safe on a non-phone app: it
+## returns at once.
 func refresh() -> void:
 	if _app == null or not _app.is_phone():
 		return
 	var es := entries(_app)
 	if es.is_empty():
-		if _row != null:
-			_app.set_phone_quick_row(null)
-			_row.queue_free()
-			_row = null
+		_free_drawer()
 		return
-	if _row == null:
-		_row = QuickBarPhoneRow.new()
-		_row.setup(_app, self)
-		_app.set_phone_quick_row(_row)
-	_row.set_entries(es)
+	if _drawer == null or not is_instance_valid(_drawer):
+		_drawer = _QuickDrawer.new()
+		_drawer.call("setup", _app)
+		_app.set_phone_quick_drawer(_drawer)
+	_drawer.call("set_entries", es)
+	_drawer.call("relayout")
 	if _list != null and _list.visible:
 		_list.show_entries(es)
-	_app.refresh_phone_quick()
+
+## Gives back the drawer's pause depth and frees it. Idempotent.
+func _free_drawer() -> void:
+	if _drawer != null and is_instance_valid(_drawer):
+		_drawer.call("release_surface")
+		if _drawer.get_parent() != null:
+			_drawer.get_parent().remove_child(_drawer)
+		_drawer.queue_free()
+	_drawer = null
+
+## MS-1 S4: before the unmount. Returns `{open: bool}` and frees the drawer, so the pause depth it holds is given
+## back and nothing is left pointing into the composition about to be freed.
+func represent_capture() -> Dictionary:
+	var was_open := _drawer != null and is_instance_valid(_drawer) and bool(_drawer.call("is_open"))
+	_free_drawer()
+	return {"open": was_open}
+
+## MS-1 S4: after the new composition is mounted. Builds the drawer for the new class from the stored pins (a
+## tablet or desktop has none: `refresh()` returns at once) and, if it was open, opens it again without a slide.
+func represent_restore(bag: Dictionary) -> void:
+	refresh()
+	if bool(bag.get("open", false)) and _drawer != null and is_instance_valid(_drawer):
+		_drawer.call("open_now")
 
 ## Connects [`refresh`] to `DccSettings.assistant_hub`, once. A bare signal connection to a RefCounted creates
 ## no node; whether even that moves the phone's pixels at boot is measured by `_quickbar_phoneid_probe.gd`.
