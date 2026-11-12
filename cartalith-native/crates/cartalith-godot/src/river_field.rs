@@ -1902,6 +1902,11 @@ mod tests {
         let on_max = (0..160).filter_map(|py| on.post_at(col, py)).map(|q| q[2]).fold(0.0f32, f32::max);
         assert!(on_max > 0.1, "the wet bank must be there ({on_max})");
         assert!((0..160).filter_map(|py| off.post_at(col, py)).all(|q| q[2] == 0.0), "strength 0 draws no wet bank");
+        // Under full water the wet bank must be 0. With an outline on (`river_bank` 0.6) the post plane has pixels there to
+        // read; with it off (above) the plane is written for the wet bank alone and has none, so this leg uses its own source.
+        let a_bank = crate::render::TerrainAppearance { river_bank: 0.6, ..a.clone() };
+        let src_on = PaintSource::new(&g, None, 64, 40, &crate::render::TerrainAppearance { river_wet_bank: 1.0, ..a_bank.clone() }, source(&g, None, &a_bank, 64, 40).colour.clone()).expect("source");
+        let on = src_on.raster(map, 256, 160);
         let mut covered = 0;
         for py in 0..160 {
             if let (Some(q), Some(c)) = (on.post_at(col, py), on.at(col, py)) {

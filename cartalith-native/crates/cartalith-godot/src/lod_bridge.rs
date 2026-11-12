@@ -2756,7 +2756,9 @@ mod tests {
         // the scope's "zoom 4 to 40" bar (LOD_DETAIL_SCOPE.md LOD-D5, bar 2).
         const ZOOMS: [f64; 5] = [4.0, 8.0, 16.0, 24.0, 40.0];
         let measure = |k: f64, crest: f64| -> Vec<(f64, i32, f64)> {
-            let a = render::TerrainAppearance { detail_scale_strength: k, crest_strength: crest, ..TestWorld::appearance() };
+            // `lake_depth_tone` 0: this test measures LOD-D5's detail per pixel, and the lake tone by depth (RR-5, 2026-11-12) is a
+            // separate render-only term that moves lake pixels differently at different rungs; held off so the 0.5 % bar reads the stages it names.
+            let a = render::TerrainAppearance { detail_scale_strength: k, crest_strength: crest, lake_depth_tone: 0.0, ..TestWorld::appearance() };
             let field = relief_field(gw, gh);
             let mut temp = vec![0f32; gw * gh];
             let mut rain = vec![0f32; gw * gh];

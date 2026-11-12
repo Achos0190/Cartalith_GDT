@@ -549,6 +549,12 @@ RR-0 measures it, and the measurement, not this text, pins it.
 
 ### RR-5. Lakes with depth and shallows (render only)
 
+**Built 2026-11-12** (Ruling ES follow-up; `STATUS.md`): `lake_depth_tone` (0..1 look key, 1 in the app, 0 in `js_reference`) blends
+the lake's `sea_color_core` depth axis from the reference's constant 0.30 toward `render::lake_depth_axis(u)`, `u = (fill_level - field) /
+LAKE_DEPTH` read per pixel on the screen (`cell_color`), the export (`pixel_at`) and the tiles. The anchors differ from the sketch below
+(0.20 at one `LAKE_DEPTH`, today's 0.30 at two, 0.62 at sixteen); the one-cell shallows lift next to the shore is not built (the bilinear
+`fill - field` already pales the shore ring). Bars and measurements are in `STATUS.md`.
+
 - **Change.** `lake_color` takes `depth = clamp((fill_level − field) / LAKE_DEPTH_FULL, 0, 1)` per cell
   (`WaterBodies.fill_level` exists per cell) in place of the constant 0.30, so a deep basin is dark and a
   shelf is pale; near the shore `shore_depth`'s distance gives a one-cell shallows lift, the lake's

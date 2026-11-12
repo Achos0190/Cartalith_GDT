@@ -1639,6 +1639,17 @@ func _fu_frames_run(targets: Dictionary) -> void:
 	## seconds, and a frame grabbed before it lands shows the previous look (the first owner-world "before" frames did).
 	await _settle(150)
 	await _settle_lod()
+	## Diagnostic: the frames can only show the playa on a world that has one, so say whether the balance is on.
+	print("    fu: lake_balance=%s, playa_tint=%s, lake_depth_tone=%s" % [str(_br.param_get("lake_balance")), str(_br.world_gen.get_appearance().get("playa_tint", "?")), str(_br.world_gen.get_appearance().get("lake_depth_tone", "?"))])
+	var ps: Dictionary = _br.world_gen.playa_stats()
+	print("    fu: playa_stats %s" % str(ps))
+	## The world in the app is not the world a Rust harness generates from the same seed (measured: 1 060 playa cells here
+	## against 23 248 there), so the targets come from the app's own water, not from a file.
+	var fu := {}
+	if targets.has("trunk"): fu["trunk"] = targets["trunk"]
+	if ps.has("playa_target"): fu["playa"] = {"p": ps["playa_target"]}
+	if ps.has("lake_target"): fu["lake"] = {"p": ps["lake_target"]}
+	targets = fu
 	for z: float in [1.0, 4.0, 16.0, 64.0]:
 		if z > _vh._zoom_max + 1e-6:
 			print("    fu frame z %d skipped: camera maximum %.1f" % [int(z), _vh._zoom_max])

@@ -13891,7 +13891,10 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
             } else if class == TILE_LAKE {
                 // v1.05 lake (11741-11742) -- see [`lake_color`].
                 // Ruling CX item 5: an active or dormant crater's lake is acid.
-                let depth = lake_depth_for(a, (tf.lake_fill.len() == gw * gh).then(|| sample_arr(&tf.lake_fill, wx, wy, gw, gh) - hw));
+                // The depth is read from the GRID's own height, not the tile's `hw`: a tile carries sub-cell fractal relief, which at
+                // x64 put `fill - hw` across the tone's knees pixel by pixel and drew the lake blotchy (seen in the owner-world x64
+                // frame, 2026-11-12). The grid bilinear is smooth, as the screen and the export read it.
+                let depth = lake_depth_for(a, (tf.lake_fill.len() == gw * gh).then(|| sample_arr(&tf.lake_fill, wx, wy, gw, gh) - sample_arr(ctx.water_height(), wx, wy, gw, gh)));
                 Some(ctx.crater_lake_tint(lake_color_depth(a, depth, t, sea_grain(a, wx, wy, gw), vig), wx, wy, cells_per_px))
             } else {
                 None

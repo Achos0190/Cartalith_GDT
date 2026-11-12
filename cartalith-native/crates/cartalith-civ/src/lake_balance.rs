@@ -29,7 +29,9 @@
 //! new water-body class: the classification stays 0/1/2 so every consumer of
 //! lakes keeps its meaning, and the cell is land, drawn by the climate biome
 //! beneath it (arid country reads as sand). Recorded as the minimal choice in
-//! Ruling ET; a salt-flat tint is an open follow-up.
+//! Ruling ET. The dried floor is marked separately in `WaterBodies::playa`
+//! (built by `render::water_bodies_floored_balanced`), which the salt-flat tint
+//! and the trade salt-lake source read; it never moves the classification.
 //!
 //! Must never run with a missing or wrong-length flow or temperature field
 //! (no value is not a plausible value: the classification is then left as

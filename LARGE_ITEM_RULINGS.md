@@ -3599,7 +3599,8 @@ generation setting, on for new worlds.
    shared `lake_pools`. It governs the water classification only; terrain, flow and channels do not move.
 3. **A playa is not a new class.** It is land (class 0) drawn by the climate biome beneath it, so arid basins read as
    sand and every lake consumer keeps its meaning. A salt-flat tint, and the trade module's salt-lake source reading
-   playas, are open follow-ups, not built.
+   playas, were open follow-ups when this ruling was written; **both were built the same day** (the playa follow-up
+   below, `STATUS.md`): the playa is still no class, a separate mask (`WaterBodies::playa`) that render and trade read.
 4. **The routed network is unchanged.** A lake that no longer spills keeps the river that crossed it; the outlet cut is
    not skipped (Ruling EN item 5 is not touched beyond Ruling ER's override). Measured through the shipped path on
    the owner world: 322 lakes become 356 before Ruling CC's floor (282 become 307 with it); seed 483920, 41 become 66;

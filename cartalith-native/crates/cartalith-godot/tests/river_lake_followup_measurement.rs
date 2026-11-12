@@ -125,10 +125,11 @@ fn river_lake_followup_measurement() {
         assert!(playa_cells > 0 && !pc.is_empty(), "{label}: no playa -- the fixture did not reach the code");
 
         // RR-5: the tone over every lake cell, and the lakes.
-        let lakes = components(&wb.classification.iter().map(|&c| c == 2).collect::<Vec<_>>(), gw, gh);
+        // Above-sea lakes only: a below-sea lake (an inland sea) is drawn by the sea branch, which RR-5 does not touch.
+        let lakes = components(&(0..n).map(|i| wb.classification[i] == 2 && f64::from(ws.field[i]) > sea).collect::<Vec<_>>(), gw, gh);
         assert!(!lakes.is_empty(), "{label}: no lake");
         let u = |i: usize| (f64::from(wb.fill_level[i]) - f64::from(ws.field[i])) / LAKE_DEPTH;
-        let mut tones: Vec<f64> = (0..n).filter(|&i| wb.classification[i] == 2).map(|i| render::lake_depth_axis(u(i))).collect();
+        let mut tones: Vec<f64> = (0..n).filter(|&i| wb.classification[i] == 2 && f64::from(ws.field[i]) > sea).map(|i| render::lake_depth_axis(u(i))).collect();
         println!("   lake tone axis over {} lake cells: p5 {:.3} p25 {:.3} p50 {:.3} p75 {:.3} p95 {:.3} (today's constant 0.300)", tones.len(), pct(&mut tones, 0.05), pct(&mut tones, 0.25), pct(&mut tones, 0.5), pct(&mut tones, 0.75), pct(&mut tones, 0.95));
 
         // Real colours through cell_color.
@@ -166,7 +167,9 @@ fn river_lake_followup_measurement() {
         let cen = central(big, gw);
         let edge_pl: Vec<usize> = big.iter().copied().filter(|&i| { let (x, y) = (i % gw, i / gw); [(x.wrapping_sub(1), y), (x + 1, y), (x, y.wrapping_sub(1)), (x, y + 1)].iter().any(|&(a, b)| a < gw && b < gh && wb.playa[b * gw + a] == 0) }).collect();
         let pl = *edge_pl.iter().min_by(|&&a, &&b| ((a % gw) as f64 - (cen % gw) as f64).hypot((a / gw) as f64 - (cen / gw) as f64).total_cmp(&((b % gw) as f64 - (cen % gw) as f64).hypot((b / gw) as f64 - (cen / gw) as f64))).unwrap_or(&cen);
-        let lk = *lakes[0].iter().min_by(|&&a, &&b| (u(a) - 8.0).abs().total_cmp(&(u(b) - 8.0).abs())).unwrap();
+        // The lake of 50 cells or more with the deepest bed (the owner world's biggest lake is shallow and shows no tone).
+        let deep_lake = lakes.iter().filter(|l| l.len() >= 50).max_by(|a, b| a.iter().map(|&i| u(i)).fold(0.0, f64::max).total_cmp(&b.iter().map(|&i| u(i)).fold(0.0, f64::max))).unwrap_or(&lakes[0]);
+        let lk = *deep_lake.iter().min_by(|&&a, &&b| (u(a) - 8.0).abs().total_cmp(&(u(b) - 8.0).abs())).unwrap();
         let chan = ws.channels.as_ref().map(|c| c.chan.clone()).unwrap_or_default();
         let inside = |i: usize| { let (x, y) = (i % gw, i / gw); x * 10 >= gw && x * 10 <= gw * 9 && y * 10 >= gh && y * 10 <= gh * 9 };
         let trunk = (0..n).filter(|&i| ws.field[i] as f64 > sea && inside(i) && chan.get(i).is_some_and(|&c| c != 0)).max_by(|&a, &b| ws.flow_discharge[a].total_cmp(&ws.flow_discharge[b])).expect("a channel cell");

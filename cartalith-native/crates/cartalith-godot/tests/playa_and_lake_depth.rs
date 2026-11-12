@@ -298,3 +298,42 @@ fn the_lake_depth_blend_is_pinned_at_literals() {
     assert!((render::lake_depth_for(&on, Some(ld)) - 0.30).abs() < 1e-12);
     assert!((render::lake_depth_for(&on, Some(10.0 * ld)) - 0.46).abs() < 1e-12);
 }
+
+/// Protects the tile lake tone against sub-cell relief: a tile whose heights
+/// carry fractal noise (as an x64 tile does) draws a deep lake in the SAME colour
+/// as the smooth tile, because the depth is read from the grid's height, not the
+/// tile's. (The first version read the tile's and drew the lake blotchy at x64.)
+#[test]
+fn the_tile_lake_tone_ignores_sub_cell_relief() {
+    // A SHALLOW bowl (floor 0.66 under a 0.70 rim: 10 LAKE_DEPTH), so the tone sits on its slope and a depth read from the
+    // tile's own noisy heights would move the colour; a deep bowl saturates the tone and would hide the defect.
+    let mut field = vec![0.70f32; GW * GH];
+    for y in 8..16 {
+        for x in 8..16 {
+            field[y * GW + x] = 0.66;
+        }
+    }
+    let (rain, temp) = (vec![1.0f32; GW * GH], vec![25.0f32; GW * GH]);
+    let flow = vec![1000.0f32; GW * GH];
+    let a = TerrainAppearance { lake_balance: true, ..TerrainAppearance::default() };
+    let c = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a);
+    let tf = render::TileFields::new(&c, None);
+    let bounds = render::TileBounds { x: 10.0, y: 10.0, w: 4.0, h: 4.0 };
+    let (tw, th) = (32usize, 32usize);
+    let draw = |noise: f32| -> Vec<u8> {
+        let mut tile = vec![0f32; tw * th];
+        for y in 0..th {
+            for x in 0..tw {
+                let n = ((x * 7 + y * 13) % 11) as f32 / 11.0 - 0.5;
+                tile[y * tw + x] = 0.66 + noise * n;
+            }
+        }
+        render::render_biome_tile_rgba(&c, &tile, tw, th, bounds, &tf)
+    };
+    let (smooth, rough) = (draw(0.0), draw(0.02));
+    // The tile is wholly inside the 8x8 bowl, so every pixel is lake; the noise is far over LAKE_DEPTH (0.004).
+    let px = |b: &[u8], x: usize, y: usize| (b[(y * tw + x) * 4], b[(y * tw + x) * 4 + 1], b[(y * tw + x) * 4 + 2]);
+    for &(x, y) in &[(8usize, 8usize), (16, 16), (20, 9), (12, 24)] {
+        assert_eq!(px(&smooth, x, y), px(&rough, x, y), "pixel ({x}, {y}) moved with the tile's own relief");
+    }
+}

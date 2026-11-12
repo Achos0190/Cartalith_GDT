@@ -471,7 +471,8 @@ are unchanged. Exposed: parameter catalogue (offered), New World, World ▸ Hydr
   `sea_live_bridge`'s live-versus-civ control (hands the live side the balance inputs the civ pass takes) and the three
   `knowledge_eval_*.json` fixtures (regenerated: the worlds' lakes changed). `cargo test --workspace` green; literal
   mutants on the balance's constants and branches all killed.
-- **Open:** a salt-flat tint for a playa and the trade module's salt-lake source reading playas; the shell's live
+- **Playa follow-up built (2026-11-12, see "Ruling ES/ET follow-ups" below):** the salt-flat tint and the trade salt-lake
+  source reading playas. **Still open:** the shell's live
   toggle on an already-open world only takes effect at the next map rebuild (civ goes stale, as `river_density`).
 
 ### MS-1 S4.5 complete: the assistant dialog is kept and re-laid out in place (2026-11-12)
@@ -487,6 +488,46 @@ new form's place (phone sheet or Ask tab).
   403 (desktop) and 6 of 425 (tablet) fail, the same six and the same two probe-side SCRIPT ERRORs as the unedited origin/main run, so they are not this change's.
 - **Found and fixed:** `_rebuild()` left one parentless node per build (an `HBoxContainer` replaced by a flow off the phone).
 - **Not done:** the device rows (S0, B7). (The edge of a kept window stacked under a window the swap frees, once handled only when hidden, is fixed and probed: see "Verification pass" above.)
+
+### Ruling ES/ET follow-ups: playa tint, trade salt, RR-5 lake tone, RR-2 wet bank, rapids and falls row (2026-11-12)
+All render only except the trade salt source; three new look keys, **on in the app, 0 in `js_reference`**, each a preset can set to 0.
+- **Playa tint** (`playa_tint`). `WaterBodies::playa` (`cartalith_civ`; empty = no information, never "no playa") marks cells that
+  are lake under the old rule (flood plus Ruling CC's floor) and dry under the balance; built in
+  `render::water_bodies_floored_balanced`, cleared under forced and maar lakes. Drawn by `render::playa_apply` (a mix of 0.5 toward
+  `PLAYA_SALT` over a smoothstepped bilinear cover, +-20 % crust grain) on the screen (`cell_color`), the export (`pixel_at`) and the
+  tiles (`TileFields::playa`); wired through `build_color_texture` (one-shot `prewarm_playa`), the sculpt preview, the export raster
+  and export session. Classification stays 0/1/2. Owner world: 22 216-cell largest playa; 483920: 3 one-cell playas (nothing to see there).
+- **Trade salt.** `PlaceWorld::playa`; `civ_salt_access`'s salt-lake branch fires on a playa cell with rain under 0.30 (the lake
+  biome's own gate). Reads the drawn water (`drawn_water_bodies`). **Changes civ output only for worlds with `lake_balance` on**
+  (new worlds); with it off the mask is empty and nothing moves. No civ fixture moved (the whole suite passed unchanged).
+- **RR-5** (`lake_depth_tone`): the lake's `sea_color_core` depth axis blends from 0.30 toward `lake_depth_axis(u)`,
+  `u = (fill_level - field) / LAKE_DEPTH` per pixel; 0.30 up to u 4, a smoothstep to 0.62 at u 16 (labelled judgements). A first
+  version with a pale 0.20 shelf moved 1-4 cell ponds by up to 20 levels (bar: 4) and was dropped. **Measured**
+  (`tests/river_lake_followup_measurement.rs`, ignored): ponds of 1-4 cells with u <= 4 move 0.0 levels on both worlds; the largest lake's
+  deepest-vs-shallowest cells differ 201 levels (owner) and 222 levels (483920) in summed RGB (bar 12).
+- **RR-2 wet bank** (`river_wet_bank`): the bank-outline ring (`bank_coverage_rr`) at its own strength darkens the land by
+  `BANK_WET` 0.12 before the river paints over it; shader (`river_wet_bank`, `BANK_WET` mirrored and test-held), tiles and export
+  (the post plane is now three wide: floodplain, bank, wet).
+- **Rapids and falls row.** `river_pick` returns `rapids` and `falls` (same `NetworkInputs::run` the map draws with, counted as separate
+  runs; keys omitted when the world cannot say); the card title and Inspect's River panel show "rapids N · falls M".
+  **Per-pick cost is unmeasured** (it builds `NetworkInputs` per pick) and the row has not been looked at in the app.
+- **Tests.** New `tests/playa_and_lake_depth.rs` (screen, bake and tile seams, identity under `js_reference`, literals), wet-bank and
+  rapids/falls unit tests, a trade test. **Restated:** `adjust_census_tests` HEAD table (fingerprint column of all five looks; tile column of the
+  four app looks; `js_reference`'s tile column held), `appearance_tiers` exempt list (+3). 25 literal mutants, all killed but one equivalent (two
+  survivors needed tests; the 3.5 knee of the lake axis is equivalent by continuity). `cargo test --workspace`: see the commit.
+- **Frames** (windowed `_riverzoom_probe.gd --fu-frames`, 950x834 view, under `C:/cw/.win_lock`; the DLL built from this change, before = the three
+  keys set to 0 in the same build): `cartalith-native/docs/evidence/river-lake-followups-2026-11-12/before_after_owner.png` and
+  `before_after_483920.png` (x1, then playa, lake and trunk at x4, x16, x64) and `x64_playa_lake_*.png`. Opened and looked at.
+  **Findings.** (1) The app's owner world is not the world the Rust harness generates from seed 246371 (the app has 1 060 playa
+  cells and 162 220 lake cells, the harness 23 248 and 150 000), so probe targets come from the app's own water (`WorldGen::playa_stats`, a
+  diagnostic: counts and the densest playa block and deepest lake cell); only 1 060 and 4 360 playa cells exist in the app's owner and
+  483920 worlds, so the salt flat is local, not a map-wide wash. (2) The owner world's big "lakes" are below sea level and draw as sea, which
+  RR-5 does not touch; its above-sea lakes are shallow (largest deepest cell u 6, lake-tone axis p95 0.302), so RR-5 changes a few of its
+  lakes, and 483920's (median 0.384, p95 0.609) visibly. (3) A first tile version read the depth from the tile's own noisy height and drew
+  the x64 lake blotchy; it now reads the grid height (`the_tile_lake_tone_ignores_sub_cell_relief`, mutant killed). (4) The wet bank is
+  subtle by construction: on the trunk frames 3 000-9 000 pixels move by 3 levels or more and almost none by 12 (x16, x64); the scope's "80 % of
+  the trunk's edge pixels at x64" bar was not measured as such. **Identity:** `js_reference` pixels are unchanged by control flow (tests above); the
+  shader-versus-old-DLL pixel diff was not run (the old DLL predates `playa_stats`; the new terms are gated on uniforms that default to 0).
 
 ### River realism (Ruling ES): RR-0, RR-1, RR-2, RR-3, RR-4, RR-8 built; RR-6's harness measured (2026-11-12)
 
@@ -539,7 +580,7 @@ mirrored in `map_shore.gdshader` (`the_shader_mirrors_the_realism_law`).
   `viewport_host.gd`, `engine_bridge.gd`, `app.gd`, `_riverzoom_probe.gd`.
 - **Mutation:** 29 literal mutants of the new constants (`river_realism.rs`, RR-8's wavelength), Python, restored in
   `finally`: 29 killed, 0 survived, 0 build errors.
-- **Not built / open:** RR-5 (lake depth tone), RR-7 (waits, Q5), RR-2's wet bank, RR-9's pan-frame timing.
+- **Not built / open:** RR-7 (waits, Q5), RR-9's pan-frame timing. (RR-5 and RR-2's wet bank are built: the follow-ups entry above.)
 
 ### Straight rivers fixed (Ruling ER) and deltas readable again at x16 (2026-11-11/12)
 

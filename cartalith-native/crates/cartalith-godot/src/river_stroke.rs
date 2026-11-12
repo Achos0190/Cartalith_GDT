@@ -2656,6 +2656,52 @@ impl WorldGen {
         self.river_marks_off.set(!on);
     }
 
+    /// **The drawn water's playa count** (diagnostic, for `_riverzoom_probe.gd --fu-frames`):
+    /// `playa_cells` (the mask's set cells; the key is omitted when the mask is absent, i.e. the balance is off
+    /// or the world is a loaded save -- never a plausible 0), `lake_cells` (class 2) and `fill_len`
+    /// (`WaterBodies::fill_level`'s length). Empty with no world.
+    #[func]
+    fn playa_stats(&self) -> VarDictionary {
+        let Some(b) = self.drawn_water_bodies() else { return VarDictionary::new() };
+        let mut d = vdict! {
+            "lake_cells" => b.classification.iter().filter(|&&c| c == 2).count() as i64,
+            "fill_len" => b.fill_level.len() as i64,
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if !b.playa.is_empty() {
+            d.set("playa_cells", b.playa.iter().filter(|&&c| c != 0).count() as i64);
+            // The densest 16 x 16 block of the mask, and its playa cell nearest the block's centre: where a probe frames the salt flat.
+            if gw > 0 && b.playa.len() == gw * gh {
+                let bw = gw.div_ceil(16);
+                let mut count = vec![0u32; bw * gh.div_ceil(16)];
+                for (i, &p) in b.playa.iter().enumerate() {
+                    if p != 0 {
+                        count[(i / gw / 16) * bw + (i % gw) / 16] += 1;
+                    }
+                }
+                if let Some((bi, &n)) = count.iter().enumerate().max_by_key(|&(_, &n)| n).filter(|&(_, &n)| n > 0) {
+                    let (cx, cy) = (((bi % bw) * 16 + 8) as f64, ((bi / bw) * 16 + 8) as f64);
+                    let best = (0..b.playa.len()).filter(|&i| b.playa[i] != 0).min_by(|&a, &c| ((a % gw) as f64 - cx).hypot((a / gw) as f64 - cy).total_cmp(&((c % gw) as f64 - cx).hypot((c / gw) as f64 - cy)));
+                    if let Some(i) = best {
+                        d.set("playa_target", Vector2::new((i % gw) as f32 + 0.5, (i / gw) as f32 + 0.5));
+                        d.set("playa_block_cells", n as i64);
+                    }
+                }
+            }
+        }
+        // The deepest above-sea lake cell (`fill_level - field`), where RR-5's tone is strongest.
+        if let Some(crate::WorldSource::Generated(ws)) = self.source.as_ref() {
+            if gw > 0 && b.fill_level.len() == gw * gh && ws.field.len() == gw * gh {
+                let deepest = (0..gw * gh).filter(|&i| b.classification[i] == 2 && f64::from(ws.field[i]) > self.sea_level).max_by(|&a, &c| (b.fill_level[a] - ws.field[a]).total_cmp(&(b.fill_level[c] - ws.field[c])));
+                if let Some(i) = deepest {
+                    d.set("lake_target", Vector2::new((i % gw) as f32 + 0.5, (i / gw) as f32 + 0.5));
+                    d.set("lake_depth_units", f64::from(b.fill_level[i] - ws.field[i]) / cartalith_civ::LAKE_DEPTH);
+                }
+            }
+        }
+        d
+    }
+
     /// **RR-4's counts from the last network build** (diagnostic, for
     /// `_riverzoom_probe.gd --rr`): `white_points` (traced points marked as
     /// white water), `falls`, `falls_knick`, `falls_hanging`, `rock` (whether
