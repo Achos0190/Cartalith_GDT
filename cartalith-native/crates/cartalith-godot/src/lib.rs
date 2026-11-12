@@ -23,6 +23,8 @@ static LAST_RANK_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64
 // The adjustment stacks (ET-C1/C2) are `render::adjust`, declared inside
 // `render.rs` so that file's standalone `#[path]` test targets compile them
 // too; see that declaration's doc.
+mod annotation_bridge;
+mod annotation_undo;
 mod asset_bridge;
 mod bake_bridge;
 // Found-bug sweep 2026-10-11, R8: an ignored measurement over the real pipeline.
@@ -6818,6 +6820,11 @@ struct WorldGen {
     /// `context_pick_bridge.rs` for why a fingerprint, not a clear-on-every-
     /// writer rule, decides which of these can still be put back.
     way_undo: context_pick_bridge::WayUndo,
+    /// The held half of every [`undo::EntryKind::Annotation`] row: the before
+    /// and after of the label, icon or landmark-name store per edit, plus the
+    /// redo stack (`annotation_undo.rs`). Session-only like the height and way
+    /// stacks -- cleared with them on generate, load and `clear_undo`, and in no archive.
+    anno_undo: annotation_undo::AnnoUndo,
     /// The live pipeline staleness graph (`cartalith_engine::staleness::
     /// pipeline_stage_graph`): height → hydrology → climate → civ, over the
     /// same tiling the Sculpt draft's `PassBuffer`/`DirtyTracker` pair uses,
@@ -7324,6 +7331,7 @@ impl IRefCounted for WorldGen {
             redo: RedoTail::new(),
             ledger: undo::HistoryLedger::new(),
             way_undo: context_pick_bridge::WayUndo::new(),
+            anno_undo: annotation_undo::AnnoUndo::new(),
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
             bake: bake_bridge::BakeState::new(),
@@ -7749,6 +7757,7 @@ impl WorldGen {
         self.undo.clear();
         self.redo.clear();
         self.way_undo.clear();
+        self.anno_undo.clear();
         // F12: memory hygiene only. The cache carries its own fingerprint and
         // would refuse itself over the next world regardless; this returns its
         // one `i32`-per-cell buffer while there is no world to plan over.
@@ -7991,6 +8000,7 @@ impl WorldGen {
         self.redo.clear();
         // ...and a held way belongs to the previous world's way list.
         self.way_undo.clear();
+        self.anno_undo.clear();
         // ED-02: a generate is the ledger's **floor**, and clears it for the
         // same reason `undo.clear()` above does -- nothing before it can be
         // reverted to, so drawing it would be an offer the engine cannot
@@ -10408,6 +10418,7 @@ impl WorldGen {
         self.undo.clear();
         self.redo.clear();
         self.way_undo.clear();
+        self.anno_undo.clear();
         // ED-02: a load is the ledger's other floor, for the same reason.
         self.ledger.record(
             "world",
@@ -15494,6 +15505,11 @@ impl WorldGen {
     /// `generate()` call.
     #[func]
     fn icon_place(&mut self, gx: f64, gy: f64) -> i64 {
+        self.anno_scope(annotation_undo::AnnoStore::Icons, "Place icon".to_string(), None, None, |s| s.icon_place_inner(gx, gy))
+    }
+
+    /// [`Self::icon_place`]'s mutation, wrapped by `anno_scope` so a placement is one undo step.
+    fn icon_place_inner(&mut self, gx: f64, gy: f64) -> i64 {
         let (gw, gh) = (self.gw as usize, self.gh as usize);
         let Some(icons) = self.icons.as_mut() else { return -1 };
         let idx = icons.place(gx, gy, gw, gh).map_or(-1, |i| i as i64);
@@ -15649,6 +15665,13 @@ impl WorldGen {
     /// currently selected, out of range, or before any `generate()` call.
     #[func]
     fn icon_resize(&mut self, index: i64, cx: f64, cy: f64, gx: f64, gy: f64, start_dist: f64) -> bool {
+        let label = annotation_bridge::row_label("Resize", "icon", &self.anno_icon_slot(index).unwrap_or_default());
+        let key = Some(format!("resize:icon:{index}"));
+        self.anno_scope(annotation_undo::AnnoStore::Icons, label, key, None, |s| s.icon_resize_inner(index, cx, cy, gx, gy, start_dist))
+    }
+
+    /// [`Self::icon_resize`]'s mutation, wrapped by `anno_scope`; a drag's samples merge into one step.
+    fn icon_resize_inner(&mut self, index: i64, cx: f64, cy: f64, gx: f64, gy: f64, start_dist: f64) -> bool {
         let Ok(i) = usize::try_from(index) else { return false };
         let Some(icons) = self.icons.as_mut() else { return false };
         icons.resize(i, cx, cy, gx, gy, start_dist)
@@ -15671,6 +15694,19 @@ impl WorldGen {
     /// destination, or before any `generate()` call. For the context card's Move row.
     #[func]
     fn icon_move(&mut self, index: i64, gx: f64, gy: f64) -> bool {
+        let label = annotation_bridge::row_label("Move", "icon", &self.anno_icon_slot(index).unwrap_or_default());
+        // A move re-points the icon's note by its cell (Ruling EQ item 2); undo re-points it back.
+        let repoint = self.icons.as_ref().and_then(|e| usize::try_from(index).ok().and_then(|i| e.icons.get(i))).map(|ic| annotation_undo::Repoint {
+            kind: cartalith_vault::EntityKind::Icon,
+            from: cartalith_vault::links::icon_entity_id(ic.x, ic.y),
+            to: cartalith_vault::links::icon_entity_id(gx, gy),
+        });
+        let key = Some(format!("move:icon:{index}"));
+        self.anno_scope(annotation_undo::AnnoStore::Icons, label, key, repoint, |s| s.icon_move_inner(index, gx, gy))
+    }
+
+    /// [`Self::icon_move`]'s mutation, wrapped by `anno_scope` so a move is one undo step.
+    fn icon_move_inner(&mut self, index: i64, gx: f64, gy: f64) -> bool {
         let Ok(i) = usize::try_from(index) else { return false };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let Some(icons) = self.icons.as_mut() else { return false };
@@ -15694,6 +15730,12 @@ impl WorldGen {
     /// an out-of-range `index` or before any `generate()` call.
     #[func]
     fn icon_delete(&mut self, index: i64) -> bool {
+        let label = annotation_bridge::row_label("Delete", "icon", &self.anno_icon_slot(index).unwrap_or_default());
+        self.anno_scope(annotation_undo::AnnoStore::Icons, label, None, None, |s| s.icon_delete_inner(index))
+    }
+
+    /// [`Self::icon_delete`]'s mutation, wrapped by `anno_scope` so a delete is one undo step.
+    fn icon_delete_inner(&mut self, index: i64) -> bool {
         let Ok(i) = usize::try_from(index) else { return false };
         let Some(icons) = self.icons.as_mut() else { return false };
         icons.delete(i)
@@ -15733,9 +15775,12 @@ impl WorldGen {
     /// before any `generate()` call.
     #[func]
     fn icon_clear_all(&mut self) {
-        if let Some(icons) = self.icons.as_mut() {
-            icons.clear_all();
-        }
+        // One step for the whole clear; nothing is recorded when there was nothing to clear.
+        self.anno_scope(annotation_undo::AnnoStore::Icons, "Clear all icons".to_string(), None, None, |s| {
+            if let Some(icons) = s.icons.as_mut() {
+                icons.clear_all();
+            }
+        })
     }
 }
 
@@ -19134,6 +19179,12 @@ impl WorldGen {
     /// any `generate()` call.
     #[func]
     fn label_create(&mut self, gx: f64, gy: f64, text: GString) -> i64 {
+        let label = annotation_bridge::row_label("Add", "label", &text.to_string());
+        self.anno_scope(annotation_undo::AnnoStore::Labels, label, None, None, |s| s.label_create_inner(gx, gy, text))
+    }
+
+    /// [`Self::label_create`]'s mutation, wrapped by `anno_scope` so the add is one undo step.
+    fn label_create_inner(&mut self, gx: f64, gy: f64, text: GString) -> i64 {
         let Some(labels) = self.labels.as_mut() else { return -1 };
         labels.create(gx, gy, text.to_string()) as i64
     }
@@ -19147,6 +19198,19 @@ impl WorldGen {
     /// or before any `generate()` call.
     #[func]
     fn label_move(&mut self, index: i64, gx: f64, gy: f64) -> bool {
+        let label = annotation_bridge::row_label("Move", "label", &self.anno_label_name(index).unwrap_or_default());
+        // A move re-points the label's note by its cell (Ruling EQ item 2); undo re-points it back.
+        let repoint = self.labels.as_ref().and_then(|l| usize::try_from(index).ok().and_then(|i| l.labels.get(i))).map(|lb| annotation_undo::Repoint {
+            kind: cartalith_vault::EntityKind::Label,
+            from: cartalith_vault::links::label_entity_id(lb.x, lb.y),
+            to: cartalith_vault::links::label_entity_id(gx, gy),
+        });
+        let key = Some(format!("move:label:{index}"));
+        self.anno_scope(annotation_undo::AnnoStore::Labels, label, key, repoint, |s| s.label_move_inner(index, gx, gy))
+    }
+
+    /// [`Self::label_move`]'s mutation, wrapped by `anno_scope` so a move is one undo step.
+    fn label_move_inner(&mut self, index: i64, gx: f64, gy: f64) -> bool {
         let Ok(i) = usize::try_from(index) else { return false };
         let Some(labels) = self.labels.as_mut() else { return false };
         // Ruling EQ item 2: a label's note is filed by its cell, so a move re-points it.
@@ -19247,8 +19311,13 @@ impl WorldGen {
     /// before any `generate()` call.
     #[func]
     fn label_cancel_edit(&mut self) -> bool {
-        let Some(labels) = self.labels.as_mut() else { return false };
-        labels.cancel_edit()
+        // The revert rewrites seven style fields, so it is a step of its own (and redoable).
+        let sel = self.labels.as_ref().and_then(|l| l.selected()).and_then(|i| self.anno_label_name(i as i64)).unwrap_or_default();
+        let label = annotation_bridge::row_label("Revert edits of", "label", &sel);
+        self.anno_scope(annotation_undo::AnnoStore::Labels, label, None, None, |s| {
+            let Some(labels) = s.labels.as_mut() else { return false };
+            labels.cancel_edit()
+        })
     }
 
     /// One label's full state (`DCC_SHELL_SPEC.md` §4.5.5's right dock):
@@ -19325,6 +19394,27 @@ impl WorldGen {
     /// dictionaries.
     #[func]
     fn label_set(&mut self, index: i64, values: VarDictionary) -> VarDictionary {
+        let old = self.anno_label_name(index).unwrap_or_default();
+        // A text change is a Rename and any other key is a style tweak. Neither merges on its
+        // own: the shell brackets a drag, a burst of typing or a slider with a gesture
+        // (`annotation_stream_begin`), and only inside one do same-key samples fold into one step.
+        let new_text = values.get("text").and_then(|v| variant_to_string(&v));
+        let mut keys: Vec<String> = values.keys_array().iter_shared().map(|k| k.to_string()).collect();
+        keys.sort();
+        let (label, key) = match new_text {
+            // Inside a typing burst the row keeps the first sample's words, which cannot name the
+            // final text (that is still being typed), so only a one-shot rename says `to “new”`.
+            Some(t) => {
+                let base = annotation_bridge::row_label("Rename", "label", &old);
+                (if self.anno_undo.is_streaming() { base } else { format!("{base} to “{t}”") }, Some(format!("text:label:{index}")))
+            }
+            None => (annotation_bridge::row_label("Edit", "label", &old), Some(format!("set:label:{index}:{}", keys.join(",")))),
+        };
+        self.anno_scope(annotation_undo::AnnoStore::Labels, label, key, None, |s| s.label_set_inner(index, values))
+    }
+
+    /// [`Self::label_set`]'s mutation, wrapped by `anno_scope` so an edit is one undo step.
+    fn label_set_inner(&mut self, index: i64, values: VarDictionary) -> VarDictionary {
         let empty =
             || dict! { "ok" => false, "rejected" => &PackedStringArray::new(), "clamped" => &PackedStringArray::new() };
         let Ok(i) = usize::try_from(index) else { return empty() };
@@ -19363,6 +19453,12 @@ impl WorldGen {
     /// call.
     #[func]
     fn label_delete(&mut self, index: i64) -> bool {
+        let label = annotation_bridge::row_label("Delete", "label", &self.anno_label_name(index).unwrap_or_default());
+        self.anno_scope(annotation_undo::AnnoStore::Labels, label, None, None, |s| s.label_delete_inner(index))
+    }
+
+    /// [`Self::label_delete`]'s mutation, wrapped by `anno_scope` so a delete is one undo step.
+    fn label_delete_inner(&mut self, index: i64) -> bool {
         let Ok(i) = usize::try_from(index) else { return false };
         let Some(labels) = self.labels.as_mut() else { return false };
         labels.delete(i)
@@ -19392,9 +19488,12 @@ impl WorldGen {
     /// generated labels short of nudging a dial.
     #[func]
     fn label_clear_all(&mut self) {
-        if let Some(labels) = self.labels.as_mut() {
-            labels.clear_all();
-        }
+        // One step for the whole clear; nothing is recorded when there was nothing to clear.
+        self.anno_scope(annotation_undo::AnnoStore::Labels, "Clear all labels".to_string(), None, None, |s| {
+            if let Some(labels) = s.labels.as_mut() {
+                labels.clear_all();
+            }
+        })
     }
 
     /// Box-only hit test against every placed label
@@ -25836,10 +25935,10 @@ impl WorldGen {
     /// Whether `undo_last()` would do anything — the reference's
     /// `undoBtn.disabled = undoStack.length === 0`.
     ///
-    /// **Two reversible kinds since Ruling BA (2026-09-28):** a height
-    /// snapshot, or a way deleted from the context card whose held entry is
-    /// still live (`context_pick_bridge::WayUndo`). `next_undo_step` picks the
-    /// newer of the two.
+    /// **Three reversible kinds:** a height snapshot, a way deleted or drawn
+    /// whose held entry is still live (Ruling BA, `context_pick_bridge::WayUndo`),
+    /// or a label, icon or landmark-name edit whose held entry is still live
+    /// (`annotation_undo::AnnoUndo`). `next_undo_step` picks the newest of the three.
     #[func]
     fn can_undo(&self) -> bool {
         self.next_undo_step().is_some()
@@ -25852,6 +25951,7 @@ impl WorldGen {
         GString::from(&match self.next_undo_step() {
             Some(context_pick_bridge::UndoPick::Height(l)) => l,
             Some(context_pick_bridge::UndoPick::Way { label, .. }) => label,
+            Some(context_pick_bridge::UndoPick::Annotation { label, .. }) => label,
             None => String::new(),
         })
     }
@@ -25891,6 +25991,15 @@ impl WorldGen {
     /// Call `build_color_texture()` again afterwards to see the result —
     /// the same contract [`Self::sculpt_commit`] documents.
     ///
+    /// # A label, icon or landmark-name edit is the fourth thing it can revert
+    ///
+    /// Add, move, rename, resize, delete and clear of a label or an icon, and a
+    /// landmark rename, are one ledger row each (`annotation_undo.rs`); a drag or
+    /// slider gesture bracketed by `annotation_stream_begin()` / `_end()` is one row.
+    /// The newest live row wins whatever its kind. The store is written back whole,
+    /// its engine-side selection is dropped, and `annotation_last_step()` says which
+    /// store changed and whether later indices shifted. Redoable.
+    ///
     /// # A way delete is the other thing it can revert
     ///
     /// When the newest reversible step is a way deleted from the context card
@@ -25909,8 +26018,12 @@ impl WorldGen {
     /// reversible in `undo_ledger()`.
     #[func]
     fn undo_last(&mut self) -> GString {
-        if let Some(context_pick_bridge::UndoPick::Way { .. }) = self.next_undo_step() {
-            return GString::from(&self.undo_way_step().unwrap_or_default());
+        match self.next_undo_step() {
+            Some(context_pick_bridge::UndoPick::Way { .. }) => return GString::from(&self.undo_way_step().unwrap_or_default()),
+            // A label, icon or landmark-name edit (`annotation_undo`): written back whole and
+            // redoable; the height field and the staleness graph are untouched.
+            Some(context_pick_bridge::UndoPick::Annotation { .. }) => return GString::from(&self.undo_anno_step().unwrap_or_default()),
+            _ => {}
         }
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
             return GString::new();
@@ -25935,13 +26048,17 @@ impl WorldGen {
     /// a new operation is committed after an undo: see [`RedoTail`] for the
     /// two mechanisms that enforce that.
     ///
+    /// **Also true for an undone label, icon or landmark-name edit**
+    /// (`annotation_undo`), under the same gates; when both an undone drag and an
+    /// undone annotation edit are ready, the one undone later is offered first.
+    ///
     /// **Also true for an undone way drag** (ET-D4, `EntryKind::WayDrag`), while
     /// `context_pick_bridge::drag_redo_ready` says the world is exactly as that
     /// undo left it. A drag is offered *before* the height tail when both are
     /// pending at the same height depth, because it was undone more recently.
     #[func]
     fn redo_available(&self) -> bool {
-        self.drag_redo_label().is_some() || self.redo.is_current(self.undo.depth())
+        !self.redo_offers().is_empty() || self.redo.is_current(self.undo.depth())
     }
 
     /// The operation `redo_last()` would re-apply, for a "Redo <operation>"
@@ -25949,8 +26066,8 @@ impl WorldGen {
     /// named `Draw <type>` (see [`Self::redo_available`]).
     #[func]
     fn redo_label(&self) -> GString {
-        if let Some(l) = self.drag_redo_label() {
-            return GString::from(&l);
+        if let Some(o) = self.redo_offers().first() {
+            return GString::from(&o.label);
         }
         GString::from(self.redo.label(self.undo.depth()).unwrap_or_default())
     }
@@ -26001,9 +26118,11 @@ impl WorldGen {
         // `redo_last()` would re-apply it; only the **top** of the drag stack is
         // listed (deeper ones become offers one redo at a time), so `len()` can
         // undercount a pile of undone drags but never overstates what a redo does.
-        let drag = self.drag_redo_label();
-        drag.iter()
-            .map(|l| GString::from(l.as_str()))
+        // An undone annotation edit is listed the same way, ordered against the drag by
+        // which was undone later (`annotation_bridge::order_offers`).
+        self.redo_offers()
+            .iter()
+            .map(|o| GString::from(o.label.as_str()))
             .chain(self.redo.labels(self.undo.depth()).into_iter().map(GString::from))
             .collect()
     }
@@ -26031,8 +26150,10 @@ impl WorldGen {
     fn discard_redo_tail(&mut self) -> i64 {
         // An offered undone way drag counts as one discarded step, and the whole
         // drag redo stack goes with it (nothing deeper is listed, none is kept).
-        let drag = usize::from(self.drag_redo_label().is_some());
+        // An offered undone annotation edit counts the same way, and its stack goes too.
+        let drag = self.redo_offers().len();
         self.way_undo.clear_redo();
+        self.anno_undo.clear_redo();
         (discard_tail(&mut self.redo, self.undo.depth()) + drag) as i64
     }
 
@@ -26058,8 +26179,12 @@ impl WorldGen {
         // `context_pick_bridge::drag_redo_ready`, which also gates on the height
         // depth being the one the drag was undone at). It re-inserts the same
         // ways at the same index and records a fresh `WayDrag` row.
-        if self.drag_redo_label().is_some() {
-            return self.redo_drag_step().is_some();
+        // An undone label, icon or landmark-name edit competes with it: whichever was undone
+        // later goes first (`redo_offers`), and both come before the height tail.
+        match self.redo_offers().first().map(|o| o.kind) {
+            Some(annotation_bridge::RedoKind::Drag) => return self.redo_drag_step().is_some(),
+            Some(annotation_bridge::RedoKind::Annotation) => return self.redo_anno_step().is_some(),
+            None => {}
         }
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return false };
         let Some(label) = redo_one_with(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice(), ws.geology.column_mut()) else {
@@ -26075,6 +26200,7 @@ impl WorldGen {
         // This record is a redo, not a new operation: undone way drags stamped
         // at the previous ledger position stay offered behind it.
         self.way_undo.restamp_redo(seq_before, self.ledger.last_seq());
+        self.anno_undo.restamp_redo(seq_before, self.ledger.last_seq());
         let n = self.stages.tile_count();
         self.stages.mark_changed_tiles(PipelineStage::Height.id(), 0..n, "redo");
         true
@@ -26089,7 +26215,9 @@ impl WorldGen {
     /// carries `{seq, subsystem, label, detail, at_ms, kind, reversible,
     /// reason, steps}`:
     ///
-    /// - `kind` is `"height"`, `"recorded"` or `"floor"`.
+    /// - `kind` is `"height"`, `"recorded"`, `"floor"`, `"way"` or `"annotation"` (a
+    ///   label, icon or landmark-name edit, reversible while the store is as the
+    ///   edit left it).
     /// - `reversible` is whether a snapshot is *still held* for it — which is
     ///   a property of the live stack, not of the row, because the stack
     ///   evicts on its own byte budget. A height row that has been evicted
@@ -26106,7 +26234,7 @@ impl WorldGen {
     #[func]
     fn undo_ledger(&self) -> Array<VarDictionary> {
         let depth = self.undo.depth();
-        let way_live = self.way_undo.live_seqs(&|s| self.way_fp(s));
+        let way_live = self.held_live_seqs();
         let way_live = |seq: u64| way_live.contains(&seq);
         self.ledger
             .rows_with(depth, &way_live)
@@ -26124,6 +26252,9 @@ impl WorldGen {
                     // still fits its store.
                     undo::EntryKind::WayDelete | undo::EntryKind::WayDrag if live => ("way", ""),
                     undo::EntryKind::WayDelete | undo::EntryKind::WayDrag => ("way", context_pick_bridge::STALE_REASON),
+                    // A label, icon or landmark-name edit, reversible while the store is as it left it.
+                    undo::EntryKind::Annotation if live => ("annotation", ""),
+                    undo::EntryKind::Annotation => ("annotation", annotation_undo::STALE_REASON),
                 };
                 dict! {
                     "seq" => e.seq as i64,
@@ -26161,21 +26292,34 @@ impl WorldGen {
             return 0;
         }
         let seq = seq as u64;
-        let way_live = self.way_undo.live_seqs(&|s| self.way_fp(s));
+        let way_live = self.held_live_seqs();
         let Some(steps) = self.ledger.steps_to_revert_to_with(seq, self.undo.depth(), &|q| way_live.contains(&q)) else {
             return 0;
         };
         let mut done = 0i64;
+        // How many of those steps were HEIGHT snapshots: only they change the field, so only they
+        // leave the derived stages stale. An annotation-only revert moves no height cell.
+        let mut height_done = 0i64;
         for _ in 0..steps {
             // Whichever reversible kind is newest, one step at a time -- the
             // same choice `undo_last()` makes (Ruling BA's way rows interleave
             // with height rows in commit order).
-            if let Some(context_pick_bridge::UndoPick::Way { .. }) = self.next_undo_step() {
-                if self.undo_way_step().is_none() {
-                    break;
+            match self.next_undo_step() {
+                Some(context_pick_bridge::UndoPick::Way { .. }) => {
+                    if self.undo_way_step().is_none() {
+                        break;
+                    }
+                    done += 1;
+                    continue;
                 }
-                done += 1;
-                continue;
+                Some(context_pick_bridge::UndoPick::Annotation { .. }) => {
+                    if self.undo_anno_step().is_none() {
+                        break;
+                    }
+                    done += 1;
+                    continue;
+                }
+                _ => {}
             }
             let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { break };
             // Through the cursor, so a multi-step rollback is as redoable as
@@ -26187,6 +26331,7 @@ impl WorldGen {
             // `next_undo_step()` compares against the row below it.
             self.ledger.pop_newest_height();
             done += 1;
+            height_done += 1;
         }
         if done > 0 {
             // ...and `truncate_to` also drops the `COMMITTED` mark when the
@@ -26208,8 +26353,10 @@ impl WorldGen {
             // arbitrary earlier field, and the set of tiles that differ
             // across every step it took is not recoverable from the
             // snapshots it popped.
-            let n = self.stages.tile_count();
-            self.stages.mark_changed_tiles(PipelineStage::Height.id(), 0..n, "undo_revert_to");
+            if height_done > 0 {
+                let n = self.stages.tile_count();
+                self.stages.mark_changed_tiles(PipelineStage::Height.id(), 0..n, "undo_revert_to");
+            }
         }
         done
     }
@@ -26271,6 +26418,8 @@ impl WorldGen {
             // Ruling BA: held way deletes that can still be put back. Not in
             // `depth`, which stays the height stack's (the Memory row's).
             "way_depth" => self.way_undo.live_seqs(&|s| self.way_fp(s)).len() as i64,
+            // Held label, icon and landmark-name edits that can still be put back; likewise not in `depth`.
+            "annotation_depth" => self.anno_undo.live_seqs(&|s| self.anno_matches(s)).len() as i64,
             "redo_depth" => self.redo.steps.depth() as i64,
             "redo_bytes" => self.redo.steps.bytes() as i64,
         };
@@ -26316,6 +26465,7 @@ impl WorldGen {
         self.redo.clear();
         // The held way deletes go with the rows that name them, below.
         self.way_undo.clear();
+        self.anno_undo.clear();
         // The ledger's rows go with the snapshots. Leaving them would show a
         // history of operations none of which could be reverted, which is
         // worse than an empty panel: the panel would look like it works.
@@ -27045,6 +27195,16 @@ impl WorldGen {
     /// Saved with the project (`landmark_user_names`, Ruling EL).
     #[func]
     fn landmark_set_user_name(&mut self, key: GString, name: GString) -> bool {
+        let label = if name.to_string().trim().is_empty() {
+            "Clear landmark name".to_string()
+        } else {
+            format!("Rename landmark to “{}”", name.to_string().trim())
+        };
+        self.anno_scope(annotation_undo::AnnoStore::Names, label, None, None, |s| s.landmark_set_user_name_inner(key, name))
+    }
+
+    /// [`Self::landmark_set_user_name`]'s mutation, wrapped by `anno_scope` so a rename is one undo step.
+    fn landmark_set_user_name_inner(&mut self, key: GString, name: GString) -> bool {
         let key = key.to_string();
         let placed = self
             .landmark_store

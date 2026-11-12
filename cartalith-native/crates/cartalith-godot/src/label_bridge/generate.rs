@@ -422,6 +422,12 @@ impl WorldGen {
     /// and this is not one of them.
     #[func]
     fn label_set_class(&mut self, index: i64, key: GString) -> bool {
+        let label = crate::annotation_bridge::row_label("Reclass", "label", &self.anno_label_name(index).unwrap_or_default());
+        self.anno_scope(crate::annotation_undo::AnnoStore::Labels, label, None, None, |s| s.label_set_class_inner(index, key))
+    }
+
+    /// [`Self::label_set_class`]'s mutation, wrapped by `anno_scope` so a reclass is one undo step.
+    fn label_set_class_inner(&mut self, index: i64, key: GString) -> bool {
         let Some(class) = LabelClass::from_key(&key.to_string()) else { return false };
         let Some(bridge) = self.labels.as_mut() else { return false };
         if index < 0 {

@@ -12,6 +12,8 @@ extends RefCounted
 ##   member      history it lives on                   identity the group keeps
 ##   height      engine `HeightUndo` + ledger row      the row's ledger `seq`
 ##   way (drag)  engine way store + ledger row         the row's ledger `seq`
+##   annotation  engine label/icon/name stores + row   the row's ledger `seq` (a label, icon or
+##               landmark-name edit, `annotation_undo.rs`)
 ##   appearance  `look_history.gd` (LookHistory)       the entry's serial `"n"`
 ##   colour paint `colour_paint_tool.gd`'s own stack   the entry's serial `"n"`
 ##   parameter   **none existed** (s.5b.4: `param_set` records nothing), so
@@ -76,7 +78,7 @@ var app = null
 ## are undone (redoable while they still own the redo). Entry shape:
 ##   id: int, label: String, world_changed: bool,
 ##   engine: Array[int]   ledger seqs, oldest first (rewritten after a redo)
-##   engine_kinds: Array[String]  "height" / "way", same order
+##   engine_kinds: Array[String]  "height" / "way" / "annotation", same order
 ##   look: Array[int], paint: Array[int]  serials, oldest first
 ##   params: Array[Dictionary]  {key, old, new}, in write order
 ##   floor: {engine: int, look: int, paint: int}  the tops below the group
@@ -338,7 +340,7 @@ func _result(g: Dictionary, r: Dictionary) -> Dictionary:
 	var kinds: Array = g["engine_kinds"]
 	return {
 		"ok": bool(r["ok"]), "reason": String(r.get("reason", "")), "label": _display_label(g),
-		"height": kinds.count("height"), "way": kinds.count("way"),
+		"height": kinds.count("height"), "way": kinds.count("way"), "annotation": kinds.count("annotation"),
 		"look": (g["look"] as Array).size(), "paint": (g["paint"] as Array).size(),
 		"params": (g["params"] as Array).size(), "world_changed": bool(g["world_changed"]),
 	}
@@ -561,7 +563,7 @@ func _collect() -> Dictionary:
 	for r in rows:
 		var d: Dictionary = r
 		var kind := String(d.get("kind", ""))
-		if not bool(d.get("reversible", false)) or not (kind == "height" or kind == "way"):
+		if not bool(d.get("reversible", false)) or not (kind == "height" or kind == "way" or kind == "annotation"):
 			error = "\"%s\" cannot be undone (%s)" % [String(d.get("label", "")), String(d.get("reason", "")) if String(d.get("reason", "")) != "" else kind]
 			continue
 		engine.append(int(d["seq"]))

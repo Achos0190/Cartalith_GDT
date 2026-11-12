@@ -898,6 +898,14 @@ func _apply_selection() -> void:
 	if right_dock_ctrl != null:
 		right_dock_ctrl.on_selection(selection.duplicate())
 
+## Drops every Alt+Left / Alt+Right entry whose kind is `kind` (`"label"` or `"icon"`): their ids are indices into a
+## store whose later rows just shifted, so stepping back to one would select a neighbour (`MISTAKES.md`, "no value as a
+## plausible value"). Other kinds keep their entries; a `{}` (a Deselect step) stays.
+func _forget_selection_kind(kind: String) -> void:
+	var keep := func(e: Dictionary) -> bool: return String(e.get("kind", "")) != kind
+	_selection_back = _selection_back.filter(keep)
+	_selection_forward = _selection_forward.filter(keep)
+
 ## PC-1. Edit ▸ Previous selection (Alt+←): makes the selection before this one current again, like a
 ## browser's Back, through `select(…, {"history": false})`. Returns false, and changes nothing, when
 ## there is no earlier selection; the menu then says so in the status line. Never reached from a key
@@ -3197,11 +3205,20 @@ func _wire_selection() -> void:
 	## PC-1: a new world renumbers settlements, so the selection and its history go with the old one.
 	bridge.generation_finished.connect(func(_ok: bool): _reset_selection())
 	bridge.world_loaded.connect(_reset_selection)
-	## Edit-from-context: deleting a label or icon renumbers the ones after it, so a selection of that kind would
-	## now name a neighbour. It is dropped (`select("", -1)`: a history step, so Alt+Left still returns to it).
+	## Edit-from-context: deleting a label or icon (or undoing or redoing an add or delete of one) renumbers the ones
+	## after it, so a selection of that kind would now name a neighbour, and so would every Alt+Left / Alt+Right entry
+	## of that kind. The history entries are dropped (`_forget_selection_kind`), then the selection is cleared WITHOUT
+	## a history step: recording it would push the stale index straight back into the history just purged.
 	bridge.annotations_removed.connect(func(kind: String) -> void:
+		_forget_selection_kind(kind)
 		if String(selection.get("kind", "")) == kind:
-			select("", -1))
+			select("", -1, {"history": false}))
+	## Edit-from-context undo: a label, icon or landmark-name step was undone or redone, so every surface that draws
+	## or lists them re-reads the store, and a shown Inspect page (a landmark's name too) is redrawn.
+	bridge.annotations_restored.connect(func(_store: String, _shifted: bool) -> void:
+		GlobalTools._annotations_changed(self)
+		if right_dock_ctrl != null:
+			right_dock_ctrl.refresh_shown())
 	## PC-10: a generated world is a new world, and a bookmark names a subject by its index in the old
 	## one, so the bookmarks go with it (an open restores the project's own, `_restore_project_documents()`).
 	bridge.generation_finished.connect(func(ok: bool):
@@ -6942,6 +6959,16 @@ func _undo_last_impl() -> void:
 	if label == "":
 		set_status("hint", "Nothing to undo.", "text_ghost")
 		return
+	## Edit-from-context undo: a label, icon or landmark-name edit. The bridge already published
+	## `annotations_restored` (every surface redrew), so nothing is repainted here but the History panel.
+	if kind == "annotation":
+		var ast: Dictionary = bridge.undo_stats()
+		var aleft := int(ast.get("depth", 0)) + int(ast.get("way_depth", 0)) + int(ast.get("annotation_depth", 0))
+		set_status("pass", "undid %s" % label.to_lower(), "text_dim")
+		set_status("hint", "%d undo step%s left · it is back as it was" % [aleft, "" if aleft == 1 else "s"], "text_ghost")
+		if right_dock_ctrl != null:
+			right_dock_ctrl.refresh_history()
+		return
 	if kind == "civ":
 		notify_ways_changed()
 		var st: Dictionary = bridge.undo_stats()
@@ -6987,6 +7014,8 @@ func _group_step(undo_side: bool) -> void:
 		viewport.set_preview_texture(null)
 	if int(r.get("way", 0)) > 0:
 		notify_ways_changed()
+	## A label, icon or landmark-name member needs no repaint here: the bridge published `annotations_restored` as
+	## the engine took the step, and every surface that draws them redrew then.
 	if right_dock_ctrl != null:
 		right_dock_ctrl.refresh_history()
 	set_status("pass", "%s %s" % ["undid" if undo_side else "redid", String(r.get("label", "")).to_lower()], "text_dim")
@@ -7082,6 +7111,13 @@ func _redo_last_impl() -> void:
 	var label := bridge.redo_label()
 	if not bridge.redo_last():
 		set_status("hint", "Nothing to redo.", "text_ghost")
+		return
+	## A redone label, icon or landmark-name edit is now the newest undo step; the bridge already
+	## published `annotations_restored`, and no height texture changed.
+	if bridge.undo_next_subsystem() == "annotation":
+		set_status("pass", "redid %s" % label.to_lower(), "text_dim")
+		if right_dock_ctrl != null:
+			right_dock_ctrl.refresh_history()
 		return
 	if viewport != null:
 		viewport.map_view.texture = bridge.color_texture()

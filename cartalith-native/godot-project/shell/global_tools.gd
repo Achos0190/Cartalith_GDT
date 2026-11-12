@@ -337,7 +337,7 @@ static func _landmark_rows(app, li: int) -> Array:
 	return rows
 
 ## Label rows. Rename (the text, through `label_set`) and Move in every domain; Delete in WORLD and CIVIL (CARTO's
-## provider carries it), confirmed first: the engine's label store has no undo history.
+## provider carries it). Each is one undo step (`annotation_undo.rs`), so Delete no longer confirms.
 static func _label_rows(app, domain: String, idx: int, text: String) -> Array:
 	var rows: Array = []
 	var t := text if text != "" else "(untitled)"
@@ -355,15 +355,15 @@ static func _label_rows(app, domain: String, idx: int, text: String) -> Array:
 	if domain != "cartography":
 		rows.append({"id": "el.label_delete", "label": "Delete label “%s”" % t, "section": "object",
 			"enabled": true, "danger": true, "tap": "Delete", "callable": func() -> void:
-				DccWidgets.confirm(app, "Delete label?", "Delete “%s”? Labels have no undo history." % t, "Delete",
-					func() -> void:
-						if app.bridge.label_delete(idx):
-							_annotations_changed(app))})
+				## One undo step now (Edit > Undo puts it back where it was), so there is no confirm, as for a way.
+				if app.bridge.label_delete(idx):
+					_annotations_changed(app)
+					app.set_status("hint", "Label deleted · Edit > Undo puts it back", "text_ghost")})
 	rows.append_array(_item_note_rows(app, "label", idx, t))
 	return rows
 
-## Icon rows: Move in every domain (`icon_move`), Delete in WORLD and CIVIL (CARTO's provider carries it),
-## confirmed for the reason a label's is.
+## Icon rows: Move in every domain (`icon_move`), Delete in WORLD and CIVIL (CARTO's provider carries it); a
+## delete is one undo step and so is not confirmed, for the reason a label's is not.
 static func _icon_rows(app, domain: String, idx: int, name: String) -> Array:
 	var rows: Array = []
 	rows.append({"id": "el.icon_move", "label": "Move icon “%s”" % name, "section": "object", "enabled": true,
@@ -371,10 +371,9 @@ static func _icon_rows(app, domain: String, idx: int, name: String) -> Array:
 	if domain != "cartography":
 		rows.append({"id": "el.icon_delete", "label": "Delete icon “%s”" % name, "section": "object",
 			"enabled": true, "danger": true, "tap": "Delete", "callable": func() -> void:
-				DccWidgets.confirm(app, "Delete icon?", "Delete “%s”? Icons have no undo history." % name, "Delete",
-					func() -> void:
-						if app.bridge.icon_delete(idx):
-							_annotations_changed(app))})
+				if app.bridge.icon_delete(idx):
+					_annotations_changed(app)
+					app.set_status("hint", "Icon deleted · Edit > Undo puts it back", "text_ghost")})
 	rows.append_array(_item_note_rows(app, "icon", idx, name))
 	return rows
 
@@ -467,9 +466,11 @@ static func ring_cardinals(app, req: Dictionary) -> Dictionary:
 	## Undo (S). `undo_stats()`'s own `label` is a peek at what the NEXT
 	## `undo_last()` would undo, not a side effect -- see that function's own
 	## doc comment in `engine_bridge.gd` ("depth, max_steps, ... label").
-	var stats: Dictionary = app.bridge.undo_stats() if app.bridge != null else {}
-	var depth := int(stats.get("depth", 0))
-	var undo_label := String(stats.get("label", ""))
+	## `can_undo_any()` and `undo_target_label()`, not the height stack's depth: a label, icon or landmark-name
+	## edit is an undo step with no height snapshot behind it, and the ring's Undo must offer it.
+	var can_undo: bool = app.can_undo_any() if app.bridge != null else false
+	var undo_label: String = app.undo_target_label() if app.bridge != null else ""
+	var depth := 1 if can_undo else 0
 	var undo_row := {"glyph": "sym:undo", "shortcut": "Ctrl+Z", "armed": false}
 	if depth <= 0:
 		undo_row["label"] = "Undo"

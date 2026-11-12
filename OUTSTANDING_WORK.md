@@ -3523,7 +3523,7 @@ owner questions the same day.
 
 ### 2.12 Map context — the right-click context card and the tool ring (wheel menu)
 
-**Steps 2 and 3 built 2026-11-11 and 2026-11-12 (status: `STATUS.md`, "Edit any map element from its context"); still open: settlement Move and way Rename (no engine path), region/conflict/journey-marker/colour-mark picks and route chips (designs), undo for label, icon and name edits (what it takes is in `EDIT_FROM_CONTEXT_AUDIT.md`, "Build notes, step 3"), a real-device pass of the phone chips.** **Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
+**Steps 2 and 3 built 2026-11-11 and 2026-11-12 (status: `STATUS.md`, "Edit any map element from its context"); still open: settlement Move and way Rename (no engine path), region/conflict/journey-marker/colour-mark picks and route chips (designs), a real-device pass of the phone chips. Undo for label, icon and landmark-name edits is built (status: `STATUS.md`, "Undo for label, icon and name edits"; design: `EDIT_FROM_CONTEXT_AUDIT.md`).** **Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
 click every element or label to edit it (move/delete/change the text/directly modify the vault information/etc) it
 should be intuitive to use and this felt missing the last time on pc. (also I suppose it should be a tap on touch
 devices)"*.

@@ -774,6 +774,10 @@ var _undo_chip_down := false
 ## True once the hold timer opened history for the current press, so release does not
 ## also undo.
 var _undo_chip_hold_fired := false
+## Counts chip presses. Each press's hold timer carries its own number and fires only if it is still the latest, so the
+## timer of an EARLIER tap cannot mistake a second tap, started within `PHONE_UNDO_HOLD_SEC` of it, for a hold (it
+## did: two quick taps undid once and opened the popover on the second, found by `_announdo_probe.gd`).
+var _undo_chip_press_no := 0
 const PHONE_UNDO_HOLD_SEC := 0.45  ## Standard mobile long-press threshold
 	## (Android's own `ViewConfiguration.getLongPressTimeout()` default).
 
@@ -2600,7 +2604,7 @@ func _wire_menu_squares() -> void:
 		## section 15.1); S4.3 records each link so the unmount drops them with the bar they serve.
 		if not _menu_squares_wired:
 			_menu_squares_wired = true
-			for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
+			for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed", "annotations_edited"]:
 				var cb := func(_a = null): _refresh_menu_squares()
 				bridge.connect(sig, cb)
 				_menu_squares_links.append([bridge, sig, cb])
@@ -10633,7 +10637,8 @@ func _wire_phone_undo_chip() -> void:
 		## S4.3: no chip, no wiring (a swap left the phone before this deferred call ran).
 		if bridge == null or _phone_undo_chip == null:
 			return
-		## The four signals a commit to the height field can arrive through.
+		## The signals a commit to the height field can arrive through, plus `annotations_edited` (a label, icon or
+		## landmark-name edit is an undo step with no height snapshot, and emits nothing else that reaches here).
 		## NOT `generation_started`/`params_changed` -- a dial moving or a
 		## generate merely beginning commits nothing, so `can_undo()` cannot
 		## have changed yet; NOT `project_saved` -- writing a `.zip` reads the
@@ -10641,7 +10646,7 @@ func _wire_phone_undo_chip() -> void:
 		## MS-1 S4.2: connected once (`_phone_undo_wired`); the lambdas read the chip at call time.
 		if not _phone_undo_wired:
 			_phone_undo_wired = true
-			for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
+			for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed", "annotations_edited"]:
 				var cb := func(_a = null): _refresh_phone_undo_chip()
 				bridge.connect(sig, cb)
 				_phone_undo_links.append([bridge, sig, cb])
@@ -10674,8 +10679,9 @@ func _refresh_phone_undo_chip() -> void:
 func _on_phone_undo_chip_down() -> void:
 	_undo_chip_down = true
 	_undo_chip_hold_fired = false
+	_undo_chip_press_no += 1
 	get_tree().create_timer(PHONE_UNDO_HOLD_SEC).timeout.connect(
-		_check_phone_undo_chip_hold)
+		_check_phone_undo_chip_hold.bind(_undo_chip_press_no))
 
 ## Fires once, `PHONE_UNDO_HOLD_SEC` after a press starts. If the finger is
 ## still down, this IS the hold -- §6.2's "a 520 ms hold opens a popover".
@@ -10688,8 +10694,8 @@ func _on_phone_undo_chip_down() -> void:
 ## drawn as a multi-step history (`right_dock.gd::_build_history`) since ED-02.
 ## So no new binding was needed and none is added; this is the same path, in the
 ## phone's shape.
-func _check_phone_undo_chip_hold() -> void:
-	if not _undo_chip_down:
+func _check_phone_undo_chip_hold(press_no: int) -> void:
+	if not _undo_chip_down or press_no != _undo_chip_press_no:
 		return  ## Already released -- a tap, not a hold; `_on_phone_undo_chip_up()` handled it.
 	_undo_chip_hold_fired = true
 	_haptic("detent")
@@ -10828,7 +10834,7 @@ func _phone_undo_row(index: int, entry: Variant) -> Control:
 	row.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 	row.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
 	if reversible:
-		row.tooltip_text = ("%s · %s. Reverts the height field to the state before this "
+		row.tooltip_text = ("%s · %s. Reverts to the state before this "
 			+ "operation, discarding the %d step%s after it as well -- history here is "
 			+ "linear, so there is no branch to come back to.") % [
 				String(d.get("subsystem", "")), String(d.get("detail", "")),
@@ -10837,7 +10843,7 @@ func _phone_undo_row(index: int, entry: Variant) -> Control:
 	else:
 		row.disabled = true
 		var why := String(d.get("reason", ""))
-		row.tooltip_text = ("%s · %s. No height snapshot is still held for this step%s" % [
+		row.tooltip_text = ("%s · %s. Nothing is still held to revert this step%s" % [
 			String(d.get("subsystem", "")), String(d.get("detail", "")),
 			(" -- %s." % why) if why != "" else "."])
 	return row

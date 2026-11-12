@@ -734,7 +734,7 @@ func _history_sig() -> String:
 	if bridge == null or bridge.generating:
 		return "generating"
 	var st: Dictionary = bridge.undo_stats()
-	return "%s|%s|%d|%d" % [str(st.get("depth", "")), str(st.get("way_depth", "")),
+	return "%s|%s|%s|%d|%d" % [str(st.get("depth", "")), str(st.get("way_depth", "")), str(st.get("annotation_depth", "")),
 		int(app.look_history.cursor), int(app.undo_groups.cursor)]
 
 ## Whether any other history could take an undo now (the fallback half of `stops_wants_undo()`).

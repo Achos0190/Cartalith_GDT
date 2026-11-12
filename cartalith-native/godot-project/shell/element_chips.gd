@@ -6,7 +6,7 @@ extends PanelContainer
 ## **The chips are the card's own rows, never a second set** (Ruling EO item 3): `DccApp._on_element_tapped` asks the
 ## broker for the rows of the tapped point (`ContextBroker.collect`, the same merge a long press presents) and hands
 ## every row that carries a `tap` key to `show_for`. Pressing a chip runs that row's own `callable`, so each action is
-## the existing path with the existing confirm (Delete asks first: labels, icons and places have no undo history).
+## the existing path with the existing confirm (a label or icon Delete is one undo step and asks nothing; a place Delete keeps the Place editor's own confirm).
 ##
 ## A strip of 44 dp targets at the top centre of the map: the bottom holds the phone's sheet and the map's control
 ## row. It never blocks the map -- a tap anywhere else hides it (`hide_chips`), as does a selection change, a domain

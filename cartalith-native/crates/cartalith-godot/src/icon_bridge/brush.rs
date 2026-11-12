@@ -102,6 +102,12 @@ impl WorldGen {
     /// nothing armed (`icon_armed`), or no asset pack (`has_asset_pack`).
     #[func]
     fn icon_brush_stamp(&mut self, gx: f64, gy: f64) -> i64 {
+        // A stroke's stamps merge into one step inside a gesture; a stamp that adds nothing records nothing.
+        self.anno_scope(crate::annotation_undo::AnnoStore::Icons, "Paint icons".to_string(), Some("brush".to_string()), None, |s| s.icon_brush_stamp_inner(gx, gy))
+    }
+
+    /// [`Self::icon_brush_stamp`]'s mutation, wrapped by `anno_scope`.
+    fn icon_brush_stamp_inner(&mut self, gx: f64, gy: f64) -> i64 {
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         if gw == 0 || gh == 0 {
             return 0;

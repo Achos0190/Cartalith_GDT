@@ -1485,8 +1485,10 @@ func _build_undo_redo(p: PopupMenu) -> void:
 		var lh_sig = _host.get("look_history")
 		if lh_sig != null:
 			lh_sig.changed.connect(refresh_undo_rows)
+		## `annotations_edited`: a label, icon or landmark-name edit is an undo step with no height snapshot behind it,
+		## so without this the Undo row stayed disabled after one and swallowed Ctrl+Z (found by `_announdo_probe.gd`).
 		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed",
-				"landmark_finished", "landmark_refine_finished"]:
+				"landmark_finished", "landmark_refine_finished", "annotations_edited"]:
 			_bridge.connect(sig, func(_a = null): refresh_undo_rows())
 	refresh_undo_rows()
 
@@ -2148,16 +2150,21 @@ func _offset_into_grid(d: Dictionary, g: Vector2i) -> Vector2:
 ## to be deleted. `IconEditor` and `LabelBridge` both hold a `Vec` whose
 ## `remove()` shifts everything after the hole down by one; ascending deletion
 ## would skip every second entity.  Returns how many actually went.
-func _delete_descending(sel: PackedInt64Array, del: Callable) -> int:
+func _delete_descending(sel: PackedInt64Array, del: Callable, step_name: String = "") -> int:
 	var idx: Array[int] = []
 	for i in sel:
 		idx.append(int(i))
 	idx.sort()
 	idx.reverse()
 	var n := 0
+	## One undo step for the whole batch when named (a cut of three labels is one Ctrl+Z), not one per label.
+	if step_name != "" and _bridge != null:
+		_bridge.annotation_compound_begin(step_name)
 	for i in idx:
 		if bool(del.call(i)):
 			n += 1
+	if step_name != "" and _bridge != null:
+		_bridge.annotation_compound_end()
 	return n
 
 ## The map and the on-canvas handles after entities appeared, vanished or
@@ -2201,9 +2208,9 @@ func _cut_selection() -> void:
 	## Both selections are read again here rather than derived from `buf`:
 	## `buf` holds entity *records*, and what has to be deleted is *indices*.
 	_delete_descending(_bridge.label_get_selection(),
-		func(i: int) -> bool: return _bridge.label_delete(i))
+		func(i: int) -> bool: return _bridge.label_delete(i), "Cut labels")
 	_delete_descending(_bridge.icon_get_selection(),
-		func(i: int) -> bool: return _bridge.icon_delete(i))
+		func(i: int) -> bool: return _bridge.icon_delete(i), "Cut icons")
 	_repaint_after_entity_change()
 	_host.set_status("pass", "cut %s" % _clip_summary(buf), "text_dim")
 
@@ -2227,6 +2234,8 @@ func _paste_clipboard() -> void:
 	var refused_unaddressable := 0
 
 	if _clipboard.has("labels"):
+		## One undo step for every pasted label (each is a create and a style set), and one for the icons below.
+		_bridge.annotation_compound_begin("Paste labels")
 		for d in _clipboard["labels"]:
 			var pos := _offset_into_grid(d, g)
 			var made: int = _bridge.label_create(pos.x, pos.y,
@@ -2240,8 +2249,10 @@ func _paste_clipboard() -> void:
 			if not fields.is_empty():
 				_bridge.label_set(made, fields)
 			made_labels.append(made)
+		_bridge.annotation_compound_end()
 
 	if _clipboard.has("icons"):
+		_bridge.annotation_compound_begin("Paste icons")
 		var armed_before: Dictionary = _bridge.icon_armed()
 		for d in _clipboard["icons"]:
 			var fam := String(d["family"]) if d.has("family") else ""
@@ -2262,6 +2273,7 @@ func _paste_clipboard() -> void:
 			if made >= 0:
 				made_icons.append(made)
 		_restore_armed(armed_before)
+		_bridge.annotation_compound_end()
 
 	## The paste owns the selection afterwards -- the platform convention, and
 	## what makes Ctrl+C Ctrl+V Ctrl+V walk down the map instead of piling two

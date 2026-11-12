@@ -38,6 +38,17 @@ signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
 ## `label_clear_all` / `icon_clear_all`; `DccApp` drops a selection of that kind (its id would now name a neighbour).
 ## Not emitted for a move, a rename or a create, which keep every index.
 signal annotations_removed(kind: String)
+## Edit-from-context undo: a label, icon or landmark-name edit was UNDONE or REDONE (by Edit > Undo, Ctrl+Z, the phone's
+## chip, the History panel or a grouped undo). `store` is `"label"`, `"icon"` or `"name"`; `shifted` is whether the
+## store's row count changed, so every later index moved. For `"label"` / `"icon"` with `shifted`, `annotations_removed`
+## is emitted first (a selection or history entry naming an index is stale); this signal then tells the shell to redraw.
+## Emitted after the engine call, from `undo_last` / `redo_last` / `undo_revert_to` themselves.
+signal annotations_restored(store: String, shifted: bool)
+## A label, icon or landmark name was edited, or such an edit was undone or redone: what `can_undo()` and `redo_available()`
+## answer may have changed. For the surfaces that show undo state without being told by the caller of `undo_last` (the
+## desktop's Undo and Redo squares, the phone's Undo chip). Emitted DEFERRED and at most once per frame: a drag calls a
+## setter per sample and nothing needs the answer between them.
+signal annotations_edited()
 ## The sculpt draft stack changed shape (a stamp added, removed, reordered,
 ## undone, redone, committed or discarded). Added 2026-09-01 for
 ## `world_workspace.gd`'s WORLD - Terrain - Draft section, which reads
@@ -3744,7 +3755,68 @@ func undo_last() -> String:
 	if generating or not _has("undo_last"):
 		return ""
 	mark_world_dirty()
-	return String(world_gen.undo_last())
+	var label := String(world_gen.undo_last())
+	_publish_annotation_step()
+	return label
+
+## True while an `annotations_edited` emission is already queued for the end of the frame.
+var _anno_edit_pending := false
+
+## Queues one `annotations_edited` for the end of the frame (see the signal). Called AFTER the engine call by every
+## wrapper that edits the label, icon or landmark-name store.
+func _annotations_edited() -> void:
+	if _anno_edit_pending:
+		return
+	_anno_edit_pending = true
+	(func() -> void:
+		_anno_edit_pending = false
+		annotations_edited.emit()).call_deferred()
+
+## The highest annotation step number (`annotation_last_step()["n"]`) already published by
+## `_publish_annotation_step()`; `0` is "none yet" (the engine's counter starts at 1).
+var _anno_step_seen := 0
+
+## After an undo, a redo or a History revert: when the engine says a label, icon or landmark-name step was just
+## undone or redone (its running count `n` moved), emit `annotations_removed` for a store whose rows shifted and then
+## `annotations_restored`. One place, so no caller of `undo_last` / `redo_last` / `undo_revert_to` has to know which
+## kind of step it took. A height or way step leaves `n` where it was and this does nothing.
+func _publish_annotation_step() -> void:
+	if not _has("annotation_last_step"):
+		return
+	var st: Dictionary = world_gen.annotation_last_step()
+	if st.is_empty() or int(st.get("n", 0)) == _anno_step_seen:
+		return
+	_anno_step_seen = int(st["n"])
+	var store := String(st.get("store", ""))
+	var shifted := bool(st.get("shifted", false))
+	if shifted and (store == "label" or store == "icon"):
+		annotations_removed.emit(store)
+	annotations_restored.emit(store, shifted)
+	_annotations_edited()
+
+## Opens a label / icon gesture (a drag, a resize, a slider, a brush stroke): until `annotation_stream_end()` the
+## per-sample setters (`label_move`, a label's size, angle or arc, `icon_resize`, `icon_brush_stamp`) merge into ONE
+## undo step. Call on the press; the first sample after it is always a new step. A no-op against a cdylib without it.
+func annotation_stream_begin() -> void:
+	if not generating and _has("annotation_stream_begin"):
+		world_gen.annotation_stream_begin()
+
+## Closes the gesture `annotation_stream_begin()` opened (release). Harmless when none is open.
+func annotation_stream_end() -> void:
+	if not generating and _has("annotation_stream_end"):
+		world_gen.annotation_stream_end()
+
+## Opens a COMPOUND named `label`: until `annotation_compound_end()` every edit of one store (a new label is a
+## create, a reclass and a style set; a paste is a create and a set per label; a cut is a delete per label) folds into
+## ONE undo step carrying this name. Nothing is recorded when no edit follows. A no-op against a cdylib without it.
+func annotation_compound_begin(label: String) -> void:
+	if not generating and _has("annotation_compound_begin"):
+		world_gen.annotation_compound_begin(label)
+
+## Closes the compound `annotation_compound_begin()` opened. Harmless when none is open.
+func annotation_compound_end() -> void:
+	if not generating and _has("annotation_compound_end"):
+		world_gen.annotation_compound_end()
 
 ## Global redo. Separate `#[func]`s from `sculpt_redo` for exactly the reason
 ## the block header above gives: the sculpt pair cursors an uncommitted draft,
@@ -3789,7 +3861,9 @@ func redo_last() -> bool:
 	if generating or not _has("redo_last"):
 		return false
 	mark_world_dirty()
-	return world_gen.redo_last()
+	var ok: bool = world_gen.redo_last()
+	_publish_annotation_step()
+	return ok
 
 ## **Every** undone step still on the redo tail, in the order `redo_last()`
 ## would re-apply them: element 0 is `redo_label()`, element 1 is what a second
@@ -3882,7 +3956,7 @@ func redo_offer_ids() -> PackedInt64Array:
 	return world_gen.redo_offer_ids()
 
 ## LLM-5: FNV-1a digests of the engine state an undo group can change
-## (`WorldGen.edit_state_digest`: field, column, ways, params, colour paint).
+## (`WorldGen.edit_state_digest`: field, column, ways, params, colour paint, labels, icons, landmark names).
 ## `{}` while `generating`, before a world, or on a binary without it.
 ## Diagnostic: probes compare it; nothing decides from it at run time.
 func edit_state_digest() -> Dictionary:
@@ -4358,7 +4432,9 @@ func icon_place(gx: float, gy: float) -> int:
 	if not _has("icon_place"):
 		return -1
 	mark_world_dirty()
-	return world_gen.icon_place(gx, gy)
+	var r: int = world_gen.icon_place(gx, gy)
+	_annotations_edited()
+	return r
 
 ## The density brush's three controls -- `icon_bridge/brush.rs`.
 ## `UNIFIED_TOOL_PLAN.md` milestone E's last open half: `_carIconBrushStamp`
@@ -4395,7 +4471,9 @@ func icon_brush_stamp(gx: float, gy: float) -> int:
 	if not _has("icon_brush_stamp"):
 		return 0
 	mark_world_dirty()
-	return world_gen.icon_brush_stamp(gx, gy)
+	var r: int = world_gen.icon_brush_stamp(gx, gy)
+	_annotations_edited()
+	return r
 
 ## Clear the placed-icon selection -- `Edit > Deselect`. The icon half of
 ## `label_select(-1)`, which icons had no counterpart for; that asymmetry is
@@ -4500,7 +4578,9 @@ func icon_resize(index: int, cx: float, cy: float, gx: float, gy: float, start_d
 	if not _has("icon_resize"):
 		return false
 	mark_world_dirty()
-	return world_gen.icon_resize(index, cx, cy, gx, gy, start_dist)
+	var r: bool = world_gen.icon_resize(index, cx, cy, gx, gy, start_dist)
+	_annotations_edited()
+	return r
 
 ## One placed icon's properties (`WorldGen.icon_get`: x, y, family, slot, scale,
 ## origin...). `{}` for a bad index or no API.
@@ -4519,6 +4599,7 @@ func icon_delete(index: int) -> bool:
 		return false
 	mark_world_dirty()
 	var ok: bool = world_gen.icon_delete(index)
+	_annotations_edited()
 	if ok:
 		annotations_removed.emit("icon")
 	return ok
@@ -4540,6 +4621,7 @@ func icon_clear_all() -> void:
 		return
 	mark_world_dirty()
 	world_gen.icon_clear_all()
+	_annotations_edited()
 	annotations_removed.emit("icon")
 
 
@@ -4573,7 +4655,9 @@ func icon_generate(options: Dictionary) -> Dictionary:
 	if not _has("icon_generate"):
 		return {"ok": false, "reason": "This build has no generated placement pass."}
 	mark_world_dirty()
-	return world_gen.icon_generate(options)
+	var r: Dictionary = world_gen.icon_generate(options)
+	_annotations_edited()
+	return r
 
 
 # civ_bridge.rs
@@ -6014,7 +6098,8 @@ func mask_rgba_image(mask: PackedByteArray, w: int, h: int, color: Color) -> Ima
 		return null
 	return world_gen.mask_rgba_image(mask, w, h, color)
 
-## What `undo_last()` would revert next: "height", "civ" (a way delete) or "". "" while
+## What `undo_last()` would revert next: "height", "civ" (a way delete or drag), "annotation" (a label, icon or
+## landmark-name edit) or "". "" while
 ## `generating` (nothing can be reverted then, and the worker holds the engine: G6's guard,
 ## the same as `can_undo`).
 func undo_next_subsystem() -> String:
@@ -6531,7 +6616,9 @@ func label_set_class(index: int, key: String) -> bool:
 	if not _has("label_set_class"):
 		return false
 	mark_world_dirty()
-	return world_gen.label_set_class(index, key)
+	var r: bool = world_gen.label_set_class(index, key)
+	_annotations_edited()
+	return r
 
 
 # label_bridge.rs
@@ -6543,7 +6630,9 @@ func label_create(gx: float, gy: float, text: String) -> int:
 	if not _has("label_create"):
 		return -1
 	mark_world_dirty()
-	return world_gen.label_create(gx, gy, text)
+	var r: int = world_gen.label_create(gx, gy, text)
+	_annotations_edited()
+	return r
 
 ## Sets label `index`'s position directly, unclamped (`WorldGen.label_move`), once per
 ## drag sample. `false` for a bad index. Marks the world dirty first.
@@ -6555,7 +6644,9 @@ func label_move(index: int, gx: float, gy: float) -> bool:
 	if not _has("label_move"):
 		return false
 	mark_world_dirty()
-	return world_gen.label_move(index, gx, gy)
+	var r: bool = world_gen.label_move(index, gx, gy)
+	_annotations_edited()
+	return r
 
 ## Selects label `index` and snapshots its style fields (`WorldGen.label_select`).
 ## `false` for a bad index.
@@ -6591,7 +6682,9 @@ func label_confirm_edit() -> void:
 func label_cancel_edit() -> bool:
 	if not _has("label_cancel_edit"):
 		return false
-	return world_gen.label_cancel_edit()
+	var r: bool = world_gen.label_cancel_edit()
+	_annotations_edited()
+	return r
 
 ## One label's full state (`WorldGen.label_get`: x, y, text, angle, arc, size, ...).
 ## `{}` for a bad index or no API.
@@ -6623,7 +6716,9 @@ func label_set(index: int, values: Dictionary) -> Dictionary:
 	if not _has("label_set"):
 		return {}
 	mark_world_dirty()
-	return world_gen.label_set(index, values)
+	var r: Dictionary = world_gen.label_set(index, values)
+	_annotations_edited()
+	return r
 
 ## Moves placed icon `index` to grid `(gx, gy)` (`WorldGen.icon_move`): the context card's Move row. `false` for a bad
 ## index or an off-grid destination (nothing changes). Marks the world dirty first.
@@ -6632,7 +6727,9 @@ func icon_move(index: int, gx: float, gy: float) -> bool:
 	if generating or not _has("icon_move"):
 		return false
 	mark_world_dirty()
-	return world_gen.icon_move(index, gx, gy)
+	var r: bool = world_gen.icon_move(index, gx, gy)
+	_annotations_edited()
+	return r
 
 ## Removes label `index` (`WorldGen.label_delete`). `false` for a bad index. Marks the
 ## world dirty first.
@@ -6645,6 +6742,7 @@ func label_delete(index: int) -> bool:
 		return false
 	mark_world_dirty()
 	var ok: bool = world_gen.label_delete(index)
+	_annotations_edited()
 	if ok:
 		annotations_removed.emit("label")
 	return ok
@@ -6656,6 +6754,7 @@ func label_clear_all() -> void:
 		return
 	mark_world_dirty()
 	world_gen.label_clear_all()
+	_annotations_edited()
 	annotations_removed.emit("label")
 
 ## `px_per_cell` sizes the hit box off `map_overlay.gd`'s own font model
@@ -8464,7 +8563,9 @@ func undo_ledger() -> Array:
 func undo_revert_to(seq: int) -> int:
 	if generating or not _has("undo_revert_to"):
 		return 0
-	return world_gen.undo_revert_to(seq)
+	var done: int = world_gen.undo_revert_to(seq)
+	_publish_annotation_step()
+	return done
 
 
 ## Refreshes the backlink index, the only operation that scans the vault
@@ -9514,7 +9615,11 @@ func landmark_names() -> Array:
 func landmark_set_user_name(key: String, name: String) -> bool:
 	if generating or not _has("landmark_set_user_name"):
 		return false
-	return world_gen.landmark_set_user_name(key, name)
+	## A landmark name is saved with the project (Ruling EL), so renaming one is an unsaved change.
+	mark_world_dirty()
+	var r: bool = world_gen.landmark_set_user_name(key, name)
+	_annotations_edited()
+	return r
 
 ## The vault `entity_id` of the landmark `key` (`WorldGen.vault_landmark_entity_id`): `{ok, entity_id, label}` or
 ## `{ok: false, error}`. `entity_id` is absent, never 0, for a key with no landmark behind it.

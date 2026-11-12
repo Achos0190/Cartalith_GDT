@@ -14,8 +14,8 @@ extends Node
 ##   LM  landmark: Rename, Note, Select present in WORLD, CIVIL and CARTO; Rename through the real dialog changes
 ##       `landmark_names()`; the name survives a save and reopen; Clear returns the generated name
 ##   ST  settlement: Rename in every domain; Edit, Delete (confirms) and Note in WORLD and CARTO
-##   LB  label: Rename and Move in every domain, Delete (confirms) outside CARTO
-##   IC  icon: Move in every domain, Delete (confirms) outside CARTO
+##   LB  label: Rename and Move in every domain, Delete outside CARTO (no confirm: one undo step, and Undo puts it back)
+##   IC  icon: Move in every domain, Delete outside CARTO (no confirm: one undo step, and Undo puts it back)
 ##   RT  route: Rename in CIVIL
 ##   TC  touch: a tap shows the element's chips, a long press keeps the full card
 ##   WY  touch: a finger's way pick (22 px, not the mouse's 6) and the way's Delete chip, deleted and undone
@@ -769,13 +769,12 @@ A note for a label.
 	pa = await _label_hit_pos(li)
 	await _context_at(pa)
 	_ok(await _press("el.label_delete"), "LB press Delete")
-	_ok(await _answer_confirm(false), "LB confirm shown, cancelled")
-	_ok(bridge.label_list().size() == nl, "LB cancel deleted nothing")
-	await _context_at(pa)
-	_ok(await _press("el.label_delete"), "LB press Delete again")
-	_ok(await _answer_confirm(true), "LB confirmed")
+	_ok(_visible_dialogs() == 0, "LB Delete asks nothing: it is one undo step now, not a confirmed loss")
 	_ok(bridge.label_list().size() == nl - 1, "LB exactly one label removed")
 	await _close_card()
+	_app.undo_last()
+	await _frames(4)
+	_ok(bridge.label_list().size() == nl and String(bridge.label_get(li).get("text", "")) == "Renamed label", "LB Edit > Undo puts the deleted label back at its index with its text")
 
 	var pack: String = ProjectSettings.globalize_path("res://") + "../crates/cartalith-assets/tests/fixtures/reference_pack.zip"
 	var ok_pack: bool = bridge.world_gen.load_asset_pack(pack)
@@ -826,13 +825,12 @@ A note for a label.
 	pb = await _icon_hit_pos(ii)
 	await _context_at(pb)
 	_ok(await _press("el.icon_delete"), "IC press Delete")
-	_ok(await _answer_confirm(false), "IC confirm cancelled")
-	_ok(bridge.icon_list().size() == ni, "IC cancel deleted nothing")
-	await _context_at(pb)
-	_ok(await _press("el.icon_delete"), "IC press Delete again")
-	_ok(await _answer_confirm(true), "IC confirmed")
+	_ok(_visible_dialogs() == 0, "IC Delete asks nothing: it is one undo step now")
 	_ok(bridge.icon_list().size() == ni - 1, "IC exactly one icon removed")
 	await _close_card()
+	_app.undo_last()
+	await _frames(4)
+	_ok(bridge.icon_list().size() == ni, "IC Edit > Undo puts the deleted icon back")
 
 
 func _label_hit_pos(li: int, only := false) -> Vector2:

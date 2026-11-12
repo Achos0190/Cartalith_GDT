@@ -6165,8 +6165,9 @@ func _build_region(body: Control) -> void:
 ## row's own text repeats it -- nothing here is distinguished by colour alone.
 ## `way` (Ruling BA, 2026-09-28): a way deleted from the map context card,
 ## held so Undo can put it back -- reversible while the way list it came out
-## of is unchanged (`context_pick_bridge.rs`).
-const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼", "way": "◆"}
+## of is unchanged (`context_pick_bridge.rs`). `annotation`: a label, icon or landmark-name edit, held whole so Undo
+## can put the store back -- reversible while the store is as the edit left it (`annotation_undo.rs`).
+const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼", "way": "◆", "annotation": "◇"}
 
 ## The ledger, drawn in the two tiers `DCC_SHELL_SPEC.md` §7.1 proposal 2
 ## names -- and which are this engine's own draft/commit seam rather than an
@@ -6395,7 +6396,9 @@ func _history_row(parent: Control, entry: Variant, ordinal: int,
 	if reversible:
 		tip += (". Click to move the cursor here: the deleted way is put back where it was, "
 			if kind == "way" else
-			". Click to move the cursor here: the height field goes back to the state before this operation, ")
+			(". Click to move the cursor here: the labels, icons or landmark names go back to the state before this edit, "
+			if kind == "annotation" else
+			". Click to move the cursor here: the height field goes back to the state before this operation, "))
 		tip += "and the %d step%s after it %s dropped -- " % [
 			steps - 1, "" if steps == 2 else "s", "is" if steps == 2 else "are"]
 		tip += "history here is linear, so there is no branch to come back to."

@@ -1302,6 +1302,8 @@ func _on_any_tool_armed(id: String) -> void:
 			## the next `map_dragged` on a re-armed Icon tool would resume
 			## painting without a press.
 			_icon_brush_painting = false
+			## A gesture a disarm interrupted must not leave the undo stream open: the next one-shot edit would merge into it.
+			bridge.annotation_stream_end()
 			app.viewport.tool_overlay.set_handles([])
 			## Lane GATE, 2026-09-13: was this file's own `_show_style_tool_
 			## options()`, which hardcoded "CARTOGRAPHY · STYLE" regardless of
@@ -1590,6 +1592,9 @@ func _build_icon_brush_controls(row: HBoxContainer) -> void:
 ## because it looks like a bug from inside the shell: **with the brush on, the
 ## resize handle is unreachable.** Turning the brush off gets it back.
 func _on_icon_click(gx: float, gy: float) -> void:
+	## One undo step for the whole gesture (a brush stroke's stamps, a resize drag's samples): opened on the press,
+	## closed by `_on_icon_release` (and by disarming the tool). A click that places an icon is its own step regardless.
+	bridge.annotation_stream_begin()
 	var mode := EngineBridge.selection_mode_from_input()
 	if _icon_brush_on and mode == EngineBridge.SEL_REPLACE and not bridge.icon_armed().is_empty():
 		_icon_brush_painting = true
@@ -1686,6 +1691,7 @@ func _on_icon_drag(gx: float, gy: float) -> void:
 ## list panel once so its `x scale` readouts show the final values. The release
 ## position and validity are unused. Never leave a drag mode set after this.
 func _on_icon_release(_gx: float, _gy: float, _valid: bool) -> void:
+	bridge.annotation_stream_end()
 	## Reference line 9739: the stroke ends and the map gets one full render,
 	## "so the finished stand composites like any other icon edit".
 	if _icon_brush_painting:
@@ -1829,6 +1835,9 @@ func _update_icon_handles_overlay() -> void:
 ## handles resize/rotate/arc **one** label's geometry, and applying them to a
 ## set is a design question, not a free consequence of holding one.
 func _on_label_click(gx: float, gy: float) -> void:
+	## One undo step for the whole gesture (a move, resize, rotate or arc drag): opened on the press, closed by
+	## `_on_label_release` (and by disarming the tool).
+	bridge.annotation_stream_begin()
 	var sel_mode := EngineBridge.selection_mode_from_input()
 	var sel := bridge.label_get_selected()
 	if sel >= 0 and sel_mode == EngineBridge.SEL_REPLACE and bridge.label_get_selection().size() == 1:
@@ -1965,6 +1974,7 @@ func _on_label_drag(gx: float, gy: float) -> void:
 ## Ends a Label-tool drag: clears the drag mode and rebuilds the label panel once
 ## so its field readouts show the final values. Position and validity unused.
 func _on_label_release(_gx: float, _gy: float, _valid: bool) -> void:
+	bridge.annotation_stream_end()
 	if _label_drag_mode != DragMode.NONE:
 		_label_drag_mode = DragMode.NONE
 		_label_drag_index = -1
@@ -1976,10 +1986,32 @@ func _on_label_release(_gx: float, _gy: float, _valid: bool) -> void:
 func _apply_label_field(idx: int, key: String, value) -> void:
 	if idx < 0:
 		return
+	_hold_field_stream()
 	bridge.label_set(idx, {key: value})
 	app.viewport.refresh_annotations()
 	_update_label_handles_overlay()
 
+
+## How long a label field (a slider drag, typing, the colour picker) may sit idle before its edits stop merging into
+## one undo step. A labelled judgement, not a measurement: longer than the gap between two keystrokes or two frames of
+## a drag, shorter than a pause to look at the result. Typing "Ashford" is one step; typing, pausing, typing more is two.
+const FIELD_STREAM_IDLE_S := 0.6
+
+## The idle timer of the open field stream, or null when none is open (see `_hold_field_stream`).
+var _field_stream_timer: SceneTreeTimer = null
+
+## Keeps one undo stream open across a burst of `_apply_label_field` writes: the first write opens it
+## (`annotation_stream_begin`, so that write is a new step), every write restarts the idle timer, and the timer
+## closing it ends the step. The map-drag paths bracket their own gesture and never reach this.
+func _hold_field_stream() -> void:
+	if _field_stream_timer == null:
+		bridge.annotation_stream_begin()
+	var t := get_tree().create_timer(FIELD_STREAM_IDLE_S)
+	_field_stream_timer = t
+	t.timeout.connect(func() -> void:
+		if _field_stream_timer == t:
+			_field_stream_timer = null
+			bridge.annotation_stream_end())
 
 ## Commits the label edit session in the engine, refreshes the map, redraws the
 ## tool-options row and the label panel. Counterpart of `_cancel_label_edit`.
@@ -2076,6 +2108,14 @@ func _prompt_label_name(gx: float, gy: float) -> void:
 ## card's *Label this* row creates a label the same way. Returns its index, or
 ## -1 when the engine refused.
 func _create_label(gx: float, gy: float, text: String) -> int:
+	## A new label is a create, a reclass and a style set: one undo step, named for what the user did.
+	bridge.annotation_compound_begin(("Add label “%s”" % text) if text.strip_edges() != "" else "Add unnamed label")
+	var idx := _create_label_steps(gx, gy, text)
+	bridge.annotation_compound_end()
+	return idx
+
+## [`_create_label`]'s engine calls, inside its undo compound.
+func _create_label_steps(gx: float, gy: float, text: String) -> int:
 	var idx := bridge.label_create(gx, gy, text)
 	if idx >= 0:
 		## The role and its two defaults, applied in the one place a label

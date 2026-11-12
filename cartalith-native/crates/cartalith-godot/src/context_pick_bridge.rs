@@ -464,25 +464,34 @@ pub enum UndoPick {
     Height(String),
     /// A live way delete is newer; carries its ledger `seq` and label.
     Way { seq: u64, label: String },
+    /// A live label, icon or landmark-name edit is newer
+    /// (`annotation_undo`); carries its ledger `seq` and label.
+    Annotation { seq: u64, label: String },
 }
 
-/// The unified choice, as a pure function: the newer of the newest height row
-/// (when a height snapshot is held) and the newest live way row. `height_seq`
-/// is `Some(0)` when a snapshot is held but no ledger row names it (a push
-/// with no row -- the ledger is bounded), which any way row outranks.
-pub fn choose_undo(height: Option<(u64, String)>, way: Option<(u64, String)>) -> Option<UndoPick> {
-    match (height, way) {
-        (None, None) => None,
-        (Some((_, l)), None) => Some(UndoPick::Height(l)),
-        (None, Some((seq, label))) => Some(UndoPick::Way { seq, label }),
-        (Some((hs, l)), Some((ws, label))) => {
-            if ws > hs {
-                Some(UndoPick::Way { seq: ws, label })
-            } else {
-                Some(UndoPick::Height(l))
-            }
+/// The unified choice, as a pure function: the newest of the newest height row
+/// (when a height snapshot is held), the newest live way row and the newest
+/// live annotation row, by ledger `seq` -- "newest wins" across three stacks.
+/// `height_seq` is `Some(0)` when a snapshot is held but no ledger row names it
+/// (a push with no row -- the ledger is bounded), which any other row outranks.
+/// Row `seq`s are unique, so a tie can only be that `0` against nothing.
+pub fn choose_undo(height: Option<(u64, String)>, way: Option<(u64, String)>, anno: Option<(u64, String)>) -> Option<UndoPick> {
+    let mut best: Option<(u64, UndoPick)> = None;
+    let mut offer = |seq: u64, pick: UndoPick| {
+        if best.as_ref().is_none_or(|(b, _)| seq > *b) {
+            best = Some((seq, pick));
         }
+    };
+    if let Some((s, l)) = height {
+        offer(s, UndoPick::Height(l));
     }
+    if let Some((seq, label)) = way {
+        offer(seq, UndoPick::Way { seq, label });
+    }
+    if let Some((seq, label)) = anno {
+        offer(seq, UndoPick::Annotation { seq, label });
+    }
+    best.map(|(_, p)| p)
 }
 
 // ====================================================== way undo / redo core ==
@@ -989,7 +998,8 @@ impl WorldGen {
     pub(crate) fn next_undo_step(&self) -> Option<UndoPick> {
         let height = self.undo.next_label().map(|l| (self.ledger.newest_height_seq().unwrap_or(0), l.to_string()));
         let way = self.way_undo.newest_live(&|s| self.way_fp(s)).map(|e| (e.seq, self.way_undo_label(e)));
-        choose_undo(height, way)
+        let anno = self.anno_undo.newest_live(&|s| self.anno_matches(s)).map(|e| (e.seq, e.label.clone()));
+        choose_undo(height, way, anno)
     }
 
     /// The history label for a held entry -- see [`way_entry_label`].
@@ -1030,18 +1040,15 @@ impl WorldGen {
         step
     }
 
-    /// The label of the drag a `redo_last()` would re-apply, or `None` -- see
-    /// [`drag_redo_ready`] for exactly when one is offered.
-    pub(crate) fn drag_redo_label(&self) -> Option<String> {
-        let manual = self.infra.as_ref().map(|t| t.ways.as_slice());
-        drag_redo_ready(&self.way_undo, &self.ledger, manual, self.undo.depth()).map(|r| r.label.clone())
-    }
-
     /// Re-applies the top undone drag ([`redo_drag_core`]) against the real
     /// manual store. `None` when none is offered.
     pub(crate) fn redo_drag_step(&mut self) -> Option<String> {
         let depth = self.undo.depth();
+        let before = self.ledger.last_seq();
         let label = redo_drag_core(&mut self.ledger, &mut self.way_undo, self.infra.as_mut().map(|t| &mut t.ways), depth)?;
+        // This record is a redo, not a new operation: an undone annotation edit stamped at the
+        // previous ledger position stays offered behind it (the mirror of `redo_anno_step`).
+        self.anno_undo.restamp_redo(before, self.ledger.last_seq());
         if let Some(t) = self.infra.as_mut() {
             t.way_drag_forget();
         }
@@ -1328,6 +1335,7 @@ impl WorldGen {
         GString::from(match self.next_undo_step() {
             Some(UndoPick::Height(_)) => "height",
             Some(UndoPick::Way { .. }) => "civ",
+            Some(UndoPick::Annotation { .. }) => "annotation",
             None => "",
         })
     }
@@ -1528,17 +1536,26 @@ mod tests {
         assert_eq!(fp_generated(Some(&a)), fp_generated(Some(&a.clone())));
     }
 
-    /// Protects: `choose_undo` picks the higher `seq` of the height and way rows,
-    /// and a lone candidate wins.
+    /// Protects: `choose_undo` picks the highest `seq` across the height, way and
+    /// annotation rows, a lone candidate wins, and a height snapshot with no
+    /// ledger row (`seq` 0) loses to any other row.
     #[test]
-    fn the_newer_of_height_and_way_is_undone_first() {
+    fn the_newest_of_height_way_and_annotation_is_undone_first() {
         let h = || Some((5u64, "Sculpt commit".to_string()));
         let w = |s: u64| Some((s, "Delete road “A”".to_string()));
-        assert_eq!(choose_undo(h(), w(6)), Some(UndoPick::Way { seq: 6, label: "Delete road “A”".into() }));
-        assert_eq!(choose_undo(h(), w(4)), Some(UndoPick::Height("Sculpt commit".into())));
-        assert_eq!(choose_undo(None, w(4)), Some(UndoPick::Way { seq: 4, label: "Delete road “A”".into() }));
-        assert_eq!(choose_undo(h(), None), Some(UndoPick::Height("Sculpt commit".into())));
-        assert_eq!(choose_undo(None, None), None);
+        let a = |s: u64| Some((s, "Move label “B”".to_string()));
+        let way = |s: u64| UndoPick::Way { seq: s, label: "Delete road “A”".into() };
+        let anno = |s: u64| UndoPick::Annotation { seq: s, label: "Move label “B”".into() };
+        assert_eq!(choose_undo(h(), w(6), None), Some(way(6)));
+        assert_eq!(choose_undo(h(), w(4), None), Some(UndoPick::Height("Sculpt commit".into())));
+        assert_eq!(choose_undo(None, w(4), None), Some(way(4)));
+        assert_eq!(choose_undo(h(), None, None), Some(UndoPick::Height("Sculpt commit".into())));
+        assert_eq!(choose_undo(None, None, None), None);
+        assert_eq!(choose_undo(h(), w(6), a(7)), Some(anno(7)));
+        assert_eq!(choose_undo(h(), w(8), a(7)), Some(way(8)));
+        assert_eq!(choose_undo(h(), None, a(4)), Some(UndoPick::Height("Sculpt commit".into())));
+        assert_eq!(choose_undo(None, None, a(2)), Some(anno(2)));
+        assert_eq!(choose_undo(Some((0, "Old".into())), None, a(1)), Some(anno(1)));
     }
 
     /// Protects: `held_way_title` describes an unnamed way as `unnamed <type>` and

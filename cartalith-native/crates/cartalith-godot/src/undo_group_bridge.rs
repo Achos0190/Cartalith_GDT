@@ -127,9 +127,10 @@ impl WorldGen {
 
     /// The identities of the engine's redo offers, **in the order
     /// `redo_last()` would take them**, newest first: element `i` is the step
-    /// `redo_labels()[i]` names. An offered undone way drag first (only the top
-    /// of the drag stack is offered, exactly as `redo_labels` lists only it),
-    /// then the height redo tail while it is current. Empty exactly when
+    /// `redo_labels()[i]` names. The offered undone way drag and the offered
+    /// undone label, icon or landmark-name edit first (only the top of each
+    /// stack is offered, exactly as `redo_labels` lists only it; the one undone
+    /// later comes first), then the height redo tail while it is current. Empty exactly when
     /// `redo_available()` is false.
     ///
     /// Ids come from `undo::next_step_id`: unique in the process, fresh on
@@ -137,10 +138,9 @@ impl WorldGen {
     /// shows a new id even when its label is the group's.
     #[func]
     fn redo_offer_ids(&self) -> PackedInt64Array {
-        let manual = self.infra.as_ref().map(|t| t.ways.as_slice());
-        let drag = context_pick_bridge::drag_redo_ready(&self.way_undo, &self.ledger, manual, self.undo.depth()).map(|r| r.id);
+        let offers: Vec<u64> = self.redo_offers().into_iter().map(|o| o.id).collect();
         let tail: Vec<u64> = if self.redo.is_current(self.undo.depth()) { self.redo.steps.ids().collect() } else { Vec::new() };
-        drag.into_iter().chain(tail).map(|i| i as i64).collect()
+        offers.into_iter().chain(tail).map(|i| i as i64).collect()
     }
 
     /// FNV-1a digests of everything an undo group (LLM-5) can change in the
@@ -154,6 +154,8 @@ impl WorldGen {
     /// | `ways_generated`, `ways_sea` | the generated stores' identities (`fp_generated`, `fp_sea`: not every vertex, see the module doc) |
     /// | `params` | the parameter table's saved form (`params::save_state`, the JSON a project archive stores) |
     /// | `colour_paint` | the colour-paint document JSON, or the hash of `""` when there is no layer (the same `""` `colour_paint_document()` returns) |
+    /// | `labels`, `icons` | the hand-placed labels and the placed icons, every field (`Debug` text of the rows); **omitted** when the world has no such store |
+    /// | `landmark_names` | the user-given landmark names, key and value |
     ///
     /// plus `cells` (int). `{}` before any world is generated or loaded.
     ///
@@ -185,6 +187,16 @@ impl WorldGen {
         d.set("params", hex(fnv1a(params::save_state(&self.params).to_string().as_bytes())).as_str());
         let paint = self.colour_paint.as_ref().map(|l| serde_json::to_string(l.layers()).unwrap_or_default()).unwrap_or_default();
         d.set("colour_paint", hex(fnv1a(paint.as_bytes())).as_str());
+        // The label and icon stores and the landmark names (annotation undo): each key is omitted
+        // when its store does not exist, never a hash of nothing standing for "none". `Debug` of an
+        // `f64` is its shortest round-trip text, so a one-ulp move changes the digest.
+        if let Some(l) = self.labels.as_ref() {
+            d.set("labels", hex(fnv1a(format!("{:?}", l.labels).as_bytes())).as_str());
+        }
+        if let Some(i) = self.icons.as_ref() {
+            d.set("icons", hex(fnv1a(format!("{:?}", i.icons).as_bytes())).as_str());
+        }
+        d.set("landmark_names", hex(fnv1a(format!("{:?}", self.landmark_user_names).as_bytes())).as_str());
         d
     }
 }

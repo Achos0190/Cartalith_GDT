@@ -671,6 +671,7 @@ mod tests {
 /// | [`EntryKind::Floor`] | A generate or a load. History starts here; nothing before it survives. |
 /// | [`EntryKind::WayDelete`] | A way deleted from the map context card; the way itself is held elsewhere. |
 /// | [`EntryKind::WayDrag`] | One committed road drag (ET-D4); its ways are held elsewhere. |
+/// | [`EntryKind::Annotation`] | One edit of a label, an icon or a landmark name; the stores' before and after are held in `annotation_undo`. |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
     /// A height snapshot was pushed for this entry, in the same call.
@@ -696,6 +697,13 @@ pub enum EntryKind {
     /// reverting *removes* the held ways, and the entry then moves to a drag
     /// **redo** stack that `redo_last` serves.
     WayDrag,
+    /// One edit of the hand-placed labels, the placed icons or the landmark
+    /// names (add, move, rename, delete, resize, clear). The store's before and
+    /// after are held in `annotation_undo::AnnoUndo` under this row's `seq`, with
+    /// the same read-time liveness as [`EntryKind::WayDelete`] (asked through the
+    /// same `held_live` closure of [`HistoryLedger::rows_with`]): live while the
+    /// store still equals what the edit left behind.
+    Annotation,
 }
 
 /// One row of the ledger.
@@ -899,7 +907,7 @@ impl HistoryLedger {
     }
 
     /// [`Self::rows`] with the second reversible kind: an
-    /// [`EntryKind::WayDelete`] or [`EntryKind::WayDrag`] row is live exactly
+    /// [`EntryKind::WayDelete`], [`EntryKind::WayDrag`] or [`EntryKind::Annotation`] row is live exactly
     /// when `way_live(seq)` says its held way(s) can still be put back (delete)
     /// or taken out again (drag). The height half is
     /// unchanged. Two sources of liveness, each asked at read time, and
@@ -909,7 +917,7 @@ impl HistoryLedger {
         let mut flags: Vec<bool> = Vec::with_capacity(self.entries.len());
         for e in self.entries.iter().rev() {
             let live = (e.kind == EntryKind::HeightSnapshot && seen < height_depth)
-                || (matches!(e.kind, EntryKind::WayDelete | EntryKind::WayDrag) && way_live(e.seq));
+                || (matches!(e.kind, EntryKind::WayDelete | EntryKind::WayDrag | EntryKind::Annotation) && way_live(e.seq));
             if e.kind == EntryKind::HeightSnapshot {
                 seen += 1;
             }
@@ -1467,6 +1475,21 @@ mod ledger_tests {
         assert!(l.remove_seq(drag));
         assert_eq!(l.last_seq(), 6, "removing a row never rewinds the counter: seq stays monotone");
         assert_eq!(l.record("civ", "Draw track", "", EntryKind::WayDrag), 7);
+    }
+
+    /// Protects: an `Annotation` row follows the held-live closure exactly as a way row does, counts in revert-to, is never offered by plain `rows()` and is not a height row.
+    #[test]
+    fn an_annotation_row_follows_the_held_live_closure() {
+        let mut l = ledger();
+        let a = l.record("annotations", "Move label", "", EntryKind::Annotation);
+        assert_eq!(a, 6);
+        let held = |s: u64| s == 6;
+        let live: Vec<bool> = l.rows_with(2, &held).iter().map(|(_, b)| *b).collect();
+        assert_eq!(live, vec![false, false, true, false, true, true]);
+        assert!(!l.rows(2)[5].1, "plain rows() never offers an annotation row");
+        assert_eq!(l.steps_to_revert_to_with(6, 2, &held), Some(1));
+        assert_eq!(l.steps_to_revert_to_with(6, 2, &|_| false), None);
+        assert_eq!(l.newest_height_seq(), Some(5), "an annotation row is not a height row");
     }
 
     /// Protects: `seq` is what the shell round-trips, so it never repeats within a session -- including across a floor, which clears the rows but not the counter.

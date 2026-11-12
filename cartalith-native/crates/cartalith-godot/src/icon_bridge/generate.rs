@@ -370,6 +370,13 @@ impl WorldGen {
     /// [`IconEditor::generate`].
     #[func]
     fn icon_generate(&mut self, options: VarDictionary) -> VarDictionary {
+        // The pass appends to the icon list, so it is one undo step (and an earlier icon edit
+        // stays reachable below it instead of going stale under an unrecorded change).
+        self.anno_scope(crate::annotation_undo::AnnoStore::Icons, "Place icons (pass)".to_string(), None, None, |s| s.icon_generate_inner(options))
+    }
+
+    /// [`Self::icon_generate`]'s pass, wrapped by `anno_scope`.
+    fn icon_generate_inner(&mut self, options: VarDictionary) -> VarDictionary {
         if self.icons.is_none() {
             return refused(
                 "Automatic placement needs a generated world: it places on settlements, biomes, \

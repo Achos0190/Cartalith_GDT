@@ -73,8 +73,9 @@ Built as one change, not one commit per family (the families share `global_tools
 is not built (no engine path relocates a settlement); **label and icon Note** are not built (`SAVEFILE_COMPAT.md`
 13.3.4 fixes the bindable kinds); **way Rename** is not built (no setter; only a route has `route_set_name`);
 **Select** rows exist for landmarks only (a way, label, icon and route are not selection kinds); **icon Move** needed
-a new engine call, `icon_move`. Undo: labels, icons and names are on no undo history, so Delete confirms and Rename /
-Move are reversed by repeating them. The touch chips are `shell/element_chips.gd`; the strip is placed at the tapped
+a new engine call, `icon_move`. Undo: labels, icons and names were on no undo history then, so Delete confirmed and
+Rename / Move were reversed by repeating them; the history was built afterwards (see "Undo for label, icon and name
+edits" below). The touch chips are `shell/element_chips.gd`; the strip is placed at the tapped
 point, because the host fills the window and the bars are drawn over it. Probe: `_edfc_probe.gd`.
 
 ## Build notes, step 3: the phone form and the Note tab (2026-11-12)
@@ -122,8 +123,8 @@ Alt+Left can step back to a label or icon subject whose index has since shifted 
 
 | Element | Tap shows | Notes |
 |---|---|---|
-| Label | Move, Rename, Note, Delete | Delete confirms (no undo history) |
-| Icon | Move, Note, Delete | Rename: an icon has no text |
+| Label | Move, Rename, Note, Delete | Delete is one undo step and asks nothing |
+| Icon | Move, Note, Delete | Delete is one undo step and asks nothing. Rename: an icon has no text |
 | Place (settlement) | Rename, Note, Delete (CIVIL, WORLD, CARTO) | Delete confirms; **Move not offered**: the engine has no relocation |
 | Landmark | Rename, Note | generated, so no Move or Delete by design |
 | Way (CIVIL) | Delete, only when the way is the nearest hit | undoable (Ruling BA), no confirm. **Rename not offered**: no setter. A finger's pick is 22 px (`PICK_LINE_TOUCH_PX`), the mouse's stays 6 |
@@ -131,18 +132,54 @@ Alt+Left can step back to a label or icon subject whose index has since shifted 
 | Region | no hit | still a design, not a row |
 | Route | no chips | not a hit kind (`_route_hit` is local to CIVIL's provider); its Rename and Delete are on the long-press card |
 
-### Undo for label, icon and name edits: not built; what it takes
+### Undo for label, icon and name edits (2026-11-12, built)
 
-Checked at `undo.rs::EntryKind`, `context_pick_bridge::choose_undo`, `lib.rs::undo_last` and `shell/undo_group.gd`: the
-engine's history is a ledger with one entry kind per undoable thing (height snapshot, way delete, way drag), and
-`undo_last` picks the newest of the height and way stacks. Labels, icons and landmark names are in none of them. A real
-undo needs (1) a new `EntryKind` for an annotation edit holding the before-state of the label store, the icon store or
-the landmark name map (a clone of a small Vec, so the memory is not the cost); (2) `choose_undo` growing a third arm so
-"newest wins" holds across three stacks, and a redo tail for it; (3) `undo_group.gd`'s member kinds and
-`edit_state_digest` taking it, so the assistant's grouped undo and its "world hashes equal" bar stay true; (4) the shell's
-Edit menu label and the history ledger row. It is a Rust change with a golden-neutral surface but five touch points, not
-a small step, so it is filed here and not built. Until then Delete confirms and Rename and Move are reversed by repeating
-them.
+What the earlier note (commit `8206f6cb`) said it takes was right, and was built as written: a new ledger kind
+(`undo::EntryKind::Annotation`, held in `annotation_undo.rs`), a third arm in `context_pick_bridge::choose_undo`
+(newest `seq` wins across height, way and annotation), `undo_group.gd` and `edit_state_digest` taking it, and the menu
+and ledger rows. Read at the symbols, what each edit now is:
+
+| Edit | One undo step | Notes |
+|---|---|---|
+| Add a label | yes | the New-label prompt is a create, a reclass and a style set: `annotation_compound_begin/end` folds them into one row, named `Add label “X”` |
+| Rename a label | yes | the card's one-shot rename reads `Rename label “A” to “B”`; typing in the text field is one step per burst (`FIELD_STREAM_IDLE_S`) |
+| Move a label | yes | a drag with the Label tool is one step however many samples; the vault note re-pointed by the move goes back with it |
+| Delete a label | yes | no confirm any more (a way's delete has none either); the later labels return to their indices |
+| Place, move, resize, delete an icon | yes | a brush stroke and a resize drag are one step each; the placement pass (`icon_generate`) is one step |
+| Rename or clear a landmark name | yes | `landmark_set_user_name`; the generated name returns |
+| Clear all labels, clear all icons | yes | one step each |
+| Cut or paste labels or icons | one step per store | `Cut labels`, `Paste icons` |
+
+- **How a row is recorded.** `WorldGen::anno_scope` clones the store, runs the mutator and records a row **only if the
+  store changed**, so a refused call records nothing. A row holds the store before and after (shared between
+  neighbours, so N edits hold N + 1 snapshots), bounded at `MAX_ANNO_UNDO` = 64.
+- **Liveness is equality, not a hash.** A row is live while the store equals what the edit left behind (or what the
+  row above found). A change outside the history (a load, a pass the history does not record) leaves the row in the
+  History panel drawn not reversible, with its reason, and writes nothing.
+- **Does the history persist? No, and that is what the other stacks do.** The height snapshots, the way rows and the
+  look history are session-only: a generate, a load and `clear_undo` clear them and no archive carries them
+  (`SAVEFILE_COMPAT.md` has no undo member). The annotation history is cleared at the same four places. The edited
+  stores themselves are saved as before; only the ability to undo is not.
+- **Redo** is a stack gated like a drag's: nothing recorded since, the height stack at the depth it had, the store as
+  the undo left it. When an undone way drag and an undone annotation edit are both ready the one undone later is
+  offered first (`annotation_bridge::order_offers`, by `undo::next_step_id`); both come before the height tail.
+- **The grouped undo.** `undo_group.gd` accepts `annotation` as an engine member kind; `edit_state_digest` gains
+  `labels`, `icons` (omitted without such a store) and `landmark_names`, so the "world hashes equal" bar covers them.
+- **Controls.** Every undo path goes through `EngineBridge.undo_last / redo_last / undo_revert_to`, which publish
+  `annotations_removed` (when rows shifted) and `annotations_restored`, so the key, the Edit row, the toolbar squares,
+  the phone's chip, the History panel and a grouped undo all redraw the map and the Context page the same way.
+  `annotations_edited` (deferred, once a frame) lights the Edit rows, the squares and the chip: **a disabled Edit row
+  swallows its accelerator, and before this a label edit left Ctrl+Z dead** (found by `_announdo_probe.gd`).
+- **The two suspicions.** (1) A selected icon after a pass that replaces the icon list: **not real as written**. Read
+  at `icon_bridge.rs::IconEditor::generate` and `brush_stamp`: both only append, so no index moves; the paths that do
+  replace the list (a generate, a load, a legacy import) all emit `world_loaded`, which `DccApp._reset_selection`
+  answers. What was real is the new path: an undo or redo that adds or removes rows shifts indices, and it now drops the
+  selection of that kind. (2) Alt+Left to a label or icon whose index shifted: **real**, and fixed: a delete, a clear
+  and an undo or redo that shifts rows drop every history entry of that kind (`DccApp._forget_selection_kind`) and the
+  selection is cleared without recording a history step. A settlement's index has the same hazard and is not touched
+  here.
+- **Not done.** A way's Rename and a settlement's Move remain engine gaps. Labels generated by the label pass are not
+  in the hand-placed store and are not undoable. Dragging a landmark glyph is not a thing the shell offers.
 
 ### Probe
 
