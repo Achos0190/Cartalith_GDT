@@ -242,18 +242,17 @@ func _find() -> void:
 			declined.append((c as Button).text)
 	_ok("eight chips, in SEARCH_SCOPES order (c cultures by the PC-4 follow-up, n notes by VE-9)", ",".join(PackedStringArray(texts)),
 		"s settlements,f factions,c cultures,lb labels,r routes,n notes,. commands,l landmarks")
-	_ok("exactly one is disabled", declined.size(), 1)
-	_ok("...and it is landmarks", declined[0] if declined.size() > 0 else "-", "l landmarks")
+	_ok("none is disabled: landmarks are indexed now (Rulings EI and EL)", declined.size(), 0)
 	var l_chip: Button = null
 	for c in _live_children(chips):
 		if (c as Button).text == "l landmarks":
 			l_chip = c
-	_ok("the disabled chip carries the code's own reason, not a blank",
-		l_chip != null and l_chip.tooltip_text.contains("named now"), true)
+	_ok("the landmarks chip is a live chip with the scope tooltip",
+		l_chip != null and not l_chip.disabled and l_chip.tooltip_text.contains("search only landmarks"), true)
 
 	print("\n=== G. whole-token scope split: l and lb cannot collide ===")
 	_ok("'lb ald' -> labels", _scope_of("lb ald"), "lb")
-	_ok("'l ald' -> the declined landmarks row", _scope_of("l ald"), "l")
+	_ok("'l ald' -> the landmarks scope", _scope_of("l ald"), "l")
 	_ok("'ald' (no space) -> no scope at all", _scope_of("ald"), "-")
 	_ok("'lbx ald' (unknown token) -> no scope", _scope_of("lbx ald"), "-")
 	_ok("'lb ald' residual query is 'ald'",
@@ -352,12 +351,61 @@ func _find() -> void:
 			clegal = false
 	_ok("command bands come from COMMAND_BANDS", clegal, true)
 
-	_q("l ald")
+	## Landmarks (Ruling EI/EL; the VE-9 follow-up). With no landmark run the scope has nothing, and says "no
+	## matches" like any scope, not a "not indexed" notice (no scope is declined now).
+	_q("l ")
 	await _frames(6)
-	_ok("the declined scope draws no rows", _rows_of().size(), 0)
-	_ok("...it draws the reason instead",
-		_notice_text().contains("named now"), true)
-	_ok("...and the count says why, not '0 of 0'", count.text, "landmarks · not indexed")
+	_ok("before a landmark run the landmarks scope draws no rows", _rows_of().size(), 0)
+	_ok("...and it is not a declined scope", count.text.contains("not indexed"), false)
+	var bridge2 = _app.get("bridge")
+	await bridge2.landmark_run()
+	await _frames(10)
+	var names: Array = bridge2.landmark_names()
+	_ok("CONTROL: the landmark run placed some landmarks", names.size() > 0, true)
+	if names.size() > 0:
+		## The index is rebuilt each time Find opens (its header), so a landmark pass or a rename that happened
+		## while it was closed shows on the next open: reopen, as a person would.
+		_app.call("open_find_on_map")
+		await _frames(10)
+		_q("l ")
+		await _frames(8)
+		var lrows := _rows_of()
+		_ok("the landmarks scope lists every placed landmark, by name", lrows.size(), names.size())
+		var first_key := String((names[0] as Dictionary)["key"])
+		_ok("...the first by its derived name", lrows.has(String((names[0] as Dictionary)["name"]).to_upper()), true)
+		_ok("a landmark row is NOT in the settlements scope", _q_rows("s " + String((names[0] as Dictionary)["name"])).has(String((names[0] as Dictionary)["name"]).to_upper()), false)
+		## A user-given name is found by that name, in the scope and unscoped.
+		_ok("CONTROL: a landmark can be given a name", bridge2.landmark_set_user_name(first_key, "Zzyzx Gate"), true)
+		await _frames(4)
+		_app.call("open_find_on_map")
+		await _frames(10)
+		_q("l zzyzx")
+		await _frames(8)
+		_ok("the scope finds a landmark by the name the user gave it", _rows_of(), ["ZZYZX GATE"])
+		_q("zzyzx")
+		await _frames(8)
+		_ok("...and an unscoped query finds it too", _rows_of(), ["ZZYZX GATE"])
+		## The row's position is the landmark's own cell (from its `kind@x,y` key), x first: the map pans there.
+		var cell := first_key.get_slice("@", 1).split(",")
+		var hit: Array = _app.get("_place_search_index").call("search", "zzyzx")
+		_ok("the indexed row sits at the landmark's cell, x then y",
+			hit.size() == 1 and int((hit[0] as Dictionary)["x"]) == int(cell[0]) and int((hit[0] as Dictionary)["y"]) == int(cell[1]) and cell[0] != cell[1], true)
+		## Pressing the row pans the map to the landmark's cell (the cell is read from its key).
+		var press_rows: Array = []
+		for c in _live_children(_app.get("_desktop_search_results")):
+			if c is Button:
+				press_rows.append(c)
+		_ok("CONTROL: one row to press", press_rows.size(), 1)
+		if press_rows.size() == 1:
+			(press_rows[0] as Button).pressed.emit()
+			await _frames(6)
+			_ok("pressing the row closes the dialog", _app.get("_desktop_search_dialog").visible, false)
+	_q("")
+
+## The row titles a query would draw, read after the frame it takes to refresh.
+func _q_rows(q: String) -> Array:
+	_q(q)
+	return _rows_of()
 
 # -- K : the phone sheet ----------------------------------------------------------
 

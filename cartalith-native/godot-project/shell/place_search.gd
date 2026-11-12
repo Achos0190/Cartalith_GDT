@@ -10,7 +10,7 @@ class_name PlaceSearch
 ##
 ## ## It is BUILT, not written down -- same discipline as `CommandIndex`
 ##
-## Five real getters are read at `build()` time, every one already live on
+## Six real getters are read at `build()` time, every one already live on
 ## `EngineBridge`:
 ##
 ## - **Settlements** -- `EngineBridge.settlements()` (engine_bridge.gd:552 ->
@@ -26,6 +26,8 @@ class_name PlaceSearch
 ##   position from and is **not indexed** -- see "What is declined" below.
 ## - **Labels** -- `EngineBridge.label_list()` (engine_bridge.gd:2047 ->
 ##   lib.rs:7865). Each carries its own `x`/`y`/`text` already.
+## - **Landmarks** -- `EngineBridge.landmark_names()` (Rulings EI and EL): the user's name, else the type plus
+##   the nearest place; the cell is read from the landmark's key (`kind@x,y`).
 ## - **Roads and sea routes** -- `EngineBridge.roads()` / `sea_routes()`
 ##   (engine_bridge.gd:555/558 -> lib.rs:4737/4800). Each carries a `name`,
 ##   a `km` length and a `points` polyline; there is no single `x`/`y`, so
@@ -126,6 +128,9 @@ func build(bridge) -> void:
 	if bool(bridge.get("has_world")):
 		_add_cultures(bridge.get_cultures() if bridge.has_method("get_cultures") else [])
 	_add_labels(labels)
+	## Ruling EI/EL: placed landmarks, by their name (the user's, else type + nearest place). `landmark_names()`
+	## is empty before a landmark run, so a world with none indexes none.
+	_add_landmarks(bridge.landmark_names() if bridge.has_method("landmark_names") else [])
 	_add_roads(roads)
 	_add_sea_routes(sea_routes)
 
@@ -283,6 +288,33 @@ func _add_labels(labels: Array) -> void:
 			"y": float(d.get("y", 0)),
 			"entity": "label",
 			"id": int(d.get("index", -1)),
+		})
+
+# -- Landmarks ---------------------------------------------------------------------
+
+## One row per placed landmark (`EngineBridge.landmark_names()`: `{key, id, name, source}`). The cell is read
+## from the key (`kind@x,y`, `Landmark::key()`), because the name list carries no position of its own and the
+## key is its identity. A row whose key does not parse is skipped, never placed at (0, 0): a position that
+## is not known must not become a corner of the map. `id` is the vault entity id, so a hit and a `[[` link
+## to the same landmark agree. `source` `user` is said in the subtitle, so a name the person gave is
+## distinguishable from a derived one.
+func _add_landmarks(names: Array) -> void:
+	for n in names:
+		var d: Dictionary = n
+		var nm := String(d.get("name", "")).strip_edges()
+		var key := String(d.get("key", ""))
+		var at := key.get_slice("@", 1).split(",")
+		if nm == "" or not key.contains("@") or at.size() != 2 or not at[0].is_valid_int() or not at[1].is_valid_int():
+			continue
+		var kind_label := key.get_slice("@", 0).replace("_", " ").capitalize()
+		_rows.append({
+			"name": nm,
+			"kind": "landmark",
+			"subtitle": "%s · at grid (%d, %d)%s" % [kind_label, int(at[0]), int(at[1]), " · named by you" if String(d.get("source", "")) == "user" else ""],
+			"x": float(int(at[0])),
+			"y": float(int(at[1])),
+			"entity": "landmark",
+			"id": int(d.get("id", 0)),
 		})
 
 # -- Roads and sea routes --------------------------------------------------------

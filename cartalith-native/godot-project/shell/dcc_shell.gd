@@ -9812,7 +9812,7 @@ func _reset_place_search_cache() -> void:
 ## generated from `SEARCH_SCOPES` on purpose: a generated list would read
 ## "s settlements, f factions, ..." and say nothing about the space, which is
 ## the part that decides whether a token is a scope at all.
-const SEARCH_HINT := "Start with a scope and a space to narrow: s settlements, f factions, c cultures, lb labels, r routes, n notes, . commands."
+const SEARCH_HINT := "Start with a scope and a space to narrow: s settlements, f factions, c cultures, lb labels, r routes, l landmarks, n notes, . commands."
 
 ## The search prefix table, in display order; each row has `prefix`, `label` and exactly one of `entity`, `commands` or `why` (see the note above).
 const SEARCH_SCOPES: Array = [
@@ -9824,14 +9824,10 @@ const SEARCH_SCOPES: Array = [
 	## VE-9: the vault's notes, searched by `vault_search` (names always, text once indexed) through `NotesFind`.
 	{"prefix": "n", "label": "notes", "notes": true},
 	{"prefix": ".", "label": "commands", "commands": true},
-	## **Declined, and the reason has moved.** `place_search.gd`'s header declines icons because `icon_dict`
-	## carries `family`/`slot`/`set`/`scale` -- four closed vocabularies and no identifying name. Placed
-	## landmarks were declined with them; since Ruling EI (2026-11-08) a landmark has a derived name, so
-	## that reason is gone and the row is declined only because `PlaceSearch` does not index them yet
-	## (a follow-up filed in `STATUS.md`). Drawn disabled rather than omitted so a searcher who expects
-	## landmarks is told, and typing `l ` says the same thing where the result list would be.
-	{"prefix": "l", "label": "landmarks",
-		"why": "Placed landmarks are named by type and nearest place, but are not in this index yet. Link to one from a note with [[ instead."},
+
+	## Ruling EI gave a placed landmark a derived name (type plus nearest place) and Ruling EL a user-given one that
+	## is saved; `PlaceSearch._add_landmarks` indexes them, so this scope is live. A hit pans the map to the cell.
+	{"prefix": "l", "label": "landmarks", "entity": "landmark"},
 ]
 
 ## The band a returned row fell in, recomputed here rather than re-ranked.
@@ -9869,7 +9865,7 @@ static func _command_band(row: Dictionary, needle: String) -> int:
 
 ## Splits a raw field value into `{scope?, query}`. `scope` is ABSENT unless the
 ## token before the first space is exactly one of `SEARCH_SCOPES`' prefixes --
-## so `lb ald` scopes to labels, `l ald` scopes to the declined landmarks row,
+## so `lb ald` scopes to labels, `l ald` scopes to landmarks,
 ## and `ald` (no space at all, or an unrecognised token) searches everything for
 ## the whole string, `s` and `lb` included.
 func _split_search_scope(raw: String) -> Dictionary:
@@ -10177,14 +10173,9 @@ func _fill_scope_chips(row: HFlowContainer, res: Dictionary) -> void:
 		## silence. **So no probe covers the width half, and cannot** -- there
 		## is no chip narrow enough to make it bind.
 		##
-		## **The declined `l` chip is floored too, and the reason is not
-		## symmetry.** Exempting it measures 65 dp for the row instead of 92 --
-		## a real saving, and still rejected: `FindOnMap.dc.html`'s own note
-		## says that scope "ships when a placed landmark has one identifying
-		## name", so `why` is a state this row loses, and an exemption keyed on
-		## `disabled` would put a live chip back under the floor the day it
-		## does, silently. It is also the only chip on line two, so at 17 dp it
-		## draws as a runt under a 44 dp line.
+		## **A declined chip is floored too, and the reason is not symmetry.** No scope is declined today (`l`
+		## was, until landmarks were indexed), but `why` is a state a row can be in again, and an exemption keyed
+		## on `disabled` would put a live chip back under the floor the day one is, silently.
 		if _phone:
 			var tap := float(_ptap(DccTheme.PHONE_TAP_MIN))
 			b.custom_minimum_size = Vector2(tap, tap)
