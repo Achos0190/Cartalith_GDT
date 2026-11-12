@@ -327,6 +327,16 @@ impl KnowledgeIndex {
     /// Builds the corpus. `world` is `None` when no world is open and `vault` is `None` when no
     /// vault is connected (each makes its scope `available: false`, s.5.2).
     pub fn build(world: Option<&WorldSide>, vault: Option<&VaultIndex>) -> Self {
+        Self::build_with_extra_headers(world, vault, &BTreeMap::new())
+    }
+
+    /// [`KnowledgeIndex::build`] with extra contextual-header text appended to the header of the
+    /// units named in `extra` (unit id to text). The extra text is indexed in the lightly weighted
+    /// header field exactly like the deterministic header, and is added to the stored header. This is
+    /// the one hook RK-11's LLM-written chunk context needs: an id with no entry (the writer failed or
+    /// was off) keeps its deterministic header unchanged, and an empty map builds the same index as
+    /// [`KnowledgeIndex::build`] (a test pins the identity).
+    pub fn build_with_extra_headers(world: Option<&WorldSide>, vault: Option<&VaultIndex>, extra: &BTreeMap<String, String>) -> Self {
         // `stats` is borrowed from the Vault index for chunks (cloning 100 000 term tables doubled the
         // peak memory at 10 000 notes, measured) and owned for the few hundred world documents.
         struct Item<'a> {
@@ -337,14 +347,27 @@ impl KnowledgeIndex {
         let mut items: Vec<Item> = Vec::new();
         if let Some(w) = world {
             for d in &w.docs {
-                let stats = TermStats::from_fields([&content_tokens(&d.title), &content_tokens(&d.header), &content_tokens(&d.body)]);
-                items.push(Item { doc: d.clone(), stats: std::borrow::Cow::Owned(stats), note: None });
+                let mut doc = d.clone();
+                if let Some(x) = extra.get(&doc.id) {
+                    doc.header = format!("{}
+{}", doc.header, x);
+                }
+                let stats = TermStats::from_fields([&content_tokens(&doc.title), &content_tokens(&doc.header), &content_tokens(&doc.body)]);
+                items.push(Item { doc, stats: std::borrow::Cow::Owned(stats), note: None });
             }
         }
         if let Some(v) = vault {
             for (path, n) in v.notes() {
                 for c in &n.chunks {
-                    items.push(Item { doc: c.doc.clone(), stats: std::borrow::Cow::Borrowed(&c.stats), note: Some(path.clone()) });
+                    if let Some(x) = extra.get(&c.doc.id) {
+                        let mut doc = c.doc.clone();
+                        doc.header = format!("{}
+{}", doc.header, x);
+                        let stats = TermStats::from_fields([&content_tokens(&doc.title), &content_tokens(&doc.header), &content_tokens(&doc.body)]);
+                        items.push(Item { doc, stats: std::borrow::Cow::Owned(stats), note: Some(path.clone()) });
+                    } else {
+                        items.push(Item { doc: c.doc.clone(), stats: std::borrow::Cow::Borrowed(&c.stats), note: Some(path.clone()) });
+                    }
                 }
             }
         }

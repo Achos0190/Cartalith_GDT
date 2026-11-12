@@ -959,11 +959,17 @@ impl Report {
 
 /// Builds the BM25 index for a world and the synthetic vault written under `root`.
 pub fn build_index(w: &WorldInput, root: &std::path::Path) -> Result<(KnowledgeIndex, VaultIndex), String> {
+    build_index_with(w, root, &BTreeMap::new())
+}
+
+/// [`build_index`] with extra header text for the units in `extra` (RK-11; see
+/// [`KnowledgeIndex::build_with_extra_headers`]). An empty map is `build_index`.
+pub fn build_index_with(w: &WorldInput, root: &std::path::Path, extra: &BTreeMap<String, String>) -> Result<(KnowledgeIndex, VaultIndex), String> {
     let vault = cartalith_vault::FsVault::new(root);
     let mut vi = VaultIndex::new();
     vi.refresh(&vault, KNOWLEDGE_NOTE_CAP).map_err(|e| e.to_string())?;
     let ws = WorldSide::from_input(w);
-    Ok((KnowledgeIndex::build(Some(&ws), Some(&vi)), vi))
+    Ok((KnowledgeIndex::build_with_extra_headers(Some(&ws), Some(&vi), extra), vi))
 }
 
 /// The committed fixture file for one world: its input, the generator's hash and its questions.

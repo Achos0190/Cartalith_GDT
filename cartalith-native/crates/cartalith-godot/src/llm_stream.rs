@@ -179,6 +179,10 @@ struct KnowledgeMode {
     tools: bool,
     /// Why a ticked source is not in use (the hosted rule), for the panel; empty otherwise.
     blocked: String,
+    /// RK-10: whether the embeddings step may send text to an embeddings endpoint. Reads the
+    /// `rag_embeddings` setting, which no shell control writes yet (the checkbox waits on RK-9's live
+    /// verdict), so it is `false` for every shipped setting; an absent key is off, never on.
+    embeddings: bool,
 }
 
 /// The mode for `settings` against the authorised endpoint. Keys: `ctx_rag_world`, `ctx_rag_vault`
@@ -186,7 +190,7 @@ struct KnowledgeMode {
 /// endpoint), `rag_tools` (bool) and `rag_hosted_origins` (the endpoints the user opted in).
 fn knowledge_mode(settings: &VarDictionary, auth: &Authorized) -> KnowledgeMode {
     let ticked = KnowledgeSources { world: flag(settings, "ctx_rag_world"), vault: flag(settings, "ctx_rag_vault") };
-    let off = |blocked: &str| KnowledgeMode { sources: KnowledgeSources::default(), pre: false, tools: false, blocked: blocked.to_owned() };
+    let off = |blocked: &str| KnowledgeMode { sources: KnowledgeSources::default(), pre: false, tools: false, blocked: blocked.to_owned(), embeddings: false };
     if !ticked.any() {
         return off("");
     }
@@ -206,7 +210,8 @@ fn knowledge_mode(settings: &VarDictionary, auth: &Authorized) -> KnowledgeMode 
     if !pre && !tools {
         return off("Both ways of using the knowledge base are switched off.");
     }
-    KnowledgeMode { sources: ticked, pre, tools, blocked: String::new() }
+    let embeddings = cartalith_knowledge::embed::embeddings_enabled(flag(settings, "rag_embeddings"), ticked.any(), auth.local, opted);
+    KnowledgeMode { sources: ticked, pre, tools, blocked: String::new(), embeddings }
 }
 
 /// The units a pack or a reply drew on, as dictionaries (`id`, `label`, `kind`, `title`, `locator`):
@@ -1552,7 +1557,7 @@ impl LlmStream {
             Err(r) => vdict! { "ok" => false, "code" => r.code(), "reason" => r.reason().as_str(), "world" => false, "vault" => false, "pre" => false, "tools" => false },
             Ok(a) => {
                 let km = knowledge_mode(&settings, &a);
-                vdict! { "ok" => true, "world" => km.sources.world, "vault" => km.sources.vault, "pre" => km.pre, "tools" => km.tools, "note" => km.blocked.as_str(), "hosted" => !a.local }
+                vdict! { "ok" => true, "world" => km.sources.world, "vault" => km.sources.vault, "pre" => km.pre, "tools" => km.tools, "note" => km.blocked.as_str(), "hosted" => !a.local, "embeddings" => km.embeddings }
             }
         }
     }

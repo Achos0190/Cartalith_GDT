@@ -1,0 +1,19 @@
+0 live_eval.rs killed | pub const FIGURE_MIN_DIGITS: usize = 1;
+1 live_eval.rs killed | "zzz",
+2 live_eval.rs killed | "zzz",
+3 live_eval.rs SURVIVED | .floor().max(1.0)
+4 live_eval.rs SURVIVED | unsupported == 0
+5 live_eval.rs SURVIVED | on_gold = r.citations.iter().filter(|c| !q.gold.iter().any(|
+6 embed.rs killed | pub const RRF_K: f64 = 61.0;
+7 embed.rs killed | setting_on || any_source_ticked && (endpoint_is_local || hos
+8 embed.rs killed | c.dim == dim &&
+9 embed.rs killed | pub const MAX_EMBED_CHARS: usize = 600;
+10 embed.rs killed | pub const HYBRID_TOP: usize = 5;
+11 gate.rs killed | pub const ADOPT_MIN_LIFT_POINTS: f64 = 5.0;
+12 gate.rs killed | pub const ADOPT_MAX_EXACT_LOSS_POINTS: f64 = 80.0;
+13 rerank.rs killed | pub const MAX_ADDED_QUERY_MS: f64 = 5000.0;
+14 search.rs killed | doc.header = format!("{}
+{}", doc.header, "");
+3 live_eval.rs killed | .floor().max(1.0)
+4 live_eval.rs killed | unsupported == 0
+5 live_eval.rs killed | on_gold = r.citations.iter().filter(|c| !q.gold.iter().any(|

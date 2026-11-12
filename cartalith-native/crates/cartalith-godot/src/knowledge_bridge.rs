@@ -545,6 +545,81 @@ impl WorldGen {
         self.knowledge.clear();
     }
 
+    /// RK-8: prepares one live evaluation on the world that is open. Builds the RK-0 synthetic Vault
+    /// and question set from the world exactly as the committed fixtures were built (the same
+    /// generator, `cartalith_knowledge::eval`), but from THIS world, writes the notes under `dir`
+    /// (created if absent; the caller owns and removes it) and returns
+    /// `{ok: true, seed, vault_hash, notes, questions_json}` or `{ok: false, reason}`.
+    ///
+    /// WHY the live world and not the fixture's: the fixtures were collected through the test
+    /// generator (`fh_r2_baseline`), the app path generates through `generate_sized`; the two worlds
+    /// differ, and a question about a settlement only means something in the world the model is asked
+    /// about. The questions are therefore regenerated from the open world, deterministically.
+    /// Read-only on the world; writes only under `dir`; sends nothing anywhere.
+    #[func]
+    fn knowledge_eval_prepare(&self, dir: GString) -> VarDictionary {
+        let Some(input) = self.knowledge_input() else {
+            return vdict! { "ok" => false, "reason" => "no generated world with a civilisation layer is open" };
+        };
+        match Self::eval_prepare(&input, std::path::Path::new(&dir.to_string())) {
+            Ok((hash, notes, questions_json)) => vdict! { "ok" => true, "seed" => input.seed, "vault_hash" => hash.as_str(), "notes" => notes as i64, "questions_json" => questions_json.as_str() },
+            Err(why) => vdict! { "ok" => false, "reason" => why.as_str() },
+        }
+    }
+
+    /// RK-9: the texts the embedding gate must embed for one committed fixture world, exactly as
+    /// [`cartalith_knowledge::gate::inputs`] defines them (the profile's prefixes applied, the text
+    /// cut). `fixture_path` is a `knowledge_eval_<seed>.json`; `profile` is `qwen3`, `nomic` or `plain`.
+    /// Returns `{ok: true, seed, units: [[id, text]], queries: [[id, text]]}` as JSON text, or
+    /// `{ok: false, reason}`. Reads the fixture and writes the synthetic Vault to a scratch directory
+    /// it removes; touches no world and sends nothing. Independent of any open world.
+    #[func]
+    fn knowledge_gate_inputs(&self, fixture_path: GString, profile: GString) -> GString {
+        let out = (|| -> Result<serde_json::Value, String> {
+            let p = cartalith_knowledge::embed::profile(&profile.to_string()).ok_or_else(|| format!("unknown embedding profile `{profile}` (qwen3, nomic or plain)"))?;
+            let text = std::fs::read_to_string(fixture_path.to_string()).map_err(|e| format!("cannot read the fixture: {e}"))?;
+            let fx: cartalith_knowledge::eval::Fixture = serde_json::from_str(&text).map_err(|e| format!("the fixture does not parse: {e}"))?;
+            let dir = std::env::temp_dir().join(format!("cartalith-gate-inputs-{}-{}", fx.seed, std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let built = cartalith_knowledge::gate::index_for_fixture(&fx, &dir);
+            let _ = std::fs::remove_dir_all(&dir);
+            let (index, qs) = built?;
+            let (units, queries) = cartalith_knowledge::gate::inputs(&index, &qs, &p);
+            Ok(serde_json::json!({ "ok": true, "seed": fx.seed, "units": units, "queries": queries }))
+        })();
+        GString::from(out.unwrap_or_else(|why| serde_json::json!({ "ok": false, "reason": why })).to_string().as_str())
+    }
+
+    /// RK-9: the JSON body of one embeddings request. `kind` is `openai` (`/v1/embeddings`, LM Studio,
+    /// Ollama and hosted) or `ollama` (`/api/embed`); `dimensions` is sent only when above zero.
+    /// Pure; the shell does the HTTP.
+    #[func]
+    fn embeddings_request_body(&self, kind: GString, model: GString, inputs: PackedStringArray, dimensions: i64) -> GString {
+        let ins: Vec<String> = inputs.as_slice().iter().map(|s| s.to_string()).collect();
+        let body = match kind.to_string().as_str() {
+            "ollama" => cartalith_knowledge::embed::ollama_request_body(&model.to_string(), &ins),
+            _ => cartalith_knowledge::embed::openai_request_body(&model.to_string(), &ins, (dimensions > 0).then_some(dimensions as usize)),
+        };
+        GString::from(body.as_str())
+    }
+
+    /// RK-9: reads one embeddings reply (`kind` as above) expecting `expected` vectors. Returns
+    /// `{ok: true, vectors: [[f32]], dim}` as JSON text or `{ok: false, reason}`: a wrong count, a
+    /// ragged or empty set, a non-number or an out-of-order index is an error, never a short result.
+    #[func]
+    fn embeddings_parse(&self, kind: GString, body: GString, expected: i64) -> GString {
+        let n = expected.max(0) as usize;
+        let parsed = match kind.to_string().as_str() {
+            "ollama" => cartalith_knowledge::embed::parse_ollama_response(&body.to_string(), n),
+            _ => cartalith_knowledge::embed::parse_openai_response(&body.to_string(), n),
+        };
+        let v = match parsed {
+            Ok(vs) => serde_json::json!({ "ok": true, "dim": vs.first().map_or(0, Vec::len), "vectors": vs }),
+            Err(why) => serde_json::json!({ "ok": false, "reason": why }),
+        };
+        GString::from(v.to_string().as_str())
+    }
+
     /// The collected [`WorldInput`] as JSON (what the evaluation fixtures commit), or `""` when
     /// there is no generated world. Read-only.
     #[func]
@@ -557,6 +632,17 @@ impl WorldGen {
 }
 
 impl WorldGen {
+    /// The pure part of [`WorldGen::knowledge_eval_prepare`]: builds the RK-0 synthetic Vault and
+    /// questions from `input`, writes the notes under `dir`, and returns `(vault hash, note count,
+    /// questions as JSON)`. A separate function so a unit test can reach it without a Godot object.
+    fn eval_prepare(input: &WorldInput, dir: &std::path::Path) -> Result<(String, usize, String), String> {
+        let sv = cartalith_knowledge::eval::build_vault(input, cartalith_knowledge::eval::MIN_NOTES);
+        let questions = cartalith_knowledge::eval::build_questions(input, &sv);
+        sv.write_to(dir).map_err(|e| format!("the evaluation vault could not be written: {e}"))?;
+        let json = serde_json::to_string(&questions).map_err(|e| format!("the questions could not be serialised: {e}"))?;
+        Ok((sv.hash(), sv.notes.len(), json))
+    }
+
     /// The two source flags of a shell dictionary; anything missing or not a bool reads as OFF.
     fn knowledge_sources_of(d: &VarDictionary) -> cartalith_llm::knowledge_tools::KnowledgeSources {
         cartalith_llm::knowledge_tools::KnowledgeSources { world: crate::llm_bridge::flag(d, "world"), vault: crate::llm_bridge::flag(d, "vault") }
@@ -1004,6 +1090,30 @@ mod tests {
             v[1]
         };
         println!("median over the three worlds: collect {:.3} s, render {:.3} s, build {:.3} s, render+build {:.3} s", m(|x| x.0), m(|x| x.1), m(|x| x.2), m(|x| x.1) + m(|x| x.2));
+    }
+
+    /// Protects RK-8's preparation on three real worlds: the vault is written (the note count equals
+    /// the files on disk), the questions meet RK-0's size bar, the same world prepares to the SAME
+    /// hash and questions twice (determinism), and the questions round-trip through the JSON the
+    /// driver reads. MUTATION: skip `write_to` and the on-disk count goes red.
+    #[test]
+    fn eval_prepare_writes_the_vault_and_is_deterministic_on_three_seeds() {
+        for seed in SEEDS {
+            let (input, ..) = collect(seed);
+            let dir = std::env::temp_dir().join(format!("cart-rk8-prepare-{seed}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let (hash, notes, json) = WorldGen::eval_prepare(&input, &dir).unwrap();
+            fn count(d: &std::path::Path) -> usize {
+                std::fs::read_dir(d).unwrap().map(|e| e.unwrap().path()).map(|p| if p.is_dir() { count(&p) } else { 1 }).sum()
+            }
+            assert_eq!(count(&dir), notes, "seed {seed}: every note is on disk");
+            assert!(notes >= cartalith_knowledge::eval::MIN_NOTES, "seed {seed}");
+            let qs: Vec<cartalith_knowledge::eval::Question> = serde_json::from_str(&json).unwrap();
+            assert!(qs.len() >= cartalith_knowledge::eval::MIN_QUESTIONS, "seed {seed}: {} questions", qs.len());
+            let (hash2, _, json2) = WorldGen::eval_prepare(&input, &dir).unwrap();
+            assert_eq!((hash, json), (hash2, json2), "seed {seed}: preparation is deterministic");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     /// The directory that holds the committed evaluation fixtures (`cartalith-knowledge`'s tests).

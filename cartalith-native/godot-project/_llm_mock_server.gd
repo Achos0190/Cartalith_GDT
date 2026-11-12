@@ -21,6 +21,10 @@ class_name LlmMockServer
 ##   "unauthorized"  401 with a JSON error whose message ECHOES the Authorization header (the
 ##                   realistic key leak the scrubber exists for), Content-Length framed.
 ##   "no_done"       chunked SSE that ends with a finish_reason chunk and closes with no [DONE].
+##   "embeddings"    (RK-9) a NON-streaming embeddings endpoint: `POST .../embeddings` answers the OpenAI shape
+##                   `{data:[{index, embedding}], usage}` and `POST .../api/embed` the Ollama shape
+##                   `{embeddings:[...]}`, one deterministic `embed_dim`-wide vector per input (a pure function of
+##                   the input text, so a repeat run returns identical vectors), Content-Length framed.
 ##   "anthropic"     (LLM-4) the Anthropic Messages typed events: message_start (input_tokens 30,
 ##                   output_tokens 1), content_block_start, ping, one text_delta per token,
 ##                   content_block_stop, message_delta (cumulative output_tokens = token count),
@@ -57,6 +61,8 @@ var client_hangups := 0
 var tokens_sent := 0
 var fail_next := 0
 var fail_status := 529
+## The vector width of the "embeddings" scenario.
+var embed_dim := 8
 ## The scripted replies of the "tools" scenarios, one per request, and how many were served.
 var tool_script: Array = []
 var tool_served := 0
@@ -164,6 +170,36 @@ func _try_parse(c: Dictionary) -> void:
 		var b := payload.to_utf8_buffer()
 		p.put_data(("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n" % b.size()).to_utf8_buffer())
 		p.put_data(b)
+		c["state"] = "done_soon"
+		c["i"] = 1_000_000
+		return
+	if c["scenario"] == "embeddings":
+		var parsed = JSON.parse_string(body)
+		var inputs: Array = parsed.get("input", []) if parsed is Dictionary else []
+		var dim: int = int(parsed.get("dimensions", embed_dim)) if parsed is Dictionary else embed_dim
+		var vecs: Array = []
+		for t in inputs:
+			var v: Array = []
+			var h := String(t).hash()
+			for k in dim:
+				h = (h * 31 + k + 7) % 1000003
+				v.append(float(h % 2001 - 1000) / 1000.0)
+			vecs.append(v)
+		var out := ""
+		if String(req[1] if req.size() > 1 else "").ends_with("/api/embed"):
+			out = JSON.stringify({"model": "mock-embed", "embeddings": vecs})
+		else:
+			var rows: Array = []
+			for n in vecs.size():
+				rows.append({"object": "embedding", "index": n, "embedding": vecs[n]})
+			out = JSON.stringify({"object": "list", "data": rows, "model": "mock-embed", "usage": {"prompt_tokens": inputs.size() * 5, "total_tokens": inputs.size() * 5}})
+		var ob := out.to_utf8_buffer()
+		p.put_data(("HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: %d
+
+" % ob.size()).to_utf8_buffer())
+		p.put_data(ob)
 		c["state"] = "done_soon"
 		c["i"] = 1_000_000
 		return
