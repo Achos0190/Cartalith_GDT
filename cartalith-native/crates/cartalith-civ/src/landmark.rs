@@ -1583,9 +1583,13 @@ pub struct LandmarkInputs<'a> {
     /// loop in [`generate`] for the real reason, which is that such a point
     /// poisons the [`LandmarkReject::needs_crowding`] diagnostic.
     pub manual_icons: &'a [ManualIconMark],
-    /// **The routed way network** — `civ_consolidate_and_smooth_ways`' output,
-    /// the same `Vec<Way>` the map draws. Empty is legal and disarms every
-    /// kind that reads it.
+    /// **The routed way network** — the same `Vec<Way>` the map draws: on the
+    /// reference's network `civ_consolidate_and_smooth_ways`' output; with
+    /// `civ.merge_ways` on (the app's default for new worlds, Ruling EU item 1)
+    /// `civ_consolidate_merged_ways`' output after
+    /// `way_merge::civ_snap_junction_ends` and `civ_join_tracks_to_network`,
+    /// whose junction and track ends are fractional points on another way's
+    /// drawn curve. Empty is legal and disarms every kind that reads it.
     ///
     /// This is the graph §12 asks for, not a rasterised road mask, and the
     /// distinction is the whole reason five kinds were unbuildable until it
@@ -1600,7 +1604,8 @@ pub struct LandmarkInputs<'a> {
     /// a hidden way is not on the map and cannot put a landmark anywhere.
     /// `pts` are in whole-grid cell coordinates — see
     /// `civ_consolidate_and_smooth_ways`, which anchors a run's ends on
-    /// `placement.x`/`.y` directly.
+    /// `placement.x`/`.y` directly (a merged network's junction ends are
+    /// fractional, see above).
     pub ways: &'a [crate::Way],
     /// **The drawn battles** — every `ConflictKind::Battle` in the world's
     /// `ConflictStore`, anchor-resolved ([`BattleMark::from_conflict`]).
@@ -3254,6 +3259,16 @@ const FORD_TERMS: [(&str, f64); 4] = [
 /// carry three. At `3` this kind placed two landmarks against a cap of twenty,
 /// which is the "flag flipped, nothing generated" failure the funnel exists to
 /// expose.
+///
+/// **That argument held for the claim, not for the drawing** (measured
+/// 2026-11-13, `cartalith-godot`'s `way_census::measure_landmarks_on_merged_ways`):
+/// on the reference's network the extend-back pass and corridors a cell or two
+/// apart put two strokes side by side over long stretches, so 2 195 cells of
+/// the owner's world carried two or more ways; with the merged network (Ruling
+/// EU item 1, which draws a shared trunk once and joins a branch's end onto
+/// the trunk's line) 293 do, 1 807 -> 319 and 1 556 -> 259 on the two 1024-wide
+/// census worlds. Road junction still fills its cap of 20 on all three. The
+/// number stays `2`.
 const JUNCTION_MIN_WAYS: usize = 2;
 /// Junction scoring weights: roads meeting 0.45, busiest road 0.30, settlement access 0.25.
 /// The settlement term is included only when settlements exist; the rest

@@ -9571,9 +9571,8 @@ fn consolidate_ways(
             continue;
         }
         let last = w.pts.len() - 1;
-        for idx in [0usize, last] {
-            let pt = w.pts[idx];
-            let mut best: Option<(f64, f64)> = None;
+        let target = |pt: (f64, f64)| -> Option<((f64, f64), f64)> {
+            let mut best: Option<((f64, f64), f64)> = None;
             let mut bd = snap_t2;
             for pi in [w.a_idx, w.b_idx] {
                 if pi >= n {
@@ -9583,12 +9582,31 @@ fn consolidate_ways(
                 let dd = (pt.0 - p.x as f64).powi(2) + (pt.1 - p.y as f64).powi(2);
                 if dd < bd {
                     bd = dd;
-                    best = Some((p.x as f64, p.y as f64));
+                    best = Some(((p.x as f64, p.y as f64), dd));
                 }
             }
-            if let Some(b) = best {
-                w.pts[idx] = b;
+            best
+        };
+        let (t0, t1) = (target(w.pts[0]), target(w.pts[last]));
+        // Merged network only (owner Ruling EU item 1; the reference's path,
+        // `extend_back` on, snaps both ends as before): when both ends of a
+        // run would be pulled onto the same pin, only the nearer one is. The
+        // other is a cut where the run meets the trunk that carries the rest
+        // of the edge, and `way_merge::civ_snap_junction_ends` joins it onto
+        // that trunk; pulling it onto the pin too drew a there-and-back stub
+        // that met nothing. Found 2026-11-13 by `civ_pipeline_tests::
+        // recovery_keeps_every_road_on_the_settlements_it_joined`: once the
+        // merged usage was floored at the reference's (`way_merge`), the
+        // phase-1 rebuild left an edge one run, (160, 18) to a town at
+        // (160, 19), which this snap turned into (160, 19) -> (160, 18) ->
+        // (160, 19), 3.2 cells from the highway it rides.
+        let same_pin = matches!((t0, t1), (Some((p, _)), Some((q, _))) if p == q);
+        for (idx, t, other) in [(0usize, t0, t1), (last, t1, t0)] {
+            let Some((b, dd)) = t else { continue };
+            if !extend_back && same_pin && other.is_some_and(|(_, od)| od < dd || (od == dd && idx == last)) {
+                continue;
             }
+            w.pts[idx] = b;
         }
     }
 

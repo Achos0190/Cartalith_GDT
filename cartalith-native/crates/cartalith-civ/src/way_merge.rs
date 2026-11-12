@@ -372,11 +372,17 @@ pub fn civ_pass1_cost(
 /// `topology.edges`; only the cells between change, and only when the guard
 /// accepts. `usage_count` is then recounted from the kept paths, so a shared
 /// trunk counts every edge riding it (`civ_classify_way` reads each edge's
-/// peak). That peak can also fall: on the owner's world (2048 x 1311, seed
-/// 246371) the reference network's only cell used by 8 edges, the one that
-/// made those 8 edges highways (7 drawn), is used by 7 once one edge no longer
-/// passes through it, so those ways draw as regional roads (`STATUS.md`,
-/// 2026-11-12, measured from the saved `road_edges`).
+/// peak), and **floored per cell at the count the topology came in with**: a
+/// cell never carries less traffic than the reference network routed through
+/// it. Without the floor the peak could fall: on the owner's world (2048 x
+/// 1311, seed 246371) the reference network's only cell used by 8 edges, the
+/// one that made those 8 edges highways (7 drawn), was used by 7 once one edge
+/// no longer passed through it, and every highway drew as a regional road,
+/// thinner and dimmer, on the routes the merge had just made busier (verifier,
+/// 2026-11-12; `STATUS.md`). The ruling asked for routes to merge, not for
+/// their class to drop. An edge that still passes a cell keeps at least the
+/// class that cell gave it; one re-traced off every busy cell is classed by its
+/// new route, by the reference's own rule.
 ///
 /// Sequential by design: each re-trace reads the cells the previous ones laid.
 #[allow(clippy::too_many_arguments)]
@@ -443,11 +449,19 @@ pub fn civ_merge_network_paths(
     for (k, orig) in originals.iter().enumerate() {
         report.rerouted[k] = topology.edges[k].path != *orig;
     }
+    // The recount, floored per cell at the topology's own count (see the doc:
+    // a cell never carries less traffic than the reference network gave it).
+    // An empty or short incoming `usage_count` (a caller that built the
+    // topology by hand) floors nothing.
+    let reference = std::mem::take(&mut topology.usage_count);
     topology.usage_count = vec![0u16; rw * rh];
     for e in &topology.edges {
         for &c in &e.path {
             topology.usage_count[c] = topology.usage_count[c].saturating_add(1);
         }
+    }
+    for (u, &r) in topology.usage_count.iter_mut().zip(&reference) {
+        *u = (*u).max(r);
     }
     report
 }
@@ -488,8 +502,7 @@ fn drawn_runs(w: &Way) -> Vec<Vec<(f64, f64)>> {
 /// way").
 ///
 /// A **junction end** is a way's first or last point that is not on one of its
-/// own two settlements (more than 1.5 cells from both, consolidation's own
-/// `EXTEND_T2` reach). Each is moved to the nearest point of any *other* visible
+/// own two settlements' pins ([`OWN_PIN_CELLS`]). Each is moved to the nearest point of any *other* visible
 /// way's drawn curve within [`JUNCTION_SNAP_CELLS`] (for a road, any other
 /// road: never a village track); an end with nothing that
 /// close is left where it is, and a candidate across a world-wrap seam (more than
@@ -511,6 +524,16 @@ pub fn civ_snap_junction_ends(ways: &mut [Way], places: &[NamedSettlement], gw: 
     }
 }
 
+/// How close, in map cells, a way's end must be to one of its own settlements'
+/// pins to count as that settlement's end, not a junction. Consolidation and its
+/// endpoint snap put a settlement end exactly on the pin, so this is a float
+/// tolerance, not a reach. It was 1.5 cells (consolidation's `EXTEND_T2`)
+/// until 2026-11-13, when `civ_pipeline_tests::
+/// recovery_keeps_every_road_on_the_settlements_it_joined` found a cut a cell
+/// from its own town, 0.28 cells off the trunk it meets, left unjoined
+/// because it counted as on the town.
+pub const OWN_PIN_CELLS: f64 = 1e-6;
+
 /// The most rounds [`civ_snap_junction_ends`] runs. A labelled judgement: each
 /// round only re-joins ends a previous round's moves nudged, by a fraction of a
 /// cell, so the passes settle within two or three; the cap keeps a pathological
@@ -524,7 +547,7 @@ fn snap_round(ways: &mut [Way], places: &[NamedSettlement], gw: usize) -> bool {
         ways.iter().map(|w| if w.hidden || w.pts.len() < 2 { Vec::new() } else { drawn_runs(w) }).collect();
     let own = |w: &Way, p: (f64, f64)| {
         [w.a_idx, w.b_idx].iter().any(|&i| {
-            places.get(i).is_some_and(|s| (p.0 - s.placement.x as f64).hypot(p.1 - s.placement.y as f64) <= 1.5)
+            places.get(i).is_some_and(|s| (p.0 - s.placement.x as f64).hypot(p.1 - s.placement.y as f64) <= OWN_PIN_CELLS)
         })
     };
     for i in 0..ways.len() {
@@ -580,13 +603,42 @@ fn snap_round(ways: &mut [Way], places: &[NamedSettlement], gw: usize) -> bool {
     any
 }
 
-/// The nearest point to `p` on any of `curves` (drawn runs), and its distance,
-/// within `r` cells; candidates more than half the map away in x (across a
-/// wrap seam) are ignored.
-fn nearest_on(curves: &[&Vec<Vec<(f64, f64)>>], p: (f64, f64), r: f64, gw: usize) -> Option<((f64, f64), f64)> {
-    let mut best: Option<((f64, f64), f64)> = None;
-    for runs in curves {
-        for run in runs.iter() {
+/// One line a village track may join: a visible way's drawn runs and their
+/// bounding box (min x, min y, max x, max y), so a far line is skipped cheaply.
+struct Line {
+    runs: Vec<Vec<(f64, f64)>>,
+    bbox: (f64, f64, f64, f64),
+}
+
+impl Line {
+    /// The line of `w` as the overlay draws it ([`drawn_runs`]).
+    fn of(w: &Way) -> Line {
+        let runs = drawn_runs(w);
+        let mut bbox = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for &(x, y) in runs.iter().flatten() {
+            bbox = (bbox.0.min(x), bbox.1.min(y), bbox.2.max(x), bbox.3.max(y));
+        }
+        Line { runs, bbox }
+    }
+
+    /// The first and last point of each drawn run: where the line can meet another.
+    fn ends(&self) -> impl Iterator<Item = (f64, f64)> + '_ {
+        self.runs.iter().filter(|r| !r.is_empty()).flat_map(|r| [r[0], r[r.len() - 1]])
+    }
+
+    /// The nearest point to `p` on this line and its distance, when within `r`
+    /// cells. A segment more than half the map away in x (across a wrap seam) is
+    /// ignored; a line whose box lies more than `r` from `p` is not walked at
+    /// all, unless the box spans more than half the map (a line across the
+    /// seam, which the box cannot describe).
+    fn nearest(&self, p: (f64, f64), r: f64, gw: usize) -> Option<((f64, f64), f64)> {
+        let (x0, y0, x1, y1) = self.bbox;
+        let spans_seam = x1 - x0 > gw as f64 / 2.0;
+        if !spans_seam && (p.0 < x0 - r || p.0 > x1 + r || p.1 < y0 - r || p.1 > y1 + r) {
+            return None;
+        }
+        let mut best: Option<((f64, f64), f64)> = None;
+        for run in &self.runs {
             for seg in run.windows(2) {
                 let (a, b) = (seg[0], seg[1]);
                 if (a.0 - p.0).abs() > gw as f64 / 2.0 {
@@ -602,12 +654,134 @@ fn nearest_on(curves: &[&Vec<Vec<(f64, f64)>>], p: (f64, f64), r: f64, gw: usize
                 }
             }
         }
+        best
     }
-    best
 }
 
-/// Ends every village track where it first reaches the road network or an
-/// earlier village track, joined onto that line (owner Ruling EU item 1).
+/// How close, in map cells, one line's end must lie to another line for the
+/// two to **meet** (a junction a traveller can turn at). A labelled judgement:
+/// `civ_snap_junction_ends` and this pass put a joined end exactly on the
+/// drawn curve, and two ways leaving one settlement both end on its pin, so
+/// half a cell admits every real junction while two lines that merely pass
+/// near each other do not meet.
+const MEET_CELLS: f64 = 0.5;
+
+/// How close, in map cells, a line's end must lie to a track's destination
+/// for the line to **reach** it (a line whose curve passes within
+/// [`MEET_CELLS`] of it reaches it too). 1.5 cells is consolidation's own
+/// `EXTEND_T2` reach, the distance at which a way's end counts as on its
+/// settlement.
+const REACH_PLACE_CELLS: f64 = 1.5;
+
+/// The spacing, in map cells, at which [`joinable_tail`] samples a track's
+/// pen-down segments. A labelled judgement: a sixth of [`JUNCTION_SNAP_CELLS`],
+/// fine enough that a stretch leaving the reach between two control points
+/// cannot be stepped over.
+const TAIL_STEP_CELLS: f64 = 0.5;
+
+/// Where a track may be cut, and onto which lines: the first control point `k`
+/// of the track (`pts`, `brks`), walking from its village end, from which the
+/// whole rest of it, `pts[k..]` to its destination end, is followed by **one
+/// connected chain of lines that reaches the destination**; with the lines of
+/// that chain near `pts[k]`. `None` when no line reaches the destination.
+///
+/// The chain is found walking back from the destination. It starts as every
+/// line that reaches the destination (an end within [`REACH_PLACE_CELLS`] of
+/// it, or its curve within [`MEET_CELLS`]). At each sample further back
+/// (every [`TAIL_STEP_CELLS`] along a pen-down segment; the two ends only of a
+/// pen-up one) a chain line stays in the chain while it is within
+/// [`JUNCTION_SNAP_CELLS`] of the sample, and another line joins the chain when
+/// it is that near the sample and meets a chain line ([`MEET_CELLS`]) within
+/// that distance of the sample. The walk stops at the first sample no chain
+/// line is near.
+///
+/// Why: a track may be cut onto the network only where the network itself goes
+/// on to the track's destination. Cutting at the first point that merely came
+/// near a line (as this pass first did) cut tracks onto a highway that ran the
+/// other way, and a village's walk to the place its track was routed to went
+/// round the network (verifier, 2026-11-12: 43 of 3 599 tracks on the census's
+/// small worlds walked more than twice the straight distance along the drawn
+/// ways, the worst about 15 times, against 1 with the merge off). Requiring
+/// only that the rest lie near *some* line was not enough either (measured with
+/// `way_census::measure_track_detours`: 60 above twice): a highway passing three
+/// cells from a hamlet it never meets covered the last stretch, and two lines
+/// side by side that never meet covered a tail between them. The chain is the
+/// owner's own wording, "merge and become a single way **to the same
+/// destination**".
+fn joinable_tail(
+    pts: &[(f64, f64)],
+    brks: &[usize],
+    lines: &[Line],
+    meets: &[Vec<(usize, (f64, f64))>],
+    gw: usize,
+) -> Option<(usize, Vec<usize>)> {
+    let dest = *pts.last()?;
+    let mut chain: Vec<usize> = (0..lines.len())
+        .filter(|&i| {
+            lines[i].nearest(dest, MEET_CELLS, gw).is_some()
+                || lines[i].ends().any(|e| (e.0 - dest.0).hypot(e.1 - dest.1) <= REACH_PLACE_CELLS)
+        })
+        .collect();
+    if chain.is_empty() {
+        return None;
+    }
+    // One step of the walk: the chain at sample `p`, or `None` when no chain
+    // line is near it.
+    let step = |chain: &[usize], p: (f64, f64)| -> Option<Vec<usize>> {
+        let next: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines[i].nearest(p, JUNCTION_SNAP_CELLS, gw).is_some())
+            .filter(|i| {
+                chain.contains(i)
+                    || meets[*i]
+                        .iter()
+                        .any(|&(j, m)| chain.contains(&j) && (m.0 - p.0).hypot(m.1 - p.1) <= JUNCTION_SNAP_CELLS)
+            })
+            .collect();
+        (!next.is_empty()).then_some(next)
+    };
+    let mut start = None;
+    for k in (0..pts.len()).rev() {
+        let a = pts[k];
+        let samples: Vec<(f64, f64)> = match pts.get(k + 1) {
+            Some(&b) if !brks.contains(&(k + 1)) => {
+                let steps = ((a.0 - b.0).hypot(a.1 - b.1) / TAIL_STEP_CELLS).ceil().max(1.0) as usize;
+                (0..steps)
+                    .rev()
+                    .map(|s| {
+                        let f = s as f64 / steps as f64;
+                        (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f)
+                    })
+                    .collect()
+            }
+            _ => vec![a],
+        };
+        for p in samples {
+            match step(&chain, p) {
+                Some(c) => chain = c,
+                None => return start,
+            }
+        }
+        start = Some((k, chain.clone()));
+    }
+    start
+}
+
+/// Records in `meets` every junction between line `i` and the lines before it:
+/// each end of either within [`MEET_CELLS`] of the other's curve, at that end.
+fn record_meets(lines: &[Line], meets: &mut Vec<Vec<(usize, (f64, f64))>>, i: usize, gw: usize) {
+    meets.resize(lines.len(), Vec::new());
+    for j in 0..i {
+        let mut at: Vec<(f64, f64)> = lines[i].ends().filter(|&e| lines[j].nearest(e, MEET_CELLS, gw).is_some()).collect();
+        at.extend(lines[j].ends().filter(|&e| lines[i].nearest(e, MEET_CELLS, gw).is_some()));
+        for m in at {
+            meets[i].push((j, m));
+            meets[j].push((i, m));
+        }
+    }
+}
+
+/// Ends every village track where the road network or an earlier village track
+/// takes it on to its destination, joined onto that line (owner Ruling EU item 1).
 ///
 /// The village connector (`tools::civ_connect_village_addons`, the reference's
 /// `_civConnectVillageAddons`) routes each track from its village to the nearest
@@ -616,24 +790,28 @@ fn nearest_on(curves: &[&Vec<Vec<(f64, f64)>>], p: (f64, f64), r: f64, gw: usize
 /// town, a second stroke a cell or two off the first (measured: most of the
 /// convergent bundles left at four times the opening view on the census worlds
 /// once the network itself is merged; `STATUS.md`, 2026-11-12). Here a track
-/// (`WayType::Ancient`, not hidden) is cut at its first control point, walking
-/// from the village end, within [`JUNCTION_SNAP_CELLS`] of a visible non-track
-/// way's drawn curve, and that point is moved onto the curve.
+/// (`WayType::Ancient`, not hidden) is cut at the first control point, walking
+/// from the village end, from which **the whole rest of the track** stays within
+/// [`JUNCTION_SNAP_CELLS`] of one connected chain of lines that reaches its
+/// destination ([`joinable_tail`]), and that point is moved onto the nearest
+/// line of that chain. A line that merely passes near the track, runs the other
+/// way, or never meets the lines that reach the destination never takes it.
 ///
 /// Tracks are taken in order, and each track's kept line (cut or whole) is
 /// added to the lines later tracks join, so two tracks running side by side
-/// into the same town become one: the later one ends where it first comes
-/// within [`JUNCTION_SNAP_CELLS`] of the earlier one. Measured on the census's
+/// into the same town become one: the later one ends where the earlier one
+/// carries the rest of its way. Measured on the census's
 /// 18 small worlds with villages before this was added
 /// (`way_census::diagnose_residual_bundle_pairs`, 2026-11-12): every
 /// convergent bundle left at the opening view (16 of 16) and 64 of the 72 at
 /// x4 ran between two tracks, none between a track and a road. A track joined
 /// onto another track still reaches the network through it (the earlier track
 /// is final when it is added), and the order is the connector's own, so the
-/// result is deterministic. A track that never comes that close to a road or
-/// an earlier track is left whole. A village already
-/// on a road keeps a two-point track from its pin to the road; one whose pin is
-/// exactly on the line is hidden (nothing to draw). `km` is scaled by the share
+/// result is deterministic. A track whose destination end is not on a line
+/// (a village routed to another village that has no kept line yet) is left
+/// whole. A village whose whole track runs along the lines keeps a two-point
+/// track from its pin to the nearest line; one whose pin is exactly on the line
+/// is hidden (nothing to draw). `km` is scaled by the share
 /// of the control polyline kept, a labelled approximation of the consolidation's
 /// sample-based figure. `b_idx` stays the place the track was routed to.
 ///
@@ -641,12 +819,16 @@ fn nearest_on(curves: &[&Vec<Vec<(f64, f64)>>], p: (f64, f64), r: f64, gw: usize
 /// village end, and never touch a non-track way.
 pub fn civ_join_tracks_to_network(ways: &mut [Way], gw: usize) {
     // The lines a track may join: every visible road first, then each track's
-    // kept line as it is finished (see the doc).
-    let mut lines: Vec<Vec<Vec<(f64, f64)>>> = ways
+    // kept line as it is finished (see the doc), with the junctions between them.
+    let mut lines: Vec<Line> = ways
         .iter()
         .filter(|w| !w.hidden && w.pts.len() >= 2 && w.way_type != crate::WayType::Ancient)
-        .map(drawn_runs)
+        .map(Line::of)
         .collect();
+    let mut meets: Vec<Vec<(usize, (f64, f64))>> = Vec::new();
+    for i in 0..lines.len() {
+        record_meets(&lines, &mut meets, i, gw);
+    }
     let length = |pts: &[(f64, f64)], brks: &[usize]| -> f64 {
         pts.windows(2)
             .enumerate()
@@ -658,12 +840,13 @@ pub fn civ_join_tracks_to_network(ways: &mut [Way], gw: usize) {
         if w.hidden || w.pts.len() < 2 || w.way_type != crate::WayType::Ancient {
             continue;
         }
-        let refs: Vec<&Vec<Vec<(f64, f64)>>> = lines.iter().collect();
-        let hit = w
-            .pts
-            .iter()
-            .enumerate()
-            .find_map(|(k, &p)| nearest_on(&refs, p, JUNCTION_SNAP_CELLS, gw).map(|hit| (k, hit)));
+        let hit = joinable_tail(&w.pts, &w.brks, &lines, &meets, gw).and_then(|(k, chain)| {
+            chain
+                .iter()
+                .filter_map(|&i| lines[i].nearest(w.pts[k], JUNCTION_SNAP_CELLS, gw))
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|hit| (k, hit))
+        });
         if let Some((k, (q, d))) = hit {
             let before = length(&w.pts, &w.brks);
             if k == 0 {
@@ -682,7 +865,8 @@ pub fn civ_join_tracks_to_network(ways: &mut [Way], gw: usize) {
                 w.km *= length(&w.pts, &w.brks) / before;
             }
         }
-        lines.push(drawn_runs(w));
+        lines.push(Line::of(w));
+        record_meets(&lines, &mut meets, lines.len() - 1, gw);
     }
 }
 
@@ -843,11 +1027,13 @@ mod tests {
         assert_eq!(JUNCTION_SNAP_CELLS, 3.0);
     }
 
-    /// Protects: a village track that runs beside a road into town is cut where it
-    /// first comes within 3 cells of the road and joined onto it; its village end
+    /// Protects: a village track that runs beside a road into town (the road
+    /// reaches the town) is cut where it first comes within 3 cells of the road
+    /// for the rest of its way, and joined onto it; its village end
     /// never moves; a track that never nears a road is left whole; a non-track way
     /// is never touched. Fixture: a road along y = 10; a track from a village at
-    /// (20, 30) down to (20, 12) then beside the road (y = 11.5) to (35, 11.5).
+    /// (20, 30) down to (20, 12) then beside the road (y = 11.5) to (35, 11.5)
+    /// and into the town at the road's end, (40, 10).
     #[test]
     fn a_village_track_ends_where_it_reaches_the_road() {
         let way = |pts: Vec<(f64, f64)>, t, a, b| Way {
@@ -855,7 +1041,7 @@ mod tests {
         };
         let road = way(vec![(0.0, 10.0), (20.0, 10.0), (40.0, 10.0)], crate::WayType::Road, 0, 1);
         let track = way(
-            vec![(20.0, 30.0), (20.0, 20.0), (20.0, 14.0), (20.0, 11.5), (28.0, 11.5), (35.0, 11.5)],
+            vec![(20.0, 30.0), (20.0, 20.0), (20.0, 14.0), (20.0, 11.5), (28.0, 11.5), (35.0, 11.5), (40.0, 10.0)],
             crate::WayType::Ancient, 2, 1,
         );
         let lone = way(vec![(5.0, 40.0), (15.0, 40.0)], crate::WayType::Ancient, 3, 2);
@@ -873,7 +1059,7 @@ mod tests {
 
     /// Protects: a village track that runs beside an earlier village track into
     /// the same town is cut where it first comes within 3 cells of that track's
-    /// kept line, and joined onto it; the earlier track is untouched; the order
+    /// kept line for the rest of its way, and joined onto it; the earlier track is untouched; the order
     /// is the slice's (the earlier track never joins the later one). Fixture:
     /// no road at all; track A from a village at (0, 10) east along y = 10 to a
     /// town at (40, 10); track B from a village at (0, 30) to (10, 14.5), then
@@ -895,6 +1081,266 @@ mod tests {
         let end = ways[1].pts[2];
         assert!((end.0 - 20.0).abs() < 1e-6 && (end.1 - 10.0).abs() < 1e-6, "joined onto track A: {end:?}");
         assert!(ways[1].km < 10.0 && ways[1].km > 0.0);
+    }
+
+    /// Protects: a track is never cut onto a line that does not carry it on to
+    /// its destination (verifier finding, 2026-11-12: a village pin 3 cells from
+    /// a highway running the other way became a stub onto it, and its walk to
+    /// the hamlet it was routed to went from 6.1 cells to 94.1). Fixture: a road
+    /// along x = 10 from y 0 to 40; a village at (12, 20), 2 cells from it,
+    /// whose track runs east to a hamlet at (30, 20). The track must stay
+    /// whole. Control: the same village with a track that runs along the road
+    /// to a town on it, (12, 20) to (12, 38) to (10, 40), is cut at its pin
+    /// (a two-point track onto the road), so the rule did not just switch the
+    /// join off.
+    #[test]
+    fn a_track_is_not_cut_onto_a_line_running_away_from_its_destination() {
+        let way = |pts: Vec<(f64, f64)>, t, a, b| Way {
+            tid: 0, pts, brks: Vec::new(), km: 10.0, name: String::new(), way_type: t, a_idx: a, b_idx: b, hidden: false,
+        };
+        let road = way(vec![(10.0, 0.0), (10.0, 20.0), (10.0, 40.0)], crate::WayType::Road, 0, 1);
+        let away = way(vec![(12.0, 20.0), (20.0, 20.0), (30.0, 20.0)], crate::WayType::Ancient, 2, 3);
+        let mut ways = vec![road.clone(), away.clone()];
+        civ_join_tracks_to_network(&mut ways, 64);
+        assert_eq!(ways[1], away, "a road running across the track's way does not take it east");
+        let along = way(vec![(12.0, 20.0), (12.0, 38.0), (10.0, 40.0)], crate::WayType::Ancient, 2, 1);
+        let mut ways = vec![road, along];
+        civ_join_tracks_to_network(&mut ways, 64);
+        assert_eq!(ways[1].pts.len(), 2, "{:?}", ways[1].pts);
+        assert_eq!(ways[1].pts[0], (12.0, 20.0), "the village end never moves");
+        let end = ways[1].pts[1];
+        assert!((end.0 - 10.0).abs() < 1e-9 && (end.1 - 20.0).abs() < 1e-9, "joined onto the road: {end:?}");
+        assert!(!ways[1].hidden);
+    }
+
+    /// Protects: a line that passes near a track's destination but never meets
+    /// the lines that reach it does not take the track (the verifier's case on
+    /// the 256 x 192 world of seed 12345: a village 2 cells from a highway,
+    /// routed to a hamlet 3 cells from the same highway, became a stub onto it,
+    /// and its walk to the hamlet along the drawn ways went from 6 cells to
+    /// about 100). Fixture: a road along x = 110; a hamlet at (107, 93) whose
+    /// own earlier track runs west, (107, 93) to (95, 93); a village at
+    /// (112, 97) routed to the hamlet: (112, 97), (110.5, 95), (108, 93.5),
+    /// (107, 93). The whole track lies within 3 cells of the road or the
+    /// hamlet's track, but the road meets neither the hamlet nor its track, so
+    /// the track is cut only where the hamlet's track carries it: at
+    /// (108, 93.5), onto that track.
+    #[test]
+    fn a_line_that_never_meets_the_destination_does_not_take_the_track() {
+        let way = |pts: Vec<(f64, f64)>, t, a, b| Way {
+            tid: 0, pts, brks: Vec::new(), km: 10.0, name: String::new(), way_type: t, a_idx: a, b_idx: b, hidden: false,
+        };
+        let road = way(vec![(110.0, 60.0), (110.0, 93.0), (110.0, 130.0)], crate::WayType::Road, 0, 1);
+        let hamlet = way(vec![(107.0, 93.0), (101.0, 93.0), (95.0, 93.0)], crate::WayType::Ancient, 2, 3);
+        let village = way(vec![(112.0, 97.0), (110.5, 95.0), (108.0, 93.5), (107.0, 93.0)], crate::WayType::Ancient, 4, 2);
+        let mut ways = vec![road, hamlet.clone(), village];
+        civ_join_tracks_to_network(&mut ways, 256);
+        assert_eq!(ways[1], hamlet, "premise: the hamlet's own track meets no line and stays whole");
+        assert_eq!(ways[2].pts.len(), 3, "cut at (108, 93.5): {:?}", ways[2].pts);
+        assert_eq!(ways[2].pts[1], (110.5, 95.0));
+        let end = ways[2].pts[2];
+        assert!((end.1 - 93.0).abs() < 1e-6 && end.0 <= 107.0 + 1e-6, "joined onto the hamlet's track: {end:?}");
+        // The same with the road ending at (110, 93), 3 cells from the hamlet:
+        // an end that close is still not on the hamlet (`REACH_PLACE_CELLS`,
+        // 1.5), so the road still does not take the track.
+        let road = way(vec![(110.0, 60.0), (110.0, 76.0), (110.0, 93.0)], crate::WayType::Road, 0, 1);
+        let village = way(vec![(112.0, 97.0), (110.5, 95.0), (108.0, 93.5), (107.0, 93.0)], crate::WayType::Ancient, 4, 2);
+        let mut ways = vec![road, hamlet, village];
+        civ_join_tracks_to_network(&mut ways, 256);
+        assert_eq!(ways[2].pts.len(), 3, "cut at (108, 93.5): {:?}", ways[2].pts);
+        assert_eq!(ways[2].pts[1], (110.5, 95.0));
+    }
+
+    /// Protects: the chain may pass from one line to another where the two
+    /// meet, so a track beside two roads that join is taken by both. Fixture:
+    /// road A along y = 10 from x 0 to 30; road B from A's end (30, 10) south to
+    /// a town at (30, 40); a track from a village at (5, 25) to (5, 11.5), beside
+    /// A to (28.5, 11.5), beside B to (28.5, 38), into the town. It is cut at
+    /// (5, 11.5), onto A. Were lines not allowed to hand over where they meet,
+    /// the cut would be at (28.5, 11.5), leaving a track beside A.
+    #[test]
+    fn a_track_beside_two_roads_that_meet_is_taken_by_both() {
+        let way = |pts: Vec<(f64, f64)>, t, a, b| Way {
+            tid: 0, pts, brks: Vec::new(), km: 10.0, name: String::new(), way_type: t, a_idx: a, b_idx: b, hidden: false,
+        };
+        let a = way(vec![(0.0, 10.0), (15.0, 10.0), (30.0, 10.0)], crate::WayType::Road, 0, 1);
+        let b = way(vec![(30.0, 10.0), (30.0, 25.0), (30.0, 40.0)], crate::WayType::Road, 1, 2);
+        let track = way(
+            vec![(5.0, 25.0), (5.0, 11.5), (28.5, 11.5), (28.5, 38.0), (30.0, 40.0)],
+            crate::WayType::Ancient, 3, 2,
+        );
+        let mut ways = vec![a, b, track];
+        civ_join_tracks_to_network(&mut ways, 128);
+        assert_eq!(ways[2].pts.len(), 2, "cut at (5, 11.5): {:?}", ways[2].pts);
+        let end = ways[2].pts[1];
+        assert!((end.0 - 5.0).abs() < 1e-6 && (end.1 - 10.0).abs() < 1e-6, "joined onto road A: {end:?}");
+    }
+
+    /// Protects: the rest of a track is judged along each segment, not only at
+    /// its control points. Fixture: a road along y = 10 that dips to (30, 20)
+    /// between x 20 and 40, to a town at (60, 10); a track from a village at
+    /// (20, 30) to (20, 11.5), then straight across the dip to (40, 11.5)
+    /// (both ends 1.5 cells off the road, its middle about 6 off), then beside
+    /// the road to the town. It is cut at (40, 11.5), where the road starts to
+    /// carry it, not at (20, 11.5): the 20-cell shortcut leaves the road.
+    #[test]
+    fn a_track_that_cuts_across_a_bend_is_cut_after_the_bend() {
+        let way = |pts: Vec<(f64, f64)>, t, a, b| Way {
+            tid: 0, pts, brks: Vec::new(), km: 10.0, name: String::new(), way_type: t, a_idx: a, b_idx: b, hidden: false,
+        };
+        let road = way(
+            vec![(0.0, 10.0), (20.0, 10.0), (30.0, 20.0), (40.0, 10.0), (60.0, 10.0)],
+            crate::WayType::Road, 0, 1,
+        );
+        let track = way(
+            vec![(20.0, 30.0), (20.0, 11.5), (40.0, 11.5), (60.0, 11.5), (60.0, 10.0)],
+            crate::WayType::Ancient, 2, 1,
+        );
+        let mut ways = vec![road, track];
+        civ_join_tracks_to_network(&mut ways, 128);
+        assert_eq!(ways[1].pts.len(), 3, "cut at (40, 11.5): {:?}", ways[1].pts);
+        assert_eq!(ways[1].pts[1], (20.0, 11.5));
+        let end = ways[1].pts[2];
+        assert!((end.0 - 40.0).hypot(end.1 - 10.0) < 1.5, "joined onto the road: {end:?}");
+    }
+
+    /// Protects: a pen-up segment (a gap the track does not draw: the jump
+    /// across a wrapping world's seam) is judged by its two ends, not by the
+    /// straight line between them across the map. Fixture, a 64-wide world: a
+    /// road along y = 10 from x 58 to 63, a seam break, then x 0 to 5 (a town
+    /// at (5, 10)); a track from a village at (58, 25) to (58, 11.5), beside the
+    /// road to (63, 11.5), a seam break, then (0, 11.5) and the town. It is cut
+    /// at (58, 11.5), where the road carries the rest of it across the seam.
+    #[test]
+    fn a_track_crossing_the_seam_beside_a_road_is_cut_before_it() {
+        let road = Way {
+            tid: 0, pts: vec![(58.0, 10.0), (63.0, 10.0), (0.0, 10.0), (5.0, 10.0)], brks: vec![2], km: 10.0,
+            name: String::new(), way_type: crate::WayType::Road, a_idx: 0, b_idx: 1, hidden: false,
+        };
+        let track = Way {
+            tid: 0, pts: vec![(58.0, 25.0), (58.0, 11.5), (63.0, 11.5), (0.0, 11.5), (5.0, 10.0)], brks: vec![3],
+            km: 10.0, name: String::new(), way_type: crate::WayType::Ancient, a_idx: 2, b_idx: 1, hidden: false,
+        };
+        let mut ways = vec![road.clone(), track];
+        civ_join_tracks_to_network(&mut ways, 64);
+        assert_eq!(ways[1].pts.len(), 2, "cut at (58, 11.5): {:?}", ways[1].pts);
+        assert!(ways[1].brks.is_empty(), "the seam break went with the cut: {:?}", ways[1].brks);
+        assert_eq!(ways[1].pts[1], (58.0, 10.0));
+        // A pen-up segment whose near end is far from every line stops the walk:
+        // a track that reaches the seam at (63, 20), 10 cells off the road, is
+        // cut only on the far side, at (0, 11.5), and keeps its seam break.
+        let far = Way {
+            tid: 0, pts: vec![(58.0, 25.0), (63.0, 20.0), (0.0, 11.5), (5.0, 10.0)], brks: vec![2], km: 10.0,
+            name: String::new(), way_type: crate::WayType::Ancient, a_idx: 2, b_idx: 1, hidden: false,
+        };
+        let mut ways = vec![road, far];
+        civ_join_tracks_to_network(&mut ways, 64);
+        assert_eq!(ways[1].pts.len(), 3, "cut at (0, 11.5): {:?}", ways[1].pts);
+        assert_eq!(ways[1].brks, vec![2]);
+        assert_eq!(ways[1].pts[2], (0.0, 10.0));
+    }
+
+    /// Protects: a village whose pin is exactly on a line that carries its whole
+    /// track is hidden (there is nothing left to draw), not kept as a zero-length
+    /// stroke. Fixture: a road along y = 10 from x 0 to 40 (town at (40, 10)); a
+    /// village on it at (20, 10) whose track runs along it to the town.
+    #[test]
+    fn a_track_whose_village_is_on_the_line_is_hidden() {
+        let way = |pts: Vec<(f64, f64)>, t, a, b| Way {
+            tid: 0, pts, brks: Vec::new(), km: 10.0, name: String::new(), way_type: t, a_idx: a, b_idx: b, hidden: false,
+        };
+        let road = way(vec![(0.0, 10.0), (20.0, 10.0), (40.0, 10.0)], crate::WayType::Road, 0, 1);
+        let on = way(vec![(20.0, 10.0), (30.0, 10.0), (40.0, 10.0)], crate::WayType::Ancient, 2, 1);
+        let mut ways = vec![road, on];
+        civ_join_tracks_to_network(&mut ways, 64);
+        assert!(ways[1].hidden, "{:?}", ways[1]);
+    }
+
+    /// Protects: passes after the first take the edge being re-traced out of
+    /// the laid cells, so it is drawn only to the *other* edges' cells (the
+    /// reason for `PASSES`). Fixture, on a flat 120 x 24 grid: a town-town edge
+    /// along row 8 from x 20 to 100 is laid first (tier sum 6); four short
+    /// hamlet-hamlet edges (sum 2) along row 13, x 20-40, 40-60, 60-80 and
+    /// 80-100, are laid after it. Each hamlet edge is too short to climb five
+    /// rows to the town road within the 15 % guard, so after pass 1 row 13
+    /// carries a parallel line. In pass 2 the town road, re-traced against
+    /// the hamlet edges only, moves onto row 13. Were its own row-8 cells still
+    /// counted as laid it would stay on them (they are discounted as much as
+    /// row 13 and need no climb), which is what this test catches. Control:
+    /// with one pass the town road stays on row 8.
+    #[test]
+    fn a_later_pass_moves_an_early_edge_onto_a_trunk_laid_after_it() {
+        let (w, h) = (120, 24);
+        let field = vec![0.6f32; w * h];
+        let zeros_f = vec![0.0f32; w * h];
+        let zeros_o = vec![0i16; w * h];
+        let zeros_b = vec![7u8; w * h];
+        let zeros_w = vec![0u8; w * h];
+        let place = |x, y, kind| SettlementPlacement { x, y, suit: 0.5, faction: 1, capital: false, kind, coastal: false };
+        let mut places = vec![place(20, 8, SettlementKind::Town), place(100, 8, SettlementKind::Town)];
+        for x in [20, 40, 60, 80, 100] {
+            places.push(place(x, 13, SettlementKind::Hamlet));
+        }
+        let mut edges = vec![RoadEdge { a: 0, b: 1, path: row(8, 20, 100, w) }];
+        for k in 0..4 {
+            edges.push(RoadEdge { a: 2 + k, b: 3 + k, path: row(13, 20 + 20 * k, 40 + 20 * k, w) });
+        }
+        // Settlement gravity reads `places`: only the two towns are given, so the
+        // hamlets do not bend the routes towards themselves and the fixture tests
+        // the pass mechanics alone; the tiers still come from all seven (`kinds`).
+        let kinds: Vec<SettlementKind> = places.iter().map(|p| p.kind).collect();
+        let run = |passes: usize| {
+            let mut topo = HierarchicalNetworkResult { edges: edges.clone(), usage_count: vec![0; w * h], degree_of: vec![1; 7] };
+            let rep = civ_merge_network_paths(
+                &mut topo, &places[..2], &kinds, w, h, 0.4, &field, &zeros_f, &zeros_o, &zeros_b, &zeros_w, false, 600.0,
+                &WayMergeOpts { passes, ..WayMergeOpts::default() },
+            );
+            (topo, rep)
+        };
+        let (one, _) = run(1);
+        let near_town_road = |t: &HierarchicalNetworkResult| {
+            t.edges[1..].iter().flat_map(|e| e.path.iter()).filter(|&&c| c / w <= 10).count()
+        };
+        assert_eq!(near_town_road(&one), 0, "premise: no hamlet edge climbs towards the town road in pass 1");
+        assert_eq!(one.edges[0].path, edges[0].path, "control: with one pass the town road keeps row 8");
+        let (three, rep3) = run(3);
+        assert!(rep3.rerouted[0], "the town road moves in a later pass");
+        let on13 = three.edges[0].path.iter().filter(|&&c| c / w == 13).count();
+        assert!(on13 >= 60, "only {on13} of {} cells on row 13", three.edges[0].path.len());
+        assert!(rep3.kept_cost[0] <= rep3.original_cost[0] * (1.0 + DETOUR_TOL));
+    }
+
+    /// Protects: the recount never drops a cell below the count the topology
+    /// came in with (verifier finding, 2026-11-12: on the owner's world the one
+    /// cell used by 8 edges fell to 7 and every highway drew as a regional
+    /// road). Fixture: one hamlet-hamlet edge along row 5 of a flat 40 x 12 grid
+    /// whose incoming `usage_count` says 8 edges used its middle cell (the
+    /// reference network's count, which this lone edge cannot reproduce). After
+    /// the merge that cell still reads 8 (literal), so `civ_classify_way` still
+    /// makes the edge a highway; the next cell, which came in at 0, reads 1.
+    #[test]
+    fn the_recount_keeps_the_reference_networks_traffic_as_a_floor() {
+        let (w, h) = (40, 12);
+        let field = vec![0.6f32; w * h];
+        let zeros_f = vec![0.0f32; w * h];
+        let zeros_o = vec![0i16; w * h];
+        let zeros_b = vec![7u8; w * h];
+        let zeros_w = vec![0u8; w * h];
+        let place = |x, y| SettlementPlacement { x, y, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Hamlet, coastal: false };
+        let places = vec![place(4, 5), place(35, 5)];
+        let path = row(5, 4, 35, w);
+        let mid = path[15];
+        let mut usage = vec![0u16; w * h];
+        usage[mid] = 8;
+        let mut topo = HierarchicalNetworkResult { edges: vec![RoadEdge { a: 0, b: 1, path }], usage_count: usage, degree_of: vec![1; 2] };
+        let kinds = [SettlementKind::Hamlet, SettlementKind::Hamlet];
+        civ_merge_network_paths(
+            &mut topo, &places, &kinds, w, h, 0.4, &field, &zeros_f, &zeros_o, &zeros_b, &zeros_w, false, 600.0,
+            &WayMergeOpts::default(),
+        );
+        assert!(topo.edges[0].path.contains(&mid), "premise: the lone edge keeps its straight row");
+        assert_eq!(topo.usage_count[mid], 8);
+        assert_eq!(topo.usage_count[mid + 1], 1);
     }
 
     /// Protects: the window. Its margin is `max(16, ceil(0.25 * longer side))`

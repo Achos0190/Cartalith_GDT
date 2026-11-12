@@ -25,11 +25,20 @@ extends Node
 ## Result: a measurement, not a pass/fail gate; windowed only. Command per the header: `--path . _roadsettle_probe.tscn
 ## -- --out DIR` (`--out` required; `--seed N` default 483920, `--grid WxH` default 512x384; the code also reads
 ## `--metropolis`, `--river-density` and `--geology-model` and `--focus`, which the header does not list). Prints
-## `ROADSETTLE  <text>` lines and ends `ROADSETTLE  ---- done ----`; it writes PNG crops into `--out`. Exit 0 when the
+## `ROADSETTLE  <text>` lines and ends `ROADSETTLE  ---- done ----`; it writes PNG crops into `--out`. Each
+## edge group end more than 2 cells from its own settlement is also judged against the other groups' drawn lines
+## (a junction on a merged network, Ruling EU item 1) and listed `HANGING` when it lies on none. Exit 0 when the
 ## run finishes whatever it measured; 2 for headless, a bad argument or the 600 s watchdog (stderr `PROBE-CANNOT-RUN:
 ## ...`).
 
 const DEEP := 16.0
+## How close, in map cells, a group's far end must lie to another group's drawn
+## line to count as a junction on it rather than a hanging end. The render step
+## of a drawn way (`WAY_RENDER_STEP_CELLS`, 0.25 cells in `cartalith-godot`'s
+## `way_render_polyline`): `way_merge::civ_snap_junction_ends` moves the end onto
+## that sampled curve, so a joined end lies on it to within the spacing of its
+## samples. A labelled judgement, not a measurement.
+const JUNCTION_ON_WAY_CELLS := 0.25
 
 var GRID := Vector2i(512, 384)
 var _seed := 483920
@@ -213,6 +222,9 @@ func _measure(tag: String) -> void:
 		else:
 			groups.append({"name": gnm, "p0": gpts[0], "p1": gpts[gpts.size() - 1]})
 	var way_far := []
+	var junction_ends := 0
+	var hanging_ends := 0
+	var hanging := []
 	for g: Dictionary in groups:
 		var nm := String(g["name"])
 		if not nm.contains(" → "):
@@ -233,12 +245,28 @@ func _measure(tag: String) -> void:
 		else:
 			d0 = p0.distance_to(cb); d1 = p1.distance_to(ca)
 		if d0 > 2.0 or d1 > 2.0:
+			## On a merged network (Ruling EU item 1) a group may end at a
+			## junction on another drawn way instead of at its settlement: each
+			## far end is measured against every OTHER group's drawn line, and
+			## counted as a junction when it lies on one (within
+			## `JUNCTION_ON_WAY_CELLS`), else as hanging.
+			for end_pt: Vector2 in ([p0] if d0 > 2.0 else []) + ([p1] if d1 > 2.0 else []):
+				var dj := _dist_to_other_roads(roads, end_pt, nm)
+				if dj <= JUNCTION_ON_WAY_CELLS:
+					junction_ends += 1
+				else:
+					hanging_ends += 1
+					hanging.append("%s end=%s nearest other way=%.2f cells" % [nm, end_pt, dj])
 			way_far.append("%s  way_p0=%s way_p1=%s  d(near-end to its own settlement)=%.2f/%.2f cells" % [
 				nm, p0, p1, d0, d1])
 	_p("%s  ---- per-edge check: %d ways in %d edge groups, %d groups with an end >2 cells from its OWN settlement ----" % [
 		tag, roads.size(), groups.size(), way_far.size()])
+	_p("%s  ---- of those ends: %d on another drawn way (<= %.2f cells), %d hanging ----" % [
+		tag, junction_ends, JUNCTION_ON_WAY_CELLS, hanging_ends])
 	for f in way_far:
 		_p("%s  WAY-FAR: %s" % [tag, f])
+	for f in hanging:
+		_p("%s  HANGING: %s" % [tag, f])
 	if _focus != Vector2.INF and focus_best_name != "":
 		_p("%s  FOCUS nearest settlement to %s: %s cell=%s dist_from_focus=%.2f" % [
 			tag, _focus, focus_best_name, focus_cell, focus_best_d])
@@ -252,6 +280,20 @@ func _measure(tag: String) -> void:
 		var cell0 := Vector2(float(first["x"]), float(first["y"]))
 		var marker0: Vector2 = xf * ov._cell_to_screen(cell0, rect)
 		_crop(img, marker0, "roadsettle_%s_first" % tag, 160)
+
+
+## The distance, in map cells, from `pt` to the nearest segment of any road in
+## `roads` whose name is not `skip` (a group's own runs share its name).
+func _dist_to_other_roads(roads: Array, pt: Vector2, skip: String) -> float:
+	var best := INF
+	for r: Dictionary in roads:
+		if String(r.get("name", "")) == skip:
+			continue
+		var pts: PackedVector2Array = r.get("points", PackedVector2Array())
+		for k in range(pts.size() - 1):
+			var q := Geometry2D.get_closest_point_to_segment(pt, pts[k], pts[k + 1])
+			best = minf(best, pt.distance_to(q))
+	return best
 
 
 func _ready() -> void:

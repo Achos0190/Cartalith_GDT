@@ -25,6 +25,11 @@ extends Node
 ##   --metropolis         metropolis on (default off)
 ##   --merge on|off       `civ.merge_ways` for this generation (default on)
 ##   --focus X,Y          grid point the x4/x16 frames centre on (default the map centre)
+##   --window WxH         the window size the app boots at (default 1600x1000); the
+##                        shell classifies its form factor off it, so 393x852 opens
+##                        the phone shell and 1280x800 the tablet's (MS-1), when
+##                        `--force-touch` is also given (a desktop has no touchscreen)
+##   --force-touch        passed through to the shell (`dcc_shell.gd`)
 ##
 ## Prints `WAYBUNDLE  <text>` lines and ends `WAYBUNDLE  ---- done ----`.
 ## Exit 0 when it measured a positive scale over a world with roads; 2 when it
@@ -40,6 +45,7 @@ var _merge := true
 var _out := ""
 var _tag := "wb"
 var _focus := Vector2.INF
+var _window := Vector2i(1600, 1000)
 var _app: Node
 var _vh: Control
 var _br: Node
@@ -75,6 +81,10 @@ func _parse_args() -> bool:
 				_metropolis = true
 			"--merge":
 				_merge = args[i + 1] == "on"; i += 1
+			"--force-touch":
+				pass  ## read by `dcc_shell.gd` itself: with `--window`, boots the touch shell
+			"--window":
+				var wv := args[i + 1].split("x"); _window = Vector2i(int(wv[0]), int(wv[1])); i += 1
 			"--focus":
 				var f := args[i + 1].split(","); _focus = Vector2(float(f[0]), float(f[1])); i += 1
 			_:
@@ -138,7 +148,7 @@ func _ready() -> void:
 		return
 	get_tree().create_timer(900.0).timeout.connect(func() -> void:
 		printerr("PROBE-CANNOT-RUN: watchdog"); get_tree().quit(2))
-	DisplayServer.window_set_size(Vector2i(1600, 1000))
+	DisplayServer.window_set_size(_window)
 	await _frames(2)
 	_app = load("res://shell/app.tscn").instantiate()
 	add_child(_app)
@@ -168,7 +178,18 @@ func _ready() -> void:
 	var ppc := _px_per_cell()
 	var host: Vector2 = _vh.size
 	var ft: float = get_viewport().get_final_transform().x.x
-	_p("merge=%s seed=%d grid=%dx%d roads=%d" % [str(_merge), _seed, GRID.x, GRID.y, roads.size()])
+	_p("merge=%s seed=%d grid=%dx%d roads=%d window=%dx%d" % [str(_merge), _seed, GRID.x, GRID.y, roads.size(), _window.x, _window.y])
+	## The drawn classes, as `get_roads()` reports them (verifier finding on
+	## Ruling EU item 1, 2026-11-12: the owner world's highways had turned into
+	## regional roads): count and summed `km` per `way_type`, village tracks apart.
+	var classes := {}
+	for r: Dictionary in roads:
+		var key := "village_track" if bool(r.get("village_addon", false)) else String(r.get("way_type", "?"))
+		var c: Array = classes.get(key, [0, 0.0])
+		classes[key] = [int(c[0]) + 1, float(c[1]) + float(r.get("km", 0.0))]
+	for key in ["highway", "regional", "road", "track", "village_track"]:
+		var c: Array = classes.get(key, [0, 0.0])
+		_p("class %s n=%d km=%.0f" % [key, int(c[0]), float(c[1])])
 	_p("fit px_per_cell=%.4f viewport_host=%dx%d final_transform=%.3f zoom=%.4f" % [ppc, host.x, host.y, ft, _vh.zoom()])
 	if not (ppc > 0.0):
 		printerr("PROBE-CANNOT-RUN: no positive scale at the opening view")

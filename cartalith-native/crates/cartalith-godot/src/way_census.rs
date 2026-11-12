@@ -40,6 +40,19 @@ pub(crate) const FIT_HOST: (f64, f64) = (1104.0, 923.0);
 /// reports both rows so neither host is assumed for the other.
 pub(crate) const DOCKED_HOST: (f64, f64) = (950.0, 834.0);
 
+/// The phone shell's opening map area, screen px: `ViewportHost`'s size as
+/// `_waybundle_probe.gd --window 393x852 --force-touch` printed it on the owner
+/// world (393 x 852, 0.6499 px a cell), run 2026-11-13 on this branch. The
+/// window is the 393 x 852 dp phone the shell's probes use, at content scale
+/// 1.0 on this desktop; a handset's own density is not measured here.
+pub(crate) const PHONE_HOST: (f64, f64) = (393.0, 852.0);
+
+/// The tablet shell's opening map area, screen px: `ViewportHost`'s size as
+/// `_waybundle_probe.gd --window 1280x800 --force-touch` printed it on the
+/// owner world (793 x 566 with the left dock open, 0.4317 px a cell, the
+/// tightest of the four hosts), run 2026-11-13 on this branch.
+pub(crate) const TABLET_HOST: (f64, f64) = (793.0, 566.0);
+
 /// Screen pixels per map cell at the opening view for a `gw x gh` world:
 /// `ViewportHost.reset_view`'s cover scale over [`FIT_HOST`].
 pub(crate) fn fit_px_per_cell(gw: usize, gh: usize) -> f64 {
@@ -420,9 +433,20 @@ fn the_docked_scale_matches_the_probe_on_the_owner_world() {
     assert!((v - 0.6362).abs() < 0.001, "{v}");
 }
 
+/// Protects: [`PHONE_HOST`] and [`TABLET_HOST`] reproduce the 0.6499 and 0.4317
+/// px a cell the probe read on the owner world in the phone and tablet shells
+/// (2026-11-13). Literals, not the formula against itself.
+#[test]
+fn the_phone_and_tablet_scales_match_the_probe_on_the_owner_world() {
+    let (p, t) = (host_px_per_cell(PHONE_HOST, 2048, 1311), host_px_per_cell(TABLET_HOST, 2048, 1311));
+    assert!((p - 0.6499).abs() < 0.001, "{p}");
+    assert!((t - 0.4317).abs() < 0.001, "{t}");
+}
+
 /// Measurement (Ruling EU item 1, MW-0 and MW-4): OFF then ON on the three
-/// main worlds, the owner world first, each at both opening-view map areas
-/// ([`FIT_HOST`], then [`DOCKED_HOST`], tagged `@1104` and `@950`). Protects:
+/// main worlds, the owner world first, each at the four opening-view map areas
+/// ([`FIT_HOST`], [`DOCKED_HOST`], [`PHONE_HOST`] and [`TABLET_HOST`], tagged
+/// `@1104`, `@950`, `@phone393` and `@tablet793`). Protects:
 /// nothing; red can only mean a panic or an empty network (asserted, so a
 /// world that stops reaching the code fails loudly).
 #[test]
@@ -436,7 +460,9 @@ fn measure_way_bundles() {
         assert!(off.ways.len() > 3, "{}: no network", s.tag);
         let on_p = params_for(&s, true);
         let on = civ_for(&ws, &on_p);
-        for (host, at) in [(FIT_HOST, "@1104"), (DOCKED_HOST, "@950")] {
+        for (host, at) in
+            [(FIT_HOST, "@1104"), (DOCKED_HOST, "@950"), (PHONE_HOST, "@phone393"), (TABLET_HOST, "@tablet793")]
+        {
             let (r_off, climbs) = audit_at(&ws, &off_p, &CivView::of(&off), None, host);
             println!("{}", line(s.tag, &format!("OFF{at}"), &r_off));
             let (r_on, _) = audit_at(&ws, &on_p, &CivView::of(&on), Some(&climbs), host);
@@ -608,7 +634,7 @@ fn diagnose_remaining_overlaps() {
 }
 
 /// Diagnosis (Ruling EU item 1's residue, R5): on the 18 small worlds with
-/// villages on and the merge ON, every convergent bundle stretch left at the
+/// villages on (or, with `BUNDLE_DIAG_MAIN` set, the three main worlds) and the merge ON, every convergent bundle stretch left at the
 /// opening view and at x4, counted by the pair of way classes it runs between
 /// (track-track, track-road, road-road; "road" is any non-track class). Says
 /// which pair the residue is, so a fix can aim at it. Protects nothing; red
@@ -617,9 +643,10 @@ fn diagnose_remaining_overlaps() {
 #[ignore = "measurement; run alone in release"]
 fn diagnose_residual_bundle_pairs() {
     let mut tot: std::collections::BTreeMap<(&str, &str), (usize, f64)> = std::collections::BTreeMap::new();
+    let mut specs: Vec<Spec> = Vec::new();
     for size in [256usize, 384, 512] {
         for seed in [12345, 24601, 314159, 7, 99991, 719004] {
-            let s = Spec {
+            specs.push(Spec {
                 tag: "small",
                 seed,
                 gw: size,
@@ -628,7 +655,17 @@ fn diagnose_residual_bundle_pairs() {
                 density: 1.0,
                 metropolis: false,
                 villages: true,
-            };
+            });
+        }
+    }
+    // `BUNDLE_DIAG_MAIN` set: the three main worlds instead (2026-11-13, to
+    // find where their last x4 stretches lie for the frames).
+    if std::env::var("BUNDLE_DIAG_MAIN").is_ok() {
+        specs = MAIN.to_vec();
+    }
+    {
+        for s in specs {
+            let (size, seed) = (s.gw, s.seed);
             let p = params_for(&s, true);
             let ws = cartalith_engine::generate_terrain(&p);
             let on = civ_for(&ws, &p);
@@ -667,5 +704,481 @@ fn diagnose_residual_bundle_pairs() {
     }
     for ((at, pair), (n, km)) in &tot {
         println!("TOTAL {at} {pair}: {n} stretches, {km:.0} km");
+    }
+}
+
+/// The length of the shortest walk along the drawn visible ways from map point
+/// `from` to map point `to`, in map cells, or `None` when no drawn way joins
+/// them within `cap` cells.
+///
+/// Method (the one the 2026-11-12 verifier used for its track-detour figures,
+/// re-implemented here so the census can repeat it): every pen-down segment of
+/// every drawn way is sampled at 0.25 cells and each sample marks its map cell
+/// ([`drawn_way_cells`]); the marked cells form an 8-connected graph (step 1,
+/// diagonal sqrt 2). Each end joins the graph at any marked cell whose centre is
+/// within 1.5 cells of it (consolidation's own `EXTEND_T2` reach), paying that
+/// straight distance. Measurement only.
+pub(crate) fn drawn_way_distance(
+    marked: &[bool],
+    gw: usize,
+    gh: usize,
+    from: (f64, f64),
+    to: (f64, f64),
+    cap: f64,
+) -> Option<f64> {
+    use std::collections::{BinaryHeap, HashMap};
+    let cells_near = |p: (f64, f64)| -> Vec<(usize, f64)> {
+        let mut v = Vec::new();
+        let (cx, cy) = (p.0.floor() as isize, p.1.floor() as isize);
+        for dy in -2isize..=2 {
+            for dx in -2isize..=2 {
+                let (x, y) = (cx + dx, cy + dy);
+                if x < 0 || y < 0 || x >= gw as isize || y >= gh as isize {
+                    continue;
+                }
+                let i = y as usize * gw + x as usize;
+                let d = (x as f64 + 0.5 - p.0).hypot(y as f64 + 0.5 - p.1);
+                if marked[i] && d <= 1.5 {
+                    v.push((i, d));
+                }
+            }
+        }
+        v
+    };
+    let targets: HashMap<usize, f64> = cells_near(to).into_iter().collect();
+    if targets.is_empty() {
+        return None;
+    }
+    /// A min-heap key, ties by cell index so the walk is deterministic.
+    #[derive(PartialEq)]
+    struct K(f64, usize);
+    impl Eq for K {}
+    impl Ord for K {
+        fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+            o.0.total_cmp(&self.0).then_with(|| o.1.cmp(&self.1))
+        }
+    }
+    impl PartialOrd for K {
+        fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(o))
+        }
+    }
+    let mut dist: HashMap<usize, f64> = HashMap::new();
+    let mut heap = BinaryHeap::new();
+    for (i, d) in cells_near(from) {
+        dist.insert(i, d);
+        heap.push(K(d, i));
+    }
+    let mut best = f64::INFINITY;
+    while let Some(K(d, i)) = heap.pop() {
+        if d >= best || d > cap {
+            break;
+        }
+        if dist.get(&i).is_some_and(|&b| d > b) {
+            continue;
+        }
+        if let Some(&t) = targets.get(&i) {
+            best = best.min(d + t);
+        }
+        let (x, y) = ((i % gw) as isize, (i / gw) as isize);
+        for dy in -1isize..=1 {
+            for dx in -1isize..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let (nx, ny) = (x + dx, y + dy);
+                if nx < 0 || ny < 0 || nx >= gw as isize || ny >= gh as isize {
+                    continue;
+                }
+                let j = ny as usize * gw + nx as usize;
+                if !marked[j] {
+                    continue;
+                }
+                let nd = d + if dx != 0 && dy != 0 { std::f64::consts::SQRT_2 } else { 1.0 };
+                if dist.get(&j).is_none_or(|&b| nd < b) {
+                    dist.insert(j, nd);
+                    heap.push(K(nd, j));
+                }
+            }
+        }
+    }
+    best.is_finite().then_some(best)
+}
+
+/// The map cells the drawn visible ways of `c` cover, for
+/// [`drawn_way_distance`]: each pen-down segment of [`drawn`]'s polylines
+/// sampled every 0.25 cells.
+pub(crate) fn drawn_way_cells(c: &CivView, gw: usize, gh: usize) -> Vec<bool> {
+    let mut marked = vec![false; gw * gh];
+    for (pts, brks, _) in drawn(c) {
+        for (k, s) in pts.windows(2).enumerate() {
+            if brks.contains(&(k + 1)) {
+                continue;
+            }
+            let len = (s[1].0 - s[0].0).hypot(s[1].1 - s[0].1);
+            let n = (len / 0.25).ceil().max(1.0) as usize;
+            for t in 0..=n {
+                let f = t as f64 / n as f64;
+                let (x, y) = (s[0].0 + (s[1].0 - s[0].0) * f, s[0].1 + (s[1].1 - s[0].1) * f);
+                let (xi, yi) = (x.floor(), y.floor());
+                if xi >= 0.0 && yi >= 0.0 && (xi as usize) < gw && (yi as usize) < gh {
+                    marked[yi as usize * gw + xi as usize] = true;
+                }
+            }
+        }
+    }
+    marked
+}
+
+/// Per village track of `c`: the walk along drawn ways from its village pin
+/// (`a_idx`) to the place it was routed to (`b_idx`), over the straight
+/// distance. Returns `(ratios, unreached)`; a pair less than 1 cell apart is
+/// skipped (the ratio means nothing there). Hidden tracks are measured too:
+/// their village must still reach the destination along the network.
+pub(crate) fn track_detours(c: &CivView, gw: usize, gh: usize) -> (Vec<f64>, usize) {
+    let marked = drawn_way_cells(c, gw, gh);
+    let pt = |i: usize| c.settlements.get(i).map(|s| (s.placement.x as f64, s.placement.y as f64));
+    let mut ratios = Vec::new();
+    let mut unreached = 0;
+    for w in c.ways.iter().filter(|w| w.way_type == WayType::Ancient) {
+        let (Some(a), Some(b)) = (pt(w.a_idx), pt(w.b_idx)) else { continue };
+        let straight = (a.0 - b.0).hypot(a.1 - b.1);
+        if straight < 1.0 {
+            continue;
+        }
+        match drawn_way_distance(&marked, gw, gh, a, b, straight * 40.0 + 20.0) {
+            Some(d) => ratios.push(d / straight),
+            None => unreached += 1,
+        }
+    }
+    (ratios, unreached)
+}
+
+/// Protects: [`drawn_way_distance`] walks the drawn line, not the straight
+/// gap. Fixture: an L of two drawn segments, (2.5, 2.5) to (20.5, 2.5) to
+/// (20.5, 20.5) on a 32 x 32 grid; the walk between its two ends is 17 steps,
+/// one diagonal across the corner and 17 more, 34 + sqrt 2 cells (literal),
+/// against a straight 25.5; a point 8 cells off every line is not joined
+/// (`None`).
+#[test]
+fn the_drawn_way_walk_follows_the_line() {
+    let (gw, gh) = (32usize, 32usize);
+    let mut marked = vec![false; gw * gh];
+    for x in 2..=20 {
+        marked[2 * gw + x] = true;
+    }
+    for y in 2..=20 {
+        marked[y * gw + 20] = true;
+    }
+    let d = drawn_way_distance(&marked, gw, gh, (2.5, 2.5), (20.5, 20.5), 1000.0).unwrap();
+    assert!((d - (34.0 + std::f64::consts::SQRT_2)).abs() < 1e-9, "{d}");
+    assert_eq!(drawn_way_distance(&marked, gw, gh, (2.5, 2.5), (10.5, 10.5), 1000.0), None);
+}
+
+/// Measurement (verifier finding on Ruling EU item 1, 2026-11-12): how far a
+/// village must walk along the drawn ways to reach the place its track was
+/// routed to, over the straight distance, OFF then ON, on the 18 small worlds
+/// with villages (or, with `TRACK_DETOUR_MAIN` set, the three main worlds).
+/// Prints, per variant, the tracks measured, how many are above 2x, 3x and 5x,
+/// the maximum, and how many are not joined at all. Protects nothing; red can
+/// only mean a panic.
+#[test]
+#[ignore = "measurement; run alone in release"]
+fn measure_track_detours() {
+    let mut tot = [[0usize; 5]; 2];
+    let mut max = [0.0f64; 2];
+    let mut specs: Vec<Spec> = Vec::new();
+    for size in [256usize, 384, 512] {
+        for seed in [12345, 24601, 314159, 7, 99991, 719004] {
+            specs.push(Spec {
+                tag: "small",
+                seed,
+                gw: size,
+                gh: size * 3 / 4,
+                km: crate::params::defaults().map_width_km,
+                density: 1.0,
+                metropolis: false,
+                villages: true,
+            });
+        }
+    }
+    if std::env::var("TRACK_DETOUR_MAIN").is_ok() {
+        specs = MAIN.to_vec();
+    }
+    for s in specs {
+        let ws = cartalith_engine::generate_terrain(&params_for(&s, false));
+        for (v, merge) in [false, true].into_iter().enumerate() {
+            let p = params_for(&s, merge);
+            let c = civ_for(&ws, &p);
+            let (r, un) = track_detours(&CivView::of(&c), p.gw, p.gh);
+            let m = r.iter().copied().fold(0.0, f64::max);
+            let over = |k: f64| r.iter().filter(|&&x| x > k).count();
+            println!(
+                "{}/{} {} | tracks {} | >2x {} >3x {} >5x {} max {:.2} | unreached {}",
+                s.gw,
+                s.seed,
+                if merge { "ON" } else { "OFF" },
+                r.len(),
+                over(2.0),
+                over(3.0),
+                over(5.0),
+                m,
+                un
+            );
+            for (k, x) in [r.len(), over(2.0), over(3.0), over(5.0), un].into_iter().enumerate() {
+                tot[v][k] += x;
+            }
+            max[v] = max[v].max(m);
+        }
+    }
+    for (v, name) in ["OFF", "ON"].iter().enumerate() {
+        println!(
+            "TOTAL {name} | tracks {} | >2x {} >3x {} >5x {} max {:.2} | unreached {}",
+            tot[v][0], tot[v][1], tot[v][2], tot[v][3], max[v], tot[v][4]
+        );
+    }
+}
+
+/// Per drawn class of `c`'s visible land ways: `(count, km)` by the polylines
+/// the overlay strokes, in `WayType` order highway, regional, road, track,
+/// village track.
+pub(crate) fn class_census(c: &CivView, km_per_cell: f64) -> [(usize, f64); 5] {
+    let mut out = [(0usize, 0.0f64); 5];
+    for (pts, brks, w) in drawn(c) {
+        let k = match w.way_type {
+            WayType::Highway => 0,
+            WayType::Regional => 1,
+            WayType::Road => 2,
+            WayType::Track => 3,
+            WayType::Ancient => 4,
+        };
+        let aw = AuditWay { pts: &pts, brks: &brks, under_px: under_px(w.way_type), ends: (w.a_idx, w.b_idx) };
+        out[k].0 += 1;
+        out[k].1 += way_audit::drawn_length(&[aw]) * km_per_cell;
+    }
+    out
+}
+
+/// `map_overlay.gd`'s `SEA_ROUTE_UNDERLAY_WIDTH`, screen px: the sea lane's
+/// under-stroke, for the bundle measure's touch distance.
+const SEA_UNDER_PX: f64 = 1.5;
+
+/// The sea-lane audit (verifier finding on Ruling EU item 1, 2026-11-12: the
+/// map draws sea routes too and nothing had checked them). One line per
+/// layer: lanes, km drawn, drawn samples on land (every 0.25 cells, more than
+/// one cell from either end, whose rounded cell is class 0 in the layer's
+/// water classification, the same rule `way_audit::water_samples` uses for
+/// water, inverted), exact duplicates, and parallel stretches between two
+/// lanes at the opening view and at x4 (`way_audit::bundle_stretches`, the
+/// same thresholds as the land census; a lane carries no settlement indices,
+/// so a stretch is convergent only by meeting).
+pub(crate) fn sea_route_line(c: &CivData, gw: usize, gh: usize, km_per_cell: f64, fit: AuditView) -> String {
+    let geo: Vec<(Vec<(f64, f64)>, Vec<usize>)> =
+        c.sea_routes.iter().map(|s| way_render_polyline(&s.pts, &s.brks)).collect();
+    let ways: Vec<AuditWay> = geo
+        .iter()
+        .map(|(pts, brks)| AuditWay { pts, brks, under_px: SEA_UNDER_PX, ends: (usize::MAX, usize::MAX) })
+        .collect();
+    let mut land = 0usize;
+    for (pts, brks) in &geo {
+        let (Some(&first), Some(&last)) = (pts.first(), pts.last()) else { continue };
+        for (k, s) in pts.windows(2).enumerate() {
+            if brks.contains(&(k + 1)) {
+                continue;
+            }
+            let len = (s[1].0 - s[0].0).hypot(s[1].1 - s[0].1);
+            let n = (len / 0.25).ceil().max(1.0) as usize;
+            for t in 0..n {
+                let f = t as f64 / n as f64;
+                let (x, y) = (s[0].0 + (s[1].0 - s[0].0) * f, s[0].1 + (s[1].1 - s[0].1) * f);
+                if (x - first.0).hypot(y - first.1) <= 1.0 || (x - last.0).hypot(y - last.1) <= 1.0 {
+                    continue;
+                }
+                let (cx, cy) = (x.round().clamp(0.0, gw as f64 - 1.0) as usize, y.round().clamp(0.0, gh as f64 - 1.0) as usize);
+                if c.water_bodies[cy * gw + cx] == 0 {
+                    land += 1;
+                }
+            }
+        }
+    }
+    let mut dups = 0;
+    for i in 0..c.sea_routes.len() {
+        for j in i + 1..c.sea_routes.len() {
+            let (a, b) = (&c.sea_routes[i].pts, &c.sea_routes[j].pts);
+            if a == b || a.iter().eq(b.iter().rev()) {
+                dups += 1;
+            }
+        }
+    }
+    let x4 = AuditView { px_per_cell: fit.px_per_cell * 4.0 };
+    let tally = |v: AuditView| {
+        let st = way_audit::bundle_stretches(&ways, &[], v);
+        let over = st.iter().filter(|s| s.overlap).count();
+        let par: Vec<_> = st.iter().filter(|s| !s.overlap).collect();
+        let km: f64 = par.iter().map(|s| s.len_px / v.px_per_cell * km_per_cell).sum();
+        format!("{} ({} convergent) {:.0} km, overlap {}", par.len(), par.iter().filter(|s| s.convergent).count(), km, over)
+    };
+    format!(
+        "lanes {} km {:.0} | on land {} | dup {} | parallel fit {} | x4 {}",
+        c.sea_routes.len(),
+        way_audit::drawn_length(&ways) * km_per_cell,
+        land,
+        dups,
+        tally(fit),
+        tally(x4)
+    )
+}
+
+/// Measurement (verifier findings on Ruling EU item 1, 2026-11-12): on the
+/// three main worlds, OFF then ON, the drawn land ways by class (count and km)
+/// and the sea-lane audit ([`sea_route_line`]), plus whether the two layers'
+/// sea lanes are identical. Protects nothing; red can only mean a panic or an
+/// empty network.
+#[test]
+#[ignore = "measurement; run alone in release"]
+fn measure_way_classes_and_sea_lanes() {
+    for s in MAIN {
+        let ws = cartalith_engine::generate_terrain(&params_for(&s, false));
+        let mut lanes = Vec::new();
+        for merge in [false, true] {
+            let p = params_for(&s, merge);
+            let c = civ_for(&ws, &p);
+            assert!(c.ways.len() > 3, "{}: no network", s.tag);
+            let km_per_cell = p.map_width_km / p.gw as f64;
+            let cl = class_census(&CivView::of(&c), km_per_cell);
+            let v = if merge { "ON" } else { "OFF" };
+            println!(
+                "{} {v} | highway {} {:.0} km | regional {} {:.0} | road {} {:.0} | track {} {:.0} | village track {} {:.0}",
+                s.tag, cl[0].0, cl[0].1, cl[1].0, cl[1].1, cl[2].0, cl[2].1, cl[3].0, cl[3].1, cl[4].0, cl[4].1
+            );
+            let fit = AuditView { px_per_cell: fit_px_per_cell(p.gw, p.gh) };
+            println!("{} {v} sea | {}", s.tag, sea_route_line(&c, p.gw, p.gh, km_per_cell, fit));
+            lanes.push(c.sea_routes.iter().map(|r| r.pts.clone()).collect::<Vec<_>>());
+        }
+        println!("{} sea lanes identical OFF/ON: {}", s.tag, lanes[0] == lanes[1]);
+    }
+}
+
+/// Measurement (verifier finding on Ruling EU item 1, 2026-11-12: landmark
+/// generation reads the merged ways and had not been measured). On the three
+/// main worlds, OFF then ON, the landmark pass is run over the layer's ways
+/// with the inputs `WorldGen::with_landmark_inputs` gives it that a headless
+/// world has (terrain, flow, channels, order, water, territory, corridors,
+/// resources, volcanism, settlements, ways; no icons, battles, history, karst
+/// or rock column), and the placed count of every kind that reads the ways is
+/// printed (placed, of the cells in its domain, and how many of those passed
+/// its constraint: for road junction, the cells where two or more visible ways
+/// meet), with the total over all kinds. Protects nothing.
+#[test]
+#[ignore = "measurement; run alone in release"]
+fn measure_landmarks_on_merged_ways() {
+    const WAY_KINDS: [&str; 5] = ["road_junction", "bridge_site", "market_site", "caravan_station", "trade_depot"];
+    for s in MAIN {
+        let ws = cartalith_engine::generate_terrain(&params_for(&s, false));
+        for merge in [false, true] {
+            let p = params_for(&s, merge);
+            let c = civ_for(&ws, &p);
+            let (rp, corridors, _) =
+                crate::landmark_geology_inputs(&ws, &c, p.gw, p.gh, p.world, ws.sea_level, p.map_width_km);
+            let pairs = crate::landmark_resource_pairs(&rp);
+            let sites: Vec<_> = c.settlements.iter().map(crate::landmark_bridge::settlement_to_site).collect();
+            let mut inp = cartalith_civ::landmark::LandmarkInputs::new(
+                &ws.field, p.gw, p.gh, ws.sea_level, p.world, p.map_width_km,
+            );
+            if p.peak_m > 0.0 {
+                inp.peak_m = p.peak_m;
+            }
+            inp.flow = Some(&ws.flow_discharge);
+            inp.channel = ws.channels.as_ref().map(|x| x.chan.as_slice());
+            inp.recv = ws.channels.as_ref().map(|x| x.recv.as_slice());
+            inp.order = ws.stream_order.as_deref();
+            inp.water = Some(&c.water_bodies);
+            inp.territory = Some(&c.territory);
+            inp.corridors = Some(&corridors);
+            inp.volcanism = Some(&ws.volcanic_field);
+            inp.volcanoes = ws.volcanoes.as_deref().map(|v| v.as_slice());
+            inp.resources = &pairs;
+            inp.settlements = &sites;
+            inp.ways = &c.ways;
+            let r = cartalith_civ::landmark::generate(
+                &inp,
+                &cartalith_civ::landmark::LandmarkSettings::default(),
+                s.seed as u64,
+            );
+            let row: Vec<String> = r
+                .funnels
+                .iter()
+                .filter(|f| WAY_KINDS.contains(&f.kind.as_str()))
+                .map(|f| format!("{} {} of {} ({} past the constraint)", f.kind, f.placed, f.candidates, f.candidates - f.rejected_constraint))
+                .collect();
+            println!(
+                "{} {} | {} | all kinds placed {}",
+                s.tag,
+                if merge { "ON" } else { "OFF" },
+                row.join(" | "),
+                r.landmarks.len()
+            );
+        }
+    }
+}
+
+/// Diagnosis (verifier finding on Ruling EU item 1, 2026-11-12): on one small
+/// world (`TRACK_DIAG` = `"SIZE/SEED"`, default `256/12345`), ON, every village
+/// track whose walk along the drawn ways is more than 3 times the straight
+/// distance: the track's points, whether it is hidden, its two ends, and every
+/// other visible way passing within 4 cells of the village pin. Protects
+/// nothing.
+#[test]
+#[ignore = "measurement; run alone in release"]
+fn diagnose_track_detours() {
+    let spec = std::env::var("TRACK_DIAG").unwrap_or_else(|_| "256/12345".to_string());
+    let mut it = spec.split('/');
+    let size: usize = it.next().and_then(|s| s.parse().ok()).expect("SIZE/SEED");
+    let seed: i32 = it.next().and_then(|s| s.parse().ok()).expect("SIZE/SEED");
+    let s = Spec {
+        tag: "diag",
+        seed,
+        gw: size,
+        gh: size * 3 / 4,
+        km: crate::params::defaults().map_width_km,
+        density: 1.0,
+        metropolis: false,
+        villages: true,
+    };
+    let p = params_for(&s, true);
+    let ws = cartalith_engine::generate_terrain(&p);
+    let c = civ_for(&ws, &p);
+    let view = CivView::of(&c);
+    let marked = drawn_way_cells(&view, p.gw, p.gh);
+    let pt = |i: usize| (c.settlements[i].placement.x as f64, c.settlements[i].placement.y as f64);
+    for (wi, w) in c.ways.iter().enumerate().filter(|(_, w)| w.way_type == WayType::Ancient) {
+        let (a, b) = (pt(w.a_idx), pt(w.b_idx));
+        let straight = (a.0 - b.0).hypot(a.1 - b.1);
+        if straight < 1.0 {
+            continue;
+        }
+        let d = drawn_way_distance(&marked, p.gw, p.gh, a, b, straight * 40.0 + 20.0);
+        if d.is_some_and(|d| d / straight <= 3.0) {
+            continue;
+        }
+        println!(
+            "W{wi} {} -> {} | {:?} -> {:?} straight {:.1} walk {:?} | hidden {} pts {:?}",
+            c.settlements[w.a_idx].name, c.settlements[w.b_idx].name, a, b, straight, d, w.hidden, w.pts
+        );
+        for (wj, o) in c.ways.iter().enumerate() {
+            if wj == wi || o.hidden {
+                continue;
+            }
+            let close = o.pts.windows(2).any(|sg| {
+                let (p0, p1) = (sg[0], sg[1]);
+                let (sx, sy) = (p1.0 - p0.0, p1.1 - p0.1);
+                let l2 = sx * sx + sy * sy;
+                let t = if l2 > 0.0 { (((a.0 - p0.0) * sx + (a.1 - p0.1) * sy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                (a.0 - p0.0 - sx * t).hypot(a.1 - p0.1 - sy * t) <= 4.0
+            });
+            if close {
+                println!("    near: W{wj} {:?} {} | {:?}", o.way_type, o.name, o.pts);
+            }
+        }
     }
 }

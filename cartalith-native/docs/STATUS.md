@@ -140,7 +140,7 @@ Delta on the owner world should be re-measured on the owner's real saved paramet
 
 ---
 
-### Shared road trunks (Ruling EU item 1): built, ON for new worlds (2026-11-12)
+### Shared road trunks (Ruling EU item 1): built, ON for new worlds (2026-11-12; verifier findings answered 2026-11-13)
 
 Owner: *"when any of them at any point come close to eachother visually just merge and become a single way to the same
 destination"* (Ruling EU item 1). **Built:** `cartalith_civ::way_merge` (`civ_merge_network_paths`, `civ_join_tracks_to_network`,
@@ -261,6 +261,89 @@ metropolis pick, so pairs, tiers and seats are unchanged by construction; only p
   - **Verified:** `cargo test --workspace --no-fail-fast` (now including `cartalith-knowledge`'s integration tests and the
     doc-tests): **272 result lines, 7 997 passed, 0 failed, 157 ignored**. No `.gd` changed; `--check-only` on `shell/app.gd`
     passes; `godot --headless --import` left `project.godot` byte-identical.
+- **Second follow-up, 2026-11-13 (the verifier's 16 findings on item 1; on `origin/main` `da0dbbbf`).** Each was checked at its
+  symbol before anything changed.
+  - **Tracks cut onto roads running the other way: confirmed, fixed.** New measure `way_census::measure_track_detours`: the
+    walk along the drawn ways (rasterised at 0.25 cells, 8-connected) from each village pin to the place its track was routed
+    to, over the straight distance, on the 18 small worlds. Before: OFF 3 of 3 599 above 2x (max 2.17); ON **57 above 2x, 12
+    above 3x, 4 above 5x, max 15.85, 2 not joined**. Requiring only that the rest of a track lie near *some* line was not
+    enough (60 / 16 / 7, max 16.37; `diagnose_track_detours` showed highways passing 3 cells from hamlets they never meet).
+    `civ_join_tracks_to_network` now cuts a track only where **one connected chain of lines that reaches its destination**
+    carries the whole rest of it (`way_merge::joinable_tail`; lines meet within `MEET_CELLS` 0.5, a line reaches a place with
+    an end within `REACH_PLACE_CELLS` 1.5 or its curve within 0.5). After: ON **18 above 2x, 0 above 3x, max 2.88, 0 not
+    joined**; main worlds ON 4 above 2x (OFF 3), max 2.48 both.
+  - **Highways lost on the owner world: confirmed, fixed.** `civ_merge_network_paths` now floors the recount at the usage
+    the topology came in with (a cell never carries less than the reference network routed through it). Through the app
+    (windowed `_waybundle_probe`, new class tally): owner world OFF 7 highways (54 832 km) / 19 regional / 12 road / 5 track,
+    **ON 7 highways (38 402 km)** / 20 / 10 / 4 (was 0 highways ON). The x4 frame shows the Galcasgalregopolis trunk cased
+    orange in both. The census's own owner world has no highway in either variant and 198 village tracks against the app's
+    200, so **the census's owner world is not the app's owner world**; the cause was not traced (the probe's shared user
+    directory is one candidate).
+  - **Two more ends, found by the workspace suite after the floor.** `civ_pipeline_tests::
+    recovery_keeps_every_road_on_the_settlements_it_joined` went red: the floor changed the phase-1 rebuild's claim order, and
+    (a) consolidation's endpoint snap (reference v1.02) pulled both ends of one run onto the same town, drawing a there-and-back
+    stub 3.2 cells from the highway it rides; (b) `civ_snap_junction_ends` treated any end within 1.5 cells of its own town as
+    the town's, so a cut 0.28 cells off its trunk stayed unjoined. Fixed on the merged path only: when both ends would go to one
+    pin only the nearer does (`consolidate_ways`, `extend_back` off), and an end is the town's only on the pin
+    (`way_merge::OWN_PIN_CELLS`, 1e-6). Mutants (`OWN_PIN_CELLS` 1.5; the same-pin skip off) both turn the suite red. The census,
+    the harnesses and the probes below were re-run after this and moved by at most a few km (owner junction cells 293 → 294);
+    no pinned hash moved.
+  - **Mutants: confirmed (both survived), killed.** New tests `a_later_pass_moves_an_early_edge_onto_a_trunk_laid_after_it`
+    and `a_track_whose_village_is_on_the_line_is_hidden`, plus tests for the new rule (`..._running_away_from_its_destination`,
+    `a_line_that_never_meets_the_destination_does_not_take_the_track`, `a_track_beside_two_roads_that_meet_is_taken_by_both`,
+    `a_track_that_cuts_across_a_bend_is_cut_after_the_bend`, `a_track_crossing_the_seam_beside_a_road_is_cut_before_it`) and
+    the floor (`the_recount_keeps_the_reference_networks_traffic_as_a_floor`). Python literal mutants, restored and
+    hash-checked: `pass > 99`, `d <= -1.0`, the pen-up skip, the walk's stop, the end check, the floor, the sample step,
+    `MEET_CELLS` -1 and 3.5, `REACH_PLACE_CELLS` 3.5, no hand-over between lines, any line joins, no push of a kept track:
+    **all killed**. One survivor is equivalent: inverting `Line::nearest`'s box pre-filter changes no result (it is only a
+    speed-up). `cartalith-godot`'s `civ_pipeline_tests` were not re-mutated.
+  - **`fh_r2_baseline`'s unexplained move: confirmed, attributed.** By switches on `da0dbbbf` with the merge off: `lake_balance`
+    off (Ruling ET) still left 20 of 20 rows off the previous table; also `rough_routing` off (Ruling ER) 9; also the five VA-6
+    volcano kinds off (Rulings DG and DJ, `5cfa2997`, `1153bbee`) **0 of 20**. So the move was three ruled app-default switches
+    that did not re-record this table; the verifier's lake-balance candidate is part of it, not all of it. Written into
+    `AT_CURRENT`'s doc.
+  - **Re-recorded after this follow-up** (release, one at a time): `G1_0` manpower moved on 7 of 20 (governments 0, roster
+    agrees 20 of 20); EA-0's counts unchanged (default 290 / 0 / 10, standing 144 / 13 / 133, `E > 1` on 120), its six sweep
+    hashes moved; `AT_CURRENT` belief on 12 rows and urban on 4 (relations 0, roster 0). Each row says what it was. The other
+    five FH-R2 harnesses and `bugsweep_seed707` pass unchanged.
+  - **Re-measured** (release, `measure_way_bundles` and `_small_worlds`, ON): main worlds at the opening view 0 convergent and
+    0 overlaps at every host; x4 convergent owner 1 (212 km, a track beside a regional road to another place) at `FIT_HOST`
+    and 0 at the other three hosts, 483920 2 (18 km), 912345 1 (7 km, road beside road) or 0 on the tablet. Small worlds with
+    villages: convergent at the opening view 2 (45 km: one track beside a road, one track beside a track), x4 16 (9 road-road,
+    7 road-track; `diagnose_residual_bundle_pairs`). The destination rule costs these few bundles: a track beside a road that
+    does not go where the track goes is now left as its own way. Water samples: owner 42 and 912345 56 as before, 483920
+    39 → 35. Junction ends off another way 0; unreached 0.
+  - **Phone and tablet now measured.** The probe takes `--window WxH` with `--force-touch`; the shells read the owner world's
+    map host as **393 x 852** (phone, 0.6499 px a cell) and **793 x 566** (tablet, left dock open, 0.4317 px a cell, the
+    tightest). `way_census::PHONE_HOST` and `TABLET_HOST` join the census: ON is 0 convergent and 0 overlaps at the opening
+    view on all three worlds at both; x4 as above. The width slider (`set_way_scale`) stays unmeasured (the census uses 1.0),
+    and a handset's own density was not measured.
+  - **Sea lanes: audited, not merged.** `measure_way_classes_and_sea_lanes`: the merge does not touch them (identical OFF/ON
+    on all three worlds). Owner world 0 lanes; 483920 2 lanes, 7 drawn samples on land, 1 overlap at the opening view;
+    912345 4 lanes, 37 samples on land, 1 parallel stretch at x4 (7 km). Sea lanes are the reference's MST; whether they merge
+    and whether the land samples are fixed is routed (`OUTSTANDING_WORK.md`).
+  - **Landmarks: measured, prose corrected.** `measure_landmarks_on_merged_ways` (no icons, battles, history, karst or rock
+    column): every way-reading kind still fills its cap except trade depot (483920 6 → 8, 912345 9 → 3 on the rebased tree, 4 before it; owner 10 both). Cells
+    where two or more visible ways meet fall from 2 195 to 294 on the owner world (1 807 → 319, 1 556 → 259): most of the OFF
+    figure was parallel and overlapping strokes, not junctions. `LandmarkInputs::ways` and `JUNCTION_MIN_WAYS` now say so.
+  - **`_roadsettle_probe` now judges junction ends.** Owner world ON: 15 of 42 edge groups end more than 2 cells from their own
+    settlement, and **all 15 lie on another drawn way** (within 0.25 cells), 0 hanging, at the opening view and at x16.
+  - **Rejected or not changed, with reasons.** (6) Items 2 and 3 not built: true, out of item 1's scope; still routed. (4, 16)
+    Item 1's own bar: water samples (owner 42) and the bundle threshold's unconfirmed judgement stay open and routed; the
+    junction-end check is now done. (7) The inlet crossing at Armarum and (8) the hook out of the Sevjuniana capital on 483920:
+    not changed in this pass. No frame was taken at Armarum; the x4 frame at the capital (below) is too coarse to show a hook
+    of a few pixels either way. (12) The
+    stranded-branches regression gets its own backlog row. (13) `DECISIONS.md`'s figure is corrected to 98 → 4.
+  - **Verified** on the tree rebased onto `origin/main` `d3942d42`: `cargo test --workspace --no-fail-fast` **274 result lines,
+    8 158 passed, 0 failed, 167 ignored**; every ignored harness above re-run on that tree and passing; `godot --headless
+    --import` left `project.godot` byte-identical; `--check-only` on `_waybundle_probe.gd`, `_roadsettle_probe.gd` and
+    `shell/app.gd` clean.
+  - **Frames** (windowed, the DLL built from this tree, under the window lock), in
+    `cartalith-native/docs/evidence/ways-planner-2026-11-12/`, opened and looked at: `fix_owner_x4_off_on.png` and
+    `fix_owner_x16_off_on.png` (focus 1490,880: the Galcasgalregopolis trunk and the road into Islaislaelybend draw as cased
+    orange highways in both variants), `fix_owner_phone_x1_on.png` and `fix_owner_tablet_x1_on.png` (the two touch shells'
+    opening views the census hosts were read from), `fix_s912345_x4_off_on.png` and `_x16_` (focus 148,212, beside the
+    remaining 912345 stretch, which these frames do not show plainly) and `fix_s483920_x4_capital_off_on.png` (focus 400,150).
 - **Not built:** Ruling EU items 2 (the planner joins a way) and 3 (river stretches per stretch, with the best vessel).
   `OUTSTANDING_WORK.md` routes them.
 

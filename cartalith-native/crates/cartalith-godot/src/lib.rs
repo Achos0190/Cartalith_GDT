@@ -5397,10 +5397,11 @@ fn compute_civilisation(
     // onto the drawn line of the way it meets (consolidation cuts it at a routed
     // cell, a smoothing tolerance off the drawn trunk). After recovery, so the
     // rebuilt ways and the village tracks are joined too.
-    // Village tracks then end where they first reach a road (or an earlier
-    // village track) instead of running
-    // beside it into town (`civ_join_tracks_to_network`'s doc) -- after the
-    // roads' own junctions are joined, so a track lands on the final road line.
+    // Village tracks then end where a road (or an earlier village track) that
+    // carries them to their own destination begins to run beside them, instead
+    // of running beside it into town (`civ_join_tracks_to_network`'s doc) --
+    // after the roads' own junctions are joined, so a track lands on the final
+    // road line.
     if opts.merge_ways {
         cartalith_civ::way_merge::civ_snap_junction_ends(&mut ways, &settlements, gw);
         cartalith_civ::way_merge::civ_join_tracks_to_network(&mut ways, gw);

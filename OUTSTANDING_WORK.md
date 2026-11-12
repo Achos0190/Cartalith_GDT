@@ -3271,12 +3271,18 @@ routes that are drawn are correct, and when any of them at any point come close 
 become a single way to the same destination"*, then the same for the planner and for rivers along a planned route. The
 ruling (`LARGE_ITEM_RULINGS.md`) has three parts. **Item 1 (generated ways merge into shared trunks) is built and ON for
 new worlds** (`cartalith_civ::way_merge`, `civ.merge_ways`; `STATUS.md`, 2026-11-12). **Still open:** item 1's owner
-questions (a trunk is named after its busiest pair, and IN-13's way load credits only that pair; and a trunk's class: on the
-owner world the merged network has no highway, because the one cell 8 edges used is used by 7) and its residue (drawn
-samples on water are halved, not zero, and were not zero before; 8 road-beside-road stretches at x4 on the small census
-worlds and 1 on 912345; `_roadsettle_probe` does not yet check that an edge group's junction end lies on another drawn
-way). The village-track bundles, the census at the docked host and the ignored harnesses are done (`STATUS.md`,
-follow-up of 2026-11-12). **Item 2,
+question (a trunk is named after its busiest pair, and IN-13's way load credits only that pair) and its residue: drawn
+samples on water (owner world 42; not zero before the merge either); the bundle threshold `way_audit::D_BUNDLE_PX` is a
+labelled judgement nobody has confirmed by eye; x4 stretches left (small census worlds 9 road beside road and 7 track beside
+a road that leads elsewhere, 2 at the opening view; owner 1, 483920 2, 912345 1); **deleting a merged trunk strands the
+branches riding on it** (`STATUS.md`, "Moves, disclosed"; no fix designed); **sea lanes** are drawn routes the merge does
+not touch (measured 2026-11-13: 912345 37 drawn samples on land and 1 parallel stretch at x4; 483920 7 and 1 overlap):
+whether they are checked, repaired or merged is not decided; a track beside a road that leads elsewhere could ride the road
+for the shared stretch and leave it again (not built; the tail join only cuts where a line carries the track to its own
+destination); the way-width slider and a handset's own density are unmeasured. Done and in `STATUS.md`: the village-track
+bundles, the docked, phone and tablet census hosts, the ignored harnesses, and (2026-11-13) tracks cut only where a
+connected line reaches their destination, a merged route keeping its class, the `fh_r2_baseline` move attributed (Rulings
+ER, ET and the VA-6 kinds) and `_roadsettle_probe`'s junction-end check (15 of 15 on another way). **Item 2,
 the planner joins a way heading toward the destination: not built.** Its plan is the read-only map of 2026-11-12 (split
 `civ_dijkstra_path_guided` into a cost grid and a path step, score join and exit cells by `dS + ride + dD` under a margin,
 splice the way's own drawn line, report `way_spans`), with owner questions Q1-Q5 (world parameter or shell preference;
