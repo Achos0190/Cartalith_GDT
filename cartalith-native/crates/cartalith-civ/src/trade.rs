@@ -1243,6 +1243,11 @@ impl WayRouter {
 /// slice for what they do not use, which reads as the reference's own
 /// "field absent" guard on that branch.
 pub struct PlaceWorld<'a> {
+    /// Ruling ET follow-up: `WaterBodies::playa`, the dried-lake mask
+    /// (`gw * gh` when present). **Empty means no playa information** (the lake
+    /// balance is off), which is the pre-balance world exactly. Read only by
+    /// [`civ_salt_access`]'s salt-lake branch.
+    pub playa: &'a [u8],
     pub res: &'a ResourcePotentials,
     pub field: &'a [f32],
     /// [`crate::build_biome_raster`]'s output — `buildBiomeRaster()`.
@@ -1499,6 +1504,13 @@ pub fn civ_salt_access(w: &PlaceWorld, x: usize, y: usize, nav: NavKind) -> Salt
     if w.biome.len() == n && w.rain.len() == n {
         let i = y.min(w.gh - 1) * w.gw + x.min(w.gw - 1);
         if w.biome[i] == BIOME_LAKE && f64::from(w.rain[i]) < SALT_LAKE_MAX_RAIN {
+            return SaltAccess { has: true, source: "salt lake" };
+        }
+        // Ruling ET follow-up: a basin the lake balance dried (a playa) is an
+        // evaporite flat, the same salt-lake source, under the same dry-place
+        // gate: the cell was a lake under the old rule, so it was a `lake`
+        // biome there. Empty `playa` (balance off) skips this by length.
+        if w.playa.len() == n && w.playa[i] != 0 && f64::from(w.rain[i]) < SALT_LAKE_MAX_RAIN {
             return SaltAccess { has: true, source: "salt lake" };
         }
     }

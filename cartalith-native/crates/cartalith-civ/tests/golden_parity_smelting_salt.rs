@@ -434,6 +434,7 @@ fn near(got: f64, want: f64, what: &str) {
 /// Run every place of one case and compare all sixteen captured values.
 fn check(c: &Case, expect: &[Expect], label: &str) {
     let w = PlaceWorld {
+        playa: &[],
         res: &c.res,
         field: &c.field,
         biome: &c.biome,

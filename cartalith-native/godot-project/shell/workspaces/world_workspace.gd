@@ -4368,6 +4368,11 @@ func _inspect_river_ctx(cx: float, cy: float) -> void:
 	if ent.is_empty():
 		app.set_status("hint", "No traced river run passes this cell -- the River panel reads traced runs only.", "accent")
 		return
+	## Ruling ES follow-up (RR-4): rapids and falls downstream of this cell, from `river_pick` (absent keys: no row).
+	var pk := bridge.river_pick(cx, cy, 0.75)
+	if pk.has("rapids") and pk.has("falls"):
+		ent["rapids"] = pk["rapids"]
+		ent["falls"] = pk["falls"]
 	if app.right_dock_ctrl != null and app.right_dock_ctrl.has_method("show_river"):
 		app.right_dock_ctrl.show_river(ent)
 

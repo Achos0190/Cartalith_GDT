@@ -2572,6 +2572,8 @@ impl WorldGen {
             // shader-only like `bank` (read live, never part of the field's key).
             "translucency" => a.river_translucency.clamp(0.0, 1.0),
             "floodplain_arid" => a.river_floodplain_arid.clamp(0.0, 1.0),
+            // Ruling ES RR-2 part 3: the wet bank's strength, shader-only like `bank`.
+            "wet_bank" => a.river_wet_bank.clamp(0.0, 1.0),
         }
     }
 

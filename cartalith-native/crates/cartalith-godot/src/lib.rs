@@ -6780,6 +6780,11 @@ struct WorldGen {
     /// without comparing the key, and never refilled by anything but the
     /// warm.
     prewarm_fill: std::cell::RefCell<Option<(String, Vec<f32>)>>,
+    /// The prewarmed flood's playa mask (`WaterBodies::playa`), a one-shot slot
+    /// beside [`Self::prewarm_fill`] under the same key and the same rules
+    /// (taken by the next `build_color_texture`, never read without comparing
+    /// the key). May hold an empty vector: the balance is off, no playa.
+    prewarm_playa: std::cell::RefCell<Option<(String, Vec<u8>)>>,
     /// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): per-index
     /// overrides onto `render::CART_BIOME_COLS`, 1-based like the table
     /// itself (`biome_col_overrides[0]` is class 1). `[None; 15]` on a
@@ -7451,6 +7456,7 @@ impl IRefCounted for WorldGen {
             colour_paint_epoch: 0,
             drawn_water_cache: std::cell::RefCell::new(None),
             prewarm_fill: std::cell::RefCell::new(None),
+            prewarm_playa: std::cell::RefCell::new(None),
             biome_col_overrides: [None; 15],
             sculpt: None,
             icons: None,
@@ -12364,11 +12370,20 @@ impl WorldGen {
         let water_key = self.drawn_water_key();
         let warm_fill = self.prewarm_fill.borrow_mut().take().filter(|(k, _)| *k == water_key).map(|(_, f)| f);
         let warm_class = self.drawn_water_cache.borrow().as_ref().filter(|(k, _)| *k == water_key).map(|(_, c)| c.clone());
-        let (lakes, fill_level): (std::sync::Arc<[u8]>, Vec<f32>) = match (warm_class, warm_fill) {
-            (Some(c), Some(f)) => (c, f),
+        let warm_playa = self.prewarm_playa.borrow_mut().take().filter(|(k, _)| *k == water_key).map(|(_, p)| p);
+        let (lakes, fill_level, playa): (std::sync::Arc<[u8]>, Vec<f32>, Vec<u8>) = match (warm_class, warm_fill) {
+            (Some(c), Some(f)) => {
+                // Ruling ET follow-up: the warm slot's playa, else (a cached class
+                // from `drawn_water_classification`, no slot) one more flood, only
+                // for a balanced world whose look draws the salt flat.
+                let p = warm_playa.unwrap_or_else(|| {
+                    if self.params.lake_balance && appearance.playa_tint > 0.0 { self.drawn_water_bodies().map(|b| b.playa).unwrap_or_default() } else { Vec::new() }
+                });
+                (c, f, p)
+            }
             _ => {
                 let b = self.drawn_water_bodies()?;
-                (std::sync::Arc::from(b.classification), b.fill_level)
+                (std::sync::Arc::from(b.classification), b.fill_level, b.playa)
             }
         };
         // The same classification `drawn_water_classification` answers from
@@ -12510,7 +12525,8 @@ impl WorldGen {
         let mut ctx = RenderCtx::with_appearance_split(
             render_field, field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
         )
-        .with_lakes(&lakes);
+        .with_lakes(&lakes)
+        .with_water_detail(&fill_level, &playa);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
         }
@@ -14097,6 +14113,7 @@ impl WorldGen {
         let Some(bodies) = self.drawn_water_bodies() else { return false };
         let key = self.drawn_water_key();
         *self.drawn_water_cache.borrow_mut() = Some((key.clone(), std::sync::Arc::from(bodies.classification)));
+        *self.prewarm_playa.borrow_mut() = Some((key.clone(), bodies.playa));
         *self.prewarm_fill.borrow_mut() = Some((key, bodies.fill_level));
         let a = self.appearance();
         let _ = self.valley_shade_field(&a);
@@ -15326,7 +15343,8 @@ impl WorldGen {
         // `build_color_texture` draws, so the preview does not make a forced
         // lake vanish (or a floored pond appear) while a stroke is drafted.
         // Owner Ruling DJ item 2: and the maar lakes the floor would drop.
-        let lakes = render::water_bodies_floored_balanced(&scratch, &ws.rainfall, gw, gh, self.sea_level, self.world, self.forced_lake_mask(), ws.volcanoes.as_deref().map(|v| v.as_slice()), render::LakeBalanceInputs::when(self.params.lake_balance, Some(&ws.flow_discharge), &ws.temperature)).classification;
+        let wb_preview = render::water_bodies_floored_balanced(&scratch, &ws.rainfall, gw, gh, self.sea_level, self.world, self.forced_lake_mask(), ws.volcanoes.as_deref().map(|v| v.as_slice()), render::LakeBalanceInputs::when(self.params.lake_balance, Some(&ws.flow_discharge), &ws.temperature));
+        let (lakes, preview_fill, preview_playa) = (wb_preview.classification, wb_preview.fill_level, wb_preview.playa);
         let ctx = RenderCtx::with_appearance(
             &scratch,
             &ws.temperature,
@@ -15345,6 +15363,7 @@ impl WorldGen {
         // the same stages or the preview stops predicting the commit.
         .with_map_scale_forced(self.map_width_km, self.forced_lake_mask())
         .with_lakes(&lakes)
+        .with_water_detail(&preview_fill, &preview_playa)
         // Ruling CN: the preview is the map with a drafted heightfield, so it
         // carries the colour paint the map carries.
         .with_colour_paint(self.colour_paint_layer());

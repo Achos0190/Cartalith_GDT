@@ -342,6 +342,23 @@ pub fn reach_white(grads: &[f64], wet: &[bool]) -> Vec<f32> {
     out
 }
 
+/// The number of maximal runs of consecutive positive entries in `v` (a NaN
+/// is not positive): two adjacent marked points are one reach, two marked points
+/// with a calm one between them are two. What the card's "rapids N, falls M"
+/// counts.
+pub fn count_runs(v: &[f32]) -> usize {
+    let mut n = 0;
+    let mut inside = false;
+    for &x in v {
+        let on = x > 0.0;
+        if on && !inside {
+            n += 1;
+        }
+        inside = on;
+    }
+    n
+}
+
 /// Whether a run's last step is the hanging-valley signature: its drop
 /// (`drops`, metres per traced step, the last entry the step onto the trunk)
 /// is at least [`HANGING_RATIO`] times the median of its finite positive
@@ -506,6 +523,26 @@ impl<'a> NetworkInputs<'a> {
         })
     }
 
+    /// **RR-4 along a picked branch, for the context card and Inspect**
+    /// (scope RR-4: *"the context card's river row lists rapids N, falls M"*):
+    /// `cells` the branch from the clicked cell to its end (`river_pick`'s
+    /// `cells`, in downstream order), `water(c)` whether cell `c` is drawn
+    /// water (a lake or the sea: no rapids or falls on water). Returns
+    /// `(rapids, falls)`: the number of separate white-water reaches
+    /// ([`reach_white`] runs) and of separate falls ([`count_runs`] over the
+    /// fall marks), from the **same** [`Self::run`] the map draws with, so the
+    /// card's numbers are the marks on screen. `None` for an empty branch
+    /// (never a plausible `(0, 0)`).
+    pub(crate) fn branch_reaches(&self, cells: &[usize], water: &dyn Fn(usize) -> bool) -> Option<(usize, usize)> {
+        if cells.is_empty() || cells.iter().any(|&c| c >= self.gw * self.gh) {
+            return None;
+        }
+        let pts: Vec<(f64, f64)> = cells.iter().map(|&c| ((c % self.gw) as f64 + 0.5, (c / self.gw) as f64 + 0.5)).collect();
+        let wet: Vec<bool> = cells.iter().map(|&c| water(c)).collect();
+        let r = self.run(&pts, pts.len(), false, false, &wet);
+        Some((count_runs(&r.white), count_runs(&r.lip)))
+    }
+
     /// The cell gradient at `i` (rise over run), for the harness's tables.
     #[allow(dead_code)]
     pub(crate) fn grad_at(&self, i: usize) -> f32 {
@@ -597,6 +634,50 @@ impl<'a> NetworkInputs<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Protects `count_runs` at literals: adjacent marks are one reach, a calm
+    /// point between marks splits them, NaN and zero are not marks, empty is 0.
+    #[test]
+    fn count_runs_counts_separate_reaches() {
+        assert_eq!(count_runs(&[]), 0);
+        assert_eq!(count_runs(&[0.0, 0.0]), 0);
+        assert_eq!(count_runs(&[0.5, 0.9, 0.0, 0.7, f32::NAN, 1.0]), 3);
+        assert_eq!(count_runs(&[1.0, 1.0, 1.0]), 1);
+    }
+
+    /// Protects the card's numbers (Ruling ES follow-up: "rapids N, falls M") on a
+    /// hand-built branch: a 9-cell staircase of 100 m steps over 1 km cells
+    /// (gradient 0.1, over the 0.065 cascade bound and the waterfall bounds) with
+    /// two flat steps splits it into two rapids reaches and two falls; making one
+    /// cell water removes the reach and the fall it touches and leaves the rest;
+    /// and an empty or out-of-range branch is `None`, never `(0, 0)`.
+    #[test]
+    fn a_branch_reports_its_rapids_and_falls() {
+        let gw = 9usize;
+        let field: Vec<f32> = vec![0.9, 0.8, 0.7, 0.6, 0.6, 0.6, 0.5, 0.4, 0.3];
+        let mut recv: Vec<i32> = (1..=9).collect();
+        recv[8] = -1;
+        let ni = NetworkInputs {
+            gw,
+            gh: 1,
+            field: &field,
+            rain: &[0.5; 9],
+            flow: &[1000.0; 9],
+            grad: vec![0.1; 9],
+            mpu: 1000.0,
+            cell_m: 1000.0,
+            flow_thresh: 1.0,
+            sea: 0.0,
+            knick: None,
+            clear_slope: f64::NAN,
+            recv,
+        };
+        let cells: Vec<usize> = (0..9).collect();
+        assert_eq!(ni.branch_reaches(&cells, &|_| false), Some((2, 2)));
+        assert_eq!(ni.branch_reaches(&cells, &|c| c == 6), Some((1, 3)), "a water cell ends the reach it touches and the falls on it");
+        assert_eq!(ni.branch_reaches(&[], &|_| false), None);
+        assert_eq!(ni.branch_reaches(&[99], &|_| false), None);
+    }
 
     /// Protects RR-1's law at literal values: half the discharge is 1/sqrt(2)
     /// of the width, the largest river is exactly `w_max`, and an absent

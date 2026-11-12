@@ -1260,7 +1260,15 @@ impl WorldGen {
         let ck = cartalith_spatial::cell_km(self.map_width_km, gw);
         let branch: PackedVector2Array =
             cells.iter().map(|&c| Vector2::new((c % gw) as f32 + 0.5, (c / gw) as f32 + 0.5)).collect();
-        vdict! {
+        // RR-4's rapids and falls along this branch (Ruling ES follow-up), from the
+        // same classifier the map draws with. Both keys are OMITTED when the world
+        // cannot say (a grid the realism inputs do not fill): the card then shows
+        // no row, never "rapids 0 - falls 0".
+        let reaches = self.sample_refs().and_then(|f| {
+            let ni = crate::river_realism::NetworkInputs::new(f.gw, f.gh, f.sea_level, f.peak_m, f.field, f.rainfall, f.flow_discharge, ws, &self.recompute_params(), self.map_width_km)?;
+            ni.branch_reaches(&cells, &|c| water(c) != 0)
+        });
+        let mut d = vdict! {
             "cell" => cell as i64,
             "x" => (cell % gw) as f64 + 0.5,
             "y" => (cell / gw) as f64 + 0.5,
@@ -1270,7 +1278,12 @@ impl WorldGen {
             "cells" => cells.len() as i64,
             "km" => branch_cells_length(&cells, gw, self.world) * ck,
             "terminus" => terminus.key(),
+        };
+        if let Some((rapids, falls)) = reaches {
+            d.set("rapids", rapids as i64);
+            d.set("falls", falls as i64);
         }
+        d
     }
 
     /// Every cell draining into `cell`, `cell` included, as a `gw * gh` mask

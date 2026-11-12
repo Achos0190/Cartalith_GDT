@@ -135,6 +135,12 @@ struct Parts {
     /// `build_color_texture` attaches, so an export shows the lakes the screen
     /// shows (2026-09-24; this path had none, `OUTSTANDING_WORK.md` §2.5).
     lakes: Vec<u8>,
+    /// Ruling ET follow-up and RR-5: the drawn water's pooled fill levels and its
+    /// playa mask (`WaterBodies::fill_level`, `::playa`), attached beside `lakes`
+    /// (`RenderCtx::with_water_detail`) so the export's lake tone and salt flat
+    /// are the screen's. The playa may be empty (balance off: no information).
+    lake_fill: Vec<f32>,
+    playa: Vec<u8>,
     ink: Option<OwnedInk>,
     /// RV-5: the vector rivers the export draws (`WorldGen::export_river_geometry`),
     /// rasterized per band at the export's resolution. `None` for a loaded
@@ -197,7 +203,7 @@ impl Parts {
         if let Some(vi) = self.volcano_index.as_ref() {
             ctx = ctx.with_volcanoes(vi);
         }
-        ctx = ctx.with_lakes(&self.lakes);
+        ctx = ctx.with_lakes(&self.lakes).with_water_detail(&self.lake_fill, &self.playa);
         if let Some(s) = self.splat.as_ref() {
             ctx = ctx.with_splat(s.as_textures());
             ctx = ctx.with_ground_tiles(GroundTiles { biomes: &self.ground_biomes, terrains: &self.ground_terrains });
@@ -251,7 +257,7 @@ impl ExportSnapshot {
         // Owner Ruling DJ item 2: and the maar lakes the floor would drop.
         // Ruling ET: and the water balance, from the look's carried switch (`TerrainAppearance::lake_balance`) over the snapshot's flow and temperature.
         let wb = render::water_bodies_floored_balanced(&i.field, &i.rainfall, gw, gh, i.sea_level, i.world, i.forced_lakes.as_deref(), i.litho.as_ref().and_then(|l| l.volcanoes.as_deref()).map(|v| v.as_slice()), render::LakeBalanceInputs::when(i.appearance.lake_balance, flow, &i.temperature));
-        let lakes = wb.classification;
+        let (lakes, lake_fill, playa) = (wb.classification, wb.fill_level.clone(), wb.playa);
         // RV-5: the screen's smooth shoreline, from the same classification,
         // fill level and mask (`export_render_with` builds the identical one).
         let shore = if i.appearance.smooth_shores {
@@ -277,6 +283,8 @@ impl ExportSnapshot {
             lithology,
             volcano_index,
             lakes,
+            lake_fill,
+            playa,
             ink: i.ink,
             paint: if rivers.is_some() { i.river_paint } else { None },
             rivers,
@@ -1041,8 +1049,8 @@ mod tests {
         ctx = ctx.with_lithology(&lith);
         // `export_render_with`'s lakes, attached the same way (2026-09-24).
         let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
-        let lakes = wb.classification;
-        ctx = ctx.with_lakes(&lakes);
+        let lakes = wb.classification.clone();
+        ctx = ctx.with_lakes(&lakes).with_water_detail(&wb.fill_level, &wb.playa);
         ctx = ctx.with_map_scale(KM);
         ctx = ctx.with_paint(Some(&w.paint), None, None);
         let shore = render::shore_field_forced(&w.field, &lakes, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
@@ -1201,8 +1209,8 @@ mod tests {
         let mut ctx = RenderCtx::with_appearance(&w.field, &w.temp, &w.rain, Some(&w.flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
         ctx = ctx.with_lithology(&lith);
         let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
-        let lakes = wb.classification;
-        ctx = ctx.with_lakes(&lakes);
+        let lakes = wb.classification.clone();
+        ctx = ctx.with_lakes(&lakes).with_water_detail(&wb.fill_level, &wb.playa);
         ctx = ctx.with_map_scale(KM);
         ctx = ctx.with_paint(Some(&w.paint), None, None);
         let shore = render::shore_field_forced(&w.field, &lakes, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);

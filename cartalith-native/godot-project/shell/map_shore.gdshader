@@ -92,6 +92,9 @@ uniform sampler2D river_detail : filter_linear, repeat_disable;
 uniform bool river_detail_on = false;
 uniform float river_translucency = 0.0;
 uniform float river_floodplain_arid = 0.0;
+// Ruling ES RR-2 part 3: the wet bank's strength (0 = off, the default and the reference look). The land one pixel
+// outside the river's edge is darkened by BANK_WET of its luminance at 1 (`river_field::bank_coverage_rr`'s ring).
+uniform float river_wet_bank = 0.0;
 const float VOLUME_ALPHA_HEAD = 0.65;
 const float HEAD_GATE_LO_Z = 1.0;
 const float HEAD_GATE_HI_Z = 4.0;
@@ -172,6 +175,9 @@ float headwater_weight(float u) {
 const float BANK_WIDTH_PX = 1.0;
 const float BANK_BAND_MARGIN_CELLS = 1.0;
 const float FIELD_BAND_CELLS = 3.5;
+// RR-2 part 3, `render::BANK_WET`: the fraction of luminance the wet bank takes at full strength. Labelled judgement
+// (scope: 0.12); keep in step with the Rust -- a test reads it from here.
+const float BANK_WET = 0.12;
 
 // The floodplain tint: a lift toward a lighter, greener land, **labelled
 // judgement** tuned on the owner's world (before/after sheets, 2026-10-04):
@@ -212,6 +218,7 @@ void fragment() {
 	float rcov = 0.0;
 	float fp = 0.0;
 	float bnk = 0.0;
+	float wet = 0.0;
 	if (paint) {
 		// RZ-2: rf.b is the river's discharge rank u, not an order-1 weight.
 		float u = rf.b;
@@ -240,6 +247,14 @@ void fragment() {
 			float room = max((rf.g * river_width + FIELD_BAND_CELLS - BANK_BAND_MARGIN_CELLS) * ppc - hw_px - 0.5, 0.0);
 			float ring = be < 0.0 ? clamp(min(reach, max(hw_px - 0.5, 0.0)) + be, 0.0, 1.0) : clamp(min(reach, room) - be, 0.0, 1.0);
 			bnk = ring * clamp(river_bank, 0.0, 1.0) * am * rf.a;
+		}
+		// RR-2 part 3, `river_field::bank_coverage_rr` at the wet-bank strength: the same ring, no ink.
+		if (river_wet_bank > 0.0) {
+			float be = rf.r * ppc - (hw_px + 0.5);
+			float reach = 0.5 * BANK_WIDTH_PX + 0.5;
+			float room = max((rf.g * river_width + FIELD_BAND_CELLS - BANK_BAND_MARGIN_CELLS) * ppc - hw_px - 0.5, 0.0);
+			float ring = be < 0.0 ? clamp(min(reach, max(hw_px - 0.5, 0.0)) + be, 0.0, 1.0) : clamp(min(reach, room) - be, 0.0, 1.0);
+			wet = ring * clamp(river_wet_bank, 0.0, 1.0) * am * rf.a;
 		}
 	}
 
@@ -284,7 +299,11 @@ void fragment() {
 			// The river lies on the land side only, under the water: the land
 			// colour takes the floodplain and the river, then the shore's
 			// coverage mixes the water over it.
-			vec3 land = mix(floodplain(cl.rgb, fp * floodplain_arid_gate(cl.rgb)), rcol, rcov);
+			vec3 dry = floodplain(cl.rgb, fp * floodplain_arid_gate(cl.rgb));
+			if (wet > 0.0) {
+				dry = dry * (1.0 - BANK_WET * wet);
+			}
+			vec3 land = mix(dry, rcol, rcov);
 			if (bnk > 0.0) {
 				land = mix(land, river_bank_color, bnk);
 			}
@@ -293,7 +312,11 @@ void fragment() {
 			// All land: the pixel is the nearest texel (what the TextureRect
 			// drew), with the floodplain and river over it.
 			vec4 t = COLOR;
-			vec3 lnd = mix(floodplain(t.rgb, fp * floodplain_arid_gate(t.rgb)), rcol * v_mod.rgb, rcov);
+			vec3 dry = floodplain(t.rgb, fp * floodplain_arid_gate(t.rgb));
+			if (wet > 0.0) {
+				dry = dry * (1.0 - BANK_WET * wet);
+			}
+			vec3 lnd = mix(dry, rcol * v_mod.rgb, rcov);
 			if (bnk > 0.0) {
 				lnd = mix(lnd, river_bank_color * v_mod.rgb, bnk);
 			}

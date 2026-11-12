@@ -581,7 +581,10 @@ fn every_tunable_is_load_bearing() {
     // mirror `the_shader_mirrors_the_realism_law`), `src/river_field.rs`'s
     // `the_floodplain_lift_belongs_to_dry_country`, and the probe frames in
     // `cartalith-native/docs/evidence/river-realism-2026-11-12/`.
-    const EXEMPT: [&str; 31] = [
+    // `river_wet_bank`, `playa_tint` and `lake_depth_tone` (Ruling ES/ET follow-ups, 2026-11-12) are the thirty-second to
+    // thirty-fourth: `render_serial` has no river layer, lake classification or playa mask. Their proofs are
+    // `tests/playa_and_lake_depth.rs` and `river_field::tests::the_wet_bank_*`.
+    const EXEMPT: [&str; 34] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -613,6 +616,9 @@ fn every_tunable_is_load_bearing() {
         "river_turbidity",
         "river_translucency",
         "river_floodplain_arid",
+        "river_wet_bank",
+        "playa_tint",
+        "lake_depth_tone",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());

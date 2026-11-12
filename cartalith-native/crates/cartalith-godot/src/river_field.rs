@@ -503,6 +503,8 @@ pub struct PixelPaint {
     /// The RIM-2 bank line's weight, `0..=bank` ([`bank_coverage`]) -- the
     /// shader's `bnk`; 0 whenever the preset has no outline.
     pub bank: f32,
+    /// Ruling ES RR-2 part 3: the wet bank's weight, `0..=wet` -- the shader's `wet`; 0 whenever the look has no wet bank.
+    pub wet: f32,
 }
 
 /// **RIM-7: the painted river at one pixel, the screen's law** -- what
@@ -542,8 +544,15 @@ impl PixRr {
 /// exactly as `map_shore.gdshader` multiplies them into `am`. The floodplain
 /// weight does not (the head is a headwater, which has no floodplain anyway).
 pub fn pixel_paint_rr(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32, rr: PixRr) -> PixelPaint {
+    pixel_paint_wet(texel, ppc, river_width, bank, 0.0, rr)
+}
+
+/// [`pixel_paint_rr`] with the wet bank (`wet`, the look's `river_wet_bank`):
+/// the same ring as the bank outline ([`bank_coverage_rr`]) at the wet bank's
+/// own strength, so the darkened strip sits exactly where the ink line would.
+pub fn pixel_paint_wet(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32, wet: f32, rr: PixRr) -> PixelPaint {
     let (c, am) = coverage_rr(texel, ppc, river_width, rr);
-    PixelPaint { cov: c * am * texel[3], floodplain: floodplain_weight(texel, ppc, river_width), bank: bank_coverage_rr(texel, ppc, river_width, bank, rr) }
+    PixelPaint { cov: c * am * texel[3], floodplain: floodplain_weight(texel, ppc, river_width), bank: bank_coverage_rr(texel, ppc, river_width, bank, rr), wet: bank_coverage_rr(texel, ppc, river_width, wet, rr) }
 }
 
 /// **The one gate: does look `a` paint its rivers on a `gw x gh` map?**
@@ -602,6 +611,8 @@ pub struct PaintSource {
     /// RR-2: the look's `river_floodplain_arid`, clamped (the post stage's gate).
     arid: f32,
     bank: f32,
+    /// Ruling ES RR-2 part 3: the look's `river_wet_bank`, clamped.
+    wet: f32,
     bank_rgb: [f32; 3],
     /// The look, for the plate frame's cover (`render::border_cover_f`).
     appearance: crate::render::TerrainAppearance,
@@ -658,6 +669,7 @@ impl PaintSource {
             translucency: a.river_translucency.clamp(0.0, 1.0) as f32,
             arid: a.river_floodplain_arid.clamp(0.0, 1.0) as f32,
             bank: a.river_bank.clamp(0.0, 1.0) as f32,
+            wet: a.river_wet_bank.clamp(0.0, 1.0) as f32,
             bank_rgb: [ink(a.river_ink_r), ink(a.river_ink_g), ink(a.river_ink_b)],
             appearance: a.clone(),
         })
@@ -837,7 +849,7 @@ impl PaintSource {
         let ppc = map.px_per_cell();
         let (nbx, nby) = (w.div_ceil(B), h.div_ceil(B));
         // One finished block of the raster: its origin cell and the optional per-texel paint and colour rows.
-        type Block = (usize, usize, Option<Box<[[f32; 4]]>>, Option<Box<[[f32; 2]]>>);
+        type Block = (usize, usize, Option<Box<[[f32; 4]]>>, Option<Box<[[f32; 3]]>>);
         let blocks: Vec<Block> = (0..nbx * nby)
             .into_par_iter()
             .filter_map(|bi| {
@@ -848,7 +860,7 @@ impl PaintSource {
                 let (wx0, wy0) = (bx * B, by * B);
                 let (ww, wh, best, val) = self.block_texels(pl, w, h, bx, by)?;
                 let mut col: Option<Box<[[f32; 4]]>> = None;
-                let mut post: Option<Box<[[f32; 2]]>> = None;
+                let mut post: Option<Box<[[f32; 3]]>> = None;
                 for ly in 0..wh {
                     for lx in 0..ww {
                         let k = ly * ww + lx;
@@ -861,7 +873,7 @@ impl PaintSource {
                         // position, as `build_with` stores it per texel.
                         let fw = (1.0 - crate::render::border_cover_f(&self.appearance, p.0 as f64 - 0.5, p.1 as f64 - 0.5, self.gw, self.gh)).clamp(0.0, 1.0) as f32;
                         let d = self.detail_at(p);
-                        let paint = pixel_paint_rr([v[0], v[1], v[2], fw], ppc, self.river_width, self.bank, PixRr { translucency: self.translucency, head: d[2] });
+                        let paint = pixel_paint_wet([v[0], v[1], v[2], fw], ppc, self.river_width, self.bank, self.wet, PixRr { translucency: self.translucency, head: d[2] });
                         let li = ly * B + lx;
                         if paint.cov > 0.0 {
                             if let Some(c) = self.colour_at(p) {
@@ -883,8 +895,10 @@ impl PaintSource {
                             }
                         }
                         let fp = paint.floodplain * (1.0 - paint.cov.clamp(0.0, 1.0));
-                        if fp > 0.0 || paint.bank > 0.0 {
-                            post.get_or_insert_with(|| vec![[0.0f32; 2]; B * B].into_boxed_slice())[li] = [fp, paint.bank];
+                        // The wet bank darkens land only, as the floodplain does: the water hides it.
+                        let wet = paint.wet * (1.0 - paint.cov.clamp(0.0, 1.0));
+                        if fp > 0.0 || paint.bank > 0.0 || wet > 0.0 {
+                            post.get_or_insert_with(|| vec![[0.0f32; 3]; B * B].into_boxed_slice())[li] = [fp, paint.bank, wet];
                         }
                     }
                 }
@@ -1611,9 +1625,9 @@ mod tests {
             assert!((t[k] - want).abs() < 1e-12, "{t:?}");
         }
         assert_eq!(river_post_rgb(g, 1.0, 1.0, [1.0, 0.0, 0.0]), [1.0, 0.0, 0.0], "the bank is drawn after the tint");
-        assert_eq!(river_post_px([128, 128, 128], [1.0, 0.0], 0.0, [0.0; 3], 0.0), [128, 128, 128], "on water nothing is drawn");
-        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0], 1.0, [0.0, 0.0, 0.0], 0.0), [0, 0, 0]);
-        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0], 0.5, [0.0, 0.0, 0.0], 0.0), [64, 64, 64], "half land, half the bank");
+        assert_eq!(river_post_px([128, 128, 128], [1.0, 0.0, 0.0], 0.0, [0.0; 3], 0.0), [128, 128, 128], "on water nothing is drawn");
+        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0, 0.0], 1.0, [0.0, 0.0, 0.0], 0.0), [0, 0, 0]);
+        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0, 0.0], 0.5, [0.0, 0.0, 0.0], 0.0), [64, 64, 64], "half land, half the bank");
     }
 
     /// Protects: the gate. A look paints its rivers exactly when it has
@@ -1825,6 +1839,94 @@ mod tests {
         let far = wide.raster(crate::river_stroke::RasterMap { scale: (0.02, 0.02), offset: (-0.6, -0.4) }, 64, 64);
         assert!(far.at(0, 0).is_some(), "positive control: the river's own pixel is painted");
         assert!((0..64).all(|y| (0..64).all(|x| (x, y) == (0, 0) || far.at(x, y).is_none())), "a pixel off every band was painted");
+    }
+
+    /// Protects Ruling ES RR-2 part 3 (the wet bank) at literals: `wet` 0 is the
+    /// pre-wet post colour bit for bit; `wet` 1 takes `BANK_WET` (12 %) of the
+    /// luminance; half the land share takes half of that (`river_post_px`); the
+    /// darkening comes before the bank ink (ink wins at weight 1); and water takes
+    /// none (land share 0).
+    #[test]
+    fn the_wet_bank_darkens_the_land_at_literals() {
+        use crate::render::{river_post_px, river_post_rgb_arid, river_post_rgb_wet, BANK_WET};
+        assert_eq!(BANK_WET, 0.12);
+        let g = [0.5, 0.4, 0.3];
+        assert_eq!(river_post_rgb_wet(g, 0.0, 0.0, [1.0, 0.0, 0.0], 0.0, 0.0), g);
+        assert_eq!(river_post_rgb_wet(g, 0.7, 0.3, [1.0, 0.0, 0.0], 0.5, 0.0), river_post_rgb_arid(g, 0.7, 0.3, [1.0, 0.0, 0.0], 0.5));
+        let w = river_post_rgb_wet(g, 0.0, 0.0, [0.0; 3], 0.0, 1.0);
+        for k in 0..3 {
+            assert!((w[k] - g[k] * 0.88).abs() < 1e-12, "channel {k}: {} vs {}", w[k], g[k] * 0.88);
+        }
+        assert_eq!(river_post_rgb_wet(g, 0.0, 1.0, [1.0, 0.0, 0.0], 0.0, 1.0), [1.0, 0.0, 0.0], "the bank ink is drawn after the wet bank");
+        assert_eq!(river_post_px([100, 100, 100], [0.0, 0.0, 1.0], 1.0, [0.0; 3], 0.0), [88, 88, 88]);
+        assert_eq!(river_post_px([100, 100, 100], [0.0, 0.0, 1.0], 0.5, [0.0; 3], 0.0), [94, 94, 94], "half the land share, half the darkening");
+        assert_eq!(river_post_px([100, 100, 100], [0.0, 0.0, 1.0], 0.0, [0.0; 3], 0.0), [100, 100, 100], "water takes none");
+    }
+
+    /// Protects the wet bank's geometry: it is the bank outline's ring at the
+    /// wet strength (equal weights for equal strengths), zero with the strength
+    /// at 0, and bounded by the strength.
+    #[test]
+    fn the_wet_bank_is_the_outline_ring_at_its_own_strength() {
+        for ppc in [4.0f32, 8.0, 32.0] {
+            let mut peak = 0.0f32;
+            for k in 0..40 {
+                let (hw_px, _) = edge_px([0.0, 1.5, 0.0, 1.0], ppc, 1.0, PixRr::NONE);
+                let d = hw_px + 0.5 * EDGE_FRINGE_PX - 2.0 + k as f32 * 0.1;
+                let t = [d / ppc, 1.5, 0.0, 1.0];
+                let p = pixel_paint_wet(t, ppc, 1.0, 0.0, 0.6, PixRr::NONE);
+                assert_eq!(p.wet, bank_coverage_rr(t, ppc, 1.0, 0.6, PixRr::NONE));
+                assert_eq!(pixel_paint_wet(t, ppc, 1.0, 0.0, 0.0, PixRr::NONE).wet, 0.0);
+                peak = peak.max(p.wet);
+            }
+            assert!(peak > 0.1 && peak <= 0.6 + 1e-6, "ppc {ppc}: peak {peak}");
+        }
+    }
+
+    /// Protects the raster: with the look's `river_wet_bank` on the post plane
+    /// carries a wet weight beside the river (and never under full water); with it
+    /// at 0 no pixel carries one.
+    #[test]
+    fn the_raster_carries_the_wet_bank_only_when_the_look_asks() {
+        let g = geom(vec![run(20.0, 4.0, 60.0, 3.0, 3)]);
+        let a = look();
+        let ppc = 4.0f32;
+        let map = crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) };
+        // No outline (`river_bank` 0): any post pixel there is the wet bank's alone, so the plane must be written for it.
+        let a = crate::render::TerrainAppearance { river_bank: 0.0, ..a };
+        let colour = source(&g, None, &a, 64, 40).colour.clone();
+        let src_on = PaintSource::new(&g, None, 64, 40, &crate::render::TerrainAppearance { river_wet_bank: 1.0, ..a.clone() }, colour.clone()).expect("source");
+        let on = src_on.raster(map, 256, 160);
+        let off = PaintSource::new(&g, None, 64, 40, &crate::render::TerrainAppearance { river_wet_bank: 0.0, ..a.clone() }, colour).expect("source").raster(map, 256, 160);
+        let col = 120;
+        let on_max = (0..160).filter_map(|py| on.post_at(col, py)).map(|q| q[2]).fold(0.0f32, f32::max);
+        assert!(on_max > 0.1, "the wet bank must be there ({on_max})");
+        assert!((0..160).filter_map(|py| off.post_at(col, py)).all(|q| q[2] == 0.0), "strength 0 draws no wet bank");
+        let mut covered = 0;
+        for py in 0..160 {
+            if let (Some(q), Some(c)) = (on.post_at(col, py), on.at(col, py)) {
+                let cov = c[3] / src_on.colour_at((30.0, py as f32 / ppc)).map_or(1.0, |k| k[3]);
+                if cov >= 0.999 {
+                    covered += 1;
+                    assert_eq!(q[2], 0.0, "py {py}: the wet bank shows through full water");
+                }
+            }
+        }
+        assert!(covered > 0, "positive control: some post pixel lies under full water");
+    }
+
+    /// Protects the shader mirror of the wet bank: `BANK_WET` equal to the Rust
+    /// constant, the ring gated on the strength, and both composites gated on the weight.
+    #[test]
+    fn the_shader_mirrors_the_wet_bank() {
+        let src = include_str!("../../../godot-project/shell/map_shore.gdshader");
+        let key = "const float BANK_WET = ";
+        let at = src.find(key).expect("the shader declares BANK_WET") + key.len();
+        let v: f64 = src[at..].split(';').next().unwrap().trim().parse().expect("a float literal");
+        assert_eq!(v, crate::render::BANK_WET);
+        assert!(src.contains("if (river_wet_bank > 0.0)"), "the ring is not gated on the strength");
+        assert_eq!(src.matches("if (wet > 0.0)").count(), 2, "each composite must be gated on the wet weight");
+        assert!(src.contains("uniform float river_wet_bank = 0.0;"), "the default must be off");
     }
 
     /// Protects: the river colour a raster paints is the colour field's own,

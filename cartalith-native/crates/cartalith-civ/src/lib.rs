@@ -435,8 +435,18 @@ pub fn compute_affordance_fields(
 /// cell. A consumer must join ids by adjacency before treating an id as a
 /// depression (`cartalith-godot`'s `tests/lake_candidates_harness.rs` and
 /// [`apply_lake_area_floor`] do).
+#[derive(Clone)]
 pub struct WaterBodies {
     pub classification: Vec<u8>,
+    /// **Playa mask** (Ruling ET follow-up, 2026-11-12), `gw * gh` long when
+    /// present: `1` on a cell that is a lake under the pre-balance rule (the
+    /// flood with Ruling CC's floor) and dry land under the lake water balance
+    /// -- the floor of a basin the balance emptied. **Empty means "no playa
+    /// information"** (the balance is off, or this value was not built by
+    /// `render::water_bodies_floored_balanced`), never "no playa": a consumer
+    /// length-checks before reading. Render and trade read it; it never moves
+    /// `classification`, so every lake consumer keeps its meaning.
+    pub playa: Vec<u8>,
     pub fill_level: Vec<f32>,
     /// Per-cell basin id, `gw * gh` long. **`0` means "no basin"** (the cell
     /// was not raised by the flood); real ids start at `1`, so `0` can never
@@ -988,6 +998,7 @@ pub fn build_water_bodies(
 
     WaterBodies {
         classification: out,
+        playa: Vec::new(),
         fill_level: filled,
         basin,
         basin_outlet,
@@ -19013,7 +19024,7 @@ mod tests {
         let field = vec![0.5f32; gw * gh];
         let mut classification = vec![0u8; gw * gh];
         classification[5] = 2;
-        let mut wb = WaterBodies { classification, fill_level: field.clone(), basin: vec![0; gw * gh], basin_outlet: Vec::new() };
+        let mut wb = WaterBodies { classification, playa: Vec::new(), fill_level: field.clone(), basin: vec![0; gw * gh], basin_outlet: Vec::new() };
         let rep = apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 4);
         assert_eq!(rep.cells_removed, 0);
         assert_eq!(wb.classification[5], 2);
@@ -19161,6 +19172,7 @@ mod tests {
         ];
         let wb = WaterBodies {
             classification,
+            playa: Vec::new(),
             fill_level: vec![0.0; 15],
             basin: vec![0; 15],
             basin_outlet: Vec::new(),
@@ -19194,6 +19206,7 @@ mod tests {
         ];
         let wb = WaterBodies {
             classification,
+            playa: Vec::new(),
             fill_level: vec![0.0; 15],
             basin: vec![0; 15],
             basin_outlet: Vec::new(),
@@ -19212,6 +19225,7 @@ mod tests {
     fn water_body_topology_land_only_grid_is_empty() {
         let wb = WaterBodies {
             classification: vec![0u8; 9],
+            playa: Vec::new(),
             fill_level: vec![0.0; 9],
             basin: vec![0; 9],
             basin_outlet: Vec::new(),

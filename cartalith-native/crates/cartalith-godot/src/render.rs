@@ -2460,6 +2460,30 @@ pub struct TerrainAppearance {
     /// finished, like [`Self::river_bank`] (`map_shore.gdshader` and
     /// [`river_post_rgb`]); render only.
     pub river_floodplain_arid: f64,
+    /// **RR-2 part 3 (Ruling ES): the wet bank**, 0..1, the strength of a
+    /// darkened strip on the land at the river's edge (damp soil, `BANK_WET`
+    /// of luminance at 1). Drawn with the bank ring law
+    /// (`river_field::bank_coverage_rr`) on the land colour before the river
+    /// paints over it, so only the outer half pixel of the ring shows. `1.0`
+    /// in [`Self::default`] (the app), `0.0` in [`Self::js_reference`] (off by
+    /// control flow); a preset that opts out sets 0. Render only.
+    pub river_wet_bank: f64,
+    /// **Ruling ET follow-up (playa): how strongly a dried lake basin reads as
+    /// a salt flat**, 0..1, the mix toward [`PLAYA_SALT`] over the land colour
+    /// where `WaterBodies::playa` is set (a cell that is a lake under the old
+    /// rule and dry under the lake balance). `1.0` in [`Self::default`] (the
+    /// app look, `DECISIONS.md` section 7p), `0.0` in [`Self::js_reference`]
+    /// (off by control flow: the reference has no balance and no playa). Inert
+    /// whenever the world has no playa mask (balance off, a loaded save). One
+    /// seam on every path (`cell_color`, the export bake, the tiles). Render only.
+    pub playa_tint: f64,
+    /// **RR-5 (Ruling ES): lake tone by depth**, 0..1, the blend from the
+    /// reference's constant lake depth 0.30 toward [`lake_depth_param`]
+    /// (`fill_level - field`): a deep basin darkens, a shelf is pale. `1.0` in
+    /// [`Self::default`], `0.0` in [`Self::js_reference`] (the constant,
+    /// byte for byte). Inert on a context built without the lake fill levels.
+    /// Render only.
+    pub lake_depth_tone: f64,
     /// Chroma of the **material** colour, as a delta about the mix
     /// `material_weights` produced: `+0.20` is 20% more chroma at the same
     /// luminance, `-1.0` is greyscale. No reference counterpart — the
@@ -2866,6 +2890,10 @@ impl Default for TerrainAppearance {
             river_turbidity: 1.0,
             river_translucency: 1.0,
             river_floodplain_arid: 1.0,
+            // Ruling ES / ET follow-ups: on in the app; a preset opts out with 0.
+            river_wet_bank: 1.0,
+            playa_tint: 1.0,
+            lake_depth_tone: 1.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
             // Cel / toon: off, by branch -- see the fields.
@@ -3185,6 +3213,10 @@ impl TerrainAppearance {
             river_turbidity: 0.0,
             river_translucency: 0.0,
             river_floodplain_arid: 0.0,
+            // Ruling ES / ET follow-ups: pinned off -- the reference has no wet bank, playa or lake depth tone.
+            river_wet_bank: 0.0,
+            playa_tint: 0.0,
+            lake_depth_tone: 0.0,
             // Cel / toon shading is a port-only style with no reference row:
             // pinned off here explicitly rather than inherited, so a future
             // change to `default()` cannot reach the parity path through it.
@@ -3711,6 +3743,10 @@ tunables! {
     "river_turbidity"       => river_turbidity,       0.0,   1.0,  "River turbidity";
     "river_translucency"    => river_translucency,    0.0,   1.0,  "Small-river translucency";
     "river_floodplain_arid" => river_floodplain_arid, 0.0,   1.0,  "Floodplain in dry country only";
+    // Ruling ES / ET follow-ups (2026-11-12): render-only; 0 is off, a preset opts out with it.
+    "river_wet_bank"        => river_wet_bank,        0.0,   1.0,  "River wet bank";
+    "playa_tint"            => playa_tint,            0.0,   1.0,  "Dried-lake salt flat";
+    "lake_depth_tone"       => lake_depth_tone,       0.0,   1.0,  "Lake tone by depth";
     // -- Chroma and atmosphere (no reference counterpart for the first two;
     //    the third is the reference's own literal, made adjustable) --
     "biome_sat"             => biome_sat,            -1.0,   1.0,  "Biome saturation";
@@ -4857,6 +4893,12 @@ pub struct RenderCtx<'a> {
     /// lake) the base map loop stamps above-sea lakes from (v0.103, 8580).
     /// `None` by construction; attach with [`Self::with_lakes`].
     lake_class: Option<&'a [u8]>,
+    /// Ruling ET follow-up: the playa mask (`WaterBodies::playa`) and RR-5's lake
+    /// fill levels (`WaterBodies::fill_level`), both `gw * gh` when attached
+    /// ([`Self::with_water_detail`]); `None` draws neither the salt flat nor the
+    /// depth tone (the state of every context built without a world's water).
+    playa: Option<&'a [u8]>,
+    lake_fill: Option<&'a [f32]>,
     /// The rivers rasterized at THIS raster's resolution ([`RiverLayer`]),
     /// one pixel per cell. `None` draws no river symbol -- the state of every
     /// render but the screen texture's (`WorldGen::build_color_texture`).
@@ -5145,6 +5187,8 @@ impl<'a> RenderCtx<'a> {
             paint_splat: None,
             ground: GroundTiles::default(),
             lake_class: None,
+            playa: None,
+            lake_fill: None,
             river_layer: None,
             water_field: None,
             map_width_km: None,
@@ -5223,6 +5267,8 @@ impl<'a> RenderCtx<'a> {
             paint_splat: None,
             ground: GroundTiles::default(),
             lake_class: None,
+            playa: None,
+            lake_fill: None,
             river_layer: None,
             water_field: split.then_some(water),
             map_width_km: None,
@@ -5296,6 +5342,8 @@ impl<'a> RenderCtx<'a> {
             paint_splat: None,
             ground: GroundTiles::default(),
             lake_class: None,
+            playa: None,
+            lake_fill: None,
             river_layer: None,
             water_field: None,
             map_width_km: p.map_width_km,
@@ -5503,6 +5551,25 @@ impl<'a> RenderCtx<'a> {
     pub fn with_lakes(mut self, lake_class: &'a [u8]) -> Self {
         if lake_class.len() == self.gw * self.gh {
             self.lake_class = Some(lake_class);
+        }
+        self
+    }
+
+    /// Attach the playa mask and the lake fill levels of the drawn water
+    /// (`WaterBodies::playa`, `WaterBodies::fill_level`): the salt-flat tint
+    /// ([`TerrainAppearance::playa_tint`]) and the lake depth tone
+    /// ([`TerrainAppearance::lake_depth_tone`]) read them. Each is attached only
+    /// when it is `gw * gh` long, so an empty mask (the balance off, a loaded
+    /// save) is "no information" and draws nothing. A builder, so every
+    /// positional caller stays byte-identical.
+    #[allow(dead_code)]
+    pub fn with_water_detail(mut self, fill: &'a [f32], playa: &'a [u8]) -> Self {
+        let n = self.gw * self.gh;
+        if fill.len() == n {
+            self.lake_fill = Some(fill);
+        }
+        if playa.len() == n {
+            self.playa = Some(playa);
         }
         self
     }
@@ -8565,11 +8632,96 @@ fn sea_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize) -> f64 {
 /// rivers were drawn in it from 2026-09-22 until the owner's 2026-09-23
 /// ruling moved them to a Strahler-order palette (`lib.rs`'s
 /// `RIVER_ORDER_RGB`).
+#[cfg_attr(not(test), allow(dead_code))] // production calls `lake_color_depth`; this is the reference's constant-depth form, kept for the identity tests.
 fn lake_color(a: &TerrainAppearance, t: f64, n_low: f64, vig: f64) -> Rgb {
+    lake_color_depth(a, LAKE_DEPTH_REF, t, n_low, vig)
+}
+
+/// The reference's constant lake depth (`seaColorCore(0.30, ...)`, 11741).
+const LAKE_DEPTH_REF: f64 = 0.30;
+
+/// [`lake_color`] at an explicit `depth` (`sea_color_core`'s `0..1` depth
+/// axis). `depth == LAKE_DEPTH_REF` is [`lake_color`] by construction.
+fn lake_color_depth(a: &TerrainAppearance, depth: f64, t: f64, n_low: f64, vig: f64) -> Rgb {
     // No coast distance: a lake is not the sea's shelf (Ruling CI's term is
     // the sea's alone).
-    let lc = sea_color_core(a, 0.30, t, n_low, 0.95, vig, None);
+    let lc = sea_color_core(a, depth, t, n_low, 0.95, vig, None);
     ((lc.0 * 0.9 + 12.0).min(255.0), (lc.1 * 0.96 + 16.0).min(255.0), (lc.2 * 0.94 + 6.0).min(255.0))
+}
+
+/// **RR-5 (Ruling ES): the lake's tone axis from its local water depth.**
+/// `drop` is `fill_level - height` at the pixel (the water standing over the
+/// bed, in height units, `None` when the context has no fill levels). With
+/// `a.lake_depth_tone == 0` or no `drop` this is [`LAKE_DEPTH_REF`] exactly (by
+/// control flow: the reference and every context without fill levels). Else
+/// `u = drop / LAKE_DEPTH` ([`cartalith_civ::LAKE_DEPTH`], the depth a cell
+/// needs to count as lake at all, so `u >= 1` on a lake cell) is mapped by
+/// [`lake_depth_axis`] and blended by the tone strength.
+pub(crate) fn lake_depth_for(a: &TerrainAppearance, drop: Option<f64>) -> f64 {
+    let k = a.lake_depth_tone.clamp(0.0, 1.0);
+    match drop {
+        Some(d) if k > 0.0 && d.is_finite() => LAKE_DEPTH_REF + k * (lake_depth_axis(d / cartalith_civ::LAKE_DEPTH) - LAKE_DEPTH_REF),
+        _ => LAKE_DEPTH_REF,
+    }
+}
+
+/// RR-5's depth law: `u` is the water depth in units of `LAKE_DEPTH`. Up to
+/// `u` 4 the axis is the reference's `0.30`, so a pond and a shelf keep today's
+/// tone (the scope's bar: a 1-4 cell pond within 4 levels of today's; a first
+/// version with a paler 0.20 shelf moved ponds by up to 20 levels, measured
+/// 2026-11-12, and was dropped). From `u` 4 it rises by a smoothstep to `0.62`
+/// at `u` 16 (the `sea_color_core` deep ramp starts at 0.2 and reaches
+/// `w_deep` by 0.55). The anchors (0.30, 0.62, 4, 16) are **labelled
+/// judgements**, tuned on the owner world and seed 483920 by before/after
+/// sheets at x1..x64 (`docs/evidence/river-lake-followups-2026-11-12`).
+pub fn lake_depth_axis(u: f64) -> f64 {
+    if u < 4.0 {
+        LAKE_DEPTH_REF
+    } else {
+        let t = ((u - 4.0) / 12.0).clamp(0.0, 1.0);
+        LAKE_DEPTH_REF + 0.32 * t * t * (3.0 - 2.0 * t)
+    }
+}
+
+/// **Ruling ET follow-up: the salt-flat colour** a dried lake basin tends to
+/// (a pale warm clay-white). **Labelled judgement**, tuned on the owner world
+/// and seed 483920; evaporite crust reads near (215, 207, 188) in satellite
+/// imagery of Salar-type flats (SECONDARY, recalled), not a measured value.
+pub const PLAYA_SALT: Rgb = (214.0, 206.0, 186.0);
+/// The mix of [`PLAYA_SALT`] over the land colour at full tint and full
+/// cover: 0.5, so the relief and the climate colour underneath still read
+/// (the owner chose the subtle look). Labelled judgement.
+pub const PLAYA_MIX: f64 = 0.5;
+
+/// Bilinear cover (0..1) of the playa mask at a grid position, smoothstepped
+/// over `0.3..0.7` so the edge is a soft contour at deep zoom and an exact
+/// 0 or 1 at a cell centre. `mask` must be `gw * gh` long.
+pub(crate) fn playa_cover(mask: &[u8], gx: f64, gy: f64, gw: usize, gh: usize) -> f64 {
+    let fx = gx.clamp(0.0, (gw - 1) as f64);
+    let fy = gy.clamp(0.0, (gh - 1) as f64);
+    let (x0, y0) = (fx as usize, fy as usize);
+    let (x1, y1) = ((x0 + 1).min(gw - 1), (y0 + 1).min(gh - 1));
+    let (tx, ty) = (fx - x0 as f64, fy - y0 as f64);
+    let v = |x: usize, y: usize| f64::from(mask[y * gw + x] != 0);
+    let top = v(x0, y0) + (v(x1, y0) - v(x0, y0)) * tx;
+    let bot = v(x0, y1) + (v(x1, y1) - v(x0, y1)) * tx;
+    let b = top + (bot - top) * ty;
+    let t = ((b - 0.3) / 0.4).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The salt-flat tint over a finished land colour `c` at `(gx, gy)`. Returns
+/// `c` itself, by control flow, when the look's `playa_tint` is 0 or the mask
+/// is absent or the pixel is off the playa. `grain` (`0..1`, the lake grain
+/// noise) varies the crust by +-20 % so a flat is not a uniform wash.
+pub(crate) fn playa_apply(a: &TerrainAppearance, mask: Option<&[u8]>, c: Rgb, gx: f64, gy: f64, gw: usize, gh: usize, grain: f64) -> Rgb {
+    let k = a.playa_tint.clamp(0.0, 1.0);
+    let Some(m) = mask.filter(|m| k > 0.0 && gw > 0 && gh > 0 && m.len() == gw * gh) else { return c };
+    let cover = playa_cover(m, gx, gy, gw, gh);
+    if cover <= 0.0 {
+        return c;
+    }
+    mix(c, PLAYA_SALT, (PLAYA_MIX * k * cover * (0.8 + 0.4 * grain)).clamp(0.0, 1.0))
 }
 
 /// `seaColorCore` (8122-8130), plus Ruling CI item 2's coast shelf.
@@ -10002,7 +10154,8 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
         // v0.103 (8580): an above-sea lake is flat freshwater -- `lakeColor`
         // (8324), which is [`lake_color`], the same surface the tile draws.
         // Ruling CX item 5: an active or dormant crater's lake is acid.
-        let lake = ctx.crater_lake_tint(lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw), ctx.vignette_at(x, y)), x as f64, y as f64, 1.0);
+        let depth = lake_depth_for(&ctx.appearance, ctx.lake_fill.map(|f| f[i] as f64 - hw));
+        let lake = ctx.crater_lake_tint(lake_color_depth(&ctx.appearance, depth, t, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw), ctx.vignette_at(x, y)), x as f64, y as f64, 1.0);
         ctx.paint_water(lake, x as f64, y as f64, 1.0)
     } else {
         // `surfaceColor` (8145-8196), unconditional parts only.
@@ -10055,6 +10208,8 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
             // Ruling CW's volcano colours at one pixel per cell (`None`
             // outside Satellite relief).
             ctx.volcano_at(x as f64, y as f64, 1.0));
+        // Ruling ET follow-up: a dried lake basin's salt flat, on the land colour.
+        let c = playa_apply(&ctx.appearance, ctx.playa, c, x as f64, y as f64, ctx.gw, ctx.gh, sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw));
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -10349,7 +10504,8 @@ impl BakeFields {
         // antialiased over this export's pixel (`paint_water`).
         let wpx = step.0.max(step.1);
         // Ruling CX item 5: an active or dormant crater's lake is acid.
-        let lake = || ctx.paint_water(ctx.crater_lake_tint(lake_color(&ctx.appearance, t, sea_grain(&ctx.appearance, gx, gy, gw), vig), gx, gy, wpx), gx, gy, wpx);
+        let lake_depth = lake_depth_for(&ctx.appearance, ctx.lake_fill.map(|f| sample_arr(f, gx, gy, gw, gh) - hw));
+        let lake = || ctx.paint_water(ctx.crater_lake_tint(lake_color_depth(&ctx.appearance, lake_depth, t, sea_grain(&ctx.appearance, gx, gy, gw), vig), gx, gy, wpx), gx, gy, wpx);
         let (r, g, b) = match self.shore_cover(ctx, gx, gy, step) {
             // No shore field (every golden, `js_reference()`): the cell rule,
             // byte for byte what this bake drew before RV-5.
@@ -10585,6 +10741,8 @@ impl BakeFields {
                 // Ruling CW's volcano colours at this export's own footprint.
                 ctx.volcano_at(gx, gy, step.0.max(step.1)),
             );
+            // Ruling ET follow-up: the salt flat, in `cell_color`'s slot.
+            let c = playa_apply(&ctx.appearance, ctx.playa, c, gx, gy, gw, gh, sea_grain(&ctx.appearance, gx, gy, gw));
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
             let c = if ctx.crest.is_empty() { c } else { apply_crest(c, sample_arr(&ctx.crest, gx, gy, gw, gh) * ctx.appearance.crest_strength * 0.7) };
@@ -10738,7 +10896,7 @@ pub struct RiverLayer {
     /// RIM-7's post plane, block for block beside `blocks`: `[floodplain
     /// weight, bank weight]` per pixel. Empty (no allocation at all) for a
     /// stroked layer.
-    post: Vec<Option<Box<[[f32; 2]]>>>,
+    post: Vec<Option<Box<[[f32; 3]]>>>,
     /// The bank line's ink, straight RGB `0..=1` -- the preset's
     /// `river_ink_r/g/b`, never graded (the shader's `river_bank_color`).
     bank_rgb: [f32; 3],
@@ -10762,7 +10920,7 @@ impl RiverLayer {
     /// For `river_field::PaintSource::raster`, which builds blocks in
     /// parallel. Out-of-range block coordinates and wrongly sized blocks are
     /// ignored rather than trusted -- never a panic across the gdext boundary.
-    pub fn put_block(&mut self, bx: usize, by: usize, colour: Option<Box<[[f32; 4]]>>, post: Option<Box<[[f32; 2]]>>) {
+    pub fn put_block(&mut self, bx: usize, by: usize, colour: Option<Box<[[f32; 4]]>>, post: Option<Box<[[f32; 3]]>>) {
         let bh = self.h.div_ceil(RIVER_BLOCK);
         if bx >= self.bw || by >= bh {
             return;
@@ -10780,17 +10938,17 @@ impl RiverLayer {
         }
     }
 
-    /// RIM-7: the post weights at `(x, y)` -- `[floodplain, bank]`, each
-    /// `0..=1` -- or `None` where neither is drawn (always, for a stroked
+    /// RIM-7: the post weights at `(x, y)` -- `[floodplain, bank, wet bank]`
+    /// (the third is Ruling ES RR-2 part 3), each `0..=1` -- or `None` where none is drawn (always, for a stroked
     /// layer). See the type's doc.
     #[inline]
-    pub fn post_at(&self, x: usize, y: usize) -> Option<[f32; 2]> {
+    pub fn post_at(&self, x: usize, y: usize) -> Option<[f32; 3]> {
         if self.post.is_empty() || x >= self.w || y >= self.h {
             return None;
         }
         let b = self.post[(y / RIVER_BLOCK) * self.bw + x / RIVER_BLOCK].as_ref()?;
         let p = b[(y % RIVER_BLOCK) * RIVER_BLOCK + x % RIVER_BLOCK];
-        (p[0] > 0.0 || p[1] > 0.0).then_some(p)
+        (p[0] > 0.0 || p[1] > 0.0 || p[2] > 0.0).then_some(p)
     }
 
     /// Whether any pixel carries post weights (see [`Self::post_at`]).
@@ -10859,7 +11017,7 @@ impl RiverLayer {
     /// RIM-7's post plane included.
     pub fn allocated_bytes(&self) -> usize {
         self.blocks.iter().flatten().count() * RIVER_BLOCK * RIVER_BLOCK * std::mem::size_of::<[f32; 4]>()
-            + self.post.iter().flatten().count() * RIVER_BLOCK * RIVER_BLOCK * std::mem::size_of::<[f32; 2]>()
+            + self.post.iter().flatten().count() * RIVER_BLOCK * RIVER_BLOCK * std::mem::size_of::<[f32; 3]>()
     }
 
     /// Pixels any stroke reached with non-zero alpha.
@@ -11001,6 +11159,15 @@ pub const FLOODPLAIN_MUL: [f64; 3] = [0.96, 1.03, 0.94];
 /// See [`FLOODPLAIN_MUL`].
 pub const FLOODPLAIN_ADD: [f64; 3] = [0.012, 0.034, 0.004];
 
+/// **Ruling ES RR-2 part 3: the wet bank's darkening**, the fraction of
+/// luminance the land at the river's edge loses at full strength
+/// ([`TerrainAppearance::river_wet_bank`] 1). **Labelled judgement**: the
+/// scope's `BANK_WET` 0.12, subtle (the owner chose the subtle look); damp soil
+/// is darker than dry (SECONDARY, common soil-colour knowledge). The shader
+/// keeps its own copy (`BANK_WET`); `river_field::tests::the_shader_mirrors_the_wet_bank`
+/// reads it from the shader's text and holds the two equal.
+pub const BANK_WET: f64 = 0.12;
+
 /// **RIM-7: what the painted river adds to a FINISHED colour** -- the two
 /// stages `map_shore.gdshader` runs after the map is finished, in its order:
 /// the floodplain tint at weight `fp` ([`FLOODPLAIN_MUL`], [`FLOODPLAIN_ADD`]),
@@ -11025,12 +11192,28 @@ pub fn river_post_rgb(rgb: [f64; 3], fp: f64, bank: f64, ink: [f64; 3]) -> [f64;
 /// land colour), so the lift vanishes over green land. `arid` 0 is
 /// [`river_post_rgb`] exactly.
 pub fn river_post_rgb_arid(rgb: [f64; 3], fp: f64, bank: f64, ink: [f64; 3], arid: f32) -> [f64; 3] {
+    river_post_rgb_wet(rgb, fp, bank, ink, arid, 0.0)
+}
+
+/// **Ruling ES RR-2 part 3: the wet bank's darkening of the land**, in
+/// `map_shore.gdshader`'s order: the floodplain lift, then `rgb * (1 -
+/// BANK_WET * wet)`, then the bank ink. The shader darkens the land before the
+/// river is mixed over it; this post stage weights by the pixel's land share
+/// the same way the floodplain is. `wet == 0` is [`river_post_rgb_arid`]
+/// exactly (the arithmetic is skipped).
+pub fn river_post_rgb_wet(rgb: [f64; 3], fp: f64, bank: f64, ink: [f64; 3], arid: f32, wet: f64) -> [f64; 3] {
     let mut c = rgb;
     let fp = fp.clamp(0.0, 1.0) * if arid > 0.0 { floodplain_arid_gate([rgb[0] as f32, rgb[1] as f32, rgb[2] as f32], arid) as f64 } else { 1.0 };
     if fp > 0.0 {
         for k in 0..3 {
             let t = rgb[k] * FLOODPLAIN_MUL[k] + FLOODPLAIN_ADD[k];
             c[k] = rgb[k] + (t - rgb[k]) * fp;
+        }
+    }
+    let wet = wet.clamp(0.0, 1.0);
+    if wet > 0.0 {
+        for v in &mut c {
+            *v *= 1.0 - BANK_WET * wet;
         }
     }
     let bank = bank.clamp(0.0, 1.0);
@@ -11068,17 +11251,18 @@ pub const FLOODPLAIN_GREEN_EXCESS: f32 = 0.06;
 /// nearest level as a GPU's unorm store rounds. Returns the bytes unchanged
 /// when there is nothing to draw.
 #[inline]
-pub fn river_post_px(px: [u8; 3], post: [f32; 2], land: f64, ink: [f32; 3], arid: f32) -> [u8; 3] {
-    let (fp, bank) = (post[0] as f64 * land, post[1] as f64 * land);
-    if fp <= 0.0 && bank <= 0.0 {
+pub fn river_post_px(px: [u8; 3], post: [f32; 3], land: f64, ink: [f32; 3], arid: f32) -> [u8; 3] {
+    let (fp, bank, wet) = (post[0] as f64 * land, post[1] as f64 * land, post[2] as f64 * land);
+    if fp <= 0.0 && bank <= 0.0 && wet <= 0.0 {
         return px;
     }
-    let c = river_post_rgb_arid(
+    let c = river_post_rgb_wet(
         [px[0] as f64 / 255.0, px[1] as f64 / 255.0, px[2] as f64 / 255.0],
         fp,
         bank,
         [ink[0] as f64, ink[1] as f64, ink[2] as f64],
         arid,
+        wet,
     );
     let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
     [q(c[0]), q(c[1]), q(c[2])]
@@ -12187,6 +12371,10 @@ pub struct TileFields<'a> {
     /// it; without it the lake branch falls back to the reference's own
     /// nearest-cell stamp, which is what draws square lakes.
     lake_fill: Cow<'a, [f32]>,
+    /// Ruling ET follow-up: `WaterBodies::playa`, the dried-basin mask, applied
+    /// the same funnel as `lake_class` (forced and maar lakes clear it). Empty
+    /// when the balance is off: no information.
+    playa: Cow<'a, [u8]>,
     /// Ruling BO's forced-lake mask (`WorldGen::forced_lakes`), already
     /// applied to `lake_class` by [`Self::with_forced_lakes`], kept so the
     /// smooth band draws a forced lake's edge the way the base map's shore
@@ -12282,6 +12470,7 @@ impl<'a> TileFields<'a> {
             grade_influence: Cow::Owned(grade_influence),
             lake_class: Cow::Owned(wb.classification),
             lake_fill: Cow::Owned(wb.fill_level),
+            playa: Cow::Owned(wb.playa),
             lake_forced: Cow::Borrowed(&[]),
             ink: None,
             // LOD-D4 is **opt-in here and not built by `new`**, on the same
@@ -12318,6 +12507,7 @@ impl<'a> TileFields<'a> {
             grade_influence: Cow::Borrowed(&self.grade_influence),
             lake_class: Cow::Borrowed(&self.lake_class),
             lake_fill: Cow::Borrowed(&self.lake_fill),
+            playa: Cow::Borrowed(&self.playa),
             // Carried with the classification it was applied to: dropping it
             // would leave the forced cells lake with no edge to draw.
             lake_forced: Cow::Borrowed(&self.lake_forced),
@@ -12374,6 +12564,7 @@ impl<'a> TileFields<'a> {
     pub fn without_lakes(mut self) -> Self {
         self.lake_class = Cow::Borrowed(&[]);
         self.lake_fill = Cow::Borrowed(&[]);
+        self.playa = Cow::Borrowed(&[]);
         self.lake_forced = Cow::Borrowed(&[]);
         self
     }
@@ -12396,6 +12587,7 @@ impl<'a> TileFields<'a> {
         if mask.len() == n && self.lake_class.len() == n {
             apply_forced_lakes(self.lake_class.to_mut(), Some(mask));
             self.lake_forced = Cow::Owned(mask.to_vec());
+            self.clear_playa_under_lakes();
         }
         self
     }
@@ -12417,7 +12609,18 @@ impl<'a> TileFields<'a> {
         // The flood's own classification, before the balance: the maar exemption's `before` in `water_bodies_floored_balanced` too.
         let raw = cartalith_civ::build_water_bodies(ctx.water_height(), self.gw, self.gh, ctx.sea_level, ctx.world, Some(ctx.rainfall)).classification;
         keep_maar_lakes(self.lake_class.to_mut(), &raw, v, self.gw, self.gh);
+        self.clear_playa_under_lakes();
         self
+    }
+
+    /// A forced or maar lake restored after construction is water, so it is
+    /// never a playa: clears the mask under every lake cell. A no-op without a mask.
+    fn clear_playa_under_lakes(&mut self) {
+        if self.playa.len() == self.lake_class.len() && self.playa.iter().zip(self.lake_class.iter()).any(|(&p, &c)| p != 0 && c == 2) {
+            let class = &self.lake_class;
+            let fixed: Vec<u8> = self.playa.iter().zip(class.iter()).map(|(&p, &c)| if c == 2 { 0 } else { p }).collect();
+            self.playa = Cow::Owned(fixed);
+        }
     }
 
     /// Retained bytes, for the scope's own budget line. Counts the five
@@ -12430,7 +12633,7 @@ impl<'a> TileFields<'a> {
     /// are not read off one number.
     #[allow(dead_code)]
     pub fn bytes(&self) -> usize {
-        self.contrast_d.len() * 4 + self.grade_influence.len() * 4 + self.lake_class.len() + self.lake_fill.len() * 4 + self.lake_forced.len() + self.glacier_bytes()
+        self.contrast_d.len() * 4 + self.grade_influence.len() * 4 + self.lake_class.len() + self.lake_fill.len() * 4 + self.playa.len() + self.lake_forced.len() + self.glacier_bytes()
     }
 
     /// The glacier field's own retained bytes — LOD-D4's `<= 10 MiB` budget.
@@ -13688,7 +13891,8 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
             } else if class == TILE_LAKE {
                 // v1.05 lake (11741-11742) -- see [`lake_color`].
                 // Ruling CX item 5: an active or dormant crater's lake is acid.
-                Some(ctx.crater_lake_tint(lake_color(a, t, sea_grain(a, wx, wy, gw), vig), wx, wy, cells_per_px))
+                let depth = lake_depth_for(a, (tf.lake_fill.len() == gw * gh).then(|| sample_arr(&tf.lake_fill, wx, wy, gw, gh) - hw));
+                Some(ctx.crater_lake_tint(lake_color_depth(a, depth, t, sea_grain(a, wx, wy, gw), vig), wx, wy, cells_per_px))
             } else {
                 None
             };
@@ -13878,6 +14082,9 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                         // Ruling CW's volcano colours at this tile's pixel.
                         ctx.volcano_at(wx, wy, cells_per_px),
                     );
+                    // Ruling ET follow-up: a dried lake basin's salt flat, on the
+                    // land colour (the playa mask rides the tile fields).
+                    let cc = playa_apply(a, (!tf.playa.is_empty()).then_some(&*tf.playa), cc, wx, wy, gw, gh, sea_grain(a, wx, wy, gw));
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and
                     // with its own `0.7` (11767-11772).
@@ -14353,15 +14560,46 @@ pub fn water_bodies_floored_balanced(field: &[f32], rainfall: &[f32], gw: usize,
     // equivalent mutant, 2026-10-25) -- it is a cost guard, not a rule.
     let maars = keep.filter(|v| v.iter().any(|e| e.kind == Some(cartalith_terrain::EdificeKind::Maar)));
     let before = maars.map(|_| wb.classification.clone());
+    let floor = cartalith_civ::lake_area_floor_cells(gw, gh);
+    // The old rule's lakes, for the playa mask below: the flood with the same
+    // floor, before the balance. Only a balanced world pays for it; a floor of
+    // one cell (every grid under 1 006 848 cells) removes nothing, so the
+    // clone of the classification alone is the old answer there.
+    let old = balance.map(|_| {
+        if floor <= 1 {
+            wb.classification.clone()
+        } else {
+            let mut o = wb.clone();
+            cartalith_civ::apply_lake_area_floor(&mut o, field, gw, gh, sea, world, floor);
+            o.classification
+        }
+    });
     if let Some(b) = balance {
         cartalith_civ::lake_balance::apply_lake_balance(&mut wb, field, b.flow, b.temperature, gw, gh, sea, world);
     }
-    cartalith_civ::apply_lake_area_floor(&mut wb, field, gw, gh, sea, world, cartalith_civ::lake_area_floor_cells(gw, gh));
+    cartalith_civ::apply_lake_area_floor(&mut wb, field, gw, gh, sea, world, floor);
     if let (Some(v), Some(b)) = (maars, before.as_deref()) {
         keep_maar_lakes(&mut wb.classification, b, v, gw, gh);
     }
     apply_forced_lakes(&mut wb.classification, forced);
+    if let Some(old) = old {
+        wb.playa = playa_mask(&old, &wb.classification, field, sea);
+    }
     wb
+}
+
+/// **The playa mask** (Ruling ET follow-up): `1` where the pre-balance rule
+/// `old` has a lake and the final classification `now` has none, on an
+/// above-sea cell -- the floor of a basin the balance dried. A cell a maar or a
+/// forced lake restored is lake in `now`, so it is never a playa. Both slices
+/// must be one grid; a length mismatch returns an empty mask (no information,
+/// not "no playa").
+pub fn playa_mask(old: &[u8], now: &[u8], field: &[f32], sea: f64) -> Vec<u8> {
+    let n = now.len();
+    if old.len() != n || field.len() < n {
+        return Vec::new();
+    }
+    (0..n).map(|i| u8::from(old[i] == 2 && now[i] != 2 && f64::from(field[i]) > sea)).collect()
 }
 
 /// **Owner Ruling DJ item 2: a small maar lake stands.** Restores to lake

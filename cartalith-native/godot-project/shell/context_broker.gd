@@ -206,6 +206,10 @@ static func river_title(r: Dictionary) -> String:
 			where = "%s, then off the map edge" % km
 		_:
 			where = "%s, then ends inland" % km
+	## Ruling ES follow-up (RR-4): the white water and falls along this branch, from the classifier the map
+	## draws with. Both keys are absent when the world cannot say; then there is no clause, never "rapids 0".
+	if r.has("rapids") and r.has("falls"):
+		where += " · rapids %d · falls %d" % [int(r["rapids"]), int(r["falls"])]
 	return "River (order %d, %s)" % [int(r.get("order", 0)), where]
 
 

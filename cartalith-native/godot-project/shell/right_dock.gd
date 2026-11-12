@@ -4496,6 +4496,12 @@ func _build_river(body: Control) -> void:
 	## field under it.
 	_field(sec, "Fall", _m_text(float(_river.get("drop_m", 0.0))),
 		"Source elevation minus mouth elevation.")
+	## Ruling ES follow-up (RR-4): the white-water reaches and falls downstream of the picked cell, the
+	## marks the map draws from x16. No row when the world could not classify (the keys are absent).
+	if _river.has("rapids") and _river.has("falls"):
+		_field(sec, "Rapids and falls", "rapids %d · falls %d" % [int(_river["rapids"]), int(_river["falls"])],
+			"The separate white-water reaches and falls on this river from the picked cell down to where it ends, " +
+			"from the same slope and rock rules the map draws them with (visible from about x16).")
 	## Deliberately the maximum flow accumulation on the run, not the value at
 	## the mouth: the polyline follows one receiver tree and the accumulation
 	## was built on another, so discharge is not monotone downstream. Measured

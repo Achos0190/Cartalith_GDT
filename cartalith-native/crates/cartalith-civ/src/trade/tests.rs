@@ -875,6 +875,7 @@ fn uniform_smelt(iron: f32, timber: f32, sea: f64, height: f32) -> Smelting {
     res.iron = vec![iron; n];
     res.timber = vec![timber; n];
     let w = PlaceWorld {
+        playa: &[],
         res: &res,
         field: &field,
         biome: &[],
@@ -950,6 +951,7 @@ fn smelting_propagates_nan_the_way_math_min_does() {
     res.timber = vec![1.0; 9];
     let field = vec![1.0f32; 9];
     let w = PlaceWorld {
+        playa: &[],
         res: &res,
         field: &field,
         biome: &[],
@@ -976,6 +978,7 @@ fn smelting_absent_fields_match_the_reference_guards() {
     let field = vec![1.0f32; 9];
     let world = |res: &ResourcePotentials, field: &[f32]| civ_place_smelting(
         &PlaceWorld {
+            playa: &[],
             res,
             field,
             biome: &[],
@@ -1018,6 +1021,7 @@ fn salt_deposit_threshold_is_strictly_above_one_quarter() {
         res.salt = vec![salt; n];
         let field = vec![1.0f32; n];
         let w = PlaceWorld {
+            playa: &[],
             res: &res,
             field: &field,
             biome: &[],
@@ -1054,6 +1058,7 @@ fn salt_deposit_window_is_the_resource_contexts_own_default_radius() {
     }
     let field = vec![1.0f32; n];
     let w = PlaceWorld {
+        playa: &[],
         res: &res,
         field: &field,
         biome: &[],
@@ -1092,6 +1097,7 @@ fn salt_lake_cell_is_clamped_while_the_deposit_window_is_not() {
     let mut rain = vec![0.9f32; n];
     rain[n - 1] = 0.1;
     let w = PlaceWorld {
+        playa: &[],
         res: &res,
         field: &field,
         biome: &biome,
@@ -1124,6 +1130,7 @@ fn salt_branch_order_is_sea_then_deposit_then_lake() {
     let w = |r: &ResourcePotentials, nav: NavKind| {
         civ_salt_access(
             &PlaceWorld {
+                playa: &[],
                 res: r,
                 field: &field,
                 biome: &biome,
@@ -1144,6 +1151,35 @@ fn salt_branch_order_is_sea_then_deposit_then_lake() {
     let dry = zero_pots(n);
     assert_eq!(w(&dry, NavKind::River).source, "salt lake");
     assert_eq!(w(&dry, NavKind::Stream).source, "salt lake");
+}
+
+/// Ruling ET follow-up: a basin the lake balance dried (a playa) is a salt-lake
+/// source, under the same dry-place gate (rain under 0.30) as a lake biome. It is
+/// land under the climate biome, so without the mask the place has no salt.
+#[test]
+fn a_playa_is_a_salt_lake_source_in_a_dry_place() {
+    // Protects: the playa branch of `civ_salt_access` -- fires on a playa cell in dry country,
+    // not on a wet one, not without the mask, and never ahead of sea or deposit salt.
+    let (gw, gh) = (9usize, 9usize);
+    let n = gw * gh;
+    let res = zero_pots(n);
+    let field = vec![1.0f32; n];
+    let biome = vec![crate::BIOME_GRASS; n];
+    let mut playa = vec![0u8; n];
+    playa[4 * gw + 4] = 1;
+    let mk = |playa: &[u8], rain: f32| {
+        let rain = vec![rain; n];
+        civ_salt_access(
+            &PlaceWorld { playa, res: &res, field: &field, biome: &biome, rain: &rain, gw, gh, sea: 0.42, map_width_km: 800.0 },
+            4,
+            4,
+            NavKind::River,
+        )
+    };
+    assert_eq!(mk(&playa, 0.1), SaltAccess { has: true, source: "salt lake" });
+    assert_eq!(mk(&playa, 0.5), SaltAccess::default(), "a wet place is no evaporite flat");
+    assert_eq!(mk(&[], 0.1), SaltAccess::default(), "no mask, no playa");
+    assert_eq!(mk(&vec![0u8; n], 0.1), SaltAccess::default(), "a mask with no playa under the place");
 }
 
 // ===================== `civ_place_archetype` / `civ_place_pastoral_balance` / `civ_place_trade` =====
@@ -1380,6 +1416,7 @@ impl TradeFixture {
     /// 800 km) the place-trade functions take.
     fn world(&self) -> PlaceWorld<'_> {
         PlaceWorld {
+            playa: &[],
             res: &self.res,
             field: &self.field,
             biome: &self.biome,

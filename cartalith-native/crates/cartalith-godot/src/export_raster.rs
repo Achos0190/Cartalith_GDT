@@ -554,7 +554,7 @@ impl WorldGen {
         // `drawn_water_bodies` is the screen's own call (build + Ruling BO's
         // forced lakes), so its fill level can feed the shore field below.
         let bodies = self.drawn_water_bodies()?;
-        let lakes = bodies.classification;
+        let lakes = bodies.classification.clone();
         // RV-5: the smooth shoreline, the numbers `build_color_texture` hands
         // the shell (`render::shore_field_forced`). Only for a look that draws
         // it; `with_shore_field` refuses it otherwise anyway.
@@ -582,7 +582,7 @@ impl WorldGen {
         if let Some(vi) = volcano_index.as_ref() {
             ctx = ctx.with_volcanoes(vi);
         }
-        ctx = ctx.with_lakes(&lakes);
+        ctx = ctx.with_lakes(&lakes).with_water_detail(&bodies.fill_level, &bodies.playa);
         // **The same map scale the on-screen path attaches**
         // (`lib.rs::build_color_texture`), and for the same reason the ground
         // tiles below record: the B3/B4 SDF legs are built from it, and a
@@ -3466,22 +3466,38 @@ mod adjust_census_tests {
     /// satellite `8265f450c3d141a5` -> `75b58543b7d58dc5`. Every pixel hash held:
     /// this fixture's hand-built river carries no turbidity, detail or rank, so
     /// every RR term reads its identity.
+    ///
+    /// **RE-BASELINED 2026-11-12 under Ruling ES/ET's follow-ups** (the lake tone
+    /// by depth, RR-5; the playa tint; the wet bank): the **fingerprint** column of
+    /// all five rows (three more serialized look keys, `river_wet_bank`,
+    /// `playa_tint`, `lake_depth_tone`), old -> new: default `1b1444cbb487ee94` ->
+    /// `6f9734dec5cce1ee`, graded `c9ee8102da43fb74` -> `895fa0ef90c68152`, antique
+    /// `b493880673e7177d` -> `b7eacdb1e21f4123`, js_reference `5151dd4f13223808` ->
+    /// `fbf5e15d04a0fe8f`, satellite `75b58543b7d58dc5` -> `b599bc24f6ac0d2b`; and the
+    /// **tile** column of the four app looks (the tile draws a lake at its depth
+    /// tone, `TileFields` carrying the fill levels), old -> new: default
+    /// `94663e743ac3f04c` -> `f912045abc2c5996`, graded `9b63a7861b495a61` ->
+    /// `00b42099db05d215`, antique `89c558943260c2f3` -> `ed22828fcecb7aad`, satellite
+    /// `2712bfffda80aa3b` -> `d0c1514e882bca47`. **js_reference's tile column did NOT
+    /// move** (the lake tone is 0 there: the identity by control flow), and no screen,
+    /// river, p3, export, banded or crop column moved (this fixture attaches no fill
+    /// levels to those contexts).
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
-            [0x6539289555cc6772, 0x5b68a5da9c9a5197, 0xd2435a8ed4f86473, 0xf289cb09e3701094, 0x68179f43ddf6ba6d, 0x68179f43ddf6ba6d, 0x6b4a5a3302a7b19d, 0x94663e743ac3f04c, 0x1b1444cbb487ee94],
+            [0x6539289555cc6772, 0x5b68a5da9c9a5197, 0xd2435a8ed4f86473, 0xf289cb09e3701094, 0x68179f43ddf6ba6d, 0x68179f43ddf6ba6d, 0x6b4a5a3302a7b19d, 0xf912045abc2c5996, 0x6f9734dec5cce1ee],
         ),
         (
             "graded",
-            [0xc8ccbd392357704a, 0xb2bdfa51afcd5cb2, 0x6063a4ae6bc1ad40, 0xe22ce901929f7983, 0x59cd9b20ff25d48c, 0x59cd9b20ff25d48c, 0xcba3ab40ad832616, 0x9b63a7861b495a61, 0xc9ee8102da43fb74],
+            [0xc8ccbd392357704a, 0xb2bdfa51afcd5cb2, 0x6063a4ae6bc1ad40, 0xe22ce901929f7983, 0x59cd9b20ff25d48c, 0x59cd9b20ff25d48c, 0xcba3ab40ad832616, 0x00b42099db05d215, 0x895fa0ef90c68152],
         ),
         (
             "antique",
-            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0x89c558943260c2f3, 0xb493880673e7177d],
+            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0xed22828fcecb7aad, 0xb7eacdb1e21f4123],
         ),
         (
             "js_reference",
-            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0x5151dd4f13223808],
+            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0xfbf5e15d04a0fe8f],
         ),
         (
             "satellite",
@@ -3511,7 +3527,7 @@ mod adjust_census_tests {
             // field serializes at 1.0). Every pixel column is unmoved -- this
             // fixture attaches no volcano table, so no flow is traced -- and
             // the four rows above did not move at all.
-            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0x2712bfffda80aa3b, 0x75b58543b7d58dc5],
+            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0xd0c1514e882bca47, 0xb599bc24f6ac0d2b],
         ),
     ];
 
@@ -4249,7 +4265,7 @@ mod band_identity_tests {
     fn layer_mismatch(w: usize, h: usize, raster: impl Fn((usize, usize), usize) -> render::RiverLayer) -> (usize, usize) {
         let whole = raster((0, 0), h);
         let bits = |v: Option<[f32; 4]>| v.map(|c| c.map(f32::to_bits));
-        let post = |v: Option<[f32; 2]>| v.map(|c| c.map(f32::to_bits));
+        let post = |v: Option<[f32; 3]>| v.map(|c| c.map(f32::to_bits));
         let (rows, apron) = LAYER_BAND;
         let (mut river, mut differ) = (0usize, 0usize);
         let mut y0 = 0usize;

@@ -284,6 +284,7 @@ impl WorldGen {
         let t0 = std::time::Instant::now();
         let (biome, resources) = self.place_world(ws, civ, gw, gh);
         let world = PlaceWorld {
+            playa: &[],
             res: &resources,
             field: &ws.field,
             biome: &biome,
@@ -327,7 +328,12 @@ impl WorldGen {
         }
         let t0 = std::time::Instant::now();
         let (biome, resources) = self.place_world(ws, civ, gw, gh);
+        // Ruling ET follow-up: the drawn map's playa mask (the same funnel the
+        // screen reads), so the salt-lake source and the salt flat agree. Empty
+        // with the balance off.
+        let playa = self.drawn_water_bodies().map(|b| b.playa).unwrap_or_default();
         let world = PlaceWorld {
+            playa: &playa,
             res: &resources,
             field: &ws.field,
             biome: &biome,

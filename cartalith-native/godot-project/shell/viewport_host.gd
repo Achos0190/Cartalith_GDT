@@ -828,6 +828,7 @@ func _apply_river_paint() -> void:
 	mat.set_shader_parameter("river_detail_on", det != null)
 	mat.set_shader_parameter("river_translucency", float(params.get("translucency", 0.0)))
 	mat.set_shader_parameter("river_floodplain_arid", float(params.get("floodplain_arid", 0.0)))
+	mat.set_shader_parameter("river_wet_bank", float(params.get("wet_bank", 0.0)))
 	mat.set_shader_parameter("river_on", on)
 
 ## Build the whole node stack under `_camera` in draw order (base map, LOD tile layer, territory,

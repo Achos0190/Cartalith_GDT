@@ -176,6 +176,10 @@ var _rim5 := false
 var _rz := false
 var _rz_cost := false
 var _rz_frames := false
+## `--fu-frames` (Ruling ES / ET follow-ups): one frame per target (`--targets`: playa, lake, trunk) at x1, x4, x16 and
+## x64, saved as `<tag>_<target>_z<zoom>.png`; the x1 frame is the whole map and is saved once as `<tag>_full_z01.png`.
+## Run with `--rz-tag` and, for the "before", `--appearance playa_tint=0,lake_depth_tone=0,river_wet_bank=0`.
+var _fu_frames := false
 ## `--resize-cost` (Ruling EQ item 4): with the view zoomed past the deep-zoom switch, resize the window and time
 ## until the tiles settle, against a resize that keeps the river fit (the control). Prints `resize cost`.
 var _resize_cost := false
@@ -258,6 +262,7 @@ func _ready() -> void:
 			"--rz": _rz = true
 			"--rz-cost": _rz_cost = true
 			"--rz-frames": _rz_frames = true
+			"--fu-frames": _fu_frames = true
 			"--resize-cost": _resize_cost = true
 			"--rz-tag": _rz_tag = args[i + 1]; i += 1
 			"--rz-delta-pair": _rz_delta_pair = true
@@ -488,6 +493,8 @@ func _run_seed(seed_v: int) -> void:
 		sr["resize_cost"] = await _resize_cost_run()
 	if _rz_frames and not _stats_only:
 		await _rz_frames_run(targets)
+	if _fu_frames and not _stats_only:
+		await _fu_frames_run(targets)
 	if _rz_cost and not _stats_only:
 		sr["rz_cost"] = await _rz_cost_run(targets)
 	if _rim2:
@@ -1622,6 +1629,35 @@ func _rz_frames_run(targets: Dictionary) -> void:
 				if img != null:
 					print("    rz frame %s z %d fans on vs off: %s" % [_rz_tag, int(z), JSON.stringify(_frame_diff(img, bare))])
 			await _set_deltas(true)
+
+
+## `--fu-frames`: see `_fu_frames`. The view is centred on the target for every zoom above x2; a zoom the camera
+## cannot reach is skipped (printed), never substituted.
+func _fu_frames_run(targets: Dictionary) -> void:
+	var mid := Vector2(_grid.x * 0.5, _grid.y * 0.5)
+	## A look change (`--appearance`) re-renders the map texture and the pyramid; on a 2048-wide world that takes
+	## seconds, and a frame grabbed before it lands shows the previous look (the first owner-world "before" frames did).
+	await _settle(150)
+	await _settle_lod()
+	for z: float in [1.0, 4.0, 16.0, 64.0]:
+		if z > _vh._zoom_max + 1e-6:
+			print("    fu frame z %d skipped: camera maximum %.1f" % [int(z), _vh._zoom_max])
+			continue
+		for name: String in (["full"] if z <= 2.0 else targets.keys()):
+			var c: Vector2 = mid if name == "full" else targets[name]["p"]
+			_vh.reset_view()
+			await _settle(3)
+			_vh.zoom_step(z / _vh.zoom())
+			_vh.move_view_to(c.x, c.y)
+			await _settle(24)
+			await _settle_lod()
+			var img := await _grab()
+			if img == null:
+				printerr("PROBE-FAIL: no frame for %s z %d" % [name, int(z)])
+				_report["fail"] = true
+				continue
+			img.save_png(_out.path_join("%s_%s_z%02d.png" % [_rz_tag, name, int(z)]))
+			print("    fu frame %s %s z %d ppc %.3f saved" % [_rz_tag, name, int(z), _ppc_at(_vh.zoom())])
 
 
 ## ---- RIM-2: the bank outline -------------------------------------------------
