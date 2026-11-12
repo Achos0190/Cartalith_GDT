@@ -541,6 +541,8 @@ mod tests {
             reach: Vec::new(),
             ranks: Vec::new(),
             own_order: 1,
+            turbidity: Vec::new(),
+            detail: Vec::new(),
         }
     }
 

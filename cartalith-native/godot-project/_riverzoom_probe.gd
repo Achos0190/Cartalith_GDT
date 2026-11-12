@@ -222,6 +222,14 @@ var _rough_off := false
 ## `--meander-off`: draw without Ruling ER part B's display meander
 ## (`WorldGen::set_river_meander(false)`), the "before" of its frames.
 var _meander_off := false
+## RR (Ruling ES, `river_realism.rs`): `--rr-width W` draws the largest river W cells wide
+## (`WorldGen::set_river_width_max_cells`; the owner's 1-versus-2-cell frames), `--rr-marks-off`
+## draws no head fade, white water or fall (`set_river_realism_marks(false)`, the "before" of
+## those), and `--rr` prints `river_realism_stats` (RR-4's counts) per seed. A build without the
+## methods fails loudly (PROBE-FAIL) rather than drawing the default and calling it the variant.
+var _rr_width := 0.0
+var _rr_marks_off := false
+var _rr_stats := false
 var _rim5_zooms: Array = [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1.2, 1.35, 1.5, 1.75, 2.0]
 var _appearance := {}
 var _zooms: Array = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 240.0]
@@ -299,6 +307,9 @@ func _ready() -> void:
 			"--metropolis": _metropolis = true
 			"--rough-off": _rough_off = true
 			"--meander-off": _meander_off = true
+			"--rr-width": _rr_width = float(args[i + 1]); i += 1
+			"--rr-marks-off": _rr_marks_off = true
+			"--rr": _rr_stats = true
 			"--width-km": _width_km = float(args[i + 1]); i += 1
 			"--rim5-zooms":
 				_rim5_zooms.clear()
@@ -351,6 +362,15 @@ func _run_seed(seed_v: int) -> void:
 		_br.param_set("rough_routing", false)
 	if _meander_off:
 		_br.world_gen.set_river_meander(false)
+	if _rr_width > 0.0 or _rr_marks_off or _rr_stats:
+		if not _br.world_gen.has_method("set_river_width_max_cells"):
+			printerr("PROBE-FAIL: this build has no RR methods (--rr-width / --rr-marks-off / --rr)")
+			_report["fail"] = true
+		else:
+			if _rr_width > 0.0 and not _br.world_gen.set_river_width_max_cells(_rr_width):
+				printerr("PROBE-FAIL: set_river_width_max_cells refused %f" % _rr_width)
+				_report["fail"] = true
+			_br.world_gen.set_river_realism_marks(not _rr_marks_off)
 	_br.generate({"seed": seed_v, "width_km": _width_km, "grid_w": _grid.x, "grid_h": _grid.y,
 		"archetype": "", "villages": true, "metropolis": _metropolis, "sea_level": 0.42})
 	var spins := 0
@@ -365,6 +385,10 @@ func _run_seed(seed_v: int) -> void:
 		var n: int = _br.set_appearance(_appearance)
 		print("  appearance overrides applied: %d of %d %s" % [n, _appearance.size(), str(_appearance)])
 		_vh.map_view.texture = _br.color_texture()
+	if _rr_stats and _br.world_gen.has_method("river_realism_stats"):
+		var rrs: Dictionary = _br.world_gen.river_realism_stats()
+		print("  rr stats: ", JSON.stringify(rrs))
+		_report["rr_%d" % seed_v] = rrs
 	var rivers: Array = _br.rivers(1)
 	var drawn := 0
 	for r: Dictionary in rivers:

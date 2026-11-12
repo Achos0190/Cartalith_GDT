@@ -3014,6 +3014,8 @@ mod tests {
                 reach: vec![(None, Some(crate::river_stroke::ShoreReach::default()))],
                 ranks: Vec::new(),
                 own_order: 4,
+                turbidity: Vec::new(),
+                detail: Vec::new(),
             }],
         };
         let field = i.field.clone();

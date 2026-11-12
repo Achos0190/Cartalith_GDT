@@ -83,6 +83,44 @@ uniform float floodplain_strength = 1.0;
 uniform float river_bank = 0.0;
 uniform vec3 river_bank_color = vec3(0.0);
 
+// RR (Ruling ES, `river_realism.rs`): the detail field (`WorldGen::river_detail_texture`:
+// R white water, G a fall's lip, B the head ramp; `river_detail_on` false draws none of
+// the three) and the look's two RR-2 strengths (`river_paint_params`: `translucency`,
+// `floodplain_arid`; 0 = the pre-RR look). Keep every constant below in step with
+// `river_realism.rs` -- a test reads them from here.
+uniform sampler2D river_detail : filter_linear, repeat_disable;
+uniform bool river_detail_on = false;
+uniform float river_translucency = 0.0;
+uniform float river_floodplain_arid = 0.0;
+const float VOLUME_ALPHA_HEAD = 0.65;
+const float HEAD_GATE_LO_Z = 1.0;
+const float HEAD_GATE_HI_Z = 4.0;
+const float REACH_GATE_LO_Z = 8.0;
+const float REACH_GATE_HI_Z = 16.0;
+const float WHITEWATER = 0.25;
+const float FALL_LIP = 0.7;
+const vec3 FOAM_RGB = vec3(236.0 / 255.0, 243.0 / 255.0, 240.0 / 255.0);
+const float FLOODPLAIN_GREEN_EXCESS = 0.06;
+// `river_realism::volume_alpha`: small water is translucent.
+float volume_alpha(float u) {
+	return 1.0 - clamp(river_translucency, 0.0, 1.0) * (1.0 - VOLUME_ALPHA_HEAD) * clamp(u, 0.0, 1.0);
+}
+// `river_realism::head_alpha`: a true head fades in from x1 to x4.
+float head_alpha(float h, float z) {
+	return 1.0 - smoothstep(HEAD_GATE_LO_Z, HEAD_GATE_HI_Z, z) * (1.0 - clamp(h, 0.0, 1.0));
+}
+// `river_realism::detail_tint`: white water and a fall's lip, nothing below x8.
+vec3 detail_tint(vec3 rgb, float white, float lip, float z) {
+	float g = smoothstep(REACH_GATE_LO_Z, REACH_GATE_HI_Z, z);
+	float k = clamp(g * max(WHITEWATER * clamp(white, 0.0, 1.0), FALL_LIP * clamp(lip, 0.0, 1.0)), 0.0, 1.0);
+	return mix(rgb, FOAM_RGB, k);
+}
+// `render::floodplain_arid_gate`: the floodplain lift belongs to dry country.
+float floodplain_arid_gate(vec3 land) {
+	float t = clamp((land.g - max(land.r, land.b)) / FLOODPLAIN_GREEN_EXCESS, 0.0, 1.0);
+	return 1.0 - clamp(river_floodplain_arid, 0.0, 1.0) * t * t * (3.0 - 2.0 * t);
+}
+
 // The headwater width de-emphasis, `river_stroke::headwater_deemphasis`: `zk`
 // is pixels per cell, clamped to 1 below; faded out by 8 (the reference's
 // `zk = 8`). The reference's alpha half is retired (RZ-2, Ruling EN item 4).
@@ -165,6 +203,8 @@ void fragment() {
 	float ppc = 1.0 / max(fwidth(UV.x * float(sz.x)), 1e-6);
 	vec4 rf = paint ? texture(river_field, UV) : vec4(64.0, 0.0, 0.0, 0.0);
 	vec3 rcol = paint ? texture(river_color, UV).rgb : vec3(0.0);
+	// RR: the detail values at this pixel, `DETAIL_NONE` (calm, full weight) without the field.
+	vec3 rdet = (paint && river_detail_on) ? texture(river_detail, UV).rgb : vec3(0.0, 0.0, 1.0);
 
 	// The river's coverage of this pixel, RV-2's stroke law, and the
 	// floodplain's weight. Both are zero with no river in reach (the field's
@@ -178,13 +218,18 @@ void fragment() {
 		float hwk = headwater_weight(u);
 		float wm = mix(1.0, headwater_deemphasis(ppc), hwk);
 		float am = river_visibility(u, ppc);
+		// RR-2/RR-3 (Ruling ES): `river_field::edge_px`'s two factors, in its order.
+		float rz = ppc / max(river_fit_ppc, 1e-6);
+		float am_vis = am;
+		am = am * volume_alpha(u) * head_alpha(rdet.b, rz);
+		rcol = detail_tint(rcol, rdet.r, rdet.g, rz);
 		float hw_px = max(rf.g * ppc * wm * river_width, 0.5);
 		// rf.a: the plate frame's weight (`river_field.rs`, `1 - border_cover`)
 		// -- the river never lies on the bare-paper margin the raster baked.
 		rcov = clamp(hw_px + 1.0 - rf.r * ppc, 0.0, 1.0) * am * rf.a;
 		float edge = rf.g * river_width;
 		float e = rf.r - edge;
-		fp = (1.0 - smoothstep(0.0, 1.0 + edge, e)) * (1.0 - hwk) * am * smoothstep(0.35, 1.0, edge) * floodplain_strength * rf.a;
+		fp = (1.0 - smoothstep(0.0, 1.0 + edge, e)) * (1.0 - hwk) * am_vis * smoothstep(0.35, 1.0, edge) * floodplain_strength * rf.a;
 		// RIM-2, `river_field::bank_coverage`: a line centred on the visible
 		// edge (`be` pixels outside it), reaching in only as far as the river
 		// has a body (a 1 px stream: not at all) and out only as far as the
@@ -239,7 +284,7 @@ void fragment() {
 			// The river lies on the land side only, under the water: the land
 			// colour takes the floodplain and the river, then the shore's
 			// coverage mixes the water over it.
-			vec3 land = mix(floodplain(cl.rgb, fp), rcol, rcov);
+			vec3 land = mix(floodplain(cl.rgb, fp * floodplain_arid_gate(cl.rgb)), rcol, rcov);
 			if (bnk > 0.0) {
 				land = mix(land, river_bank_color, bnk);
 			}
@@ -248,7 +293,7 @@ void fragment() {
 			// All land: the pixel is the nearest texel (what the TextureRect
 			// drew), with the floodplain and river over it.
 			vec4 t = COLOR;
-			vec3 lnd = mix(floodplain(t.rgb, fp), rcol * v_mod.rgb, rcov);
+			vec3 lnd = mix(floodplain(t.rgb, fp * floodplain_arid_gate(t.rgb)), rcol * v_mod.rgb, rcov);
 			if (bnk > 0.0) {
 				lnd = mix(lnd, river_bank_color * v_mod.rgb, bnk);
 			}

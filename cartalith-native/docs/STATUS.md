@@ -47,6 +47,59 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### River realism (Ruling ES): RR-0, RR-1, RR-2, RR-3, RR-4, RR-8 built; RR-6's harness measured (2026-11-12)
+
+Spec `RIVER_REALISM_SCOPE.md`; owner answers recorded as Ruling ES (`LARGE_ITEM_RULINGS.md`). Render only except the
+RR-6 harness, which flips nothing: no world field, save key or golden moves (`cargo test --workspace` green, the
+golden suites included). One law in `river_realism.rs`, read by the stroke (`river_stroke::for_each_span_core`,
+`river_px_width`), the tiles and the export (`river_field::PaintSource`, `pixel_paint_rr`, `river_post_rgb_arid`) and
+mirrored in `map_shore.gdshader` (`the_shader_mirrors_the_realism_law`).
+
+- **RR-0** (`tests/river_realism_measurement.rs`, `#[ignore]`; table in
+  `cartalith-native/docs/evidence/river-realism-2026-11-12/rr0_rr6_measurement.log`). Width classes at x16 / x64, old
+  `channel_disc` law vs RR-1 at `W_MAX_CELLS` 1: owner world 1 / 1 vs **3 / 9** (trunk 7.4x and 29.7x the 1 px
+  floor); 1 200 km worlds 7-10 / 6-7 vs 10-11 / 19. At x4 on the 1024x656 worlds: 3 classes. Gradient: on the owner
+  world's 19.6 km cells no traced step reaches the rapids bound often (0.19 % of steps >= 0.03), so its white water
+  is 0 % and every drawn fall is a knickpoint fall (rock rule); 483920 12.4 % and 912345 6.1 % of drawn length is
+  white water (the scope's 1-8 % judgement bracket: met on 912345 only). Every landmark waterfall candidate that lies
+  on a drawn run is a drawn fall (310/310, 245/245; 11 and 5 lie on undrawn parallel runs). An absolute turbidity
+  slope was resolution-bound, so the clear end is the world's 75th-percentile river-cell gradient
+  (`TURBID_CLEAR_PCTL`): median turbidity 0.45-0.47 on all three worlds.
+- **RR-1 width** `w = W_MAX_CELLS * sqrt(Q / Q_max)` over the rank's own discharge
+  (`river_stroke::effective_discharge`, factored out of `visibility_ranks`). **`W_MAX_CELLS` 1.0, pending the owner's
+  pick of 1 or 2**; probe knob `WorldGen::set_river_width_max_cells`. `channel_disc` stays the intensity stamp's law.
+- **RR-2** tone by discharge rank (`tone_order`, palette 6 to 3.5, blended along the course by `blended_orders`,
+  now over palette positions), small-water translucency (`river_translucency`), turbidity (`river_turbidity`, by
+  slope and aridity), the floodplain lift gated off green land (`river_floodplain_arid`). Three new look keys, 1 in
+  the app, 0 in `js_reference`; a preset opts out with 0. Wet-bank darkening: **not built**.
+- **RR-3** true heads fade in from x1 to x4 over 4 cells (`head_alpha`); **RR-4** rapids/cascades (Montgomery &
+  Buffington slope classes) and falls (the landmark's own constraints via
+  `cartalith_civ::landmark::waterfall_constraints_hold`, or a knickpoint with the 40 m drop, read on any world with a
+  rock column via `RockView::drawing_knickpoints`, the landmark gate unchanged), drawn from x8 to x16
+  (`detail_tint`), carried to the screen by a new RGBA8 detail texture (`river_detail_texture`) and to tiles and
+  exports by the same detail field. Owner world (probe): 411 falls, all knickpoints; 483920: 384 falls, 2 349 white
+  points. **RR-8** meander wavelength 11 widths above the 4-cell floor (`river_meander::wavelength_cells`).
+- **RR-6 harness** (`tests/lake_balance_harness.rs`): owner world 322 lakes today, 356 under the balance (-36 %
+  lake cells), 27 vanish, 61 appear, 31 would lose their outlet; 483920 3 vanish / 28 appear; 912345 1 / 20. Frames
+  `lake_balance_*.png` in the evidence folder. **No switch.**
+- **Frames for the owner** (windowed `_riverzoom_probe.gd --rz-frames`, 1600x1000, under `C:/cw/.win_lock`):
+  `rr_width_1_vs_2.png` (W 1 vs 2, both worlds, x1-x64) and `rr_before_after.png` (before = origin/main `8206f6cb`'s
+  DLL), in the evidence folder; opened and looked at. **Identity check:** the new shader with the HEAD DLL renders all
+  eight before frames pixel-identical to the old shader's (0 pixels differ), so every RR shader term is inert at its
+  default uniforms. **Measured bars:** x1 ink pixels (ON-vs-OFF diff > 8) owner 6 242 -> 6 364 (+2.0 %), 483920
+  20 709 -> 18 717 (-9.6 %): within RR-1's +-15 %. **Missed:** RR-2's "mean river colour at x1/x4 moves under 8
+  levels" -- the x1 mean ink colour moved (81.8, 111.8, 117.7) -> (75.2, 93.6, 95.7) on the owner world and
+  (112.5, 146.6, 139.1) -> (84.9, 103.9, 101.0) on 483920, because the biggest rivers (the ones x1 shows) are now
+  palette 6 (`TONE_ORDER_TRUNK`); that constant is the knob if the owner finds the opening view too dark. White
+  water 1-8 % bracket: met on 912345 only (above). Not measured: the per-biome hue bar, the x64 bank bar (no wet bank),
+  RR-3's first-2-px head alpha (unit-tested in `river_field`, not probed), pan-frame time.
+- **Gate:** `cargo test --workspace -j 4` exited 0: 270 suites, 7 873 passed, 0 failed, 149 ignored; after the
+  deep-zoom key's `rr` term was added, `cargo test -p cartalith-godot` again: 3 795 passed, 0 failed. Parse-checked
+  `viewport_host.gd`, `engine_bridge.gd`, `app.gd`, `_riverzoom_probe.gd`.
+- **Mutation:** 29 literal mutants of the new constants (`river_realism.rs`, RR-8's wavelength), Python, restored in
+  `finally`: 29 killed, 0 survived, 0 build errors.
+- **Not built / open:** RR-5 (lake depth tone), RR-7 (waits, Q5), RR-2's wet bank, RR-9's pan-frame timing.
+
 ### Straight rivers fixed (Ruling ER) and deltas readable again at x16 (2026-11-11/12)
 
 - **Deltas "gone" (owner): fixed.** Measured with `river_delta::fan_seen` (`river_delta_stats` `seen_zNN_*`): on the

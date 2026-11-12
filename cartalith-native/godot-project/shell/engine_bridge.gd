@@ -1447,6 +1447,15 @@ func river_field_texture() -> Texture2D:
 		return null
 	return world_gen.river_field_texture()
 
+## RR-3/RR-4 (Ruling ES): the painted river's detail texture (`WorldGen::river_detail_texture`:
+## white water, a fall's lip and the head ramp per cell), built by the last `color_texture()`
+## beside the river field. `null` mid-generation, when no run carries detail, and against a
+## binary without it -- the shader then draws no head fade, white water or fall.
+func river_detail_texture() -> Texture2D:
+	if generating or not _has("river_detail_texture"):
+		return null
+	return world_gen.river_detail_texture()
+
 ## Whether the base map paints the rivers itself (`WorldGen::rivers_painted`),
 ## in which case the overlay draws no stroke (RIM-6). `false` against a binary
 ## without it, so an older DLL keeps its stroke. Hit-testing never reads this.

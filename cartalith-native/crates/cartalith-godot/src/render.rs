@@ -2438,6 +2438,28 @@ pub struct TerrainAppearance {
     /// cannot see it, so `tests/appearance_tiers.rs` lists it as exempt. Must
     /// never move a generated value.
     pub river_bank: f64,
+    /// **RR-2 (Ruling ES item 2, "Yes, subtle"): how turbid a river reads**,
+    /// 0..1, the strength of `river_realism::turbid_rgba` -- lowland and desert
+    /// water pulled toward a warm silt tint, mountain and forest water left
+    /// clear. `1.0` in [`Self::default`] (the app); `0.0` is off by arithmetic
+    /// identity and is what a preset that opts out sets ("presets may opt
+    /// out"), and what [`Self::js_reference`] pins. Applied to the drawn runs'
+    /// colour on every path (`river_stroke::for_each_span_core`), so the screen,
+    /// the tiles and the export agree. Render only; never moves a generated value.
+    pub river_turbidity: f64,
+    /// **RR-2: how translucent small water is**, 0..1, the strength of
+    /// `river_realism::volume_alpha` (a headwater at 65 % opacity at 1, every
+    /// river opaque at 0). `1.0` in [`Self::default`], `0.0` in
+    /// [`Self::js_reference`]. One seam on every path (`river_px_width`,
+    /// `river_field::edge_px`, `map_shore.gdshader`'s `volume_alpha`). Render only.
+    pub river_translucency: f64,
+    /// **RR-2: the floodplain lift belongs to dry country**, 0..1, the strength
+    /// of [`floodplain_arid_gate`] (the Nile rule: no riparian lift
+    /// over already-green land). `1.0` in [`Self::default`], `0.0` (the old
+    /// one-lift-everywhere) in [`Self::js_reference`]. Drawn after the map is
+    /// finished, like [`Self::river_bank`] (`map_shore.gdshader` and
+    /// [`river_post_rgb`]); render only.
+    pub river_floodplain_arid: f64,
     /// Chroma of the **material** colour, as a delta about the mix
     /// `material_weights` produced: `+0.20` is 20% more chroma at the same
     /// luminance, `-1.0` is greyscale. No reference counterpart — the
@@ -2828,6 +2850,10 @@ impl Default for TerrainAppearance {
             // RIM-2: the bank outline is OFF unless a preset asks for it (the
             // shader then runs no outline code at all).
             river_bank: 0.0,
+            // RR-2 (Ruling ES item 2): on in the app; a preset opts out with 0.
+            river_turbidity: 1.0,
+            river_translucency: 1.0,
+            river_floodplain_arid: 1.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
             // Cel / toon: off, by branch -- see the fields.
@@ -3142,6 +3168,10 @@ impl TerrainAppearance {
             river_through: 1.0,
             // RIM-2: pinned at its default (off) like the river keys above it -- shader-only, unread here.
             river_bank: 0.0,
+            // RR-2: pinned off -- the reference has no turbidity, translucency or arid floodplain.
+            river_turbidity: 0.0,
+            river_translucency: 0.0,
+            river_floodplain_arid: 0.0,
             // Cel / toon shading is a port-only style with no reference row:
             // pinned off here explicitly rather than inherited, so a future
             // change to `default()` cannot reach the parity path through it.
@@ -3664,6 +3694,10 @@ tunables! {
     // RIM-2: the bank outline's opacity; 0 (the default) is off. A fraction,
     // like its neighbours; shader-only (`appearance_tiers.rs` exempts it) --
     "river_bank"            => river_bank,            0.0,   1.0,  "River bank outline";
+    // RR-2 (Ruling ES item 2): render-only river realism; 0 is off, a preset opts out with it.
+    "river_turbidity"       => river_turbidity,       0.0,   1.0,  "River turbidity";
+    "river_translucency"    => river_translucency,    0.0,   1.0,  "Small-river translucency";
+    "river_floodplain_arid" => river_floodplain_arid, 0.0,   1.0,  "Floodplain in dry country only";
     // -- Chroma and atmosphere (no reference counterpart for the first two;
     //    the third is the reference's own literal, made adjustable) --
     "biome_sat"             => biome_sat,            -1.0,   1.0,  "Biome saturation";
@@ -10695,6 +10729,8 @@ pub struct RiverLayer {
     /// The bank line's ink, straight RGB `0..=1` -- the preset's
     /// `river_ink_r/g/b`, never graded (the shader's `river_bank_color`).
     bank_rgb: [f32; 3],
+    /// RR-2: the arid-floodplain gate's strength ([`Self::set_floodplain_arid`]).
+    arid: f32,
 }
 
 impl RiverLayer {
@@ -10702,7 +10738,7 @@ impl RiverLayer {
     pub fn new(w: usize, h: usize) -> Self {
         let bw = w.div_ceil(RIVER_BLOCK);
         let bh = h.div_ceil(RIVER_BLOCK);
-        RiverLayer { w, h, bw, blocks: (0..bw * bh).map(|_| None).collect(), post: Vec::new(), bank_rgb: [0.0; 3] }
+        RiverLayer { w, h, bw, blocks: (0..bw * bh).map(|_| None).collect(), post: Vec::new(), bank_rgb: [0.0; 3], arid: 0.0 }
     }
 
     /// RIM-7: install one whole block of block coordinates `(bx, by)` --
@@ -10757,6 +10793,19 @@ impl RiverLayer {
     /// Set the bank line's ink, straight RGB `0..=1`.
     pub fn set_bank_rgb(&mut self, rgb: [f32; 3]) {
         self.bank_rgb = rgb;
+    }
+
+    /// RR-2 (Ruling ES): the post stage's arid-floodplain strength
+    /// ([`TerrainAppearance::river_floodplain_arid`], the shader's
+    /// `river_floodplain_arid`), carried with the layer as its bank ink is.
+    /// `0` (a fresh layer) is the pre-RR one-lift-everywhere.
+    pub fn set_floodplain_arid(&mut self, s: f32) {
+        self.arid = s.clamp(0.0, 1.0);
+    }
+
+    /// See [`Self::set_floodplain_arid`].
+    pub fn floodplain_arid(&self) -> f32 {
+        self.arid
     }
 
     /// Width in pixels -- checked by every consumer against its own raster
@@ -10952,9 +11001,19 @@ pub const FLOODPLAIN_ADD: [f64; 3] = [0.012, 0.034, 0.004];
 /// these two after their own finishing pass, as the screen does. Must never be
 /// applied to a water pixel: the shader draws both on the land side of the
 /// shore only (the callers weight by land coverage).
+#[cfg_attr(not(test), allow(dead_code))] // RR (Ruling ES): the pre-RR identity form, kept for the mirror and law tests; production calls the `_rr`/`_arid` form.
 pub fn river_post_rgb(rgb: [f64; 3], fp: f64, bank: f64, ink: [f64; 3]) -> [f64; 3] {
+    river_post_rgb_arid(rgb, fp, bank, ink, 0.0)
+}
+
+/// [`river_post_rgb`] with RR-2's arid-floodplain gate (Ruling ES item 2):
+/// the floodplain weight times [`floodplain_arid_gate`]`(rgb,
+/// arid)`, read from the finished colour being tinted (the shader reads its
+/// land colour), so the lift vanishes over green land. `arid` 0 is
+/// [`river_post_rgb`] exactly.
+pub fn river_post_rgb_arid(rgb: [f64; 3], fp: f64, bank: f64, ink: [f64; 3], arid: f32) -> [f64; 3] {
     let mut c = rgb;
-    let fp = fp.clamp(0.0, 1.0);
+    let fp = fp.clamp(0.0, 1.0) * if arid > 0.0 { floodplain_arid_gate([rgb[0] as f32, rgb[1] as f32, rgb[2] as f32], arid) as f64 } else { 1.0 };
     if fp > 0.0 {
         for k in 0..3 {
             let t = rgb[k] * FLOODPLAIN_MUL[k] + FLOODPLAIN_ADD[k];
@@ -10970,21 +11029,43 @@ pub fn river_post_rgb(rgb: [f64; 3], fp: f64, bank: f64, ink: [f64; 3]) -> [f64;
     c
 }
 
+/// **RR-2 part 3: how much of the floodplain lift a land pixel takes**, from
+/// the land's own colour (`0..=1` RGB): `1 - s·green`, `green` =
+/// `smoothstep(0, 0.06, g - max(r, b))`, `s` the look's `river_floodplain_arid`.
+/// The Nile rule (§2.2, NASA Earth Observatory, CONFIRMED): the riparian green
+/// strip is a desert feature, invisible in humid green country, so the lift is
+/// full over tan land and gone over green. Read from the pixel it tints, so it
+/// needs no texture channel and the shader and the Rust post stage evaluate it
+/// from the same input. `0.06` is a **labelled judgement**: the green excess
+/// of the default forest and grass ramps (about 0.08-0.15) clears it, tan and
+/// rock (negative excess) do not. Mirrored in `map_shore.gdshader`.
+pub fn floodplain_arid_gate(land: [f32; 3], strength: f32) -> f32 {
+    let excess = land[1] - land[0].max(land[2]);
+    let t = (excess / FLOODPLAIN_GREEN_EXCESS).clamp(0.0, 1.0);
+    let green = t * t * (3.0 - 2.0 * t);
+    1.0 - strength.clamp(0.0, 1.0) * green
+}
+
+/// See [`floodplain_arid_gate`]: the green excess at which land counts as fully
+/// green. **Labelled judgement**.
+pub const FLOODPLAIN_GREEN_EXCESS: f32 = 0.06;
+
 /// RIM-7: one finished RGB8 pixel through [`river_post_rgb`] at land weight
 /// `land` (`0..=1`; the share of the pixel that is not water), rounded to the
 /// nearest level as a GPU's unorm store rounds. Returns the bytes unchanged
 /// when there is nothing to draw.
 #[inline]
-pub fn river_post_px(px: [u8; 3], post: [f32; 2], land: f64, ink: [f32; 3]) -> [u8; 3] {
+pub fn river_post_px(px: [u8; 3], post: [f32; 2], land: f64, ink: [f32; 3], arid: f32) -> [u8; 3] {
     let (fp, bank) = (post[0] as f64 * land, post[1] as f64 * land);
     if fp <= 0.0 && bank <= 0.0 {
         return px;
     }
-    let c = river_post_rgb(
+    let c = river_post_rgb_arid(
         [px[0] as f64 / 255.0, px[1] as f64 / 255.0, px[2] as f64 / 255.0],
         fp,
         bank,
         [ink[0] as f64, ink[1] as f64, ink[2] as f64],
+        arid,
     );
     let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
     [q(c[0]), q(c[1]), q(c[2])]
@@ -11249,7 +11330,7 @@ impl RiverPost {
                         continue;
                     }
                     let o = col * 3;
-                    let q = river_post_px([out[o], out[o + 1], out[o + 2]], pp, land, ink);
+                    let q = river_post_px([out[o], out[o + 1], out[o + 2]], pp, land, ink, layer.floodplain_arid());
                     out[o..o + 3].copy_from_slice(&q);
                     n += 1;
                 }
@@ -13970,7 +14051,7 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                 }
                 if let Some(q) = pp {
                     let o = x * 4;
-                    let c = river_post_px([row[o], row[o + 1], row[o + 2]], q, 1.0, ink);
+                    let c = river_post_px([row[o], row[o + 1], row[o + 2]], q, 1.0, ink, layer.floodplain_arid());
                     row[o..o + 3].copy_from_slice(&c);
                     let bank_a = 255 - (q[1].clamp(0.0, 1.0) * 255.0).round() as u8;
                     row[o + 3] = row[o + 3].min(bank_a);

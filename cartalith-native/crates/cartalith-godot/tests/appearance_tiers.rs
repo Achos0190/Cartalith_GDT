@@ -440,7 +440,7 @@ fn tunable_ranges_clamp_and_are_ordered() {
 /// stage, so a value that is real in isolation but swallowed downstream still
 /// fails here.
 ///
-/// Twenty-seven exemptions (the `EXEMPT` list in the body; the first six were the
+/// Thirty-one exemptions (the `EXEMPT` list in the body; the first six were the
 /// original set), all real and all stated rather than skipped silently:
 /// `splat_strength` is inert with no asset pack attached (the synthetic ctx
 /// attaches none, exactly as a pack-less session does); `border_width_frac` is
@@ -567,7 +567,21 @@ fn every_tunable_is_load_bearing() {
     // replacement proofs are in `tests/lava_flows.rs`:
     // `lava_flows_are_satellite_relief_only` (its positive control moves
     // Satellite relief) and `flows_leave_the_edifice_and_run_downhill`.
-    const EXEMPT: [&str; 28] = [
+    //
+    // `river_turbidity`, `river_translucency` and `river_floodplain_arid`
+    // (RR-2, Ruling ES, 2026-11-12) are the twenty-ninth to thirty-first, for
+    // `river_bank`'s reason: none is a pixel input of `render_serial`, which
+    // carries no river layer. The first tints the drawn runs' colour
+    // (`river_stroke::for_each_span_core`), the second scales the river's
+    // alpha in the seam and the painted law, the third gates the floodplain
+    // lift after the map is finished (`map_shore.gdshader`,
+    // `render::river_post_rgb_arid`). Their replacement proofs are in
+    // `src/river_realism.rs`'s tests (`turbidity_reads_slope_and_aridity`,
+    // `small_water_is_translucent_and_the_switch_turns_it_off` and the shader
+    // mirror `the_shader_mirrors_the_realism_law`), `src/river_field.rs`'s
+    // `the_floodplain_lift_belongs_to_dry_country`, and the probe frames in
+    // `cartalith-native/docs/evidence/river-realism-2026-11-12/`.
+    const EXEMPT: [&str; 31] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -596,6 +610,9 @@ fn every_tunable_is_load_bearing() {
         "edifice_furrows",
         "volcano_look",
         "lava_flows",
+        "river_turbidity",
+        "river_translucency",
+        "river_floodplain_arid",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());

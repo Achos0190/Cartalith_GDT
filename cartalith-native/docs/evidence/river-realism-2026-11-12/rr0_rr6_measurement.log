@@ -1,0 +1,104 @@
+370 |     let mut seed = |i: usize, closed: &mut [bool], heap: &mut BinaryHeap<Reverse<(u32, usize)>>| {
+1926 | fn dispatch_gpu_height(
+2025 | fn dispatch_gpu_resistance(
+7319 |     let mut push = |c: (usize, usize), out: &mut Vec<usize>| {
+running 1 test
+test lake_balance_measurement ... lake balance (RR-6): LAKE_DEPTH 0.004, LAKE_RAIN 0.22 (today's gate); e(T) = 2 * clamp(T, 0, 35) / 25 cell-units per lake cell; same within 10 %
+=== owner: seed 246371, 2048x1311, 40075 km, density 1.55: pools 510; lakes today 322 (44333 cells), under the balance 356 (28288 cells, -36 %)
+  vanish 27 | appear 61 | shrink 4 | grow 3 | same 415 | lakes today that would lose their outlet 31
+    Vanish: cell (1609, 788), pool 4 cells, lake today 4 -> balance 0, inflow 3.4, evaporation at spill 4.6, spills false
+    Vanish: cell (711, 959), pool 4 cells, lake today 4 -> balance 0, inflow 6.1, evaporation at spill 8.7, spills false
+    Vanish: cell (770, 978), pool 3 cells, lake today 3 -> balance 0, inflow 4.0, evaporation at spill 6.6, spills false
+    Vanish: cell (1024, 915), pool 2 cells, lake today 2 -> balance 0, inflow 1.4, evaporation at spill 4.2, spills false
+    Vanish: cell (789, 977), pool 2 cells, lake today 2 -> balance 0, inflow 1.1, evaporation at spill 4.4, spills false
+    Vanish: cell (1075, 1163), pool 2 cells, lake today 2 -> balance 0, inflow 0.4, evaporation at spill 3.1, spills false
+    Vanish: cell (940, 667), pool 1 cells, lake today 1 -> balance 0, inflow 1.4, evaporation at spill 1.8, spills false
+    Vanish: cell (945, 671), pool 1 cells, lake today 1 -> balance 0, inflow 0.7, evaporation at spill 1.8, spills false
+    Appear: cell (907, 246), pool 138 cells, lake today 0 -> balance 138, inflow 81.8, evaporation at spill 30.5, spills true
+    Appear: cell (1146, 638), pool 34 cells, lake today 0 -> balance 34, inflow 360.8, evaporation at spill 37.9, spills true
+    Appear: cell (1339, 970), pool 27 cells, lake today 0 -> balance 27, inflow 1442.9, evaporation at spill 41.5, spills true
+    Appear: cell (1029, 357), pool 19 cells, lake today 0 -> balance 19, inflow 9567.8, evaporation at spill 14.0, spills true
+    Appear: cell (224, 1218), pool 28 cells, lake today 0 -> balance 18, inflow 36.8, evaporation at spill 46.5, spills false
+    Appear: cell (1912, 549), pool 20 cells, lake today 0 -> balance 9, inflow 17.3, evaporation at spill 19.2, spills false
+    Appear: cell (1245, 714), pool 7 cells, lake today 0 -> balance 7, inflow 34.4, evaporation at spill 7.4, spills true
+    Appear: cell (1085, 910), pool 7 cells, lake today 0 -> balance 7, inflow 39.6, evaporation at spill 14.8, spills true
+    Shrink: cell (1287, 1070), pool 55476 cells, lake today 38020 -> balance 22164, inflow 60857.6, evaporation at spill 90784.6, spills false
+    Shrink: cell (680, 735), pool 1226 cells, lake today 998 -> balance 75, inflow 1746.6, evaporation at spill 2333.6, spills false
+    Shrink: cell (13, 991), pool 36 cells, lake today 36 -> balance 6, inflow 23.4, evaporation at spill 55.7, spills false
+    Shrink: cell (177, 1184), pool 37 cells, lake today 13 -> balance 6, inflow 15.0, evaporation at spill 61.9, spills false
+    Grow: cell (1499, 827), pool 480 cells, lake today 330 -> balance 480, inflow 158396.5, evaporation at spill 920.1, spills true
+    Grow: cell (1071, 1154), pool 224 cells, lake today 12 -> balance 224, inflow 9557.2, evaporation at spill 346.0, spills true
+    Grow: cell (1062, 914), pool 7 cells, lake today 2 -> balance 7, inflow 58.1, evaporation at spill 14.9, spills true
+  frame C:\Users\Vincent\AppData\Local\Temp\lakebal\lake_balance_owner.png
+=== 483920: seed 483920, 1024x656, 1200 km, density 1: pools 71; lakes today 41 (8168 cells), under the balance 66 (13102 cells, +60 %)
+  vanish 3 | appear 28 | shrink 0 | grow 2 | same 38 | lakes today that would lose their outlet 3
+    Vanish: cell (579, 134), pool 1 cells, lake today 1 -> balance 0, inflow 1.0, evaporation at spill 1.0, spills false
+    Vanish: cell (578, 135), pool 1 cells, lake today 1 -> balance 0, inflow 0.6, evaporation at spill 1.1, spills false
+    Vanish: cell (577, 136), pool 1 cells, lake today 1 -> balance 0, inflow 0.3, evaporation at spill 1.1, spills false
+    Appear: cell (376, 459), pool 2135 cells, lake today 0 -> balance 2135, inflow 28978.8, evaporation at spill 4177.6, spills true
+    Appear: cell (258, 498), pool 522 cells, lake today 0 -> balance 522, inflow 12142.3, evaporation at spill 1000.7, spills true
+    Appear: cell (16, 608), pool 137 cells, lake today 0 -> balance 137, inflow 2751.2, evaporation at spill 278.3, spills true
+    Appear: cell (816, 281), pool 100 cells, lake today 0 -> balance 100, inflow 95.6, evaporation at spill 86.0, spills true
+    Appear: cell (467, 428), pool 55 cells, lake today 0 -> balance 55, inflow 68.9, evaporation at spill 61.4, spills true
+    Appear: cell (85, 386), pool 54 cells, lake today 0 -> balance 54, inflow 721.5, evaporation at spill 54.3, spills true
+    Appear: cell (760, 312), pool 38 cells, lake today 0 -> balance 38, inflow 492.9, evaporation at spill 36.9, spills true
+    Appear: cell (310, 397), pool 20 cells, lake today 0 -> balance 20, inflow 685.0, evaporation at spill 24.0, spills true
+    Grow: cell (566, 225), pool 9354 cells, lake today 7677 -> balance 9354, inflow 17952.2, evaporation at spill 12694.6, spills true
+    Grow: cell (436, 604), pool 281 cells, lake today 155 -> balance 281, inflow 35023.8, evaporation at spill 603.0, spills true
+  frame C:\Users\Vincent\AppData\Local\Temp\lakebal\lake_balance_483920.png
+=== 912345: seed 912345, 1024x656, 1200 km, density 1: pools 50; lakes today 26 (10393 cells), under the balance 45 (15641 cells, +50 %)
+  vanish 1 | appear 20 | shrink 0 | grow 2 | same 27 | lakes today that would lose their outlet 2
+    Vanish: cell (237, 606), pool 1 cells, lake today 1 -> balance 0, inflow 0.6, evaporation at spill 1.4, spills false
+    Appear: cell (764, 150), pool 627 cells, lake today 0 -> balance 627, inflow 270.3, evaporation at spill 25.7, spills true
+    Appear: cell (892, 401), pool 153 cells, lake today 0 -> balance 153, inflow 186.7, evaporation at spill 78.9, spills true
+    Appear: cell (212, 323), pool 92 cells, lake today 0 -> balance 22, inflow 21.0, evaporation at spill 53.6, spills false
+    Appear: cell (663, 148), pool 12 cells, lake today 0 -> balance 12, inflow 1.7, evaporation at spill 0.0, spills true
+    Appear: cell (190, 321), pool 9 cells, lake today 0 -> balance 9, inflow 12.0, evaporation at spill 4.7, spills true
+    Appear: cell (148, 279), pool 5 cells, lake today 0 -> balance 5, inflow 48.8, evaporation at spill 2.2, spills true
+    Appear: cell (805, 338), pool 9 cells, lake today 0 -> balance 5, inflow 4.5, evaporation at spill 6.2, spills false
+    Appear: cell (876, 393), pool 5 cells, lake today 0 -> balance 5, inflow 7.9, evaporation at spill 0.0, spills true
+    Grow: cell (784, 460), pool 12098 cells, lake today 4753 -> balance 9077, inflow 13616.8, evaporation at spill 14112.9, spills false
+    Grow: cell (903, 391), pool 18 cells, lake today 4 -> balance 18, inflow 177.2, evaporation at spill 4.6, spills true
+  frame C:\Users\Vincent\AppData\Local\Temp\lakebal\lake_balance_912345.png
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.38s
+running 1 test
+test river_realism_measurement ... 
+=== owner: seed 246371, 2048x1311, 40075 km (19.57 km a cell), density 1.55; drawn runs 9708, drawn length 203045 cells, Q_max 443429.5 cell-units, fit 0.464 px/cell
+  Q/Q_max over drawn points: p10 0.00010 p50 0.00059 p90 0.0095 p99 0.142 max 1.000
+  sqrt(Q/Q_max) (= width at W_MAX 1, cells): p10 0.010 p50 0.024 p90 0.097 p99 0.377
+  x 1 (0.46 px/cell): width classes old 1 (widest 1.0 px) | RR-1 W1 1 (widest 1.0 px, 1.0x the floor) | W2 1 (widest 1.0 px)
+  x 4 (1.86 px/cell): width classes old 1 (widest 1.9 px) | RR-1 W1 1 (widest 1.9 px, 1.9x the floor) | W2 2 (widest 3.7 px)
+  x16 (7.42 px/cell): width classes old 1 (widest 7.4 px) | RR-1 W1 3 (widest 7.4 px, 7.4x the floor) | W2 5 (widest 14.8 px)
+  x64 (29.68 px/cell): width classes old 1 (widest 29.7 px) | RR-1 W1 9 (widest 29.7 px, 29.7x the floor) | W2 13 (widest 59.4 px)
+  along-course gradient: p50 0.00021 p90 0.0010 p99 0.0097 max 0.076; steps >= 0.015 0.50 %, >= 0.03 (rapids) 0.19 %, >= 0.065 (cascade) 0.01 %
+  RR-4: white water 0.00 % of drawn length (bar 1-8 %); falls drawn 317 (on a knickpoint 317, hanging valley 0); rock column true
+  waterfall candidates (landmark constraints) 0, on a drawn run 0, on a drawn fall 0
+  turbidity inputs at drawn land points: cell gradient p25 0.0002 p50 0.0004 p75 0.0016 p90 0.0055; rain p10 0.117 p50 0.494 p90 1.000; turbidity p10 0.00 p50 0.47 p90 0.96
+  (7.8 s)
+=== 483920: seed 483920, 1024x656, 1200 km (1.17 km a cell), density 1; drawn runs 762, drawn length 22347 cells, Q_max 89597.2 cell-units, fit 0.927 px/cell
+  Q/Q_max over drawn points: p10 0.00225 p50 0.00640 p90 0.0498 p99 0.420 max 1.000
+  sqrt(Q/Q_max) (= width at W_MAX 1, cells): p10 0.047 p50 0.080 p90 0.223 p99 0.648
+  x 1 (0.93 px/cell): width classes old 3 (widest 3.5 px) | RR-1 W1 1 (widest 1.0 px, 1.0x the floor) | W2 1 (widest 1.9 px)
+  x 4 (3.71 px/cell): width classes old 6 (widest 14.0 px) | RR-1 W1 3 (widest 3.7 px, 3.7x the floor) | W2 5 (widest 7.4 px)
+  x16 (14.83 px/cell): width classes old 7 (widest 56.1 px) | RR-1 W1 10 (widest 14.8 px, 14.8x the floor) | W2 14 (widest 29.7 px)
+  x64 (59.32 px/cell): width classes old 6 (widest 224.3 px) | RR-1 W1 19 (widest 59.3 px, 59.3x the floor) | W2 28 (widest 118.6 px)
+  along-course gradient: p50 0.00353 p90 0.0396 p99 0.1117 max 0.579; steps >= 0.015 25.78 %, >= 0.03 (rapids) 14.91 %, >= 0.065 (cascade) 3.29 %
+  RR-4: white water 12.42 % of drawn length (bar 1-8 %); falls drawn 360 (on a knickpoint 51, hanging valley 14); rock column true
+  waterfall candidates (landmark constraints) 321, on a drawn run 310, on a drawn fall 310
+  turbidity inputs at drawn land points: cell gradient p25 0.0045 p50 0.0121 p75 0.0327 p90 0.0634; rain p10 0.020 p50 0.666 p90 1.000; turbidity p10 0.00 p50 0.47 p90 0.96
+  (2.0 s)
+=== 912345: seed 912345, 1024x656, 1200 km (1.17 km a cell), density 1; drawn runs 778, drawn length 22546 cells, Q_max 116461.0 cell-units, fit 0.927 px/cell
+  Q/Q_max over drawn points: p10 0.00162 p50 0.00525 p90 0.0560 p99 0.630 max 1.000
+  sqrt(Q/Q_max) (= width at W_MAX 1, cells): p10 0.040 p50 0.072 p90 0.237 p99 0.794
+  x 1 (0.93 px/cell): width classes old 2 (widest 3.4 px) | RR-1 W1 1 (widest 1.0 px, 1.0x the floor) | W2 2 (widest 1.9 px)
+  x 4 (3.71 px/cell): width classes old 5 (widest 13.6 px) | RR-1 W1 3 (widest 3.7 px, 3.7x the floor) | W2 7 (widest 7.4 px)
+  x16 (14.83 px/cell): width classes old 10 (widest 54.4 px) | RR-1 W1 11 (widest 14.8 px, 14.8x the floor) | W2 11 (widest 29.7 px)
+  x64 (59.32 px/cell): width classes old 7 (widest 217.5 px) | RR-1 W1 19 (widest 59.3 px, 59.3x the floor) | W2 32 (widest 118.6 px)
+  along-course gradient: p50 0.00333 p90 0.0189 p99 0.1299 max 0.810; steps >= 0.015 11.85 %, >= 0.03 (rapids) 6.86 %, >= 0.065 (cascade) 2.60 %
+  RR-4: white water 6.06 % of drawn length (bar 1-8 %); falls drawn 276 (on a knickpoint 24, hanging valley 18); rock column true
+  waterfall candidates (landmark constraints) 250, on a drawn run 245, on a drawn fall 245
+  turbidity inputs at drawn land points: cell gradient p25 0.0036 p50 0.0075 p75 0.0236 p90 0.0595; rain p10 0.066 p50 0.653 p90 1.000; turbidity p10 0.00 p50 0.45 p90 0.89
+  (2.0 s)
+ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 11.78s

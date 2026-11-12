@@ -110,6 +110,31 @@ impl RockView {
         Ok(RockView { gw, gh, strength, exposed, knickpoints, knick_absent })
     }
 
+    /// **The knickpoints a DRAWN river reads (RR-4, Ruling ES item 3)**: §4.7's
+    /// [`knickpoints`] on any world that carries a rock column and a channel
+    /// tree, **whatever `geology_processes` says** -- the owner's "draw them
+    /// from slope and rock" (2026-11-12). Why not [`Self::for_world`]'s gate:
+    /// that gate refuses the knickpoints to the *landmark* because without the
+    /// processes no erosion cut weak rock back faster than strong, so no step at
+    /// a contact is claimed as a placed feature; for a drawn mark the contact is
+    /// still where a fall would be in that geology (`RIVER_REALISM_SCOPE.md`
+    /// §RR-4, Q3). The landmark's gate is unchanged: this is a separate entry
+    /// point, and nothing in the landmark pass calls it.
+    ///
+    /// `None` (never an all-false grid) when the world has no column, no
+    /// channel tree, or a grid that disagrees with `p` -- "no rock reading",
+    /// not "no knickpoint". Derived on demand; marks no world field.
+    pub fn drawing_knickpoints(ws: &WorldState, p: &WorldParams) -> Option<Vec<bool>> {
+        let column = ws.geology.column()?;
+        let n = p.gw * p.gh;
+        let ch = ws.channels.as_ref()?;
+        if n == 0 || ws.field.len() != n || column.len() != n || ch.chan.len() != n || ch.recv.len() != n {
+            return None;
+        }
+        let r_expose = m_to_norm(R_EXPOSE_M, ws.sea_level, p.peak_m) as f32;
+        Some(knickpoints(&ws.field, &ch.chan, &ch.recv, column, ws.sea_level, r_expose))
+    }
+
     /// Whether every vector is `n` long, so a detector can index it.
     pub(crate) fn fits(&self, n: usize) -> bool {
         n > 0

@@ -1685,12 +1685,11 @@ impl<'a> LandmarkInputs<'a> {
     /// (metres of rise per metre of run), which is what a threshold on
     /// steepness has to be stated in if it is to mean the same thing at 512
     /// and at 8192.
+    ///
+    /// One body with the free [`landmark_gradient`] (RR-4 reads it from the
+    /// shell), so the two can never disagree.
     fn gradient(&self, slope_scaled: f32) -> f64 {
-        let run_m = self.width_km * 1000.0;
-        if !(run_m > 0.0) {
-            return 0.0;
-        }
-        slope_scaled as f64 * self.mpu() / run_m
+        landmark_gradient(slope_scaled, self.sea_level, self.peak_m, self.width_km)
     }
 }
 
@@ -2787,6 +2786,46 @@ const WATERFALL_MIN_GRADIENT: f64 = 0.06;
 /// A waterfall needs a river, not a rill: this many times the canonical
 /// channel-initiation threshold.
 const WATERFALL_MIN_FLOW_MULT: f64 = 2.0;
+/// **§7's waterfall constraint block as one predicate** -- `drop_m` the drop
+/// from the cell to its receiver in metres, `gradient` the cell's gradient as
+/// rise over run ([`LandmarkInputs::gradient`]'s, see [`landmark_gradient`]),
+/// `flow` its accumulated discharge and `flow_thresh` the canonical
+/// channel-initiation threshold (`cartalith_hydrology::river_flow_thresh`).
+///
+/// Why public (RR-4, `RIVER_REALISM_SCOPE.md`, Ruling ES item 3): the drawn
+/// river marks a fall where the landmark pass would consider one, and the two
+/// must read **one** definition, so a retune of [`WATERFALL_MIN_DROP_M`],
+/// [`WATERFALL_MIN_GRADIENT`] or [`WATERFALL_MIN_FLOW_MULT`] moves both, and
+/// every placed waterfall lies on a drawn fall by construction. Must never be
+/// given a made-up reading: a NaN `flow` fails the test (`!(q >= min)`), as
+/// `pool_waterfall`'s own inline test always did.
+pub fn waterfall_constraints_hold(drop_m: f64, gradient: f64, flow: f64, flow_thresh: f64) -> bool {
+    !(drop_m < WATERFALL_MIN_DROP_M || gradient < WATERFALL_MIN_GRADIENT || !(flow >= flow_thresh * WATERFALL_MIN_FLOW_MULT))
+}
+
+/// The landmark pass's waterfall drop floor in metres ([`WATERFALL_MIN_DROP_M`]),
+/// for a caller outside this crate that must state the same floor (RR-4's
+/// rock-led falls). Never a second copy of the number.
+pub fn waterfall_min_drop_m() -> f64 {
+    WATERFALL_MIN_DROP_M
+}
+
+/// [`analysis::slope`]'s resolution-scaled output at one cell as a real
+/// gradient (rise over run), for a map `width_km` wide whose field maps
+/// `sea_level..1` onto `0..peak_m` -- [`LandmarkInputs::gradient`]'s own
+/// arithmetic, exposed so the drawn river (RR-4) reads the gradient the
+/// waterfall detector reads. `0.0` for a map with no width (the detector's
+/// own answer there), never a plausible slope.
+pub fn landmark_gradient(slope_scaled: f32, sea_level: f64, peak_m: f64, width_km: f64) -> f64 {
+    let run_m = width_km * 1000.0;
+    if !(run_m > 0.0) {
+        return 0.0;
+    }
+    let d = 1.0 - sea_level;
+    let mpu = peak_m / if d == 0.0 { 1e-6 } else { d };
+    slope_scaled as f64 * mpu / run_m
+}
+
 /// §7's four terms. `S = w_g·G + w_q·Q + w_c·C + w_r·R`, with two
 /// substitutions stated rather than hidden: §7's `C` (channel confinement) is
 /// read as local relief around the channel, and §7's `R` (geological
@@ -3706,7 +3745,6 @@ fn pool_waterfall(c: &Ctx<'_>) -> Option<Pool> {
     let knick = c.rock.and_then(|r| r.knickpoints.as_deref().map(|k| (r, k)));
     let mut p = Pool::new();
     let (mut t_g, mut t_d, mut t_q, mut t_c, mut t_k) = (vec![], vec![], vec![], vec![], vec![]);
-    let min_flow = c.flow_thresh * WATERFALL_MIN_FLOW_MULT;
     for i in 0..c.n {
         if chan[i] == 0 || !c.is_land(i) {
             continue;
@@ -3719,10 +3757,7 @@ fn pool_waterfall(c: &Ctx<'_>) -> Option<Pool> {
         };
         let grad = c.gradient(i);
         let q = flow[i] as f64;
-        if drop_m < WATERFALL_MIN_DROP_M
-            || grad < WATERFALL_MIN_GRADIENT
-            || !(q >= min_flow)
-        {
+        if !waterfall_constraints_hold(drop_m, grad, q, c.flow_thresh) {
             p.rejected_constraint += 1;
             continue;
         }

@@ -3261,9 +3261,11 @@ network's width on a 40 075 km map; `RIVER_ORDER_RGB`; `build_water_bodies` fill
 `pool_waterfall` and `carve_width::knickpoints`, the latter gated on `geology_processes`, off in the app), the
 cited literature, proposals RR-1 (width `∝ Q^0.5`, render only) to RR-8 with bars at x1/x4/x16/x64, milestones
 RR-0…RR-9 and owner questions Q1–Q6 with defaults. RR-6 (lake water balance) and RR-7 (channel heads by area and
-slope) move generated output and each need a ruling (§7p). **Next step:** the owner's answers to Q1–Q6, then RR-0
-(measure) once the Ruling ER lane has landed in `river_stroke.rs`. Frames of the current look:
-`cartalith-native/docs/evidence/river-realism-2026-11-12/`.
+slope) move generated output and each need a ruling (§7p). **Ruling ES (2026-11-12) answered Q1–Q4; RR-0, RR-1,
+RR-2, RR-3, RR-4, RR-8 and RR-6's harness are built** (render only; `STATUS.md`). **Still open:** the owner's pick of
+`W_MAX_CELLS` 1.0 or 2.0 (comparison frames in `cartalith-native/docs/evidence/river-realism-2026-11-12/`); RR-5
+(lake depth tone, not built); RR-6's ruling on the lake list (`tests/lake_balance_harness.rs`); RR-7 (waits, Q5);
+RR-2's wet-bank darkening (not built); RR-9's close-out (pan-frame timing not measured).
 
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There

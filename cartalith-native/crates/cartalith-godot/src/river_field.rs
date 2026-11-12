@@ -19,8 +19,9 @@
 //!   signed perpendicular distance interpolates to zero between two rivers
 //!   whose nearest sides differ, bridging a gap that is not there.
 //! - `G`: `hw`, the half-width in grid cells of the segment `d` was measured
-//!   to, at the foot of the perpendicular -- RV-2's width law
-//!   (`river_half_width_profile`, settled at confluences), so the taper from
+//!   to, at the foot of the perpendicular -- the drawn width law (since RR-1,
+//!   Ruling ES: `river_realism::hydraulic_half_width_profile`, settled at
+//!   confluences), so the taper from
 //!   spring to mouth survives. Not scaled by the preset's `river_width`: the
 //!   shader does that, as [`river_stroke::river_px_width`] does.
 //! - `B`: the river's discharge rank `u` (RZ-2, Ruling EN; it carried the
@@ -511,9 +512,38 @@ pub struct PixelPaint {
 /// preset's width multiplier, `bank` its outline strength (0 = off). One
 /// function, so the tile and the export cannot weigh a pixel differently from
 /// each other; the shader is held to it by the mirror tests.
+#[cfg_attr(not(test), allow(dead_code))] // RR (Ruling ES): the pre-RR identity form, kept for the mirror and law tests; production calls the `_rr`/`_arid` form.
 pub fn pixel_paint(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32) -> PixelPaint {
-    let (c, am) = coverage(texel, ppc, river_width);
-    PixelPaint { cov: c * am * texel[3], floodplain: floodplain_weight(texel, ppc, river_width), bank: bank_coverage(texel, ppc, river_width, bank) }
+    pixel_paint_rr(texel, ppc, river_width, bank, PixRr::NONE)
+}
+
+/// **RR-2/RR-3's per-pixel inputs to the painted river's alpha** (Ruling ES):
+/// the look's small-water translucency (`river_realism::volume_alpha`'s
+/// strength) and the pixel's head ramp (the detail field's third value). The
+/// shader's `river_translucency` uniform and `river_detail`'s blue channel.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PixRr {
+    /// `0..=1`; `0` every river opaque (the pre-RR look).
+    pub translucency: f32,
+    /// `0..=1`; `1` full weight (not near a head, or no detail).
+    pub head: f32,
+}
+
+impl PixRr {
+    /// No RR term: every river opaque, full weight. What [`pixel_paint`] and
+    /// [`coverage`] evaluate, so a caller that passes nothing draws the
+    /// pre-RR law exactly.
+    #[cfg_attr(not(test), allow(dead_code))] // RR (Ruling ES): the pre-RR identity form, kept for the mirror and law tests; production calls the `_rr`/`_arid` form.
+    pub const NONE: PixRr = PixRr { translucency: 0.0, head: 1.0 };
+}
+
+/// [`pixel_paint`] with RR-2/RR-3's alpha terms (`rr`): the water's and the
+/// bank line's alpha also take `volume_alpha(u)` and `head_alpha(head, z)`,
+/// exactly as `map_shore.gdshader` multiplies them into `am`. The floodplain
+/// weight does not (the head is a headwater, which has no floodplain anyway).
+pub fn pixel_paint_rr(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32, rr: PixRr) -> PixelPaint {
+    let (c, am) = coverage_rr(texel, ppc, river_width, rr);
+    PixelPaint { cov: c * am * texel[3], floodplain: floodplain_weight(texel, ppc, river_width), bank: bank_coverage_rr(texel, ppc, river_width, bank, rr) }
 }
 
 /// **The one gate: does look `a` paint its rivers on a `gw x gh` map?**
@@ -563,6 +593,14 @@ pub struct PaintSource {
     /// one pixel per cell, premultiplied, the preset's colour and opacity):
     /// the colour the screen's `river_color` texture is rendered from.
     colour: std::sync::Arc<crate::render::RiverLayer>,
+    /// RR-3/RR-4 (Ruling ES): the detail field (`river_stroke::rasterize_detail_field`)
+    /// the screen's `river_detail` texture is made from; `None` paints no head
+    /// fade, white water or fall.
+    detail: Option<std::sync::Arc<crate::render::RiverLayer>>,
+    /// RR-2: the look's `river_translucency`, clamped.
+    translucency: f32,
+    /// RR-2: the look's `river_floodplain_arid`, clamped (the post stage's gate).
+    arid: f32,
     bank: f32,
     bank_rgb: [f32; 3],
     /// The look, for the plate frame's cover (`render::border_cover_f`).
@@ -616,10 +654,48 @@ impl PaintSource {
             bins_w,
             bins_h,
             colour,
+            detail: None,
+            translucency: a.river_translucency.clamp(0.0, 1.0) as f32,
+            arid: a.river_floodplain_arid.clamp(0.0, 1.0) as f32,
             bank: a.river_bank.clamp(0.0, 1.0) as f32,
             bank_rgb: [ink(a.river_ink_r), ink(a.river_ink_g), ink(a.river_ink_b)],
             appearance: a.clone(),
         })
+    }
+
+    /// RR-3/RR-4: attach the detail field built from the same geometry (and
+    /// fans) as this source (`WorldGen::river_detail_field`). `None` keeps the
+    /// pre-RR-3 paint.
+    pub fn with_detail(mut self, detail: Option<std::sync::Arc<crate::render::RiverLayer>>) -> Self {
+        self.detail = detail;
+        self
+    }
+
+    /// The detail values at river-space `q`, read bilinearly like
+    /// [`Self::colour_at`] (premultiplied, then divided by the read alpha), as
+    /// the screen's linear filter reads the texture; `DETAIL_NONE` with no
+    /// field or where it holds no river.
+    fn detail_at(&self, q: (f32, f32)) -> [f32; 3] {
+        let Some(layer) = self.detail.as_deref() else { return crate::river_realism::DETAIL_NONE };
+        let (fx, fy) = (q.0 - 0.5, q.1 - 0.5);
+        let (x0, y0) = (fx.floor(), fy.floor());
+        let (tx, ty) = (fx - x0, fy - y0);
+        // The screen texture's bytes: every texel un-premultiplied, `DETAIL_NONE` where empty
+        // (`river_stroke::detail_px`), so the bilinear mix below is the GPU's over those texels.
+        let px = |x: f32, y: f32| -> [f32; 3] {
+            if x < 0.0 || y < 0.0 {
+                return crate::river_realism::DETAIL_NONE;
+            }
+            crate::river_stroke::detail_px(layer, x as usize, y as usize)
+        };
+        let (c00, c10, c01, c11) = (px(x0, y0), px(x0 + 1.0, y0), px(x0, y0 + 1.0), px(x0 + 1.0, y0 + 1.0));
+        let mut out = [0.0f32; 3];
+        for k in 0..3 {
+            let top = c00[k] + (c10[k] - c00[k]) * tx;
+            let bot = c01[k] + (c11[k] - c01[k]) * tx;
+            out[k] = top + (bot - top) * ty;
+        }
+        out
     }
 
     /// How many straight segments the network and fans flattened to.
@@ -753,6 +829,7 @@ impl PaintSource {
         use crate::render::RIVER_BLOCK as B;
         let mut layer = crate::render::RiverLayer::new(w, h);
         layer.set_bank_rgb(self.bank_rgb);
+        layer.set_floodplain_arid(self.arid);
         let pl = Place { sx: map.scale.0, sy: map.scale.1, ox: map.offset.0, oy: map.offset.1, px0: origin.0, py0: origin.1 };
         if w == 0 || h == 0 || !(pl.sx > 0.0 && pl.sy > 0.0 && pl.ox.is_finite() && pl.oy.is_finite()) {
             return layer;
@@ -765,6 +842,8 @@ impl PaintSource {
             .into_par_iter()
             .filter_map(|bi| {
                 let _law = crate::river_stroke::ScaleGuard::hold(law);
+                // RR-4's zoom, under the law this block holds.
+                let z = crate::river_realism::zoom_of(ppc, crate::river_stroke::scale().0);
                 let (bx, by) = (bi % nbx, bi / nbx);
                 let (wx0, wy0) = (bx * B, by * B);
                 let (ww, wh, best, val) = self.block_texels(pl, w, h, bx, by)?;
@@ -781,10 +860,22 @@ impl PaintSource {
                         // The frame weight at the pixel's own cell-index
                         // position, as `build_with` stores it per texel.
                         let fw = (1.0 - crate::render::border_cover_f(&self.appearance, p.0 as f64 - 0.5, p.1 as f64 - 0.5, self.gw, self.gh)).clamp(0.0, 1.0) as f32;
-                        let paint = pixel_paint([v[0], v[1], v[2], fw], ppc, self.river_width, self.bank);
+                        let d = self.detail_at(p);
+                        let paint = pixel_paint_rr([v[0], v[1], v[2], fw], ppc, self.river_width, self.bank, PixRr { translucency: self.translucency, head: d[2] });
                         let li = ly * B + lx;
                         if paint.cov > 0.0 {
                             if let Some(c) = self.colour_at(p) {
+                                // RR-4: white water and a fall's lip, on the straight colour
+                                // (the shader tints `rcol` the same way), re-premultiplied.
+                                // Only where a mark is drawn: elsewhere the colour is left bit
+                                // for bit (an un-premultiply round trip is not the identity).
+                                let marked = (d[0] > 0.0 || d[1] > 0.0) && crate::river_realism::gate(crate::river_realism::REACH_GATE_LO_Z, crate::river_realism::REACH_GATE_HI_Z, z) > 0.0;
+                                let c = if c[3] > 0.0 && marked {
+                                    let t = crate::river_realism::detail_tint([c[0] / (255.0 * c[3]), c[1] / (255.0 * c[3]), c[2] / (255.0 * c[3])], d[0], d[1], z);
+                                    [t[0] * 255.0 * c[3], t[1] * 255.0 * c[3], t[2] * 255.0 * c[3], c[3]]
+                                } else {
+                                    c
+                                };
                                 let rv = [c[0] * paint.cov, c[1] * paint.cov, c[2] * paint.cov, c[3] * paint.cov];
                                 if rv[3] > 0.0 {
                                     col.get_or_insert_with(|| vec![[0.0f32; 4]; B * B].into_boxed_slice())[li] = rv;
@@ -875,8 +966,14 @@ impl RiverField {
 /// The 1 px floor and the one-pixel fringe are [`river_stroke::river_px_width`]
 /// and `river_stroke::stroke_mesh`'s: the stroke is `hw_px` to its inner
 /// edge, then alpha falls linearly to zero over [`EDGE_FRINGE_PX`] more.
+#[cfg_attr(not(test), allow(dead_code))] // RR (Ruling ES): the pre-RR identity form, kept for the mirror and law tests; production calls the `_rr`/`_arid` form.
 pub fn coverage(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
-    let (hw_px, am) = edge_px(texel, ppc, river_width);
+    coverage_rr(texel, ppc, river_width, PixRr::NONE)
+}
+
+/// [`coverage`] with RR-2/RR-3's alpha terms ([`PixRr`]).
+pub fn coverage_rr(texel: [f32; 4], ppc: f32, river_width: f32, rr: PixRr) -> (f32, f32) {
+    let (hw_px, am) = edge_px(texel, ppc, river_width, rr);
     let d_px = texel[0] * ppc;
     (((hw_px + EDGE_FRINGE_PX - d_px) / EDGE_FRINGE_PX).clamp(0.0, 1.0), am)
 }
@@ -885,13 +982,16 @@ pub fn coverage(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
 /// can never be measured from a different edge than the water: the half-width
 /// in screen pixels (`hw_px`, with the headwater narrowing and the 1 px floor)
 /// and the visibility alpha multiplier (`am`, [`crate::river_stroke::river_visibility`]).
-fn edge_px(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
+fn edge_px(texel: [f32; 4], ppc: f32, river_width: f32, rr: PixRr) -> (f32, f32) {
     // RZ-2: the texel's B channel is the discharge rank `u`. The headwater end of
     // the rank narrows the stroke (the reference's width de-emphasis) and the
     // visibility law fades the alpha by zoom; a stroke keeps its 1 px floor.
     let u = texel[2];
     let wm = 1.0 + (crate::river_stroke::headwater_deemphasis(ppc) - 1.0) * crate::river_stroke::headwater_weight(u);
     let am = crate::river_stroke::river_visibility(u, ppc);
+    // RR-2/RR-3 (Ruling ES): small water translucent, a true head faded in from
+    // x4 -- `river_stroke::river_px_width`'s same two factors, in its order.
+    let am = am * crate::river_realism::volume_alpha(u, rr.translucency) * crate::river_realism::head_alpha(rr.head, crate::river_realism::zoom_of(ppc, crate::river_stroke::scale().0));
     let hw_px = (texel[1] * ppc * wm * river_width).max(0.5 * MIN_STROKE_PX);
     (hw_px, am)
 }
@@ -941,11 +1041,18 @@ pub const BANK_BAND_MARGIN_CELLS: f32 = 1.0;
 /// outline with the water: no orphan outline on a faded stream) and the
 /// plate-frame weight `texel[3]` (none on the bare-paper margin) -- the same
 /// two factors [`coverage`]'s composite takes.
+#[cfg_attr(not(test), allow(dead_code))] // RR (Ruling ES): the pre-RR identity form, kept for the mirror and law tests; production calls the `_rr`/`_arid` form.
 pub fn bank_coverage(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32) -> f32 {
+    bank_coverage_rr(texel, ppc, river_width, bank, PixRr::NONE)
+}
+
+/// [`bank_coverage`] with RR-2/RR-3's alpha terms ([`PixRr`]): the outline
+/// fades with the water it outlines.
+pub fn bank_coverage_rr(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32, rr: PixRr) -> f32 {
     if bank <= 0.0 {
         return 0.0;
     }
-    let (hw_px, am) = edge_px(texel, ppc, river_width);
+    let (hw_px, am) = edge_px(texel, ppc, river_width, rr);
     let d_px = texel[0] * ppc;
     let e = d_px - (hw_px + 0.5 * EDGE_FRINGE_PX);
     let reach = 0.5 * BANK_WIDTH_PX + 0.5;
@@ -979,6 +1086,8 @@ mod tests {
             ranks: vec![if own_order <= 1 { 1.0 } else { 0.0 }; n],
             own_order,
             pts,
+            turbidity: Vec::new(),
+            detail: Vec::new(),
         }
     }
 
@@ -1180,7 +1289,7 @@ mod tests {
         (0..ph)
             .map(|py| {
                 let t = f.sample(30.0, py as f32 / ppc);
-                let (hw_px, _) = edge_px(t, ppc, rw);
+                let (hw_px, _) = edge_px(t, ppc, rw, PixRr::NONE);
                 let e = t[0] * ppc - (hw_px + 0.5 * EDGE_FRINGE_PX);
                 (py, e, t, bank_coverage(t, ppc, rw, bank))
             })
@@ -1248,7 +1357,7 @@ mod tests {
     fn a_floor_width_stream_takes_no_ink_over_its_bed() {
         for ppc in [1.0f32, 2.0, 4.0] {
             let col = column(0.1, ppc, 1.0, 1.0);
-            let hw_px = col.iter().map(|c| edge_px(c.2, ppc, 1.0).0).fold(0.0f32, f32::max);
+            let hw_px = col.iter().map(|c| edge_px(c.2, ppc, 1.0, PixRr::NONE).0).fold(0.0f32, f32::max);
             assert!((hw_px - 0.5).abs() < 1e-3, "positive control: the stream is at the 1 px floor ({hw_px})");
             assert!(col.iter().all(|c| c.1 >= 0.0 || c.3 == 0.0), "ppc {ppc}: ink inside the water of a floor stream");
             assert!(col.iter().any(|c| c.3 > 0.0), "ppc {ppc}: and it still has its outer outline");
@@ -1285,7 +1394,7 @@ mod tests {
     /// The outline's peak weight (at the visible edge) for a fabricated texel:
     /// half-width `hw` cells, discharge rank `o1` (named for the channel it replaced), frame weight `frame`.
     fn peak(hw: f32, o1: f32, frame: f32, ppc: f32, bank: f32) -> f32 {
-        let (hw_px, _) = edge_px([0.0, hw, o1, frame], ppc, 1.0);
+        let (hw_px, _) = edge_px([0.0, hw, o1, frame], ppc, 1.0, PixRr::NONE);
         bank_coverage([(hw_px + 0.5) / ppc, hw, o1, frame], ppc, 1.0, bank)
     }
 
@@ -1298,7 +1407,7 @@ mod tests {
     fn the_outline_fades_with_the_stream_and_stops_at_the_frame() {
         // A wide river (10 cells half-width) keeps room in the band at 0.2 px/cell,
         // so the zero below is the FADE, not the band clamp.
-        let (hw_px, _) = edge_px([0.0, 10.0, 1.0, 1.0], 0.2, 1.0);
+        let (hw_px, _) = edge_px([0.0, 10.0, 1.0, 1.0], 0.2, 1.0, PixRr::NONE);
         let room = (10.0 + BAND_CELLS - BANK_BAND_MARGIN_CELLS) * 0.2 - hw_px - 0.5;
         assert!(room > 0.5, "positive control: the band alone would leave the line room ({room})");
         assert_eq!(peak(10.0, 1.0, 1.0, 0.2, 1.0), 0.0, "a faded stream keeps no outline");
@@ -1502,9 +1611,9 @@ mod tests {
             assert!((t[k] - want).abs() < 1e-12, "{t:?}");
         }
         assert_eq!(river_post_rgb(g, 1.0, 1.0, [1.0, 0.0, 0.0]), [1.0, 0.0, 0.0], "the bank is drawn after the tint");
-        assert_eq!(river_post_px([128, 128, 128], [1.0, 0.0], 0.0, [0.0; 3]), [128, 128, 128], "on water nothing is drawn");
-        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0], 1.0, [0.0, 0.0, 0.0]), [0, 0, 0]);
-        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0], 0.5, [0.0, 0.0, 0.0]), [64, 64, 64], "half land, half the bank");
+        assert_eq!(river_post_px([128, 128, 128], [1.0, 0.0], 0.0, [0.0; 3], 0.0), [128, 128, 128], "on water nothing is drawn");
+        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0], 1.0, [0.0, 0.0, 0.0], 0.0), [0, 0, 0]);
+        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0], 0.5, [0.0, 0.0, 0.0], 0.0), [64, 64, 64], "half land, half the bank");
     }
 
     /// Protects: the gate. A look paints its rivers exactly when it has
@@ -1619,6 +1728,52 @@ mod tests {
         assert!(c > 0.9 && am == 1.0, "the screen draws it at 30 ppc, past Z_FULL ({c} {am})");
         let drawn = painted(&head, 30.0);
         assert!(drawn > 20.0, "and the raster draws it at 30 ppc ({drawn})");
+    }
+
+    /// Protects the Nile rule: full lift over tan land, none over clearly
+    /// green land, identity at strength 0.
+    #[test]
+    fn the_floodplain_lift_belongs_to_dry_country() {
+        assert_eq!(crate::render::floodplain_arid_gate([0.6, 0.5, 0.35], 1.0), 1.0);
+        assert_eq!(crate::render::floodplain_arid_gate([0.2, 0.4, 0.2], 1.0), 0.0);
+        assert_eq!(crate::render::floodplain_arid_gate([0.2, 0.4, 0.2], 0.0), 1.0);
+        assert_eq!(crate::render::FLOODPLAIN_GREEN_EXCESS, 0.06);
+    }
+
+    /// Protects RR-3/RR-4 on the tiles and the export (Ruling ES): the detail
+    /// field reaches the raster, white water lightens the water at x16 and
+    /// leaves it byte-identical at x4, and a head ramp of 0 leaves the water
+    /// as it was at x1 and removes it at x4 -- the gates the shader mirrors
+    /// (`river_realism::tests::the_shader_mirrors_the_realism_law`). Under a
+    /// held law (fit 1 px a cell, every river visible) so `z` is the ppc.
+    #[test]
+    fn the_raster_paints_white_water_from_x16_and_fades_a_head_from_x4() {
+        let _law = crate::river_stroke::ScaleGuard::hold(Some((1.0, 1.0)));
+        let a = look();
+        let with = |d: [f32; 3]| {
+            let mut r = run(20.0, 4.0, 60.0, 3.0, 3);
+            r.detail = vec![d; r.pts.len()];
+            geom(vec![r])
+        };
+        let paint = |g: &RiverGeometry, ppc: f32| -> (f32, f32) {
+            let det = crate::river_stroke::rasterize_detail_field(g, None, &a, 64, 40).map(std::sync::Arc::new);
+            let src = source(g, None, &a, 64, 40).with_detail(det);
+            let (w, h) = ((64.0 * ppc) as usize, (40.0 * ppc) as usize);
+            // The law on every rayon block, not only this thread (`raster_at_law`).
+            let layer = src.raster_at_law(crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) }, (0, 0), w, h, Some((1.0, 1.0)));
+            let col = (30.0 * ppc) as usize;
+            (0..h).filter_map(|y| layer.at(col, y)).fold((0.0, 0.0), |(s, al), p| (s + p[0] + p[1] + p[2], al + p[3]))
+        };
+        let calm = geom(vec![run(20.0, 4.0, 60.0, 3.0, 3)]);
+        let white = with([1.0, 0.0, 1.0]);
+        assert_eq!(paint(&white, 4.0), paint(&calm, 4.0), "no white water at x4");
+        let (cw, _) = paint(&white, 16.0);
+        let (cc, _) = paint(&calm, 16.0);
+        assert!(cw > cc * 1.02, "white water lightens the water at x16 ({cw} vs {cc})");
+        let head = with([0.0, 0.0, 0.0]);
+        assert_eq!(paint(&head, 1.0), paint(&calm, 1.0), "a head is at full weight at x1");
+        assert_eq!(paint(&head, 4.0).1, 0.0, "and gone at x4 where its ramp is 0");
+        assert!(paint(&calm, 4.0).1 > 1.0, "positive control: the calm river is drawn at x4");
     }
 
     /// Protects: the raster's post plane -- the floodplain beside a wide

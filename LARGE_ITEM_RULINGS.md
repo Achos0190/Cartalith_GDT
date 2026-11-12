@@ -3553,3 +3553,29 @@ directions?"*
    912345: D8, D16, D32, a D-infinity direction (least transverse deviation) and D8 with a tie-break or a perturbation.
    The best candidate by straightness, plausibility (no uphill flow, no broken drainage, lakes and outlets intact) and
    cost is built. The answer and the table are in `DELTA_GEOMETRY_RESEARCH.md` section 13.
+
+## Ruling ES: rivers by volume, subtle colour, falls from slope and rock, lakes measured first (owner, 2026-11-12)
+
+Answering `RIVER_REALISM_SCOPE.md` §6 (`d2c6dd44`), questions Q1 to Q4; Q5 and Q6 were not asked. The owner, verbatim,
+question by question:
+
+1. **Q1, the biggest river's width:** *"Show me 1 and 2 cella"*. RR-1 is built: the drawn width follows discharge,
+   `w = W_MAX_CELLS * sqrt(Q / Q_max)` (`river_realism::W_MAX_CELLS`, one knob, the full width in cells of the world's
+   largest drawn river). Comparison frames at 1.0 and 2.0 on the owner world and seed 483920 at x1, x4, x16 and x64 are
+   in `cartalith-native/docs/evidence/river-realism-2026-11-12/`. **The default is 1.0 until the owner picks;
+   pending.**
+2. **Q2, colour by volume and climate:** *"Yes, subtle"*. RR-2 is built: tone by discharge rank, small water
+   translucent, turbidity by slope and aridity, the floodplain lift in dry country only. **Presets may opt out**
+   (`river_turbidity`, `river_translucency`, `river_floodplain_arid` set to 0).
+3. **Q3, waterfalls:** *"Draw them from slope and rock"*. RR-4 is built: rapids and waterfalls drawn on the river from
+   x16, the slope test being the waterfall landmark's own constraints, and knickpoints read on any world that has a
+   geology column, even with the geology processes off. **The landmark's gate is unchanged.**
+4. **Q4, lake balance:** *"Measure first"*. Only RR-6's harness is built (`tests/lake_balance_harness.rs`): it reports
+   the lakes that would appear or vanish on the owner world and two seeds, with a frame. **No switch is flipped**;
+   nothing in the water classification moves.
+5. **Q5 and Q6 take the scope's defaults** (not asked): Q5, channel heads by area and slope (RR-7), **waits**; Q6,
+   heads fade in from x4, **yes**, so RR-3 is built. RR-5 (lake tone) and RR-8 (meander wavelength by width) are
+   render only and built if the budget allows. RR-0 (measure first) runs first.
+
+Everything except RR-6's harness is render only: no world field, save key or golden moves, and it follows the one
+visibility and geometry law in `river_stroke`, so the screen, the tiles, the export and picking agree.

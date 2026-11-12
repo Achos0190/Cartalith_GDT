@@ -2465,6 +2465,8 @@ mod rv5_parity_tests {
                 reach: Vec::new(),
                 ranks: Vec::new(),
                 own_order: 3,
+                turbidity: Vec::new(),
+                detail: Vec::new(),
             }],
         }
     }
@@ -3444,22 +3446,32 @@ mod adjust_census_tests {
     /// 0.39 km-per-cell fixture. "default" is the Quality tier look (canopy off) and did not
     /// move; nor did "graded", "js_reference" or "satellite" (Satellite relief
     /// keeps every octave and its `canopy_coarse_km` is not serialized).
+    ///
+    /// **RR-2 (Ruling ES, 2026-11-12)** moved the fingerprint column of all five
+    /// rows and nothing else, by the three newly serialized look keys
+    /// (`river_turbidity`, `river_translucency`, `river_floodplain_arid`), old
+    /// -> new: default `13e236a0defa978c` -> `1b1444cbb487ee94`, graded
+    /// `f25c565258bdab0c` -> `c9ee8102da43fb74`, antique `bd140f419bad50fb` ->
+    /// `b493880673e7177d`, js_reference `afd3940a0c5c8b27` -> `5151dd4f13223808`,
+    /// satellite `8265f450c3d141a5` -> `75b58543b7d58dc5`. Every pixel hash held:
+    /// this fixture's hand-built river carries no turbidity, detail or rank, so
+    /// every RR term reads its identity.
     const HEAD: [(&str, [u64; 9]); 5] = [
         (
             "default",
-            [0x6539289555cc6772, 0x5b68a5da9c9a5197, 0xd2435a8ed4f86473, 0xf289cb09e3701094, 0x68179f43ddf6ba6d, 0x68179f43ddf6ba6d, 0x6b4a5a3302a7b19d, 0x94663e743ac3f04c, 0x13e236a0defa978c],
+            [0x6539289555cc6772, 0x5b68a5da9c9a5197, 0xd2435a8ed4f86473, 0xf289cb09e3701094, 0x68179f43ddf6ba6d, 0x68179f43ddf6ba6d, 0x6b4a5a3302a7b19d, 0x94663e743ac3f04c, 0x1b1444cbb487ee94],
         ),
         (
             "graded",
-            [0xc8ccbd392357704a, 0xb2bdfa51afcd5cb2, 0x6063a4ae6bc1ad40, 0xe22ce901929f7983, 0x59cd9b20ff25d48c, 0x59cd9b20ff25d48c, 0xcba3ab40ad832616, 0x9b63a7861b495a61, 0xf25c565258bdab0c],
+            [0xc8ccbd392357704a, 0xb2bdfa51afcd5cb2, 0x6063a4ae6bc1ad40, 0xe22ce901929f7983, 0x59cd9b20ff25d48c, 0x59cd9b20ff25d48c, 0xcba3ab40ad832616, 0x9b63a7861b495a61, 0xc9ee8102da43fb74],
         ),
         (
             "antique",
-            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0x89c558943260c2f3, 0xbd140f419bad50fb],
+            [0x7fca3a251c65239d, 0x521f9e9e2b7749cb, 0xacc666ffd7ad0ec9, 0x35822b95fd82a56b, 0x947882011c732c44, 0x947882011c732c44, 0x4d041437e630f9e9, 0x89c558943260c2f3, 0xb493880673e7177d],
         ),
         (
             "js_reference",
-            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0xafd3940a0c5c8b27],
+            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0x5151dd4f13223808],
         ),
         (
             "satellite",
@@ -3489,7 +3501,7 @@ mod adjust_census_tests {
             // field serializes at 1.0). Every pixel column is unmoved -- this
             // fixture attaches no volcano table, so no flow is traced -- and
             // the four rows above did not move at all.
-            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0x2712bfffda80aa3b, 0x8265f450c3d141a5],
+            [0xbd01eee2a9e52276, 0x895026335de0b58b, 0x28baa9926c723d4a, 0x2d525003219a9d96, 0x00c4f0c7e6da05e5, 0x00c4f0c7e6da05e5, 0x9e3896ad1f796180, 0x2712bfffda80aa3b, 0x75b58543b7d58dc5],
         ),
     ];
 
@@ -4204,6 +4216,8 @@ mod band_identity_tests {
                 reach: Vec::new(),
                 ranks: Vec::new(),
                 own_order: 3,
+                turbidity: Vec::new(),
+                detail: Vec::new(),
             }],
         }
     }

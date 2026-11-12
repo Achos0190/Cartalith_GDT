@@ -1117,6 +1117,11 @@ pub fn delta_fans(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, 
                 pieces: vec![(0, m)],
                 reach: vec![(None, None)],
                 own_order: run.own_order,
+                // RR-2: a fan is the apex river's water, so it carries the apex's
+                // turbidity (none where the apex has no reading); RR-3/RR-4: calm
+                // and at full weight (a fan has no head and no fall).
+                turbidity: run.turbidity.get(ai).map(|&t| vec![t; m]).unwrap_or_default(),
+                detail: Vec::new(),
             });
             st.branches += 1;
         }
@@ -1397,6 +1402,8 @@ mod tests {
             reach: vec![(None, tail.then(ShoreReach::default))],
             ranks: Vec::new(),
             own_order: order,
+            turbidity: Vec::new(),
+            detail: Vec::new(),
         }
     }
 

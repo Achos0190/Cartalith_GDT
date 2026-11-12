@@ -897,9 +897,10 @@ pub struct DrawnRun {
     pub pts: Vec<(f32, f32)>,
     /// Full drawn width in grid cells at each point.
     pub widths: Vec<f32>,
-    /// Straight RGBA in `0..=1` at each point: the per-Strahler-order palette,
-    /// read at the order blended along the course ([`blended_orders`],
-    /// [`palette_at`]) since 2026-09-28.
+    /// Straight RGBA in `0..=1` at each point: the river palette read at a
+    /// position blended along the course ([`blended_orders`], [`palette_at`]);
+    /// since RR-2 (Ruling ES) that position is `river_realism::tone_order` of
+    /// the discharge rank, not the Strahler order.
     pub colors: Vec<[f32; 4]>,
     /// Strahler order of the traced cell nearest each point.
     pub orders: Vec<i16>,
@@ -924,6 +925,33 @@ pub struct DrawnRun {
     /// to its continuation group's highest ([`carry_orders`]) --
     /// `get_rivers()`' `own_order`; `1` is a headwater trickle.
     pub own_order: i16,
+    /// **RR-2 (Ruling ES item 2): each point's turbidity**, `0..=1`
+    /// (`river_realism::turbidity`: flat and dry country turbid, steep and wet
+    /// clear), applied by [`for_each_span_core`] at the look's
+    /// `river_turbidity`. **Empty, or NaN at a point, means "no reading" and is
+    /// drawn untinted** -- a hand-built run in a test, a delta fan without a
+    /// parent reading; never a guessed turbidity.
+    pub turbidity: Vec<f32>,
+    /// **RR-3/RR-4: each point's detail values** `[white, lip, head]`
+    /// (`river_realism`: white water `0..=1`, a fall's lip mark `0..=1`, the
+    /// head ramp `0..=1` with `1` full weight). Zoom-gated where drawn (heads
+    /// from x4, white water and falls from x16). **Empty reads
+    /// [`crate::river_realism::DETAIL_NONE`] at every point**: calm, no fall,
+    /// full weight -- what every run drew before RR-3/RR-4.
+    pub detail: Vec<[f32; 3]>,
+}
+
+impl DrawnRun {
+    /// The point's turbidity, `0` (untinted) where the run carries none.
+    pub fn turbidity_at(&self, i: usize) -> f32 {
+        self.turbidity.get(i).copied().filter(|t| t.is_finite()).unwrap_or(0.0)
+    }
+
+    /// The point's detail values, [`crate::river_realism::DETAIL_NONE`] where
+    /// the run carries none.
+    pub fn detail_at(&self, i: usize) -> [f32; 3] {
+        self.detail.get(i).copied().unwrap_or(crate::river_realism::DETAIL_NONE)
+    }
 }
 
 /// One point of a river as [`river_px_width`] sees it. `order` and
@@ -934,8 +962,8 @@ pub struct DrawnRun {
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
 pub struct RiverPoint {
-    /// RV-2's full width in grid cells (`channel_disc`'s law, settled at
-    /// confluences).
+    /// The full drawn width in grid cells (RR-1's discharge law,
+    /// `river_realism::hydraulic_full_width`, settled at confluences).
     pub width_cells: f32,
     /// Strahler order of the traced cell nearest the point.
     pub order: i16,
@@ -946,6 +974,10 @@ pub struct RiverPoint {
     /// The point's discharge rank `u` ([`DrawnRun::ranks`]), the key of
     /// [`river_visibility`]; `0` where the run is unranked.
     pub rank: f32,
+    /// RR-3: the point's head ramp (`DrawnRun::detail`'s third value), `1` --
+    /// full weight -- where the run carries none or the walk is unranked (the
+    /// colour field, which must hold every river at full coverage).
+    pub head: f32,
 }
 
 /// **The one seam that decides how wide, how opaque and whether a river
@@ -972,6 +1004,11 @@ pub fn river_px_width(p: RiverPoint, px_per_cell: f32, a: &render::TerrainAppear
     if am <= 0.0 {
         return None;
     }
+    // RR-2/RR-3 (Ruling ES): small water is translucent (`volume_alpha` of the
+    // rank, at the look's `river_translucency`) and a true head fades in from
+    // x4 (`head_alpha`); both multiply the alpha only, so a point's
+    // visibility -- and whether it can be picked -- is still the law's alone.
+    let am = am * crate::river_realism::volume_alpha(p.rank, a.river_translucency as f32) * crate::river_realism::head_alpha(p.head, crate::river_realism::zoom_of(px_per_cell, scale().0));
     let wm = 1.0 + (headwater_deemphasis(px_per_cell) - 1.0) * headwater_weight(p.rank);
     let k = px_per_cell * wm * river_width_factor(a);
     Some(((p.width_cells * k).max(MIN_STROKE_PX), am))
@@ -1097,6 +1134,20 @@ pub struct RankInput<'a> {
 /// Reads only discharge and geometry; it must never touch the generated
 /// network, and a run's ranks are a property of the drawn network alone.
 pub fn visibility_ranks(runs: &[RankInput], order: &[usize]) -> Vec<Vec<f32>> {
+    let qs = effective_discharge(runs, order);
+    ranks_of(runs, &qs)
+}
+
+/// **The discharge a drawn point is keyed and sized on**: each run's running
+/// maximum of its readings from the head (a head with no reading back-filled
+/// from the first), then every run's end value pushed into its trunk from the
+/// junction on, tributaries first (`order`, draw order), so a trunk is never
+/// below a river that joins it. NaN only where a run has no reading at all.
+/// The first half of [`visibility_ranks`], public since RR-1 (Ruling ES) so the
+/// width law ([`crate::river_realism::hydraulic_half_width_profile`]) reads the
+/// same discharge the visibility rank does -- one key for "how big is this
+/// river", not two. Reads only discharge and geometry.
+pub fn effective_discharge(runs: &[RankInput], order: &[usize]) -> Vec<Vec<f32>> {
     let mut qs: Vec<Vec<f32>> = runs
         .iter()
         .map(|r| {
@@ -1133,6 +1184,12 @@ pub fn visibility_ranks(runs: &[RankInput], order: &[usize]) -> Vec<Vec<f32>> {
             }
         }
     }
+    qs
+}
+
+/// The second half of [`visibility_ranks`]: the length-weighted rank of every
+/// point of `qs` ([`effective_discharge`]), ties sharing one rank.
+fn ranks_of(runs: &[RankInput], qs: &[Vec<f32>]) -> Vec<Vec<f32>> {
     let mut ix: Vec<(usize, usize)> = Vec::new();
     let mut total = 0.0f64;
     for (i, q) in qs.iter().enumerate() {
@@ -1454,7 +1511,7 @@ pub fn colour_ramp_cells(gw: usize) -> f64 {
 pub const COLOUR_RAMP_MIN_CELLS: f64 = 4.0;
 
 /// Each render point's **blended order**: the mean of the traced per-cell
-/// order `po` over the stretch of course `[u - ramp, u]` upstream of the
+/// palette position `po` over the stretch of course `[u - ramp, u]` upstream of the
 /// point, where `u` is the point's traced parameter ([`render_params`]:
 /// traced point `k` owns `[k - 0.5, k + 0.5)`). A step from order `a` to `b`
 /// therefore becomes a straight ramp from `a` to `b` over `ramp` cells
@@ -1476,26 +1533,35 @@ pub const COLOUR_RAMP_MIN_CELLS: f64 = 4.0;
 /// was drawn in at its end, instead of restarting at this run's own head
 /// order. `None` (a true head, or a run nothing is carried onto) clips.
 ///
+/// **Since RR-2 (Ruling ES, 2026-11-12) `po` is a fractional palette
+/// position**, `river_realism::tone_order` of the discharge rank, not a
+/// Strahler order: the tone rises along a course where its discharge does,
+/// most at a confluence, and this blend still turns that rise into a ramp
+/// (defect 1 above). The rank is non-increasing downstream, so the tone is
+/// non-decreasing and the "monotone" argument above holds unchanged; a
+/// continuation's tone is already carried by the rank, which runs through
+/// junctions (`visibility_ranks`), and `incoming` keeps it from restarting.
+///
 /// Must never extrapolate: an empty `po` returns an empty vector (no colour is
 /// invented), and `ramp <= 0` returns each point's nearest order unchanged
 /// (the pre-2026-09-28 step, kept reachable for a test).
-pub fn blended_orders(po: &[i16], u: &[f64], ramp: f64, incoming: Option<f64>) -> Vec<f64> {
+pub fn blended_orders(po: &[f64], u: &[f64], ramp: f64, incoming: Option<f64>) -> Vec<f64> {
     let n = po.len();
     if n == 0 {
         return Vec::new();
     }
-    let nearest = |t: f64| po[(t.round().max(0.0) as usize).min(n - 1)] as f64;
+    let nearest = |t: f64| po[(t.round().max(0.0) as usize).min(n - 1)];
     // cum[m] = sum of po[..m]: the integral of the step function over
     // [-0.5, m - 0.5).
     let mut cum = vec![0.0f64; n + 1];
     for k in 0..n {
-        cum[k + 1] = cum[k] + po[k] as f64;
+        cum[k + 1] = cum[k] + po[k];
     }
     let (lo, hi) = (-0.5f64, n as f64 - 0.5);
     let integral = |t: f64| -> f64 {
         let t = t.clamp(lo, hi);
         let m = ((t + 0.5).floor() as usize).min(n - 1);
-        cum[m] + po[m] as f64 * (t + 0.5 - m as f64)
+        cum[m] + po[m] * (t + 0.5 - m as f64)
     };
     u.iter()
         .map(|&t| {
@@ -1526,12 +1592,13 @@ pub fn blended_orders(po: &[i16], u: &[f64], ramp: f64, incoming: Option<f64>) -
 /// of them is drawn with at its own last point (`(len - 1)`, the bridge
 /// cell); `None` for every other run. Settled along chains of continuations,
 /// so a three-run river blends through both bridges. `orders[i]` are run
-/// `i`'s traced orders already raised by [`carry_orders`]' floor.
+/// `i`'s traced palette positions (RR-2: `river_realism::tone_order` of the
+/// rank, see [`blended_orders`]).
 ///
 /// Must never be read for a confluence (`k > 0`): a tributary's colour does
 /// not flow into its trunk's. Must never invent a history: a run nothing is
 /// carried onto stays `None`.
-pub fn incoming_orders(orders: &[Vec<i16>], joins: &[Option<(usize, usize)>], ramp: f64) -> Vec<Option<f64>> {
+pub fn incoming_orders(orders: &[Vec<f64>], joins: &[Option<(usize, usize)>], ramp: f64) -> Vec<Option<f64>> {
     let n = orders.len().min(joins.len());
     let mut inc: Vec<Option<f64>> = vec![None; n];
     // Each pass settles one more link of every chain; `n` passes bound any
@@ -1737,7 +1804,21 @@ fn for_each_span_in(
     view: Option<(f32, f32, f32, f32)>,
     sink: impl FnMut(StripMesh),
 ) {
-    for_each_span_core(geom, runs, true, a, ppc, widen, to_raster, style, view, sink);
+    for_each_span_core(geom, runs, Walk::Stroke, a, ppc, widen, to_raster, style, view, sink);
+}
+
+/// Which walk [`for_each_span_core`] is: what a point's rank and colour mean.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Walk {
+    /// The stroke the user sees: ranked (the visibility law, RR-2/RR-3's
+    /// alpha), the styled colour with RR-4's zoom-gated tint.
+    Stroke,
+    /// The colour field: unranked (every river at full coverage), the styled
+    /// calm colour with RR-2's turbidity.
+    Colour,
+    /// RR-3/RR-4's detail field: unranked, each point's `[white, lip, head]`
+    /// as the colour, unstyled.
+    Detail,
 }
 
 /// The one body of [`for_each_span_in`]. `ranked` false reads every point at
@@ -1751,7 +1832,7 @@ fn for_each_span_in(
 fn for_each_span_core(
     geom: &RiverGeometry,
     runs: std::ops::Range<usize>,
-    ranked: bool,
+    walk: Walk,
     a: &render::TerrainAppearance,
     ppc: f32,
     widen: f32,
@@ -1760,6 +1841,7 @@ fn for_each_span_core(
     view: Option<(f32, f32, f32, f32)>,
     mut sink: impl FnMut(StripMesh),
 ) {
+    let ranked = walk == Walk::Stroke;
     let len = geom.runs.len();
     let (lo, hi) = (runs.start.min(len), runs.end.min(len));
     for run in geom.runs.get(lo..hi.max(lo)).unwrap_or(&[]) {
@@ -1769,7 +1851,14 @@ fn for_each_span_core(
         }
         let seam: Vec<Option<(f32, f32)>> = (0..n)
             .map(|i| {
-                let p = RiverPoint { width_cells: run.widths[i], order: run.orders[i], own_order: run.own_order, discharge: run.discharge[i], rank: if ranked { run.ranks.get(i).copied().unwrap_or(0.0) } else { 0.0 } };
+                let p = RiverPoint {
+                    width_cells: run.widths[i],
+                    order: run.orders[i],
+                    own_order: run.own_order,
+                    discharge: run.discharge[i],
+                    rank: if ranked { run.ranks.get(i).copied().unwrap_or(0.0) } else { 0.0 },
+                    head: if ranked { run.detail_at(i)[2] } else { 1.0 },
+                };
                 river_px_width(p, ppc, a)
             })
             .collect();
@@ -1791,7 +1880,31 @@ fn for_each_span_core(
                     // span, so the `flatten` drops nothing.
                     let drawn: Vec<(f32, f32)> = seam[s..e].iter().flatten().copied().collect();
                     let mut hw: Vec<f32> = drawn.iter().map(|&(wpx, _)| (wpx + widen) * 0.5).collect();
-                    let mut cc: Vec<[f32; 4]> = run.colors[s..e].iter().zip(&drawn).map(|(k, &(_, am))| style(*k, am)).collect();
+                    // RR-2: the turbidity tint goes in before the style (it is the
+                    // water's own colour, which the preset's ink then pulls); RR-4's
+                    // white water and falls after it, on a ranked walk only (the
+                    // stroke the user sees -- the colour field holds the calm
+                    // colour and the painted path tints from the detail field),
+                    // gated by this raster's zoom (`detail_tint`: nothing below x8).
+                    let z = crate::river_realism::zoom_of(ppc, scale().0);
+                    let tb = a.river_turbidity as f32;
+                    let mut cc: Vec<[f32; 4]> = (s..e)
+                        .zip(&drawn)
+                        .map(|(i, &(_, am))| {
+                            if walk == Walk::Detail {
+                                // RR-3/RR-4's detail field: the values, unstyled, opaque.
+                                let d = run.detail_at(i);
+                                return [d[0], d[1], d[2], 1.0];
+                            }
+                            let c = style(crate::river_realism::turbid_rgba(run.colors[i], run.turbidity_at(i), tb), am);
+                            if !ranked {
+                                return c;
+                            }
+                            let d = run.detail_at(i);
+                            let t = crate::river_realism::detail_tint([c[0], c[1], c[2]], d[0], d[1], z);
+                            [t[0], t[1], t[2], c[3]]
+                        })
+                        .collect();
                     // **River mouths.** An end that meets water is carried on
                     // until THIS raster's cap -- its half-width plus the fringe,
                     // in cells at this density -- lies wholly on water
@@ -2032,16 +2145,64 @@ pub fn rasterize_colour_field_with(geom: &RiverGeometry, fans: Option<&RiverGeom
     // colour there: measured 21 levels/channel off the deep-zoom tile's
     // trunk at the same point, which is 1-2 levels when the trunk's own cells
     // are the trunk's (`_rivstyle_probe.gd`, z16).
-    for_each_span_core(geom, 0..geom.runs.len(), false, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    for_each_span_core(geom, 0..geom.runs.len(), Walk::Colour, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
     if let Some(f) = fans {
-        for_each_span_core(f, 0..f.runs.len(), false, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
-        for_each_span_core(f, 0..f.runs.len(), false, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+        for_each_span_core(f, 0..f.runs.len(), Walk::Colour, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+        for_each_span_core(f, 0..f.runs.len(), Walk::Colour, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
     }
-    for_each_span_core(geom, 0..geom.runs.len(), false, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    for_each_span_core(geom, 0..geom.runs.len(), Walk::Colour, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
     if opacity < 1.0 {
         layer.scale(opacity);
     }
     layer
+}
+
+/// **RR-3/RR-4's detail field** (Ruling ES): the drawn network's per-point
+/// `[white, lip, head]` ([`DrawnRun::detail`]) rasterized at one pixel per cell
+/// exactly as [`rasterize_colour_field_with`] lays the colour -- the same two
+/// passes (padded band first, then each river at its own width), fans included,
+/// so a texel the colour field gives a river's colour holds that river's
+/// detail. Premultiplied like every [`render::RiverLayer`]: a reader divides by
+/// alpha and reads [`crate::river_realism::DETAIL_NONE`] where the alpha is 0.
+/// The screen reads it as `WorldGen::river_detail_texture`; the tiles and the
+/// export through `river_field::PaintSource`. `None` when no run carries any
+/// detail (nothing to draw, so no texture is built at all).
+pub fn rasterize_detail_field(geom: &RiverGeometry, fans: Option<&RiverGeometry>, a: &render::TerrainAppearance, w: usize, h: usize) -> Option<render::RiverLayer> {
+    if w == 0 || h == 0 || !geom.runs.iter().any(|r| !r.detail.is_empty()) {
+        return None;
+    }
+    let mut layer = render::RiverLayer::new(w, h);
+    let view = Some((0.0f32, 0.0f32, (w - 1) as f32, (h - 1) as f32));
+    let map = RasterMap::grid();
+    let pad = 2.0 * colour_field_pad_cells(w);
+    let style = |k: [f32; 4], _am: f32| k;
+    let to = |q: (f32, f32)| (map.offset.0 + q.0 * map.scale.0, map.offset.1 + q.1 * map.scale.1);
+    for_each_span_core(geom, 0..geom.runs.len(), Walk::Detail, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    if let Some(f) = fans {
+        for_each_span_core(f, 0..f.runs.len(), Walk::Detail, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+        for_each_span_core(f, 0..f.runs.len(), Walk::Detail, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    }
+    for_each_span_core(geom, 0..geom.runs.len(), Walk::Detail, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    Some(layer)
+}
+
+/// The detail values at pixel `(x, y)` of a detail field
+/// ([`rasterize_detail_field`]), un-premultiplied; [`crate::river_realism::DETAIL_NONE`]
+/// where the field holds no river. The one reader the screen texture's bytes
+/// and the tiles' bilinear read share.
+pub fn detail_px(layer: &render::RiverLayer, x: usize, y: usize) -> [f32; 3] {
+    match layer.at(x, y) {
+        // The layer holds premultiplied colour on `land_color`'s 0..=255 scale
+        // and alpha in 0..=1 (`RiverLayer::fill_triangles`).
+        // Quantised to the screen texture's eight bits (`build_color_texture`
+        // stores RGBA8), so a tile reads the very value the GPU does and a
+        // full-weight head is exactly 1, not 1 - 1e-7.
+        Some(c) if c[3] > 1e-6 => {
+            let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() / 255.0;
+            [q(c[0] / (255.0 * c[3])), q(c[1] / (255.0 * c[3])), q(c[2] / (255.0 * c[3]))]
+        }
+        _ => crate::river_realism::DETAIL_NONE,
+    }
 }
 
 #[godot_api(secondary)]
@@ -2357,6 +2518,18 @@ impl WorldGen {
         self.river_field_tex.borrow().clone()
     }
 
+    /// **RR-3/RR-4 (Ruling ES): the painted river's detail texture** -- `gw x
+    /// gh` RGBA8, R a point's white water, G a fall's lip mark, B its head ramp
+    /// (255 = full weight), the drawn network's [`DrawnRun::detail`] rasterized
+    /// as the colour field is ([`rasterize_detail_field`]). `map_shore.gdshader`
+    /// reads it with `river_detail_on`; `null` when the river is not painted or
+    /// no run carries detail (the shader then draws no fade, white water or
+    /// fall). Built by the last `build_color_texture`. Must never be drawn itself.
+    #[func]
+    fn river_detail_texture(&self) -> Option<Gd<godot::classes::ImageTexture>> {
+        self.river_detail_tex.borrow().clone()
+    }
+
     /// Whether the base map paints the rivers itself (a river field and the
     /// shore field both built), which is the one condition under which
     /// `map_overlay.gd` stops drawing the vector stroke (RIM-6). Hit-testing
@@ -2395,6 +2568,10 @@ impl WorldGen {
             "bank_color" => Vector3::new(ink(a.river_ink_r), ink(a.river_ink_g), ink(a.river_ink_b)),
             "fit_ppc" => scale().0 as f64,
             "open_start" => scale().1 as f64,
+            // RR-2 (Ruling ES): the look's translucency and arid-floodplain strengths,
+            // shader-only like `bank` (read live, never part of the field's key).
+            "translucency" => a.river_translucency.clamp(0.0, 1.0),
+            "floodplain_arid" => a.river_floodplain_arid.clamp(0.0, 1.0),
         }
     }
 
@@ -2450,6 +2627,51 @@ impl WorldGen {
     #[func]
     fn set_river_meander(&self, on: bool) {
         self.river_meander_off.set(!on);
+    }
+
+    /// **RR-1's probe knob** (Ruling ES item 1, *"Show me 1 and 2 cella"*): the
+    /// full width in cells of the world's largest drawn river
+    /// (`river_realism::W_MAX_CELLS` 1.0 by default), for the owner's
+    /// comparison frames. A value that is not a positive finite number is
+    /// refused (returns `false`, nothing changes) rather than drawn. The next
+    /// repaint rebuilds every river raster (the value is in the network's
+    /// cache key); the shell must still repaint and drop live tiles. A probe
+    /// switch: nothing in the shell calls it, and it is never saved.
+    #[func]
+    fn set_river_width_max_cells(&self, w: f64) -> bool {
+        if !(w.is_finite() && w > 0.0) {
+            return false;
+        }
+        self.river_width_max_cells.set(w);
+        true
+    }
+
+    /// **RR-3/RR-4's probe switch**: `on = false` draws the rivers with no head
+    /// fade, white water or fall (`DrawnRun::detail` empty), the "before" of
+    /// their frames. In the network's cache key. Never wired to the UI or saved.
+    #[func]
+    fn set_river_realism_marks(&self, on: bool) {
+        self.river_marks_off.set(!on);
+    }
+
+    /// **RR-4's counts from the last network build** (diagnostic, for
+    /// `_riverzoom_probe.gd --rr`): `white_points` (traced points marked as
+    /// white water), `falls`, `falls_knick`, `falls_hanging`, `rock` (whether
+    /// the world had a rock column to read knickpoints from), and `w_max_cells`
+    /// (RR-1's scale in force). Builds the network if it is not cached.
+    #[func]
+    fn river_realism_stats(&self) -> VarDictionary {
+        // Building the geometry runs `river_draws`, which records the counts.
+        let _ = self.river_geometry_any();
+        let (w, f, k, h, rock) = self.river_rr_counts.get();
+        vdict! {
+            "white_points" => w as i64,
+            "falls" => f as i64,
+            "falls_knick" => k as i64,
+            "falls_hanging" => h as i64,
+            "rock" => rock,
+            "w_max_cells" => self.river_width_max_cells.get(),
+        }
     }
 
     /// Whether the painted river draws delta fans ([`Self::set_river_deltas`]);
@@ -2922,6 +3144,8 @@ mod tests {
                 reach: Vec::new(),
                 ranks: Vec::new(),
                 own_order: order,
+                turbidity: Vec::new(),
+                detail: Vec::new(),
             }],
         }
     }
@@ -3054,7 +3278,7 @@ mod tests {
     #[test]
     fn the_width_seam_is_rv2s_rule() {
         let a = render::TerrainAppearance::default();
-        let p = RiverPoint { width_cells: 2.0, order: 3, own_order: 3, discharge: f32::NAN, rank: 0.0 };
+        let p = RiverPoint { width_cells: 2.0, order: 3, own_order: 3, discharge: f32::NAN, rank: 0.0, head: 1.0 };
         assert_eq!(river_px_width(p, 4.0, &a), Some((8.0, 1.0)));
         assert_eq!(river_px_width(RiverPoint { width_cells: 0.1, ..p }, 1.0, &a), Some((1.0, 1.0)), "floored at one pixel");
         let a2 = render::TerrainAppearance { river_width: 1.5, ..a.clone() };
@@ -3165,7 +3389,7 @@ mod tests {
         assert!((headwater_deemphasis(4.5) - 0.775).abs() < 1e-6);
         let a = render::TerrainAppearance::default();
         let k = river_width_factor(&a);
-        let pt = |rank: f32| RiverPoint { width_cells: 4.0, order: 1, own_order: 1, discharge: 1.0, rank };
+        let pt = |rank: f32| RiverPoint { width_cells: 4.0, order: 1, own_order: 1, discharge: 1.0, rank, head: 1.0 };
         // Rank 0 (the largest river): full width, full alpha, at any density.
         let (w0, a0) = river_px_width(pt(0.0), 1.0, &a).expect("drawn");
         assert!((w0 - 4.0 * k).abs() < 1e-5 && a0 == 1.0, "{w0} {a0}");
@@ -3174,7 +3398,9 @@ mod tests {
         assert!(river_px_width(pt(0.75), 1.0, &a).is_none());
         let (w1, a1) = river_px_width(pt(0.75), 30.0, &a).expect("drawn");
         assert!((w1 - 4.0 * k * 30.0).abs() < 1e-2, "{w1}");
-        assert_eq!(a1, 1.0);
+        // RR-2 (Ruling ES): the default look's translucency draws rank 0.75 at
+        // 1 - 0.35 * 0.75 = 0.7375 alpha; the visibility law alone gives 1.
+        assert!((a1 - 0.7375).abs() < 1e-6, "{a1}");
         // The least river at a zoomed-out density is not drawn at all.
         assert!(river_px_width(pt(1.0), 0.3, &a).is_none());
         // And no order-1 alpha any more: an order-1 point of rank 0 stays opaque.
@@ -3488,7 +3714,7 @@ mod tests {
     fn a_sub_pixel_stroke_is_drawn_one_pixel_wide() {
         // 0.3 cells at 0.9 px/cell is 0.27 px on screen; 4 cells is 3.6 px.
         let a = render::TerrainAppearance::default();
-        let pt = |w: f32| RiverPoint { width_cells: w, order: 3, own_order: 3, discharge: f32::NAN, rank: 0.0 };
+        let pt = |w: f32| RiverPoint { width_cells: w, order: 3, own_order: 3, discharge: f32::NAN, rank: 0.0, head: 1.0 };
         let hw: Vec<f32> = [0.3f32, 4.0].iter().map(|&w| river_px_width(pt(w), 0.9, &a).unwrap().0 * 0.5).collect();
         assert_eq!(hw[0], 0.5, "floored at one pixel");
         assert!((hw[1] - 1.8).abs() < 1e-6, "a wide stroke is not touched: {hw:?}");
@@ -3684,7 +3910,7 @@ mod tests {
     fn an_order_step_becomes_a_ramp_downstream_of_it() {
         // Traced orders 1 x 10 then 3 x 20; point k owns [k-0.5, k+0.5), so
         // the step is at t = 9.5.
-        let po: Vec<i16> = [vec![1i16; 10], vec![3i16; 20]].concat();
+        let po: Vec<f64> = [vec![1.0; 10], vec![3.0; 20]].concat();
         let u: Vec<f64> = vec![0.0, 5.0, 9.5, 11.5, 13.5, 17.5, 25.0];
         let o = blended_orders(&po, &u, 8.0, None);
         assert_eq!(o[0], 1.0, "the head reads its own order");
@@ -3714,7 +3940,7 @@ mod tests {
     /// continuations per world).
     #[test]
     fn a_continuation_blends_on_from_the_incoming_colour() {
-        let po = vec![3i16; 20];
+        let po = vec![3.0f64; 20];
         // The head, window [-8, 0]: 7.5 cells upstream of the head at 1.5,
         // 0.5 cell of the run's own 3.
         let o = blended_orders(&po, &[0.0, 3.5, 7.5, 12.0], 8.0, Some(1.5));
@@ -3736,7 +3962,7 @@ mod tests {
     fn the_incoming_history_is_the_carried_runs_blended_end() {
         // 0: orders 1 x 4 then 2 x 2 (the rise 2 cells before its end), carried
         // onto 1's head; 1 carried onto 2's head; 3 joins 2 at point 5.
-        let orders = vec![vec![1i16, 1, 1, 1, 2, 2], vec![2i16; 3], vec![2i16; 10], vec![1i16; 4]];
+        let orders = vec![vec![1.0f64, 1.0, 1.0, 1.0, 2.0, 2.0], vec![2.0; 3], vec![2.0; 10], vec![1.0; 4]];
         let joins = [Some((1, 0)), Some((2, 0)), None, Some((2, 5))];
         let inc = incoming_orders(&orders, &joins, 4.0);
         // Run 0's end u = 5, window [1, 5]: cells [1, 3.5) at order 1 and
@@ -3751,13 +3977,13 @@ mod tests {
         assert_eq!(inc[3], None, "a tributary's colour never flows into its trunk's");
         // Two runs carried onto one head: the darker arrival wins, whichever
         // comes first.
-        let orders = vec![vec![1i16; 5], vec![3i16; 5], vec![3i16; 5]];
+        let orders = vec![vec![1.0f64; 5], vec![3.0; 5], vec![3.0; 5]];
         assert_eq!(incoming_orders(&orders, &[Some((2, 0)), Some((2, 0)), None], 4.0)[2], Some(3.0));
         // A darker tributary joining mid-run (k = 2) gives the trunk's head
         // no history.
-        let trib = vec![vec![4i16; 5], vec![1i16; 5]];
+        let trib = vec![vec![4.0f64; 5], vec![1.0; 5]];
         assert_eq!(incoming_orders(&trib, &[Some((1, 2)), None], 4.0), vec![None, None]);
-        let rev = vec![vec![3i16; 5], vec![1i16; 5], vec![3i16; 5]];
+        let rev = vec![vec![3.0f64; 5], vec![1.0; 5], vec![3.0; 5]];
         assert_eq!(incoming_orders(&rev, &[Some((2, 0)), Some((2, 0)), None], 4.0)[2], Some(3.0));
     }
 

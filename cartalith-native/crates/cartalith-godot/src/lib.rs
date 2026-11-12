@@ -84,6 +84,7 @@ mod project_bridge;
 mod render;
 mod river_delta;
 mod river_meander;
+mod river_realism;
 mod river_field;
 mod river_stroke;
 mod river_straight;
@@ -5632,6 +5633,10 @@ struct RiverDraw {
     /// (`river_stroke::extend_shore_ends`). Passed on to
     /// `river_stroke::DrawnRun::reach`; `get_rivers()` does not marshal it.
     reach: Vec<(Option<river_stroke::ShoreReach>, Option<river_stroke::ShoreReach>)>,
+    /// RR-2: per render point, `river_stroke::DrawnRun::turbidity`.
+    turbidity: Vec<f32>,
+    /// RR-3/RR-4: per render point, `river_stroke::DrawnRun::detail`.
+    detail: Vec<[f32; 3]>,
 }
 
 /// A river run's drawn curve: [`way_render_polyline`] over the run after
@@ -6518,6 +6523,19 @@ struct WorldGen {
     /// a view setting, never a world field and never saved. Part of the
     /// network's cache key, so every river raster rebuilds when it moves.
     river_meander_off: std::cell::Cell<bool>,
+    /// **RR-1's width scale** (`set_river_width_max_cells`): the full width in
+    /// cells of the world's largest drawn river, `river_realism::W_MAX_CELLS`
+    /// (1.0) unless a probe sets another for the owner's 1-versus-2-cell
+    /// comparison (Ruling ES item 1). A view setting, never a world field and
+    /// never saved; part of the network's cache key.
+    river_width_max_cells: std::cell::Cell<f64>,
+    /// **RR-3/RR-4 probe switch** (`set_river_realism_marks`): `true` draws no
+    /// head fade, white water or fall (the "before" of their frames). `false`
+    /// is the default render path; never saved; part of the network's key.
+    river_marks_off: std::cell::Cell<bool>,
+    /// What the last `river_draws` marked (RR-4 counts), for
+    /// `river_realism_stats`. Diagnostic only.
+    river_rr_counts: std::cell::Cell<(usize, usize, usize, usize, bool)>,
     /// Ruling EQ item 4: the live map view's size in pixels, the window the river visibility law's opening fit is
     /// taken in (`river_stroke::fit_ppc_in`); [`river_stroke::REF_VIEW_PX`] until the shell reports one
     /// ([`Self::set_river_view_size`]). A view setting: never saved.
@@ -6539,6 +6557,12 @@ struct WorldGen {
     /// built by `build_color_texture` for the screen and reused, not rebuilt,
     /// by the tiles and the export of the same look. A rendering input only.
     river_colour_cache: std::cell::RefCell<Option<(String, std::sync::Arc<render::RiverLayer>)>>,
+    /// RR-3/RR-4 (Ruling ES): the detail field (`river_stroke::rasterize_detail_field`)
+    /// and its key (`river_detail_field`); `None` inside when no run carries detail.
+    river_detail_cache: std::cell::RefCell<Option<(String, Option<std::sync::Arc<render::RiverLayer>>)>>,
+    /// RR-3/RR-4: the detail field as the screen's `river_detail` texture
+    /// (`river_detail_texture`), built by `build_color_texture` beside the river field.
+    river_detail_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
     /// **RIM-7**: [`Self::river_paint_source`]'s cache: the key (as the colour
     /// field's), the source, and the milliseconds its last build took
     /// (`river_paint_stats`' `source_ms`). A rendering input only.
@@ -7265,10 +7289,15 @@ impl IRefCounted for WorldGen {
             river_paint_off: std::cell::Cell::new(false),
             river_delta_off: std::cell::Cell::new(false),
             river_meander_off: std::cell::Cell::new(false),
+            river_width_max_cells: std::cell::Cell::new(river_realism::W_MAX_CELLS),
+            river_marks_off: std::cell::Cell::new(false),
+            river_rr_counts: std::cell::Cell::new((0, 0, 0, 0, false)),
             river_view_px: std::cell::Cell::new(river_stroke::REF_VIEW_PX),
             rock_lod_detail_off: std::cell::Cell::new(false),
             river_delta_cache: std::cell::RefCell::new(None),
             river_colour_cache: std::cell::RefCell::new(None),
+            river_detail_cache: std::cell::RefCell::new(None),
+            river_detail_tex: std::cell::RefCell::new(None),
             river_paint_cache: std::cell::RefCell::new(None),
             river_field_build: std::cell::Cell::new((0.0, 0, 0, 0, 0)),
             river_field_stats: std::cell::Cell::new((0, 0)),
@@ -12300,6 +12329,26 @@ impl WorldGen {
         // ([`Self::river_colour_field`]); the bytes are the uncached build's.
         let field_layer = self.river_geometry_any().map(|g| self.river_colour_field(&appearance, &g, delta_fans.as_deref()));
         self.river_field_stats.set(field_layer.as_ref().map_or((0, 0), |l| (l.covered(), l.allocated_bytes())));
+        // RR-3/RR-4 (Ruling ES): the detail field as an RGBA8 texture for the
+        // painted river's shader (`river_detail`: R white water, G a fall's
+        // lip, B the head ramp, A 255), only where the river is painted; a
+        // texel with no river holds `DETAIL_NONE` (calm, full weight), so the
+        // shader's linear read beside a river never invents a fade.
+        *self.river_detail_tex.borrow_mut() = if want_river_field {
+            self.river_geometry_any().and_then(|g| self.river_detail_field(&g, delta_fans.as_deref())).and_then(|layer| {
+                let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                let mut bytes = Vec::with_capacity(gw * gh * 4);
+                for y in 0..gh {
+                    for x in 0..gw {
+                        let d = river_stroke::detail_px(&layer, x, y);
+                        bytes.extend_from_slice(&[q(d[0]), q(d[1]), q(d[2]), 255]);
+                    }
+                }
+                Image::create_from_data(gw as i32, gh as i32, false, Format::RGBA8, &PackedByteArray::from(bytes)).and_then(|i| ImageTexture::create_from_image(&i))
+            })
+        } else {
+            None
+        };
         // RV-3: water and the sea's colour are decided from the world's own
         // height, never the shaded one (a no-op when they are the same). One
         // precompute over both heights (`with_appearance_split`), the same
@@ -13134,12 +13183,13 @@ impl WorldGen {
     ///   **Omitted** (not zeroed) when the mouth carries no positive flow.
     ///   The River dock's reading. The stroke is drawn from `widths`, below.
     /// * `widths` (`PackedFloat32Array`) -- the drawn full width in grid cells
-    ///   at every `render_points` entry (RV-2):
-    ///   [`cartalith_hydrology::river_half_width_profile`], i.e. the same
-    ///   `channel_disc` law at each traced cell as a running maximum from the
-    ///   head, so it never narrows downstream; a tributary's is capped at its
-    ///   trunk's width where it joins. **Omitted** when no cell of the run has
-    ///   a width; the map then draws nothing for it.
+    ///   at every `render_points` entry: since RR-1 (Ruling ES, 2026-11-12)
+    ///   `river_realism::hydraulic_half_width_profile`, `W_MAX_CELLS *
+    ///   sqrt(Q / Q_max)` over the running-maximum discharge the visibility
+    ///   rank reads, so it never narrows downstream; a tributary's is capped at
+    ///   its trunk's width where it joins. (`width_cells` above stays
+    ///   `channel_disc`'s, the intensity stamp's law.) **Omitted** when no cell
+    ///   of the run has a discharge reading; the map then draws nothing for it.
     /// * `pieces` (`PackedInt32Array`) -- `[start, end)` pairs into
     ///   `render_points`, one per drawn piece. A stroke is cut only where its
     ///   traced run crosses a drawn lake (or the sea), at the shoreline
@@ -13150,16 +13200,15 @@ impl WorldGen {
     ///   drawing path ([`river_stroke::extend_shore_ends`]) -- the map draws
     ///   water above rivers, so that stretch is never seen; a raster carries
     ///   it on again as far as its own stroke width needs.
-    /// * `colors` (`PackedColorArray`) -- one per `render_points`, the
-    ///   Strahler order along the course as `RIVER_ORDER_RGB` (light
-    ///   headwater to dark trunk); the map strokes the river in these. It
-    ///   darkens along a main stem as its order rises, blended over
+    /// * `colors` (`PackedColorArray`) -- one per `render_points`: since RR-2
+    ///   (Ruling ES) `RIVER_ORDER_RGB` read at `river_realism::tone_order` of
+    ///   the point's discharge rank (palette 6 for the largest river to 3.5 for
+    ///   the least), not at its Strahler order; blended over
     ///   `river_stroke::colour_ramp_cells` downstream of each rise rather than
-    ///   stepped (2026-09-28); a run carried onto the head of the next run
-    ///   continues into it in the colour it ended in (`carry_orders`); and a
-    ///   tributary's junction point takes its own last cell's order, not the
-    ///   trunk's `order` above. Only here, not in `river_at()`, whose callers
-    ///   do not draw.
+    ///   stepped, and a continuation carries on from the tone it arrived with
+    ///   (`incoming_orders`). The turbidity tint and the zoom-gated marks are
+    ///   applied when drawn, not here. Only here, not in `river_at()`, whose
+    ///   callers do not draw.
     /// * `own_order` (int) -- the run's highest order excluding the junction
     ///   cell it ends on, raised to the highest over every run linked to it
     ///   by continuations (`river_stroke::carry_orders`); the order-1
@@ -13325,28 +13374,6 @@ impl WorldGen {
                 drawn_at.get(&cell_ix(last)).copied().filter(|&(j, _)| j != i)
             })
             .collect();
-        // RV-2: a width at every traced point, `channel_disc`'s own law as a
-        // running maximum (`river_half_width_profile`). A run's own points
-        // stop before a junction cell -- that is its trunk's water -- and
-        // before a bridge target, which is not the run's water either.
-        let (thresh, width_k) = (
-            cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, self.map_width_km),
-            cartalith_hydrology::river_width_scale_k(self.map_width_km),
-        );
-        let mut profiles: Vec<Option<Vec<f64>>> = run_pts
-            .iter()
-            .enumerate()
-            .map(|(i, pts)| {
-                let joins_trunk = plan.bridge[i].is_none() && joins[i].is_some();
-                let own = rivers[i].pts.len() - usize::from(joins_trunk);
-                cartalith_hydrology::river_half_width_profile(
-                    pts, own, f.field, f.flow_discharge, order, f.gw, f.gh, self.world, thresh, width_k,
-                )
-            })
-            .collect();
-        // A tributary is never drawn wider than its trunk where it meets it;
-        // a run bridged onto another's head widens that run instead.
-        river_stroke::settle_join_widths(&mut profiles, &joins);
         let draw_rank = river_stroke::draw_ranks(&joins);
         // Runs another run is carried onto at their head (`k == 0`, a
         // `river_draw_plan` continuation): their head meets that river, so it
@@ -13390,12 +13417,6 @@ impl WorldGen {
             let own: Vec<i16> = traced_orders.iter().map(|po| po.iter().copied().max().unwrap_or(1)).collect();
             river_stroke::carry_orders(&end, &own, &drawn_joins)
         };
-        let ramp = river_stroke::colour_ramp_cells(f.gw);
-        // Each run's traced orders raised by its carried floor, and the
-        // blended order each continuation arrives with at its head, so the
-        // blend runs on across a bridge instead of restarting there.
-        let raised: Vec<Vec<i16>> = traced_orders.iter().zip(&carry).map(|(po, &(floor, _))| po.iter().map(|&o| o.max(floor)).collect()).collect();
-        let incoming = river_stroke::incoming_orders(&raised, &drawn_joins, ramp);
         // RZ-2 (Ruling EN): the length-weighted discharge rank of every traced
         // point, once per network. Drawn runs only (`parallel_of` runs are never
         // drawn and take no part in the ranking); tributaries pushed into their
@@ -13427,12 +13448,58 @@ impl WorldGen {
         rank_order.sort_by_key(|&i| draw_rank[i]);
         let rank_t0 = std::time::Instant::now();
         let mut traced_ranks = river_stroke::visibility_ranks(&rank_in, &rank_order);
+        // RR-2 (Ruling ES item 2): the colour is keyed on the rank BEFORE the
+        // short-stub hold below, which is a visibility device, not a volume.
+        let tone_ranks = traced_ranks.clone();
+        // Each run's traced palette position by its rank (`tone_order`), and
+        // the blended position each continuation arrives with at its head,
+        // so a confluence's rise in tone is a ramp, never a one-cell step
+        // (`blended_orders`' defect 1).
+        let tones: Vec<Vec<f64>> = tone_ranks.iter().map(|r| r.iter().map(|&u| river_realism::tone_order(u)).collect()).collect();
+        let ramp = river_stroke::colour_ramp_cells(f.gw);
+        let incoming = river_stroke::incoming_orders(&tones, &drawn_joins, ramp);
         // Ruling EQ item 3: a run's visible piece shorter than about 3 cells at the opening view's scale is held back
         // until the zoom makes it long enough on screen (`river_stroke::hide_short_stubs`), by raising its ranks: the
         // one law then hides it on the screen, the tiles and the export alike.
         river_stroke::hide_short_stubs(&mut traced_ranks, &rank_step, river_stroke::start_share(self.map_width_km as f32));
         // RZ-7 measurement: the rank sort's own wall time, kept for `river_rank_ms` (a probe reads it; nothing else does).
         LAST_RANK_NS.store(rank_t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+        // RR-1 (Ruling ES item 1): a width at every traced point from the
+        // discharge it carries, `w = W_MAX_CELLS * sqrt(Q / Q_max)`
+        // (`river_realism::hydraulic_half_width_profile`), over the SAME
+        // discharge the visibility rank reads (`effective_discharge`: the
+        // running maximum, pushed into each trunk from its junctions), with
+        // `Q_max` the largest over the drawn network. This replaced
+        // `channel_disc`'s symbolic order-and-log bracket in the drawing (on a
+        // whole-world map that bracket floored every river at one cell, RZ-0),
+        // which stays the intensity stamp's and the river entities' law. A
+        // run's own points stop before a junction cell -- that is its trunk's
+        // water -- and before a bridge target, which is not the run's water
+        // either.
+        let q_eff = river_stroke::effective_discharge(&rank_in, &rank_order);
+        let q_max = river_realism::network_q_max(&q_eff);
+        let w_max = self.river_width_max_cells.get();
+        let mut profiles: Vec<Option<Vec<f64>>> = run_pts
+            .iter()
+            .enumerate()
+            .map(|(i, pts)| {
+                let joins_trunk = plan.bridge[i].is_none() && joins[i].is_some();
+                let own = rivers[i].pts.len() - usize::from(joins_trunk);
+                let _ = pts;
+                river_realism::hydraulic_half_width_profile(&q_eff[i], own, q_max?, w_max)
+            })
+            .collect();
+        // A tributary is never drawn wider than its trunk where it meets it;
+        // a run bridged onto another's head widens that run instead.
+        river_stroke::settle_join_widths(&mut profiles, &joins);
+        // RR-2 / RR-4 inputs, read once per network: each cell's gradient as the
+        // waterfall detector reads it (`landmark_gradient` over the terrain
+        // crate's `analysis::slope`), metres per field unit, the cell size, and
+        // the knickpoints the drawing reads on any world with a rock column
+        // (Ruling ES item 3; `RockView::drawing_knickpoints`, the landmark's own
+        // gate untouched).
+        let realism = river_realism::NetworkInputs::new(f.gw, f.gh, f.sea_level, f.peak_m, f.field, f.rainfall, f.flow_discharge, ws, &self.recompute_params(), self.map_width_km);
+        self.river_rr_counts.set((0, 0, 0, 0, realism.as_ref().is_some_and(|r| r.has_rock())));
         let draws = (0..rivers.len())
             .map(|i| {
                 // `river_draw_plan`: a run continued past a land pit onto the
@@ -13446,7 +13513,9 @@ impl WorldGen {
                 // pinned junction cells and faded at both ends
                 // (`river_meander`). Render only; one geometry for every path.
                 if !self.river_meander_off.get() {
-                    river_meander::display_meander(&mut rp, pts, |p| ends.contains(&cell(p)));
+                    // RR-8 (Ruling ES): each bend's wavelength follows the drawn width there.
+                    let full_w: Vec<f64> = profiles[i].as_ref().map(|p| p.iter().map(|h| 2.0 * h).collect()).unwrap_or_default();
+                    river_meander::display_meander(&mut rp, pts, &full_w, |p| ends.contains(&cell(p)));
                 }
                 let mut u = river_stroke::render_params(&rp, pts);
                 // A mouth on dry land beside the sea or a lake ends half a cell
@@ -13546,14 +13615,44 @@ impl WorldGen {
                 // The traced point nearest each render point: the one its
                 // order and discharge are read at.
                 let near: Vec<usize> = s.u.iter().map(|&uu| (uu.round().max(0.0) as usize).min(n - 1)).collect();
-                let colors = river_stroke::blended_orders(&raised[i], &s.u, ramp, incoming[i]).into_iter().map(|o| river_stroke::palette_at(&RIVER_ORDER_RGB, o)).collect();
+                // RR-2 (Ruling ES item 2): the tone by the discharge rank, not the
+                // order (`river_realism::tone_order`; RZ-0: order is not volume).
+                let colors = if tones[i].len() == n {
+                    river_stroke::blended_orders(&tones[i], &s.u, ramp, incoming[i]).into_iter().map(|o| river_stroke::palette_at(&RIVER_ORDER_RGB, o)).collect()
+                } else {
+                    // An unranked run (a `parallel_of` run, never drawn): the trunk tone.
+                    vec![river_stroke::palette_at(&RIVER_ORDER_RGB, river_realism::tone_order(0.0)); s.u.len()]
+                };
+                // RR-2 / RR-3 / RR-4 per render point, from the traced point nearest
+                // it: turbidity, and `[white, lip, head]`.
+                let rr = realism.as_ref().filter(|_| plan.parallel_of[i].is_none()).map(|ri| ri.run(pts, rivers[i].pts.len(), joins[i].is_some() && plan.bridge[i].is_none(), !continued_into.contains(&i) && !headed, &traced_wet));
+                let marks = !self.river_marks_off.get();
+                let (turbidity, detail) = match rr {
+                    Some(rr) => {
+                        let mut c = self.river_rr_counts.get();
+                        c.0 += rr.counts.white_points;
+                        c.1 += rr.counts.falls;
+                        c.2 += rr.counts.falls_knick;
+                        c.3 += rr.counts.falls_hanging;
+                        self.river_rr_counts.set(c);
+                        (
+                            near.iter().map(|&k| rr.turbidity[k]).collect(),
+                            if marks {
+                                s.u.iter().zip(&near).map(|(&uu, &k)| [rr.white[k], rr.lip[k], river_realism::head_ramp(river_stroke::sample_at(&rr.arc, uu))]).collect()
+                            } else {
+                                Vec::new()
+                            },
+                        )
+                    }
+                    None => (Vec::new(), Vec::new()),
+                };
                 // `orders` stays the traced cell's own order (neither raised
                 // nor blended): it is data for the width seam's zoom rule.
                 let orders = near.iter().map(|&k| po[k]).collect();
                 let discharge = near.iter().map(|&k| f.flow_discharge.get(cell_ix(pts[k])).copied().unwrap_or(f32::NAN)).collect();
                 // RZ-2: each render point reads the rank of the traced point nearest it.
                 let ranks = near.iter().map(|&k| traced_ranks[i].get(k).copied().unwrap_or(0.0)).collect();
-                RiverDraw { rp: s.pts, pieces: s.pieces, widths, own_order, colors, orders, discharge, ranks, draw_rank: draw_rank[i], parallel_of: plan.parallel_of[i], reach }
+                RiverDraw { rp: s.pts, pieces: s.pieces, widths, own_order, colors, orders, discharge, ranks, draw_rank: draw_rank[i], parallel_of: plan.parallel_of[i], reach, turbidity, detail }
             })
             .collect();
         Some((rivers, draws))
@@ -13666,6 +13765,25 @@ impl WorldGen {
         layer
     }
 
+    /// **RR-3/RR-4 (Ruling ES): the detail field of the drawn network and the
+    /// fans** ([`river_stroke::rasterize_detail_field`]), cached on the
+    /// network's key (which carries the marks switch) and whether fans are
+    /// drawn -- the only inputs it reads besides the grid. `None` when no run
+    /// carries detail. The screen's `river_detail` texture and the tiles' and
+    /// the export's [`river_field::PaintSource`] read this one layer.
+    pub(crate) fn river_detail_field(&self, geom: &river_stroke::RiverGeometry, fans: Option<&river_stroke::RiverGeometry>) -> Option<std::sync::Arc<render::RiverLayer>> {
+        let key = format!("{};dl{}", self.river_network_key_str(), u8::from(fans.is_some()));
+        if let Some((k, l)) = self.river_detail_cache.borrow().as_ref() {
+            if *k == key {
+                return l.clone();
+            }
+        }
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let layer = river_stroke::rasterize_detail_field(geom, fans, &self.appearance(), gw, gh).map(std::sync::Arc::new);
+        *self.river_detail_cache.borrow_mut() = Some((key, layer.clone()));
+        layer
+    }
+
     /// **RIM-7: what the deep-zoom tiles and the export paint the river with,
     /// under look `a`** ([`river_field::PaintSource`]): the network and the
     /// fans `a` draws ([`Self::delta_fans_for`]), indexed, with the colour
@@ -13690,7 +13808,8 @@ impl WorldGen {
         }
         let t0 = std::time::Instant::now();
         let colour = self.river_colour_field(a, &geom, fans.as_deref());
-        let src = std::sync::Arc::new(river_field::PaintSource::new(&geom, fans.as_deref(), gw, gh, a, colour)?);
+        let detail = self.river_detail_field(&geom, fans.as_deref());
+        let src = std::sync::Arc::new(river_field::PaintSource::new(&geom, fans.as_deref(), gw, gh, a, colour)?.with_detail(detail));
         *self.river_paint_cache.borrow_mut() = Some((key, src.clone(), t0.elapsed().as_secs_f64() * 1000.0));
         Some(src)
     }
@@ -13888,7 +14007,8 @@ impl WorldGen {
             // stroke at the drawn water (`drawn_water_classification`), which
             // a forced lake moves without moving any stage version.
             // `m`: the display meander's probe switch (Ruling ER part B).
-            "e{};h{};c{};y{};{}x{};s{};w{};km{};f{};m{}",
+            // `wm`/`mk`: RR-1's width scale and RR-3/RR-4's marks switch (Ruling ES).
+            "e{};h{};c{};y{};{}x{};s{};w{};km{};f{};m{};wm{:016x};mk{}",
             self.world_epoch,
             vsum(PipelineStage::Height),
             vsum(PipelineStage::Climate),
@@ -13900,6 +14020,8 @@ impl WorldGen {
             self.map_width_km.to_bits(),
             self.forced_lakes_epoch,
             u8::from(self.river_meander_off.get()),
+            self.river_width_max_cells.get().to_bits(),
+            u8::from(self.river_marks_off.get()),
         )
     }
 
@@ -13937,6 +14059,8 @@ impl WorldGen {
                     pieces: d.pieces,
                     reach: d.reach,
                     own_order: d.own_order.clamp(1, i16::MAX as i64) as i16,
+                    turbidity: d.turbidity,
+                    detail: d.detail,
                 })
             })
             .collect();
@@ -19974,7 +20098,9 @@ impl WorldGen {
             // `set_rock_lod_detail` without a regeneration.
             // `vf`: Ruling EQ item 4 -- the river law's opening fit, from the live window, which every tile's river
             // visibility reads; a resize that moves it is a new snapshot (its cost: `DELTA_GEOMETRY_RESEARCH.md` 12).
-            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{};rd{}{};vf{:08x}",
+            // `rr`: RR-1's width scale and RR-3/RR-4's marks switch (Ruling ES; `set_river_width_max_cells`,
+            // `set_river_realism_marks`), which the tiles' river geometry reads and no stage version moves.
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{};rd{}{};vf{:08x};rr{:016x}{}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
             self.stages.version(PipelineStage::Climate.id(), 0),
@@ -20003,6 +20129,8 @@ impl WorldGen {
             // paint is the string it was before CP-2.
             self.colour_paint_key_term(),
             river_stroke::fit_ppc_in(self.river_view_px.get(), self.gw.max(0) as usize, self.gh.max(0) as usize).to_bits(),
+            self.river_width_max_cells.get().to_bits(),
+            u8::from(self.river_marks_off.get()),
         )
     }
 

@@ -1467,6 +1467,8 @@ mod tests {
                 reach: Vec::new(),
                 ranks: Vec::new(),
                 own_order: 4,
+                turbidity: Vec::new(),
+                detail: Vec::new(),
             }],
         };
         let tf = tw.fields(&ctx);
@@ -1517,6 +1519,8 @@ mod tests {
                 reach: Vec::new(),
                 ranks: Vec::new(),
                 own_order: 4,
+                turbidity: Vec::new(),
+                detail: Vec::new(),
             }],
         };
         let tf = tw.fields(&ctx);
@@ -1562,6 +1566,8 @@ mod tests {
                 reach: vec![(None, Some(crate::river_stroke::ShoreReach::default()))],
                 ranks: Vec::new(),
                 own_order: 4,
+                turbidity: Vec::new(),
+                detail: Vec::new(),
             }],
         };
         let wet = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && (field[y as usize * gw + x as usize] as f64) < TEST_SEA;
@@ -2846,6 +2852,8 @@ mod tests {
                     reach: Vec::new(),
                     ranks: Vec::new(),
                     own_order: 1,
+                    turbidity: Vec::new(),
+                    detail: Vec::new(),
                 }
             })
             .collect();
