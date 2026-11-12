@@ -296,6 +296,24 @@ fn overlays_are_reported_not_dropped() {
     assert_eq!(c.overlays(), ["settlements", "routes", "ways", "labels", "territory", "icons"]);
 }
 
+/// Protects: CP-6's export option (`COLOUR_PAINT_SCOPE.md` §7, Ruling EA item 15). `colour_paint` defaults to **on**
+/// (what the screen shows is what exports), is a content key the parser accepts (a key missing from `CONTENT_KEYS` would
+/// refuse every options dictionary that sets it), and is **not** an overlay: it is never in `overlays()`, so the
+/// terrain-only `export_image` (which refuses overlays) still accepts an export that turns it off, and the overlay
+/// session draws it as part of the terrain.
+#[test]
+fn colour_paint_is_a_default_on_content_key_and_not_an_overlay() {
+    use export_options::ExportOptions;
+    let mut c = ExportContent::default();
+    assert!(c.colour_paint, "the default export carries the paint");
+    assert!(ExportOptions::CONTENT_KEYS.contains(&"colour_paint"));
+    assert_eq!(ExportOptions::CONTENT_KEYS.len(), 9);
+    assert!(!ExportContent::OVERLAY_KEYS.contains(&"colour_paint"));
+    assert!(!c.set_overlay("colour_paint", false), "it is not a boolean overlay flag");
+    c.colour_paint = false;
+    assert!(c.overlays().is_empty(), "turning it off asks for no overlay");
+}
+
 /// Protects: ET-E1's export option -- `color_space` is a refused-not-defaulted
 /// name like `format`: the two `render::COLOR_SPACES` names, any case, parse to
 /// their spaces; anything else (a near miss, a third space, empty) is `None`,

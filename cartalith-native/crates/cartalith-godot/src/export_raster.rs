@@ -513,7 +513,7 @@ impl WorldGen {
     /// flag. Built here, once, so no export can attach one and forget the
     /// other -- the failure this file's own `with_ground_tiles` note records.
     fn export_render<T>(&self, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> Option<T> {
-        self.export_render_with(self.appearance(), true, run)
+        self.export_render_with(self.appearance(), true, true, run)
     }
 
     /// [`Self::export_render`] under a given appearance rather than the
@@ -521,7 +521,7 @@ impl WorldGen {
     /// arrives here already composed and never touches `appearance()`'s inputs.
     /// `rivers` false hands `run` no rivers at all (the export's
     /// `content.rivers` option).
-    fn export_render_with<T>(&self, appearance: render::TerrainAppearance, rivers: bool, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> Option<T> {
+    fn export_render_with<T>(&self, appearance: render::TerrainAppearance, rivers: bool, colour_paint: bool, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> Option<T> {
         let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
             WorldSource::Generated(ws) => (ws.field.as_slice(), ws.temperature.as_slice(), ws.rainfall.as_slice(), Some(ws.flow_discharge.as_slice())),
             WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.temperature.as_slice(), save.fields.rainfall.as_slice(), None),
@@ -630,7 +630,8 @@ impl WorldGen {
         // Ruling CN's colour paint (CP-2): the screen's layer, so an export
         // shows the paint the screen shows (`COLOUR_PAINT_SCOPE.md` §7's
         // default, "with paint"); inert layers are not attached.
-        ctx = ctx.with_colour_paint(self.colour_paint_layer());
+        // CP-6: the export's own `content.colour_paint` switch; off attaches nothing.
+        ctx = ctx.with_colour_paint(if colour_paint { self.colour_paint_layer() } else { None });
         let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
         Some(with_export_rivers(geom.as_deref(), fans.as_deref(), paint.as_deref(), save_flag, |r| run(&ctx, &bf, r)))
     }
@@ -1026,6 +1027,9 @@ fn export_options_from(opts: &VarDictionary) -> Result<ExportOptions, String> {
         if let Some(r) = opt_of::<bool>(&c, "rivers", "a bool")? {
             content.rivers = r;
         }
+        if let Some(on) = opt_of::<bool>(&c, "colour_paint", "a bool")? {
+            content.colour_paint = on;
+        }
         let tier = match opt_string(&c, "settlement_tier")? {
             None => None,
             Some(t) => Some(SettlementTier::from_name(&t).ok_or_else(|| format!("unknown settlement_tier {t:?}"))?),
@@ -1117,7 +1121,7 @@ impl WorldGen {
     /// on the session's feed thread (E4 batch D; until then this was one
     /// `export_snapshot` that built it here, on the main thread). `None`
     /// before a world exists.
-    fn export_snapshot_inputs(&self, a: TerrainAppearance, rivers: bool) -> Option<(crate::lod_worker::SnapshotInputs, Option<std::sync::Arc<river_stroke::RiverGeometry>>, Option<std::sync::Arc<river_stroke::RiverGeometry>>)> {
+    fn export_snapshot_inputs(&self, a: TerrainAppearance, rivers: bool, colour_paint: bool) -> Option<(crate::lod_worker::SnapshotInputs, Option<std::sync::Arc<river_stroke::RiverGeometry>>, Option<std::sync::Arc<river_stroke::RiverGeometry>>)> {
         let mut i = self.lod_snapshot_inputs("")?;
         // RV-3: the shaded height under THIS look, which may differ from the
         // tiles' (`lod_snapshot_inputs` shades under the session's): a style
@@ -1126,6 +1130,11 @@ impl WorldGen {
         i.appearance = a;
         if !rivers {
             i.ink = None;
+        }
+        // CP-6: the export's own `content.colour_paint` switch. The snapshot is the screen's, which
+        // carries the paint, so an export that turns it off drops it here.
+        if !colour_paint {
+            i.colour_paint = None;
         }
         // RIM-7: the network, the fans and the painted river under THIS
         // export's look (`i.appearance`, set from `a` above), by the decision
@@ -1262,7 +1271,7 @@ impl WorldGen {
             Ok(p) => p,
             Err(e) => return fail(e),
         };
-        let Some(result) = self.export_render_with(a, o.content.rivers, |ctx, bf, rivers| export_stream::export_banded(ctx, bf, rivers, &plan, o.format, o.color_space, &path)) else {
+        let Some(result) = self.export_render_with(a, o.content.rivers, o.content.colour_paint, |ctx, bf, rivers| export_stream::export_banded(ctx, bf, rivers, &plan, o.format, o.color_space, &path)) else {
             return fail("could not assemble the render context");
         };
         match result {
@@ -1305,7 +1314,7 @@ impl WorldGen {
             Ok(p) => p,
             Err(e) => return fail(e),
         };
-        let Some((inputs, geom, fans)) = self.export_snapshot_inputs(p.a, p.o.content.rivers) else {
+        let Some((inputs, geom, fans)) = self.export_snapshot_inputs(p.a, p.o.content.rivers, p.o.content.colour_paint) else {
             return fail("could not snapshot the world for export");
         };
         // The build runs on the session's feed thread (E4 batch D, Ruling AZ:

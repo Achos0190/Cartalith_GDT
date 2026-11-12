@@ -46,6 +46,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod fill;
 pub mod material;
 pub use material::{EmissiveMaterial, GlowRamp, ProceduralLava};
 
@@ -519,6 +520,53 @@ impl PaintLayers {
         self.layers[i].marks.clear();
         Ok(())
     }
+
+    /// **Scale with the map** (Ruling EB item 7, `COLOUR_PAINT_SCOPE.md` §17
+    /// Q5): every mark of every layer, hidden and locked ones included (a lock
+    /// guards painting, not the ground the paint sits on), with every length
+    /// in kilometres multiplied by `factor` about the map's top-left edge --
+    /// the kilometre origin (§2). That is the points of a stroke or ring, a
+    /// stroke's radius, an area's edge band and an emissive mark's glow
+    /// radius, so each mark keeps its place and size as a share of the map.
+    /// Not scaled: the lava plates' crack size, which is a material grain in
+    /// kilometres and not a length of the mark's shape. Opacity, hardness,
+    /// colours, strength and the flags are untouched.
+    ///
+    /// Refused, changing nothing, when `factor` is not finite and positive,
+    /// or when a scaled radius or edge would fall below [`MIN_RADIUS_KM`]
+    /// (the layer would refuse it anyway, so this says which scale did it).
+    /// Never deletes a mark.
+    pub fn scaled(&self, factor: f64) -> Result<PaintLayers, String> {
+        if !factor.is_finite() || factor <= 0.0 {
+            return Err(format!("a scale of {factor} is not a positive number"));
+        }
+        let mut out = self.clone();
+        for l in &mut out.layers {
+            for m in &mut l.marks {
+                match &mut m.shape {
+                    MarkShape::Line { points_km, radius_km } => {
+                        for p in points_km.iter_mut() {
+                            *p = [p[0] * factor, p[1] * factor];
+                        }
+                        *radius_km *= factor;
+                        if *radius_km < MIN_RADIUS_KM {
+                            return Err(format!("scaling by {factor} would shrink a brush stroke below {MIN_RADIUS_KM} km"));
+                        }
+                    }
+                    MarkShape::Area { ring_km, edge_km } => {
+                        for p in ring_km.iter_mut() {
+                            *p = [p[0] * factor, p[1] * factor];
+                        }
+                        *edge_km *= factor;
+                    }
+                }
+                if let Some(e) = &mut m.emissive {
+                    e.glow_radius_km *= factor;
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// `name` if it is within [`MAX_LAYER_NAME_CHARS`], else why not.
@@ -695,6 +743,15 @@ impl ColourPaint {
     /// never admits more than the cost model was sized for. A mark's index in
     /// an error counts across the layers, bottom first.
     pub fn from_layers(layers: PaintLayers, margin_km: f64) -> Result<ColourPaint, ColourPaintError> {
+        ColourPaint::from_layers_with(layers, margin_km, true)
+    }
+
+    /// [`ColourPaint::from_layers`] with CP-7's flatten switch explicit.
+    /// `flatten == false` builds the index with every mark in every bucket it
+    /// can reach, which is the reference the flatten tests and the cost
+    /// harness compare against; the app always flattens (see
+    /// [`flatten_bucket`] for what is dropped and why the picture is the same).
+    pub fn from_layers_with(layers: PaintLayers, margin_km: f64, flatten: bool) -> Result<ColourPaint, ColourPaintError> {
         if layers.layers.len() > MAX_LAYERS {
             return Err(ColourPaintError::TooManyLayers(layers.layers.len()));
         }
@@ -726,7 +783,7 @@ impl ColourPaint {
         }
         let doc = layers.flattened();
         let margin_km = if margin_km.is_finite() && margin_km > 0.0 { margin_km } else { 0.0 };
-        let index = if marks.is_empty() { None } else { Some(build_index(&marks, margin_km)) };
+        let index = if marks.is_empty() { None } else { Some(build_index(&marks, margin_km, flatten)) };
         let any_water = marks.iter().any(|m| !m.land_only);
         let any_emissive = marks.iter().any(|m| m.emissive.is_some());
         Ok(ColourPaint { layers, doc, marks, index, any_water, any_emissive })
@@ -1240,8 +1297,122 @@ fn signed_distance_local(m: &Prepared, p: [f64; 2], centre: [f64; 2], centre_ins
     }
 }
 
+/// Slack, in km, a covering mark must have beyond the exact coverage-1 bound
+/// before [`flatten_bucket`] trusts it: 1 mm. Labelled judgement: the bound is
+/// exact in real arithmetic and this absorbs the last bits of the float
+/// evaluation, so a pixel on the bound can never be one the flatten wrongly
+/// declared fully covered.
+const COVER_EPS_KM: f64 = 1e-6;
+
+/// Whether `e` (an entry of one bucket) paints **every pixel of the bucket at
+/// coverage exactly 1** with nothing of the backdrop left: a flat
+/// (non-emissive) Replace mark at opacity 1 with no pen strength whose solid
+/// core contains the whole bucket rectangle, grown by the widest antialiasing
+/// footprint the index serves (`margin_km`).
+///
+/// Coverage is `smoothstep(0.5 + (s - half) / max(band, px))`, exactly 1.0
+/// once `s >= half + max(band, px) / 2`; with `px <= margin_km` (the only
+/// footprints the index answers) the sufficient test is
+/// `s_min >= half + max(band, margin_km) / 2 + COVER_EPS_KM`, where `s_min` is
+/// the smallest signed distance over the rectangle. For a stroke that is
+/// `radius - (d_centre + h)` with `d_centre` the distance from the bucket
+/// centre to the polyline over the entry's own listed segments (exact where it
+/// matters: an unlisted segment is farther than the stroke's reach, so it
+/// cannot be the witness of a distance below the radius) and `h` the
+/// rectangle's half-diagonal. For an area: the centre is inside, and the
+/// distance to the ring is at least `h` more than that bound, where an
+/// unlisted edge is known to be farther than `min(bw, bh)/2 + reach`.
+/// Anything the test cannot prove is "not a cover": the flatten only ever
+/// errs towards keeping a mark.
+fn covers_bucket(marks: &[Prepared], segs: &[u32], e: &Entry, centre: [f64; 2], size: [f64; 2], margin_km: f64) -> bool {
+    let m = &marks[e.mark as usize];
+    if m.emissive.is_some() || m.blend != ColourBlend::Replace || m.opacity != 1.0 || m.strength.is_some() {
+        return false;
+    }
+    let need = m.half + m.band.max(margin_km) / 2.0 + COVER_EPS_KM;
+    let h = size[0].hypot(size[1]) / 2.0;
+    let listed = &segs[e.segs.0 as usize..e.segs.1 as usize];
+    let mut d2 = f64::INFINITY;
+    for &k in listed {
+        let (a, b) = segment(m, k as usize);
+        d2 = d2.min(seg_dist2(centre, a, b));
+    }
+    let d = d2.sqrt();
+    match &m.shape {
+        MarkShape::Line { radius_km, .. } => d.is_finite() && radius_km - d - h >= need,
+        MarkShape::Area { .. } => {
+            if !e.centre_inside {
+                return false;
+            }
+            // Every unlisted edge is farther than this from the centre.
+            let unlisted = size[0].min(size[1]) / 2.0 + ink_extent(m) + m.band / 2.0 + margin_km;
+            d.min(unlisted) - h >= need
+        }
+    }
+}
+
+/// **CP-7, flatten opaque overdraw** (`COLOUR_PAINT_SCOPE.md` §10, §16): in
+/// one bucket's entry list (`entries[first..]`, mark order), drops every entry
+/// that a later opaque Replace mark covers completely
+/// ([`covers_bucket`]), so a pixel pays for the marks that can still show and
+/// not for the buried ones. Cost scales with overdraw (§10: 1.64x at
+/// overdraw 13), and this is what takes the buried part of it off.
+///
+/// What is dropped, per cover `B` and earlier entry `A`:
+/// - `B` paints land and water (`land_only` false): every earlier `A`, as `B`
+///   leaves nothing of any backdrop;
+/// - `B` paints land only: only earlier `A` that are also land only (an `A`
+///   that paints water still shows on the water `B` leaves alone).
+///
+/// Never dropped: a mark after the last cover, anything the test cannot prove
+/// covered (a translucent, tinting, Multiply, pressure-weighted or emissive mark
+/// is not a cover; a soft-edged one is a cover over its solid core only, which
+/// `covers_bucket` measures from the band's inner edge). **What it does to the picture:** nothing but
+/// rounding: the dropped marks' arithmetic is wholly overwritten, because
+/// Replace at alpha 1 gives `b + (s - b) * 1`, which is `s` up to the last bit
+/// of the float (not literally `s`, so the flattened and unflattened pixels
+/// are equal to a few ulps of the 0-255 colour, and the 8-bit pictures were
+/// byte-identical in every test that renders them). Footprints wider than the
+/// index's margin take the brute-force path, which this does not touch.
+///
+/// The segment list is compacted so a dropped entry's segments are not kept.
+#[allow(clippy::too_many_arguments)]
+fn flatten_bucket(marks: &[Prepared], entries: &mut Vec<Entry>, segs: &mut Vec<u32>, first: usize, first_seg: usize, centre: [f64; 2], size: [f64; 2], margin_km: f64) {
+    if entries.len() - first < 2 {
+        return;
+    }
+    let (mut last_any, mut last_land) = (None, None);
+    for i in first..entries.len() {
+        if covers_bucket(marks, segs, &entries[i], centre, size, margin_km) {
+            last_land = Some(i);
+            if !marks[entries[i].mark as usize].land_only {
+                last_any = Some(i);
+            }
+        }
+    }
+    let drops = |i: usize| -> bool {
+        last_any.is_some_and(|l| i < l) || (last_land.is_some_and(|l| i < l) && marks[entries[i].mark as usize].land_only)
+    };
+    if !(first..entries.len()).any(drops) {
+        return;
+    }
+    let keep: Vec<bool> = (first..entries.len()).map(|i| !drops(i)).collect();
+    let old_entries: Vec<Entry> = entries.drain(first..).collect();
+    let old_segs: Vec<u32> = segs[first_seg..].to_vec();
+    segs.truncate(first_seg);
+    for (e, k) in old_entries.iter().zip(keep) {
+        if !k {
+            continue;
+        }
+        let s0 = segs.len() as u32;
+        // `e.segs` indexes the shared list; rebase it on the bucket's slice.
+        segs.extend_from_slice(&old_segs[e.segs.0 as usize - first_seg..e.segs.1 as usize - first_seg]);
+        entries.push(Entry { mark: e.mark, centre_inside: e.centre_inside, segs: (s0, segs.len() as u32) });
+    }
+}
+
 /// Builds the bucket grid (see [`BucketIndex`]).
-fn build_index(marks: &[Prepared], margin_km: f64) -> BucketIndex {
+fn build_index(marks: &[Prepared], margin_km: f64, flatten: bool) -> BucketIndex {
     let reach = |m: &Prepared| ink_extent(m) + m.band / 2.0 + margin_km;
     let mut bb = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
     for m in marks {
@@ -1297,6 +1468,7 @@ fn build_index(marks: &[Prepared], margin_km: f64) -> BucketIndex {
     let (mut ti, mut ai) = (0usize, 0usize);
     for (bk, slot) in buckets.iter_mut().enumerate() {
         let start = entries.len() as u32;
+        let start_segs = segs.len();
         let centre = [bb[0] + ((bk % nx) as f64 + 0.5) * bw, bb[1] + ((bk / nx) as f64 + 0.5) * bh];
         // Merge, in mark order, this bucket's segment triples and area covers.
         loop {
@@ -1326,6 +1498,9 @@ fn build_index(marks: &[Prepared], margin_km: f64) -> BucketIndex {
                 continue;
             }
             entries.push(Entry { mark, centre_inside, segs: (s0, segs.len() as u32) });
+        }
+        if flatten {
+            flatten_bucket(marks, &mut entries, &mut segs, start as usize, start_segs, centre, [bw, bh], margin_km);
         }
         *slot = (start, entries.len() as u32);
     }
@@ -1857,5 +2032,203 @@ mod tests {
         let ring = [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0]];
         let area = ColourMark { shape: MarkShape::Area { ring_km: ring.to_vec(), edge_km: 0.5 }, rgb: [1, 2, 3], opacity: 1.0, hardness: 1.0, blend: ColourBlend::Colour, land_only: true, emissive: None, strength: Some(vec![1.0, 1.0, 1.0]) };
         assert!(matches!(ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![area] }, 1.0), Err(ColourPaintError::BadStrength(0))), "an area takes no strength");
+    }
+
+    // ---- CP-7: flatten opaque overdraw --------------------------------------
+
+    /// An opaque, hard, flat Replace stroke (the only kind that can cover).
+    fn cover(pts: &[[f64; 2]], r: f64, rgb: [u8; 3]) -> ColourMark {
+        line(pts, r, rgb, ColourBlend::Replace)
+    }
+
+    /// Both builds of `marks` (flattened and not), margin 1 km.
+    fn both(marks: Vec<ColourMark>) -> (ColourPaint, ColourPaint) {
+        let layers = PaintLayers::from_v1(ColourPaintDoc { version: DOC_VERSION, visible: true, marks });
+        (ColourPaint::from_layers_with(layers.clone(), 1.0, true).unwrap(), ColourPaint::from_layers_with(layers, 1.0, false).unwrap())
+    }
+
+    /// Every pixel of a grid over `[x0, x1] x [y0, y1]`, land and water, at the footprints the index answers, compared
+    /// between the two builds to a few ulps of a 0-255 colour (`flatten_bucket`'s own stated equality). Returns how many
+    /// samples moved against the plain backdrop, so a test can assert it is not comparing nothing.
+    fn same_picture(a: &ColourPaint, b: &ColourPaint, x0: f64, x1: f64, y0: f64, y1: f64) -> usize {
+        let mut painted = 0;
+        for water in [false, true] {
+            for px in [0.01, 0.3, 1.0] {
+                for j in 0..=90 {
+                    for i in 0..=120 {
+                        let qq = PaintQuery { x_km: x0 + (x1 - x0) * i as f64 / 120.0, y_km: y0 + (y1 - y0) * j as f64 / 90.0, px_km: px, water };
+                        let (ca, ea) = a.apply_lit(GREY, qq);
+                        let (cb, eb) = b.apply_lit(GREY, qq);
+                        for k in 0..3 {
+                            assert!((ca[k] - cb[k]).abs() < 1e-9 && (ea[k] - eb[k]).abs() < 1e-9, "water {water} px {px} at ({}, {}): {ca:?} vs {cb:?}", qq.x_km, qq.y_km);
+                        }
+                        if ca != GREY {
+                            painted += 1;
+                        }
+                    }
+                }
+            }
+        }
+        painted
+    }
+
+    /// Protects: CP-7's equality. A big opaque Replace stroke buries a pile of earlier marks of every kind (every blend, soft, translucent, a
+    /// pressure-weighted one, a lava mark, a water-painting one) and the flattened layer draws the same picture as the
+    /// unflattened one on land and water at footprints from 0.01 km to the margin, while holding strictly fewer
+    /// bucket entries (the positive control: if nothing were dropped the equality would be vacuous).
+    #[test]
+    fn flatten_draws_the_same_picture_and_drops_buried_marks() {
+        let mut under = vec![
+            line(&[[40.0, 40.0], [60.0, 42.0]], 2.0, [10, 200, 10], ColourBlend::Colour),
+            line(&[[42.0, 44.0], [58.0, 46.0]], 1.5, [10, 10, 200], ColourBlend::Multiply),
+            cover(&[[44.0, 48.0], [56.0, 48.0]], 1.0, [90, 90, 90]),
+        ];
+        let mut soft = line(&[[45.0, 50.0], [55.0, 50.0]], 2.0, [250, 250, 0], ColourBlend::Replace);
+        soft.hardness = 0.3;
+        under.push(soft);
+        let mut translucent = cover(&[[46.0, 52.0], [54.0, 52.0]], 2.0, [0, 250, 250]);
+        translucent.opacity = 0.5;
+        under.push(translucent);
+        under.push(with_strength(cover(&[[47.0, 54.0], [53.0, 54.0]], 1.5, [250, 0, 250]), &[0.2, 0.9]));
+        let mut wet = cover(&[[41.0, 56.0], [59.0, 56.0]], 1.0, [0, 0, 255]);
+        wet.land_only = false;
+        under.push(wet);
+        let mut lava = cover(&[[48.0, 47.0], [52.0, 49.0]], 1.5, [34, 33, 38]);
+        lava.emissive = Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.75, crack_density: 0.5, glow_radius_km: 1.5, heat_along: 0.0 });
+        under.push(lava);
+        // The cover: a fat opaque stroke over the whole pile.
+        let mut marks = under;
+        marks.push(cover(&[[38.0, 38.0], [62.0, 38.0], [62.0, 58.0], [38.0, 58.0], [38.0, 38.0]], 25.0, [200, 30, 18]));
+        // And a mark after it, which must survive and show.
+        marks.push(line(&[[50.0, 30.0], [50.0, 66.0]], 0.8, [255, 255, 255], ColourBlend::Replace));
+        let (flat, plain) = both(marks);
+        let (fe, pe) = (flat.index_stats().1, plain.index_stats().1);
+        assert!(fe < pe, "flatten dropped nothing: {fe} entries against {pe}");
+        // The pile spans about 20 x 18 km of ~0.8 km buckets, 8-9 marks deep: roughly 4 500 entries lie under the cover.
+        assert!(pe - fe > 2_000, "most of the buried pile must go: {fe} flattened against {pe}");
+        let painted = same_picture(&flat, &plain, 20.0, 80.0, 20.0, 76.0);
+        assert!(painted > 10_000, "the comparison saw paint: {painted} painted samples");
+    }
+
+    /// Protects: the land/water rule. A land-only opaque cover over a stroke that paints water leaves the water stroke visible on
+    /// water pixels (so it is not dropped), while a stroke that paints land only under the same cover is dropped; a cover that
+    /// paints water as well drops both.
+    #[test]
+    fn a_land_only_cover_keeps_the_marks_that_paint_water() {
+        let mut wet = cover(&[[40.0, 50.0], [60.0, 50.0]], 2.0, [0, 0, 255]);
+        wet.land_only = false;
+        let dry = cover(&[[40.0, 50.0], [60.0, 50.0]], 2.0, [0, 255, 0]);
+        let big = cover(&[[30.0, 50.0], [70.0, 50.0]], 30.0, [255, 0, 0]);
+        let (flat, plain) = both(vec![wet.clone(), dry.clone(), big.clone()]);
+        assert!(flat.index_stats().1 < plain.index_stats().1, "the land-only stroke under a land-only cover is dropped");
+        same_picture(&flat, &plain, 30.0, 70.0, 40.0, 60.0);
+        let water = PaintQuery { x_km: 50.0, y_km: 50.0, px_km: 0.05, water: true };
+        assert_eq!(flat.apply(GREY, water), [0.0, 0.0, 255.0], "the water stroke still shows on water under a land-only cover");
+        let mut big_wet = big.clone();
+        big_wet.land_only = false;
+        let (flat2, plain2) = both(vec![wet, dry, big_wet]);
+        assert!(flat2.index_stats().1 < flat.index_stats().1, "a cover that paints water drops the water stroke too");
+        same_picture(&flat2, &plain2, 30.0, 70.0, 40.0, 60.0);
+    }
+
+    /// Protects: nothing that is not a certain cover drops anything: a translucent, a tinting, a Multiply, a
+    /// pressure-weighted and an emissive cover each leave the entry count exactly where the unflattened build has it, and a stroke
+    /// too thin to hold a bucket rectangle is not a cover either. A soft-edged opaque Replace stroke covers over its solid core only: it
+    /// drops a mark wholly inside the core, keeps one that straddles the fade, and the picture is the same either way.
+    #[test]
+    fn only_certain_covers_drop_anything() {
+        let small = line(&[[48.0, 50.0], [52.0, 50.0]], 1.0, [0, 200, 0], ColourBlend::Colour);
+        let base = |m: ColourMark| both(vec![small.clone(), m]);
+        let big = |f: &dyn Fn(&mut ColourMark)| {
+            let mut m = cover(&[[40.0, 50.0], [60.0, 50.0]], 20.0, [255, 0, 0]);
+            f(&mut m);
+            m
+        };
+        for (name, m) in [
+            ("translucent", big(&|m| m.opacity = 0.999)),
+            ("colour blend", big(&|m| m.blend = ColourBlend::Colour)),
+            ("multiply", big(&|m| m.blend = ColourBlend::Multiply)),
+            ("pressure", big(&|m| m.strength = Some(vec![1.0, 1.0]))),
+            ("emissive", big(&|m| m.emissive = Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.5, crack_density: 0.5, glow_radius_km: 1.0, heat_along: 0.0 }))),
+            ("too thin", cover(&[[40.0, 50.0], [60.0, 50.0]], 0.05, [255, 0, 0])),
+        ] {
+            let (f, p) = base(m);
+            assert_eq!(f.index_stats().1, p.index_stats().1, "{name} cover must not drop anything");
+        }
+        let (f, p) = base(cover(&[[40.0, 50.0], [60.0, 50.0]], 20.0, [255, 0, 0]));
+        assert!(f.index_stats().1 < p.index_stats().1, "the control: a hard opaque Replace cover does drop");
+        // A soft cover (band 4 km of radius 20): its solid core (radius 16) buries the small mark, its fade does not.
+        let soft = big(&|m| m.hardness = 0.8);
+        let (fs, ps) = base(soft.clone());
+        assert!(fs.index_stats().1 < ps.index_stats().1, "a soft opaque Replace cover buries what lies in its solid core");
+        let fringe = line(&[[50.0, 66.0], [54.0, 66.0]], 1.0, [0, 0, 200], ColourBlend::Colour);
+        let (ff, pf) = both(vec![small.clone(), fringe, soft]);
+        same_picture(&ff, &pf, 30.0, 70.0, 25.0, 75.0);
+    }
+
+    /// Protects: an area cover (the fill helper's own output) drops what is inside it, and not what is outside or straddles its edge.
+    #[test]
+    fn an_opaque_area_covers_what_lies_wholly_inside_it() {
+        let ring = vec![[30.0, 30.0], [70.0, 30.0], [70.0, 70.0], [30.0, 70.0]];
+        let area = ColourMark { shape: MarkShape::Area { ring_km: ring, edge_km: 0.0 }, rgb: [200, 30, 18], opacity: 1.0, hardness: 1.0, blend: ColourBlend::Replace, land_only: true, emissive: None, strength: None };
+        let inside = line(&[[45.0, 50.0], [55.0, 50.0]], 1.0, [0, 200, 0], ColourBlend::Replace);
+        let (f, p) = both(vec![inside.clone(), area.clone()]);
+        assert!(f.index_stats().1 < p.index_stats().1, "a stroke wholly inside an opaque area is buried");
+        same_picture(&f, &p, 25.0, 75.0, 25.0, 75.0);
+        let straddle = line(&[[20.0, 50.0], [80.0, 50.0]], 1.0, [0, 200, 0], ColourBlend::Replace);
+        let (f2, p2) = both(vec![straddle, area]);
+        same_picture(&f2, &p2, 15.0, 85.0, 25.0, 75.0);
+        // The straddling stroke shows outside the area and is still listed there.
+        assert_eq!(f2.apply(GREY, q(25.0, 50.0, 0.05)), [0.0, 200.0, 0.0]);
+    }
+
+    /// Protects: Scale with the map (Ruling EB item 7). Every point, a stroke's radius, an area's edge and a glow radius are
+    /// multiplied by the factor about the origin in every layer including a hidden and a locked one; colours, opacity, hardness, flags and
+    /// strength are untouched; the count is the same; a round trip by `f` then `1/f` returns the document to within float
+    /// rounding; a non-positive or non-finite factor, and one that would shrink a stroke below the minimum, are refused whole.
+    #[test]
+    fn scaled_multiplies_lengths_in_every_layer_and_refuses_bad_factors() {
+        let mut lava = line(&[[10.0, 20.0], [30.0, 40.0]], 2.0, [34, 33, 38], ColourBlend::Replace);
+        lava.emissive = Some(EmissiveMaterial { ramp: GlowRamp::Fire, heat: 0.75, crack_density: 0.5, glow_radius_km: 1.5, heat_along: 0.0 });
+        let area = ColourMark { shape: MarkShape::Area { ring_km: vec![[0.0, 0.0], [8.0, 0.0], [8.0, 4.0]], edge_km: 0.5 }, rgb: [1, 2, 3], opacity: 0.7, hardness: 1.0, blend: ColourBlend::Colour, land_only: false, emissive: None, strength: None };
+        let mut doc = PaintLayers::empty();
+        let i = doc.add_layer(Some("Lava")).unwrap();
+        doc.add_mark(i, lava).unwrap();
+        doc.add_mark(i, with_strength(line(&[[1.0, 1.0], [2.0, 2.0]], 0.4, [9, 9, 9], ColourBlend::Colour), &[0.3, 0.8])).unwrap();
+        let j = doc.add_layer(Some("Areas")).unwrap();
+        doc.add_mark(j, area).unwrap();
+        doc.set_layer_visible(j, false).unwrap();
+        doc.set_layer_locked(j, true).unwrap();
+        let s = doc.scaled(1.5).unwrap();
+        assert_eq!(s.total_marks(), doc.total_marks());
+        let first = &s.layers[i].marks[0];
+        match &first.shape {
+            MarkShape::Line { points_km, radius_km } => {
+                assert_eq!(points_km, &vec![[15.0, 30.0], [45.0, 60.0]]);
+                assert_eq!(*radius_km, 3.0);
+            }
+            _ => panic!("a line"),
+        }
+        assert_eq!(first.emissive.as_ref().unwrap().glow_radius_km, 2.25);
+        assert_eq!(first.emissive.as_ref().unwrap().crack_density, 0.5, "plate grain is not a length of the shape");
+        assert_eq!(s.layers[i].marks[1].strength, Some(vec![0.3, 0.8]));
+        match &s.layers[j].marks[0].shape {
+            MarkShape::Area { ring_km, edge_km } => {
+                assert_eq!(ring_km[1], [12.0, 0.0]);
+                assert_eq!(*edge_km, 0.75);
+            }
+            _ => panic!("an area"),
+        }
+        assert!(!s.layers[j].visible && s.layers[j].locked && s.layers[j].marks[0].opacity == 0.7 && !s.layers[j].marks[0].land_only, "flags and opacity untouched");
+        let back = s.scaled(1.0 / 1.5).unwrap();
+        for (a, b) in back.layers.iter().flat_map(|l| &l.marks).zip(doc.layers.iter().flat_map(|l| &l.marks)) {
+            if let (MarkShape::Line { points_km: pa, radius_km: ra }, MarkShape::Line { points_km: pb, radius_km: rb }) = (&a.shape, &b.shape) {
+                assert!((ra - rb).abs() < 1e-12 && pa.iter().zip(pb).all(|(u, v)| (u[0] - v[0]).abs() < 1e-12 && (u[1] - v[1]).abs() < 1e-12));
+            }
+        }
+        for bad in [0.0, -2.0, f64::NAN, f64::INFINITY] {
+            assert!(doc.scaled(bad).is_err(), "{bad}");
+        }
+        assert!(doc.scaled(1e-6).is_err(), "a stroke shrunk below the minimum radius refuses the whole scale");
     }
 }

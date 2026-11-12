@@ -1008,3 +1008,158 @@ fn colour_paint_layer_frames() {
         }
     }
 }
+
+/// **CP-5 on real worlds** (`COLOUR_PAINT_SCOPE.md` §13): the shipped fill helper
+/// (`cartalith_spatial::colour_paint::fill::fill_from_click`, not the prototype
+/// above) clicked at each world's rimmed pits (`rimmed_pits`, or `CP_CLICK` as
+/// in `colour_paint_frames`), committed as the shell commits it -- an `Area` mark
+/// plus a hard grow stroke along its ring, Replace, red, water included -- and
+/// drawn at x1 / x4 / x16 / x64 beside the unpainted frame. Prints the mode,
+/// cells, area and time per click; asserts only that a ring came back and the
+/// painted frames differ from the unpainted ones. The judgement is made by
+/// reading the frames (zoom must gain detail, so every rung is written).
+#[test]
+#[ignore = "generates two 2048x1311 worlds and renders zoom frames; run explicitly with --release"]
+fn colour_paint_fill_frames() {
+    use cartalith_spatial::colour_paint::fill::{fill_from_click, ring_area_km2, FillParams};
+    let out = std::env::var("CP_OUT").expect("set CP_OUT to an output directory");
+    std::fs::create_dir_all(&out).unwrap();
+    let (gw, gh) = (2048usize, 1311usize);
+    for w in &WORLDS {
+        let p = world_params(w, gw, gh);
+        let ws = cartalith_engine::generate_terrain(&p);
+        let kpc = p.map_width_km / gw as f64;
+        let a = appearance();
+        let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
+        let base = || RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a.clone(), &pre).expect("context");
+        let clicks: Vec<(usize, usize)> = std::env::var("CP_CLICK").ok().into_iter().flat_map(|v| v.split(';').map(str::to_string).collect::<Vec<_>>()).filter_map(|e| {
+            let (t, xy) = e.split_once('=')?;
+            if !w.tag.starts_with(t) {
+                return None;
+            }
+            let (x, y) = xy.split_once(',')?;
+            Some((x.parse().ok()?, y.parse().ok()?))
+        }).collect();
+        let picks: Vec<(usize, usize)> = if clicks.is_empty() { rimmed_pits(&ws, gw, gh).into_iter().map(|c| (c.0, c.1)).collect() } else { clicks };
+        assert!(!picks.is_empty(), "{}: no rimmed crater to click", w.tag);
+        let mut filled = 0;
+        for (k, &(cx, cy)) in picks.iter().enumerate() {
+            let t0 = std::time::Instant::now();
+            let fill = match fill_from_click(&ws.field, gw, gh, cx, cy, kpc, FillParams::default()) {
+                Ok(f) => f,
+                Err(e) => {
+                    println!("{} click {k} ({cx},{cy}): no outline: {e}", w.tag);
+                    continue;
+                }
+            };
+            let ms = t0.elapsed().as_secs_f64() * 1e3;
+            println!("{} click {k} ({cx},{cy}): {} fill, {} cells, ring {} points, {:.1} km2, level {:.4} (auto {:.4}), {ms:.2} ms", w.tag, fill.mode.key(), fill.cells, fill.ring_km.len(), ring_area_km2(&fill.ring_km), fill.level, fill.auto_level);
+            filled += 1;
+            let mut closed = fill.ring_km.clone();
+            closed.push(fill.ring_km[0]);
+            let mut area = mark(MarkShape::Area { ring_km: fill.ring_km.clone(), edge_km: 0.0 }, [200, 30, 18], 1.0, 1.0, ColourBlend::Replace);
+            area.land_only = false;
+            let mut grow = mark(MarkShape::Line { points_km: closed, radius_km: 1.5 }, [200, 30, 18], 1.0, 1.0, ColourBlend::Replace);
+            grow.land_only = false;
+            let layer = ColourPaint::new(ColourPaintDoc { version: DOC_VERSION, visible: true, marks: vec![area, grow] }, 2.0 * kpc).unwrap();
+            let (fx, fy) = (fill.ring_km.iter().map(|q| q[0]).sum::<f64>() / fill.ring_km.len() as f64 / kpc - 0.5, fill.ring_km.iter().map(|q| q[1]).sum::<f64>() / fill.ring_km.len() as f64 / kpc - 0.5);
+            let render = |l: Option<&ColourPaint>| -> Vec<Vec<u8>> {
+                let ctx = base().with_colour_paint(l);
+                let tf = TileFields::new(&ctx, None);
+                let mut v = vec![base_frame(&ctx, fx, fy, SCREEN_W as f64 / gw as f64)];
+                for &(_, ppc) in &RUNGS {
+                    v.push(frame(&ctx, &tf, fx, fy, ppc, w.seed));
+                }
+                v
+            };
+            let names = ["x1", "x4", "x16", "x64"];
+            let (none, painted) = (render(None), render(Some(&layer)));
+            for z in 0..4 {
+                assert_ne!(none[z], painted[z], "{} click {k} {}: premise: the fill paints", w.tag, names[z]);
+                write_png(&format!("{out}/{}_fill{k}_{}_none.png", w.tag, names[z]), none[z].clone());
+                write_png(&format!("{out}/{}_fill{k}_{}_filled.png", w.tag, names[z]), painted[z].clone());
+            }
+        }
+        assert!(filled > 0, "{}: the fill helper outlined none of {} clicks", w.tag, picks.len());
+    }
+}
+
+/// An opaque, hard, land-and-water Replace stroke: the only mark flatten can use as a cover. `n` of them, 12 points
+/// and 6-12 km long, radius 0.5-3 km (the cost harness's own scatter), from the same fixed xorshift seed.
+fn scatter_opaque(n: usize, b: [f64; 4]) -> Vec<ColourMark> {
+    scatter(n, b)
+        .into_iter()
+        .map(|mut m| {
+            m.opacity = 1.0;
+            m.blend = ColourBlend::Replace;
+            if let MarkShape::Line { .. } = m.shape {
+                m.hardness = 1.0;
+            }
+            m.land_only = false;
+            m
+        })
+        .collect()
+}
+
+/// **CP-7's cost bar** (`COLOUR_PAINT_SCOPE.md` §10 case d, §16): the stress case -- 1 000 strokes packed into one
+/// 6 x 4 level-6 tile block, overdraw about 13 -- with the strokes OPAQUE hard Replace (the only marks flatten can
+/// drop; the §10 table's strokes were 0.8 opaque and soft, which no flatten may touch), rendered through the tiles with
+/// the layer built unflattened and flattened, alternated. Prints the overdraw, the bucket entries of both builds, the
+/// medians with min..max, the ratio of each to the unpainted tiles, and whether the two bit-for-bit agree. Run
+/// ALONE, `--release`. The bar: flattened within 1.25x of unpainted.
+#[test]
+#[ignore = "generates a 2048x1311 world and times tiles; run explicitly, alone, with --release"]
+fn colour_paint_flatten_cost() {
+    let (gw, gh) = (2048usize, 1311usize);
+    let w = &WORLDS[0];
+    let p = world_params(w, gw, gh);
+    let ws = cartalith_engine::generate_terrain(&p);
+    let a = appearance();
+    let kpc = p.map_width_km / gw as f64;
+    let pre = GridPrecompute::build(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, &a, Some(p.map_width_km));
+    let mk = || RenderCtx::from_precomputed(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p.world, 55.0, 5.0, a.clone(), &pre).unwrap();
+    let off = mk();
+    let tf_off = TileFields::new(&off, None);
+    let block = |z: i32, c0: u32, r0: u32| -> [f64; 4] {
+        let b0 = pyramid_tile_bounds(gw, gh, z, c0, r0);
+        let b1 = pyramid_tile_bounds(gw, gh, z, c0 + 5, r0 + 3);
+        [b0.x * kpc, b0.y * kpc, (b1.x + b1.w) * kpc, (b1.y + b1.h) * kpc]
+    };
+    let n4 = pyramid_dims(4).cols;
+    let (c4, r4) = (n4 / 2 - 3, n4 / 2 - 2);
+    let n6 = pyramid_dims(6).cols;
+    let (c6, r6) = (c4 * 4 + 9, r4 * 4 + 6);
+    let dense = block(6, c6, r6);
+    let marks = scatter_opaque(1000, dense);
+    let layers = cartalith_spatial::colour_paint::PaintLayers::from_v1(ColourPaintDoc { version: DOC_VERSION, visible: true, marks });
+    let plain = ColourPaint::from_layers_with(layers.clone(), 2.0 * kpc, false).unwrap();
+    let flat = ColourPaint::from_layers_with(layers, 2.0 * kpc, true).unwrap();
+    let od = overdraw(&plain, dense);
+    println!("flatten: overdraw {od:.2}; bucket entries unflattened {:?}, flattened {:?}", plain.index_stats(), flat.index_stats());
+    let on_plain = mk().with_colour_paint(Some(&plain));
+    let on_flat = mk().with_colour_paint(Some(&flat));
+    let (tf_plain, tf_flat) = (TileFields::new(&on_plain, None), TileFields::new(&on_flat, None));
+    let mut t = [Vec::new(), Vec::new(), Vec::new()];
+    let mut differ = 0usize;
+    for k in 0..24u32 {
+        let (col, row) = ((c6 + k % 6).min(n6 - 1), r6 + k / 6);
+        let t0 = std::time::Instant::now();
+        let _ = tile(&off, &tf_off, 6, col, row, w.seed);
+        t[0].push(t0.elapsed().as_secs_f64() * 1e3);
+        let t1 = std::time::Instant::now();
+        let a1 = tile(&on_plain, &tf_plain, 6, col, row, w.seed);
+        t[1].push(t1.elapsed().as_secs_f64() * 1e3);
+        let t2 = std::time::Instant::now();
+        let a2 = tile(&on_flat, &tf_flat, 6, col, row, w.seed);
+        t[2].push(t2.elapsed().as_secs_f64() * 1e3);
+        differ += a1.0.iter().zip(&a2.0).filter(|(x, y)| x != y).count();
+    }
+    for v in t.iter_mut() {
+        v.sort_by(f64::total_cmp);
+    }
+    println!(
+        "flatten: unpainted {:.2} ms ({:.2}..{:.2}); unflattened {:.2} ms ({:.2}..{:.2}) = {:.3}x; flattened {:.2} ms ({:.2}..{:.2}) = {:.3}x; flattened vs unflattened tile bytes that differ: {differ}",
+        t[0][12], t[0][0], t[0][23], t[1][12], t[1][0], t[1][23], t[1][12] / t[0][12], t[2][12], t[2][0], t[2][23], t[2][12] / t[0][12]
+    );
+    assert!(flat.index_stats().1 < plain.index_stats().1, "premise: flatten dropped entries");
+}

@@ -38,7 +38,7 @@ use std::sync::Arc;
 use cartalith_spatial::colour_paint::{ColourMark, ColourPaint, ColourPaintDoc, PaintLayers};
 use godot::prelude::*;
 
-use crate::WorldGen;
+use crate::{WorldGen, WorldSource};
 
 /// The bucket index's exact-answer margin, in km: two grid cells, the widest
 /// pixel footprint the screen raster asks for (`cell_color` asks one cell; a
@@ -142,7 +142,7 @@ impl WorldGen {
     /// The layer's state: `marks` (in every paint layer, hidden ones
     /// included), `drawn` (those in visible layers), `layers` (how many paint
     /// layers), `visible` (the master switch), `emissive` (how many marks
-    /// carry a material), `revision` (the edit epoch), and `km_per_cell` --
+    /// carry a material), `revision` (the edit epoch), `km_per_cell` and `map_width_km` --
     /// **absent** when the world has no map width or no grid (no scale, no
     /// paint: a mark in km cannot be placed). With no layer, `marks` is 0 and
     /// `visible` true (a new stroke starts a visible layer).
@@ -156,6 +156,8 @@ impl WorldGen {
         let mut d = vdict! { "marks" => marks, "drawn" => drawn, "layers" => layers, "visible" => visible, "emissive" => emissive, "revision" => self.colour_paint_epoch as i64 };
         if self.map_width_km.is_finite() && self.map_width_km > 0.0 && self.gw > 0 {
             d.set("km_per_cell", self.map_width_km / self.gw as f64);
+            // The map width itself, for the map-width notice (Ruling EB item 7); absent exactly when `km_per_cell` is.
+            d.set("map_width_km", self.map_width_km);
         }
         d
     }
@@ -275,6 +277,136 @@ impl WorldGen {
     #[func]
     fn colour_paint_layer_clear(&mut self, layer: i64) -> VarDictionary {
         reply(layer_index(layer).and_then(|i| self.colour_paint_edit(|d| d.clear_layer(i))))
+    }
+
+    /// **CP-5, the fill helper's preview**: the outline of the crater under grid cell
+    /// `(gx, gy)`, from the world's height field, without writing anything.
+    /// `opts` (every key optional, an unknown key refused): `level_m`, metres added to the
+    /// automatic level (default 0), and `cap_km`, the capped fill's radius in km -- **absent
+    /// means the automatic cap**, never a number standing for it. Replies
+    /// `{ok: true, ring_km: PackedVector2Array (map km, closed implicitly), mode: "pour_point" |
+    /// "capped", cells, area_km2, level_m (the delta in force), auto_cap_km, cap_km? (capped
+    /// only), seed: Vector2i}` or `{ok: false, error}` with the sentence the shell shows
+    /// (`cartalith_spatial::colour_paint::fill::FillError`). Refused with no scale (no map width)
+    /// like every paint call: a ring in km cannot be placed without one.
+    #[func]
+    fn colour_paint_fill_preview(&self, gx: i64, gy: i64, opts: VarDictionary) -> VarDictionary {
+        use cartalith_spatial::colour_paint::fill::{fill_from_click, ring_area_km2, FillParams};
+        for (k, _) in opts.iter_shared() {
+            let k = k.to_string();
+            if k != "level_m" && k != "cap_km" {
+                return reply(Err(format!("unknown fill option {k:?}")));
+            }
+        }
+        let (field, gw, gh): (&[f32], usize, usize) = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => (ws.field.as_slice(), self.gw.max(0) as usize, self.gh.max(0) as usize),
+            Some(WorldSource::Loaded(save)) => (save.fields.heightmap.as_slice(), self.gw.max(0) as usize, self.gh.max(0) as usize),
+            None => return reply(Err("no world is open".to_string())),
+        };
+        if !(self.map_width_km.is_finite() && self.map_width_km > 0.0) || gw == 0 {
+            return reply(Err("this world has no map width, so a fill in kilometres cannot be placed".to_string()));
+        }
+        let kpc = self.map_width_km / gw as f64;
+        let m_per_unit = self.params.peak_m / (1.0 - self.sea_level);
+        if !(m_per_unit.is_finite() && m_per_unit > 0.0) {
+            return reply(Err("this world has no usable height scale".to_string()));
+        }
+        let level_m = opts.get("level_m").and_then(|v| v.try_to::<f64>().ok()).unwrap_or(0.0);
+        let cap_cells = opts.get("cap_km").and_then(|v| v.try_to::<f64>().ok()).map(|km| km / kpc);
+        if gx < 0 || gy < 0 {
+            return reply(Err("that point is outside the map".to_string()));
+        }
+        let params = FillParams { level_delta: (level_m / m_per_unit) as f32, cap_cells };
+        match fill_from_click(field, gw, gh, gx as usize, gy as usize, kpc, params) {
+            Err(e) => reply(Err(e.to_string())),
+            Ok(f) => {
+                let mut ring = PackedVector2Array::new();
+                for p in &f.ring_km {
+                    ring.push(Vector2::new(p[0] as f32, p[1] as f32));
+                }
+                let mut d = vdict! {
+                    "ok" => true,
+                    "ring_km" => &ring,
+                    "mode" => f.mode.key(),
+                    "cells" => f.cells as i64,
+                    "area_km2" => ring_area_km2(&f.ring_km),
+                    "level_m" => level_m,
+                    "auto_cap_km" => f.auto_cap_cells * kpc,
+                    "seed" => Vector2i::new(f.seed.0 as i32, f.seed.1 as i32),
+                };
+                if let Some(c) = f.cap_cells {
+                    d.set("cap_km", c * kpc);
+                }
+                d
+            }
+        }
+    }
+
+    /// **Scale with the map** (Ruling EB item 7): multiplies every mark's kilometre lengths by
+    /// `factor` about the map's top-left edge (`PaintLayers::scaled`), as one new document, so the
+    /// shell's document-per-step undo covers it. Refused, changing nothing, for a factor that is
+    /// not a positive number or that would shrink a stroke below the minimum radius, and with no
+    /// paint to scale. Replies `{ok, marks}` like every layer edit.
+    #[func]
+    fn colour_paint_scale(&mut self, factor: f64) -> VarDictionary {
+        let Some(doc) = self.colour_paint.as_ref().map(|l| l.layers().clone()) else { return reply(Err("there is no colour paint to scale".to_string())) };
+        let scaled = match doc.scaled(factor) {
+            Ok(d) => d,
+            Err(e) => return reply(Err(e)),
+        };
+        reply(self.colour_paint_install_layers(Some(scaled)))
+    }
+
+    /// How many land-only marks lie wholly on water now -- the map-width notice's *"3 now on water
+    /// are hidden"* (`COLOUR_PAINT_SCOPE.md` §17 Q5). A mark counts when **every vertex** of its
+    /// shape is on a water cell (the world's own ocean and lake classification when it has one,
+    /// else a height below sea level), in any layer, hidden ones included. A mark that has a vertex
+    /// on land, or that paints water (`land_only` off), never counts. **Absent** (not `0`) when
+    /// no world is open or there is no paint, so a caller never reads "none" for "unknown".
+    #[func]
+    fn colour_paint_marks_on_water(&self) -> Variant {
+        use cartalith_spatial::colour_paint::MarkShape;
+        let (Some(layer), Some(src)) = (self.colour_paint.as_ref(), self.source.as_ref()) else { return Variant::nil() };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || !(self.map_width_km.is_finite() && self.map_width_km > 0.0) {
+            return Variant::nil();
+        }
+        let field: &[f32] = match src {
+            WorldSource::Generated(ws) => ws.field.as_slice(),
+            WorldSource::Loaded(save) => save.fields.heightmap.as_slice(),
+        };
+        if field.len() < gw * gh {
+            return Variant::nil();
+        }
+        let wb = self.civ.as_ref().map(|c| c.water_bodies.as_slice()).filter(|w| w.len() >= gw * gh);
+        let kpc = self.map_width_km / gw as f64;
+        let on_water = |p: &[f64; 2]| -> bool {
+            let (cx, cy) = ((p[0] / kpc).floor(), (p[1] / kpc).floor());
+            // A vertex off the grid is not on water: the notice counts what it can show.
+            if cx < 0.0 || cy < 0.0 || cx >= gw as f64 || cy >= gh as f64 {
+                return false;
+            }
+            let i = cy as usize * gw + cx as usize;
+            match wb {
+                Some(w) => w[i] != 0,
+                None => (field[i] as f64) < self.sea_level,
+            }
+        };
+        let n = layer
+            .layers()
+            .layers
+            .iter()
+            .flat_map(|l| &l.marks)
+            .filter(|m| m.land_only)
+            .filter(|m| {
+                let pts = match &m.shape {
+                    MarkShape::Line { points_km, .. } => points_km,
+                    MarkShape::Area { ring_km, .. } => ring_km,
+                };
+                !pts.is_empty() && pts.iter().all(&on_water)
+            })
+            .count();
+        (n as i64).to_variant()
     }
 
     /// Shows or hides the layer. `true` when the flag changed; `false` with
