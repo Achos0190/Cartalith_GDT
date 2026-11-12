@@ -1,0 +1,16 @@
+MUT 0 KILLED: const ORBIT_PITCH_DEG := 55.0 -> const ORBIT_PITCH_DEG := 50.0 :: RESULT checks=47 fail=1 :: FAIL  A: the tilt ends at 55° within 0.9 s  pitch 50.00°
+MUT 1 KILLED: const TILT_SECONDS := 0.6 -> const TILT_SECONDS := 3.0 :: RESULT checks=47 fail=1 :: FAIL  A: the tilt ends at 55° within 0.9 s  pitch 79.82°
+MUT 2 KILLED: const PITCH_MIN_DEG := 5.0 -> const PITCH_MIN_DEG := 2.0 :: RESULT checks=47 fail=1 :: FAIL  G: a right drag up stops at 5°  pitch 2.00°, clamp steps 0
+MUT 3 SURVIVED: const NEAR_FRACTION := 0.05 -> const NEAR_FRACTION := 0.5 :: RESULT checks=47 fail=0 :: 
+MUT 4 KILLED: const FAR_MARGIN := 1.05 -> const FAR_MARGIN := 0.5 :: RESULT checks=47 fail=2 :: FAIL  A: terrain covers the 3D view  background 97.0 % of the 3D frame / FAIL  F: the far plane reaches the farthest world corner  far 574554 m, corner 1149108 m
+MUT 5 SURVIVED: const CLEARANCE_CELLS := 0.2 -> const CLEARANCE_CELLS := -5.0 :: RESULT checks=47 fail=0 :: 
+MUT 6 KILLED: const LEVELS_BELOW_2D := 1 -> const LEVELS_BELOW_2D := 0 :: RESULT checks=47 fail=3 :: FAIL  B: x4: the window is one level below 2D's, 4 tiles a side  z 4, 2D z 4, k 4 / FAIL  B: x16: the window is one level below 2D's, 4 tiles a side  z 6, 2D z 6, k 4 / FAIL  B: x64: the window is one level below 2D's, 4 tiles a side  z 8, 2D z 8, k 4
+MUT 7 KILLED: const WINDOW_TILES := 4 -> const WINDOW_TILES := 3 :: RESULT checks=47 fail=3 :: FAIL  B: x4: the window is one level below 2D's, 4 tiles a side  z 3, 2D z 4, k 3 / FAIL  B: x16: the window is one level below 2D's, 4 tiles a side  z 5, 2D z 6, k 3 / FAIL  B: x64: the window is one level below 2D's, 4 tiles a side  z 7, 2D z 8, k 3
+MUT 8 SURVIVED: const PATCH_VERTS := 257 -> const PATCH_VERTS := 129 :: RESULT checks=47 fail=0 :: 
+MUT 9 KILLED: const ORBIT_DEG_PER_PX := 0.25 -> const ORBIT_DEG_PER_PX := 0.3 :: RESULT checks=47 fail=1 :: FAIL  G: a right drag orbits  yaw moved -30.00°
+MUT 3 KILLED: const NEAR_FRACTION := 0.05 -> const NEAR_FRACTION := 0.5 :: RESULT checks=49 fail=1 :: FAIL  E: the near plane low down is 5 % of the height above ground (§3.11)  near 375.074 m at 750.1 m above ground
+MUT 5 KILLED: const CLEARANCE_CELLS := 0.2 -> const CLEARANCE_CELLS := -5.0 :: RESULT checks=49 fail=1 :: FAIL  D: a clamped camera keeps 2 cells x 0.1 above the drawn ground (§3.9)  min 2.3 m against 468.8 m
+MUT 8 KILLED: const PATCH_VERTS := 257 -> const PATCH_VERTS := 129 :: RESULT checks=49 fail=1 :: FAIL  F: the patch is 257 x 257 vertices, 131 072 triangles (§3.12's Basic row)  32768 triangles in the patch; 289476 primitives in the frame
+RMUT 0 KILLED the_relief_tile_is_the_2d_tile_with_the_2d_shore FAILED
+RMUT 1 KILLED the_relief_tile_is_the_2d_tile_with_the_2d_shore FAILED
+RMUT done

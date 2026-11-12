@@ -607,8 +607,11 @@ into tiles.
   - They are the 2D row's own buttons. From 3D-2,
     `viewport_host.gd::zoom_step()` and `reset_view()` ask `is_3d()` first.
   - 3D-2 sets the camera's step.
-  - Today they move the hidden 2D camera while 3D shows, because neither
-    function asks `is_3d()` yet.
+  - *(2026-11-12, 3D-2:)* both now ask `is_3d()` first. − and + move the 3D
+    camera by the 2D row's own `ZOOM_BUTTON_STEP` (1.35) about the pivot, and
+    ⌖ frames the world in 3D; neither touches the hidden 2D view, so Back to
+    2D returns to the view the user left. `refresh()` resets 2D through
+    `_reset_view_2d()` so a new world still resets it while 3D shows.
 
 ### 3.10 Picking: casting a ray onto the drawn surface
 
@@ -951,6 +954,29 @@ ruling).
 
 **Acceptance:** B4 (no frame below the ground), B5 (depth), and Basic's frame
 bar on desktop.
+
+**How the build read this milestone (2026-11-12; the numbers are `STATUS.md`'s).**
+"One 257² patch over a level-z world height texture" was built as one patch
+over a **window** of 4 × 4 tiles at level `z`, one level below the level 2D
+draws at the camera's ground scale, so that `z` rises as the camera comes
+down and zoom gains detail at every level (Ruling CI item 1) within one
+patch. One fixed world texture would stop gaining detail at its own
+resolution. Two additions the line did not name:
+
+- **A backdrop:** the same patch once more over the whole world (level-0
+  relief, the 2D base map as drape), sunk slightly and holed under the window.
+  Without it an oblique view ends in background at the window's edge.
+- **A rim:** the window's outer sixteenth eases to the backdrop's relief, and
+  the hole stops half a rim short of the window's edge, so the two meet with
+  no gap. A first cut inset the hole by one backdrop vertex step, a quarter of
+  the window at deep zoom, and the sunk backdrop showed through its valleys
+  as a flat plain.
+
+Geometry samples the relief at the mip whose texel is one vertex step
+(§8.3's candidate (a)); the drape keeps full resolution. Tiles are synthesised
+on the main thread under a per-frame budget. A single tile cannot be split,
+so a level change still costs a frame per slow tile, and §3.13's streaming is
+what removes that.
 
 ### 3D-3 · Standard geometry: quadtree, `L_3d` morph, layer arrays, culling
 

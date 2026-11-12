@@ -2,14 +2,25 @@ extends Control
 ## No `class_name`, deliberately: `viewport_host.gd` preloads this file as
 ## `View3DScene`, so it works in a tree whose `.godot` class cache predates 3D-1.
 
-## **The 3D view mode, empty** (`3D_VIEWPORT_SCOPE.md` §5, milestone 3D-1).
+## **The 3D view mode** (`3D_VIEWPORT_SCOPE.md` §5, milestones 3D-1 and 3D-2).
 ##
 ## What it is: the viewport mode `Window ▸ 3D view` and MAP's "2D / 3D" button
 ## switch to (§3.14; the navpad's own 3D pill left the row in MS-5). A `SubViewport` holding a `Camera3D` over an empty
 ## world, plus a status card that says which 3D tier this device runs and why,
 ## with the numbers the capability gate (`view3d_gate.gd`) measured (§4.3).
-## It draws **no terrain**: that is 3D-2. It exists first so "3D unavailable,
-## here is why" works before any terrain does (research §D, Milestone 0).
+## 3D-1 built it before any terrain, so "3D unavailable, here is why" worked
+## first (research §D, Milestone 0). **3D-2 draws the Basic tier's terrain**
+## (`view3d_terrain.gd`: one displaced patch over tiles at the camera's level,
+## draped with the 2D picture, unlit) under an orbit or top-down camera
+## (`view3d_camera.gd`), wherever the tier is Basic or above. Standard and Full
+## draw Basic's patch until 3D-3 builds the quadtree; the card says so.
+##
+## Input (§3.9): on a mouse, left or middle drag pans, right drag orbits and
+## tilts, the wheel zooms about the pivot. On touch, one finger pans, two
+## fingers pinch to zoom, twist to turn and move up or down together to tilt
+## (the 2D map's one-finger pan, Ruling EE). The map's − | + and ⌖ drive this
+## camera through `ViewportHost.zoom_step()` and `reset_view()` (Ruling EB
+## item 4).
 ##
 ## Why it covers the map rather than replacing it: in 3D-1 nothing 3D reads
 ## the 2D map, so the 2D view is left exactly as it was underneath, and leaving
@@ -29,6 +40,9 @@ extends Control
 ## The gate, preloaded rather than reached by its `class_name` (see
 ## `menus.gd`'s `View3DGate` constant for why).
 const View3DGate := preload("res://shell/view3d_gate.gd")
+## 3D-2's camera state and terrain, preloaded for the same reason.
+const View3DCamera := preload("res://shell/view3d_camera.gd")
+const View3DTerrain := preload("res://shell/view3d_terrain.gd")
 
 ## The user asked to go back to the 2D map (the card's own button).
 signal exit_requested()
@@ -38,11 +52,20 @@ signal state_changed()
 
 ## **Ruling CT (owner, 2026-10-19):** the 3D view's vertical exaggeration
 ## defaults to true scale, 1.0x, not 2D's 3.4x relief default, which draws
-## needles (`3D_VIEWPORT_SCOPE.md` §8.3, captures 07-08). 3D-1 draws no terrain,
-## so the only reader today is the card's own line saying so; 3D-2's mesh
-## takes its scale from here. The ruling does not cover a user slider, and 3D-1
-## adds none.
+## needles (`3D_VIEWPORT_SCOPE.md` §8.3, captures 07-08). 3D-2's mesh opens at
+## `DccSettings.view3d_exaggeration()`, which is this value until the user sets
+## one (Ruling EB item 5); the live slider that sets it is its own backlog row.
 const VERTICAL_EXAGGERATION_DEFAULT := 1.0
+## Orbit rate for a right-button drag or a two-finger vertical drag, in degrees
+## per physical pixel. A labelled judgement: a drag across a 1 600-px desktop
+## view turns the camera 400 degrees, a phone-width drag about 270.
+const ORBIT_DEG_PER_PX := 0.25
+## The HEIGHT row's range and step: Ruling EB item 6 (*"Up to 4×"*), from Ruling
+## CT's true-scale floor (below 1x would flatten real relief, so it is not
+## offered), in the 0.25 steps of the slider's design (§7 Q4).
+const HEIGHT_MIN := 1.0
+const HEIGHT_MAX := 4.0
+const HEIGHT_STEP := 0.25
 
 ## Card geometry in dp (multiplied by `_unit` on touch). Labelled judgements
 ## read off the shell's own floating chips: a 12 dp inset (`NAVPAD_EDGE`'s
@@ -67,6 +90,12 @@ var _info: Label
 var _back_btn: Button
 var _retest_btn: Button
 var _force_btn: Button
+## 3D-2: switches between Orbit and Top-down (§3.9's two modes of this milestone).
+var _mode_btn: Button
+## The HEIGHT row (`_build_height_row()`); all null on the phone.
+var _height_box: VBoxContainer
+var _height_slider: HSlider
+var _height_value: Label
 var _force_menu: PopupMenu
 ## The open force warning, if any (kept so the acceptance probe can answer it).
 var _warn: ConfirmationDialog
@@ -88,6 +117,35 @@ var _busy := false
 ## session's failure, not the device.
 var _note := ""
 
+## 3D-2: the camera state and the terrain node (the node is null until `_ready()`).
+var _vcam: View3DCamera = View3DCamera.new()
+var _terrain: View3DTerrain
+## The engine, bound by `ViewportHost.ensure_view3d()`: the `EngineBridge`, a
+## `Callable() -> bool` false while a generate holds `WorldGen`, and a
+## `Callable() -> Texture2D` answering the 2D base map texture.
+var _bridge: Object = null
+var _readable := Callable()
+var _base_tex := Callable()
+## The 2D view to open on (`ViewportHost.view_for_3d()`): `{centre: Vector2
+## (cells), px_per_cell: float}`, or `{}` when 2D had no world on screen.
+var _entry := {}
+## True when the camera must be placed on the next frame that has a world: at
+## `_entry` (tilting) after an entry, or framing the world after a new one.
+var _place_pending := false
+var _frame_world_pending := false
+## Set by `world_changed()`: on the next bind, frame the world if its grid
+## differs from the one the camera was set for (`_vcam.has_world()`).
+var _rebind_check_grid := false
+## Touch points by index (physical pixels) and the two-finger gesture's last
+## distance, angle and centroid.
+var _touches := {}
+var _pinch := {}
+## The mouse drag in progress: the button held, or 0.
+var _drag_button := 0
+## The camera's height above the drawn ground at the last frame, and how many
+## clamp steps the last frame took: the acceptance probe's B4 readings.
+var last_hag := 0.0
+var last_clamp_steps := 0
 func _ready() -> void:
 	## `..._and_offsets_`, not `set_anchors_preset()`: this node is added to an
 	## already-laid-out `ViewportHost`, and anchors alone left it at 0 x 0 with
@@ -122,16 +180,22 @@ func _ready() -> void:
 	## top-down at the 2D view (§3.9, owner question Q9's default).
 	_cam = Camera3D.new()
 	_cam.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
+	_cam.fov = View3DCamera.FOV_DEG
+	_cam.keep_aspect = Camera3D.KEEP_HEIGHT
 	_sv.add_child(_cam)
 	_cam.current = true
+	_terrain = View3DTerrain.new()
+	_sv.add_child(_terrain)
+	_vcam.min_span_m = ViewportHost.ZOOM_TARGET_SPAN_KM * 1000.0
+	_terrain.set_exaggeration(DccSettings.view3d_exaggeration(VERTICAL_EXAGGERATION_DEFAULT))
 
 	_gate = View3DGate.new()
 	add_child(_gate)
 	_build_card()
 	_refresh()
 
-## The status card: title, the tier disclosure, the "no terrain yet" line and
-## three actions. Built once; `_refresh()` rewrites its text.
+## The status card: title, the tier disclosure, the terrain line
+## (`_terrain_line()`) and four actions. Built once; `_refresh()` rewrites its text.
 func _build_card() -> void:
 	_card = PanelContainer.new()
 	var sb := DccTheme.panel("panel")
@@ -156,11 +220,13 @@ func _build_card() -> void:
 	_info = DccTheme.label("", "text_dim", _fs(DccTheme.FS_SMALL))
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_info)
+	_build_height_row(col)
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("h_separation", int(CARD_GAP * _unit))
 	row.add_theme_constant_override("v_separation", int(CARD_GAP * _unit))
 	col.add_child(row)
 	_back_btn = _button(row, "Back to 2D", func(): exit_requested.emit(), true)
+	_mode_btn = _button(row, "Top-down", func(): set_top_down(not is_top_down()))
 	_retest_btn = _button(row, "Re-test 3D", retest)
 	_force_btn = _button(row, "Force tier…", _open_force_menu)
 	_force_menu = PopupMenu.new()
@@ -173,6 +239,59 @@ func _build_card() -> void:
 	add_child(_force_menu)
 	resized.connect(_place_card)
 	_place_card()
+
+## **The HEIGHT row** (`3D_VIEWPORT_SCOPE.md` §7 Q4, the slider's design;
+## Rulings CT and EB items 5 and 6): between the info line and the actions, on
+## the PC and the tablet. 1x to 4x in steps of 0.25, opening at the remembered
+## value; dragging rescales the drawn mesh live (a shader uniform, §3.1) and
+## writes `Preferences ▸ Graphics ▸ 3D viewport defaults ▸ relief exaggeration`
+## as it moves, so the last value is the next session's default. Never the
+## world, its save or `WorldState`. **Not on the phone**: its home there is a
+## row in MAP ▸ View (the design keeps the phone's card from growing), which is
+## not built yet, so the phone opens at the remembered value with no slider.
+## Touch: 44 dp tall, as every touch target.
+func _build_height_row(col: VBoxContainer) -> void:
+	if DccTheme.is_phone():
+		_height_box = null
+		return
+	_height_box = VBoxContainer.new()
+	_height_box.add_theme_constant_override("separation", int(4 * _unit))
+	col.add_child(_height_box)
+	var head := HBoxContainer.new()
+	_height_box.add_child(head)
+	head.add_child(DccTheme.mono_label("HEIGHT · 1× IS TRUE SCALE", "text_dim", _fs(DccTheme.FS_SMALL), 1))
+	head.add_child(DccTheme.spacer())
+	_height_value = DccTheme.mono_label("", "text", _fs(DccTheme.FS_SMALL), 0)
+	head.add_child(_height_value)
+	_height_slider = HSlider.new()
+	_height_slider.min_value = HEIGHT_MIN
+	_height_slider.max_value = HEIGHT_MAX
+	_height_slider.step = HEIGHT_STEP
+	_height_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_height_slider.focus_mode = Control.FOCUS_NONE
+	_height_slider.custom_minimum_size.y = maxf(14.0, 44.0 * _unit) if DccTheme.is_touch() else 14.0
+	DccWidgets._style_slider(_height_slider)
+	var x := _terrain.exaggeration() if _terrain != null else DccSettings.view3d_exaggeration(VERTICAL_EXAGGERATION_DEFAULT)
+	_height_slider.set_value_no_signal(x)
+	_height_value.text = "×%.2f" % x
+	_height_slider.value_changed.connect(set_height)
+	_height_box.add_child(_height_slider)
+	var note := DccTheme.label("Remembered in Preferences ▸ 3D viewport defaults for the next session · never saved with the world", "text_dim", _fs(DccTheme.FS_SMALL))
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_height_box.add_child(note)
+
+## Sets the drawn vertical scale and remembers it (the HEIGHT row's handler;
+## also the acceptance probe's seam). Clamped to the row's range.
+func set_height(v: float) -> void:
+	var x := clampf(v, HEIGHT_MIN, HEIGHT_MAX)
+	if _terrain != null:
+		_terrain.set_exaggeration(x)
+	DccSettings.set_view3d_exaggeration(x)
+	if _height_value != null:
+		_height_value.text = "×%.2f" % x
+	if _height_slider != null and not is_equal_approx(_height_slider.value, x):
+		_height_slider.set_value_no_signal(x)
+	_refresh()
 
 ## A dp font size in device pixels.
 func _fs(dp: int) -> int:
@@ -286,9 +405,14 @@ func _refresh() -> void:
 	elif tier() == View3DGate.TIER_OFF:
 		_info.text = "The 2D map is unaffected. You can re-test, or force a tier at your own risk."
 	else:
-		_info.text = "Terrain is not drawn in 3D yet. When it is, heights are shown at true scale (%.1f×)." % VERTICAL_EXAGGERATION_DEFAULT
-	for b in [_back_btn, _retest_btn, _force_btn]:
+		_info.text = _terrain_line()
+	for b in [_back_btn, _retest_btn, _force_btn, _mode_btn]:
 		b.disabled = _busy
+	_mode_btn.visible = tier() != View3DGate.TIER_OFF
+	if _height_box != null:
+		_height_box.visible = tier() != View3DGate.TIER_OFF
+		_height_slider.editable = not _busy
+	_mode_btn.text = "Orbit" if is_top_down() else "Top-down"
 	_place_card()
 	state_changed.emit()
 
@@ -300,6 +424,210 @@ func entered() -> void:
 		await retest()
 	else:
 		_refresh()
+	## A re-entry starts from the 2D view again, with fresh tiles: the look,
+	## the world or a sculpt may have changed while 3D was hidden, and 3D-2
+	## keeps no tile across that (3D-3's cache keys will).
+	if _terrain != null:
+		_terrain.clear("waiting for the first tile")
+	_place_pending = true
+
+# -- 3D-2: terrain and camera ---------------------------------------------------
+
+## Binds the engine (`ViewportHost.ensure_view3d()`); see `_bridge`'s comment.
+func bind_engine(bridge: Object, readable: Callable, base_tex: Callable) -> void:
+	_bridge = bridge
+	_readable = readable
+	_base_tex = base_tex
+
+## The 2D view the next entry opens on (`ViewportHost.set_3d()`).
+func set_entry_view(v: Dictionary) -> void:
+	_entry = v.duplicate()
+
+## The map was repainted (`ViewportHost.refresh()`: a new or reopened world, a
+## look change, a colour-paint commit): forget every tile so the next ones are
+## the new picture. The camera stays where it is unless the grid itself
+## changed (a different world), which frames the new world instead.
+func world_changed() -> void:
+	if _terrain != null:
+		_terrain.clear("waiting for the first tile")
+	_rebind_check_grid = true
+
+## Whether terrain is drawn at the current tier (Basic and above).
+func draws_terrain() -> bool:
+	return tier() != View3DGate.TIER_OFF and not _busy
+
+## The camera state and terrain node, for the acceptance probe.
+func camera_state() -> View3DCamera:
+	return _vcam
+
+func terrain() -> View3DTerrain:
+	return _terrain
+
+func camera3d() -> Camera3D:
+	return _cam
+
+## **− and + in 3D** (Ruling EB item 4): the camera in by `factor`, or out.
+func zoom_step(factor: float) -> void:
+	_vcam.zoom(factor)
+
+## **⌖ in 3D**: the whole world in frame (Ruling EB item 4).
+func frame_world() -> void:
+	_vcam.frame_world(float(_sv.size.x) / maxf(float(_sv.size.y), 1.0))
+
+func is_top_down() -> bool:
+	return _vcam.ortho
+
+## Top-down (orthographic, straight down, at the current ground scale) or
+## Orbit (§3.9).
+func set_top_down(on: bool) -> void:
+	_vcam.set_ortho(on)
+	_refresh()
+
+## The info line under the disclosure: what is drawn, at which level, and why
+## when nothing is. Never a level for a window that is not drawn.
+func _terrain_line() -> String:
+	var t := "Basic"
+	if tier() > View3DGate.TIER_BASIC:
+		t = "Basic (%s draws Basic's single patch until the 3D quadtree is built)" % View3DGate.TIER_NAMES[tier()]
+	var x := _terrain.exaggeration() if _terrain != null else VERTICAL_EXAGGERATION_DEFAULT
+	var w: Dictionary = _terrain.window() if _terrain != null else {}
+	if w.is_empty():
+		var why: String = _terrain.reason if _terrain != null else "not started"
+		return "%s terrain: %s. Heights at %.2f× (1× is true scale)." % [t, why, x]
+	return "%s terrain, tile level %d. Heights at %.2f× (1× is true scale)." % [t, int(w["z"]), x]
+
+## Physical pixels per canvas unit (the tablet's content scale; 1 elsewhere).
+func _phys() -> float:
+	return get_viewport().get_final_transform().x.x if is_inside_tree() else 1.0
+
+## The per-frame step while terrain is drawn: bind and size the world once,
+## place the camera after an entry or a new world, run the entry tilt, clamp
+## to the ground (B4), pick and fill the tile window, then place everything
+## camera-relative and set the depth range (§3.11).
+func _process(delta: float) -> void:
+	if not visible or _terrain == null or _bridge == null or not draws_terrain():
+		return
+	if not (_readable.is_valid() and bool(_readable.call())):
+		return
+	if not _terrain.world_known():
+		var bt: Texture2D = _base_tex.call() if _base_tex.is_valid() else null
+		_terrain.bind(_bridge.get("world_gen"), _readable, bt)
+		## `update()` reads the world's size off the level-0 tile.
+		_terrain.update(0, 0, Vector2.ZERO)
+		if not _terrain.world_known():
+			_refresh()
+			return
+		var g := _terrain.grid()
+		var same := _vcam.has_world() and is_equal_approx(_vcam.world_w_m, g.x * _terrain.cell_m()) 			and is_equal_approx(_vcam.world_h_m, g.y * _terrain.cell_m())
+		if _rebind_check_grid and not same:
+			_frame_world_pending = true
+		_rebind_check_grid = false
+		_vcam.set_world(g.x, g.y, _terrain.cell_m())
+	if _frame_world_pending:
+		_frame_world_pending = false
+		_place_pending = false
+		frame_world()
+	elif _place_pending:
+		_place_pending = false
+		if _entry.has("centre") and _entry.has("px_per_cell"):
+			_vcam.enter_from_2d(_entry["centre"], float(_entry["px_per_cell"]), float(_sv.size.y), true)
+		else:
+			frame_world()
+	_vcam.step(delta)
+	last_clamp_steps = _vcam.clamp_to_ground(_terrain.surface_bound)
+	## The level 2D would draw at this ground scale, through the engine's own
+	## rule (`lod_level_for_zoom`), capped by the engine and the quality tier
+	## exactly as `ViewportHost._update_lod()` caps 2D's.
+	var ppc := _vcam.cell_m / maxf(_vcam.metres_per_px(float(_sv.size.y)), 1e-9)
+	var z2d: int = _bridge.lod_level_for_zoom(ppc)
+	var max_z: int = _bridge.lod_max_level()
+	var b: Dictionary = _bridge.lod_budget()
+	if int(b.get("max_level", 0)) > 0:
+		max_z = mini(max_z, int(b["max_level"]))
+	var changed := _terrain.update(z2d, max_z, Vector2(_vcam.pivot_x, _vcam.pivot_z) / _vcam.cell_m)
+	var pos := _vcam.position()
+	var hag: float = float(pos[1]) - _terrain.surface_bound(pos[0], pos[2])
+	last_hag = hag
+	_terrain.place(pos, hag)
+	_cam.rotation = _vcam.rotation()
+	_cam.projection = Camera3D.PROJECTION_ORTHOGONAL if _vcam.ortho else Camera3D.PROJECTION_PERSPECTIVE
+	if _vcam.ortho:
+		_cam.size = _vcam.ortho_size
+	var near := View3DCamera.near_for(hag)
+	_cam.near = near
+	_cam.far = maxf(_vcam.far_for(pos), near * 2.0)
+	if changed:
+		_refresh()
+
+## §3.9's input, on this node (it is `MOUSE_FILTER_STOP` and covers the map;
+## the card and the navpad sit above it and take their own events first).
+func _gui_input(event: InputEvent) -> void:
+	if not draws_terrain():
+		return
+	var f := _phys()
+	var vh := float(_sv.size.y)
+	if event is InputEventScreenTouch:
+		var t := event as InputEventScreenTouch
+		if t.pressed:
+			_touches[t.index] = t.position * f
+		else:
+			_touches.erase(t.index)
+		## The two-finger baseline is taken as the second finger lands, not on
+		## the first drag after it: a first cut reset it here and lost the
+		## first event's share of a twist (17.5° of 20° in the tablet probe,
+		## 2026-11-12), because that event moves one finger before the other.
+		_pinch = {}
+		if _touches.size() >= 2:
+			_two_finger()
+		accept_event()
+	elif event is InputEventScreenDrag:
+		var d := event as InputEventScreenDrag
+		if not _touches.has(d.index):
+			return
+		var prev: Vector2 = _touches[d.index]
+		_touches[d.index] = d.position * f
+		if _touches.size() == 1:
+			_vcam.pan_px(d.position * f - prev, vh)
+		else:
+			_two_finger()
+		accept_event()
+	elif event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		## A finger's emulated mouse events (device -1, `ViewportHost._is_touch_mouse`'s
+		## test): the touch branch above already handled the finger.
+		if mb.device < 0:
+			return
+		if mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_vcam.zoom(ViewportHost.ZOOM_WHEEL_STEP)
+		elif mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_vcam.zoom(1.0 / ViewportHost.ZOOM_WHEEL_STEP)
+		elif mb.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_MIDDLE, MOUSE_BUTTON_RIGHT]:
+			_drag_button = mb.button_index if mb.pressed else 0
+		accept_event()
+	elif event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		if mm.device < 0 or _drag_button == 0:
+			return
+		var rel := mm.relative * f
+		if _drag_button == MOUSE_BUTTON_RIGHT:
+			_vcam.orbit(-deg_to_rad(rel.x * ORBIT_DEG_PER_PX), deg_to_rad(rel.y * ORBIT_DEG_PER_PX))
+		else:
+			_vcam.pan_px(rel, vh)
+		accept_event()
+
+## Two fingers: pinch zooms about the pivot, twist turns, and the pair's
+## centroid moving up or down tilts. Each reading is against the last event's.
+func _two_finger() -> void:
+	var keys := _touches.keys()
+	var a: Vector2 = _touches[keys[0]]
+	var b: Vector2 = _touches[keys[1]]
+	var dist := a.distance_to(b)
+	var ang := (b - a).angle()
+	var mid := (a + b) * 0.5
+	if not _pinch.is_empty() and dist > 1.0 and float(_pinch["dist"]) > 1.0:
+		_vcam.zoom(dist / float(_pinch["dist"]))
+		_vcam.orbit(-wrapf(ang - float(_pinch["ang"]), -PI, PI), deg_to_rad((mid.y - (_pinch["mid"] as Vector2).y) * ORBIT_DEG_PER_PX))
+	_pinch = {"dist": dist, "ang": ang, "mid": mid}
 
 ## Runs the §4.2 probe now and stores what it measured. The user's forced tier
 ## is kept (§4.4 forcing is a choice the user made, not a measurement).

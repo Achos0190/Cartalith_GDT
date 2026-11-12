@@ -1069,11 +1069,18 @@ impl LodSnapshot {
         self.render_tile_conformed_cached(z, col, row, conform, true)
     }
 
-    /// [`Self::render_tile_conformed`] with the plain-tile cache switchable:
-    /// `use_cache == false` never reads or fills it, so the colour half's
-    /// parent is synthesised by `lod_bridge` itself -- the independent
-    /// reference the cache tests compare against.
-    fn render_tile_conformed_cached(&self, z: i32, col: i32, row: i32, conform: u8, use_cache: bool) -> Option<(Vec<u8>, usize, usize)> {
+    /// **The tile context every terrain tile is coloured in**, built and
+    /// handed to `f`: the attachments `build_color_texture` makes, in its
+    /// order (see [`Self::render_tile`]), then the ink and the colour space on
+    /// the `TileFields`.
+    ///
+    /// One builder (3D-2, 2026-11-12) so the 2D tile ([`Self::render_tile_conformed`])
+    /// and the 3D view's relief tile ([`Self::render_tile_relief`]) cannot be
+    /// coloured in different contexts: 3D-0's spike restated this list and was
+    /// one attachment behind within a month (Ruling CW's volcanoes). Moving
+    /// the list here changed no attachment or order. `None` exactly where
+    /// `RenderCtx::from_precomputed` refuses.
+    fn with_tile_ctx<R>(&self, f: impl FnOnce(&RenderCtx<'_>, &crate::render::TileFields<'_>) -> Option<R>) -> Option<R> {
         // RV-3: shaded from `shade` when there is one, water from `field`,
         // exactly as `build` built the precompute.
         let shaded: &[f32] = self.shade.as_deref().map_or(&self.field, |s| s.as_slice());
@@ -1112,35 +1119,65 @@ impl LodSnapshot {
             tf = tf.with_ink(ink);
         }
         tf = tf.with_color_space(self.color_space);
-        let (rivers, fans, paint) = (self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref());
-        if !use_cache {
-            return lod_bridge::synthesize_tile_rgba_rivers_conformed(&ctx, &tf, z, col, row, self.seed, rivers, fans, paint, conform);
-        }
-        if conform == 0 {
-            // A plain tile a conformed sibling already coloured is that very
-            // output (same snapshot, same function, `conform == 0`), so a hit
-            // is returned as is. Never inserts: see `PLAIN_TILE_CACHE`.
-            if let Some(hit) = self.plain_cached(z, col, row) {
-                return Some((*hit).clone());
+        f(&ctx, &tf)
+    }
+
+    /// [`Self::render_tile_conformed`] with the plain-tile cache switchable:
+    /// `use_cache == false` never reads or fills it, so the colour half's
+    /// parent is synthesised by `lod_bridge` itself -- the independent
+    /// reference the cache tests compare against.
+    fn render_tile_conformed_cached(&self, z: i32, col: i32, row: i32, conform: u8, use_cache: bool) -> Option<(Vec<u8>, usize, usize)> {
+        self.with_tile_ctx(|ctx, tf| {
+            let (rivers, fans, paint) = (self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref());
+            if !use_cache {
+                return lod_bridge::synthesize_tile_rgba_rivers_conformed(ctx, tf, z, col, row, self.seed, rivers, fans, paint, conform);
             }
-            return lod_bridge::synthesize_tile_rgba_rivers_conformed(&ctx, &tf, z, col, row, self.seed, rivers, fans, paint, 0);
-        }
-        let key = (z - 1, col >> 1, row >> 1);
-        let parent = match self.plain_cached(key.0, key.1, key.2) {
-            Some(p) => p,
-            None => {
-                let p = Arc::new(lod_bridge::synthesize_tile_rgba_rivers_conformed(&ctx, &tf, key.0, key.1, key.2, self.seed, rivers, fans, paint, 0)?);
-                if let Ok(mut c) = self.plain_rgba.lock() {
-                    if c.len() >= PLAIN_TILE_CACHE {
-                        c.pop_front();
-                    }
-                    c.push_back((key, Arc::clone(&p)));
+            if conform == 0 {
+                // A plain tile a conformed sibling already coloured is that very
+                // output (same snapshot, same function, `conform == 0`), so a hit
+                // is returned as is. Never inserts: see `PLAIN_TILE_CACHE`.
+                if let Some(hit) = self.plain_cached(z, col, row) {
+                    return Some((*hit).clone());
                 }
-                p
+                return lod_bridge::synthesize_tile_rgba_rivers_conformed(ctx, tf, z, col, row, self.seed, rivers, fans, paint, 0);
             }
-        };
-        let pr = (parent.0.as_slice(), parent.1, parent.2);
-        lod_bridge::synthesize_tile_rgba_rivers_conformed_with_parent(&ctx, &tf, z, col, row, self.seed, rivers, fans, paint, conform, Some(pr))
+            let key = (z - 1, col >> 1, row >> 1);
+            let parent = match self.plain_cached(key.0, key.1, key.2) {
+                Some(p) => p,
+                None => {
+                    let p = Arc::new(lod_bridge::synthesize_tile_rgba_rivers_conformed(ctx, tf, key.0, key.1, key.2, self.seed, rivers, fans, paint, 0)?);
+                    if let Ok(mut c) = self.plain_rgba.lock() {
+                        if c.len() >= PLAIN_TILE_CACHE {
+                            c.pop_front();
+                        }
+                        c.push_back((key, Arc::clone(&p)));
+                    }
+                    p
+                }
+            };
+            let pr = (parent.0.as_slice(), parent.1, parent.2);
+            lod_bridge::synthesize_tile_rgba_rivers_conformed_with_parent(ctx, tf, z, col, row, self.seed, rivers, fans, paint, conform, Some(pr))
+        })
+    }
+
+    /// **3D-2: one plain tile's colour and relief from one synthesis**
+    /// (`3D_VIEWPORT_SCOPE.md` §3.1), in the same context as
+    /// [`Self::render_tile`] -- [`lod_bridge::synthesize_tile_rgba_and_relief`]
+    /// says what the relief is. Its `rgba` is `render_tile`'s bytes exactly
+    /// (`relief_tile_colour_is_the_2d_tile_byte_for_byte`). Never reads or
+    /// fills the plain-tile cache: that cache holds colour only, and a relief
+    /// request must not evict a parent the 2D conform path is about to use.
+    pub fn render_tile_relief(&self, z: i32, col: i32, row: i32) -> Option<lod_bridge::TileRelief> {
+        let (rivers, fans, paint) = (self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref());
+        self.with_tile_ctx(|ctx, tf| lod_bridge::synthesize_tile_rgba_and_relief(ctx, tf, z, col, row, self.seed, rivers, fans, paint))
+    }
+
+    /// The sea level and peak height this snapshot's heights are read
+    /// against: `sample_bridge::FieldRefs::elevation_m`'s law,
+    /// `(h - sea) / (1 - sea) * peak_m`, is how the 3D view turns a relief
+    /// tile into metres (3D-2).
+    pub fn sea_and_peak(&self) -> (f64, f64) {
+        (self.sea_level, self.peak_m)
     }
 
     /// The cached plain tile `(z, col, row)`, if [`Self::render_tile_conformed`]
@@ -2006,6 +2043,28 @@ mod tests {
             rock_detail: None,
             colour_paint: None,
             }
+    }
+
+    /// Protects: 3D-2's claim that the 3D drape is the 2D picture. Over a
+    /// snapshot with lithology attached (so the shared context builder's
+    /// attachments are exercised), `render_tile_relief`'s colour is
+    /// `render_tile`'s bytes for every tile asked, its heights are one per
+    /// pixel, and `sea_and_peak` reports the fixture's sea level and peak. No
+    /// tile may be empty, so the comparison cannot pass vacuously.
+    #[test]
+    fn relief_tile_colour_is_the_2d_tile_byte_for_byte() {
+        let snap = LodSnapshot::build(inputs_with_litho(96, 72)).expect("snapshot");
+        for &(z, c, r) in &[(0, 0, 0), (1, 1, 0), (2, 2, 1), (3, 5, 6)] {
+            let plain = snap.render_tile(z, c, r).expect("2D tile");
+            let relief = snap.render_tile_relief(z, c, r).expect("relief tile");
+            assert!(!plain.0.is_empty() && plain.1 > 1 && plain.2 > 1);
+            assert_eq!((relief.w, relief.h), (plain.1, plain.2), "tile {:?} size", (z, c, r));
+            assert_eq!(relief.rgba, plain.0, "tile {:?}: 3D drape differs from the 2D tile", (z, c, r));
+            assert_eq!(relief.height.len(), relief.w * relief.h);
+        }
+        assert!(snap.render_tile_relief(1, 2, 0).is_none(), "an index outside level 1 must give no tile");
+        // The fixture's literal (`inputs()`), not the field read back.
+        assert_eq!(snap.sea_and_peak(), (0.42, 4000.0));
     }
 
     /// **The milestone's parity class, asserted.** The structural argument is

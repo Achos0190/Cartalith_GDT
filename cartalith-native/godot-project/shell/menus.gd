@@ -4555,7 +4555,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	_refresh_quality_row(p)
 
 	_todo(p, "Anti-aliasing · anisotropy",
-		"SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-view settings, and the 3D view (Window ▸ 3D view) draws no terrain yet, so there is nothing for a sample count to act on. The 2D map path composites whole rasters, where a sample count means nothing -- bolting MSAA onto it would be a control with no effect.")
+		"SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-view settings. The 3D view (Window ▸ 3D view) draws terrain since 3D-2 (Basic: one unlit patch with a mipmapped drape), but no sample-count or anisotropy setting is built for it yet. The 2D map path composites whole rasters, where a sample count means nothing -- bolting MSAA onto it would be a control with no effect.")
 	## Live since 2026-09-03, and this row's `_todo` was false the moment it
 	## shipped: it read *"the renderer is sRGB-only end to end: render.rs writes
 	## 8-bit sRGB bytes and nothing carries a colour space through to the
@@ -4594,7 +4594,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## (`dcc_shell.gd` renders `String(d.rail).to_upper()`).
 	_signpost(p, "Colour management — CARTO ▸ Colours ▸ Colour management")
 	_todo(p, "3D viewport defaults",
-		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. The 3D view (Window ▸ 3D view) draws no terrain yet, so there is nothing for these defaults to set; they arrive with its terrain. Its vertical scale will start at true scale, 1.0x, not the 2D relief value above.")
+		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. The 3D view (Window ▸ 3D view) draws terrain since 3D-2 and opens at the relief exaggeration kept for it, true scale 1.0x until set (not the 2D relief value above); the 3D card's HEIGHT slider writes it on the PC and the tablet, and this row does not yet. Detail and light arrive with 3D-3 and 3D-4; until then oceans are always flattened.")
 	## Live since 2026-08-30. The reason that stood here identified its own fix
 	## exactly -- *"what is missing is only the project-level default store
 	## those per-layer values would seed from -- a settings key, not new
@@ -5070,7 +5070,7 @@ func _on_gpu_device_choice(id: int) -> void:
 ##
 ## Two deliberate departures, both disclosed in the rows themselves:
 ## `alternate frames` is **disabled** (§2.5's own note is that it only helps
-## the 3D viewport, which since 3D-1 exists but draws no terrain), and the default here is
+## the 3D viewport, which since 3D-2 draws one 131 k-triangle patch, far inside one device's frame), and the default here is
 ## `single device` rather than `split tiles`, because splitting was measured
 ## on real hardware and only pays above 2048² -- the tooltip carries the
 ## numbers rather than asserting a benefit.
@@ -5087,7 +5087,7 @@ func _build_gpu_mode_menu(p: PopupMenu) -> void:
 	_gpu_mode_popup.add_radio_check_item("Alternate frames", 2)
 	_gpu_mode_popup.set_item_disabled(2, true)
 	_gpu_mode_popup.set_item_tooltip(2,
-		"Not built. The spec's own note is that alternate-frame rendering only helps the 3D view, and the 3D view (Window ▸ 3D view) draws no terrain yet, so there are no 3D frames to alternate. Selecting it would be indistinguishable from Single device while implying otherwise.")
+		"Not built. The spec's own note is that alternate-frame rendering only helps the 3D view, which since 3D-2 draws one 131 k-triangle patch, far inside one device's frame, and nothing alternates its frames. Selecting it would be indistinguishable from Single device while implying otherwise.")
 	_gpu_mode_popup.id_pressed.connect(_on_gpu_mode_choice)
 	_gpu_mode_popup.about_to_popup.connect(_refresh_gpu_mode_menu)
 	_shell.style_popup(_gpu_mode_popup)

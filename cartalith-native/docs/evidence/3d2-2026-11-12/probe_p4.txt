@@ -1,0 +1,55 @@
+WORLD seed=483920 grid=512x384 generate_ms=3046
+PASS  A: Window ▸ 3D view row exists  
+PASS  A: the gate ran and measured at least Basic  tier Full, cause ''
+PASS  A: opens at the 2D view's centre  pivot 600000.0,450000.0 m vs 2D centre (256.0, 192.0) cells x 2343.750 m
+PASS  A: opens at the 2D view's ground scale  3D span 900000 m vs 2D 900000 m
+PASS  A: opens straight down, then tilts  pitch 86.4°
+PASS  A: the tilt ends at 55° within 0.9 s  pitch 55.00°
+PASS  A: a tile window is drawn  {"c0":0,"k":2,"last_fill_ms":48.4,"mosaic":"511x383","r0":0,"tiles_built":5,"z":1}
+PASS  A: true scale by default (Ruling CT)  1.00
+PASS  A: terrain covers the 3D view  background 33.0 % of the 3D frame
+PASS  A: the card names the tile level  Basic (Full draws Basic's single patch until the 3D quadtree is built) terrain, tile level 1. Heights at 1.00× (1× is true scale).
+PASS  B: x4: the window is one level below 2D's, 4 tiles a side  z 2, 2D z 3, k 4
+PASS  B: x4: no hole in the drawn ground (no crack at the window's rim)  0 px
+DETAIL x4 z=2 5.725 vs z=0 3.790 (1.51x) window {"c0":0,"k":4,"last_fill_ms":181.0,"mosaic":"1021x765","r0":0,"tiles_built":38,"z":2}
+PASS  B: x4: the drawn level carries more detail than two levels coarser  z2 5.725 vs z0 3.790
+PASS  B: x16: the window is one level below 2D's, 4 tiles a side  z 4, 2D z 5, k 4
+PASS  B: x16: no hole in the drawn ground (no crack at the window's rim)  0 px
+DETAIL x16 z=4 6.658 vs z=2 1.518 (4.39x) window {"c0":1,"k":4,"last_fill_ms":195.9,"mosaic":"1021x765","r0":3,"tiles_built":86,"z":4}
+PASS  B: x16: the drawn level carries more detail than two levels coarser  z4 6.658 vs z2 1.518
+PASS  B: x64: the window is one level below 2D's, 4 tiles a side  z 6, 2D z 7, k 4
+PASS  B: x64: no hole in the drawn ground (no crack at the window's rim)  0 px
+DETAIL x64 z=6 5.423 vs z=4 1.341 (4.04x) window {"c0":10,"k":4,"last_fill_ms":398.0,"mosaic":"1021x765","r0":17,"tiles_built":134,"z":6}
+PASS  B: x64: the drawn level carries more detail than two levels coarser  z6 5.423 vs z4 1.341
+PASS  B: the level rises at every zoom step  [2, 4, 6]
+PASS  C: 1x against 4x moves pixels (heights reach the vertices)  99314 px moved
+B4 control (clamp off): {"below":1,"clamped":0,"frames":180,"min_clamped_hag":1e99999,"min_margin":-1005.11559875707,"sky_frames":0}
+PASS  D: control: without the clamp the path goes below the ground  {"below":1,"clamped":0,"frames":180,"min_clamped_hag":1e99999,"min_margin":-1005.11559875707,"sky_frames":0}
+B4 (clamp on): {"below":0,"clamped":4,"frames":180,"min_clamped_hag":533.865976734967,"min_margin":1235.7408709583,"sky_frames":0}
+PASS  D: B4: no frame below the drawn ground  min margin 1235.7 m over 180 frames
+PASS  D: B4: no frame sees through the ground  {"below":0,"clamped":4,"frames":180,"min_clamped_hag":533.865976734967,"min_margin":1235.7408709583,"sky_frames":0}
+PASS  D: the clamp acted on the path  4 frames clamped
+PASS  D: a clamped camera keeps 2 cells x 0.1 above the drawn ground (§3.9)  min 533.9 m against 468.8 m
+PASS  E: B5 at the highest altitude: two static frames identical  0 px differ
+PASS  E: the near plane low down is 5 % of the height above ground (§3.11)  near 33.563 m at 671.3 m above ground
+PASS  E: B5 at the lowest altitude over a coast: two static frames identical  0 px differ, near 33.56 m far 872764 m
+PASS  F: the near plane is 5 % of the height above ground, 1 m..1 km (§3.11)  near 1000.000 m at 127828.4 m above ground
+PASS  F: the far plane reaches the farthest world corner  far 1172363 m, corner 1116536 m
+PASS  F: the patch is 257 x 257 vertices, 131 072 triangles (§3.12's Basic row)  131072 triangles in the patch; 376674 primitives in the frame
+FRAME static median=1.471 min=1.440 max=3.649 p95=2.210 ms primitives=376674 draws=755 video_mem=83.5 MiB (2D before 3D 46.8 MiB, +36.7 MiB) window={"c0":1,"k":4,"last_fill_ms":200.1,"mosaic":"1021x765","r0":3,"tiles_built":216,"z":4}
+PASS  F: Basic's frame bar, static: p95 <= 33 ms  p95 2.210 ms
+FRAME orbiting median=1.534 min=1.430 max=2.553 p95=1.977 ms
+FRAME zooming (level changes, fills) median=1.593 min=1.447 max=28.131 p95=19.083 ms tiles_built=32
+PASS  G: the navpad's −, + and ⌖ are on screen over 3D  
+PASS  G: + moves the 3D camera in by ZOOM_BUTTON_STEP  ratio 1.350000
+PASS  G: − moves it out by the same step  ratio 1.350000
+PASS  G: ⌖ frames the world  pivot 600000,450000 of 1200000 x 900000 m
+PASS  G: the hidden 2D zoom did not move  2.8906 vs 2.8906
+PASS  G: one finger pans (the ground follows)  218382.3 -> 180214.4 m
+PASS  G: spreading two fingers zooms in  348687 -> 174344 m (fingers 160 -> 320 px)
+PASS  G: twisting two fingers turns the camera  yaw moved -20.00°
+PASS  G: two fingers moving up together tilt toward the horizon  pitch 50.0° -> 30.0°
+PASS  G: none of it moved the hidden 2D zoom  
+PASS  I: no HEIGHT row in the phone's card  
+PASS  H: leaving 3D gives back the 2D map byte-identical  0 px differ
+RESULT checks=45 fail=0

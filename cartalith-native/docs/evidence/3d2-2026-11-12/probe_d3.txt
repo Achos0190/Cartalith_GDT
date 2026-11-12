@@ -1,0 +1,54 @@
+WORLD seed=483920 grid=512x384 generate_ms=2873
+PASS  A: Window ▸ 3D view row exists  
+PASS  A: the gate ran and measured at least Basic  tier Full, cause ''
+PASS  A: opens at the 2D view's centre  pivot 600000.0,450000.0 m vs 2D centre (256.0, 192.0) cells x 2343.750 m
+PASS  A: opens at the 2D view's ground scale  3D span 900000 m vs 2D 900000 m
+PASS  A: opens straight down, then tilts  pitch 82.9°
+PASS  A: the tilt ends at 55° within 0.9 s  pitch 55.00°
+PASS  A: a tile window is drawn  {"c0":0,"k":2,"last_fill_ms":47.4,"mosaic":"511x383","r0":0,"tiles_built":5,"z":1}
+PASS  A: true scale by default (Ruling CT)  1.00
+PASS  A: terrain covers the 3D view  background 21.8 % of the 3D frame
+PASS  A: the card names the tile level  Basic (Full draws Basic's single patch until the 3D quadtree is built) terrain, tile level 1. Heights at 1.00× (1× is true scale).
+PASS  B: x4: the window is one level below 2D's, 4 tiles a side  z 3, 2D z 4, k 4
+DETAIL x4 z=3 2.015 vs z=1 1.434 (1.41x) window {"c0":0,"k":4,"last_fill_ms":181.1,"mosaic":"1021x765","r0":0,"tiles_built":41,"z":3}
+PASS  B: x4: the drawn level carries more detail than two levels coarser  z3 2.015 vs z1 1.434
+PASS  B: x16: the window is one level below 2D's, 4 tiles a side  z 5, 2D z 6, k 4
+DETAIL x16 z=5 5.802 vs z=3 1.475 (3.93x) window {"c0":4,"k":4,"last_fill_ms":258.0,"mosaic":"1021x765","r0":7,"tiles_built":89,"z":5}
+PASS  B: x16: the drawn level carries more detail than two levels coarser  z5 5.802 vs z3 1.475
+PASS  B: x64: the window is one level below 2D's, 4 tiles a side  z 7, 2D z 8, k 4
+DETAIL x64 z=7 3.276 vs z=5 1.149 (2.85x) window {"c0":21,"k":4,"last_fill_ms":430.1,"mosaic":"1021x765","r0":35,"tiles_built":137,"z":7}
+PASS  B: x64: the drawn level carries more detail than two levels coarser  z7 3.276 vs z5 1.149
+PASS  B: the level rises at every zoom step  [3, 5, 7]
+PASS  C: 1x against 4x moves pixels (heights reach the vertices)  565491 px moved
+B4 control (clamp off): {"below":16,"clamped":0,"frames":180,"min_margin":-2486.68632973124,"sky_frames":0}
+PASS  D: control: without the clamp the path goes below the ground  {"below":16,"clamped":0,"frames":180,"min_margin":-2486.68632973124,"sky_frames":0}
+B4 (clamp on): {"below":0,"clamped":31,"frames":180,"min_margin":742.167212058615,"sky_frames":0}
+PASS  D: B4: no frame below the drawn ground  min margin 742.2 m over 180 frames
+PASS  D: B4: no background in the lower frame  {"below":0,"clamped":31,"frames":180,"min_margin":742.167212058615,"sky_frames":0}
+PASS  D: the clamp acted on the path  31 frames clamped
+PASS  E: B5 at the highest altitude: two static frames identical  0 px differ
+PASS  E: B5 at the lowest altitude over a coast: two static frames identical  0 px differ, near 37.51 m far 872713 m
+PASS  F: the near plane is 5 % of the height above ground, 1 m..1 km (§3.11)  near 1000.000 m at 49441.7 m above ground
+PASS  F: the far plane reaches the farthest world corner  far 1206563 m, corner 1149108 m
+PASS  F: the window and the backdrop are 257 x 257-vertex patches  486084 primitives
+FRAME static median=2.391 min=2.255 max=3.922 p95=3.226 ms primitives=486084 draws=1149 video_mem=106.6 MiB (2D before 3D 59.4 MiB, +47.2 MiB) window={"c0":4,"k":4,"last_fill_ms":258.9,"mosaic":"1021x765","r0":7,"tiles_built":225,"z":5}
+PASS  F: Basic's frame bar, static: p95 <= 33 ms  p95 3.226 ms
+FRAME orbiting median=2.380 min=2.245 max=4.678 p95=3.247 ms
+FRAME zooming (level changes, fills) median=14.554 min=2.277 max=37.639 p95=34.878 ms tiles_built=64
+PASS  G: the wheel zooms in by ZOOM_WHEEL_STEP  ratio 1.150000
+PASS  G: a right drag orbits  yaw moved -25.00°
+PASS  G: a right drag up stops at 5°  pitch 5.00°, clamp steps 0
+PASS  G: a right drag down stops at 90°  pitch 90.00°, clamp steps 0
+PASS  G: a left drag to the right moves the pivot west (the ground follows)  218382.3 -> 202592.9 m
+PASS  G: Top-down switches to an orthographic camera  Orbit
+PASS  G: Orbit switches back  
+PASS  G: ViewportHost.zoom_step() moves the 3D camera  ratio 1.350000
+PASS  G: ViewportHost.reset_view() frames the 3D world  
+PASS  G: none of it moved the hidden 2D zoom  1.0302 vs 1.0302
+PASS  I: the HEIGHT row exists and is shown  
+PASS  I: between the info line and the actions  info end 219, slider 254, actions 305
+PASS  I: 1x to 4x in steps of 0.25  1.00..4.00 step 0.25
+PASS  I: a press at the track's right end sets 4x on the mesh and in Preferences  mesh 4.00, stored 4.00, readout ×4.00
+PASS  I: a press at the track's left end sets 1x on the mesh and in Preferences  mesh 1.00, stored 1.00, readout ×1.00
+PASS  H: leaving 3D gives back the 2D map byte-identical  0 px differ
+RESULT checks=44 fail=0

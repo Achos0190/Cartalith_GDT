@@ -550,25 +550,7 @@ fn synthesize_tile_rgba_with_z_base(
     parent: Option<(&[u8], usize, usize)>,
 ) -> Option<(Vec<u8>, usize, usize)> {
     let t = tile_heights(ctx, tf, z, col, row, seed, zb, conform)?;
-    // The rivers at this tile's own pixels: pixel `x` sits at sample
-    // coordinate `tb.x + x * cx`, the renderer's own mapping (`cx` from the
-    // core size, as `render_biome_tile_rgba_padded` computes it). Painted for
-    // a look that paints them (RIM-7), stroked otherwise.
-    let layer = rivers.map(|g| {
-        let cx = t.tb.w / (t.w.max(2) - 1) as f64;
-        let cy = t.tb.h / (t.h.max(2) - 1) as f64;
-        let map = crate::river_stroke::RasterMap::tile(t.tb.x, t.tb.y, cx, cy);
-        match paint {
-            Some(p) => p.raster(map, t.w, t.h),
-            None => crate::river_stroke::rasterize_with(g, fans, ctx.appearance(), t.w, t.h, map),
-        }
-    });
-    let mut rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
-    // A `tf` built for another grid makes the colouriser return an empty Vec;
-    // surface that as "no tile" (see `synthesize_tile_rgba`'s contract).
-    if rgba.len() != t.w * t.h * 4 {
-        return None;
-    }
+    let mut rgba = colour_tile_heights(ctx, tf, &t, rivers, fans, paint)?;
     // EF-9.4, the colour half of the geomorph (2026-10-18): conformed heights
     // alone left two thirds of the mixed-level colour jump, because the
     // colouriser shades at each level's own texel spacing
@@ -593,6 +575,109 @@ fn synthesize_tile_rgba_with_z_base(
         cartalith_engine::elevation::conform_colour_in_place(ctx.gw, ctx.gh, id, t.w, t.h, &mut rgba, parent, pw, ph, &near, band);
     }
     Some((rgba, t.w, t.h))
+}
+
+/// **Colours one built tile** -- the plain colour half every tile path shares:
+/// the rivers rastered at the tile's own pixels, then
+/// `render::render_biome_tile_rgba_water` over the shading and water tiles.
+///
+/// Split out of [`synthesize_tile_rgba_with_z_base`] (3D-2, 2026-11-12) so the
+/// 3D view's [`synthesize_tile_rgba_and_relief`] colours its tile with this
+/// very code instead of a restated copy, which is how 3D-0's worktree-only
+/// accessor fell behind the 2D path (it predates Ruling CW's volcano colours).
+/// Moving the body changed no call, argument or order, so a 2D tile is the
+/// same bytes by control flow; `lod_worker`'s
+/// `relief_tile_colour_is_the_2d_tile_byte_for_byte` exercises it.
+///
+/// Must never return a short buffer: a `tf` built for another grid makes the
+/// colouriser return an empty `Vec`, surfaced here as `None` ("no tile", see
+/// `synthesize_tile_rgba`'s contract).
+fn colour_tile_heights(
+    ctx: &RenderCtx,
+    tf: &TileFields,
+    t: &TileHeights,
+    rivers: Option<&crate::river_stroke::RiverGeometry>,
+    fans: Option<&crate::river_stroke::RiverGeometry>,
+    paint: Option<&crate::river_field::PaintSource>,
+) -> Option<Vec<u8>> {
+    // The rivers at this tile's own pixels: pixel `x` sits at sample
+    // coordinate `tb.x + x * cx`, the renderer's own mapping (`cx` from the
+    // core size, as `render_biome_tile_rgba_padded` computes it). Painted for
+    // a look that paints them (RIM-7), stroked otherwise.
+    let layer = rivers.map(|g| {
+        let cx = t.tb.w / (t.w.max(2) - 1) as f64;
+        let cy = t.tb.h / (t.h.max(2) - 1) as f64;
+        let map = crate::river_stroke::RasterMap::tile(t.tb.x, t.tb.y, cx, cy);
+        match paint {
+            Some(p) => p.raster(map, t.w, t.h),
+            None => crate::river_stroke::rasterize_with(g, fans, ctx.appearance(), t.w, t.h, map),
+        }
+    });
+    let rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
+    (rgba.len() == t.w * t.h * 4).then_some(rgba)
+}
+
+/// **One plain tile's colour and the relief it was coloured from, from one
+/// synthesis** -- `3D_VIEWPORT_SCOPE.md` §3.1, for the 3D view (3D-2).
+///
+/// What it returns: [`TileRelief`], whose `rgba` is the plain 2D tile at
+/// `(z, col, row)` (the same [`tile_heights`] and [`colour_tile_heights`] calls
+/// [`synthesize_tile_rgba_rivers_conformed`] makes with `conform == 0`), and
+/// whose `height` is that tile's own shading heights over its core, with every
+/// pixel the 2D water test calls **sea** set to `sea_level`. Why: §3.1's first
+/// guarantee, "2D and 3D agree on height by construction", and §3.6's "the
+/// shoreline is decided by the same height test as the 2D tile's water"
+/// (`render::tile_water_mask`, which reads the water tile where there is one).
+/// Lakes keep their heights; their colour is in the drape.
+///
+/// Never a second synthesis and never a different tile: the 2D picture does
+/// not call this, so nothing 2D draws can move because of it. `None` exactly
+/// where the colour path refuses (no world, an index outside the level, a
+/// malformed context).
+#[allow(clippy::too_many_arguments)]
+pub fn synthesize_tile_rgba_and_relief(
+    ctx: &RenderCtx,
+    tf: &TileFields,
+    z: i32,
+    col: i32,
+    row: i32,
+    seed: i32,
+    rivers: Option<&crate::river_stroke::RiverGeometry>,
+    fans: Option<&crate::river_stroke::RiverGeometry>,
+    paint: Option<&crate::river_field::PaintSource>,
+) -> Option<TileRelief> {
+    let t = tile_heights(ctx, tf, z, col, row, seed, z_base(), 0)?;
+    let rgba = colour_tile_heights(ctx, tf, &t, rivers, fans, paint)?;
+    let mask = render::tile_water_mask(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf);
+    if mask.len() != t.w * t.h {
+        return None;
+    }
+    let pw = t.w + 2 * t.pad;
+    let sea = ctx.sea_level as f32;
+    let mut height = Vec::with_capacity(t.w * t.h);
+    for y in 0..t.h {
+        for x in 0..t.w {
+            let v = t.tile[(y + t.pad) * pw + x + t.pad];
+            height.push(if mask[y * t.w + x] == render::TILE_SEA { sea } else { v });
+        }
+    }
+    Some(TileRelief { rgba, w: t.w, h: t.h, tb: t.tb, height })
+}
+
+/// What [`synthesize_tile_rgba_and_relief`] returns: one plain tile's colour
+/// and its relief, laid out alike (row-major, `w × h`, pixel `(0, 0)` at
+/// sample `(tb.x, tb.y)` and pixel `(w-1, h-1)` at `(tb.x + tb.w, tb.y + tb.h)`,
+/// so adjacent tiles share their edge pixel as [`tile_bounds`] says).
+pub struct TileRelief {
+    /// RGBA8, `w * h * 4` bytes: the 2D tile exactly.
+    pub rgba: Vec<u8>,
+    pub w: usize,
+    pub h: usize,
+    /// The coarse-sample rectangle the tile covers.
+    pub tb: TileBounds,
+    /// Normalised heights `[0, 1]`, `w * h`: the shading tile, with sea pixels
+    /// at exactly `sea_level` (see the function's doc).
+    pub height: Vec<f32>,
 }
 
 /// One tile's heights, before colour: the shading tile, the water tile when
@@ -1365,6 +1450,50 @@ mod tests {
     /// rather than colour.
     fn luma(px: &[u8]) -> f64 {
         0.2126 * px[0] as f64 + 0.7152 * px[1] as f64 + 0.0722 * px[2] as f64
+    }
+
+    /// Protects: 3D-2's relief tile (`synthesize_tile_rgba_and_relief`,
+    /// `3D_VIEWPORT_SCOPE.md` §3.1 and §3.6). Over a tile that straddles the
+    /// fixture's coast: (1) its colour is the plain 2D tile byte for byte, so
+    /// the 3D drape is the 2D picture; (2) every pixel the 2D water mask calls
+    /// sea sits at exactly the sea level, and every other pixel carries the
+    /// tile's own shading height -- read from an independent `tile_heights`
+    /// call, not from the function under test; (3) the tile holds both sea and
+    /// land, so neither half of (2) is vacuous; (4) two calls are identical.
+    #[test]
+    fn the_relief_tile_is_the_2d_tile_with_the_2d_shore() {
+        let (gw, gh) = (128usize, 96usize);
+        let w = TestWorld::new(synthetic_field(gw, gh), gw, gh);
+        let c = w.ctx();
+        let tf = w.fields(&c);
+        // Level 2, column 1: x from about 32 to 64 cells, across the fixture's
+        // west-third sea and its eastern land (`TEST_SEA`'s comment).
+        let (z, col, row) = (2, 1, 1);
+        let r = synthesize_tile_rgba_and_relief(&c, &tf, z, col, row, 7, None, None, None).expect("relief tile");
+        let plain = synthesize_tile_rgba(&c, &tf, z, col, row, 7).expect("2D tile");
+        assert_eq!((r.w, r.h), (plain.1, plain.2));
+        assert_eq!(r.rgba, plain.0, "the relief tile's colour must be the 2D tile");
+        assert_eq!(r.height.len(), r.w * r.h);
+        let t = tile_heights(&c, &tf, z, col, row, 7, z_base(), 0).expect("heights");
+        let mask = synthesize_tile_water_mask(&c, &tf, z, col, row, 7).expect("mask");
+        let pw = t.w + 2 * t.pad;
+        let (mut sea, mut land) = (0usize, 0usize);
+        for y in 0..r.h {
+            for x in 0..r.w {
+                let got = r.height[y * r.w + x];
+                if mask[y * r.w + x] == 1 {
+                    sea += 1;
+                    assert_eq!(got, 0.42f32, "sea pixel ({x}, {y}) is not at the sea level");
+                } else {
+                    land += 1;
+                    assert_eq!(got, t.tile[(y + t.pad) * pw + x + t.pad], "pixel ({x}, {y}) is not the tile's own height");
+                }
+            }
+        }
+        assert!(sea > 0 && land > 0, "the tile must hold both sea ({sea}) and land ({land}) or a half of this test is vacuous");
+        let again = synthesize_tile_rgba_and_relief(&c, &tf, z, col, row, 7, None, None, None).expect("relief tile");
+        assert_eq!(again.height, r.height);
+        assert_eq!(again.rgba, r.rgba);
     }
 
     /// Protects: Ruling CO item 3's wiring -- `tile_heights` runs the volcano

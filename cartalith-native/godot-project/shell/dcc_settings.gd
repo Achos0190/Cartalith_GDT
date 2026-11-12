@@ -1007,6 +1007,33 @@ static func set_view3d_forced_tier(tier: int) -> void:
 		_cfg.set_value(_SEC_VIEW3D, "forced", tier)
 	_save()
 
+## **3D-2: the 3D view's vertical exaggeration preference**, `Preferences ▸
+## Graphics ▸ 3D viewport defaults ▸ relief exaggeration` (`3D_VIEWPORT_SCOPE.md`
+## §7 Q4; Ruling EB items 5 and 6): the scale each entry to 3D opens at, `fallback`
+## when it was never set (the caller passes Ruling CT's true scale,
+## `View3D.VERTICAL_EXAGGERATION_DEFAULT`, so this file restates no figure).
+## Clamped to Ruling EB item 6's 1x..4x. Per install, never a world's.
+## Written by the 3D card's HEIGHT row (`View3D.set_height()`) as it moves.
+static func view3d_exaggeration(fallback: float) -> float:
+	_ensure_loaded()
+	if not _cfg.has_section_key(_SEC_VIEW3D, "exag"):
+		return fallback
+	return clampf(float(_cfg.get_value(_SEC_VIEW3D, "exag", fallback)), 1.0, 4.0)
+
+## Stores the 3D view's exaggeration (clamped to 1x..4x) and saves.
+static func set_view3d_exaggeration(v: float) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_VIEW3D, "exag", clampf(v, 1.0, 4.0))
+	_save()
+
+## Erases it, back to "never set" (`view3d_exaggeration()`'s fallback): for
+## the acceptance probe, which declares and clears what it asserts on.
+static func clear_view3d_exaggeration() -> void:
+	_ensure_loaded()
+	if _cfg.has_section_key(_SEC_VIEW3D, "exag"):
+		_cfg.erase_section_key(_SEC_VIEW3D, "exag")
+	_save()
+
 # -- The landmark filter and zoom law (owner, 2026-10-19) ----------------------
 #
 # Each value is stored only once the user changed it; `has_*` says whether it

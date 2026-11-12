@@ -1,0 +1,19 @@
+WORLD seed=24601 grid=2048x1311 generate_ms=19354
+PASS  A: Window ▸ 3D view row exists  
+PASS  A: the gate ran and measured at least Basic  tier Full, cause ''
+PASS  A: opens at the 2D view's centre  pivot 600000.1,384082.0 m vs 2D centre (1024.0, 655.5) cells x 585.938 m
+PASS  A: opens at the 2D view's ground scale  3D span 768164 m vs 2D 768164 m
+PASS  A: opens straight down, then tilts  pitch 84.4°
+PASS  A: the tilt ends at 55° within 0.9 s  pitch 55.00°
+PASS  A: a tile window is drawn  {"c0":0,"k":2,"last_fill_ms":48.1,"mosaic":"511x327","r0":0,"tiles_built":5,"z":1}
+PASS  A: true scale by default (Ruling CT)  1.00
+PASS  A: terrain covers the 3D view  background 20.4 % of the 3D frame
+PASS  A: the card names the tile level  Basic (Full draws Basic's single patch until the 3D quadtree is built) terrain, tile level 1. Heights at 1.00× (1× is true scale).
+PASS  F: the near plane is 5 % of the height above ground, 1 m..1 km (§3.11)  near 1000.000 m at 46867.8 m above ground
+PASS  F: the far plane reaches the farthest world corner  far 1188539 m, corner 1131942 m
+PASS  F: the window and the backdrop are 257 x 257-vertex patches  1013364 primitives
+FRAME static median=9.525 min=8.924 max=13.370 p95=11.325 ms primitives=1013364 draws=1529 video_mem=448.3 MiB (2D before 3D 368.3 MiB, +80.0 MiB) window={"c0":5,"k":4,"last_fill_ms":171.0,"mosaic":"1021x653","r0":1,"tiles_built":21,"z":5}
+PASS  F: Basic's frame bar, static: p95 <= 33 ms  p95 11.325 ms
+FRAME orbiting median=9.574 min=8.902 max=18.720 p95=11.848 ms
+FRAME zooming (level changes, fills) median=19.985 min=9.075 max=43.907 p95=39.995 ms tiles_built=64
+RESULT checks=14 fail=0

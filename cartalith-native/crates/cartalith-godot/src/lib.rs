@@ -19830,6 +19830,53 @@ impl WorldGen {
         ImageTexture::create_from_image(&image)
     }
 
+    /// **3D-2: one tile's colour and relief for the 3D view**
+    /// (`3D_VIEWPORT_SCOPE.md` §3.1 and §5, 3D-2; `shell/view3d_terrain.gd`
+    /// is the only caller).
+    ///
+    /// Returns `{rgba: Image RGBA8 w×h, height: Image RF w×h, w, h, tb_x,
+    /// tb_y, tb_w, tb_h, sea_level, peak_m, cell_m}`. `rgba` is the plain tile
+    /// [`Self::lod_synthesize_tile`] would draw (same snapshot, same
+    /// colouriser, `lod_worker::LodSnapshot::render_tile_relief`); `height` is
+    /// the normalised relief it was coloured from, with the pixels the 2D
+    /// water test calls sea at exactly `sea_level`. `tb_*` is the tile's
+    /// coarse-sample footprint (pixel 0 at `tb_x`, pixel `w - 1` at `tb_x +
+    /// tb_w`). `sea_level` and `peak_m` are the snapshot's, the law
+    /// `sample_bridge::FieldRefs::elevation_m` reports metres by; `cell_m` is
+    /// `map_width_km * 1000 / gw`, that module's `cell_m()`, the one km-to-cell
+    /// quotient in the workspace.
+    ///
+    /// Why a separate call and not a flag on the 2D one: the 2D path is the
+    /// owner's picture and must not move (3D only reads). Why synchronous:
+    /// 3D-2's Basic tier fills one patch's tiles under a per-frame budget on
+    /// the main thread; streaming through `lod_worker` is 3D-3's (§3.13).
+    ///
+    /// **An empty dictionary** when no tile can be made (no world, an index
+    /// outside level `z`, a refused context): never a placeholder tile, so the
+    /// caller cannot draw flat ground and call it terrain.
+    #[func]
+    fn view3d_tile(&self, z: i32, col: i32, row: i32) -> VarDictionary {
+        let Some(snap) = self.lod_snapshot() else { return VarDictionary::new() };
+        let Some(t) = snap.render_tile_relief(z, col, row) else { return VarDictionary::new() };
+        let (sea, peak) = snap.sea_and_peak();
+        if self.gw <= 0 || self.map_width_km <= 0.0 {
+            return VarDictionary::new();
+        }
+        let cell_m = self.map_width_km * 1000.0 / self.gw as f64;
+        let Some(img) = Image::create_from_data(t.w as i32, t.h as i32, false, Format::RGBA8, &PackedByteArray::from(t.rgba)) else {
+            return VarDictionary::new();
+        };
+        let hb: Vec<u8> = t.height.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let Some(himg) = Image::create_from_data(t.w as i32, t.h as i32, false, Format::RF, &PackedByteArray::from(hb)) else {
+            return VarDictionary::new();
+        };
+        dict! {
+            "rgba" => &img, "height" => &himg, "w" => t.w as i64, "h" => t.h as i64,
+            "tb_x" => t.tb.x, "tb_y" => t.tb.y, "tb_w" => t.tb.w, "tb_h" => t.tb.h,
+            "sea_level" => sea, "peak_m" => peak, "cell_m" => cell_m,
+        }
+    }
+
     // ------------------------------------------------------------------
     // LOD-D6 — the asynchronous half of the same path
     //

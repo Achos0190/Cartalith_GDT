@@ -1440,6 +1440,10 @@ const ZOOM_BUTTON_STEP := 1.35   ## Reference 13464. Deliberately coarser than
 ## Zooms by `factor` about the centre of the viewport. The navpad's zoom buttons call it with
 ## `ZOOM_BUTTON_STEP` or its inverse; wheel and pinch go through `_zoom_at` with their own pivot.
 func zoom_step(factor: float) -> void:
+	## 3D-2 (Ruling EB item 4): while 3D shows, the same buttons move its camera.
+	if is_3d():
+		_view3d.zoom_step(factor)
+		return
 	_zoom_at(size * 0.5, factor)
 
 ## The navpad's ✋. See `_pan_mode`'s own doc comment for why this latches
@@ -1925,6 +1929,20 @@ func _keep_map_covering(pos: Vector2, rect: Rect2) -> Vector2:
 func is_3d() -> bool:
 	return _view3d != null and _view3d.visible
 
+## **3D-2: the 2D view the 3D view opens on** (§3.9, "top-down at the current
+## 2D view, then tilt"): the cell under this view's centre and its physical
+## pixels per cell, by `visible_grid_rect()`'s own camera arithmetic over
+## `_map_display_rect()`. `{}` when no world is on screen, so the 3D view frames
+## the world instead of opening on a made-up view.
+func view_for_3d() -> Dictionary:
+	var disp := _map_display_rect()
+	if disp.size.x <= 0.0 or disp.size.y <= 0.0 or _zoom <= 0.0:
+		return {}
+	var g := _bridge.grid_size()
+	var local := (size * 0.5 - _camera.position) / _zoom
+	var c := Vector2((local.x - disp.position.x) / disp.size.x * g.x, (local.y - disp.position.y) / disp.size.y * g.y)
+	return {"centre": c, "px_per_cell": disp.size.x / float(g.x) * _zoom * get_viewport().get_final_transform().x.x}
+
 ## The 3D view node, or null when 3D was never opened this session.
 func view3d() -> View3DScene:
 	return _view3d
@@ -1946,6 +1964,9 @@ func ensure_view3d() -> View3DScene:
 		if _navpad != null:
 			move_child(_view3d, _navpad.get_index())
 		_view3d.exit_requested.connect(func(): set_3d(false))
+		## 3D-2: the engine, the generate guard and the 2D base map the
+		## backdrop drapes, read live so a regenerate's texture is the one used.
+		_view3d.bind_engine(_bridge, _engine_readable, func(): return map_view.texture)
 	return _view3d
 
 ## **3D-1: switch the viewport between the 2D map and the 3D view**
@@ -1961,6 +1982,7 @@ func set_3d(on: bool) -> void:
 		v.visible = true
 		if _panning:
 			_panning = false
+		v.set_entry_view(view_for_3d())
 		view_mode_changed.emit(true)
 		v.entered()
 	else:
@@ -1969,7 +1991,18 @@ func set_3d(on: bool) -> void:
 		_view3d.visible = false
 		view_mode_changed.emit(false)
 
+## The navpad's ⌖ and every "fit the map" command. 3D-2 (Ruling EB item 4):
+## while 3D shows it frames the world in 3D and leaves the hidden 2D view as it
+## was, so Back to 2D returns to the view the user left.
 func reset_view() -> void:
+	if is_3d():
+		_view3d.frame_world()
+		return
+	_reset_view_2d()
+
+## The 2D fit `reset_view()` always was. `refresh()` calls this one directly:
+## a new world must reset 2D even while 3D shows.
+func _reset_view_2d() -> void:
 	var cover := 1.0
 	var origin := Vector2.ZERO
 	var rect: Rect2 = overlay.displayed_rect()
@@ -3132,7 +3165,10 @@ func refresh() -> void:
 	## generation parameter: an 800 km world reaches z160, a 4000 km one z800,
 	## and both land on the same 5 km closest span.
 	_zoom_max = maxf(ZOOM_MAX_FLOOR, ceilf(maxf(_width_km, 0.0) / ZOOM_TARGET_SPAN_KM))
-	reset_view()   ## Also sets `_readout_label`'s text and the scale bar.
+	_reset_view_2d()   ## `reset_view()`'s 2D half; also sets `_readout_label`'s text and the scale bar.
+	## 3D-2: the 3D view's tiles are of the old picture; it re-reads them.
+	if _view3d != null:
+		_view3d.world_changed()
 	## Belt-and-suspenders after the two lines above change `_scale_label`'s
 	## and `_readout_label`'s text (and so their minimum size): the fixed
 	## edge each already has should carry Godot's own grow-direction resize

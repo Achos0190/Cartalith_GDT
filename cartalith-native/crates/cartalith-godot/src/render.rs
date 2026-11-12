@@ -13274,7 +13274,10 @@ pub fn tile_halo_px(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds) -> 
 /// [`tile_water_class`]'s answers.
 const TILE_LAND: u8 = 0;
 // Value 1 matches `build_water_bodies`'s classification (1 = sea, 2 = lake).
-const TILE_SEA: u8 = 1;
+// `pub(crate)` since 3D-2: `lod_bridge::synthesize_tile_rgba_and_relief`
+// flattens the pixels [`tile_water_mask`] calls sea, so it must read this very
+// constant rather than restate the `1`.
+pub(crate) const TILE_SEA: u8 = 1;
 // Value 2 matches `build_water_bodies`'s lake class.
 const TILE_LAKE: u8 = 2;
 
