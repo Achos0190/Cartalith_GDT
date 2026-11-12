@@ -2258,6 +2258,92 @@ func _on_portrait_changed() -> void:
 		lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS if want_compact \
 			else TextServer.OVERRUN_NO_TRIMMING
 
+## MS-9: the control `_build_param_row()` made for parameter `key` (the slider, or the check box of a bool), read off
+## `_param_ctrls`, the registry the engine-sync pass fills for the same rows; null when this dock built none.
+func _param_control(key: String) -> Control:
+	var entry = _param_ctrls.get(key)
+	if entry == null:
+		return null
+	var c = (entry as Dictionary).get("slider", (entry as Dictionary).get("bool"))
+	return c as Control if c != null and is_instance_valid(c) else null
+
+## The title of the L2 category whose body holds the control for parameter `key`, or "" when this dock built no
+## control for it (a key outside every stage's groups, or the dock not built yet). Found by ancestry, not from
+## `STAGES`, so it cannot disagree with where the row really sits.
+func param_category(key: String) -> String:
+	var ctl := _param_control(key)
+	if ctl == null:
+		return ""
+	for e in categories:
+		if (e["body"] as Control).is_ancestor_of(ctl as Control):
+			return String(e["title"])
+	return ""
+
+## MS-9: shows parameter `key`'s control to the person who searched for it. Returns "" when it did, else the
+## reason it could not. Opens the category (`open_category()`, which also lifts a mode gate), unfolds any closed
+## `advanced` or group fold above the row, scrolls the dock to it, flashes the row, and focuses the control when
+## its focus mode allows (the dock's sliders and toggles are `FOCUS_NONE` by design, so the flash is the cue
+## for those). The caller (`DccShell.reveal_param()`) has already made the dock itself visible.
+func focus_param(key: String) -> String:
+	var ctl := _param_control(key)
+	if ctl == null:
+		return "This parameter has no control in the dock."
+	var cat := param_category(key)
+	if cat == "" or not open_category(cat):
+		return "This parameter's control is not in an open category."
+	var c := ctl as Control
+	## Unfold from the outside in, so an inner fold's header exists in the tree when its turn comes.
+	var body: Control = null
+	for e in categories:
+		if String(e["title"]) == cat:
+			body = e["body"] as Control
+	var folds: Array = []
+	var n: Node = c.get_parent()
+	while n != null and n != body and n is Control:
+		if not (n as Control).visible:
+			folds.push_front(n)
+		n = n.get_parent()
+	for f in folds:
+		var pad: Node = (f as Node).get_parent()
+		var holder: Node = pad.get_parent() if pad != null else null
+		if holder != null and pad.get_index() > 0:
+			var head: Node = holder.get_child(pad.get_index() - 1)
+			if head is Button:
+				(head as Button).pressed.emit()
+	_reveal_in_scroll.call_deferred(c)
+	return ""
+
+## The deferred half of `focus_param()`: layout must have run after the folds opened before the row has a rect
+## to scroll to. Scrolls the nearest `ScrollContainer`, flashes the control's row, and focuses it if it can be.
+func _reveal_in_scroll(c: Control) -> void:
+	## Twice: once after layout has caught up with the category and folds just opened, and once after the phone
+	## sheet's detent animation (`DccShell.PHONE_DETENT_ANIM`, 0.28 s) has finished resizing the scroller the row
+	## sits in. A scroll made against the sheet's old height leaves the row below the new viewport's foot.
+	for pass_no in 2:
+		if not is_instance_valid(c) or not c.is_inside_tree():
+			return
+		if pass_no == 0:
+			await get_tree().process_frame
+			await get_tree().process_frame
+		else:
+			await get_tree().create_timer(DccShell.PHONE_DETENT_ANIM + 0.1).timeout
+		if not is_instance_valid(c) or not c.is_inside_tree():
+			return
+		var a: Node = c.get_parent()
+		while a != null and not (a is ScrollContainer):
+			a = a.get_parent()
+		if a != null:
+			(a as ScrollContainer).ensure_control_visible(c)
+	if c.focus_mode != Control.FOCUS_NONE:
+		c.grab_focus()
+	var row: CanvasItem = c.get_parent() as CanvasItem if c.get_parent() is HBoxContainer else c
+	## Back to the row's OWN modulate, not white: a World-Structure-overridden row is dimmed on purpose
+	## (`WS_OVERRIDE_DIM`) and a flash that ended at white would have lifted that.
+	var base: Color = row.modulate
+	row.modulate = Color(base.r * 1.6, base.g * 1.6, base.b, base.a)
+	var tw := row.create_tween()
+	tw.tween_property(row, "modulate", base, 0.9)
+
 ## One row for one parameter. `bridge.param_info(key)`'s `type` field decides
 ## the control (`toggle` for bool, `slider` for int/float); nothing about the
 ## range, step, label or unit is guessed here.

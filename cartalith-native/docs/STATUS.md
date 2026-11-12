@@ -68,6 +68,61 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 ### New World to WORLD dock: one source of truth (2026-11-12, owner bug report)
 Owner: *"the plate count from the new world screen isnt being transmitted to the generators side screen ... a preset for world structure ... is completely overridden when we use the more regular terrain generator settings. Resulting in vastly different worlds."* Read at the symbols: `world_workspace.gd::_build_param_row` (each row took `param_get` once at build and nothing wrote the engine back into it; its own comment on `_on_world_loaded` called that "a real, separate gap"), `new_world_dialog.gd::request` / `generate_checked` / `_on_archetype_selected` / `_on_create`, `engine_bridge.gd::_worker`, `WorldGen::generate_world_structure_sized` and `apply_archetype` in `cartalith-godot/src/lib.rs`. Three causes, none in Rust: (1) the dock never re-read the engine, so after Create it showed the plate count and the five World-structure dials it was built with (the engine held the right values); (2) every generate from the dialog's size, including the dock's own Generate, re-sent the archetype name, and the engine's one-shot `generate_world_structure_sized` overwrote the five dials and forced steering on, so a dial the user moved in the dock never reached the world; (3) picking Classic after an archetype left `world_structure.enabled` on, so the plate count the dialog showed was ignored (`deriveFromWorldStructure`). Fixed: `WorldWorkspace._param_ctrls` + `_resync_param_rows()` (run on `generation_finished(true)` and `world_loaded`, under `_resyncing` so no handler writes or regenerates; a key the engine does not publish is left alone), `NewWorldDialog.generate_request()` (the archetype is written once, by `apply_archetype` when it is picked, the preview reads those same parameters, and every generate then takes the plain path over them, Create included), and Classic switching steering off when it follows an archetype. **Behaviour change (DECISIONS.md section 7p):** a new world created with an archetype generates the same world as before (the digest probe matches the one-shot path); a dock edit made after it now takes effect where it used to be silently reverted; a Classic Create after an archetype now honours its plate count, where it used to generate the archetype's world. Probe `_newworld_sync_probe.gd` (windowed, desktop and touch tablet): for plate counts 6, 23, 38 and all five archetypes, Create then compare the engine, the dock's controls and a no-edit dock Generate's digests, then edit a dial and Generate. Origin/main a193b421: tablet 43 of 120 checks FAIL (desktop, run before the digest check was added: 34 of 110); after: 0 of 119 (tablet), 0 of 116 (desktop). Mutants (desktop): dropping the archetype fold in `generate_request` fails 5, dropping the resync after a generate fails 41, leaving steering on when Classic follows an archetype fails 2; a fourth, dropping a Create-time `apply_archetype`, survived with 0 failures because the pick-time write already does it, so that redundant call was removed and the desktop run of exactly that tree (116 checks) is the verification of the committed code (the tablet run, 119 checks, was on the tree before that removal). Not run: a mutant of the pick-time write, and the MS-8 probe's own sequence on the pre-fix tree. Label finding: see the OUTSTANDING_WORK.md row. Not covered: the dialog's own live `param_set`s (lake balance, civ factions, world extent) now reach the dock at the next generate, not when set; Edit > Reset still does not resync the dock; the New World dialog does not read an engine plate count changed in the dock back into its own readout.
 
+### MS-9: search runs every command built (2026-11-12)
+`CommandIndex` (`shell/command_index.gd`) gained the search path: `search_block(row)` (why a press would not run, or ""),
+`run_search(row)` (ends in `_fire()`, which `run_row()` now also ends in: the owning popup's `id_pressed`, or `arm_tool`),
+`row_state()` and `state_word()` (a registered `_state` source, else the menu item's own check bit),
+`refresh_states()` and `build(app, bridge, true)` (the menu's own open refreshers run before its rows are read, so a
+check shows what the menu would show now; off for every quick-bar caller), and the row fields `checkable`, `radio` and
+`_text`. `dcc_shell.gd::_run_search_command()` is one path for the phone overlay and the desktop and tablet dialog:
+
+- **a check or radio runs and stays open**, the index is rebuilt and the list redrawn, and the row's second line leads
+  with its state (`On` / `Off` for a check, `Selected` / `Not selected` for a radio);
+- **a parameter** closes the surface and `reveal_param(key)` opens WORLD on the right category, unfolds any `advanced`
+  fold above the row, re-expands a collapsed left dock (or raises the phone's domain sheet to its half detent), scrolls
+  to the control, flashes its row and focuses it when its focus mode allows
+  (`WorldWorkspace.param_category()` and `focus_param()`; the registry `_param_ctl` is filled by `_build_param_row`);
+- **a disabled row, a readout and a pointer row** (`EXTRAS`) say why, from the live menu item, and run nothing; a row
+  whose menu item was renamed or removed since the list was built refuses with "That menu changed since this list was
+  built. Search again." (`_item_of()` matches id AND text);
+- every other command closes the surface and runs, as before.
+
+**One departure, disclosed:** the 264 rows of embedded `ColorPicker` popups (menu text `""`, titles like "HSV Wheel") are no
+longer indexed. They were 264 of 722 rows, none a command of this app, and search now runs what it lists. The index is
+458 rows on the desktop form (462 on the tablet, which has four more).
+
+**Measured** (`_ms9_probe.gd`, windowed, wiped user dir, under the window lock; every expectation read off the popup, never
+off the index row): it presses every index row's own result button and compares with the direct `id_pressed.emit(id)`.
+Desktop, 1600x1000, 458 rows: `PASS (0 failed, 2144 checks)`. Counted by kind: 106 radios selected (plus 25 already selected),
+30 checks flipped (one toggle each; a direct press flipped them back), 120 plain commands delivered `id_pressed(id)` exactly
+once (a spy replaced the popup's handlers for the press, so no export, dialog or quit actually ran), 3 tools armed, 100
+parameters revealed (control visible in the tree, inside its scroll viewport, dock expanded, surface closed), and refused
+with a reason: 17 disabled, 19 readouts, 10 pointer rows, 21 parameters. Handlers that decline under both routes (listed,
+not counted as passes): 6 radios (the 3D tiers, the session-mode rows) and 1 check ("Automatic (highest-performance GPU)").
+Tablet (`--vp 2400x1500 --force-touch`, 462 rows): `PASS (0 failed, 2173 checks)`; rows 52 px tall, pin stars 48. Phone
+(1080x2340 at density 2.625, 446 rows): `2079 checks, 1 failed`: the one failure was the probe's own stale-bit guard finding no
+candidate on the phone (fixed in the probe; re-run pending, see below); rows 136 px = 52 dp, stars 126 px = 48 dp. On the phone
+Window > Left dock and Context panel open a dock sheet, which closes the search by design; the probe allows exactly those two.
+Real pointer events (touch plus mouse on touch forms) press a check, a parameter, a disabled row and open the search from
+Ctrl+F or the phone's magnifier: pass on all three forms. A probe bug found on the way: the sweep left Session mode on, and
+the product correctly refused every WORLD parameter with its Session-mode sentence. A tablet at 1600x1000 re-classified to
+the phone shell when a UI-scale radio was pressed (Ruling EG), so the tablet run uses a 2400x1500 host.
+Mutants (Python, exact literal, hash-restored): killed: readout not blocked, stale text ignored, check closes the surface,
+state word dropped, advanced fold not opened, collapsed dock not reopened, parameter surface kept open, tool not armed, wrong
+id emitted, embedded popups indexed. Survived: "unavailable not blocked" (equivalent: the live-item check behind it blocks
+the same rows) and "build ignores refresh_first" (a probe gap; a stale-bit guard was added after it, its re-run is pending).
+Existing probes re-run windowed: `_cmdindex` PASS (13 registered toggles; headless counts 11, an environment difference),
+`_pc9esc` desktop and touch 18/18, `_pc9menus` 86/86; headless `_cmdunavail`, `_cmdaudit15`, `_cmdblock15`, `_menudefect`,
+`_idxfind`, `_apcmdcheck` pass. `_ms4` desktop dump passes; its phone walk fails on the Preferences rows (the Stylus rows),
+a menu comparison this change does not touch and that was not run against a baseline.
+
+**Left, for the owner:** 21 of the 121 generation parameters have no control in the WORLD dock, so their result says so
+instead of opening one: six World keys (`rough_routing`, `geology_model`, `geology_processes`, `relief_model`,
+`geology_karst`, `geology_carve`; no control anywhere), the `GPU acceleration` key (a Preferences check) and fourteen
+`civ.*` keys (thirteen have a control in the New World dialog, `new_world_dialog.gd`: nine bound by key, four through its own
+fields; that dialog has no focus-a-row entry. `civ.garrison_exposure_scale` has no control in `shell/` or `workspaces/`).
+Opening New World on the right row is the follow-on; it needs no design, only the same registry the dock now has.
+
 ### MS-8: New World auto-populate built (2026-11-12)
 `shell/auto_populate.gd` (policy and runner, no pass of its own) and `new_world_dialog.gd` (`_build_auto_populate`, `generate_checked(..., populate)`, `_generate_then_populate`, `_on_created_world`): one master switch and four (Settlements, Routes, Landmarks, Names), all ON by default (Ruling DT), on the first screen of the desktop, tablet and phone forms. Create runs the chosen passes after the terrain through the buttons' own handlers (`_populate_world_now`, `_generate_roads`, `_lm_run`, `_regenerate_labels`); a regenerate from elsewhere never populates. Routes greys with its reason while Settlements is off, all four grey while the master is off. **One departure from the proposal's table, disclosed:** the order is settlements, routes, landmarks, names (the table had names before landmarks, but the labelling pass reads the landmark store, so names first would name no landmark). Measured by `_autopopulate_probe.tscn` (seed 4242, 192 cells wide; windowed, desktop 1280x900, tablet 1600x2560, phone 1080x2340): a Create with all four on equals Generate plus the four by hand in every component digest (settlements, ways, provinces, landmarks, labels, `edit_state_digest`), and each pass off by itself equals Generate plus the other three. A real mouse click through the viewport lands on the desktop form only; the touch forms drive the switch through its own signal (the known embedded-dialog limit). One open finding: on the tablet form a second Create of the same seed with no pass run gave a different generated label list (45 against 36 on one run), so the master-off check excludes labels; the cause is not established. 5 literal mutants on the new constants killed.
 

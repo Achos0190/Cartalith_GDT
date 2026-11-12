@@ -176,6 +176,10 @@ const EXTRAS: Array = [
 ## `available`, `why`). Rebuilt from scratch by every `build()`; never edited
 ## in place by callers (`all()` hands out a copy).
 var _rows: Array = []
+## MS-9: set by `build(app, bridge, true)`. When true `_walk_popup()` runs a popup's open refreshers before reading
+## it, but only for a popup holding a check or radio that registered no state source (the one kind of row whose
+## state is read off the item). Off for every quick-bar caller: a chip press must not run refreshers.
+var _refresh_first := false
 ## The engine bridge, kept from `build()`; read only for the parameter table.
 ## Untyped so a harness can pass a stub.
 var _bridge
@@ -187,9 +191,10 @@ var _app
 ## then `EXTRAS`. Clears first, so calling it again never duplicates rows. Must
 ## not emit `about_to_popup` on any menu (see the header: those handlers evict
 ## baked chunks and enumerate GPU adapters).
-func build(app, bridge) -> void:
+func build(app, bridge, refresh_first: bool = false) -> void:
 	_app = app
 	_bridge = bridge
+	_refresh_first = refresh_first
 	_rows.clear()
 	_add_parameters()
 	_add_menu_commands()
@@ -327,7 +332,11 @@ func _add_menu_commands() -> void:
 	_gather_menu_buttons(_app, buttons)
 	for mb in buttons:
 		var popup: PopupMenu = (mb as MenuButton).get_popup()
-		if popup != null:
+		## MS-9: a MenuButton with no text is an embedded control's own popup (a ColorPicker's mode and
+		## shape presets: 264 of 722 rows on 2026-11-12, every one titled like a command and none a command of
+		## this app). Search now RUNS what it lists, and running one would only change an invisible picker, so they
+		## are not indexed at all rather than listed as rows that cannot be pressed.
+		if popup != null and String((mb as MenuButton).text).strip_edges() != "":
 			_walk_popup(popup, String((mb as MenuButton).text))
 
 ## Appends one row per leaf item of `popup`, recursing into submenus under the same
@@ -336,6 +345,8 @@ func _add_menu_commands() -> void:
 ## commands as `available: false` with their tooltip as `why`. Reads the state the
 ## menu was BUILT in, not a state an `about_to_popup` handler would give it.
 func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
+	if _refresh_first and _needs_item_state(popup):
+		_refresh_popup(popup)
 	for i in popup.item_count:
 		var text := popup.get_item_text(i)
 		if text.strip_edges() == "" or popup.is_item_separator(i):
@@ -400,7 +411,8 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 		## CQ-8 (Ruling EH item 3, scope Q8): a check or radio row is pinnable as a TOGGLE only when the menu
 		## owner registered where its on/off state really lives (`DccMenus.state_source`); every other one
 		## keeps its reason. `_state` is that getter itself, never a copy of its answer.
-		var state_fn := _state_source_for(id) if popup.is_item_checkable(i) and not is_readout else Callable()
+		var checkable := popup.is_item_checkable(i) and not is_readout
+		var state_fn := _state_source_for(id) if checkable else Callable()
 		var why_not := _why_not_pinnable(popup, i, id, is_readout, menu_name, state_fn.is_valid())
 		_rows.append({
 			"title": text.replace("…", "").strip_edges(),
@@ -421,6 +433,12 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 			## that popup's own `id_pressed`. Object refs never reach a config.
 			"_popup": popup,
 			"_id": id,
+			## MS-9: the item's own text and its check/radio shape, so a search press can find the item again
+			## (`_item_of`), refuse when the menu has changed since this row was built, and read the state of a
+			## check or radio that registered no state source.
+			"_text": text,
+			"checkable": checkable,
+			"radio": checkable and popup.is_item_radio_checkable(i),
 			## True when the popup refreshes row state on open, so `available` here
 			## is the BUILT state and a chip must not copy it (scope s.3.3).
 			"refreshes_on_open": not _open_handlers(popup).is_empty(),
@@ -542,8 +560,12 @@ func _disambiguate_pin_keys() -> int:
 func run_row(row: Dictionary) -> bool:
 	if not bool(row.get("pinnable", false)):
 		return false
-	## CQ-8 (scope Q10): a TOOL row arms through `DccApp.arm_tool`, the very call the palette's button makes
-	## (`DccWidgets._tool_entry`: `func(): app.arm_tool(e["id"])`) -- never a second Measure.
+	return _fire(row)
+
+## The one place a menu or tool row is performed: a TOOL row arms through `DccApp.arm_tool`, the very call
+## the palette's button makes (CQ-8, scope Q10: never a second Measure); any other emits the owning popup's
+## `id_pressed`. `run_row()` (a chip) and `run_search()` (a result) both end here.
+func _fire(row: Dictionary) -> bool:
 	if String(row.get("kind", "")) == "tool":
 		if _app == null or not _app.has_method("arm_tool"):
 			return false
@@ -554,6 +576,149 @@ func run_row(row: Dictionary) -> bool:
 		return false
 	(popup as PopupMenu).id_pressed.emit(int(row["_id"]))
 	return true
+
+# -- MS-9: search runs every command ---------------------------------------------------------------
+#
+# `MOBILE_SHELL_PROPOSAL.md` MS-9, "Search runs every command -- a check, radio or parameter result does what
+# its row does". A quick-bar chip may only repeat a command whose effect it can show without opening a menu
+# (`pinnable`); a search row has no such limit, because the list is rebuilt when the dialog opens and a press
+# can show the new state in the row itself. So the search path has its own gate, `search_block()`, and its own
+# entry, `run_search()`, and both end in the SAME `_fire()` as `run_row()`: the owning popup's `id_pressed`,
+# the signal the menu's handler is connected to. Nothing here implements a command a second time.
+
+## `row_state()`'s answer for a row with no on/off state (a plain command, a parameter, a readout). A value
+## outside {0, 1} on purpose: a "no state" encoded as 0 would read as "off" (`MISTAKES.md`, "Return, marshal or
+## default a value that can be absent").
+const STATE_NONE := -1
+
+## 1 when the check or radio is on, 0 when off, `STATE_NONE` when the row has no such state. A registered
+## `_state` source wins (it reads the app's own value); otherwise the owning popup's item bit, which
+## `refresh_states()` and `run_search()` keep current by running the menu's own open handlers.
+func row_state(row: Dictionary) -> int:
+	var src = row.get("_state")
+	if src is Callable and (src as Callable).is_valid():
+		return 1 if bool((src as Callable).call()) else 0
+	if not bool(row.get("checkable", false)):
+		return STATE_NONE
+	var popup = row.get("_popup")
+	if popup == null or not is_instance_valid(popup):
+		return STATE_NONE
+	var i := _item_of(row)
+	if i < 0:
+		return STATE_NONE
+	return 1 if (popup as PopupMenu).is_item_checked(i) else 0
+
+## The words a search row shows for `row_state()`: "On"/"Off" for a check, "Selected"/"Not selected" for a
+## radio, "" for a row with no state (so the caller adds nothing rather than a guess).
+func state_word(row: Dictionary) -> String:
+	var st := row_state(row)
+	if st == STATE_NONE:
+		return ""
+	if bool(row.get("radio", false)):
+		return "Selected" if st == 1 else "Not selected"
+	return "On" if st == 1 else "Off"
+
+## The index of the popup item this row was built from, or -1 when the menu no longer has an item with the
+## row's id AND text (a generated list was rebuilt since the index was). Id alone is not enough: the
+## index-popups number their items from 0, so an id outlives the row it named.
+func _item_of(row: Dictionary) -> int:
+	var popup = row.get("_popup")
+	if popup == null or not is_instance_valid(popup):
+		return -1
+	var p := popup as PopupMenu
+	var want_text := String(row.get("_text", ""))
+	for i in p.item_count:
+		if p.get_item_id(i) == int(row.get("_id", -1)) and p.get_item_text(i) == want_text:
+			return i
+	return -1
+
+## True when `popup` holds a check or radio whose state lives only on the item (no `state_source` registered, not a
+## readout), i.e. the one kind of row `row_state()` reads off the item bit and so needs the menu's refreshers run first.
+func _needs_item_state(popup: PopupMenu) -> bool:
+	for i in popup.item_count:
+		if popup.is_item_separator(i) or not popup.is_item_checkable(i):
+			continue
+		var meta = popup.get_item_metadata(i)
+		if typeof(meta) == TYPE_STRING and String(meta) == DccMenus.META_READOUT:
+			continue
+		if not _state_source_for(popup.get_item_id(i)).is_valid():
+			return true
+	return false
+
+## Runs the menu's own about-to-open refreshers for every popup that holds a check or radio with no state
+## source, so the item bits `row_state()` reads are what the menu would show if it were opened now. Without
+## it a check changed from somewhere else (a window closed by its own X) reads as it was last drawn.
+## `build(app, bridge, true)` does this before reading each popup; this is the same step on an index already
+## built (a probe re-reads state after a press). Skips what
+## `_open_handlers()` skips plus the lambdas (anonymous handlers carry no name to vet) and the handlers
+## `UNSAFE_OPEN_HANDLERS` names (they evict or enumerate). Returns the number of popups refreshed.
+func refresh_states() -> int:
+	var seen := {}
+	for r in _rows:
+		if not bool(r.get("checkable", false)) or (r.get("_state") is Callable and (r["_state"] as Callable).is_valid()):
+			continue
+		var popup = r.get("_popup")
+		if popup == null or not is_instance_valid(popup) or seen.has((popup as Object).get_instance_id()):
+			continue
+		seen[(popup as Object).get_instance_id()] = true
+		_refresh_popup(popup as PopupMenu)
+	return seen.size()
+
+func _refresh_popup(popup: PopupMenu) -> void:
+	for c in popup.about_to_popup.get_connections():
+		var cb: Callable = c["callable"]
+		var nm := String(cb.get_method())
+		if nm == "_popup_visibility_changed" or nm == "_block_input_on_popup_show" or UNSAFE_OPEN_HANDLERS.has(nm):
+			continue
+		if str(cb).ends_with("(lambda)") or nm.begins_with("<anonymous") or not cb.is_valid():
+			continue
+		cb.call()
+
+## Why a search press on `row` would not run it, or "" when it would. The reasons, in order:
+## a pointer row (`EXTRAS`) is not a command; a readout has nothing to run; an unavailable row says the menu's
+## own reason (`why`, the item's tooltip) -- read from the LIVE item when there is one, since the world may have
+## changed since the list was built; and a menu row whose item is gone says so. A parameter's `why` ("Takes
+## effect on the next Generate") is a note, not a block, so availability decides, never `why` alone.
+func search_block(row: Dictionary) -> String:
+	var kind := String(row.get("kind", ""))
+	if kind == "action":
+		return "%s (This row points to where the command lives; it does not run.)" % String(row.get("blurb", "This is a pointer, not a command."))
+	if kind == "readout":
+		return "%s is a readout: it shows a value and there is nothing to run." % String(row.get("title", "This row"))
+	if not bool(row.get("available", false)):
+		var why := String(row.get("why", ""))
+		return why if why != "" else "This command is not available right now."
+	if kind == "menu":
+		var i := _item_of(row)
+		if i < 0:
+			return "That menu changed since this list was built. Search again."
+		var p := row["_popup"] as PopupMenu
+		if p.is_item_disabled(i):
+			var tip := p.get_item_tooltip(i)
+			return tip if tip.strip_edges() != "" else "This command is not available right now."
+	return ""
+
+## The search press: "" when `row` ran, else the reason it did not. A menu or tool row goes through `_fire()`
+## (`run_row()`'s own tail); a checkable one is then re-read with its menu's refreshers so `row_state()` shows
+## the result; a parameter row is handed to the app's `reveal_param()`, which opens and focuses its control.
+func run_search(row: Dictionary) -> String:
+	var why := search_block(row)
+	if why != "":
+		return why
+	match String(row.get("kind", "")):
+		"param":
+			if _app == null or not _app.has_method("reveal_param"):
+				return "This build has no parameter dock to open."
+			return String(_app.call("reveal_param", String(row.get("key", ""))))
+		"tool":
+			return "" if _fire(row) else "Could not arm that tool."
+		"menu":
+			if not _fire(row):
+				return "Could not run it."
+			if bool(row.get("checkable", false)):
+				_refresh_popup(row["_popup"] as PopupMenu)
+			return ""
+	return "This row cannot be run from search."
 
 ## The live row for a stored `pin_key`, or an empty Dictionary when the command
 ## is gone from this build (callers show "not in this build"; never delete it).

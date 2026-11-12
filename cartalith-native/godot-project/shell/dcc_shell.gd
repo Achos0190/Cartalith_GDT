@@ -9897,7 +9897,10 @@ func _split_search_scope(raw: String) -> Dictionary:
 func _ensure_command_index() -> CommandIndex:
 	if _command_index == null:
 		var idx := CommandIndex.new()
-		idx.build(self, _find_engine_bridge())
+		## MS-9: `true` runs each menu's own open refreshers BEFORE its rows are read, so a check or radio shows
+		## what the menu would show if it were opened now, and the title it was indexed under is the title the
+		## item still has (a refresher may rewrite item text).
+		idx.build(self, _find_engine_bridge(), true)
 		_command_index = idx
 	return _command_index
 
@@ -9958,9 +9961,9 @@ func _search_result_set(raw: String) -> Dictionary:
 ## reusing the phone row on desktop is deliberate here, not an oversight), with
 ## a band header wherever the ranking's own three bands change over.
 ##
-## **A `.` command row runs** (phone since 2026-10-26, desktop since PC-9's finding S4):
-## a press goes to `_run_search_command()`, which runs a pinnable row through
-## `CommandIndex.run_row()` and otherwise says why it cannot. The second line says where the
+## **A `.` command row runs** (phone since 2026-10-26, desktop since PC-9's finding S4, every kind since MS-9):
+## a press goes to `_run_search_command()`, which runs the row through `CommandIndex.run_search()` and otherwise
+## says why it cannot. A check or radio shows its state in the second line. The second line says where the
 ## command lives (its `group`, the menu it is under) or, when unavailable, `why`.
 func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: Callable) -> void:
 	for child in container.get_children():
@@ -9990,13 +9993,23 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 		if commands:
 			var why := String(d.get("why", ""))
 			var line2: String = why if why != "" else "%s menu" % String(d.get("group", ""))
+			## MS-9: a check or radio row says which way it is set ("On", "Off", "Selected", "Not selected") so a
+			## press that toggles it can be seen to have; a row with no such state adds nothing (`state_word()` is
+			## "" then). Only an available row: an unavailable one shows its reason alone.
+			var state_text := _ensure_command_index().state_word(d) if bool(d.get("available", false)) else ""
+			if state_text != "":
+				line2 = "%s · %s" % [state_text, line2]
 			## 2026-10-26 (owner finding, OnePlus 6T): the row used to be a DISABLED readout, so a tap on a command
-			## did nothing at all and read as a dead list. A tap now does one of two things and is never silent:
-			## a pinnable command runs through the quick bar's own path (`DccQuickBar.run_pin_on`, the same
-			## `id_pressed` the menu emits) and the overlay closes; any other row toasts why it cannot run
-			## from here (the index's own `why_not`, or the row's `why` when it is unavailable) and stays open.
+			## did nothing at all and read as a dead list. A tap is never silent (MS-9 widened it from "pinnable rows
+			## only"): a command runs through `CommandIndex.run_search()` (the same `id_pressed` the menu emits) and
+			## the overlay closes, except a check or radio, which stays open and shows its new state; a row that
+			## cannot run (disabled, a readout, a pointer) says why from `search_block()` and stays open.
 			var cmd := _phone_list_row(String(d.get("title", "")), line2, _run_search_command.bind(d, close_fn))
 			(cmd as Button).accessibility_description = 				"%s. Lives under the %s menu. Tap to run it." % [line2, String(d.get("group", ""))]
+			## The result row carries the index row it draws (a meta, not a node name: sibling rows share a title and
+			## Godot renames duplicate names), so a probe (`_ms9_probe.gd`) presses the row the person would press and
+			## compares what happened with that row's own handler.
+			(cmd as Button).set_meta("search_row", d)
 			## PC-9 (`PC_SHELL_PROPOSAL.md` s.3.8, finding S4): the desktop dialog's rows run too, through
 			## the same `_run_search_command()`. Until 2026-11-08 it drew them as a disabled readout
 			## because it had no toast to say why a row would not run; it says it in its count line now.
@@ -10025,24 +10038,72 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 	if res.has("footer"):
 		container.add_child(_search_notice(String(res["footer"])))
 
-## A tap on a `.` command row (phone and desktop dialog alike): run it when the index calls it pinnable, close
-## the surface that opened it, else say why not and stay open. **One path:** the run is
-## `DccQuickBar.run_pin_on()`, which resolves a fresh `CommandIndex` row and calls
-## `CommandIndex.run_row()` (the owning popup's own `id_pressed`), the code a quick-bar chip and a
-## menu click share; this never emits a menu id itself. The reason is a toast on the phone and the
-## dialog's count line on the desktop, which has no toast and keeps the dialog's own text field.
+## A tap on a `.` command row (phone and desktop dialog alike). MS-9: EVERY row kind, not only the pinnable ones.
+## **One path:** the run is `CommandIndex.run_search()`, whose tail `_fire()` is also `run_row()`'s (the owning
+## popup's own `id_pressed`, or `arm_tool`), the code a quick-bar chip and a menu click share; this never emits a
+## menu id itself. Until MS-9 a check, a radio or a parameter only toasted a reason; now a check or radio runs and
+## redraws with its new state, a parameter opens its control (`reveal_param()`), and a row that cannot run (disabled,
+## a readout, a pointer) says why and changes nothing. The reason is a toast on the phone and the dialog's count
+## line on the desktop, which has no toast and keeps the dialog's own text field.
 func _run_search_command(d: Dictionary, close_fn: Callable) -> void:
-	var key := String(d.get("pin_key", ""))
-	if key != "" and bool(d.get("pinnable", false)) and String(d.get("why", "")) == "":
-		close_fn.call()
-		var why := DccQuickBar.run_pin_on(self, key)
-		if why != "":
-			_say_search_reason(why)
+	var idx := _ensure_command_index()
+	## MS-9: every row goes through `CommandIndex.run_search()`, which gates it (`search_block()`) and then ends in the
+	## same `_fire()` a quick-bar chip ends in. The three outcomes differ only in what the surface does after:
+	##   - a check or radio STAYS OPEN and redraws, so the row shows its new state ("On" to "Off");
+	##   - a parameter closes the surface first and then opens its control, so the focus lands after the hide;
+	##   - any other command closes the surface and runs, as it always has.
+	## A row that cannot run says why and changes nothing.
+	var kind := String(d.get("kind", ""))
+	var blocked := idx.search_block(d)
+	if blocked != "":
+		_say_search_reason(blocked)
 		return
-	var reason := String(d.get("why", ""))
-	if reason == "":
-		reason = String(d.get("why_not", "This command cannot be run from search."))
-	_say_search_reason(reason)
+	if bool(d.get("checkable", false)):
+		var why_toggle := idx.run_search(d)
+		if why_toggle != "":
+			_say_search_reason(why_toggle)
+			return
+		## Rebuild, not just redraw: the press may have changed what else is available (Undo after an edit), and the
+		## index is rebuilt on every open for exactly that reason.
+		_command_index = null
+		if _phone:
+			_refresh_phone_search()
+		else:
+			_refresh_desktop_search()
+		return
+	if kind == "param":
+		var why_param := idx.run_search(d)
+		if why_param != "":
+			_say_search_reason(why_param)
+			return
+		close_fn.call()
+		return
+	close_fn.call()
+	var why := idx.run_search(d)
+	if why != "":
+		_say_search_reason(why)
+
+## MS-9: shows the generation parameter `key` to the person who searched for it. Returns "" on success, else the reason.
+## Makes the WORLD dock visible on every form, then asks the world workspace to open the parameter's category and
+## focus its control (`WorldWorkspace.focus_param()`). Desktop: the left dock is re-expanded if collapsed. Tablet:
+## the same `_toggle_dock()` (MS-7's slot follows the flag). Phone: the domain tab's sheet, at least at its half
+## detent (`_pick_phone_tab()`, which leaves a higher detent alone). Refused with the domain's own sentence when
+## Session mode hides WORLD.
+func reveal_param(key: String) -> String:
+	var panel: Control = _workspace_panels.get("world")
+	if panel == null or not panel.has_method("param_category"):
+		return "This build has no parameter dock to open."
+	var cat := String(panel.call("param_category", key))
+	if cat == "":
+		return "This parameter has no control in the dock."
+	if session_hides_domain("world"):
+		return SESSION_REFUSED
+	select_domain_category("world", cat)
+	if _phone:
+		_pick_phone_tab("domain", false)
+	elif is_dock_collapsed("left"):
+		_toggle_dock(true)
+	return String(panel.call("focus_param", key))
 
 ## Where `_run_search_command()` says why a row did not run: the phone's toast, or the desktop
 ## Find dialog's count line (which the next keystroke rewrites, so it never goes stale).
