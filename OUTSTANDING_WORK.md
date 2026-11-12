@@ -143,7 +143,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
 - **Mobile shell refactor (proposal of 2026-10-31; all thirteen owner questions answered, by Rulings DT, DU, DX and DY; MS-1 scheduled first by Ruling DV):** phone and tablet re-laid out in dp, every menu
   and dock category reachable (today CARTO and most of WORLD's dock have one door, MORE ▸ Window ▸ Left dock), a domain
   tab that switches WORLD · CIVIL · CARTO on hold or swipe, MENU mirroring the desktop menus, tablet docks that float
-  rather than squeeze the map below 520 dp, sizes up to 4K, New World kept with an auto-populate block. Owner:
+  rather than squeeze the map below 520 dp, sizes up to 4K, New World kept with an auto-populate block (**MS-8 built**: state in `STATUS.md`). Owner:
   `MOBILE_SHELL_PROPOSAL.md` (milestones MS-1…MS-11, questions Q1…Q13); mockup `design/mobile-shell-2026-10-31/`.
   **MS-1** (size classes in dp, live re-classification, UI scale) is routed to its build specification,
   `MOBILE_SHELL_MS1_SPEC.md`: stages S0…S5. **What is left** (state in `STATUS.md`; evidence in

@@ -3,6 +3,8 @@ class_name NewWorldDialog
 
 ## MS-1 S4.5 (`window_represent.gd`, `S4_INVENTORY.md` section 18.8): the contract's shared helpers.
 const WindowRepresent := preload("res://shell/window_represent.gd")
+## MS-8: which passes run after Create, and the runner that runs them through the buttons' own handlers.
+const AutoPopulate := preload("res://shell/auto_populate.gd")
 
 ## File ▸ New world… (`DCC_SHELL_SPEC.md` §2.1): name, seed, extent
 ## (region/world) and working resolution.
@@ -327,6 +329,16 @@ var _archetype_names: PackedStringArray = []
 var _archetype := "" ## Empty = Classic (World Structure disabled).
 ## Village-seeding choice posted by `request()`; refreshed from the engine by `_sync_from_engine()`.
 var _villages := false
+## MS-8 (Ruling DT, Q4): the Auto-populate switches, all on by default (`AutoPopulate.DEFAULT_ON`). `_ap_master` is the
+## "Auto-populate the world" switch; `_ap_on` maps each `AutoPopulate.ORDER` key to its own switch. Dialog state only,
+## never written to the engine or a world: they decide what runs after Create, and nothing is saved.
+var _ap_master := AutoPopulate.DEFAULT_ON
+var _ap_on: Dictionary = {
+	AutoPopulate.KEY_SETTLEMENTS: AutoPopulate.DEFAULT_ON, AutoPopulate.KEY_ROUTES: AutoPopulate.DEFAULT_ON,
+	AutoPopulate.KEY_LANDMARKS: AutoPopulate.DEFAULT_ON, AutoPopulate.KEY_NAMES: AutoPopulate.DEFAULT_ON}
+## The five switches (`nw_ap_master`, `nw_ap_<key>`) and the caption saying why a greyed one is greyed.
+var _ap_checks: Dictionary = {}
+var _ap_reasons: Dictionary = {}
 ## Metropolis choice posted by `request()`; refreshed by `_sync_from_engine()`.
 var _metropolis := false
 ## Recovery-phase index posted by `request()`; clamped to the picker's item count in `_sync_from_engine()`.
@@ -870,6 +882,8 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 	DccWidgets.note(struct_sec,
 		"The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generate ▸ 03 World structure, editable there after Create.")
 
+	_build_auto_populate(card)
+
 	if not _phone:
 		_build_more(card, rest)
 
@@ -919,6 +933,68 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		advisory.name = "nw_advisory"
 		advisory.tooltip_text = NOTE_CREATION_ONLY + "\n\n" + NOTE_APPEARANCE_KEPT
 		advisory.mouse_filter = Control.MOUSE_FILTER_PASS
+
+## MS-8: the **Auto-populate** section (`MOBILE_SHELL_PROPOSAL.md` section 2.3), built into `card` so it is on the first
+## screen on desktop, tablet and phone alike (the phone never shows More options). One master switch and four that name
+## the passes it runs after the terrain is generated; each switch's tooltip names the button it stands for. Routes greys
+## (disabled, with its reason on the row below) while Settlements is off; all four grey while the master is off. Every
+## switch is floored to the 44 dp touch target on a touch density.
+func _build_auto_populate(card: Control) -> void:
+	var sec := DccWidgets.section(card, "Auto-populate")
+	_ap_checks["master"] = DccWidgets.toggle(sec, "Auto-populate the world", _ap_master,
+		func(v: bool):
+			_ap_master = v
+			_refresh_auto_populate(),
+		"After the terrain is generated, runs the four passes below, in order, exactly as their own buttons do. Off: Create generates the terrain alone.")
+	var rows := [
+		[AutoPopulate.KEY_SETTLEMENTS, "Settlements, factions & territories",
+			"CIVIL ▸ Populate ▸ Auto-populate world. Uses the placement model in More options."],
+		[AutoPopulate.KEY_ROUTES, "Routes",
+			"CIVIL ▸ Routes & ways ▸ Generate roads. Needs settlements."],
+		[AutoPopulate.KEY_LANDMARKS, "Landmarks & points of interest",
+			"CIVIL ▸ Landmarks ▸ Run landmark pass. 49 types in 6 families; caps as set in Landmarks. Runs before names so landmarks are named."],
+		[AutoPopulate.KEY_NAMES, "Names & labels",
+			"CARTO ▸ Labels ▸ Generate labels: place, region, water and landmark names."]]
+	for r in rows:
+		var key: String = r[0]
+		_ap_checks[key] = DccWidgets.toggle(sec, String(r[1]), bool(_ap_on[key]),
+			func(v: bool):
+				_ap_on[key] = v
+				_refresh_auto_populate(),
+			String(r[2]))
+		var why := DccWidgets.note(sec, "")
+		why.name = "nw_ap_why_" + key
+		why.visible = false
+		_ap_reasons[key] = why
+	for key in _ap_checks:
+		var cb := _ap_checks[key] as CheckBox
+		cb.name = "nw_ap_" + String(key)
+		_floor_touch(cb)
+	_refresh_auto_populate()
+
+## Greys the four switches while the master is off, and Routes while Settlements is off, each with its reason on the
+## row below (a greyed switch with no reason is the failure `MISTAKES.md` warns of). Also the one place the form's
+## switches are re-read from `_ap_master`/`_ap_on`, so a restore after a class swap shows what was carried.
+func _refresh_auto_populate() -> void:
+	if _ap_checks.is_empty():
+		return
+	(_ap_checks["master"] as CheckBox).set_pressed_no_signal(_ap_master)
+	for key in AutoPopulate.ORDER:
+		var cb := _ap_checks[key] as CheckBox
+		cb.set_pressed_no_signal(bool(_ap_on[key]))
+		var reason := ""
+		if not _ap_master:
+			reason = AutoPopulate.REASON_MASTER_OFF
+		elif key == AutoPopulate.KEY_ROUTES and not bool(_ap_on[AutoPopulate.KEY_SETTLEMENTS]):
+			reason = AutoPopulate.REASON_ROUTES_NEED_SETTLEMENTS
+		cb.disabled = not reason.is_empty()
+		var why := _ap_reasons[key] as Label
+		why.text = reason
+		why.visible = not reason.is_empty()
+
+## The passes Create will run after the terrain: `AutoPopulate.plan` over the form's switches.
+func auto_populate_plan() -> Array[String]:
+	return AutoPopulate.plan(_ap_master, _ap_on)
 
 ## Desktop and tablet: the **More options** disclosure (proposal §2.1) -- a
 ## header button and, under it, `rest`, collapsed by default. It holds today's
@@ -2448,7 +2524,7 @@ func _on_archetype_selected(index: int) -> void:
 ## regenerate with whatever `tect.plates` holds.
 func _on_create() -> void:
 	_apply_plates_to_engine()
-	generate_checked(_represent_form, true)
+	generate_checked(_represent_form, true, auto_populate_plan())
 
 ## **Every generate at this dialog's size goes through here** -- Create, WORLD ▸
 ## Generate / the live regenerate (`world_workspace.gd::_regenerate_now`) and the
@@ -2459,10 +2535,47 @@ func _on_create() -> void:
 ## `new_world` is true only for Create (File > New world): the result is a different world, so
 ## `EngineBridge.generate` flags it and the shell drops the old project path. Every other route
 ## (WORLD > Generate, the tool-options row) regenerates the open project and keeps its path.
-func generate_checked(on_cancel: Callable = Callable(), new_world: bool = false) -> void:
+##
+## `populate` (MS-8) is the passes to run once the world has generated (`auto_populate_plan()`); only Create passes
+## one. Empty for every other route, so a regenerate never repopulates over a hand-built world.
+func generate_checked(on_cancel: Callable = Callable(), new_world: bool = false, populate: Array = []) -> void:
 	var r := request()
 	confirm_phone_memory_then(int(r["grid_w"]), int(r["grid_h"]),
-		func(): bridge.generate(r, new_world), on_cancel)
+		func(): _generate_then_populate(r, new_world, populate), on_cancel)
+
+## Starts the generate and, when `populate` is not empty, arms a ONE-SHOT listener for its end. Armed only here, after the
+## phone-memory question is answered and only when no run is in flight (`EngineBridge.generate` returns silently while
+## `generating`, which would leave a one-shot behind to fire on someone else's generate). A refused or failed run
+## (`generation_finished(false)`) consumes the one-shot and runs nothing.
+func _generate_then_populate(r: Dictionary, new_world: bool, populate: Array) -> void:
+	if not populate.is_empty() and not bridge.generating:
+		bridge.generation_finished.connect(_on_created_world.bind(populate), CONNECT_ONE_SHOT)
+	bridge.generate(r, new_world)
+
+## The generate that Create started has finished. Two frames first so every `generation_finished` listener the shell
+## wired (the repaint, the staleness slot, the quick bar) has run before the passes start; then the passes, in order,
+## through the buttons' own handlers (`AutoPopulate.run`), and a one-line status when they are done.
+func _on_created_world(ok: bool, populate: Array) -> void:
+	if not ok:
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var app := get_parent()
+	var rows: Array = await AutoPopulate.run(app, populate)
+	last_populate_rows = rows
+	var ran: PackedStringArray = []
+	for row in rows:
+		if bool((row as Dictionary).get("ran", false)):
+			ran.append(String((row as Dictionary)["pass"]))
+	if app.has_method("set_status"):
+		var msg := ("Auto-populated: %s." % ", ".join(ran)) if not ran.is_empty() else "Auto-populate ran nothing."
+		app.set_status("hint", msg, "text")
+	auto_populate_finished.emit(rows)
+
+## Emitted after the Create-time passes have all finished, with `AutoPopulate.run`'s rows. A probe awaits it; the shell does not.
+signal auto_populate_finished(rows: Array)
+## The last Create's rows (`AutoPopulate.run`), empty until one has run.
+var last_populate_rows: Array = []
 
 ## The one gate, for any pipeline run whose grid is `gw` x `gh`: `proceed` runs
 ## at once on desktop, on tablet, and on a phone at or under the ceiling;
@@ -2711,6 +2824,7 @@ func represent_capture() -> Dictionary:
 		"plates_manual": _plates_manual, "plates": _plates_value,
 		"history": _history.duplicate(), "push_pending": _history_push_pending,
 		"more": _more_body != null and _more_body.visible,
+		"ap_master": _ap_master, "ap_on": _ap_on.duplicate(),
 		"scroll": WindowRepresent.scroll_value(_rep_scroll_node()),
 	}
 
@@ -2738,6 +2852,10 @@ func represent_restore(bag: Dictionary) -> void:
 	for e in bag["history"]:
 		_history.append(e)
 	set_more_open(bool(bag["more"]))
+	_ap_master = bool(bag.get("ap_master", AutoPopulate.DEFAULT_ON))
+	for key in AutoPopulate.ORDER:
+		_ap_on[key] = bool((bag.get("ap_on", {}) as Dictionary).get(key, AutoPopulate.DEFAULT_ON))
+	_refresh_auto_populate()
 	_refresh_dimensions()
 	_restoring = false
 	_history_push_pending = bool(bag["push_pending"])

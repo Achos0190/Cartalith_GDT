@@ -164,8 +164,8 @@ the shell already has, in order, after the terrain is generated:
 |---|---|---|
 | Settlements, factions & territories | CIVIL ▸ Populate ▸ Auto-populate world | uses the placement model in More options |
 | Routes | CIVIL ▸ Routes & ways ▸ Generate roads | needs settlements; greyed with that reason when they are off |
-| Names & labels | CARTO ▸ Labels ▸ Generate labels | place, region, water and landmark names |
 | Landmarks & points of interest | CIVIL ▸ Landmarks ▸ Run landmark pass | 49 types in 6 families; caps as set in Landmarks |
+| Names & labels | CARTO ▸ Labels ▸ Generate labels | place, region, water and landmark names; runs **after** landmarks (corrected at MS-8: the labelling pass reads the landmark store, so the first draft's order named no landmark) |
 
 ### 2.4 The adaptable quick bar and the cartwheel
 
