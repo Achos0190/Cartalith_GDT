@@ -167,9 +167,11 @@ pub trait VaultProvider: std::fmt::Debug {
     ///
     /// The default refuses with [`cannot_move`], and is what a provider gets
     /// until it can really move a file. `cartalith-godot`'s
-    /// Storage-Access-Framework provider is one: its handler offers no move
-    /// operation, and writing the new file without deleting the old one
-    /// would leave two copies of a note, not a rename.
+    /// Storage-Access-Framework provider overrides it with a `"move"` op
+    /// (VE-6's Android half): a handler that has no such op answers
+    /// `can_move == false` and so still refuses, because writing the new
+    /// file without deleting the old one would leave two copies of a note,
+    /// not a rename.
     fn move_file(&self, from: &str, to: &str) -> Result<(), VaultError> {
         let _ = (from, to);
         Err(cannot_move(&self.describe()))

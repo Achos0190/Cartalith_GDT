@@ -46,6 +46,8 @@
 //! | `"meta"` | `[rel: String]` | `modified: int` (Unix seconds, `0` if unknown), `len: int` |
 //! | `"exists"` | `[rel: String]` | `value: bool` |
 //! | `"write"` | `[rel: String, text: String]` | (no payload needed) |
+//! | `"can_move"` | `[]` | `value: bool`: whether `"move"` can succeed on this grant at all (VE-6, asked before a rename is planned) |
+//! | `"move"` | `[from: String, to: String]` | `method: String` (`"move"`, `"rename"` or `"copy_delete"`: which the provider really used). Must refuse, changing nothing, when `to` exists; a copy that could not delete its original answers `ok: false` naming both paths |
 //!
 //! A call that cannot succeed returns `{"ok": false, "error": "..."}` and
 //! nothing here ever panics on it — an unreachable grant, a revoked
@@ -218,6 +220,19 @@ impl VaultProvider for SafVaultProvider {
     fn write(&self, rel: &str, text: &str) -> Result<(), VaultError> {
         guard(rel)?;
         self.call("write", varray![rel, text])?;
+        Ok(())
+    }
+
+    /// Whether the handler can move a note on this grant (`"can_move"`). Any failure, an old handler that does not know the op, a malformed or non-bool reply, reads as `false`: rename must keep refusing rather than be offered and then fail half way. `false` is the honest default, never `true`.
+    fn can_move(&self) -> bool {
+        self.call("can_move", varray![]).ok().and_then(|d| d.get("value")).and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false)
+    }
+
+    /// Moves `from` to `to` through the `"move"` op (VE-6's Android half; `VAULT_EDITOR_PROPOSAL.md` s.6). Both paths are checked by [`guard`] first. A refusal from the handler (`to` exists, no provider support and no fallback, a copy whose original could not be deleted) arrives as its `error` text and is never reported as success; the reply's `method` is ignored here because [`VaultProvider::move_file`] has no place for it, and the handler already puts the fallback into its error text when it leaves two copies.
+    fn move_file(&self, from: &str, to: &str) -> Result<(), VaultError> {
+        guard(from)?;
+        guard(to)?;
+        self.call("move", varray![from, to])?;
         Ok(())
     }
 

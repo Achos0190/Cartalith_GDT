@@ -98,6 +98,8 @@ class_name VaultStore
 
 ## Where the device-local vault link store is kept (`user://`, so per device); `load_into` reads it
 ## and reports a missing or unreadable file as an empty store (see the header above).
+const SafConnect := preload("res://shell/vault_saf_connect.gd")
+
 const PATH := "user://markdown_vault.json"
 
 ## Where `PATH`'s link store is kept when a project takes ownership of it —
@@ -180,8 +182,14 @@ static func load_into(bridge: EngineBridge) -> void:
 	## "Unbound" state, which the panel says out loud — that is the designed
 	## behaviour, not a failure to recover.
 	var binding := String(doc.get("binding", ""))
-	if binding != "" and DirAccess.dir_exists_absolute(binding):
-		bridge.vault_connect(binding, String(doc.get("display_name", "")))
+	## An Android folder is a `content://` tree address (`vault_saf_connect.gd`), which `DirAccess` refuses
+	## (error 31); it is restored only while Android still holds the grant, and silently otherwise.
+	var restored_saf := false
+	if binding.begins_with("content://"):
+		restored_saf = SafConnect.restore(bridge, binding, String(doc.get("display_name", "")))
+	if restored_saf or (binding != "" and DirAccess.dir_exists_absolute(binding)):
+		if not restored_saf:
+			bridge.vault_connect(binding, String(doc.get("display_name", "")))
 		## The index is only meaningful against a bound folder, so it is
 		## restored inside this branch and nowhere else. A refusal is silent:
 		## the panel already reports "not built", which is exactly the state a

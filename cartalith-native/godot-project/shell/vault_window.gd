@@ -106,6 +106,7 @@ const MdEditor := preload("res://shell/markdown_editor.gd")
 const SidePanel := preload("res://shell/vault_side_panel.gd")
 ## The private badge's cache (Ruling DP, VE-9): which notes are private, asked of the crate's one rule.
 const Privacy := preload("res://shell/vault_privacy.gd")
+const SafConnect := preload("res://shell/vault_saf_connect.gd")
 ## The window width from which the side panel sits to the RIGHT of the editor (px of the window, which
 ## are dp here). Below it the panel sits BELOW the editor, the "end of the note" form of the proposal's
 ## s.4. A labelled judgement: the editor wants 760 for Split, the tree column takes 220-300, so a 280
@@ -764,6 +765,24 @@ func _build_connection_header(info: Dictionary) -> void:
 ## `store_changed` so the host persists. Rebuilds either way. Never writes to the
 ## chosen folder: connecting only reads.
 func _browse_vault() -> void:
+	## Android: the OS folder grant (Ruling AV), connected through the SAF handler. The in-app browser
+	## cannot read another app's files there (scoped storage), so it is the fallback only where the OS
+	## dialog does not exist.
+	if SafConnect.should_use_picker():
+		SafConnect.pick("Select markdown vault folder", func(uri: String):
+			_hist.clear()
+			_img_cache.clear()
+			_rename_last = {}
+			var r: Dictionary = SafConnect.connect_android(bridge, uri, "")
+			if not bool(r.get("ok", false)):
+				app.set_status("hint", "Vault: %s" % String(r.get("error", "could not connect")), "accent")
+			else:
+				if r.has("warning"):
+					app.set_status("hint", String(r["warning"]), "accent")
+				store_changed.emit()
+			_rebuild(),
+			func(msg: String): app.set_status("hint", "Vault: %s" % msg, "accent"))
+		return
 	DccBrowseDialog.choose_folder(PopoutHost.dialog_host(app, self), "Select markdown vault folder", "",
 		"Cartalith reads .md files from this folder and writes only where you tell it to.",
 		func(path: String):
