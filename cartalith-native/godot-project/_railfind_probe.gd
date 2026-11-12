@@ -264,7 +264,8 @@ func _find() -> void:
 	await _frames(6)
 	var rows_all := _rows_of()
 	print("  info index size %d · drawn %d · count '%s'" % [total, rows_all.size(), count.text])
-	_ok("the resting state is the whole index", rows_all.size(), total)
+	_ok("the resting state is the whole index, to the 60-row cap", rows_all.size(), mini(total, CAP))
+	_ok("...and a list cut at the cap says so", _cap_footer_text().begins_with("Showing the first 60 of %d" % total) if total > CAP else true, true)
 	_ok("the count reads the index, not the list", count.text,
 		"%d of %d places · rebuilt on open" % [total, total])
 	var needle := _busiest_letter(idx)
@@ -272,7 +273,7 @@ func _find() -> void:
 	await _frames(6)
 	var drawn := _rows_of()
 	var ranked: Array = idx.call("search", needle)
-	_ok("query '%s' draws exactly what search() returned" % needle, drawn.size(), ranked.size())
+	_ok("query '%s' draws exactly what search() returned, to the cap" % needle, drawn.size(), mini(ranked.size(), CAP))
 	var same := true
 	for n in mini(drawn.size(), ranked.size()):
 		if drawn[n] != String((ranked[n] as Dictionary)["name"]).to_upper():
@@ -295,7 +296,7 @@ func _find() -> void:
 	## by agreeing with the code under test. Without it a classifier that folds
 	## two bands together still draws two legal, non-repeating headers.
 	var oracle_bands: Array = []
-	for r in ranked:
+	for r in ranked.slice(0, CAP):
 		var nm := String((r as Dictionary)["name"]).to_lower()
 		if nm.begins_with(needle):
 			oracle_bands.append("STARTS WITH")
@@ -319,10 +320,15 @@ func _find() -> void:
 		if kinds.get(name, "") != "settlement":
 			only_settlements = false
 	print("  info unscoped %d -> scoped %d · count '%s'" % [drawn.size(), scoped.size(), count.text])
-	_ok("the scope narrowed the list", scoped.size() < drawn.size(), true)
+	var settlements_ranked := 0
+	for r in ranked:
+		if String((r as Dictionary)["entity"]) == "settlement":
+			settlements_ranked += 1
+	_ok("the scope narrowed the list (drawn rows are capped, so the count line is the measure)",
+		settlements_ranked < ranked.size() and scoped.size() == mini(settlements_ranked, CAP), true)
 	_ok("every drawn row is a settlement", only_settlements, true)
 	_ok("the count still measures against the WHOLE index", count.text,
-		"%d of %d places · rebuilt on open" % [scoped.size(), total])
+		"%d of %d places · rebuilt on open" % [settlements_ranked, total])
 
 	print("\n=== J. the '.' scope reaches CommandIndex, and 'l' declines ===")
 	var oracle := CommandIndex.new()
@@ -333,7 +339,7 @@ func _find() -> void:
 	print("  info CommandIndex.size()=%d · drawn %d · count '%s'"
 		% [oracle.size(), cmds.size(), count.text])
 	_ok("an independently built CommandIndex is not empty", oracle.size() > 40, true)
-	_ok("the '.' scope draws all of it at an empty query", cmds.size(), oracle.size())
+	_ok("the '.' scope draws all of it at an empty query, to the 60-row cap", cmds.size(), mini(oracle.size(), CAP))
 	_ok("the count switches noun and total", count.text,
 		"%d of %d commands · rebuilt on open" % [oracle.size(), oracle.size()])
 	var inert := true
@@ -485,10 +491,23 @@ func _row_title(b: Node) -> String:
 			return (d as Label).text
 	return ""
 
+## 2026-11-12 (OUTSTANDING_WORK.md, "Search field lag"): the results column builds at most 60 rows and ends in a notice
+## "Showing the first 60 of N matches. ...". The literal 60 is the probe's own, not the shell's constant.
+const CAP := 60
+
+func _is_cap_footer(c: Node) -> bool:
+	return c is MarginContainer and c.get_child_count() > 0 and c.get_child(0) is Label 		and (c.get_child(0) as Label).text.begins_with("Showing the first")
+
+func _cap_footer_text() -> String:
+	for c in _live_children(_app.get("_desktop_search_results")):
+		if _is_cap_footer(c):
+			return (c.get_child(0) as Label).text
+	return ""
+
 func _bands_of() -> Array:
 	var out: Array = []
 	for c in _live_children(_app.get("_desktop_search_results")):
-		if c is MarginContainer and c.get_child_count() > 0 and c.get_child(0) is Label:
+		if c is MarginContainer and c.get_child_count() > 0 and c.get_child(0) is Label and not _is_cap_footer(c):
 			out.append((c.get_child(0) as Label).text)
 	return out
 
@@ -506,7 +525,7 @@ func _band_runs() -> Array:
 		if c is Button:
 			if out.size() > 0:
 				out[out.size() - 1][1] += 1
-		elif c is MarginContainer and c.get_child_count() > 0 and c.get_child(0) is Label:
+		elif c is MarginContainer and c.get_child_count() > 0 and c.get_child(0) is Label and not _is_cap_footer(c):
 			out.append([(c.get_child(0) as Label).text, 0])
 	return out
 
