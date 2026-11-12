@@ -282,6 +282,8 @@ var _browse_only := false
 ## verbatim — `indexed`/`scanned`/`truncated` included, because the panel has
 ## to report those and not only `hits`.
 var _search_query := ""
+## The browser's search field, so another part of the window (a tag's "Search the text") can fill it.
+var _search_field: LineEdit = null
 ## Last `vault_search` answer verbatim (see the comment above); set in `_run_search`, `{}` when the
 ## query is empty, and read by `_fill_search_results`.
 var _search_result := {}
@@ -1217,6 +1219,7 @@ func _build_browse_search(parent: Control) -> void:
 	parent.add_child(wrap)
 	var field := LineEdit.new()
 	field.placeholder_text = "Search notes…"
+	_search_field = field
 	field.text = _search_query
 	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	field.tooltip_text = "Typing narrows the tree by name. Enter also searches inside the notes -- once the content index exists; the results say when it does not."
@@ -2273,6 +2276,76 @@ func _show_link_menu(heading: String, items: Array, anchor: Control) -> void:
 	DccWidgets.popup_anchored(pm, r, 360)
 
 
+## Detaches one link from the open note (the Properties tab's Unlink). The link only: the note file is never
+## touched. Emits `store_changed` after the engine call so the host persists the link store.
+func _unlink_note_entity(link_id: String) -> void:
+	if not bridge.vault_detach(link_id):
+		app.set_status("hint", "That link is already gone.", "accent")
+	else:
+		store_changed.emit()
+		app.set_status("hint", "%s unlinked from its place." % _browse_path.get_file(), "text")
+	if _side_panel != null and is_instance_valid(_side_panel):
+		_side_panel.rebuild()
+
+
+## The Properties tab's Change... (`link_id` of the link to re-point) and Attach... (`""`): asks for the
+## place's name and hands it to [method rebind_note_entity].
+func _change_note_entity(link_id: String) -> void:
+	DccWidgets.prompt(PopoutHost.dialog_host(app, self), "Attach note to a place", "Name of the place (settlement, province, continent, faction, culture or landmark)", "", "Attach",
+		func(typed: String): rebind_note_entity(link_id, typed))
+
+
+## Attaches the open note to the place named `typed` (exact name, any case, through the same name table the
+## `[[` links use), keeping a heading selection of the link it replaces, then removes that old link. The new
+## link is made FIRST, so a refusal leaves the old one in place; and if the new link IS the old one (the same
+## place again) nothing is detached. Returns `{ok, error?, link_id?}` so the probe reads the outcome.
+func rebind_note_entity(old_link_id: String, typed: String) -> Dictionary:
+	var ent: Variant = _entity_names().get(typed.strip_edges().to_lower())
+	if ent == null:
+		var msg := "No place is named \"%s\"." % typed.strip_edges()
+		app.set_status("hint", msg, "accent")
+		return {"ok": false, "error": msg}
+	var heading := ""
+	for l in _links_for_file(_browse_path):
+		var ld: Dictionary = l
+		if String(ld.get("link_id", "")) == old_link_id and String(ld.get("selection_label", "")).begins_with("## "):
+			heading = String(ld["selection_label"]).trim_prefix("## ")
+	var r := bridge.vault_attach(String(ent["kind"]), int(ent["id"]), String(ent["name"]), _browse_path, heading)
+	if not bool(r.get("ok", false)):
+		var err := "Not attached: %s" % String(r.get("error", "refused")).trim_suffix(".")
+		app.set_status("hint", err, "accent")
+		return {"ok": false, "error": err}
+	if old_link_id != "" and old_link_id != String(r.get("link_id", "")):
+		bridge.vault_detach(old_link_id)
+	store_changed.emit()
+	app.set_status("hint", "%s attached to %s." % [_browse_path.get_file(), String(ent["name"])], "text")
+	if _side_panel != null and is_instance_valid(_side_panel):
+		_side_panel.rebuild()
+	return r
+
+
+## Runs the text search for `query` in the browser's own results box, as if it had been typed and Enter
+## pressed (the Tags tab's "Search the text for #tag"). The tree keeps showing every note: a `#` query is
+## not a name filter (`_refresh_browse_tree` skips it), so the search field and its results agree.
+func search_text_for(query: String) -> void:
+	_search_query = query
+	if _search_field != null and is_instance_valid(_search_field):
+		_search_field.text = query
+	_refresh_browse_tree()
+	_run_search()
+
+
+## The file tree's menu for the note `rel` (VE-6): one row, Rename..., at the pointer.
+func _show_tree_menu(rel: String, tree: Tree) -> void:
+	var pm := PopupMenu.new()
+	pm.name = "TreeMenu"
+	pm.add_item("Rename...", 0)
+	pm.id_pressed.connect(func(_id: int): request_rename_of(rel))
+	pm.popup_hide.connect(pm.queue_free, CONNECT_DEFERRED)
+	add_child(pm)
+	DccWidgets.popup_anchored(pm, Rect2(tree.get_global_mouse_position(), Vector2(2, 2)), 200)
+
+
 # -- The Note tab's host of the editor (PC-5, Ruling DY) ----------------------
 
 ## **One note focus, one writer.** The Context panel's Note tab (`context_note.gd`) shows a place's linked
@@ -2560,6 +2633,9 @@ func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 		_side_toggle = null
 		var open_btn := ed.add_header_button("⧉", "Open this note in the vault window: split view, outline, backlinks, properties and rename.", _open_docked_in_window)
 		open_btn.name = "NoteOpenInWindow"
+		## VE-6's open edge: rename from the docked tab, through the one flow (`request_rename_of`).
+		var ren_btn := ed.add_header_button("✎", "Rename this note. Links to it in your other notes are rewritten, and you are told how many first.", func(): request_rename_of(_browse_path))
+		ren_btn.name = "NoteRename"
 		if _goto_pending >= 0:
 			var l := _goto_pending
 			_goto_pending = -1
@@ -2601,6 +2677,13 @@ func _build_side_panel(host: BoxContainer, ed, wide: bool) -> void:
 	panel.apply_text = func(t: String): ed.replace_whole_text(t)
 	panel.say = func(msg: String): app.set_status("hint", msg, "text_ghost")
 	panel.rename_note = _request_rename
+	panel.entity_links = func() -> Array: return _links_for_file(_browse_path)
+	panel.change_entity = _change_note_entity
+	panel.unlink_entity = _unlink_note_entity
+	panel.private_reason = func(rel: String) -> String:
+		privacy().decide([rel])
+		return privacy().reason(rel) if privacy().is_private(rel) else ""
+	panel.search_text = search_text_for
 	panel.last_rename = func() -> Dictionary: return _rename_last
 	panel.undo_rename = _undo_rename
 	panel.private_suffix = func(rel: String) -> String:
@@ -3020,12 +3103,21 @@ static func rename_target(typed: String) -> String:
 ## lost or overwritten by the move. Only the window's editor renames (the docked Note tab has no side
 ## panel; its open-in-window button brings the note here).
 func _request_rename() -> void:
-	if _browse_path == "" or _editor == null or not is_instance_valid(_editor) or _editor_path != _browse_path or _dock_host != null:
+	if _browse_path == "" or _editor == null or not is_instance_valid(_editor) or _editor_path != _browse_path:
+		return
+	request_rename_of(_browse_path)
+
+
+## Rename any note of the vault, not only the open one (VE-6's open edges: the file tree's menu and the
+## docked Note tab call this, so there is exactly ONE rename flow and one planner, `vault_rename_plan`).
+## Whatever note is open is saved first through the one writer, because the move may rewrite links inside
+## it; if that save is refused the rename does not start. Public so the Note tab and the probe can reach it.
+func request_rename_of(old: String) -> void:
+	if old == "" or not bridge.vault_info().get("bound", false):
 		return
 	if not _write_now():
 		_rename_say("Not renamed: this note is not saved yet. Resolve the message above first.")
 		return
-	var old := _browse_path
 	DccWidgets.prompt(PopoutHost.dialog_host(app, self), "Rename note", "New name (a folder in it moves the note)", old.trim_suffix(".md"), "Rename",
 		func(typed: String): _rename_plan(old, rename_target(typed), false),
 		"Links to this note in your other notes are rewritten. You are told how many first.")
@@ -3036,7 +3128,7 @@ func _request_rename() -> void:
 ## a name Windows cannot hold) is said and nothing else happens. The note must still be the open one and
 ## saved; the plan's hash covers it and every note the plan would write.
 func _rename_plan(old: String, new_rel: String, undo: bool) -> void:
-	if _browse_path != old or _editor_path != _browse_path:
+	if _browse_path == old and _editor_path != _browse_path:
 		_rename_say("Not renamed: the note on screen is no longer %s." % old)
 		return
 	if not _write_now():
@@ -3117,7 +3209,7 @@ func _rename_describe(old: String, new_rel: String, plan: Dictionary, locked: Ar
 ## byte-restore of the files. A plan whose notes changed since the confirmation is refused whole and planned
 ## again.
 func _rename_run(old: String, new_rel: String, plan: Dictionary, undo: bool) -> void:
-	if _browse_path != old or _editor_path != _browse_path or not _write_now():
+	if (_browse_path == old and _editor_path != _browse_path) or not _write_now():
 		_rename_say("Not renamed: the note changed while you were deciding. Nothing was moved.")
 		return
 	var r := bridge.vault_rename(old, new_rel, String(plan.get("hash", "")))
@@ -3162,13 +3254,20 @@ func _rename_run(old: String, new_rel: String, plan: Dictionary, undo: bool) -> 
 ## `_editor_path` is cleared first so the old editor, alive until the rebuild, is never read as the new note.
 func _rename_follow(old: String, new_rel: String) -> void:
 	var tab_was := String(_side_panel.tab) if _side_panel != null and is_instance_valid(_side_panel) else ""
+	## The note moved may not be the open one (the file tree's menu): then the open note stays open, and is
+	## read again because the move may have rewritten links inside it (`_browse_hash` would be stale).
+	var open_moved := _browse_path == old
 	history_follow_rename(old, new_rel)
-	_pick_file = new_rel
+	if _pick_file == old or open_moved:
+		_pick_file = new_rel
 	for i in _link_back.size():
 		if String(_link_back[i]) == old:
 			_link_back[i] = new_rel
+	if _browse_path == "":
+		_rebuild()
+		return
 	_editor_path = ""
-	var rr := bridge.vault_read_file_for_edit(new_rel)
+	var rr := bridge.vault_read_file_for_edit(_browse_path)
 	if bool(rr.get("ok", false)):
 		var raw := String(rr.get("text", ""))
 		_eol_crlf = raw.contains("\r\n")
@@ -3190,10 +3289,8 @@ func _rename_follow(old: String, new_rel: String) -> void:
 func _undo_rename() -> void:
 	if _rename_last.is_empty():
 		return
-	if _browse_path != String(_rename_last.get("new", "")):
-		_rename_say("Open %s to undo its rename." % String(_rename_last.get("new", "")))
-		return
-	_rename_plan(_browse_path, String(_rename_last.get("old", "")), true)
+	## Any note can be undone from here now that any note can be renamed: the record names the moved note.
+	_rename_plan(String(_rename_last.get("new", "")), String(_rename_last.get("old", "")), true)
 
 
 ## Keyboard focus back to the text, after a dialog that promised "Ctrl+Z brings it back" closed. Two
@@ -3391,6 +3488,10 @@ func _build_browse_phone_switcher(parent: Control) -> void:
 ## walk would have to reason about separately.
 func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 	var q := _search_query.strip_edges().to_lower()
+	## A `#tag` query is a text search (`search_text_for`), not a name filter: no file name is meant to hold it,
+	## and filtering by it would empty the tree while the results below list real notes.
+	if q.begins_with("#"):
+		q = ""
 	var shown: Array = []
 	for f in files:
 		if q == "" or String(f).to_lower().find(q) >= 0:
@@ -3466,6 +3567,20 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 		## Synchronous, as it always was: the rebuild frees this Tree with
 		## `queue_free()`, which waits for the signal to return.
 		_select_file(rel))
+	## VE-6's open edge: rename from the file tree. A right-click on a note (or F2 on the selected one) opens a
+	## one-row menu. The press is taken before the Tree selects, so asking to rename a note does not also open
+	## it; the rename itself is `request_rename_of`, the same flow as the Properties tab's.
+	tree.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed 				and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT:
+			var hit := tree.get_item_at_position((ev as InputEventMouseButton).position)
+			if hit != null and String(hit.get_metadata(0)) != "":
+				tree.accept_event()
+				_show_tree_menu(String(hit.get_metadata(0)), tree)
+		elif ev is InputEventKey and (ev as InputEventKey).pressed and (ev as InputEventKey).keycode == KEY_F2:
+			var cur := tree.get_selected()
+			if cur != null and String(cur.get_metadata(0)) != "":
+				tree.accept_event()
+				request_rename_of(String(cur.get_metadata(0))))
 	parent.add_child(tree)
 	_badge_tree(leaves)
 	if shown.is_empty():

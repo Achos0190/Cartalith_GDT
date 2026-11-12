@@ -74,6 +74,17 @@ var undo_rename: Callable = Callable()
 ## Ruling DP (VE-9). `private_suffix(rel) -> String` answers the badge text for a note (`  ·  private`, or `""` for a
 ## public or undecided one) from the host's one cache, so a backlink or a mention of a private note is drawn as private.
 var private_suffix: Callable = Callable()
+## VE-5's open edges. `entity_links() -> Array` the store's links on the open note (`vault_all_links` rows);
+## `change_entity(link_id: String)` asks the host to re-point that link at another place (`""` = attach a
+## note that has none); `unlink_entity(link_id)` removes one link, never the note. `private_reason(rel) ->
+## String` is the host's cached reason the note is private (`""` = public or undecided). `search_text(q)`
+## runs the host's text search for `q`. Every one is a Callable so the panel knows neither the window nor
+## the bridge's writers.
+var entity_links: Callable = Callable()
+var change_entity: Callable = Callable()
+var unlink_entity: Callable = Callable()
+var private_reason: Callable = Callable()
+var search_text: Callable = Callable()
 
 ## The active tab key (one of `TABS`).
 var tab := "links"
@@ -470,10 +481,12 @@ func _jump(line: int, heading: String) -> void:
 ## cannot read safely (malformed, a repeated key) is listed read-only with the reason.
 func _build_props() -> void:
 	_build_rename()
+	_build_binding()
 	var info: Dictionary = bridge.vault_note_properties(_text())
 	var present := bool(info.get("present", false))
 	var editable := bool(info.get("editable", true))
 	var props: Array = info.get("properties", [])
+	_build_private(props, editable)
 	if not present:
 		_note("This note has no properties yet. Adding one creates the block at the top.")
 	elif not editable:
@@ -576,6 +589,77 @@ func _build_rename() -> void:
 		_body.add_child(u)
 
 
+## The entity binding (s.3.5): which place this note is attached to, the link's state in the store's own
+## words, and Change... / Unlink. A note can carry several links (a settlement and its province), so one row
+## each. Unlink removes the link only; the note and its text are untouched. The host does the writing.
+func _build_binding() -> void:
+	_heading("ATTACHED TO")
+	var links: Array = entity_links.call() if entity_links.is_valid() else []
+	if links.is_empty():
+		_note("This note is not attached to a place, so no place opens it. Attach it to one, or link to it from a place's note.")
+	for l in links:
+		var ld: Dictionary = l
+		var lid := String(ld.get("link_id", ""))
+		var row := VBoxContainer.new()
+		row.name = ("Bind_" + lid).validate_node_name()
+		_body.add_child(row)
+		var lab := DccTheme.label("%s · %s  ·  %s" % [String(ld.get("entity_kind", "")).capitalize(), String(ld.get("entity_label", "")), String(ld.get("status", "")).replace("_", " ")], "text", DccTheme.FS_SMALL)
+		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lab.custom_minimum_size.x = 120
+		row.add_child(lab)
+		var btns := HBoxContainer.new()
+		row.add_child(btns)
+		var ch := DccWidgets.action(btns, "Change…", func():
+			if change_entity.is_valid():
+				change_entity.call(lid))
+		ch.name = "BindChange"
+		ch.tooltip_text = "Attach this note to a different place instead."
+		_floor(ch)
+		var un := DccWidgets.action(btns, "Unlink", func():
+			if unlink_entity.is_valid():
+				unlink_entity.call(lid))
+		un.name = "BindUnlink"
+		un.tooltip_text = "Detaches this note from the place. The note itself is not changed or deleted."
+		_floor(un)
+	var add := DccWidgets.action(_body, "Attach to a place…", func():
+		if change_entity.is_valid():
+			change_entity.call(""))
+	add.name = "BindAttach"
+	_floor(add)
+
+
+## The Private switch (s.3.5, Ruling DP): the note's own `private: true` property, which the one rule
+## (`cartalith_vault::private`) reads. It is edited like any property, so every other line stays
+## byte-identical and the autosave writes it. A note can also be private for a reason the switch does not
+## own (a folder such as `Private/`, a tag): then the switch only controls the property, and the reason is
+## said, so turning it off is never read as making the note public.
+func _build_private(props: Array, editable: bool) -> void:
+	_heading("PRIVATE")
+	var flag := false
+	for p in props:
+		var pd: Dictionary = p
+		if String(pd.get("key", "")).to_lower() == "private":
+			var vals = pd.get("values", PackedStringArray())
+			flag = vals.size() > 0 and String(vals[0]).strip_edges().to_lower() in ["true", "yes", "y", "1", "on"]
+	var cb := CheckButton.new()
+	cb.name = "PrivateSwitch"
+	cb.text = "Private"
+	cb.tooltip_text = "Kept out of exports and the assistant. Sets a `private: true` property on this note."
+	cb.button_pressed = flag
+	cb.disabled = not editable
+	cb.toggled.connect(func(on: bool):
+		if on:
+			set_scalar("private", "true")
+		else:
+			remove_property("private"))
+	_floor(cb)
+	_body.add_child(cb)
+	_note("Kept out of exports and the assistant.")
+	var why: String = private_reason.call(_rel()) if private_reason.is_valid() else ""
+	if why != "" and not flag:
+		_note("Private already, by %s. This switch adds the property; it cannot lift that." % why)
+
+
 func _build_add_row() -> void:
 	_heading("ADD A PROPERTY")
 	var row := HFlowContainer.new()
@@ -673,6 +757,11 @@ func _build_tags() -> void:
 		_body.add_child(b)
 		if open:
 			var shown := 0
+			var srch := _row_button("      Search the text for #%s" % tag, "Searches inside the notes for #%s, not only the tag index: it also finds a mention in prose." % tag, func():
+				if search_text.is_valid():
+					search_text.call("#" + tag))
+			srch.name = ("TagSearch_" + tag).validate_node_name()
+			_body.add_child(srch)
 			for n in notes:
 				if shown >= TAG_NOTES_SHOWN:
 					_note("… and %d more." % (notes.size() - shown))
