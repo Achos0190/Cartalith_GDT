@@ -759,8 +759,12 @@ STYLO2_PEN_PROPOSAL.md section 6.4/6.5 and section 11 are the design; this is th
    `godot-project/addons/cartalith_pen.aar`. It must sit at the root of `addons/`: the template picks up
    `addons/*.aar` with a non-recursive file tree, so a subfolder is silently ignored (found by building once and reading
    the APK's permissions, which then lacked `BLUETOOTH_CONNECT`).
+   The build writes `build/outputs/aar/cartalith-pen-release.aar` (named after the Gradle project, not `pen-plugin-`).
+3. Point Cargo at the workspace `target` directory: set `CARGO_TARGET_DIR` to `cartalith-native/target` for the
+   `cargo ndk` step. `cartalith.gdextension` resolves every library as `res://../target/...`, so a build that writes
+   anywhere else (a worktree's own `target`, a different drive) exports an APK with no `libcartalith_godot.so`, or a stale one.
 
-**Per APK:** the Rust steps of section 1.3 are unchanged (`cargo ndk -t arm64-v8a build --release -p cartalith-godot`, check the
+**Per APK:** (the `CARGO_TARGET_DIR` of step 3 applies) the Rust steps of section 1.3 are unchanged (`cargo ndk -t arm64-v8a build --release -p cartalith-godot`, check the
 `.so` is fresh). Then export, supplying Godot's debug keystore through the environment (the Gradle route checks for a
 release keystore *before* it builds, so unlike the prebuilt route it leaves no unsigned APK behind):
 

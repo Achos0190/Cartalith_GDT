@@ -5,8 +5,12 @@ Scope, bars, risks: STYLO2_PEN_PROPOSAL.md (root). Pack it fixes: docs/evidence/
 
 Build (JDK 21, Android SDK with platform 36, the Gradle 8.13 distribution Godot also uses):
 
-    JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.13.21-hotspot" ANDROID_HOME="$LOCALAPPDATA/Android/Sdk" \n      <gradle-8.13>/bin/gradle assembleRelease test
-    cp build/outputs/aar/pen-plugin-release.aar ../../godot-project/android/libs/cartalith_pen.aar
+    JAVA_HOME="C:/Program Files/Microsoft/jdk-21.0.13.21-hotspot" ANDROID_HOME="$LOCALAPPDATA/Android/Sdk" \
+      <gradle-8.13>/bin/gradle assembleRelease test
+    cp build/outputs/aar/cartalith-pen-release.aar ../../godot-project/addons/cartalith_pen.aar
 
-The app Gradle build lists that file as a local dependency, so no editor plugin and no project.godot change is needed.
-See ANDROID_BUILD_SCOPE.md for the APK recipe.
+The output is named after the Gradle project (`rootProject.name = "cartalith-pen"` in settings.gradle.kts), so it is
+`cartalith-pen-release.aar`. The copy must sit at the root of `godot-project/addons/`: Godot's Android template picks up
+`addons/*.aar` with a non-recursive file tree, so a subfolder (or `android/libs/`) is silently ignored and the plugin is
+missing from the APK. No editor plugin and no project.godot change is needed.
+See ANDROID_BUILD_SCOPE.md section 3.14 for the APK recipe.
