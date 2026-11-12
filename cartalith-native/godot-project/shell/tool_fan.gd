@@ -904,4 +904,6 @@ func pill_label() -> String:
 			return "LASSO"
 		"colour_paint":
 			return "COLOUR"
+		"colour_fill":
+			return "FILL"
 	return String(app.armed_tool).capitalize().to_upper()

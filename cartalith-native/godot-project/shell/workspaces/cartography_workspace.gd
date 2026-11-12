@@ -996,6 +996,11 @@ func context_actions(req: Dictionary) -> Array:
 			"callable": _open_in_civil.bind(raw)})
 	if not bridge.has_world:
 		return rows
+	## CP-4 / CP-5 (`COLOUR_PAINT_SCOPE.md` §14): while a colour-paint tool is armed its brush settings are `"tool"`
+	## rows, which the phone's tool strip draws as `-` value `+` chips: size, colour, material, blend and Land only for
+	## the brush; level, cap, grow and Land only for the fill. Empty for every other tool.
+	if colour_paint != null:
+		rows.append_array(colour_paint.tool_rows(String(req.get("armed_tool", ""))))
 	var gx := float(req.get("gx", 0.0))
 	var gy := float(req.get("gy", 0.0))
 	if first.has("label"):
@@ -1077,6 +1082,13 @@ func _jump_view_field() -> void:
 func _jump_style_presets() -> void:
 	app.select_domain_category("cartography", "Style")
 	app.set_phone_detent("half")
+
+## The phone strip's Commit / Discard for the fill helper's previewed outline (`tool_strip.gd::_verbs` asks every
+## workspace); `{}` for every other tool, as the other workspaces answer.
+func draft_verbs(tool_id: String) -> Dictionary:
+	if colour_paint != null and tool_id == ColourPaintTool.ColourFill.TOOL_ID:
+		return colour_paint.fill.verbs()
+	return {}
 
 ## The shared element rows (`GlobalTools.element_rows`) changed a label or icon: redraw this workspace's two lists.
 func on_annotations_changed() -> void:

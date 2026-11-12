@@ -64,6 +64,7 @@ const HINTS := {
 	"sculpt": "Drag to sculpt · Commit bakes the draft",
 	"paint": "Drag to paint · Commit writes the dabs",
 	"colour_paint": "Drag to paint colour onto the map",
+	"colour_fill": "Tap inside a crater · Commit paints the outline",
 	"settlement": "Tap to place a settlement",
 	"label": "Tap to place a label",
 	"icon": "Tap to stamp an icon",

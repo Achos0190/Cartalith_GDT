@@ -329,6 +329,8 @@ func _ready() -> void:
 	colour_paint_layers_api = colour_paint_api and _has("colour_paint_layers")
 	for op in COLOUR_PAINT_LAYER_OPS:
 		colour_paint_layers_api = colour_paint_layers_api and _has(String(op))
+	colour_paint_fill_api = colour_paint_api and _has("colour_paint_fill_preview")
+	colour_paint_scale_api = colour_paint_api and _has("colour_paint_scale") and _has("colour_paint_marks_on_water")
 	ramp_api = _has("get_color_ramp") \
 		and _has("set_color_ramp") \
 		and _has("list_ramp_presets") \
@@ -1995,6 +1997,39 @@ func colour_paint_layer_edit(op: String, args: Array) -> Dictionary:
 		mark_world_dirty()
 	return d if d is Dictionary else {}
 
+
+## CP-5: `true` when the loaded extension has the fill helper's preview (set in `_ready`).
+var colour_paint_fill_api := false
+## CP-5 / Ruling EB item 7: `true` when it has Scale with the map and the on-water count (set in `_ready`).
+var colour_paint_scale_api := false
+
+## The outline of the crater under grid cell `(gx, gy)` (`WorldGen::colour_paint_fill_preview`): `{ok: true,
+## ring_km: PackedVector2Array, mode, cells, area_km2, level_m, auto_cap_km, cap_km?, seed}` or `{ok: false,
+## error}`. `opts` may hold `level_m` and `cap_km` (an absent `cap_km` is the automatic cap, never a number
+## standing for it). `{}` without the binding or while generating. Reads only: nothing is written.
+func colour_paint_fill_preview(gx: int, gy: int, opts: Dictionary) -> Dictionary:
+	if not colour_paint_fill_api or generating:
+		return {}
+	var d = world_gen.callv("colour_paint_fill_preview", [gx, gy, opts])
+	return d if d is Dictionary else {}
+
+## Scale with the map (`WorldGen::colour_paint_scale`): every mark's kilometre lengths times `factor`, one new
+## document. `{ok, marks}` or `{ok: false, error}`; `{}` without the binding or while generating.
+func colour_paint_scale(factor: float) -> Dictionary:
+	if not colour_paint_scale_api or generating:
+		return {}
+	var d = world_gen.callv("colour_paint_scale", [factor])
+	if d is Dictionary and bool((d as Dictionary).get("ok", false)):
+		mark_world_dirty()
+	return d if d is Dictionary else {}
+
+## How many land-only marks lie wholly on water now, or `null` when the engine cannot say (no binding, no world,
+## no paint, no scale) -- never `0` standing for "unknown".
+func colour_paint_marks_on_water() -> Variant:
+	if not colour_paint_scale_api or generating:
+		return null
+	var n = world_gen.callv("colour_paint_marks_on_water", [])
+	return int(n) if n is int else null
 
 # -- Colour ramp (`GUI_GAP_REGISTER.md` CA-02) ---------------------------------
 #

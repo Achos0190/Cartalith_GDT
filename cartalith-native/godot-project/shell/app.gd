@@ -205,7 +205,8 @@ static func tool_kind(id: String) -> int:
 	match id:
 		"inspect":
 			return ViewportHost.TOOL_NONE
-		"measure", "settlement", "label", "icon", "conflict", "route", "move_element":
+		"measure", "settlement", "label", "icon", "conflict", "route", "move_element", "colour_fill":
+			## `colour_fill` (CP-5): a tap seeds the crater outline, so a one-finger drag pans, like the tap tools.
 			return ViewportHost.TOOL_PLACING
 	return ViewportHost.TOOL_DRAWING
 

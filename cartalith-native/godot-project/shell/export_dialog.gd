@@ -122,6 +122,10 @@ const LAYERS := [
 	["icons", "Icons", true, "Landmark and settlement icons."],
 	["territory", "Borders", true, "Faction territory and province lines."],
 	["routes", "Journey routes", false, "Planned journey routes. Off by default."],
+	## CP-6 (`COLOUR_PAINT_SCOPE.md` §7, Ruling EA item 15): the project's colour paint (CARTO ▸ Colours) is part of the
+	## terrain picture, so it exports by default, as the screen shows it. Off draws the unpainted terrain. With no
+	## paint in the project the switch changes nothing.
+	["colour_paint", "Colour paint", true, "The colour paint on the map (CARTO > Colours), as the screen shows it. Off exports the terrain unpainted. Changes nothing when the project has no paint."],
 ]
 
 ## SM-3 (`STORY_MENUS_PROPOSAL.md` §3.1, Ruling CK): the File ▸ Export ▸ FOR

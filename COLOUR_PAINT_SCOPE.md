@@ -329,7 +329,7 @@ undoable like any stroke. Feasible.
 
 - **Brush size** in kilometres with a one-thumb control: the size row's
   slider plus a two-finger pinch on the canvas while the tool is armed
-  resizes the brush (not the map) with the ring shown; a long-press samples
+  resizes the brush (not the map) with the ring shown *(not built: §22 records why, Rulings DU, EB and EC give two fingers to the map)*; a long-press samples
   the colour under the finger (an eyedropper, which `spec/06-phone.md`'s
   long-press-pin conflicts with — the owner's MAP_CONTEXT F1 fork decides;
   until then the eyedropper is a button). *(2026-11-01: F1 had been settled
@@ -723,3 +723,43 @@ ruling); ~~the owner's confirmation of the layers interpretation against this
 build (Ruling CS says it is to be confirmed);~~ *(given 2026-11-01, Ruling EA
 item 15)*; phone reachability of CARTO ▸
 Colours on glass is still CP-4's.
+
+## 22. CP-4 to CP-7 and the notice as built (2026-11-12; verification in `STATUS.md`)
+
+**What this section is.** The build notes for the four remaining milestones and the map-width notice, the defaults taken
+where the scope left a choice, and one deviation. It defines nothing new and carries no status: how far it is verified
+is `STATUS.md`'s entry "Colour paint CP-4 to CP-7 and the map-width notice".
+
+- **CP-5, the fill helper** (§13). `cartalith_spatial::colour_paint::fill`: the prototype's closed fill and capped fill, total (every
+  out-of-range window an error), with the constants named: `SEEK_CELLS` 4, `MIN_CLOSED_CELLS` 20, `MAX_CLOSED_CELLS` 20 000,
+  `RIM_RAY_CELLS` 14, `RIM_MARGIN` 0.01, `CAP_OF_RIM_DISTANCE` 1.3 (the prototype's own), `MIN_RIM_RISE` 0.012 (a labelled judgement:
+  the user, not a detector, chose the crater, so the floor is a fifth of the detector's 0.06) and `MAX_CAP_CELLS` 60. The controls §13
+  asked for: **level** (metres off the automatic level), **cap** (km, automatic until moved) and **grow** (a hard stroke of that radius
+  along the ring, default 1.5 km as in the frames). **Defaults taken:** Land only is **off** for a fill (the owner's crater holds a
+  lake); the area is a hard-edged Replace/Colour/Multiply mark in the brush's own colour, blend, opacity and material; a click nearer the
+  edge than the rim rays refuses with a sentence. The tool is a tap tool, so on touch a drag pans.
+- **CP-4, phone and tablet** (§14). The brush's and the fill's settings are `"tool"` context rows, which the phone's tool strip draws
+  as `-` value `+` chips (`colour_paint_tool.gd::tool_rows`, `colour_fill.gd::tool_rows`); on the tablet and desktop the dock section
+  is unchanged (its touch floors were built under Ruling CS). **Deviation from §14, and why:** §14 said a two-finger pinch on the canvas
+  with the tool armed resizes the brush. Rulings DU, EB and EC, newer than this scope, give two fingers to the map's own pan, pinch and
+  turn, and a stray-stroke guard after two fingers; a pinch that resized the brush would take the zoom away from a colour-paint map.
+  §14's bar, *brush resize does not zoom the map*, is met by the Size stepper and the Radius slider, and the probe asserts both
+  halves (the stepper leaves the zoom alone; a pinch zooms and leaves the radius alone). §14's eyedropper is dropped by Ruling EA item 15.
+  **Not done:** the proof on glass (`adb`); no device was attached.
+- **The notice and Scale with the map** (§5, §17 Q5, Ruling EB item 7), exactly as §17 Q5 designs it. `PaintLayers::scaled` multiplies every
+  point, a stroke's radius, an area's edge band and an emissive glow radius (a length of the mark's own halo) by new width over old
+  about the top-left edge, in every layer, hidden and locked ones included; the lava plates' crack size is a material grain, not a length of the
+  shape, and is not scaled. **Defaults taken:** the width the paint is at is session state, not saved (a saved width would change
+  `appearance_paint.json`; a project reopened after a regenerate-and-save reads as at home); a different document arriving (an opened
+  project) resets it; painting while the notice is pending accepts the new width for the paint (the notice goes, Scale is no longer
+  offered); the on-water count is the land-only marks every vertex of which is on a water cell (the world's classification, else the sea
+  level), and the clause is left out, never printed as 0, when the engine cannot count.
+- **CP-6.** `content.colour_paint` (default true, §7), part of the terrain picture and not an overlay, so both export paths honour it and
+  the terrain-only `export_image` accepts it; the export dialog's switch list has Colour paint (on).
+- **CP-7.** Flatten is per bucket (`flatten_bucket`): where the single-mark rule §10 named ("a mark wholly covered by a later opaque Replace
+  mark") would drop almost nothing on scattered strokes, the bucket rule drops every earlier mark a later opaque Replace mark covers **over
+  the whole bucket rectangle**, so overdraw 13 collapses to the few marks that can still show. The cover test is exact in real arithmetic
+  (`coverage` is exactly 1 once `s >= half + max(band, px) / 2`, tested with `px` at the index margin and a 1 mm slack), a soft-edged
+  opaque Replace stroke covers over its solid core only, and a translucent, tinting, Multiply, pressure-weighted or emissive mark never
+  covers. The stress case of §10 used 0.8-opaque soft strokes, which no flatten may touch, so the CP-7 bar is measured on the same scatter
+  made opaque and hard (`colour_paint_flatten_cost`), stated as such.

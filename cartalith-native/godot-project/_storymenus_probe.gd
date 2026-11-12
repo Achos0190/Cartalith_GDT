@@ -481,9 +481,9 @@ func _sm3_presets() -> void:
 	_check("with a world: Player map… is enabled", not fexp.is_item_disabled(pl), fexp.get_item_tooltip(pl))
 	fexp.popup_hide.emit()
 	for preset in [["player", DccMenus.ID_EXPORT_PLAYER, {"rivers": true, "ways": true, "labels": true,
-			"icons": true, "territory": true, "routes": false}],
+			"icons": true, "territory": true, "routes": false, "colour_paint": true}],
 			["dm", DccMenus.ID_EXPORT_DM, {"rivers": true, "ways": true, "labels": true,
-			"icons": true, "territory": true, "routes": true}]]:
+			"icons": true, "territory": true, "routes": true, "colour_paint": true}]]:
 		fexp.id_pressed.emit(int(preset[1]))
 		await _frames(4)
 		var d = app.export_dialog

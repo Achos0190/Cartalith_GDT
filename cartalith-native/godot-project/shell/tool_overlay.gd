@@ -75,6 +75,12 @@ var _brush_expire_ms := -1
 ## armed-tool exclusivity already guarantees that).
 var path_preview: PackedVector2Array = []
 
+## CP-5 / the map-width notice's **Show marks** (`COLOUR_PAINT_SCOPE.md` §17 Q5): every colour-paint mark's outline,
+## one `PackedVector2Array` of grid-cell coordinates per mark (a stroke's centre line, an area's closed ring), drawn
+## as thin lines under the path preview. Presentation only: this node stores what `colour_paint_tool.gd` hands it and
+## never reads the engine; an empty array draws nothing. Shown once and cleared by its owner, never left on.
+var mark_outlines: Array = []
+
 ## ET-D5. The armed brush tool's symmetry, drawn as an axis / centre marker so the
 ## user sees where the mirror falls BEFORE drawing. Pure presentation: this node
 ## stores what it was told (`set_symmetry`) and the options the engine is given live
@@ -124,6 +130,9 @@ const REGION_DASH := 6.0
 ## construction preview, an in-progress edit, so it reads as "not committed
 ## yet" rather than "read-only measurement."
 const PATH_PREVIEW_COLOR := Color(0.427, 0.788, 0.667, 0.9)   ## teal
+## The mark outlines of Show marks (`mark_outlines`): amber, the colour the notice that offered them is drawn in
+## (`DccTheme` `warn`), with a little transparency so the map stays readable under a crowd of them. A labelled judgement.
+const MARK_OUTLINE_COLOR := Color(0.878, 0.659, 0.251, 0.85)
 ## Screen-pixel radius of a path-preview vertex dot; slightly smaller than a
 ## measure dot so a committed ruler outranks an in-progress path. Judgement.
 const PATH_PREVIEW_POINT_RADIUS := 2.6
@@ -295,6 +304,11 @@ func _expire_brush_ring() -> void:
 ## empty array clears it. Only the one armed click-chain tool may call this.
 func set_path_preview(points: PackedVector2Array) -> void:
 	path_preview = points
+	queue_redraw()
+
+## Replaces the Show marks outlines (an `Array` of `PackedVector2Array`s in grid cells); `[]` clears them.
+func set_mark_outlines(outlines: Array) -> void:
+	mark_outlines = outlines
 	queue_redraw()
 
 ## ET-D5. Sets the symmetry marker and redraws. `mode` is the engine's symmetry name
@@ -483,6 +497,16 @@ func _draw() -> void:
 	## axis it is mirrored about.
 	if symmetry_mode != "none":
 		_draw_symmetry(rect, k)
+
+	for ol in mark_outlines:
+		var pts: PackedVector2Array = ol
+		var os := PackedVector2Array()
+		for p in pts:
+			os.append(_grid_to_screen(p, rect, k))
+		if os.size() > 1:
+			draw_polyline(os, MARK_OUTLINE_COLOR, 1.4, true)
+		elif os.size() == 1:
+			draw_circle(os[0], 3.0, MARK_OUTLINE_COLOR, true, -1.0, true)
 
 	if path_preview.size() > 0:
 		var pp_screen := PackedVector2Array()

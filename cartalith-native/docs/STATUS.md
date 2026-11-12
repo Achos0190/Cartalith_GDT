@@ -1004,6 +1004,68 @@ Installed with `adb install -r`; the user's worlds on the device were untouched.
 - **Welcome:** idle mode is held off across the two frame waits and restored. Pad check: not yet made. The APK (debug certificate, Gradle route with the pen plugin, 105 897 314 bytes) is built at `C:\cw\Cartalith-scrollfix-EM.apk`; the Pad 3 was not reachable by `adb` at the time (no mDNS service, only the 6T on USB), so it is **not installed**, and neither the tablet form after Ruling EM nor the welcome card without a touch has been seen on the glass.
 - **Pen pressure:** answered, then built the same day: see "Pressure controls" below.
 
+### Colour paint CP-4 to CP-7 and the map-width notice built (2026-11-12)
+
+**Built, tested and probed on the real engine at desktop, tablet and phone sizes; the proof on glass (an `adb` run on a handset) is not made, no device
+was attached.** *Re-opened at the symbols first (Audit C's list, `OUTSTANDING_AUDIT_2026-11-12_C.md`), "already built: no" for each:* CP-4, CP-5, CP-6,
+CP-7 and the Scale-with-the-map notice. `colour_paint_tool.gd` had no fill, no export switch, no notice, no scale and no strip rows; `ExportContent` had
+no paint key; `build_index` kept every mark in every bucket; `COLOUR_PAINT_SCOPE.md` section 5 and section 17 Q5 said the notice was "not built".
+
+- **CP-5, the fill helper.** `cartalith_spatial::colour_paint::fill` (new, godot-free: `fill_from_click`, `FillParams`, `FillMode`, `FillError`; the
+  closed fill to the pour point and the capped fill moved out of `tests/colour_paint_frames.rs` and made total, every out-of-range window an error).
+  Bridge `colour_paint_fill_preview(gx, gy, {level_m?, cap_km?})` (read-only; an absent `cap_km` is the automatic cap), `colour_paint_info` gains
+  `map_width_km`. Shell `colour_fill.gd` (new): the tap tool `colour_fill` (`DccApp.tool_kind` PLACING, so a one-finger drag pans on touch), a preview
+  ring on the overlay, Level, Cap, Grow and Land only (off by default for a fill: the scope's crater holds a lake), Commit as an `Area` mark plus a hard
+  grow stroke through `colour_paint_tool.gd::commit_marks` as ONE undo step "Fill" (all or nothing), Esc discards then disarms, arming another tool
+  or a world change clears the preview.
+- **CP-4, the thumb path.** While `colour_paint` or `colour_fill` is armed the cartography provider offers `"tool"` rows
+  (`colour_paint_tool.gd::tool_rows`: Size, Colour, Material, Blend, Land only; the fill's Level, Cap, Grow, Land only, and the strip's Commit and
+  Discard through `CartographyWorkspace.draft_verbs`), which the phone's tool strip draws as `-` value `+` chips: every brush setting is one tap from the
+  map with the dock sheet down. **Deviation from `COLOUR_PAINT_SCOPE.md` section 14, recorded:** a two-finger pinch does NOT resize the brush. Rulings DU, EB
+  and EC (newer than the scope) give two fingers to the map's own pan and zoom; section 14's bar is only that resizing does not zoom the map, which the Size
+  stepper and the Radius slider meet, and the probe asserts both halves (the stepper leaves the zoom at 1.2061 to 1.2061; a pinch zooms 1.206 to 1.568 and
+  leaves the radius).
+- **The notice and Scale with the map (Ruling EB item 7, `COLOUR_PAINT_SCOPE.md` section 17 Q5).** `PaintLayers::scaled(factor)` (every point, a stroke's radius, an
+  area's edge and an emissive glow radius times the factor about the top-left edge, every layer including hidden and locked ones; refused whole for a bad
+  factor or a stroke shrunk below `MIN_RADIUS_KM`), bridge `colour_paint_scale`, `colour_paint_marks_on_water` (absent, never 0, when it cannot count). Shell
+  `colour_paint_notice.gd` (new): the `warn` row heading CARTO > Colours > Paint colour with the scope's sentence in the Preferences units (*Map width 497 mi
+  to 746 mi: 2 paint marks kept their real size and position; 1 now on water is hidden, not deleted.* on this machine), Show marks / Scale with the map /
+  Dismiss, the toast, and the undo step "Scale paint with the map" that carries the width so one undo brings the notice back. **Defaults taken, recorded:**
+  the width the paint is at is session state (not saved: that would change `appearance_paint.json`), an opened project's paint is at home on its own world,
+  painting while the notice is pending accepts the new width, and the on-water count uses `civ.water_bodies` when present, else the sea level.
+- **CP-6.** `ExportContent::colour_paint` (default `true`, content key `colour_paint`, not an overlay), threaded through `export_render_with` and
+  `export_snapshot_inputs` (both export paths); the export dialog's LAYERS list gains Colour paint (on), and `_storymenus_probe.gd`'s expected switches
+  include it.
+- **CP-7.** `build_index` flattens opaque overdraw per bucket (`flatten_bucket`, `covers_bucket`): a flat, opacity 1, Replace, no-strength mark whose solid core
+  (hard, or soft over its core) contains the whole bucket rectangle grown by the index margin drops the earlier marks it buries (all of them when it paints
+  water too, only land-only ones when it is land-only). `from_layers_with(.., flatten)` keeps the unflattened build as the reference. Equality is to a few
+  ulps in `apply`; the rendered tile bytes were identical.
+- **Verification (2026-11-12, base `d9b596ee`, the machine loaded by other agents).** `cargo test --workspace --no-fail-fast -j 3`: 272 result lines, 8 007
+  passed, 0 failed, 159 ignored (new: `fill.rs` 5, `colour_paint.rs` 5, `tests/export_options.rs` 1). **Mutation:** 16 literal Rust mutants (the land/water drop
+  rule, the half-diagonal, opacity, blend, strength, emissive and inside checks of the cover test; the scale factor, glow radius and minimum-radius check; the
+  fill's rim-rise floor, rim margin, level, cap and edge guard) 16 killed (the rim-margin one survived the first fixture and was killed after a test with a
+  shelf under the rim was added), by `C:\cw\cp47_mut.py` (exact literal, occurs once, restored in `finally`, hash checked). **CP-7's bar** (`colour_paint_flatten_cost`,
+  release, stress case d made opaque and hard, overdraw 13.24, bucket entries 286 993 to 58 152): unpainted 7.88 ms (2.77..9.29), unflattened 11.45 ms = **1.453x**,
+  flattened 8.34 ms = **1.059x** (bar 1.25x); a second separate run 8.16 / 11.72 = 1.436x / 8.64 = 1.059x; tile bytes that differ between the two builds: 0.
+  The scope's own §10 stress strokes were 0.8-opaque and soft, which no flatten may touch, so the bar is measured on the opaque scatter, stated as such.
+  **Frames** (`colour_paint_fill_frames`, x1/x4/x16/x64, `docs/evidence/colour-paint-fill-2026-11-12/`, five of the 32 kept): four clicks, all capped fills (the
+  scope's §13 finding again), 0.46 to 0.53 ms each, 58 to 86 km2; the crater reads red with its relief at x16 and x64, an edge one pixel wide, and the
+  lobe where the cap closes the breach is visible, as §13 says to expect. **Windowed `_cp47_probe`** (new), real input through the app's dispatch, under the
+  window lock per run: **desktop 1600x900 79 checks, 0 failed; tablet 2560x1600 touch 79/0; phone 1080x2340 touch 83/0**, no SCRIPT ERROR. It covers A the rows
+  and the stepper/pinch split, B the fill (a crater found by asking the engine, preview closed ring, Level and Cap reshape it, Commit is one undo step that moves
+  203 of 225 raster px inside the ring and none far away, undo and redo, Esc twice, arming another tool, a locked layer refuses with the document untouched, an
+  edge tap says why), C the notice (sentence, marks unchanged, exactly 1 on water of 2, Show marks, Scale x1.5 on every point and radius as one step, undo
+  restores the marks and the notice, redo, Dismiss, same width no notice, a stroke accepts the new width, outlines clear themselves), D export (default equals
+  `colour_paint` true, differs from false, false equals the paint-cleared export byte for byte, a non-bool is refused, on the terrain path and the overlay
+  session path).
+- **GDScript mutation and regression probes:** 4 literal mutants run through the desktop probe, 4 killed (the Size step 1.25 to 1.0; the scale factor inverted;
+  the grow stroke dropped; undo not restoring the paint's width). Existing probes re-run under the lock: `_colourpaint` desktop 47/0 and phone 48/0,
+  `_undogroup` desktop 111/0, `_exportdialog` desktop PASS; `_storymenus` desktop 88 checks, 7 failed, **all seven in the Story menu's "Notes for this place" rows,
+  none in the export presets** (the preset leg, which this change touched, passes); they are on the base before the verification pass `da0dbbbf` and were not
+  re-run on top of it. A literal mutant of `COVER_EPS_KM` was not run (a 1 mm slack on a bound the tests sit far from).
+- **Not done / open:** the proof on glass (no device attached); the section 4 local-contrast halo measurement; a saved width for the notice; a probe of the tablet or
+  phone Commit chip by touch (the strip's verbs are asserted through `_verbs()`, not pressed).
+
 ### Colour paint per-point pen strength (Ruling EQ item 1, 2026-11-11)
 
 **Built in code; the verification line is below. The pen on the glass is the owner's.** Colour marks gained an optional
@@ -2195,7 +2257,7 @@ the measurements. Evidence folders are under `cartalith-native/docs/evidence/`.
 | Subsystem | State (2026-10-19) | Defined in | Evidence folders |
 |---|---|---|---|
 | **Asset pack tools AP-1…AP-10** | all built (Ruling CQ; AP-10 and the switched premultiplied blit/bake, Ruling CR, `ab481c96`) — `cartalith-assets/src/{pack_import,pack_report,seamless,near_dupes,refine,lineart,folder_import,pack_diff}.rs` | `ASSET_PACK_TOOLS_PROPOSAL.md` (§9 AP-10, §10 as built); `LINEART_METHODS_RESEARCH_2026-10-18.md` | `asset-library-2026-10-18`, `asset-pack-ap1-2026-10-18` … `asset-pack-ap89-2026-10-19`, `lineart-2026-10-18`, `lineart-ap10-2026-10-19` |
-| **Colour paint** (CARTO ▸ Colours) | CP-1, CP-1M (lava material), CP-2, CP-3 and Ruling CS's named layers built; **default blend Colour** since `76f96166`; CP-4…CP-7 not built — `cartalith_spatial::colour_paint`, `colour_paint_bridge.rs`, `shell/colour_paint_tool.gd` | `COLOUR_PAINT_SCOPE.md` (§16 milestones, §18-§21 as built); save slot in `SAVEFILE_COMPAT.md` (`appearance_paint.json`) | `colour-paint-2026-10-18`, `colour-paint-lava-2026-10-18`, `colour-paint-layers-2026-10-19` |
+| **Colour paint** (CARTO ▸ Colours) | CP-1, CP-1M (lava material), CP-2, CP-3 and Ruling CS's named layers built; **default blend Colour** since `76f96166`; **CP-4 to CP-7 and the map-width notice built 2026-11-12** (see "Colour paint CP-4 to CP-7 and the map-width notice built" above; not proven on glass) — `cartalith_spatial::colour_paint`, `colour_paint_bridge.rs`, `shell/colour_paint_tool.gd` | `COLOUR_PAINT_SCOPE.md` (§16 milestones, §18-§21 as built); save slot in `SAVEFILE_COMPAT.md` (`appearance_paint.json`) | `colour-paint-2026-10-18`, `colour-paint-lava-2026-10-18`, `colour-paint-layers-2026-10-19` |
 | **3D viewport** | 3D-0 measured GO, 3D-1 built (gate + empty mode), 3D-2 built (Basic terrain, camera, HEIGHT row on PC and tablet); 3D-3…3D-8 not built — `shell/view3d_gate.gd`, `shell/view3d.gd`, `shell/view3d_camera.gd`, `shell/view3d_terrain.gd`, `WorldGen.view3d_tile` | `3D_VIEWPORT_SCOPE.md`; `DECISIONS.md` §4a; Rulings CS item 4, CT, EB items 4–6 | `3d0-2026-10-19`, `3d1-2026-10-19`, `3d2-2026-11-12` |
 | **Landmark filter and zoom law** | built (owner request, no scope document); **the master switch also hides hand-placed POI icons** since `4be27175` — `shell/landmark_filter_panel.gd`, `map_overlay.gd::_landmark_shown` / `_icon_layer_hidden` / `_landmark_zoom_k` | the dated entry below; landmark generation itself is `LANDMARK_GENERATION_SCOPE.md` | `landmark-filter-2026-10-19` |
 | **Orogen mountain ranges** | on in the app (`tect.orogen_relief`, Rulings CU item 1 and CV); since `b9e2db42` the relief term is `cartalith_terrain::orogen::gully_noise` and the late fill is `orogen::breach_belt_pits` (the ridged term and Priority-Flood+ε fill are gone); the multi-sheet belt is not built | `MOUNTAIN_RELIEF_INVESTIGATION_2026-10-17.md` (§7.7 the follow-up) | `mountain-relief-2026-10-17`, `orogen-relief-2026-10-19`, `orogen-followup-2026-10-19` |

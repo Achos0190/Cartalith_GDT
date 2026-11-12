@@ -96,7 +96,7 @@ var material := "colour"
 ## choices: the material and its colour, the blend, the brush and the heat parameters. Not the marks (the engine's)
 ## and not the active layer or the undo stacks (they belong to the document the engine holds).
 const TOOL_STATE_KEYS := ["material", "rgb", "blend", "radius_km", "hardness", "opacity", "land_only", "heat",
-	"crack", "glow_km", "heat_along"]
+	"crack", "glow_km", "heat_along", "fill_grow_km", "fill_land_only"]
 
 func export_tool_state() -> Dictionary:
 	var out := {}
@@ -119,6 +119,20 @@ var heat := 0.75
 var crack := 0.5
 var glow_km := 1.5
 var heat_along := 0.0
+## CP-5: the fill helper's two persistent settings (`colour_fill.gd`): the grow stroke's radius in km along the
+## outline (`0` = none), and whether a fill leaves water alone. Land only is OFF by default for a fill, unlike a
+## stroke: the scope's own case is a crater that holds a lake (`COLOUR_PAINT_SCOPE.md` §13), which a fill that spared
+## water would leave unpainted. The level and the cap are per click and live in `colour_fill.gd`.
+var fill_grow_km := 1.5
+var fill_land_only := false
+
+## CP-5: the fill helper (`colour_fill.gd`) and the map-width notice with Scale with the map
+## (`colour_paint_notice.gd`). Both are created by `setup()`; both are no-ops until then, so a probe that builds the
+## tool by hand without `setup` still gets a working brush.
+const ColourFill := preload("res://shell/colour_fill.gd")
+const ColourNotice := preload("res://shell/colour_paint_notice.gd")
+var fill
+var notice
 
 ## The stroke being drawn, in km, and its grid-cell copy for the preview line.
 var _pts_km: Array = []
@@ -151,6 +165,9 @@ var _mat_rows: Array = []
 var _colour_row: Control
 var _pick: ColorPickerButton
 var _blend_ob: OptionButton
+## The Radius slider's parts (`DccWidgets.slider`'s dictionary), so the phone strip's Size stepper can move the
+## slider's thumb and readout with it (`set_radius`), the one brush radius in two places.
+var _radius_slider: Dictionary = {}
 
 ## The active paint layer, as the engine's index (0 = bottom): where strokes
 ## go and what Rename / Clear layer / Delete layer act on. Clamped on every
@@ -167,14 +184,21 @@ var _layer_actions: Dictionary = {}
 func setup(app_: Node, bridge_: Node) -> void:
 	app = app_
 	bridge = bridge_
+	fill = ColourFill.new(self)
+	notice = ColourNotice.new(self)
 	if app != null and app.has_method("register_tool_click_handler"):
 		app.register_tool_click_handler(TOOL_ID, _on_press)
 		app.register_tool_drag_handler(TOOL_ID, _on_drag)
 		app.register_tool_release_handler(TOOL_ID, _on_release)
+		## CP-5: the fill tool is a tap tool (`DccApp.tool_kind`): a click seeds the outline, Esc discards it.
+		app.register_tool_click_handler(ColourFill.TOOL_ID, fill.on_click)
+		app.register_tool_escape_handler(ColourFill.TOOL_ID, fill.on_escape)
 	if app != null and app.has_signal("tool_armed"):
 		app.tool_armed.connect(func(id: String):
 			if id != TOOL_ID:
-				_cancel_stroke())
+				_cancel_stroke()
+			if id != ColourFill.TOOL_ID:
+				fill.cancel())
 
 ## Kilometres per grid cell, or a negative number when the world has none (no
 ## binding, generating, no map width). Never a guessed scale.
@@ -191,6 +215,9 @@ func build_into(parent: Control) -> void:
 	if bridge == null or not bridge.colour_paint_api:
 		DccWidgets.note(body, "Colour paint is not available in this version of Cartalith, so the tool cannot paint.")
 		return
+	## The map-width notice heads the section (`COLOUR_PAINT_SCOPE.md` §17 Q5): paint's home on every form, the dock
+	## and the phone's CARTO sheet alike; hidden (zero height) until a regenerate changes the width under paint.
+	notice.build_into(body)
 	var arm := DccWidgets.action(body, "Paint on the map", func(): app.arm_tool(TOOL_ID), true)
 	arm.tooltip_text = "Arms the colour brush: press and drag on the map to paint one stroke. Paint is presentation only -- it never changes the world."
 	## Material first and prominent: the owner's lava case is a material, not a colour.
@@ -234,7 +261,7 @@ func build_into(parent: Control) -> void:
 		bl.append(String(b2["label"]))
 	_blend_ob = DccWidgets.choice(body, "Blend", bl, _blend_index(), func(i: int): blend = String(BLENDS[i]["key"]),
 		"Colour (the default): the colour's hue at the ground's own lightness -- keeps texture and relief; cannot make snow deep red. Replace: the colour itself, shaded by the relief. Multiply: a stain that only darkens. Picking a material loads its own default (glow materials use Replace).")
-	DccWidgets.slider(body, "Radius", 0.05, 25.0, 0.05, radius_km, "km", func(v: float):
+	_radius_slider = DccWidgets.slider(body, "Radius", 0.05, 25.0, 0.05, radius_km, "km", func(v: float):
 		radius_km = v
 		_refresh_ui(),
 		"Brush radius in map kilometres: the same ground at every zoom and in the export.")
@@ -255,6 +282,8 @@ func build_into(parent: Control) -> void:
 		"How far the glow spills onto the ground around the stroke."))
 	_mat_rows.append(DccWidgets.slider(body, "Cool along stroke", 0.0, 1.0, 0.05, heat_along, "", func(v: float): heat_along = v,
 		"How much a stroke cools from where it starts to where it ends: a flow cooling away from its vent."))
+	## CP-5: the fill helper's block (tool button, level / cap / grow, Commit, Discard); absent without the binding.
+	fill.build_into(body)
 	if bridge.colour_paint_layers_api:
 		_build_layers(body)
 	var row := HBoxContainer.new()
@@ -320,6 +349,10 @@ func _refresh_ui() -> void:
 		_undo_btn.disabled = _undo.is_empty()
 	if _redo_btn != null and is_instance_valid(_redo_btn):
 		_redo_btn.disabled = _redo.is_empty()
+	if notice != null:
+		notice.refresh()
+	if fill != null:
+		fill.refresh_ui()
 	if _status == null or not is_instance_valid(_status):
 		return
 	var info: Dictionary = bridge.colour_paint_info()
@@ -469,22 +502,12 @@ func commit_line(points_km: Array, strengths: Array = []) -> bool:
 	for p in points_km:
 		var v: Vector2 = p
 		pts.append([snappedf(v.x, 0.001), snappedf(v.y, 0.001)])
-	var mark := {
-		"shape": {"kind": "line", "points_km": pts, "radius_km": radius_km},
-		"rgb": [rgb.r8, rgb.g8, rgb.b8],
-		"opacity": opacity,
-		"hardness": hardness,
-		"blend": blend,
-		"land_only": land_only,
-	}
+	var mark := brush_mark({"kind": "line", "points_km": pts, "radius_km": radius_km}, hardness, land_only)
 	if not strengths.is_empty():
 		var st: Array = []
 		for v in strengths:
 			st.append(snappedf(clampf(float(v), 0.0, 1.0), 0.001))
 		mark["strength"] = st
-	if material != "colour":
-		var m: Dictionary = MATERIALS[_material_index()]
-		mark["emissive"] = {"ramp": String(m["ramp"]), "heat": heat, "crack_density": crack, "glow_radius_km": glow_km, "heat_along": heat_along}
 	var before: String = bridge.colour_paint_document()
 	## Into the active paint layer (Ruling CS); a binary without layers takes
 	## the stroke on top as CP-2 did.
@@ -495,8 +518,121 @@ func commit_line(points_km: Array, strengths: Array = []) -> bool:
 			app.set_status("hint", "Not painted: %s" % String(r.get("error", "the engine refused the stroke")), "warn")
 		return false
 	_push_undo(before, "Paint stroke" if material == "colour" else "%s stroke" % String(MATERIALS[_material_index()]["label"]))
+	## A new stroke while the map-width notice is pending accepts the new width for the paint (`notice.accept`).
+	if notice != null:
+		notice.accept()
 	_after_edit()
 	return true
+
+## One mark in the engine's JSON shape (`ColourMark`) for `shape` (a `{kind: line | area, ...}` dictionary) with the
+## current brush: colour, opacity, blend and, for a glow material, its emissive block. `hard` and `land` are the two
+## values a caller may differ on (the fill helper's marks are hard-edged and take their own Land only). Never carries
+## `strength`: that is a stroke's per-point pen reading, which the caller adds.
+func brush_mark(shape: Dictionary, hard: float, land: bool) -> Dictionary:
+	var mark := {
+		"shape": shape,
+		"rgb": [rgb.r8, rgb.g8, rgb.b8],
+		"opacity": opacity,
+		"hardness": hard,
+		"blend": blend,
+		"land_only": land,
+	}
+	if material != "colour":
+		var m: Dictionary = MATERIALS[_material_index()]
+		mark["emissive"] = {"ramp": String(m["ramp"]), "heat": heat, "crack_density": crack, "glow_radius_km": glow_km, "heat_along": heat_along}
+	return mark
+
+## Appends `marks` (engine JSON, each from `brush_mark`) to the active layer as ONE undo step labelled `label`. All or
+## nothing: if the engine refuses any mark, the document is put back as it was and nothing is pushed. Returns whether
+## it was applied; on a refusal the status line says why. The fill helper's area and its grow stroke go through here.
+func commit_marks(marks: Array, label: String) -> bool:
+	if marks.is_empty() or bridge == null or bridge.generating:
+		return false
+	var before: String = bridge.colour_paint_document()
+	for m in marks:
+		var r: Dictionary = bridge.colour_paint_layer_edit("colour_paint_add_mark_to", [_clamped_active(), JSON.stringify(m)]) \
+			if bridge.colour_paint_layers_api else bridge.colour_paint_add_mark(JSON.stringify(m))
+		if not bool(r.get("ok", false)):
+			if before != "" or marks.find(m) > 0:
+				bridge.colour_paint_set_document(before)
+			if app != null and app.has_method("set_status"):
+				app.set_status("hint", "Not painted: %s" % String(r.get("error", "the engine refused the mark")), "warn")
+			return false
+	_push_undo(before, label)
+	if notice != null:
+		notice.accept()
+	_after_edit()
+	return true
+
+## The brush radius, set from outside the slider (the phone strip's Size stepper): clamped to the slider's own range,
+## the slider's thumb and readout moved with it, and the status line (the readout in cells and pixels) redrawn.
+func set_radius(km: float) -> void:
+	radius_km = clampf(snappedf(km, 0.01), 0.05, 25.0)
+	if not _radius_slider.is_empty() and is_instance_valid(_radius_slider["slider"]):
+		(_radius_slider["slider"] as HSlider).set_value_no_signal(radius_km)
+		(_radius_slider["readout"] as Label).text = (_radius_slider["format"] as Callable).call(radius_km)
+	_refresh_ui()
+
+## The armed tool's `"tool"`-section context rows (`context_broker.gd`'s contract: `{id, label, section, enabled,
+## param: {value: Callable -> String, step: Callable(dir)}}`), which the phone's tool strip draws as `-` value `+`
+## chips and the card draws as steppers. This is CP-4's thumb path (`COLOUR_PAINT_SCOPE.md` §14): the brush
+## size, colour, material, blend and Land only reachable from the map with the dock sheet down, one tap each, none of
+## them a pinch (two fingers belong to the map's own pan and zoom; Ruling EC and `MOBILE_SHELL_PROPOSAL.md` §2.5).
+## `[]` for any tool but the two this object owns, and while the engine is busy.
+func tool_rows(armed: String) -> Array:
+	if bridge == null or bridge.generating or not bridge.colour_paint_api:
+		return []
+	if armed == ColourFill.TOOL_ID:
+		return fill.tool_rows()
+	if armed != TOOL_ID:
+		return []
+	return [
+		{"id": "carto.cp_size", "label": "Size", "section": "tool", "enabled": true, "param": {
+			"value": func() -> String: return "%.2f km" % radius_km,
+			"step": func(dir: int) -> void: set_radius(radius_km * pow(SIZE_STEP, float(dir)))}},
+		{"id": "carto.cp_colour", "label": "Colour", "section": "tool", "enabled": true, "param": {
+			"value": func() -> String: return _swatch_name(),
+			"step": func(dir: int) -> void: _step_swatch(dir)}},
+		{"id": "carto.cp_material", "label": "Material", "section": "tool", "enabled": true, "param": {
+			"value": func() -> String: return String(MATERIALS[_material_index()]["label"]),
+			"step": func(dir: int) -> void: _set_material(posmod(_material_index() + dir, MATERIALS.size()))}},
+		{"id": "carto.cp_blend", "label": "Blend", "section": "tool", "enabled": true, "param": {
+			"value": func() -> String: return String(BLENDS[_blend_index()]["label"]).get_slice(" ", 0),
+			"step": func(dir: int) -> void: _step_blend(dir)}},
+		{"id": "carto.cp_land", "label": "Land only", "section": "tool", "enabled": true, "param": {
+			"value": func() -> String: return "on" if land_only else "off",
+			"step": func(_dir: int) -> void: land_only = not land_only}},
+	]
+
+## The Size stepper's ratio per press: x1.25 (or its inverse). Labelled judgement: 12 presses span the slider's
+## 0.05..25 km range (500x is 25 presses at 1.25), few enough for a thumb and fine enough to land on a radius.
+const SIZE_STEP := 1.25
+
+## The swatch the brush colour equals, by name, or `"custom"` (a colour from the picker or a material's crust).
+func _swatch_name() -> String:
+	var i := _swatch_index()
+	return String(SWATCHES[i][0]) if i >= 0 else "custom"
+
+func _swatch_index() -> int:
+	for i in SWATCHES.size():
+		if (SWATCHES[i][1] as Color).to_html(false) == rgb.to_html(false):
+			return i
+	return -1
+
+## Steps the brush colour through `SWATCHES` (`dir` +1 / -1), from the first or last when it is a custom colour.
+func _step_swatch(dir: int) -> void:
+	var i := _swatch_index()
+	var n := SWATCHES.size()
+	i = (0 if dir > 0 else n - 1) if i < 0 else posmod(i + dir, n)
+	rgb = SWATCHES[i][1]
+	if _pick != null and is_instance_valid(_pick):
+		_pick.color = rgb
+
+## Steps the blend (`dir` +1 / -1) and moves the Blend row with it.
+func _step_blend(dir: int) -> void:
+	blend = String(BLENDS[posmod(_blend_index() + dir, BLENDS.size())]["key"])
+	if _blend_ob != null and is_instance_valid(_blend_ob):
+		_blend_ob.select(_blend_index())
 
 func _preview() -> void:
 	if app == null or app.viewport == null or app.viewport.tool_overlay == null:
@@ -830,6 +966,10 @@ func _step(from: Array, to: Array) -> bool:
 	for k in ["n", "group"]:
 		if entry.has(k):
 			moved[k] = entry[k]
+	## Scale with the map's step carries the map width the paint is "at" (`colour_paint_notice.gd`): stepping over
+	## it swaps that width with the current one, so undo brings the notice back and redo takes it away again.
+	if notice != null:
+		notice.on_step(entry, moved)
 	to.append(moved)
 	_after_edit()
 	return true
@@ -861,13 +1001,21 @@ func _push_undo(doc: String, label: String) -> void:
 ## one, so this stack no longer describes it.
 func on_world_changed() -> void:
 	_cancel_stroke()
+	if fill != null:
+		fill.cancel()
 	_undo.clear()
 	_redo.clear()
 	## A reopened project's strokes go onto its top layer, as a new one's do.
 	active_layer = maxi(layers().size() - 1, 0)
+	## The map-width notice: decides whether this was a regenerate that changed the width under paint it kept, or
+	## a different document (an opened project) whose paint is at home on the world it came with.
+	if notice != null:
+		notice.on_world_changed()
 	_refresh_ui()
 
 func _after_edit() -> void:
 	if app != null and app.viewport != null:
 		app.viewport.refresh()
+	if notice != null:
+		notice.on_edit()
 	_refresh_ui()
