@@ -2159,6 +2159,10 @@ const REPRESENTED_WINDOWS := ["place_editor_window", "faction_roster_window", "w
 		"shortcuts_dialog", "generation_rules_window", "layers_popover", "_credits_dialog", "export_dialog", "quick_bar_phone_list",
 		"quick_bar_window", "assistant_settings_window", "travel_library_window", "data_manager_window", "open_project_dialog",
 		"new_world_dialog", "asset_library_window", "vault_window"]
+## **The windows that are KEPT across a swap** (MS-1 S4.5, `S4_INVENTORY.md` section 18.11): the same two methods, but the
+## instance is never freed, because its content and its running work are connected to the instance
+## (`llm_assistant_window.gd`, "MS-1 S4.5"). `represent_restore()` re-lays it out for the new class in place.
+const KEPT_WINDOWS := ["assistant_window"]
 ## The represented windows that are built on first use (`open_conflicts_list()`, `open_saved_journeys()`) and are null until
 ## then: the swap leaves a never-built one unbuilt (its first open builds it for the class it is then in, as before) and
 ## rebuilds one that exists.
@@ -2305,7 +2309,7 @@ func _capture_windows() -> void:
 	_picker_bag = {}
 	if phone_project_picker != null and is_instance_valid(phone_project_picker):
 		_picker_bag = phone_project_picker.represent_capture()
-	for f in REPRESENTED_WINDOWS:
+	for f in REPRESENTED_WINDOWS + KEPT_WINDOWS:
 		var w = get(f)
 		if w != null and is_instance_valid(w):
 			_window_bags[f] = w.call("represent_capture")
@@ -2316,6 +2320,13 @@ func _capture_windows() -> void:
 ## otherwise show the wrong layout.
 func _represent_windows() -> void:
 	search_represent_free()
+	## A kept window must not be freed with a window it was stacked under (`DccWidgets.reparent_over()` parents a hidden
+	## dialog under the exclusive window showing at its last open, such as the settings window, which is freed just below).
+	for f in KEPT_WINDOWS:
+		var kept = get(f)
+		if kept != null and is_instance_valid(kept) and not kept.visible and kept.get_parent() != self:
+			kept.get_parent().remove_child(kept)
+			add_child(kept)
 	var existed := {}
 	for f in REPRESENTED_WINDOWS:
 		var old = get(f)
@@ -2348,7 +2359,7 @@ func _restore_windows() -> void:
 	_surface_bag = {}
 	search_represent_restore(_search_bag)
 	_search_bag = {}
-	for f in REPRESENTED_WINDOWS:
+	for f in REPRESENTED_WINDOWS + KEPT_WINDOWS:
 		if _window_bags.has(f):
 			var w = get(f)
 			if w != null and is_instance_valid(w):
@@ -3169,11 +3180,6 @@ func _app_quiescent_blockers() -> Array[String]:
 	## visible; asked here otherwise, and never twice.
 	if asset_library_window != null and is_instance_valid(asset_library_window) and not asset_library_window.visible:
 		out.append_array(asset_library_window.quiescent_blockers())
-	## PC-6: on the desktop and the tablet the assistant's content lives in the Context panel's Ask tab while its
-	## dialog stays hidden (`llm_assistant_window.gd`, "Where it lives"), and a reply goes on streaming there.
-	## The walk asks only visible windows, so a hidden one is asked here.
-	if assistant_window != null and is_instance_valid(assistant_window) and not assistant_window.visible:
-		out.append_array(assistant_window.quiescent_blockers())
 	return out
 
 ## Rewrites the status bar's `atlas` cell from `bridge.atlas_status()`: chunk

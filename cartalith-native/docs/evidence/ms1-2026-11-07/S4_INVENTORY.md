@@ -1109,7 +1109,7 @@ of each class), the runner's `diff` of the two dumps with an empty allow-list, a
   776 ms (755..1437) against 545 ms (535..640): the spread of a first run on a busy machine).
 
 
-### 18.11 The assistant dialog's swap contract: chosen, not built (2026-11-12)
+### 18.11 The assistant dialog's swap contract: chosen, then built (2026-11-12)
 
 Documentation only. Section 18.8 named two contracts; this picks one after reading `llm_assistant_window.gd` at `setup()`, `_rebuild()`,
 `present_in()`, `release_dock()`, `_show_dialog()`, `_relayout_phone()` and `quiescent_blockers()`, and `DccWidgets.phone_window()`.
@@ -1137,5 +1137,29 @@ What (a) takes, read at the symbols (none of it built):
    `_msgs` instance and its children unchanged and the card's Apply still working; `_body`'s layout equal to a FRESH window built in that class
    (the oracle, as for the other windows); orphans and connections stable over three round trips; literal mutants.
 
-**Not built in this pass, for budget.** Until it is, the assistant's content keeps the layout of the class it was built in after a swap (its
-conversation, card and draft are kept, as S4.4 built), and the one hold is the running reply.
+**Built the same day** at the symbols `LlmAssistantWindow.represent_capture()`, `represent_restore()`, `_relayout()`, `_apply_dialog_form()`,
+`_rebuild(keep_transcript)` and `_restore_kept_controls()`, with `DccApp.KEPT_WINDOWS` (the same two methods, the instance never freed, called from
+`_capture_windows()` and `_restore_windows()`). Differences from the six items above, each found by building it:
+- **A running reply holds nothing.** Not even the "the assistant is replying" blocker of item 5 is kept (owner brief 2026-11-12): `quiescent_blockers()` is
+  gone from the window and from `_app_quiescent_blockers()`. The hide a re-layout needs would have ended the reply through the window's own
+  `visibility_changed` handler (`run.shutdown()`), so that handler now ignores a hide made by `_relayout()` (`_relaying`), the way it ignores a PW-3 move.
+- **`open` means shown somewhere.** `represent_capture()` is `{open: is_open(), form}`: the phone's sheet or a visible Ask tab. A form change opens it again in the
+  new form's own place (`open()`: the sheet on the phone, the Ask tab otherwise); a swap that keeps the form (a tablet's bar change) does nothing.
+- **One relay, connected once** (item 2): `_insets_relay` is connected in `setup()` for every form and does nothing off the phone. A window built on the phone
+  still has `phone_window()`'s own static lambda as well, so it re-fits twice; `phone_present()` is idempotent.
+- **The dialog chrome has an inverse here** (`_apply_dialog_form()`): borderless, minimum size, content scale, the oversample override and the resize grip.
+  The grip is found by its cursor shape, so `dcc_widgets.gd` is untouched.
+- **A hidden kept window is moved back under the app before the windows are freed** (`_represent_windows()`): `DccWidgets.reparent_over()` may have stacked it
+  under the settings window, which a swap frees. Not covered by a probe; a visible one stacked under a freed window is not handled.
+- **Found and fixed:** `_rebuild()` built an `HBoxContainer` and replaced it with an `HFlowContainer` off the phone, leaving one parentless node per build (also
+  on New). Found because the leg counts orphans across round trips (213 after each of three trips, was +1 per rebuild).
+- **Not carried, by design:** a transcript entry keeps the form it was drawn in (its heading wrap and its card buttons' phone touch floors); new entries use
+  the new form. The controls around it are the new form's.
+
+**Bar (`_ms1swap_probe.gd --leg assistant`, tablet 1800 x 1000, phone 880 x 800 at density 1, 69 checks):** with a message, a pending view card, a draft, the
+Commands task, a chosen group with its row open, a streaming reply label and a simulated running request (`LlmRun._active` set and its processing
+stopped: no socket, no thread, no model), three tablet to phone to tablet round trips each run a real swap (it is not held); the transcript, the card's Apply
+button, the reply label and the run are the same instances; a token after each swap lands in the same label; the request is still busy; the draft, task,
+group and row are back; the dialog chrome is the form's; the layout of every control equals a second, cold window put in the same state; the world-pause depth
+(`_context_surface_depth`) is 0 throughout; orphans equal across trips two and three; no connection keeps a freed receiver; after three trips the card's Apply
+still applies; a closed assistant stays closed, and opens in the form's layout. Mutants: see `STATUS.md`.

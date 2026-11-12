@@ -105,6 +105,19 @@ var run: LlmRun
 var last_consent: Dictionary = {}
 
 var _phone := false
+## MS-1 S4.5 (`S4_INVENTORY.md` section 18.11): the form the layout was last built for, `"phone"`, `"tablet"` or
+## `"desktop"` (`_form_now()`); `""` until `setup()` has run. A class swap re-lays the content out only when this
+## differs from the form the shell is in now (`represent_restore()`), so a tablet-to-tablet bar swap touches nothing.
+var _form := ""
+## True for the length of `represent_restore()`'s re-layout. The window's own hide handler (`setup()`) ends a running
+## reply; a re-layout hides the sheet for a moment and must not (the same guard `PopoutHost.is_moving()` gives a move).
+var _relaying := false
+## The phone form's header row (made by `DccWidgets.phone_head()`), or null off the phone: the host's first child.
+var _head_wrap: Control
+## The margin container around `_body`; its bottom margin is the phone's 60 px (the sheet's Close row) or 10.
+var _pad: MarginContainer
+## The phone-insets relay this window owns, connected once in `setup()` and never again (`_connect_insets_relay()`).
+var _insets_relay: Callable
 ## PC-6: the content root (status, chips, transcript, input, Save), built once and moved between the
 ## Ask tab (`present_in()`) and this dialog (`open_window()`). Never freed while the app runs.
 var _host: VBoxContainer
@@ -153,6 +166,8 @@ var _note_paths: PackedStringArray = PackedStringArray()
 
 ## LLM-6d: the shell half of the view and layer actions (`llm_view.gd`: the facts the validator is
 ## built from, and the one place a validated view change is applied). No `class_name` on purpose.
+## MS-1 S4.5: `restore_scroll()` for the transcript after a class swap.
+const WindowRepresent := preload("res://shell/window_represent.gd")
 const _VIEW := preload("res://shell/llm_view.gd")
 ## AC-1: the shell half of the action catalogue (`llm_actions.gd`: the runnable index rows, the world flag, the year track).
 const _ACTIONS := preload("res://shell/llm_actions.gd")
@@ -216,6 +231,8 @@ func setup(a, b: EngineBridge) -> void:
 	min_size = Vector2i(440, 520)
 	get_ok_button().text = "Close"
 	_phone = DccWidgets.phone_window(self, a)
+	_form = _form_now()
+	_connect_insets_relay()
 	## PW-3 (`POPOUT_WINDOWS_SCOPE.md`, Ruling DK Q2): the "Pop out / Dock" button in the button row. Desktop
 	## form only. A move re-shows THIS node and never calls `open()`, so the prompt, the reply, the cards
 	## and a reply still streaming are the ones the user left (the close handler below ignores the hide a
@@ -273,10 +290,11 @@ func setup(a, b: EngineBridge) -> void:
 	_host = host
 	add_child(host)
 	if _phone:
-		DccWidgets.phone_head(host, "Assistant", "optional · your model")
+		_head_wrap = _head_wrap_of(DccWidgets.phone_head(host, "Assistant", "optional · your model"), host)
 	## A phone sheet draws its Close button over the bottom of the content (measured: it covered the
 	## closing note), so the phone body ends 60 px early; the pointer dialog reserves the row itself.
-	var pad := DccWidgets.pad(host, 14, 10, 14, 60 if _phone else 10)
+	var pad := DccWidgets.pad(host, 14, 10, 14, _pad_bottom())
+	_pad = pad
 	pad.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_body = VBoxContainer.new()
@@ -293,7 +311,7 @@ func setup(a, b: EngineBridge) -> void:
 	## PC-6: closing the window form ("Open in a window") hands the conversation back to the Ask tab,
 	## which redraws on the next frame (deferred: the content is still this dialog's child here).
 	visibility_changed.connect(func():
-		if not visible and run != null and not PopoutHost.is_moving(self):
+		if not visible and run != null and not PopoutHost.is_moving(self) and not _relaying:
 			run.shutdown()
 			if not _phone and app.get("right_dock_ctrl") != null:
 				app.right_dock_ctrl.refresh_ask.call_deferred())
@@ -333,6 +351,9 @@ func _show_dialog() -> void:
 	## Opened from the settings window (exclusive) it must be that window's child (`DccWidgets.reparent_over`).
 	DccWidgets.reparent_over(self, app)
 	if not DccWidgets.phone_present(self, app):
+		## Idempotent (its own meta): a window built on the phone and re-laid out for the tablet gets the grip and the size
+		## memory the first time it is shown as a window.
+		DccWidgets._desktop_window_size(self)
 		var vp := get_tree().root.get_visible_rect().size
 		size = Vector2i(560, int(minf(800.0, vp.y - 60.0)))
 		## PW-3: re-decides native versus docked for this open.
@@ -489,8 +510,22 @@ func _dot(token: String) -> void:
 # Build
 # ---------------------------------------------------------------------------
 
-func _rebuild() -> void:
+## `keep_transcript` is the class swap's (MS-1 S4.5, `S4_INVENTORY.md` section 18.11): the transcript (`_msgs`, with every card,
+## the streaming reply label, the sources and the cleared note in it), `cards`, `source_cards`, `_reply` and `_reply_label`
+## are NOT touched, and the draft, the task, the note action and the groups are put back into the new controls. Only the
+## controls around the transcript are made again, for the form `_phone` now names. Never true from New.
+func _rebuild(keep_transcript: bool = false) -> void:
 	_building = true
+	var kept_msgs: VBoxContainer = null
+	var kept := {}
+	if keep_transcript and _msgs != null and is_instance_valid(_msgs):
+		kept_msgs = _msgs
+		## Out of the scroll before `_clear(_body)` frees it: the transcript is the one subtree that must outlive that.
+		_msgs.get_parent().remove_child(_msgs)
+		kept = {"draft": _input.text if _input != null and is_instance_valid(_input) else "",
+			"groups_open": _groups_flow != null and is_instance_valid(_groups_flow) and _groups_flow.visible,
+			"scroll": _scroll.scroll_vertical if _scroll != null and is_instance_valid(_scroll) else 0,
+			"cleared": controls.get("cleared_note")}
 	## **Drop the cards with the widgets that held them.** `_clear(_body)` frees every card box
 	## and its buttons; the array that indexes them must go in the same breath, or the next
 	## `_refresh_cards` reads `card["apply"]` off a freed instance ("previously freed instance",
@@ -504,8 +539,11 @@ func _rebuild() -> void:
 	for card in cards:
 		if card["state"] == "new" and card["apply"] != null:
 			dropped += 1
-	cards.clear()
-	source_cards.clear()
+	if kept_msgs == null:
+		cards.clear()
+		source_cards.clear()
+	else:
+		dropped = 0
 	_clear(_body)
 	controls.clear()
 	_chips.clear()
@@ -707,17 +745,25 @@ func _rebuild() -> void:
 	## PC-6: docked, the transcript's floor is 80 px (it expands into every free pixel, see above).
 	_scroll.custom_minimum_size.y = 100 if _phone else 80
 	_body.add_child(_scroll)
-	_msgs = VBoxContainer.new()
-	_msgs.add_theme_constant_override("separation", 6)
-	_msgs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if kept_msgs != null:
+		_msgs = kept_msgs
+	else:
+		_msgs = VBoxContainer.new()
+		_msgs.add_theme_constant_override("separation", 6)
+		_msgs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(_msgs)
 	controls["messages"] = _msgs
+	if kept_msgs != null:
+		## The note a New left is a child of the transcript, so it is still alive if it was ever made.
+		if kept["cleared"] != null and is_instance_valid(kept["cleared"]):
+			controls["cleared_note"] = kept["cleared"]
 	if dropped > 0:
 		var gone := _note_label(_msgs, "%d proposal%s from before New %s cleared. Nothing was applied; ask again to get a new one." % [dropped, "" if dropped == 1 else "s", "was" if dropped == 1 else "were"], "text_dim")
 		controls["cleared_note"] = gone
-	_reply = ""
-	_reply_label = null
-	_add_msg("", "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.", "text_ghost")
+	if kept_msgs == null:
+		_reply = ""
+		_reply_label = null
+		_add_msg("", "Choose what to do, type a request, and press Send. The reply is shown here; nothing is saved until you press Save to note.", "text_ghost")
 
 	# -- context chips (PC-6, §3.5) ----------------------------------------------------------
 	## What goes with the next message: the selection and the year, each a chip the user can switch off.
@@ -764,9 +810,10 @@ func _rebuild() -> void:
 
 	## PC-6: docked, the token line is its own line and the buttons flow (Send reads "Turn on Assistant
 	## enabled" while the switch is off, wider than the dock beside Reset); the phone keeps its one row.
-	var ctl: Container = HBoxContainer.new()
+	## Made once for the form: the first version built an HBox and replaced it with a flow off the phone, leaving one parentless
+	## node per build (found by `_ms1swap_probe.gd --leg assistant`, whose rebuilds count orphans).
+	var ctl: Container = HBoxContainer.new() if _phone else HFlowContainer.new()
 	if not _phone:
-		ctl = HFlowContainer.new()
 		ctl.add_theme_constant_override("h_separation", 8)
 		ctl.add_theme_constant_override("v_separation", 6)
 		ctl.alignment = FlowContainer.ALIGNMENT_END
@@ -803,8 +850,30 @@ func _rebuild() -> void:
 	controls["save_note"] = _note_label(_body, "Saved text is appended to the note, marked model-generated. Your own text is never changed.")
 
 	_fill_notes()
+	if kept_msgs != null:
+		_restore_kept_controls(kept)
 	_building = false
 	_refresh()
+
+
+## Puts back what the user had set in the controls a class swap made again: the draft, the note action's choice, the
+## "Choose groups" row's visibility (the chosen groups themselves are `_chosen_groups`, a field the swap never touches) and
+## the transcript's scroll. `_task` is a field too and `_refresh()` lights its chip. The scroll is written once the new
+## layout has a size (`_restore_scroll()`), because the engine clamps an earlier write to the old maximum.
+func _restore_kept_controls(kept: Dictionary) -> void:
+	_input.text = String(kept["draft"])
+	_input.set_caret_line(_input.get_line_count() - 1)
+	_input.set_caret_column(_input.get_line(_input.get_line_count() - 1).length())
+	for k in _NOTE_ACTIONS.size():
+		if _NOTE_ACTIONS[k][0] == _note_action:
+			(controls["note_action"] as OptionButton).select(k)
+	_groups_flow.visible = bool(kept["groups_open"])
+	_restore_scroll.call_deferred(int(kept["scroll"]))
+
+
+## The transcript's scroll after a re-layout: retried for a few frames, as `window_represent.gd`'s `restore_scroll()` does.
+func _restore_scroll(value: int) -> void:
+	await WindowRepresent.restore_scroll(_msgs, value)
 
 
 ## The current settlement `{index, tid, name}`, or `{}` (no world, generating, none selected).
@@ -2661,10 +2730,119 @@ func _on_save() -> void:
 			_add_msg("", "The note was not written: %s" % err, "block")
 	_refresh()
 
-## MS-1 S4.1 (`S4_INVENTORY.md` §5.3 and §8): a reply in flight (`run.busy()`) is held work, so a class swap
-## waits for it. `DccShell.quiescent_blockers()` asks this only while the window is visible. A pure query: it
-## never cancels the run.
-func quiescent_blockers() -> Array[String]:
-	if run != null and run.busy():
-		return ["the assistant is replying"]
-	return []
+# ---------------------------------------------------------------------------
+# MS-1 S4.5: the class swap (`S4_INVENTORY.md` section 18.11)
+# ---------------------------------------------------------------------------
+#
+# **This window is KEPT across a swap, not rebuilt** (the other windows are: `window_represent.gd`). Its content is built
+# once and every control in it is connected to a method of this instance, and so are `run` (a child, with a worker thread
+# that may be streaming) and its signals; a rebuilt window could not adopt them. So `DccApp` asks this node for the same two
+# methods (`represent_capture()` before the unmount, `represent_restore()` after the mount) and does not free it
+# (`DccApp.KEPT_WINDOWS`). What survives, by construction: `run` and a request in flight, `_msgs` (every message, every
+# card with its Apply state, the streaming `_reply_label`, the sources), `cards`, `source_cards`, `_reply`, the draft, the
+# task, the note action, the chosen groups and the picked note. What is made again: the controls around the transcript, for
+# the form the shell is in now. A reply in flight no longer holds a swap, because nothing here touches it.
+
+## The form the shell is in now: `"phone"`, `"tablet"` or `"desktop"`. The same three-way split `_field_h()` and the
+## docked panel read.
+func _form_now() -> String:
+	if app != null and app.has_method("is_phone") and app.is_phone():
+		return "phone"
+	return "tablet" if DccTheme.is_tablet() else "desktop"
+
+
+## The bottom margin of the content: a phone sheet draws its Close button over the bottom of the content (measured: it
+## covered the closing note), so the phone body ends 60 px early; the pointer dialog reserves the row itself.
+func _pad_bottom() -> int:
+	return 60 if _phone else 10
+
+
+## The row `DccWidgets.phone_head()` added to `host`: the label it returns sits three containers inside it.
+func _head_wrap_of(label: Control, host: Control) -> Control:
+	var n: Node = label
+	while n != null and n.get_parent() != host:
+		n = n.get_parent()
+	return n as Control
+
+
+## Connects the one phone-insets relay this window owns, once. `DccWidgets.phone_window()` connects its own static lambda
+## for a window BUILT on the phone and has no inverse, so running it again on a swap would stack relays; this one is
+## connected for every form (it does nothing off the phone) and `phone_present()` is idempotent, so a window built on the
+## phone, which has both, only re-fits twice.
+func _connect_insets_relay() -> void:
+	if _insets_relay.is_valid() or app == null or not app.has_signal("phone_insets_changed"):
+		return
+	_insets_relay = func():
+		if _phone and visible:
+			DccWidgets.phone_present(self, app)
+	app.phone_insets_changed.connect(_insets_relay)
+
+
+## The dialog's own chrome for `_phone`: what `phone_window()` and `phone_present()` set for the phone and what a window
+## that never saw them has (the defaults `setup()` leaves). Nothing here shows or hides the window.
+func _apply_dialog_form() -> void:
+	if _phone:
+		borderless = true
+		min_size = Vector2i.ZERO
+		max_size = Vector2i.ZERO
+	else:
+		borderless = false
+		content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
+		content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+		content_scale_factor = 1.0
+		## `DccWidgets.oversample()` stored the phone scale for `size_changed` to re-apply; the tablet form has none.
+		if has_meta("_dcc_oversample"):
+			remove_meta("_dcc_oversample")
+		oversampling_override = 0.0
+		min_size = Vector2i(440, 520)
+		max_size = Vector2i.ZERO
+		size = Vector2i(560, 800)
+	## The resize grip `DccWidgets._desktop_window_size()` adds to the button row exists only on a window that was
+	## shown in a pointer form; it has no place on the phone sheet.
+	for c in get_ok_button().get_parent().get_children():
+		if c is Control and (c as Control).mouse_default_cursor_shape == Control.CURSOR_FDIAGSIZE:
+			(c as Control).visible = not _phone
+
+
+## Re-lays the content out for `form` in place. The window is hidden for the length of the call without ending a reply
+## (`_relaying`), the dialog chrome and the host's own parts (the phone header and the bottom margin) are made for the form,
+## and `_rebuild(true)` makes the controls again around the untouched transcript. Not built yet: only the chrome and
+## `_phone` change, so the first open builds for the form then current.
+func _relayout(form: String) -> void:
+	_relaying = true
+	if visible:
+		hide()
+	_phone = form == "phone"
+	_apply_dialog_form()
+	if _built and bridge.llm_api:
+		if _phone and _head_wrap == null:
+			var head := DccWidgets.phone_head(_host, "Assistant", "optional · your model")
+			_head_wrap = _head_wrap_of(head, _host)
+			_host.move_child(_head_wrap, 0)
+		elif not _phone and _head_wrap != null:
+			_host.remove_child(_head_wrap)
+			_head_wrap.queue_free()
+			_head_wrap = null
+		_pad.add_theme_constant_override("margin_bottom", _pad_bottom())
+		_rebuild(true)
+	_form = form
+	_relaying = false
+
+
+## What the swap reads BEFORE anything is unmounted (`window_represent.gd`'s contract, kept-window form). `open` is true for
+## the phone's sheet and for the Ask tab on the screen: either is "the assistant is open", and it opens again in the
+## new form's own place. Never holds a node, never changes anything.
+func represent_capture() -> Dictionary:
+	return {"open": is_open(), "form": _form}
+
+
+## After the swap's mount (`DccApp._restore_windows()`): re-lays the content out when the form changed, then opens it again
+## in the new form's place (the sheet on the phone, the Ask tab on the tablet) if it was open. A swap that kept the form
+## (a tablet's bar change) does nothing: the right dock's own restore puts the Ask tab back and a sheet never closed.
+func represent_restore(bag: Dictionary) -> void:
+	var now := _form_now()
+	if now == _form:
+		return
+	_relayout(now)
+	if bool(bag.get("open", false)):
+		open()

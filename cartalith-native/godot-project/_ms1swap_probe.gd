@@ -18,6 +18,7 @@ extends Node
 ##   ... -- --leg represent --force-touch --vp 1800x1000 --density 1          (S4.5: open windows are re-presented in place)
 ##   ... -- --leg ringcard --force-touch --vp 1800x1000 --density 1       (S4.6: the radial ring and the context card across a swap)
 ##   ... -- --leg b5 --force-touch --vp 1800x1000 --density 1       (S4.6: B5's three windows in turn, each open across the swap, and the swap's timing)
+##   ... -- --leg assistant --force-touch --vp 1800x1000 --density 1       (S4.5's last window: the assistant dialog is KEPT and re-laid out in place, mid-conversation, with a pending card and a simulated running request; S4_INVENTORY.md 18.11)
 ##   ... -- --leg norm [--world] --force-touch --vp 880x1564 --density 1 --out <file>   (cold boot, optionally with a world)
 ##
 ## Legs:
@@ -133,8 +134,8 @@ func _ready() -> void:
 	var leg := _arg("--leg", "")
 	_debug_names = "--names" in OS.get_cmdline_user_args()
 	var parts := _arg("--vp", "").split("x")
-	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry", "live", "represent", "ringcard", "b5"] or parts.size() != 2:
-		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry|live|represent|ringcard|b5 and --vp WxH")
+	if not leg in ["quiet", "dump", "roundtrip", "norm", "crossclass", "carry", "live", "represent", "ringcard", "b5", "assistant"] or parts.size() != 2:
+		print("ABORT: needs --leg quiet|dump|roundtrip|norm|crossclass|carry|live|represent|ringcard|b5|assistant and --vp WxH")
 		get_tree().quit(2)
 		return
 	var vw := int(parts[0])
@@ -182,6 +183,8 @@ func _ready() -> void:
 		await _ringcard()
 	elif leg == "b5":
 		await _b5()
+	elif leg == "assistant":
+		await _assistant()
 	else:
 		await _roundtrip()
 	print("RESULT: %s (%d failed, %d checks)" % ["PASS" if _fails == 0 else "FAIL", _fails, _checks])
@@ -2223,6 +2226,184 @@ func _ringcard() -> void:
 ## is `_rep_step()`, the same checks `--leg represent` makes for every window). On top of those, B5's own: the world hash, the camera
 ## and the domain are unchanged across the whole leg, and the time of every swap is recorded for the runner.
 const B5_WINDOWS := ["faction_roster_window", "place_editor_window", "vault_window"]
+
+## ---- S4.5's last window: the assistant dialog (`S4_INVENTORY.md` section 18.11) ---------------------------------------
+## The dialog is KEPT across a swap, so the checks are about what must NOT change as much as what must: the transcript's
+## nodes (same instances), the pending card and its Apply, the streaming reply label, the draft, the task and the groups, the
+## running request (`run.busy()`, simulated by setting `LlmRun._active`: no socket, no thread, no model; a hide that shut it
+## down would clear the flag) and the world-pause depth. And the layout around the transcript must equal a COLD window's in the
+## class (the oracle is a second `LlmAssistantWindow` built and put in the same state, never the kept one).
+
+## The layout the kept window and the cold one must share, per control: whether it shows, its minimum, its class and its
+## parent's class; plus the dialog chrome. The transcript is excluded (it is the kept part). Text is not compared.
+func _asst_layout(win) -> Array:
+	var rows: Array = []
+	for k in (win.controls as Dictionary).keys():
+		if k == "messages" or k == "cleared_note":
+			continue
+		var c = win.controls[k]
+		if c == null or not is_instance_valid(c):
+			rows.append("%s: freed" % k)
+			continue
+		var ctl := c as Control
+		rows.append("%s: %s vis=%s min=%s parent=%s" % [k, ctl.get_class(), str(ctl.visible), str(ctl.custom_minimum_size), ctl.get_parent().get_class()])
+	rows.sort()
+	## `min_size` is not compared: `phone_present()` zeroes it on a SHOWN sheet only (checked on its own below).
+	rows.append("chrome: borderless=%s scale=%.3f head=%s padb=%d" % [str(win.borderless), win.content_scale_factor,
+		str(win._head_wrap != null), win._pad.get_theme_constant("margin_bottom")])
+	return rows
+
+## A cold window for the shell's current class, put in the state the kept one is in (the task, the groups row), laid out.
+func _asst_cold_layout(task: String, groups_open: bool, shown: bool = false, busy: bool = false) -> Array:
+	var cold := LlmAssistantWindow.new()
+	_app.add_child(cold)
+	cold.setup(_app, _app.bridge)
+	cold._ensure_built()
+	cold._pick_task(task)
+	cold._groups_flow.visible = groups_open
+	## The kept window has a request running, which shows Stop and disables the chips; the oracle is put in the same state.
+	if busy:
+		cold.run._active = true
+		cold.run.set_process(false)
+	cold._refresh()
+	## A window shown on the phone is fitted to the phone's touch floors (`_show_dialog()` -> `phone_fit()`); a hidden one is not.
+	if shown and cold._phone:
+		_app.phone_fit(cold, 1.0)
+	var rows := _asst_layout(cold)
+	## One frame before the free: the shell queued a deferred window arbitration on the new window (`_run_window_arbitrate`).
+	await _frames(2)
+	cold.run._active = false
+	cold.free()
+	return rows
+
+## Prints the rows two layouts disagree on, so a failed equality says where.
+func _asst_diff(a: Array, b: Array, tag: String) -> void:
+	for r in a:
+		if not b.has(r):
+			print("  diff %s kept-only: %s" % [tag, r])
+	for r in b:
+		if not a.has(r):
+			print("  diff %s cold-only: %s" % [tag, r])
+
+func _asst_snapshot(win) -> Dictionary:
+	var kids: Array = []
+	for c in win._msgs.get_children():
+		kids.append(c.get_instance_id())
+	return {"msgs": win._msgs.get_instance_id(), "kids": kids, "cards": (win.cards as Array).size(),
+		"card0": (win.cards[0]["apply"] as Button).get_instance_id(), "reply_label": win._reply_label.get_instance_id(),
+		"run": win.run.get_instance_id()}
+
+func _assistant() -> void:
+	await _settle_at_rest()
+	_ok(String(_app.class_key()) == "tablet", "boots as a tablet (class_key %s)" % _app.class_key())
+	await _make_world()
+	var vpp := _arg("--vp", "").split("x")
+	var tab := Vector2i(int(vpp[0]), int(vpp[1]))
+	var ph := Vector2i(880, 800)
+	var win = _app.assistant_window
+	_ok(_app.open_context_tab("ask"), "the Ask tab opens")
+	await _frames(8)
+	_ok(win.is_docked() and win._built, "the conversation is built and docked in the Ask tab")
+	## ---- the fixture: a message, a pending card, a draft, a task, a chosen group, a streaming reply ----
+	win._add_msg("You", "hello from the probe", "text_secondary")
+	var lay := ""
+	var lay_label := ""
+	for l in (win._VIEW.facts(_app, _app.bridge) as Dictionary).get("layers", []):
+		if bool((l as Dictionary).get("on", false)):
+			lay = String(l["id"])
+			lay_label = String(l["label"])
+			break
+	_ok(lay != "", "control: a shown layer exists for the card (%s)" % lay)
+	var card_v := {"summary": "probe card", "valid": [{"action": "set_layer_visible", "label": lay_label, "from": "shown", "to": "hidden",
+		"args": {"layer": lay, "visible": false}, "undoable": false}], "rejected": [], "noop": PackedStringArray(), "undo": PackedStringArray()}
+	win._on_view_proposal({"view": card_v})
+	## "Choose groups" shows only while the parameter source is on (`_refresh()`'s `groups_ok`); the wiped user dir may have it off.
+	DccSettings.set_llm_value("ctx_params", true)
+	win._pick_task("commands")
+	win._toggle_groups()
+	_ok(win._groups_flow.visible, "control: the groups row is open before the swap")
+	var gname := String(win._group_names()[0])
+	win._tick_group(gname)
+	(win.controls["input"] as TextEdit).text = "DRAFT-ASST-X"
+	win._reply_label = win._add_msg("Assistant", "", "text")
+	win._reply = ""
+	win.run._active = true
+	## `LlmRun` processes by default once in the tree, and its pump ends a reply whose wire never started: stop it, or the simulated request would end itself on the first frame.
+	win.run.set_process(false)
+	win._on_token("first ")
+	await _frames(4)
+	_ok(win.run.busy() and win._reply == "first " and win._reply_label.text == "first ", "control: a simulated request is running and streaming ('%s')" % win._reply)
+	_ok((win.cards as Array).size() == 1 and (win.cards[0] as Dictionary)["state"] == "new", "control: one card is pending")
+	var depth0: int = _app._context_surface_depth
+	_ok(depth0 == 0, "the world-pause depth is 0 before (%d)" % depth0)
+	var before := _asst_snapshot(win)
+	var runs0: int = _app.class_swap_runs
+	var expect_reply := "first "
+	var orph := {}
+	for trip in range(1, 4):
+		## ---- tablet -> phone: the Ask tab was open, so the sheet opens ----
+		await _live_swap(ph.x, ph.y, "phone")
+		_ok(_app.class_swap_runs == runs0 + 2 * trip - 1, "trip %d: the swap RAN with a reply running (a running reply no longer holds it)" % trip)
+		_ok(win._phone and win._form == "phone" and win.visible and not win.is_docked(), "trip %d phone: the sheet is open, in the phone form" % trip)
+		_ok(win.run.busy(), "trip %d phone: the request is still running (nothing hid it into a shutdown)" % trip)
+		_ok(_asst_snapshot(win) == before, "trip %d phone: the transcript, the card's Apply, the reply label and the run are the same instances" % trip)
+		_ok(win._reply == expect_reply and win._reply_label.text == expect_reply, "trip %d phone: the streaming label holds the reply so far ('%s')" % [trip, win._reply])
+		win._on_token("second ")
+		expect_reply += "second "
+		await _frames(2)
+		_ok(win._reply_label.text == expect_reply, "trip %d phone: a token after the swap lands in the same label" % trip)
+		print("  info draft='%s' task=%s groups=%s open=%s" % [(win.controls["input"] as TextEdit).text, win._task, str(win._chosen_groups), str(win._groups_flow.visible)])
+		_ok((win.controls["input"] as TextEdit).text == "DRAFT-ASST-X" and win._task == "commands" and (win._chosen_groups as Array) == [gname] and win._groups_flow.visible,
+			"trip %d phone: the draft, the task, the chosen group and its row are back" % trip)
+		_ok(win.borderless and win.min_size == Vector2i.ZERO and win._head_wrap != null, "trip %d phone: the sheet chrome (borderless, no minimum, header)" % trip)
+		## The oracle windows are built on trip 1 only: each leaves two orphan nodes behind (the probe's, not the swap's), which
+		## would hide a swap leak in the trip-to-trip orphan count below.
+		if trip == 1:
+			var cold_p := (await _asst_cold_layout("commands", true, win.visible, true))
+			_asst_diff(_asst_layout(win), cold_p, "phone")
+			_ok(_asst_layout(win) == cold_p, "trip %d phone: the layout equals a cold window's" % trip)
+		_ok(_app._context_surface_depth == depth0, "trip %d phone: the world-pause depth is unchanged (%d)" % [trip, _app._context_surface_depth])
+		## ---- phone -> tablet: the sheet closes into the Ask tab ----
+		await _live_swap(tab.x, tab.y, "tablet")
+		await _frames(8)
+		_ok(not win._phone and win._form == "tablet" and not win.visible and win.is_docked(), "trip %d tablet: the conversation is in the Ask tab, the dialog hidden" % trip)
+		_ok(win.run.busy(), "trip %d tablet: the request is still running" % trip)
+		_ok(_asst_snapshot(win) == before, "trip %d tablet: the same instances" % trip)
+		_ok((win.controls["input"] as TextEdit).text == "DRAFT-ASST-X" and win._task == "commands" and (win._chosen_groups as Array) == [gname],
+			"trip %d tablet: draft, task and group intact" % trip)
+		_ok(not win.borderless and win.min_size == Vector2i(440, 520) and win._head_wrap == null and win.content_scale_factor == 1.0, "trip %d tablet: the window chrome is the pointer form's" % trip)
+		if trip == 1:
+			var cold_t := (await _asst_cold_layout("commands", true, win.visible, true))
+			_asst_diff(_asst_layout(win), cold_t, "tablet")
+			_ok(_asst_layout(win) == cold_t, "trip %d tablet: the layout equals a cold window's" % trip)
+		_ok(_app._context_surface_depth == depth0, "trip %d tablet: the world-pause depth is unchanged" % trip)
+		orph[trip] = _orphans()
+		print("  info orphan nodes after trip %d: %d" % [trip, orph[trip]])
+	_ok(orph[3] == orph[2], "orphan nodes after trip 3 equal trip 2's (%d, %d)" % [orph[3], orph[2]])
+	var freed := 0
+	for l in _connection_lines():
+		if String(l).contains("freed/"):
+			freed += 1
+	_ok(freed == 0, "no connection keeps a freed receiver (%d)" % freed)
+	## ---- the request ends; the card still applies ----
+	win.run._active = false
+	win._refresh()
+	var card: Dictionary = win.cards[0]
+	(card["apply"] as Button).pressed.emit()
+	await _frames(4)
+	_ok(card["state"] == "applied" and not bool(_app.viewport.layer_visible(lay)), "after three round trips the kept card's Apply works (state %s, layer %s hidden)" % [card["state"], lay])
+	## ---- a window that is closed is re-laid out too, and a closed one stays closed ----
+	_app.open_context_tab("inspect")
+	await _frames(4)
+	await _live_swap(ph.x, ph.y, "phone")
+	_ok(win._phone and not win.visible, "closed on the tablet, it stays closed on the phone")
+	win.open()
+	await _frames(6)
+	var cold_o := (await _asst_cold_layout("commands", true, win.visible, false))
+	_asst_diff(_asst_layout(win), cold_o, "opened-later")
+	_ok(win.visible and _asst_layout(win) == cold_o, "opened later on the phone, its layout equals a cold window's")
+	win.hide()
+	await _live_swap(tab.x, tab.y, "tablet")
 
 func _b5() -> void:
 	await _settle_at_rest()

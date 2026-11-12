@@ -149,6 +149,20 @@ are unchanged. Exposed: parameter catalogue (offered), New World, World ▸ Hydr
 - **Open:** a salt-flat tint for a playa and the trade module's salt-lake source reading playas; the shell's live
   toggle on an already-open world only takes effect at the next map rebuild (civ goes stale, as `river_density`).
 
+### MS-1 S4.5 complete: the assistant dialog is kept and re-laid out in place (2026-11-12)
+
+Read at the symbols; the account and its bar are `S4_INVENTORY.md` section 18.11 (built the day it was chosen). `LlmAssistantWindow` implements
+`represent_capture()` / `represent_restore()` and is listed in `DccApp.KEPT_WINDOWS`: the instance survives, so the conversation, a pending card with its
+Apply state, the streaming reply label, the draft, the task, the chosen groups and a running request are never touched, and **a running reply no
+longer holds a swap**. A form change re-lays out the controls around the transcript and the dialog chrome for the new form and opens it again in the
+new form's place (phone sheet or Ask tab).
+- **Bar:** `_ms1swap_probe.gd --leg assistant` 69 checks (three round trips mid-conversation with a pending card and a simulated running request; layout
+  equal to a cold window's; world-pause depth 0; orphans stable). Re-run: `quiet` 25, `carry` 68, `represent` 1 111, `ringcard` 44, `ms1_b5.sh` (live 118,
+  dumps equal a cold boot, b5 5 x 105), `_pc6ask` 74 desktop and 70 tablet, `_asstfix` 16, `_ctxcard` 159 on both. `_llmedit_probe` is unchanged: 6 of
+  403 (desktop) and 6 of 425 (tablet) fail, the same six and the same two probe-side SCRIPT ERRORs as the unedited origin/main run, so they are not this change's.
+- **Found and fixed:** `_rebuild()` left one parentless node per build (an `HBoxContainer` replaced by a flow off the phone).
+- **Not done:** the device rows (S0, B7). A kept window stacked under a window the swap frees is moved back only when hidden; no probe covers it.
+
 ### River realism (Ruling ES): RR-0, RR-1, RR-2, RR-3, RR-4, RR-8 built; RR-6's harness measured (2026-11-12)
 
 Spec `RIVER_REALISM_SCOPE.md`; owner answers recorded as Ruling ES (`LARGE_ITEM_RULINGS.md`). Render only except the
@@ -7869,6 +7883,4 @@ and `--leg b5` five times for the timing.
   than a restart and about 220 ms slower than rebuilding in a booted process; the swaps had a world and an open window, the cold boot neither.
   The spec's "a swap costs less than a cold boot" therefore holds against a restart and not against the bare rebuild: flagged for the owner.
 - **Not done:** the assistant dialog (S4.5's last window); the device rows (S0, B7).
-- **The assistant dialog's contract is chosen and written down, not built:** keep the instance and re-lay out in place (`S4_INVENTORY.md` section 18.11),
-  the cheaper and the safer, because the conversation, a pending card and a running request are never touched. Until it is built the assistant's content
-  keeps the layout of the class it was built in after a swap; its conversation is kept and a running reply still holds the swap.
+- **The assistant dialog:** built later the same day; see the entry "MS-1 S4.5 complete" above.
