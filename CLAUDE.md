@@ -279,6 +279,7 @@ got. Status for everything below is in `STATUS.md`.
 | `DUPLICATE_WAYS_FINDING_2026-10-18.md` | finding on duplicate generated ways at one seed: cause and fix, traced from the probe triage. Findings only |
 | `PLANNER_AUDIT_2026-10-11.md` | read-only journey-planner route audit using six `#[ignore]`d tests that pin nothing; a dated cut |
 | `OUTSTANDING_AUDIT_2026-10-11.md` | a read-only row-by-row audit of `OUTSTANDING_WORK.md` as it stood on 2026-10-11, each row's evidence named. A dated cut, so treat its statuses as stale |
+| `OUTSTANDING_AUDIT_2026-11-12_B.md` | a dated row-by-row audit of `OUTSTANDING_WORK.md` from section 2.7 to the end against the code at `d3873d70`: a verdict (done, partly, open, stale) and the evidence for each of its 101 table rows, the rows it closed (G1 governments, the vault `private` badge, the phone generation menu), and the biggest truly open items. A dated cut, so treat its statuses as stale |
 | `ANNOTATION_AUDIT.md` | the Ruling BK census (2026-09-28): how much existing code lacks the annotation the ruling requires. Findings only; the backlog row is in `OUTSTANDING_WORK.md` |
 | `ANNOTATION_REVIEW_2026-10-12.md` | an independent verifier's check of the comment-only annotation commits of 2026-10-12, with proposed corrections. Findings only |
 | `MARKDOWN_VAULT_INTEGRATION.md` | owner-supplied V1 design; scheduled by the owner 2026-08-24 — the milestones are in `MARKDOWN_VAULT_SCOPE.md` |
