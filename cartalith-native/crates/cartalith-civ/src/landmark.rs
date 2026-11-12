@@ -35,9 +35,13 @@
 //! (`drainage_basins`), the map its old reason said the generator lacked;
 //! Abandoned settlement and Ancient road read what the Timeline remembers
 //! that the live world has lost, through [`LandmarkInputs::history`].
-//! `sacred_mountain` is the one §9.3 kind still blocked — not on the
-//! viewshed, but on §26's cultural-meaning input, which nothing here
-//! provides. See [`EXTRACTION_RESOURCES`] for why Resource extraction site
+//! **Forty-three since 2026-11-12:** twelve more, none from an input the engine lacks. The
+//! physical four (`natural_kinds`: Delta, Ancient forest, Salt works, Glacial feature), the
+//! historical four (`temporal_kinds`: Historic battlefield, Ruin, Destroyed fortress, Historic
+//! crossing, read from the recorded past) and the cultural four (`cultural_kinds`: Sacred mountain,
+//! Sacred grove, Shrine, Ceremonial site, each a faction's faith reading a physical kind's feature
+//! as sacred, §26). The six still refused say why in `not_built`. See
+//! [`EXTRACTION_RESOURCES`] for why Resource extraction site
 //! is not the duplicate its name suggests, and `pool_trade_road` for why the
 //! last two of the way-graph five are one function.
 //! One of those inputs is not terrain at all: [`LandmarkInputs::manual_icons`]
@@ -115,6 +119,22 @@ pub use karst_view::{KarstAbsent, KarstView};
 /// and *waterfall*. Must never produce a view for a world without a column.
 pub mod rock_view;
 pub use rock_view::{RockAbsent, RockView};
+
+/// M8 residual (2026-11-12): Delta, Ancient forest, Salt works and Glacial feature, each read from the
+/// nearest physical fact the engine holds rather than from an input it lacks. Must never place for
+/// want of data (`NoTerrain` instead).
+pub mod natural_kinds;
+
+/// M9 temporal half (2026-11-12): Historic battlefield, Ruin, Destroyed fortress, Historic crossing
+/// and the per-landmark phase of research §25. Reads only the recorded past; never invents a cause.
+pub mod temporal_kinds;
+
+/// M9 cultural half (2026-11-12): Sacred mountain, Sacred grove, Shrine and Ceremonial site, each a
+/// faction's faith reading a physical kind's feature as sacred (research §26). Never decides what is
+/// sacred itself: it reads the owner-approved religion tables.
+pub mod cultural_kinds;
+pub use cultural_kinds::FactionFaith;
+pub use temporal_kinds::{era_alias_key, landmark_phase, LandmarkPhase, PhaseInputs, PHASE_USE_KM};
 
 /// Ruling EI: the generated name a placed landmark is linked by (type plus nearest named place).
 /// Pure and golden-free; changes no generated output.
@@ -345,17 +365,18 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "waterfall", label: "Waterfall", family: F::Physical, class: C::Regional, default_cap: 40, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "spring", label: "Spring", family: F::Physical, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "lake", label: "Lake", family: F::Physical, class: C::Regional, default_cap: 16, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "delta", label: "Delta", family: F::Physical, class: C::Regional, default_cap: 6, needs_viewshed: false, buildable: false,
-            // `cartalith-erosion::passes::route_sediment` deposits sediment into the
-            // heightfield and returns only a total; no per-cell deposition map is
-            // kept or reaches `LandmarkInputs`. (This reason used to claim the
-            // engine "carries no sediment budget", which was false.)
-            not_built: "Erosion does carry sediment downriver and lay it down, but how much settles at each river mouth is not kept once the terrain is finished, so the generator cannot tell a delta from any other mouth. Placing one at every mouth would be a rename, not a detection." },
+        LandmarkKindSpec { key: "delta", label: "Delta", family: F::Physical, class: C::Regional, default_cap: 6, needs_viewshed: false, buildable: true,
+            // Built 2026-11-12 by `natural_kinds::pool_delta`. The old reason (no per-cell
+            // deposition map: `route_sediment` returns only a total) still holds, so this is a
+            // delta SITE, not a sediment budget: a large river's mouth over a low coastal plain.
+            not_built: "" },
         LandmarkKindSpec { key: "river_confluence", label: "River confluence", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "volcanic_feature", label: "Volcanic feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: true, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "rock_formation", label: "Rock formation", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "glacial_feature", label: "Glacial feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: false, buildable: false,
-            // Measured 2026-10-17 (LANDMARK_GENERATION_SCOPE.md M8 residual):
+        LandmarkKindSpec { key: "glacial_feature", label: "Glacial feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: false, buildable: true,
+            // Built 2026-11-12 by `natural_kinds::pool_glacial`, reading the glacial pass's own
+            // activation test instead of the Landform class refused below. The measurement stands:
+            // (LANDMARK_GENERATION_SCOPE.md M8 residual, 2026-10-17):
             // `build_landform_field`'s cirque class with
             // `passes.glacial` off vs on, same seed, finds 1303/1303, 641/640,
             // 289/289 cells at 256x192 and 5283/5288, 2425/2431, 182/183 at
@@ -365,9 +386,12 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
             // landmark where no ice ever worked. `glacial_kernel` keeps no
             // per-cell record of where it carved; that record is the missing
             // input. The fjord module is coastal only.
-            not_built: "The Landform map layer marks cirques by shape and cold alone: switching glacial erosion off barely changes which cells it marks, so a cirque there is not evidence that ice carved it. Erosion does not record where its glaciers worked, and nothing models moraines or eskers, so no glacial landmark is placed." },
-        LandmarkKindSpec { key: "ancient_forest", label: "Ancient forest", family: F::Physical, class: C::Continental, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "The biome map says where forest is; nothing says how old it is, and age is what makes a forest a landmark." },
+            not_built: "" },
+        // Class is Regional since 2026-11-12 (was Continental in research §23's table): a 200 km
+        // exclusion against every other landmark would let this kind place only where nothing
+        // else is. Built as "intact forest" (Potapov 2008), never as forest age.
+        LandmarkKindSpec { key: "ancient_forest", label: "Ancient forest", family: F::Physical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true,
+            not_built: "" },
         // ---------------- Transportation (8) ----------------
         LandmarkKindSpec { key: "mountain_pass", label: "Mountain pass", family: F::Transport, class: C::Regional, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "river_crossing", label: "River crossing", family: F::Transport, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: false,
@@ -389,10 +413,11 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         // ---------------- Economic (6) ----------------
         LandmarkKindSpec { key: "mine", label: "Mine", family: F::Economic, class: C::Local, default_cap: 24, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "quarry", label: "Quarry", family: F::Economic, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "salt_works", label: "Salt works", family: F::Economic, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            // `build_resource_potentials` computes salt as one arid-lowland
-            // evaporite-basin model with no coastal term.
-            not_built: "Salt is mapped, but only as salt in dry inland basins, with nothing on coastal salt pans, so a works on the coast would be invented rather than read. Mine already places rock-salt workings." },
+        LandmarkKindSpec { key: "salt_works", label: "Salt works", family: F::Economic, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: true,
+            // Built 2026-11-12 by `natural_kinds::pool_salt_works` from climate and shore shape:
+            // `build_resource_potentials` still has no coastal salt term (inland evaporite
+            // basins only), which is why this reads a dry biome, a flat shore and sheltered water.
+            not_built: "" },
         // Built from EXTRACTION_RESOURCES (timber, sulfur, alum) — the three
         // potentials Mine and Quarry do not read — via the same pool_resource
         // test those two use. See EXTRACTION_RESOURCES's own doc for why this
@@ -408,64 +433,50 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "battlefield", label: "Battlefield", family: F::Military, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "border_marker", label: "Border marker", family: F::Military, class: C::Cultural, default_cap: 16, needs_viewshed: true, buildable: true, not_built: "" },
         // ---------------- Religious / cultural (8) ----------------
-        LandmarkKindSpec { key: "shrine", label: "Shrine", family: F::Cultural, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: false,
-            // Research §26: cultural meaning must not be hardcoded into geography.
-            // `LandmarkInputs` carries no faction culture or belief.
-            not_built: "What makes a place sacred depends on who reads it — one mountain can mean three things to three peoples — so a shrine has to come from a people's own culture and beliefs, and the landmark generator does not take those into account yet." },
+        // Shrine, Sacred grove, Sacred mountain and Ceremonial site were built 2026-11-12 as a
+        // faction's faith reading a physical kind's feature as sacred (research §26):
+        // `cultural_kinds::pool_interpreted`. Each needs `LandmarkInputs::faiths` and the territory
+        // raster, and reports `NoTerrain` without them.
+        LandmarkKindSpec { key: "shrine", label: "Shrine", family: F::Cultural, class: C::Local, default_cap: 30, needs_viewshed: false, buildable: true, not_built: "" },
+        // Not built: the towns' own places of worship are already drawn from each faction's faith
+        // (Ruling CY item 1, `urban_layouts`), so a map landmark at a town would be a second record
+        // of the same building. A temple away from any town has no input that says who raised it.
         LandmarkKindSpec { key: "temple", label: "Temple", family: F::Cultural, class: C::Cultural, default_cap: 16, needs_viewshed: false, buildable: false,
-            not_built: "Not placed, for the same reason as Shrine: it has to come from a people's own culture and beliefs, which the landmark generator does not take into account yet." },
-        LandmarkKindSpec { key: "sacred_grove", label: "Sacred grove", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "Not placed, for the same reason as Shrine, and also because nothing records how old a forest is (see Ancient forest)." },
-        LandmarkKindSpec { key: "sacred_mountain", label: "Sacred mountain", family: F::Cultural, class: C::Cultural, default_cap: 6, needs_viewshed: false, buildable: false,
-            // Research §19: 0.20 F_visibility + 0.15 F_cultural. `Derived::vis` is
-            // built; F_cultural has nothing behind it (§26). `needs_viewshed`
-            // is false because there is no scorer yet to read the viewshed;
-            // set it when one is built and reads `Derived::vis`.
-            not_built: "A sacred mountain is a peak a people revere. How visible a summit is can be measured, but which peak a people hold sacred depends on their culture and beliefs, which the landmark generator does not take into account yet. Peak already places the summits themselves." },
+            not_built: "A town's place of worship is already drawn from its faction's faith in the City Viewer and on the map's town layer, so a Temple landmark at a town would record the same building twice, and the world holds nothing that says who would raise a temple away from any town." },
+        LandmarkKindSpec { key: "sacred_grove", label: "Sacred grove", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "sacred_mountain", label: "Sacred mountain", family: F::Cultural, class: C::Cultural, default_cap: 6, needs_viewshed: true, buildable: true, not_built: "" },
+        // Not built: a pilgrimage is a journey to a shrine, and a landmark chosen from landmarks
+        // placed in the same pass would need the pass to feed one kind's placements to another.
         LandmarkKindSpec { key: "pilgrimage_site", label: "Pilgrimage site", family: F::Cultural, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
-            // Research §35: shrine -> pilgrimage route.
-            not_built: "A pilgrimage leads to a shrine, and shrines are not placed yet, so neither is this." },
+            not_built: "A pilgrimage leads to a shrine or a sacred mountain, and the generator places each landmark kind independently, so it cannot yet choose the ones people travel to. Shrines and sacred mountains are placed." },
         LandmarkKindSpec { key: "tomb", label: "Tomb", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
             not_built: "A tomb needs a named historical figure to belong to, and the world does not record any." },
         LandmarkKindSpec { key: "monument", label: "Monument", family: F::Cultural, class: C::Cultural, default_cap: 12, needs_viewshed: false, buildable: false,
-            // Research §24. Battles drawn as Conflict records reach this pass as
-            // `LandmarkInputs::battles` (Battlefield reads them). The old text
-            // said no such events existed as records, which was false.
-            not_built: "A monument should commemorate something from the world's history — a battle, a founding, a victory. Battles you draw already reach the generator (they place Battlefields), but nothing yet decides which event a people would raise a monument to, so none is placed." },
-        LandmarkKindSpec { key: "ceremonial_site", label: "Ceremonial site", family: F::Cultural, class: C::Cultural, default_cap: 10, needs_viewshed: false, buildable: false,
-            not_built: "Not placed, for the same reason as Shrine: it has to come from a people's own culture and beliefs, which the landmark generator does not take into account yet." },
+            // Research §24. Battles drawn as conflicts reach this pass (Battlefield and Historic
+            // battlefield read them); a battle's outcome is free text by design (SP-4 §5), so there
+            // is no victory the generator could read to say who would raise a monument.
+            not_built: "A monument commemorates a victory, a founding or a death. Battles you draw already place Battlefields and Historic battlefields, but a battle's outcome is written as free text, deliberately, so nothing says who won or who would raise a monument." },
+        LandmarkKindSpec { key: "ceremonial_site", label: "Ceremonial site", family: F::Cultural, class: C::Cultural, default_cap: 10, needs_viewshed: false, buildable: true, not_built: "" },
         // ---------------- Historical (6) ----------------
-        LandmarkKindSpec { key: "ruin", label: "Ruin", family: F::Historical, class: C::Regional, default_cap: 20, needs_viewshed: false, buildable: false,
-            // Research §20/§25. Since 2026-10-17 the pass reads the Timeline
-            // (`LandmarkInputs::history`), but only which settlements are gone.
-            // The ruins mark is `TimelineSnapshot::collapse_flags`, which is in
-            // memory only: `project_bridge`'s `TimelineYearDto` does not carry
-            // it (a `SAVEFILE_COMPAT.md` §10.1 change deliberately not made),
-            // so a Ruin read from it would place before a save and not after
-            // a reload. Persisting the flags is the missing piece.
-            not_built: "A ruin should come from a settlement's own decline. A collapse run marks which settlements lie in ruins, but that mark is not saved with the project, so ruins placed from it would disappear the next time the project is opened. Abandoned settlement already marks the places that are gone altogether." },
+        // Built 2026-11-12 by `temporal_kinds::pool_ruin`, reading the collapse flags
+        // `project_bridge` now persists (`TimelineYearDto::collapse_flags`), which was the missing
+        // piece. Walled ruins are Destroyed fortress; the two partition `LandmarkHistory::ruins`.
+        LandmarkKindSpec { key: "ruin", label: "Ruin", family: F::Historical, class: C::Regional, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         // Built 2026-10-17: both read `LandmarkInputs::history`
         // (`LandmarkHistory::from_timeline`), the Timeline read their old
         // reasons said the generator lacked.
         LandmarkKindSpec { key: "abandoned_settlement", label: "Abandoned settlement", family: F::Historical, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "ancient_road", label: "Ancient road", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "battlefield_historic", label: "Historic battlefield", family: F::Historical, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
-            // Research §29 lists Battlefield under both Military and Historical;
-            // keyed apart so the table has 49 unique rows. Year-dependent landmark
-            // state is LANDMARK_GENERATION_SCOPE.md M9; landmarks persist (ruling 10).
-            not_built: "Battlefield already places a landmark at every battle you draw, so placing this too would put two landmarks on one spot. What would tell them apart — a battle in the past rather than one being fought — needs landmarks that change as the Timeline year moves, and that is not built yet." },
-        LandmarkKindSpec { key: "destroyed_fortress", label: "Destroyed fortress", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
-            // STORY_PLANNING_SCOPE.md SP-4: conflicts exist; battles reach this pass
-            // as `LandmarkInputs::battles` (sieges do not); the outcome is free text
-            // by design (SP-4 §5).
-            not_built: "A destroyed fortress needs a conflict that destroyed it. Conflicts can be recorded, but their outcome is written as free text, deliberately, so there is no destruction the generator could read." },
-        LandmarkKindSpec { key: "historic_crossing", label: "Historic crossing", family: F::Historical, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            // Since 2026-10-17 the pass reads former ways
-            // (`LandmarkHistory::ways`, which Ancient road places), but no
-            // measure of a crossing's historical weight is defined: neither
-            // research §29 nor this scope gives one, and inventing it (years
-            // in use? road class? battles nearby?) would be a guess.
-            not_built: "A crossing that mattered. Ford already places the crossings themselves, and Ancient road the roads that fell out of use; what would make one crossing historic rather than another has not been defined, so none is placed." },
+        // Research §29 lists Battlefield under both Military and Historical; keyed apart so the
+        // table has 49 unique rows. Built 2026-11-12: a drawn battle that ended before the
+        // present year (`LandmarkHistory::now_year`); Battlefield keeps the rest.
+        LandmarkKindSpec { key: "battlefield_historic", label: "Historic battlefield", family: F::Historical, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
+        // Built 2026-11-12 from the walled half of the persisted collapse flags, not from outcome
+        // text (which stays free text, SP-4 §5): a settlement recorded fortified and in ruins.
+        LandmarkKindSpec { key: "destroyed_fortress", label: "Destroyed fortress", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
+        // Built 2026-11-12 on a stated, overrulable definition (`temporal_kinds::pool_historic_crossing`):
+        // a river a recorded way crossed and no live way crosses.
+        LandmarkKindSpec { key: "historic_crossing", label: "Historic crossing", family: F::Historical, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: true, not_built: "" },
     ]
 }
 
@@ -1293,8 +1304,30 @@ pub struct FormerWay {
 pub struct LandmarkHistory {
     /// The live year the lists were read against (`CivData::year`).
     pub now_year: i64,
+    /// Former settlements that are **not** in ruins (absent from the live list, and the latest
+    /// collapse record, if any, did not flag them ruined). Abandoned settlement's domain.
     pub settlements: Vec<FormerSettlement>,
     pub ways: Vec<FormerWay>,
+    /// Settlements whose latest collapse record at or before `now_year` flags them in ruins
+    /// ([`CollapseFlags::ruins`]): Ruin's and Destroyed fortress's domain. A settlement not
+    /// recorded by a collapse run is in neither this list nor an assumed "intact" state.
+    pub ruins: Vec<RuinedSite>,
+}
+
+/// One settlement a recorded collapse year left in ruins — **research §20's ruination**, the
+/// stage a mere absence ([`FormerSettlement`]) cannot show. Read from the recorded
+/// [`CollapseFlags`], which `project_bridge` persists since 2026-11-12 (before that a reload
+/// dropped them, which is why Ruin used to be refused).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuinedSite {
+    /// Position, name, year and population as that recording held them.
+    pub site: FormerSettlement,
+    /// The same record's [`CollapseFlags::fortified`]: a walled place. Ruin and Destroyed
+    /// fortress partition this list on it.
+    pub fortified: bool,
+    /// `true` when a settlement with this `tid` is still in the live list (it stands, in ruins);
+    /// `false` when it is gone from the live world altogether.
+    pub still_live: bool,
 }
 
 impl LandmarkHistory {
@@ -1354,12 +1387,69 @@ impl LandmarkHistory {
                 w_best.insert(w.tid, FormerWay { way: w.clone(), last_year: snap.year });
             }
         }
+        // Ruination (research §20): the LATEST collapse record at or before the live year that
+        // holds an entry for the settlement decides, so a place flagged ruined in year 100 and
+        // recovered (an unflagged entry) in year 150 is not a ruin at year 200. A year with no
+        // entry for a `tid` is "not recorded", which neither raises nor clears the flag.
+        // `<=` (not `<` as the former lists use): a ruin at the live year is still a ruin, where
+        // an absence at the live year is simply the live world.
+        let mut r_best: BTreeMap<u64, (i64, CollapseFlagsRead)> = BTreeMap::new();
+        for snap in timeline.iter().filter(|t| t.year <= now_year) {
+            for s in &snap.settlements {
+                if s.tid == 0 {
+                    continue;
+                }
+                let Some(f) = snap.collapse_flags.get(&s.tid) else { continue };
+                if r_best.get(&s.tid).is_some_and(|(y, _)| *y >= snap.year) {
+                    continue;
+                }
+                r_best.insert(
+                    s.tid,
+                    (
+                        snap.year,
+                        CollapseFlagsRead {
+                            ruins: f.ruins,
+                            fortified: f.fortified,
+                            site: FormerSettlement {
+                                tid: s.tid,
+                                x: s.placement.x,
+                                y: s.placement.y,
+                                name: s.name.clone(),
+                                last_year: snap.year,
+                                population: s.pop as f64,
+                            },
+                        },
+                    ),
+                );
+            }
+        }
+        let ruins: Vec<RuinedSite> = r_best
+            .into_iter()
+            .filter(|(_, (_, f))| f.ruins)
+            .map(|(tid, (_, f))| RuinedSite {
+                site: f.site,
+                fortified: f.fortified,
+                still_live: live_s.contains(&tid),
+            })
+            .collect();
+        // A ruined settlement is a Ruin (or a Destroyed fortress), not merely an abandoned one:
+        // it leaves the abandoned list so one place is not two landmarks.
+        s_best.retain(|tid, _| !ruins.iter().any(|r| r.site.tid == *tid));
         LandmarkHistory {
             now_year,
             settlements: s_best.into_values().collect(),
             ways: w_best.into_values().collect(),
+            ruins,
         }
     }
+}
+
+/// [`LandmarkHistory::from_timeline`]'s scratch row: one recorded collapse entry with the site
+/// it described.
+struct CollapseFlagsRead {
+    ruins: bool,
+    fortified: bool,
+    site: FormerSettlement,
 }
 
 /// **Category C**, and the reason it is a separate number rather than a class
@@ -1553,6 +1643,25 @@ pub struct LandmarkInputs<'a> {
     /// [`pool_volcanic`] to name a volcanic feature's sub-kind (VA-7); `None`
     /// -- a world with no table -- dashes the sub-kind with its reason.
     pub volcanoes: Option<&'a [cartalith_terrain::PlacedEdifice]>,
+    /// `cartalith_civ::build_biome_raster` over the world's water classification, temperature and
+    /// rainfall (`BIOME_*` values; ocean 0, lake 13). Ancient forest's and Salt works' domain, and
+    /// nothing else reads it. `None` leaves both `NoTerrain`; a wrongly sized raster reads as
+    /// `None`, like every raster here.
+    pub biome: Option<&'a [u8]>,
+    /// `WorldState::temperature`, degrees C. Glacial feature's cold test; read with
+    /// [`glacial_snow_el`](Self::glacial_snow_el) and nothing else.
+    pub temperature: Option<&'a [f32]>,
+    /// The glacial pass's snowline height `sea + (1 - sea) * snowline` in field units, **`Some`
+    /// only for a world generated with `passes.glacial` on** (the app's default). `None` -- a
+    /// world whose ice never carved, or a save from before the pass -- leaves Glacial feature
+    /// `NoTerrain`: with the pass off, "inside the glacial domain" says nothing about ice.
+    pub glacial_snow_el: Option<f64>,
+    /// **Each faction's faith, indexed by faction id** (the roster's numbering, `0` unclaimed):
+    /// the cultural half of M9, read with [`territory`](Self::territory) by Sacred mountain,
+    /// Sacred grove, Shrine and Ceremonial site and nothing else. Empty leaves all four
+    /// `NoTerrain`: with no faith there is no interpretation, and a physical feature must not be
+    /// relabelled sacred for want of data.
+    pub faiths: &'a [FactionFaith],
 }
 
 /// `RESOURCE_KEYS` entries a Mine is generated from — the metallic and
@@ -1623,6 +1732,10 @@ impl<'a> LandmarkInputs<'a> {
             refined_view: None,
             karst: None,
             volcanoes: None,
+            biome: None,
+            temperature: None,
+            glacial_snow_el: None,
+            faiths: &[],
         }
     }
 
@@ -1787,6 +1900,26 @@ impl Needs {
             // Ancient road reads `history` and the LIVE way graph, to keep
             // its mark off any road still travelled.
             "ancient_road" => (false, false, false, false, true),
+            // Delta reads channel, receiver, flow and elevation only.
+            "delta" => (false, false, false, false, false),
+            // Ancient forest reads the biome and the settlements, and the way grid for
+            // road-free ground.
+            "ancient_forest" => (false, false, false, false, true),
+            // Salt works reads the shore's gradient.
+            "salt_works" => (true, false, false, false, false),
+            // Glacial feature: the hollow (broad TPI), its relief, and nothing else.
+            "glacial_feature" => (false, false, true, true, false),
+            // The four cultural readings need exactly what the physical kind they reinterpret needs:
+            // Peak (TPI, extrema, viewshed), Ancient forest (the way grid), Spring (extrema), Rock
+            // formation (TPI, extrema).
+            "sacred_mountain" => (false, false, true, true, false),
+            "sacred_grove" => (false, false, false, false, true),
+            "shrine" => (false, false, false, true, false),
+            "ceremonial_site" => (false, false, true, true, false),
+            // Historic battlefield reads the battles only; Ruin and Destroyed fortress read the
+            // history only; Historic crossing reads the history and the LIVE way graph.
+            "battlefield_historic" | "ruin" | "destroyed_fortress" => (false, false, false, false, false),
+            "historic_crossing" => (false, false, false, false, true),
             "ford" => (true, false, false, false, false),
             "harbour" => (true, false, false, false, false),
             "mine" | "quarry" | "resource_extraction_site" => (true, false, false, false, false),
@@ -1810,6 +1943,7 @@ impl Needs {
                 | "volcanic_feature"
                 | "border_marker"
                 | "peak"
+                | "sacred_mountain"
         );
         let commanding =
             matches!(key, "fort" | "watchtower" | "fortified_pass" | "fortified_crossing");
@@ -2619,12 +2753,18 @@ struct Pool {
     /// generated landmark placed after it still keeps its distance. Must
     /// never be set by a detector that chooses its own cells.
     authored: bool,
+    /// **Every candidate reinterprets another kind's feature** (research §26), so it may sit on
+    /// the cell of the physical landmark it reads and is held apart only from its own kind: its
+    /// placements are neither blocked by nor entered into the shared spacing field. Set only by
+    /// `cultural_kinds::pool_interpreted`; must never be set by a detector that chooses its own
+    /// cells, which would let two unrelated kinds share a spot.
+    overlay: bool,
 }
 
 impl Pool {
     /// An empty candidate pool, generated (not authored).
     fn new() -> Pool {
-        Pool { cands: Vec::new(), rejected_constraint: 0, terms: Vec::new(), authored: false }
+        Pool { cands: Vec::new(), rejected_constraint: 0, terms: Vec::new(), authored: false, overlay: false }
     }
     /// How many cells entered the funnel.
     fn candidates(&self) -> usize {
@@ -3482,6 +3622,10 @@ struct Ctx<'a> {
     territory: Option<&'a [i32]>,
     /// [`LandmarkInputs::karst`], `None` unless it fits the grid.
     karst: Option<&'a KarstView>,
+    /// [`LandmarkInputs::biome`], `None` unless it fits the grid.
+    biome: Option<&'a [u8]>,
+    /// [`LandmarkInputs::temperature`], `None` unless it fits the grid.
+    temp: Option<&'a [f32]>,
     up: Option<Upstream>,
     /// `None` when nothing armed reads the way network, or when the caller
     /// passed no ways at all — the same "absent input, honest `NoTerrain`"
@@ -3553,6 +3697,8 @@ impl<'a> Ctx<'a> {
             rock: inp.rock.filter(|r| r.fits(n)),
             territory: inp.grid(inp.territory),
             karst: inp.karst.filter(|k| k.fits(n)),
+            biome: inp.grid(inp.biome),
+            temp: inp.grid(inp.temperature),
             up,
             ways: if need.ways && !inp.ways.is_empty() {
                 Some(WayGrid::build(inp.ways, inp.gw, inp.gh, inp.world))
@@ -4496,30 +4642,13 @@ fn pool_harbour(c: &Ctx<'_>) -> Option<Pool> {
         if !coastal {
             continue;
         }
-        let mut land_n = 0usize;
-        let mut total = 0usize;
-        let mut depth_acc = 0f64;
-        let mut depth_n = 0usize;
-        for dy in -r..=r {
-            for dx in -r..=r {
-                if let Some(j) = c.nb(x, y, dx, dy) {
-                    total += 1;
-                    if c.is_land(j) {
-                        land_n += 1;
-                    } else if c.is_ocean(j) {
-                        depth_acc += -c.elev_m(j);
-                        depth_n += 1;
-                    }
-                }
-            }
-        }
-        let shelter = if total > 0 { land_n as f64 / total as f64 } else { 0.0 };
+        // One body with Salt works' shelter test (`natural_kinds::approach`).
+        let (shelter, depth) = natural_kinds::approach(c, x, y, r);
         let grad = c.gradient(i);
         if shelter < HARBOUR_MIN_SHELTER || grad > HARBOUR_MAX_GRADIENT {
             p.rejected_constraint += 1;
             continue;
         }
-        let depth = if depth_n > 0 { depth_acc / depth_n as f64 } else { 0.0 };
         let inf = c.influence(x, y);
         let mut facts = vec![
             "land against open water, with the water enclosed".to_string(),
@@ -5517,9 +5646,25 @@ const BATTLEFIELD_TERMS: [(&str, f64); 1] = [("settlement demand", 1.0)];
 /// constraint reject. Two battles on one cell are one candidate carrying both
 /// names, not two records on one cell.
 fn pool_battlefield(c: &Ctx<'_>) -> Option<Pool> {
+    pool_battle(c, temporal_kinds::BattleEra::Current)
+}
+
+/// §29's **Historic battlefield** (Historical, Cultural): a drawn battle that ended before the
+/// present year (`LandmarkHistory::now_year`), the era [`pool_battlefield`] leaves to it. `None`
+/// (`NoTerrain`) without a present year: with no Timeline there is no "past" to read.
+fn pool_battlefield_historic(c: &Ctx<'_>) -> Option<Pool> {
+    c.inp.history?;
+    pool_battle(c, temporal_kinds::BattleEra::Past)
+}
+
+/// The body of both battle kinds: the cell of each drawn battle in `era` at the present year
+/// (`temporal_kinds::era_of`). With no present year every battle is `Current`, which is the
+/// behaviour before the split, so a caller with no Timeline is unchanged.
+fn pool_battle(c: &Ctx<'_>, era: temporal_kinds::BattleEra) -> Option<Pool> {
     if c.inp.battles.is_empty() {
         return None;
     }
+    let now = c.inp.history.map(|h| h.now_year);
     let (gw, gh) = (c.inp.gw as f64, c.inp.gh as f64);
     let has_settle = !c.inp.settlements.is_empty();
     let mut p = Pool::new();
@@ -5531,6 +5676,10 @@ fn pool_battlefield(c: &Ctx<'_>) -> Option<Pool> {
     p.authored = true;
     let mut t_s: Vec<f32> = Vec::new();
     for b in c.inp.battles {
+        // The era is the temporal state: a battle not in this kind's era is the other kind's.
+        if temporal_kinds::era_of(b, now) != era {
+            continue;
+        }
         let mut fx = b.x.round();
         let fy = b.y.round();
         if c.inp.world && fx.is_finite() {
@@ -5553,7 +5702,12 @@ fn pool_battlefield(c: &Ctx<'_>) -> Option<Pool> {
             Some(_) => b.start_year.to_string(),
             None => format!("{}–", b.start_year),
         };
-        let fact = format!("site of {} ({})", name, years);
+        let fact = match (era, b.end_year, now) {
+            (temporal_kinds::BattleEra::Past, Some(e), Some(n)) => {
+                format!("site of {} ({}), ended {} years before year {}", name, years, n - e, n)
+            }
+            _ => format!("site of {} ({})", name, years),
+        };
         if let Some(q) = p.cands.iter_mut().find(|q| q.i == i) {
             q.facts.insert(0, fact);
             continue;
@@ -5638,7 +5792,7 @@ fn pool_ancient_road(c: &Ctx<'_>) -> Option<Pool> {
     if h.ways.is_empty() {
         return None;
     }
-    let (gw, gh) = (c.inp.gw, c.inp.gh);
+    let gw = c.inp.gw;
     let mut p = Pool::new();
     let (mut t_rank, mut t_len) = (vec![], vec![]);
     for fw in &h.ways {
@@ -5647,45 +5801,9 @@ fn pool_ancient_road(c: &Ctx<'_>) -> Option<Pool> {
             p.rejected_constraint += 1;
             continue;
         };
-        // Walk the course: (cell, distance along it in cells).
-        let mut samples: Vec<(usize, f64)> = Vec::new();
-        let mut along = 0f64;
-        for pair in w.pts.windows(2) {
-            let (ax, ay) = pair[0];
-            let (bx, by) = pair[1];
-            let mut dx = bx - ax;
-            let dy = by - ay;
-            // The seam rule `WayGrid::build` uses: on a wrapping world the
-            // short way round the cylinder is the real segment.
-            if c.inp.world {
-                let gwf = gw as f64;
-                if dx > gwf * 0.5 {
-                    dx -= gwf;
-                } else if dx < -gwf * 0.5 {
-                    dx += gwf;
-                }
-            }
-            let len = (dx * dx + dy * dy).sqrt();
-            if !len.is_finite() {
-                continue;
-            }
-            let steps = ((len / WAY_STEP_CELLS).ceil() as i64).clamp(1, WAY_MAX_STEPS);
-            for k in 0..=steps {
-                let t = k as f64 / steps as f64;
-                let (x, y) = (ax + dx * t, ay + dy * t);
-                if !x.is_finite() || !(y >= 0.0) || y.floor() >= gh as f64 {
-                    continue;
-                }
-                let mut xx = x.floor() as i64;
-                if c.inp.world {
-                    xx = xx.rem_euclid(gw as i64);
-                } else if xx < 0 || xx >= gw as i64 {
-                    continue;
-                }
-                samples.push((y.floor() as usize * gw + xx as usize, along + len * t));
-            }
-            along += len;
-        }
+        // Walk the course: (cell, distance along it in cells). One body with Historic crossing
+        // (`temporal_kinds::course_samples`), so the two read a former way identically.
+        let (samples, along) = temporal_kinds::course_samples(c, w);
         let half = along * 0.5;
         let on_live = |i: usize| c.ways.as_ref().is_some_and(|g| g.ways_here[i] > 0);
         // Nearest the half-way point; `min_by` keeps the first of equals, so
@@ -5765,6 +5883,22 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
         "volcanic_feature" => pool_volcanic(c),
         "border_marker" => pool_border_marker(c),
         "battlefield" => pool_battlefield(c),
+        "delta" => natural_kinds::pool_delta(c),
+        "ancient_forest" => natural_kinds::pool_ancient_forest(c),
+        "salt_works" => natural_kinds::pool_salt_works(c),
+        "glacial_feature" => natural_kinds::pool_glacial(c),
+        "sacred_mountain" => cultural_kinds::pool_interpreted(c, pool_peak(c), cultural_kinds::Reading::HighPlaces),
+        "sacred_grove" => {
+            cultural_kinds::pool_interpreted(c, natural_kinds::pool_ancient_forest(c), cultural_kinds::Reading::Grove)
+        }
+        "shrine" => cultural_kinds::pool_interpreted(c, pool_spring(c), cultural_kinds::Reading::Shrine),
+        "ceremonial_site" => {
+            cultural_kinds::pool_interpreted(c, pool_rock_formation(c), cultural_kinds::Reading::Ceremonial)
+        }
+        "battlefield_historic" => pool_battlefield_historic(c),
+        "ruin" => temporal_kinds::pool_ruin(c, false),
+        "destroyed_fortress" => temporal_kinds::pool_ruin(c, true),
+        "historic_crossing" => temporal_kinds::pool_historic_crossing(c),
         _ => None,
     }
 }
@@ -5982,7 +6116,9 @@ pub fn generate(
         });
 
         let r = radius_cells(spec.class);
-        let mut own = if settings.cross_type_competition {
+        // An overlay (a cultural reading of another kind's feature) keeps its own kind's spacing and
+        // never touches the shared field, so it can share a cell with the feature it reads.
+        let mut own = if settings.cross_type_competition && !pool.overlay {
             None
         } else {
             Some(Buckets::new(inputs.gw, inputs.gh, inputs.world, r))
@@ -6621,6 +6757,11 @@ mod tests {
         territory: Vec<i32>,
         ways: Vec<crate::Way>,
         resources: crate::ResourcePotentials,
+        /// `build_biome_raster` over the world's water classification, temperature and rainfall: Ancient
+        /// forest's and Salt works' input.
+        biome: Vec<u8>,
+        /// [`fixture_faiths`] over the six factions, so the cultural kinds have a faith to read.
+        faiths: Vec<FactionFaith>,
         /// [`RockView::for_world`] on `ws`, `None` when it refuses.
         rock: Option<RockView>,
     }
@@ -6824,6 +6965,8 @@ mod tests {
             territory,
             ways,
             resources,
+            biome,
+            faiths: fixture_faiths(8),
             ws,
         }
     }
@@ -6870,6 +7013,9 @@ mod tests {
         // formation reports `NoTerrain` here.
         i.rock = r.rock.as_ref();
         i.territory = Some(&r.territory);
+        i.biome = Some(&r.biome);
+        i.faiths = &r.faiths;
+        i.temperature = Some(&r.ws.temperature);
         i.resources = res;
         i.settlements = &r.sites;
         i.ways = &r.ways;
@@ -6915,7 +7061,8 @@ mod tests {
         // every pool function (2026-09-24): `pool_military` (fort,
         // watchtower, fortified_pass, fortified_crossing), `pool_volcanic`,
         // `pool_border_marker`, and `pool_peak`'s land-in-view term (Ruling
-        // AV). Not §9.3's list — Sacred mountain has no scorer.
+        // AV), plus `sacred_mountain`, which reinterprets Peak's candidates and so reads the
+        // same viewshed term (2026-11-12).
         let mut vs: Vec<&str> = ks.iter().filter(|k| k.needs_viewshed).map(|k| k.key).collect();
         vs.sort_unstable();
         assert_eq!(
@@ -6926,10 +7073,11 @@ mod tests {
                 "fortified_crossing",
                 "fortified_pass",
                 "peak",
+                "sacred_mountain",
                 "volcanic_feature",
                 "watchtower",
             ],
-            "the seven kinds whose scorer reads the viewshed"
+            "the eight kinds whose scorer reads the viewshed"
         );
         // And the flag is the same answer `Needs::of` gives when it decides
         // whether to build the viewshed at all — a flag that drifts from the
@@ -6948,19 +7096,26 @@ mod tests {
             built,
             vec![
                 "abandoned_settlement",
+                "ancient_forest",
                 "ancient_road",
                 "battlefield",
+                "battlefield_historic",
                 "border_marker",
                 "bridge_site",
                 "caravan_station",
                 "cave",
+                "ceremonial_site",
                 "cliff",
+                "delta",
+                "destroyed_fortress",
                 "ford",
                 "fort",
                 "fortified_crossing",
                 "fortified_pass",
+                "glacial_feature",
                 "gorge",
                 "harbour",
+                "historic_crossing",
                 "lake",
                 "market_site",
                 "mine",
@@ -6973,13 +7128,18 @@ mod tests {
                 "river_confluence",
                 "road_junction",
                 "rock_formation",
+                "ruin",
+                "sacred_grove",
+                "sacred_mountain",
+                "salt_works",
+                "shrine",
                 "spring",
                 "trade_depot",
                 "volcanic_feature",
                 "watchtower",
                 "waterfall",
             ],
-            "the thirty-one kinds this engine actually generates"
+            "the forty-three kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -7020,6 +7180,18 @@ mod tests {
                         | "portage"
                         | "abandoned_settlement"
                         | "ancient_road"
+                        | "delta"
+                        | "ancient_forest"
+                        | "salt_works"
+                        | "glacial_feature"
+                        | "battlefield_historic"
+                        | "ruin"
+                        | "destroyed_fortress"
+                        | "historic_crossing"
+                        | "shrine"
+                        | "sacred_grove"
+                        | "sacred_mountain"
+                        | "ceremonial_site"
                 ),
                 "{} disagrees with `detect`",
                 k.key
@@ -7218,6 +7390,13 @@ mod tests {
     /// and that test asserts exactly this list — so a kind cannot be exempted
     /// here and left unverified there.
     const FIXTURE_HAS_NO_TRUNK_RIVER: [&str; 3] = ["bridge_site", "trade_depot", "portage"];
+    /// M8/M9 kinds the hand-shaped fixture cannot reach and a really generated world can, each
+    /// asserted in `the_m8_and_m9_kinds_place_on_a_world_generate_terrain_really_made`: Delta (no
+    /// low coastal plain at a large mouth), Ancient forest and Salt works (no biome raster), Glacial
+    /// feature (needs the generated temperature and snowline), Historic crossing (a former way over a
+    /// channel), and the Sacred grove that reads the forest.
+    const FIXTURE_CANNOT_SHAPE: [&str; 6] =
+        ["delta", "ancient_forest", "salt_works", "glacial_feature", "historic_crossing", "sacred_grove"];
 
     /// **Every detector must be able to place something.** Run with cross-type
     /// competition off, because with it on a gorge and a waterfall at the same
@@ -7236,7 +7415,12 @@ mod tests {
         ];
         // Battlefield's only input, which nothing in the fixture can derive:
         // a battle has to be drawn. On the first town, which is land.
-        let battles = [battle_at(w.gw / 4, w.gh / 3, "Fixture Field")];
+        // Fixture Field is still going at year 100; Old Field ended in year 50, so it is the
+        // Historic battlefield (M9's present-year split).
+        let battles = [
+            battle_at(w.gw / 4, w.gh / 3, "Fixture Field"),
+            BattleMark { x: (w.gw / 4 + 2) as f64, y: (w.gh / 3 + 2) as f64, name: "Old Field".into(), start_year: 40, end_year: Some(50) },
+        ];
         // Abandoned settlement's and Ancient road's only input, which the
         // fixture has no Timeline to derive: one former site three cells
         // (11.7 km) east of that town, outside the 5 km clearance, and one
@@ -7255,6 +7439,20 @@ mod tests {
                 way: straight((w.gw / 4 + 3, w.gh / 3 + 6), (w.gw / 4 + 12, w.gh / 3 + 6), crate::WayType::Road),
                 last_year: 90,
             }],
+            // Ruin's and Destroyed fortress's only input (the collapse flags, which the fixture has
+            // no collapse run to derive): one unwalled and one walled ruin on land west of the escarpment.
+            ruins: vec![
+                RuinedSite {
+                    site: FormerSettlement { tid: 2, x: w.gw / 4 + 8, y: w.gh / 3, name: "Fixture Hollow".into(), last_year: 80, population: 300.0 },
+                    fortified: false,
+                    still_live: false,
+                },
+                RuinedSite {
+                    site: FormerSettlement { tid: 3, x: w.gw / 4 + 12, y: w.gh / 3 + 3, name: "Fixture Keep".into(), last_year: 80, population: 300.0 },
+                    fortified: true,
+                    still_live: false,
+                },
+            ],
         };
         // Cave's only input (GF-6), which the fixture has no rock column to
         // derive: limestone dissolving 5 m everywhere, no spring line. Spring
@@ -7264,10 +7462,13 @@ mod tests {
         inp.battles = &battles;
         inp.history = Some(&hist);
         inp.karst = Some(&karst);
+        // The cultural kinds read each faction's faith over the fixture's territory raster.
+        let faiths = fixture_faiths(8);
+        inp.faiths = &faiths;
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let r = generate(&inp, &s, 7);
         for k in kinds().iter().filter(|k| k.buildable) {
-            if FIXTURE_HAS_NO_TRUNK_RIVER.contains(&k.key) {
+            if FIXTURE_HAS_NO_TRUNK_RIVER.contains(&k.key) || FIXTURE_CANNOT_SHAPE.contains(&k.key) {
                 continue;
             }
             assert!(
@@ -8685,12 +8886,14 @@ mod tests {
         let r = generate(&inp, &s, 1);
         assert_eq!(r.funnel("peak").unwrap().limit, LandmarkLimit::Disarmed);
         assert_eq!(r.placed("peak"), 0);
-        assert_eq!(r.funnel("shrine").unwrap().limit, LandmarkLimit::NotBuildable);
-        // Historic battlefield, not Battlefield or Border marker: both of
+        assert_eq!(r.funnel("tomb").unwrap().limit, LandmarkLimit::NotBuildable);
+        // Monument, not Battlefield or Border marker: both of
         // those are generated now (`LandmarkInputs::battles` and
         // `::territory` closed them). With no battles drawn Battlefield is
         // `NoTerrain`, an absent input, which is a different answer.
-        assert_eq!(r.funnel("battlefield_historic").unwrap().limit, LandmarkLimit::NotBuildable);
+        assert_eq!(r.funnel("monument").unwrap().limit, LandmarkLimit::NotBuildable);
+        // Historic battlefield is built since 2026-11-12 and needs a present year: no history, NoTerrain.
+        assert_eq!(r.funnel("battlefield_historic").unwrap().limit, LandmarkLimit::NoTerrain);
         assert_eq!(r.funnel("battlefield").unwrap().limit, LandmarkLimit::NoTerrain);
         // A cap of zero is the slider's own `off` stop.
         let mut s2 = LandmarkSettings::default();
@@ -8705,10 +8908,12 @@ mod tests {
         let w = world(128, 96, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
-        s.set_armed("battlefield_historic", true);
+        s.set_armed("monument", true);
         let r = generate(&inp, &s, 1);
-        assert_eq!(r.funnel("battlefield_historic").unwrap().limit, LandmarkLimit::NotBuildable);
-        assert_eq!(r.placed("battlefield_historic"), 0);
+        assert_eq!(r.funnel("monument").unwrap().limit, LandmarkLimit::NotBuildable);
+        // Historic battlefield is built since 2026-11-12 and needs a present year: no history, NoTerrain.
+        assert_eq!(r.funnel("battlefield_historic").unwrap().limit, LandmarkLimit::NoTerrain);
+        assert_eq!(r.placed("monument"), 0);
     }
 
     // -- Battlefield: M9's conflict wiring ----------------------------------
@@ -10283,6 +10488,7 @@ mod tests {
                 FormerSettlement { tid: 4, x: 100, y: 10, name: "Drowned".into(), last_year: 90, population: 900.0 },
             ],
             ways: vec![],
+            ruins: vec![],
         };
         // The drowned site's cell is sea now.
         let mut field = field;
@@ -10319,6 +10525,7 @@ mod tests {
                 FormerWay { way: way_tid(9, (20, 10), (60, 10), false), last_year: 80 },
                 FormerWay { way: way_tid(10, (20, 40), (50, 40), false), last_year: 80 },
             ],
+            ruins: vec![],
         };
         let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
         inp.ways = &live;
@@ -10554,4 +10761,7 @@ mod tests {
         assert_eq!(ROCK_FORMATION_KEY_S_PER_UNIT, 1.0e6);
         assert_eq!(ROCK_FORMATION_KEY_TPI_M, 9_999.0);
     }
+
+    // M8 residual and M9 temporal kinds (2026-11-12): shares this module's fixtures.
+    include!("landmark/m9_tests.rs");
 }

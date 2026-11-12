@@ -9602,6 +9602,14 @@ func landmarks() -> Array:
 		return []
 	return world_gen.landmarks()
 
+## M9's temporal state (research §25) for the placed landmark `key` (`WorldGen.landmark_phase`): `{phase, because}`,
+## or `{}` when the world has no settlement (no claim either way) or no landmark has that key. Derived on each call
+## from the live settlements, so it follows the Timeline year. Empty while generating or without the API.
+func landmark_phase(key: String) -> Dictionary:
+	if generating or not _has("landmark_phase"):
+		return {}
+	return world_gen.landmark_phase(key)
+
 ## Ruling EI: every placed landmark's name, `[{key, id, name, source}]` in `landmarks()`' order
 ## (`WorldGen.landmark_names`). `key` is the landmark's kind and cell (`peak@120,64`), `id` its vault entity id,
 ## `source` `user`, `near_place` or `fallback`. Empty while generating, before a landmark run, or without the API.

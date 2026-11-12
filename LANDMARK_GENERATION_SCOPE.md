@@ -461,9 +461,62 @@ it; the shell shows one generic "not buildable" reason. `ALIGNMENT_AUDIT.md`
 Part 1 item 8 has the full list. The kinds stay unbuilt, but the reasons need
 rewriting.
 
-Not specified further here — beyond the conflict half, research §24-26's
-interpretation and state transitions have nothing in this repository to
-compose against yet, and specifying them further would be guessing.
+*Superseded 2026-11-12:* the sentence that stood here said research §24-26's interpretation and state
+transitions had nothing to compose against. Ruling AP's persistence and the SP-4 conflict entity, then the
+persisted collapse flags, the faction faiths and the recorded Timeline gave it something; the design chosen is
+in the next section.
+
+### The remaining M8 kinds and M9's temporal and cultural halves: the design chosen (2026-11-12)
+
+Twelve more kinds are generated, each from the nearest physical or recorded fact the engine holds and
+none from an input it lacks. Where a kind's old reason named a missing input, the design says what is
+read **instead** and what it is *not*; the causal chain says "intact", "site" or "ruins", never a claim the
+input cannot back. How far each has got is `STATUS.md`'s.
+
+- **Delta** (`landmark/natural_kinds.rs`): a large river's mouth (flow at least the router's marshland
+  multiple of the channel threshold, `river_class::DELTA_FLOW_MULT`) over a low coastal plain (at least half
+  the land within 12 km is within the router's marshland margin, `DELTA_LOWLAND_DH`, of the sea). It is a delta
+  *site*; erosion still keeps no per-cell deposition record. **The first choice, the 10 m low-elevation
+  coastal zone (McGranahan et al. 2007), was measured and replaced**: on three 256 x 192 worlds the share of
+  land within 10 m of the sea around a large mouth has a median of 0.00 (maximum 0.12), because this engine's
+  coasts rise tens of metres inside one cell; with the router's margin the median is 0.57 to 0.71 and the range
+  0.00 to 1.00.
+- **Ancient forest**: *intact* forest (Potapov et al. 2008: at least 500 km2, at least 10 km wide, clear of
+  settlement and road), no age. The patch's heart (a local maximum of the chamfer distance, Borgefors 1986) of a
+  4-connected forest patch. Its class is Regional, not the research table's Continental: a 200 km exclusion
+  against every other landmark would let it place only where nothing else is.
+- **Salt works**: coastal land on a dry biome, flat (gradient at most 0.02), within 10 m of the sea and
+  sheltered (the harbour's approach test, one body for both). Not a salt map: `build_resource_potentials` still
+  has no coastal salt term.
+- **Glacial feature**: a cirque or glacial trough *inside the glacial pass's own eroding domain* (above
+  `sea + (1 - sea) * snowline` and below freezing, the test `glacial_core` applies), on a world generated with
+  the pass on. The 2026-10-17 refusal stands where it was measured (the Landform cirque class is a shape test
+  the pass barely moves); this reads the pass's activation test instead. Not a carve record: a valley cut below
+  the snowline is outside the domain and is missed.
+- **Historic battlefield** and the rule it carries: a drawn battle that ended before `LandmarkHistory::now_year`
+  is a Historic battlefield; the rest stay Battlefield. A landmark's key is `kind@x,y`, so a typed name is carried
+  across the pair by an alias (`era_alias_key`).
+- **Ruin** and **Destroyed fortress**: the collapse run's persisted `fortified` / `ruins` flags
+  (`TimelineYearDto::collapse_flags`, `SAVEFILE_COMPAT.md` section 10.1). The *latest* record at or before the
+  live year decides, so a place recovered after ruin is not a ruin. Unwalled is Ruin, walled is Destroyed
+  fortress; a ruined place leaves Abandoned settlement's list. No outcome text is read.
+- **Historic crossing**: the definition the scope called a guess is now stated and overrulable: a river a
+  recorded way crossed and no live way crosses. Ranked by the road's class, the river's size and a battle within
+  10 km. Years in use are not read; recorded years are sparse snapshots.
+- **Sacred mountain, Sacred grove, Shrine, Ceremonial site** (`landmark/cultural_kinds.rs`): research section 26
+  made code. None has a detector; each *reinterprets* a physical kind's candidates (Peak, Ancient forest, Spring,
+  Rock formation) inside the territory of a faction whose faith reads that feature as sacred, through the
+  owner-approved tables (the belief module's terrain domains, Ruling CY's rite table, Ruling CJ's locus axis).
+  `F_cultural` of section 19 is binary: it gates and does not weigh, because the engine holds a faith per
+  faction and no measure of devotion. They sit on the very cell of the physical landmark (`Pool::overlay`).
+- **Phase** (`temporal_kinds::landmark_phase`): research section 25's lifecycle restricted to what the world
+  holds evidence for (natural, utilised, developed, monumentalised, abandoned, ruined), derived on each call from
+  the live settlements at the Timeline year, never stored. Absent, not "natural", when the world has no settlement.
+- **Still refused, with reasons rewritten:** Saddle and River crossing (declined duplicates of Mountain pass and
+  of Ford and Bridge site), Temple (a town's place of worship is already drawn from its faction's faith, so a
+  landmark would record the same building twice), Pilgrimage site (needs one kind chosen from another's
+  placements, which the pass does not do), Tomb (no historical figure) and Monument (a battle's outcome is free
+  text, so nothing says who would raise one).
 
 ## 4. The owner questions — posed here, all since ruled
 

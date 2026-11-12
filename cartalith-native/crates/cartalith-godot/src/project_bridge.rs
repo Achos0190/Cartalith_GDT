@@ -1099,6 +1099,24 @@ struct TimelineYearDto {
     /// no overrides. Same skip rule as `institutions`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     place_overrides: Option<Vec<YearPlaceOverrideDto>>,
+    /// The collapse run's per-settlement `fortified`/`ruins` status for this year, by `tid`
+    /// (`SAVEFILE_COMPAT.md` §10.1, added 2026-11-12; `TimelineSnapshot::collapse_flags`). **Absent =
+    /// not recorded** (every earlier archive, any year not written by a collapse run); never
+    /// written as `[]`, because an empty list would read as "recorded: nothing in ruins". Landmark
+    /// generation's Ruin and Destroyed fortress read it, which is why it is saved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    collapse_flags: Option<Vec<YearCollapseFlagDto>>,
+}
+
+/// One settlement's recorded collapse status, keyed by its stable `tid`. Both members default to
+/// `false` on read, but a row only exists where a collapse run wrote an entry for that `tid`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct YearCollapseFlagDto {
+    tid: u64,
+    #[serde(default)]
+    fortified: bool,
+    #[serde(default)]
+    ruins: bool,
 }
 
 /// One faction's recorded ag-tech and government keys (the array index is the faction id).
@@ -2503,6 +2521,17 @@ fn civ_documents(civ: &CivData, name_stream: Option<u32>, out: &mut BTreeMap<Str
                         ways: snap.ways.iter().map(road_to_dto).collect(),
                         institutions,
                         place_overrides,
+                        // Absent unless a collapse run wrote flags for this year (never `[]`).
+                        collapse_flags: if snap.collapse_flags.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                snap.collapse_flags
+                                    .iter()
+                                    .map(|(&tid, f)| YearCollapseFlagDto { tid, fortified: f.fortified, ruins: f.ruins })
+                                    .collect(),
+                            )
+                        },
                     }
                 })
                 .collect(),
@@ -3038,6 +3067,14 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
         // §10.1: the institutions record is optional per year; absent members stay None
         // ("not recorded: read today's"), which is what civ_snapshot_save just left.
         cartalith_civ::timeline::civ_snapshot_set_record(&mut timeline, y.year, year_record_from_dtos(y));
+        // The collapse flags, after `civ_snapshot_save` (which empties them on an overwrite).
+        // A duplicate `tid` in a hand-edited file keeps the last row, as the place overrides do.
+        if let (Some(rows), Some(snap)) = (y.collapse_flags.as_ref(), timeline.iter_mut().find(|s| s.year == y.year)) {
+            snap.collapse_flags = rows
+                .iter()
+                .map(|r| (r.tid, cartalith_civ::timeline::CollapseFlags { fortified: r.fortified, ruins: r.ruins }))
+                .collect();
+        }
     }
 
     // Milestone 4's reseed, at the one place in this port where a recorded
@@ -8632,6 +8669,31 @@ mod tests {
         let r200 = at(200);
         assert!(r200.institutions.is_some());
         assert_eq!(r200.place_overrides, Some(Default::default()), "recorded-none is not unrecorded");
+    }
+
+    /// Protects: `TimelineYearDto::collapse_flags` (`SAVEFILE_COMPAT.md` §10.1, 2026-11-12). A collapse
+    /// run's per-settlement `fortified`/`ruins` flags survive an archive exactly; a year with no flags
+    /// is written **without** the member and reads back with none (not recorded), never a flag set of
+    /// `false`s; and a recorded `false`/`false` entry is not lost, because "recorded as intact" is a
+    /// different fact from "not recorded". Landmark generation's Ruin and Destroyed fortress read
+    /// these, which is why they are saved.
+    #[test]
+    fn a_collapse_runs_flags_survive_an_archive_and_an_unrecorded_year_stays_unrecorded() {
+        let mut civ = sample_civ();
+        civ.timeline.clear();
+        civ_snapshot_save_for_test(&mut civ, 100);
+        civ_snapshot_save_for_test(&mut civ, 200);
+        civ.timeline[0].collapse_flags.insert(7, cartalith_civ::timeline::CollapseFlags { fortified: true, ruins: true });
+        civ.timeline[0].collapse_flags.insert(9, cartalith_civ::timeline::CollapseFlags { fortified: false, ruins: false });
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, None, &mut docs);
+        let text = &docs[SLOT_TIMELINE];
+        assert_eq!(text.matches("collapse_flags").count(), 1, "only the year that has flags writes the member: {text}");
+        let back = round_trip(&civ, 4, 3);
+        let at = |y: i64| back.timeline.iter().find(|s| s.year == y).unwrap().collapse_flags.clone();
+        assert_eq!(at(100), civ.timeline[0].collapse_flags, "year 100's flags come back as written");
+        assert_eq!(at(100).get(&9), Some(&cartalith_civ::timeline::CollapseFlags::default()), "recorded intact is kept");
+        assert!(at(200).is_empty(), "an unrecorded year stays unrecorded");
     }
 
     /// Protects G1-4's bar 1 (`GOVERNMENTS_SCOPE.md` §7.2, §8; Ruling CZ): the

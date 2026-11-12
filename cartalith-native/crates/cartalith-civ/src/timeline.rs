@@ -1866,10 +1866,10 @@ pub struct TimelineSnapshot {
     /// describe the `settlements` list stored beside them and an overwrite replaces that
     /// list.
     ///
-    /// **In memory only.** `project_bridge`'s `TimelineYearDto` does not carry it, so a
-    /// project save/reload drops it and every reloaded year reads as not recorded -- the
-    /// honest degradation, not a false `false`. Persisting it is a `SAVEFILE_COMPAT.md`
-    /// §10.1 format change and was deliberately not made here.
+    /// **Saved since 2026-11-12** as `TimelineYearDto::collapse_flags` (`SAVEFILE_COMPAT.md` §10.1):
+    /// a year with no entry is written without the member, and a reload gives back exactly the
+    /// entries that were there, so a missing `tid` is still "not recorded", never a false `false`.
+    /// Landmark generation (Ruin, Destroyed fortress) reads it, which is why it is persisted.
     pub collapse_flags: BTreeMap<u64, CollapseFlags>,
     /// The roster institutions and place-editor overrides in force when THIS year was recorded
     /// from live state (`MILITARY_MANPOWER_SCOPE.md` §5.7's last gap; see [`YearRecord`]).

@@ -242,6 +242,17 @@ Also not in `get_params()`: `set_villages_enabled` (a `cartalith-civ` concern,
 with its own getter) and the render-side `TerrainAppearance` (Phase 3, its own
 future surface).
 
+
+**Landmark kinds are not generation parameters (2026-11-12).** The 12 kinds added to the landmark
+pass (Delta, Ancient forest, Salt works, Glacial feature, Historic battlefield, Ruin, Destroyed
+fortress, Historic crossing, Shrine, Sacred grove, Sacred mountain, Ceremonial site) add **no
+`WorldParams` key and no `PARAMS` / `JS_PATHS` row**: landmarks are parity-exempt (ruling 12), no
+`WorldState` field moves, and every golden is untouched by construction. They are armed through
+`LandmarkSettings` (`armed` falls back to "buildable"), so a saved landmark settings blob from before
+them arms them on its next run, exactly as the kind table says. The one generation parameter they
+read is **`passes.glacial`** (and `passes.glacial_snowline`): Glacial feature reports `no_terrain` on a
+world generated with the pass off (`WorldParams::defaults`) and reads the snowline on one generated
+with it on (`params::defaults`), which is the §7p split; nothing about it is new.
 ### Invalid-value handling — the decision, and why
 
 One policy, identical for every parameter, implemented once in

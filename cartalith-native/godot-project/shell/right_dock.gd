@@ -4619,6 +4619,13 @@ func _build_landmark(body: Control) -> void:
 		"that could be measured here, divided by their total weight.", true, true)
 	_field(sec, "Cell", "%d, %d" % [int(lm.get("x", 0)), int(lm.get("y", 0))],
 		"Grid cell indices (x, y) the landmark was placed on.", true, true)
+	## M9's temporal state (research §25), read live from the settlements at the Timeline year in force. The
+	## row is absent -- not "Natural" -- when the world has no settlement at all: there is no record of people
+	## either way, so any phase would be a claim.
+	var phase: Dictionary = bridge.landmark_phase("%s@%d,%d" % [key, int(lm.get("x", 0)), int(lm.get("y", 0))])
+	if phase.has("phase"):
+		_field(sec, "Phase", String(phase["phase"]).capitalize(),
+			"Research §25's lifecycle as the world stands at the current year: %s. It changes as the Timeline year moves." % String(phase.get("because", "")))
 	var why := DccWidgets.group(sec, "Why it is here")
 	var chain: Array = Array(lm.get("causal", []))
 	if chain.is_empty():

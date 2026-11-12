@@ -27184,7 +27184,34 @@ impl WorldGen {
                 &civ.ways,
             )
         });
+        // Sacred mountain, Sacred grove, Shrine and Ceremonial site (M9's cultural half, 2026-11-12):
+        // each faction's faith, by faction id, resolved through the custom-religion library so a
+        // custom religion reads as its base (the engine never receives a `custom:` key). Index 0 is
+        // the unclaimed entry, whose religion is `none` and reads nothing sacred.
+        let faiths: Vec<cartalith_civ::landmark::FactionFaith> = self
+            .civ
+            .as_ref()
+            .map(|civ| {
+                civ.faction_roster
+                    .0
+                    .iter()
+                    .map(|e| cartalith_civ::landmark::FactionFaith {
+                        faction_name: e.name.clone(),
+                        religion: civ.religions.engine_key(&e.religion).to_string(),
+                        religion_label: civ.religions.display_name(&e.religion),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
+        // Ancient forest's and Salt works' domain (2026-11-12): the biome raster, which the shell
+        // otherwise derives for the renderer and the civ layer builds transiently. Absent without
+        // a civ layer (no water classification to override ocean and lake with), like every
+        // `self.civ` input; a size mismatch is the caller bug `LandmarkInputs::grid` degrades on.
+        let biome: Option<Vec<u8>> = self.civ.as_ref().and_then(|civ| {
+            (civ.water_bodies.len() == ws.temperature.len() && ws.temperature.len() == ws.rainfall.len())
+                .then(|| cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall))
+        });
         let mut inputs = cartalith_civ::landmark::LandmarkInputs::new(
             &ws.field, gwu, ghu, self.sea_level, self.world, self.map_width_km,
         );
@@ -27208,6 +27235,21 @@ impl WorldGen {
         // VA-7 (Ruling CW): the volcano table names each volcanic feature's
         // sub-kind; `None` (no table) dashes it with the reason.
         inputs.volcanoes = ws.volcanoes.as_deref().map(|v| v.as_slice());
+        inputs.biome = biome.as_deref();
+        inputs.faiths = &faiths;
+        // Glacial feature (2026-11-12): the snowline of the pass that ran, and only if it ran. The
+        // app generates with `passes.glacial` on, so app worlds read it; `WorldParams::defaults`
+        // (JS parity) has it off and the kind reports `no_terrain` there. Same `recompute_params()`
+        // reading as karst and rock below: a dial edited since the last generate is read as if applied.
+        inputs.temperature = Some(&ws.temperature);
+        {
+            let rp = self.recompute_params();
+            inputs.glacial_snow_el = if rp.passes.glacial {
+                Some(ws.sea_level + (1.0 - ws.sea_level) * rp.passes.glacial_snowline)
+            } else {
+                None
+            };
+        }
         inputs.resources = &resource_pairs;
         inputs.settlements = &sites;
         // The pass's only obstacle input, and the one input on this list that
@@ -27374,12 +27416,27 @@ impl WorldGen {
                     .collect()
             })
             .unwrap_or_default();
+        // A name typed for a battle's other era carries over (`era_alias_key`): the key is
+        // `kind@x,y`, and a re-run at a later year turns a Battlefield into a Historic battlefield
+        // on the same cell.
+        let mut names = self.landmark_user_names.clone();
+        for lm in &run.landmarks {
+            let k = lm.key();
+            if names.contains_key(&k) {
+                continue;
+            }
+            if let Some(n) = cartalith_civ::landmark::era_alias_key(&lm.kind, lm.x, lm.y)
+                .and_then(|alt| self.landmark_user_names.get(&alt))
+            {
+                names.insert(k, n.clone());
+            }
+        }
         cartalith_civ::landmark::landmark_names(
             &run.landmarks,
             &places,
             self.gw.max(0) as usize,
             self.gh.max(0) as usize,
-            &self.landmark_user_names,
+            &names,
         )
     }
 
@@ -27409,11 +27466,56 @@ impl WorldGen {
         }
         let name = name.to_string();
         if name.trim().is_empty() {
+            // Clearing also clears the name carried from the other era of a battle's record
+            // (`era_alias_key`), or it would reappear through the alias.
+            let alias = self
+                .landmark_store
+                .last
+                .as_ref()
+                .and_then(|r| r.landmarks.iter().find(|l| l.key() == key))
+                .and_then(|l| cartalith_civ::landmark::era_alias_key(&l.kind, l.x, l.y));
+            if let Some(a) = alias {
+                self.landmark_user_names.remove(&a);
+            }
             self.landmark_user_names.remove(&key);
         } else {
             self.landmark_user_names.insert(key, name.trim().to_string());
         }
         true
+    }
+
+    /// M9's temporal state (research §25) for the placed landmark `key`: `{phase, because}`, where
+    /// `phase` is a `LandmarkPhase::key()` (`natural`, `utilised`, `developed`, `monumentalised`,
+    /// `abandoned`, `ruined`) and `because` is the reason in words. **Empty (no keys) when the
+    /// world has no settlement at all or no placed landmark has that key** -- absence, never a
+    /// plausible `natural`. Derived on each call from the live settlements, so it follows the
+    /// Timeline year: a settlement that does not exist at year 100 does at year 300 and the same
+    /// waterfall goes from natural to utilised. Never stored, never saved.
+    #[func]
+    fn landmark_phase(&self, key: GString) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        let key = key.to_string();
+        let (Some(run), Some(civ)) = (self.landmark_store.last.as_ref(), self.civ.as_ref()) else {
+            return out;
+        };
+        let Some(lm) = run.landmarks.iter().find(|l| l.key() == key) else { return out };
+        let gw = self.gw.max(0) as usize;
+        if gw == 0 || !(self.map_width_km > 0.0) {
+            return out;
+        }
+        let sites: Vec<cartalith_civ::landmark::LandmarkSite> =
+            civ.settlements.iter().map(landmark_bridge::settlement_to_site).collect();
+        let inp = cartalith_civ::landmark::PhaseInputs {
+            gw,
+            world: self.world,
+            cell_km: self.map_width_km / gw as f64,
+            settlements: &sites,
+        };
+        if let Some((phase, why)) = cartalith_civ::landmark::landmark_phase(lm, &inp) {
+            out.set("phase", phase.key());
+            out.set("because", why.as_str());
+        }
+        out
     }
 
     /// The last `landmark_run()`'s per-type funnel — the "why fewer than I
