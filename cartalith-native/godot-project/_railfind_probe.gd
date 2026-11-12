@@ -40,7 +40,7 @@ extends Node
 ##      sheet that this pass put two new rows inside. It asserts the sheet grew
 ##      to pay for them rather than evicting result rows -- `MISTAKES.md`,
 ##      "Content added below the fold evicts content that was above it".
-##   F..J. Find on map: the six chips and the declined one, whole-token scope
+##   F..J. Find on map: the eight scope chips (none declined since landmarks were indexed), whole-token scope
 ##      splitting (`l` vs `lb`), the `.` scope reaching `CommandIndex`, bands
 ##      drawn WITHOUT re-ranking (row order asserted byte-identical to
 ##      `search()`'s own), and the count.
