@@ -562,6 +562,8 @@ RR-0 measures it, and the measurement, not this text, pins it.
 
 ### RR-6. Lake water balance (generation: a ruling, measured first)
 
+**Built 2026-11-12 under Ruling ET** (owner: *"In regards to the lakes, make it the new default on setting"*), as `cartalith_civ::lake_balance` behind `lake_balance`; the playa is land under the climate biome and the outlet cut is not skipped. `STATUS.md` carries the measured result; the design below is the spec it was built from.
+
 - **Change.** Per basin (`basin`, `basin_outlet` exist), inflow `I` = routed discharge summed over the
   basin's cells at the spill level plus rain on the pool; evaporation `E` = `e(T)` × pool area, with
   `e(T)` from the cell temperature (a Thornthwaite-shaped curve, SECONDARY, to be cited at build) scaled

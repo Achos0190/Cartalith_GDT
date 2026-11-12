@@ -535,7 +535,7 @@ impl WorldGen {
         // world (a fresh generate has no hand-drawn ways yet).
         let ctx_for = |mode: RouteMode, f: &mut dyn FnMut(&RouteContext)| {
             let inputs =
-                infra_tools_bridge::RouteInputs::build(ws, gw, gh, world, map_width_km, river_density, mode, self.forced_lakes.as_deref());
+                infra_tools_bridge::RouteInputs::build(ws, gw, gh, world, map_width_km, river_density, mode, self.forced_lakes.as_deref(), self.params.lake_balance);
             f(&RouteContext {
                 field: &ws.field,
                 water_bodies: &inputs.water_bodies,

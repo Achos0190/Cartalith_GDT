@@ -866,6 +866,15 @@ pub(crate) fn appearance_fingerprint(a: &render::TerrainAppearance) -> u64 {
         h ^= *b as u64;
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
+    // Ruling ET: `lake_balance` is `#[serde(skip)]` (a generation switch, not a
+    // look), so the JSON above cannot see it, yet it changes the water every
+    // tile classifies. Mixed in only when ON, so every fingerprint with it
+    // OFF -- every saved look, every test -- is the byte-identical value it
+    // was before the field existed. `0xB1` is an arbitrary tag byte.
+    if a.lake_balance {
+        h ^= 0xB1;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
     h
 }
 
@@ -1010,6 +1019,26 @@ pub fn synthesize_pyramid_masks(
 mod tests {
     use super::*;
     use cartalith_engine::bake::pyramid_tile;
+
+    /// Protects Ruling ET's tile-cache rule: `lake_balance` is `#[serde(skip)]`, so the
+    /// fingerprint must still move when it is on (or a toggled world would keep serving tiles
+    /// drawn with the other water), and must not move when it is off (every pre-existing key).
+    #[test]
+    fn the_appearance_fingerprint_sees_the_lake_balance_only_when_on() {
+        let off = render::TerrainAppearance::default();
+        assert!(!off.lake_balance);
+        let on = render::TerrainAppearance { lake_balance: true, ..render::TerrainAppearance::default() };
+        assert_ne!(appearance_fingerprint(&off), appearance_fingerprint(&on), "the switch must reach the tile cache key");
+        let json_only = {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for b in serde_json::to_string(&off).unwrap().as_bytes() {
+                h ^= *b as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            h
+        };
+        assert_eq!(appearance_fingerprint(&off), json_only, "with it off the fingerprint is the unchanged FNV of the JSON");
+    }
 
     /// Same shape amplify.rs's own `synthetic_field` test helper uses (pure
     /// arithmetic, a quantised term so distinct tiles are actually distinct)

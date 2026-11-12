@@ -75,9 +75,9 @@ fn replay(seed: i32, villages: bool) {
     let ws = cartalith_engine::generate_terrain(&p);
     let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, GW, GH, p.world, ws.sea_level, &p);
     let civ = crate::compute_civilisation(
-        &ws, GW, GH, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), None,
+        &ws, GW, GH, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), None, p.lake_balance,
     );
-    let inputs = RouteInputs::build(&ws, GW, GH, p.world, p.map_width_km, p.river_density, RouteMode::Water, None);
+    let inputs = RouteInputs::build(&ws, GW, GH, p.world, p.map_width_km, p.river_density, RouteMode::Water, None, p.lake_balance);
     let (row, x0, x1) = longest_ocean_row(&inputs.water_bodies).expect("the fixture world has ocean");
     println!(
         "R8 seed {seed}: sea level {:.3}, {} settlements, {} ways, {} sea lanes; longest ocean row y={row} x={x0}..={x1} ({} cells)",

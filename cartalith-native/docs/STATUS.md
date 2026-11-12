@@ -50,6 +50,29 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 ### MS-8: New World auto-populate built (2026-11-12)
 `shell/auto_populate.gd` (policy and runner, no pass of its own) and `new_world_dialog.gd` (`_build_auto_populate`, `generate_checked(..., populate)`, `_generate_then_populate`, `_on_created_world`): one master switch and four (Settlements, Routes, Landmarks, Names), all ON by default (Ruling DT), on the first screen of the desktop, tablet and phone forms. Create runs the chosen passes after the terrain through the buttons' own handlers (`_populate_world_now`, `_generate_roads`, `_lm_run`, `_regenerate_labels`); a regenerate from elsewhere never populates. Routes greys with its reason while Settlements is off, all four grey while the master is off. **One departure from the proposal's table, disclosed:** the order is settlements, routes, landmarks, names (the table had names before landmarks, but the labelling pass reads the landmark store, so names first would name no landmark). Measured by `_autopopulate_probe.tscn` (seed 4242, 192 cells wide; windowed, desktop 1280x900, tablet 1600x2560, phone 1080x2340): a Create with all four on equals Generate plus the four by hand in every component digest (settlements, ways, provinces, landmarks, labels, `edit_state_digest`), and each pass off by itself equals Generate plus the other three. A real mouse click through the viewport lands on the desktop form only; the touch forms drive the switch through its own signal (the known embedded-dialog limit). One open finding: on the tablet form a second Create of the same seed with no pass run gave a different generated label list (45 against 36 on one run), so the master-off check excludes labels; the cause is not established. 5 literal mutants on the new constants killed.
 
+### Lake water balance (Ruling ET): RR-6 built, ON for new worlds (2026-11-12)
+
+Owner: *"In regards to the lakes, make it the new default on setting"* (Ruling ET). `cartalith_civ::lake_balance`
+(`lake_pools`, `apply_lake_balance`) is the one balance, called by the generation path
+(`render::water_bodies_floored_balanced`, the body every production classification shares: drawn map, civ layer, tiles,
+export session and atlas, routes, labels) and by `tests/lake_balance_harness.rs`. Setting `lake_balance`: ON in
+`params::defaults`, OFF in `WorldParams::defaults` (the 22nd divergence) and for a save without the key; a loaded `.zip`
+has no flow field and keeps its rain-test lakes. A playa is land (class 0) under the climate biome, no new class. The
+switch rides `TerrainAppearance::lake_balance` (`#[serde(skip)]`, set in `appearance_rebased`; mixed into
+`appearance_fingerprint` only when on) so tiles and the export session agree with the screen. Terrain, flow and channels
+are unchanged. Exposed: parameter catalogue (offered), New World, World ▸ Hydrology.
+- **Re-measured** (production path, `tests/lake_balance_generation.rs`, `--ignored`): owner world 322 -> 356 lakes before
+  Ruling CC's floor, matching the harness (282 -> 307 with it); 483920 41 -> 66; 912345 26 -> 45. Frames and a windowed
+  probe (`_lakebal_probe.gd`, 52 834 of 671 744 pixels differ on 483920) in
+  `cartalith-native/docs/evidence/lake-balance-2026-11-12/`.
+- **Tests restated, not weakened:** `ac2_actions` and `param_catalogue` counts (114 -> 115 offered, 34 -> 35 world rows,
+  122 registry rows), `params_mapping` (the 22nd divergence; the reference-export reload expects `lake_balance` off),
+  `sea_live_bridge`'s live-versus-civ control (hands the live side the balance inputs the civ pass takes) and the three
+  `knowledge_eval_*.json` fixtures (regenerated: the worlds' lakes changed). `cargo test --workspace` green; literal
+  mutants on the balance's constants and branches all killed.
+- **Open:** a salt-flat tint for a playa and the trade module's salt-lake source reading playas; the shell's live
+  toggle on an already-open world only takes effect at the next map rebuild (civ goes stale, as `river_density`).
+
 ### River realism (Ruling ES): RR-0, RR-1, RR-2, RR-3, RR-4, RR-8 built; RR-6's harness measured (2026-11-12)
 
 Spec `RIVER_REALISM_SCOPE.md`; owner answers recorded as Ruling ES (`LARGE_ITEM_RULINGS.md`). Render only except the
@@ -84,7 +107,7 @@ mirrored in `map_shore.gdshader` (`the_shader_mirrors_the_realism_law`).
   points. **RR-8** meander wavelength 11 widths above the 4-cell floor (`river_meander::wavelength_cells`).
 - **RR-6 harness** (`tests/lake_balance_harness.rs`): owner world 322 lakes today, 356 under the balance (-36 %
   lake cells), 27 vanish, 61 appear, 31 would lose their outlet; 483920 3 vanish / 28 appear; 912345 1 / 20. Frames
-  `lake_balance_*.png` in the evidence folder. **No switch.**
+  `lake_balance_*.png` in the evidence folder. **No switch when measured; Ruling ET (above) then added it.**
 - **Frames for the owner** (windowed `_riverzoom_probe.gd --rz-frames`, 1600x1000, under `C:/cw/.win_lock`):
   `rr_width_1_vs_2.png` (W 1 vs 2, both worlds, x1-x64) and `rr_before_after.png` (before = origin/main `8206f6cb`'s
   DLL), in the evidence folder; opened and looked at. **Identity check:** the new shader with the HEAD DLL renders all

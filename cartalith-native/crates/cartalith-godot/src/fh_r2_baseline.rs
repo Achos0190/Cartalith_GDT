@@ -186,7 +186,7 @@ pub(super) fn generate_world(
     let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, gw, gh, p.world, ws.sea_level, &p);
     let civ = crate::compute_civilisation(
         &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
-        &mut Vec::new(), None,
+        &mut Vec::new(), None, p.lake_balance,
     );
     (ws, civ, gh, p)
 }

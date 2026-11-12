@@ -249,7 +249,8 @@ impl ExportSnapshot {
         // screen's own order (`render::water_bodies_floored`), so the export
         // shows exactly the screen's water.
         // Owner Ruling DJ item 2: and the maar lakes the floor would drop.
-        let wb = render::water_bodies_floored_keep(&i.field, &i.rainfall, gw, gh, i.sea_level, i.world, i.forced_lakes.as_deref(), i.litho.as_ref().and_then(|l| l.volcanoes.as_deref()).map(|v| v.as_slice()));
+        // Ruling ET: and the water balance, from the look's carried switch (`TerrainAppearance::lake_balance`) over the snapshot's flow and temperature.
+        let wb = render::water_bodies_floored_balanced(&i.field, &i.rainfall, gw, gh, i.sea_level, i.world, i.forced_lakes.as_deref(), i.litho.as_ref().and_then(|l| l.volcanoes.as_deref()).map(|v| v.as_slice()), render::LakeBalanceInputs::when(i.appearance.lake_balance, flow, &i.temperature));
         let lakes = wb.classification;
         // RV-5: the screen's smooth shoreline, from the same classification,
         // fill level and mask (`export_render_with` builds the identical one).

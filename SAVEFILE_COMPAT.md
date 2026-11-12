@@ -967,6 +967,18 @@ were routed over the depression-filled surface — and belongs here because it i
 a property of *these* grids, not of the parameters (which may since have
 moved).
 
+**`lake_balance`** (a boolean in `params.json` → `cartalith`, owner Ruling ET,
+2026-11-12). Whether the world's lakes are classified by the per-basin water
+balance (`cartalith_civ::lake_balance`: a basin holds water only where its
+inflow covers evaporation, otherwise it shrinks or is a playa, land under the
+climate biome). It adds no grid and no manifest member: the classification is
+derived on load from the heightmap, rainfall, temperature and `flow_discharge`.
+**An absent key means off**: every archive written before the ruling keeps the
+per-cell rain-test lakes it was made with. A reader that does not know the key
+MUST preserve it verbatim (§6.2). A flat archive with no `flow_discharge` (a
+reference export) cannot be balanced and keeps its rain-test lakes whatever the
+key says.
+
 **Optional `routing_roughness`** (an integer, owner Ruling ER, 2026-11-11). The
 seed of the sub-grid roughness the world's flow and channels were routed with
 (`WorldParams::rough_routing`, `cartalith_hydrology::rough`), so a reopened world

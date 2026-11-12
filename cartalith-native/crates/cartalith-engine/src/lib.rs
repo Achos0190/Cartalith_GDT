@@ -1027,6 +1027,20 @@ pub struct WorldParams {
     /// rivers move -- Ruling ER overrides Ruling EN item 5 for new worlds;
     /// a saved world keeps its rivers ([`WorldState::routing_roughness`]).
     pub rough_routing: bool,
+    /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
+    /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
+    /// default on setting"*): a lake holds water only where its inflow covers
+    /// its evaporation, otherwise it shrinks or is a playa
+    /// (`cartalith_civ::lake_balance`). It governs the **water
+    /// classification**, not the field: terrain, flow and channels are
+    /// unchanged and no engine stage reads this flag; it is read where the
+    /// classification is built
+    /// (`cartalith_godot::render::water_bodies_floored_keep`).
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` section
+    /// 7p): every golden and every world before the ruling classifies lakes by
+    /// the reference's per-cell rain test. A save without the key loads it off.
+    pub lake_balance: bool,
     /// The geology-first lithology model (`GEOLOGY_FIRST_SCOPE.md`, owner
     /// Rulings BH and BJ): run the geology stage and store its column on
     /// [`WorldState::geology`].
@@ -1229,6 +1243,9 @@ impl WorldParams {
             // Off: the reference routes plain D8. On at the app boundary
             // (Ruling ER) -- see the field's own doc comment.
             rough_routing: false,
+            // Off: the reference's per-cell rain test. On at the app boundary
+            // (Ruling ET) -- see the field's own doc comment.
+            lake_balance: false,
             // Off: the parity baseline. On at the app boundary (§6.1).
             geology_model: false,
             // Off: the parity baseline, and off in the app too until §5.6's

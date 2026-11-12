@@ -3264,7 +3264,7 @@ RR-0…RR-9 and owner questions Q1–Q6 with defaults. RR-6 (lake water balance)
 slope) move generated output and each need a ruling (§7p). **Ruling ES (2026-11-12) answered Q1–Q4; RR-0, RR-1,
 RR-2, RR-3, RR-4, RR-8 and RR-6's harness are built** (render only; `STATUS.md`). **Still open:** the owner's pick of
 `W_MAX_CELLS` 1.0 or 2.0 (comparison frames in `cartalith-native/docs/evidence/river-realism-2026-11-12/`); RR-5
-(lake depth tone, not built); RR-6's ruling on the lake list (`tests/lake_balance_harness.rs`); RR-7 (waits, Q5);
+(lake depth tone, not built); RR-6 is **built and ON for new worlds** (Ruling ET, 2026-11-12; `STATUS.md`; open follow-ups: a salt-flat tint for a playa, and the trade salt-lake source reading playas); RR-7 (waits, Q5);
 RR-2's wet-bank darkening (not built); RR-9's close-out (pan-frame timing not measured).
 
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on

@@ -1222,12 +1222,14 @@ impl RouteInputs {
         river_density: f64,
         mode: RouteMode,
         forced_lakes: Option<&[u8]>,
+        // Ruling ET: `WorldParams::lake_balance`, so the route inputs see the drawn water.
+        lake_balance: bool,
     ) -> Self {
         let sea_level = ws.sea_level;
         // Ruling CC's floor, then the forced lakes: the drawn map's water
         // (`render::water_bodies_floored`).
         // Owner Ruling DJ item 2: and the maar lakes the floor would drop.
-        let wb = crate::render::water_bodies_floored_keep(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes, ws.volcanoes.as_deref().map(|v| v.as_slice()));
+        let wb = crate::render::water_bodies_floored_balanced(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes, ws.volcanoes.as_deref().map(|v| v.as_slice()), crate::render::LakeBalanceInputs::when(lake_balance, Some(&ws.flow_discharge), &ws.temperature));
         let (biome, river_order) = if mode == RouteMode::Mixed {
             let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
             // Ruling ER: rebuilt along the tree the world was routed with.
@@ -1811,14 +1813,14 @@ mod tests {
         p.tect.seed = 777;
         p.use_gpu = false;
         let ws = cartalith_engine::generate_terrain(&p);
-        let plain = RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, None);
+        let plain = RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, None, p.lake_balance);
         let land_idx = plain.water_bodies.iter().position(|&c| c == 0).expect("premise: some land exists in the fixture world");
         let mut mask = vec![0u8; p.gw * p.gh];
         mask[land_idx] = 1;
-        let forced = RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, Some(&mask));
+        let forced = RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, Some(&mask), p.lake_balance);
         assert_eq!(forced.water_bodies[land_idx], 2, "the forced cell routes as lake");
         assert_eq!(
-            RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, None).water_bodies,
+            RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, None, p.lake_balance).water_bodies,
             plain.water_bodies,
             "no mask, no change"
         );

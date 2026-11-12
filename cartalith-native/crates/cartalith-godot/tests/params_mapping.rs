@@ -856,6 +856,27 @@ fn a_save_without_the_cinder_law_key_reloads_without_it() {
     }
 }
 
+/// Protects Ruling ET's save rule: a save that carries `lake_balance: true` reloads with it
+/// on, and a save without the key (every save before 2026-11-12) reloads with it OFF, so its
+/// world keeps the rain-test lakes it was made with, while every other row still applies.
+#[test]
+fn a_save_without_the_lake_balance_key_reloads_with_it_off() {
+    assert!(params::defaults().lake_balance, "the shipped app generates with it on");
+    let mut state = params::save_state(&params::defaults());
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert_eq!(native.get("lake_balance"), Some(&serde_json::json!(true)), "a new save records the switch");
+    let mut p = params::defaults();
+    p.lake_balance = false;
+    params::apply_saved_state(&mut p, &state);
+    assert!(p.lake_balance, "a save that says on reloads on");
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("lake_balance").is_some());
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of an older save still applies");
+    assert!(!p.lake_balance, "an older save keeps its rain-test lakes");
+}
+
 /// Protects: a save lacking `volc.morphometry`, or carrying it `false`, reloading without
 /// VA-5's morphometry (owner Ruling CX item 1, 2026-10-24).
 #[test]
@@ -1156,6 +1177,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.volc.kind_flood_basalt = false;
     // And Ruling ER's rough routing: a save without the key was routed D8.
     expect.rough_routing = false;
+    // And Ruling ET's lake balance: a save without the key kept its rain-test lakes.
+    expect.lake_balance = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1210,7 +1233,7 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `tect.high_ceiling` and `volc.lava_bench`, VA-6's `volc.kind_dome`, and
 /// owner Ruling DJ's `volc.kind_caldera`, `kind_maar`, `kind_supervolcano`
 /// and `kind_flood_basalt`; and the twenty-first, Ruling ER's
-/// `rough_routing`.)
+/// `rough_routing`; the twenty-second, Ruling ET's `lake_balance`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1243,6 +1266,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.volc.kind_flood_basalt && !parity.volc.kind_flood_basalt, "VA-6 flood basalt, Ruling DJ item 4");
     assert!(!app.volc.kinds_force_rare && !parity.volc.kinds_force_rare, "measurement only");
     assert!(app.rough_routing && !parity.rough_routing, "rough routing for new worlds, Ruling ER");
+    assert!(app.lake_balance && !parity.lake_balance, "lake water balance for new worlds, Ruling ET");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1256,8 +1280,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the twenty-one must make the two identical --
-    // which catches a twenty-second divergence added without a ruling, in either
+    // And nothing else. Neutralising the twenty-two must make the two identical --
+    // which catches a twenty-third divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1265,6 +1289,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.volc.edifice_model = false;
     neutral.integrate_drainage = false;
     neutral.rough_routing = false;
+    neutral.lake_balance = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;
@@ -1284,7 +1309,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twenty-one authorised fields"
+         twenty-two authorised fields"
     );
 }
 

@@ -2102,7 +2102,8 @@ impl AtlasFields {
         // Ruling CC's floor, as `compute_civilisation` applies it
         // (`render::water_bodies_floored`); no forced-lake mask, as before.
         // Owner Ruling DJ item 2: the maar lakes kept, as the civ layer keeps them.
-        let wb = render::water_bodies_floored_keep(&ws.field, &ws.rainfall, gw, gh, sea, world, None, ws.volcanoes.as_deref().map(|v| v.as_slice()));
+        // Ruling ET: and the water balance, as the civ layer applies it.
+        let wb = render::water_bodies_floored_balanced(&ws.field, &ws.rainfall, gw, gh, sea, world, None, ws.volcanoes.as_deref().map(|v| v.as_slice()), render::LakeBalanceInputs::when(wg.params.lake_balance, Some(&ws.flow_discharge), &ws.temperature));
         let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
         let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
         let lithology = cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, sea);

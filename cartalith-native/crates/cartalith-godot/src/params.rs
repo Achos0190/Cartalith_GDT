@@ -165,6 +165,11 @@ pub fn defaults() -> WorldParams {
     // on a grid axis. Off in `WorldParams::defaults`, the goldens' plain D8.
     // Acts only with `integrate_drainage` (on above).
     p.rough_routing = true;
+    // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
+    // classify lakes by a per-basin water balance (a lake holds water only
+    // where inflow covers evaporation, else a playa). Off in
+    // `WorldParams::defaults`, the reference's per-cell rain test.
+    p.lake_balance = true;
     // Source v2.57 (`RC_ENGINE_CHANGES.md` §6i; `DECISIONS.md` §7n registers
     // it, Ruling AP authorises carrying it): the plate-base blur narrows from
     // 0.35 to 0.18 of `tect.blur_r`, so the coastline stops tracing the plate
@@ -318,6 +323,14 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "rough_routing", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Rough routing (rivers wander across smooth slopes)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.rough_routing), set_fn: |p, v| p.rough_routing = v != 0.0 },
+    // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
+    // OFF in `WorldParams::defaults`; no reference control (the reference
+    // classifies lakes by per-cell rain). A save without the key loads OFF
+    // (`apply_saved_state`), the lakes every world before the ruling had.
+    // User-facing (New World and the generation settings).
+    ParamSpec { key: "lake_balance", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Lake water balance (dry basins become playas)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.lake_balance), set_fn: |p, v| p.lake_balance = v != 0.0 },
     // Ruling BH's switch (`GEOLOGY_FIRST_SCOPE.md` §6.1): ON at the app
     // boundary, OFF in `WorldParams::defaults`. A row so a save records which
     // model its world was generated with; **no GUI control** (§6.1) -- no
@@ -930,6 +943,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("integrate_drainage", ""),
     // Port-only (Ruling ER); the reference routes plain D8.
     ("rough_routing", ""),
+    // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
+    ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
     ("geology_model", ""),
     // Port-only (GF-2); the reference has no lithology model.
@@ -1241,6 +1256,9 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // without the key was generated with plain D8 routing, so a regenerate
     // from its parameters reproduces its rivers.
     p.rough_routing = false;
+    // And the lake water balance (Ruling ET, 2026-11-12), the same way: every
+    // save without the key kept the per-cell rain-test lakes.
+    p.lake_balance = false;
     // And the orogen relief term (Ruling CU item 1, 2026-10-19), the same way:
     // every save without the key was generated with smooth belts and clipped
     // summits, so a regenerate from its parameters reproduces them.
@@ -1429,6 +1447,10 @@ pub fn invalidates(key: &str) -> Option<PipelineStage> {
         // asserted, by `every_key_that_moves_refresh_climate_is_marked_and_no_other`.
         _ if key.starts_with("civ.") => Some(PipelineStage::Climate),
         "river_density" => Some(PipelineStage::Climate),
+        // Ruling ET: the water the civ layer scored against changes with the
+        // balance, and nothing upstream of civ does -- the same node and the
+        // same reasoning as `river_density`.
+        "lake_balance" => Some(PipelineStage::Climate),
         // The four non-`climate.` fields `climate_params_for`/
         // `weather_params_for` read. `sea_level` and `world` are the two
         // documented exclusions above.

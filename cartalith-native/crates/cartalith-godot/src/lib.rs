@@ -2286,7 +2286,7 @@ mod forced_lake_tests {
         let ws = cartalith_engine::generate_terrain(&p);
         let run = |forced: Option<&[u8]>| {
             let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
-            compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), forced)
+            compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), forced, p.lake_balance)
         };
         let plain = run(None);
         let s = plain.settlements.first().expect("premise: the fixture world places settlements");
@@ -2370,7 +2370,7 @@ mod civ_pipeline_tests {
         compute_civilisation(
             ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, cultures, None, (&o, &w), false,
             &mut Vec::new(),
-            None,
+            None, p.lake_balance,
         )
     }
 
@@ -2539,7 +2539,7 @@ mod civ_pipeline_tests {
         compute_civilisation(
             ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], Some(keep), (&o, &w), false,
             &mut Vec::new(),
-            None,
+            None, p.lake_balance,
         )
     }
 
@@ -2660,7 +2660,7 @@ mod civ_pipeline_tests {
             compute_civilisation(
                 ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
                 &mut Vec::new(),
-                None,
+                None, p.lake_balance,
             )
         };
         let mut p = base.clone();
@@ -4658,6 +4658,10 @@ fn compute_civilisation(
     // yet, and for every test caller: the civ layer of a world with no forced
     // lake is byte-identical to before this parameter existed.
     forced_lakes: Option<&[u8]>,
+    // Ruling ET: `WorldParams::lake_balance`, so the civ layer reads the
+    // lakes the map draws (the balance runs inside
+    // `render::water_bodies_floored_balanced`, the one body both share).
+    lake_balance: bool,
 ) -> CivData {
     let keeping = keep.is_some();
     // The reference's `wantCounts`. Only the auto-populate path reads it: the
@@ -4670,7 +4674,7 @@ fn compute_civilisation(
     // what this pass would have built at that level.
     // Owner Ruling DJ item 2: the world's own table, so a maar's lake stands
     // under the lake-area floor here as on the drawn map.
-    let mut wb = sea_live_bridge::water_bodies_at(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes, ws.volcanoes.as_deref().map(|v| v.as_slice()));
+    let mut wb = sea_live_bridge::water_bodies_at(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes, ws.volcanoes.as_deref().map(|v| v.as_slice()), render::LakeBalanceInputs::when(lake_balance, Some(&ws.flow_discharge), &ws.temperature));
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
 
     let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
@@ -7475,7 +7479,7 @@ impl WorldGen {
             (0..self.stages.tile_count()).fold(0u64, |a, t| a.wrapping_add(self.stages.version(st.id(), t)))
         };
         format!(
-            "e{};h{};c{};{}x{};s{};w{};f{}",
+            "e{};h{};c{};{}x{};s{};w{};f{};b{}",
             self.world_epoch,
             vsum(PipelineStage::Height),
             vsum(PipelineStage::Climate),
@@ -7484,6 +7488,8 @@ impl WorldGen {
             self.sea_level.to_bits(),
             self.world,
             self.forced_lakes_epoch,
+            // Ruling ET: the water balance is an input of the classification.
+            self.params.lake_balance,
         )
     }
 
@@ -7509,15 +7515,18 @@ impl WorldGen {
     pub(crate) fn drawn_water_bodies(&self) -> Option<cartalith_civ::WaterBodies> {
         // Owner Ruling DJ item 2: a generated world's table keeps its maar
         // lakes under the floor; a loaded save carries no table here.
-        let (field, rainfall, table) = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => (ws.field.as_slice(), ws.rainfall.as_slice(), ws.volcanoes.as_deref().map(|v| v.as_slice())),
-            WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.rainfall.as_slice(), None),
+        // Ruling ET: the balance reads the routed discharge and the temperature,
+        // which only a generated (or substrate-reopened) world carries; a loaded
+        // `.zip` save has no flow field and keeps its rain-test lakes.
+        let (field, rainfall, table, balance) = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => (ws.field.as_slice(), ws.rainfall.as_slice(), ws.volcanoes.as_deref().map(|v| v.as_slice()), render::LakeBalanceInputs::when(self.params.lake_balance, Some(&ws.flow_discharge), &ws.temperature)),
+            WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.rainfall.as_slice(), None, None),
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         if gw == 0 || gh == 0 || field.len() < gw * gh {
             return None;
         }
-        Some(sea_live_bridge::water_bodies_at(field, rainfall, gw, gh, self.sea_level, self.world, self.forced_lakes.as_deref(), table))
+        Some(sea_live_bridge::water_bodies_at(field, rainfall, gw, gh, self.sea_level, self.world, self.forced_lakes.as_deref(), table, balance))
     }
 
     /// Clears [`Self::forced_lakes`] and moves [`Self::forced_lakes_epoch`],
@@ -7916,6 +7925,7 @@ impl WorldGen {
             // A new world: nothing has been forced on it yet (`absorb` resets
             // `forced_lakes`).
             None,
+            p.lake_balance,
         ));
         // Milestone F: a fresh Sculpt draft over this world's own
         // dimensions, seeding the water hooks from whatever
@@ -9958,7 +9968,7 @@ impl WorldGen {
         let computed = compute_civilisation(
             ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &cultures, keep, (&ocean_f, &wind_f),
             p.use_gpu, &mut Vec::new(),
-            self.forced_lake_mask(),
+            self.forced_lake_mask(), p.lake_balance,
         );
         // SP-4: auto-populate reissues every `tid` from 1, so an anchor kept
         // across it would re-bind to an unrelated town. Detach first, while
@@ -11229,7 +11239,9 @@ impl WorldGen {
                 None => (TerrainAppearance::for_tier(self.quality).with_look(&self.look), true),
             },
         };
-        let mut a = TerrainAppearance { npr, ..base };
+        // Ruling ET: the generation switch rides the look so the tiles and the
+        // export session classify the water the screen does.
+        let mut a = TerrainAppearance { npr, lake_balance: self.params.lake_balance, ..base };
         if edits && let Some(ramp) = self.appearance_ramp.as_ref() {
             a.ramp = ramp.clone();
         }
@@ -15184,7 +15196,7 @@ impl WorldGen {
         // `build_color_texture` draws, so the preview does not make a forced
         // lake vanish (or a floored pond appear) while a stroke is drafted.
         // Owner Ruling DJ item 2: and the maar lakes the floor would drop.
-        let lakes = render::water_bodies_floored_keep(&scratch, &ws.rainfall, gw, gh, self.sea_level, self.world, self.forced_lake_mask(), ws.volcanoes.as_deref().map(|v| v.as_slice())).classification;
+        let lakes = render::water_bodies_floored_balanced(&scratch, &ws.rainfall, gw, gh, self.sea_level, self.world, self.forced_lake_mask(), ws.volcanoes.as_deref().map(|v| v.as_slice()), render::LakeBalanceInputs::when(self.params.lake_balance, Some(&ws.flow_discharge), &ws.temperature)).classification;
         let ctx = RenderCtx::with_appearance(
             &scratch,
             &ws.temperature,
@@ -17432,6 +17444,7 @@ impl WorldGen {
         let inputs = infra_tools_bridge::RouteInputs::build(
             ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
             self.forced_lakes.as_deref(),
+            self.params.lake_balance,
         );
         // An owned clone, not a borrow of `self.infra.ways` -- so that
         // borrow ends right here, before `way_commit` below needs
@@ -17591,6 +17604,7 @@ impl WorldGen {
         let inputs = infra_tools_bridge::RouteInputs::build(
             ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, route_mode,
             self.forced_lakes.as_deref(),
+            self.params.lake_balance,
         );
         let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
         // The Route/Way tools route over the same network the Journey Planner
@@ -17717,6 +17731,7 @@ impl WorldGen {
         let inputs = infra_tools_bridge::RouteInputs::build(
             ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
             self.forced_lakes.as_deref(),
+            self.params.lake_balance,
         );
         let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
         // The Route/Way tools route over the same network the Journey Planner
@@ -21700,6 +21715,7 @@ impl WorldGen {
         let inputs = infra_tools_bridge::RouteInputs::build(
             ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
             self.forced_lakes.as_deref(),
+            self.params.lake_balance,
         );
         let manual_ways = self.infra.as_ref().map(|t| t.ways.clone()).unwrap_or_default();
         // The Route/Way tools route over the same network the Journey Planner

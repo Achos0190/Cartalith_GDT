@@ -3579,3 +3579,27 @@ question by question:
 
 Everything except RR-6's harness is render only: no world field, save key or golden moves, and it follows the one
 visibility and geometry law in `river_stroke`, so the screen, the tiles, the export and picking agree.
+
+## Ruling ET: the lake water balance is the new default setting (owner, 2026-11-12)
+
+After the RR-6 lake frames (Ruling ES item 4, "Measure first"), the owner, verbatim: *"In regards to the lakes, make it
+the new default on setting"*. Read as: the per-basin lake water balance of `RIVER_REALISM_SCOPE.md` RR-6 becomes a
+generation setting, on for new worlds.
+
+1. **A setting, `lake_balance`.** Per `DECISIONS.md` section 7p it is **on in `params::defaults`** (new worlds, the
+   app) and **off in `WorldParams::defaults`** (every golden unchanged). **A save without the key loads it off**, so a
+   saved world keeps its lakes. It is a user-facing parameter: the parameter catalogue (and so the assistant's), the New
+   World screen and World ▸ Hydrology.
+2. **What it does.** A lake holds water only where the inflow covers the evaporation over it (`cartalith_civ::
+   lake_balance`; evaporation `2.0 * clamp(T, 0, 35) / 25` cell-units, a labelled judgement carried from the harness);
+   otherwise the basin shrinks to what its inflow pays for or is a **playa**. One implementation: the harness calls the
+   shared `lake_pools`. It governs the water classification only; terrain, flow and channels do not move.
+3. **A playa is not a new class.** It is land (class 0) drawn by the climate biome beneath it, so arid basins read as
+   sand and every lake consumer keeps its meaning. A salt-flat tint, and the trade module's salt-lake source reading
+   playas, are open follow-ups, not built.
+4. **The routed network is unchanged.** A lake that no longer spills keeps the river that crossed it; the outlet cut is
+   not skipped (Ruling EN item 5 is not touched beyond Ruling ER's override). Measured through the shipped path on
+   the owner world: 322 lakes become 356 before Ruling CC's floor (282 become 307 with it); seed 483920, 41 become 66;
+   seed 912345, 26 become 45; the owner world's lake cells fall 44 283 to 28 226
+   (`cartalith-native/docs/evidence/lake-balance-2026-11-12/`).
+5. **Maar lakes are exempt** (Ruling DJ item 2): a crater lake the balance would dry still stands.

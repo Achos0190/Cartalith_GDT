@@ -2611,6 +2611,18 @@ pub struct TerrainAppearance {
     /// default, so this field changes nothing until a caller sets it.
     pub npr: Npr,
 
+    /// **Ruling ET (2026-11-12): classify lakes by the water balance.** Not a
+    /// look: a generation setting (`WorldParams::lake_balance`) carried here
+    /// because every renderer path (tiles, the grid raster, the export session)
+    /// already receives this struct and none receives the parameters, so the
+    /// water they classify cannot disagree with the screen's. Set by
+    /// `WorldGen::appearance_rebased` the way `npr.peak_m` is, from the live
+    /// parameter; never serialised (a saved appearance carries looks only) and
+    /// `false` in every preset, so a context built without a world (a test,
+    /// a probe) classifies as before.
+    #[serde(skip)]
+    pub lake_balance: bool,
+
     /// How the raster's three separable categories stack, blend and order
     /// ([`LayerStack`], `GUI_GAP_REGISTER.md` CA-03/CA-04, RD-10).
     ///
@@ -2875,6 +2887,7 @@ impl Default for TerrainAppearance {
             grade_field_moisture: 0.0,
             grade_field_geology: 0.0,
             npr: Npr::default(),
+            lake_balance: false,
             layers: LayerStack::DEFAULT,
             // ET-C2: no adjustment by default -- empty stacks, skipped by
             // control flow in `finish_rgb` and omitted from the saved form.
@@ -5041,7 +5054,7 @@ impl GridPrecompute {
                 river_sdf = build_river_sdf(flow, gw, gh, river_thresh);
             }
             if appearance.sdf_biomes > 0.0 {
-                biome_bd = grid_biome_boundary_dist(water, temperature, rainfall, gw, gh, sea_level, world, forced_lakes);
+                biome_bd = grid_biome_boundary_dist(water, temperature, rainfall, gw, gh, sea_level, world, forced_lakes, LakeBalanceInputs::when(appearance.lake_balance, flow, temperature));
             }
         }
         GridPrecompute { sea_h, sea_shade, ao, coast_sdf, river_sdf, biome_bd, hydro_wet, lights, coast_d, crest, relief_h, river_thresh, map_width_km, gw, gh }
@@ -5352,7 +5365,7 @@ impl<'a> RenderCtx<'a> {
         if self.appearance.sdf_biomes > 0.0 {
             // The world's height, not the shaded one (RV-3): this classifies
             // water bodies.
-            self.biome_bd = Cow::Owned(grid_biome_boundary_dist(self.water_height(), self.temperature, self.rainfall, gw, gh, self.sea_level, self.world, forced_lakes));
+            self.biome_bd = Cow::Owned(grid_biome_boundary_dist(self.water_height(), self.temperature, self.rainfall, gw, gh, self.sea_level, self.world, forced_lakes, LakeBalanceInputs::when(self.appearance.lake_balance, self.flow, self.temperature)));
         }
         self
     }
@@ -12260,7 +12273,7 @@ impl<'a> TileFields<'a> {
         // pond the base map dropped is not drawn back in the tiles. `None`:
         // the forced lakes arrive later through `with_forced_lakes`, and the
         // floor does not read them.
-        let wb = water_bodies_floored(ctx.water_height(), ctx.rainfall, gw, gh, ctx.sea_level, ctx.world, None);
+        let wb = water_bodies_floored_balanced(ctx.water_height(), ctx.rainfall, gw, gh, ctx.sea_level, ctx.world, None, None, LakeBalanceInputs::when(ctx.appearance.lake_balance, ctx.flow, ctx.temperature));
 
         TileFields {
             gw,
@@ -12401,6 +12414,7 @@ impl<'a> TileFields<'a> {
         if self.lake_class.len() != n || ctx.gw != self.gw || ctx.gh != self.gh {
             return self;
         }
+        // The flood's own classification, before the balance: the maar exemption's `before` in `water_bodies_floored_balanced` too.
         let raw = cartalith_civ::build_water_bodies(ctx.water_height(), self.gw, self.gh, ctx.sea_level, ctx.world, Some(ctx.rainfall)).classification;
         keep_maar_lakes(self.lake_class.to_mut(), &raw, v, self.gw, self.gh);
         self
@@ -14299,12 +14313,46 @@ pub fn water_bodies_floored(field: &[f32], rainfall: &[f32], gw: usize, gh: usiz
 /// [`water_bodies_floored`] with the maar exemption's table (`keep`).
 #[allow(clippy::too_many_arguments, dead_code)]
 pub fn water_bodies_floored_keep(field: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea: f64, world: bool, forced: Option<&[u8]>, keep: Option<&[cartalith_terrain::PlacedEdifice]>) -> cartalith_civ::WaterBodies {
+    water_bodies_floored_balanced(field, rainfall, gw, gh, sea, world, forced, keep, None)
+}
+
+/// **Ruling ET: the fields the lake water balance reads** (`cartalith_civ::
+/// lake_balance`): the world's routed discharge and its temperature, both
+/// `gw * gh` long. Carried only when the world's `lake_balance` is on and
+/// the world has a flow field -- a loaded `.zip` save has none, and then the
+/// lakes stay as the rain test made them (no value is not a plausible value).
+#[derive(Clone, Copy)]
+pub struct LakeBalanceInputs<'a> {
+    pub flow: &'a [f32],
+    pub temperature: &'a [f32],
+}
+
+impl<'a> LakeBalanceInputs<'a> {
+    /// `Some` only when `on` and a flow field exists.
+    pub fn when(on: bool, flow: Option<&'a [f32]>, temperature: &'a [f32]) -> Option<Self> {
+        if on { flow.map(|flow| LakeBalanceInputs { flow, temperature }) } else { None }
+    }
+}
+
+/// [`water_bodies_floored_keep`] with Ruling ET's water balance: the one body
+/// every production classification runs. The balance (`cartalith_civ::
+/// apply_lake_balance`) runs straight after the flood and **before** Ruling
+/// CC's floor, the maar exemption and the forced lakes, so those see the
+/// balanced water. The maar exemption's `before` is the flood's own
+/// classification, so a crater lake the balance would dry still stands (a
+/// maar is groundwater-fed, Ruling DJ item 2). `balance: None` is exactly
+/// [`water_bodies_floored_keep`] as before.
+#[allow(clippy::too_many_arguments, dead_code)]
+pub fn water_bodies_floored_balanced(field: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea: f64, world: bool, forced: Option<&[u8]>, keep: Option<&[cartalith_terrain::PlacedEdifice]>, balance: Option<LakeBalanceInputs>) -> cartalith_civ::WaterBodies {
     let mut wb = cartalith_civ::build_water_bodies(field, gw, gh, sea, world, Some(rainfall));
     // Only a table holding a maar pays for the clone below; `keep_maar_lakes`
     // filters by kind itself, so dropping this filter changes no output (an
     // equivalent mutant, 2026-10-25) -- it is a cost guard, not a rule.
     let maars = keep.filter(|v| v.iter().any(|e| e.kind == Some(cartalith_terrain::EdificeKind::Maar)));
     let before = maars.map(|_| wb.classification.clone());
+    if let Some(b) = balance {
+        cartalith_civ::lake_balance::apply_lake_balance(&mut wb, field, b.flow, b.temperature, gw, gh, sea, world);
+    }
     cartalith_civ::apply_lake_area_floor(&mut wb, field, gw, gh, sea, world, cartalith_civ::lake_area_floor_cells(gw, gh));
     if let (Some(v), Some(b)) = (maars, before.as_deref()) {
         keep_maar_lakes(&mut wb.classification, b, v, gw, gh);
@@ -14368,9 +14416,9 @@ pub fn keep_maar_lakes(class: &mut [u8], before: &[u8], edifices: &[cartalith_te
 /// reference in treating only below-sea cells as water and so draws no band
 /// at any lake, natural or forced.
 #[allow(clippy::too_many_arguments)]
-fn grid_biome_boundary_dist(field: &[f32], temperature: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, forced: Option<&[u8]>) -> Vec<f32> {
+fn grid_biome_boundary_dist(field: &[f32], temperature: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, forced: Option<&[u8]>, balance: Option<LakeBalanceInputs>) -> Vec<f32> {
     // Ruling CC's floor and Ruling BO's mask, in `water_bodies_floored`'s order.
-    let class = water_bodies_floored(field, rainfall, gw, gh, sea_level, world, forced).classification;
+    let class = water_bodies_floored_balanced(field, rainfall, gw, gh, sea_level, world, forced, None, balance).classification;
     let biome = cartalith_civ::build_biome_raster(&class, temperature, rainfall);
     build_biome_boundary_dist(&biome, gw, gh)
 }

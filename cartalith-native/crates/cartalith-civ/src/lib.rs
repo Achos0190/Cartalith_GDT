@@ -23,6 +23,7 @@ use rayon::prelude::*;
 /// and [`roster::CIV_RELIGIONS`] are read, never modified, so settlement
 /// naming stays golden.
 pub mod belief;
+pub mod lake_balance;
 /// Name shaping for things the reference does not name -- a length bound, a
 /// per-map uniqueness set, and feature-kind templates. Confined to callers
 /// with no parity contract; see the module header for why nothing here

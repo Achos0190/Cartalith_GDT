@@ -5098,14 +5098,14 @@ impl WorldGen {
         // used to answer all-land for it because only `Loaded` was matched.
         // Owner Ruling DJ item 2: a generated world's table keeps its maar
         // lakes under the floor, as the drawn map does.
-        let (field, rain, table): (&[f32], &[f32], Option<&[cartalith_terrain::PlacedEdifice]>) = match self.source.as_ref() {
-            Some(WorldSource::Loaded(save)) => (&save.fields.heightmap, &save.fields.rainfall, None),
-            Some(WorldSource::Generated(ws)) => (&ws.field, &ws.rainfall, ws.volcanoes.as_deref().map(|v| v.as_slice())),
+        let (field, rain, table, balance): (&[f32], &[f32], Option<&[cartalith_terrain::PlacedEdifice]>, Option<crate::render::LakeBalanceInputs>) = match self.source.as_ref() {
+            Some(WorldSource::Loaded(save)) => (&save.fields.heightmap, &save.fields.rainfall, None, None),
+            Some(WorldSource::Generated(ws)) => (&ws.field, &ws.rainfall, ws.volcanoes.as_deref().map(|v| v.as_slice()), crate::render::LakeBalanceInputs::when(self.params.lake_balance, Some(&ws.flow_discharge), &ws.temperature)),
             // No world: nothing to classify.
             None => return std::sync::Arc::from(vec![0u8; n].as_slice()),
         };
         // Ruling CC's floor, as the drawn map applies it; no mask, as before.
-        let wb = crate::render::water_bodies_floored_keep(field, rain, gw, gh, self.sea_level, self.world, None, table);
+        let wb = crate::render::water_bodies_floored_balanced(field, rain, gw, gh, self.sea_level, self.world, None, table, balance);
         std::sync::Arc::from(wb.classification.as_slice())
     }
 
@@ -9589,7 +9589,7 @@ mod substrate_tests {
             let civ = crate::compute_civilisation(
                 &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
                 &mut Vec::new(),
-                None,
+                None, p.lake_balance,
             );
             (p, ws, civ)
         })

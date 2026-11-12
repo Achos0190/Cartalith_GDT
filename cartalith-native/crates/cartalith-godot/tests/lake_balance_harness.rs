@@ -4,9 +4,11 @@
 //! lakes that would appear or vanish on the owner world and two seeds, with a
 //! frame. Flip no switch.").
 //!
-//! Protects: nothing in the engine. The balance is a PROTOTYPE that lives in
-//! this file; no engine source reads it and nothing generated moves. The
-//! assertions guard the harness's own validity: lakes exist on every world,
+//! Protects: the harness's report of what the shipped balance does. Since
+//! Ruling ET (2026-11-12) the balance is `cartalith_civ::lake_balance`, called
+//! by the generation path behind `WorldParams::lake_balance` and by this file
+//! (one implementation: [`lake_pools`]); this file only classifies each pool's
+//! change. The assertions guard the harness's own validity: lakes exist on every world,
 //! the do-nothing control (zero evaporation) keeps every pool full, and the
 //! table is not silently empty.
 //!
@@ -50,18 +52,10 @@
 #[path = "../src/params.rs"]
 mod params;
 
+use cartalith_civ::lake_balance::{EVAP_AT_25, T_MAX, lake_pools};
 use cartalith_civ::{LAKE_DEPTH, LAKE_RAIN, build_water_bodies};
 use cartalith_engine::generate_terrain;
 
-/// Open-water evaporation at a mean annual temperature of 25 °C, in the
-/// discharge's cell-units (1 = the map's mean rain per cell). **Labelled
-/// judgement**: tropical open-water evaporation of about 2 m a year against a
-/// global mean precipitation near 1 m a year (textbook orders, SECONDARY), so a
-/// warm lake cell loses about twice a mean cell's rain.
-const EVAP_AT_25: f64 = 2.0;
-/// The temperature above which evaporation stops rising in this proxy.
-/// **Labelled judgement**.
-const T_MAX: f64 = 35.0;
 /// A change smaller than this share of a pool's cells is "same".
 const SAME_SHARE: f64 = 0.10;
 
@@ -90,78 +84,28 @@ struct Pool {
     change: Change,
 }
 
-fn nb4(i: usize, gw: usize, gh: usize, wrap: bool) -> impl Iterator<Item = usize> {
-    let (x, y) = (i % gw, i / gw);
-    let l = if x > 0 { Some(i - 1) } else if wrap { Some(i + gw - 1) } else { None };
-    let r = if x + 1 < gw { Some(i + 1) } else if wrap { Some(i + 1 - gw) } else { None };
-    let u = if y > 0 { Some(i - gw) } else { None };
-    let d = if y + 1 < gh { Some(i + gw) } else { None };
-    [l, r, u, d].into_iter().flatten()
-}
-
-fn evap(t: f32) -> f64 {
-    EVAP_AT_25 * (t as f64).clamp(0.0, T_MAX) / 25.0
-}
-
-/// The pools of a world and each one's balance, at evaporation scale `ek`
-/// (`1.0` the judgement above, `0.0` the do-nothing control).
+/// The pools of a world and each one's change against today's lakes, at
+/// evaporation scale `ek`. The balance itself is `cartalith_civ::lake_balance`.
 fn pools(field: &[f32], flow: &[f32], temp: &[f32], class: &[u8], fill: &[f32], gw: usize, gh: usize, sea: f64, wrap: bool, ek: f64) -> Vec<Pool> {
-    let n = gw * gh;
-    let deep = |i: usize| field[i] as f64 > sea && (fill[i] - field[i]) as f64 > LAKE_DEPTH;
-    let mut seen = vec![false; n];
-    let mut out = Vec::new();
-    for s in 0..n {
-        if seen[s] || !deep(s) {
-            continue;
-        }
-        let mut cells = vec![s];
-        seen[s] = true;
-        let mut k = 0;
-        while k < cells.len() {
-            let i = cells[k];
-            k += 1;
-            for j in nb4(i, gw, gh, wrap) {
-                if !seen[j] && deep(j) {
-                    seen[j] = true;
-                    cells.push(j);
-                }
-            }
-        }
-        let today = cells.iter().filter(|&&i| class[i] == 2).count();
-        let inflow = cells.iter().map(|&i| flow[i] as f64).filter(|q| q.is_finite()).fold(0.0, f64::max);
-        let mut by_h = cells.clone();
-        by_h.sort_by(|&a, &b| field[a].total_cmp(&field[b]));
-        let e_spill: f64 = cells.iter().map(|&i| ek * evap(temp[i])).sum();
-        let mut acc = 0.0;
-        let mut keep = 0;
-        for &i in &by_h {
-            let e = ek * evap(temp[i]);
-            if acc + e > inflow {
-                break;
-            }
-            acc += e;
-            keep += 1;
-        }
-        let spills = keep == by_h.len();
-        // The balanced level: the spill level when it spills, else the height of
-        // the first cell left dry; a lake cell must be LAKE_DEPTH below it.
-        let level = if spills { cells.iter().map(|&i| fill[i]).fold(f32::MIN, f32::max) } else { field[by_h[keep]] };
-        let balanced: Vec<usize> = by_h[..keep].iter().copied().filter(|&i| (level - field[i]) as f64 > LAKE_DEPTH).collect();
-        let b = balanced.len();
-        let change = if today > 0 && b == 0 {
-            Change::Vanish
-        } else if today == 0 && b > 0 {
-            Change::Appear
-        } else if (b as f64) < today as f64 * (1.0 - SAME_SHARE) {
-            Change::Shrink
-        } else if (b as f64) > today as f64 * (1.0 + SAME_SHARE) && today > 0 {
-            Change::Grow
-        } else {
-            Change::Same
-        };
-        out.push(Pool { cells, today, balanced, inflow, e_spill, spills, change });
-    }
-    out
+    lake_pools(field, flow, temp, fill, gw, gh, sea, wrap, ek)
+        .into_iter()
+        .map(|q| {
+            let today = q.cells.iter().filter(|&&i| class[i] == 2).count();
+            let b = q.balanced.len();
+            let change = if today > 0 && b == 0 {
+                Change::Vanish
+            } else if today == 0 && b > 0 {
+                Change::Appear
+            } else if (b as f64) < today as f64 * (1.0 - SAME_SHARE) {
+                Change::Shrink
+            } else if (b as f64) > today as f64 * (1.0 + SAME_SHARE) && today > 0 {
+                Change::Grow
+            } else {
+                Change::Same
+            };
+            Pool { cells: q.cells, today, balanced: q.balanced, inflow: q.inflow, e_spill: q.e_spill, spills: q.spills, change }
+        })
+        .collect()
 }
 
 fn centre(cells: &[usize], gw: usize) -> (usize, usize) {

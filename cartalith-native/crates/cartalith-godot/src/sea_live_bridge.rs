@@ -85,8 +85,9 @@ pub(crate) fn water_bodies_at(
     world: bool,
     forced: Option<&[u8]>,
     keep: Option<&[cartalith_terrain::PlacedEdifice]>,
+    balance: Option<crate::render::LakeBalanceInputs>,
 ) -> cartalith_civ::WaterBodies {
-    crate::render::water_bodies_floored_keep(field, rainfall, gw, gh, sea, world, forced, keep)
+    crate::render::water_bodies_floored_balanced(field, rainfall, gw, gh, sea, world, forced, keep, balance)
 }
 
 /// Ruling 17: every draft stamp re-stamped at `sea` through
@@ -303,7 +304,7 @@ mod tests {
     /// call, never a stub.
     fn civ_at(p: &cartalith_engine::WorldParams, ws: &cartalith_engine::WorldState) -> crate::CivData {
         let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
-        compute_civilisation(ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), None)
+        compute_civilisation(ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), None, p.lake_balance)
     }
 
     /// Protects: the live refresh's central claim: the classification the
@@ -317,7 +318,10 @@ mod tests {
         let (p, mut ws) = world();
         let base = ws.sea_level;
         let civ0 = civ_at(&p, &ws);
-        let at = |ws: &cartalith_engine::WorldState, s: f64| water_bodies_at(&ws.field, &ws.rainfall, p.gw, p.gh, s, p.world, None, None).classification;
+        // Restated for Ruling ET: the app's parameters now balance lakes, so the live side must be handed the
+        // balance inputs the civ pass takes (`p.lake_balance`, the world's flow and temperature) or it compares
+        // two different classifications.
+        let at = |ws: &cartalith_engine::WorldState, s: f64| water_bodies_at(&ws.field, &ws.rainfall, p.gw, p.gh, s, p.world, None, None, crate::render::LakeBalanceInputs::when(p.lake_balance, Some(&ws.flow_discharge), &ws.temperature)).classification;
         assert_eq!(at(&ws, base), civ0.water_bodies, "control: the default level reproduces the generated civ copy");
         let (land0, _, _) = water_counts(&civ0.water_bodies);
         for s in [base + 0.06, base - 0.06] {
@@ -424,11 +428,11 @@ mod tests {
         let lakes = |c: &[u8]| c.iter().enumerate().filter(|&(_, &k)| k == 2).map(|(i, _)| i).collect::<Vec<_>>();
         let bare = cartalith_civ::build_water_bodies(&field, gw, gh, sea, false, Some(&rain));
         assert_eq!(lakes(&bare.classification), vec![one, two[0], two[1]], "control: both pits are lakes before the floor");
-        let drawn = water_bodies_at(&field, &rain, gw, gh, sea, false, None, None);
+        let drawn = water_bodies_at(&field, &rain, gw, gh, sea, false, None, None, None);
         assert_eq!(lakes(&drawn.classification), two.to_vec(), "the 1-cell pond is under the floor of 2");
         let mut paint = vec![0u8; gw * gh];
         paint[one] = 1;
-        let painted = water_bodies_at(&field, &rain, gw, gh, sea, false, Some(&paint), None);
+        let painted = water_bodies_at(&field, &rain, gw, gh, sea, false, Some(&paint), None, None);
         assert_eq!(lakes(&painted.classification), vec![one, two[0], two[1]], "a painted pond is never removed");
     }
 }

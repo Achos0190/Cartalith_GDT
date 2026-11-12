@@ -1690,7 +1690,7 @@ mod cull_vs_drawn_tests {
         let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
         let civ = crate::compute_civilisation(
             &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
-            &mut Vec::new(), None,
+            &mut Vec::new(), None, p.lake_balance,
         );
         let world = LabelWorld {
             continents: civ.continents.as_slice(),

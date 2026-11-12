@@ -42,7 +42,10 @@ use crate::params;
 /// is a machine setting, not a property of the world, the five geology-first
 /// switches have no GUI control by their own row comments in `params.rs`, and
 /// neither has `rough_routing` (Ruling ER: a row so a save records how its world
-/// was routed, not a setting to offer).
+/// was routed, not a setting to offer). `lake_balance` (Ruling ET) is deliberately
+/// **offered**, the opposite call: it has a New World and Hydrology control and an
+/// effect a user names ("why is this lake dry?"), so the assistant can read it
+/// and set it like the other world switches.
 pub const EXCLUDED: &[&str] =
     &["use_gpu", "geology_model", "geology_processes", "relief_model", "geology_karst", "geology_carve", "rough_routing"];
 
@@ -123,6 +126,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("carve_rivers", "On: rivers cut real valleys into the terrain while generating. Off: no river channels are carved at all."),
     ("river_density", "Raise: more, smaller river channels. Lower: fewer, larger rivers."),
     ("integrate_drainage", "On: water reaching a hollow carries on to the sea, so rivers connect (current). Off: rivers end in local pits (older)."),
+    ("lake_balance", "On: a lake holds water only where inflow covers evaporation; dry basins shrink or become playas. Off: every wet-enough basin is a full lake."),
     // ---- planet
     ("planet.g", "Raise: stronger gravity, lower mountains, smaller craters, colder heights. Lower: taller mountains and bigger craters."),
     ("planet.rotation_hours", "Raise: a longer day, fewer broader wind belts, a milder pole-equator contrast. Lower: a fast spin with many wind belts."),

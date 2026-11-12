@@ -909,6 +909,7 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		func(i: int): _recovery_phase = i,
 		"Reference civRecoveryPhase, default Stable. A world that is still recovering from a collapse runs BELOW its ecological ceiling: every settlement's population is scaled by a fraction drawn inside the phase's band, and a nucleus scaled below the labour its tier needs demotes into its own ruins. Phases I and II also abandon tiny settlements that are neither formerly-urban nor ports. Stable is a strict no-op.")
 	_build_placement_dials(gen_sec)
+	_build_lake_balance(gen_sec)
 	DccWidgets.note(gen_sec,
 		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
 
@@ -2167,6 +2168,21 @@ func _set_extent_chips() -> void:
 			var sb := chip.get_theme_stylebox(sb_name) as StyleBoxFlat
 			if sb != null:
 				sb.set_corner_radius_all(PHONE_CHIP_RADIUS)
+
+## Ruling ET (2026-11-12): the lake water balance, a live `WorldParams` row
+## written straight through `param_set` like the dials below, so Create reads
+## what it holds. ON in the app, OFF in `WorldParams::defaults`; the label and
+## hint come from nowhere else than this call. Drawn only when the running
+## extension publishes the row (an older cdylib has none).
+func _build_lake_balance(parent: Control) -> void:
+	var row: Dictionary = bridge.param_info("lake_balance")
+	if row.is_empty():
+		return
+	var live = bridge.param_get("lake_balance")
+	var on := bool(live if live != null else row.get("default", false))
+	DccWidgets.toggle(parent, "Lake water balance", on,
+		func(v: bool): bridge.param_set("lake_balance", v),
+		"On, a lake holds water only where the river and rain feeding it cover what its surface evaporates: a basin in dry or hot country shrinks, or is left as a dry playa (a salt flat), and a river-fed basin the rain alone would have left dry becomes a lake. Terrain and rivers are unchanged. Off keeps the reference's rain-only rule, where every pooled basin in wet enough ground is a full lake. A saved world keeps the lakes it was made with.")
 
 ## The three settlement-placement dials the civ `PARAMS` group added
 ## (`LARGE_ITEM_RULINGS.md`, owner 2026-08-31). Written straight through

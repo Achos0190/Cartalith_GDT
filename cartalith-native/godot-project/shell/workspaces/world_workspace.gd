@@ -171,7 +171,7 @@ const STAGES: Array = [
 	 "gap": "Stream-power carve runs in every generation. Hillslope diffuse, Velocity (momentum), Glacial erosion, Coastal, Evolve climate ↔ terrain, Sediment fill and Tidal flats run as switches inside generation. Glacial erosion is on for a new world, so cold mountains carve troughs by default (it adds generation time); the rest are off by default, so a default world is unaffected by them. Two erosion tools run on demand over the finished map instead of during generation: Carve fjords (a button in the Glacial group) and Droplet hydraulic (its own group below)."},
 	{"name": "Hydrology", "needs": "06 Erosion",
 	 "produces": "rivers, lakes, drainage, flow accumulation → 08 Climate, 09 Ecology & biomes",
-	 "groups": [], "keys": ["carve_rivers", "river_density", "integrate_drainage"],
+	 "groups": [], "keys": ["carve_rivers", "river_density", "integrate_drainage", "lake_balance"],
 	 "gap": "Min stream order and lakes-as-water are reference render filters, not generation parameters -- and not Cartography's either, which this line said until 2026-09-07. Neither is settable anywhere: since 2026-09-22 the drawn rivers are the traced polylines get_rivers(min_order) returns, but the viewport always asks for min_order 1 and no control changes it."},
 	{"name": "Climate", "needs": "01 Planet, 02 Extent & scale, 06 Erosion",
 	 "produces": "temperature, rainfall, wind, currents → 09 Ecology & biomes, 10 Resources & soils",
