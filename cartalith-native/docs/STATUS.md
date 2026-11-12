@@ -140,6 +140,40 @@ metropolis pick, so pairs, tiers and seats are unchanged by construction; only p
 - **Not built:** Ruling EU items 2 (the planner joins a way) and 3 (river stretches per stretch, with the best vessel).
   `OUTSTANDING_WORK.md` routes them.
 
+### Long-press to drag on touch: Asset library tiles (2026-11-12)
+
+**Built, verified on the probe named; the handset check (the owner's finger) stays open.** Owner's decision, 2026-11-12, after
+bca53cb9 removed tile dragging on touch: bring it back as a long press. Read at `dcc_widgets.gd`: `TouchScroll._arm_lift`,
+`_lift_if_held`, `_watch_drop`, `LIFT_HOLD_SEC`, `LIFT_DIM`, `lifted`, `on_lift`; `LIFT_META`; `dcc_shell.gd::_touch_scroll_arbitrate`
+(sets `on_lift` to the shell's `_haptic("tool_arm")`); `asset_library_window.gd`: `SlotCell._drag_payload`, `_get_drag_data`, `_ready`,
+`_build_cell`. One mechanism in the shared helper, no second implementation: a control that carries `TAP_META` and `LIFT_META`
+(a `Callable` returning `{"data", "preview"}` or `{}`) is lifted when a finger stays within the slop for `LIFT_HOLD_SEC` = 0.4 s
+(Android's `getLongPressTimeout()`, recalled; labelled in the code), through `Control.force_drag()`, so the drop targets' own
+`_can_drop_data`/`_drop_data` run as for a mouse. A move past the slop first is a scroll and cancels the lift; a lifted gesture
+never scrolls the list. Feedback: the tile dims (alpha 0.45, until the engine's drag ends, polled) and the drag chip follows the
+finger, plus the `tool_arm` haptic where the shell's `_haptic` runs (mobile builds). `SlotCell._get_drag_data` answers `null` on a
+touch composition, because the engine's own drag begins after 10 px, before the 8 dp scroll slop on a phone, which would have turned
+every swipe into a lift; on a pointer build it is unchanged (the mouse path, no proxy, no hold). Swatches and variant cells were never
+drag sources and still are not (`draggable` false; the lift meta is on the shared class and refuses them).
+- **Probe.** `_flingscroll_probe.gd` leg 5 (`--only lift`; also in the full run): a quick swipe lifts nothing; a move at 150 ms is a
+  scroll and the expiring timer lifts nothing; 0.55 s still lifts, dims, scrolls nothing while dragged (scrollers set part-way down so a
+  scroll could show), drops on a real `CollectionRow` and the collection holds the uid (`as_collections`), the dim is restored, nothing
+  is selected; hold-and-release selects nothing; a plain tap still selects; a held swatch is not lifted. Drop targets are found by hover,
+  which `push_input` straight into an embedded window never updates (the row saw no `mouse_entered`), so leg 5 routes events through the
+  host viewport, the way a real event reaches an embedded window. The target row is mounted in the window because the phone shows the
+  Collections rail in another pane: **on a phone a lifted tile has no drop target in its own pane** (collections are still reached by
+  Collect...), which the owner may want changed. Results: lift leg alone 24 checks 0 failed at 1080x2340 @2.8125 and at 3392x2400 @2.225;
+  full `_flingscroll_probe` 89 checks phone, 90 Pad, 9 desktop (3 desktop + the mouse drop 6), 0 failed; `_touchscroll_probe` 38 checks
+  at 1080x2340 with its one known Preferences failure (the same on pristine origin/main), 32 on the touch tablet, 0 failed. At 3392x2400 that
+  probe fails 5 of 36 on pristine origin/main and on this tree alike (its button/slider rows are not built for that class). Literal
+  mutants: 9 of 10 killed (hold time, stale-press gate, touch gate in `_get_drag_data`, dim, restore, `force_drag`, `lifted` never set,
+  lifted-still-scrolls); the survivor, dropping `not draggable` from `_drag_payload`, is equivalent today (only tiles carry a `uid`, and
+  the `uid == ""` guard refuses everything else). Two earlier survivors were dead code and were removed rather than excused (a redundant
+  generation bump at the slop crossing; an `is_tap` clause for `lifted`, since `force_drag` takes the mouse focus and the release never
+  reaches the tile).
+- **Open, needs the owner's finger on the Pad/6T:** whether 0.4 s feels right, whether the dim and haptic read as "picked up", whether
+  the drag chip appears under the finger on glass, and whether a drag needs somewhere to land on the phone.
+
 ### Touch-scroll leftovers closed: a shared fling, editable text boxes, the Asset library (2026-11-12)
 
 **Built, verified on the probes named; the handset check (the owner's finger on the Pad) stays open.** Read at `dcc_widgets.gd`:
@@ -177,7 +211,7 @@ no second implementation: all three items go through the 2026-11-08 `TouchScroll
   `_touch_arbitrate()`, so a plain `Button` (RELEASE already, `STOP`) in the inspector swallowed the drag: the "already RELEASE,
   nothing to do" gate in `touch_release_button()` was wrong and is gone, and the window hook now makes the call.
   Stated cost: **no finger drag-and-drop of a tile on a touch composition**; if the owner wants it back, it should be a
-  long-press, a separate decision.
+  long-press, a separate decision. **Superseded the same day** by "Long-press to drag" below (owner's decision).
 - **Probes.** New `_flingscroll_probe.gd` (windowed, SubViewport, real `ScreenTouch`/`ScreenDrag` plus their emulated mouse
   events; fling, editable text, Asset library, desktop legs): phone class 1080x2340 @2.8125 `65 checks, 0 failed`; Pad class 3392x2400
   @2.225 `66 checks, 0 failed`; desktop pointer 1600x1000 `3 checks, 0 failed` (no proxy anywhere, the wheel scrolls). Existing probes re-run on this

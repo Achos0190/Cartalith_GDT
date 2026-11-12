@@ -119,7 +119,7 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   degrades as sections expand" and "settings scroll once then dead" still do NOT reproduce (before or after the fix);
   keep them open until the owner confirms on the handset. The Asset library survey rows, editable `TextEdit`s and the fling
   on proxy-scrolled lists were built 2026-11-12 (`STATUS.md`, "Touch-scroll leftovers closed"); what needs the owner's finger
-  on the Pad is the fling's feel, a long-press in an editable box with the real keyboard, and the loss of tile drag-and-drop on touch.
+  on the Pad is the fling's feel, a long-press in an editable box with the real keyboard, and the Asset library's long-press tile drag (built 2026-11-12, `STATUS.md`, "Long-press to drag"): the 0.4 s hold, the lift feedback, and that a phone has no drop target in the grid's pane.
 - ~~**After a MORE window closes the tab stays lit.**~~ **Fixed 2026-11-12** (`PhoneMenu.closed`, `STATUS.md`, "Phone rows closed").
 - ~~**Phone Close button is 29 px, under the 44 px floor.**~~ **Fixed 2026-11-12** (the general floor was `0ed18540`, 2026-08-25): the Assistant sheet alone was still short, because `_relayout_phone` reset the floor; 39 windows swept (`STATUS.md`, "Phone rows closed").
 - ~~**The phone's gesture list overclaims one-finger panning.**~~ **Closed by MS-5's first step (2026-11-08,

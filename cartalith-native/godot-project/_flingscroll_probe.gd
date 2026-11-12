@@ -26,6 +26,11 @@ extends Node
 ## 3. ASSET LIBRARY. Every overflowing scroller of the library window, and every control kind a finger can start on inside
 ##    it, scrolls by touch; the rail, the grid and the inspector are each driven.
 ## 4. DESKTOP. No node carries a proxy on a pointer build; the mouse wheel scrolls.
+## 5. LONG-PRESS LIFT (owner, 2026-11-12; `--only lift`). On touch a tile held still for `TouchScroll.LIFT_HOLD_SEC` (this file
+##    waits a literal 0.55 s) lifts, and a drag then drops it on a Collections row as a mouse drag does (the row's real
+##    `as_batch_collect`); a quick swipe from a tile scrolls and lifts nothing; a finger that moves past the slop before the
+##    hold cancels the lift into a scroll; a lifted gesture selects nothing; the tile is dimmed while lifted and restored
+##    after. On a pointer build the same drop works from a plain mouse press-move-release and no proxy exists.
 ## Honest limit: synthetic events have no multi-touch, no Android slop and a frame-paced velocity; the finger is the final
 ## proof (`ANDROID_BUILD_SCOPE.md` 3.13).
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument.
@@ -127,8 +132,33 @@ func _pk() -> float:
 
 
 func _push(ev: InputEvent) -> void:
+	if _host_route and _pv is Window:
+		_push_host(ev, _pv as Window)
+		return
 	var v: Viewport = _pv if _pv != null else _vp
 	v.push_input(ev, v != _vp)
+
+
+## True while a drag-and-drop is being driven: a drop target is found by the HOVER, and `push_input(ev, true)` straight into
+## an embedded window never updates its hover (measured: the row saw no `mouse_entered`, the drag found no target), so every
+## event is routed the way a real one reaches an embedded window, through the host viewport.
+var _host_route := false
+
+
+## `ev` (its position in `w`'s canvas coordinates) pushed into the host in the host's own screen pixels: the window's
+## content scale, its place in the host, then the host's stretch.
+func _push_host(ev: InputEvent, w: Window) -> void:
+	var ev2 := ev.duplicate() as InputEvent
+	var to_host := func(p: Vector2) -> Vector2:
+		return _vp.get_final_transform() * (Vector2(w.position) + w.get_final_transform() * p)
+	if ev2 is InputEventMouse:
+		(ev2 as InputEventMouse).position = to_host.call((ev2 as InputEventMouse).position)
+		(ev2 as InputEventMouse).global_position = (ev2 as InputEventMouse).position
+	elif ev2 is InputEventScreenTouch:
+		(ev2 as InputEventScreenTouch).position = to_host.call((ev2 as InputEventScreenTouch).position)
+	elif ev2 is InputEventScreenDrag:
+		(ev2 as InputEventScreenDrag).position = to_host.call((ev2 as InputEventScreenDrag).position)
+	_vp.push_input(ev2, false)
 
 
 func _down(p_canvas: Vector2) -> void:
@@ -322,7 +352,13 @@ func _run(vw: int, vh: int) -> void:
 		_app.open_project_dialog.hide()
 	await _frames(8)
 	if not DccTheme.is_touch():
-		await _leg_desktop()
+		if _only == "" or _only == "desktop":
+			await _leg_desktop()
+		if _only == "" or _only == "lift":
+			await _leg_lift()
+		return
+	if _only == "lift":
+		await _leg_lift()
 		return
 	if _only == "" or _only == "fling":
 		await _leg_fling()
@@ -330,6 +366,8 @@ func _run(vw: int, vh: int) -> void:
 		await _leg_text()
 	if _only == "" or _only == "asset":
 		await _leg_asset()
+	if _only == "":
+		await _leg_lift()
 
 
 ## Desktop pointer: nothing is proxied and the wheel scrolls.
@@ -962,3 +1000,248 @@ func _asset_pane(lib: Node, label: String, want_min: int = 1) -> void:
 			var pane1 = lib._phone_pane if lib._phone else ""
 			_ok(rest >= 0.4 * len_loc and sel1 == sel0 and pane1 == pane0 and not dragging, "a drag from %s scrolls the %s (%.0f px, wanted %.0f), starts no drag-and-drop (%s) and selects/navigates nothing (selected %d->%d, pane %s->%s)" % [pk[1], sc.name, rest, 0.4 * len_loc, dragging, sel0, sel1, pane0, pane1])
 		sc.scroll_vertical = 0
+
+
+# ============================================================================================================
+# 5. LONG-PRESS LIFT
+# ============================================================================================================
+
+## The Collections row the library's own tiles drop onto, mounted where every composition can reach it (the phone shows the
+## rail in another pane, so a drop target is not otherwise on screen beside the tiles). It is the library's real
+## `CollectionRow`, so the drop runs the real `_can_drop_data`/`_drop_data` and `as_batch_collect`.
+func _lift_row(lib: Node) -> Control:
+	var row := AssetLibraryWindow.CollectionRow.new()
+	row.owner_window = lib
+	row.coll_name = "LiftColl"
+	row.text = "LiftColl"
+	var vis: Vector2 = (lib as Window).get_visible_rect().size
+	row.size = Vector2(minf(260.0, vis.x * 0.5), minf(90.0, vis.y * 0.1))
+	## 64 canvas px above the bottom edge: the dialog's own button bar is an internal child drawn and hit-tested AFTER any
+	## child added here (measured: a PASS `Control` of the bar was the hovered control, not the row), so the row sits above it.
+	row.position = vis - row.size - Vector2(6.0, 64.0)
+	lib.add_child(row)
+	return row
+
+
+## Uids the engine's collection `name` holds, from `as_collections()` (nothing when it does not exist).
+func _members(lib: Node, name: String) -> Array:
+	var out: Array = []
+	for e in (lib._bridge.world_gen.as_collections() as Array):
+		if String(e["name"]) == name:
+			for u in e["uids"]:
+				out.append(String(u))
+	return out
+
+
+## Visible tiles a finger would really land on (the tile is the hit control at its own centre), not under `avoid`.
+func _lift_tiles(lib: Node, avoid: Rect2) -> Array:
+	var all: Array = []
+	_all(lib, all)
+	var out: Array = []
+	for c in all:
+		var t := c as Control
+		if t == null or not t.has_meta(DccWidgets.TAP_META) or not t.is_visible_in_tree() or not ("uid" in t) or String(t.uid) == "" or t.size.y < 40.0:
+			continue
+		var ctr := t.get_global_rect().get_center()
+		if avoid.has_point(ctr) or _hit(lib as Window, ctr) != t:
+			continue
+		out.append(t)
+	return out
+
+
+## A finger from `a` to `b` in `steps` drag samples, frame-paced, the finger left down.
+func _glide(a: Vector2, b: Vector2, steps: int) -> void:
+	var prev := a
+	for k in range(1, steps + 1):
+		var p := a.lerp(b, float(k) / float(steps))
+		await _drag(p, prev, (p - prev) * 30.0)
+		prev = p
+		await _frames(2)
+
+
+func _leg_lift() -> void:
+	print("-- long-press lift --")
+	_close_windows()
+	var lib = _app.asset_library_window
+	lib.open("", false)
+	await _wait(1.2)
+	_pv = lib
+	var touch := DccTheme.is_touch()
+	_host_route = true
+	print("   composition: %s" % ("touch" if touch else "pointer"))
+	if not lib._phone:
+		var best := ""
+		var best_n := -1
+		for fam in lib.FAMILIES:
+			lib._select_family(String(fam["key"]))
+			await _frames(4)
+			var n: int = lib._grid.get_child_count()
+			if n > best_n:
+				best_n = n
+				best = String(fam["key"])
+		lib._select_family(best)
+		if touch:
+			## As `_leg_asset` does: two columns and a short window, so the grid really overflows (the largest family's 15
+			## tiles fit a 1024x640 window, and a lifted tile could then never be seen to scroll anything).
+			lib._grid.columns = 2
+			lib.min_size = Vector2i(1024, 300)
+			lib.size = Vector2i(1024, 420)
+			await _frames(8)
+	else:
+		lib._show_phone_pane("slots")
+	await _frames(8)
+	var row := _lift_row(lib)
+	await _frames(4)
+	var avoid := row.get_global_rect().grow(12.0)
+	var tiles := _lift_tiles(lib, avoid)
+	_ok(tiles.size() >= 4, "(setup) at least four reachable tiles (%d)" % tiles.size())
+	if tiles.size() < 4:
+		return
+	var seed_t: Control = tiles[0]
+	lib._bridge.as_batch_collect(PackedStringArray([String(seed_t.uid)]), "LiftColl")
+	_ok(_members(lib, "LiftColl") == [String(seed_t.uid)], "(setup) the collection exists with one member (%s)" % str(_members(lib, "LiftColl")))
+	var target := row.get_global_rect().get_center()
+	lib._selected.clear()
+	var win := lib as Window
+
+	if touch:
+		## ---- (a) a quick swipe from a tile lifts nothing ----
+		var t1: Control = tiles[1]
+		var c1 := t1.get_global_rect().get_center()
+		var ts1 = t1.get_meta("_touch_scroll")
+		_ok(ts1 != null and t1.has_meta(DccWidgets.LIFT_META), "a draggable tile carries the shared proxy and the lift payload")
+		await _stroke_down(c1, c1 - Vector2(0.0, 60.0), 8)
+		_ok(not win.gui_is_dragging() and not ts1.lifted, "a quick swipe (about 130 ms) lifts nothing")
+		await _wait(0.6)
+		_ok(not win.gui_is_dragging() and not ts1.lifted, "...and still nothing 0.6 s later, finger still down")
+		await _up(c1 - Vector2(0.0, 60.0))
+		_ok(t1.modulate.is_equal_approx(Color(1, 1, 1, 1)) and not (String(t1.uid) in _members(lib, "LiftColl")), "...the tile keeps its look and joins no collection")
+
+		## ---- (b) moving before the hold cancels the lift into a scroll ----
+		var t2: Control = tiles[2]
+		var c2 := t2.get_global_rect().get_center()
+		var ts2 = t2.get_meta("_touch_scroll")
+		await _down(c2)
+		await _wait(0.15)
+		await _glide(c2, c2 + Vector2(0.0, -30.0 * _dens), 6)
+		_ok(ts2.scrolling, "a move of 30 dp at 150 ms is a scroll")
+		await _wait(0.6)
+		_ok(not ts2.lifted and not win.gui_is_dragging(), "...and the hold timer, expiring after it, lifts nothing")
+		await _up(c2 + Vector2(0.0, -30.0 * _dens))
+		_ok(not (String(t2.uid) in _members(lib, "LiftColl")), "...no collection change")
+		lib._selected.clear()
+		for sc in _overflowing(lib):
+			(sc as ScrollContainer).scroll_vertical = 0
+		await _frames(6)
+		tiles = _lift_tiles(lib, avoid)
+
+		## ---- (c) a hold lifts, a drag drops ----
+		## The scrollers start part-way down so that a downward finger WOULD scroll them back up: at the top a scroll
+		## would clamp to zero and the "lifted tile scrolls nothing" check could not tell.
+		var moved_off_top := 0
+		for sc in _overflowing(lib):
+			(sc as ScrollContainer).scroll_vertical = int(minf(_overflow(sc as ScrollContainer) * 0.5, 120.0))
+			moved_off_top += 1 if (sc as ScrollContainer).scroll_vertical > 0 else 0
+		await _frames(6)
+		tiles = _lift_tiles(lib, avoid)
+		_ok(moved_off_top >= 1 and tiles.size() >= 2, "(setup) a scroller sits below its top (%d) and tiles are reachable (%d)" % [moved_off_top, tiles.size()])
+		var t3: Control = tiles[1]
+		var c3 := t3.get_global_rect().get_center()
+		var ts3 = t3.get_meta("_touch_scroll")
+		var before := t3.modulate
+		var sel0: int = lib._selected.size()
+		await _down(c3)
+		await _wait(0.3)
+		_ok(not ts3.lifted, "at 0.3 s the tile is not lifted yet")
+		await _wait(0.25)
+		_ok(ts3.lifted and win.gui_is_dragging(), "a finger resting 0.55 s lifts the tile into a drag-and-drop")
+		_ok(t3.modulate.a < before.a - 0.3, "...the tile is dimmed while lifted (alpha %.2f -> %.2f)" % [before.a, t3.modulate.a])
+		var sc_before := {}
+		for sc in _overflowing(lib):
+			sc_before[sc] = (sc as ScrollContainer).scroll_vertical
+		await _glide(c3, target, 10)
+		var sc_moved := false
+		for sc in sc_before:
+			if (sc as ScrollContainer).scroll_vertical != sc_before[sc]:
+				sc_moved = true
+		_ok(not sc_moved, "dragging a lifted tile scrolls nothing")
+		_ok(win.gui_is_dragging(), "the drag is still in progress over the row")
+		await _up(target)
+		await _wait(0.4)
+		_ok(String(t3.uid) in _members(lib, "LiftColl"), "dropping it on the Collections row adds it to the collection (%s)" % str(_members(lib, "LiftColl")))
+		_ok(not win.gui_is_dragging(), "the drag has ended")
+		_ok(t3.modulate.is_equal_approx(before), "the tile's look is restored (%s)" % str(t3.modulate))
+		_ok(lib._selected.size() == sel0, "the lifted gesture selected nothing (%d -> %d)" % [sel0, lib._selected.size()])
+
+		## ---- (d) hold and release without moving: no select, no drop ----
+		var t4: Control = tiles[2]
+		var c4 := t4.get_global_rect().get_center()
+		await _down(c4)
+		await _wait(0.55)
+		await _up(c4)
+		await _wait(0.3)
+		_ok(not win.gui_is_dragging() and lib._selected.size() == sel0, "hold-and-release in place ends the drag and selects nothing")
+		_ok(t4.modulate.is_equal_approx(Color(1, 1, 1, 1)), "...and the look is restored (%s)" % str(t4.modulate))
+		await _frames(4)
+		tiles = _lift_tiles(lib, avoid)
+		## ---- (e) a plain tap still selects ----
+		var t5: Control = tiles[3 if tiles.size() > 3 else 0]
+		lib._selected.clear()
+		await _tap(t5.get_global_rect().get_center())
+		await _wait(0.3)
+		_ok(lib._selected.size() == 1, "a plain tap still selects the tile (%d)" % lib._selected.size())
+		## ---- (f) a control that is not a drag source (a preview swatch) is never lifted ----
+		await _wait(0.6)
+		var all_c: Array = []
+		_all(lib, all_c)
+		var sw: Control = null
+		for c in all_c:
+			var cc := c as Control
+			if cc != null and cc.has_meta(DccWidgets.LIFT_META) and ("draggable" in cc) and not cc.draggable and cc.is_visible_in_tree() and cc.size.y >= 10.0 and _hit(win, cc.get_global_rect().get_center()) == cc:
+				sw = cc
+				break
+		_ok(sw != null, "(setup) a visible non-draggable swatch carries the lift meta")
+		if sw != null:
+			var swc := sw.get_global_rect().get_center()
+			await _down(swc)
+			await _wait(0.55)
+			_ok(not win.gui_is_dragging(), "a held swatch (draggable false) is not lifted")
+			await _up(swc)
+	else:
+		## ---- pointer: a mouse drag from a tile drops on the row, exactly as before; no proxy, no lift ----
+		var t: Control = tiles[1]
+		_ok(not t.has_meta("_touch_scroll"), "no touch proxy on a pointer build")
+		var a := t.get_global_rect().get_center()
+		var down := InputEventMouseButton.new()
+		down.button_index = MOUSE_BUTTON_LEFT
+		down.pressed = true
+		down.position = a
+		down.global_position = a
+		down.button_mask = MOUSE_BUTTON_MASK_LEFT
+		_push(down)
+		await _frames(2)
+		var prev := a
+		for k in range(1, 11):
+			var p := a.lerp(target, float(k) / 10.0)
+			var m := InputEventMouseMotion.new()
+			m.position = p
+			m.global_position = p
+			m.relative = p - prev
+			m.button_mask = MOUSE_BUTTON_MASK_LEFT
+			_push(m)
+			prev = p
+			await _frames(2)
+		_ok(win.gui_is_dragging(), "a mouse press-and-move lifts at once (no hold)")
+		var up := InputEventMouseButton.new()
+		up.button_index = MOUSE_BUTTON_LEFT
+		up.pressed = false
+		up.position = target
+		up.global_position = target
+		_push(up)
+		await _wait(0.4)
+		_ok(String(t.uid) in _members(lib, "LiftColl"), "the mouse drop adds the tile to the collection (%s)" % str(_members(lib, "LiftColl")))
+		_ok(t.modulate.is_equal_approx(Color(1, 1, 1, 1)), "a mouse drag never dims the tile")
+	row.queue_free()
+	_host_route = false
+	_pv = null
+

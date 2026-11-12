@@ -3800,6 +3800,11 @@ func _touch_scroll_arbitrate(ctl: Control, unit: float) -> void:
 		DccWidgets.touch_release_button(ctl as BaseButton)
 	if ctl is ItemList or ctl is TextEdit or ctl.has_meta(DccWidgets.TAP_META):
 		DccWidgets.touch_list(ctl, 8.0 * unit)
+		## A control a long press can lift gets the shell's haptic pulse at the moment it lifts (`DccWidgets.LIFT_META`).
+		if ctl.has_meta(DccWidgets.LIFT_META) and ctl.has_meta("_touch_scroll"):
+			var lift_ts = ctl.get_meta("_touch_scroll")
+			if lift_ts is DccWidgets.TouchScroll:
+				(lift_ts as DccWidgets.TouchScroll).on_lift = func() -> void: _haptic("tool_arm")
 	if ctl is OptionButton:
 		DccWidgets.touch_popup((ctl as OptionButton).get_popup(), 8.0 * unit)
 	elif ctl is MenuButton:

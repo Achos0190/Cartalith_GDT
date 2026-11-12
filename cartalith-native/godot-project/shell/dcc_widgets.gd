@@ -2789,6 +2789,24 @@ class TouchScroll extends RefCounted:
 	## first, because the box's own mouse handling runs after this signal and moves the caret.
 	var _snap := {}
 
+	## How long a finger must rest on a control that carries `DccWidgets.LIFT_META` before it is picked up for a
+	## drag-and-drop. Android's `ViewConfiguration.getLongPressTimeout()` default, 400 ms (recalled, labelled); it sits
+	## beside the shell's own holds (`DccShell.DOMAIN_HOLD_MS` 380, `PHONE_UNDO_HOLD_SEC` 0.45) rather than reusing one,
+	## because `DccWidgets` is loaded before `DccShell` and cannot name its constants (owner, 2026-11-12).
+	const LIFT_HOLD_SEC := 0.4
+	## The look of a lifted control until the drag ends: dimmed, so the tile left behind reads as "picked up" while the
+	## drag chip travels with the finger. A labelled judgement, not a measurement.
+	const LIFT_DIM := Color(1.0, 1.0, 1.0, 0.45)
+	## Run once, on the main thread, the moment a hold completes and a drag starts (the shell sets a haptic pulse here).
+	## Empty when none was set -- the lift is silent, never an error.
+	var on_lift: Callable
+	## True from a completed hold until the next press: the gesture is a drag-and-drop, so it neither scrolls nor counts
+	## as a tap (`DccWidgets.is_tap`).
+	var lifted := false
+	## Bumped by every press and release; a hold timer acts only if its own number is still current. (A gesture that
+	## becomes a scroll needs no bump: `_lift_if_held` refuses on `scrolling`.)
+	var _hold_gen := 0
+
 	static func _now() -> float:
 		return float(Time.get_ticks_usec()) / 1000000.0
 
@@ -2900,6 +2918,9 @@ class TouchScroll extends RefCounted:
 				_samples.clear()
 				_down = true
 				scrolling = false
+				lifted = false
+				_hold_gen += 1
+				_arm_lift()
 				_origin = xf * t.position
 				_last_y = _origin.y
 				_anc = null
@@ -2913,9 +2934,12 @@ class TouchScroll extends RefCounted:
 				## still swallow the emulated mouse release that follows.
 				var was_down := _down
 				_down = false
+				_hold_gen += 1
 				if was_down and scrolling:
 					_begin_fling()
 		elif ev is InputEventScreenDrag and _down:
+			if lifted:
+				return        ## A lifted control is being dragged by the engine; the list must not also scroll.
 			var p := xf * (ev as InputEventScreenDrag).position
 			if not scrolling:
 				if p.distance_to(_origin) < slop:
@@ -2928,6 +2952,49 @@ class TouchScroll extends RefCounted:
 			if _samples.size() > 16:
 				_samples.pop_front()
 			_scroll_by(-dy)
+
+	## Starts the hold timer for a control that can be lifted. Nothing is armed for a target without `LIFT_META`.
+	func _arm_lift() -> void:
+		var c := target as Control
+		if c == null or not c.has_meta(DccWidgets.LIFT_META) or not c.is_inside_tree():
+			return
+		var gen := _hold_gen
+		c.get_tree().create_timer(LIFT_HOLD_SEC).timeout.connect(_lift_if_held.bind(gen))
+
+	## The hold timer's end: lifts only if this is still the same press, the finger is still down and has not scrolled.
+	func _lift_if_held(gen: int) -> void:
+		if gen != _hold_gen or not _down or scrolling or lifted:
+			return
+		var c := target as Control
+		if c == null or not is_instance_valid(c) or not c.is_visible_in_tree():
+			return
+		var maker = c.get_meta(DccWidgets.LIFT_META)
+		if not (maker is Callable) or not (maker as Callable).is_valid():
+			return
+		var payload: Dictionary = (maker as Callable).call()
+		## `{}` means "nothing to carry" (an empty slot): the hold does nothing and the gesture stays a tap.
+		if payload.is_empty() or not payload.has("data") or not payload.has("preview"):
+			return
+		lifted = true
+		var before := c.modulate
+		c.modulate = before * LIFT_DIM
+		if on_lift.is_valid():
+			on_lift.call()
+		c.force_drag(payload["data"], payload["preview"])
+		_watch_drop(c, before)
+
+	## Gives the tile its look back once the engine's drag has ended (a drop, or a release over nothing). Polled per
+	## frame because the drag's end is signalled to the control as a notification, which this helper cannot receive; the
+	## tile may have been rebuilt by the drop, so every step re-checks it.
+	func _watch_drop(c: Control, before: Color) -> void:
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree == null:
+			return
+		await tree.process_frame
+		while is_instance_valid(c) and c.is_inside_tree() and c.get_viewport() != null and c.get_viewport().gui_is_dragging():
+			await tree.process_frame
+		if is_instance_valid(c):
+			c.modulate = before
 
 	## Starts the coast after the finger lifts, from the speed over the last `FLING_WINDOW` of the stroke. Nothing
 	## starts (no value is NOT a zero speed) when the stroke has fewer than two samples, spans under 5 ms, ended
@@ -3143,6 +3210,14 @@ static func touch_passive(c: Control) -> bool:
 ## press, or a scroll would also select it (the Asset library's `SlotCell`, 2026-11-12).
 const TAP_META := "touch_tap_control"
 
+## Meta key holding a `Callable` that returns `{"data": Variant, "preview": Control}` -- or `{}` for "nothing to carry"
+## -- on a control that may be picked up by a LONG PRESS on touch (owner, 2026-11-12). The shared `TouchScroll` proxy
+## (attached through `TAP_META`/`touch_list`) waits `TouchScroll.LIFT_HOLD_SEC`; a finger that stays within the slop
+## for that long lifts the control through `Control.force_drag()`, so the drop targets' `_can_drop_data`/`_drop_data`
+## run exactly as for a mouse drag; a finger that moves first scrolls instead. The control's own `_get_drag_data` must
+## answer `null` on touch (the engine's drag threshold, 10 px, is below the 8 dp slop on a dense phone).
+const LIFT_META := "touch_lift_payload"
+
 ## Whether `ev` is the event a tap on `c` acts on. On a pointer build that is the left press, as it has always been. On
 ## a touch composition it is the left RELEASE of a gesture that did not become a scroll: acting on the press would
 ## select the tile (and in the Asset library move to the inspector pane) at the moment a scroll begins, and rebuild the
@@ -3158,7 +3233,7 @@ static func is_tap(ev: InputEvent, c: Control) -> bool:
 		return false
 	if c != null and c.has_meta("_touch_scroll"):
 		var ts = c.get_meta("_touch_scroll")
-		if ts is TouchScroll and (ts as TouchScroll).scrolling:
+		if ts is TouchScroll and ((ts as TouchScroll).scrolling):
 			return false
 	return true
 

@@ -332,6 +332,9 @@ class SlotCell extends Control:
 		## drag meant for the grid, rail or inspector scroller it sits in. This asks the shell for the shared touch
 		## scroll (`DccWidgets.TAP_META`); the tap handlers use `DccWidgets.is_tap()` so a scroll selects nothing.
 		set_meta(DccWidgets.TAP_META, true)
+		## A long press lifts a draggable tile on touch (`DccWidgets.TouchScroll`, `LIFT_HOLD_SEC`); it asks this cell for
+		## what to carry at the moment the hold completes, so the multi-selection is read then, not at build time.
+		set_meta(DccWidgets.LIFT_META, _drag_payload)
 
 	## Dragging a tile carries either the whole current multi-selection (if
 	## this tile is part of one) or just itself -- `owner_window` decides
@@ -339,11 +342,25 @@ class SlotCell extends Control:
 	## slot with nothing to move) returns null, which Godot reads as "no drag
 	## started" -- the standard way to refuse one from `_get_drag_data`.
 	func _get_drag_data(_at_position: Vector2) -> Variant:
-		if not draggable or uid == "" or owner_window == null:
+		## On a touch composition a drag starts only by a long press (`_lift_payload`, via `DccWidgets.LIFT_META`): the
+		## engine's own drag begins after 10 px of travel, which is BEFORE the 8 dp scroll slop on a phone, so answering
+		## it here would turn every swipe into a lift (owner, 2026-11-12: a quick swipe still scrolls).
+		if DccTheme.is_touch():
 			return null
+		var payload := _drag_payload()
+		if payload.is_empty():
+			return null
+		set_drag_preview(payload["preview"])
+		return payload["data"]
+
+	## The drag's data and its preview chip, `{"data", "preview"}`, or `{}` ("no value", never a made-up drag) when this
+	## cell may not be dragged. The one builder behind both the pointer drag and the touch long-press lift.
+	func _drag_payload() -> Dictionary:
+		if not draggable or uid == "" or owner_window == null:
+			return {}
 		var uids: PackedStringArray = owner_window._drag_uids_for(uid)
 		if uids.is_empty():
-			return null
+			return {}
 		var preview := Label.new()
 		preview.text = ("%s (%d)" % [uids[0], uids.size()]) if uids.size() > 1 else uids[0]
 		preview.add_theme_color_override("font_color", DccTheme.c("text_bright"))
@@ -370,8 +387,7 @@ class SlotCell extends Control:
 		preview_box.content_margin_top = 3
 		preview_box.content_margin_bottom = 3
 		preview.add_theme_stylebox_override("normal", preview_box)
-		set_drag_preview(preview)
-		return {"type": "asset_uids", "uids": uids}
+		return {"data": {"type": "asset_uids", "uids": uids}, "preview": preview}
 
 	## Paints, in order: the ground (flat `sunken`/colour or the two-grey
 	## checkerboard, per `bg_mode` and `checker_under_art`), the thumbnail, the
@@ -2887,9 +2903,9 @@ func _build_cell(entry: Dictionary) -> Control:
 	cell.variant_count = count
 	cell.show_check = true
 	cell.draw_border = false
-	## Not on a touch composition: a finger dragging a tile is the grid scrolling (the shared touch scroll,
-	## `SlotCell._ready`), and collections are reached by the Collect... verb. Drag-and-drop stays on a pointer.
-	cell.draggable = not DccTheme.is_touch()
+	## On touch a quick drag of a tile is the grid scrolling (the shared touch scroll, `SlotCell._ready`) and a
+	## long press lifts it (`SlotCell._drag_payload`, owner decision 2026-11-12, replacing bca53cb9's "no drag on touch").
+	cell.draggable = true
 	cell.owner_window = self
 	if filled:
 		var png: PackedByteArray = _bridge.as_thumbnail_png(uid, 0, 128)
