@@ -34,23 +34,23 @@ fn all_groups(c: &Catalogue) -> Vec<String> {
 
 /// Protects the LLM-6a bar: `DESCS` has a non-empty entry for 100% of the
 /// OFFERED keys, naming any key missing one; nothing in `DESCS` or `INERT_WHEN`
-/// names a key the registry lacks (a stale row); the registry has the 122 rows
-/// of 2026-11-12 (Ruling ET's `lake_balance`, offered, is the 122nd; Ruling ER's `rough_routing`, excluded, the 121st) and
+/// names a key the registry lacks (a stale row); the registry has the 123 rows
+/// of 2026-11-12 (Ruling EU item 1's `civ.merge_ways`, offered, is the 123rd; Ruling ET's `lake_balance`, offered, the 122nd; Ruling ER's `rough_routing`, excluded, the 121st) and
 /// exactly seven are excluded. MUTATION: delete one `DESCS`
 /// row and this goes red naming it.
 #[test]
 fn every_offered_key_has_a_description_and_no_row_is_stale() {
-    assert_eq!(params::PARAMS.len(), 122, "registry rows counted 2026-11-12; re-read the scope's counts if this moves");
+    assert_eq!(params::PARAMS.len(), 123, "registry rows counted 2026-11-12; re-read the scope's counts if this moves");
     let offered: Vec<&str> =
         params::PARAMS.iter().map(|s| s.key).filter(|k| !param_catalogue::EXCLUDED.contains(k)).collect();
-    assert_eq!(offered.len(), 115);
+    assert_eq!(offered.len(), 116);
     let missing: Vec<&&str> = offered.iter().filter(|k| param_catalogue::desc(k).is_none_or(|d| d.trim().is_empty())).collect();
     assert!(missing.is_empty(), "offered keys with no description: {missing:?}");
     for (k, _) in param_catalogue::DESCS {
         assert!(params::spec(k).is_some(), "DESCS row for a key the registry does not have: {k}");
         assert!(!param_catalogue::EXCLUDED.contains(k), "DESCS describes an excluded key: {k}");
     }
-    assert_eq!(param_catalogue::DESCS.len(), 115, "one row per offered key, no duplicates");
+    assert_eq!(param_catalogue::DESCS.len(), 116, "one row per offered key, no duplicates");
     for (k, gate, _, _) in param_catalogue::INERT_WHEN {
         assert!(params::spec(k).is_some(), "INERT_WHEN row for an unknown key {k}");
         assert_eq!(params::spec(gate).map(|s| s.kind), Some(params::Kind::Bool), "INERT_WHEN gate {gate} must be a switch");
@@ -143,7 +143,7 @@ fn the_generated_schema_is_valid_and_small() {
     let c = fresh();
     assert!(c.problems().is_empty(), "{:?}", c.problems());
     assert_eq!(c.groups.len(), 9);
-    assert_eq!(c.rows.len(), 115);
+    assert_eq!(c.rows.len(), 116);
     let mut total = 0;
     for g in all_groups(&c) {
         let (_, v, keys) = c.schema_for(Some(&json!([g]))).unwrap();
@@ -376,10 +376,10 @@ fn json_of(v: params::Value, kind: params::Kind) -> Value {
 }
 
 /// Protects the LLM-8 bar "`get_parameters` returns, for 100% of the registry's offered keys, a value
-/// equal to `get_params()[key]`" over the real registry: for each of the 115 offered keys, across the
+/// equal to `get_params()[key]`" over the real registry: for each of the 116 offered keys, across the
 /// nine group queries, `current` equals the setter-side value (read back through `params::get`, the
 /// function `get_params()` is built from) and `default` equals `params::defaults()`'s, with
-/// `changed` agreeing with the difference. Counts 115 so a skipped group fails. MUTATION: make
+/// `changed` agreeing with the difference. Counts 116 so a skipped group fails. MUTATION: make
 /// `setting_line` write `default` into `current`, or drop a row from a group's answer: red.
 #[test]
 fn get_parameters_equals_the_registry_for_every_offered_key() {
@@ -400,7 +400,7 @@ fn get_parameters_equals_the_registry_for_every_offered_key() {
             seen += 1;
         }
     }
-    assert_eq!(seen, 115, "every offered key is answered exactly once across the nine groups");
+    assert_eq!(seen, 116, "every offered key is answered exactly once across the nine groups");
 }
 
 /// Protects `get_changed_parameters` against an independent diff of the two registry snapshots, and
@@ -432,7 +432,7 @@ fn changed_parameters_equal_an_independent_diff() {
     assert!(want.len() < MAX_CHANGED_LISTED);
 }
 
-/// Protects `describe_parameter` over all 115 offered keys: the group, the description, the "had a
+/// Protects `describe_parameter` over all 116 offered keys: the group, the description, the "had a
 /// control in the original" flag and the "what a change needs" word each equal an independent read
 /// of the registry (`ParamSpec::group`, `param_catalogue::desc`, `reference_control`,
 /// `params::invalidates`), and the seven excluded keys are refused in words. MUTATION: swap the
@@ -457,7 +457,7 @@ fn describe_parameter_equals_the_registry_for_every_offered_key() {
         assert_eq!(v["needs"], needs, "{}", s.key);
         n += 1;
     }
-    assert_eq!(n, 115);
+    assert_eq!(n, 116);
     for e in param_catalogue::EXCLUDED {
         let v = answer(&QueryCall::Describe { key: (*e).to_owned() }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
         assert!(v["error"].as_str().unwrap().contains("not offered"), "{e}: {v}");
@@ -485,10 +485,10 @@ fn query_answers_fit_the_result_cap() {
     }
     let all = answer(&QueryCall::Parameters { group: None, keys: None }, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
     println!("get_parameters (no arguments, the overview): {} bytes; biggest group {} {} bytes; all nine groups together would be {} bytes", all.to_string().len(), biggest.0, biggest.1, total);
-    assert!(total > MAX_RESULT_BYTES, "all 115 at once would not fit, which is why no-argument is an overview: {total}");
+    assert!(total > MAX_RESULT_BYTES, "all 116 at once would not fit, which is why no-argument is an overview: {total}");
     let groups = all["groups"].as_array().unwrap();
     assert_eq!(groups.len(), 9);
-    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 115);
+    assert_eq!(groups.iter().map(|g| g["settings"].as_u64().unwrap()).sum::<u64>(), 116);
     assert!(all.get("settings").is_none(), "the overview carries no values");
     let ch = answer(&QueryCall::Changed, &cat, &NoWorld("n/a".into()), &mut QueryBudget::default());
     assert_eq!(ch["changed_count"], 0, "a fresh world has nothing changed");

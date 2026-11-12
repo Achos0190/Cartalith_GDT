@@ -38,6 +38,10 @@ mod fh_r2_baseline;
 // manpower columns over the same 20 worlds, an ignored measurement.
 #[cfg(test)]
 mod g1_baseline;
+// Ruling EU item 1 (2026-11-12): the road-network bundle census, an ignored
+// measurement through the real pipeline, OFF then ON `civ.merge_ways`.
+#[cfg(test)]
+mod way_census;
 mod campaign_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;
@@ -2608,6 +2612,48 @@ mod civ_pipeline_tests {
         }
     }
 
+    /// Protects owner Ruling EU item 1's contract on a real world (the 256 x 192
+    /// app fixture, villages on): with `civ.merge_ways` on, the network joins
+    /// exactly the same settlement pairs in the same order as with it off (only
+    /// paths move), the merged network draws fewer kilometres of road (each
+    /// shared trunk once), no two visible ways are the same stroke, the planner's
+    /// credited edges still carry every edge's cells (a hidden placeholder's cells
+    /// are on a busier edge). Every settlement an edge joins keeps a drawn way at its pin
+    /// (`assert_endpoints_reach_settlements`).
+    #[test]
+    fn merged_ways_keep_the_pairs_and_draw_each_trunk_once() {
+        let mut on_p = world().1.clone();
+        on_p.civ.villages = true;
+        assert!(on_p.civ.merge_ways, "premise: the app fixture merges");
+        let mut off_p = on_p.clone();
+        off_p.civ.merge_ways = false;
+        let (on, off) = (civ(&on_p, &[]), civ(&off_p, &[]));
+        let pairs = |c: &CivData| c.road_edges.iter().map(|e| (e.a, e.b)).collect::<Vec<_>>();
+        assert!(pairs(&off).len() > 5, "premise: the fixture has a network");
+        assert_eq!(pairs(&on), pairs(&off), "merging moves paths, never pairs");
+        assert_ne!(
+            on.road_edges.iter().map(|e| &e.path).collect::<Vec<_>>(),
+            off.road_edges.iter().map(|e| &e.path).collect::<Vec<_>>(),
+            "premise: merging re-traced something on this world"
+        );
+        let km = |c: &CivData| -> f64 {
+            c.ways.iter().filter(|w| !w.hidden && w.way_type != WayType::Ancient).map(|w| w.km).sum()
+        };
+        assert!(km(&on) < km(&off), "a merged network draws less road: {} vs {}", km(&on), km(&off));
+        let vis: Vec<&Way> = on.ways.iter().filter(|w| !w.hidden).collect();
+        for (i, a) in vis.iter().enumerate() {
+            assert!(vis[i + 1..].iter().all(|b| b.pts != a.pts), "{} is drawn twice", a.name);
+        }
+        let all: HashSet<usize> = on.road_edges.iter().flat_map(|e| e.path.iter().copied()).collect();
+        let credited: HashSet<usize> = cartalith_civ::tools::civ_credited_road_edges(&on.ways, &on.road_edges)
+            .into_iter()
+            .flat_map(|e| e.path.iter().copied())
+            .collect();
+        assert_eq!(credited, all, "the planner's credit lost a cell");
+        assert_endpoints_reach_settlements(&on, "merged");
+        assert_endpoints_reach_settlements(&off, "reference");
+    }
+
     /// `civ_consolidate_and_smooth_ways`'s own extend-back guarantee (owner
     /// ruling, 2026-09-28, follow-up to Ruling BT): each EDGE's drawn ways
     /// reach its own settlements. An edge cut into several runs by busier
@@ -2628,17 +2674,61 @@ mod civ_pipeline_tests {
     /// post-recovery rebuild, since both are produced by the same
     /// consolidation function and neither gets a pass just because the
     /// OTHER one happens to be longer.
+    ///
+    /// RESTATED 2026-11-12 (owner Ruling EU item 1, shared road trunks, on in
+    /// `params::defaults` and so in this fixture): on a merged network a
+    /// group's end may instead be a **junction** -- the edge's route reaches its
+    /// settlement along a busier way's trunk, which draws those cells once, and
+    /// the run is consolidated without extend-back (`civ_consolidate_merged_ways`,
+    /// whose doc says why that pass drew every shared trunk twice). Such an end
+    /// must lie ON another visible way's drawn line (within 0.01 cells, the snap
+    /// in `way_merge::civ_snap_junction_ends`), and every settlement a road edge
+    /// joins must still have a drawn way within 1.5 cells of its pin -- the
+    /// property the old per-group rule stood in for. On the reference's network
+    /// (merge off) no group ends at a junction, so the old check is unchanged
+    /// there.
     fn assert_endpoints_reach_settlements(c: &CivData, label: &str) {
         let visible: Vec<&Way> = c.ways.iter().filter(|w| !w.hidden && w.pts.len() >= 2).collect();
         let d = |p: (f64, f64), x: usize, y: usize| ((p.0 - x as f64).powi(2) + (p.1 - y as f64).powi(2)).sqrt();
+        let drawn: Vec<(Vec<(f64, f64)>, Vec<usize>)> =
+            visible.iter().map(|w| super::way_render_polyline(&w.pts, &w.brks)).collect();
+        let audit: Vec<cartalith_civ::way_audit::AuditWay> = drawn
+            .iter()
+            .zip(&visible)
+            .map(|((pts, brks), w)| cartalith_civ::way_audit::AuditWay { pts, brks, under_px: 1.0, ends: (w.a_idx, w.b_idx) })
+            .collect();
+        let index_of = |w: &Way| visible.iter().position(|v| std::ptr::eq(*v, w)).unwrap();
+        let on_another = |p: (f64, f64), w: &Way| {
+            cartalith_civ::way_audit::nearest_other_way(&audit, p, index_of(w), 0.01).is_some()
+        };
+        for e in &c.road_edges {
+            for i in [e.a, e.b] {
+                let s = &c.settlements[i].placement;
+                assert!(
+                    cartalith_civ::way_audit::nearest_other_way(&audit, (s.x as f64, s.y as f64), usize::MAX, 1.5).is_some(),
+                    "{label}: {} has a road edge but no drawn way within 1.5 cells",
+                    c.settlements[i].name
+                );
+            }
+        }
         for group in visible.chunk_by(|x, y| (x.a_idx, x.b_idx) == (y.a_idx, y.b_idx)) {
             let (first, last) = (group[0], group[group.len() - 1]);
             let a = &c.settlements[first.a_idx].placement;
             let b = &c.settlements[first.b_idx].placement;
             let (p0, p1) = (first.pts[0], last.pts[last.pts.len() - 1]);
             let (d0, d1) = (d(p0, a.x, a.y), d(p1, b.x, b.y));
-            assert!(d0 < 1.5 + 1e-6, "{label}: {} start {p0:?} is {d0:.2} cells from its own A ({},{})", first.name, a.x, a.y);
-            assert!(d1 < 1.5 + 1e-6, "{label}: {} end {p1:?} is {d1:.2} cells from its own B ({},{})", last.name, b.x, b.y);
+            assert!(
+                d0 < 1.5 + 1e-6 || on_another(p0, first),
+                "{label}: {} start {p0:?} is {d0:.2} cells from its own A ({},{}) and on no other way",
+                first.name, a.x, a.y
+            );
+            assert!(
+                d1 < 1.5 + 1e-6 || on_another(p1, last),
+                "{label}: {} end {p1:?} is {d1:.2} cells from its own B ({},{}) and on no other way (nearest {:?}; pts {:?})",
+                last.name, b.x, b.y,
+                cartalith_civ::way_audit::nearest_other_way(&audit, p1, index_of(last), 50.0),
+                &last.pts[last.pts.len().saturating_sub(4)..]
+            );
             for (i, x) in group.iter().enumerate() {
                 assert!(
                     group[i + 1..].iter().all(|y| y.pts != x.pts),
@@ -5047,6 +5137,25 @@ fn compute_civilisation(
         }
     }
     let placements = placements;
+    // Owner Ruling EU item 1 (2026-11-12): routes that come close on the way to
+    // the same place share one trunk (`cartalith_civ::way_merge`). After the
+    // centrality loop and the metropolis pick, so the pairs, tiers and seats are
+    // the ones those chose; before village seeding and consolidation, so the
+    // villages, the drawn ways and `road_edges` all read the merged network.
+    // Gravity reads `placements` (pass 1's own list); the order reads each
+    // edge end's tier in the index space the edges are in by now (the kept
+    // list on the SG-02 path, remapped above). Off in `WorldParams::defaults`
+    // and for a save without the key: the reference's network, by control flow.
+    if opts.merge_ways {
+        let kinds: Vec<cartalith_civ::SettlementKind> = match keep.as_ref() {
+            Some(k) => k.settlements.iter().map(|s| s.placement.kind).collect(),
+            None => placements.iter().map(|p| p.kind).collect(),
+        };
+        cartalith_civ::way_merge::civ_merge_network_paths(
+            &mut topology, &placements, &kinds, gw, gh, sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome,
+            &wb.classification, world, map_width_km, &cartalith_civ::way_merge::WayMergeOpts::default(),
+        );
+    }
 
     let roads = &topology.edges;
     // Still needed below by `assign_territory` (independent of which road
@@ -5163,7 +5272,15 @@ fn compute_civilisation(
     // the old indices (`remap_after_recovery`). With recovery at its default
     // (`Stable`, a strict no-op) `settlements` is the same list at both
     // points, so the default path is unchanged.
-    let mut ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
+    // Ruling EU item 1: a merged network is consolidated without the
+    // extend-back pass, which would draw each shared trunk twice
+    // (`civ_consolidate_merged_ways`' doc). The reference's network keeps it.
+    let consolidate = if opts.merge_ways {
+        cartalith_civ::civ_consolidate_merged_ways
+    } else {
+        cartalith_civ::civ_consolidate_and_smooth_ways
+    };
+    let mut ways = consolidate(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
     // Where the network's ways end and the village connectors begin, for the
     // recovery remap below.
     let n_network_ways = ways.len();
@@ -5270,11 +5387,23 @@ fn compute_civilisation(
         // the map is the identity, and nothing here runs.
         if settlements.len() < before.len() {
             ways = remap_after_recovery(&index_map, &mut topology, ways, n_network_ways, |topo| {
-                cartalith_civ::civ_consolidate_and_smooth_ways(topo, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km)
+                consolidate(topo, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km)
             });
         }
     }
 
+
+    // Ruling EU item 1: with shared trunks, a branch's junction end is joined
+    // onto the drawn line of the way it meets (consolidation cuts it at a routed
+    // cell, a smoothing tolerance off the drawn trunk). After recovery, so the
+    // rebuilt ways and the village tracks are joined too.
+    // Village tracks then end where they first reach a road instead of running
+    // beside it into town (`civ_join_tracks_to_network`'s doc) -- after the
+    // roads' own junctions are joined, so a track lands on the final road line.
+    if opts.merge_ways {
+        cartalith_civ::way_merge::civ_snap_junction_ends(&mut ways, &settlements, gw);
+        cartalith_civ::way_merge::civ_join_tracks_to_network(&mut ways, gw);
+    }
 
     // Economy (`ECONOMY_SCOPE.md`): per-settlement resource trade balance,
     // `_civPlaceTrade`'s hinterland term against `_civFactionAggregates`'s

@@ -3266,6 +3266,27 @@ RR-2, RR-3, RR-4, RR-8 and RR-6's harness are built** (render only; `STATUS.md`)
 (lake depth tone, not built); RR-6 is **built and ON for new worlds** (Ruling ET, 2026-11-12; `STATUS.md`; open follow-ups: a salt-flat tint for a playa, and the trade salt-lake source reading playas); RR-7 (waits, Q5);
 RR-2's wet-bank darkening (not built); RR-9's close-out (pan-frame timing not measured).
 
+**Routes merge, the planner joins ways, river stretches per stretch (owner, 2026-11-12; Ruling EU).** *"make sure all
+routes that are drawn are correct, and when any of them at any point come close to eachother visually just merge and
+become a single way to the same destination"*, then the same for the planner and for rivers along a planned route. The
+ruling (`LARGE_ITEM_RULINGS.md`) has three parts. **Item 1 (generated ways merge into shared trunks) is built and ON for
+new worlds** (`cartalith_civ::way_merge`, `civ.merge_ways`; `STATUS.md`, 2026-11-12). **Still open:** item 1's owner
+questions (a trunk is named after its busiest pair, and IN-13's way load credits only that pair; and a trunk's class: on the
+owner world the merged network has no highway, because the one cell 8 edges used is used by 7) and its residue (village
+tracks still bundle on small worlds; drawn samples on water are halved, not zero, and were not zero before). **Item 1's
+unrun checks:** the `#[ignore]`d harnesses that read `params::defaults()` worlds (`g1_baseline`'s `g1_0_baseline_columns`
+and `ea0_ecological_ordering_diagnostic`, `fh_r2_baseline`, `bugsweep_seed707`) were not re-run after `civ.merge_ways` went
+on, nor were `cartalith-knowledge`'s integration tests and the doc-tests (the machine stopped starting new executables
+during the build; `STATUS.md`); run them, and re-record any pin the ruling moves, not weaken it. **Item 2,
+the planner joins a way heading toward the destination: not built.** Its plan is the read-only map of 2026-11-12 (split
+`civ_dijkstra_path_guided` into a cost grid and a path step, score join and exit cells by `dS + ride + dD` under a margin,
+splice the way's own drawn line, report `way_spans`), with owner questions Q1-Q5 (world parameter or shell preference;
+margin; sea lanes; a direct-line opt-out; old-save re-routes). **Item 3, river stretches offered per stretch with the best
+vessel: not built.** Its plan is the same day's map (a pure `river_stretch` module on the planner's own navigable set,
+`JpPlan.river_legs` stored like `trim`, pinned leg stages, a results group mirroring resupply on every form), with EA-10's
+stage fingerprint as a prerequisite and eight owner questions. Measure first for both (WJ-0, RT-0); re-measure item 2 on
+the merged network.
+
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There
 should be research done how other map tools handle this."*

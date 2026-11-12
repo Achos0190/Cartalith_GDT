@@ -3606,3 +3606,28 @@ generation setting, on for new worlds.
    seed 912345, 26 become 45; the owner world's lake cells fall 44 283 to 28 226
    (`cartalith-native/docs/evidence/lake-balance-2026-11-12/`).
 5. **Maar lakes are exempt** (Ruling DJ item 2): a crater lake the balance would dry still stands.
+
+## Ruling EU: routes merge into shared ways; the planner joins ways and offers river stretches (owner, 2026-11-12)
+
+The owner, verbatim: *"make sure all routes that are drawn are correct, and when any of them at any point come close to
+eachother visually just merge and become a single way to the same destination (some times it seems like a bundle of
+wires that are paralel going to a single point when they already had a logical point of convergence. Same for the
+planner; when a planned route comes close to a way its often more logical to take that path completely to the
+destination. Same when we come close to a river with the planner that flows in roughly the same direction as the route
+the user is planning (even if its for a short stretch or every stretch of river that is along the planned path or gives
+the planned route a quicker alternative) give the option per stretch of river to use the river as a travel path/medium
+and use the planner for the best recommended vessel."*
+
+The owner confirmed this reading of it, in three parts:
+
+1. **Generated ways merge into shared trunks.** Routes that come close on the way to the same place become one way, and
+   every drawn way is checked for correctness (water, duplicates, ends that do not meet). This changes generated ways
+   **for new worlds**: per `DECISIONS.md` section 7p, `civ.merge_ways` is **on in `params::defaults`** and **off in
+   `WorldParams::defaults`** (every golden keeps the reference's network). **A save without the key loads it off**, so a
+   saved world keeps its ways, and a Recompute or Generate roads on it rebuilds the roads it had.
+2. **The planner joins a way heading toward the destination** when a planned route comes close to one.
+3. **The planner offers river stretches**, per stretch, where a navigable river runs roughly along the route or gives a
+   quicker alternative, with the best recommended vessel.
+
+Part 1 is built first (`cartalith_civ::way_merge`; measured in `cartalith-native/docs/STATUS.md`). Parts 2 and 3 are
+routed from `OUTSTANDING_WORK.md`.

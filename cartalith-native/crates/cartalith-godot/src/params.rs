@@ -285,6 +285,12 @@ pub fn defaults() -> WorldParams {
     p.volc.kind_maar = true;
     p.volc.kind_supervolcano = true;
     p.volc.kind_flood_basalt = true;
+    // Owner Ruling EU item 1 (2026-11-12, `LARGE_ITEM_RULINGS.md`): the road
+    // network's routes share trunks instead of running as parallel strokes
+    // (`cartalith_civ::way_merge`). Off in `WorldParams::defaults`, the
+    // reference's network every golden reads (`DECISIONS.md` §7p). See
+    // `CivParams::merge_ways`.
+    p.civ.merge_ways = true;
     p
 }
 
@@ -854,6 +860,15 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.garrison_exposure_scale", group: "civ", kind: Kind::Float, min: 0.0, max: 5.0, step: 0.1,
         label: "Garrison border-exposure scale", unit: "\u{d7}", reference_control: "",
         get_fn: |p| Value::Num(p.civ.garrison_exposure_scale), set_fn: |p, v| p.civ.garrison_exposure_scale = v },
+    // Ruling EU item 1 (2026-11-12): shared road trunks. ON at the app
+    // boundary, OFF in `WorldParams::defaults`; no reference control (the
+    // reference has no such pass). A save without the key loads OFF
+    // (`apply_saved_state`), so an old world's Recompute rebuilds the roads it
+    // had. Read by `compute_civilisation`, so the `civ.*` wildcard in
+    // `invalidates` marks the civ layer stale, which is true of it.
+    ParamSpec { key: "civ.merge_ways", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Merge roads into shared trunks", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.merge_ways), set_fn: |p, v| p.civ.merge_ways = v != 0.0 },
 ];
 
 // ===========================================================================
@@ -1120,6 +1135,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // No reference control at all -- the reference has no such setting
     // (`MILITARY_MANPOWER_SCOPE.md` §5.6). Travels in `state.cartalith` only.
     ("civ.garrison_exposure_scale", ""),
+    // Ruling EU item 1: no reference control; the reference has no trunk pass.
+    ("civ.merge_ways", ""),
 ];
 
 /// A parameter's path inside the reference's own `state` object; `Some("")`
@@ -1332,6 +1349,10 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // `1.0`, duplicated as a literal for the reason
     // `CivParams::garrison_exposure_scale`'s own doc comment gives.
     p.civ.garrison_exposure_scale = 1.0;
+    // And the shared road trunks (Ruling EU item 1, 2026-11-12), like the lake
+    // balance: every save without the key was built with the reference's
+    // network, so a Recompute or Generate roads on it rebuilds those roads.
+    p.civ.merge_ways = false;
     let Some(native) = state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()) else {
         return 0;
     };

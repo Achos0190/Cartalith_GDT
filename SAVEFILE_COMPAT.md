@@ -979,6 +979,15 @@ MUST preserve it verbatim (§6.2). A flat archive with no `flow_discharge` (a
 reference export) cannot be balanced and keeps its rain-test lakes whatever the
 key says.
 
+**`civ.merge_ways`** (a boolean in `params.json` → `cartalith`, owner Ruling EU
+item 1, 2026-11-12). Whether the world's generated road network was built with
+shared trunks (`cartalith_civ::way_merge`). It adds no grid and no member to
+`entities/ways.json`: the drawn ways and `road_edges` are stored as before and
+a loaded world keeps them as stored. The key matters only when the network is
+rebuilt (Recompute, Generate roads). **An absent key means off**: every archive
+written before the ruling rebuilds the network it was made with. A reader that
+does not know the key MUST preserve it verbatim (§6.2).
+
 **Optional `routing_roughness`** (an integer, owner Ruling ER, 2026-11-11). The
 seed of the sub-grid roughness the world's flow and channels were routed with
 (`WorldParams::rough_routing`, `cartalith_hydrology::rough`), so a reopened world

@@ -126,6 +126,14 @@ pub mod river_class;
 /// the Journey Planner both read (planner row and router cost discount per way
 /// type), so the two cannot drift. See the module doc.
 pub mod way_class;
+/// Owner Ruling EU item 1 (2026-11-12): shared trunks for the generated road
+/// network -- edges re-traced so later roads join the trunks earlier ones laid,
+/// behind `CivParams::merge_ways`. See the module doc.
+pub mod way_merge;
+/// Owner Ruling EU item 1 (2026-11-12): measures of the drawn road network
+/// (side-by-side bundles, duplicates, water, crossings, grade). Measurement
+/// only; see the module doc.
+pub mod way_audit;
 /// The reference's per-ecoregion wildlife layer (HTML lines 6489-6620 plus
 /// the roster popup's own formatter at 8257). Here rather than in
 /// `cartalith-climate` because every input it needs -- `build_npp`,
@@ -9316,6 +9324,47 @@ pub fn civ_consolidate_and_smooth_ways(
     gh: usize,
     map_width_km: f64,
 ) -> Vec<Way> {
+    consolidate_ways(topology, places, field, water_bodies, gw, gh, map_width_km, true)
+}
+
+/// [`civ_consolidate_and_smooth_ways`] for a network whose routes share trunks
+/// (owner Ruling EU item 1, `way_merge`): the same claim, cut, smoothing,
+/// naming and endpoint snap, **without the extend-back pass**.
+///
+/// Why: extend-back splices an edge's own routed cells back to its settlement
+/// when a busier edge already claimed them, and those cells are by construction
+/// already drawn by the way that claimed them. On the reference's network that
+/// is rare; once routes share the trunk out of a town it is the common case, and
+/// it drew the shared trunk twice, one stroke on top of the other (measured on
+/// the owner's world: eight overlap stretches of 30-140 px at the opening view,
+/// each pair sharing 18-87 routing cells; `STATUS.md`, 2026-11-12). Here a run
+/// cut short of its settlement stays a branch off the trunk that reaches it, and
+/// `way_merge::civ_snap_junction_ends` joins its end onto that trunk's drawn line.
+pub fn civ_consolidate_merged_ways(
+    topology: &HierarchicalNetworkResult,
+    places: &[NamedSettlement],
+    field: &[f32],
+    water_bodies: &[u8],
+    gw: usize,
+    gh: usize,
+    map_width_km: f64,
+) -> Vec<Way> {
+    consolidate_ways(topology, places, field, water_bodies, gw, gh, map_width_km, false)
+}
+
+/// The body of [`civ_consolidate_and_smooth_ways`] and
+/// [`civ_consolidate_merged_ways`]; `extend_back` is the one difference.
+#[allow(clippy::too_many_arguments)]
+fn consolidate_ways(
+    topology: &HierarchicalNetworkResult,
+    places: &[NamedSettlement],
+    field: &[f32],
+    water_bodies: &[u8],
+    gw: usize,
+    gh: usize,
+    map_width_km: f64,
+    extend_back: bool,
+) -> Vec<Way> {
     let grid = civ_routing_grid(field, gw, gh);
     let (rw, sc) = (grid.rw, grid.sc);
     let n = places.len();
@@ -9440,11 +9489,11 @@ pub fn civ_consolidate_and_smooth_ways(
                 continue;
             }
             let mut idxs = r.clone();
-            if Some(ri) == first_run && idxs[0] != 0 && dist2(cell_pt(idxs[0]), a_pt) > EXTEND_T2 {
+            if extend_back && Some(ri) == first_run && idxs[0] != 0 && dist2(cell_pt(idxs[0]), a_pt) > EXTEND_T2 {
                 idxs.splice(0..0, 0..idxs[0]);
             }
             let end = *idxs.last().unwrap();
-            if Some(ri) == last_run && end != last_pi && dist2(cell_pt(end), b_pt) > EXTEND_T2 {
+            if extend_back && Some(ri) == last_run && end != last_pi && dist2(cell_pt(end), b_pt) > EXTEND_T2 {
                 idxs.extend((end + 1)..=last_pi);
             }
             let mut raw: Vec<(f64, f64)> = idxs.iter().map(|&pi| cell_pt(pi)).collect();

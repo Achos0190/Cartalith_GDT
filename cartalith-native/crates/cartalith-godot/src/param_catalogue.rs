@@ -243,6 +243,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.n_village", "Raise: more villages. Lower: fewer villages. Read only with fixed settlement counts on."),
     ("civ.n_hamlet", "Raise: more hamlets. Lower: fewer hamlets. Read only with fixed settlement counts on."),
     ("civ.garrison_exposure_scale", "Raise: garrisons grow more on exposed borders. Lower: border exposure matters less; 0 ignores it."),
+    ("civ.merge_ways", "On: roads heading the same way share one trunk (current). Off: each road keeps its own line, as older worlds were built."),
 ];
 
 /// The description of `key`, or `None` (a test names every offered key without one).

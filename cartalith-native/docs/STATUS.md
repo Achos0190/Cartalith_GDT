@@ -50,6 +50,96 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Shared road trunks (Ruling EU item 1): built, ON for new worlds (2026-11-12)
+
+Owner: *"when any of them at any point come close to eachother visually just merge and become a single way to the same
+destination"* (Ruling EU item 1). **Built:** `cartalith_civ::way_merge` (`civ_merge_network_paths`, `civ_join_tracks_to_network`,
+`civ_snap_junction_ends`), `cartalith_civ::civ_consolidate_merged_ways`, the measures in `cartalith_civ::way_audit`, and the
+census `cartalith-godot/src/way_census.rs`. Setting `civ.merge_ways`: ON in `params::defaults`, OFF in `WorldParams::defaults`
+(the 23rd divergence) and for a save without the key. `compute_civilisation` calls the merge after the centrality loop and the
+metropolis pick, so pairs, tiers and seats are unchanged by construction; only paths, `usage_count` and the drawn ways move.
+
+- **How:** every edge is re-traced three times (`PASSES`), biggest places first, over the pass-1 cost grid with cells an earlier
+  edge uses at `REUSE_FACTOR` 0.25 (the reference's own way discount). A re-trace is kept only within `DETOUR_TOL` 15 % of the
+  original path's undiscounted cost. A merged network is consolidated **without the extend-back pass**, which drew each shared
+  trunk twice (this was most of the OFF "overlap" figure below, and is a defect of the reference-parity path too; it is left there).
+  Village tracks end where they first come within 3 cells of a road. Junction ends are joined onto the drawn trunk.
+- **Measured (release, `way_census::measure_way_bundles` and `_small_worlds`, opening view `FIT_HOST` 1104 x 923 px; OFF → ON):**
+  - Owner world (2048 x 1311, 246371): convergent bundles at the opening view 2 (2 474 km) → 0. Strokes drawn over each other
+    for 30 px or more: 31 (89 440 km) → 0. Convergent bundles at x4: 21 (8 755 km) → 1 (250 km). Network km drawn 217 267 → 155 394.
+    River crossings 1 001 → 755 (bridge class 348 → 271). Samples on water 65 → 42.
+  - 483920 and 912345 (1024 x 656): convergent at the opening view 3 → 0 and 0 → 0. Overlaps 29 → 0 and 26 → 0. x4 convergent
+    34 → 0 and 43 → 1.
+  - 18 small worlds (256/384/512 x six seeds), network only: convergent 34 (1 148 km) → 0; overlaps 229 → 2; x4 convergent
+    119 → 8. With villages: convergent 2 328 km → 456 km (−80 %); overlaps 312 → 39; x4 convergent 317 → 72. The residue is
+    village tracks.
+  - Every world: no duplicate or near-duplicate stroke either way. Every settlement an edge joins keeps a drawn way within
+    1.5 cells (0 unreached). Junction ends more than 1 px off another way at x4: main 0 of 634; small 1 of 199 and 1 of 3 736 (OFF: 5 of 14 and 5 of 3 613).
+    The planner's credited cells equal every edge's cells (true on all 78 rows). Per-edge climb ratio ON/OFF median 1.000.
+    Detour against the direct pass-1 optimum: median 1.000-1.021, maximum 1.635 against OFF's 1.692. Drawn length steeper
+    than 12 %: median over worlds about flat (main 4.90 → 4.41 %; owner 0.27 → 0.33 %).
+  - Sweep (`measure_way_merge_sweep`, owner world and 483920, network only): `REUSE_FACTOR` 0.55, 0.40 and 0.25 all leave 0
+    bundles at the opening view once trunks are drawn once; 3 passes left 0 x4 bundles and 0 hanging ends where 1 or 2
+    left one on the owner world. The merge itself took 0.07-0.36 s.
+  - Civ pass time on the owner world, five interleaved runs each, two separate processes: OFF 8.75 s (8.32..9.09), ON 9.82 s
+    (8.99..10.68); then OFF 10.07 s (8.74..10.31), ON 9.88 s (9.36..11.06). **No difference is established** beyond the
+    machine's noise (other agents were running); both are inside the +25 % bar.
+- **Bars not met, reported:** W1 (no drawn sample on water) is not 0 in either variant (pre-existing; halved by merging).
+  W6's maximum stays above 1.15 because it is measured against the direct optimum, not against the original path the guard reads.
+  "No convergent bundle at x4" holds on 483920 only; the residue is 1-2 on the other main worlds and village tracks on the small ones.
+- **Moves, disclosed (§7p re-baseline):** a trunk is one `Way` named after its busiest pair ("A → B"). Deleting it strands the
+  branches riding it. IN-13's way load credits only that pair. Military `road_km` counts shared km once. Junction towns have
+  fewer way endpoints (urban gates). Village positions follow the merged roads. `assert_endpoints_reach_settlements` is
+  **restated** (a group end may be a junction on another drawn way; every settlement with an edge keeps a drawn way within
+  1.5 cells). New: `merged_ways_keep_the_pairs_and_draw_each_trunk_once`. Owner questions: trunk naming, and trunk load.
+- **The owner world loses its highways (found in the frames, then measured).** At x16 the OFF network's double-cased highway
+  draws ON as a thinner regional line. Counted through the app (headless, `roads()` by class, villages and metropolis on):
+  OFF 7 highways (54 832 km), 19 regional, 12 road, 5 track; ON 0 highways, 27 regional, 10 road, 4 track. Cause, read from
+  the two saves' `road_edges`: `civ_classify_way` takes an edge's peak per-cell usage, and highway needs 8; on the reference
+  network exactly one routing cell (index 465 640) is used by 8 edges, which is what made those 8 edges highways; merged, one
+  edge no longer passes through that cell, it is used by 7, and the eight become regional. 483920 and 912345 have no highway
+  in either variant (OFF 26 / 35 regional, ON 26 / 33). So this is the usage threshold, not lost trunks, but it is a visible
+  change on the owner's world: **owner question**, whether a trunk's class should come from the edges riding it in a
+  different way (for example, its share of the network's traffic) rather than one cell's count.
+- **Opening-view scale depends on the dock layout.** The census measures at `FIT_HOST` 1104 x 923 px (0.7041 px a cell on
+  the owner world), what the probe read when it was set. The rebased probe runs read the map host at 950 x 834 px (0.6362
+  px a cell), with the right dock open. The census was not re-run at the smaller scale (see the build note below), so its
+  opening-view figures hold for the wider host only; at 0.6362 px a cell two strokes sit about 10 % closer on screen.
+- **Verified on the tree rebased onto `origin/main` `eef64483`**, then rebased again onto `bca53cb9`, which changes shell
+  `.gd` files and documents only (the touch-scroll fling), so neither the Rust nor the probes below were re-run for it
+  (no generation code moved upstream since the census's base,
+  `d3873d70`: upstream's Rust changes are the knowledge, LOD, render, vault and `g1_baseline` files plus one `WorldGen`
+  method, so the census figures above stand for this tree): `cargo test --workspace --exclude cartalith-knowledge
+  --no-fail-fast`: **248 result lines, 7 894 passed, 0 failed, 153 ignored** (every unit and integration test binary).
+  `cartalith-knowledge`'s library tests passed in the first full run (77 passed); its `knowledge_embed` binary, its other
+  integration tests and the workspace's doc-tests did **not** run: from about 17:56 this machine stopped starting new
+  unsigned executables (each sat at 0 CPU and a 2 MB working set: `knowledge_embed`, the doc-test `rust_out`, then every
+  agent's `build-script-build` and `rustc`), so no Rust could be built or run after that. None of those targets reads the
+  civilisation layer. For the same reason the `#[ignore]`d harnesses that read `params::defaults()` worlds were **not
+  re-run**: `g1_baseline` (`g1_0_baseline_columns`, `ea0_ecological_ordering_diagnostic`), `fh_r2_baseline` and
+  `bugsweep_seed707`. Ways feed military `road_km`, trade and village siting, so their pins are expected to move with this
+  ruling and must be re-run and re-recorded (`OUTSTANDING_WORK.md`). One edit was made after the test run and is a doc
+  comment only (`way_merge::civ_merge_network_paths`, the class finding above). DLL rebuilt from the rebased tree
+  (`target/debug/cartalith_godot.dll` 17:47:35, after the last `.rs` edit except that comment); `godot --headless --import`
+  left `project.godot` byte-identical; `--check-only` on `_waybundle_probe.gd` and `shell/app.gd` (no shell `.gd` changed).
+  Literal mutants (Python harness, exact replace, restored and hash-checked), on the pre-rebase tree: 11 of 13 killed at
+  first; the two survivors (the guard's factor, `MAX_ANGLE_DEG`) were killed after the ridge and zigzag tests were sharpened,
+  with two more mutants on the snap and the track cut, all killed.
+- **Windowed probes (rebased DLL, 1600 x 1000, under the window lock):** `_waybundle_probe` OFF and ON on the owner world, 483920
+  and 912345 (all exit 0). Frames, OFF beside ON and cropped to the map, at the opening view, x4 and x16:
+  `cartalith-native/docs/evidence/ways-planner-2026-11-12/ways_<world>_<zoom>_off_on.png`, opened and looked at. At x4 on
+  483920 (focus 406,140) the coast road north of Sevjuniana, drawn OFF as two strokes side by side, is one stroke ON; on the
+  owner world at x4 and x16 one route is one line in both, and ON shows the class change above. `_ctxpicks_probe` 137 of 143,
+  every WY (way pick, delete, undo) check passing; the 6 failures (4 LM, 2 RV) are identical with the merge forced off in the
+  app defaults (run of 17:16 on the pre-rebase tree), so they are not this change's. `_autopopulate_probe` desktop 77 / 0.
+  `_journeyplan_probe` GREEN (0 failures). `_jpresupply_probe` FEASIBLE (strained, 81.2 days). `_roadsettle_probe` exit 0: at the
+  opening view 240 settlements, worst marker-to-road 10.30 px, mean 1.60 px, 2 settlements more than 2 cells from a way end;
+  14 of 47 edge groups end more than 2 cells from their own settlement. On a merged network a group may end at a junction
+  (the restated rule above), but this probe does not check that those 14 ends lie on another way; the Rust test does, on the
+  256 x 192 fixture only.
+- **Not built:** Ruling EU items 2 (the planner joins a way) and 3 (river stretches per stretch, with the best vessel).
+  `OUTSTANDING_WORK.md` routes them.
+
 ### Touch-scroll leftovers closed: a shared fling, editable text boxes, the Asset library (2026-11-12)
 
 **Built, verified on the probes named; the handset check (the owner's finger on the Pad) stays open.** Read at `dcc_widgets.gd`:

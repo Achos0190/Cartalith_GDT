@@ -957,6 +957,21 @@ pub struct CivParams {
     /// `garrison_exposure_scale_default_matches_civ_constant` guards the two
     /// from drifting apart.
     pub garrison_exposure_scale: f64,
+    /// Owner Ruling EU item 1 (2026-11-12, `LARGE_ITEM_RULINGS.md`): the
+    /// generated road network is re-traced so routes that come close on the
+    /// way to the same place share one trunk instead of running as parallel
+    /// strokes (`cartalith_civ::way_merge::civ_merge_network_paths`, called by
+    /// `cartalith-godot`'s `compute_civilisation` after the centrality loop).
+    /// The edge pairs, the settlement tiers and the metropolis pick are
+    /// unchanged; only each edge's cells, the per-cell usage count and so the
+    /// drawn ways move.
+    ///
+    /// **`false` here, `true` in the shipped app** (`cartalith-godot`'s
+    /// `params::defaults`), the `DECISIONS.md` §7p split: the reference has no
+    /// such pass, so every golden keeps the reference's network. A save without
+    /// the key loads it off (`params::apply_saved_state`), so a Recompute or
+    /// Generate roads on an old world rebuilds the roads it had.
+    pub merge_ways: bool,
 }
 
 impl CivParams {
@@ -1399,6 +1414,8 @@ impl WorldParams {
                 fixed_counts: false,
                 counts: [0; 5],
                 garrison_exposure_scale: 1.0,
+                // Ruling EU item 1: the reference has no trunk-merging pass.
+                merge_ways: false,
             },
             use_gpu: false,
             // Off: the streak spike's ablations are measurement-only; see

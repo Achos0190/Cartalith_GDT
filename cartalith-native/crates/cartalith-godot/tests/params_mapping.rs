@@ -268,10 +268,12 @@ fn every_engine_param_struct_is_reachable() {
 /// defaults are reference lines 6441-6444.
 #[test]
 fn the_civ_group_defaults_are_the_references_own_constants() {
-    // Both ends: the parity baseline *and* the shipped app boundary. The civ
-    // group carries no ruled divergence, so the two must agree here — and
+    // Both ends: the parity baseline *and* the shipped app boundary. The
+    // reference constants below must agree at both. The group's one ruled
+    // divergence, `merge_ways` (Ruling EU item 1), is asserted after the loop at
+    // each end separately -- and
     // `exactly_the_ruled_divergences_ship_at_the_app_boundary` independently
-    // fails if one ever appears without a ruling.
+    // fails if another one ever appears without a ruling.
     for (label, c) in [
         ("parity baseline", cartalith_engine::WorldParams::defaults(0, 0, 0).civ),
         ("app boundary", params::defaults().civ),
@@ -286,9 +288,12 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
         assert!(!c.fixed_counts, "{label}: every count input blank (reference 1393-1399 placeholder \"auto\")");
         assert_eq!(c.want_counts(), None, "{label}: no wantCounts");
     }
+    // Ruling EU item 1 (2026-11-12): shared road trunks, on in the app only.
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.merge_ways, "the reference has no trunk pass");
+    assert!(params::defaults().civ.merge_ways, "new worlds merge their roads (Ruling EU item 1)");
 }
 
-/// Protects: the civ group being fourteen contiguous `civ.`-keyed rows that `groups()` lists,
+/// Protects: the civ group being fifteen contiguous `civ.`-keyed rows that `groups()` lists,
 /// that `set` reaches and types correctly, and that clamp at their floors (factions >= 1,
 /// recovery_phase 0..=4).
 ///
@@ -297,11 +302,12 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 /// eyeballed. Fourteen rows: the seven the ruling added (a group of four
 /// would be the old `WorldGen` flags renamed, which is not what was ruled),
 /// `wantCounts`' flag and its five counts, plus `civ.garrison_exposure_scale`
-/// (Ruling AZ, folded in from a standalone `WorldGen` field).
+/// (Ruling AZ, folded in from a standalone `WorldGen` field), plus
+/// `civ.merge_ways` (Ruling EU item 1, 2026-11-12).
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_fourteen() {
+fn the_civ_group_is_a_real_contiguous_group_of_fifteen() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 14, "the civ group is fourteen rows");
+    assert_eq!(rows.len(), 15, "the civ group is fifteen rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -877,6 +883,28 @@ fn a_save_without_the_lake_balance_key_reloads_with_it_off() {
     assert!(!p.lake_balance, "an older save keeps its rain-test lakes");
 }
 
+/// Protects Ruling EU item 1's save rule: a save that carries `civ.merge_ways: true` reloads
+/// with it on, and a save without the key (every save before 2026-11-12) reloads with it OFF, so
+/// a Recompute or Generate roads on that world rebuilds the network it was saved with, while
+/// every other row still applies.
+#[test]
+fn a_save_without_the_merge_ways_key_reloads_with_it_off() {
+    assert!(params::defaults().civ.merge_ways, "the shipped app generates with it on");
+    let mut state = params::save_state(&params::defaults());
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert_eq!(native.get("civ.merge_ways"), Some(&serde_json::json!(true)), "a new save records the switch");
+    let mut p = params::defaults();
+    p.civ.merge_ways = false;
+    params::apply_saved_state(&mut p, &state);
+    assert!(p.civ.merge_ways, "a save that says on reloads on");
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("civ.merge_ways").is_some());
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of an older save still applies");
+    assert!(!p.civ.merge_ways, "an older save keeps the network it was built with");
+}
+
 /// Protects: a save lacking `volc.morphometry`, or carrying it `false`, reloading without
 /// VA-5's morphometry (owner Ruling CX item 1, 2026-10-24).
 #[test]
@@ -1179,6 +1207,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.rough_routing = false;
     // And Ruling ET's lake balance: a save without the key kept its rain-test lakes.
     expect.lake_balance = false;
+    // And Ruling EU item 1's shared trunks: a save without the key keeps its roads.
+    expect.civ.merge_ways = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1233,7 +1263,8 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `tect.high_ceiling` and `volc.lava_bench`, VA-6's `volc.kind_dome`, and
 /// owner Ruling DJ's `volc.kind_caldera`, `kind_maar`, `kind_supervolcano`
 /// and `kind_flood_basalt`; and the twenty-first, Ruling ER's
-/// `rough_routing`; the twenty-second, Ruling ET's `lake_balance`.)
+/// `rough_routing`; the twenty-second, Ruling ET's `lake_balance`; the
+/// twenty-third, Ruling EU item 1's `civ.merge_ways`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1267,6 +1298,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(!app.volc.kinds_force_rare && !parity.volc.kinds_force_rare, "measurement only");
     assert!(app.rough_routing && !parity.rough_routing, "rough routing for new worlds, Ruling ER");
     assert!(app.lake_balance && !parity.lake_balance, "lake water balance for new worlds, Ruling ET");
+    assert!(app.civ.merge_ways && !parity.civ.merge_ways, "shared road trunks for new worlds, Ruling EU item 1");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1280,8 +1312,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the twenty-two must make the two identical --
-    // which catches a twenty-third divergence added without a ruling, in either
+    // And nothing else. Neutralising the twenty-three must make the two identical --
+    // which catches a twenty-fourth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1290,6 +1322,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.integrate_drainage = false;
     neutral.rough_routing = false;
     neutral.lake_balance = false;
+    neutral.civ.merge_ways = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;
@@ -1309,7 +1342,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twenty-two authorised fields"
+         twenty-three authorised fields"
     );
 }
 
