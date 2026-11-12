@@ -119,12 +119,12 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
   degrades as sections expand" and "settings scroll once then dead" still do NOT reproduce (before or after the fix);
   keep them open until the owner confirms on the handset. Left: Asset library survey rows, an editable `TextEdit`, no
   inertia on proxy-scrolled lists.
-- **After a MORE window closes the tab stays lit.** (MORE became MENU in MS-2; re-check on MENU, unverified.)
-- ~~**Phone Close button is 29 px, under the 44 px floor.**~~ Fixed: `DccWidgets`' phone button-bar pass gives every OK/Cancel/Close button `DccTheme.PHONE_TAP_MIN` (44 dp), `0ed18540`. Handset check is the owner's.
+- ~~**After a MORE window closes the tab stays lit.**~~ **Fixed 2026-11-12** (`PhoneMenu.closed`, `STATUS.md`, "Phone rows closed").
+- ~~**Phone Close button is 29 px, under the 44 px floor.**~~ **Fixed 2026-11-12** (the general floor was `0ed18540`, 2026-08-25): the Assistant sheet alone was still short, because `_relayout_phone` reset the floor; 39 windows swept (`STATUS.md`, "Phone rows closed").
 - ~~**The phone's gesture list overclaims one-finger panning.**~~ **Closed by MS-5's first step (2026-11-08,
   `STATUS.md`).** The claim is now true for Inspect and the placing tools (`viewport_host.gd::_touch_motion()`, the
   `_TP_CANDIDATE` branch), and `phone_menu.gd::GESTURES`' Drag row says which tools it holds for.
-- **Search field lag of 10 to 40 s on the 24601 world over adb** (unexplained).
+- **Search field lag of 10 to 40 s on the 24601 world over adb:** the row builder was linear in hits; capped at 60 rows 2026-11-12 (`STATUS.md`, "Phone rows closed"). **Open:** the 10 to 40 s itself was not reproduced on the desktop (68 ms to 26 ms for a 306-hit query); the owner or a device pass should time a keystroke on the 6T.
 - **DS-13** the phone viewport control column redesign (`GUI_GAP_REGISTER.md` s.57). **2026-11-01:** a design
   exists, `MOBILE_SHELL_PROPOSAL.md` §2.5, with the mockup in `design/mobile-shell-2026-10-31/`, and it is routed to
   MS-5. Ruling EB answered DS13-Q3–Q5: keep 1.35×; thumb zoom (double-tap, hold, slide; down zooms in) is built
@@ -3523,7 +3523,7 @@ owner questions the same day.
 
 ### 2.12 Map context — the right-click context card and the tool ring (wheel menu)
 
-**Steps 2 and 3 built 2026-11-11 and 2026-11-12 (status: `STATUS.md`, "Edit any map element from its context"); still open: settlement Move and way Rename (no engine path), region/conflict/journey-marker/colour-mark picks and route chips (designs), a real-device pass of the phone chips. Undo for label, icon and landmark-name edits is built (status: `STATUS.md`, "Undo for label, icon and name edits"; design: `EDIT_FROM_CONTEXT_AUDIT.md`).** **Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
+**Steps 2 and 3 built 2026-11-11 and 2026-11-12 (status: `STATUS.md`, "Edit any map element from its context"); still open: settlement Move and way Rename (no engine path), region/conflict/journey-marker/colour-mark picks and route chips (designs), ~~a real-device pass of the phone chips~~ (done by the owner on the 6T, 2026-11-12; `STATUS.md`, "OnePlus 6T device pass"). Undo for label, icon and landmark-name edits is built (status: `STATUS.md`, "Undo for label, icon and name edits"; design: `EDIT_FROM_CONTEXT_AUDIT.md`).** **Edit any map element directly from its context (owner request, 2026-11-11).** The owner's words: *"I can't right
 click every element or label to edit it (move/delete/change the text/directly modify the vault information/etc) it
 should be intuitive to use and this felt missing the last time on pc. (also I suppose it should be a tap on touch
 devices)"*.

@@ -9874,6 +9874,17 @@ const SEARCH_SCOPES: Array = [
 ## chose. That is the whole reason the grouping is computed instead of re-sorted.
 const PLACE_BANDS: Array = ["STARTS WITH", "CONTAINS", "MATCHED ON KIND OR SUBTITLE"]
 
+## How many result rows `_fill_search_results()` builds at most, on every surface that shows search results.
+## 2026-11-12, OUTSTANDING_WORK.md "Search field lag of 10 to 40 s on the 24601 world over adb". Measured on this
+## machine (`_phonesearchperf_probe.gd`, seed 24601 at 2048 x 1311, 240 settlements, 225 roads, phone form): every
+## keystroke built one `Button` row per hit, about ten nodes each, and the cost was the rows, not the match: the
+## one-letter query "a" (306 hits) took 68 ms in the handler and a further 71 ms of layout against 1.2 ms for the
+## match itself, and a query with no hits took 1.5 ms. The cost is linear in hits, so a world with more places, and a
+## handset that is an order of magnitude slower than this desktop, turns the broad first letters of a name (and the
+## empty query that opens the overlay, which lists everything) into seconds per keystroke. 60 is ten screens of the
+## phone sheet's six rows and well past what a person scrolls before typing another letter; the ranking puts the
+## STARTS WITH band first, so the cap keeps the best hits. A labelled judgement, not a measured optimum.
+const SEARCH_ROW_CAP := 60
 ## Band headers for `CommandIndex` results, in ranker order: title, group, blurb.
 const COMMAND_BANDS: Array = ["MATCHED THE NAME", "MATCHED THE MENU", "MATCHED THE DESCRIPTION"]
 
@@ -10008,6 +10019,10 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 		if res.has("footer"):
 			container.add_child(_search_notice(String(res["footer"])))
 		return
+	## The rows are capped (`SEARCH_ROW_CAP`); the footer below says so, so a cut list is never read as the whole answer.
+	var matched := rows.size()
+	if matched > SEARCH_ROW_CAP:
+		rows = rows.slice(0, SEARCH_ROW_CAP)
 	var commands: bool = res.has("commands")
 	var needle := String(res.get("query", "")).to_lower()
 	var bands: Array = COMMAND_BANDS if commands else PLACE_BANDS
@@ -10065,6 +10080,8 @@ func _fill_search_results(container: VBoxContainer, res: Dictionary, close_fn: C
 		var line2 := "%s — %s" % [kind, sub] if kind != "" and sub != "" else kind + sub
 		container.add_child(_phone_list_row(String(d.get("name", "")), line2,
 			_select_search_hit.bind(d, close_fn)))
+	if matched > SEARCH_ROW_CAP:
+		container.add_child(_search_notice("Showing the first %d of %d matches. Type more to narrow the list." % [SEARCH_ROW_CAP, matched]))
 	## A qualifier the list must not hide (the notes scope's names-only / capped answers).
 	if res.has("footer"):
 		container.add_child(_search_notice(String(res["footer"])))
