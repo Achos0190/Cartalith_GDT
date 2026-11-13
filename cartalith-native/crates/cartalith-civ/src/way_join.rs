@@ -38,7 +38,10 @@
 //!    route renders on the way's curve instead of beside it. Only the off-way
 //!    pieces are smoothed ([`civ_smooth_path`]). A spliced point that fails the
 //!    mode's terrain test (a way sample drawn on water: Ruling EU item 1's
-//!    residue) keeps the routed cells for that run.
+//!    residue) keeps the routed cells for that run. A stop within reach of the
+//!    first or last ridden way is reached along that way over at most
+//!    [`MIN_RIDE_CELLS`] routed cells, then by one straight step, so the line
+//!    does not hook beside the road at a town (`extend_stretch`).
 //!
 //! **What it must never do:** change [`tools::civ_dijkstra_path`] or
 //! [`tools::civ_join_dijkstra_segs`] (every golden, every way commit and the
@@ -214,6 +217,45 @@ fn way_stretch(
     out.push((pb.2, pb.3));
     out.dedup();
     (out.len() >= 2).then_some(out)
+}
+
+/// `st` (a way stretch, in travel order) extended along its own way so that its
+/// last point (`at_end`) or its first point (not `at_end`) is the projection of
+/// `stop`, when `stop` lies within `reach` of the way and beyond that end of the
+/// stretch in the stretch's own direction (never folding back along the way), and
+/// the way gets there about as directly as the straight line does: the length it
+/// adds is at most `(1 + JOIN_MARGIN)` times the straight distance from the
+/// stretch's end to the stop plus `reach`, so a stop beside a winding road is
+/// never reached by riding the road's whole detour. The other end of the stretch
+/// stays where it is. The caller extends only over the last few routed cells
+/// before a stop (see `civ_dijkstra_path_joined`): this tidies the step onto or
+/// off a way and must never re-route a leg past the join's cost test.
+fn extend_stretch(
+    pts: &[(f64, f64)],
+    brks: &[usize],
+    st: &[(f64, f64)],
+    stop: (f64, f64),
+    at_end: bool,
+    reach: f64,
+    gw: usize,
+) -> Option<Vec<(f64, f64)>> {
+    let (fixed, far) = if at_end { (st[0], *st.last()?) } else { (*st.last()?, st[0]) };
+    let pf = project(pts, fixed.0, fixed.1)?;
+    let pe = project(pts, far.0, far.1)?;
+    let ps = project(pts, stop.0, stop.1)?;
+    let key = |p: &(usize, f64, f64, f64, f64)| p.0 as f64 + p.1;
+    let (kf, ke, ks) = (key(&pf), key(&pe), key(&ps));
+    // The stop must lie past the stretch's far end, on the far side of `fixed`.
+    if ps.4 > reach || (ke - kf) * (ks - ke) <= 0.0 {
+        return None;
+    }
+    let ext = way_stretch(pts, brks, fixed, stop, reach, gw)?;
+    let len = |l: &[(f64, f64)]| l.windows(2).map(|w| (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1)).sum::<f64>();
+    let straight = (stop.0 - far.0).hypot(stop.1 - far.1);
+    if len(&ext) - len(st) > (straight + reach) * (1.0 + JOIN_MARGIN) {
+        return None;
+    }
+    Some(if at_end { ext } else { ext.into_iter().rev().collect() })
 }
 
 /// Whether every point of `st`, and every point along its segments at most half
@@ -393,6 +435,34 @@ pub fn civ_dijkstra_path_joined(
     if splices.is_empty() {
         return (civ_route_trace(ctx, &grid, &prev_c, cells, (sx, sy, ex, ey), mode), report, Vec::new());
     }
+    // A stop within reach of the first or last ridden way is reached along that
+    // way, then by a straight step: otherwise the few routed cells between the
+    // ride's end and the stop are smoothed into a hook beside the road (seen at
+    // x16 on seed 912345, `_jpwayriver_probe`, 2026-11-13).
+    // Only over at most `min_ride_cells` routed cells before or after the stop:
+    // a longer stretch between the stop and the ride is a route the cost test
+    // chose, and is kept.
+    let last_raw = raw.len() - 1;
+    if let Some(first) = splices.first_mut().filter(|f| f.1 <= opts.min_ride_cells) {
+        let (w, _, _, st) = first;
+        let wr = &ctx.ways[*w];
+        if let Some(ext) = extend_stretch(wr.pts, wr.brks, st, raw[0], false, reach, ctx.gw)
+            && (!checked || stretch_is_valid(&ext, &ok_at))
+        {
+            *st = ext;
+            first.1 = 1;
+        }
+    }
+    if let Some(last) = splices.last_mut().filter(|l| last_raw - l.2 <= opts.min_ride_cells + 1) {
+        let (w, _, _, st) = last;
+        let wr = &ctx.ways[*w];
+        if let Some(ext) = extend_stretch(wr.pts, wr.brks, st, raw[last_raw], true, reach, ctx.gw)
+            && (!checked || stretch_is_valid(&ext, &ok_at))
+        {
+            *st = ext;
+            last.2 = last_raw - 1;
+        }
+    }
     report.spliced_runs = splices.len();
     let (pts, brks, km, spans) = assemble(ctx, &raw, &splices, &valid);
     (DijkstraPath { pts, brks, km, reachable: true }, report, spans)
@@ -439,8 +509,18 @@ fn assemble(
     let mut brks: Vec<usize> = Vec::new();
     let mut km = 0.0f64;
     let mut spans = Vec::new();
+    let checked = !matches!(valid, TerrainValid::Unchecked);
+    let ok_at = |x: f64, y: f64| !checked || valid.check(x, y, ctx.gw, ctx.gh, ctx.water_bodies);
     let smooth_piece = |piece: &[(f64, f64)], pts: &mut Vec<(f64, f64)>, brks: &mut Vec<usize>, km: &mut f64| {
         if piece.len() < 2 {
+            return;
+        }
+        // A two-point piece (a stop's straight step onto or off a way) has
+        // nothing to smooth; it is drawn as the straight step it is when that
+        // step passes the leg's terrain test, so smoothing adds no wobble at it.
+        if piece.len() == 2 && stretch_is_valid(piece, &ok_at) {
+            *km += polyline_km(piece, ctx.gw, ctx.map_width_km);
+            push_piece(piece, &[], pts, brks);
             return;
         }
         match civ_smooth_path(piece, ctx.gw, ctx.gh, ctx.water_bodies, ctx.map_width_km, valid) {
@@ -713,6 +793,55 @@ mod tests {
         assert_eq!(spans.len(), 1);
         let on = p.pts.iter().filter(|q| q.0 > 10.0 && q.0 < 50.0 && dist_to(&w, **q) > 1e-9).count();
         assert_eq!(on, 0, "{:?}", p.pts);
+    }
+
+    /// Protects the stop step: a destination two cells past the end of the road it
+    /// rides is reached along the road to its end, then by one straight step, never
+    /// by routed cells smoothed into a hook beside the road; the same at the start.
+    #[test]
+    fn a_stop_beside_the_road_is_reached_along_it() {
+        let (gw, gh) = (60, 30);
+        let (field, wb) = flat(gw, gh);
+        // Steps shorter than half the map: a longer step reads as the x seam.
+        let w: Vec<(f64, f64)> = (0..=4).map(|k| (8.0 + 11.0 * k as f64, 12.0)).collect();
+        let ways = [road(&w)];
+        let c = ctx(&field, &wb, &ways, gw, gh);
+        let (p, _, spans) = civ_dijkstra_path_joined(&c, 6.5, 13.5, 53.5, 13.5, RouteMode::Land, &WayJoin::new(1));
+        assert!(!spans.is_empty());
+        let n = p.pts.len();
+        assert_eq!((p.pts[0], p.pts[n - 1]), ((6.5, 13.5), (53.5, 13.5)));
+        // Every point lies on the road or on the straight step from a stop to the
+        // road's end ((8, 12) and (52, 12)), never beside the road.
+        let steps = [vec![(6.5, 13.5), (8.0, 12.0)], vec![(52.0, 12.0), (53.5, 13.5)]];
+        for q in &p.pts {
+            let off = dist_to(&w, *q).min(dist_to(&steps[0], *q)).min(dist_to(&steps[1], *q));
+            assert!(off < 1e-9, "{q:?} is off the road: {:?}", p.pts);
+        }
+        assert!(p.pts.contains(&(8.0, 12.0)) && p.pts.contains(&(52.0, 12.0)), "{:?}", p.pts);
+    }
+
+    /// Protects the stop step where the ride is cut short: a highway crossing the
+    /// road just before the stop owns the cells there (it has the higher planner
+    /// priority), so the road's run ends before the crossing; the stop, beside the
+    /// road two cells past it, is still reached along the road's own line and one
+    /// straight step, where the routed cells through the crossing would draw a
+    /// hook half a cell beside the road.
+    #[test]
+    fn a_ride_cut_short_by_a_crossing_still_reaches_the_stop_along_the_road() {
+        let (gw, gh) = (60, 30);
+        let (field, wb) = flat(gw, gh);
+        // Steps shorter than half the map: a longer step reads as the x seam.
+        let w: Vec<(f64, f64)> = (0..=4).map(|k| (8.0 + 11.0 * k as f64, 12.0)).collect();
+        let hw = [(46.0, 2.0), (46.0, 12.0), (46.0, 22.0)];
+        let ways = [road(&w), WayRef { pts: &hw, brks: &[], sea: false, hidden: false, class: WayClass::Highway }];
+        let c = ctx(&field, &wb, &ways, gw, gh);
+        let (p, _, spans) = civ_dijkstra_path_joined(&c, 6.5, 13.5, 48.5, 13.5, RouteMode::Land, &WayJoin::new(2));
+        assert!(!spans.is_empty());
+        let steps = [vec![(6.5, 13.5), (8.0, 12.0)], vec![(48.5, 12.0), (48.5, 13.5)]];
+        for q in &p.pts {
+            let off = dist_to(&w, *q).min(dist_to(&steps[0], *q)).min(dist_to(&steps[1], *q));
+            assert!(off < 1e-9, "{q:?} is off the road: {:?}", p.pts);
+        }
     }
 
     /// Protects the terrain check on a splice: a way drawn across a lake (Ruling EU

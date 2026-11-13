@@ -101,11 +101,13 @@ fn walking() -> JpPlan {
 }
 
 /// Protects the alignment threshold as a literal: `1 / 1.5` (Leopold and
-/// Wolman's meander sinuosity), so a change to it is deliberate.
+/// Wolman's meander sinuosity), the recommendation margin and the least saving,
+/// so a change to any of them is deliberate.
 #[test]
 fn eta_min_is_one_over_the_meander_sinuosity() {
     assert!((ETA_MIN - 0.666_666_666_666_666_6).abs() < 1e-15);
     assert!((RECOMMEND_MARGIN - 0.10).abs() < 1e-15);
+    assert!((cartalith_civ::river_stretch::MIN_SAVING_DAYS - 0.05).abs() < 1e-15);
 }
 
 /// Protects the stretch finder: a river running beside the route three cells off

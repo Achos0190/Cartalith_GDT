@@ -420,7 +420,8 @@ keep their points.
   whose progress along the route is at least `ETA_MIN` = 1/1.5 of its own length (Leopold and Wolman's meander sinuosity,
   a recalled citation), no shorter than the stage builder's water-gap length. Each offer's saving is an **exact re-plan**
   with the leg sailed by the recommended hull (the cheapest within `RECOMMEND_MARGIN` 10 % of the fastest that fits the
-  whole stretch, owner question Q5's default); an offer that saves no time is not shown. An accepted leg is
+  whole stretch, owner question Q5's default); an offer that saves less than `MIN_SAVING_DAYS` 0.05 d is not shown, and a
+  party with pack animals, a mount or vehicles is offered none yet, with the reason (owner question Q6). An accepted leg is
   `JpPlan::river_legs`: `jp_plan_full` splices its channel cells into the planned route, `jp_derive_stages_legs` makes
   its points river stages whatever the transport (never collapsed, absorbed or merged by the 14-stage cap), the leg sails
   its own hull (never an index-keyed override), and a leg that no longer matches the world or the route is dropped with
@@ -430,47 +431,64 @@ keep their points.
   the join report) in the results on every form, offered stretches dashed and numbered on the route map, on-way stretches
   cased, a river leg's Vessel override greyed with its reason, and the join said on the status line after a commit
   (`JOURNEY_PLANNER_SPEC.md` §8).
-- **Measured (release, `way_join_census::measure_planner_way_join_and_river_offers`, run alone; 8 town pairs a world, the
-  most populous places, walking, join OFF → ON; the figures below repeated exactly in a second run):**
-  - Commit time per route, median (min..max) over 8 routes, two separate runs on a shared machine: owner world 87 (79..157)
-    → 314 (220..645) ms and 432 (252..551) → 608 (419..813) ms; 483920 109 → 251 and 54 → 153 ms; 912345 77 → 204 and 255 →
-    487 ms. The join costs about 1.4-3.6 times the plain commit; the spreads are wide and no closer ratio is established.
-    The river offers added 1-7 ms (median) to a compute.
-  - Share of route points the planner credits to a way (`jp_way_spans`): owner world 0.56-0.96 → 0.77-1.00; 483920
-    0.83-1.00 → 0.96-1.00; 912345 0.71-0.94 → 0.96-1.00.
+- **Measured (release, `way_join_census::measure_planner_way_join_and_river_offers`, run alone, on this tree rebased onto
+  `fcda4d3d` (Ruling EV's basin routing, which moves the worlds' rivers and settlements); 8 town pairs a world, the most
+  populous places, walking, join OFF → ON):**
+  - Commit time per route, median (min..max) over 8 routes: owner world 53.8 (53.3..54.6) → 151.8 (149.9..152.9) ms;
+    483920 49.8 (48.9..52.1) → 140.4 (97.0..141.6) ms; 912345 51.9 (51.2..54.4) → 149.0 (147.2..151.5) ms. An earlier
+    separate run gave the same within 3 %: the join costs about 2.8-2.9 times the plain commit. The river offers added
+    0.8-5.1 ms (median) to a compute.
+  - Share of route points the planner credits to a way (`jp_way_spans`): owner 0.31-0.98 → 0.42-0.98; 483920 0.56-0.95 →
+    0.91-1.00; 912345 0.69-1.00 → 0.94-1.00. One route reads slightly lower with the join (912345 #3, 1.00 → 0.97).
   - The route's own strokes beside a drawn way (`way_audit::bundle_stretches`, the route as one more drawn way): at the
-    opening view 0 → 0 on all 24 routes but one (912345 #7, 1 → 0). At x4: owner 16 → 5 stretches, 483920 13 → 1, 912345
-    12 → 2. Routes left with a stretch beside a way at x4: 6 of 24 (bar "zero" not met; disclosed). One of them (owner #1)
-    is unchanged by the join (way share 0.78 either way); why was not traced.
-  - Planned walking days: never worse with the join; owner 66.4 → 45.2, 147.3 → 140.6, 130.0 → 103.5 (the riding route
-    reads its road row on more of its points). Every leg's joined cost within the margin (asserted).
-  - Only 1 leg of 24 took a detour onto a way (912345 #4, 1.069 of the direct cost); the rest kept the direct path and
-    were drawn on the way they already followed. The stickier re-route rarely finds a way the direct path does not use.
-  - River offers on the joined routes: owner 7 of 8 routes, 1-2 offers each, saving 0.1-7.5 d; 483920 3 of 8 (0.1-0.4 d);
-    912345 4 of 8 (0.1-0.9 d). **The recommended hull is the Longship on every offer** (the reference rates it 11 km/h on
-    rivers; no cheaper hull came within 10 %); that is owner question Q5's to settle.
-- **Verified:** `cargo test --workspace` 275 result lines, 8 190 passed, 0 failed, 168 ignored (run after the last behaviour change; comment-only edits followed); the unit tests in `way_join`, `tools`, `lib.rs`
-  (`road_sources_cover_exactly_the_road_cells`, `way_spans_name_the_way_a_route_rides_and_bridge_one_point`),
-  `tests/ruling_eu_river_legs.rs` (12) and `project_bridge::river_legs_round_trip_under_the_documented_key`; literal
-  mutants (`Python`, exact replace, restored and hash-checked): 20 of 22 killed. Survivors: the splice's segment check
-  (`stretch_is_valid`, redundant on the fixtures with the per-point check before it, which already splits a ride at water)
-  and the leg hull in the season-drift pre-pass of `jp_plan_full` (only moves the stage mid-days the drift reads). Windowed probe `_jpwayriver_probe.tscn` (seed 912345, 1024 x 656; DLL 04:54:42, newest `.rs` 04:54:16,
+    opening view 2 → 0 (912345 #3 and #4); at x4 27 → 0 (owner 0 → 0, 483920 14 → 0, 912345 13 → 0). No route of the 24
+    keeps a stretch beside a way at either view.
+  - Planned walking days: equal or fewer on 22 of 24 routes (owner #4 148.7 → 114.9); **more on 2** (owner #5 175.4 →
+    178.8, +1.9 %; 912345 #3 2.5 → 2.7). The margin is in router cost, not planned days (the read-only map's stated
+    risk); disclosed, not fixed.
+  - Only 1 leg of 24 took a detour onto a way (483920 #5, 1.059 of the direct cost); the rest kept the direct path and are
+    drawn on the way they already followed. Every joined leg within the margin (asserted).
+  - River offers on the joined routes: owner 8 of 8 routes, 483920 0 of 8, 912345 5 of 8; 30 offers, saving 0.1-12.0 d.
+    **The recommended hull is the Longship on every offer** (the reference rates it 11 km/h on rivers; no cheaper hull
+    came within 10 %); owner question Q5's to settle.
+  - Before the rebase (the worlds as they were before Ruling EV) the same census found x4 stretches 41 → 8 over the 24
+    routes and offers on 14 of them; the stop step below was added after that run.
+- **The stop step (found by looking at the x16 frames):** a ride cut short just before its stop (a crossing way owns the
+  last cells) drew the last routed cells as a hook beside the road. The first and last splice are now extended along
+  their way to the stop's own projection, over at most `MIN_RIDE_CELLS` routed cells and only where the way gets there
+  about as directly as the straight line, and a two-point step is drawn straight. An unbounded first version re-routed one
+  owner-world route (0.43 → 1.00 of its points on a way, 126 → 40 planned days) past the cost test; the bound puts it back
+  (0.42, 126.1 d).
+- **Verified:** `cargo test --workspace` 276 result lines, 8 207 passed, 0 failed, 169 ignored, on the rebased tree after
+  the last Rust change (a doc-comment edit to `way_join.rs` followed). Unit tests: `way_join` (13, among them the loop ridden within the margin and not past it, a hidden
+  way, an undrawn edge, the drawing on the road's own line, water under a way, the stop steps, determinism), `tools`
+  (`way_owner_matches_the_discount_owner`, ties included), `lib.rs` (`road_sources_cover_exactly_the_road_cells`,
+  `way_spans_name_the_way_a_route_rides_and_bridge_one_point`), `tests/ruling_eu_river_legs.rs` (14) and
+  `project_bridge::river_legs_round_trip_under_the_documented_key`. Literal mutants (Python, exact replace, restored and
+  hash-checked): 22 of 26 killed. Survivors: the splice's segment check (`stretch_is_valid`; on the fixtures the per-point
+  check before it already splits a ride at water), the leg hull in `jp_plan_full`'s season-drift pre-pass (it moves only
+  the stage mid-days the drift reads), the stop step's direction guard, and `MIN_SAVING_DAYS` (no fixture saves between 0
+  and 0.05 d). The stop step's few-cells limit and length bound were not mutated; no unit test guards them (the census
+  caught the unlimited version: above).
+  Windowed probe `_jpwayriver_probe.tscn` (seed 912345, 1024 x 656; DLL 05:37:52 after the last `.rs` edit at 05:37:33;
   under the window lock) PASS on the desktop (mouse input through `Input.parse_input_event`) and on the phone (1080 x
-  2340, `--force-touch`, screen touches): the joined route's points lie on a way's own line (share 0.11 → 0.95 on the
+  2340, `--force-touch`, screen touches): the joined route's points lie on a way's own line (share 0.44 → 1.00 on the
   first pair), the *On ways* section draws, **use river** adds one river leg whose planned days equal the offer's to
-  0.01 d (1.84 → 0.77 d), the hull menu re-hulls it (Keelboat, 2.13 d) and **walk instead** restores 1.84 d. Phone
+  0.01 d (2.28 → 1.44 d), the hull menu re-hulls it (Keelboat, 3.68 d) and **walk instead** restores 2.28 d. Phone
   buttons 126 px tall at 1080 wide. Parse-checked `journey_planner_view.gd`, `shell/app.gd` and the probe.
   Composites in `cartalith-native/docs/evidence/ways-planner-2026-11-12/`, opened and looked at:
   `planner_join_way_x16_x4_off_on.png` (x16: the unjoined route runs as a second stroke beside the road, the joined one
-  on it), `planner_join_way_window.png`, `planner_river_offer_desktop.png` and `planner_river_offer_phone.png`.
+  on it into the town), `planner_join_way_window.png`, `planner_river_offer_desktop.png` and
+  `planner_river_offer_phone.png`.
 - **Open:** owner questions Q1 (preference or world parameter; no UI toggle yet, `set_route_join_ways` only), Q2 (margin,
   minimum ride, stickiness), Q3 (sea lanes: land ways only), Q4 (a per-route direct-line opt-out: not built), Q5 (old-route
   re-routes join: yes), and item 3's: the alignment tolerance, upstream only when quicker, the corridor of one day, the
   hull rule (Longship everywhere today), pack animals and vehicles aboard (`jp_calc_water_ex` counts neither against the
-  hold: not resolved), auto-accept (off), declines saved (session only today), item 2 vs item 3 precedence (an accepted
+  hold, so a party with animals, a mount or vehicles is offered no stretch yet and told why), auto-accept (off), declines saved (session only today), item 2 vs item 3 precedence (an accepted
   leg's points ride no way), offers on the main map (not built). A leg is drawn on channel cells, which can sit off the
   painted river (Ruling ER's display meander; not measured). The tablet form was not probed (desktop and phone were).
-  The commit with the join costs about three times the plain commit (above).
+  The commit with the join costs about 2.8-2.9 times the plain commit, and two of 24 routes plan slightly more days with
+  it (above).
 
 ### Long-press to drag on touch: Asset library tiles (2026-11-12)
 

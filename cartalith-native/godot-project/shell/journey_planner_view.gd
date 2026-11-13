@@ -4947,8 +4947,11 @@ func _build_river_group(body: Control, plan: Dictionary) -> void:
 		var terrains: PackedStringArray = o.get("terrains", PackedStringArray())
 		var conds: PackedStringArray = o.get("conditions", PackedStringArray())
 		## "why": the water types and currents on the stretch, and how directly
-		## it runs along the route (route km per km of river).
-		DccWidgets.note(g, "%s · %s · %.0f%% along the route" % [" → ".join(terrains), " → ".join(conds), float(o.get("eta", 0.0)) * 100.0])
+		## it runs along the route (route km per km of river; past 1 the river
+		## cuts across bends the route makes, so it is said that way).
+		var eta := float(o.get("eta", 0.0))
+		var along := "cuts across the route's bends" if eta >= 1.0 else "%.0f%% as direct as the route" % (eta * 100.0)
+		DccWidgets.note(g, "%s · %s · %s" % [" → ".join(terrains), " → ".join(conds), along])
 		if declined:
 			continue
 		open.append(o)

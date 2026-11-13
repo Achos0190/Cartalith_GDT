@@ -131,6 +131,7 @@ fn measure_planner_way_join_and_river_offers() {
             p.map_width_km,
             ws.integrated_drainage,
             cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, p.world).as_ref(),
+            cartalith_engine::fill_tilt_of(ws.basin_routing),
         );
         let world = JpWorld {
             gw,

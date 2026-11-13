@@ -62,6 +62,12 @@ use crate::{
 /// judgement (owner question Q1).
 pub const ETA_MIN: f64 = 1.0 / 1.5;
 
+/// The least saving, in days, an offer must make: `0.05` d. A labelled judgement
+/// (owner question Q3): the planner prints days to one decimal, so a stretch that
+/// would show "saves 0.0 d" (measured on the census worlds: 4-12 km stretches
+/// saving minutes) is not an offer.
+pub const MIN_SAVING_DAYS: f64 = 0.05;
+
 /// A recommended hull is the cheapest whose days are within this share of the
 /// fastest hull's: `JP_STAGE_PICK_MARGIN` (0.10), the margin the per-stage auto
 /// pick already uses for "close enough to the best", so the planner has one
@@ -514,8 +520,9 @@ pub const NOTE_NONE_QUICKER: &str = "No navigable river along this route saves t
 /// (a shorter one would fold back into land). A candidate overlapping a leg the
 /// plan already holds is skipped. Each offer's days come from an **exact**
 /// re-plan with the leg added, sailed by the recommended hull, against `base`
-/// (the plan as computed), never an estimate; an offer that saves no time is not
-/// returned (owner question Q2's default: upstream only when quicker). Costs two
+/// (the plan as computed), never an estimate; an offer that saves less than
+/// [`MIN_SAVING_DAYS`] is not returned (owner question Q2's default: upstream
+/// only when quicker). Costs two
 /// `jp_plan_full` runs per candidate, at most [`MAX_OFFERS`] candidates.
 #[allow(clippy::too_many_arguments)]
 pub fn jp_river_offers(
@@ -581,7 +588,7 @@ pub fn jp_river_offers(
         let ((b, bb), (d, db)) = (days_of(base), days_of(&exact));
         let (saving, basis, days_with) =
             if bb == db { (b - d, db, d) } else { (base.days - exact.days, "travel", exact.days) };
-        if saving.is_nan() || saving <= 0.0 {
+        if saving.is_nan() || saving < MIN_SAVING_DAYS {
             continue;
         }
         out.push(JpRiverOffer {

@@ -3290,10 +3290,11 @@ hull, accepted as `JpPlan::river_legs`, saved with the journey's plan). **Still 
 (world parameter or preference, and no UI toggle yet; margin, minimum ride and stickiness; sea lanes; a per-route
 direct-line opt-out, not built; old-route re-routes join) and item 3's (alignment tolerance 1/1.5; upstream only when
 quicker; a corridor of one day's travel; the hull rule, which picks the Longship on every offer measured; pack animals and
-vehicles aboard, which `jp_calc_water_ex` does not count against the hold; auto-accept, off; declines saved, session
-only; precedence with item 2; offers drawn on the main map, not built); 5-6 of 24 measured routes still draw a stretch
-beside a way at x4; a leg is drawn on channel cells, which can sit off the painted river (unmeasured); the tablet form was
-not probed; a joined commit costs about three times a plain one.
+vehicles aboard, which `jp_calc_water_ex` does not count against the hold, so such a party is offered none yet; the least
+saving, 0.05 d; auto-accept, off; declines saved, session only; precedence with item 2; offers drawn on the main map, not
+built); 2 of 24 measured routes plan slightly more days with the join (the margin is router cost, not days); the stop
+step's few-cells limit has no unit test; a leg is drawn on channel cells, which can sit off the painted river
+(unmeasured); the tablet form was not probed; a joined commit costs about 2.8-2.9 times a plain one.
 
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There
