@@ -2261,3 +2261,34 @@ static func set_context_panel_tabs(tabs: PackedStringArray) -> bool:
 	_cfg.set_value(_SEC_CONTEXT_PANEL, "tabs", Array(tabs))
 	_save()
 	return true
+
+
+# -- The folder a kind of note was last put in (owner, 2026-11-13) -------------
+
+## `[vault_note_folders]`: entity kind -> the vault folder (relative, `/`-separated, "" = the vault root) the
+## user last created that kind's note in. Per user and per machine, never in a world save. It is a hint, not a
+## fact about any vault: the same file serves whichever vault is connected, so `VaultFolderPick` offers the
+## remembered folder only when the connected vault has it.
+const _SEC_NOTE_FOLDERS := "vault_note_folders"
+
+## The remembered folder for `kind`, or **null when nothing was ever remembered**. Not "": the empty string is a
+## real answer (the vault root), so absence must be a different value (`MISTAKES.md`: never encode "no value" as
+## a plausible value).
+static func vault_note_folder(kind: String):
+	if kind == "":
+		return null
+	_ensure_loaded()
+	if not _cfg.has_section_key(_SEC_NOTE_FOLDERS, kind):
+		return null
+	var v = _cfg.get_value(_SEC_NOTE_FOLDERS, kind)
+	return v if typeof(v) == TYPE_STRING else null
+
+## Remembers `folder` for `kind` (an empty `kind` is refused, since it would be one key shared by every kind).
+## Returns whether it was written.
+static func set_vault_note_folder(kind: String, folder: String) -> bool:
+	if kind == "":
+		return false
+	_ensure_loaded()
+	_cfg.set_value(_SEC_NOTE_FOLDERS, kind, folder)
+	_save()
+	return true

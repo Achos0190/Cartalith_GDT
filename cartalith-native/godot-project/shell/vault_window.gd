@@ -102,6 +102,7 @@ const WindowRepresent := preload("res://shell/window_represent.gd")
 ## The shared Markdown editor script (`markdown_editor.gd`): `_build_editor_pane` instantiates it
 ## and `_build_browse_preview` uses its `style_rendered`.
 const MdEditor := preload("res://shell/markdown_editor.gd")
+const VaultFolderPick := preload("res://shell/vault_folder_pick.gd")
 ## The side panel (VE-5): Links, Outline, Properties, Tags. Held without a `class_name`, as the editor is.
 const SidePanel := preload("res://shell/vault_side_panel.gd")
 ## The private badge's cache (Ruling DP, VE-9): which notes are private, asked of the crate's one rule.
@@ -1044,6 +1045,9 @@ func _build_create(parent: Control, open: bool = false) -> void:
 	var path_edit := LineEdit.new()
 	path_edit.text = suggested
 	path_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Owner, 2026-11-13: a folder chooser above the path (`VaultFolderPick`, shared with the Note tab); it edits
+	## `path_edit`'s folder part, so the path below stays the one thing that is created.
+	var fp: Dictionary = VaultFolderPick.build(sec, bridge, _kind, suggested, path_edit)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.custom_minimum_size.y = 24
@@ -1059,6 +1063,9 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		if rel == "":
 			app.set_status("hint", "Give the new note a path.", "accent")
 			return
+		if fp["folder"].call() == null:
+			app.set_status("hint", "Name the new folder, or pick an existing one.", "accent")
+			return
 		var r := bridge.vault_create_from_template(_pick_template, rel, _entity_label)
 		if not bool(r.get("ok", false)):
 			app.set_status("hint", "Create: %s" % String(r.get("error", "refused")), "accent")
@@ -1067,6 +1074,7 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		## Attach is a separate act with its own validation -- but the user
 		## asked for a note *for this entity*, so run it, and say if it fails
 		## rather than leaving an orphan note they cannot see.
+		VaultFolderPick.remember(_kind, rel)   ## the file exists there, linked or not
 		var a := bridge.vault_attach(_kind, _entity_id, _entity_label, rel, "")
 		if bool(a.get("ok", false)):
 			_reader_link = String(a.get("link_id", ""))

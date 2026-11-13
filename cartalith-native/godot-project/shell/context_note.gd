@@ -64,6 +64,9 @@ var _wired := false
 const BINDABLE := {"settlement": "settlement", "faction": "faction", "landmark": "landmark",
 	"label": "label", "icon": "icon"}
 
+## The shared vault-folder chooser (owner, 2026-11-13); see `vault_folder_pick.gd`.
+const VaultFolderPick := preload("res://shell/vault_folder_pick.gd")
+
 
 func _init(a) -> void:
 	app = a
@@ -293,8 +296,16 @@ func _build_create(r: Dictionary) -> void:
 	edit.text = suggested
 	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	edit.tooltip_text = "Where the new note goes, relative to the vault folder."
+	## Owner, 2026-11-13: the user chooses where in the vault the note goes. The chooser is `VaultFolderPick`
+	## (shared with the vault window's form); it edits `edit`'s folder part, so `edit.text` stays the one path
+	## that is created. It defaults to the folder `vault_suggested_path` always gave, or the kind's remembered one.
+	var fp: Dictionary = VaultFolderPick.build(_top, bridge, String(r["vk"]), suggested, edit)
 	_top.add_child(edit)
-	var b := DccWidgets.action(_top, "Create %s" % suggested.get_file(), func(): _create(r, rels[int(pick["i"])], edit.text.strip_edges()), true)
+	var b := DccWidgets.action(_top, "Create %s" % suggested.get_file(), func():
+		if fp["folder"].call() == null:
+			app.set_status("hint", "Name the new folder, or pick an existing one.", "accent")
+			return
+		_create(r, rels[int(pick["i"])], edit.text.strip_edges()), true)
 	b.name = "NoteCreate"
 	b.tooltip_text = "Creates the note from the chosen template and links it to %s. It never overwrites an existing file." % String(r["name"])
 
@@ -316,8 +327,10 @@ func _create(r: Dictionary, template_rel: String, rel: String) -> void:
 	var a: Dictionary = bridge.vault_attach(String(r["vk"]), int(r["vid"]), String(r["name"]), rel, "")
 	if bool(a.get("ok", false)):
 		app.vault_window.store_changed.emit()
+		VaultFolderPick.remember(String(r["vk"]), rel)   ## only after a create that held
 		app.set_status("hint", "%s created and linked to %s." % [rel, String(r["name"])], "text")
 	else:
+		VaultFolderPick.remember(String(r["vk"]), rel)   ## the file exists there, linked or not
 		app.set_status("hint", "%s created, but could not be linked: %s" % [rel, String(a.get("error", ""))], "accent")
 	refresh(_subject)
 

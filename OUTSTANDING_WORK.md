@@ -64,6 +64,7 @@ document, and `STATUS.md` records what lands)
   world phase; a rudimentary heightmap preview instead of grey on blue** (owner, 2026-11-13: *"Those should be
   there"*). Owner: `MOBILE_SHELL_PROPOSAL.md` (MS-8), `NEW_WORLD_PREVIEW_PROPOSAL.md` (NWP-1…4), `GENERATION_PARAMETERS.md`.
   Suspect regressions from `d41b3fc1` and `1a949abd`. In progress 2026-11-13.
+- **A new note can be placed in a chosen vault folder** (owner, 2026-11-13: *"make sure that from the note from the previous job, we also get the option to select where in the vault the note gets placed."*). Owner: `VAULT_EDITOR_PROPOSAL.md` (notes, folders, templates), `shell/vault_folder_pick.gd`. **Built 2026-11-13** (`STATUS.md`, "Where a new note goes"); left: the Android document provider itself (the logic is proven over a fake tree, the Java driver is not run), a folder tree rather than a dropdown for a very large vault, and the landmark, label and icon chip/card paths were not driven one by one (they share the Note tab's Create).
 - **Lake balance counts a runoff share of rain, not all rain** (owner choice 2026-11-13, answering `1a949abd`'s question:
   basin routing plus the balance doubled lake area in the owner's view, +52 % map-wide, with the GPU on). Keep basin
   routing on. Owner: `DELTA_GEOMETRY_RESEARCH.md` §14, Ruling EV's follow-up in `LARGE_ITEM_RULINGS.md`; record the
