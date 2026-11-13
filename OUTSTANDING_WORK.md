@@ -45,6 +45,10 @@ should read §6 before §2.
 
 **The count of outstanding items is not maintained in this file (2026-10-10): the rows are the source, and every dated "N outstanding items" figure below, here and in "The count, honestly", is a historical log that disagrees with the other entries and with the rows; do not quote it as a current count.**
 
+## Open from 2026-11-13 (routed, no status column)
+
+- **City map look and clickable markers (owner request, 2026-11-13).** *"Do you see how this city map has certain markers and how it graphically looks? I'd like you to closely study how to get closer to it. Left clicking a marker should give the information card and a note"* Owner: `CITY_MAP_LOOK_SCOPE.md` (the gap analysis, the pin design, milestones CL-0 to CL-11 and owner questions Q1 to Q10); evidence `cartalith-native/docs/evidence/city-look-2026-11-13/` (`example_before_after.png`, a scratch restyle of a real layout, not shipped code; harness `godot-project/_citylook_probe.gd`). Symbols: `map_overlay.gd::_pick_mark` / `hits_at` / `_gui_input`, `context_broker.gd::present`, `context_card.gd`, `context_note.gd`, `right_dock.gd::on_selection`, `city_viewer_window.gd::_on_canvas_input` / `_draw_canvas`, `urban_layout_draw.gd`. The look is mostly a render-only draw change; a left click that opens the card plus the note is CL-3 and needs the card to gain a Note section; taverns and other places of interest have no engine entity (CV-01), so they wait on Q5. The request cites a Ruling EO that `LARGE_ITEM_RULINGS.md` does not hold (Q10).
+
 ## Open after 2026-10-26 (reconciled against STATUS.md; routed, no status column)
 
 Added by the 2026-10-26 docs reconciliation. Rows are grouped by subject; the owning document holds the design. Where a
