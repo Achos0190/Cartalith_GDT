@@ -3313,11 +3313,20 @@ static func _palette_watch(ctl: Control, painter: Callable) -> void:
 ## Draws the four switch icons (checked/unchecked, enabled/disabled) onto `cb`
 ## at the touch or pointer size and neutralises Godot's icon tint. Called via
 ## [`_palette_watch`]; must be idempotent.
-static func _paint_switch(cb: CheckBox) -> void:
+static func _paint_switch(cb: BaseButton) -> void:
 	var touch := DccTheme.is_touch()
-	var w := 40 if touch else 30
-	var h := 22 if touch else 17
-	var knob := 18 if touch else 13
+	## Owner, 2026-11-13, on the OnePlus 6T: *"selection switches are ridiculously small"*. The 40 x 22 (touch) and
+	## 30 x 17 (pointer) figures are canvas units, and the phone's main viewport has no content scale, so on a
+	## sheet the glyph was 40 x 22 PHYSICAL px: 14 x 8 dp at 2.8125, a 44 dp tap box around a dot. The unit is
+	## stored on the control by `phone_switch()` (called from `DccShell.phone_fit()` with the phone unit) and read
+	## here, so a palette flip's repaint (`_palette_watch()`) keeps the size. 1.0 everywhere else: a phone WINDOW's
+	## content scale already scales the texture, and desktop and tablet are unchanged.
+	var unit := float(cb.get_meta(SWITCH_UNIT_META, 1.0))
+	if unit > 1.0:
+		unit *= PHONE_SWITCH_BOOST
+	var w := int(round((40 if touch else 30) * unit))
+	var h := int(round((22 if touch else 17) * unit))
+	var knob := int(round((18 if touch else 13) * unit))
 	cb.add_theme_icon_override("checked", _switch(w, h, knob, true))
 	cb.add_theme_icon_override("unchecked", _switch(w, h, knob, false))
 	cb.add_theme_icon_override("checked_disabled", _switch(w, h, knob, true, false))
@@ -3349,6 +3358,53 @@ static func _paint_switch(cb: CheckBox) -> void:
 	## literal on the instance, so `_palette_watch()` re-asserts it unchanged.
 	cb.add_theme_color_override("checkbox_checked_color", Color(1, 1, 1))
 	cb.add_theme_color_override("checkbox_unchecked_color", Color(1, 1, 1))
+
+
+## Meta key: the phone unit a switch was last painted at (see `phone_switch()` and `_paint_switch()`).
+const SWITCH_UNIT_META := "dcc_switch_unit"
+## The shortest a bare (unpainted) `CheckBox` / `CheckButton` glyph may be on the phone, in phone units. A labelled
+## judgement: the painted switch is 22 units tall (`Cartalith Android.dc.html`, `AND:311`); Godot's stock check
+## mark is about 16 px, which at the phone unit is still a 6 dp dot beside a 44 dp tap box. 29 matches the boosted switch (22 x 1.3).
+const PHONE_BARE_GLYPH_UNITS := 29
+## A phone switch is drawn this much larger than the canvas figure (40 x 22 units). A labelled judgement, not a
+## measurement: the owner called the switches "ridiculously small" (2026-11-13), and Material 3's switch is 52 x 32 dp,
+## so 1.3 (52 x 29 units) lands near it while the 44 dp tap box still holds the glyph with room to spare.
+const PHONE_SWITCH_BOOST := 1.3
+
+## Makes a phone surface's `CheckBox` or `CheckButton` glyph as large as the rest of the phone's controls, from
+## `DccShell.phone_fit()` (so every phone surface that is fitted gets it through the one walk, not per control).
+## `unit` is the same figure `phone_fit()` scales fonts and minimum sizes by: the phone unit on the main viewport,
+## 1.0 inside a phone window whose content scale does the scaling (nothing to do then, and nothing is done).
+##
+## A switch `toggle()` painted (it carries `PALETTE_META`) is repainted at `unit` by `_paint_switch()`, which also
+## keeps that size on a palette flip. A bare control (the seven `CheckBox.new()` sites `_paint_switch()`'s comment
+## lists, plus every `CheckButton`) keeps Godot's own glyph, because its tint is wanted there, but each of the four
+## state icons is rescaled so it is at least `PHONE_BARE_GLYPH_UNITS` units tall (and never smaller than the stock
+## icon times `unit`). Idempotent: the unit is stored and a second call at the same unit does nothing.
+static func phone_switch(cb: BaseButton, unit: float) -> void:
+	if not (cb is CheckBox or cb is CheckButton) or unit <= 1.0:
+		return
+	if cb.has_meta(SWITCH_UNIT_META) and is_equal_approx(float(cb.get_meta(SWITCH_UNIT_META)), unit):
+		return
+	cb.set_meta(SWITCH_UNIT_META, unit)
+	if cb.has_meta(PALETTE_META):
+		_paint_switch(cb)
+		return
+	for slot in ["checked", "unchecked", "checked_disabled", "unchecked_disabled",
+			"radio_checked", "radio_unchecked"]:
+		if not cb.has_theme_icon(slot):
+			continue
+		var tex: Texture2D = cb.get_theme_icon(slot)
+		if tex == null or tex.get_height() <= 0:
+			continue
+		var scale: float = maxf(unit, float(PHONE_BARE_GLYPH_UNITS) * unit / float(tex.get_height()))
+		var img: Image = tex.get_image()
+		if img == null or img.is_empty():
+			continue
+		img = img.duplicate()
+		img.resize(maxi(1, int(round(img.get_width() * scale))), maxi(1, int(round(img.get_height() * scale))),
+			Image.INTERPOLATE_LANCZOS)
+		cb.add_theme_icon_override(slot, ImageTexture.create_from_image(img))
 
 ## Colours a `SpinBox`'s four arrow states from palette tokens. The eight
 ## `*_icon_modulate` names are not in `DccShell._THEME_COLOR_OVERRIDES`, which is
@@ -3401,7 +3457,8 @@ static func _switch(w: int, h: int, knob: int, on: bool,
 	img.fill(Color(0, 0, 0, 0))
 	var r := h * 0.5
 	var half := Vector2(w, h) * 0.5
-	var kx: float = (w - 2.0 - knob * 0.5) if on else (2.0 + knob * 0.5)
+	var inset: float = (h - knob) * 0.5   ## 2 px at the canvas figures (22-18, 17-13), and it scales with `phone_switch()`.
+	var kx: float = (w - inset - knob * 0.5) if on else (inset + knob * 0.5)
 	var kc := Vector2(kx, h * 0.5)
 	for y in h:
 		for x in w:

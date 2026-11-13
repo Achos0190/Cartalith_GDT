@@ -54,6 +54,43 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 `DccApp._load_project()` now calls `NewWorldDialog.adopt_opened_world()` after a successful open, writing the world's seed and grid into the dialog's fields, which WORLD ▸ Generate, the live regenerate and the tool-options Generate build `request()` from. It is not on `world_loaded` (which also fires for centring and fjord passes and would overwrite a typed seed). `_newworld_rules_probe` no longer writes the seed by hand and asserts the load filled it.
 
+### Phone fixes from the 6T report of 2026-11-13: MAP's sheet has a body, the domain tab has its three dots, the switches are large (built 2026-11-13)
+
+*The owner, on the OnePlus 6T: "The drawer for map on mobile is empty and the button to select generate / carto / civil
+misses the indication balls. Also selection switches are ridiculously small."* Read at `dcc_shell.gd`
+(`_refresh_phone_map_row()`, `_rebuild_phone_map_body()`, `_add_domain_dots()`, `_paint_domain_dots()`, the `phone_fit()`
+switch hook) and `dcc_widgets.gd` (`_paint_switch()`, `phone_switch()`).
+- **MAP, cause.** MS-3's remainder built one 44 dp row (Layers & fields, Fit world, 2D / 3D) above the tool-options
+  scroller, and the scroller is empty on the MAP tab until a tool is armed, so the half-height sheet was a title and a row
+  of three buttons (the first clipped to "LAYERS & F…"). The proposal's MAP content (view, view field with opacity, quick
+  visibility, the six Measure modes) was three taps away behind a popover. **Fix:** a scrolling `MapBody` in the sheet:
+  the view row (ALL LAYERS, FIT WORLD, 2D / 3D), the view field (a dropdown over `debug_layers()` plus the opacity
+  slider), the six `GlobalTools.MEASURE_MODES` as buttons, and the ten `LIVE_LAYERS` as switches written through
+  `set_layer_visible()` (`layer_visibility_changed` re-seeds them). The tool-options scroller hides while the idle
+  Inspect tool is armed and returns when another is. **Departure from the proposal, stated:** the 43 fields are a
+  dropdown, not six inline groups, because the Layers popover's rows are fitted at a window scale of 1.0 and mounting it
+  in the sheet would double-scale them; ALL LAYERS still opens the popover (legend, digit hotkeys, landmark filter).
+  Not built: the quick pins' new home (MS-11's drawer has them), North up, grid, scale bar toggles.
+- **Dots, cause.** MS-2 built the domain tab without them (the proposal's "Three dots above the icon", the mockup's
+  `dots`). **Fix:** three 5-unit dots in the cell's own column (so the left rail in landscape carries them), accent on the
+  active domain, `text_ghost` on the rest, repainted from `_refresh_domain_tab_caption()`; they take no touch.
+- **Switches, cause.** `_paint_switch()` drew its 40 x 22 texture in physical px, and only a phone *window* has a
+  content scale, so on the sheets (the main viewport) the glyph was 14 x 8 dp inside a 41 dp box. **Fix, central:**
+  `DccWidgets.phone_switch()` is called from `phone_fit()` for every `CheckBox` and `CheckButton`; it repaints the toggle
+  switch at the phone unit times `PHONE_SWITCH_BOOST` 1.3 (a labelled judgement, near Material's 52 x 32 dp), rescales a
+  bare control's four state icons to at least 29 units tall, and `phone_fit()` raises a switch's box to 44 dp of the REAL
+  density (the phone unit is 41 dp at 2.8125). No control sets its own size.
+- **Measured** (`_p13fix_probe.gd`, real touch, 1080 x 2340 and 2340 x 1080 @2.8125, 1080 x 1920 and 1920 x 1080 @3):
+  **86 of 86 at each of the four.** Census of every switch laid out with every category open: WORLD 31, CIVIL 1, CARTO 27,
+  MAP 10 (69 in all, no windows). Before: tap box 115 px (40.9 dp), glyph 40 x 22 px (14.2 x 7.8 dp), all 69 under the
+  bar; after: box 124 px (44.1 dp) and glyph 136 x 75 px (48.4 x 26.7 dp) at @2.8125, 132 px (44.0 dp) and 45.3 x 25.0 dp
+  at @3. Evidence: `docs/evidence/phone-fixes-2026-11-13/` (`before/`, `after/`, per size: map, world, civilization,
+  cartography). **Not measured:** windows (Preferences, the planner's own CheckBox sites) were not opened, so their
+  glyphs rest on the window's content scale; the 6T itself (no APK built here). **Regression**, same arguments: `_ms2`
+  52, `_ms3` 33, `_ms3b` 28 (its row text re-pointed to ALL LAYERS), `_ms5` 93 and `_ms11` 103 (99 in landscape) pass at
+  the three sizes; `_phoneui` fails 1 of 25 at 393 x 852 (as recorded for `origin/main`) and 3 of 25 at 852 x 393
+  (the same 3 on `origin/main` `5741001a`, so not this change; `_quickbar_phone` fails its one launch-state check on both trees for want of a wiped user dir). **Mutants, 8 of 8 killed windowed:** dot size 5 to 1, the dot repaint removed, the `phone_fit()` switch hook removed, the real-density floor 44 dp to 40, `PHONE_SWITCH_BOOST` 1.3 to 1.0, the MAP body never shown, a layer switch writing the inverse, a Measure button not setting its mode.
+
 ### River combs, verifier follow-ups (Ruling EV): every new seed gets the current rules, the New World screen tells the truth, balanced lakes have smooth shores (2026-11-13)
 
 *A verifier's fourteen findings on the Ruling EV work (entry below), each opened at its symbol before anything was

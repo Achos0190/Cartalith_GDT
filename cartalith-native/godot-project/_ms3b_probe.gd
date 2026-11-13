@@ -307,11 +307,11 @@ func _run(vw: int, vh: int) -> void:
 			texts.append((c as Button).text)
 			_ok((c as Button).get_global_rect().size.y >= fl, "MAP: '%s' is at the 44 dp floor (%.1f px)" % [
 				(c as Button).text, (c as Button).get_global_rect().size.y])
-		_ok(texts == ["LAYERS & FIELDS", "FIT WORLD", "2D / 3D"], "MAP: the row reads %s" % str(texts))
-		var lf := _find_button(_app._phone_map_row, "LAYERS & FIELDS")
+		_ok(texts == ["ALL LAYERS", "FIT WORLD", "2D / 3D"], "MAP: the row reads %s" % str(texts))
+		var lf := _find_button(_app._phone_map_row, "ALL LAYERS")
 		await _tap(lf.get_global_rect().get_center(), true)
 		await _settle()
-		_ok(_app.layers_popover.visible, "MAP: a tap on Layers & fields opens the Layers popover")
+		_ok(_app.layers_popover.visible, "MAP: a tap on All layers opens the Layers popover")
 		_app.layers_popover.hide()
 		await _settle()
 		var before_zoom: float = _app.viewport._zoom

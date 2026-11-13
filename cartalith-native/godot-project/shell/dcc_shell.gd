@@ -547,6 +547,9 @@ var _dock_in_sheet := false
 ## with the columns, Ruling EH item 1.)
 var _phone_dom_journeys_row: Control
 var _phone_map_row: Control
+## MS-3: the MAP sheet's scrolling body (`_refresh_phone_map_row()`), and its switches by layer id.
+var _phone_map_body: ScrollContainer
+var _phone_map_toggles: Dictionary = {}
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
 	## `phone_content_insets()` reads its real height rather than recomputing it.
 var _phone_gesture_inset: Control
@@ -1109,6 +1112,8 @@ func _unmount_composition() -> void:
 	_phone_dom_host = null
 	_phone_dom_journeys_row = null
 	_phone_map_row = null
+	_phone_map_body = null
+	_phone_map_toggles.clear()
 	_phone_app_bar = null
 	_phone_gesture_inset = null
 	_phone_sheet_grab = null
@@ -3408,6 +3413,19 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			## it has, because a finger has no cursor to find the handle with.
 			if ctl is HSlider:
 				DccWidgets.phone_slider(ctl as HSlider, unit)
+			## Owner, 2026-11-13: *"selection switches are ridiculously small"*. The tap box above is floored at 44 dp,
+			## but the switch glyph was a texture drawn in physical px; `phone_switch()` scales it by this walk's
+			## own unit, so every `CheckBox` and `CheckButton` on a fitted surface follows the phone and no control
+			## sets its own size.
+			if ctl is CheckBox or ctl is CheckButton:
+				DccWidgets.phone_switch(ctl as BaseButton, unit)
+				## 44 dp of the device's REAL density as well: the phone unit is the density capped at short side /
+				## 412, so 44 units is 41 dp on the 6T (2.625 x 44 against 2.8125 x 44). Only a switch is raised, by
+				## a few px, and only on the main viewport (`unit` > 1; a phone window's content scale is its own).
+				if unit > 1.0:
+					var dp_floor := ceilf(44.0 * float(_density()["value"]))
+					ctl.custom_minimum_size = Vector2(maxf(ctl.custom_minimum_size.x, dp_floor),
+						maxf(ctl.custom_minimum_size.y, dp_floor))
 			## Everything from here to the `ScrollContainer` deadzone -- and
 			## the `touch_slider()` call that used to sit in the `HSlider`
 			## branch above -- moved into `_touch_arbitrate()` below, verbatim,
@@ -7960,7 +7978,59 @@ func _build_phone_tab_cell(t: Dictionary) -> Dictionary:
 		_on_domain_cell_pressed)
 	var b := cell["button"] as Button
 	b.gui_input.connect(_on_domain_cell_input.bind(b))
+	_add_domain_dots(cell)
 	return cell
+
+## The diameter of one domain dot and the gap between dots, in phone units. `MOBILE_SHELL_PROPOSAL.md` section
+## 2.1 ("Three dots above the icon show which domain is current") and `design/mobile-shell-2026-10-31/Shell.dc.html`
+## (`dots`: three 5 px circles 4 px apart, accent for the current domain, `--bord` for the others). The mockup's
+## figures are kept; `_pscale()` makes a dot 13 physical px at the 6T, which a finger-sized bar needs to read it.
+const DOMAIN_DOT_UNITS := 5
+const DOMAIN_DOT_GAP_UNITS := 4
+
+## Owner, 2026-11-13, on the OnePlus 6T: the domain tab "misses the indication balls". Builds one dot per
+## `DOMAIN_ORDER` entry above the domain tab's glyph, in the cell's own column, so the row follows the bar wherever
+## the bar goes: along the bottom in portrait, down the left rail in landscape (`_apply_phone_nav_orientation()`
+## moves the cells, not their insides). The dots are `Panel`s with a round stylebox so a probe reads each one's
+## colour and rect without pixels. Never a tap target: `mouse_filter` is ignore on all of them, so the cell's
+## tap, hold and swipe are unchanged. Stored in the cell as `dots` and `dots_row`.
+func _add_domain_dots(cell: Dictionary) -> void:
+	var col := cell.get("col") as VBoxContainer
+	if col == null:
+		return
+	var row := HBoxContainer.new()
+	row.name = "DomainDots"
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", _pscale(DOMAIN_DOT_GAP_UNITS))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var dots: Array = []
+	for i in DOMAIN_ORDER.size():
+		var d := Panel.new()
+		d.name = "Dot%d" % i
+		d.custom_minimum_size = Vector2(_pscale(DOMAIN_DOT_UNITS), _pscale(DOMAIN_DOT_UNITS))
+		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(d)
+		dots.append(d)
+	col.add_child(row)
+	col.move_child(row, 0)
+	cell["dots"] = dots
+	cell["dots_row"] = row
+	_paint_domain_dots(cell)
+
+## Colours the dots for the active domain: accent on the current one, `text_ghost` on the others. A fresh
+## stylebox per dot on every call (it is called from `_refresh_domain_tab_caption()`, which every tab and domain
+## change and every palette flip re-runs), so no dot can keep a stale colour.
+func _paint_domain_dots(cell: Dictionary) -> void:
+	var dots: Array = cell.get("dots", [])
+	var cur := DOMAIN_ORDER.find(_active_domain)
+	for i in dots.size():
+		var d := dots[i] as Panel
+		if d == null or not is_instance_valid(d):
+			continue
+		var box := DccTheme.flat(DccTheme.c("accent") if i == cur else DccTheme.c("text_ghost"))
+		box.set_corner_radius_all(_pscale(DOMAIN_DOT_UNITS))
+		d.add_theme_stylebox_override("panel", box)
 
 
 ## Bottom-bar tab cells keyed by `PHONE_TABS` id; restyled by the tab-highlight refresh.
@@ -8230,6 +8300,7 @@ func _refresh_domain_tab_caption() -> void:
 		lbl.text = String(dt["caption"])
 	if ic != null and is_instance_valid(ic):
 		ic.text = String(dt["glyph"])
+	_paint_domain_dots(dcell)
 
 ## A plain tap on the domain tab. Skipped when the same press already became a swipe or a fan pick: the
 ## Button emits `pressed` on a release inside it, after `gui_input` has seen that release.
@@ -8488,7 +8559,7 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 
 	b.add_child(col)
 	col.set_anchors_preset(Control.PRESET_FULL_RECT)
-	return {"button": b, "label": l, "icon": ic, "pill": pill}
+	return {"button": b, "label": l, "icon": ic, "pill": pill, "col": col}
 
 ## A bar domain was tapped: switch domain and drop any menu that was over it,
 ## so the result is visible immediately -- the canvas's "the map never leaves
@@ -8875,7 +8946,10 @@ func _refresh_phone_sheet_body() -> void:
 		_sync_dom_rows(true)
 	_refresh_phone_map_row()
 	if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll):
-		_phone_tool_scroll.visible = not dom
+		## On the MAP tab with the idle Inspect tool the tool-options row holds only a caption, and as an expanding
+		## sibling it took the room the MAP body needs; it comes back when a drawing tool is armed (`armed_tool`).
+		var map_body_on: bool = _phone and _phone_tab == "map" and _phone_detent != "peek" and String(get("armed_tool")) == "inspect"
+		_phone_tool_scroll.visible = not dom and not map_body_on
 	## The phone seed readout in the Run section shows the dialog's pending seed, which a roll anywhere (the
 	## tool bar, File > New world) can change while the dock is out of sight; refresh it when the sheet shows.
 	if dom and ws != null and ws.has_method("refresh_phone_seed_readout"):
@@ -8934,42 +9008,138 @@ func _ensure_dom_rows() -> void:
 		_phone_dom_journeys_row.name = "DomJourneysRow"
 		_phone_dom_host.move_child(_phone_dom_journeys_row, 0)
 
-## MS-3: the MAP sheet's own row (proposal section 5: view, fields, layers): Layers & fields (the Layers
-## popover, which on the phone is already a full sheet holding the view field, every analysis field with its
-## opacity, and the visibility rows), Fit world and 2D / 3D. Shown on the MAP tab above the tool row, which
-## stays (the quick pins and the tool options are still its content until MS-5). Reuses
-## `LayersPopover.open()` and `ViewportHost.reset_view()` / `set_3d()`; nothing is copied.
+## MS-3 (rewritten 2026-11-13, owner on the OnePlus 6T: *"The drawer for map on mobile is empty"*): the MAP sheet's
+## own body, `MOBILE_SHELL_PROPOSAL.md` section 2.1's MAP row: the view (Fit world, 2D / 3D), the view field with
+## its opacity, the six Measure modes, and quick visibility for every layer `CartographyWorkspace.LIVE_LAYERS`
+## names (settlements, ways, landmarks, rivers, the two political rows and the rest), then a door to the full
+## Layers popover (the 43 analysis fields with their legend, digit hotkeys and the landmark filter, which the
+## popover keeps as its own builder: it is a `Popup` whose rows are fitted at a window scale of 1.0, so mounting
+## it in this sheet, fitted at the phone unit, would double-scale it the first time it had been opened).
+##
+## **Why it was empty.** The first MS-3 step put ONE 44 dp row here (three buttons that opened the popover or
+## reset the view) above the tool-options row, and the tool-options row is empty on the MAP tab until a tool is
+## armed (`_refresh_phone_sheet_body()` hides it only for a domain sheet). So the half-height sheet showed a title
+## and a clipped row of three buttons: the design's view, fields and layers were three taps away, not in it.
+##
+## Every control is an existing factory (`DccWidgets.action()` / `choice()` / `slider()` / `toggle()`) writing
+## through the same host calls the popover and the CARTO dock use (`ViewportHost.set_layer_visible()`,
+## `set_debug_layer()`, `set_debug_opacity()`, `GlobalTools.set_measure_mode()`), so there is one state and the
+## two surfaces cannot drift: `layer_visibility_changed` re-seeds the switches here when the dock or the popover
+## flips one. Hidden at the peek detent (a visible body would lift the peek above its 66 dp, `_quickbar_phone_probe`)
+## and off the MAP tab. Rebuilt each time the sheet shows and when a world loads, so the field list is the world's.
+## `_phone_map_row` stays the first row (the view buttons) because `_ms3b_probe` and the 44 dp checks read it.
 func _refresh_phone_map_row() -> void:
-	## Not at peek: the row is a 44 dp control in the sheet's own column, and the sheet's minimum height is the
-	## sum of its children's, so a visible row would lift the peek detent above its 66 dp
-	## (`_quickbar_phone_probe`: "the empty peek is 66 dp"). The peek shows the header only, as before.
 	var show: bool = _phone and _phone_tab == "map" and _phone_detent != "peek"
-	if show and _phone_map_row == null and _phone_dom_host != null and _phone_dom_host.get_parent() != null:
-		var row := HBoxContainer.new()
-		row.name = "MapRow"
-		row.add_theme_constant_override("separation", _pscale(8))
-		var b1 := DccWidgets.action(row, "Layers & fields", func():
-			var lp = get("layers_popover")
-			if lp != null:
-				lp.open())
-		b1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var b2 := DccWidgets.action(row, "Fit world", func():
-			var vp = get("viewport")
-			if vp != null:
-				vp.reset_view())
-		b2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var b3 := DccWidgets.action(row, "2D / 3D", func():
-			var vp = get("viewport")
-			if vp != null:
-				vp.set_3d(not vp.is_3d()))
-		b3.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var holder: Node = _phone_dom_host.get_parent()
-		holder.add_child(row)
-		holder.move_child(row, _phone_dom_host.get_index())
-		_phone_map_row = row
-		phone_fit(row, _phone_scale)
+	var holder: Node = _phone_dom_host.get_parent() if _phone_dom_host != null else null
+	if show and _phone_map_body == null and holder != null:
+		_phone_map_body = ScrollContainer.new()
+		_phone_map_body.name = "MapBody"
+		_phone_map_body.visible = false   ## the first `show` below rebuilds it (only a hidden to shown change does)
+		_phone_map_body.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		_phone_map_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_phone_map_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		holder.add_child(_phone_map_body)
+		## Before the tool-options scroller, not after it: that scroller is an expanding sibling and a body placed
+		## behind it was squeezed to a few rows (first probe screenshot, 2026-11-13).
+		holder.move_child(_phone_map_body, _phone_tool_scroll.get_index() if _phone_tool_scroll != null and _phone_tool_scroll.get_parent() == holder else _phone_dom_host.get_index())
+		var br := _find_engine_bridge()
+		if br != null:
+			br.generation_finished.connect(func(_ok: bool): _rebuild_phone_map_body())
+			br.world_loaded.connect(func(): _rebuild_phone_map_body())
+		var vp0 = get("viewport")
+		if vp0 != null and vp0.has_signal("layer_visibility_changed"):
+			vp0.layer_visibility_changed.connect(_sync_phone_map_toggles)
+	if _phone_map_body != null:
+		if show and not _phone_map_body.visible:
+			_phone_map_body.visible = true
+			_rebuild_phone_map_body()
+		elif not show:
+			_phone_map_body.visible = false
 	if _phone_map_row != null:
 		_phone_map_row.visible = show
+
+## Empties and refills the MAP body from the host and the engine (see `_refresh_phone_map_row()`). Safe while the
+## body is hidden. The view field is a dropdown of every available view in `debug_layers()` order, "Base map" first,
+## each labelled `group · view` because a dropdown has no group headings; picking one calls the popover's own
+## `set_debug_layer()`.
+func _rebuild_phone_map_body() -> void:
+	if _phone_map_body == null or not is_instance_valid(_phone_map_body) or not _phone_map_body.visible:
+		return
+	for c in _phone_map_body.get_children():
+		_phone_map_body.remove_child(c)
+		c.queue_free()
+	_phone_map_toggles.clear()
+	_phone_map_row = null
+	var vp = get("viewport")
+	var br := _find_engine_bridge()
+	if vp == null or br == null:
+		return
+	var body := VBoxContainer.new()
+	body.name = "MapBodyColumn"
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", _pscale(6))
+	_phone_map_body.add_child(body)
+
+	var row := HBoxContainer.new()
+	row.name = "MapRow"
+	row.add_theme_constant_override("separation", _pscale(8))
+	body.add_child(row)
+	var b1 := DccWidgets.action(row, "All layers", func():
+		var lp = get("layers_popover")
+		if lp != null:
+			lp.open())
+	b1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var b2 := DccWidgets.action(row, "Fit world", func(): vp.reset_view())
+	b2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var b3 := DccWidgets.action(row, "2D / 3D", func(): vp.set_3d(not vp.is_3d()))
+	b3.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_phone_map_row = row
+
+	## The view field and its opacity.
+	var fsec := DccWidgets.section(body, "View field")
+	var ids: Array = ["off"]
+	var labels: Array = ["Base map"]
+	for g in br.debug_layers():
+		for it in (g as Dictionary)["items"]:
+			var item: Dictionary = it
+			if bool(item["available"]):
+				ids.append(String(item["id"]))
+				labels.append("%s · %s" % [String((g as Dictionary)["group"]), String(item["label"])])
+	var cur := ids.find(String(vp.debug_view()))
+	DccWidgets.choice(fsec, "Showing", labels, maxi(cur, 0), func(i: int): vp.set_debug_layer(String(ids[i])))
+	DccWidgets.slider(fsec, "Opacity", 0.0, 100.0, 1.0, float(vp.debug_opacity()) * 100.0, "%",
+		func(v: float): vp.set_debug_opacity(v / 100.0))
+
+	## The six Measure modes, from `GlobalTools.MEASURE_MODES` (one list, so a seventh mode appears here too).
+	var msec := DccWidgets.section(body, "Measure")
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", _pscale(8))
+	grid.add_theme_constant_override("v_separation", _pscale(8))
+	msec.add_child(grid)
+	for m in GlobalTools.MEASURE_MODES:
+		var mid := String((m as Dictionary)["id"])
+		var mb := DccWidgets.action(grid, String((m as Dictionary)["label"]), func():
+			GlobalTools.set_measure_mode(self, mid)
+			call("arm_tool", "measure"))   ## `arm_tool()` is `app.gd`'s (this class is its base).
+		mb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	## Quick visibility: the Visible layers band's own rows, the same switch as CARTO > Layers.
+	var lsec := DccWidgets.section(body, "Visible layers")
+	for l in CartographyWorkspace.LIVE_LAYERS:
+		var lid := String((l as Dictionary)["id"])
+		var write := (func(on: bool): vp.set_landmarks_shown_by_user(on)) if lid == "landmarks" \
+			else (func(on: bool): vp.set_layer_visible(lid, on))
+		_phone_map_toggles[lid] = DccWidgets.toggle(lsec, String((l as Dictionary)["label"]),
+			vp.layer_visible(lid), write)
+	phone_fit(_phone_map_body, _phone_scale)
+
+## Re-seeds the MAP body's switches after a layer flips anywhere else (`ViewportHost.layer_visibility_changed`).
+## `set_pressed_no_signal()`, so the write does not echo back into `set_layer_visible()`.
+func _sync_phone_map_toggles(layer: String, shown: bool) -> void:
+	var cb = _phone_map_toggles.get(layer)
+	if cb != null and is_instance_valid(cb):
+		(cb as CheckBox).set_pressed_no_signal(shown)
 
 ## The sheet surface. Portrait: `background:#15171a; border-radius:22px 22px 0 0`
 ## (`candidates/Android Chrome B.dc.html`, and the prototype's own
