@@ -190,6 +190,31 @@ switch hook) and `dcc_widgets.gd` (`_paint_switch()`, `phone_switch()`).
   the three sizes; `_phoneui` fails 1 of 25 at 393 x 852 (as recorded for `origin/main`) and 3 of 25 at 852 x 393
   (the same 3 on `origin/main` `5741001a`, so not this change; `_quickbar_phone` fails its one launch-state check on both trees for want of a wiped user dir). **Mutants, 8 of 8 killed windowed:** dot size 5 to 1, the dot repaint removed, the `phone_fit()` switch hook removed, the real-density floor 44 dp to 40, `PHONE_SWITCH_BOOST` 1.3 to 1.0, the MAP body never shown, a layer switch writing the inverse, a Measure button not setting its mode.
 
+### Phone leftovers: switches inside windows are large, MAP gains the chunk-grid switch (built 2026-11-13)
+
+Two leftovers of "Phone fixes from the 6T report" above. Read at `dcc_shell.gd` (`phone_fit()`'s switch branch,
+`_fit_switch()`, `_fit_switch_late()`, `_on_switch_node_added()`, `_rebuild_phone_map_body()`) and `dcc_widgets.gd`
+(`phone_switch()`, `_paint_switch()`).
+- **Switches in windows, cause.** `phone_fit(window, 1.0)` is the window call shape and `phone_switch()` returned at
+  unit 1.0, so every switch in a phone window kept the un-boosted 40 x 22 glyph and a 41 dp box (and the window is fitted
+  BEFORE `phone_present()` gives it its content scale, and some windows never run `phone_fit()` at all: Quick bar, New
+  World's later rows). **Fix, one helper:** `_fit_switch()` (`phone_switch(cb, unit, in_window)` plus the 44 dp real-density
+  floor divided by the window's factor), reached from the `phone_fit()` walk on the sheets and, for windows, from
+  `_fit_switch_late()`, which a `SceneTree.node_added` hook (phone only) calls for every `CheckBox` / `CheckButton` and
+  which waits for the switch's first `draw` and its window's factor. No control sets its own size.
+- **Measured** (`_p13fix_probe.gd`, windowed, real touch, 1080 x 2340 and 2340 x 1080 @2.8125, 1080 x 1920 and
+  1920 x 1080 @3): **102 of 102 at each of the four.** Window census at 1080 x 2340 @2.8125 (counted per window, each
+  closed before the next): Assistant settings 45, Quick bar 29, New World 34, Export 35, Travel library 27, Journey
+  planner 5 (175 in all); every box at least 124 px (44.1 dp), painted glyph 136 x 75 px, bare glyph 76 x 75 px (27 dp
+  tall). Before this change a first run failed 18 / 2 / 7 / 8 of those on box and glyph. `_ms3` 33 and `_ms3b` 28 pass at
+  1080 x 2340 @2.625 and 1080 x 1920 @3. **Mutants, 3 of 3 killed:** the window boost off (4 fail), the floor 44 -> 40
+  (10 fail), the grid switch writing "colors" (1 fails). Not measured: the 6T itself.
+- **MAP's North up, grid and scale-bar toggles, read at the symbols:** the desktop has **no** North-up control (the map
+  cannot rotate), **no** scale-bar toggle (`_update_scale_bar()` always draws it), and its only grid is Preferences >
+  Tiles & LOD > Chunk debug overlay > Grid, i.e. `ViewportHost.set_lod_debug("grid")` (`menus.gd::_on_lod_debug()`).
+  Built: a "Map view" section with **Chunk grid (tiled view)**, through that same call and state. **Not built, for want of
+  a host call:** North up (arrives with rotation) and the scale-bar toggle; they are the owner's to schedule.
+
 ### New World: the Auto-populate switches act, the settlement presets are back on the first screen, a base technology level, a heightmap preview (owner report, 2026-11-13)
 
 Owner, verbatim: *"Generating roads, labels, the toggle in new world seems to have no effect. Also the option for the amount of plates or the world presets such as how much villages and how the population of villages behaves seems to have gone missing. Additionally: in the new world I want to be able to set the base tech level for the whole world also, next to the phase the world is in. And the preview, instead of grey on blue a rudimentary heightmap would be preferred."* Each item was opened at its symbols and reproduced windowed on the unchanged tree (`origin/main` `97209d6e`) before anything was changed. Probe: `_newworld_items_probe.tscn` (legs `layout`, `preview`, `presets`, `tech`, `toggles`); evidence, before and after, in `cartalith-native/docs/evidence/new-world-2026-11-13/`.

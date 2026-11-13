@@ -1728,6 +1728,10 @@ func _compute_layout_mode() -> void:
 	## (spec §3.5), never a flipped flag under a composition built for the other class.
 	if not _booted:
 		_phone = bool(_layout["phone"])
+		## Switches that no `phone_fit()` walk reaches (a window built without one, or a row added after its walk:
+		## Quick bar, New World's auto-populate rows) are caught as they enter the tree. Owner leftover 2026-11-13.
+		if _phone and not get_tree().node_added.is_connected(_on_switch_node_added):
+			get_tree().node_added.connect(_on_switch_node_added)
 	_landscape = bool(_layout["landscape"])
 	## MS-1 S2: the phone's unit from the density, 1.0 off the phone (draft 02's `_phone_scale_for()`).
 	_phone_scale = _phone_scale_for(px, float(d["value"]))
@@ -3267,6 +3271,66 @@ func set_tool_options(build: Callable) -> void:
 ## rebuild and a second multiplication would grow every row without bound.
 const _PHONE_FIT_META := "_phone_fitted"
 
+## One switch's glyph boost and 44 dp real-density floor. `unit` is the phone unit on the main viewport, 1.0 in a
+## window, whose own content scale is `win_csf`. 44 dp of the device's REAL density as well as of the phone unit: the
+## unit is the density capped at short side / 412, so 44 units is 41 dp on the 6T (2.625 x 44 against 2.8125 x 44).
+## Only a switch is raised, by a few px.
+func _fit_switch(cb: BaseButton, unit: float, win_csf: float) -> void:
+	DccWidgets.phone_switch(cb, unit, win_csf > 1.0)
+	var dp_floor := ceilf(44.0 * float(_density()["value"]) / maxf(win_csf, 1.0))
+	cb.custom_minimum_size = Vector2(maxf(cb.custom_minimum_size.x, dp_floor),
+		maxf(cb.custom_minimum_size.y, dp_floor))
+
+
+## `SceneTree.node_added` hook (phone only, see `_compute_layout_mode()`'s connect): every `CheckBox` / `CheckButton` is
+## sized by the same `_fit_switch()` one idle frame later, once its parents and its window's content scale exist.
+## Idempotent with `phone_fit()`'s own pass (`phone_switch()` stores what it painted), so a switch both reach is
+## sized once. Never touches anything else.
+func _on_switch_node_added(n: Node) -> void:
+	if n is CheckBox or n is CheckButton:
+		_fit_switch_late.call_deferred(n as BaseButton)
+
+## Deferred half of `_on_switch_node_added()`: a window's factor wins; on the main viewport the phone unit does.
+func _fit_switch_late(cb: BaseButton, tries: int = 0) -> void:
+	if not is_instance_valid(cb) or not cb.is_inside_tree():
+		return
+	var csf := _switch_window_scale(cb)
+	if csf > 1.0:
+		_fit_switch(cb, 1.0, csf)
+		return
+	var w := cb.get_window()
+	if w == get_window():
+		if _phone_scale > 1.0:
+			_fit_switch(cb, _phone_scale, 1.0)
+		return
+	## A dialog may be built (and its rows added) long before `phone_present()` scales it: New World's auto-populate
+	## rows, measured 2026-11-13 (their window's `visibility_changed` never reached us), and any window prebuilt
+	## hidden at boot. So wait for the switch's own first `draw` (it only fires once the control is visible in the
+	## tree, a signal and not a per-frame poll over hundreds of switches), then look again; a window that is visible
+	## but still unscaled is polled for up to 300 frames (5 s at 60 fps).
+	if not cb.is_visible_in_tree():
+		if not cb.draw.is_connected(_fit_switch_after_draw.bind(cb)):
+			cb.draw.connect(_fit_switch_after_draw.bind(cb), CONNECT_ONE_SHOT)
+	elif tries < 300:
+		await get_tree().process_frame
+		_fit_switch_late(cb, tries + 1)
+
+## `_fit_switch_late()`'s retry, once the switch has first been drawn.
+func _fit_switch_after_draw(cb: BaseButton) -> void:
+	await get_tree().process_frame
+	_fit_switch_late(cb)
+
+## The content scale of the nearest ancestor `Window` of `ctl` when that is above 1.0 (a phone window's own unit,
+## `DccWidgets.phone_window()`), else 1.0. `phone_fit(d, 1.0)` is the window call shape, so this is how a switch
+## there learns it is on a phone at all. Not-in-tree controls walk their parents just the same.
+func _switch_window_scale(ctl: Node) -> float:
+	var n: Node = ctl.get_parent()
+	while n != null:
+		if n is Window:
+			return maxf((n as Window).content_scale_factor, 1.0) if _phone else 1.0
+		n = n.get_parent()
+	return 1.0
+
 ## §13's touch-scroll deadzone, in authored pixels. See `phone_fit()`'s own
 ## `ScrollContainer` branch for why leaving it at Godot's 0 is not an option
 ## once a button forwards its drag.
@@ -3418,14 +3482,15 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			## own unit, so every `CheckBox` and `CheckButton` on a fitted surface follows the phone and no control
 			## sets its own size.
 			if ctl is CheckBox or ctl is CheckButton:
-				DccWidgets.phone_switch(ctl as BaseButton, unit)
-				## 44 dp of the device's REAL density as well: the phone unit is the density capped at short side /
-				## 412, so 44 units is 41 dp on the 6T (2.625 x 44 against 2.8125 x 44). Only a switch is raised, by
-				## a few px, and only on the main viewport (`unit` > 1; a phone window's content scale is its own).
+				## A switch in a phone WINDOW arrives with `unit` 1.0 and a content-scaled ancestor `Window`; the
+				## same glyph boost and 44 dp real-density floor apply there, in that window's local pixels.
 				if unit > 1.0:
-					var dp_floor := ceilf(44.0 * float(_density()["value"]))
-					ctl.custom_minimum_size = Vector2(maxf(ctl.custom_minimum_size.x, dp_floor),
-						maxf(ctl.custom_minimum_size.y, dp_floor))
+					_fit_switch(ctl as BaseButton, unit, 1.0)
+				else:
+					## A window is fitted at `unit` 1.0 BEFORE `phone_present()` gives it its content scale (measured
+					## 2026-11-13: Assistant settings, Quick bar, New World and Export all arrived unscaled), so the
+					## window case is decided one idle frame later, when the ancestor `Window`'s factor is final.
+					_fit_switch_late.call_deferred(ctl as BaseButton)
 			## Everything from here to the `ScrollContainer` deadzone -- and
 			## the `touch_slider()` call that used to sit in the `HSlider`
 			## branch above -- moved into `_touch_arbitrate()` below, verbatim,
@@ -9132,6 +9197,15 @@ func _rebuild_phone_map_body() -> void:
 			else (func(on: bool): vp.set_layer_visible(lid, on))
 		_phone_map_toggles[lid] = DccWidgets.toggle(lsec, String((l as Dictionary)["label"]),
 			vp.layer_visible(lid), write)
+	## The proposal's North up / grid / scale bar toggles (`MOBILE_SHELL_PROPOSAL.md` §2, MAP), read at the symbols
+	## 2026-11-13: the desktop has NO North-up control (the map cannot rotate yet, so it is always north up), NO scale-bar
+	## toggle (`_update_scale_bar()` always draws it), and its only grid is Preferences > Tiles & LOD > Chunk debug
+	## overlay > Grid, i.e. `set_lod_debug("grid")` (`menus.gd::_on_lod_debug()`). So only that one is built here, through
+	## the same host call and the same state, labelled as the chunk grid it is; the other two have no host call to write.
+	if vp.has_method("set_lod_debug"):
+		var vsec := DccWidgets.section(body, "Map view")
+		_phone_map_toggles["lod_grid"] = DccWidgets.toggle(vsec, "Chunk grid (tiled view)",
+			vp.lod_debug_enabled("grid"), func(on: bool): vp.set_lod_debug("grid", on))
 	phone_fit(_phone_map_body, _phone_scale)
 
 ## Re-seeds the MAP body's switches after a layer flips anywhere else (`ViewportHost.layer_visibility_changed`).

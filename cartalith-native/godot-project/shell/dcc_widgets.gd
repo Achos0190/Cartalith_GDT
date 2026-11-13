@@ -3321,9 +3321,9 @@ static func _paint_switch(cb: BaseButton) -> void:
 	## stored on the control by `phone_switch()` (called from `DccShell.phone_fit()` with the phone unit) and read
 	## here, so a palette flip's repaint (`_palette_watch()`) keeps the size. 1.0 everywhere else: a phone WINDOW's
 	## content scale already scales the texture, and desktop and tablet are unchanged.
+	## `SWITCH_UNIT_META` holds the unit already multiplied by `PHONE_SWITCH_BOOST` (1.0 = never phone-fitted), so a
+	## window switch (local unit 1.0, boosted 1.3) and a sheet switch share this one line.
 	var unit := float(cb.get_meta(SWITCH_UNIT_META, 1.0))
-	if unit > 1.0:
-		unit *= PHONE_SWITCH_BOOST
 	var w := int(round((40 if touch else 30) * unit))
 	var h := int(round((22 if touch else 17) * unit))
 	var knob := int(round((18 if touch else 13) * unit))
@@ -3381,15 +3381,22 @@ const PHONE_SWITCH_BOOST := 1.3
 ## lists, plus every `CheckButton`) keeps Godot's own glyph, because its tint is wanted there, but each of the four
 ## state icons is rescaled so it is at least `PHONE_BARE_GLYPH_UNITS` units tall (and never smaller than the stock
 ## icon times `unit`). Idempotent: the unit is stored and a second call at the same unit does nothing.
-static func phone_switch(cb: BaseButton, unit: float) -> void:
-	if not (cb is CheckBox or cb is CheckButton) or unit <= 1.0:
+static func phone_switch(cb: BaseButton, unit: float, in_window: bool = false) -> void:
+	if not (cb is CheckBox or cb is CheckButton) or (unit <= 1.0 and not in_window):
 		return
-	if cb.has_meta(SWITCH_UNIT_META) and is_equal_approx(float(cb.get_meta(SWITCH_UNIT_META)), unit):
+	## Owner leftover, 2026-11-13: a switch inside a phone WINDOW (Preferences, the planner, ...) is laid out in the
+	## window's own units (`unit` 1.0; its content scale does the scaling), so it kept the un-boosted 40 x 22 glyph
+	## the sheets had before `PHONE_SWITCH_BOOST`. `in_window` (the caller found a content-scaled ancestor
+	## `Window`) boosts it in those local units; the compositor then scales it by the window's own factor.
+	var local := maxf(unit, 1.0)
+	var mult := local * PHONE_SWITCH_BOOST
+	if cb.has_meta(SWITCH_UNIT_META) and is_equal_approx(float(cb.get_meta(SWITCH_UNIT_META)), mult):
 		return
-	cb.set_meta(SWITCH_UNIT_META, unit)
+	cb.set_meta(SWITCH_UNIT_META, mult)
 	if cb.has_meta(PALETTE_META):
 		_paint_switch(cb)
 		return
+	unit = local
 	for slot in ["checked", "unchecked", "checked_disabled", "unchecked_disabled",
 			"radio_checked", "radio_unchecked"]:
 		if not cb.has_theme_icon(slot):

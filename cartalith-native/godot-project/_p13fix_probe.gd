@@ -194,12 +194,14 @@ func _census(label: String) -> Dictionary:
 		min_box = minf(min_box, minf(box.x, box.y))
 		if box.x < 44.0 * _dens - 1.0 or box.y < 44.0 * _dens - 1.0:
 			small_box += 1
-			print("  small box: ", cb.get_path(), " ", box)
+			print("  small box: ", cb.get_path(), " ", box, " scale ", scale, " meta ", cb.get_meta("dcc_switch_unit", "none"), " fitted ", cb.has_meta("_phone_fitted"), " min ", cb.custom_minimum_size, " win ", cb.get_window().get_class(), " vis ", cb.get_window().visible, " csf ", cb.get_window().content_scale_factor, " treewin==root ", cb.get_window() == get_tree().root)
 		var tex: Texture2D = cb.get_theme_icon("checked")
 		var g := Vector2(tex.get_size()) * scale if tex != null else Vector2.ZERO
 		min_h = minf(min_h, g.y)
 		min_w = minf(min_w, g.x)
-		if g.y < 26.0 * u - 1.0 or g.x < 48.0 * u - 1.0:
+		## A painted switch is a pill (48 units wide); a bare check or radio glyph is square, so only its height counts.
+		var pill := cb.has_meta("dcc_palette_dark") or cb.get_theme_icon("checked").get_width() > cb.get_theme_icon("checked").get_height()
+		if g.y < 26.0 * u - 1.0 or (pill and g.x < 48.0 * u - 1.0):
 			small_glyph += 1
 			print("  small glyph: ", cb.get_path(), " ", g)
 	print("CENSUS %s: %d switches, smallest box %.1f px (%.1f dp), smallest glyph %.1f x %.1f px (%.1f x %.1f dp)" % [
@@ -340,7 +342,8 @@ func _run(vw: int, vh: int) -> void:
 			shorter += 1
 	_ok(shorter == 0, "MAP: every button in the body is at the 44 unit floor (%d under it, of %d)" % [shorter, buttons.size()])
 	var toggles: Dictionary = _app._phone_map_toggles
-	_ok(toggles.size() == 10, "MAP: ten visible-layer switches (got %d: %s)" % [toggles.size(), str(toggles.keys())])
+	_ok(toggles.size() == 11, "MAP: ten visible-layer switches plus the chunk-grid switch (got %d: %s)" % [toggles.size(), str(toggles.keys())])
+	_ok(toggles.has("lod_grid"), "MAP: the chunk-grid switch is there (the desktop has no North up or scale-bar control to mirror)")
 	for id in ["settlements", "roads", "landmarks", "rivers", "provinces", "territory"]:
 		_ok(toggles.has(id), "MAP: a switch for '%s'" % id)
 	var opts: Array = []
@@ -363,6 +366,18 @@ func _run(vw: int, vh: int) -> void:
 		await _tap(tcb.get_global_rect().get_center())
 		await _settle()
 		_ok(vp.layer_visible("settlements") == was, "MAP: a second tap puts it back")
+	# a real tap on the chunk-grid switch writes the same state Preferences > Tiles & LOD > Chunk debug overlay > Grid reads
+	var gcb := toggles.get("lod_grid") as CheckBox
+	if gcb != null:
+		body.ensure_control_visible(gcb)
+		await _frames(3)
+		var gwas: bool = vp.lod_debug_enabled("grid")
+		await _tap(gcb.get_global_rect().get_center())
+		await _settle()
+		_ok(vp.lod_debug_enabled("grid") == (not gwas), "MAP: a tap on Chunk grid flips the host's lod-debug grid (was %s)" % str(gwas))
+		await _tap(gcb.get_global_rect().get_center())
+		await _settle()
+		_ok(vp.lod_debug_enabled("grid") == gwas, "MAP: a second tap puts it back")
 	# a real tap on a Measure mode (not the armed default) arms the Measure tool
 	for b in buttons:
 		if (b as Button).text.to_upper() == "AREA":
@@ -394,3 +409,31 @@ func _run(vw: int, vh: int) -> void:
 	await _tap(_centre("domain"))
 	await _settle()
 	_ok(not _app._phone_map_body.visible, "the MAP body is hidden off the MAP tab")
+
+	await _window_census()
+
+## Census of switches inside the windows the probe opens (owner leftover, 2026-11-13): each is counted and must be at
+## least 44 dp of real density in its box and carry the boosted glyph. Closes each window after counting.
+func _window_census() -> void:
+	var total := 0
+	var opens := {
+		"Assistant settings": func(): _app.open_assistant_settings(),
+		"Quick bar": func(): _app.open_quick_bar_window(),
+		"New World": func(): _app.open_new_world(),
+		"Export": func(): _app.open_export_dialog(),
+		"Travel library": func(): _app.open_travel_library(),
+		"Journey planner": func(): _app.open_journey_planner(),
+	}
+	for k in opens.keys():
+		(opens[k] as Callable).call()
+		await get_tree().create_timer(0.6).timeout
+		await _frames(4)
+		var c := _census("window " + String(k))
+		total += int(c["n"])
+		_ok(int(c["small_box"]) == 0, "window %s: no switch box under 44 dp (%d do)" % [k, int(c["small_box"])])
+		_ok(int(c["small_glyph"]) == 0, "window %s: no switch glyph under 26 x 48 units (%d are)" % [k, int(c["small_glyph"])])
+		for w in _app.get_children():
+			if w is Window and (w as Window).visible:
+				(w as Window).hide()
+		await _frames(3)
+	_ok(total >= 150, "the windows' switch census found switches (%d in all)" % total)
