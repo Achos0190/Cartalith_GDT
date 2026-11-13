@@ -3708,3 +3708,14 @@ off. The owner chose, verbatim: **"Runoff share of rain"**.
    0.58: **+7 %, -19 % and +15 %** on 246371, 483920 and 912345 (GPU on), against **+7 %, +1 % and +31 %** with the
    whole discharge. The window is narrow (below about 0.555 seed 483920 is more than 20 % smaller; at 0.60 a large basin
    on 912345 spills and the area jumps). `DELTA_GEOMETRY_RESEARCH.md` 14.10.
+
+## Ruling EW: the city map look, its markers and user-placed points of interest (owner, 2026-11-13)
+
+Answers to `CITY_MAP_LOOK_SCOPE.md` §6, given after the before/after example (`cartalith-native/docs/evidence/city-look-2026-11-13/example_before_after.png`):
+
+1. **Where the look applies (Q1):** *"Everywhere, but let's correct one thing. I can't see the castle in the new one. The green, grass should always reflect the local terrain and the castle/fortifications are missing in the right one and only has a marker, I want the full walled thing. And walls were expensive so a lot of free space between the wall and the first city on the inside is unrealistic."* So: the City Viewer, the map's town layer and export, through one shared draw; the ground takes the **local terrain's** colour (biome/land cover at the settlement), never a fixed green; the citadel or castle is **drawn in full** as a walled fortification (curtain, towers, gate, keep), not only as a pin; and the town wall **hugs the built-up area**: a wide empty band between the wall and the first buildings is unrealistic because walls were expensive. The last point changes generated layouts and is a §7p change (on for new layouts, off at the reference boundary).
+2. **Old style (Q2):** *"Keep both"* — the ink-and-parchment style stays as a selectable alternative beside the new look.
+3. **Marker click (Q3):** *"Card with a Note section"* — a left click (tap on touch) on a marker opens the existing information card, extended with a Note section that opens or creates the linked vault note (one path; reuse `ContextNote`).
+4. **Points of interest (Q5):** *"Yes, user-placed POIs"* — the user can place taverns, shops and other points of interest as pins with vault notes. This reverses the earlier decision not to port POIs (CV-01).
+
+Questions not asked (Q4, Q6–Q9) take the scope's defaults.

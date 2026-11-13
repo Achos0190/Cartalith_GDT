@@ -274,6 +274,8 @@ a documented decision and needs one.
 
 ---
 
+**Owner answers, 2026-11-13: Ruling EW** (`LARGE_ITEM_RULINGS.md`). Q1 everywhere, with three corrections: the ground follows the local terrain, the citadel/castle is drawn in full as a walled fortification, and the wall hugs the built area (no wide empty band inside it; a §7p layout change). Q2 keep both styles. Q3 card with a Note section. Q5 user-placed POIs (reverses CV-01). Q4, Q6–Q9 take their defaults. The milestones below must absorb these.
+
 ## 7. Sources
 
 External, retrieved 2026-11-13 by search snippet only (the pages were not opened); treat as pointers.
