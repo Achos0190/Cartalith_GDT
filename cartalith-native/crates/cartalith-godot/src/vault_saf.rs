@@ -47,6 +47,7 @@
 //! | `"exists"` | `[rel: String]` | `value: bool` |
 //! | `"write"` | `[rel: String, text: String]` | (no payload needed) |
 //! | `"can_move"` | `[]` | `value: bool`: whether `"move"` can succeed on this grant at all (VE-6, asked before a rename is planned) |
+//! | `"move_dir"` | `[from: String, to: String]` | `method: String`, as `"move"` but for a folder and everything in it. Must refuse, changing nothing, when `to` exists; a copy that could not delete every original answers `ok: false` naming what remains in both places |
 //! | `"move"` | `[from: String, to: String]` | `method: String` (`"move"`, `"rename"` or `"copy_delete"`: which the provider really used). Must refuse, changing nothing, when `to` exists; a copy that could not delete its original answers `ok: false` naming both paths |
 //!
 //! A call that cannot succeed returns `{"ok": false, "error": "..."}` and
@@ -233,6 +234,14 @@ impl VaultProvider for SafVaultProvider {
         guard(from)?;
         guard(to)?;
         self.call("move", varray![from, to])?;
+        Ok(())
+    }
+
+    /// Moves the folder `from` and everything in it to `to` through the `"move_dir"` op (the folder form of `"move"`; same ladder on the handler's side: the provider's rename, its move, then copy plus delete). Both paths are checked by [`guard`]. A handler that does not know the op answers `ok: false` ("unknown op"), which arrives here as an error: a folder rename is refused, never guessed. A copy whose originals could not all be deleted arrives as the handler's error naming what is left in both places.
+    fn move_dir(&self, from: &str, to: &str) -> Result<(), VaultError> {
+        guard(from)?;
+        guard(to)?;
+        self.call("move_dir", varray![from, to])?;
         Ok(())
     }
 

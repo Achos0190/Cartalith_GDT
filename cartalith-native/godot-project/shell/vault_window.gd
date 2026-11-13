@@ -2343,12 +2343,37 @@ func search_text_for(query: String) -> void:
 	_run_search()
 
 
-## The file tree's menu for the note `rel` (VE-6): one row, Rename..., at the pointer.
-func _show_tree_menu(rel: String, tree: Tree) -> void:
+## How long a finger must rest on a file-tree row before its menu opens, and how far it may wander (px) first.
+## Judgement: the platform's own long-press is about 0.4 to 0.5 s.
+const TREE_LONG_PRESS_S := 0.5
+const TREE_LONG_PRESS_SLOP := 12.0
+
+
+## Opens the menu for the tree row `it`: a note by its metadata, a folder by `folder_of_item`.
+func _tree_menu_for(it: TreeItem, tree: Tree, folder_of_item: Dictionary) -> void:
+	var rel := String(it.get_metadata(0))
+	if rel != "":
+		_show_tree_menu(rel, tree)
+	elif folder_of_item.has(it.get_instance_id()):
+		_show_tree_menu(String(folder_of_item[it.get_instance_id()]), tree, true)
+
+
+## The file tree's menu at the pointer (VE-6): a note has Rename...; a folder (`is_dir`) has Rename folder... and
+## Move folder.... Right-click on desktop, a long press on touch.
+func _show_tree_menu(rel: String, tree: Tree, is_dir: bool = false) -> void:
 	var pm := PopupMenu.new()
 	pm.name = "TreeMenu"
-	pm.add_item("Rename...", 0)
-	pm.id_pressed.connect(func(_id: int): request_rename_of(rel))
+	if is_dir:
+		pm.add_item("Rename folder...", 0)
+		pm.add_item("Move folder...", 1)
+		pm.id_pressed.connect(func(id: int):
+			if id == 0:
+				request_rename_folder(rel)
+			else:
+				request_move_folder(rel))
+	else:
+		pm.add_item("Rename...", 0)
+		pm.id_pressed.connect(func(_id: int): request_rename_of(rel))
 	pm.popup_hide.connect(pm.queue_free, CONNECT_DEFERRED)
 	add_child(pm)
 	DccWidgets.popup_anchored(pm, Rect2(tree.get_global_mouse_position(), Vector2(2, 2)), 200)
@@ -3198,6 +3223,19 @@ static func rename_target(typed: String) -> String:
 	return t if t.to_lower().ends_with(".md") else t + ".md"
 
 
+## `path` after the folder `old` was renamed to `new_rel`: a path that is `old` or inside it is re-rooted, any
+## other path is returned unchanged, and "" stays "" (no path is not a path; never invent one). The same prefix
+## rule the crate applies to the notes (`RenamePlan::moves`).
+static func folder_follow(path: String, old: String, new_rel: String) -> String:
+	if path == "":
+		return ""
+	if path == old:
+		return new_rel
+	if path.begins_with(old + "/"):
+		return new_rel + path.substr(old.length())
+	return path
+
+
 ## Properties > Rename...: asks for the new name, then plans (`_rename_plan`). The open note is saved first
 ## through the one writer (`_write_now`), so the plan reads what is on disk and no unsaved typing can be
 ## lost or overwritten by the move. Only the window's editor renames (the docked Note tab has no side
@@ -3223,25 +3261,113 @@ func request_rename_of(old: String) -> void:
 		"Links to this note in your other notes are rewritten. You are told how many first.")
 
 
+## Rename a FOLDER of the vault (the file tree's menu and F2): asks for the new name, which stays in the same
+## parent. Every note inside moves, links to them are rewritten by the one planner, and the plan is confirmed
+## with its counts first. The open note is saved first, as for a note. A name with a `/` is taken as the whole
+## new path, which is the same operation as a move (`request_move_folder` asks for a destination instead).
+func request_rename_folder(old: String) -> void:
+	if old == "" or not bridge.vault_info().get("bound", false):
+		return
+	if not _write_now():
+		_rename_say("Not renamed: this note is not saved yet. Resolve the message above first.")
+		return
+	DccWidgets.prompt(PopoutHost.dialog_host(app, self), "Rename folder", "New name", old.get_file(), "Rename",
+		func(typed: String): _rename_plan(old, folder_rename_target(old, typed), false, true),
+		"Every note in it moves with it. Links to those notes in your other notes are rewritten, and you are told how many first.")
+
+
+## The folder's new full path for a renamed `typed` name: same parent, trimmed, a backslash read as a slash.
+## A name that still holds a slash is taken as the whole path, which the crate then checks. An empty name stays
+## empty, so the crate refuses it rather than this inventing a path.
+static func folder_rename_target(old: String, typed: String) -> String:
+	var t := typed.strip_edges().replace("\\", "/").trim_prefix("/").trim_suffix("/")
+	if t == "" or t.contains("/"):
+		return t
+	var parent := old.get_base_dir()
+	return t if parent == "" else parent + "/" + t
+
+
+## Move a FOLDER into another folder (the file tree's menu): asks for the destination folder (empty is the
+## vault's top level), then plans the same rename to `destination/<its name>`.
+func request_move_folder(old: String) -> void:
+	if old == "" or not bridge.vault_info().get("bound", false):
+		return
+	if not _write_now():
+		_rename_say("Not moved: this note is not saved yet. Resolve the message above first.")
+		return
+	DccWidgets.prompt(PopoutHost.dialog_host(app, self), "Move folder", "Move into folder (empty: the vault's top level)", old.get_base_dir(), "Move",
+		func(typed: String): _rename_plan(old, folder_move_target(old, typed), false, true),
+		"Every note in %s moves with it. Links to them are rewritten, and you are told how many first. A folder cannot go into itself." % old.get_file())
+
+
+## The folder's new full path when moved into `dest` (empty is the top level): `dest/<its own name>`.
+static func folder_move_target(old: String, dest: String) -> String:
+	var d := dest.strip_edges().replace("\\", "/").trim_prefix("/").trim_suffix("/")
+	return old.get_file() if d == "" else d + "/" + old.get_file()
+
+
+## The folder plan's confirmation text: what moves, how many notes, which links change in which notes, and the
+## same caveats as a note's. Every number is the crate's (`moves`, `links`, `files`), never counted here.
+func _folder_describe(old: String, new_rel: String, plan: Dictionary, locked: Array) -> String:
+	var moves: Array = plan.get("moves", [])
+	var lines := PackedStringArray()
+	lines.append("The folder %s will become %s, with the %d note%s in it (and anything else in it, such as images)." % [old, new_rel, moves.size(), "" if moves.size() == 1 else "s"])
+	var inside := 0
+	var inside_links := 0
+	var others: Array = []
+	for f in plan.get("files", []):
+		var fd: Dictionary = f
+		if String(fd.get("path", "")).begins_with(old + "/"):
+			inside += 1
+			inside_links += int(fd.get("links", 0))
+		else:
+			others.append(fd)
+	var other_links := int(plan.get("links", 0)) - inside_links
+	if others.is_empty() and inside == 0:
+		lines.append("No link in any note changes.")
+	else:
+		lines.append("%d link%s in %d other note%s will be rewritten%s:" % [
+			other_links, "" if other_links == 1 else "s", others.size(), "" if others.size() == 1 else "s",
+			" (and %d in %d note%s inside the folder)" % [inside_links, inside, "" if inside == 1 else "s"] if inside > 0 else ""])
+		for i in mini(others.size(), 8):
+			lines.append("   %s (%d)" % [String((others[i] as Dictionary).get("path", "")), int((others[i] as Dictionary).get("links", 0))])
+		if others.size() > 8:
+			lines.append("   and %d more" % (others.size() - 8))
+	var amb: Array = plan.get("ambiguous", [])
+	if not amb.is_empty():
+		lines.append("%d link%s could mean more than one note and will be left alone." % [amb.size(), "" if amb.size() == 1 else "s"])
+	if int(plan.get("unreadable", 0)) > 0:
+		lines.append("%d note%s could not be opened, so their links were NOT checked." % [int(plan["unreadable"]), "" if int(plan["unreadable"]) == 1 else "s"])
+	if int(plan.get("knowledge_links", 0)) > 0:
+		lines.append("%d link%s from the map follow the notes." % [int(plan["knowledge_links"]), "" if int(plan["knowledge_links"]) == 1 else "s"])
+	if not locked.is_empty():
+		lines.append("READ-ONLY, so the links in them cannot be rewritten: %s." % ", ".join(PackedStringArray(locked)))
+	lines.append("If any of these notes changes on disk before you confirm, nothing is written and you are asked again. The whole move is one step: Undo puts the folder and the links back. On Android storage that cannot rename a folder it is copied and the original deleted, and you are told if the original could not be.")
+	return "\n".join(lines)
+
+
 ## Plans renaming `old` to `new_rel` (the crate's `vault_rename_plan`, which writes nothing) and asks the
 ## person to confirm with the count. `undo` only changes the wording. A refusal (name taken, unsafe path,
 ## a name Windows cannot hold) is said and nothing else happens. The note must still be the open one and
 ## saved; the plan's hash covers it and every note the plan would write.
-func _rename_plan(old: String, new_rel: String, undo: bool) -> void:
-	if _browse_path == old and _editor_path != _browse_path:
+func _rename_plan(old: String, new_rel: String, undo: bool, dir: bool = false) -> void:
+	if not dir and _browse_path == old and _editor_path != _browse_path:
 		_rename_say("Not renamed: the note on screen is no longer %s." % old)
 		return
 	if not _write_now():
 		_rename_say("Not renamed: this note is not saved yet. Resolve the message above first.")
 		return
-	var plan := bridge.vault_rename_plan(old, new_rel)
+	## One planner for both: a folder is planned by the crate's `folder_rename_plan_in`, which applies the note
+	## rule to every note inside it (`vault_folder_rename_plan`).
+	var plan := bridge.vault_folder_rename_plan(old, new_rel) if dir else bridge.vault_rename_plan(old, new_rel)
 	if not bool(plan.get("ok", false)):
-		_rename_say("Not renamed: %s." % String(plan.get("error", "refused")).trim_suffix("."))
+		_rename_say("Not %s: %s." % ["moved" if dir else "renamed", String(plan.get("error", "refused")).trim_suffix(".")])
 		return
 	var locked := _rename_unwritable(plan)
-	var verb := "Undo rename" if undo else "Rename"
-	DccWidgets.confirm(PopoutHost.dialog_host(app, self), verb if undo else "Rename note", _rename_describe(old, new_rel, plan, locked), verb,
-		func(): _rename_run(old, new_rel, plan, undo), _refocus_editor.call_deferred, 460)
+	var verb := "Undo rename" if undo else ("Move folder" if dir and old.get_base_dir() != new_rel.get_base_dir() else "Rename")
+	var text := _folder_describe(old, new_rel, plan, locked) if dir else _rename_describe(old, new_rel, plan, locked)
+	DccWidgets.confirm(PopoutHost.dialog_host(app, self), verb if undo else ("%s folder" % verb if dir and not verb.ends_with("folder") else "Rename note"), text, verb,
+		func(): _rename_run(old, new_rel, plan, undo, dir), _refocus_editor.call_deferred, 460)
 
 
 ## The notes the plan would write that are read-only on this device, found BEFORE anything moves so the
@@ -3308,21 +3434,24 @@ func _rename_describe(old: String, new_rel: String, plan: Dictionary, locked: Ar
 ## says exactly which; the rename is undoable (`_undo_rename`), and the undo is a rename back, not a
 ## byte-restore of the files. A plan whose notes changed since the confirmation is refused whole and planned
 ## again.
-func _rename_run(old: String, new_rel: String, plan: Dictionary, undo: bool) -> void:
-	if (_browse_path == old and _editor_path != _browse_path) or not _write_now():
+func _rename_run(old: String, new_rel: String, plan: Dictionary, undo: bool, dir: bool = false) -> void:
+	if (not dir and _browse_path == old and _editor_path != _browse_path) or not _write_now():
 		_rename_say("Not renamed: the note changed while you were deciding. Nothing was moved.")
 		return
-	var r := bridge.vault_rename(old, new_rel, String(plan.get("hash", "")))
+	var r := bridge.vault_folder_rename(old, new_rel, String(plan.get("hash", ""))) if dir else bridge.vault_rename(old, new_rel, String(plan.get("hash", "")))
 	if not bool(r.get("ok", false)):
 		if bool(r.get("conflict", false)):
 			_rename_say("A note changed while you were deciding, so nothing was written. Here is the plan again.")
-			_rename_plan.call_deferred(old, new_rel, undo)
+			_rename_plan.call_deferred(old, new_rel, undo, dir)
 		else:
 			_rename_say("Not renamed: %s." % String(r.get("error", "refused")).trim_suffix("."))
 		return
 	var failed: Array = r.get("failed", [])
-	_rename_last = {} if undo else {"old": old, "new": new_rel, "written": r.get("written", []), "failed": failed}
-	_rename_follow(old, new_rel)
+	_rename_last = {} if undo else {"old": old, "new": new_rel, "written": r.get("written", []), "failed": failed, "dir": dir}
+	if dir:
+		## Per-user remembered note folders that pointed inside the moved folder follow it.
+		DccSettings.vault_note_folders_follow(old, new_rel)
+	_rename_follow(old, new_rel, dir)
 	store_changed.emit()
 	var rewritten := int(r.get("links", 0))
 	var wrote: Array = r.get("written", [])
@@ -3352,17 +3481,28 @@ func _rename_run(old: String, new_rel: String, plan: Dictionary, undo: bool) -> 
 ## (`history_follow_rename`), the text and hash are read again (a note that links to itself was rewritten),
 ## and the editor is rebuilt from that state with its undo replayed, on the tab the person was on.
 ## `_editor_path` is cleared first so the old editor, alive until the rebuild, is never read as the new note.
-func _rename_follow(old: String, new_rel: String) -> void:
+func _rename_follow(old: String, new_rel: String, dir: bool = false) -> void:
 	var tab_was := String(_side_panel.tab) if _side_panel != null and is_instance_valid(_side_panel) else ""
 	## The note moved may not be the open one (the file tree's menu): then the open note stays open, and is
 	## read again because the move may have rewritten links inside it (`_browse_hash` would be stale).
 	var open_moved := _browse_path == old
-	history_follow_rename(old, new_rel)
-	if _pick_file == old or open_moved:
-		_pick_file = new_rel
-	for i in _link_back.size():
-		if String(_link_back[i]) == old:
-			_link_back[i] = new_rel
+	if dir:
+		## A folder: every remembered path inside it is mapped by prefix, the same way the crate mapped the notes.
+		for k in _hist.keys():
+			var mk := folder_follow(String(k), old, new_rel)
+			if mk != String(k):
+				history_follow_rename(String(k), mk)
+		_browse_path = folder_follow(_browse_path, old, new_rel)
+		_pick_file = folder_follow(_pick_file, old, new_rel)
+		for i in _link_back.size():
+			_link_back[i] = folder_follow(String(_link_back[i]), old, new_rel)
+	else:
+		history_follow_rename(old, new_rel)
+		if _pick_file == old or open_moved:
+			_pick_file = new_rel
+		for i in _link_back.size():
+			if String(_link_back[i]) == old:
+				_link_back[i] = new_rel
 	if _browse_path == "":
 		_rebuild()
 		return
@@ -3390,7 +3530,7 @@ func _undo_rename() -> void:
 	if _rename_last.is_empty():
 		return
 	## Any note can be undone from here now that any note can be renamed: the record names the moved note.
-	_rename_plan(String(_rename_last.get("new", "")), String(_rename_last.get("old", "")), true)
+	_rename_plan(String(_rename_last.get("new", "")), String(_rename_last.get("old", "")), true, bool(_rename_last.get("dir", false)))
 
 
 ## Keyboard focus back to the text, after a dialog that promised "Ctrl+Z brings it back" closed. Two
@@ -3635,6 +3775,7 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 	var dot: Texture2D = DccWidgets._round_dot(8, DccTheme.c("accent")) if not linked.is_empty() else null
 	var root := tree.create_item()
 	var folders := {"": root}    # folder path ("" = root) -> TreeItem
+	var folder_of_item := {}     # TreeItem instance id -> folder path (the menu and F2 act on it)
 	var leaves: Array = []       # [TreeItem, rel] for the private badge (Ruling DP, VE-9)
 	for rel in shown:
 		var parts := String(rel).split("/")
@@ -3645,8 +3786,12 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 			if not folders.has(cur_path):
 				var fi := tree.create_item(cur_item)
 				fi.set_text(0, String(parts[i]))
-				fi.set_selectable(0, false)
+				## Selectable so F2 can rename it; a selected folder opens nothing (its metadata is empty).
+				fi.set_selectable(0, true)
+				## "" and not null: `String(null)` is an error, and "" is what every reader below tests for.
+				fi.set_metadata(0, "")
 				folders[cur_path] = fi
+				folder_of_item[fi.get_instance_id()] = cur_path
 			cur_item = folders[cur_path]
 		var leaf := tree.create_item(cur_item)
 		leaf.set_text(0, String(parts[parts.size() - 1]))
@@ -3667,20 +3812,54 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 		## Synchronous, as it always was: the rebuild frees this Tree with
 		## `queue_free()`, which waits for the signal to return.
 		_select_file(rel))
-	## VE-6's open edge: rename from the file tree. A right-click on a note (or F2 on the selected one) opens a
-	## one-row menu. The press is taken before the Tree selects, so asking to rename a note does not also open
-	## it; the rename itself is `request_rename_of`, the same flow as the Properties tab's.
+	## VE-6's open edge: rename from the file tree. A right-click on a note or a folder (a long press on touch,
+	## which Godot does not turn into a right-click) or F2 on the selected row opens its menu. The press is
+	## taken before the Tree selects, so asking to rename a row does not also open it; the rename itself is
+	## `request_rename_of` / `request_rename_folder`, the same flows as the Properties tab's.
+	var press := {"item": null, "pos": Vector2.ZERO, "timer": null}
 	tree.gui_input.connect(func(ev: InputEvent):
-		if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed 				and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT:
+		if ev is InputEventMouseButton and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT and (ev as InputEventMouseButton).pressed:
 			var hit := tree.get_item_at_position((ev as InputEventMouseButton).position)
-			if hit != null and String(hit.get_metadata(0)) != "":
+			if hit != null:
 				tree.accept_event()
-				_show_tree_menu(String(hit.get_metadata(0)), tree)
+				_tree_menu_for(hit, tree, folder_of_item)
+		elif ev is InputEventMouseButton and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+			## A long press (0.5 s, no travel) is the touch form of the right-click.
+			var t: Timer = press["timer"]
+			if (ev as InputEventMouseButton).pressed:
+				var hit := tree.get_item_at_position((ev as InputEventMouseButton).position)
+				press["item"] = hit
+				press["pos"] = (ev as InputEventMouseButton).position
+				if t != null and is_instance_valid(t):
+					t.queue_free()
+				if hit != null:
+					t = Timer.new()
+					t.one_shot = true
+					t.wait_time = TREE_LONG_PRESS_S
+					t.timeout.connect(func():
+						var held: TreeItem = press["item"]
+						if held != null:
+							press["item"] = null
+							_tree_menu_for(held, tree, folder_of_item))
+					tree.add_child(t)
+					t.start()
+					press["timer"] = t
+			elif t != null and is_instance_valid(t):
+				t.stop()
+		elif ev is InputEventMouseMotion and press["item"] != null:
+			if ((ev as InputEventMouseMotion).position - (press["pos"] as Vector2)).length() > TREE_LONG_PRESS_SLOP:
+				var t2: Timer = press["timer"]
+				if t2 != null and is_instance_valid(t2):
+					t2.stop()
+				press["item"] = null
 		elif ev is InputEventKey and (ev as InputEventKey).pressed and (ev as InputEventKey).keycode == KEY_F2:
 			var cur := tree.get_selected()
-			if cur != null and String(cur.get_metadata(0)) != "":
+			if cur != null:
 				tree.accept_event()
-				request_rename_of(String(cur.get_metadata(0))))
+				if String(cur.get_metadata(0)) != "":
+					request_rename_of(String(cur.get_metadata(0)))
+				elif folder_of_item.has(cur.get_instance_id()):
+					request_rename_folder(String(folder_of_item[cur.get_instance_id()])))
 	parent.add_child(tree)
 	_badge_tree(leaves)
 	if shown.is_empty():

@@ -813,8 +813,15 @@ pub struct AmbiguousLink {
 /// ([`crate::VaultSession::rename`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenamePlan {
+    /// The note's path, or for a folder rename the folder's.
     pub from: String,
+    /// The note's new path, or the folder's.
     pub to: String,
+    /// Every `(old, new)` note path this rename moves: one entry for a note,
+    /// one per note inside the folder for a folder rename (sorted by old
+    /// path). The session moves the files and re-points entity links from
+    /// this, so it is the one list of what moved.
+    pub moves: Vec<(String, String)>,
     /// Every note whose text changes, sorted by path.
     pub files: Vec<FileRewrite>,
     /// Links left alone because they were already ambiguous.
@@ -847,6 +854,13 @@ pub enum RenameError {
     /// Another note already has this path (case-insensitively, since Windows
     /// and Android storage do not tell `a.md` from `A.md`).
     TargetExists(String),
+    /// A folder rename names a folder that holds no note (an empty folder is
+    /// invisible to the vault's note listing, so it cannot be planned).
+    FolderMissing(String),
+    /// A folder cannot be moved into itself or one of its own descendants.
+    IntoItself { from: String, to: String },
+    /// The folder's new path is already a folder that holds notes.
+    FolderExists(String),
 }
 
 impl std::fmt::Display for RenameError {
@@ -859,6 +873,9 @@ impl std::fmt::Display for RenameError {
             RenameError::NotANote(p) => write!(f, "\"{p}\" does not end in .md, so it would not be a note"),
             RenameError::BadName { path, reason } => write!(f, "\"{path}\": {reason}"),
             RenameError::TargetExists(p) => write!(f, "\"{p}\" already exists"),
+            RenameError::FolderMissing(p) => write!(f, "\"{p}\" is not a folder that holds notes in this vault"),
+            RenameError::IntoItself { from, to } => write!(f, "a folder cannot be moved into itself or its own subfolder (\"{from}\" to \"{to}\")"),
+            RenameError::FolderExists(p) => write!(f, "a folder named \"{p}\" already exists there"),
         }
     }
 }
@@ -929,10 +946,14 @@ pub fn rename_plan(old: &str, new: &str, files: &[(String, String)]) -> Result<R
 /// One rename's two resolvers — the vault before and after — and the rule
 /// both [`rename_plan_in`] and [`rename_candidates`] apply to each written
 /// link, so the notes a caller opens and the links the planner rewrites can
-/// never disagree.
-struct Renaming<'a> {
-    old: &'a str,
-    new: &'a str,
+/// never disagree. A note rename and a folder rename are the same thing to
+/// it: a set of `old -> new` note paths (one entry, or one per note in the
+/// folder), plus, for a folder, the folder prefix so a path *inside* it that
+/// is not a note (an attachment) is mapped too.
+struct Renaming {
+    moves: HashMap<String, String>,
+    /// `(old_dir, new_dir)` for a folder rename; `None` for a note.
+    dir: Option<(String, String)>,
     before: Resolver,
     after: Resolver,
 }
@@ -943,24 +964,35 @@ enum Effect {
     Keep,
     /// It would stop naming its note; rewrite it to name this path.
     Retarget(String),
-    /// It was already ambiguous, and one candidate is the renamed note.
+    /// It was already ambiguous, and one candidate is a renamed note.
     Ambiguous(Vec<String>),
 }
 
-impl<'a> Renaming<'a> {
+impl Renaming {
     /// The resolvers over `paths` as they are and as they will be.
-    fn new(old: &'a str, new: &'a str, paths: &[String]) -> Self {
-        Renaming {
-            old,
-            new,
-            before: Resolver::new(paths),
-            after: Resolver::new(paths.iter().map(|p| if p == old { new } else { p.as_str() })),
-        }
+    fn new(moves: &[(String, String)], dir: Option<(String, String)>, paths: &[String]) -> Self {
+        let moves: HashMap<String, String> = moves.iter().cloned().collect();
+        let after: Vec<String> = paths.iter().map(|p| moves.get(p).cloned().unwrap_or_else(|| p.clone())).collect();
+        Renaming { before: Resolver::new(paths), after: Resolver::new(&after), moves, dir }
     }
 
-    /// `path` as it is called after the rename.
+    /// The note `path` as it is called after the rename.
     fn moved(&self, path: &str) -> String {
-        if path == self.old { self.new.to_string() } else { path.to_string() }
+        self.moves.get(path).cloned().unwrap_or_else(|| path.to_string())
+    }
+
+    /// Any path (a note or not) as it is called after the rename: a note by
+    /// [`Self::moved`], and a path inside a renamed folder by its prefix.
+    fn moved_any(&self, path: &str) -> String {
+        if let Some(n) = self.moves.get(path) {
+            return n.clone();
+        }
+        if let Some((from, to)) = &self.dir {
+            if let Some(rest) = path.strip_prefix(from.as_str()).and_then(|r| r.strip_prefix('/')) {
+                return format!("{to}/{rest}");
+            }
+        }
+        path.to_string()
     }
 
     /// What the rename does to `target`, written in the note at `src` (its
@@ -976,7 +1008,7 @@ impl<'a> Renaming<'a> {
                     Effect::Retarget(p_after)
                 }
             }
-            Resolution::Ambiguous(c) if c.iter().any(|p| p == self.old) => Effect::Ambiguous(c),
+            Resolution::Ambiguous(c) if c.iter().any(|p| self.moves.contains_key(p.as_str())) => Effect::Ambiguous(c),
             _ => Effect::Keep,
         }
     }
@@ -1001,8 +1033,17 @@ where
     T: IntoIterator<Item = &'n str>,
 {
     check_rename(old, new, paths)?;
-    let r = Renaming::new(old, new, paths);
-    let mut out: Vec<String> = vec![old.to_string()];
+    let r = Renaming::new(&[(old.to_string(), new.to_string())], None, paths);
+    Ok(candidates_of(&r, vec![old.to_string()], notes))
+}
+
+/// The notes a [`Renaming`] could change: `always` (the notes that move,
+/// whose relative links move with them) plus every note with a link whose
+/// [`Effect`] is not `Keep`. Sorted, without duplicates.
+fn candidates_of<'n, T>(r: &Renaming, mut out: Vec<String>, notes: impl IntoIterator<Item = (&'n str, T)>) -> Vec<String>
+where
+    T: IntoIterator<Item = &'n str>,
+{
     for (src, targets) in notes {
         if targets.into_iter().any(|t| !matches!(r.effect(t, src), Effect::Keep)) {
             out.push(src.to_string());
@@ -1010,7 +1051,87 @@ where
     }
     out.sort();
     out.dedup();
-    Ok(out)
+    out
+}
+
+/// The refusals a folder rename makes before planning anything, and the
+/// `(old, new)` path of every note inside the folder if it passes. A folder
+/// is "a prefix of at least one note path", since the vault lists notes, not
+/// folders. Refuses: the same path; an unsafe path or a name Windows cannot
+/// hold; a folder holding no notes; moving a folder into itself or one of its
+/// own descendants (case-insensitively, as the storage is); and a new path
+/// that is already a folder holding notes elsewhere, or any moved note
+/// landing on a note that exists. A case-only rename (`places` to `Places`)
+/// is allowed, as for a note.
+fn check_folder_rename(old: &str, new: &str, paths: &[String]) -> Result<Vec<(String, String)>, RenameError> {
+    if old == new {
+        return Err(RenameError::SamePath);
+    }
+    if !is_safe_relative_path(old) {
+        return Err(RenameError::UnsafePath(old.to_string()));
+    }
+    if !is_safe_relative_path(new) {
+        return Err(RenameError::UnsafePath(new.to_string()));
+    }
+    for seg in new.split('/') {
+        if let Some(reason) = name_problem(seg) {
+            return Err(RenameError::BadName { path: new.to_string(), reason });
+        }
+    }
+    let prefix = format!("{old}/");
+    let mut moves: Vec<(String, String)> = paths
+        .iter()
+        .filter_map(|p| p.strip_prefix(prefix.as_str()).map(|rest| (p.clone(), format!("{new}/{rest}"))))
+        .collect();
+    if moves.is_empty() {
+        return Err(RenameError::FolderMissing(old.to_string()));
+    }
+    let (lo, ln) = (old.to_lowercase(), new.to_lowercase());
+    // Into itself or its own descendant; or out over one of its own ancestors,
+    // whose subtree would then collide with the folder's own contents.
+    if ln.starts_with(&format!("{lo}/")) || lo.starts_with(&format!("{ln}/")) {
+        return Err(RenameError::IntoItself { from: old.to_string(), to: new.to_string() });
+    }
+    if lo != ln {
+        let dest = format!("{ln}/");
+        if paths.iter().any(|p| !p.starts_with(&prefix) && p.to_lowercase().starts_with(&dest)) {
+            return Err(RenameError::FolderExists(new.to_string()));
+        }
+    }
+    moves.sort();
+    Ok(moves)
+}
+
+/// [`rename_candidates`] for a folder: every note inside it (its relative
+/// links move with it) plus every note whose written links the folder move
+/// would change. Refuses exactly as [`folder_rename_plan_in`] does.
+pub fn folder_rename_candidates<'n, T>(
+    old: &str,
+    new: &str,
+    paths: &[String],
+    notes: impl IntoIterator<Item = (&'n str, T)>,
+) -> Result<Vec<String>, RenameError>
+where
+    T: IntoIterator<Item = &'n str>,
+{
+    let moves = check_folder_rename(old, new, paths)?;
+    let r = Renaming::new(&moves, Some((old.to_string(), new.to_string())), paths);
+    Ok(candidates_of(&r, moves.iter().map(|(o, _)| o.clone()).collect(), notes))
+}
+
+/// What renaming the folder `old` to `new` (a rename, or a move into another
+/// folder: the same operation) does to the notes in `files`: **the note
+/// planner's rule ([`rename_plan_in`]), applied to every note inside the
+/// folder at once**. A link between two notes that both move keeps naming
+/// the same note, so by the rule it is left alone; a link from outside into
+/// the folder, and a link from inside to outside by a relative path, are
+/// rewritten. `files` must include every note inside the folder, so their own
+/// relative links move with them. The plan's `moves` lists every note path
+/// that changes.
+pub fn folder_rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(String, String)]) -> Result<RenamePlan, RenameError> {
+    let moves = check_folder_rename(old, new, paths)?;
+    let r = Renaming::new(&moves, Some((old.to_string(), new.to_string())), paths);
+    Ok(plan_with(&r, old, new, moves, files))
 }
 
 /// What renaming `old` to `new` does to the notes in `files`, given every
@@ -1045,9 +1166,17 @@ where
 /// Pure: reads nothing, writes nothing.
 pub fn rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(String, String)]) -> Result<RenamePlan, RenameError> {
     check_rename(old, new, paths)?;
-    let r = Renaming::new(old, new, paths);
-    let mut plan = RenamePlan { from: old.to_string(), to: new.to_string(), files: Vec::new(), ambiguous: Vec::new() };
-    let folder_moved = folder_of(old) != folder_of(new);
+    let moves = vec![(old.to_string(), new.to_string())];
+    let r = Renaming::new(&moves, None, paths);
+    Ok(plan_with(&r, old, new, moves, files))
+}
+
+/// The planner itself, shared by a note rename and a folder rename: every
+/// link in `files` is rewritten exactly when `r` says the rename changes
+/// what it resolves to, and each moving note's own relative links that name
+/// no note are re-pointed. `from`/`to` are only labels for the plan.
+fn plan_with(r: &Renaming, from: &str, to: &str, moves: Vec<(String, String)>, files: &[(String, String)]) -> RenamePlan {
+    let mut plan = RenamePlan { from: from.to_string(), to: to.to_string(), moves, files: Vec::new(), ambiguous: Vec::new() };
 
     let mut sorted: Vec<&(String, String)> = files.iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1077,8 +1206,9 @@ pub fn rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(String, 
                 }
             }
             let relative = t.starts_with("./") || t.starts_with("../");
-            if src == old && folder_moved && relative && !matches!(r.before.resolve(t, src), Resolution::Unique(_)) {
-                if let Some(written) = same_place(&span, t, old, new) {
+            let folder_moved = folder_of(src) != folder_of(&src_after);
+            if r.moves.contains_key(src.as_str()) && folder_moved && relative && !matches!(r.before.resolve(t, src), Resolution::Unique(_)) {
+                if let Some(written) = same_place(&span, t, src, &src_after, r) {
                     if text[span.target_bytes.clone()] != written {
                         edits.push((span.target_bytes.clone(), written));
                     }
@@ -1095,7 +1225,7 @@ pub fn rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(String, 
         }
         plan.files.push(FileRewrite { path: src.clone(), text: out, links });
     }
-    Ok(plan)
+    plan
 }
 
 /// The relative target `t`, written in the note moving from `old` to `new`,
@@ -1103,8 +1233,11 @@ pub fn rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(String, 
 /// leading `./` when it still applies, and encoding a CommonMark target as
 /// [`rewritten_target`] does. `None` when `t` climbs above the vault root,
 /// which no rewrite could fix.
-fn same_place(span: &LinkSpan, t: &str, old: &str, new: &str) -> Option<String> {
+fn same_place(span: &LinkSpan, t: &str, old: &str, new: &str, r: &Renaming) -> Option<String> {
     let abs = normalise(folder_of(old), t)?;
+    // A target inside a folder that is itself moving (an image beside the
+    // note) moves with it, so the new relative path is to where it will be.
+    let abs = r.moved_any(&abs);
     let rel = relative_path(folder_of(new), &abs);
     let rel = if t.starts_with("./") && !rel.starts_with("../") { format!("./{rel}") } else { rel };
     Some(if span.syntax.is_wiki() || span.angle { rel } else { encode(&rel) })

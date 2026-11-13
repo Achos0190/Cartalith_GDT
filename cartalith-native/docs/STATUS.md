@@ -50,6 +50,47 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Vault: rename and move a folder (built 2026-11-13, VE-6's "moving a folder" edge)
+
+**Built.** From the vault window's file tree a folder can be renamed or moved into another folder: right-click on desktop,
+a 0.5 s long press on touch (`vault_window.gd::_build_browse_tree`, `TREE_LONG_PRESS_S`), F2 on the selected folder row;
+the menu holds "Rename folder..." and "Move folder...". Both go through the one confirmation (`_rename_plan(..., dir)`,
+`_folder_describe`) and the one undo record (`_rename_last` gets `dir`; `_undo_rename` is the same call with the paths
+swapped, so a folder move is one undo step).
+- **One planner, no second implementation.** `notelinks::Renaming` now holds a set of `old -> new` note paths instead of one
+  pair; `folder_rename_plan_in` / `folder_rename_candidates` / `check_folder_rename` feed it every note inside the folder, and
+  `rename_plan_in` / `rename_candidates` feed it one. `RenamePlan` gained `moves`. A link between two notes that both move
+  keeps naming the same note, so by the existing rule it is left alone; links in from outside and relative links out are
+  rewritten; `same_place` maps a path inside the moving folder (an image beside a nested note) through `Renaming::moved_any`.
+- **Session and provider.** `VaultSession::folder_rename_preview` / `folder_rename` share `plan_rename_of` and
+  `apply_rename` with the note rename (same hash guard, same re-read-and-compare on every write). `VaultProvider::move_dir`
+  (default refuses, like `move_file`); `FsVault::move_dir` is one `std::fs::rename` of the directory (atomic on one volume,
+  carries images with it, case-only rename through an aside, never merges). Entity bindings (every `EntityKind`: place,
+  landmark, label, icon...) are `KnowledgeLink.relative_path` and follow in `apply_rename`. Remembered note folders:
+  `DccSettings.vault_note_folders_follow`. The open note, picked note, history and back stack follow by prefix
+  (`VaultWindow.folder_follow`).
+- **Refusals (each one a message, nothing written):** a folder into itself or its own descendant (case-insensitively), a new
+  name that already holds notes, a folder holding no notes (the vault lists notes, not folders), the same path, an unsafe
+  path, a name Windows cannot hold.
+- **Android SAF.** `vault_saf_handler.gd::_op_move_dir` (new op `"move_dir"`, documented in `vault_saf.rs`): the provider's
+  rename (same parent), then its move (same name), then a recursive copy of the notes and a delete of the original folder.
+  The copy rung can only carry text: a folder holding a non-note file is refused before anything is copied. A copy whose
+  original folder cannot be deleted answers `ok: false` naming both places. An older handler without `move_dir` fails with
+  "unknown op", never guessed.
+- **Verified (2026-11-13, this machine, Godot 4.7.2, wiped `APPDATA`, throw-away vault, small generated world).**
+  `cargo test -p cartalith-vault`: 226 passed (new: three planner tests, a refusals test, a `FsVault::move_dir` test, and a
+  session test on a real folder with two entity bindings, a stale preview, the refusals and the undo; the rename tests still
+  pass). `_vfolder_probe.tscn` (windowed, real mouse and key events, reads the disk, the crate's resolver and the bindings):
+  **47 checks, 0 failed** at 1600x1000 and **47 / 0** at 1080x2340 @2.8125 `--force-touch`. `_vfoldsaf_probe.gd` (headless,
+  fake document tree through the real Rust `SafVaultProvider`): **63 checks, 0 failed**. Mutants killed: `moved_any` removed
+  from `same_place`, the into-itself refusal disabled, the entity relink loop disabled (Rust, 2 tests each or more); the copy
+  rung's non-note refusal removed and its delete-failure report removed (SAF probe, 3 and 2 checks).
+- **Not done, honestly.** No device pass: the Java driver's `renameDocument`/`moveDocument` on a real provider for a
+  *folder* is unmeasured, as is the whole SAF vault (`vault_connect_saf` is still unwired in the shell). Links to an
+  **attachment** inside a moved folder from a note outside it are not rewritten (the same limit as a note rename: only notes
+  are tracked), so such a picture link breaks until fixed by hand. An empty folder, or one holding only images, cannot be
+  renamed (the vault lists notes, not folders). The destination of "Move folder..." is typed, not picked.
+
 ### Phone landscape: the blank docked sheet after a rotation, the header in the top-right corner, the grip on the right (built 2026-11-13)
 
 **Owner report (6T, landscape):** *"a weird checkerboard style bug with a sliver of the right side appearing almost below

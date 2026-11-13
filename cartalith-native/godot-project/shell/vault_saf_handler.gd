@@ -62,6 +62,8 @@ func _saf_dispatch(op: String, args: Array) -> Dictionary:
 			return {"ok": true, "value": bool(c.get("ok", false)) and bool(c.get("create", false)) and bool(c.get("delete", false))}
 		"move":
 			return _op_move(String(args[0]), String(args[1]))
+		"move_dir":
+			return _op_move_dir(String(args[0]), String(args[1]))
 	return _fail("unknown op: %s" % op)
 
 
@@ -266,4 +268,98 @@ func _copy_delete(from: String, to: String, to_name: String, src_id: String, dst
 	var del: Dictionary = driver.delete(src_id)
 	if not bool(del.get("ok", false)):
 		return _fail("%s was copied to %s but the original could not be deleted (%s); both now exist" % [from, to, String(del.get("error", "the provider refused"))])
+	return {"ok": true, "method": "copy_delete"}
+
+
+## The folder form of `_op_move`: renames or moves the folder `from` and everything in it to `to`. The same
+## ladder, best first, each step reported in `method`:
+##   "rename"      same parent and the provider says it can rename the folder
+##   "move"        same folder name, different parent, and the provider says it can move
+##   "copy_delete" everything else: copy every note into a new folder tree, read each back, delete the original
+## A rung that fails drops to the next, as for a note. The copy rung can only carry text, so a folder holding
+## anything that is not a `.md` note is refused BEFORE a byte is copied (a rename or move rung has no such limit).
+## `to` existing is refused, a folder is never merged. The one state that is not a clean success is a copy whose
+## original folder could not be deleted: `ok: false` naming both places, so a person is told two copies exist.
+func _op_move_dir(from: String, to: String) -> Dictionary:
+	var src := _resolve(from)
+	if not bool(src.get("ok", false)):
+		return _fail("cannot move %s: %s" % [from, String(src.get("error", "not found"))])
+	if not bool(src.get("is_dir", false)):
+		return _fail("%s is not a folder" % from)
+	if bool(_resolve(to).get("ok", false)):
+		return _fail("%s already exists; a folder move never merges" % to)
+	var from_segs := _segments(from)
+	var to_segs := _segments(to)
+	var to_name := to_segs[to_segs.size() - 1]
+	var to_parent_segs := to_segs.slice(0, to_segs.size() - 1)
+	var same_parent := "/".join(from_segs.slice(0, from_segs.size() - 1)) == "/".join(to_parent_segs)
+	var flags := int(src.get("flags", 0))
+	var id := String(src["id"])
+	if same_parent and (flags & FLAG_SUPPORTS_RENAME) != 0:
+		var rn: Dictionary = driver.rename(id, to_name)
+		if bool(rn.get("ok", false)) and bool(_resolve(to).get("ok", false)) and not bool(_resolve(from).get("ok", false)):
+			return {"ok": true, "method": "rename"}
+	var parent := _ensure_dirs(to_parent_segs)
+	if not bool(parent.get("ok", false)):
+		return _fail("cannot create the destination folder for %s: %s" % [to, String(parent.get("error", ""))])
+	if not same_parent and (flags & FLAG_SUPPORTS_MOVE) != 0 and to_name == String(from_segs[from_segs.size() - 1]):
+		var mv: Dictionary = driver.move(id, String(src["parent_id"]), String(parent["id"]))
+		if bool(mv.get("ok", false)) and bool(_resolve(to).get("ok", false)) and not bool(_resolve(from).get("ok", false)):
+			return {"ok": true, "method": "move"}
+	return _copy_delete_dir(from, to, id, String(parent["id"]), to_name)
+
+
+## Every file under the folder `dir_id` as `[relative path, id]` pairs, or `{ok: false}` when a listing fails.
+## `rel` is the path from the folder being copied. Folders are returned as `[rel, id, true]`, parents first.
+func _walk_dir(dir_id: String, rel: String, out: Array) -> Dictionary:
+	var kids: Dictionary = driver.children(dir_id)
+	if not bool(kids.get("ok", false)):
+		return kids
+	for it in kids["items"]:
+		var r := (rel + "/" + String(it["name"])) if rel != "" else String(it["name"])
+		out.append([r, String(it["id"]), bool(it["is_dir"])])
+		if bool(it["is_dir"]):
+			var sub := _walk_dir(String(it["id"]), r, out)
+			if not bool(sub.get("ok", true)):
+				return sub
+	return {"ok": true}
+
+
+func _copy_delete_dir(from: String, to: String, src_id: String, dst_parent_id: String, to_name: String) -> Dictionary:
+	var entries: Array = []
+	var walked := _walk_dir(src_id, "", entries)
+	if not bool(walked.get("ok", false)):
+		return _fail("cannot list %s to copy it: %s" % [from, String(walked.get("error", ""))])
+	var others := 0
+	for e in entries:
+		if not bool(e[2]) and not String(e[0]).to_lower().ends_with(".md"):
+			others += 1
+	if others > 0:
+		return _fail("%s holds %d file%s that are not notes, and this storage can only copy notes, so the folder was not moved (nothing was changed)" % [from, others, "" if others == 1 else "s"])
+	var made: Dictionary = driver.create(dst_parent_id, to_name, true)
+	if not bool(made.get("ok", false)):
+		return _fail("cannot create %s: %s" % [to, String(made.get("error", ""))])
+	var new_root := String(made["id"])
+	var ids := {"": new_root}   ## relative folder path -> its id in the copy
+	for e in entries:
+		var rel := String(e[0])
+		var parent_rel := "/".join(PackedStringArray(rel.split("/").slice(0, -1)))
+		var name := rel.get_file()
+		if bool(e[2]):
+			var d: Dictionary = driver.create(String(ids[parent_rel]), name, true)
+			if not bool(d.get("ok", false)):
+				driver.delete(new_root)   ## best effort: a half copy must not be left beside the original
+				return _fail("cannot create the folder %s in the copy: %s; the original is untouched" % [rel, String(d.get("error", ""))])
+			ids[rel] = String(d["id"])
+			continue
+		var rd: Dictionary = driver.read_text(String(e[1]))
+		var f: Dictionary = driver.create(String(ids[parent_rel]), name, false) if bool(rd.get("ok", false)) else {}
+		var w: Dictionary = driver.write_text(String(f["id"]), String(rd["text"])) if bool(f.get("ok", false)) else {}
+		var back: Dictionary = driver.read_text(String(f["id"])) if bool(w.get("ok", false)) else {}
+		if not bool(back.get("ok", false)) or String(back.get("text", "")) != String(rd.get("text", "")):
+			driver.delete(new_root)
+			return _fail("the copy of %s did not verify; the original folder is untouched" % rel)
+	var del: Dictionary = driver.delete(src_id)
+	if not bool(del.get("ok", false)):
+		return _fail("%s was copied to %s but the original folder could not be deleted (%s); both now exist" % [from, to, String(del.get("error", "the provider refused"))])
 	return {"ok": true, "method": "copy_delete"}

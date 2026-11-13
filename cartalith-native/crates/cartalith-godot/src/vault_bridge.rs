@@ -1587,38 +1587,29 @@ impl WorldGen {
     /// backlink index first (reading only notes that changed).
     #[func]
     fn vault_rename_plan(&mut self, old: GString, new: GString) -> VarDictionary {
-        match self.vault.rename_preview(&old.to_string(), &new.to_string()) {
-            Ok(p) => {
-                let files: Array<VarDictionary> = p
-                    .plan
-                    .files
-                    .iter()
-                    .map(|f| vdict! { "path" => f.path.as_str(), "links" => f.links as i64 })
-                    .collect();
-                let ambiguous: Array<VarDictionary> = p
-                    .plan
-                    .ambiguous
-                    .iter()
-                    .map(|a| {
-                        let mut d = vdict! { "path" => a.path.as_str(), "line" => a.line as i64, "target" => a.target.as_str() };
-                        d.set("candidates", &packed(&a.candidates));
-                        d
-                    })
-                    .collect();
-                let mut d = ok();
-                d.set("from", p.plan.from.as_str());
-                d.set("to", p.plan.to.as_str());
-                d.set("hash", p.hash.as_str());
-                d.set("links", p.plan.link_count() as i64);
-                d.set("read", p.read as i64);
-                d.set("unreadable", p.unreadable as i64);
-                d.set("knowledge_links", p.knowledge_links as i64);
-                d.set("files", &files);
-                d.set("ambiguous", &ambiguous);
-                d
-            }
-            Err(e) => err(e),
-        }
+        plan_dict(self.vault.rename_preview(&old.to_string(), &new.to_string()))
+    }
+
+    /// What renaming or moving the FOLDER `old` to `new` (its whole new path:
+    /// a move into another folder is `Dest/Name`) would do, written nowhere:
+    /// the same dictionary as `vault_rename_plan`, whose `files` are the notes
+    /// whose text changes, plus `moves: [{from, to}]`, every note that moves.
+    /// The planner is the note planner applied to every note inside the
+    /// folder (`folder_rename_plan_in`), so a refusal (into itself, a name that
+    /// holds notes, a folder with no notes) arrives as `{ok: false, error}`.
+    #[func]
+    fn vault_folder_rename_plan(&mut self, old: GString, new: GString) -> VarDictionary {
+        plan_dict(self.vault.folder_rename_preview(&old.to_string(), &new.to_string()))
+    }
+
+    /// Renames or moves the folder `old` to `new` with everything in it and
+    /// rewrites every link its plan named; the reply is `vault_rename`'s, with
+    /// `path` the folder's new path and `relinked` the entity links that
+    /// followed a note inside it. `expect_hash` is `vault_folder_rename_plan`'s.
+    /// The undo is this call with the paths swapped.
+    #[func]
+    fn vault_folder_rename(&mut self, old: GString, new: GString, expect_hash: GString) -> VarDictionary {
+        outcome_dict(self.vault.folder_rename(&old.to_string(), &new.to_string(), &expect_hash.to_string()))
     }
 
     /// Renames (or moves) the note `old` to `new` and rewrites every link the
@@ -1637,28 +1628,7 @@ impl WorldGen {
     /// `relinked` counts entity links re-pointed at the new path.
     #[func]
     fn vault_rename(&mut self, old: GString, new: GString, expect_hash: GString) -> VarDictionary {
-        match self.vault.rename(&old.to_string(), &new.to_string(), &expect_hash.to_string()) {
-            Ok(o) => {
-                let written: Array<VarDictionary> =
-                    o.written.iter().map(|(p, n)| vdict! { "path" => p.as_str(), "links" => *n as i64 }).collect();
-                let failed: Array<VarDictionary> =
-                    o.failed.iter().map(|(p, e)| vdict! { "path" => p.as_str(), "error" => e.as_str() }).collect();
-                let mut d = ok();
-                d.set("path", o.to.as_str());
-                d.set("conflict", false);
-                d.set("links", o.written.iter().map(|(_, n)| *n as i64).sum::<i64>());
-                d.set("relinked", o.relinked as i64);
-                d.set("written", &written);
-                d.set("failed", &failed);
-                d
-            }
-            Err(e) => {
-                let conflict = matches!(e, cartalith_vault::Error::SourceChanged { .. });
-                let mut d = err(e);
-                d.set("conflict", conflict);
-                d
-            }
-        }
+        outcome_dict(self.vault.rename(&old.to_string(), &new.to_string(), &expect_hash.to_string()))
     }
 
     // -- `[[` suggestions ---------------------------------------------------
@@ -2118,6 +2088,74 @@ fn suggestion_dict(s: &cartalith_vault::suggest::Suggestion, c: &cartalith_vault
         d.set("alias", a.as_str());
     }
     d
+}
+
+/// The reply shared by `vault_rename_plan` and `vault_folder_rename_plan`:
+/// `{ok, from, to, hash, links, read, unreadable, knowledge_links, files:
+/// [{path, links}], ambiguous: [...], moves: [{from, to}]}` or the refusal.
+fn plan_dict(r: Result<cartalith_vault::RenamePreview, cartalith_vault::Error>) -> VarDictionary {
+    match r {
+        Ok(p) => {
+            let files: Array<VarDictionary> = p
+                .plan
+                .files
+                .iter()
+                .map(|f| vdict! { "path" => f.path.as_str(), "links" => f.links as i64 })
+                .collect();
+            let ambiguous: Array<VarDictionary> = p
+                .plan
+                .ambiguous
+                .iter()
+                .map(|a| {
+                    let mut d = vdict! { "path" => a.path.as_str(), "line" => a.line as i64, "target" => a.target.as_str() };
+                    d.set("candidates", &packed(&a.candidates));
+                    d
+                })
+                .collect();
+            let mut d = ok();
+            d.set("from", p.plan.from.as_str());
+            d.set("to", p.plan.to.as_str());
+            d.set("hash", p.hash.as_str());
+            d.set("links", p.plan.link_count() as i64);
+            d.set("read", p.read as i64);
+            d.set("unreadable", p.unreadable as i64);
+            d.set("knowledge_links", p.knowledge_links as i64);
+            d.set("files", &files);
+            d.set("ambiguous", &ambiguous);
+            let moves: Array<VarDictionary> =
+                p.plan.moves.iter().map(|(f, t)| vdict! { "from" => f.as_str(), "to" => t.as_str() }).collect();
+            d.set("moves", &moves);
+            d
+        }
+        Err(e) => err(e),
+    }
+}
+
+/// The reply shared by `vault_rename` and `vault_folder_rename`; a stale
+/// plan is `{ok: false, conflict: true}`.
+fn outcome_dict(r: Result<cartalith_vault::RenameOutcome, cartalith_vault::Error>) -> VarDictionary {
+    match r {
+        Ok(o) => {
+            let written: Array<VarDictionary> =
+                o.written.iter().map(|(p, n)| vdict! { "path" => p.as_str(), "links" => *n as i64 }).collect();
+            let failed: Array<VarDictionary> =
+                o.failed.iter().map(|(p, e)| vdict! { "path" => p.as_str(), "error" => e.as_str() }).collect();
+            let mut d = ok();
+            d.set("path", o.to.as_str());
+            d.set("conflict", false);
+            d.set("links", o.written.iter().map(|(_, n)| *n as i64).sum::<i64>());
+            d.set("relinked", o.relinked as i64);
+            d.set("written", &written);
+            d.set("failed", &failed);
+            d
+        }
+        Err(e) => {
+            let conflict = matches!(e, cartalith_vault::Error::SourceChanged { .. });
+            let mut d = err(e);
+            d.set("conflict", conflict);
+            d
+        }
+    }
 }
 
 /// Strings as a `PackedStringArray`.

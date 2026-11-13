@@ -441,3 +441,93 @@ fn a_rename_nothing_links_to_plans_no_writes() {
     assert_eq!((plan.from.as_str(), plan.to.as_str()), ("K.md", "L.md"));
     assert!(plan.files.is_empty() && plan.ambiguous.is_empty());
 }
+
+// ------------------------------------------------------------ folder renames
+
+/// The vault the folder tests share: a folder with a nested folder, an
+/// image beside a nested note, and a note outside that links in by path and
+/// by name.
+fn folder_vault() -> Vec<(String, String)> {
+    vault(&[
+        ("Places/Kelvhold.md", "Seat of the north.\n"),
+        ("Places/Deep/Ford.md", "[k](../Kelvhold.md) [o](../../Journal/J.md) ![i](../img/x.png)\n"),
+        ("Journal/J.md", "[[Places/Kelvhold]] [[Places/Deep/Ford|the ford]] [[Ford]]\n"),
+    ])
+}
+
+fn paths_of(files: &[(String, String)]) -> Vec<String> {
+    files.iter().map(|(p, _)| p.clone()).collect()
+}
+
+/// Protects: moving a folder rewrites the links INTO it exactly as a note
+/// rename would -- a path link that would break is rewritten (to the
+/// shortest unique name, alias kept), a link by unique name is not touched
+/// -- and the plan lists every note that moves, nested ones included, in
+/// path order.
+#[test]
+fn a_folder_rename_rewrites_links_into_it_and_lists_every_note_that_moves() {
+    let files = folder_vault();
+    let plan = folder_rename_plan_in("Places", "Realms", &paths_of(&files), &files).unwrap();
+    assert_eq!(
+        plan.moves,
+        vec![
+            ("Places/Deep/Ford.md".to_string(), "Realms/Deep/Ford.md".to_string()),
+            ("Places/Kelvhold.md".to_string(), "Realms/Kelvhold.md".to_string()),
+        ]
+    );
+    let j = plan.files.iter().find(|f| f.path == "Journal/J.md").expect("the linking note is rewritten");
+    assert_eq!(j.text, "[[Kelvhold]] [[Ford|the ford]] [[Ford]]\n");
+    assert_eq!(j.links, 2, "the by-name link was left alone");
+    assert_eq!((plan.from.as_str(), plan.to.as_str()), ("Places", "Realms"));
+}
+
+/// Protects: links OUT of a moving folder. When the folder goes one level
+/// deeper, a relative link to a note outside it is re-pointed so it still
+/// reaches that note; a relative link to a note inside the same folder, and
+/// to an image beside it (which moves too), stay byte for byte.
+#[test]
+fn a_folder_moved_deeper_keeps_its_links_out_and_its_internal_links() {
+    let files = folder_vault();
+    let plan = folder_rename_plan_in("Places", "Atlas/Places", &paths_of(&files), &files).unwrap();
+    let ford = plan.files.iter().find(|f| f.path == "Places/Deep/Ford.md").expect("the nested note is rewritten");
+    assert_eq!(ford.text, "[k](../Kelvhold.md) [o](../../../Journal/J.md) ![i](../img/x.png)\n");
+    assert_eq!(ford.links, 1, "only the link out of the folder changed");
+    assert!(plan.files.iter().all(|f| f.path != "Places/Kelvhold.md"), "a note with no links is not rewritten");
+}
+
+/// Protects: the folder candidates are every note inside it, plus notes
+/// whose written links would change, and nothing else -- an unrelated note
+/// and a link by unique name stay out.
+#[test]
+fn folder_candidates_are_the_moving_notes_and_the_notes_that_link_in() {
+    let files = folder_vault();
+    let paths = paths_of(&files);
+    let notes = [("Journal/J.md", vec!["Places/Kelvhold"]), ("Other.md", vec!["Elsewhere", "Ford"])];
+    let got = folder_rename_candidates("Places", "Realms", &paths, notes.iter().map(|(n, t)| (*n, t.iter().copied())));
+    assert_eq!(got, Ok(vec!["Journal/J.md".to_string(), "Places/Deep/Ford.md".to_string(), "Places/Kelvhold.md".to_string()]));
+}
+
+/// Protects: every folder refusal names its reason before anything is
+/// planned -- a folder into itself and into its own descendant, a name that
+/// already holds notes, a folder with no notes, the same path, a path out of
+/// the vault and a name Windows cannot hold -- and a case-only rename is NOT
+/// refused (`Places` to `places` is a real rename on a case-insensitive disk).
+#[test]
+fn a_folder_rename_refuses_itself_a_taken_name_and_a_bad_path() {
+    let mut files = folder_vault();
+    files.push(("Atlas/Old.md".to_string(), "x\n".to_string()));
+    let paths = paths_of(&files);
+    let try_it = |a: &str, b: &str| folder_rename_plan_in(a, b, &paths, &files).map(|_| ());
+    let itself = |a: &str, b: &str| Err(RenameError::IntoItself { from: a.to_string(), to: b.to_string() });
+    assert_eq!(try_it("Places", "Places/Sub/Places"), itself("Places", "Places/Sub/Places"));
+    assert_eq!(try_it("Places", "places/Deep"), itself("Places", "places/Deep"), "case-insensitively");
+    assert_eq!(try_it("Places/Deep", "Places"), itself("Places/Deep", "Places"), "out over its own ancestor");
+    assert_eq!(try_it("Places", "Atlas"), Err(RenameError::FolderExists("Atlas".to_string())));
+    assert_eq!(try_it("Nowhere", "Z"), Err(RenameError::FolderMissing("Nowhere".to_string())));
+    assert_eq!(try_it("Places", "Places"), Err(RenameError::SamePath));
+    assert_eq!(try_it("Places", "../Out"), Err(RenameError::UnsafePath("../Out".to_string())));
+    assert!(matches!(try_it("Places", "Bad:Name"), Err(RenameError::BadName { .. })));
+    assert_eq!(try_it("Places", "places"), Ok(()), "a case-only rename is allowed");
+    let msg = try_it("Places", "Places/Sub").unwrap_err().to_string();
+    assert!(msg.contains("into itself"), "{msg}");
+}

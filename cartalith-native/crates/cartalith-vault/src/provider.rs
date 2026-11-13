@@ -177,6 +177,16 @@ pub trait VaultProvider: std::fmt::Debug {
         Err(cannot_move(&self.describe()))
     }
 
+    /// Moves the whole folder `from` to `to` (a rename, or a move into another
+    /// folder), with everything in it, creating `to`'s parents. Must refuse,
+    /// changing nothing, when `to` already exists: a move never merges.
+    /// [`Self::can_move`] answers for this too. The default refuses with
+    /// [`cannot_move`], like [`Self::move_file`].
+    fn move_dir(&self, from: &str, to: &str) -> Result<(), VaultError> {
+        let _ = (from, to);
+        Err(cannot_move(&self.describe()))
+    }
+
     /// Whether [`Self::move_file`] can succeed here at all, asked before a
     /// rename is planned so a person is never shown a plan the vault cannot
     /// carry out. `false` unless a provider overrides it, matching the
@@ -235,6 +245,10 @@ impl VaultProvider for FsVault {
     /// Delegates to [`FsVault::move_file`].
     fn move_file(&self, from: &str, to: &str) -> Result<(), VaultError> {
         FsVault::move_file(self, from, to)
+    }
+    /// Delegates to [`FsVault::move_dir`].
+    fn move_dir(&self, from: &str, to: &str) -> Result<(), VaultError> {
+        FsVault::move_dir(self, from, to)
     }
     /// A folder on this device can always be asked to move a file.
     fn can_move(&self) -> bool {
@@ -421,6 +435,46 @@ impl FsVault {
         Ok(std::fs::rename(&src, &dst)?)
     }
 
+    /// Moves the folder `from` and everything in it to `to`, creating `to`'s
+    /// parents, with [`std::io::ErrorKind::AlreadyExists`] and nothing changed
+    /// when `to` is already there (a move never merges). One `std::fs::rename`
+    /// of the directory, so on one volume it is atomic: all of it moves or
+    /// none. A case-only rename goes through a sibling temporary name for the
+    /// same reason as [`Self::move_file`]. Refuses a folder moved into itself
+    /// (the OS would too, but with a worse message).
+    pub fn move_dir(&self, from: &str, to: &str) -> Result<(), VaultError> {
+        let src = self.resolve(from)?;
+        let dst = self.resolve(to)?;
+        let taken = || VaultError::Io(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("\"{to}\" already exists")));
+        if !src.is_dir() {
+            return Err(VaultError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("\"{from}\" is not a folder"))));
+        }
+        let (lf, lt) = (from.to_lowercase(), to.to_lowercase());
+        if lt.starts_with(&format!("{lf}/")) {
+            return Err(VaultError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "a folder cannot be moved into itself")));
+        }
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if from != to && lf == lt {
+            let mut aside = src.clone().into_os_string();
+            aside.push(".cartalith-rename");
+            let aside = PathBuf::from(aside);
+            std::fs::rename(&src, &aside)?;
+            return match std::fs::rename(&aside, &dst) {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    let _ = std::fs::rename(&aside, &src);
+                    Err(VaultError::Io(e))
+                }
+            };
+        }
+        if dst.exists() {
+            return Err(taken());
+        }
+        Ok(std::fs::rename(&src, &dst)?)
+    }
+
     /// A vault-relative path resolved against the root, refusing anything
     /// that would reach outside it.
     ///
@@ -543,6 +597,44 @@ mod tests {
         let left: Vec<String> =
             std::fs::read_dir(&root).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         assert!(left.iter().all(|f| !f.contains("cartalith-rename")), "an aside file was left: {left:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Protects: `move_dir` moves a folder with everything in it (a note, a
+    /// nested note and a non-note file) in one rename, creating the new
+    /// parents; never merges into an existing folder; refuses a folder into
+    /// itself, a missing folder and an unsafe path, each leaving the tree as
+    /// it was; and performs a case-only rename without leaving an aside.
+    #[test]
+    fn a_folder_move_takes_everything_and_never_merges() {
+        let root = temp_root("movedir");
+        let v = FsVault::new(&root);
+        v.write("Places/A.md", "a
+").unwrap();
+        v.write("Places/Deep/B.md", "b
+").unwrap();
+        std::fs::write(root.join("Places/pic.png"), "png").unwrap();
+        v.write("Other/C.md", "c
+").unwrap();
+        v.move_dir("Places", "Atlas/Realms").unwrap();
+        assert_eq!(v.read("Atlas/Realms/Deep/B.md").unwrap(), "b
+");
+        assert_eq!(std::fs::read_to_string(root.join("Atlas/Realms/pic.png")).unwrap(), "png");
+        assert!(!root.join("Places").exists());
+        let kind = |e: VaultError| match e {
+            VaultError::Io(e) => e.kind(),
+            other => panic!("expected an io error, got {other}"),
+        };
+        assert_eq!(kind(v.move_dir("Other", "Atlas/Realms").unwrap_err()), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(kind(v.move_dir("Atlas", "Atlas/Realms/Atlas").unwrap_err()), std::io::ErrorKind::InvalidInput);
+        assert_eq!(kind(v.move_dir("Nope", "X").unwrap_err()), std::io::ErrorKind::NotFound);
+        assert!(v.move_dir("Other", "../Out").is_err());
+        assert_eq!(v.read("Other/C.md").unwrap(), "c
+", "refusals left the tree alone");
+        v.move_dir("Other", "other").unwrap();
+        assert!(v.exists("other/C.md"));
+        let left: Vec<String> = std::fs::read_dir(&root).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert!(left.iter().all(|f| !f.contains("cartalith-rename")), "{left:?}");
         let _ = std::fs::remove_dir_all(&root);
     }
 

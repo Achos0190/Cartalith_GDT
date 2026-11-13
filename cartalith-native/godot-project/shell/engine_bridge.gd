@@ -8530,6 +8530,27 @@ func vault_rename(old: String, new: String, expect_hash: String) -> Dictionary:
 	mark_world_dirty()
 	return world_gen.vault_rename(old, new, expect_hash)
 
+## What renaming or moving the FOLDER `old` to `new` (its whole new path) would do, written nowhere
+## (`WorldGen.vault_folder_rename_plan`): `vault_rename_plan`'s dictionary plus `moves: [{from, to}]`, every note
+## that moves. The same note planner, applied to every note inside the folder. Refused while `generating`.
+func vault_folder_rename_plan(old: String, new: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_folder_rename_plan"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_folder_rename_plan(old, new)
+
+## Renames or moves the folder and rewrites the links its plan named (`WorldGen.vault_folder_rename`); the reply
+## is `vault_rename`'s. Marks the world dirty (the map's links to notes inside it are re-pointed in the saved
+## project). The undo is this call with the paths swapped. Refused while `generating`.
+func vault_folder_rename(old: String, new: String, expect_hash: String) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT, "conflict": false}
+	if not _has("vault_folder_rename"):
+		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
+	return world_gen.vault_folder_rename(old, new, expect_hash)
+
 ## Attaches an entity to a document or heading (`WorldGen.vault_attach`); reply
 ## `{ok, error, ...}`. `_VAULT_UNAVAILABLE` without the API; marks the world dirty.
 ## Refused while `generating` (the worker holds `WorldGen`; see `settlements()`): answers {"ok": false, "error": _BUSY_TEXT}.

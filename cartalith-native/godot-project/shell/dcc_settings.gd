@@ -2283,6 +2283,35 @@ static func vault_note_folder(kind: String):
 	var v = _cfg.get_value(_SEC_NOTE_FOLDERS, kind)
 	return v if typeof(v) == TYPE_STRING else null
 
+## A vault folder was renamed or moved from `old` to `new_rel`: every remembered note folder that is `old` or
+## inside it follows (`Lore/Coast` under a renamed `Lore`). Other folders, and kinds with nothing remembered, are
+## left alone; the empty folder (the vault root) is never matched by a prefix. Returns how many were updated.
+static func vault_note_folders_follow(old: String, new_rel: String) -> int:
+	if old == "":
+		return 0
+	_ensure_loaded()
+	if not _cfg.has_section(_SEC_NOTE_FOLDERS):
+		return 0
+	var n := 0
+	for kind in _cfg.get_section_keys(_SEC_NOTE_FOLDERS):
+		var v = _cfg.get_value(_SEC_NOTE_FOLDERS, kind)
+		if typeof(v) != TYPE_STRING:
+			continue
+		var f := String(v)
+		var to := ""
+		if f == old:
+			to = new_rel
+		elif f.begins_with(old + "/"):
+			to = new_rel + f.substr(old.length())
+		else:
+			continue
+		_cfg.set_value(_SEC_NOTE_FOLDERS, kind, to)
+		n += 1
+	if n > 0:
+		_save()
+	return n
+
+
 ## Remembers `folder` for `kind` (an empty `kind` is refused, since it would be one key shared by every kind).
 ## Returns whether it was written.
 static func set_vault_note_folder(kind: String, folder: String) -> bool:

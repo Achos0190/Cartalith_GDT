@@ -395,7 +395,7 @@ pub struct RenameOutcome {
 fn rename_guard(old: &str, new: &str, files: &[(String, String)], plan: &notelinks::RenamePlan) -> String {
     let mut s = format!("{old}\n{new}\n");
     for (path, text) in files {
-        if path == old || plan.files.iter().any(|f| &f.path == path) {
+        if plan.moves.iter().any(|(o, _)| o == path) || plan.files.iter().any(|f| &f.path == path) {
             s.push_str(path);
             s.push('\t');
             s.push_str(&provider::content_hash(text));
@@ -724,6 +724,14 @@ impl VaultSession {
     /// (`(path, text)`, in path order) so [`Self::rename`] can guard each
     /// write by what was read.
     fn plan_rename(&mut self, old: &str, new: &str) -> Result<(RenamePreview, Vec<(String, String)>), Error> {
+        self.plan_rename_of(old, new, false)
+    }
+
+    /// [`Self::plan_rename`] for a note (`dir` false) or for the folder `old`
+    /// (`dir` true): the same refresh, the same size rule, the same planner
+    /// ([`notelinks::folder_rename_plan_in`] applies the note rule to every
+    /// note inside the folder), the same hash guard.
+    fn plan_rename_of(&mut self, old: &str, new: &str, dir: bool) -> Result<(RenamePreview, Vec<(String, String)>), Error> {
         {
             let v = self.bound()?;
             if !v.can_move() {
@@ -736,24 +744,30 @@ impl VaultSession {
         }
         let v = self.bound()?;
         let paths = v.list_markdown(LIST_CAP)?;
-        let candidates = notelinks::rename_candidates(
-            old,
-            new,
-            &paths,
-            self.backlinks.notes.iter().map(|(p, r)| (p.as_str(), r.links.iter().map(|l| l.target.as_str()))),
-        )?;
+        let index = self.backlinks.notes.iter().map(|(p, r)| (p.as_str(), r.links.iter().map(|l| l.target.as_str())));
+        let candidates = if dir {
+            notelinks::folder_rename_candidates(old, new, &paths, index)?
+        } else {
+            notelinks::rename_candidates(old, new, &paths, index)?
+        };
+        let moving = |rel: &str| if dir { rel.strip_prefix(old).is_some_and(|r| r.starts_with('/')) } else { rel == old };
         let mut files: Vec<(String, String)> = Vec::with_capacity(candidates.len());
         let mut unreadable = stats.unreadable;
         for rel in candidates {
             match v.read(&rel) {
                 Ok(text) => files.push((rel, text)),
-                Err(e) if rel == old => return Err(e.into()),
+                // A note that moves must be readable: its own relative links move with it.
+                Err(e) if moving(&rel) => return Err(e.into()),
                 Err(_) => unreadable += 1,
             }
         }
-        let plan = notelinks::rename_plan_in(old, new, &paths, &files)?;
+        let plan = if dir {
+            notelinks::folder_rename_plan_in(old, new, &paths, &files)?
+        } else {
+            notelinks::rename_plan_in(old, new, &paths, &files)?
+        };
         let hash = rename_guard(old, new, &files, &plan);
-        let knowledge_links = self.store.links.iter().filter(|l| l.relative_path == old).count();
+        let knowledge_links = self.store.links.iter().filter(|l| plan.moves.iter().any(|(o, _)| *o == l.relative_path)).count();
         Ok((RenamePreview { plan, hash, read: files.len(), unreadable, knowledge_links }, files))
     }
 
@@ -774,15 +788,57 @@ impl VaultSession {
     /// backlink index is refreshed; if that fails, the next refresh puts it
     /// right, since it re-stats every note anyway.
     pub fn rename(&mut self, old: &str, new: &str, expect_hash: &str) -> Result<RenameOutcome, Error> {
-        let (preview, files) = self.plan_rename(old, new)?;
+        let (preview, files) = self.plan_rename_of(old, new, false)?;
+        self.apply_rename(preview, files, old, new, expect_hash, false)
+    }
+
+    /// What renaming (or moving) the **folder** `old` to `new` would do:
+    /// [`Self::rename_preview`]'s plan for every note inside it at once
+    /// ([`notelinks::folder_rename_plan_in`]). `new` is the folder's whole new
+    /// path, so a move into another folder is `Dest/Name`. Refuses what the
+    /// planner refuses (into itself, a name that exists, a folder with no
+    /// notes) before anything is written.
+    pub fn folder_rename_preview(&mut self, old: &str, new: &str) -> Result<RenamePreview, Error> {
+        Ok(self.plan_rename_of(old, new, true)?.0)
+    }
+
+    /// Renames (or moves) the folder `old` to `new` with every link rewrite
+    /// its preview planned, under the same hash guard and in the same order as
+    /// [`Self::rename`]: the folder moves first (one [`VaultProvider::move_dir`]
+    /// call), so a refused move writes nothing; then each note's links are
+    /// rewritten, a changed one left alone and listed; then every entity link
+    /// ([`KnowledgeLink`]) to a note inside the folder follows it. The undo is
+    /// this call with the two paths swapped, so it is one step.
+    pub fn folder_rename(&mut self, old: &str, new: &str, expect_hash: &str) -> Result<RenameOutcome, Error> {
+        let (preview, files) = self.plan_rename_of(old, new, true)?;
+        self.apply_rename(preview, files, old, new, expect_hash, true)
+    }
+
+    /// The write half of [`Self::rename`] and [`Self::folder_rename`], which
+    /// differ only in how the files move and in how many paths the plan names.
+    fn apply_rename(
+        &mut self,
+        preview: RenamePreview,
+        files: Vec<(String, String)>,
+        old: &str,
+        new: &str,
+        expect_hash: &str,
+        dir: bool,
+    ) -> Result<RenameOutcome, Error> {
         if preview.hash != expect_hash {
             return Err(Error::SourceChanged { expected: expect_hash.to_string(), actual: preview.hash });
         }
         let v = self.bound()?;
-        v.move_file(old, new)?;
+        if dir {
+            v.move_dir(old, new)?;
+        } else {
+            v.move_file(old, new)?;
+        }
+        let moved_to = |p: &str| preview.plan.moves.iter().find(|(o, _)| o == p).map(|(_, n)| n.clone()).unwrap_or_else(|| p.to_string());
         let mut out = RenameOutcome { to: new.to_string(), ..Default::default() };
         for f in preview.plan.files.iter() {
-            let at = if f.path == old { new } else { f.path.as_str() };
+            let at = moved_to(&f.path);
+            let at = at.as_str();
             let Some((_, original)) = files.iter().find(|(p, _)| *p == f.path) else {
                 out.failed.push((at.to_string(), "it was not read for the plan, so it was left as it was".to_string()));
                 continue;
@@ -796,14 +852,18 @@ impl VaultSession {
                 Err(e) => out.failed.push((at.to_string(), e.to_string())),
             }
         }
-        for l in self.store.links.iter_mut().filter(|l| l.relative_path == old) {
-            l.relative_path = new.to_string();
-            out.relinked += 1;
+        for l in self.store.links.iter_mut() {
+            if let Some((_, n)) = preview.plan.moves.iter().find(|(o, _)| *o == l.relative_path) {
+                l.relative_path = n.clone();
+                out.relinked += 1;
+            }
         }
         // Every note this rename touched is re-read by the refresh below, not trusted to its stat
         // (see `BacklinkIndex::forget`): without this an undo within the same second plans from stale links.
-        self.backlinks.forget(old);
-        self.backlinks.forget(new);
+        for (o, n) in &preview.plan.moves {
+            self.backlinks.forget(o);
+            self.backlinks.forget(n);
+        }
         for (path, _) in &out.written {
             self.backlinks.forget(path);
         }
@@ -2832,6 +2892,69 @@ tags: [Town, port]
         #[allow(clippy::permissions_set_readonly_false)]
         perm.set_readonly(false);
         std::fs::set_permissions(root.join("Locked.md"), perm).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Protects: a folder rename end to end on a real vault -- every note
+    /// inside moves (nested and an attachment too, since the folder is one
+    /// rename), links into it from outside are rewritten, a link by unique name
+    /// is not, entity links to notes inside it follow them and stay
+    /// `Connected`, the refusals (into itself, a taken name) write nothing,
+    /// a stale preview moves nothing, and the undo is the same call with the
+    /// two paths swapped and restores every byte. MUTATION: drop the
+    /// `relinked` loop's `moves` lookup in `apply_rename` and the binding
+    /// assertions fail; call `move_file` for a folder and the move fails.
+    #[test]
+    fn a_folder_rename_moves_every_note_rewrites_links_and_the_bindings_follow() {
+        let root = scratch("folder-rename");
+        let put = |rel: &str, text: &str| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        put("Places/Kelvhold.md", "Seat.\n");
+        put("Places/Deep/Ford.md", "[k](../Kelvhold.md) ![i](../img/x.png)\n");
+        put("Places/img/x.png", "png");
+        put("Journal/J.md", "[[Places/Kelvhold]] and [[Ford]].\n");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let link = s.attach(EntityKind::Settlement, 7, "Kelvhold", "Places/Kelvhold.md", Selection::WholeDocument).unwrap();
+        let other = s.attach(EntityKind::Landmark, 9, "Ford", "Places/Deep/Ford.md", Selection::WholeDocument).unwrap();
+
+        // Refusals first: nothing may be written by them.
+        assert!(matches!(s.folder_rename_preview("Places", "Places/Sub"), Err(Error::Rename(notelinks::RenameError::IntoItself { .. }))));
+        assert!(matches!(s.folder_rename_preview("Places", "Locations"), Err(Error::Rename(notelinks::RenameError::FolderExists(_)))));
+        assert!(root.join("Places/Kelvhold.md").exists());
+
+        let p = s.folder_rename_preview("Places", "Atlas/Realms").unwrap();
+        assert_eq!((p.plan.moves.len(), p.knowledge_links), (2, 2));
+        // A stale preview moves nothing.
+        put("Late.md", "[[Places/Deep/Ford]]\n");
+        assert!(matches!(s.folder_rename("Places", "Atlas/Realms", &p.hash), Err(Error::SourceChanged { .. })));
+        assert!(root.join("Places/Kelvhold.md").exists(), "a stale folder rename moved nothing");
+        let p = s.folder_rename_preview("Places", "Atlas/Realms").unwrap();
+        let o = s.folder_rename("Places", "Atlas/Realms", &p.hash).unwrap();
+        assert!(o.failed.is_empty(), "{:?}", o.failed);
+        assert_eq!(o.relinked, 2);
+        let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap();
+        assert_eq!(read("Atlas/Realms/Kelvhold.md"), "Seat.\n");
+        assert_eq!(read("Atlas/Realms/Deep/Ford.md"), "[k](../Kelvhold.md) ![i](../img/x.png)\n", "internal links did not change");
+        assert_eq!(read("Atlas/Realms/img/x.png"), "png", "the attachment moved with the folder");
+        assert!(!root.join("Places").exists());
+        assert_eq!(read("Journal/J.md"), "[[Kelvhold]] and [[Ford]].\n");
+        assert_eq!(read("Late.md"), "[[Ford]]\n");
+        assert_eq!(s.store.get(&link).unwrap().relative_path, "Atlas/Realms/Kelvhold.md");
+        assert_eq!(s.store.get(&other).unwrap().relative_path, "Atlas/Realms/Deep/Ford.md");
+        assert_eq!((s.status(&link), s.status(&other)), (LinkStatus::Connected, LinkStatus::Connected));
+
+        // One undo step: the same call, paths swapped.
+        let back = s.folder_rename_preview("Atlas/Realms", "Places").unwrap();
+        let o2 = s.folder_rename("Atlas/Realms", "Places", &back.hash).unwrap();
+        assert!(o2.failed.is_empty(), "{:?}", o2.failed);
+        assert_eq!(read("Journal/J.md"), "[[Kelvhold]] and [[Ford]].
+", "a path link written shortest comes back shortest");
+        assert!(root.join("Places/img/x.png").exists() && !root.join("Atlas/Realms").exists());
+        assert_eq!(s.store.get(&link).unwrap().relative_path, "Places/Kelvhold.md");
         let _ = std::fs::remove_dir_all(&root);
     }
 
