@@ -50,6 +50,10 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Opened world regenerates with its own seed and size (Ruling EV, 2026-11-13)
+
+`DccApp._load_project()` now calls `NewWorldDialog.adopt_opened_world()` after a successful open, writing the world's seed and grid into the dialog's fields, which WORLD ▸ Generate, the live regenerate and the tool-options Generate build `request()` from. It is not on `world_loaded` (which also fires for centring and fjord passes and would overwrite a typed seed). `_newworld_rules_probe` no longer writes the seed by hand and asserts the load filled it.
+
 ### River combs, verifier follow-ups (Ruling EV): every new seed gets the current rules, the New World screen tells the truth, balanced lakes have smooth shores (2026-11-13)
 
 *A verifier's fourteen findings on the Ruling EV work (entry below), each opened at its symbol before anything was

@@ -67,10 +67,7 @@ document, and `STATUS.md` records what lands)
   basin routing plus the balance doubled lake area in the owner's view, +52 % map-wide, with the GPU on). Keep basin
   routing on. Owner: `DELTA_GEOMETRY_RESEARCH.md` §14, Ruling EV's follow-up in `LARGE_ITEM_RULINGS.md`; record the
   choice there.
-- **Regenerating an opened world uses the seed field, not the world's own seed** (Ruling EV's final verifier, 2026-11-13):
-  WORLD ▸ Generate, the live regenerate and the tool-options Generate build from `NewWorldDialog.seed_input`, which no
-  load writes, so "a saved world regenerates with its own rules" does not hold in the app. Owner: Ruling EV; the probe
-  `_newworld_rules_probe` must stop writing the seed by hand.
+- **Regenerating an opened world uses the seed field** -- closed 2026-11-13; see `STATUS.md` ("Opened world regenerates with its own seed and size").
 - **Ruling EU leftovers** (final verifiers of the ways/planner workflow, 2026-11-13; owner `LARGE_ITEM_RULINGS.md` Ruling
   EU, `STATUS.md`):
   - a V-shaped detour off the main way on seed 483920 (Orenelywash → Deleshshallows): the joined route leaves the road

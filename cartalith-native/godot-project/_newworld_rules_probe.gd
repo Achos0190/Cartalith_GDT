@@ -255,8 +255,7 @@ func _ready() -> void:
 	_log("-- L2 regenerate the opened world at its own seed (not a new world)")
 	## `.value` alone, no `apply()`: the dialog is hidden, and a hidden `SpinBox` re-parses its stale display text over a value
 	## written by code (`NewWorldDialog.request()`'s own note), which is what the New seed action's write avoids too.
-	dlg.seed_input.value = fixture_seed
-	dlg.grid_w_input.value = _grid
+	## Ruling EV: the LOAD fills the dialog (no hand-written seed here); the premise below asserts it did.
 	await _frames(2)
 	_check(int(dlg.request()["seed"]) == fixture_seed, "premise: the request carries the opened world's seed (%d)" % int(dlg.request()["seed"]))
 	dlg.generate_checked()

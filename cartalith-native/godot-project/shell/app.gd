@@ -5209,6 +5209,8 @@ func _load_project(path: String) -> bool:
 		current_project_path = path
 		DccSettings.remember_project(path)
 		var notes := _restore_project_documents()
+		## Ruling EV: regenerate must use the opened world's own seed and size, not the dialog's stale fields.
+		new_world_dialog.adopt_opened_world(int(bridge.world_gen.get_seed()), bridge.grid_size())
 		## Say which format was read when it was the OLD one. The conversion is
 		## one-way -- this build reads the reference app's flat layout and
 		## writes only the tree -- so a user who round-trips through the

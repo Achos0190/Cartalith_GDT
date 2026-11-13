@@ -2982,6 +2982,17 @@ func _rep_scroll_node() -> Node:
 		return _card_form
 	return _outer_scroll.get_child(0) if _outer_scroll != null and _outer_scroll.get_child_count() > 0 else null
 
+## Ruling EV: an opened world regenerates with its OWN seed and size. `DccApp._load_project()` calls this after a successful
+## open, because `generate_checked()`, the live regenerate and the tool-options Generate all build `request()` from these
+## fields and no load wrote them (OUTSTANDING_WORK.md, 2026-11-13). Writes through `_set_spin` (no signal: no history entry,
+## no archetype re-apply) and clears `_seed_dirty`. Must never run on `world_loaded`, which also fires for centring and
+## fjord passes and would overwrite a seed the user typed since; a different typed seed still means a new world.
+func adopt_opened_world(world_seed: int, grid: Vector2i) -> void:
+	_set_spin(seed_input, float(world_seed))
+	_seed_dirty = false
+	_set_spin(grid_w_input, float(grid.x))
+	_set_spin(grid_h_input, float(grid.y))
+
 ## Writes a number box's value AND its display text with no signal: `set_value_no_signal()` leaves the line edit's text stale,
 ## and a later `apply()` (or a focus loss) would parse that stale text back over the value (`request()`'s comment).
 func _set_spin(sb: SpinBox, v: float) -> void:
