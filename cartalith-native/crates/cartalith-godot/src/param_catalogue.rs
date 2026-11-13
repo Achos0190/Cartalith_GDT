@@ -245,6 +245,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.n_hamlet", "Raise: more hamlets. Lower: fewer hamlets. Read only with fixed settlement counts on."),
     ("civ.garrison_exposure_scale", "Raise: garrisons grow more on exposed borders. Lower: border exposure matters less; 0 ignores it."),
     ("civ.merge_ways", "On: roads heading the same way share one trunk (current). Off: each road keeps its own line, as older worlds were built."),
+    ("civ.base_ag_tech", "Raise: every faction starts with more advanced farming, 0 hoe to 5 industrial. Lower: simpler farming. Applies to a newly generated world."),
 ];
 
 /// The description of `key`, or `None` (a test names every offered key without one).
@@ -269,6 +270,13 @@ fn to_pvalue(v: params::Value) -> PValue {
 /// `None` means "read fresh" rather than "needs a Generate" is named by that
 /// function's own carve-out comment.
 pub fn regen(key: &str) -> Regen {
+    // `civ.base_ag_tech` is read only where a generation SEEDS the faction roster (`compute_civilisation`), and the roster
+    // survives every recompute and `civ_populate` by design, so the `civ.*` wildcard's "refresh settlements" would be
+    // false for it: only a new Generate re-seeds it. Named here rather than folded into `invalidates`, whose `civ.*`
+    // arm is pinned by `every_civ_row_marks_civ_stale_and_nothing_else` and is still right about the staleness.
+    if key == "civ.base_ag_tech" {
+        return Regen::FullGenerate;
+    }
     match params::invalidates(key) {
         Some(PipelineStage::Hydrology) => Regen::RefreshClimate,
         Some(PipelineStage::Climate) => Regen::RefreshSettlements,

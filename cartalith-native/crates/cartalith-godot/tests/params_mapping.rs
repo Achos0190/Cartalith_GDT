@@ -281,6 +281,7 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
         assert!(!c.villages, "{label}: _civVillages is OFF by default (reference 6444)");
         assert!(!c.metropolis, "{label}: _civMetropolis is OFF by default (reference 6442)");
         assert_eq!(c.recovery_phase, 0, "{label}: _civRecoveryPhase 0 = Stable (reference 6443)");
+        assert_eq!(c.base_ag_tech, 1, "{label}: every faction starts at traditionalAgrarian, index 1 (reference _civFactionAgTech)");
         assert!(!c.biome_k, "{label}: _biomeK is 0 by default (reference 6441)");
         assert_eq!(c.factions, 6, "{label}: CIV_FACTIONS.length-1 (reference 14568)");
         assert_eq!(c.seed_thresh, 0.42, "{label}: SETTLE_SEED_THRESH (reference 6415)");
@@ -293,7 +294,7 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
     assert!(params::defaults().civ.merge_ways, "new worlds merge their roads (Ruling EU item 1)");
 }
 
-/// Protects: the civ group being fifteen contiguous `civ.`-keyed rows that `groups()` lists,
+/// Protects: the civ group being sixteen contiguous `civ.`-keyed rows that `groups()` lists,
 /// that `set` reaches and types correctly, and that clamp at their floors (factions >= 1,
 /// recovery_phase 0..=4).
 ///
@@ -303,11 +304,11 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 /// would be the old `WorldGen` flags renamed, which is not what was ruled),
 /// `wantCounts`' flag and its five counts, plus `civ.garrison_exposure_scale`
 /// (Ruling AZ, folded in from a standalone `WorldGen` field), plus
-/// `civ.merge_ways` (Ruling EU item 1, 2026-11-12).
+/// `civ.merge_ways` (Ruling EU item 1, 2026-11-12), plus `civ.base_ag_tech` (New World's base technology, 2026-11-13).
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_fifteen() {
+fn the_civ_group_is_a_real_contiguous_group_of_sixteen() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 15, "the civ group is fifteen rows");
+    assert_eq!(rows.len(), 16, "the civ group is sixteen rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -331,6 +332,15 @@ fn the_civ_group_is_a_real_contiguous_group_of_fifteen() {
     // (`Math.max(0,Math.min(4,rp.value|0))`, reference 26643).
     assert_eq!(params::set(&mut p, "civ.recovery_phase", Value::Num(9.0)), Outcome::Clamped);
     assert_eq!(p.civ.recovery_phase, 4);
+    // The base technology level indexes the six-row `AG_TECH_LEVELS` table, so it clamps to 0..=5 at both ends and
+    // rounds a dropdown's near-integer rather than rejecting it.
+    assert_eq!(params::set(&mut p, "civ.base_ag_tech", Value::Num(9.0)), Outcome::Clamped);
+    assert_eq!(p.civ.base_ag_tech, 5);
+    assert_eq!(params::set(&mut p, "civ.base_ag_tech", Value::Num(-2.0)), Outcome::Clamped);
+    assert_eq!(p.civ.base_ag_tech, 0);
+    assert_eq!(params::set(&mut p, "civ.base_ag_tech", Value::Num(3.0000001)), Outcome::Clamped, "rounded, and reported as adjusted");
+    assert_eq!(p.civ.base_ag_tech, 3);
+    assert_eq!(cartalith_civ::roster::AG_TECH_LEVELS.len(), 6, "the row's 0..=5 range is the table's length");
 }
 
 /// Protects: every civ row (bar `civ.garrison_exposure_scale`) invalidating `Climate`, so a civ

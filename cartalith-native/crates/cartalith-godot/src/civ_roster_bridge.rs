@@ -250,6 +250,27 @@ impl FactionRoster {
         FactionRoster((0..=count).map(FactionEntry::default_for).collect())
     }
 
+    /// [`Self::seeded`], with every real faction (index 1 and up) starting at the agricultural-technology level
+    /// `base_ag_tech` -- an index into [`cartalith_civ::roster::AG_TECH_LEVELS`], the `civ.base_ag_tech` parameter
+    /// (owner request 2026-11-13: a world-wide base tech level in New World). Index 0 ("Unclaimed") is not a faction and
+    /// keeps the reference default, like its religion and government.
+    ///
+    /// An index outside the table (negative, or past its last row) is read as **the reference's own default**,
+    /// `traditionalAgrarian`, not clamped to an end of the table: a value no row owns must not silently become the most or
+    /// least advanced level. The parameter row clamps to `0..=5` before it gets here, so this is the second guard.
+    /// `seeded_with_tech(n, 1)` equals `seeded(n)` exactly, which is what keeps a default world bit-identical.
+    pub fn seeded_with_tech(count: usize, base_ag_tech: i32) -> Self {
+        let mut r = Self::seeded(count);
+        let key = usize::try_from(base_ag_tech)
+            .ok()
+            .and_then(|i| cartalith_civ::roster::AG_TECH_LEVELS.get(i))
+            .map_or("traditionalAgrarian", |l| l.key);
+        for e in r.0.iter_mut().skip(1) {
+            e.ag_tech = key.to_string();
+        }
+        r
+    }
+
     /// Real assignable factions (`1..=n`), excluding Unclaimed.
     pub fn count(&self) -> usize {
         self.0.len().saturating_sub(1)
@@ -833,6 +854,25 @@ mod tests {
         // Culture follows `_civDefaultCulture(i)` == CIV_CULTURES[i % 7].
         assert_eq!(r.0[0].culture, "common");
         assert_eq!(r.0[1].culture, "imperial");
+    }
+
+    /// Protects: `civ.base_ag_tech` reaches the roster -- each of the six levels, by LITERAL key (not by reading the table
+    /// back), lands on factions 1..=n and not on Unclaimed; the default index equals `seeded` exactly (so a default world is
+    /// bit-identical); and an index no row owns (negative, 6, 99) is the reference default, never an end of the table.
+    #[test]
+    fn base_ag_tech_seeds_every_real_faction_and_the_default_is_a_no_op() {
+        let literal = ["subsistence", "traditionalAgrarian", "advancedAgrarian", "improvedAgrarian", "earlyIndustrial", "industrial"];
+        for (i, key) in literal.iter().enumerate() {
+            let r = FactionRoster::seeded_with_tech(6, i as i32);
+            assert_eq!(r.0[0].ag_tech, "traditionalAgrarian", "Unclaimed is not a faction (level {i})");
+            for f in 1..=6 {
+                assert_eq!(r.0[f].ag_tech, *key, "faction {f} at level {i}");
+            }
+        }
+        assert_eq!(FactionRoster::seeded_with_tech(6, 1), FactionRoster::seeded(6), "the default index changes nothing");
+        for bad in [-1, 6, 99, i32::MIN, i32::MAX] {
+            assert_eq!(FactionRoster::seeded_with_tech(3, bad), FactionRoster::seeded(3), "{bad} is no row, so it is the reference default");
+        }
     }
 
     /// Protects: every new faction (`seeded`, `add`, GeoJSON import) gets a real, non-uniform

@@ -892,6 +892,17 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.merge_ways", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Merge roads into shared trunks", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.merge_ways), set_fn: |p, v| p.civ.merge_ways = v != 0.0 },
+    // Owner request 2026-11-13 (New World's base technology, next to the recovery phase): the
+    // `AG_TECH_LEVELS` index every faction's roster row is seeded with. `0..=5` is the table's own length; an `Int`
+    // row, so a dropdown's `2.0000001` rounds rather than is rejected. Default `1` (`traditionalAgrarian`) is the
+    // reference's own default for every faction at BOTH boundaries, so a world made without touching it is
+    // bit-identical and there is no `DECISIONS.md` §7p split. No reference control: the reference edits the level
+    // per faction (`civFactionAgTech`). Read where a generation seeds the roster, so it needs a new Generate
+    // (`invalidates`' `civ.*` wildcard marks the civ layer stale, which is true of it) and a save without the key
+    // loads the default.
+    ParamSpec { key: "civ.base_ag_tech", group: "civ", kind: Kind::Int, min: 0.0, max: 5.0, step: 1.0,
+        label: "Base agricultural technology", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(f64::from(p.civ.base_ag_tech)), set_fn: |p, v| p.civ.base_ag_tech = v as i32 },
 ];
 
 // ===========================================================================
@@ -1162,6 +1173,7 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("civ.garrison_exposure_scale", ""),
     // Ruling EU item 1: no reference control; the reference has no trunk pass.
     ("civ.merge_ways", ""),
+    ("civ.base_ag_tech", ""),
 ];
 
 /// A parameter's path inside the reference's own `state` object; `Some("")`

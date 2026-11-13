@@ -2400,6 +2400,28 @@ mod civ_pipeline_tests {
         (at(a), at(b))
     }
 
+    /// Protects: `civ.base_ag_tech` through the real `compute_civilisation`: a world generated with level 5 has every faction at
+    /// "industrial" and level 0 at "subsistence" (literals), the default level 1 is `seeded(n)` byte for byte and moves no
+    /// settlement, and the level moves no settlement either (it is roster data, read by the manpower and trade bridges only).
+    #[test]
+    fn base_ag_tech_seeds_the_generated_roster_and_moves_no_settlement() {
+        let base = world().1.clone();
+        let default_civ = civ(&base, &[]);
+        assert_eq!(default_civ.faction_roster, civ_roster_bridge::FactionRoster::seeded(base.civ.factions.max(1) as usize));
+        for (level, key) in [(0, "subsistence"), (5, "industrial")] {
+            let mut p = base.clone();
+            p.civ.base_ag_tech = level;
+            let c = civ(&p, &[]);
+            let n = p.civ.factions.max(1) as usize;
+            assert_eq!(c.faction_roster.0.len(), n + 1);
+            for f in 1..=n {
+                assert_eq!(c.faction_roster.0[f].ag_tech, key, "faction {f} at level {level}");
+            }
+            let at = |c: &CivData| c.settlements.iter().map(|s| (s.placement, s.pop)).collect::<Vec<_>>();
+            assert_eq!(at(&c), at(&default_civ), "the level is roster data: no settlement moves");
+        }
+    }
+
     /// Protects: A2: a roster at its defaults names settlements exactly as no roster does, and
     /// editing one faction's culture renames only that faction's settlements (from the new
     /// culture's name pool) while moving no settlement's position, population or faction.
@@ -5635,7 +5657,9 @@ fn compute_civilisation(
         // the moment this struct is built. (`CIV_FACTION_COUNT` until the civ
         // `PARAMS` group made the count a dial; that constant is now only the
         // default's origin, kept where it is documented.)
-        faction_roster: civ_roster_bridge::FactionRoster::seeded(opts.factions.max(1) as usize),
+        // `civ.base_ag_tech`: the technology level every faction row starts at (default 1 = the reference's own,
+        // so this is `seeded(n)` exactly for a default world).
+        faction_roster: civ_roster_bridge::FactionRoster::seeded_with_tech(opts.factions.max(1) as usize, opts.base_ag_tech),
         religions: Default::default(),
         place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
         village_tids,

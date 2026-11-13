@@ -972,6 +972,22 @@ pub struct CivParams {
     /// the key loads it off (`params::apply_saved_state`), so a Recompute or
     /// Generate roads on an old world rebuilds the roads it had.
     pub merge_ways: bool,
+    /// Owner request 2026-11-13 (New World: "set the base tech level for the whole world also, next to the phase the
+    /// world is in"): the **base agricultural technology** every faction's roster row starts with, an index into
+    /// `cartalith_civ::roster::AG_TECH_LEVELS` (`0` subsistence, `1` traditional agrarian, `2` advanced agrarian, `3`
+    /// improved agrarian, `4` early industrial, `5` industrial). It is read once, where a generation seeds the faction
+    /// roster (`cartalith-godot`'s `compute_civilisation`, `FactionRoster::seeded_with_tech`), so it sets `ag_tech` for
+    /// factions 1..=`factions`; a faction's own pick in CIVIL stays its own, and a roster already built is not rewritten
+    /// by moving this (the roster survives `civ_populate`, by design). `ag_tech` in turn feeds
+    /// `farmers_per_urbanite`, which the military manpower model (levy reach, standing-army upkeep) and the trade
+    /// bridge read.
+    ///
+    /// Default `1`, **the reference's own default for every faction** (`_civFactionAgTech` is `traditionalAgrarian`),
+    /// at both boundaries: a world made without touching it is bit-identical to one made before this field existed, so
+    /// no golden moves and `DECISIONS.md` §7p needs no split here. Clamped to `0..=5` by the parameter row; a value
+    /// outside that range reaching this field is read as the reference default rather than panicking
+    /// (`FactionRoster::seeded_with_tech`).
+    pub base_ag_tech: i32,
 }
 
 impl CivParams {
@@ -1437,6 +1453,8 @@ impl WorldParams {
                 garrison_exposure_scale: 1.0,
                 // Ruling EU item 1: the reference has no trunk-merging pass.
                 merge_ways: false,
+                // The reference's own default tech level for every faction (`traditionalAgrarian`, index 1).
+                base_ag_tech: 1,
             },
             use_gpu: false,
             // Off: the streak spike's ablations are measurement-only; see
