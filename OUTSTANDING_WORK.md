@@ -69,10 +69,9 @@ document, and `STATUS.md` records what lands)
 - **Regenerating an opened world uses the seed field** -- closed 2026-11-13; see `STATUS.md` ("Opened world regenerates with its own seed and size").
 - **Ruling EU leftovers** (final verifiers of the ways/planner workflow, 2026-11-13; owner `LARGE_ITEM_RULINGS.md` Ruling
   EU, `STATUS.md`):
-  - a V-shaped detour off the main way on seed 483920 (Orenelywash → Deleshshallows): the joined route leaves the road
-    about 3 cells across country to a thin track and back;
-  - declined river offers never reach the engine (`_river_declined` stays in GDScript; `jp_river_offers` sets aside only
-    accepted legs before `MAX_MEASURED`), though the doc and the UI say declining measures the next stretch;
+  - ~~a V-shaped detour off the main way on seed 483920~~ -- closed 2026-11-13; see `STATUS.md` ("Planner: a V-shaped
+    detour, and declined river stretches");
+  - ~~declined river offers never reach the engine~~ -- closed 2026-11-13; see the same `STATUS.md` entry;
   - way-merge test gaps: removing the second half of `record_meets` and `min_by`→`max_by` in
     `civ_join_tracks_to_network` both survive; the lower bounds of `MEET_CELLS` and `REACH_PLACE_CELLS` are unpinned.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):

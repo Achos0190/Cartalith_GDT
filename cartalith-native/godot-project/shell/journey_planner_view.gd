@@ -295,8 +295,11 @@ var _resupply_declined: Dictionary = {}
 ## names points of one particular route.
 var _river_legs: Array = []
 ## Ruling EU item 3: offer keys the user declined this session (key -> true).
-## Declining only hides the offer's prompts; whether a decline is saved with the
-## journey is owner question Q8, so it is not yet.
+## Sent to `jp_compute` as `river_declined`, so the engine sets a declined stretch
+## aside before it applies `river_stretch::MAX_MEASURED` and the next candidate is
+## measured on the compute that follows the decline (2026-11-13: a decline used to
+## stay here and only hide the row, so it kept its slot). Whether a decline is
+## saved with the journey is owner question Q8, so it is not yet.
 var _river_declined: Dictionary = {}
 ## Ruling EU item 3: the hull chosen in an offer's menu before it is accepted
 ## (offer key -> hull name); absent means the recommended one.
@@ -2008,6 +2011,11 @@ func _compute() -> void:
 	## Ruling EU item 3: ask for the river stretches along the route. Sent by
 	## the compute only, never saved with the plan (`_plan_request()`).
 	request["river_offers"] = true
+	## The declined stretches, by key: the engine does not offer them again and
+	## they no longer take one of its measured slots. Sent by the compute only,
+	## like `river_offers`; never saved with the plan.
+	if not _river_declined.is_empty():
+		request["river_declined"] = PackedStringArray(_river_declined.keys())
 	_last_result = bridge.jp_compute(request)
 	_apply_result()
 
@@ -4915,7 +4923,7 @@ func _hull_menu(parent: Control, hulls: Array, recommended: String, current: Str
 ## navigable stretch along the route that `jp_compute` measured as quicker
 ## (`river_offers`), with its direction, length along the route, the days it
 ## saves (an exact re-plan, `saving_days`) and a hull menu; "use river" adds it
-## to `_river_legs` and recomputes, "decline" hides its prompts for the session.
+## to `_river_legs` and recomputes, "decline" sends the key to the engine (`river_declined`) and recomputes, so the next candidate is measured.
 ## Accepted legs (`plan.river_legs_applied`) are listed first with "walk
 ## instead" and their own hull menu; a saved leg the engine could not apply is
 ## named with the engine's reason. On a journey that already travels by water,
@@ -4964,6 +4972,14 @@ func _build_river_group(body: Control, plan: Dictionary) -> void:
 		var unmeasured := int(_last_result["river_offers_unmeasured"])
 		DccWidgets.note(g, ("1 more stretch along this route was" if unmeasured == 1 else "%d more stretches along this route were" % unmeasured)
 			+ " not measured this time; accept or decline some to see them.")
+	## The engine no longer returns a declined stretch, so it is said here, with a
+	## way to offer them again (a decline is never a silent loss).
+	if not _river_declined.is_empty():
+		var nd := _river_declined.size()
+		DccWidgets.note(g, ("1 stretch declined this session." if nd == 1 else "%d stretches declined this session." % nd))
+		DccWidgets.action(_river_row(g), "offer declined again", func():
+			_river_declined.clear()
+			_compute())
 	if offers.is_empty():
 		if _last_result.has("river_offers_note") and applied.is_empty():
 			DccWidgets.note(g, String(_last_result["river_offers_note"]))
@@ -5002,7 +5018,9 @@ func _build_river_group(body: Control, plan: Dictionary) -> void:
 			_compute(), true)
 		DccWidgets.action(row, "decline", func():
 			_river_declined[key] = true
-			_apply_result())
+			## Recompute, not just redraw: the engine frees the declined stretch's
+			## slot and measures the next candidate on this compute.
+			_compute())
 	if open.size() > 1:
 		DccWidgets.action(_river_row(g), "use all recommended", func():
 			## Each offer was measured alone, so taking several is re-planned

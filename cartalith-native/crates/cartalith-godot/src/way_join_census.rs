@@ -338,7 +338,7 @@ fn measure_planner_way_join_and_river_offers() {
             let t0 = Instant::now();
             let on_map = world.on_map_points(&on.path.pts);
             let offers = cartalith_civ::jp_plan(&world, &on_map, &walk, &HashMap::new(), &|_, _| 1.0).map(|base| {
-                river_stretch::jp_river_offers(&world, &on_map, &walk, &HashMap::new(), &|_, _| 1.0, None, None, &base, &hulls)
+                river_stretch::jp_river_offers(&world, &on_map, &walk, &HashMap::new(), &|_, _| 1.0, None, None, &base, &hulls, &[])
             });
             t_offer.push(t0.elapsed().as_secs_f64() * 1000.0);
             let offer_txt = match &offers {
@@ -404,5 +404,124 @@ fn measure_planner_way_join_and_river_offers() {
             spread(&mut t_on),
             spread(&mut t_offer)
         );
+    }
+}
+
+/// Diagnostic for the verifier's V-shaped detour on seed 483920: scans the joined
+/// routes between the most populous towns of the census worlds for a ride on one
+/// way, a short step off it onto a different way, and a ride on the first way
+/// again (`A -> B -> A`), printing each with the cost ratio the join reported.
+/// The verifier's town names (Orenelywash, Orenflorelytambend, Deleshshallows) are
+/// not on the census world, so the pattern, not the names, is what is searched
+/// for. Protects nothing; a measurement.
+#[test]
+#[ignore = "diagnostic; run alone in release"]
+fn find_v_detours() {
+    for s in &MAIN[1..] {
+        let p = params_for(s, true);
+        let ws = cartalith_engine::generate_terrain(&p);
+        let civ = civ_for(&ws, &p);
+        let (gw, gh) = (p.gw, p.gh);
+        let inputs = infra_tools_bridge::RouteInputs::build(
+            &ws, gw, gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, None, p.lake_balance,
+        );
+        let credited = tools::civ_credited_road_edges(&civ.ways, &civ.road_edges);
+        let edge_polys = tools::civ_road_edge_polylines(&credited, gw);
+        let way_refs: Vec<WayRef> = tools::civ_network_way_refs(&civ.ways, &[], &edge_polys);
+        let ctx = RouteContext {
+            field: &ws.field,
+            water_bodies: &inputs.water_bodies,
+            biome: inputs.biome.as_deref(),
+            river_order: inputs.river_order.as_deref(),
+            places: &civ.settlements,
+            ways: &way_refs,
+            gw,
+            gh,
+            sea: ws.sea_level,
+            world: p.world,
+            map_width_km: p.map_width_km,
+            corridors: inputs.corridors.as_deref(),
+            flow: Some(&ws.flow_discharge),
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+        };
+        let join = WayJoin::new(civ.ways.len());
+        let places: Vec<(f64, f64)> = civ.settlements.iter().map(|t| (t.placement.x as f64, t.placement.y as f64)).collect();
+        let mut big: Vec<usize> = (0..civ.settlements.len()).collect();
+        big.sort_by(|&a, &b| civ.settlements[b].pop.cmp(&civ.settlements[a].pop).then(a.cmp(&b)));
+        big.truncate(24);
+        let (mut routes, mut vs) = (0usize, 0usize);
+        for (k, &a) in big.iter().enumerate() {
+            for &b in &big[k + 1..] {
+                let d = (places[a].0 - places[b].0).hypot(places[a].1 - places[b].1);
+                if d < 0.03 * gw as f64 || d > 0.4 * gw as f64 {
+                    continue;
+                }
+                let on = way_join::civ_join_dijkstra_segs_joined(&ctx, &[places[a], places[b]], RouteMode::Land, &join);
+                routes += 1;
+                let sp = &on.spans;
+                let dist_way = |w: usize, q: (f64, f64)| -> f64 {
+                    let mut best = f64::INFINITY;
+                    for sg in civ.ways[w].pts.windows(2) {
+                        let (dx, dy) = (sg[1].0 - sg[0].0, sg[1].1 - sg[0].1);
+                        let l2 = dx * dx + dy * dy;
+                        let t = if l2 > 1e-12 { (((q.0 - sg[0].0) * dx + (q.1 - sg[0].1) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                        best = best.min((sg[0].0 + dx * t - q.0).hypot(sg[0].1 + dy * t - q.1));
+                    }
+                    best
+                };
+                let pp = &on.path.pts;
+                for m in 0..sp.len() {
+                    for n in m + 1..sp.len() {
+                        if sp[m].way != sp[n].way || sp[m + 1..n].iter().any(|x| x.way == sp[m].way) {
+                            continue;
+                        }
+                        let w = sp[m].way;
+                        // The points between the two rides on `w`, and how far off `w` the route goes.
+                        let between = sp[m].i1 + 1..sp[n].i0;
+                        let dev = between.clone().map(|k| dist_way(w, pp[k])).fold(0.0f64, f64::max);
+                        if dev < 1.2 || dev > 8.0 {
+                            continue;
+                        }
+                        vs += 1;
+                        if vs <= 6 {
+                            println!(
+                                "{} V: {} -> {} ratios {:?} way {w} ({:?}) rides {:?}..{:?} then {:?}..{:?}, deviation {dev:.2}, spans {:?}",
+                                s.tag, civ.settlements[a].name, civ.settlements[b].name, on.legs.iter().map(|l| l.cost_ratio).collect::<Vec<_>>(),
+                                civ.ways[w].way_type, sp[m].i0, sp[m].i1, sp[n].i0, sp[n].i1,
+                                sp.iter().map(|x| (x.way, x.i0, x.i1)).collect::<Vec<_>>()
+                            );
+                            for k in sp[m].i1.saturating_sub(1)..=(sp[n].i0 + 1).min(pp.len() - 1) {
+                                let (mut nw, mut nd) = (usize::MAX, f64::INFINITY);
+                                for wi in 0..civ.ways.len() {
+                                    let d = dist_way(wi, pp[k]);
+                                    if d < nd {
+                                        (nw, nd) = (wi, d);
+                                    }
+                                }
+                                // The nearest of ALL the router's refs (drawn ways, then credited edges).
+                                let (mut rr, mut rd) = (usize::MAX, f64::INFINITY);
+                                for (ri, r) in way_refs.iter().enumerate() {
+                                    for sg in r.pts.windows(2) {
+                                        let (dx, dy) = (sg[1].0 - sg[0].0, sg[1].1 - sg[0].1);
+                                        let l2 = dx * dx + dy * dy;
+                                        let q = pp[k];
+                                        let t = if l2 > 1e-12 { (((q.0 - sg[0].0) * dx + (q.1 - sg[0].1) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                                        let d = (sg[0].0 + dx * t - q.0).hypot(sg[0].1 + dy * t - q.1);
+                                        if d < rd {
+                                            (rr, rd) = (ri, d);
+                                        }
+                                    }
+                                }
+                                println!(
+                                    "    {k:4} ({:.2},{:.2}) d_A={:.2} nearest drawn {nw} ({:?}) d={nd:.2}; nearest ref {rr} (drawn_ways {}, class {:?}, hidden {}) d={rd:.2}",
+                                    pp[k].0, pp[k].1, dist_way(w, pp[k]), civ.ways[nw].way_type, civ.ways.len(), way_refs[rr].class, way_refs[rr].hidden
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        println!("{}: {routes} routes, {vs} A-B-A patterns", s.tag);
     }
 }

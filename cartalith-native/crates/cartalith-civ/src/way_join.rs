@@ -34,6 +34,17 @@
 //!    uncommitted read-only planning pass of 2026-11-12 proposed: it yields a
 //!    real least-cost path under one cost model, rides through junctions onto
 //!    further ways for free, and needs no new kernel.
+//! 2b. **Return to a way instead of crossing to its parallel.** A route that rides
+//!    drawn way A, steps off it and comes back to A (`A -> something else -> A`)
+//!    is re-laid along A between the two points, unless the other stretch is
+//!    cheaper than A's own by more than the margin ([`rejoin_way_detours`]).
+//!    Found on seed 483920 (Ruling EU leftovers, 2026-11-13): after way merging
+//!    the credited raw road edges (never drawn) lie up to 5 cells from the drawn
+//!    way that replaced them, and the router, which discounts both alike, rode
+//!    way A, crossed 3 cells of open ground to a credited edge, followed it, and
+//!    crossed back: drawn as a V off the road onto nothing. The joined route is
+//!    drawn on drawn ways only, so the stretch on the credited edge could only be
+//!    drawn as a smoothed line off the road.
 //! 3. Draw every run of the chosen path that rides one drawn way for at least
 //!    [`MIN_RIDE_CELLS`] cells on **that way's own points** (the splice), so the
 //!    route renders on the way's curve instead of beside it. Each routed point
@@ -421,6 +432,128 @@ fn reown_by_proximity(ctx: &RouteContext, raw: &[(f64, f64)], owners: &mut [i32]
 /// and hands the point over where another way plainly runs through it.
 const OWNER_SLACK_CELLS: f64 = 1.0;
 
+/// The `prev` array of a chain of routing cells (`prev[c]` the cell before `c`,
+/// `-1` elsewhere), so [`civ_route_trace`] can walk a path the join rewrote as it
+/// walks the router's own.
+fn prev_of_chain(path: &[usize], n: usize) -> Vec<i32> {
+    let mut prev = vec![-1i32; n];
+    for w in path.windows(2) {
+        prev[w[1]] = w[0] as i32;
+    }
+    prev
+}
+
+/// The cheapest path from the first to the last of `cells` that stays on cells
+/// owned by drawn way `way` (`owner[c] == way`), costed on `cost`, as routing
+/// cells start to end; or `None` when the way's own cells do not connect them
+/// inside the window. The search runs on the window of `cells` (the stretch being
+/// replaced) padded by `pad` cells, as a small grid of its own, so it costs the
+/// size of the detour and not of the map; a window that straddles the x seam of a
+/// wrapped world is refused (`None`) rather than mis-measured.
+#[allow(clippy::too_many_arguments)]
+fn way_band_path(
+    world: bool,
+    cost: &[f32],
+    rw: usize,
+    rh: usize,
+    owner: &[i32],
+    way: i32,
+    cells: &[usize],
+    pad: usize,
+) -> Option<Vec<usize>> {
+    let (from, to) = (*cells.first()?, *cells.last()?);
+    let xs = cells.iter().map(|&c| c % rw);
+    let (xmin, xmax) = (xs.clone().min()?, xs.max()?);
+    if world && xmax - xmin > rw / 2 {
+        return None;
+    }
+    let ys = cells.iter().map(|&c| c / rw);
+    let (ymin, ymax) = (ys.clone().min()?, ys.max()?);
+    let (x0, x1) = (xmin.saturating_sub(pad), (xmax + pad).min(rw - 1));
+    let (y0, y1) = (ymin.saturating_sub(pad), (ymax + pad).min(rh - 1));
+    let (sw, sh) = (x1 - x0 + 1, y1 - y0 + 1);
+    let mut sub = vec![f32::INFINITY; sw * sh];
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let c = y * rw + x;
+            if owner[c] == way {
+                sub[(y - y0) * sw + (x - x0)] = cost[c];
+            }
+        }
+    }
+    let local = |c: usize| (c / rw - y0) * sw + (c % rw - x0);
+    let (lf, lt) = (local(from), local(to));
+    let (_d, prev) = road_dijkstra(&sub, sw, sh, lf % sw, lf / sw, false, None, true);
+    if prev[lt] < 0 {
+        return None;
+    }
+    let chain = civ_route_chain(&prev, lf, lt, sw * sh);
+    Some(chain.iter().map(|&l| (l / sw + y0) * rw + (l % sw + x0)).collect())
+}
+
+/// Step 2b of the join: wherever `path` rides drawn way A, steps off it and comes
+/// back to A, lay A's own cells between the two points instead, **unless the
+/// stretch that left A is cheaper than A's by more than the margin** (A's cost
+/// at most `(1 + margin)` times the stretch's, both on the unmodified grid
+/// `cost`); and never past `budget`, the leg's total cost limit (`(1 + margin)`
+/// times the direct path's), so the leg's join guarantee holds. Returns the path
+/// and the number of stretches replaced (`0`, the path unchanged, when none).
+///
+/// Only ways in the first `opts.drawn_ways` refs are returned to: a credited edge
+/// has no line of its own, so nothing is drawn on it. The check runs where a run
+/// on A ends (`owner[path[i + 1]] != A`), against the first later return to A, so
+/// one detour is examined once, and a way's ordinary junction (a crossing way
+/// whose cells A's own cells cannot connect over) finds no A-only path and
+/// changes nothing. A rewritten path that would visit a cell twice (A looping
+/// back over the route) is discarded whole: the route is returned as it was.
+/// Ruling EU leftovers, 2026-11-13 (seed 483920's V-shaped detour; module doc,
+/// step 2b).
+#[allow(clippy::too_many_arguments)]
+fn rejoin_way_detours(
+    world: bool,
+    cost: &[f32],
+    rw: usize,
+    rh: usize,
+    owner: &[i32],
+    path: &[usize],
+    opts: &WayJoin,
+    budget: f64,
+) -> (Vec<usize>, usize) {
+    let mut out: Vec<usize> = Vec::with_capacity(path.len());
+    let mut total = path_cost(cost, rw, path);
+    let mut repairs = 0usize;
+    let mut i = 0usize;
+    while i < path.len() {
+        out.push(path[i]);
+        let w = owner[path[i]];
+        let leaves = i + 1 < path.len() && owner[path[i + 1]] != w;
+        if w >= 0 && (w as usize) < opts.drawn_ways && leaves {
+            // The first later cell back on A: `j`.
+            if let Some(j) = (i + 2..path.len()).find(|&j| owner[path[j]] == w) {
+                let span = &path[i..=j];
+                let pad = span.len().max(4);
+                if let Some(along) = way_band_path(world, cost, rw, rh, owner, w, span, pad) {
+                    let (span_cost, along_cost) = (path_cost(cost, rw, span), path_cost(cost, rw, &along));
+                    if along != span && along_cost <= (1.0 + opts.margin) * span_cost && total - span_cost + along_cost <= budget {
+                        total += along_cost - span_cost;
+                        out.extend_from_slice(&along[1..]);
+                        repairs += 1;
+                        // `along` ends on `path[j]`, which is now emitted.
+                        i = j + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    let distinct: HashSet<usize> = out.iter().copied().collect();
+    if repairs == 0 || distinct.len() != out.len() {
+        return (path.to_vec(), 0);
+    }
+    (out, repairs)
+}
+
 /// One leg through the join: the leg's line, its report, and its spliced
 /// stretches (indices into the returned `pts`). See the module doc for the
 /// three steps. A water leg (`RouteMode::Water`: no land way to ride) and an
@@ -473,8 +606,19 @@ pub fn civ_dijkstra_path_joined(
             break;
         }
     }
-    let joined = chosen.is_some();
-    let (prev_c, path_c, cost_c) = chosen.unwrap_or((prev, direct, c_star));
+    let stuck = chosen.is_some();
+    let (mut prev_c, mut path_c, mut cost_c) = chosen.unwrap_or((prev, direct, c_star));
+
+    // Step 2b: a stretch off drawn way A that returns to A is laid along A when
+    // that costs at most the margin more, and never lifts the leg past its budget.
+    let budget = (1.0 + opts.margin) * c_star;
+    let (laid, repairs) = rejoin_way_detours(ctx.world, &grid.cost, rw, rh, &owner, &path_c, opts, budget);
+    if repairs > 0 {
+        cost_c = path_cost(&grid.cost, rw, &laid);
+        prev_c = prev_of_chain(&laid, rw * rh);
+        path_c = laid;
+    }
+    let joined = stuck || repairs > 0;
     let mut report = LegJoin {
         joined,
         cost_ratio: Some(if c_star > 0.0 { cost_c / c_star } else { 1.0 }),
@@ -1164,4 +1308,87 @@ mod tests {
         assert_eq!(a, b);
     }
 
+
+    /// Test fixture: the V-shaped detour of seed 483920 in miniature. A lake (water
+    /// x 29..=35, y 7..=33 on a 60 x 50 flat world) splits a route from (5, 20) to
+    /// (55, 20); drawn road A goes round its north end (the arch at `a_y`), and
+    /// an **undrawn credited edge** B round its south end (the arch at `b_y`).
+    /// Both leave and rejoin one road line at (26, 20) and (38, 20). The router
+    /// discounts both alike, so when B is the cheaper arch the direct route rides
+    /// A, crosses the open ground to B, rides B round the lake and comes back to
+    /// A: a V off the road onto a line that is never drawn. Returns the field,
+    /// water mask and the two ways' points. Sizes and offsets are test-local.
+    fn lake_with_two_arches(a_y: f64, b_y: f64) -> (Vec<f32>, Vec<u8>, Vec<(f64, f64)>, Vec<(f64, f64)>) {
+        let (gw, gh) = (60, 50);
+        let (mut field, wb) = flat(gw, gh);
+        assert!(gh > 40);
+        for y in 7..=33 {
+            for x in 29..=35 {
+                field[y * gw + x] = 0.1;
+            }
+        }
+        let a = vec![(10.0, 20.0), (26.0, 20.0), (27.0, a_y), (37.0, a_y), (38.0, 20.0), (50.0, 20.0)];
+        let b = vec![(26.0, 20.0), (27.0, b_y), (37.0, b_y), (38.0, 20.0)];
+        (field, wb, a, b)
+    }
+
+    /// Protects the V-detour repair (Ruling EU leftovers, 2026-11-13): a route that
+    /// rides drawn way A, steps off it onto an undrawn edge B and comes back to A
+    /// is laid along A when A costs within the margin of B, and is then drawn on A's
+    /// own points. Measured on the fixture, a literal each: the direct route rides
+    /// B south round the lake (a point at y >= 30, which the premise asserts, so a
+    /// fixture that stopped reproducing the V fails here); the joined route stays
+    /// north (no point south of y = 21), carries A's two arch corners exactly,
+    /// reports a ratio of 1.0426 (A's arch against B's), inside the margin.
+    #[test]
+    fn a_route_that_crosses_to_a_parallel_edge_and_back_is_laid_along_the_way() {
+        let (field, wb, a, b) = lake_with_two_arches(4.0, 35.0);
+        let ways = [road(&a), road(&b)];
+        let c = ctx(&field, &wb, &ways, 60, 50);
+        let direct = civ_dijkstra_path(&c, 5.0, 20.0, 55.0, 20.0, RouteMode::Land);
+        assert!(direct.pts.iter().any(|p| p.1 >= 30.0), "premise: the direct route rides the credited edge south: {:?}", direct.pts);
+        let (p, rep, spans) = civ_dijkstra_path_joined(&c, 5.0, 20.0, 55.0, 20.0, RouteMode::Land, &WayJoin::new(1));
+        assert!(p.pts.iter().all(|q| q.1 <= 21.0), "the joined route left the road for the credited edge: {:?}", p.pts);
+        assert!(p.pts.contains(&(27.0, 4.0)) && p.pts.contains(&(37.0, 4.0)), "A's arch corners: {:?}", p.pts);
+        assert!(rep.joined, "{rep:?}");
+        let r = rep.cost_ratio.expect("a routed leg reports its ratio");
+        assert!((r - 1.0426).abs() < 1e-3, "ratio {r}");
+        assert!(!spans.is_empty());
+        for s in &spans {
+            for k in s.i0..=s.i1 {
+                assert!(dist_to(&a, p.pts[k]) < 1e-9, "spliced point {:?} is off the road", p.pts[k]);
+            }
+        }
+    }
+
+    /// Protects the repair's margin: when the road's arch costs more than the margin
+    /// over the edge's stretch (A's arch at y = 3, one row farther out than the
+    /// repaired fixture's y = 4, measured not repaired: the arches' costs differ by
+    /// more than the 0.15 margin), the route keeps the cheaper edge, as the owner's
+    /// "unless genuinely cheaper" requires, and reports no join.
+    #[test]
+    fn an_edge_cheaper_than_the_road_by_more_than_the_margin_is_kept() {
+        let (field, wb, a, b) = lake_with_two_arches(3.0, 35.0);
+        let ways = [road(&a), road(&b)];
+        let c = ctx(&field, &wb, &ways, 60, 50);
+        let (p, rep, _) = civ_dijkstra_path_joined(&c, 5.0, 20.0, 55.0, 20.0, RouteMode::Land, &WayJoin::new(1));
+        assert!(p.pts.iter().any(|q| q.1 >= 30.0), "the cheaper edge was not kept: {:?}", p.pts);
+        assert!(!rep.joined, "{rep:?}");
+        assert_eq!(rep.cost_ratio, Some(1.0));
+    }
+
+    /// Protects "drawn ways only": with neither road drawn (`drawn_ways` 0, both are
+    /// credited edges), the V's two stretches are the router's own, and the repair
+    /// does not lay one credited edge along the other: nothing is drawn on either,
+    /// so there is no line to return to. The route is the direct one, unjoined.
+    #[test]
+    fn a_return_is_never_laid_along_an_undrawn_edge() {
+        let (field, wb, a, b) = lake_with_two_arches(4.0, 35.0);
+        let ways = [road(&a), road(&b)];
+        let c = ctx(&field, &wb, &ways, 60, 50);
+        let (p, rep, spans) = civ_dijkstra_path_joined(&c, 5.0, 20.0, 55.0, 20.0, RouteMode::Land, &WayJoin::new(0));
+        assert!(!rep.joined && spans.is_empty(), "{rep:?}");
+        assert_eq!(rep.cost_ratio, Some(1.0));
+        assert!(p.pts.iter().any(|q| q.1 >= 30.0), "{:?}", p.pts);
+    }
 }

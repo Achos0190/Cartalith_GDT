@@ -230,12 +230,12 @@ fn a_party_with_animals_is_told_why_no_stretch_is_offered() {
     let plan = walking();
     let base = cartalith_civ::jp_plan(&w, &pts, &plan, &none, &|_, _| 1.0).unwrap();
     let hulls = jp_builtin_hulls();
-    let offered = cartalith_civ::river_stretch::jp_river_offers(&w, &pts, &plan, &none, &|_, _| 1.0, None, None, &base, &hulls);
+    let offered = cartalith_civ::river_stretch::jp_river_offers(&w, &pts, &plan, &none, &|_, _| 1.0, None, None, &base, &hulls, &[]);
     assert!(offered.as_ref().is_ok_and(|o| !o.offers.is_empty() && o.unmeasured == 0), "{offered:?}");
     let mut mule = walking();
     mule.party.mule = 1;
     let base = cartalith_civ::jp_plan(&w, &pts, &mule, &none, &|_, _| 1.0).unwrap();
-    let refused = cartalith_civ::river_stretch::jp_river_offers(&w, &pts, &mule, &none, &|_, _| 1.0, None, None, &base, &hulls);
+    let refused = cartalith_civ::river_stretch::jp_river_offers(&w, &pts, &mule, &none, &|_, _| 1.0, None, None, &base, &hulls, &[]);
     assert_eq!(refused, Err(cartalith_civ::river_stretch::NOTE_ANIMALS_ABOARD));
 }
 
@@ -604,4 +604,57 @@ fn a_stretch_whose_ends_round_to_one_route_point_is_kept() {
     assert_eq!(c.len(), 1, "{c:?}");
     assert_eq!((c[0].entry_k, c[0].exit_k), (1, 3));
     assert!((c[0].route_km - 48.0).abs() < 1e-9 && (c[0].channel_km - 48.0).abs() < 1e-9, "{:?}", c[0]);
+}
+
+/// The fixture's river with its channel broken at x = 20 (order 0 there), so the
+/// route one cell north of it (row 7) has two stretches, x = 4..=19 and
+/// x = 21..=35, each of which saves time. Test-local sizes.
+fn broken_river() -> Rv {
+    let mut r = river(4);
+    r.order[ROW * W + 20] = 0;
+    r.flow[ROW * W + 20] = 0.0;
+    r
+}
+
+/// Protects the decline (Ruling EU item 3, the 2026-11-13 leftover): a declined
+/// stretch frees its measuring slot, so the next candidate is measured and offered
+/// on the following compute, as `MAX_MEASURED`'s doc says. Four literals, each the
+/// fixture measured once: with the bound at 1 the first compute offers one stretch
+/// and leaves one unmeasured; declining the offered one (by its leg key) offers the
+/// OTHER stretch and leaves none unmeasured; declining both offers nothing and
+/// says so; and a key naming no candidate changes nothing.
+#[test]
+fn a_declined_stretch_frees_its_slot_for_the_next_candidate() {
+    use cartalith_civ::river_stretch::{NOTE_NONE_QUICKER, jp_river_offers_bounded};
+    let r = broken_river();
+    let road = HashMap::new();
+    let w = r.world(&road);
+    let pts: Vec<(f64, f64)> = (4..=35).map(|x| (x as f64, 7.0)).collect();
+    let none = HashMap::new();
+    let plan = walking();
+    let base = cartalith_civ::jp_plan(&w, &pts, &plan, &none, &|_, _| 1.0).unwrap();
+    let hulls = jp_builtin_hulls();
+    let run = |declined: &[String], bound: usize| {
+        jp_river_offers_bounded(&w, &pts, &plan, &none, &|_, _| 1.0, None, None, &base, &hulls, declined, bound)
+    };
+    // Premise: two candidates exist (an unbounded compute offers both).
+    let all = run(&[], 32).expect("offers");
+    assert_eq!((all.offers.len(), all.unmeasured), (2, 0), "{all:?}");
+    // The bound measures one and counts the other.
+    let first = run(&[], 1).expect("offers");
+    assert_eq!((first.offers.len(), first.unmeasured), (1, 1), "{first:?}");
+    let k1 = first.offers[0].leg.key();
+    // The key's form, written out independently of `cells_key`: first and last channel cell.
+    let cells = &first.offers[0].cand.cells;
+    assert_eq!(k1, format!("river:{}-{}", cells[0], cells[cells.len() - 1]));
+    // Declining it frees the slot: the other stretch is now measured and offered.
+    let second = run(std::slice::from_ref(&k1), 1).expect("offers");
+    assert_eq!((second.offers.len(), second.unmeasured), (1, 0), "{second:?}");
+    let k2 = second.offers[0].leg.key();
+    assert_ne!(k1, k2, "the declined stretch was offered again");
+    // Both declined: nothing, and the engine says why.
+    assert_eq!(run(&[k1.clone(), k2], 32), Err(NOTE_NONE_QUICKER));
+    // A key that names no candidate is ignored.
+    let stray = run(&["river:1-2".to_string()], 1).expect("offers");
+    assert_eq!(stray, first);
 }

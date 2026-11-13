@@ -162,8 +162,9 @@ prose with the actions that resolve it. Then collapsible groups:
 > along the route, days saved by an exact re-plan, the water types and currents,
 > and a hull menu with each hull's days, the recommended one starred and a hull
 > that cannot work the stretch disabled with the engine's reason); **use river**
-> sails it as a river leg whatever the journey's transport, **decline** hides its
-> prompts for the session, an accepted leg offers **walk instead** and its own
+> sails it as a river leg whatever the journey's transport, **decline** sends its key to the
+> engine (`river_declined`) and recomputes, so the stretch is not offered again this session and the next candidate is
+> measured in its slot (**offer declined again** undoes it), an accepted leg offers **walk instead** and its own
 > hull menu, and a saved leg the world no longer has is named with its reason.
 > Offered stretches draw dashed in the water colour on the route map with their
 > number. *On ways* lists the stretches the route rides a way (`way_spans`: name

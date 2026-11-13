@@ -21073,6 +21073,11 @@ struct JpRequestPlan {
     trim: Option<(f64, f64)>,
     auto_carriage: bool,
     auto_stage: bool,
+    /// Ruling EU item 3: the river-offer keys the user declined this session
+    /// (`river_declined`, a `PackedStringArray` or an `Array` of strings), for
+    /// `jp_river_offers` to set aside before its measuring bound. Never part of
+    /// the plan and never saved. Empty when the key is absent.
+    river_declined: Vec<String>,
     /// Every unrecognised or wrong-typed entry, per the codebase's "a typo'd
     /// key is a bug worth seeing" policy. A rejected entry changes nothing.
     rejected: PackedStringArray,
@@ -21182,6 +21187,23 @@ fn jp_parse_plan_request(request: &VarDictionary) -> Result<JpRequestPlan, Strin
         }
         plan.river_legs = legs;
     }
+    // Ruling EU item 3: declined river offers, by key. A malformed value is
+    // rejected and changes nothing, never read as "none declined" silently.
+    let mut river_declined: Vec<String> = Vec::new();
+    if let Some(v) = request.get("river_declined") {
+        if let Ok(a) = v.try_to::<PackedStringArray>() {
+            river_declined = a.as_slice().iter().map(|g| g.to_string()).collect();
+        } else if let Ok(a) = v.try_to::<VarArray>() {
+            for (i, e) in a.iter_shared().enumerate() {
+                match e.try_to::<GString>() {
+                    Ok(g) => river_declined.push(g.to_string()),
+                    Err(_) => rejected.push(&GString::from(&format!("river_declined[{i}]"))),
+                }
+            }
+        } else {
+            return Err("`river_declined` must be an Array of strings".to_string());
+        }
+    }
     for (k, _) in request.iter_shared() {
         let key = k.to_string();
         if !matches!(
@@ -21198,6 +21220,7 @@ fn jp_parse_plan_request(request: &VarDictionary) -> Result<JpRequestPlan, Strin
                 | "resupply_accepted"
                 | "river_legs"
                 | "river_offers"
+                | "river_declined"
         ) {
             rejected.push(&GString::from(&key));
         }
@@ -21209,6 +21232,7 @@ fn jp_parse_plan_request(request: &VarDictionary) -> Result<JpRequestPlan, Strin
         trim,
         auto_carriage: request.get("auto_carriage").and_then(|v| v.try_to::<bool>().ok()) == Some(true),
         auto_stage: request.get("auto_stage").and_then(|v| v.try_to::<bool>().ok()) == Some(true),
+        river_declined,
         rejected,
     })
 }
@@ -22376,7 +22400,7 @@ impl WorldGen {
                 _ => return fail("that trim leaves no route to plan"),
             },
         };
-        let JpRequestPlan { plan, layovers, animal_entries, auto_carriage, auto_stage, mut rejected, .. } = parsed;
+        let JpRequestPlan { plan, layovers, animal_entries, auto_carriage, auto_stage, river_declined, mut rejected, .. } = parsed;
 
         // ---- a zero-length route is refused, not planned as 0 days ----
         //
@@ -22512,6 +22536,7 @@ impl WorldGen {
                 Some(&vessel_resolver),
                 &journey,
                 &hulls,
+                &river_declined,
             ))
         });
 

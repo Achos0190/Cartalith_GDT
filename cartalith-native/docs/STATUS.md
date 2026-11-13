@@ -50,6 +50,57 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Planner: a V-shaped detour, and declined river stretches (Ruling EU leftovers, built 2026-11-13)
+
+Two of the three Ruling EU leftovers in `OUTSTANDING_WORK.md` (the third, the way-merge test gaps, is still open).
+
+- **Declined river offers reach the engine.** Cause (read at the symbols): `_river_declined` lived in `journey_planner_view.gd`
+  only, its **decline** button redrew without recomputing, and `jp_river_offers` set aside only the accepted legs before
+  `MAX_MEASURED`, so a declined stretch kept its slot and the next candidate was never measured, against the constant's own
+  doc and the planner's. Chosen: make the doc true (not the doc honest about a defect). `jp_river_offers` takes a `declined`
+  list of leg keys (`cells_key`, the one rule `JpRiverLeg::key` uses) and sets those aside beside the taken legs, before the
+  bound; `jp_compute` reads `river_declined` (a `PackedStringArray` or an `Array` of strings; a malformed value is rejected,
+  never read as "none"); the planner sends it with `river_offers`, **decline** now recomputes, and a *N stretches declined*
+  note with **offer declined again** says what is hidden (the engine no longer returns a declined stretch, so the old greyed
+  "declined" row is gone). Declines are still session-only (EU3-Q8 unchanged). `jp_river_offers_bounded` takes the bound so a
+  test can use one (no fixture holds 33 candidates).
+- **The V-shaped detour.** Cause (measured on the census world 483920, `way_join_census::find_v_detours`, and on the app's own
+  483920 world with `_wayv_probe`): after way merging, the **credited raw road edges** (undrawn, `drawn_ways` and later) lie
+  up to 5 cells from the drawn way that replaced them; the router discounts both alike, so a leg rode drawn way A, crossed 3-5
+  cells of open ground to a credited edge, followed it, and crossed back; only A is ever drawn on, so the line was a V off the
+  road onto nothing (reports at the symbol: ref 289 / 284, class Road, 2.8-3.5 cells from way 58 / 63, `drawn_ways` 267, route
+  cost ratio 1.0, i.e. the direct path itself). It was the router's own choice, not the join's margin and not a choice in
+  `way_join`'s splice. Fix (`way_join::rejoin_way_detours`, step 2b of the join): where the chosen path rides drawn way A, steps
+  off it and returns to A, A's own cells are laid between the two points unless the stretch that left A is cheaper than A's
+  by more than the margin (A's cost over `(1 + JOIN_MARGIN)` times the stretch's, both on the unmodified grid) and never past
+  the leg's `(1 + margin)` budget; the search is a small grid of its own, ways in the first `drawn_ways` refs only. The leg then
+  reports `joined`, and its ratio is the repaired path's.
+- **Measured.** Census world 483920 (24 most populous towns, 137 routes): the first V printed was Fornbrakhaskridge to
+  Vesorenmere, 4.95 cells off way 58 over 12 points; after the fix none of that kind prints. App world 483920 (`_wayv_probe
+  --scan`, 135 routes between the 24 most populous towns): **7 routes change** (3-4 fewer points each), among them Tazbahrushwell
+  to Zafzafomargate, whose before frame is a spur and loop beside the road at about (685, 469) and whose after frame is the
+  road (`evidence/ways-planner-2026-11-12/wayv_s483920_x16_before_after.png`). **The verifier's own two routes** (Orenelywash
+  or Orenflorelytambend to Deleshshallows) exist on that world but are one road already at this head, with the repair off (way
+  runs `8:25` and `15:29 10:19 8:25`): that exact V is not reproduced, so the cause above is read from the same pattern on other
+  routes, and the verifier's frame is not re-taken. The wider A-B-A scan flags junction crossings too (64 of 135 routes at 2.5
+  cells), so it is a candidate finder, not a count of defects. Commit time was not re-measured (the repair adds a small
+  window search per leaving point).
+- **Verified.** `cargo test --workspace --release` after the last Rust change: 278 result lines, 8 329 passed, 0 failed, 172
+  ignored. New unit tests: `way_join` 22 (+3: `a_route_that_crosses_to_a_parallel_edge_and_back_is_laid_along_the_way`, which
+  fails without the repair and pins ratio 1.0426, `an_edge_cheaper_than_the_road_by_more_than_the_margin_is_kept`,
+  `a_return_is_never_laid_along_an_undrawn_edge`); `tests/ruling_eu_river_legs.rs` 22 (+1,
+  `a_declined_stretch_frees_its_slot_for_the_next_candidate`, bound 1: one measured and one unmeasured, decline the offered one
+  and the other is offered with none unmeasured). Literal mutants (exact replace, restored and hash-checked), 10: the margin's
+  sign, the margin removed, the leave test, the drawn-ways-only test, no decline filter, the filter after the bound, the key's
+  last cell (all **killed**); **two survive and are disclosed**, the duplicate-cell guard on the rewritten path and the leg
+  budget guard (the budget is never reached when the direct path is the base, and no fixture builds a duplicate). Windowed
+  `_jpwayriver_probe` (desktop, seed 912345, debug DLL built after the last Rust edit, under the window lock) **PASS**, extended
+  with the decline: pressing **decline** removes the offered key from `river_offers` (1 to 0 on that route) and **offer declined
+  again** brings it back; `_wayv_probe` is the new probe for the V (scan and frame modes). The tablet and phone forms were not
+  re-run (the shell change is one button and one note in the shared results).
+- **Open:** a V through a drawn way B (a thin drawn track rather than a credited edge) is covered by the same repair but has no
+  fixture of its own; the window search pads a stretch by its own length, so an A longer than that detour is not laid.
+
 ### Lake balance counts a runoff share of rain (owner choice "Runoff share of rain", built 2026-11-13)
 
 *Answering the question basin routing raised: lake area in the owner's view doubled (`DELTA_GEOMETRY_RESEARCH.md` 14.6).

@@ -31,6 +31,9 @@ extends Node
 ## item 3's verifier finding of 2026-11-13), then a different hull picked, then
 ## the accepted leg re-presented as a saved journey restores it (no ranked hulls
 ## stored with it) and its hull menu must still be drawn, then "walk instead".
+## Last, the decline (Ruling EU leftover, 2026-11-13): pressing "decline" must remove the
+## offered key from the engine's `river_offers` (it recomputes with `river_declined`), and
+## "offer declined again" must bring it back.
 ##
 ## Prints `JPWR ...` lines; `JPWR PASS` and exit 0 when every check held, a
 ## `JPWR FAIL: ...` line and exit 1 on the first that did not, exit 2 when it
@@ -482,6 +485,55 @@ func _ready() -> void:
 		if absf(float(back.get("total_days", -1.0)) - before) > 1e-6:
 			_fail("walking again did not restore the plan's days")
 			return
+		## Ruling EU leftover, 2026-11-13: DECLINE reaches the engine. Pressing
+		## the offer's own decline button must recompute with the key sent as
+		## `river_declined`, so the declined stretch is gone from the engine's
+		## offers (the slot it held is free for the next candidate, proven in
+		## `ruling_eu_river_legs.rs` with a bound of 1), and "offer declined
+		## again" must bring it back.
+		await _reveal_section("river stretches")
+		var offers_pre: Array = (jpv._last_result.get("river_offers", []) as Array)
+		var keys_pre: Array = []
+		for q in offers_pre:
+			keys_pre.append(String((q as Dictionary).get("key", "")))
+		var decline := _button("decline")
+		if decline == null or offers_pre.is_empty():
+			_fail("no decline button drawn with %d offer(s)" % offers_pre.size())
+			return
+		_p("DECLINE before: offers %s" % str(keys_pre))
+		await _shot("river_before_decline")
+		await _press(decline)
+		await _frames(12)
+		app.right_dock_ctrl.refresh_journey()
+		await _frames(6)
+		var gone := ""
+		for kd in jpv._river_declined.keys():
+			gone = String(kd)
+		var keys_post: Array = []
+		for q in (jpv._last_result.get("river_offers", []) as Array):
+			keys_post.append(String((q as Dictionary).get("key", "")))
+		_p("DECLINE after: declined %s, offers %s" % [str(jpv._river_declined.keys()), str(keys_post)])
+		if gone == "" or not keys_pre.has(gone):
+			_fail("the decline button did not record an offered stretch")
+			return
+		if keys_post.has(gone) or keys_post.size() != keys_pre.size() - 1:
+			_fail("the engine still offered the declined stretch (%s -> %s)" % [str(keys_pre), str(keys_post)])
+			return
+		await _reveal_section("river stretches")
+		await _shot("river_after_decline")
+		var again := _button("offer declined again")
+		if again == null:
+			_fail("no 'offer declined again' button after a decline")
+			return
+		await _press(again)
+		await _frames(12)
+		var keys_back: Array = []
+		for q in (jpv._last_result.get("river_offers", []) as Array):
+			keys_back.append(String((q as Dictionary).get("key", "")))
+		if not jpv._river_declined.is_empty() or keys_back.size() != keys_pre.size():
+			_fail("offering the declined stretches again did not restore them (%s)" % str(keys_back))
+			return
+		_p("DECLINE round trip ok")
 	if not join_done:
 		_fail("no pair showed the join (share +0.20)")
 		return

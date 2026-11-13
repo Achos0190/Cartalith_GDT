@@ -123,8 +123,17 @@ impl JpRiverLeg {
     /// `"river:<first cell>-<last cell>"`: stable across a re-plan, distinct for
     /// the two directions of one stretch.
     pub fn key(&self) -> String {
-        format!("river:{}-{}", self.cells.first().copied().unwrap_or(0), self.cells.last().copied().unwrap_or(0))
+        cells_key(&self.cells)
     }
+}
+
+/// The key of a stretch from its channel cells: `"river:<first>-<last>"`, the one
+/// rule behind [`JpRiverLeg::key`] and the key the planner sends back to decline
+/// a candidate ([`jp_river_offers`]'s `declined`), so an offer, its accepted leg
+/// and its decline all share one name. An empty `cells` names cell 0 as the leg
+/// key always has; no candidate has none (a stretch needs two cells).
+fn cells_key(cells: &[usize]) -> String {
+    format!("river:{}-{}", cells.first().copied().unwrap_or(0), cells.last().copied().unwrap_or(0))
 }
 
 /// Why an accepted leg was not applied to this plan: its key and the reason, for
@@ -577,7 +586,12 @@ pub const NOTE_NONE_QUICKER: &str = "No navigable river along this route saves t
 /// [`MAX_MEASURED`] candidates, counted **after** the accepted legs are set aside
 /// so accepting stretches never hides the next ones (verifier finding,
 /// 2026-11-13); candidates past the bound are counted in
-/// [`JpRiverOffers::unmeasured`].
+/// [`JpRiverOffers::unmeasured`]. `declined` holds the keys ([`JpRiverLeg::key`]
+/// form) of stretches the user declined: they are set aside beside the accepted
+/// ones, before the bound, so a decline frees its slot and the next candidate is
+/// measured on the following compute (before 2026-11-13 the declines stayed in
+/// the shell and only hid a row, so a declined stretch kept its slot). A key that
+/// names no candidate is ignored.
 #[allow(clippy::too_many_arguments)]
 pub fn jp_river_offers(
     world: &JpWorld,
@@ -589,6 +603,27 @@ pub fn jp_river_offers(
     vessels: Option<&JpVesselResolver>,
     base: &JpJourneyPlan,
     hulls: &[String],
+    declined: &[String],
+) -> Result<JpRiverOffers, &'static str> {
+    jp_river_offers_bounded(world, pts, plan, layovers, forage, animals, vessels, base, hulls, declined, MAX_MEASURED)
+}
+
+/// [`jp_river_offers`] with the measuring bound as an argument: the shipped call
+/// passes [`MAX_MEASURED`]; a test passes a small one to exercise the bound (no
+/// fixture holds 33 candidates). Never called with a bound of `0` by the shell.
+#[allow(clippy::too_many_arguments)]
+pub fn jp_river_offers_bounded(
+    world: &JpWorld,
+    pts: &[(f64, f64)],
+    plan: &JpPlan,
+    layovers: &JpLayovers,
+    forage: &dyn Fn(f64, f64) -> f64,
+    animals: Option<&JpAnimalResolver>,
+    vessels: Option<&JpVesselResolver>,
+    base: &JpJourneyPlan,
+    hulls: &[String],
+    declined: &[String],
+    max_measured: usize,
 ) -> Result<JpRiverOffers, &'static str> {
     if matches!(plan.transport.as_str(), "River Transport" | "Sea Faring") {
         return Err(NOTE_ALREADY_WATER);
@@ -614,9 +649,10 @@ pub fn jp_river_offers(
     let mut cands: Vec<JpRiverCandidate> = jp_river_candidates(world, pts, radius, min_km)
         .into_iter()
         .filter(|c| !taken.iter().any(|&(a, b)| c.entry_k < b && a < c.exit_k))
+        .filter(|c| !declined.contains(&cells_key(&c.cells)))
         .collect();
-    let unmeasured = cands.len().saturating_sub(MAX_MEASURED);
-    cands.truncate(MAX_MEASURED);
+    let unmeasured = cands.len().saturating_sub(max_measured);
+    cands.truncate(max_measured);
     let days_of = |j: &JpJourneyPlan| j.total_days.map_or((j.days, "travel"), |t| (t, "total"));
     let run = |p: &JpPlan| jp_plan_full(world, pts, p, layovers, forage, animals, vessels);
     let mut out = Vec::new();
