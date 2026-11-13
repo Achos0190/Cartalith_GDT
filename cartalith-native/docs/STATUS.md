@@ -50,6 +50,30 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### City map look: the second town style (built 2026-11-13, `CITY_MAP_LOOK_SCOPE.md` CL-4, CL-5, CL-6 curtain and CL-7, plus Ruling EW's full citadel)
+
+A real, selectable second style beside the ink-and-parchment plan (Ruling EW Q2: keep both), drawn by ONE shared path (Q1):
+`urban_layout_draw.gd::draw_layout` dispatches on `look_is_map()` to the new `shell/urban_layout_look.gd`, so the City Viewer, the
+map's town layer (`map_overlay.gd::_draw_urban_layouts`), the right-dock thumbnail and the export copy cannot differ. The ink
+branch is untouched. **Ground from terrain:** `EngineBridge.urban_layouts()` adds `ground_color` to every layout, the mean of the
+base map's own colour over the settlement cell and eight neighbours two cells out, land cells only (`settlement_ground_colour`);
+fields, interior dirt and canopy derive from it, and a layout without the key gets the neutral parchment, never a green. **Citadel
+in full:** curtain band with crenel dashes, outlined round towers (corners and circuit crossings), a gate gap with a paved threshold
+and two gatehouse towers, a paved court and a keep with a lighter roof and corner turrets, from the existing `citadel_*` keys (no
+Rust touched). Also: dark outlined roofs with ridge and slope lines, stone curtain band with outlined round towers and paved gates
+(palisade, ditch and bastioned keep the ink strokes), tan streets and plazas, outlined clumped trees, furrowed fields, a market
+fountain. **Switch:** `DccSettings.city_look()` (`ink` default, `map`), the City Viewer's Look dropdown and Preferences ▸ Graphics ▸ Town
+look. **Not built / left:** the wall-hugs-the-town layout change (Ruling EW item 1's last point, an engine step and a §7p
+re-baseline), pins (CL-1 to CL-3), the title (CL-8), harbour and piers (CL-9), the default flip to `map` (an owner call, one word in
+`DccSettings.city_look`), per-bar luminance measurements of CL-4 to CL-7, redraw timing against the shipped draw, and phone and
+tablet frames. **Verified:** windowed `_citylook1_probe.tscn` (scratch `config/name`, wiped user dir) **27 checks, 0 failed**: two walled
+towns on ground 0.516 apart, `ground_color` equals the displayed map's mean to 0.000, corner pixels match, both looks draw, the
+dropdown choice is read back from the settings file in both directions, tower cap, curtain stone and keep roof pixels at the
+citadel (with ink-look controls), and an `ExportOverlay` tile holds 105 map-look roof pixels against 6 in the ink look. 3 of 3
+literal mutants killed (dispatch disabled, citadel guard, channel swap in the ground sample). `_prefvalue_probe` passes with the new
+group. `--check-only` clean on every touched `.gd` and `shell/app.gd`. Frames: `evidence/city-look-2026-11-13/cl1/`, composite
+`cl1_after.png`.
+
 ### Vault: rename and move a folder (built 2026-11-13, VE-6's "moving a folder" edge)
 
 **Built.** From the vault window's file tree a folder can be renamed or moved into another folder: right-click on desktop,

@@ -1673,7 +1673,67 @@ func urban_layouts(indices: PackedInt32Array) -> Array:
 		return []
 	if not _has("urban_layouts"):
 		return []
-	return world_gen.urban_layouts(indices)
+	var got: Array = world_gen.urban_layouts(indices)
+	## CL-1 (Ruling EW): every layout carries the ground its own terrain gives it, so the City
+	## Viewer, the map's town layer, the thumbnail and the export (all of which fetch through
+	## here) draw one ground without each re-deriving it. Absent when the map has no texture yet.
+	var places: Array = world_gen.get_settlements()
+	for d in got:
+		var si := int((d as Dictionary).get("index", -1))
+		if si >= 0 and si < places.size():
+			var g: Variant = settlement_ground_colour(places[si])
+			if g != null:
+				(d as Dictionary)["ground_color"] = g
+	return got
+
+## The image behind `color_texture()`'s last build, read back from the GPU once per texture and
+## kept (a readback per town would stall a frame each). `null` before the first `color_texture()`.
+var _ground_img: Image = null
+var _ground_img_tex: Texture2D = null
+
+## CL-1 (Ruling EW item 1, "the ground follows the local terrain"): the colour the BASE MAP itself
+## shows at settlement `s`, averaged over the settlement's cell and eight neighbours two cells
+## out, keeping only cells `sample_cell` calls land (a coastal town must not average in sea).
+## The source is the map's own rendered colour (relief shading included), never a fixed green, so
+## a grassland town reads green, a desert one tan, a snowy one pale. Returns a `Color`, or `null`
+## when there is no texture, the world is mid-generation, or no sampled cell was land -- the
+## caller then draws its neutral parchment, never a stand-in colour. Must not call
+## `color_texture()` (that rebuilds the map and emits `color_texture_rebuilt`).
+func settlement_ground_colour(s: Dictionary) -> Variant:
+	if generating or _color_texture_cache == null:
+		return null
+	if _ground_img_tex != _color_texture_cache:
+		_ground_img_tex = _color_texture_cache
+		_ground_img = _color_texture_cache.get_image()
+	if _ground_img == null or _ground_img.is_empty():
+		return null
+	var gs := grid_size()
+	if gs.x <= 0 or gs.y <= 0:
+		return null
+	var sx: float = float(_ground_img.get_width()) / float(gs.x)
+	var sy: float = float(_ground_img.get_height()) / float(gs.y)
+	var cx := int(s.get("x", 0))
+	var cy := int(s.get("y", 0))
+	var acc := Vector3.ZERO
+	var n := 0
+	for o in [Vector2i(0, 0), Vector2i(2, 0), Vector2i(-2, 0), Vector2i(0, 2), Vector2i(0, -2),
+			Vector2i(2, 2), Vector2i(-2, 2), Vector2i(2, -2), Vector2i(-2, -2)]:
+		var gx: int = cx + o.x
+		var gy: int = cy + o.y
+		if gx < 0 or gy < 0 or gx >= gs.x or gy >= gs.y:
+			continue
+		var cell: Dictionary = world_gen.sample_cell(gx, gy) if _has("sample_cell") else {}
+		if String(cell.get("water", "land")) != "land":
+			continue
+		var px := clampi(int((gx + 0.5) * sx), 0, _ground_img.get_width() - 1)
+		var py := clampi(int((gy + 0.5) * sy), 0, _ground_img.get_height() - 1)
+		var c := _ground_img.get_pixel(px, py)
+		acc += Vector3(c.r, c.g, c.b)
+		n += 1
+	if n == 0:
+		return null
+	acc /= float(n)
+	return Color(acc.x, acc.y, acc.z, 1.0)
 
 ## The Settlement diagnostics overlay's card data (`urban_bridge.rs`) --
 ## `um_site_profile`'s river classification plus `um_wall_spec`'s rung and

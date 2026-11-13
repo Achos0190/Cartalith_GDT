@@ -925,6 +925,35 @@ static func set_units_mode(mode: String) -> void:
 	_cfg.set_value(_SEC_UNITS, "mode", mode)
 	_save()
 
+# -- City look (CITY_MAP_LOOK_SCOPE.md CL-1, Ruling EW Q2) ----------------------
+
+## The two town styles. `ink` is the shipped ink-and-parchment plan; `map` is the map-illustration look
+## (terrain ground, dark outlined roofs, stone wall and a full citadel). Ruling EW Q2: keep both.
+const CITY_LOOKS: Array[String] = ["ink", "map"]
+
+## Ground for `_SEC_CITY_LOOK`: one key, `style`. A per-user preference like the theme, never part of a world
+## save (a world drawn by one user must open the same in another's style).
+const _SEC_CITY_LOOK := "city_look"
+
+## The stored town look, one of `CITY_LOOKS`. Unset or corrupt reads as `"ink"`, the shipped look, so that
+## landing CL-1 moves no existing pixel (every probe that calls `UrbanLayoutDraw.draw_layout` directly
+## reads this too). Ruling EW says the new look applies on every surface; making it the DEFAULT is a
+## one-word change here and an owner call, recorded in `CITY_MAP_LOOK_SCOPE.md` CL-1.
+static func city_look() -> String:
+	_ensure_loaded()
+	var v := String(_cfg.get_value(_SEC_CITY_LOOK, "style", "ink"))
+	return v if CITY_LOOKS.has(v) else "ink"
+
+## Stores the town look and saves. An unknown value is ignored, not stored. Does not redraw anything: the
+## caller that changed it asks its own canvas to redraw (`UrbanLayoutDraw.look_is_map()` re-reads this on
+## every draw, so no cache can go stale).
+static func set_city_look(v: String) -> void:
+	if not CITY_LOOKS.has(v):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_CITY_LOOK, "style", v)
+	_save()
+
 # -- §2.5 Graphics > relief exaggeration default -------------------------------
 
 ## The three rungs `Preferences > Graphics` offers. `render.rs`'s own tunable

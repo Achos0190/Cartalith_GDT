@@ -207,6 +207,18 @@ func setup(b: EngineBridge, host = null) -> void:
 	_picker.item_selected.connect(_on_pick)
 	DccWidgets.style_popup(_picker.get_popup())
 	head.add_child(_picker)
+	## CL-1 (Ruling EW Q2): the town look. Two rows, the same two `DccSettings.CITY_LOOKS` the map's town layer
+	## and the export read, so choosing here changes every surface. Kept beside Fit, not in the side column,
+	## so it is one reach from the plan it changes.
+	_look_picker = OptionButton.new()
+	_look_picker.name = "LookPicker"
+	_look_picker.tooltip_text = "How the town plan is drawn. Map look: terrain ground, dark roofs, stone wall and a full citadel. Ink plan: the original ink-and-parchment drawing. This is the look the map's town layer and exports use too."
+	_look_picker.add_item("Map look", 0)
+	_look_picker.add_item("Ink plan", 1)
+	_look_picker.select(0 if DccSettings.city_look() == "map" else 1)
+	_look_picker.item_selected.connect(_on_look_picked)
+	DccWidgets.style_popup(_look_picker.get_popup())
+	head.add_child(_look_picker)
 	var reset := Button.new()
 	reset.text = "Fit"
 	reset.focus_mode = Control.FOCUS_NONE
@@ -279,6 +291,18 @@ func setup(b: EngineBridge, host = null) -> void:
 	## times a second. Desktop only, like the rest of PC-7.
 	if ContextWindow.applies(host) and host.has_signal("timeline_changed"):
 		host.timeline_changed.connect(_on_year_moved)
+
+
+## The town-look dropdown (`DccSettings.CITY_LOOKS` order: map first here, ink second).
+var _look_picker: OptionButton
+
+## Look dropdown handler: stores the choice, then redraws the plan and rebuilds the legend (whose swatches
+## follow the look). Row 0 is the map look, row 1 the ink plan. The map's own town layer re-reads the setting on
+## its next draw; nothing else needs telling.
+func _on_look_picked(item: int) -> void:
+	DccSettings.set_city_look("map" if item == 0 else "ink")
+	_canvas.queue_redraw()
+	_rebuild_side()
 
 
 ## One 44 dp step of the wheel, for the pointer gesture a phone does not have.
@@ -456,7 +480,7 @@ func _draw_canvas() -> void:
 	## muted parchment rather than the reference's green: this is a drawn plan
 	## viewed inside a dark tool window, and the whole map palette is built
 	## around it (`urban_layout_draw.gd`'s header).
-	_canvas.draw_rect(rect, DRAW.GROUND)
+	DRAW.draw_ground(_canvas, rect, _layout)
 
 	var box := _fit_box()
 	var margin := 16.0
@@ -526,21 +550,26 @@ func _rebuild_side() -> void:
 		return
 
 	var leg := DccWidgets.section(_legend, "Legend")
-	_swatch(leg, DRAW._roof_color(0.62), "Rooftops",
+	## CL-1: in the map look the swatches take that look's own colours (a legend that shows the ink plan's
+	## palette beside a map-look plan would be a lie), from the same constants the draw reads.
+	var lk = DRAW._look_script()
+	var map_look: bool = DRAW.look_is_map()
+	var ground_c: Color = lk.ground_of(_layout)
+	_swatch(leg, lk.ROOF if map_look else DRAW._roof_color(0.62), "Rooftops",
 		"One per building footprint, each a slightly different weathered shade (buildBuildings).")
-	_swatch(leg, DRAW.BLOCK_GROUND, "Block ground",
+	_swatch(leg, lk.dirt_of(ground_c) if map_look else DRAW.BLOCK_GROUND, "Block ground",
 		"The built interior between streets (buildBlocks).")
 	## Only when the town has one: a site with no primary to widen gets no
 	## plaza, and a swatch for a colour that is not on screen is a lie.
 	if _layout.has("plaza") or not (_layout.get("markets", []) as Array).is_empty():
-		_swatch(leg, DRAW.PLAZA_GROUND, "Open squares",
+		_swatch(leg, lk.PLAZA if map_look else DRAW.PLAZA_GROUND, "Open squares",
 			"The market place and the specialised markets, swept clear of lots.")
 	## The wall is the ladder's verdict, so its swatch appears only when this
 	## settlement was actually walled -- and in the colour its own style got.
 	if _layout.has("wall_ring"):
 		var wstyle := String(_layout.get("wall_style", "curtain"))
 		var wcol: Color = DRAW.WALL_PALISADE if wstyle == "palisade" \
-			else (DRAW.WALL_DITCH if wstyle == "ditch" else DRAW.WALL_STONE)
+			else (DRAW.WALL_DITCH if wstyle == "ditch" else (lk.STONE if map_look else DRAW.WALL_STONE))
 		_swatch(leg, wcol, "The circuit",
 			"A %s wall with its gates (buildWall)." % wstyle)
 	## Only when the town has one (a hamlet or a `"none"` rite builds none),
@@ -550,17 +579,17 @@ func _rebuild_side() -> void:
 		_swatch(leg, DRAW.WORSHIP_ROOF, "Place of worship",
 			"%s: %s (buildFaithSites)." % [_worship_label(worship[0]),
 				String((worship[0] as Dictionary).get("prov", ""))])
-	_swatch(leg, DRAW.FILL_PRIMARY, "Primary streets",
+	_swatch(leg, lk.STREET if map_look else DRAW.FILL_PRIMARY, "Primary streets",
 		"The arterial backbone (buildPrimaries).")
-	_swatch(leg, DRAW.FILL_OTHER, "Streets and lanes", "Organic growth (grow).")
+	_swatch(leg, lk.STREET if map_look else DRAW.FILL_OTHER, "Streets and lanes", "Organic growth (grow).")
 	_swatch(leg, DRAW.DISTRICT_FILL["market"], "District tints",
 		"On the lots: market, burgher, artisan, riverside craft, harbour, suburb, "
 		+ "agrarian (assignDistricts), and the faubourg: the poor quarter built "
 		+ "against the wall's outer face. The swatch is the market tint; each district "
 		+ "draws in its own.")
-	_swatch(leg, DRAW.FARM_FIELD, "Farmland",
+	_swatch(leg, ground_c.lerp(lk.FIELD_TONE, lk.FIELD_MIX) if map_look else DRAW.FARM_FIELD, "Farmland",
 		"The strip or ring fields outside the town.")
-	_swatch(leg, DRAW.WATER, "Water", "The site's own water — the map's river or coast.")
+	_swatch(leg, lk.SEA if map_look else DRAW.WATER, "Water", "The site's own water — the map's river or coast.")
 	_swatch(leg, DRAW.MARKET, "Market anchor",
 		"The point the town organises around.")
 	_swatch(leg, DRAW.ROUTE_END, "Approach roads",

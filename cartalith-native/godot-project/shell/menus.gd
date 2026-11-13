@@ -425,6 +425,8 @@ const ID_WIN_CTX_RESET := 934  ## Window ▸ Context panel ▸ Reset panel (back
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
+## Preferences ▸ Graphics ▸ Town look (CL-1): row 0 map look, row 1 ink plan. 625-626, free of 620-623 and 630.
+const ID_GFX_CITY_LOOK_FIRST := 625
 const ID_ATLAS_CAP_FIRST := 630     ## rung i is +i (630-636)
 ## The built-in `Default` is `ID_WIN_LAYOUT_FIRST`; saved layout i is +1+i.
 ## Preferences ▸ Graphics ▸ 3D height: rung i is +i, `HEIGHT_RUNGS` (13) long, 680-692. Clear of the layout span at 640
@@ -650,6 +652,8 @@ var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own ro
 var _reset_stage_popup: PopupMenu
 ## `Relief exaggeration` submenu.
 var _exag_popup: PopupMenu
+## Preferences ▸ Graphics ▸ Town look (CL-1), the same two looks the City Viewer's dropdown offers.
+var _city_look_popup: PopupMenu
 var _h3d_popup: PopupMenu  ## Preferences ▸ 3D height rungs (`_build_h3d_menu`)
 ## `Size cap · GB` submenu of the atlas cache.
 var _atlas_cap_popup: PopupMenu
@@ -4628,6 +4632,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## reference's own Relief slider was, and the 3D view's vertical scale
 	## defaults to true scale instead (Ruling CT; `View3D.VERTICAL_EXAGGERATION_DEFAULT`).
 	_build_relief_exag_menu(p)
+	_build_city_look_menu(p)
 	p.add_separator("TILES & LOD")
 	## **§2.5's Tiles & LOD group is four items, and this menu shipped all four
 	## behind one disabled row** reading `Tiled LOD · tile size · LOD level ·
@@ -4912,6 +4917,45 @@ func _on_relief_exag(id: int) -> void:
 	_refresh_relief_exag_menu()
 	_host.set_status("hint", "relief exaggeration default %dx (next Generate)" % [
 		int(DccSettings.RELIEF_EXAG_CHOICES[i])], "text_dim")
+
+# -- Preferences ▸ Graphics ▸ Town look (CITY_MAP_LOOK_SCOPE.md CL-1, Ruling EW Q2) --------
+
+## Builds the Town look submenu (`_city_look_popup`) for parent `p`: two radio rows in `DccSettings.CITY_LOOKS`'
+## reversed order (map look first, as the City Viewer's dropdown lists them), ticked from the stored choice at
+## build time and on `about_to_popup`, like the relief-exaggeration group above (a group with no tick at build
+## time reads as having no setting, `_prefvalue_probe`).
+func _build_city_look_menu(p: PopupMenu) -> void:
+	_city_look_popup = PopupMenu.new()
+	_city_look_popup.name = "CityLook"
+	_shell.style_popup(_city_look_popup)
+	_city_look_popup.add_radio_check_item("Map look", ID_GFX_CITY_LOOK_FIRST)
+	_city_look_popup.add_radio_check_item("Ink plan", ID_GFX_CITY_LOOK_FIRST + 1)
+	_city_look_popup.id_pressed.connect(_on_city_look)
+	_city_look_popup.about_to_popup.connect(_refresh_city_look_menu)
+	_refresh_city_look_menu()
+	p.add_child(_city_look_popup)
+	p.add_submenu_item("Town look", "CityLook")
+	p.set_item_tooltip(p.item_count - 1,
+		"How a town plan is drawn everywhere: the City Viewer, the map's town layer and exports. Map look draws terrain ground, dark outlined roofs, a stone wall and a full citadel; Ink plan is the original ink-and-parchment drawing. A per-user setting, never stored in a world.")
+
+## Ticks the stored look (`DccSettings.city_look()`).
+func _refresh_city_look_menu() -> void:
+	if _city_look_popup == null:
+		return
+	var is_map := DccSettings.city_look() == "map"
+	_city_look_popup.set_item_checked(0, is_map)
+	_city_look_popup.set_item_checked(1, not is_map)
+
+## Serves the Town look submenu: stores the choice and redraws the map's town layer; an open City Viewer
+## re-reads the setting on its next draw (its own dropdown is refreshed by `city_viewer_window.gd`'s `_on_look_picked`
+## only when IT is the one chosen from).
+func _on_city_look(id: int) -> void:
+	DccSettings.set_city_look("map" if id == ID_GFX_CITY_LOOK_FIRST else "ink")
+	_refresh_city_look_menu()
+	_host.set_status("hint", "town look: %s" % ("map look" if DccSettings.city_look() == "map" else "ink plan"), "text_dim")
+	## The overlay holds the town layer; it re-reads the look on every draw, so a redraw is all it needs.
+	if _host != null and "viewport" in _host and _host.viewport != null and _host.viewport.overlay != null:
+		_host.viewport.overlay.queue_redraw()
 
 # -- Preferences ▸ 3D height (3D-2's HEIGHT row, Preferences control) ---------
 

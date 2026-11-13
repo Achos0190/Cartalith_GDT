@@ -253,6 +253,14 @@ sample), through `_citylook_probe.gd`'s harness extended for the sweep. **Pixel 
 | **CL-10** | **The map's own markers** get the same shape (settlement, landmark, manual icon), behind Q1 | The settlement pin's class, capital ring, coastal badge and trait badges all still drawn and distinguishable at x1 and x16; `_pinlabelovr_probe` (labels clear of pins) unchanged |
 | **CL-11** | **User-placed city pins and Poi** (only if Q5 is answered yes) | A `Poi` entity kind (a seventh `EntityKind`, which moves the guard count in `links.rs`'s doc), save round trip byte-identical on a real prior-format save, undo, a note bound by id |
 
+**Build note, 2026-11-13 (the first build step; status is `STATUS.md`'s).** The restyle rows CL-4 (ground, streets, plaza, water),
+CL-5 (roofs), CL-6 (curtain wall, towers, gates) and CL-7 (trees, fields) were built together as the second selectable style in
+`shell/urban_layout_look.gd`, with Ruling EW's two additions: the ground comes from the settlement's terrain
+(`EngineBridge.settlement_ground_colour`, a `ground_color` key on every layout) and the citadel is drawn as a full fortification.
+The bars above that quote luminance and pixel widths were NOT measured; the probe `_citylook1_probe.gd` checks the claims named in
+`STATUS.md` instead. Numbering note: the milestone table's CL-1 is the marker draw, and this step is not it. Still open: the wall
+that hugs the built area (an engine change), CL-1 to CL-3, CL-8 to CL-11, and the choice of default look.
+
 CL-0 to CL-3 are the owner's literal asks; CL-4 to CL-8 are render-only and need no ruling; CL-9 adds a Rust key; CL-11 reverses
 a documented decision and needs one.
 

@@ -8683,7 +8683,7 @@ func _plan_thumb(layout: Dictionary) -> Control:
 		var size := canvas.size
 		if size.x <= 0.0 or size.y <= 0.0:
 			return
-		canvas.draw_rect(Rect2(Vector2.ZERO, size), URBAN_DRAW.GROUND)
+		URBAN_DRAW.draw_ground(canvas, Rect2(Vector2.ZERO, size), layout)
 		var fit: float = minf(size.x / maxf(1.0, box.size.x), size.y / maxf(1.0, box.size.y))
 		var origin := (size - box.size * fit) * 0.5 - box.position * fit
 		var to_screen := func(p: Vector2) -> Vector2: return origin + p * fit

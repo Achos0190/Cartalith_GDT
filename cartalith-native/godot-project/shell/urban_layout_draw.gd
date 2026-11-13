@@ -332,6 +332,39 @@ const DRAW_ORDER: Array[String] = ["lane", "street", "quay", "ringroad", "primar
 const CASING_MAX_PX := 5.0
 
 
+## Test and probe override for the stored look: `""` follows `DccSettings.city_look()`, `"ink"` / `"map"`
+## force one. A probe that must compare both looks in one process sets this instead of writing the user's
+## settings file. Never set by shipped code.
+static var look_override := ""
+
+## True when the town is to be drawn in the map look: the override when set, else `DccSettings.city_look()`
+## (read on every call, so a switch needs no signal to reach a canvas that merely redraws).
+static func look_is_map() -> bool:
+	if look_override != "":
+		return look_override == "map"
+	return DccSettings.city_look() == "map"
+
+## The map look's script, loaded on first use. `load`, not `preload`: `urban_layout_look.gd` preloads THIS
+## file for its helpers and palette, and a preload in both directions is a cyclic reference Godot refuses.
+static var _look_cached: GDScript = null
+
+static func _look_script():
+	if _look_cached == null:
+		_look_cached = load("res://shell/urban_layout_look.gd")
+	return _look_cached
+
+## Fills `rect` on `ci` with the plan's ground, the one call the City Viewer and the thumbnail make in place of
+## their own `draw_rect(rect, GROUND)`. Ink look: the fixed parchment `GROUND`, byte-identical to before. Map
+## look: the colour `layout["ground_color"]` carries (the base map's own colour at the town, set by
+## `EngineBridge.urban_layouts`), lightly mottled. Never a fixed green: a layout with no `ground_color`
+## gets the neutral parchment.
+static func draw_ground(ci: CanvasItem, rect: Rect2, layout: Dictionary) -> void:
+	if look_is_map():
+		_look_script().draw_ground(ci, rect, layout)
+	else:
+		ci.draw_rect(rect, GROUND)
+
+
 ## `to_screen` maps a model-metre `Vector2` into `ci`'s own coordinate space.
 ## `m_scale` is that space's units per model metre, for stroke widths — the
 ## reference keeps position and width scaling separate for the same reason
@@ -366,6 +399,14 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		m_scale: float, px_floor: float, alpha: float, show_route_ends: bool,
 		detail: float = 1.0, draw_water: bool = true) -> void:
 	if alpha <= 0.0:
+		return
+	## CL-1 (Ruling EW Q1/Q2): ONE entry point for every surface -- City Viewer, the map's town layer,
+	## the thumbnail and the export copy all call here -- and the stored look picks the drawing. The
+	## ink-and-parchment style below is untouched and stays the default; `urban_layout_look.gd` is the map
+	## look. A single check here, not one per caller, is what keeps the surfaces from drifting apart.
+	if look_is_map():
+		_look_script().draw_layout(ci, layout, to_screen, m_scale, px_floor, alpha,
+			show_route_ends, detail, draw_water)
 		return
 	var tint := func(c: Color) -> Color:
 		return Color(c.r, c.g, c.b, c.a * alpha)
