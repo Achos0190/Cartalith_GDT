@@ -82,7 +82,10 @@ document, and `STATUS.md` records what lands)
   the screen area."*). The rail, header and map sit in the left ~1080 px of a ~2000 px-wide screen; the rest is the
   bare background, and a strip of the map shows below the shell's bottom edge. Likely the shell or its map viewport keeps
   portrait-sized bounds after rotation. Owner: `MOBILE_SHELL_PROPOSAL.md` (landscape rail, MS-1 live re-classification),
-  `MOBILE_SHELL_MS1_SPEC.md`. Queued after Compare.
+  `MOBILE_SHELL_MS1_SPEC.md`. Queued after Compare. **Owner's landscape layout, same day:** *"move the small slider pill
+  to the right next to the camera, and the search/name bar to the top right corner."* So in landscape the quick-drawer
+  grip (the pill on the map's edge) sits on the right edge beside the camera cut-out, and the title/search header sits in
+  the top-right corner; the rail stays on the left.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
