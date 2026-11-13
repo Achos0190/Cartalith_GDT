@@ -50,6 +50,87 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### River combs, verifier follow-ups (Ruling EV): every new seed gets the current rules, the New World screen tells the truth, balanced lakes have smooth shores (2026-11-13)
+
+*A verifier's fourteen findings on the Ruling EV work (entry below), each opened at its symbol before anything was
+changed.* Detail: `DELTA_GEOMETRY_RESEARCH.md` 14.1, 14.3, 14.6, 14.8 and 14.9; the ruling's follow-up paragraph
+(`LARGE_ITEM_RULINGS.md` Ruling EV).
+
+- **Fixed: a new seed after opening an older save was still made by the save's rules** (the verifier's high finding).
+  WORLD ▸ Generate world after New seed, the tool-options Generate and the assistant's regenerate reach
+  `EngineBridge.generate` with `new_world` false. The rules now follow the seed: any generate at a seed other than the
+  open world's (`WorldGen.get_seed`) runs the restore too (`EngineBridge._makes_another_world`); a generate at the open
+  world's own seed still keeps its rules.
+- **Fixed: the New World preview drew the live table** while Create restored the rules (the preview's substrate reads
+  `tect.narrow_plate_base_blur`): it now reads `EngineBridge.new_world_params_snapshot` (`get_new_world_params`).
+- **Fixed: the override was silent.** The New World screen names every rule Create will change
+  (`new_world_dialog.gd` `_refresh_rules_notice`, every form, hidden when none differs), and the status hint after a
+  run that put rules back names them (`app.gd`). The restore itself is kept as built: a save's explicit `false` cannot
+  be told from an old default, and the owner's own world was saved with the three rules off.
+- **Fixed: a failed new-world run kept the new rules.** A heightmap the engine cannot read leaves the open world on
+  screen; the recorded values now go back (`EngineBridge._undo_new_world_restore`, new
+  `WorldGen::revert_new_world_rules`, which never counts them as the user's choice).
+- **Fixed: balanced lakes in dry country were drawn cell-stepped** (from x7.88, not only x64 as first written, and on
+  other worlds before Ruling EV too). Cause: the shore field's rain margin (`render::shore_margins`) belongs to the
+  rain-test rule the water balance replaces; every cell of a dry balanced lake sat at the class clamp. A world the
+  balance classified is now contoured by depth alone (`render::shore_margins_with`, `lakes_rain_gated`; the screen,
+  the deep-zoom tiles and both exports). Render only; a rain-test world's field is bit-identical (tested).
+- **Corrected: the lake growth in the owner's view.** On seed 51203 as the app makes it (GPU on,
+  `river_basin_routing_measurement.rs` with `BR_GPU=1`), lake cells under the balance and Ruling CC's floor go 18 130 ->
+  27 640 on the map (+52 %) and **8 622 -> 17 782 inside the owner's window (2.06x)**; the +17 % first reported was GPU
+  off. By the rain test alone +4.5 %: most of it is the balance's inflow. In the window 29.2 % of the traced network
+  lies under a drawn lake after, 10.7 % before (`WorldGen.river_comb`'s new `traced_lake` stage). The owner question
+  (`OUTSTANDING_WORK.md` §2.13 item 1) now carries these figures and four options.
+- **Corrected: the "same depressions" claim.** The floor tilt's larger rise fills a few more rim cells and can capture
+  a basin behind a saddle within it (reproduced: `the_floor_tilt_can_capture_a_basin_behind_a_saddle_within_its_rise`).
+  Measured on the final fields (`floor_tilt_against_breadth_on_the_final_field`): 0.056-0.090 % of land cells drain to
+  another seed than under the breadth-first fill (GPU off, four worlds), 0.047 % on the owner's world (GPU on). Doc
+  corrected (`cartalith_hydrology::build_routing_surface_with`); not fixed (an `f32` surface cannot keep a 5-ULP-a-step
+  tilt below a basin's rim terrain; routed as §2.13 item 8 with two candidate designs).
+- **Rejected, with the reason.** *"Fix 2 did not remove combing in the window"*: true that rough routing alone already
+  drew 0 to 0.8 % comb there, but basin routing is what removes the 45-degree ruler line and the straight runs (traced
+  network in the window, lake-independent: 22.8 % straight with a 110-cell stretch before, 7.6 % and 17 after), and
+  the network did not "mostly vanish" (29 % of it lies under the lake). *"A large visible change ships on by default
+  without a ruling"*: basin routing stays on, because rough routing alone leaves the owner's complaint (a dead-straight
+  diagonal channel and parallel runs) on screen and Ruling EV ruled the routing change; the lake consequence is
+  disclosed with the corrected figures and put to the owner. *"Heightmap imports never get basin routing"*: confirmed
+  and by design (`import.rs`: an imported DEM's filled pits are data). The confluence knots in the River flow view:
+  confirmed in the verifier's crop, cosmetic, routed (§2.13 item 9).
+- **Verified**: `cargo test --workspace --no-fail-fast` on this tree, rebased onto `origin/main` `5e179830` (the
+  planner's Ruling EU items 2 and 3 landed meanwhile; no conflict): **277 result lines, 8 304 passed, 0 failed, 170
+  ignored**. Before the rebase, on `fcda4d3d`: 276 lines, 8 273 passed, 0 failed, 169 ignored (275 lines before this
+  change, which adds `tests/balanced_lake_shore.rs` and one ignored measurement). Literal mutants: **4 of 4
+  killed** in Rust (the rain gate dropped, every world gated, the tile path gated, the tile path ungated everywhere);
+  **7 of 7** in GDScript against `_newworld_rules_probe` (Create-only restore, the seed test inverted, no undo on a
+  failed import, an undo that writes nothing, the preview on the live table, the notice never refreshed, the hint never
+  written); and **1 of 1** DLL mutant against `_rivercomb_probe` (the screen keeps its rain gate: 14 864 of 36 055 water
+  cells in the owner's window at the class clamp, 41.2 %, against 19 with the fix, which is the stepped shore measured
+  on the owner's world); `evidence/river-comb-2026-11-13/mutants_followup.log`. Windowed probes on a DLL built at
+  06:06:57 from these sources (no `.rs` newer; the DLL mutant then rebuilt it from the same hash-checked sources at
+  06:17:26): `_newworld_rules_probe.tscn` on the desktop shell, the phone form (`--force-touch`, 1080 x 2340) and the
+  tablet form (`--force-touch`, 2560 x 1600), **180 checks each, 0 failed** -- Create and the failing import are pressed
+  through their own handlers, not a finger, so the touch path itself is on glass only (`MISTAKES.md`); one tooltip
+  string of the notice was reworded after these runs (parse-checked, read by no check). The same probe on `fcda4d3d`'s
+  shell (with this DLL) fails **42 of its 179 checks** -- every new leg: the other seed, the failed import, the notice,
+  both hints, and the preview, whose missing call ends the run as a failed check rather than a script error -- so its
+  new legs pin the fixes. `_rivercomb_probe.tscn` owner / before / after: 20 / 21 / 21 checks, 0 failed, including the
+  new shore-field check on the two balanced arms (15 and 19 of about 27 000 and 36 000 water cells in the window at
+  the clamp). After the rebase the desktop rules probe re-ran on the rebased DLL: 180 checks, 0 failed.
+  `--check-only` passes on both probes, `shell/app.gd`, `engine_bridge.gd`, `new_world_dialog.gd` and the rebase's
+  `journey_planner_view.gd`.
+  Frames looked at at x7.88, x16 and x64. The New World screen captured on all three forms (`--shots`): the desktop
+  frame shows the notice at the end of the form's right column; on the phone and the tablet it sits at the end of the
+  scrolling form, below the captured fold (its text is the probe's check, not a look).
+- **Evidence**: `cartalith-native/docs/evidence/river-comb-2026-11-13/` (frames and composites re-taken with the shore
+  fix; probe, measurement and mutant logs; README).
+- **APK**: built from this tree after the rebase (`cargo ndk -t arm64-v8a build --release -p cartalith-godot`, then the
+  Gradle export with Godot's debug keystore, `ANDROID_BUILD_SCOPE.md` §3.14, set up in this worktree): 107 104 753
+  bytes; `apksigner verify` CN=Godot; permissions INTERNET, VIBRATE, BLUETOOTH_CONNECT; the CartalithPen plugin in the
+  manifest; the `libcartalith_godot.so` inside identical to `llvm-strip --strip-unneeded` of the fresh build (sha256
+  `2d6db4e5ceaf...`). Copied to both D-drive drops (`Tools & writing hacks\Cartalith.apk` and `Tools & writing
+  hacks\Mapping Tools\Cartalith.apk`), md5 `922cc29e7a2da1f687558d416c3cd78a` at both, replacing the 2026-11-12 23:15
+  build. **Not installed or run on a device**: whether the combing is resolved on the owner's 6T is the owner's check, and the world already on the phone keeps its combs until a New World is made on this build.
+
 ### River combs resolved (Ruling EV): New World uses the current rules, and filled basins route floor-first (2026-11-13)
 
 *The owner, with two phone screenshots of seed 51203 (river flow and relief views at 788 %, APK from `da0dbbbf`):
@@ -81,11 +162,15 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
   Routing surface cost 66 -> 73 ms on 51203. In the app (`_rivercomb_probe.tscn`, windowed, the owner's window on
   51203): comb share drawn at x1 / x4 / x7.88 / x16 / x64 is 77 / 66 / 63 / 54 / 46 % as made, 0.8 / 0 / 0 / 0 / 0.3 %
   before, 0 at every zoom after; the longest drawn straight stretch is 67.9 cells before (the 45-degree line) and
-  12.4 to 17.7 after.
+  12.4 to 17.7 after. *(Read with the follow-up entry above: the comb was already gone with rough routing alone; what
+  basin routing removed in the window is the ruler line and the straight runs, and the drawn total there falls
+  3 616 -> 1 487 cells at x7.88, partly under the new lake.)*
 - **Also moves: lakes grow** where a basin's whole inflow now reaches its floor (the lake balance reads the routed
   discharge, and the carve follows the converged trunk): lake cells under the balance +17 % on 51203, +23 % on
   246371, +1 % and +6 % on the small worlds; in the owner's window a part-playa flat is now a lake. Disclosed in the
-  ruling; the owner question is routed (`OUTSTANDING_WORK.md` §2.13, "River combs after Ruling EV").
+  ruling; the owner question is routed (`OUTSTANDING_WORK.md` §2.13, "River combs after Ruling EV"). *(Corrected by
+  the follow-up entry above: those figures are `use_gpu` off; on the owner's world as the app makes it the growth is
+  +52 % on the map and 2.06x in the owner's window.)*
 - **Evidence**: `cartalith-native/docs/evidence/river-comb-2026-11-13/` (river flow and relief composites at x1, x4,
   x7.88, x16 and x64, owner / before / after, looked at; the owner composite `owner_composite_combing_fixed.png`;
   the probe and harness logs).

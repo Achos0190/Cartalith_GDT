@@ -7691,6 +7691,20 @@ impl WorldGen {
         Some(sea_live_bridge::water_bodies_at(field, rainfall, gw, gh, self.sea_level, self.world, self.forced_lakes.as_deref(), table, balance))
     }
 
+    /// Whether the rain test decided [`Self::drawn_water_bodies`]' lakes
+    /// (`render::lakes_rain_gated` of the same balance inputs that function
+    /// builds): `false` for a generated world whose `lake_balance` is on, so the
+    /// screen's shore field contours its balanced lakes by depth alone
+    /// (`render::shore_margins_with`; verifier finding, 2026-11-13: dry-country
+    /// balanced lakes were drawn cell-stepped). `true` for a loaded save, which
+    /// keeps its rain-test lakes, and with no world.
+    pub(crate) fn drawn_lakes_rain_gated(&self) -> bool {
+        match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => render::lakes_rain_gated(render::LakeBalanceInputs::when(self.params.lake_balance, Some(&ws.flow_discharge), &ws.temperature)),
+            _ => true,
+        }
+    }
+
     /// Clears [`Self::forced_lakes`] and moves [`Self::forced_lakes_epoch`],
     /// for every assignment to `source` -- the one place a world's forcing is
     /// dropped, so no path can carry a mask onto another world's grid. Must
@@ -8758,11 +8772,14 @@ impl WorldGen {
     /// already held them, e.g. after a boot with nothing opened).
     ///
     /// Called by `engine_bridge.gd` just before a run that makes a **new**
-    /// world starts (New World's Create and the heightmap import), never
-    /// before a regenerate of the open world, which keeps the rules it was
-    /// saved with. Refuses like `set_params` on a finalized world (returns
-    /// nothing changed); marks the same stages `reset_params` does when it
-    /// changed anything.
+    /// world starts (New World's Create, the heightmap import, and -- since a
+    /// verifier found the route open, 2026-11-13 -- any generate at a seed
+    /// other than the open world's), never before a regenerate of the open
+    /// world at its own seed, which keeps the rules it was saved with. A run
+    /// that then fails gets them back ([`Self::revert_new_world_rules`]).
+    /// Refuses like `set_params` on a finalized world (returns nothing
+    /// changed); marks the same stages `reset_params` does when it changed
+    /// anything.
     #[func]
     fn restore_new_world_rules(&mut self) -> PackedStringArray {
         if self.bake.check(cartalith_engine::bake::Mutation::Generation).is_err() {
@@ -8788,6 +8805,45 @@ impl WorldGen {
         let chosen = &self.rules_chosen;
         params::restore_new_world_rules(&mut p, &|k: &str| chosen.iter().find(|&&(c, _)| c == k).map(|&(_, v)| v));
         params_to_dict(&p)
+    }
+
+    /// **Puts back the generation rules a failed new-world run's restore
+    /// changed** (Ruling EV; verifier finding, 2026-11-13). `previous` is
+    /// `{key: value}` as the live table held them just before
+    /// [`Self::restore_new_world_rules`]; `engine_bridge.gd` records it there
+    /// and hands it here when the run fails and leaves the open world on
+    /// screen -- a heightmap the engine cannot read does exactly that
+    /// ([`Self::import_heightmap`] leaves the previous world untouched) -- so
+    /// that world's live table is its own again: its lakes are classified from
+    /// it (`lake_balance`), and a later Generate or Save of it reads it.
+    ///
+    /// Writes only generation rules (`params::is_new_world_rule`); any other
+    /// key, and any value `params::set` rejects, is skipped. **Must never
+    /// count a value as the user's choice** ([`Self::rules_chosen`] is left
+    /// alone, unlike [`Self::set_params`]): the values are the opened world's,
+    /// and a choice the user made this session still holds for the next new
+    /// world. Refuses like `set_params` on a finalized world. Marks the same
+    /// stages the restore marked when it wrote anything. Returns the keys it
+    /// wrote.
+    #[func]
+    fn revert_new_world_rules(&mut self, previous: VarDictionary) -> PackedStringArray {
+        let mut out = PackedStringArray::new();
+        if self.bake.check(cartalith_engine::bake::Mutation::Generation).is_err() {
+            return out;
+        }
+        for (k, v) in previous.iter_shared() {
+            let key = k.to_string();
+            let Some(rule) = params::new_world_rule_key(&key) else { continue };
+            let Some(value) = variant_to_value(&v) else { continue };
+            if params::set(&mut self.params, rule, value) != params::Outcome::Rejected {
+                out.push(&GString::from(rule));
+            }
+        }
+        if !out.is_empty() {
+            self.mark_param_change(PipelineStage::Hydrology, "revert_new_world_rules");
+            self.mark_param_change(PipelineStage::Climate, "revert_new_world_rules");
+        }
+        out
     }
 
     /// One civ parameter, written through the same [`params::set`] the
@@ -12524,7 +12580,9 @@ impl WorldGen {
         // lake's edge comes from its mask (`render::shore_field_forced`),
         // since the lake rule the field contours never made it water.
         *self.shore_field_tex.borrow_mut() = if appearance.smooth_shores {
-            let fld = render::shore_field_forced(field, &lakes, &fill_level, rainfall, self.forced_lake_mask(), gw, gh, self.sea_level, self.world);
+            // The lake rule `lakes` was classified by: a balanced world's lakes
+            // take the depth margin's smooth shore (`shore_margins_with`).
+            let fld = render::shore_field_forced_with(field, &lakes, &fill_level, rainfall, self.drawn_lakes_rain_gated(), self.forced_lake_mask(), gw, gh, self.sea_level, self.world);
             if fld.len() == gw * gh {
                 let bytes: Vec<u8> = fld.iter().flat_map(|&v| render::f16_bits(v).to_le_bytes()).collect();
                 Image::create_from_data(gw as i32, gh as i32, false, Format::RH, &PackedByteArray::from(bytes)).and_then(|i| ImageTexture::create_from_image(&i))

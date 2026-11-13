@@ -1,0 +1,22 @@
+# measurement_gpu_51203.log: tests/river_basin_routing_measurement.rs, release, BR_GPU=1 BR_WORLDS=51203, 2026-11-13 (evfix lane). NOT run alone (other builds and probes ran beside it), so its routing-surface times are not a measurement; the counts do not depend on it.
+running 2 tests
+test basin_routing_before_and_after ... == 51203 / owner: 2048x1024, density 2.5, rough false, basin false, generated in 23 s
+   comb  25.6 % of 133846 cells (longest 335) | on filled ground  86.1 % of 17738 | straight  36.1 % (tol 0.5:  37.8 %), longest 341 | filled  92.9 % longest 198 | elsewhere  24.4 % longest 94
+   owner window: comb  75.1 % of 30463 cells (longest 335), straight  82.3 % (longest 341) | lake cells: rain test 1013, under the balance 8205, with the area floor 8204
+   plausibility: uphill_route 0, dry_ends 4, max rise above the fill 0.073 m | lake cells 9706 (under the balance 17793: 124 pools, 571 dried, 8658 flooded; with the area floor 17788), ocean cells 1460589, filled 26479 of 630102 land cells | mouths 6564, rivers 15163, traced 128580 cells
+== 51203 / before: 2048x1024, density 2.5, rough true, basin false, generated in 20 s
+   comb   0.7 % of 105363 cells (longest 22) | on filled ground   1.1 % of 5713 | straight   9.8 % (tol 0.5:  11.3 %), longest 110 | filled  29.9 % longest 24 | elsewhere   7.7 % longest 91
+   owner window: comb   0.7 % of 14517 cells (longest 18), straight  22.8 % (longest 110) | lake cells: rain test 2583, under the balance 8624, with the area floor 8622
+   plausibility: uphill_route 0, dry_ends 5, max rise above the fill 0.073 m | lake cells 11284 (under the balance 18145: 155 pools, 775 dried, 7636 flooded; with the area floor 18130), ocean cells 1460589, filled 27024 of 630102 land cells | mouths 4927, rivers 14064, traced 100380 cells
+== 51203 / after: 2048x1024, density 2.5, rough true, basin true, generated in 22 s
+   comb   0.5 % of 102238 cells (longest 19) | on filled ground   0.0 % of 6163 | straight   6.4 % (tol 0.5:   7.8 %), longest 23 | filled   7.4 % longest 13 | elsewhere   6.1 % longest 23
+   owner window: comb   0.2 % of 11878 cells (longest 14), straight   7.1 % (longest 17) | lake cells: rain test 2923, under the balance 17784, with the area floor 17782
+   plausibility: uphill_route 0, dry_ends 5, max rise above the fill 0.668 m | lake cells 11791 (under the balance 27653: 153 pools, 84 dried, 15946 flooded; with the area floor 27640), ocean cells 1460589, filled 30714 of 630102 land cells | mouths 5009, rivers 14092, traced 97216 cells
+   51203: routing surface Breadth 67 ms (67..68), Floor 74 ms (72..75)
+ok
+test floor_tilt_against_breadth_on_the_final_field ...    51203: raised by Floor only 1330, by Breadth only 0, by both 37016 | land cells whose path ends at another seed: 294 of 630102 (0.047 %), 290 of them outside every Breadth-raised cell | pits 0
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 90.00s
+
+exit=0

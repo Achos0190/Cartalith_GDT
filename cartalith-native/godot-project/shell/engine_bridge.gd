@@ -704,26 +704,112 @@ func new_world_param(key: String):
 		return param_get(key)
 	return (world_gen.get_new_world_params() as Dictionary).get(key)
 
-## **Before a run that makes a NEW world** (New World's Create, the heightmap import): put the
-## generation rules back to the app's (Ruling EV, 2026-11-13). Opening an older save turns the
-## rules it predates off in the live table (`params::LOADS_WHEN_ABSENT`) and every generate
-## reads that table, so without this a world created after opening an old one was made by the
-## old rules -- the owner's 2026-11-13 combing world had rough routing, the lake balance and the
-## shared road trunks off for exactly that reason. `WorldGen.restore_new_world_rules` keeps any
-## rule the user changed this session. Never called for a regenerate of the open world, which
-## keeps the rules it was saved with. Main thread only, before the worker takes the engine; a
-## no-op on an extension without the binding.
+## Every parameter a **New World would generate with now** (Ruling EV): `WorldGen.get_new_world_params()`,
+## the live table with the generation rules an opened older save turned off put back to the app's. The
+## base of the New World preview's request, so the preview draws the world Create will make (verifier
+## finding, 2026-11-13: it drew from the live table, so after opening a save without
+## `tect.narrow_plate_base_blur` it drew the old plate-base blur while Create restored the new one, a
+## different coastline). The live table (`params_snapshot`) while `generating` or on an extension without
+## the binding, the same fallback `new_world_param` takes; `{}` with no table, never a made-up one.
+func new_world_params_snapshot() -> Dictionary:
+	if not _params_available or generating or not _has("get_new_world_params"):
+		return params_snapshot()
+	return (world_gen.get_new_world_params() as Dictionary).duplicate()
+
+## The generation rules a New World's Create would change from the live table now, as
+## `[key, ...]` in the table's order (`new_world_params_snapshot()` against `param_snapshot()`): empty
+## when Create would change nothing (a boot with nothing opened, or an open world made by this build's
+## rules). The New World screen names them (`new_world_dialog.gd` `_refresh_rules_notice`), so a rule
+## an opened save had off -- a choice made in an earlier session included -- is never turned on
+## silently (verifier finding, 2026-11-13). Only rules can differ: `get_new_world_params` touches
+## nothing else.
+func new_world_rule_changes() -> PackedStringArray:
+	var out := PackedStringArray()
+	if not _params_available or generating or not _has("get_new_world_params"):
+		return out
+	var live: Dictionary = param_snapshot()
+	var nw: Dictionary = new_world_params_snapshot()
+	for k in nw:
+		if live.has(k) and live[k] != nw[k]:
+			out.append(String(k))
+	return out
+
+## A generation rule's name for a sentence: the parameter table's own label (`param_info`) without a closing
+## parenthetical -- `Rough routing (rivers wander across smooth slopes)` reads `Rough routing`, `Volcano
+## morphometry (VA-5)` reads `Volcano morphometry`, while `Smooth (B-spline) rain up-sample` keeps its middle
+## one -- or the key itself when the table has no such row. For the New World notice and the finish hint that
+## name restored rules (Ruling EV).
+func rule_label(key: String) -> String:
+	var label := String(param_info(key).get("label", key))
+	if label.ends_with(")"):
+		var cut := label.rfind(" (")
+		if cut > 0:
+			label = label.substr(0, cut)
+	return label
+
+## **Whether `request` makes a different world from the one open**: a generate at a seed other than the
+## open world's (`WorldGen.get_seed()`, the seed it was generated or saved with). WORLD ▸ Generate world
+## after New seed, the tool-options Generate and the assistant's regenerate all reach `generate()` with
+## `new_world` false, and before this (verifier finding, 2026-11-13) such a run after opening an older
+## save made the new seed's world by the save's rules -- the owner's combing failure by another route.
+## A generate at the open world's own seed regenerates THAT world and keeps its rules, so a saved world
+## still reproduces. `false` with no world open (the table is then the app's anyway) and on an
+## extension without `get_seed`.
+func _makes_another_world(request: Dictionary) -> bool:
+	if not has_world or not _has("get_seed"):
+		return false
+	return int(request.get("seed", 0)) != int(world_gen.get_seed())
+
+## **Before a run that makes a NEW world** (New World's Create, the heightmap import, and a generate at
+## another seed, `_makes_another_world`): put the generation rules back to the app's (Ruling EV,
+## 2026-11-13). Opening an older save turns the rules it predates off in the live table
+## (`params::LOADS_WHEN_ABSENT`) and every generate reads that table, so without this a world created
+## after opening an old one was made by the old rules -- the owner's 2026-11-13 combing world had rough
+## routing, the lake balance and the shared road trunks off for exactly that reason.
+## `WorldGen.restore_new_world_rules` keeps any rule the user changed this session. Never called for a
+## regenerate of the open world at its own seed, which keeps the rules it was saved with. Records what
+## each changed rule held before (`_rules_before_restore`), so a run that then FAILS puts them back
+## (`_undo_new_world_restore`): the open world stays on screen, and its table must stay its own. Main
+## thread only, before the worker takes the engine; a no-op on an extension without the binding.
 func _restore_new_world_rules() -> void:
+	_rules_before_restore = {}
 	if not _params_available or not _has("restore_new_world_rules"):
 		return
+	var before: Dictionary = world_gen.get_params()
 	var changed: PackedStringArray = world_gen.restore_new_world_rules()
 	if not changed.is_empty():
 		print("Cartalith: the new world uses the current generation rules for %s (the open world predates them)." % ", ".join(changed))
 		last_new_world_restored = changed
+		for k in changed:
+			if before.has(k):
+				_rules_before_restore[k] = before[k]
 
-## The generation rules the last new-world run put back (`_restore_new_world_rules`), for a
-## probe; empty when it changed nothing. Nothing in the shell reads it.
+## **A new-world run failed: give the open world its own rules back** (verifier finding, 2026-11-13).
+## A heightmap the engine cannot read fails after `_restore_new_world_rules` ran and leaves the open world
+## on screen, and without this its live table kept the new-world rules: the map's lakes are classified
+## from that table (`lake_balance`), and a later Generate or Save of that world would use or record rules
+## it was not made with. `WorldGen.revert_new_world_rules` writes the recorded values back without
+## counting them as the user's choice. Clears `last_new_world_restored`, since nothing was restored in
+## the end. A no-op when the run restored nothing, or on an extension without the binding.
+func _undo_new_world_restore() -> void:
+	if _rules_before_restore.is_empty():
+		return
+	if _has("revert_new_world_rules"):
+		var back: PackedStringArray = world_gen.revert_new_world_rules(_rules_before_restore)
+		print("Cartalith: the run failed; the open world keeps its own generation rules (%s)." % ", ".join(back))
+	_rules_before_restore = {}
+	last_new_world_restored = PackedStringArray()
+	if _params_available:
+		_params_cache = world_gen.get_params()
+
+## The generation rules the last new-world run put back (`_restore_new_world_rules`); empty when it changed
+## nothing, and after a failed run (`_undo_new_world_restore`). `app.gd`'s finish handler names them in the
+## status hint; a probe reads it too.
 var last_new_world_restored := PackedStringArray()
+
+## What each rule `_restore_new_world_rules` changed held before it, `{key: value}`, until the run ends:
+## the values `_undo_new_world_restore` writes back if it fails. `{}` between runs.
+var _rules_before_restore := {}
 
 ## Every parameter's current value at once (LLM-6a/6b: the assistant's catalogue is rebuilt
 ## from this on every request): `WorldGen.get_params()`, or a copy of the snapshot taken
@@ -939,11 +1025,15 @@ func generate(request: Dictionary, new_world: bool = false) -> void:
 		push_warning(last_summary)
 		generation_finished.emit(false)
 		return
-	## Ruling EV: a new world is made by the current generation rules. After the
-	## refusal above, so a refused Create changes nothing; before the snapshot,
-	## so `param_get` during the run answers with the rules being used.
+	## Ruling EV: a new world is made by the current generation rules -- New World's
+	## Create, and any generate at a seed other than the open world's (verifier
+	## finding, 2026-11-13: WORLD ▸ Generate world after New seed made the new
+	## seed's world by an opened save's rules). After the refusal above, so a
+	## refused run changes nothing; before the snapshot, so `param_get` during the
+	## run answers with the rules being used.
 	last_new_world_restored = PackedStringArray()
-	if new_world:
+	_rules_before_restore = {}
+	if new_world or _makes_another_world(request):
 		_restore_new_world_rules()
 	## Snapshot the parameter table before the worker takes the engine: from
 	## here until `_finish`, `param_get` answers from this and nothing reaches
@@ -1055,8 +1145,11 @@ func _finish(seed_value: int, width_km: float, ok: bool) -> void:
 
 	if not ok or world_gen.get_width() <= 0:
 		last_summary = "generate failed -- see console"
+		## Before the emit, so every listener reads the open world's own rules.
+		_undo_new_world_restore()
 		generation_finished.emit(false)
 		return
+	_rules_before_restore = {}
 
 	## Read the real extent back from the engine rather than echoing what the
 	## setup surface asked for: `get_map_height_km` is derived from the world
@@ -1092,7 +1185,8 @@ func import_heightmap(path: String, request: Dictionary) -> void:
 		return
 	new_world_pending = true   ## a heightmap import is a new world, never the open project's regenerate
 	## Ruling EV: a new world is made by the current generation rules (the same
-	## call `generate()` makes for New World's Create).
+	## call `generate()` makes for New World's Create); a failed import puts them
+	## back (`_finish_import`).
 	last_new_world_restored = PackedStringArray()
 	_restore_new_world_rules()
 	## Snapshot the parameter table before the worker takes the engine: from
@@ -1135,8 +1229,13 @@ func _finish_import(path: String, seed_value: int, ok: bool) -> void:
 
 	if not ok or world_gen.get_width() <= 0:
 		last_summary = "heightmap import failed -- see console"
+		## The engine leaves the previous world untouched on a read or decode error
+		## (`WorldGen::import_heightmap`), so its rules come back with it. Before the
+		## emit, so every listener reads them.
+		_undo_new_world_restore()
 		generation_finished.emit(false)
 		return
+	_rules_before_restore = {}
 
 	last_width_km = world_gen.get_map_width_km() if sized_api else 0.0
 	last_height_km = world_gen.get_map_height_km() if sized_api else 0.0
@@ -6565,6 +6664,10 @@ func region_new_world(tile_size: int = 0, ridged: bool = false,
 	if generating or not _has("region_new_world"):
 		return
 	new_world_pending = true   ## the resample is a different world; the original file must not be its Save target
+	## The resample keeps the open world's rules (it is that world, resampled), so it restores nothing, and the
+	## finish hint must not repeat what an earlier run put back (Ruling EV's `last_new_world_restored`).
+	last_new_world_restored = PackedStringArray()
+	_rules_before_restore = {}
 	## Snapshot the parameter table before the worker takes the engine, the
 	## same contract `generate()`/`import_heightmap()` hold: from here until
 	## `_finish_region_new_world`, `param_get` answers from this cache and

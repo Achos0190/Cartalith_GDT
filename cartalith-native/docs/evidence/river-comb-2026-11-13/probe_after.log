@@ -2,34 +2,51 @@ Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official,
 Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
 OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
 
-[after] parameters: 124 from C:/cw/combfix/cartalith-native/crates/cartalith-godot/tests/fixtures/owner_world_51203_params.txt, overrides {"basin_routing":true,"civ.merge_ways":true,"lake_balance":true,"rough_routing":true}
-Cartalith shell build 5f978b3a95c8
-ERROR: Couldn't open directory at path "C:/cw/combfix_appdata_comb_after/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+[after] parameters: 124 from ../crates/cartalith-godot/tests/fixtures/owner_world_51203_params.txt, overrides {"basin_routing":true,"civ.merge_ways":true,"lake_balance":true,"rough_routing":true}
+Cartalith shell build 8148bffa7405
+ERROR: Couldn't open directory at path "<scratch>/appdata_comb_after/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
    GDScript backtrace (most recent call first):
        [0] _paths (res://shell/open_project_dialog.gd:880)
        [1] _welcome_paths (res://shell/open_project_dialog.gd:910)
        [2] _refresh_picker (res://shell/open_project_dialog.gd:978)
        [3] _refresh (res://shell/open_project_dialog.gd:937)
        [4] open_welcome (res://shell/open_project_dialog.gd:317)
-       [5] open_welcome (res://shell/app.gd:4973)
+       [5] open_welcome (res://shell/app.gd:4986)
        [6] _open_welcome_when_drawn (res://shell/app.gd:2515)
 [after]   OK   every parameter written as given (rejected [], clamped [])
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
 	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
-[after] generated seed 51203 2048x1024 40075 km in 28.4 s
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x231d3117220, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x231d3117220, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x231d3117220, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[after] generated seed 51203 2048x1024 40075 km in 41.0 s
 [after]   OK   every parameter reads back as asked after the run (124 checked; differing [])
 [after] settlements 40, roads 40, river mouths 2925, fan-eligible 261, delta fans 185
-[after]   whole  traced total 102238.0  comb   0.5 % (longest  19.0)  straight   6.5 % (longest  22.6)
-[after]   whole  z1     total   2740.0  comb   0.0 % (longest   0.0)  straight  18.0 % (longest  13.5)
-[after]   whole  z4     total   9172.0  comb   0.0 % (longest   0.0)  straight  14.1 % (longest  14.9)
-[after]   whole  z7.88  total  16212.0  comb   0.0 % (longest   0.0)  straight  13.1 % (longest  17.3)
-[after]   whole  z16    total  29197.0  comb   0.0 % (longest   0.0)  straight  11.4 % (longest  17.3)
-[after]   whole  z64    total  80259.0  comb   0.1 % (longest  17.0)  straight  10.5 % (longest  18.7)
-[after]   window traced total  11853.0  comb   0.2 % (longest  14.0)  straight   7.6 % (longest  17.0)
-[after]   window z1     total    367.0  comb   0.0 % (longest   0.0)  straight  31.1 % (longest  12.4)
-[after]   window z4     total    776.0  comb   0.0 % (longest   0.0)  straight  20.9 % (longest  12.4)
-[after]   window z7.88  total   1487.0  comb   0.0 % (longest   0.0)  straight  19.9 % (longest  12.4)
-[after]   window z16    total   2669.0  comb   0.0 % (longest   0.0)  straight  17.0 % (longest  12.9)
-[after]   window z64    total   7517.0  comb   0.0 % (longest   0.0)  straight  13.0 % (longest  17.7)
+[after]   whole  traced      total 102238.0  comb   0.5 % (longest  19.0)  straight   6.5 % (longest  22.6)
+[after]   whole  traced_lake total   4543.0  comb   0.0 % (longest   0.0)  straight   7.7 % (longest  17.0)
+[after]   whole  z1          total   2740.0  comb   0.0 % (longest   0.0)  straight  18.0 % (longest  13.5)
+[after]   whole  z4          total   9172.0  comb   0.0 % (longest   0.0)  straight  14.1 % (longest  14.9)
+[after]   whole  z7.88       total  16212.0  comb   0.0 % (longest   0.0)  straight  13.1 % (longest  17.3)
+[after]   whole  z16         total  29197.0  comb   0.0 % (longest   0.0)  straight  11.4 % (longest  17.3)
+[after]   whole  z64         total  80259.0  comb   0.1 % (longest  17.0)  straight  10.5 % (longest  18.7)
+[after]   whole  traced network under a drawn lake: 4543.0 of 102238.0 cells (4.4 %)
+[after]   window traced      total  11853.0  comb   0.2 % (longest  14.0)  straight   7.6 % (longest  17.0)
+[after]   window traced_lake total   3456.0  comb   0.0 % (longest   0.0)  straight   8.4 % (longest  13.1)
+[after]   window z1          total    367.0  comb   0.0 % (longest   0.0)  straight  31.1 % (longest  12.4)
+[after]   window z4          total    776.0  comb   0.0 % (longest   0.0)  straight  20.9 % (longest  12.4)
+[after]   window z7.88       total   1487.0  comb   0.0 % (longest   0.0)  straight  19.9 % (longest  12.4)
+[after]   window z16         total   2669.0  comb   0.0 % (longest   0.0)  straight  17.0 % (longest  12.9)
+[after]   window z64         total   7517.0  comb   0.0 % (longest   0.0)  straight  13.0 % (longest  17.7)
+[after]   window traced network under a drawn lake: 3456.0 of 11853.0 cells (29.2 %)
+[after] shore field in the window: 36055 water cells, 19 at the class clamp (0.1 %)
+[after]   OK   a balanced world's lakes are contoured by depth: 19 of 36055 water cells at the clamp
 [after]   OK   the world has traced rivers (positive control: an empty measure cannot pass)
 [after]   OK   rivers are drawn at zoom 1.0
 [after]   OK   rivers are drawn at zoom 4.0
@@ -58,7 +75,9 @@ ERROR: Couldn't open directory at path "C:/cw/combfix_appdata_comb_after/Godot/a
 [after]   frame flow zoom 16.00 (readout 1600 %) saved
 [after]   OK   frame flow x64.0 grabbed
 [after]   frame flow zoom 64.00 (readout 6400 %) saved
-[after] RESULT after fail=0 checks=20
+[after] RESULT after fail=0 checks=21
 WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
 ERROR: 5 resources still in use at exit (run with --verbose for details).
-EXIT 0
+   at: clear (core/io/resource.cpp:822)
+exit=0

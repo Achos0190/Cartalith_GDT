@@ -2,7 +2,7 @@ Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official,
 Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
 OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
 
-Cartalith shell build 5f978b3a95c8
+Cartalith shell build a4f2b273fbb4
 [phone] viewport 1080x2340 phone=true touch=true, extension has the restore: true
 [phone] -- L0 boot
 [phone]   OK   boot: rough_routing = true (expected true)
@@ -23,6 +23,26 @@ Cartalith shell build 5f978b3a95c8
 [phone]   OK   boot: relief_model = false (expected false)
 [phone]   OK   boot: geology_karst = false (expected false)
 [phone]   OK   boot: geology_carve = false (expected false)
+ERROR: Attempting to make child window exclusive, but the parent window already has another exclusive child. This window: /root/NewWorldRulesProbe/@SubViewport@2/App/@AcceptDialog@300, parent window: /root, current exclusive child window: /root/NewWorldRulesProbe/@SubViewport@2/App/PhoneProjectPicker
+   at: _set_transient_exclusive_child (scene/main/window.cpp:1160)
+   GDScript backtrace (most recent call first):
+       [0] phone_present (res://shell/dcc_widgets.gd:3701)
+       [1] open_new_world (res://shell/app.gd:4952)
+       [2] _open_new_world (res://_newworld_rules_probe.gd:125)
+       [3] _ready (res://_newworld_rules_probe.gd:240)
+       [4] _frames (res://_newworld_rules_probe.gd:91)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1f76f3068c0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1f76f3068c0, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1f76f3068c0, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[phone]   OK   at boot the rules notice is hidden (Create changes no rule): ''
 [phone] -- L1 open the pre-Ruling-ER archive
 [phone]   OK   the archive opens
 [phone]   OK   opened: rough_routing = false (expected false)
@@ -39,7 +59,9 @@ Cartalith shell build 5f978b3a95c8
 [phone]   OK   opened: volc.kind_dome = false (expected false)
 [phone]   OK   opened: integrate_drainage = true (expected true)
 [phone]   OK   opened: tect.narrow_plate_base_blur = true (expected true)
-[phone] -- L2 regenerate the opened world (not a new world)
+[phone]   OK   the opened world's seed is the archive's 24601 (got 24601)
+[phone] -- L2 regenerate the opened world at its own seed (not a new world)
+[phone]   OK   premise: the request carries the opened world's seed (24601)
 [phone]   OK   regenerated: rough_routing = false (expected false)
 [phone]   OK   regenerated: basin_routing = false (expected false)
 [phone]   OK   regenerated: lake_balance = false (expected false)
@@ -52,11 +74,126 @@ Cartalith shell build 5f978b3a95c8
 [phone]   OK   regenerated: volc.fill_edifice_pits = false (expected false)
 [phone]   OK   regenerated: volc.morphometry = false (expected false)
 [phone]   OK   regenerated: volc.kind_dome = false (expected false)
-[phone]   OK   a regenerate restores nothing ([])
+[phone]   OK   a regenerate at the world's own seed restores nothing ([])
+[phone] -- L2b the same route at another seed (New seed, then Generate world)
+[phone]   OK   premise: the request carries the other seed (51203)
+Cartalith: the new world uses the current generation rules for rough_routing, basin_routing, lake_balance, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways (the open world predates them).
+[phone]   OK   the world is the new seed's (51203)
+[phone]   OK   another seed: rough_routing = true (expected true)
+[phone]   OK   another seed: basin_routing = true (expected true)
+[phone]   OK   another seed: lake_balance = true (expected true)
+[phone]   OK   another seed: civ.merge_ways = true (expected true)
+[phone]   OK   another seed: tect.orogen_relief = true (expected true)
+[phone]   OK   another seed: tect.high_ceiling = true (expected true)
+[phone]   OK   another seed: passes.glacial = true (expected true)
+[phone]   OK   another seed: geology_model = true (expected true)
+[phone]   OK   another seed: climate.rain_bspline = true (expected true)
+[phone]   OK   another seed: volc.fill_edifice_pits = true (expected true)
+[phone]   OK   another seed: volc.morphometry = true (expected true)
+[phone]   OK   another seed: volc.kind_dome = true (expected true)
+[phone]   OK   another seed: integrate_drainage = true (expected true)
+[phone]   OK   another seed: tect.narrow_plate_base_blur = true (expected true)
+[phone]   OK   another seed: geology_processes = false (expected false)
+[phone]   OK   another seed: relief_model = false (expected false)
+[phone]   OK   another seed: geology_karst = false (expected false)
+[phone]   OK   another seed: geology_carve = false (expected false)
+[phone]   OK   the bridge reports rough_routing put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[phone]   OK   the bridge reports basin_routing put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[phone]   OK   the bridge reports lake_balance put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[phone]   OK   the bridge reports civ.merge_ways put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[phone]   OK   the status hint names the rules it put back: '160 x 102 cells, 800 x 510 km, seed 51203 · made by this build's generation rules (Rough routing, Basin routing, Lake water balance and 16 more differed in the world open before)'
+[phone] -- L2c a heightmap import that fails, over the opened world
+[phone]   OK   the archive opens for the failing import
+[phone]   OK   opened before the failing import: rough_routing = false (expected false)
+[phone]   OK   opened before the failing import: lake_balance = false (expected false)
+[phone]   OK   opened before the failing import: civ.merge_ways = false (expected false)
+WARNING: Not a PNG file
+   at: check_error (drivers/png/png_driver_common.cpp:57)
+   GDScript backtrace (most recent call first):
+       [0] heightmap_grid_summary (res://shell/new_world_dialog.gd:2515)
+       [1] _import_heightmap_at (res://shell/app.gd:5031)
+       [2] _ready (res://_newworld_rules_probe.gd:292)
+       [3] _open_fixture (res://_newworld_rules_probe.gd:149)
+       [4] _frames (res://_newworld_rules_probe.gd:91)
+ERROR: Condition "!success" is true. Returning: ERR_FILE_CORRUPT
+   at: png_to_image (drivers/png/png_driver_common.cpp:70)
+   GDScript backtrace (most recent call first):
+       [0] heightmap_grid_summary (res://shell/new_world_dialog.gd:2515)
+       [1] _import_heightmap_at (res://shell/app.gd:5031)
+       [2] _ready (res://_newworld_rules_probe.gd:292)
+       [3] _open_fixture (res://_newworld_rules_probe.gd:149)
+       [4] _frames (res://_newworld_rules_probe.gd:91)
+ERROR: Error loading image: '<scratch>/appdata_rules_phone/Godot/app_userdata/Cartalith Terrain Generator/nwrules_not_a_picture.png'.
+   at: load_image (core/io/image_loader.cpp:102)
+   GDScript backtrace (most recent call first):
+       [0] heightmap_grid_summary (res://shell/new_world_dialog.gd:2515)
+       [1] _import_heightmap_at (res://shell/app.gd:5031)
+       [2] _ready (res://_newworld_rules_probe.gd:292)
+       [3] _open_fixture (res://_newworld_rules_probe.gd:149)
+       [4] _frames (res://_newworld_rules_probe.gd:91)
+ERROR: Failed to load image. Error 16
+   at: load_from_file (core/io/image.cpp:2787)
+   GDScript backtrace (most recent call first):
+       [0] heightmap_grid_summary (res://shell/new_world_dialog.gd:2515)
+       [1] _import_heightmap_at (res://shell/app.gd:5031)
+       [2] _ready (res://_newworld_rules_probe.gd:292)
+       [3] _open_fixture (res://_newworld_rules_probe.gd:149)
+       [4] _frames (res://_newworld_rules_probe.gd:91)
+WARNING: Not a PNG file
+   at: check_error (drivers/png/png_driver_common.cpp:57)
+   GDScript backtrace (most recent call first):
+       [0] _import_heightmap_at (res://shell/app.gd:5039)
+       [1] _ready (res://_newworld_rules_probe.gd:292)
+       [2] _open_fixture (res://_newworld_rules_probe.gd:149)
+       [3] _frames (res://_newworld_rules_probe.gd:91)
+ERROR: Condition "!success" is true. Returning: ERR_FILE_CORRUPT
+   at: png_to_image (drivers/png/png_driver_common.cpp:70)
+   GDScript backtrace (most recent call first):
+       [0] _import_heightmap_at (res://shell/app.gd:5039)
+       [1] _ready (res://_newworld_rules_probe.gd:292)
+       [2] _open_fixture (res://_newworld_rules_probe.gd:149)
+       [3] _frames (res://_newworld_rules_probe.gd:91)
+ERROR: Error loading image: '<scratch>/appdata_rules_phone/Godot/app_userdata/Cartalith Terrain Generator/nwrules_not_a_picture.png'.
+   at: load_image (core/io/image_loader.cpp:102)
+   GDScript backtrace (most recent call first):
+       [0] _import_heightmap_at (res://shell/app.gd:5039)
+       [1] _ready (res://_newworld_rules_probe.gd:292)
+       [2] _open_fixture (res://_newworld_rules_probe.gd:149)
+       [3] _frames (res://_newworld_rules_probe.gd:91)
+ERROR: Failed to load image. Error 16
+   at: load_from_file (core/io/image.cpp:2787)
+   GDScript backtrace (most recent call first):
+       [0] _import_heightmap_at (res://shell/app.gd:5039)
+       [1] _ready (res://_newworld_rules_probe.gd:292)
+       [2] _open_fixture (res://_newworld_rules_probe.gd:149)
+       [3] _frames (res://_newworld_rules_probe.gd:91)
+Cartalith: the new world uses the current generation rules for rough_routing, basin_routing, lake_balance, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways (the open world predates them).
+cartalith-godot: import_heightmap failed: could not decode heightmap: PNG decode failed: Format error decoding Png: Invalid PNG signature.
+Cartalith: the run failed; the open world keeps its own generation rules (rough_routing, basin_routing, lake_balance, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways).
+[phone]   OK   premise: the import fails
+[phone]   OK   after the failed import: rough_routing = false (expected false)
+[phone]   OK   after the failed import: basin_routing = false (expected false)
+[phone]   OK   after the failed import: lake_balance = false (expected false)
+[phone]   OK   after the failed import: civ.merge_ways = false (expected false)
+[phone]   OK   after the failed import: tect.orogen_relief = false (expected false)
+[phone]   OK   after the failed import: tect.high_ceiling = false (expected false)
+[phone]   OK   after the failed import: passes.glacial = false (expected false)
+[phone]   OK   after the failed import: geology_model = false (expected false)
+[phone]   OK   after the failed import: climate.rain_bspline = false (expected false)
+[phone]   OK   after the failed import: volc.fill_edifice_pits = false (expected false)
+[phone]   OK   after the failed import: volc.morphometry = false (expected false)
+[phone]   OK   after the failed import: volc.kind_dome = false (expected false)
+[phone]   OK   a failed run reports nothing restored ([])
+[phone]   OK   and Create would still use the app's rules: the put-back was not a choice (rough_routing true, lake_balance true)
 [phone] -- L3 open New World over it
 [phone]   OK   the dialog has its Lake water balance box
 [phone]   OK   the box shows ON (what Create will use)
 [phone]   OK   while the engine still holds the opened world's OFF
+[phone]   OK   the rules notice names 'Rough routing on': 'Create uses this build's generation rules, not the open world's: Rough routing on, Basin routing on, Lake water balance on, Geology-first lithology model on, Ridged mountain ranges in the orogenic belts on, Higher world ceiling on, Drain volcano flank pits on, Volcano morphometry on, Scoria cones sized for the grid on, Active craters stay dry on, Young lava flows build benches at the sea on, Lava domes on young stratocones on, Maars beside scoria cones on wet ground on, Old arc stratocones collapse into calderas on, A supervolcano caldera where a hotspot sits under a continent on, A flood-basalt plateau, drawn only on, Glacial erosion on, Smooth (B-spline) rain up-sample on, Merge roads into shared trunks on.'
+[phone]   OK   the rules notice names 'Basin routing on': 'Create uses this build's generation rules, not the open world's: Rough routing on, Basin routing on, Lake water balance on, Geology-first lithology model on, Ridged mountain ranges in the orogenic belts on, Higher world ceiling on, Drain volcano flank pits on, Volcano morphometry on, Scoria cones sized for the grid on, Active craters stay dry on, Young lava flows build benches at the sea on, Lava domes on young stratocones on, Maars beside scoria cones on wet ground on, Old arc stratocones collapse into calderas on, A supervolcano caldera where a hotspot sits under a continent on, A flood-basalt plateau, drawn only on, Glacial erosion on, Smooth (B-spline) rain up-sample on, Merge roads into shared trunks on.'
+[phone]   OK   the rules notice names 'Lake water balance on': 'Create uses this build's generation rules, not the open world's: Rough routing on, Basin routing on, Lake water balance on, Geology-first lithology model on, Ridged mountain ranges in the orogenic belts on, Higher world ceiling on, Drain volcano flank pits on, Volcano morphometry on, Scoria cones sized for the grid on, Active craters stay dry on, Young lava flows build benches at the sea on, Lava domes on young stratocones on, Maars beside scoria cones on wet ground on, Old arc stratocones collapse into calderas on, A supervolcano caldera where a hotspot sits under a continent on, A flood-basalt plateau, drawn only on, Glacial erosion on, Smooth (B-spline) rain up-sample on, Merge roads into shared trunks on.'
+[phone]   OK   the rules notice names 'Merge roads into shared trunks on': 'Create uses this build's generation rules, not the open world's: Rough routing on, Basin routing on, Lake water balance on, Geology-first lithology model on, Ridged mountain ranges in the orogenic belts on, Higher world ceiling on, Drain volcano flank pits on, Volcano morphometry on, Scoria cones sized for the grid on, Active craters stay dry on, Young lava flows build benches at the sea on, Lava domes on young stratocones on, Maars beside scoria cones on wet ground on, Old arc stratocones collapse into calderas on, A supervolcano caldera where a hotspot sits under a continent on, A flood-basalt plateau, drawn only on, Glacial erosion on, Smooth (B-spline) rain up-sample on, Merge roads into shared trunks on.'
+[phone]      saved phone_newworld_notice.png
 [phone] -- L4 Create
 Cartalith: the new world uses the current generation rules for rough_routing, basin_routing, lake_balance, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways (the open world predates them).
 [phone]   OK   new world: rough_routing = true (expected true)
@@ -81,6 +218,7 @@ Cartalith: the new world uses the current generation rules for rough_routing, ba
 [phone]   OK   the bridge reports basin_routing put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
 [phone]   OK   the bridge reports lake_balance put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
 [phone]   OK   the bridge reports civ.merge_ways put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[phone]   OK   the status hint names them: '160 x 102 cells, 800 x 510 km, seed 51203 · made by this build's generation rules (Rough routing, Basin routing, Lake water balance and 16 more differed in the world open before)'
 [phone] -- L5 open it again, untick Lake water balance, Create
 [phone]   OK   the archive opens again
 [phone]   OK   reopened: lake_balance = false (expected false)
@@ -96,6 +234,7 @@ Cartalith: the new world uses the current generation rules for rough_routing, ba
 [phone]   OK   the other rules: passes.glacial = true (expected true)
 [phone] -- L6 another New World, nothing opened between
 [phone]   OK   the box shows the session's choice (OFF)
+[phone]   OK   over a world made by this session's rules the notice is hidden: ''
 [phone]   OK   the session's choice carries: lake_balance = false (expected false)
 [phone]   OK   and the rules stay the app's: rough_routing = true (expected true)
 [phone]   OK   and the rules stay the app's: basin_routing = true (expected true)
@@ -135,13 +274,23 @@ Cartalith: the new world uses the current generation rules for rough_routing, ba
 [phone]   OK   opened before the import: lake_balance = false (expected false)
 [phone]   OK   opened before the import: civ.merge_ways = false (expected false)
 Cartalith: the new world uses the current generation rules for rough_routing, basin_routing, lake_balance, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways (the open world predates them).
-cartalith-godot: imported 64x40 heightmap onto a 2048x1280 grid
+cartalith-godot: imported 64x40 heightmap onto a 160x100 grid
 [phone]   OK   imported world: rough_routing = true (expected true)
 [phone]   OK   imported world: basin_routing = true (expected true)
 [phone]   OK   imported world: lake_balance = true (expected true)
 [phone]   OK   imported world: civ.merge_ways = true (expected true)
 [phone]   OK   imported world: volc.kind_dome = true (expected true)
-[phone] RESULT phone fail=0 checks=121
+[phone] -- L11 the preview draws the table Create uses
+[phone]   OK   an archive without tect.narrow_plate_base_blur was written from the fixture
+[phone]   OK   that archive opens
+[phone]   OK   a save without the key: tect.narrow_plate_base_blur = false (expected false)
+[phone]   OK   the preview is drawn (state drawn)
+[phone]      preview: grid 320x205, drawn 65600 cells (h 205), the dialog's key is this request's: true
+[phone]   OK   positive control: the live table's mask differs from Create's (51392 vs 54059 land cells)
+[phone]   OK   the dialog draws Create's mask (51392 land cells drawn, 51392 Create's, 54059 the live table's)
+[phone] RESULT phone fail=0 checks=180
 WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
 ERROR: 5 resources still in use at exit (run with --verbose for details).
-EXIT 0
+   at: clear (core/io/resource.cpp:822)
+exit=0

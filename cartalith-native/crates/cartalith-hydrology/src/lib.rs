@@ -270,6 +270,9 @@ pub enum FillTilt {
     /// tilt so every consumer's steepest-descent or rough receiver follows it.
     /// A cell has several strictly lower neighbours almost everywhere, so
     /// rough routing can turn the flow, and no diagonal ruler line is forced.
+    /// Its rise is larger than Breadth's, so it also fills a little more over
+    /// a basin's rim and can capture a basin behind a low saddle
+    /// ([`build_routing_surface_with`]'s doc has the measurement).
     Floor,
 }
 
@@ -284,7 +287,9 @@ pub enum FillTilt {
 /// the tilt exact in `f32` (`next_up`, no real-valued ε). Cost: the tilt rises
 /// up to 7 ULPs a step instead of 1 (measured in `DELTA_GEOMETRY_RESEARCH.md`
 /// section 14: under 1 m above the spill at a 4 000 m peak on the four
-/// measured worlds). Labelled judgement on the published weights.
+/// measured worlds), and a larger rise is a larger creep over a basin's rim
+/// ([`build_routing_surface_with`]'s doc has what that moves). Labelled
+/// judgement on the published weights.
 pub const FLOOR_TILT_ORTH_ULPS: u32 = 5;
 
 /// The [`FillTilt::Floor`] raise of a cell reached **diagonally**, in `f32`
@@ -307,14 +312,33 @@ fn next_up_by(v: f32, k: u32) -> f32 {
 /// the cell's own terrain height and raises in chamfer steps (see the
 /// variant's doc). The seeds, the open queue, RichDEM's equal-height tie rule
 /// (checked against the pit queue's next cell) and the raise test
-/// (`surf[j] <= up`) are shared, so the two tilts fill the same depressions to
-/// the same spill and differ only by the tilt's sub-metre rise inside them.
+/// (`surf[j] <= up`) are shared.
 ///
-/// **Must never** lower a cell, move a cell outside every depression (they
-/// come back bit-identical to `field`), leave a non-seed cell without a
-/// strictly lower neighbour, or depend on anything but its arguments: every
-/// filled cell is raised strictly above the cell that reached it, and every
-/// cell the open queue keeps is higher than the cell that reached it.
+/// **The two tilts do not always fill the same depressions to the same
+/// spill** (corrected 2026-11-13, after a verifier disproved the claim that
+/// they did). The raise test compares a neighbour's terrain with the RAISED
+/// height of the cell that reached it, so a cell standing less than the
+/// tilt's rise above a spill is filled with the depression -- the creep every
+/// Priority-Flood+ε has (Barnes, Lehman & Mulla 2014) -- and the Floor tilt
+/// rises 5 to 7 ULPs a step along floor-first paths where Breadth rises one
+/// ULP a ring: on the four worlds of `DELTA_GEOMETRY_RESEARCH.md` section 14,
+/// at most 0.94 m above a spill at a 4 000 m peak against Breadth's 0.06 m.
+/// So Floor fills a few more rim cells, and where a saddle stands within its
+/// rise it tops the saddle and the basin behind drains through this basin's
+/// spill instead of its own
+/// (`the_floor_tilt_can_capture_a_basin_behind_a_saddle_within_its_rise`).
+/// Measured on those worlds' final fields (`river_basin_routing_measurement.rs`,
+/// `floor_tilt_against_breadth_on_the_final_field`, `use_gpu` off): Floor
+/// raises 577 to 1 991 cells Breadth leaves at their terrain and Breadth none
+/// that Floor leaves, and 0.056 to 0.090 % of land cells drain to another seed.
+///
+/// **Must never** lower a cell, change a cell no fill reaches (a cell more
+/// than a tilt step above every raised cell beside it when the fill comes to
+/// it, which on a field with nothing enclosed is every cell: those come back
+/// bit-identical to `field`), leave a non-seed cell without a strictly lower
+/// neighbour, or depend on anything but its arguments: every filled cell is
+/// raised strictly above the cell that reached it, and every cell the open
+/// queue keeps is higher than the cell that reached it.
 pub fn build_routing_surface_with(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool, tilt: FillTilt) -> Vec<f32> {
     use std::cmp::Reverse;
     use std::collections::{BinaryHeap, VecDeque};
@@ -5096,6 +5120,48 @@ mod tests {
         let ramp: Vec<f32> = (0..w * h).map(|i| 0.4 + 0.05 * (i / w) as f32 + 0.001 * (i % w) as f32).collect();
         let s = super::build_routing_surface_with(&ramp, w, h, 0.0, false, super::FillTilt::Floor);
         assert!(s.iter().zip(&ramp).all(|(a, b)| a.to_bits() == b.to_bits()), "a field with nothing enclosed must come back unchanged");
+    }
+
+    /// **The Floor tilt's stated limit** (verifier finding, 2026-11-13): its
+    /// larger rise can top a saddle that the breadth-first fill leaves alone,
+    /// and then the basin behind the saddle drains out through this one's
+    /// spill. Both tilts still drain every cell; they differ in WHERE.
+    #[test]
+    fn the_floor_tilt_can_capture_a_basin_behind_a_saddle_within_its_rise() {
+        // Protects: the corrected claim in `build_routing_surface_with`'s doc and `FillTilt::Floor`'s -- the two tilts do NOT always fill the same depressions to the same spill. The verifier's 123 x 5 corridor: basin A (floor 0.49, 59 cells) spills at 0.5 toward x = 0; a saddle 1e-5 above that spill; basin B (floor 0.49) has its own spill 5e-6 above A's, toward x = 122. Breadth rises 59 ULPs across A (3.5e-6 < 1e-5): the saddle stays open ground and B leaves by its own spill. Floor rises 5 ULPs a cell (1.76e-5 > 1e-5): the saddle is raised into A's fill and B leaves by A's spill. If a change makes Floor stop capturing here, the doc's limit is stale: update it with this test.
+        let (w, h) = (123usize, 5usize);
+        let s = 0.5f32;
+        let mut f = vec![1.0f32; w * h];
+        let row = 2 * w;
+        f[row] = 0.4;
+        f[row + 1] = s;
+        for x in 2..=60 {
+            f[row + x] = 0.49;
+        }
+        f[row + 61] = s + 1e-5;
+        for x in 62..=120 {
+            f[row + x] = 0.49;
+        }
+        f[row + 121] = s + 5e-6;
+        f[row + 122] = 0.4;
+        // The column a D8 path from `start` leaves the corridor by (x = 0 or x = 122).
+        let exit = |surf: &[f32], start: usize| -> usize {
+            let r = super::flow_receivers(surf, w, h, false);
+            let mut i = start;
+            while r[i] >= 0 && i % w != 0 && i % w != w - 1 {
+                i = r[i] as usize;
+            }
+            i % w
+        };
+        let b = super::build_routing_surface_with(&f, w, h, 0.0, false, super::FillTilt::Breadth);
+        let fl = super::build_routing_surface_with(&f, w, h, 0.0, false, super::FillTilt::Floor);
+        assert_eq!((exit(&b, row + 30), exit(&b, row + 90)), (0, 122), "Breadth: A leaves west, B by its own spill east");
+        assert_eq!(b[row + 61], f[row + 61], "Breadth leaves the saddle at its terrain");
+        assert_eq!((exit(&fl, row + 30), exit(&fl, row + 90)), (0, 0), "Floor: B is captured over the saddle and leaves west");
+        assert!(fl[row + 61] > f[row + 61], "Floor raises the saddle into A's fill");
+        // The rises, worked by hand: 59 cells at 1 ULP (5.96e-8 each at 0.5) and at 5 ULPs.
+        assert!((b[row + 60] - s - 59.0 * 5.960_464_5e-8).abs() < 1e-9, "Breadth's rise at A's far end: {}", b[row + 60] - s);
+        assert!((fl[row + 60] - s - 295.0 * 5.960_464_5e-8).abs() < 1e-9, "Floor's rise at A's far end: {}", fl[row + 60] - s);
     }
 
     /// The Floor tilt's steps, by literal: a cell reached orthogonally sits

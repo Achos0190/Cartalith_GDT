@@ -1624,7 +1624,9 @@ pub struct TerrainAppearance {
     ///   deep-zoom switch;
     /// - a deep-zoom tile's lake band ([`is_lake_pixel`]) is water where the
     ///   tile's own ground lies below the same field's surface, on the wet
-    ///   side of its rain margin ([`shore_margins`]), instead of the
+    ///   side of its rain margin ([`shore_margins`]) where the rain test made
+    ///   the lakes (a world Ruling ET's balance classified has no rain margin,
+    ///   [`shore_margins_with`]), instead of the
     ///   reference's `fq > 0.35`
     ///   membership cut and its flat-lake nearest-cell stamp, which drew the
     ///   z16 lake shore as square steps.
@@ -14341,6 +14343,27 @@ pub const SHORE_FAR_LAND: f64 = -1.0;
 /// call's own flood does. Must never be used to classify.
 #[allow(clippy::too_many_arguments)]
 pub fn shore_margins(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> (f64, f64) {
+    shore_margins_with(field, class, fill, rain, true, gw, gh, sea_level, world, x, y)
+}
+
+/// [`shore_margins`] with the lake rule named: `rain_gated` is whether the
+/// rain test decided which pooled cells are lake -- `true` for the
+/// reference's rule ([`shore_margins`] is this with `true`), **`false` for a
+/// world whose lakes Ruling ET's water balance classified**
+/// (`cartalith_civ::lake_balance`), which replaces the per-cell rain test for
+/// every pool: a balanced lake is the lowest cells of its pool up to a level,
+/// whatever their rain, so its shore is the depth margin's zero line and the
+/// rain margin is [`SHORE_RAIN_UNGATED`]. Before this (verifier finding,
+/// 2026-11-13) a balanced lake in dry country -- rain under `LAKE_RAIN`, so a
+/// negative rain margin on every one of its cells -- took the class clamp's
+/// [`SHORE_EPS`] against land a whole margin below, and its contour hugged the
+/// water cell centres: straight grid-aligned shore runs, rectangular inlets and
+/// square one-cell islands at x16 and in the owner's own 788 % view of seed
+/// 51203. Must never be passed `false` for a world whose lakes the rain test
+/// made: its rain-gated edges (measured on seed 483920's lake at cell 671,97,
+/// above) would be drawn as water.
+#[allow(clippy::too_many_arguments)]
+pub fn shore_margins_with(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], rain_gated: bool, gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> (f64, f64) {
     // `(surface, rain-gated)` of water cell `j`.
     // No ocean branch: the flood seeds every ocean cell at its own (below-sea)
     // height, so its `fill - LAKE_DEPTH` is below sea level and the second
@@ -14389,7 +14412,7 @@ pub fn shore_margins(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw
             None => return (SHORE_FAR_LAND, SHORE_RAIN_UNGATED),
         }
     };
-    let r = if gated { SHORE_RAIN_SCALE * (rain[i] as f64 - cartalith_civ::LAKE_RAIN) } else { SHORE_RAIN_UNGATED };
+    let r = if gated && rain_gated { SHORE_RAIN_SCALE * (rain[i] as f64 - cartalith_civ::LAKE_RAIN) } else { SHORE_RAIN_UNGATED };
     (level - h, r)
 }
 
@@ -14428,7 +14451,14 @@ pub const SHORE_RAIN_UNGATED: f64 = 1.0;
 /// and water, and it is not written back to anything.
 #[allow(clippy::too_many_arguments)]
 pub fn shore_depth(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> f64 {
-    let (d, r) = shore_margins(field, class, fill, rain, gw, gh, sea_level, world, x, y);
+    shore_depth_with(field, class, fill, rain, true, gw, gh, sea_level, world, x, y)
+}
+
+/// [`shore_depth`] with the lake rule named ([`shore_margins_with`]'s
+/// `rain_gated`; [`shore_depth`] is this with `true`).
+#[allow(clippy::too_many_arguments)]
+pub fn shore_depth_with(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], rain_gated: bool, gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> f64 {
+    let (d, r) = shore_margins_with(field, class, fill, rain, rain_gated, gw, gh, sea_level, world, x, y);
     let v = d.min(r);
     if class[y * gw + x] != 0 { v.max(SHORE_EPS) } else { v.min(-SHORE_EPS) }
 }
@@ -14455,6 +14485,17 @@ pub fn shore_field(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: 
 /// no forced lake draws the field it always drew.
 #[allow(clippy::too_many_arguments)]
 pub fn shore_field_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], forced: Option<&[u8]>, gw: usize, gh: usize, sea_level: f64, world: bool) -> Vec<f32> {
+    shore_field_forced_with(field, class, fill, rain, true, forced, gw, gh, sea_level, world)
+}
+
+/// [`shore_field_forced`] with the lake rule named ([`shore_margins_with`]'s
+/// `rain_gated`: `false` for a world Ruling ET's balance classified, so its
+/// lakes take the depth margin's smooth shore). Every shipping shore field
+/// (the screen, the deep-zoom tiles and both exports) calls this with the
+/// world's own rule, [`lakes_rain_gated`]; [`shore_field_forced`] is this with
+/// `true`.
+#[allow(clippy::too_many_arguments)]
+pub fn shore_field_forced_with(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], rain_gated: bool, forced: Option<&[u8]>, gw: usize, gh: usize, sea_level: f64, world: bool) -> Vec<f32> {
     let n = gw * gh;
     if n == 0 || field.len() < n || class.len() < n || fill.len() < n || rain.len() < n {
         return Vec::new();
@@ -14462,10 +14503,21 @@ pub fn shore_field_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32
     let mut out = vec![0f32; n];
     out.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
         for (x, v) in row.iter_mut().enumerate() {
-            *v = shore_depth_forced(field, class, fill, rain, forced, gw, gh, sea_level, world, x, y) as f32;
+            *v = shore_depth_forced_with(field, class, fill, rain, rain_gated, forced, gw, gh, sea_level, world, x, y) as f32;
         }
     });
     out
+}
+
+/// **Whether the rain test decided a world's lakes**, for
+/// [`shore_field_forced_with`] and its siblings: `true` unless Ruling ET's
+/// water balance classified them, which it does exactly when the classification
+/// was built with [`LakeBalanceInputs`] (`balance` here is that same value,
+/// [`LakeBalanceInputs::when`] of the world's `lake_balance` and flow field). One
+/// definition, so the shore can never be contoured by a rule the classification
+/// beside it did not use.
+pub fn lakes_rain_gated(balance: Option<LakeBalanceInputs>) -> bool {
+    balance.is_none()
 }
 
 /// Ruling BO's post-pass on a drawn classification: every cell `forced`
@@ -14707,7 +14759,14 @@ pub const FORCED_SHORE_DEPTH: f64 = 1e-3;
 /// does. Must never be used to classify.
 #[allow(clippy::too_many_arguments)]
 pub fn shore_depth_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], forced: Option<&[u8]>, gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> f64 {
-    let d = shore_depth(field, class, fill, rain, gw, gh, sea_level, world, x, y);
+    shore_depth_forced_with(field, class, fill, rain, true, forced, gw, gh, sea_level, world, x, y)
+}
+
+/// [`shore_depth_forced`] with the lake rule named ([`shore_margins_with`]'s
+/// `rain_gated`; [`shore_depth_forced`] is this with `true`).
+#[allow(clippy::too_many_arguments)]
+pub fn shore_depth_forced_with(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], rain_gated: bool, forced: Option<&[u8]>, gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> f64 {
+    let d = shore_depth_with(field, class, fill, rain, rain_gated, gw, gh, sea_level, world, x, y);
     let Some(m) = forced.filter(|m| m.len() == gw * gh) else { return d };
     let i = y * gw + x;
     if m[i] != 0 {
@@ -14912,7 +14971,10 @@ fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fi
         // (`shore_depth_forced`), so a forced lake keeps one outline from fit
         // zoom into the tiles. `None` for a world with none.
         let forced = Some(&tf.lake_forced[..]).filter(|m| m.len() == gw * gh);
-        let d = |x: usize, y: usize| shore_depth_forced(ctx.water_height(), lake, &tf.lake_fill, ctx.rainfall, forced, gw, gh, ctx.sea_level, ctx.world, x, y);
+        // The lake rule `TileFields::new` classified these lakes by (the same
+        // `ctx`), so a balanced lake's tile shore is the base map's smooth one.
+        let rain_gated = lakes_rain_gated(LakeBalanceInputs::when(ctx.appearance.lake_balance, ctx.flow, ctx.temperature));
+        let d = |x: usize, y: usize| shore_depth_forced_with(ctx.water_height(), lake, &tf.lake_fill, ctx.rainfall, rain_gated, forced, gw, gh, ctx.sea_level, ctx.world, x, y);
         let s = (1.0 - tx) * (1.0 - ty) * d(x0, y0) + tx * (1.0 - ty) * d(x1, y0) + (1.0 - tx) * ty * d(x0, y1) + tx * ty * d(x1, y1);
         return s > 0.0;
     }
@@ -15155,6 +15217,48 @@ mod shore_tests {
                 assert!(differ > 100, "premise: the reference band is another shoreline ({differ})");
             }
         }
+    }
+
+    /// Protects: the deep-zoom tile's lake band in a world Ruling ET's balance
+    /// classified (verifier finding, 2026-11-13: dry-country balanced lakes
+    /// drew cell-stepped). The bowl in dry country (rain 0.1 everywhere, so the
+    /// rain rule makes no lake) with a river big enough for the balance to keep
+    /// a lake: the tile band must follow the base map's field built with the
+    /// world's own rule (`shore_field_forced_with(.., lakes_rain_gated(..), ..)`,
+    /// no rain margin), and differ from the rain-gated field it drew before --
+    /// the positive control, so a tile that kept the rain margin fails here.
+    #[test]
+    fn a_balanced_dry_lake_has_the_same_smooth_shore_in_the_tiles() {
+        let (field, _, gw, gh) = bowl();
+        let rain = vec![0.1f32; gw * gh];
+        let temp = vec![25f32; gw * gh];
+        // Discharge enough to keep a part of the bowl (2.0 a cell at 25 C), not all of it.
+        let flow = vec![60f32; gw * gh];
+        let a = TerrainAppearance { smooth_shores: true, lake_balance: true, ..TerrainAppearance::default() };
+        let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), gw, gh, SL, false, 70.0, -70.0, a);
+        let balance = LakeBalanceInputs::when(true, Some(&flow), &temp);
+        let wb = water_bodies_floored_balanced(&field, &rain, gw, gh, SL, false, None, None, balance);
+        assert!(wb.classification.iter().any(|&c| c == 2), "premise: the balance keeps a lake in the dry bowl");
+        assert!(!lakes_rain_gated(balance), "premise: a balanced world");
+        let sf = shore_field_forced_with(&field, &wb.classification, &wb.fill_level, &rain, false, None, gw, gh, SL, false);
+        let gated = shore_field_forced(&field, &wb.classification, &wb.fill_level, &rain, None, gw, gh, SL, false);
+        let tf = TileFields::new(&ctx, None);
+        let (mut n, mut moved) = (0, 0);
+        for j in 0..120 {
+            for i in 0..120 {
+                let (u, v) = (6.0 + 20.0 * i as f64 / 119.0, 6.0 + 20.0 * j as f64 / 119.0);
+                let want = bilinear(&sf, gw, u, v) > 0.0;
+                let ht = bilinear(&field, gw, u, v);
+                if ht < SL {
+                    continue;
+                }
+                n += 1;
+                assert_eq!(is_lake_pixel(&tf, &ctx, u, v, ht, true), want, "tile vs map at ({u:.3}, {v:.3})");
+                moved += (want != (bilinear(&gated, gw, u, v) > 0.0)) as usize;
+            }
+        }
+        assert!(n > 10_000);
+        assert!(moved > 100, "premise: the rain-gated field draws another shore here ({moved} samples differ)");
     }
 
     /// A dry 0.8 plateau (rain 0.1, below `LAKE_RAIN`, so the lake rule makes

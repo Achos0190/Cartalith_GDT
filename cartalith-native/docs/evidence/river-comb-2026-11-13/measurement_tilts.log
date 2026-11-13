@@ -1,0 +1,11 @@
+# measurement_tilts.log: tests/river_basin_routing_measurement.rs floor_tilt_against_breadth_on_the_final_field, release, use_gpu off, the four worlds, 2026-11-13 (evfix lane). Counts only, no timing.
+running 1 test
+test floor_tilt_against_breadth_on_the_final_field ...    51203: raised by Floor only 1946, by Breadth only 0, by both 39840 | land cells whose path ends at another seed: 509 of 631889 (0.081 %), 507 of them outside every Breadth-raised cell | pits 0
+   246371: raised by Floor only 1991, by Breadth only 0, by both 157156 | land cells whose path ends at another seed: 1589 of 1775851 (0.089 %), 1589 of them outside every Breadth-raised cell | pits 0
+   483920: raised by Floor only 577, by Breadth only 0, by both 11056 | land cells whose path ends at another seed: 244 of 436482 (0.056 %), 244 of them outside every Breadth-raised cell | pits 0
+   912345: raised by Floor only 642, by Breadth only 0, by both 33448 | land cells whose path ends at another seed: 405 of 449083 (0.090 %), 400 of them outside every Breadth-raised cell | pits 0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 31.05s
+
+exit=0

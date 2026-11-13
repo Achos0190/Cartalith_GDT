@@ -2799,7 +2799,9 @@ impl WorldGen {
     /// fit's): the drawn pieces' points that Ruling EN's law draws at that zoom at half strength or more
     /// (`river_visibility >= 0.5`). `window` (`x0, y0, x1, y1` in cells; empty for the whole map) keeps only
     /// the points inside it, splitting a line where it leaves. Lines are split where they cross a wrapped
-    /// world's seam. Keys per stage: `_total`, `_comb`, `_comb_runs`, `_comb_longest`, `_straight`,
+    /// world's seam. `traced_lake` is the traced network where it lies on a cell the map draws as lake, so a drawn
+    /// total that falls between two arms can be told apart as rivers a new lake covers or rivers the law ranks out
+    /// (verifier finding, 2026-11-13). Keys per stage: `_total`, `_comb`, `_comb_runs`, `_comb_longest`, `_straight`,
     /// `_straight_longest` (cells). A stage with nothing drawn has `_total` 0 and no other key. `{}` with no
     /// rivers. Diagnostic; nothing in the shell reads it.
     #[func]
@@ -2849,7 +2851,39 @@ impl WorldGen {
         if rivers.is_empty() {
             return VarDictionary::new();
         }
-        put("traced", &cut(rivers.iter().map(|r| r.pts.clone()).collect()));
+        let traced: Vec<Vec<(f64, f64)>> = rivers.iter().map(|r| r.pts.clone()).collect();
+        // `traced_lake`: the traced network where it lies on a cell the map draws as lake (verifier finding,
+        // 2026-11-13: a drawn total that falls between two arms can be a network the law ranks out or one a new lake
+        // covers, and only this tells them apart). Lines cut where they leave a lake cell. Absent with no drawn
+        // classification (never a plausible zero).
+        if let Some(class) = self.drawn_water_classification() {
+            let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+            let on_lake = |p: (f64, f64)| -> bool {
+                let (x, y) = (p.0.floor() as i64, p.1.floor() as i64);
+                if gw == 0 || y < 0 || y >= gh as i64 {
+                    return false;
+                }
+                class.get(y as usize * gw + x.rem_euclid(gw as i64) as usize).is_some_and(|&c| c == 2)
+            };
+            let mut lake: Vec<Vec<(f64, f64)>> = Vec::new();
+            for l in &traced {
+                let mut cur: Vec<(f64, f64)> = Vec::new();
+                for &p in l {
+                    if on_lake(p) {
+                        cur.push(p);
+                    } else if cur.len() > 1 {
+                        lake.push(std::mem::take(&mut cur));
+                    } else {
+                        cur.clear();
+                    }
+                }
+                if cur.len() > 1 {
+                    lake.push(cur);
+                }
+            }
+            put("traced_lake", &cut(lake));
+        }
+        put("traced", &cut(traced));
         if let Some(g) = self.river_geometry_any() {
             let (fit, _) = scale();
             for &z in zooms.as_slice() {

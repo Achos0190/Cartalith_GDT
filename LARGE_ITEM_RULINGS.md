@@ -3664,3 +3664,25 @@ the APK from `da0dbbbf`): *"Still see some heavy combing:"*, and then, on the di
 4. **The owner's own world keeps its combs until it is made again.** A saved world stores its rivers and its
    routing record (`WorldState::basin_routing`, `routing_roughness`), so nothing is re-routed on load. To see the
    fix on seed 51203, on a build with this change: New World with the same seed and settings.
+
+**Verifier follow-up (2026-11-13, the same day; built under this ruling's "resolve it", no new decision).** A verifier
+found five gaps in what item 1 built and one understatement in item 3; each was confirmed at its symbol and is closed or
+corrected (`DELTA_GEOMETRY_RESEARCH.md` 14.1, 14.3, 14.6, 14.8):
+- **The rules follow the seed, not the route.** WORLD ▸ Generate world after New seed (and the tool-options Generate,
+  and the assistant's regenerate) made the new seed's world by an opened save's rules. Any generate at a seed other
+  than the open world's now gets the current rules too; a generate at the open world's own seed still regenerates it
+  with its own rules, which is what item 1's "keeps regenerating with its own rules" means.
+- **The New World preview draws the table Create uses** (it drew the live one, and the plate-base blur differs).
+- **Nothing is changed silently:** the New World screen names every rule Create will change, and the status hint names
+  the rules a run put back. The restore itself is unchanged (a save's explicit `false` cannot be told from an old
+  default, and the owner's world was saved with the three rules off).
+- **A run that fails puts the open world's rules back** (a heightmap the engine cannot read leaves that world open).
+- **The lake balance's shores were drawn cell-stepped in dry country** (from x7.88, before this ruling too): fixed,
+  render only (a balanced lake is contoured by depth, not by the rain test the balance replaced).
+- **Item 3's lake figures are `use_gpu` off.** On the owner's world as the app makes it (GPU on), lake cells under the
+  balance and Ruling CC's floor grow +52 % on the map and **2.06x inside the owner's window** (8 622 -> 17 782 cells;
+  most of the growth is the balance's inflow, +4.5 % by the rain test alone). Still disclosed, not ruled: the owner
+  question in `OUTSTANDING_WORK.md` §2.13 now carries these figures and the options.
+- **The two tilts do not fill exactly the same depressions** (as the code's doc and `DELTA_GEOMETRY_RESEARCH.md` 14.3
+  first claimed): the floor tilt's larger rise fills a few more rim cells and can capture a basin behind a low saddle;
+  measured, 0.05-0.09 % of land cells drain to another seed. Recorded, not fixed.

@@ -322,6 +322,11 @@ var biome_k_check: CheckBox
 ## Re-read on every open by `_sync_from_engine()` from the value Create will use (Ruling EV), so it
 ## can never show on while the engine would make the world with it off.
 var lake_balance_check: CheckBox
+## The line naming the generation rules Create will change from the open world's (Ruling EV,
+## `_refresh_rules_notice`); hidden when it changes none. Built in `_build()` on every form.
+var rules_notice_label: Label
+## The notice's hover text: why Create changes them, and what survives (a rule set this session).
+const RULES_NOTICE_TOOLTIP := "A new world is made by this build's generation rules. Opening a world made by an older build, or saved with a rule switched off, loads its own rules so it regenerates exactly as it was saved, and Create puts them back to this build's. A rule you set yourself this session (in the WORLD dock's generation stages, or this window's Lake water balance box) is kept. Regenerating the open world at its own seed keeps its rules."
 ## The Recovery phase picker (names from `get_recovery_phase_names()`); its handler writes `_recovery_phase`.
 var recovery_input: OptionButton
 ## Warning line under the derived panel: the joined warnings, hidden when there are none (`_update_derived`).
@@ -917,6 +922,20 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 	DccWidgets.note(gen_sec,
 		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live settings, not part of this dialog -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
 
+	## Ruling EV, verifier finding 2026-11-13: Create puts every generation rule an
+	## opened save had off (or on) back to this build's, and nothing on screen said
+	## so -- a rule a save carried by choice was turned on silently. This names
+	## them. In `card`, so the phone form shows it too (`rest`, where the Lake
+	## water balance box sits, is hidden there); filled and shown on every open by
+	## `_refresh_rules_notice()`, hidden when Create changes no rule.
+	rules_notice_label = DccWidgets.note(card, "")
+	rules_notice_label.name = "nw_rules_notice"
+	rules_notice_label.visible = false
+	## `MOUSE_FILTER_PASS`: a `Label` ignores the mouse by default, which would
+	## make the tooltip unreachable (the advisory below does the same).
+	rules_notice_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	rules_notice_label.tooltip_text = RULES_NOTICE_TOOLTIP
+
 	## §6.7's card carries no advisory prose, and both of these are kept
 	## anyway: one says the choice above cannot be revisited later and the
 	## other says Create will not take the user's look away. A smaller form is
@@ -1307,11 +1326,16 @@ func _schedule_preview() -> void:
 ## anything else that could reach it, including the binding check. Skips the
 ## call when nothing it depends on moved since the last answer.
 ##
-## The inputs are the WHOLE live parameter table (`bridge.params_snapshot()`)
-## plus the dialog's own seed, width, grid, extent, plates and archetype --
-## exactly the dictionary `BINDING.md` (lane A) defines -- so the preview and
-## Create read the same values (proposal §3: "if preview and Create ever read
-## different values, the preview lies").
+## The inputs are the WHOLE parameter table **Create will generate with**
+## (`bridge.new_world_params_snapshot()`: the live table with the generation
+## rules an opened older save turned off put back, Ruling EV) plus the dialog's
+## own seed, width, grid, extent, plates and archetype -- exactly the dictionary
+## `BINDING.md` (lane A) defines -- so the preview and Create read the same
+## values (proposal §3: "if preview and Create ever read different values, the
+## preview lies"). It read the live table until a verifier found the lie
+## (2026-11-13): after opening a save without `tect.narrow_plate_base_blur`
+## the preview drew the pre-v2.57 plate-base blur, which the substrate it runs
+## reads, while Create restored the current one and made other coastlines.
 func _redraw_preview() -> void:
 	if not visible or bridge == null:
 		return
@@ -1324,7 +1348,7 @@ func _redraw_preview() -> void:
 	if not bridge.has_preview_binding():
 		_show_preview_dash("no_binding", PREVIEW_REASON_NO_BINDING)
 		return
-	var params: Dictionary = bridge.params_snapshot()
+	var params: Dictionary = bridge.new_world_params_snapshot()
 	if params.is_empty():
 		_show_preview_dash("no_params", PREVIEW_REASON_NO_PARAMS)
 		return
@@ -2192,7 +2216,10 @@ func _build_lake_balance(parent: Control) -> void:
 	var live = bridge.new_world_param("lake_balance")
 	var on := bool(live if live != null else row.get("default", false))
 	lake_balance_check = DccWidgets.toggle(parent, "Lake water balance", on,
-		func(v: bool): bridge.param_set("lake_balance", v),
+		func(v: bool):
+			bridge.param_set("lake_balance", v)
+			## The box is a session choice now, so the rules notice may lose or gain this row.
+			_refresh_rules_notice(),
 		"On, a lake holds water only where the river and rain feeding it cover what its surface evaporates: a basin in dry or hot country shrinks, or is left as a dry playa (a salt flat), and a river-fed basin the rain alone would have left dry becomes a lake. Terrain and rivers are unchanged. Off keeps the reference's rain-only rule, where every pooled basin in wet enough ground is a full lake. A saved world keeps the lakes it was made with.")
 
 ## The three settlement-placement dials the civ `PARAMS` group added
@@ -2570,7 +2597,10 @@ func _on_create() -> void:
 ##
 ## `new_world` is true only for Create (File > New world): the result is a different world, so
 ## `EngineBridge.generate` flags it and the shell drops the old project path. Every other route
-## (WORLD > Generate, the tool-options row) regenerates the open project and keeps its path.
+## (WORLD > Generate, the tool-options row) regenerates the open project and keeps its path. The
+## generation RULES follow the seed, not the route (Ruling EV): Create, and any route whose seed is
+## not the open world's, run by this build's rules (`EngineBridge._makes_another_world`); a route at
+## the open world's own seed keeps the rules that world was saved with.
 ##
 ## `populate` (MS-8) is the passes to run once the world has generated (`auto_populate_plan()`); only Create passes
 ## one. Empty for every other route, so a regenerate never repopulates over a hand-built world.
@@ -2777,6 +2807,7 @@ func _sync_from_engine() -> void:
 		var lb = bridge.new_world_param("lake_balance")
 		if lb != null:
 			lake_balance_check.set_pressed_no_signal(bool(lb))
+	_refresh_rules_notice()
 	## **The fifth reader F14 missed, and the one this pass made visible.**
 	## `extent_input` is seeded from `param_get("world")` in `_build()` and was
 	## never read again, so opening this dialog over a project whose extent had
@@ -2798,6 +2829,29 @@ func _sync_from_engine() -> void:
 			and (extent_input.selected == 1) != bool(world_now):
 		extent_input.selected = 1 if bool(world_now) else 0
 		_update_extent_state()
+
+## **Names the generation rules Create will change from the open world's** (Ruling EV; verifier
+## finding, 2026-11-13: Create overrode a rule a save carried -- a choice made in an earlier session
+## included -- and the only trace was a console line). Reads `EngineBridge.new_world_rule_changes()`
+## (the keys whose value Create will differ in) and each one's value in the table Create uses, and
+## writes `Create uses this build's generation rules, not the open world's: <label> on, ...`, each
+## label the parameter table's own (`EngineBridge.rule_label`). Hidden when nothing differs, which is
+## every open after a boot with no world or over a world this build made. Called from
+## `_sync_from_engine()` on every open and after this window's own Lake water balance box moves.
+func _refresh_rules_notice() -> void:
+	if rules_notice_label == null or bridge == null:
+		return
+	var keys: PackedStringArray = bridge.new_world_rule_changes()
+	if keys.is_empty():
+		rules_notice_label.visible = false
+		rules_notice_label.text = ""
+		return
+	var nw: Dictionary = bridge.new_world_params_snapshot()
+	var parts := PackedStringArray()
+	for k in keys:
+		parts.append("%s %s" % [bridge.rule_label(k), "on" if bool(nw.get(k, false)) else "off"])
+	rules_notice_label.text = "Create uses this build's generation rules, not the open world's: %s." % ", ".join(parts)
+	rules_notice_label.visible = true
 
 ## The request a GENERATE sends: `request()`, with the archetype folded into the stored parameters instead of re-applied on top
 ## of them. Before 2026-11-12 every generate from this dialog's size (the dock's Generate, a slider release, the tool-options

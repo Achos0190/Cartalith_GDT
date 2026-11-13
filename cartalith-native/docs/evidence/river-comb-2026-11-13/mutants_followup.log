@@ -1,0 +1,22 @@
+Literal mutants, Ruling EV verifier follow-ups (2026-11-13). Python harnesses: exact replace, occurs-exactly-once asserted, BUILD_ERROR (a parse or compile failure) separate from SURVIVED, restored in finally, sha256 checked after every mutant.
+
+Rust (cargo test on the named tests):
+R1 rain margin ignores the rule: KILLED test a_balanced_lake_in_dry_country_is_contoured_by_its_depth ... FAILED | test a_rain_test_world_keeps_its_shore_field_bit_for_bit ... FAILED | test render::shore_tests::a_balanced_dry_lake_has_the_same_smooth_shore_in_the_tiles ... FAILED
+R2 every world rain-gated: KILLED test only_a_balanced_world_drops_the_rain_gate ... FAILED | test a_balanced_lake_in_dry_country_is_contoured_by_its_depth ... FAILED | test render::shore_tests::a_balanced_dry_lake_has_the_same_smooth_shore_in_the_tiles ... FAILED
+R3 tile shore keeps the rain gate: KILLED test render::shore_tests::a_balanced_dry_lake_has_the_same_smooth_shore_in_the_tiles ... FAILED | thread 'render::shore_tests::a_balanced_dry_lake_has_the_same_smooth_shore_in_the_tiles' (6692) panicked at crates\cartalith-godot\src\render.rs:15256:17: | test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1368 filtered out; finished in 0.00s
+R4 tile shore drops the gate everywhere: KILLED test render::shore_tests::the_tile_lake_band_is_the_smooth_shore_and_the_reference_is_not ... FAILED | test render::shore_tests::the_tile_lake_band_is_the_base_maps_shoreline ... FAILED | thread 'render::shore_tests::the_tile_lake_band_is_the_smooth_shore_and_the_reference_is_not' (2328) panicked at crates\cartalith-godot\src\render.rs:15176:13:
+all restored, hashes checked
+
+GDScript (_newworld_rules_probe.tscn, windowed, desktop shell, one window-lock hold per mutant, parse-checked first):
+G1 only Create restores: KILLED fail=17 checks=180 | [mut0]   FAIL another seed: rough_routing = false (expected true) | [mut0]   FAIL another seed: basin_routing = false (expected true)
+G2 the seed test inverted: KILLED fail=18 checks=180 | [mut1]   FAIL regenerated: rough_routing = true (expected false) | [mut1]   FAIL regenerated: basin_routing = true (expected false)
+G3 a failed import keeps the restore: KILLED fail=23 checks=180 | [mut2]   FAIL after the failed import: rough_routing = true (expected false) | [mut2]   FAIL after the failed import: basin_routing = true (expected false)
+G4 the undo writes nothing: KILLED fail=22 checks=180 | [mut3]   FAIL after the failed import: rough_routing = true (expected false) | [mut3]   FAIL after the failed import: basin_routing = true (expected false)
+G5 the preview reads the live table: KILLED fail=1 checks=180 | [mut4]   FAIL the dialog draws Create's mask (54059 land cells drawn, 51392 Create's, 54059 the live table's)
+G6 the notice is never refreshed on open: KILLED fail=5 checks=180 | [mut5]   FAIL the rules notice names 'Rough routing on': '' | [mut5]   FAIL the rules notice names 'Basin routing on': ''
+G7 the finish hint never names the rules: KILLED fail=2 checks=180 | [mut6]   FAIL the status hint names the rules it put back: '160 x 102 cells, 800 x 510 km, seed 51203' | [mut6]   FAIL the status hint names them: '160 x 102 cells, 800 x 510 km, seed 51203'
+all restored, hashes checked
+
+DLL mutant (the debug DLL rebuilt with the mutant, the _rivercomb_probe after arm at one zoom, the source restored and the DLL rebuilt from it):
+D1 the screen keeps the rain gate (drawn_lakes_rain_gated -> true): KILLED RESULT mutD1 fail=1 checks=9 | [mutD1] shore field in the window: 36055 water cells, 14864 at the class clamp (41.2 %) | [mutD1]   FAIL a balanced world's lakes are contoured by depth: 14864 of 36055 water cells at the clamp
+restored, hash checked; DLL rebuilt from the restored source: exit 0

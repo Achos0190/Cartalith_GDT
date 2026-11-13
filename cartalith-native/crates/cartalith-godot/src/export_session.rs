@@ -256,12 +256,14 @@ impl ExportSnapshot {
         // shows exactly the screen's water.
         // Owner Ruling DJ item 2: and the maar lakes the floor would drop.
         // Ruling ET: and the water balance, from the look's carried switch (`TerrainAppearance::lake_balance`) over the snapshot's flow and temperature.
-        let wb = render::water_bodies_floored_balanced(&i.field, &i.rainfall, gw, gh, i.sea_level, i.world, i.forced_lakes.as_deref(), i.litho.as_ref().and_then(|l| l.volcanoes.as_deref()).map(|v| v.as_slice()), render::LakeBalanceInputs::when(i.appearance.lake_balance, flow, &i.temperature));
+        let balance = render::LakeBalanceInputs::when(i.appearance.lake_balance, flow, &i.temperature);
+        let wb = render::water_bodies_floored_balanced(&i.field, &i.rainfall, gw, gh, i.sea_level, i.world, i.forced_lakes.as_deref(), i.litho.as_ref().and_then(|l| l.volcanoes.as_deref()).map(|v| v.as_slice()), balance);
         let (lakes, lake_fill, playa) = (wb.classification, wb.fill_level.clone(), wb.playa);
         // RV-5: the screen's smooth shoreline, from the same classification,
-        // fill level and mask (`export_render_with` builds the identical one).
+        // fill level and mask (`export_render_with` builds the identical one),
+        // contoured by the lake rule that classification used.
         let shore = if i.appearance.smooth_shores {
-            render::shore_field_forced(&i.field, &lakes, &wb.fill_level, &i.rainfall, i.forced_lakes.as_deref(), gw, gh, i.sea_level, i.world)
+            render::shore_field_forced_with(&i.field, &lakes, &wb.fill_level, &i.rainfall, render::lakes_rain_gated(balance), i.forced_lakes.as_deref(), gw, gh, i.sea_level, i.world)
         } else {
             Vec::new()
         };

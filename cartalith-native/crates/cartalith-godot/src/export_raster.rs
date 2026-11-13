@@ -559,7 +559,8 @@ impl WorldGen {
         // the shell (`render::shore_field_forced`). Only for a look that draws
         // it; `with_shore_field` refuses it otherwise anyway.
         let shore = if appearance.smooth_shores {
-            render::shore_field_forced(field, &lakes, &bodies.fill_level, rainfall, self.forced_lake_mask(), gw, gh, self.sea_level, self.world)
+            // The lake rule `drawn_water_bodies` classified by, as the screen's.
+            render::shore_field_forced_with(field, &lakes, &bodies.fill_level, rainfall, self.drawn_lakes_rain_gated(), self.forced_lake_mask(), gw, gh, self.sea_level, self.world)
         } else {
             Vec::new()
         };

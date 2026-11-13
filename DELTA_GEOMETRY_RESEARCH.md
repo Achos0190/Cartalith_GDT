@@ -599,6 +599,32 @@ balance box read ON meanwhile: it was set once when the dialog was built.
   touched: a New World still carries the world on screen's settings. A saved world still loads and regenerates with
   its own rules. The dialog's Lake water balance box now shows the value Create will use
   (`WorldGen.get_new_world_params`), re-read on every open.
+- **Verifier follow-ups (2026-11-13), each confirmed at its symbol first.**
+  - *Another route made the same failure.* WORLD ▸ Generate world after New seed, the tool-options Generate and the
+    assistant's regenerate all reach `EngineBridge.generate` with `new_world` false, so after opening an older save they
+    built the NEW seed's world by the save's rules. The rules now follow the seed, not the route: any generate at a
+    seed other than the open world's (`WorldGen.get_seed`) runs `_restore_new_world_rules` too
+    (`EngineBridge._makes_another_world`); a generate at the open world's own seed still regenerates that world with
+    its rules. (The New World dialog's seed is not synced to an opened world's, so after an open most regenerates are
+    at another seed, and are now new worlds by this build's rules.)
+  - *The preview drew another world.* It built its request from the live table while Create restored the rules, and
+    the preview's substrate reads `tect.narrow_plate_base_blur` (`plate_base_blur_r`), so after opening a save without
+    that key it drew the pre-v2.57 coastline. It now reads `EngineBridge.new_world_params_snapshot`
+    (`get_new_world_params`).
+  - *The override was silent.* A rule a save carried off, a choice made in an earlier session included, came back on
+    with only a console line. The New World screen now names every rule Create will change
+    (`_refresh_rules_notice`, on every form, hidden when there is none), and the status hint after any run that put
+    rules back names them (`app.gd`'s finish handler). The restore itself is unchanged: a save's explicit `false`
+    cannot be told from a rule that was off by default when the save was written (`restore_new_world_rules`' doc), and
+    the owner's own world was saved with the three rules off explicitly, so restoring only absent keys would not have
+    fixed it.
+  - *A failed run kept the new rules.* The restore ran before a run that can fail, and a heightmap the engine cannot
+    read leaves the open world on screen (`WorldGen::import_heightmap`), whose lakes are classified from the live
+    `lake_balance`. A failed run now puts the recorded values back (`EngineBridge._undo_new_world_restore`,
+    `WorldGen::revert_new_world_rules`, which never counts them as the user's choice).
+  - Probed windowed (`_newworld_rules_probe.tscn`, legs L2, L2b, L2c, L3's notice, L4's hint and L11, on the desktop
+    shell, the phone form and the tablet form, 180 checks each, 0 failed); the same probe fails 42 of its checks on
+    `fcda4d3d`'s shell, so its new legs pin the fixes (`STATUS.md`).
 
 14.2 **Cause two: the fill tilts a basin as a chessboard.** Even with rough routing on, a long 45-degree ruler line
 and straight north-south runs remained in the owner's window (the "before" column of the frames). The window holds
@@ -629,10 +655,23 @@ line.)
   (`the_floor_tilt_sends_a_basins_water_to_its_floor_before_the_spill`,
   `the_floor_tilt_leaves_no_filled_cell_a_single_way_down_on_a_flat`).
 - **What it guarantees.** The seeds, the open queue, RichDEM's equal-height tie rule and the raise test are the
-  breadth-first fill's, so both tilts fill the same depressions to the same spill; cells outside every depression
-  come back bit-identical; every filled cell has a strictly lower neighbour and drains to a seed
-  (`the_floor_tilt_drains_every_cell_to_a_seed_and_never_lowers`). The tilt rises at most 0.94 m above the spill at
-  a 4 000 m peak on the four worlds (14.5).
+  breadth-first fill's; a field with nothing enclosed comes back bit-identical; every filled cell has a strictly lower
+  neighbour and drains to a seed (`the_floor_tilt_drains_every_cell_to_a_seed_and_never_lowers`). The tilt rises at
+  most 0.94 m above the spill at a 4 000 m peak on the four worlds (14.5).
+- **What it does not guarantee (corrected 2026-11-13).** This said the two tilts "fill the same depressions to the
+  same spill". A verifier disproved it, and it is false: the raise test compares a neighbour's terrain with the RAISED
+  height of the cell that reached it, so a cell standing less than the tilt's rise above a spill is filled with the
+  depression -- the creep every Priority-Flood+ε has -- and the floor tilt's rise is larger (5 to 7 ULPs a step along
+  longer, floor-first paths, against one ULP a ring). So it fills a few more rim cells, and where a saddle stands
+  within its rise it tops the saddle and the basin behind it drains through this basin's spill
+  (`the_floor_tilt_can_capture_a_basin_behind_a_saddle_within_its_rise`, the verifier's 123 x 5 corridor: Breadth
+  rises 3.5e-6 and leaves a saddle 1e-5 above the spill alone; Floor rises 1.76e-5 and captures the basin behind it).
+  Measured on the final fields (`floor_tilt_against_breadth_on_the_final_field`): Floor raises 1 946 / 1 991 / 577 /
+  642 cells that Breadth leaves at their terrain on 51203 / 246371 / 483920 / 912345 (GPU off), and Breadth none that
+  Floor leaves; 0.081 / 0.089 / 0.056 / 0.090 % of land cells drain to another seed, almost all of them outside every
+  Breadth-raised cell (rim cells, not captured basins: 2 / 0 / 0 / 5 inside). On the owner's world as the app makes it
+  (GPU on): 1 330 cells and 0.047 %. A fix would have to keep the tilt below the terrain around a basin, which an
+  `f32` routing surface cannot do at 5 ULPs a step; it is routed, not built (`OUTSTANDING_WORK.md` §2.13).
 - **Where it applies.** Every routing surface of generation (the pre-carve, coastal, network and final passes, the
   sediment routing) and `refresh_climate`. The world records it (`WorldState::basin_routing`; the substrate
   manifest's optional `basin_routing`, omitted when off, so earlier archives and breadth-first worlds are
@@ -688,6 +727,17 @@ what Ruling EN's law draws at half strength or more): the comb share at x1 / x4 
   worlds. Lake cells under the balance (no area floor) grow 17 % on 51203, 23 % on 246371, and 1 % and 6 % on the two
   small worlds. In the owner's window the basin that was a part-playa flat crossed by rivers is now a lake (the
   relief frames).
+- **On the owner's world as the app makes it the growth is three times larger** (corrected 2026-11-13; the figures
+  above are `use_gpu` off, and the GPU stages make a slightly different world). With `BR_GPU=1`, under the balance and
+  Ruling CC's area floor as the map draws them: 18 130 lake cells before and 27 640 after on the whole map (+52 %),
+  and **8 622 before and 17 782 after inside the owner's window (2.06x)**, which is 64 % of the map's balanced lake
+  cells; by the rain test alone 11 284 and 11 791 (+4.5 %; 2 583 and 2 923 in the window), so most of it is the
+  balance's inflow, not the carve. As the owner's phone made it (balance off) the window held 1 013 rain-test lake
+  cells (before the area floor); the balance alone, on that same world, holds 8 205 there. So Ruling ET's own change
+  (approved on frames routed breadth-first) is the first step, about 8x, and basin routing the second, 2.06x. The
+  balance counts every cell's rain as inflow (a mean of 1 a cell, against
+  2.0 a cell of evaporation at 25 C), which the breadth-first tilt hid in large flat basins by under-counting what
+  reached the floor. An owner question (`OUTSTANDING_WORK.md` §2.13).
 - **Rivers.** The traced network is 1 to 5 % shorter (parallel channels merge) and more rivers end in a lake (mouths
   up 2 to 16 %). On the owner's world the window draws less river at x1, because the lake covers it.
 - **Consumers.** In the app, 51203 has 40 settlements on all three arms and 48 / 42 / 40 roads; the knowledge
@@ -698,4 +748,48 @@ work. Frames: `cartalith-native/docs/evidence/river-comb-2026-11-13/` (the river
 x7.88, x16 and x64, owner / before / after, and the owner's composite), looked at at every zoom: the after frames
 show a converging, branching network across the basin, with no parallel teeth and no 45-degree line. One thing the
 frames show that is not a river: at x64 the new lake's shore is drawn cell-stepped, where earlier x64 lake frames are
-smooth; it is routed as a symptom to measure (`OUTSTANDING_WORK.md` §2.13).
+smooth; it is routed as a symptom to measure (`OUTSTANDING_WORK.md` §2.13). *(Superseded the same day, 14.8: the
+stepping showed from x7.88, not only at x64, and it is diagnosed and fixed.)*
+
+14.8 **Verifier findings on this work (2026-11-13), each confirmed at its symbol first.**
+- **The stepped lake shore: diagnosed and fixed, render only.** It shows at x16 and in the owner's own 788 % view too,
+  not only at x64 as 14.7 said, and on balanced lakes elsewhere before this ruling (seed 483920). Cause: the shore
+  field (`render::shore_margins`) is the smaller of a depth margin and a RAIN margin, because the reference's rule
+  makes a pooled cell lake only where its rain reaches `LAKE_RAIN`; the water balance replaces that test for every
+  pool, so a balanced lake in dry country (rain under 0.22) had a negative rain margin on every cell, the class clamp
+  lifted each to `SHORE_EPS`, and the contour hugged the water cell centres: straight grid-aligned runs, rectangular
+  inlets, square islands. A world the balance classified now contours its lakes by depth alone
+  (`shore_margins_with`, `lakes_rain_gated`, the screen, the deep-zoom tiles and both exports). Tested at literals on
+  a dry bowl (`tests/balanced_lake_shore.rs`: the shore crosses 0.6 of a cell where the ground meets the water, where
+  it crossed 0.0001 before) and on the tiles (`a_balanced_dry_lake_has_the_same_smooth_shore_in_the_tiles`); a
+  rain-test world's field is bit-identical. Looked at in the frames at x7.88, x16 and x64.
+- **The lake growth in the owner's view was understated** (14.6, last paragraph): 2.06x in the window and +52 % on the
+  map with the GPU on, where 14.5 quoted +17 % with it off.
+- **The comb measure in the window, and what Fix 2 changed there.** With rough routing alone (`before`) the drawn comb
+  share in the owner's window is already 0 to 0.8 %: Fix 1 removes the comb. What remained is the 45-degree ruler line
+  and straight runs: the traced network in the window was 22.8 % straight with a 110-cell stretch, and basin routing
+  takes it to 7.6 % and 17 cells. The drawn total at x7.88 falls 3 616 -> 1 487 cells; the traced network in the window
+  only 14 486 -> 11 853 (14.9 has how much of each lies under a lake).
+- **Floor's creep** (14.3, "What it does not guarantee"): confirmed, measured, the claim corrected; not fixed.
+- **Heightmap imports never get basin routing**: confirmed, and by design. `infer_tectonics` routes over the
+  breadth-first fill and records `basin_routing: false` (`import.rs`), so the import restore (14.1) gives an imported
+  world the current rules table but not basin routing; an imported DEM's filled pits are data, as its relief is. The
+  claim "Fix 1 covers the import" stands for the table; the routing of an import is unchanged and not measured.
+- **Small knots at confluences** (a two-cell blob where two trunks join with a one-cell wobble, a four-way meeting):
+  seen in the River flow view, the per-cell flow raster, not combing; routed (`OUTSTANDING_WORK.md` §2.13).
+
+14.9 **The owner's window, measured in the app** (`_rivercomb_probe.tscn`, windowed, GPU on, seed 51203, cells
+35..295 x 50..463; `traced_lake` is the traced network where it lies on a cell the map draws as lake, a stage added
+for this). Owner / before / after:
+
+| Measure in the window | as made | before | after |
+|---|---|---|---|
+| Traced network, cells | 30 443 | 14 486 | 11 853 |
+| of it under a drawn lake | 630 (2.1 %) | 1 543 (10.7 %) | 3 456 (29.2 %) |
+| Traced comb / straight share, longest straight | 75.1 % / 81.9 %, 341 | 0.6 % / 22.8 %, 110 | 0.2 % / 7.6 %, 17 |
+| Drawn at x7.88 (Ruling EN's law, half strength), cells | 5 265 | 3 616 | 1 487 |
+| Drawn comb / straight share at x7.88, longest straight | 62.8 % / 65.1 %, 211 | 0 % / 29.6 %, 68 | 0 % / 19.9 %, 12 |
+
+So in the window rough routing removes the comb, and basin routing removes the 45-degree ruler line and the straight
+runs; the drawn total falls 59 % at x7.88, where the traced network falls 18 % and 29 % of what is left lies under the
+new lake: the rest of the drop is the network converging into fewer, larger rivers, which the law draws by discharge.

@@ -2618,6 +2618,19 @@ func _wire_status() -> void:
 		set_status("pass", ("generated · %.1fs" % (bridge.last_generate_ms / 1000.0)) if ok
 			else "generate failed", "text_dim" if ok else "accent")
 		set_status("hint", bridge.last_summary, "text_ghost")
+		## Ruling EV, verifier finding 2026-11-13: a run that put generation rules back to this
+		## build's (New World, an import, a generate at another seed) says which, rather than
+		## leaving the only trace on the console. Empty after a failed run, which puts them back.
+		if ok and not bridge.last_new_world_restored.is_empty():
+			## At most three names on the one-line hint; a world from a much older build can differ in
+			## twenty (the New World notice lists them all before Create).
+			var keys: PackedStringArray = bridge.last_new_world_restored
+			var names := PackedStringArray()
+			for i in mini(3, keys.size()):
+				names.append(bridge.rule_label(keys[i]))
+			var more := (" and %d more" % (keys.size() - 3)) if keys.size() > 3 else ""
+			set_status("hint", "%s · made by this build's generation rules (%s%s differed in the world open before)"
+				% [bridge.last_summary, ", ".join(names), more], "text_ghost")
 		## The labels/overlays adjustment stack SURVIVES a generate, as the engine's Terrain and
 		## Water stacks do (they reset only on a project open or close, `load_save` /
 		## `close_world`). It was cleared here until 2026-10-12 (ET-C4), which made the three

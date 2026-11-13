@@ -4,8 +4,10 @@ extends Node
 ##
 ## Generates ONE world in the app from a parameter table read from a file -- the app's own World info dump, one
 ## `key: value` per line, so the owner's world is rebuilt from exactly what the owner's phone printed -- plus `--set`
-## overrides (the arms of a before/after), through `EngineBridge.generate` as a regenerate (`new_world` false), so the
-## table is used exactly as written and Ruling EV's New World restore does not touch it. Then:
+## overrides (the arms of a before/after), through `EngineBridge.generate` as a regenerate (`new_world` false) with no
+## world open, and every rule the table writes is a session choice (`WorldGen.set_params` records it), so the table is used
+## exactly as written and Ruling EV's restore -- which also runs before a generate at another seed than the open world's
+## -- does not touch it. Then:
 ##   - reads every value back from `WorldGen.get_params()` and FAILS on a rejected, clamped or differing one (a world
 ##     that is not the one asked for must not report numbers);
 ##   - prints `WorldGen.river_comb` -- the comb and straight-run measure (`river_straight::comb_stats`,
@@ -196,14 +198,51 @@ func _ready() -> void:
 		str(deltas.get("mouths", "-")), str(deltas.get("eligible", "-")), str(deltas.get("fans", "-"))])
 	for name in ["whole", "window"]:
 		var d: Dictionary = report[name]
-		for stage in ["traced"] + _zooms.map(func(z): return _zkey(z)):
+		## `traced_lake`: the traced network where it lies on a drawn lake cell (`WorldGen.river_comb`), so a drawn total
+		## that falls between arms can be told apart as rivers a new lake covers or rivers the law ranks out (verifier
+		## finding, 2026-11-13). Absent on an extension older than that stage: then it is not printed.
+		var stages: Array = ["traced", "traced_lake"]
+		for z in _zooms:
+			stages.append(_zkey(z))
+		for stage in stages:
+			if not d.has("%s_total" % stage):
+				continue
 			var tot := float(d.get("%s_total" % stage, 0.0))
 			if tot <= 0.0:
-				_log("  %-6s %-6s nothing drawn" % [name, stage])
+				_log("  %-6s %-11s nothing drawn" % [name, stage])
 				continue
-			_log("  %-6s %-6s total %8.1f  comb %5.1f %% (longest %5.1f)  straight %5.1f %% (longest %5.1f)" % [name, stage, tot,
+			_log("  %-6s %-11s total %8.1f  comb %5.1f %% (longest %5.1f)  straight %5.1f %% (longest %5.1f)" % [name, stage, tot,
 				100.0 * float(d.get("%s_comb" % stage, 0.0)) / tot, float(d.get("%s_comb_longest" % stage, 0.0)),
 				100.0 * float(d.get("%s_straight" % stage, 0.0)) / tot, float(d.get("%s_straight_longest" % stage, 0.0))])
+		if d.has("traced_lake_total") and float(d.get("traced_total", 0.0)) > 0.0:
+			_log("  %-6s traced network under a drawn lake: %.1f of %.1f cells (%.1f %%)" % [name, float(d["traced_lake_total"]),
+				float(d["traced_total"]), 100.0 * float(d["traced_lake_total"]) / float(d["traced_total"])])
+	## The screen's shore field over the window (verifier finding, 2026-11-13: a lake the water balance made in dry country
+	## was drawn cell-stepped, because every one of its cells sat at the class clamp `SHORE_EPS`, 1e-5, against land a whole
+	## rain margin below). Counted: the water cells (positive) and those exactly at the clamp, read back from the half-float
+	## texture (1e-5 is stored as the subnormal 168 x 2^-24). With the world's `lake_balance` on, a lake contoured by depth
+	## leaves almost none at the clamp; the rain-gated field left most of a dry lake there.
+	var sft: Texture2D = _br.shore_field_texture()
+	if sft != null:
+		var sfi := sft.get_image()
+		var clamp_v := 168.0 / 16777216.0
+		var n_water := 0
+		var n_clamp := 0
+		for y in range(int(_window[1]), int(_window[3]) + 1):
+			for x in range(int(_window[0]), int(_window[2]) + 1):
+				var v := sfi.get_pixel(x, y).r
+				if v > 0.0:
+					n_water += 1
+					if absf(v - clamp_v) < 1e-9:
+						n_clamp += 1
+		var share := float(n_clamp) / float(maxi(n_water, 1))
+		_log("shore field in the window: %d water cells, %d at the class clamp (%.1f %%)" % [n_water, n_clamp, 100.0 * share])
+		if bool(_br.world_gen.get_params().get("lake_balance", false)):
+			## 0.05: a labelled judgement between what was measured on the owner's world on 2026-11-13 -- 0.1 % of the
+			## window's water cells at the clamp with the fix, 41.2 % with the screen's rain gate kept (a DLL mutant).
+			_check(n_water > 0 and share < 0.05, "a balanced world's lakes are contoured by depth: %d of %d water cells at the clamp" % [n_clamp, n_water])
+	else:
+		_log("shore field: none (a look without smooth shores, or an older extension)")
 	_check(float(whole.get("traced_total", 0.0)) > 0.0, "the world has traced rivers (positive control: an empty measure cannot pass)")
 	for z in _zooms:
 		_check(float(whole.get("%s_total" % _zkey(z), 0.0)) > 0.0, "rivers are drawn at zoom %s" % str(z))

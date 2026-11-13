@@ -1276,8 +1276,9 @@ pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
 ///
 /// The boolean rows are **generation rules** (each a ruled divergence of
 /// `DECISIONS.md` §7p, or a geology switch measured off): opening an old save
-/// turns them off for that world only, and a New World puts them back to
-/// [`defaults`] ([`restore_new_world_rules`]). The two numeric rows are
+/// turns them off for that world only, and a new world -- New World's Create,
+/// a heightmap import, or a generate at another seed than the open world's --
+/// puts them back to [`defaults`] ([`restore_new_world_rules`]). The two numeric rows are
 /// **settings** a user moves on a dial; their absence means only that the
 /// save predates the dial, and a New World carries them like every other
 /// setting of the world on screen.
@@ -1411,8 +1412,10 @@ pub fn new_world_rule_key(key: &str) -> Option<&'static str> {
 /// New World carries the world on screen's settings by design
 /// (`new_world_dialog.gd`'s `_sync_from_engine`).
 ///
-/// Must never be called for a regenerate of the open world, which keeps the
-/// rules it was saved with.
+/// Must never be called for a regenerate of the open world at its own seed,
+/// which keeps the rules it was saved with. A generate at another seed is a
+/// new world and does call it (`engine_bridge.gd` `_makes_another_world`,
+/// verifier finding 2026-11-13).
 pub fn restore_new_world_rules(p: &mut WorldParams, chosen: &dyn Fn(&str) -> Option<Value>) -> Vec<&'static str> {
     let app = defaults();
     let mut changed = Vec::new();

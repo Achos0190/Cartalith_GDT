@@ -2,34 +2,50 @@ Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official,
 Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
 OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
 
-[owner] parameters: 124 from C:/cw/combfix/cartalith-native/crates/cartalith-godot/tests/fixtures/owner_world_51203_params.txt, overrides {"basin_routing":false}
-Cartalith shell build 5f978b3a95c8
-ERROR: Couldn't open directory at path "C:/cw/combfix_appdata_comb_owner/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+[owner] parameters: 124 from ../crates/cartalith-godot/tests/fixtures/owner_world_51203_params.txt, overrides {"basin_routing":false}
+Cartalith shell build a4f2b273fbb4
+ERROR: Couldn't open directory at path "<scratch>/appdata_comb_owner/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   at: get_files_at (core/io/dir_access.cpp:578)
    GDScript backtrace (most recent call first):
        [0] _paths (res://shell/open_project_dialog.gd:880)
        [1] _welcome_paths (res://shell/open_project_dialog.gd:910)
        [2] _refresh_picker (res://shell/open_project_dialog.gd:978)
        [3] _refresh (res://shell/open_project_dialog.gd:937)
        [4] open_welcome (res://shell/open_project_dialog.gd:317)
-       [5] open_welcome (res://shell/app.gd:4973)
+       [5] open_welcome (res://shell/app.gd:4986)
        [6] _open_welcome_when_drawn (res://shell/app.gd:2515)
 [owner]   OK   every parameter written as given (rejected [], clamped [])
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
 	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
-[owner] generated seed 51203 2048x1024 40075 km in 24.8 s
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x21f68301e10, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x21f68301e10, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x21f68301e10, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[owner] generated seed 51203 2048x1024 40075 km in 40.3 s
 [owner]   OK   every parameter reads back as asked after the run (124 checked; differing [])
 [owner] settlements 40, roads 48, river mouths 2899, fan-eligible 178, delta fans 138
-[owner]   whole  traced total 133846.0  comb  25.6 % (longest 335.0)  straight  35.2 % (longest 341.0)
-[owner]   whole  z1     total   3440.0  comb  64.3 % (longest 185.0)  straight  73.6 % (longest 136.0)
-[owner]   whole  z4     total   9614.0  comb  29.6 % (longest 185.0)  straight  43.7 % (longest 136.0)
-[owner]   whole  z7.88  total  16183.0  comb  20.8 % (longest 262.0)  straight  37.1 % (longest 210.7)
-[owner]   whole  z16    total  27898.0  comb  14.0 % (longest 282.0)  straight  30.4 % (longest 212.3)
-[owner]   whole  z64    total  73440.0  comb   9.7 % (longest 334.0)  straight  25.0 % (longest 212.3)
-[owner]   window traced total  30443.0  comb  75.1 % (longest 335.0)  straight  81.9 % (longest 341.0)
-[owner]   window z1     total   2858.0  comb  77.4 % (longest 185.0)  straight  82.2 % (longest 136.0)
-[owner]   window z4     total   4310.0  comb  65.6 % (longest 185.0)  straight  68.4 % (longest 136.0)
-[owner]   window z7.88  total   5265.0  comb  62.8 % (longest 262.0)  straight  65.1 % (longest 210.7)
-[owner]   window z16    total   6754.0  comb  54.1 % (longest 282.0)  straight  60.0 % (longest 212.3)
-[owner]   window z64    total  12045.0  comb  45.5 % (longest 334.0)  straight  47.5 % (longest 212.3)
+[owner]   whole  traced      total 133846.0  comb  25.6 % (longest 335.0)  straight  35.2 % (longest 341.0)
+[owner]   whole  traced_lake total   1598.0  comb  21.5 % (longest  21.0)  straight  36.0 % (longest  22.0)
+[owner]   whole  z1          total   3440.0  comb  64.3 % (longest 185.0)  straight  73.6 % (longest 136.0)
+[owner]   whole  z4          total   9614.0  comb  29.6 % (longest 185.0)  straight  43.7 % (longest 136.0)
+[owner]   whole  z7.88       total  16183.0  comb  20.8 % (longest 262.0)  straight  37.1 % (longest 210.7)
+[owner]   whole  z16         total  27898.0  comb  14.0 % (longest 282.0)  straight  30.4 % (longest 212.3)
+[owner]   whole  z64         total  73440.0  comb   9.7 % (longest 334.0)  straight  25.0 % (longest 212.3)
+[owner]   whole  traced network under a drawn lake: 1598.0 of 133846.0 cells (1.2 %)
+[owner]   window traced      total  30443.0  comb  75.1 % (longest 335.0)  straight  81.9 % (longest 341.0)
+[owner]   window traced_lake total    630.0  comb  35.4 % (longest  21.0)  straight  59.7 % (longest  22.0)
+[owner]   window z1          total   2858.0  comb  77.4 % (longest 185.0)  straight  82.2 % (longest 136.0)
+[owner]   window z4          total   4310.0  comb  65.6 % (longest 185.0)  straight  68.4 % (longest 136.0)
+[owner]   window z7.88       total   5265.0  comb  62.8 % (longest 262.0)  straight  65.1 % (longest 210.7)
+[owner]   window z16         total   6754.0  comb  54.1 % (longest 282.0)  straight  60.0 % (longest 212.3)
+[owner]   window z64         total  12045.0  comb  45.5 % (longest 334.0)  straight  47.5 % (longest 212.3)
+[owner]   window traced network under a drawn lake: 630.0 of 30443.0 cells (2.1 %)
+[owner] shore field in the window: 19285 water cells, 3 at the class clamp (0.0 %)
 [owner]   OK   the world has traced rivers (positive control: an empty measure cannot pass)
 [owner]   OK   rivers are drawn at zoom 1.0
 [owner]   OK   rivers are drawn at zoom 4.0
@@ -60,5 +76,7 @@ ERROR: Couldn't open directory at path "C:/cw/combfix_appdata_comb_owner/Godot/a
 [owner]   frame flow zoom 64.00 (readout 6400 %) saved
 [owner] RESULT owner fail=0 checks=20
 WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
 ERROR: 5 resources still in use at exit (run with --verbose for details).
-EXIT 0
+   at: clear (core/io/resource.cpp:822)
+exit=0
