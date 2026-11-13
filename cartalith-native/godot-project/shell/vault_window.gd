@@ -2910,7 +2910,8 @@ func _show_block() -> void:
 			choices = [
 				{"key": "keep_mine", "label": "Keep mine (replace theirs)"},
 				{"key": "take_theirs", "label": "Take theirs"},
-				{"key": "keep_both", "label": "Keep both"}]
+				{"key": "keep_both", "label": "Keep both"},
+				{"key": "compare", "label": "Compare"}]
 		"missing":
 			msg = "This note was deleted outside Cartalith. Your text is still here and is not saved anywhere."
 			choices = [
@@ -2935,6 +2936,11 @@ func _on_banner_choice(key: String) -> void:
 	if _editor == null or _browse_edit == null:
 		return
 	match key:
+		"compare":
+			## Compare only shows; whichever choice the person then makes comes back through this same
+			## function, so it keeps the hash guard and there is no second save path.
+			_open_compare()
+			return
 		"retry":
 			_save_block = {}
 			_write_now()
@@ -2989,6 +2995,92 @@ func _on_banner_choice(key: String) -> void:
 	## never fires; the Note tab is told here so a selection switch it held can go ahead.
 	if _dock_host != null and not _is_dirty():
 		dock_saved.emit.call_deferred()
+
+
+## Compare (`VAULT_EDITOR_PROPOSAL.md` s.7a): a read-only two-column view, "Mine" (the editor's text) beside
+## "Theirs" (the disk version read now), changed lines marked (`VaultCompare`, a line LCS), the two scroll
+## bars tied together. Its footer repeats the banner's three choices; each closes the view and calls
+## `_on_banner_choice`, so the writes are exactly the banner's. On the phone the columns stack, Mine above
+## Theirs, and the buttons keep `DccWidgets.action`'s 44 dp floor. It never writes and never changes the
+## banner by itself: closing it leaves the conflict as it was.
+func _open_compare() -> void:
+	if _editor == null or _browse_edit == null:
+		return
+	var r := bridge.vault_read_file_for_edit(_browse_path)
+	if not bool(r.get("ok", false)):
+		_editor.set_status("Cannot read the file on disk to compare: %s" % String(r.get("error", "")), true)
+		return
+	var mine := _browse_edit.text
+	var theirs := _norm_eol(String(r.get("text", "")))
+	var diff := VaultCompare.changed_lines(mine.split("
+"), theirs.split("
+"))
+	var dlg := AcceptDialog.new()
+	dlg.name = "VaultCompareDialog"
+	dlg.title = "Compare — %s" % _browse_path.get_file()
+	dlg.size = Vector2i(1000, 640)
+	var phone := DccWidgets.phone_window(dlg, app)
+	dlg.get_ok_button().text = "Close"
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	dlg.add_child(col)
+	if phone:
+		DccWidgets.phone_head(col, dlg.title, "")
+	var nm := (diff["mine"] as PackedInt32Array).size()
+	var nt := (diff["theirs"] as PackedInt32Array).size()
+	DccWidgets.note(col, ("%d line(s) of yours and %d of theirs differ (shaded). " % [nm, nt])
+		+ ("" if bool(diff["exact"]) else "This note is very large, so lines are shaded when their text appears nowhere on the other side. ")
+		+ "Nothing is changed until you choose below.")
+	var panes: BoxContainer = VBoxContainer.new() if phone else HBoxContainer.new()
+	panes.add_theme_constant_override("separation", 8)
+	panes.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(panes)
+	var tes: Array = []
+	for side in [["Mine", mine, diff["mine"]], ["Theirs", theirs, diff["theirs"]]]:
+		var box := VBoxContainer.new()
+		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		panes.add_child(box)
+		box.add_child(DccTheme.label(String(side[0]), "text_bright", DccTheme.FS_SMALL))
+		var te := TextEdit.new()
+		te.name = "Compare" + String(side[0])
+		te.text = String(side[1])
+		te.editable = false
+		te.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		te.custom_minimum_size = Vector2(0, 160)
+		te.add_theme_color_override("background_color", DccTheme.c("panel"))
+		for ln in (side[2] as PackedInt32Array):
+			te.set_line_background_color(ln, DccTheme.c("accent").lerp(DccTheme.c("panel"), 0.7))
+		box.add_child(te)
+		tes.append(te)
+	## Synchronised scrolling: each bar drives the other; the equality test stops the echo.
+	for k in 2:
+		var src: TextEdit = tes[k]
+		var dst: TextEdit = tes[1 - k]
+		src.get_v_scroll_bar().value_changed.connect(func(v: float):
+			if not is_equal_approx(dst.get_v_scroll_bar().value, v):
+				dst.get_v_scroll_bar().value = v)
+	var footer := HFlowContainer.new()
+	footer.add_theme_constant_override("h_separation", 8)
+	col.add_child(footer)
+	for ch in [["keep_mine", "Keep mine (replace theirs)"], ["take_theirs", "Take theirs"], ["keep_both", "Keep both"]]:
+		var key := String(ch[0])
+		var b := DccWidgets.action(footer, String(ch[1]), func():
+			dlg.hide()
+			dlg.queue_free()
+			_on_banner_choice(key))
+		b.name = "Compare_" + key
+	dlg.confirmed.connect(dlg.queue_free)
+	dlg.canceled.connect(dlg.queue_free)
+	var dlg_want := dlg.size
+	var dlg_host := PopoutHost.dialog_host(app, self)
+	## The vault window is itself an exclusive window; a second exclusive child of the root is refused, so
+	## the view is nested under whichever exclusive window is showing (`DccWidgets.stack_host`).
+	DccWidgets.stack_host(dlg_host).add_child(dlg)
+	if phone:
+		app.phone_fit(dlg, 1.0)
+	if not DccWidgets.phone_present(dlg, app):
+		PopoutHost.present(dlg, dlg_host, dlg_want)
 
 
 ## Load the version on disk into the editor as ONE undo step (so Ctrl+Z brings the user's text
