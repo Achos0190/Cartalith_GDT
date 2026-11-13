@@ -13,8 +13,8 @@ extends Node
 ##      header and above the gesture band;
 ##   4. THE HEADER: top-right corner (right edge on the window's, top 0, right half), floating: an EMPTY panel style, no opaque
 ##      backdrop; back in portrait it spans the width again with the same empty style;
-##   5. THE GRIP: on the right edge of the band, wholly on screen, vertically in the band; with a display cut-out on the right
-##      (`cutouts_probe`, a `Rect2` list the shell reads where the platform has none) it is centred on the cut-out's height;
+##   5. THE GRIP: at the screen's outer edge on the dominant-hand side (right-handed: the far right, clear of the sheet and
+##      header; left-handed: beside the rail), wholly on screen;
 ##   6. THE BOTTOM EDGE: the two strips under the rail and the sheet exist in landscape and are hidden in portrait.
 ## Usage (windowed, wiped user dir; `--resolution` is the START size, a rotation swaps it):
 ##   godot --path . --resolution 1170x540 _phoneland_probe.tscn -- --force-touch --density 1.40625 --leg cold
@@ -227,24 +227,26 @@ func _check_grip() -> void:
 	var ins: Dictionary = _app.phone_content_insets()
 	var band := Rect2(float(ins["left"]), float(ins["top"]), win.size.x - float(ins["left"]) - float(ins["right"]),
 		win.size.y - float(ins["top"]) - float(ins["bottom"]) - float(_app.phone_tool_pill_reserve()))
+	## Right-handed (the default): the grip's right edge IS the screen's, above the sheet's top edge at peek.
 	var g: Rect2 = d.grip().get_global_rect()
-	_ok(absf(g.end.x - band.end.x) <= 1.5, "the grip is on the RIGHT edge of the band, right-handed too (end %.1f, band end %.1f)" % [g.end.x, band.end.x])
+	var sheet: Rect2 = _app._phone_tool_sheet.get_global_rect()
+	var rail := Rect2(0.0, 0.0, float(ins["left"]), win.size.y)  ## the rail (and safe area) is exactly the band's left inset
+	_ok(absf(g.end.x - win.size.x) <= 1.5, "right-handed: the grip touches the screen's far right edge (end %.1f, screen %.1f)" % [g.end.x, win.size.x])
 	_ok(win.encloses(g), "the grip is wholly on screen")
-	_ok(absf(g.get_center().y - band.get_center().y) <= 2.0, "with no cut-out it is at the middle of the band's height (%.1f vs %.1f)" % [g.get_center().y, band.get_center().y])
-	## A cut-out on the right half of the screen at y 300 to 360: the grip centres on it.
-	_app.set_meta("cutouts_probe", [Rect2(win.size.x - 40.0, 300.0, 40.0, 60.0)])
+	if _app._phone_detent == "peek":
+		_ok(not g.intersects(sheet), "at peek the grip does not overlap the sheet (grip %s, sheet %s)" % [str(g), str(sheet)])
+	_ok(not g.intersects(rail), "it does not overlap the rail")
+	var hdr: Rect2 = _app._phone_app_bar.get_global_rect()
+	_ok(not g.intersects(hdr), "it does not overlap the header")
+	DccSettings.set_dominant_hand("left")
 	d.relayout()
 	await _frames(2)
 	g = d.grip().get_global_rect()
-	_ok(absf(g.get_center().y - 330.0) <= 1.5, "with a cut-out on the right at y 300..360 the grip centres on it (%.1f)" % g.get_center().y)
-	_ok(absf(g.end.x - band.end.x) <= 1.5, "and stays on the band's right edge")
-	## A cut-out on the LEFT half does not move it.
-	_app.set_meta("cutouts_probe", [Rect2(0.0, 300.0, 40.0, 60.0)])
+	_ok(absf(g.position.x - rail.end.x) <= 1.5, "left-handed: the grip is beside the rail, not under it (x %.1f, rail end %.1f)" % [g.position.x, rail.end.x])
+	_ok(g.position.x > 0.0, "left-handed: not at the screen's x 0 (the rail is there)")
+	DccSettings.set_dominant_hand("right")
 	d.relayout()
 	await _frames(2)
-	_ok(absf(d.grip().get_global_rect().get_center().y - band.get_center().y) <= 2.0, "a cut-out on the left half is ignored")
-	_app.remove_meta("cutouts_probe")
-	d.relayout()
 
 func _report(tag: String) -> void:
 	var w := Vector2(get_window().size)

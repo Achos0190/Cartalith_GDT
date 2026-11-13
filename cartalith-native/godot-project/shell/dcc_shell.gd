@@ -2295,30 +2295,17 @@ func _safe_side() -> int:
 		maxi(_display_safe_inset("left"), _display_safe_inset("right")))
 
 ## True on the phone composition while it is in landscape. The quick drawer asks (`quick_drawer.gd`): in landscape its
-## grip is always on the right edge of the map band, whatever the dominant hand (owner, 2026-11-13).
+## grip is at the screen's outer edge on the dominant-hand side (owner, 2026-11-13).
 func phone_is_landscape() -> bool:
 	return _phone and _landscape
 
-## The vertical centre, in this viewport's pixels, of the display cut-out (camera hole or notch) that sits on the
-## right half of the screen, or -1.0 when there is none: a desktop, a handset with no cut-out or one on the left
-## edge. Read from `DisplayServer.get_display_cutouts()` (window coordinates, an empty array where the platform has
-## none). The landscape quick-drawer grip lines up with it ("next to the camera", owner 2026-11-13) and otherwise
-## falls back to the middle of the band's right edge. Never a guess: an empty or zero-sized rect is skipped.
-func phone_right_cutout_mid_y() -> float:
-	var half := get_viewport_rect().size.x * 0.5
-	for c in _cutout_rects():
-		var r: Rect2 = c
-		if r.size.x > 0.0 and r.size.y > 0.0 and r.get_center().x > half:
-			return r.get_center().y
-	return -1.0
-
-## The display's cut-out rectangles in window pixels: `DisplayServer.get_display_cutouts()`, or the Array of `Rect2` in
-## the meta `cutouts_probe` when a probe sets one (a desktop has no cut-out, so the right-edge grip placement could
-## not otherwise be exercised off a handset). Nothing in the product sets the meta.
-func _cutout_rects() -> Array:
-	if has_meta("cutouts_probe"):
-		return get_meta("cutouts_probe") as Array
-	return DisplayServer.get_display_cutouts()
+## Landscape: the free vertical strip of the right-hand column, as (top y, bottom y) in this viewport's pixels: from
+## the app bar's foot to the docked sheet's top edge at the current detent. Zero height when the sheet is open. The
+## right-handed quick-drawer grip sits in it so it overlaps neither the header nor the sheet (owner, 2026-11-13).
+## Replaced `phone_right_cutout_mid_y` (the camera-centred placement it served is superseded).
+func phone_land_column_gap() -> Vector2:
+	var top := float(_ptap(DccTheme.H_PHONE_APP_BAR))
+	return Vector2(top, _landscape_sheet_top(_phone_detent))
 
 ## -- Haptics ------------------------------------------------------------------
 ##

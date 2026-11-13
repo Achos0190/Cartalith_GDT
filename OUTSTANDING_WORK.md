@@ -83,12 +83,8 @@ document, and `STATUS.md` records what lands)
   and the title/search header to the top-right corner; no backdrop behind the header) are all in that entry.
 - ~~**Phone landscape: the right-hand tool sheet must still slide down like the portrait drawer**~~ -- closed 2026-11-13; see
   `STATUS.md` ("Phone landscape: the right-hand tool sheet has its peek detent again").
-- **Phone landscape: the quick-drawer grip sits mid-screen** (owner, 2026-11-13, 6T screenshot in landscape with the sheet
-  at peek: *"The button for the side menu now lands in the middle of the screen in landscape mode, let's move this all
-  the way left/right depending handedness"*). `90cd811c` put the grip on the map band's right edge, which is the sheet's
-  left edge, so with the sheet docked it lands mid-screen. Put it at the screen's outer edge on the dominant-hand side
-  (right for right-handed, left for left-handed), clear of the rail and the sheet; this supersedes the earlier "next to
-  the camera" placement. Owner: `MOBILE_SHELL_PROPOSAL.md` §2.4 (MS-11), `STATUS.md` ("Phone landscape").
+- ~~**Phone landscape: the quick-drawer grip sits mid-screen**~~ -- closed 2026-11-13; see `STATUS.md` ("Phone landscape: the
+  quick-drawer grip at the screen's outer edge").
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;

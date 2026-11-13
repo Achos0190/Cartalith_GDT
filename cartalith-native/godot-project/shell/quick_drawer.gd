@@ -1,8 +1,8 @@
 extends Control
 ## MS-11 (`MOBILE_SHELL_PROPOSAL.md` section 2.4, Ruling DY Q10 to Q12): the phone's quick drawer. The quick bar's
 ## pins in a side drawer that slides over the map from a grip at the middle of the map band's edge. Portrait: on the side
-## AWAY from the dominant hand (left for a right-handed user). **Landscape: always the right edge** of the map band, beside
-## the camera cut-out when the display reports one (owner, 2026-11-13). It replaces CQ-6's chip row in the MAP sheet.
+## AWAY from the dominant hand (left for a right-handed user). **Landscape: the screen's outer edge on the dominant-hand
+## side** (right-handed: far right; left-handed: far left, beside the rail; owner, 2026-11-13). It replaces CQ-6's chip row in the MAP sheet.
 ##
 ## Open: tap the grip, or drag it inward. Close: tap the scrim, drag the grip back, or system back (the shell's
 ## back chain asks [`close_if_open`]).
@@ -172,15 +172,32 @@ func relayout() -> void:
 	if _app == null or not is_inside_tree():
 		return
 	_reserve = float(_app.call("phone_tool_pill_reserve"))
-	## Landscape (owner, 2026-11-13: *"move the small slider pill to the right next to the camera"*): the grip is on the
-	## right edge of the band whatever the hand; the band's right edge is the docked sheet's left edge, which is the
-	## screen's right edge region the camera sits on. Portrait keeps MS-11's rule: the edge AWAY from the dominant hand.
-	_side = "right" if bool(_app.call("phone_is_landscape")) or DccSettings.dominant_hand() == "left" else "left"
+	## Landscape (owner, 2026-11-13, superseding "next to the camera": *"The button for the side menu now lands in the
+	## middle of the screen in landscape mode, let's move this all the way left/right depending handedness"*): the
+	## grip sits at the screen's OUTER edge on the dominant-hand side, the same setting the portrait grip reads but
+	## mirrored (portrait puts it AWAY from the hand, landscape puts it AT the hand). Left-handed: the band's left
+	## edge, which is the rail's right edge, so beside the rail and not under it. Right-handed: the screen's far
+	## right edge, which is inside the docked sheet's column (see `relayout`'s band). Portrait keeps MS-11's rule.
+	var land := bool(_app.call("phone_is_landscape"))
+	_side = ("left" if DccSettings.dominant_hand() == "left" else "right") if land else 		("right" if DccSettings.dominant_hand() == "left" else "left")
 	var vp := get_viewport_rect().size
 	var ins: Dictionary = _app.call("phone_content_insets")
 	var band := Rect2(float(ins["left"]), float(ins["top"]),
 		vp.x - float(ins["left"]) - float(ins["right"]),
 		vp.y - float(ins["top"]) - float(ins["bottom"]) - _reserve)
+	## Landscape, right-handed: the band is stretched over the sheet's column to the screen's right edge, so the grip
+	## and the sliding panel start at the edge itself (the band's own right edge is the sheet's left edge, mid-screen,
+	## which is what the owner rejected). The node rides above the sheet (`z_index`) in that one case so the grip is
+	## not hidden under it; every other case keeps the node below the sheet where `set_phone_quick_drawer` put it.
+	var over_sheet := land and _side == "right"
+	if over_sheet:
+		band.size.x = vp.x - band.position.x
+		## Below the app bar, which sits top-right above the sheet and is drawn over the drawer: a panel under it
+		## would have rows no finger can reach (found by `_ms11_probe.gd`'s pin rows in landscape).
+		var cut: float = (_app.call("phone_land_column_gap") as Vector2).x - band.position.y
+		band.position.y += cut
+		band.size.y -= cut
+	z_index = 1 if over_sheet else 0
 	position = band.position
 	size = band.size
 	_w = minf(_px(DRAWER_W_UNITS), band.size.x * DRAWER_W_FRAC)
@@ -246,13 +263,14 @@ func _grip_px() -> Vector2:
 func _place() -> void:
 	var g := _grip_px()
 	var y_mid := size.y * 0.5
-	## Landscape with a display cut-out on the right half of the screen: centre the grip on the cut-out's height ("next to
-	## the camera"), kept wholly inside the band. No cut-out (a desktop, a handset without one): the band's middle,
-	## as in portrait. `phone_right_cutout_mid_y()` is -1.0 for "none", never a plausible y.
-	if bool(_app.call("phone_is_landscape")):
-		var cy := float(_app.call("phone_right_cutout_mid_y"))
-		if cy >= 0.0:
-			y_mid = clampf(cy - position.y, g.y * 0.5, maxf(g.y * 0.5, size.y - g.y * 0.5))
+	## Landscape, right-handed, the grip lives in the docked sheet's column (the far right edge): centred in the free
+	## strip between the app bar and the sheet's top edge, where nothing is drawn, so it overlaps neither. When the
+	## sheet is open there is no strip, and it is centred on the column instead, floating over the sheet's edge
+	## (a labelled trade: an unreachable drawer is worse). Otherwise the band's middle, as in portrait.
+	if bool(_app.call("phone_is_landscape")) and _side == "right":
+		var gap: Vector2 = _app.call("phone_land_column_gap")
+		if gap.y - gap.x >= g.y:
+			y_mid = (gap.x + gap.y) * 0.5 - position.y
 	if _side == "left":
 		_panel.position = Vector2(_travel - _w, 0.0)
 		_grip.position = Vector2(_travel, y_mid - g.y * 0.5)

@@ -96,6 +96,21 @@ swapped, so a folder move is one undo step).
   code changed). `cargo test -p cartalith-vault` 230 passed, 3 mutants killed. An empty folder, or one holding only images, cannot be
   renamed (the vault lists notes, not folders). The destination of "Move folder..." is typed, not picked.
 
+### Phone landscape: the quick-drawer grip at the screen's outer edge (built 2026-11-13)
+
+**Owner report (6T):** *"The button for the side menu now lands in the middle of the screen in landscape mode, let's move
+this all the way left/right depending handedness"*. `90cd811c` had put the grip on the map band's right edge, which is
+the docked sheet's left edge. **Built (`quick_drawer.gd`, `dcc_shell.gd`):** in landscape the grip is at the outer edge on
+the dominant-hand side, read from the setting the portrait grip reads: right-handed, the screen's far right; left-handed,
+the band's left edge, beside the rail and not under it. The drawer opens from that edge. Right-handed, the drawer's band is
+stretched over the sheet's column to the screen's edge, starts below the app bar, and the node rides above the sheet
+(`z_index`); the grip sits in the free strip between the app bar and the sheet's top (`phone_land_column_gap()`), so at
+`peek` it overlaps neither. **Trade, labelled:** with the sheet open there is no free strip and the grip floats over the
+sheet's right edge, because an unreachable drawer is worse. The camera-centred placement and `phone_right_cutout_mid_y` /
+`_cutout_rects` are removed. Portrait is unchanged. Verified: `_ms11` landscape 97 and portrait 103, `_phoneland` `cold` 22 and
+`drag` 58, real touch at 2340x1080 @2.8125, both hands; two literal mutants (hand ignored in landscape, band not stretched)
+fail `_ms11`. Probe note: its old "tap the scrim" point now falls inside the right-hand panel, so landscape taps its left part.
+
 ### Phone landscape: the right-hand tool sheet has its peek detent again (built 2026-11-13)
 
 **Owner choice:** *"Slide down like portrait"*. In landscape the docked sheet collapses by dragging its handle down to a
