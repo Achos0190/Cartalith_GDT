@@ -90,9 +90,9 @@ Two of the three Ruling EU leftovers in `OUTSTANDING_WORK.md` (the third, the wa
   fails without the repair and pins ratio 1.0426, `an_edge_cheaper_than_the_road_by_more_than_the_margin_is_kept`,
   `a_return_is_never_laid_along_an_undrawn_edge`); `tests/ruling_eu_river_legs.rs` 22 (+1,
   `a_declined_stretch_frees_its_slot_for_the_next_candidate`, bound 1: one measured and one unmeasured, decline the offered one
-  and the other is offered with none unmeasured). Literal mutants (exact replace, restored and hash-checked), 10: the margin's
-  sign, the margin removed, the leave test, the drawn-ways-only test, no decline filter, the filter after the bound, the key's
-  last cell (all **killed**); **two survive and are disclosed**, the duplicate-cell guard on the rewritten path and the leg
+  and the other is offered with none unmeasured). Literal mutants (exact replace, restored and hash-checked), 9: the margin's
+  sign, the margin removed, the leave test, the drawn-ways-only test (it survived until `a_return_is_never_laid_along_an_undrawn_edge`
+  was added), no decline filter, the filter after the bound, the key's last cell (**7 killed**); **two survive and are disclosed**, the duplicate-cell guard on the rewritten path and the leg
   budget guard (the budget is never reached when the direct path is the base, and no fixture builds a duplicate). Windowed
   `_jpwayriver_probe` (desktop, seed 912345, debug DLL built after the last Rust edit, under the window lock) **PASS**, extended
   with the decline: pressing **decline** removes the offered key from `river_offers` (1 to 0 on that route) and **offer declined
