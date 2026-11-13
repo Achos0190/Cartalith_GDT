@@ -42,6 +42,11 @@ mod g1_baseline;
 // measurement through the real pipeline, OFF then ON `civ.merge_ways`.
 #[cfg(test)]
 mod way_census;
+// Ruling EU items 2 and 3 (2026-11-13): the planner census -- routes with
+// the way join off and on, and the river stretches offered along them; an
+// ignored measurement through the real pipeline.
+#[cfg(test)]
+mod way_join_census;
 mod campaign_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;
@@ -7281,6 +7286,14 @@ struct WorldGen {
     /// `absorb` once the new world exists. `None` whenever no journey needs
     /// carrying.
     journey_carry: Option<story_bridge::JourneyCarry>,
+    /// Ruling EU item 2 (2026-11-13): whether the Route tool's commit, the
+    /// planner's re-route and the regenerate re-snap join a way heading toward
+    /// the destination (`cartalith_civ::way_join`). A session setting the shell
+    /// sets with `set_route_join_ways`, **on by default** (owner question Q1's
+    /// proposed default: committing a route is a user action, not generated
+    /// output, so it is not a `WorldParams` switch). Never read by generation or
+    /// by a way commit; a saved route keeps the points it was committed with.
+    route_join_ways: bool,
     /// SP-2's per-journey timeline cache -- see [`story_bridge::JourneyPlanCache`]
     /// for the key and why it is a content key, not an epoch.
     journey_plans: story_bridge::JourneyPlanCache,
@@ -7403,6 +7416,7 @@ impl IRefCounted for WorldGen {
             world_epoch: 0,
             civ_day: 0,
             journey_carry: None,
+            route_join_ways: true,
             journey_plans: Default::default(),
             pack_epoch: 0,
             lod: std::cell::RefCell::new(LodCtxCache::default()),
@@ -17992,8 +18006,12 @@ impl WorldGen {
             flow: Some(&ws.flow_discharge),
             flow_thresh: cartalith_hydrology::river_flow_thresh(self.gw as usize, self.gh as usize, self.gw as usize, self.map_width_km),
         };
+        // Ruling EU item 2: the join rides the drawn ways (generated, then
+        // hand-drawn: `civ_network_way_refs`' order) and never splices onto a
+        // credited edge, which has no line of its own.
+        let join = self.route_join_ways.then(|| cartalith_civ::way_join::WayJoin::new(civ.ways.len() + manual_ways.len()));
         let Some(infra) = self.infra.as_mut() else { return -1 };
-        match infra.route_commit(&ctx) {
+        match infra.route_commit(&ctx, join.as_ref()) {
             Some((idx, unreachable)) => {
                 if unreachable > 0 {
                     godot_print!("cartalith-godot: route commit has {unreachable} unreachable leg(s) -- straight-line fallback");
@@ -18002,6 +18020,20 @@ impl WorldGen {
             }
             None => -1,
         }
+    }
+
+    /// Ruling EU item 2: switches the way join for this session's route
+    /// commits, planner re-routes and regenerate re-snaps (`route_join_ways`'s
+    /// field doc). On by default; a route already committed keeps its points.
+    #[func]
+    fn set_route_join_ways(&mut self, on: bool) {
+        self.route_join_ways = on;
+    }
+
+    /// Whether the way join is on (see `set_route_join_ways`).
+    #[func]
+    fn route_join_ways(&self) -> bool {
+        self.route_join_ways
     }
 
     /// Discards the in-progress route without committing it.
@@ -18103,7 +18135,7 @@ impl WorldGen {
             cartalith_civ::tools::RouteMode::Water => "water",
             cartalith_civ::tools::RouteMode::Mixed => "mixed",
         };
-        vdict! {
+        let mut d = vdict! {
             "points" => &points,
             "brks" => &brks,
             "render_points" => &render_points,
@@ -18112,7 +18144,13 @@ impl WorldGen {
             "mode" => mode,
             "unreachable_legs" => r.unreachable_legs as i64,
             "name" => r.name.as_str(),
+        };
+        // Ruling EU item 2: what the way join did, present only when it ran on
+        // this route this session (`CommittedRoute::join`).
+        if let Some(legs) = &r.join {
+            d.set("join", &route_join_dict(legs));
         }
+        d
     }
 
     // ===================== Journey (STORY_PLANNING_SCOPE.md SP-1) =====================
@@ -20990,6 +21028,18 @@ fn jp_parse_plan_request(request: &VarDictionary) -> Result<JpRequestPlan, Strin
         }
         plan.accepted_resupply = stops;
     }
+    // Ruling EU item 3: the river stretches the user accepted, each the very
+    // `river_offers` entry's leg fields (`cells`, `entry`, `exit`, `vessel`).
+    if let Some(v) = request.get("river_legs") {
+        let Ok(arr) = v.try_to::<VarArray>() else {
+            return Err("`river_legs` must be an Array of river-leg Dictionaries".to_string());
+        };
+        let (legs, bad) = jp_river_legs_from(&arr);
+        for b in bad {
+            rejected.push(&GString::from(&b));
+        }
+        plan.river_legs = legs;
+    }
     for (k, _) in request.iter_shared() {
         let key = k.to_string();
         if !matches!(
@@ -21004,6 +21054,8 @@ fn jp_parse_plan_request(request: &VarDictionary) -> Result<JpRequestPlan, Strin
                 | "auto_stage"
                 | "trim"
                 | "resupply_accepted"
+                | "river_legs"
+                | "river_offers"
         ) {
             rejected.push(&GString::from(&key));
         }
@@ -21177,6 +21229,12 @@ fn journey_plan_to_dict(p: &cartalith_civ::travel_library::JourneyPlan) -> VarDi
         }
         d.set("override_legs", &legs);
     }
+    // Ruling EU item 3: the accepted river legs, in `jp_compute`'s own
+    // `river_legs` request form; omitted when none are accepted.
+    if !p.plan.river_legs.is_empty() {
+        let legs: Array<VarDictionary> = p.plan.river_legs.iter().map(jp_river_leg_dict).collect();
+        d.set("river_legs", &legs);
+    }
     d
 }
 
@@ -21341,6 +21399,141 @@ fn jp_accepted_stops_from(arr: &VarArray) -> (Vec<cartalith_civ::JpAcceptedStop>
     (out, bad)
 }
 
+/// Ruling EU item 2: the stretches of `pts` (the route the planner planned) that
+/// ride one way, as `jp_compute`'s `way_spans`: `{i0, i1, km, class, source,
+/// name}` per span. `class` is the way's class in lower case (`highway`,
+/// `regional`, `road`, `track`, `ancient`); `source` is `generated`, `manual` or
+/// `edge`. `name` is **omitted** for a raw edge (it has none) and for a way whose
+/// name is empty, never sent as `""`. `afloat` marks the points sailed on an
+/// accepted river leg, which ride no way (`cartalith_civ::jp_way_spans`).
+fn jp_way_spans_array(
+    world: &cartalith_civ::JpWorld<'_>,
+    ways: &[cartalith_civ::Way],
+    manual: &[cartalith_civ::tools::ManualWay],
+    road_edges: &[cartalith_civ::RoadEdge],
+    gw: usize,
+    pts: &[(f64, f64)],
+    afloat: &[bool],
+) -> Array<VarDictionary> {
+    let sources = cartalith_civ::jp_road_sources(ways, manual, road_edges, gw);
+    cartalith_civ::jp_way_spans(world, &sources, pts, afloat)
+        .iter()
+        .map(|s| {
+            let (source, name) = match s.src {
+                cartalith_civ::JpWaySrc::Generated(i) => ("generated", ways.get(i).map(|w| w.name.as_str())),
+                cartalith_civ::JpWaySrc::Manual(i) => ("manual", manual.get(i).map(|w| w.name.as_str())),
+                cartalith_civ::JpWaySrc::Edge(_) => ("edge", None),
+            };
+            let mut d = vdict! {
+                "i0" => s.i0 as i64,
+                "i1" => s.i1 as i64,
+                "km" => s.km,
+                "class" => format!("{:?}", s.class).to_lowercase().as_str(),
+                "source" => source,
+            };
+            if let Some(n) = name.filter(|n| !n.is_empty()) {
+                d.set("name", n);
+            }
+            d
+        })
+        .collect()
+}
+
+/// Ruling EU item 3: `jp_compute`'s `river_offers`, the
+/// [`cartalith_civ::river_stretch::jp_river_offers`] list as dictionaries, or its
+/// reason when it offers nothing. Each offer is its leg's request form
+/// (`jp_river_leg_dict`, with the recommended hull as `vessel`) plus `dir`,
+/// `route_km`, `channel_km`, `eta`, `entry_k`/`exit_k` (route point indices),
+/// `saving_days` and `saving_basis` (`total` or `travel`), `days_with`,
+/// `recommended`, `terrains`, `conditions` and `hulls` -- one row per hull with
+/// `fits`, and `days`/`cost` when it fits or `reason` when it does not.
+fn jp_river_offers_dicts(offers: Result<Vec<cartalith_civ::river_stretch::JpRiverOffer>, &'static str>) -> (VarArray, Option<&'static str>) {
+    let mut out = VarArray::new();
+    let offers = match offers {
+        Ok(o) => o,
+        Err(note) => return (out, Some(note)),
+    };
+    for o in &offers {
+        let terrains: PackedStringArray = o.terrains.iter().map(GString::from).collect();
+        let conds: PackedStringArray = o.conditions.iter().map(GString::from).collect();
+        let hull_rows: Array<VarDictionary> = o
+            .ranks
+            .iter()
+            .map(|r| match &r.fit {
+                Ok((days, cost)) => vdict! { "name" => r.name.as_str(), "fits" => true, "days" => *days, "cost" => *cost },
+                Err(why) => vdict! { "name" => r.name.as_str(), "fits" => false, "reason" => why.as_str() },
+            })
+            .collect();
+        let mut d = jp_river_leg_dict(&o.leg);
+        d.set("dir", match o.cand.dir {
+            cartalith_civ::river_stretch::JpRiverDir::Downstream => "downstream",
+            cartalith_civ::river_stretch::JpRiverDir::Upstream => "upstream",
+        });
+        d.set("route_km", o.cand.route_km);
+        d.set("channel_km", o.cand.channel_km);
+        d.set("eta", o.cand.eta);
+        d.set("entry_k", o.cand.entry_k as i64);
+        d.set("exit_k", o.cand.exit_k as i64);
+        d.set("saving_days", o.saving_days);
+        d.set("saving_basis", o.basis);
+        d.set("days_with", o.days_with);
+        d.set("recommended", o.recommended.as_str());
+        d.set("terrains", &terrains);
+        d.set("conditions", &conds);
+        d.set("hulls", &hull_rows);
+        out.push(&d.to_variant());
+    }
+    (out, None)
+}
+
+/// Ruling EU item 3: accepted river legs from a request's `river_legs` array.
+/// Each entry needs `cells` (a `PackedInt32Array` of grid indices, at least two,
+/// none negative), `entry` and `exit` (`Vector2` route points); `vessel` is
+/// optional (absent or `""`: the planner recommends one). A malformed entry is
+/// reported as `river_legs[i]` and skipped, never guessed.
+fn jp_river_legs_from(arr: &VarArray) -> (Vec<cartalith_civ::river_stretch::JpRiverLeg>, Vec<String>) {
+    let mut out = Vec::new();
+    let mut bad = Vec::new();
+    for (i, v) in arr.iter_shared().enumerate() {
+        let leg = v.try_to::<VarDictionary>().ok().and_then(|d| {
+            let cells = d.get("cells")?.try_to::<PackedInt32Array>().ok()?;
+            let cells: Option<Vec<usize>> = cells.as_slice().iter().map(|&c| usize::try_from(c).ok()).collect();
+            let cells = cells.filter(|c| c.len() >= 2)?;
+            let entry = d.get("entry")?.try_to::<Vector2>().ok()?;
+            let exit = d.get("exit")?.try_to::<Vector2>().ok()?;
+            let vessel = d.get("vessel").and_then(|v| v.try_to::<GString>().ok()).map(|g| g.to_string()).filter(|s| !s.is_empty());
+            Some(cartalith_civ::river_stretch::JpRiverLeg {
+                cells,
+                entry: (entry.x as f64, entry.y as f64),
+                exit: (exit.x as f64, exit.y as f64),
+                vessel,
+            })
+        });
+        match leg {
+            Some(l) => out.push(l),
+            None => bad.push(format!("river_legs[{i}]")),
+        }
+    }
+    (out, bad)
+}
+
+/// Ruling EU item 3: one river leg as the request reads it back
+/// (`jp_river_legs_from`'s inverse) plus its `key`. `vessel` is omitted when the
+/// leg has none (the planner then recommends one), never sent as `""`.
+fn jp_river_leg_dict(l: &cartalith_civ::river_stretch::JpRiverLeg) -> VarDictionary {
+    let cells: PackedInt32Array = l.cells.iter().map(|&c| c as i32).collect();
+    let mut d = vdict! {
+        "key" => l.key().as_str(),
+        "cells" => &cells,
+        "entry" => Vector2::new(l.entry.0 as f32, l.entry.1 as f32),
+        "exit" => Vector2::new(l.exit.0 as f32, l.exit.1 as f32),
+    };
+    if let Some(v) = &l.vessel {
+        d.set("vessel", v.as_str());
+    }
+    d
+}
+
 /// `jpCalcWater`'s return, same `formula` omission.
 fn jp_water_calc_dict(w: &cartalith_civ::JpWaterCalc) -> VarDictionary {
     let resupply = jp_resupply_dict(&w.resupply);
@@ -21400,6 +21593,11 @@ fn jp_stage_dict(s: &cartalith_civ::JpDerivedStage) -> VarDictionary {
         d.set("slope_rise", sl.rise);
         d.set("slope_fall", sl.fall);
         d.set("slope_on_way", sl.on_way);
+    }
+    // Ruling EU item 3: the accepted river leg this stage sails (an index into
+    // the plan's `river_legs_applied`); omitted for every stage not on a leg.
+    if let Some(l) = s.river_leg {
+        d.set("river_leg", l as i64);
     }
     d
 }
@@ -21496,7 +21694,7 @@ fn jp_journey_plan_dict(p: &cartalith_civ::JpJourneyPlan) -> VarDictionary {
     let supply_block = p.supply_block.as_ref().map_or_else(VarDictionary::new, |b| {
         vdict! { "from_km" => b.from_km, "to_km" => b.to_km, "range_km" => b.range_km, "reason" => b.reason.as_str() }
     });
-    vdict! {
+    let mut d = vdict! {
         "resupply_suggestions" => &suggestions,
         "supply_block" => &supply_block,
         "resupply_stop_days" => p.resupply_stop_days,
@@ -21558,7 +21756,25 @@ fn jp_journey_plan_dict(p: &cartalith_civ::JpJourneyPlan) -> VarDictionary {
         // Empty string is the reference's own `null` -- there is no advisory
         // for a journey short enough not to need one.
         "risk" => cartalith_civ::jp_risk(p.days).unwrap_or(""),
+    };
+    // Ruling EU item 3: the river legs applied and dropped, and -- only when a
+    // leg was applied -- the route the stages index (`route_points`), which is
+    // then the committed route with the legs spliced in. Each key is omitted
+    // when empty (callers test `has()`).
+    if let Some(rp) = &p.route_pts {
+        let pts: PackedVector2Array = rp.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+        d.set("route_points", &pts);
     }
+    if !p.river_legs_applied.is_empty() {
+        let legs: Array<VarDictionary> = p.river_legs_applied.iter().map(jp_river_leg_dict).collect();
+        d.set("river_legs_applied", &legs);
+    }
+    if !p.river_legs_dropped.is_empty() {
+        let dropped: Array<VarDictionary> =
+            p.river_legs_dropped.iter().map(|x| vdict! { "key" => x.key.as_str(), "reason" => x.reason.as_str() }).collect();
+        d.set("river_legs_dropped", &dropped);
+    }
+    d
 }
 
 /// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first
@@ -22094,6 +22310,46 @@ impl WorldGen {
             return vdict! { "ok" => false, "error" => "no derivable stages for that route", "rejected" => &rejected };
         };
 
+        // ---- Ruling EU item 2: the stretches the planned route rides a way ----
+        //
+        // A report over the route the stages index (the river-spliced one when
+        // a leg was applied), by the planner's own road credit
+        // (`cartalith_civ::jp_road_sources`, the same cells `jp_road_cells`
+        // credits). Changes no stage and no time.
+        let manual_ways = self.infra.as_ref().map(|t| t.ways.clone()).unwrap_or_default();
+        let planned_pts: Vec<(f64, f64)> = journey.route_pts.clone().unwrap_or_else(|| world.on_map_points(&pts));
+        // Points on an accepted river leg are afloat: they ride no way.
+        let mut afloat = vec![false; planned_pts.len()];
+        for st in journey.stages.iter().filter(|s| s.river_leg.is_some()) {
+            for k in st.i0..=st.i1.min(planned_pts.len().saturating_sub(1)) {
+                afloat[k] = true;
+            }
+        }
+        let way_spans = jp_way_spans_array(&world, &civ.ways, &manual_ways, &civ.road_edges, gw, &planned_pts, &afloat);
+
+        // ---- Ruling EU item 3: river stretches offered along the route ----
+        //
+        // Only when the request asks (`river_offers: true`): each offer costs
+        // exact re-plans. The library's own hulls are ranked beside the built-in
+        // roster.
+        let mut hulls = cartalith_civ::river_stretch::jp_builtin_hulls();
+        let mut custom: Vec<String> = vessel_overrides.keys().filter(|k| !hulls.contains(k)).cloned().collect();
+        custom.sort();
+        hulls.extend(custom);
+        let offers = (request.get("river_offers").and_then(|v| v.try_to::<bool>().ok()) == Some(true)).then(|| {
+            jp_river_offers_dicts(cartalith_civ::river_stretch::jp_river_offers(
+                &world,
+                &world.on_map_points(&pts),
+                &plan,
+                &layovers,
+                &forage,
+                Some(&resolver),
+                Some(&vessel_resolver),
+                &journey,
+                &hulls,
+            ))
+        });
+
         let v = cartalith_civ::jp_verdict(&journey);
         let reasons: PackedStringArray = v.reasons.iter().map(GString::from).collect();
         let verdict = vdict! {
@@ -22113,7 +22369,7 @@ impl WorldGen {
         // reference's own `null`, and the same convention `confidence` uses.
         let cost = cartalith_civ::jp_plan_cost(&journey, &plan)
             .map_or_else(VarDictionary::new, |c| jp_cost_dict(&c));
-        vdict! {
+        let mut out = vdict! {
             "ok" => true,
             "error" => "",
             "rejected" => &rejected,
@@ -22123,7 +22379,15 @@ impl WorldGen {
             "cost" => &cost,
             "stage_picks" => &stage_picks,
             "auto" => &auto,
+            "way_spans" => &way_spans,
+        };
+        if let Some((arr, note)) = offers {
+            out.set("river_offers", &arr);
+            if let Some(n) = note {
+                out.set("river_offers_note", n);
+            }
         }
+        out
     }
 
     /// `_jpRerouteForMode` (reference line 20391) over a **committed
@@ -22192,9 +22456,12 @@ impl WorldGen {
             flow: Some(&ws.flow_discharge),
             flow_thresh: cartalith_hydrology::river_flow_thresh(self.gw as usize, self.gh as usize, self.gw as usize, self.map_width_km),
         };
-        match cartalith_civ::jp_reroute_for_mode(&ctx, &pts, &transport.to_string(), forced.as_deref()) {
+        // Ruling EU item 2: a re-route joins ways like a fresh commit (owner
+        // question Q5's default), unless the session switch is off.
+        let join = self.route_join_ways.then(|| cartalith_civ::way_join::WayJoin::new(civ.ways.len() + manual_ways.len()));
+        match cartalith_civ::jp_reroute_for_mode_joined(&ctx, &pts, &transport.to_string(), forced.as_deref(), join.as_ref()) {
             Err(e) => fail(&e),
-            Ok(r) => {
+            Ok((r, rep)) => {
                 let points: PackedVector2Array =
                     r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
                 let km = r.km;
@@ -22208,11 +22475,38 @@ impl WorldGen {
                     // prints -- must say so rather than keep naming the domain
                     // the original commit used.
                     route.mode = mode;
+                    route.join = rep.clone().map(|l| vec![l]);
                 }
-                vdict! { "ok" => true, "error" => "", "km" => km, "points" => &points }
+                let mut out = vdict! { "ok" => true, "error" => "", "km" => km, "points" => &points };
+                // Ruling EU item 2: present only when the join ran (omitted, not
+                // a plausible "not joined", when the switch is off).
+                if let Some(l) = &rep {
+                    out.set("join", &route_join_dict(std::slice::from_ref(l)));
+                }
+                out
             }
         }
     }
+}
+
+/// Ruling EU item 2: a route's way-join report (`cartalith_civ::way_join::
+/// LegJoin` per leg) as `{legs, joined_legs, spliced_runs, cost_ratio_max}`:
+/// how many legs were routed, how many rode a way they would otherwise have cut
+/// off, how many stretches are drawn on a way's own line, and the dearest
+/// joined-or-direct leg's router cost over its direct path (`>= 1`, at most
+/// `1 + JOIN_MARGIN`). `cost_ratio_max` is **omitted** when no leg was measured
+/// (every leg water or unreachable), never a plausible `1.0`.
+fn route_join_dict(legs: &[cartalith_civ::way_join::LegJoin]) -> VarDictionary {
+    let mut d = vdict! {
+        "legs" => legs.len() as i64,
+        "joined_legs" => legs.iter().filter(|l| l.joined).count() as i64,
+        "spliced_runs" => legs.iter().map(|l| l.spliced_runs as i64).sum::<i64>(),
+        "margin" => cartalith_civ::way_join::JOIN_MARGIN,
+    };
+    if let Some(m) = legs.iter().filter_map(|l| l.cost_ratio).reduce(f64::max) {
+        d.set("cost_ratio_max", m);
+    }
+    d
 }
 
 /// [`cartalith_civ::JourneyCost`] flattened. Every figure is in **day-wages**

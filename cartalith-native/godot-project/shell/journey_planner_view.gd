@@ -287,6 +287,20 @@ var _resupply_accepted: Array = []
 ## hides the Accept prompt: the engine still counts the stop as needed, so the
 ## verdict keeps saying so until it is accepted or the plan changes.
 var _resupply_declined: Dictionary = {}
+## Ruling EU item 3: the river stretches the user accepted, each the very
+## `river_offers` entry it was offered as (`{key, cells, entry, exit, vessel,
+## hulls, ...}`), sent back to `jp_compute` as `river_legs` (the engine reads
+## `cells`, `entry`, `exit` and `vessel`, and ignores the rest). Saved with the
+## journey's plan (`journey_set_plan`); reset with the layovers, since a leg
+## names points of one particular route.
+var _river_legs: Array = []
+## Ruling EU item 3: offer keys the user declined this session (key -> true).
+## Declining only hides the offer's prompts; whether a decline is saved with the
+## journey is owner question Q8, so it is not yet.
+var _river_declined: Dictionary = {}
+## Ruling EU item 3: the hull chosen in an offer's menu before it is accepted
+## (offer key -> hull name); absent means the recommended one.
+var _river_pick: Dictionary = {}
 ## Index of the stage selected on the profile spine; set by `_on_stage_clicked`, reset to 0 when
 ## the route or journey changes and clamped to the stage count in `_apply_result`.
 var _selected_stage := 0
@@ -674,6 +688,11 @@ func _commit_stops(stops: Array) -> int:
 	var idx := bridge.route_commit()
 	if idx >= 0 and app.viewport != null:
 		app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
+	## Ruling EU item 2: say what the way join did (absent when it did not run).
+	if idx >= 0 and app != null:
+		var join: Dictionary = bridge.route_get(idx).get("join", {})
+		if not join.is_empty():
+			app.set_status("hint", _join_text(join), "text_dim")
 	return idx
 
 ## Opens route `idx` in the planner with fresh per-route state, as `open_with_route()` does.
@@ -683,6 +702,9 @@ func _select_route(idx: int) -> void:
 	_layovers.clear()
 	_resupply_accepted.clear()
 	_resupply_declined.clear()
+	_river_legs.clear()
+	_river_declined.clear()
+	_river_pick.clear()
 	_selected_stage = 0
 	_isolated_stage = -1
 	_trim = Vector2(0.0, 1.0)
@@ -954,6 +976,9 @@ func open_with_route(route_index: int) -> void:
 	_layovers.clear()
 	_resupply_accepted.clear()
 	_resupply_declined.clear()
+	_river_legs.clear()
+	_river_declined.clear()
+	_river_pick.clear()
 	_selected_stage = 0
 	_isolated_stage = -1
 	_trim = Vector2(0.0, 1.0)
@@ -1317,6 +1342,9 @@ func _refresh_route_choice() -> void:
 			_layovers.clear()
 			_resupply_accepted.clear()
 			_resupply_declined.clear()
+			_river_legs.clear()
+			_river_declined.clear()
+			_river_pick.clear()
 			_selected_stage = 0
 			_isolated_stage = -1
 			_trim = Vector2(0.0, 1.0)
@@ -1977,6 +2005,9 @@ func _compute() -> void:
 		return
 	var request: Dictionary = _plan_request()
 	request["route"] = _route_index
+	## Ruling EU item 3: ask for the river stretches along the route. Sent by
+	## the compute only, never saved with the plan (`_plan_request()`).
+	request["river_offers"] = true
 	_last_result = bridge.jp_compute(request)
 	_apply_result()
 
@@ -2006,6 +2037,8 @@ func _plan_request() -> Dictionary:
 		request["layovers"] = _layovers.duplicate(true)
 	if not _resupply_accepted.is_empty():
 		request["resupply_accepted"] = _resupply_accepted.duplicate(true)
+	if not _river_legs.is_empty():
+		request["river_legs"] = _river_legs.duplicate(true)
 	return request
 
 ## The carriage keys `jpAutoPickTransport` mutates on the plan -- the exact
@@ -2906,7 +2939,9 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 		return
 
 	var route: Dictionary = bridge.route_get(_route_index)
-	var pts: PackedVector2Array = route.get("points", PackedVector2Array())
+	## Ruling EU item 3: with river legs applied the stages index the route
+	## with the legs spliced in, which the plan carries as `route_points`.
+	var pts: PackedVector2Array = plan.get("route_points", route.get("points", PackedVector2Array()))
 	var stages: Array = plan.get("stages", [])
 	var results: Array = plan.get("results", [])
 	var segments: Array = []
@@ -2932,6 +2967,20 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 		resupply_marks.append({"at": Vector2(float(rd.get("x", 0.0)), float(rd.get("y", 0.0))),
 			"accepted": bool(rd.get("accepted", false))})
 	_route_map.resupply = resupply_marks
+	## Ruling EU item 2: the stretches the route rides a way, drawn as a casing.
+	_route_map.way_spans = (_last_result.get("way_spans", []) as Array) if not plan.is_empty() else []
+	## Ruling EU item 3: each offered river stretch, numbered as in the list.
+	var offer_marks: Array = []
+	var extra := PackedVector2Array()
+	var base_n: int = (plan.get("river_legs_applied", []) as Array).size()
+	var offers: Array = _last_result.get("river_offers", []) if not plan.is_empty() else []
+	for i in offers.size():
+		var o: Dictionary = offers[i]
+		var op := _cells_to_points(o.get("cells", PackedInt32Array()), grid.x)
+		extra.append_array(op)
+		offer_marks.append({"pts": op, "n": base_n + i + 1, "declined": _river_declined.has(String(o.get("key", "")))})
+	_route_map.river_offers = offer_marks
+	_route_map.bounds_extra = extra
 	_route_map.queue_redraw()
 	_route_line.queue_redraw()
 
@@ -3112,6 +3161,9 @@ func _on_trim_dragged(from_frac: float, to_frac: float) -> void:
 	_layovers.clear()
 	_resupply_accepted.clear()
 	_resupply_declined.clear()
+	_river_legs.clear()
+	_river_declined.clear()
+	_river_pick.clear()
 	_selected_stage = 0
 	_isolated_stage = -1
 	_tool_options_journey()
@@ -3399,8 +3451,12 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 		"Only applies when this stage's travel mode is Mounted Rider.")
 	_override_choice_row(grid, idx, ov, "desert_water", "Desert water", _options.get("desert_water", PackedStringArray()),
 		_inherit_label("desert_water", s, r))
+	## Ruling EU item 3: a river leg sails the hull chosen for it under River
+	## stretches, so its stage's own vessel override is greyed with that reason.
 	_override_choice_row(grid, idx, ov, "vessel", "Vessel", PackedStringArray(_vessel_names()),
-		_inherit_label("vessel", s, r), cat == "land", "— land stage, no vessel applies.")
+		_inherit_label("vessel", s, r), cat == "land" or s.has("river_leg"),
+		"— land stage, no vessel applies." if cat == "land" else
+		"— river leg #%d: its hull is chosen under River stretches." % (int(s.get("river_leg", 0)) + 1))
 
 	## **`HFlowContainer`, and it is these three buttons that were the whole of
 	## the panel's 1 408 px minimum.** Measured 2026-09-06, `_jpinsw_probe.gd`,
@@ -3937,6 +3993,7 @@ func _commit_saved_journey(jname: String) -> void:
 		"stage_overrides": _stage_overrides.duplicate(true),
 		"layovers": _layovers.duplicate(true),
 		"resupply_accepted": _resupply_accepted.duplicate(true),
+		"river_legs": _river_legs.duplicate(true),
 		"animal_entries": _animal_entries.duplicate(),
 		"trim": _trim,
 		"carriage_auto": _carriage_auto,
@@ -4068,6 +4125,9 @@ func _load_journey(i: int) -> void:
 	_layovers = (j.get("layovers", {}) as Dictionary).duplicate(true)
 	_resupply_accepted = (j.get("resupply_accepted", []) as Array).duplicate(true)
 	_resupply_declined.clear()
+	_river_legs = (j.get("river_legs", []) as Array).duplicate(true)
+	_river_declined.clear()
+	_river_pick.clear()
 	_animal_entries = (j.get("animal_entries", {}) as Dictionary).duplicate()
 	_trim = j.get("trim", Vector2(0.0, 1.0))
 	## Ruling AR: the auto flags travel with the journey. An entry restored
@@ -4133,6 +4193,9 @@ func _reroute_journey() -> void:
 	_layovers.clear()
 	_resupply_accepted.clear()
 	_resupply_declined.clear()
+	_river_legs.clear()
+	_river_declined.clear()
+	_river_pick.clear()
 	_selected_stage = 0
 	_isolated_stage = -1
 	_trim = Vector2(0.0, 1.0)
@@ -4277,6 +4340,8 @@ func build_results(body: Control) -> void:
 	_build_load_group(body, plan)
 	_build_supply_group(body, plan)
 	_build_resupply_group(body, plan)
+	_build_river_group(body, plan)
+	_build_ways_group(body)
 	_build_cost_group(body)
 	_build_risk_note(body, plan)
 	_build_vessels_group(body, plan)
@@ -4743,6 +4808,207 @@ func _build_resupply_group(body: Control, plan: Dictionary) -> void:
 					_apply_result())
 		g.add_child(row)
 	DccWidgets.note(g, "Only a settlement extends how far the provisions last: water refills at every river, lake or oasis the route passes, and grazing is already taken off the fodder carried.")
+
+## Ruling EU item 2: one sentence for what the way join did on a route
+## (`route_get`'s `join` or `jp_reroute`'s): how many legs rode a way and the
+## dearest leg's extra effort over its direct line, or that none could within the
+## margin. Never invents a ratio: with no measured leg it says so.
+func _join_text(join: Dictionary) -> String:
+	var legs := int(join.get("legs", 0))
+	var joined := int(join.get("joined_legs", 0))
+	var margin := float(join.get("margin", 0.0))
+	if not join.has("cost_ratio_max"):
+		return "No leg of this route crosses land, so no way was joined."
+	var spliced := int(join.get("spliced_runs", 0))
+	if joined == 0 and spliced > 0:
+		return "Drawn on the way it follows (%d stretch%s); no detour onto another way was worth more than +%d%% effort." % [
+			spliced, "" if spliced == 1 else "es", roundi(margin * 100.0)]
+	if joined == 0:
+		return "No way led toward the destination within +%d%% effort, so the direct line was kept." % roundi(margin * 100.0)
+	var extra := maxf(0.0, float(join["cost_ratio_max"]) - 1.0)
+	return "Joined a way on %d of %d legs (at most +%d%% effort over the direct line); the stretches on a way are drawn on its own line." % [
+		joined, legs, roundi(extra * 100.0)]
+
+## Ruling EU item 3: grid cell indices (row-major, `gw` wide) as the grid
+## points the route map draws in, one per cell -- the same `(c % gw, c / gw)`
+## the engine splices a leg's cells in at (`river_stretch::jp_apply_river_legs`).
+func _cells_to_points(cells: PackedInt32Array, gw: int) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	if gw <= 0:
+		return out
+	for c in cells:
+		out.append(Vector2(float(c % gw), float(c / gw)))
+	return out
+
+## Ruling EU item 3: an `HFlowContainer` row for an offer's buttons, so they wrap
+## on a narrow dock and a phone instead of widening it (MISTAKES.md: a row of
+## buttons is a panel's minimum width).
+func _river_row(parent: Control) -> HFlowContainer:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 4)
+	parent.add_child(row)
+	return row
+
+## Ruling EU item 3: drops the accepted leg `key` from `_river_legs`.
+func _remove_river_leg(key: String) -> void:
+	for i in range(_river_legs.size() - 1, -1, -1):
+		if String((_river_legs[i] as Dictionary).get("key", "")) == key:
+			_river_legs.remove_at(i)
+
+## Ruling EU item 3: a hull menu over an offer's or a leg's ranked `hulls` (one
+## row per hull: `name`, `fits`, `days` or `reason`). The recommended hull is
+## starred; a hull that cannot work the stretch is listed disabled with the
+## planner's own refusal as its tooltip, so the user sees why. `on_pick` gets the
+## chosen hull's name. `current` is the hull selected now.
+func _hull_menu(parent: Control, hulls: Array, recommended: String, current: String, on_pick: Callable) -> OptionButton:
+	var labels: Array = []
+	var names: Array = []
+	for h in hulls:
+		var d: Dictionary = h
+		var hull_name := String(d.get("name", ""))
+		var star := "★ " if hull_name == recommended else ""
+		labels.append("%s%s · %.1f d" % [star, hull_name, float(d.get("days", 0.0))] if bool(d.get("fits", false))
+			else "%s · cannot" % hull_name)
+		names.append(hull_name)
+	## `DccWidgets.choice`: the shell's own dropdown, so it takes the form's
+	## type size and touch height (the phone fit walk scales it like every other).
+	var ob := DccWidgets.choice(parent, "hull", labels, maxi(0, names.find(current)),
+		func(i: int): on_pick.call(String(names[i])))
+	for i in hulls.size():
+		var d2: Dictionary = hulls[i]
+		if not bool(d2.get("fits", false)):
+			ob.set_item_disabled(i, true)
+			ob.set_item_tooltip(i, String(d2.get("reason", "")))
+	ob.tooltip_text = "Hull for this river stretch: days on the stretch, the recommended one starred."
+	return ob
+
+## Ruling EU item 3, the river stretches offered per stretch: one row per
+## navigable stretch along the route that `jp_compute` measured as quicker
+## (`river_offers`), with its direction, length along the route, the days it
+## saves (an exact re-plan, `saving_days`) and a hull menu; "use river" adds it
+## to `_river_legs` and recomputes, "decline" hides its prompts for the session.
+## Accepted legs (`plan.river_legs_applied`) are listed first with "walk
+## instead" and their own hull menu; a saved leg the engine could not apply is
+## named with the engine's reason. On a journey that already travels by water,
+## or where no stretch saves time, the engine's note stands in for the list.
+## Nothing is drawn when the result carries no river key at all (a binary
+## without the offers).
+func _build_river_group(body: Control, plan: Dictionary) -> void:
+	var offers: Array = _last_result.get("river_offers", [])
+	var applied: Array = plan.get("river_legs_applied", [])
+	var dropped: Array = plan.get("river_legs_dropped", [])
+	if not _last_result.has("river_offers") and applied.is_empty() and dropped.is_empty():
+		return
+	var g := DccWidgets.section(body, "River stretches")
+	for i in applied.size():
+		var a: Dictionary = applied[i]
+		var key := String(a.get("key", ""))
+		var hull := String(a.get("vessel", ""))
+		_kv_row(g, "#%d · river leg" % (i + 1), "sailing · %s" % (hull if hull != "" else "recommended hull"), "accent")
+		var stored: Dictionary = {}
+		for l in _river_legs:
+			if String((l as Dictionary).get("key", "")) == key:
+				stored = l
+		var hulls: Array = stored.get("hulls", [])
+		## The menu on a row of its own: beside the buttons it is squeezed to a
+		## few letters on the phone (measured 2026-11-13, `_jpwayriver_probe`).
+		if not hulls.is_empty():
+			_hull_menu(g, hulls, String(stored.get("recommended", "")), hull, func(name: String):
+				stored["vessel"] = name
+				app.set_status("hint", "River leg #%d now sails a %s." % [i + 1, name], "accent")
+				_compute())
+		var row := _river_row(g)
+		var n := i + 1
+		DccWidgets.action(row, "walk instead", func():
+			_remove_river_leg(key)
+			app.set_status("hint", "River leg #%d removed; that stretch is walked again." % n, "text_dim")
+			_compute())
+	for d in dropped:
+		var dd: Dictionary = d
+		var lab := DccWidgets.note(g, "%s A saved river leg was not applied: %s" % [DccIcons.SYMBOLS["blocked"], String(dd.get("reason", ""))])
+		lab.add_theme_color_override("font_color", DccTheme.c("warn"))
+	if offers.is_empty():
+		if _last_result.has("river_offers_note") and applied.is_empty():
+			DccWidgets.note(g, String(_last_result["river_offers_note"]))
+		return
+	var base := applied.size()
+	var open: Array = []
+	for i in offers.size():
+		var o: Dictionary = offers[i]
+		var key := String(o.get("key", ""))
+		var declined := _river_declined.has(key)
+		var recommended := String(o.get("recommended", ""))
+		var pick := String(_river_pick.get(key, recommended))
+		var num := base + i + 1
+		_kv_row(g, "#%d · %s · %s" % [num, String(o.get("dir", "")), DccUnits.format_thousands(float(o.get("route_km", 0.0)))],
+			"%s · saves %.1f d" % ["declined" if declined else "offered", float(o.get("saving_days", 0.0))],
+			"text_ghost" if declined else "water")
+		var terrains: PackedStringArray = o.get("terrains", PackedStringArray())
+		var conds: PackedStringArray = o.get("conditions", PackedStringArray())
+		## "why": the water types and currents on the stretch, and how directly
+		## it runs along the route (route km per km of river).
+		DccWidgets.note(g, "%s · %s · %.0f%% along the route" % [" → ".join(terrains), " → ".join(conds), float(o.get("eta", 0.0)) * 100.0])
+		if declined:
+			continue
+		open.append(o)
+		_hull_menu(g, o.get("hulls", []), recommended, pick, func(name: String):
+			_river_pick[key] = name)
+		var row := _river_row(g)
+		DccWidgets.action(row, "use river", func():
+			var leg := o.duplicate(true)
+			leg["vessel"] = String(_river_pick.get(key, recommended))
+			_river_legs.append(leg)
+			app.set_status("hint", "River stretch #%d accepted: a %s, about %.1f d saved." % [num, String(leg["vessel"]), float(o.get("saving_days", 0.0))], "accent")
+			_compute(), true)
+		DccWidgets.action(row, "decline", func():
+			_river_declined[key] = true
+			_apply_result())
+	if open.size() > 1:
+		DccWidgets.action(_river_row(g), "use all recommended", func():
+			## Each offer was measured alone, so taking several is re-planned
+			## as a whole; the engine drops any that overlap the first taken.
+			for o2 in open:
+				var leg2: Dictionary = (o2 as Dictionary).duplicate(true)
+				leg2["vessel"] = String(leg2.get("recommended", ""))
+				_river_legs.append(leg2)
+			app.set_status("hint", "Accepted %d river stretches with their recommended hulls." % open.size(), "accent")
+			_compute())
+	DccWidgets.note(g, "Each saving is a full re-plan with that one stretch sailed. The recommended hull is the cheapest within 10% of the fastest that can work the whole stretch.")
+
+## Ruling EU item 2: `way_spans`' `class` keys as the words the stretch list
+## prints (`ancient` is the generated village connector, drawn as a track).
+const _WAY_CLASS_LABEL := {"highway": "highway", "regional": "regional road", "road": "road",
+	"track": "track", "ancient": "old track", "sealane": "sea lane"}
+
+## Ruling EU item 2: the stretches of the planned route that ride a way
+## (`jp_compute`'s `way_spans`), longest first, each "on <name> (<class>)" and
+## its length, and what the way join did when the route was committed
+## (`route_get`'s `join`, present only when it ran this session). Nothing is
+## drawn for a route that rides no way and was not joined this session.
+func _build_ways_group(body: Control) -> void:
+	var spans: Array = (_last_result.get("way_spans", []) as Array).duplicate()
+	var join: Dictionary = bridge.route_get(_route_index).get("join", {}) if _route_index >= 0 else {}
+	if spans.is_empty() and join.is_empty():
+		return
+	var g := DccWidgets.section(body, "On ways")
+	if not join.is_empty():
+		DccWidgets.note(g, _join_text(join))
+	spans.sort_custom(func(a, b): return float(a.get("km", 0.0)) > float(b.get("km", 0.0)))
+	var total := 0.0
+	for sp in spans:
+		total += float((sp as Dictionary).get("km", 0.0))
+	var shown := mini(spans.size(), 6)
+	for k in shown:
+		var d: Dictionary = spans[k]
+		var cls := String(_WAY_CLASS_LABEL.get(String(d.get("class", "")), "way"))
+		## A raw network edge has no name of its own (the key is absent).
+		var label := "on %s (%s)" % [String(d["name"]), cls] if d.has("name") else "on an unnamed %s" % cls
+		_kv_row(g, label, DccUnits.format_thousands(float(d.get("km", 0.0))))
+	if spans.size() > shown:
+		DccWidgets.note(g, "and %d shorter stretches" % (spans.size() - shown))
+	if not spans.is_empty():
+		_kv_row(g, "on ways in all", DccUnits.format_thousands(total), "accent")
 
 ## JP-12 (§8: "per-leg bar with resupply ticks") -- `resupply_reach` itself
 ## carries no per-stop positions (`required_km`/`max_gap_km`/`stops`/`unmet`
@@ -5368,6 +5634,16 @@ class _RouteMapView extends Control:
 	## drawn by `_RouteLineLayer` as squares (filled once accepted) so they
 	## read apart from the settlement rings above.
 	var resupply: Array = []
+	## Ruling EU item 2: `jp_compute`'s `way_spans` ([{i0, i1, ...}] into `pts`),
+	## drawn by `_RouteLineLayer` as a casing under the stretches on a way.
+	var way_spans: Array = []
+	## Ruling EU item 3: [{pts: PackedVector2Array grid coords, n: int, declined:
+	## bool}] -- the river stretches offered, drawn dashed in the water colour with
+	## their list number (faint once declined; an accepted one is a river stage).
+	var river_offers: Array = []
+	## Ruling EU item 3: points `_bounds()` must also frame (the offered
+	## stretches, which can lie up to a day's travel off the route).
+	var bounds_extra: PackedVector2Array = PackedVector2Array()
 	var map_texture: Texture2D = null
 	## True only for the "map" layer -- see `set_backdrop`.
 	var _use_lod := false
@@ -5601,7 +5877,7 @@ class _RouteMapView extends Control:
 			return [world_bounds.position, world_bounds.end]
 		var minv := pts[0]
 		var maxv := pts[0]
-		for p in pts:
+		for p in pts + bounds_extra:
 			minv.x = minf(minv.x, p.x)
 			minv.y = minf(minv.y, p.y)
 			maxv.x = maxf(maxv.x, p.x)
@@ -5788,6 +6064,17 @@ class _RouteLineLayer extends Control:
 		## plain background never had this problem, so the halo is scoped to
 		## the one condition that creates it rather than changed unconditionally.
 		var halo := map_texture != null
+		## Ruling EU item 2: a casing under every stretch the route rides a way,
+		## so "on the road" reads at a glance; drawn first, under the line.
+		for wsp in backdrop.way_spans:
+			var wd: Dictionary = wsp
+			var a0: int = clampi(int(wd.get("i0", 0)), 0, pts.size() - 1)
+			var a1: int = clampi(int(wd.get("i1", a0)), a0, pts.size() - 1)
+			var cas := PackedVector2Array()
+			for i in range(a0, a1 + 1):
+				cas.append(fit.call(pts[i]))
+			if cas.size() >= 2:
+				draw_polyline(cas, DccTheme.c("text_dim"), 5.0, true)
 		if stage_segments.is_empty():
 			var poly := PackedVector2Array()
 			for p in pts:
@@ -5823,6 +6110,26 @@ class _RouteLineLayer extends Control:
 				if halo:
 					draw_polyline(poly, Color(0, 0, 0, 0.6), w + 2.0, true)
 				draw_polyline(poly, col, w, true)
+		## Ruling EU item 3: each offered river stretch, dashed in the water
+		## colour with its list number at its middle (faint once declined).
+		var font := ThemeDB.fallback_font
+		for ro in backdrop.river_offers:
+			var rd: Dictionary = ro
+			var rp: PackedVector2Array = rd.get("pts", PackedVector2Array())
+			if rp.size() < 2:
+				continue
+			var col := DccTheme.c("water")
+			if bool(rd.get("declined", false)):
+				col.a = 0.35
+			var prev: Vector2 = fit.call(rp[0])
+			for k in range(1, rp.size()):
+				var cur: Vector2 = fit.call(rp[k])
+				draw_dashed_line(prev, cur, col, 2.2, 4.0, true, true)
+				prev = cur
+			var mid: Vector2 = fit.call(rp[rp.size() / 2])
+			draw_circle(mid, 7.0, DccTheme.c("bg"))
+			draw_arc(mid, 7.0, 0, TAU, 20, col, 1.4)
+			draw_string(font, mid + Vector2(-7.0, 4.0), str(int(rd.get("n", 0))), HORIZONTAL_ALIGNMENT_CENTER, 14.0, 10, col)
 		for i in range(0, pts.size(), maxi(1, pts.size() / 40)):
 			var p: Vector2 = fit.call(pts[i])
 			draw_circle(p, 1.2, DccTheme.c("line_soft"))
@@ -6088,6 +6395,8 @@ func _restore_from_engine() -> void:
 			entry["layovers"] = (saved_plan.get("layovers", {}) as Dictionary).duplicate(true)
 			entry["animal_entries"] = (saved_plan.get("animal_entries", {}) as Dictionary).duplicate()
 			entry["trim"] = saved_plan.get("trim", Vector2(0.0, 1.0))
+			## Ruling EU item 3: absent on a journey with no accepted legs.
+			entry["river_legs"] = (saved_plan.get("river_legs", []) as Array).duplicate(true)
 			entry["carriage_auto"] = bool(saved_plan.get("auto_carriage", false))
 			entry["stage_auto"] = bool(saved_plan.get("auto_stage", false))
 		else:

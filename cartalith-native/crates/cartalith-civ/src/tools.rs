@@ -611,9 +611,40 @@ fn civ_way_discounts_on_grid(ways: &[WayRef], rw: usize, rh: usize, sc: f64, gw:
     owner
 }
 
+/// Which way owns each routing cell, by the rule [`civ_way_discounts_on_grid`]
+/// uses (a higher planner priority takes a cell; an equal one keeps the first
+/// writer in `ways` order): the index into `ways` of the owner, or `-1` where no
+/// non-hidden land way's neighbourhood reaches. Ruling EU item 2 (2026-11-13):
+/// the way join reads it to know which way a routed cell rides, so the way a
+/// route is discounted for and the way it is drawn on are one way. Sea lanes are
+/// skipped: the join rides land ways only (owner question Q3's default). Must
+/// keep the discount's ownership rule, or a route could be discounted by one way
+/// and drawn on another; `way_owner_matches_the_discount_owner` checks the two
+/// agree on a fixture where a track and a highway overlap.
+pub(crate) fn civ_way_owner_on_grid(ways: &[WayRef], rw: usize, rh: usize, sc: f64, gw: usize) -> Vec<i32> {
+    let mut owner = vec![-1i32; rw * rh];
+    let mut pri_of = vec![0u8; rw * rh];
+    for (wi, w) in ways.iter().enumerate() {
+        if w.pts.is_empty() || w.hidden || w.sea {
+            continue;
+        }
+        let pri = way_class::planner_row(w.class).map_or(0, |r| r.pri);
+        let mut cells = HashSet::new();
+        civ_walk_way_cells(w.pts, w.brks, gw, |px, py| civ_mark_way_neighborhood(px, py, rw, rh, sc, &mut cells));
+        for i in cells {
+            if owner[i] < 0 || pri_of[i] < pri {
+                owner[i] = wi as i32;
+                pri_of[i] = pri;
+            }
+        }
+    }
+    owner
+}
+
 /// The full-res cells covered by every sea-lane way, for
 /// [`TerrainValid::Land`]'s ferry exception (reference line 21849).
-fn civ_sea_lane_cells(ways: &[WayRef], gw: usize, gh: usize) -> HashSet<usize> {
+/// `pub(crate)` for the way join's splice check (Ruling EU item 2).
+pub(crate) fn civ_sea_lane_cells(ways: &[WayRef], gw: usize, gh: usize) -> HashSet<usize> {
     let mut cells = HashSet::new();
     for w in ways {
         if w.pts.is_empty() || !w.sea {
@@ -637,12 +668,13 @@ fn civ_sea_lane_cells(ways: &[WayRef], gw: usize, gh: usize) -> HashSet<usize> {
 /// wide, so the grid is 1:1; Ruling BT raised the cap from 384 -- some older test
 /// notes still say 384 and are only true of the small test worlds). Private: it is only a
 /// hand-off between the grid builders and the Dijkstra call, and must never
-/// outlive one route query.
-struct CostGrid {
-    cost: Vec<f32>,
-    rw: usize,
-    rh: usize,
-    sc: f64,
+/// outlive one route query. `pub(crate)` since 2026-11-13 so Ruling EU item 2's
+/// way join ([`crate::way_join`]) costs its candidate paths on exactly this grid.
+pub(crate) struct CostGrid {
+    pub(crate) cost: Vec<f32>,
+    pub(crate) rw: usize,
+    pub(crate) rh: usize,
+    pub(crate) sc: f64,
 }
 
 /// Multiplier on the *slope term* of a land cell's cost, from the corridor
@@ -934,6 +966,41 @@ pub fn civ_dijkstra_path_guided(
     mode: RouteMode,
     guide: Option<&RouteGuide>,
 ) -> DijkstraPath {
+    // WJ-1 (Ruling EU item 2, 2026-11-13): split into the cost grid, the
+    // kernel call and the trace, unchanged in order and arithmetic, so the
+    // way join (`crate::way_join`) can cost and trace on the same grid. The
+    // golden tests that call this function are the proof it is a pure split.
+    let grid = civ_route_cost_grid(ctx, mode, guide);
+    let cells = civ_route_end_cells(&grid, sx, sy, ex, ey);
+    let (_dist, prev) = road_dijkstra(&grid.cost, grid.rw, grid.rh, cells.0, cells.1, ctx.world, None, true);
+    civ_route_trace(ctx, &grid, &prev, cells, (sx, sy, ex, ey), mode)
+}
+
+/// The routing grid's start and end cells `(rsx, rsy, rex, rey)` for a leg
+/// `(sx, sy) -> (ex, ey)`: each coordinate scaled by `grid.sc`, rounded the way
+/// JavaScript rounds and clamped into the grid. Split out of
+/// [`civ_dijkstra_path_guided`] (WJ-1) so the way join seeds the very cells the
+/// router seeds; must never clamp differently from it.
+pub(crate) fn civ_route_end_cells(grid: &CostGrid, sx: f64, sy: f64, ex: f64, ey: f64) -> (usize, usize, usize, usize) {
+    let (rw, rh, sc) = (grid.rw, grid.rh, grid.sc);
+    // `Math.min(RW-1, Math.round(sx*sc))` has no lower clamp in the
+    // reference -- a negative coordinate would index out of bounds there
+    // too (JS silently yields `undefined`; this would panic), so the low
+    // clamp is added rather than the panic reproduced.
+    let rsx = js_round(sx * sc).clamp(0.0, rw as f64 - 1.0) as usize;
+    let rsy = js_round(sy * sc).clamp(0.0, rh as f64 - 1.0) as usize;
+    let rex = js_round(ex * sc).clamp(0.0, rw as f64 - 1.0) as usize;
+    let rey = js_round(ey * sc).clamp(0.0, rh as f64 - 1.0) as usize;
+    (rsx, rsy, rex, rey)
+}
+
+/// The finished routing cost grid for one leg under `mode`: the mode's terrain
+/// grid, then the per-class way discounts and the sea-lane discount, then
+/// settlement gravity, then the optional drag guide. Split out of
+/// [`civ_dijkstra_path_guided`] unchanged (WJ-1, Ruling EU item 2) so the way
+/// join costs its paths on the grid the router routes on. Must never reorder
+/// those steps: gravity and the guide both read the discounted cost.
+pub(crate) fn civ_route_cost_grid(ctx: &RouteContext, mode: RouteMode, guide: Option<&RouteGuide>) -> CostGrid {
     let grid = match mode {
         RouteMode::Water => civ_water_cost_grid(ctx),
         RouteMode::Mixed => civ_mixed_cost_grid(ctx),
@@ -988,18 +1055,47 @@ pub fn civ_dijkstra_path_guided(
     if let Some(g) = guide {
         civ_apply_route_guide(&mut cost, rw, rh, sc, g);
     }
+    CostGrid { cost, rw, rh, sc }
+}
 
-    // `Math.min(RW-1, Math.round(sx*sc))` has no lower clamp in the
-    // reference -- a negative coordinate would index out of bounds there
-    // too (JS silently yields `undefined`; this would panic), so the low
-    // clamp is added rather than the panic reproduced.
-    let rsx = js_round(sx * sc).clamp(0.0, rw as f64 - 1.0) as usize;
-    let rsy = js_round(sy * sc).clamp(0.0, rh as f64 - 1.0) as usize;
-    let rex = js_round(ex * sc).clamp(0.0, rw as f64 - 1.0) as usize;
-    let rey = js_round(ey * sc).clamp(0.0, rh as f64 - 1.0) as usize;
+/// The routing cells of the path `prev` encodes, start to target, each a
+/// routing-grid index. The way join reads a candidate path's cells through this;
+/// it stops where [`civ_route_trace`]'s own walk stops (a `-1`, a self-loop, or
+/// after `n` steps), so it never names a cell the trace would not draw.
+pub(crate) fn civ_route_chain(prev: &[i32], si: usize, target: usize, n: usize) -> Vec<usize> {
+    let mut out = vec![target];
+    let mut ci = target as i64;
+    let mut guard = n as i64;
+    while ci != si as i64 && guard > 0 {
+        guard -= 1;
+        let p = prev[ci as usize];
+        if p < 0 || p as i64 == ci {
+            break;
+        }
+        ci = p as i64;
+        out.push(ci as usize);
+    }
+    out.reverse();
+    out
+}
 
-    let (_dist, prev) = road_dijkstra(&cost, rw, rh, rsx, rsy, ctx.world, None, true);
-
+/// Path reconstruction for one leg (WJ-1): walks `prev` from the end cell back
+/// to the start cell, emits each routing cell's drawn position, smooths the line
+/// with the mode's terrain repair ([`civ_smooth_path`]), and falls back to the
+/// two-point line when smoothing returns nothing. Split out of
+/// [`civ_dijkstra_path_guided`] unchanged; `cells` is `(rsx, rsy, rex, rey)` from
+/// [`civ_route_end_cells`] and `ends` the caller's own `(sx, sy, ex, ey)`.
+pub(crate) fn civ_route_trace(
+    ctx: &RouteContext,
+    grid: &CostGrid,
+    prev: &[i32],
+    cells: (usize, usize, usize, usize),
+    ends: (f64, f64, f64, f64),
+    mode: RouteMode,
+) -> DijkstraPath {
+    let (rw, rh, sc) = (grid.rw, grid.rh, grid.sc);
+    let (rsx, rsy, rex, rey) = cells;
+    let (sx, sy, ex, ey) = ends;
     let si = rsy * rw + rsx;
     let target = rey * rw + rex;
     let reachable = target == si || prev[target] >= 0;
@@ -2006,6 +2102,51 @@ mod tests {
         assert!(pulled.pts.iter().filter(|&&(x, y)| (x - 12.0).abs() <= 1.0 && y > 4.0).count() >= 2);
         assert_eq!(straight.pts.iter().filter(|&&(x, y)| (x - 12.0).abs() <= 1.0 && y > 4.0).count(), 0);
     }
+    /// Protects Ruling EU item 2's ownership rule: `civ_way_owner_on_grid` names,
+    /// for every routing cell, the way whose discount `civ_way_discounts_on_grid`
+    /// applies there, on a fixture where a track and a highway overlap (the
+    /// highway wins the shared cells, the track keeps its own).
+    #[test]
+    fn way_owner_matches_the_discount_owner() {
+        let (rw, rh) = (24usize, 16usize);
+        // Steps shorter than half the 24-cell grid: a longer step reads as the x seam.
+        let track = [(2.0, 8.0), (10.0, 8.0), (20.0, 8.0)];
+        let highway = [(10.0, 2.0), (10.0, 14.0)];
+        let ways = [
+            WayRef { pts: &track, brks: &[], sea: false, hidden: false, class: WayClass::Track },
+            WayRef { pts: &highway, brks: &[], sea: false, hidden: false, class: WayClass::Highway },
+        ];
+        let disc = civ_way_discounts_on_grid(&ways, rw, rh, 1.0, rw);
+        let owner = civ_way_owner_on_grid(&ways, rw, rh, 1.0, rw);
+        let mut shared = 0;
+        for i in 0..rw * rh {
+            match disc.get(&i) {
+                None => assert_eq!(owner[i], -1, "cell {i}"),
+                Some(&(_, d)) => {
+                    assert!(owner[i] >= 0, "cell {i}");
+                    assert_eq!(d, way_class::router_discount(ways[owner[i] as usize].class), "cell {i}");
+                }
+            }
+            if i == 8 * rw + 10 {
+                assert_eq!(owner[i], 1, "the crossing cell belongs to the highway");
+                shared += 1;
+            }
+        }
+        assert_eq!(shared, 1);
+        assert_eq!(owner[8 * rw + 3], 0, "a track-only cell stays the track's");
+        // Ties keep the first writer: two plain roads crossing, the earlier owns
+        // the crossing (the discount's own "equal priority keeps the first" rule).
+        let road_a = [(2.0, 8.0), (10.0, 8.0), (20.0, 8.0)];
+        let road_b = [(10.0, 2.0), (10.0, 14.0)];
+        let tie = [
+            WayRef { pts: &road_a, brks: &[], sea: false, hidden: false, class: WayClass::Road },
+            WayRef { pts: &road_b, brks: &[], sea: false, hidden: false, class: WayClass::Road },
+        ];
+        let owner = civ_way_owner_on_grid(&tie, rw, rh, 1.0, rw);
+        assert_eq!(owner[8 * rw + 10], 0, "the first road keeps the crossing");
+        assert_eq!(owner[3 * rw + 10], 1, "the second road owns its own cells");
+    }
+
 
     /// A hidden way is skipped by the discount mask -- `_civMarkWaysOnGrid`
     /// checks `w.hidden`, and a test that only ever used visible ways

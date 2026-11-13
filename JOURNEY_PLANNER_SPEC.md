@@ -154,6 +154,23 @@ prose with the actions that resolve it. Then collapsible groups:
 - **Vessels** — per water leg: vessel, hold used, sailing window.
 - **Calculation trace** — opens in its own window (`⧉`).
 
+> **Port addition — River stretches and On ways (Ruling EU items 2 and 3,
+> 2026-11-13).** Two groups after *Resupply stops*, on every form (the desktop
+> planner window, CIVIL ▸ Journeys on the tablet, the phone's results sheet).
+> *River stretches* lists each navigable stretch along the route that the
+> engine measured as quicker (`jp_compute`'s `river_offers`: direction, length
+> along the route, days saved by an exact re-plan, the water types and currents,
+> and a hull menu with each hull's days, the recommended one starred and a hull
+> that cannot work the stretch disabled with the engine's reason); **use river**
+> sails it as a river leg whatever the journey's transport, **decline** hides its
+> prompts for the session, an accepted leg offers **walk instead** and its own
+> hull menu, and a saved leg the world no longer has is named with its reason.
+> Offered stretches draw dashed in the water colour on the route map with their
+> number. *On ways* lists the stretches the route rides a way (`way_spans`: name
+> or class, km) and what the way join did when it was committed; the route map
+> draws those stretches with a casing. A river leg's stage greys its own Vessel
+> override (§6) with that reason: the leg's hull is chosen in *River stretches*.
+
 > **Port note — the trace is inline.** Built as an inline collapsible group over
 > the selected stage, not a `⧉` window, as `GUI_GAP_REGISTER.md` §7.12
 > recommended; it draws every land/water factor from the engine's structured

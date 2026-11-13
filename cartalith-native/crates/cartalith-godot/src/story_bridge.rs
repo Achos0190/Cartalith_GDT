@@ -534,7 +534,11 @@ impl WorldGen {
             });
         };
         let mut fresh = infra_tools_bridge::InfraTools::new();
-        fresh.adopt_resnapped(&carry.journeys, carry.next_id, &carry.old_places, carry.old_dims, &ctx_for);
+        // Ruling EU item 2: a re-snap joins ways like a fresh commit (owner
+        // question Q5's default); the drawn ways are the generated ones (a fresh
+        // generate has no hand-drawn ways yet).
+        let join = self.route_join_ways.then(|| cartalith_civ::way_join::WayJoin::new(civ.ways.len()));
+        fresh.adopt_resnapped(&carry.journeys, carry.next_id, &carry.old_places, carry.old_dims, &ctx_for, join.as_ref());
         for (_, name, outcome) in &fresh.resnap_report {
             match outcome {
                 ResnapOutcome::MissingStop { name: stop } => {

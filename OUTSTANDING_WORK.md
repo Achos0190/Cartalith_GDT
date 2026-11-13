@@ -3282,15 +3282,18 @@ for the shared stretch and leave it again (not built; the tail join only cuts wh
 destination); the way-width slider and a handset's own density are unmeasured. Done and in `STATUS.md`: the village-track
 bundles, the docked, phone and tablet census hosts, the ignored harnesses, and (2026-11-13) tracks cut only where a
 connected line reaches their destination, a merged route keeping its class, the `fh_r2_baseline` move attributed (Rulings
-ER, ET and the VA-6 kinds) and `_roadsettle_probe`'s junction-end check (15 of 15 on another way). **Item 2,
-the planner joins a way heading toward the destination: not built.** Its plan is the read-only map of 2026-11-12 (split
-`civ_dijkstra_path_guided` into a cost grid and a path step, score join and exit cells by `dS + ride + dD` under a margin,
-splice the way's own drawn line, report `way_spans`), with owner questions Q1-Q5 (world parameter or shell preference;
-margin; sea lanes; a direct-line opt-out; old-save re-routes). **Item 3, river stretches offered per stretch with the best
-vessel: not built.** Its plan is the same day's map (a pure `river_stretch` module on the planner's own navigable set,
-`JpPlan.river_legs` stored like `trim`, pinned leg stages, a results group mirroring resupply on every form), with EA-10's
-stage fingerprint as a prerequisite and eight owner questions. Measure first for both (WJ-0, RT-0); re-measure item 2 on
-the merged network.
+ER, ET and the VA-6 kinds) and `_roadsettle_probe`'s junction-end check (15 of 15 on another way). **Items 2 and 3
+are built (2026-11-13, `STATUS.md` "The planner joins ways, and offers river stretches"):** `cartalith_civ::way_join`
+(a planned route rides a way within `JOIN_MARGIN` and is drawn on the way's own line; on by default as a session setting,
+`set_route_join_ways`) and `cartalith_civ::river_stretch` (river stretches offered per stretch, each with a recommended
+hull, accepted as `JpPlan::river_legs`, saved with the journey's plan). **Still open for them:** owner questions Q1-Q5
+(world parameter or preference, and no UI toggle yet; margin, minimum ride and stickiness; sea lanes; a per-route
+direct-line opt-out, not built; old-route re-routes join) and item 3's (alignment tolerance 1/1.5; upstream only when
+quicker; a corridor of one day's travel; the hull rule, which picks the Longship on every offer measured; pack animals and
+vehicles aboard, which `jp_calc_water_ex` does not count against the hold; auto-accept, off; declines saved, session
+only; precedence with item 2; offers drawn on the main map, not built); 5-6 of 24 measured routes still draw a stretch
+beside a way at x4; a leg is drawn on channel cells, which can sit off the painted river (unmeasured); the tablet form was
+not probed; a joined commit costs about three times a plain one.
 
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There

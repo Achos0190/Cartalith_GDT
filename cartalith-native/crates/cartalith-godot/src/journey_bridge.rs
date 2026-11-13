@@ -771,6 +771,7 @@ mod tests {
             // as `jp_compute`'s own `resupply_accepted` key, so the flat
             // round trip carries none by design.
             accepted_resupply: Vec::new(),
+            river_legs: Vec::new(),
             party: JpParty { group_size: 12, cargo_kg: 900.0, donkey: 3, mule: 4, camel: 0, horse: 1, carts: 2, wagons: 0, sleds: 1, travois: 5 },
         };
         let (round, rejected) = plan_from_pairs(&flattened(&original));

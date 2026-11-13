@@ -134,6 +134,14 @@ pub mod way_merge;
 /// (side-by-side bundles, duplicates, water, crossings, grade). Measurement
 /// only; see the module doc.
 pub mod way_audit;
+/// Owner Ruling EU item 2 (2026-11-12): a planned route joins a way heading
+/// toward its destination and is drawn on the way's own line. Port-only; called
+/// only when the shell's join switch is on. See the module doc.
+pub mod way_join;
+/// Owner Ruling EU item 3 (2026-11-12): river stretches offered per stretch,
+/// each with a recommended hull, and accepted stretches spliced into the plan as
+/// river legs. Port-only; a plan with no legs is unchanged. See the module doc.
+pub mod river_stretch;
 /// The reference's per-ecoregion wildlife layer (HTML lines 6489-6620 plus
 /// the roster popup's own formatter at 8257). Here rather than in
 /// `cartalith-climate` because every input it needs -- `build_npp`,
@@ -12336,6 +12344,11 @@ pub struct JpPlan {
     /// ([`jp_effective_stage_plan`] clones it through untouched), and empty
     /// by default -- an empty list plans exactly as before the ruling.
     pub accepted_resupply: Vec<JpAcceptedStop>,
+    /// Ruling EU item 3: the river stretches the user accepted, each sailed as a
+    /// river leg whatever the transport ([`river_stretch::jp_apply_river_legs`]).
+    /// Journey-wide, never per stage, and empty by default: an empty list plans
+    /// exactly as before the ruling.
+    pub river_legs: Vec<river_stretch::JpRiverLeg>,
 }
 
 /// One entry of `plan.stageOverrides` (reference: a sparse
@@ -12405,6 +12418,7 @@ impl Default for JpPlan {
             rest_cadence: None,
             auto_promote: false,
             accepted_resupply: Vec::new(),
+            river_legs: Vec::new(),
         }
     }
 }
@@ -14762,6 +14776,163 @@ pub fn jp_road_cells(
     map
 }
 
+
+/// Which drawn source a road cell's planner row came from (Ruling EU item 2): a
+/// generated [`Way`], a hand-drawn `tools::ManualWay`, or a credited raw edge,
+/// each by its index in the slice [`jp_road_cells`] reads. An edge has no name
+/// and no drawn line of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum JpWaySrc {
+    Generated(usize),
+    Manual(usize),
+    Edge(usize),
+}
+
+/// One road cell's owner as [`jp_road_sources`] records it: the class of the way
+/// whose planner row [`jp_road_cells`] credits there, and which way it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JpRoadSource {
+    pub class: way_class::WayClass,
+    pub src: JpWaySrc,
+    pri: u8,
+}
+
+/// [`jp_road_cells`]' cell map with each cell's **source** instead of its row
+/// (Ruling EU item 2, 2026-11-13): the same three loops in the same order, the
+/// same 3x3 dilation, the same "a higher planner priority takes a cell, an equal
+/// one keeps the first writer" rule and the same skip of non-integral emissions.
+/// Kept beside it rather than widening [`JpRoadCell`] so the golden-tested row
+/// map is untouched; `road_sources_cover_exactly_the_road_cells` checks that the
+/// two name the same cells and that each source's class has the row the cell
+/// carries. Must never credit a cell `jp_road_cells` does not.
+pub fn jp_road_sources(
+    ways: &[Way],
+    manual_ways: &[tools::ManualWay],
+    road_edges: &[RoadEdge],
+    gw: usize,
+) -> std::collections::HashMap<(i64, i64), JpRoadSource> {
+    let mut map: std::collections::HashMap<(i64, i64), JpRoadSource> = std::collections::HashMap::new();
+    let put = |map: &mut std::collections::HashMap<(i64, i64), JpRoadSource>, x: f64, y: f64, rs: JpRoadSource| {
+        if x.fract() != 0.0 || y.fract() != 0.0 {
+            return; // `jp_road_cells`' unreachable JS string key
+        }
+        let (xi, yi) = (x as i64, y as i64);
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let k = (xi + dx, yi + dy);
+                if map.get(&k).is_none_or(|old| old.pri < rs.pri) {
+                    map.insert(k, rs);
+                }
+            }
+        }
+    };
+    for (i, w) in ways.iter().enumerate() {
+        if w.hidden {
+            continue;
+        }
+        let class = way_class::WayClass::from(w.way_type);
+        let Some(r) = way_class::planner_row(class) else { continue };
+        let rs = JpRoadSource { class, src: JpWaySrc::Generated(i), pri: r.pri };
+        civ_walk_way_cells(&w.pts, &w.brks, gw, &mut |x, y| put(&mut map, x, y, rs));
+    }
+    for (i, w) in manual_ways.iter().enumerate() {
+        if w.hidden || w.sea {
+            continue;
+        }
+        let class = way_class::WayClass::from(w.way_type);
+        let Some(r) = way_class::planner_row(class) else { continue };
+        let rs = JpRoadSource { class, src: JpWaySrc::Manual(i), pri: r.pri };
+        civ_walk_way_cells(&w.pts, &w.brks, gw, &mut |x, y| put(&mut map, x, y, rs));
+    }
+    let edge_pri = way_class::planner_row(way_class::WayClass::Road).expect("the plain road has a planner row").pri;
+    let credited = tools::civ_credited_road_edges(ways, road_edges);
+    for e in credited {
+        // The edge's index in `road_edges`, not in the credited subset, so a
+        // caller can find it again.
+        let idx = road_edges.iter().position(|r| std::ptr::eq(r, e)).unwrap_or(0);
+        let rs = JpRoadSource { class: way_class::WayClass::Road, src: JpWaySrc::Edge(idx), pri: edge_pri };
+        let (pts, brks) = road_edge_map_path(&e.path, gw);
+        civ_walk_way_cells(&pts, &brks, gw, &mut |x, y| put(&mut map, x, y, rs));
+    }
+    map
+}
+
+/// One stretch of a planned route on one way (Ruling EU item 2): route points
+/// `i0..=i1` (indices into the on-map points the planner plans), its km measured
+/// as [`jp_derive_stages`] measures stage km, and the way's class and source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JpWaySpan {
+    pub i0: usize,
+    pub i1: usize,
+    pub km: f64,
+    pub class: way_class::WayClass,
+    pub src: JpWaySrc,
+}
+
+/// The stretches of route `pts` that ride a way, by the planner's own credit:
+/// each point reads its cell's source ([`jp_road_sources`]); consecutive points
+/// on one source merge; one point off it (or on another way) between two points
+/// of the same source is bridged, because the planner samples smoothed points
+/// that sit up to a cell off the line they were smoothed from
+/// (`PLANNER_AUDIT_2026-10-11.md` Q1: 7 of 55 points read off-road on a route
+/// that followed the way); a stretch of one point (no length) is dropped.
+///
+/// A report only: it changes no stage, no chunk key and no planned time (on-way
+/// points already read their road row through `jp_road_cells`), so stage indices
+/// and the overrides keyed by them do not move. `afloat[k]` (when `afloat` is not
+/// empty) marks a point sailed on an accepted river leg (Ruling EU item 3): it
+/// rides no way, whatever road its cell carries.
+pub fn jp_way_spans(
+    world: &JpWorld,
+    sources: &std::collections::HashMap<(i64, i64), JpRoadSource>,
+    pts: &[(f64, f64)],
+    afloat: &[bool],
+) -> Vec<JpWaySpan> {
+    let pts = world.on_map_points(pts);
+    let n = pts.len();
+    let src_at: Vec<Option<JpRoadSource>> = pts
+        .iter()
+        .enumerate()
+        .map(|(k, &(x, y))| {
+            if afloat.get(k).copied().unwrap_or(false) {
+                return None;
+            }
+            let (xi, yi) = world.clamp_cell(x, y);
+            sources.get(&(xi as i64, yi as i64)).copied()
+        })
+        .collect();
+    let step_km = |k: usize| {
+        let adx = (pts[k].0 - pts[k - 1].0).abs();
+        adx.min(world.gw as f64 - adx).hypot(pts[k].1 - pts[k - 1].1) * world.cell_km()
+    };
+    let mut out = Vec::new();
+    let mut k = 0usize;
+    while k < n {
+        let Some(s) = src_at[k] else {
+            k += 1;
+            continue;
+        };
+        let mut end = k;
+        let mut j = k + 1;
+        while j < n {
+            if src_at[j].is_some_and(|t| t.src == s.src) {
+                end = j;
+                j += 1;
+            } else if j + 1 < n && src_at[j + 1].is_some_and(|t| t.src == s.src) {
+                end = j + 1;
+                j += 2;
+            } else {
+                break;
+            }
+        }
+        if end > k {
+            let km = (k + 1..=end).map(step_km).sum();
+            out.push(JpWaySpan { i0: k, i1: end, km, class: s.class, src: s.src });
+        }
+        k = end + 1;
+    }
+    out
+}
 /// A settlement as the Journey Planner's world sampling reads it: name, kind
 /// and grid position.
 ///
@@ -15220,6 +15391,22 @@ pub fn jp_reroute_for_mode(
     transport: &str,
     force_mode: Option<&str>,
 ) -> Result<tools::DijkstraPath, String> {
+    jp_reroute_for_mode_joined(ctx, pts, transport, force_mode, None).map(|(r, _)| r)
+}
+
+/// [`jp_reroute_for_mode`] with Ruling EU item 2's way join (`join` is `Some`):
+/// the leg goes through [`way_join::civ_dijkstra_path_joined`] instead of
+/// [`tools::civ_dijkstra_path`], and the leg's join report comes back beside the
+/// path. `None` is `jp_reroute_for_mode` exactly, by control flow (the report is
+/// then `None` too: not measured, never a plausible "not joined"). The refusals
+/// are the same either way.
+pub fn jp_reroute_for_mode_joined(
+    ctx: &tools::RouteContext,
+    pts: &[(f64, f64)],
+    transport: &str,
+    force_mode: Option<&str>,
+    join: Option<&way_join::WayJoin>,
+) -> Result<(tools::DijkstraPath, Option<way_join::LegJoin>), String> {
     if pts.len() < 2 {
         return Err("This route has no drawn path to re-route.".to_string());
     }
@@ -15230,13 +15417,19 @@ pub fn jp_reroute_for_mode(
         tools::RouteMode::Land => "land",
     };
     let (s, e) = (pts[0], pts[pts.len() - 1]);
-    let r = tools::civ_dijkstra_path(ctx, s.0, s.1, e.0, e.1, mode);
+    let (r, rep) = match join {
+        None => (tools::civ_dijkstra_path(ctx, s.0, s.1, e.0, e.1, mode), None),
+        Some(j) => {
+            let (r, rep, _) = way_join::civ_dijkstra_path_joined(ctx, s.0, s.1, e.0, e.1, mode, j);
+            (r, Some(rep))
+        }
+    };
     if r.pts.len() < 2 || !r.reachable {
         return Err(format!(
             "No {label} route connects these two points — the endpoints aren't reachable this way."
         ));
     }
-    Ok(r)
+    Ok((r, rep))
 }
 
 /// `JOURNEY_PLANNER_SPEC.md` §3's *"⇧ drag trims"* (gap register JP-07):
@@ -15461,6 +15654,10 @@ pub struct JpDerivedStage {
     /// stage of a world with [`JpWorld::measure_slope`] set (see
     /// [`JpSlope`]); `None` is no slope data, never flat ground.
     pub slope: Option<JpSlope>,
+    /// Ruling EU item 3: the accepted river leg this stage sails (an index into
+    /// the plan's applied legs, `JpJourneyPlan::river_legs_applied`), or `None` for
+    /// every stage not on a leg -- every stage of a plan with no legs.
+    pub river_leg: Option<usize>,
 }
 
 impl JpDerivedStage {
@@ -15774,6 +15971,8 @@ struct JpPointInfo {
     /// travels on (`JpWorld::channel_at`); `None` for every other point,
     /// lake rivers included.
     chan: Option<usize>,
+    /// Ruling EU item 3: the river leg this point was spliced in by, if any.
+    leg: Option<usize>,
 }
 
 /// A chunk mid-accumulation, before the settlement/infra/condition pass.
@@ -15799,6 +15998,9 @@ struct JpChunk {
     slope_rise: f64,
     slope_fall: f64,
     slope_km: f64,
+    /// Ruling EU item 3: the river leg this chunk belongs to. A leg chunk never
+    /// collapses into land, and merges only with chunks of its own leg.
+    leg: Option<usize>,
 }
 
 /// `_jpDeriveStages` (reference line 18491): sample the drawn route against
@@ -15842,6 +16044,18 @@ struct JpChunk {
 /// the reference (which never reads slope into planned time). Chunking, km,
 /// gain/loss and every other field are unchanged either way.
 pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> Vec<JpDerivedStage> {
+    jp_derive_stages_legs(world, pts, plan, None)
+}
+
+/// [`jp_derive_stages`] with river legs (Ruling EU item 3, a port-only addition):
+/// `leg_of[k]` names the leg route point `k` was spliced in by
+/// ([`river_stretch::jp_apply_river_legs`]). A leg point is a `river` point on its
+/// own channel cell whatever the plan's transport, and its chunk key carries the
+/// leg, so a leg is always stages of its own: it is never collapsed into land as a
+/// narrow water gap, never absorbed into a neighbour that is not on the same leg,
+/// and never merged by the 14-stage cap. With `leg_of == None` this is
+/// `jp_derive_stages` exactly, by control flow.
+pub fn jp_derive_stages_legs(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan, leg_of: Option<&[Option<usize>]>) -> Vec<JpDerivedStage> {
     if pts.len() < 2 {
         return Vec::new();
     }
@@ -15867,10 +16081,33 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     // Ruling CD item 2: whether land steps measure their grade (false: no
     // slope data, every stage derives exactly as the reference does).
     let measure_slope = world.measures_slope();
-    for &(px, py) in pts {
+    // Ruling EU item 3: the network for leg points, whatever the transport.
+    let leg_inputs = if leg_of.is_some() { world.river_inputs() } else { None };
+    for (pk, &(px, py)) in pts.iter().enumerate() {
         let (x, y) = world.clamp_cell(px, py);
         let i = y * gw + x;
         let b_idx = world.cart_biome[i];
+        // Ruling EU item 3: a spliced leg point sails its own channel cell.
+        // `jp_apply_river_legs` only applies a leg whose every cell is a
+        // navigable land channel, so the cell is read directly; the 3x3 search
+        // is kept as the fallback for a point that sits off its cell.
+        if let Some(l) = leg_of.and_then(|m| m.get(pk).copied().flatten())
+            && let Some((net, flow)) = leg_inputs
+            && let Some(c) = (if river_stretch::navigable(world, i) { Some(i) } else { world.channel_at(x, y) })
+        {
+            let biome = jp_legacy_biome_of(world.cart_biome[c], world.temp[c] as f64, world.rain[c] as f64);
+            last_land_biome = biome.to_string();
+            info.push(JpPointInfo {
+                cat: "river",
+                biome: biome.to_string(),
+                terrain: world.channel_terrain(&net, flow, c).to_string(),
+                cond: None,
+                riv: false,
+                chan: Some(c),
+                leg: Some(l),
+            });
+            continue;
+        }
         if b_idx == 15 {
             let d = world.nearest_land_dist(x, y);
             let terrain = if d <= 2 {
@@ -15887,6 +16124,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 cond: None,
                 riv: false,
                 chan: None,
+                leg: None,
             });
         } else if b_idx == 14 {
             let d = world.nearest_land_dist(x, y);
@@ -15898,6 +16136,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                     cond: None,
                     riv: false,
                     chan: None,
+                    leg: None,
                 });
             } else {
                 let terrain = if d <= 8 { "Coastal Waters" } else { "Open Sea" };
@@ -15908,6 +16147,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                     cond: None,
                     riv: false,
                     chan: None,
+                    leg: None,
                 });
             }
         } else {
@@ -15927,6 +16167,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                     cond: None,
                     riv: false,
                     chan: Some(c),
+                    leg: None,
                 });
                 continue;
             }
@@ -15951,6 +16192,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 cond,
                 riv,
                 chan: None,
+                leg: None,
             });
         }
     }
@@ -15963,12 +16205,14 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
         // condition stays the reference's elevation one). Every other key is
         // the reference's own.
         let key = format!(
-            "{}|{}|{}|{}{}",
+            "{}|{}|{}|{}{}{}",
             f.cat,
             f.biome,
             f.terrain,
             f.cond.unwrap_or(""),
-            if f.chan.is_some() { "|ch" } else { "" }
+            if f.chan.is_some() { "|ch" } else { "" },
+            // Ruling EU item 3: a leg's points chunk apart from everything else.
+            f.leg.map_or(String::new(), |l| format!("|leg{l}"))
         );
         if chunks.last().is_none_or(|c| c.key != key) {
             chunks.push(JpChunk {
@@ -15987,6 +16231,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 slope_rise: 0.0,
                 slope_fall: 0.0,
                 slope_km: 0.0,
+                leg: f.leg,
             });
         }
         let cur = chunks.last_mut().expect("just pushed or matched");
@@ -16041,7 +16286,8 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     let total_km: f64 = chunks.iter().map(|c| c.km).sum();
     if land_km > total_km * 0.5 {
         for i in (0..chunks.len()).rev() {
-            if chunks[i].cat == "land" || chunks[i].km > (cell_km * 2.0).max(3.0) {
+            // Ruling EU item 3: an accepted river leg is never a "narrow gap".
+            if chunks[i].cat == "land" || chunks[i].km > (cell_km * 2.0).max(3.0) || chunks[i].leg.is_some() {
                 continue;
             }
             let nb = if i > 0 && chunks[i - 1].cat == "land" {
@@ -16075,16 +16321,41 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
         } else {
             i + 1
         };
-        jp_merge_chunk(&mut chunks, i, nb);
+        // Ruling EU item 3: a leg's chunk merges only into a chunk of its own
+        // leg; the other side is tried, and with neither it stays, so an
+        // accepted leg is never absorbed. A sliver on no leg prefers a neighbour
+        // on no leg and otherwise joins the leg beside it (a few km of link at a
+        // leg's end, never a leg's water). With no legs every chunk's `leg` is
+        // `None`, so `nb` is the reference's choice.
+        let nb = if chunks[nb].leg == chunks[i].leg {
+            Some(nb)
+        } else {
+            let other = if nb < i { i + 1 } else { i.wrapping_sub(1) };
+            if other < chunks.len() && chunks[other].leg == chunks[i].leg {
+                Some(other)
+            } else {
+                chunks[i].leg.is_none().then_some(nb)
+            }
+        };
+        if let Some(nb) = nb {
+            jp_merge_chunk(&mut chunks, i, nb);
+        }
     }
     while chunks.len() > 14 {
-        let mut si = 0usize;
-        for i in 1..chunks.len() {
-            if chunks[i].km < chunks[si].km {
-                si = i;
+        // Ruling EU item 3: the smallest chunk that has a neighbour of its own
+        // leg; with no legs that is every chunk, so this is the reference's
+        // smallest-first merge.
+        let mergeable = |c: &Vec<JpChunk>, i: usize| {
+            (i > 0 && c[i - 1].leg == c[i].leg) || (i + 1 < c.len() && c[i + 1].leg == c[i].leg)
+        };
+        let mut si: Option<usize> = None;
+        for i in 0..chunks.len() {
+            if mergeable(&chunks, i) && si.is_none_or(|s| chunks[i].km < chunks[s].km) {
+                si = Some(i);
             }
         }
-        let nb = if si > 0 { si - 1 } else { si + 1 };
+        let Some(si) = si else { break };
+        let nb = if si > 0 && chunks[si - 1].leg == chunks[si].leg { si - 1 } else { si + 1 };
         jp_merge_chunk(&mut chunks, si, nb);
     }
 
@@ -16177,6 +16448,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 fall: c.slope_fall / c.slope_km,
                 on_way: c.cond.is_some(),
             }),
+            river_leg: c.leg,
         };
         st.infra = match plan.infra.as_deref() {
             Some(v) if !v.is_empty() && v != "auto" => v.to_string(),
@@ -16495,6 +16767,14 @@ pub struct JpJourneyPlan {
     /// Calendar days the accepted stops add (`0.0` when none are accepted);
     /// already inside `total_days`.
     pub resupply_stop_days: f64,
+    /// Ruling EU item 3: the route the planner planned when accepted river legs
+    /// were spliced in -- every stage's `i0`/`i1` indexes this, not the route
+    /// given. `None` when no leg was applied (the stages index the given route).
+    pub route_pts: Option<Vec<(f64, f64)>>,
+    /// Ruling EU item 3: the legs applied, in route order (`JpDerivedStage::
+    /// river_leg` indexes this), and the legs dropped, each with its reason.
+    pub river_legs_applied: Vec<river_stretch::JpRiverLeg>,
+    pub river_legs_dropped: Vec<river_stretch::JpLegDrop>,
 }
 
 /// One leg's share of [`JpJourneyPlan`]'s supply forecast (`food_kg`,
@@ -16642,8 +16922,20 @@ pub fn jp_plan_full(
     // Ruling CF item 4: every measurement below (stages, the resupply walk and
     // reach) reads the on-map points, so km agrees across them.
     let pts_on_map = world.on_map_points(pts);
-    let pts = &pts_on_map[..];
-    let mut stages = jp_derive_stages(world, pts, plan);
+    // Ruling EU item 3: accepted river legs are spliced into the route the
+    // planner plans (`river_stretch::jp_apply_river_legs`); every measurement
+    // below then reads the spliced route. No legs: the route as given, and
+    // `jp_derive_stages` exactly (by control flow).
+    let splice = (!plan.river_legs.is_empty()).then(|| river_stretch::jp_apply_river_legs(world, &pts_on_map, &plan.river_legs));
+    let legs_applied = splice.as_ref().is_some_and(|s| !s.applied.is_empty());
+    let pts: &[(f64, f64)] = match &splice {
+        Some(s) if legs_applied => &s.pts,
+        _ => &pts_on_map,
+    };
+    let mut stages = match &splice {
+        Some(s) if legs_applied => jp_derive_stages_legs(world, pts, plan, Some(&s.leg_of)),
+        _ => jp_derive_stages(world, pts, plan),
+    };
     if stages.is_empty() {
         return None;
     }
@@ -16705,6 +16997,30 @@ pub fn jp_plan_full(
         .iter()
         .map(|s| s.to_stage(wildlife_forage_mod(s.mx, s.my)))
         .collect();
+    // Ruling EU item 3: the hull each leg stage sails -- the leg's own, or, for a
+    // leg with none, the recommended one over the built-in roster
+    // (`river_stretch::jp_recommend`) on that leg's own stages. A leg stage's
+    // vessel comes from its leg, never from an index-keyed stage override.
+    let leg_vessel: Vec<Option<String>> = {
+        let applied: &[river_stretch::JpRiverLeg] = splice.as_ref().map_or(&[], |s| &s.applied);
+        let picked: Vec<Option<String>> = applied
+            .iter()
+            .enumerate()
+            .map(|(l, leg)| {
+                leg.vessel.clone().or_else(|| {
+                    let legs: Vec<(JpStage, JpPlan)> = stages
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, s)| s.river_leg == Some(l))
+                        .map(|(i, _)| (jp_stages[i].clone(), jp_effective_stage_plan(plan, plan.stage_overrides.get(&i))))
+                        .collect();
+                    let ranks = river_stretch::jp_rank_river_vessels(&legs, &river_stretch::jp_builtin_hulls(), vessels);
+                    river_stretch::jp_recommend(&ranks).map(|r| r.name.clone())
+                })
+            })
+            .collect();
+        stages.iter().map(|s| s.river_leg.and_then(|l| picked.get(l).cloned().flatten())).collect()
+    };
 
     let calc = |st: &JpStage, cat: &str, eff: &JpPlan| -> Result<JpLegCalc, JpBlocked> {
         if cat == "land" {
@@ -16727,7 +17043,10 @@ pub fn jp_plan_full(
         let mut acc = 0.0;
         let mut mids = Vec::with_capacity(stages.len());
         for (i, st) in jp_stages.iter().enumerate() {
-            let eff = jp_effective_stage_plan(plan, plan.stage_overrides.get(&i));
+            let mut eff = jp_effective_stage_plan(plan, plan.stage_overrides.get(&i));
+            if let Some(v) = &leg_vessel[i] {
+                eff.vessel = v.clone();
+            }
             let d = match calc(st, &stages[i].cat, &eff) {
                 Ok(JpLegCalc::Land(l)) if l.days.is_finite() => l.days,
                 Ok(JpLegCalc::Water(w)) if w.days.is_finite() => w.days,
@@ -16745,6 +17064,10 @@ pub fn jp_plan_full(
     for (i, st) in jp_stages.iter().enumerate() {
         let ov = plan.stage_overrides.get(&i);
         let mut eff = jp_effective_stage_plan(plan, ov);
+        // Ruling EU item 3: a leg stage sails its leg's hull.
+        if let Some(v) = &leg_vessel[i] {
+            eff.vessel = v.clone();
+        }
         // An explicit per-stage season override always wins over the drift.
         if let Some(mids) = &stage_mid_day
             && ov.is_none_or(|o| o.season.is_none())
@@ -16765,8 +17088,12 @@ pub fn jp_plan_full(
         // well-understood "reroute or change transport" signal, and
         // auto-substituting it produced a larger party appearing to travel
         // FASTER once one stage silently swapped Baggage Train for Walking.
-        let has_override =
-            cat != "land" && ov.is_some_and(|o| o.vessel.as_deref().is_some_and(|v| !v.is_empty()));
+        // Ruling EU item 3: a leg's own hull is the user's choice, never swapped.
+        let has_override = cat != "land"
+            && (ov.is_some_and(|o| o.vessel.as_deref().is_some_and(|v| !v.is_empty()))
+                || stages[i].river_leg.is_some_and(|l| {
+                    splice.as_ref().and_then(|s| s.applied.get(l)).is_some_and(|leg| leg.vessel.is_some())
+                }));
         if cat != "land" && r.is_err() && !has_override {
             let ws = WaterStage {
                 cat: cat.clone(),
@@ -17032,7 +17359,14 @@ pub fn jp_plan_full(
         vec![plan.season.clone()]
     };
 
+    let (route_pts, river_legs_applied, river_legs_dropped) = match splice {
+        Some(s) => (legs_applied.then(|| s.pts.clone()), s.applied, s.dropped),
+        None => (None, Vec::new(), Vec::new()),
+    };
     Some(JpJourneyPlan {
+        route_pts,
+        river_legs_applied,
+        river_legs_dropped,
         has_desert: stages
             .iter()
             .any(|s| s.cat == "land" && jp_biome(&s.biome).is_some_and(|b| b.desert_like)),
@@ -24908,6 +25242,90 @@ mod tests {
         }
     }
 
+    /// Protects Ruling EU item 2's source map: `jp_road_sources` credits exactly the
+    /// cells `jp_road_cells` credits, and each cell's source class has the very
+    /// planner row the cell carries (the M5 fixture's highway, track and edge,
+    /// which overlap), so a way span can never name a way the planner did not cost.
+    #[test]
+    fn road_sources_cover_exactly_the_road_cells() {
+        let f = m5_fields();
+        let way = |pts: Vec<(f64, f64)>, way_type: WayType| Way {
+            tid: 0,
+            pts,
+            brks: Vec::new(),
+            km: 0.0,
+            name: String::new(),
+            way_type,
+            a_idx: 0,
+            b_idx: 1,
+            hidden: false,
+        };
+        let ways = vec![
+            way(vec![(9.0, 6.0), (14.0, 6.0), (20.0, 6.0)], WayType::Highway),
+            way(vec![(16.0, 9.0), (19.0, 12.0)], WayType::Track),
+        ];
+        let edges = vec![RoadEdge { a: 0, b: 1, path: vec![11 * M5_GW + 11, 11 * M5_GW + 12, 11 * M5_GW + 13] }];
+        let src = jp_road_sources(&ways, &[], &edges, M5_GW);
+        assert_eq!(src.len(), f.road_cells.len());
+        let mut kinds = std::collections::HashSet::new();
+        for (k, cell) in &f.road_cells {
+            let s = src.get(k).unwrap_or_else(|| panic!("cell {k:?} has no source"));
+            let row = way_class::planner_row(s.class).expect("a land class");
+            assert_eq!((row.terrain, row.cond), (cell.terrain, cell.cond), "cell {k:?}");
+            kinds.insert(std::mem::discriminant(&s.src));
+        }
+        assert_eq!(kinds.len(), 2, "generated ways and the edge both own cells");
+        assert_eq!(src[&(12, 6)].src, JpWaySrc::Generated(0));
+        assert_eq!(src[&(12, 11)].src, JpWaySrc::Edge(0));
+    }
+
+    /// Protects `jp_way_spans`: a route along the M5 highway is one span naming it,
+    /// whose km is the stage-km rule over its points (11 one-cell steps of
+    /// 800 / 24 km); a single point off the road inside it is bridged, two end it.
+    #[test]
+    fn way_spans_name_the_way_a_route_rides_and_bridge_one_point() {
+        let f = m5_fields();
+        let w = m5_world(&f);
+        let way = |pts: Vec<(f64, f64)>, way_type: WayType| Way {
+            tid: 0,
+            pts,
+            brks: Vec::new(),
+            km: 0.0,
+            name: String::new(),
+            way_type,
+            a_idx: 0,
+            b_idx: 1,
+            hidden: false,
+        };
+        let ways = vec![way(vec![(9.0, 6.0), (14.0, 6.0), (20.0, 6.0)], WayType::Highway)];
+        let src = jp_road_sources(&ways, &[], &[], M5_GW);
+        let mut pts: Vec<(f64, f64)> = vec![(4.0, 12.0)];
+        pts.extend((9..=20).map(|x| (x as f64, 6.0)));
+        pts.push((22.0, 13.0));
+        let spans = jp_way_spans(&w, &src, &pts, &[]);
+        assert_eq!(spans.len(), 1, "{spans:?}");
+        let s = spans[0];
+        assert_eq!((s.i0, s.i1, s.src, s.class), (1, 12, JpWaySrc::Generated(0), way_class::WayClass::Highway));
+        assert!((s.km - 11.0 * 800.0 / 24.0).abs() < 1e-9, "km {}", s.km);
+        // One point lifted three cells off the road is bridged ...
+        let mut one = pts.clone();
+        one[6].1 = 9.5;
+        let spans = jp_way_spans(&w, &src, &one, &[]);
+        assert_eq!(spans.len(), 1);
+        assert_eq!((spans[0].i0, spans[0].i1), (1, 12));
+        // ... two in a row end the span.
+        one[7].1 = 9.5;
+        let spans = jp_way_spans(&w, &src, &one, &[]);
+        assert_eq!(spans.iter().map(|s| (s.i0, s.i1)).collect::<Vec<_>>(), vec![(1, 5), (8, 12)]);
+        // Points sailed on a river leg ride no way: marking 6 and 7 afloat on the
+        // straight route splits the span exactly there.
+        let mut afloat = vec![false; pts.len()];
+        afloat[6] = true;
+        afloat[7] = true;
+        let spans = jp_way_spans(&w, &src, &pts, &afloat);
+        assert_eq!(spans.iter().map(|s| (s.i0, s.i1)).collect::<Vec<_>>(), vec![(1, 5), (8, 12)]);
+    }
+
     /// The 24-point sample polyline the milestone-5 tests plan along, running diagonally from (2, 2) to (22, 13) in equal steps.
     fn m5_pts() -> Vec<(f64, f64)> {
         (0..=23)
@@ -25152,6 +25570,7 @@ mod tests {
             mx: 0.0,
             my: 0.0,
             slope: None,
+            river_leg: None,
         };
         assert_eq!(jp_stage_infra(&base, &ctx), "Sparse Settlements");
         assert_eq!(

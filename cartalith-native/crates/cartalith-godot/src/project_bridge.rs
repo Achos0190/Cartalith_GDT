@@ -988,6 +988,25 @@ struct JourneyPlanDto {
     /// skipped when empty so such a journey re-saves byte-identically.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     stage_override_legs: BTreeMap<String, String>,
+    /// Ruling EU item 3: the river stretches the user accepted
+    /// (`cartalith_civ::river_stretch::JpRiverLeg`). Optional and additive:
+    /// absent means no legs, and it is skipped when empty so a journey saved
+    /// before the field re-saves byte-identically.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    river_legs: Vec<RiverLegDto>,
+}
+
+/// One accepted river leg on the wire (Ruling EU item 3): its channel cells as
+/// grid indices in travel order, the route points it leaves and rejoins the
+/// route at (`[x, y]`, the route's own point form), and its hull, omitted when
+/// the planner is to recommend one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RiverLegDto {
+    cells: Vec<usize>,
+    entry: [f64; 2],
+    exit: [f64; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vessel: Option<String>,
 }
 
 /// [`JourneyPlanDto::trim`]'s serde default: the untrimmed route, the
@@ -2328,6 +2347,12 @@ fn journey_plan_to_dto(p: &cartalith_civ::travel_library::JourneyPlan) -> Journe
         auto_carriage: p.auto_carriage,
         auto_stage: p.auto_stage,
         stage_override_legs: p.override_legs.iter().map(|(i, k)| (i.to_string(), k.clone())).collect(),
+        river_legs: p
+            .plan
+            .river_legs
+            .iter()
+            .map(|l| RiverLegDto { cells: l.cells.clone(), entry: [l.entry.0, l.entry.1], exit: [l.exit.0, l.exit.1], vessel: l.vessel.clone() })
+            .collect(),
     }
 }
 
@@ -2341,6 +2366,20 @@ fn dto_to_journey_plan(d: &JourneyPlanDto) -> cartalith_civ::travel_library::Jou
         let (ov, _rejected) = journey_bridge::stage_override_from_pairs(&travel_fields_to_pairs(fields));
         plan.stage_overrides.insert(idx, ov);
     }
+    // Ruling EU item 3: a leg with fewer than two cells cannot be a stretch and
+    // is dropped here (the tolerance rule); the planner re-checks every other
+    // leg against the world and reports any it cannot apply.
+    plan.river_legs = d
+        .river_legs
+        .iter()
+        .filter(|l| l.cells.len() >= 2)
+        .map(|l| cartalith_civ::river_stretch::JpRiverLeg {
+            cells: l.cells.clone(),
+            entry: (l.entry[0], l.entry[1]),
+            exit: (l.exit[0], l.exit[1]),
+            vessel: l.vessel.clone().filter(|v| !v.is_empty()),
+        })
+        .collect();
     cartalith_civ::travel_library::JourneyPlan {
         plan,
         layovers: d.layovers.clone(),
@@ -4166,6 +4205,9 @@ impl WorldGen {
                         mode: route_mode_from(&d.mode),
                         unreachable_legs: d.unreachable_legs,
                         name: d.name.clone(),
+                        // Ruling EU item 2's join report is session-only: a
+                        // restored route was not committed this session.
+                        join: None,
                     }
                 })
                 .collect();
@@ -6165,6 +6207,7 @@ mod tests {
             auto_promote: true,
             // Accepted stops live on `Journey::resupply_stops`, never here.
             accepted_resupply: Vec::new(),
+            river_legs: Vec::new(),
         };
         cartalith_civ::travel_library::Journey {
             id: 9,
@@ -6306,6 +6349,32 @@ mod tests {
         assert_eq!(back[0].plan.as_ref().unwrap().override_legs.len(), 2);
     }
 
+    /// Protects: (Ruling EU item 3) accepted river legs are written under
+    /// `plan.river_legs` as `{cells, entry, exit, vessel}`, round-trip field for
+    /// field, a leg with no hull writes no `vessel`, and a leg of fewer than two
+    /// cells on a hand-edited file is dropped on read (never planned).
+    #[test]
+    fn river_legs_round_trip_under_the_documented_key() {
+        let mut j = full_plan_journey();
+        let legs = vec![
+            cartalith_civ::river_stretch::JpRiverLeg { cells: vec![324, 325, 326], entry: (4.0, 5.0), exit: (6.5, 5.0), vessel: Some("Keelboat".into()) },
+            cartalith_civ::river_stretch::JpRiverLeg { cells: vec![10, 11], entry: (9.0, 1.0), exit: (12.0, 1.0), vessel: None },
+        ];
+        j.plan.as_mut().unwrap().plan.river_legs = legs.clone();
+        let v = serde_json::to_value(journey_to_dto(&j)).unwrap();
+        assert_eq!(v["plan"]["river_legs"][0]["cells"], serde_json::json!([324, 325, 326]));
+        assert_eq!(v["plan"]["river_legs"][0]["entry"], serde_json::json!([4.0, 5.0]));
+        assert_eq!(v["plan"]["river_legs"][0]["exit"], serde_json::json!([6.5, 5.0]));
+        assert_eq!(v["plan"]["river_legs"][0]["vessel"], "Keelboat");
+        assert!(v["plan"]["river_legs"][1].get("vessel").is_none(), "no hull writes no member");
+        let (_, back) = journeys_round_trip(9, &[j.clone()]);
+        assert_eq!(back[0].plan.as_ref().unwrap().plan.river_legs, legs);
+        let mut text = serde_json::to_value(journey_to_dto(&j)).unwrap();
+        text["plan"]["river_legs"][1]["cells"] = serde_json::json!([10]);
+        let dto: JourneyDto = serde_json::from_value(text).unwrap();
+        assert_eq!(dto_to_journey(&dto).plan.unwrap().plan.river_legs, legs[..1].to_vec());
+    }
+
     /// Protects: (Ruling EA item 10 and SP-2 residual, backward compatibility)
     /// a journeys document written by the build just before both -- a real
     /// prior shape with a plan, stage overrides and **neither** new member --
@@ -6330,6 +6399,10 @@ mod tests {
         let once = serde_json::to_string(&again).unwrap();
         assert!(!once.contains("start_day"), "an unset day is not invented on save");
         assert!(!once.contains("stage_override_legs"), "no fingerprint is invented for an old override");
+        // Ruling EU item 3: a journey from before river legs has none, and
+        // saving it invents no `river_legs` member.
+        assert!(plan.plan.river_legs.is_empty());
+        assert!(!once.contains("river_legs"), "no river leg is invented on save");
         assert!(once.contains(r#""stage_overrides":{"2":{"camel":3}}"#), "the override itself is kept");
         let reparsed: JourneysDoc = serde_json::from_str(&once).unwrap();
         let twice = JourneysDoc { next_id: reparsed.next_id, journeys: reparsed.journeys.iter().map(dto_to_journey).map(|j| journey_to_dto(&j)).collect() };

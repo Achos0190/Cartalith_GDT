@@ -137,6 +137,11 @@ pub struct CommittedRoute {
     /// and is deliberately NOT stored here (storing it would survive a
     /// delete and leave "Journey 3" sitting at index 1).
     pub name: String,
+    /// Ruling EU item 2: what the way join did on each leg when this route was
+    /// committed or re-routed this session (`cartalith_civ::way_join::LegJoin`);
+    /// `None` when the join did not run (switch off, a restored route). Not
+    /// saved: the route's points are the record, and they are saved.
+    pub join: Option<Vec<cartalith_civ::way_join::LegJoin>>,
 }
 
 /// The per-world tool state for Way, Route, Measure and Region select.
@@ -317,12 +322,25 @@ impl InfraTools {
     ///
     /// Returns `(new index into self.routes, unreachable-leg count)`, same
     /// shape as `way_commit`.
-    pub fn route_commit(&mut self, ctx: &RouteContext) -> Option<(usize, usize)> {
+    ///
+    /// Ruling EU item 2: with `join` `Some`, each leg goes through the way join
+    /// (`cartalith_civ::way_join::civ_join_dijkstra_segs_joined`): it may ride a
+    /// way heading toward its next stop within the join's margin, and is drawn on
+    /// that way's own line; the per-leg report is kept on the route
+    /// ([`CommittedRoute::join`]). `None` is the plain `civ_join_dijkstra_segs`
+    /// commit, by control flow.
+    pub fn route_commit(&mut self, ctx: &RouteContext, join: Option<&cartalith_civ::way_join::WayJoin>) -> Option<(usize, usize)> {
         let draft = self.route_draft.take()?;
         if draft.points.len() < 2 {
             return None;
         }
-        let j = civ_join_dijkstra_segs(ctx, &draft.points, draft.mode);
+        let (j, report) = match join {
+            None => (civ_join_dijkstra_segs(ctx, &draft.points, draft.mode), None),
+            Some(o) => {
+                let r = cartalith_civ::way_join::civ_join_dijkstra_segs_joined(ctx, &draft.points, draft.mode, o);
+                (r.path, Some(r.legs))
+            }
+        };
         let idx = self.routes.len();
         let unreachable = j.unreachable_legs;
         self.routes.push(CommittedRoute {
@@ -332,6 +350,7 @@ impl InfraTools {
             mode: draft.mode,
             unreachable_legs: j.unreachable_legs,
             name: String::new(),
+            join: report,
         });
         Some((idx, unreachable))
     }
@@ -470,12 +489,13 @@ impl InfraTools {
         old_places: &[cartalith_civ::NamedSettlement],
         old_dims: (usize, usize),
         ctx_for: &dyn Fn(RouteMode, &mut dyn FnMut(&RouteContext)),
+        join: Option<&cartalith_civ::way_join::WayJoin>,
     ) {
-        use cartalith_civ::journey_progress::{resnap_journey, ResnapOutcome};
+        use cartalith_civ::journey_progress::{resnap_journey_with, ResnapOutcome};
         self.set_next_journey_id(next_id);
         for j in carried {
             let mut result: Option<Result<_, ResnapOutcome>> = None;
-            ctx_for(j.route.mode, &mut |ctx| result = Some(resnap_journey(j, old_places, old_dims, ctx)));
+            ctx_for(j.route.mode, &mut |ctx| result = Some(resnap_journey_with(j, old_places, old_dims, ctx, join)));
             match result.expect("ctx_for calls back exactly once") {
                 Ok((nj, outcome)) => {
                     self.journeys.push(nj);
@@ -1505,7 +1525,7 @@ mod tests {
         let mut t = InfraTools::new();
         t.route_begin(RouteMode::Land);
         t.route_append_stop(12.0, 2.0);
-        assert_eq!(t.route_commit(&ctx), None);
+        assert_eq!(t.route_commit(&ctx, None), None);
         assert!(t.routes.is_empty());
     }
 
@@ -1518,7 +1538,7 @@ mod tests {
         t.route_begin(RouteMode::Mixed);
         t.route_append_stop(2.0, 2.0);
         t.route_append_stop(22.0, 13.0);
-        let (idx, unreachable) = t.route_commit(&ctx).expect("mixed mode can cross the strait");
+        let (idx, unreachable) = t.route_commit(&ctx, None).expect("mixed mode can cross the strait");
         assert_eq!(idx, 0);
         assert_eq!(unreachable, 0);
         assert_eq!(t.routes[0].mode, RouteMode::Mixed);
@@ -1532,7 +1552,7 @@ mod tests {
             t.route_begin(RouteMode::Mixed);
             t.route_append_stop(a.0, a.1);
             t.route_append_stop(b.0, b.1);
-            t.route_commit(ctx).expect("mixed mode can cross the strait");
+            t.route_commit(ctx, None).expect("mixed mode can cross the strait");
         }
     }
 
@@ -1615,7 +1635,7 @@ mod tests {
         ];
         let mut t = InfraTools::new();
         let ctx_for = |_: RouteMode, f: &mut dyn FnMut(&RouteContext)| f(&RouteContext { places: &new, ..route_ctx(&field, &wb, &[]) });
-        t.adopt_resnapped(&carried, 9, &old, (24, 16), &ctx_for);
+        t.adopt_resnapped(&carried, 9, &old, (24, 16), &ctx_for, None);
 
         assert_eq!(t.journeys.iter().map(|j| j.id).collect::<Vec<_>>(), vec![3]);
         assert_eq!(t.journeys[0].route.points.first(), Some(&(13.0, 3.0)), "follows Ard to its new cell");

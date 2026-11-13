@@ -315,6 +315,20 @@ pub fn resnap_journey(
     old_dims: (usize, usize),
     ctx: &RouteContext,
 ) -> Result<(Journey, ResnapOutcome), ResnapOutcome> {
+    resnap_journey_with(j, old_places, old_dims, ctx, None)
+}
+
+/// [`resnap_journey`] with Ruling EU item 2's way join: `Some` re-joins the
+/// endpoints through `way_join::civ_join_dijkstra_segs_joined` (owner question
+/// Q5's default: a regenerate re-snap joins ways like a fresh commit), `None` is
+/// `resnap_journey` exactly, by control flow.
+pub fn resnap_journey_with(
+    j: &Journey,
+    old_places: &[NamedSettlement],
+    old_dims: (usize, usize),
+    ctx: &RouteContext,
+    join: Option<&crate::way_join::WayJoin>,
+) -> Result<(Journey, ResnapOutcome), ResnapOutcome> {
     let pts = &j.route.points;
     let ends = [pts.first().copied(), pts.last().copied()];
     let (sx, sy) = (
@@ -335,7 +349,10 @@ pub fn resnap_journey(
         };
         wps.push(p);
     }
-    let joined = civ_join_dijkstra_segs(ctx, &wps, j.route.mode);
+    let joined = match join {
+        None => civ_join_dijkstra_segs(ctx, &wps, j.route.mode),
+        Some(o) => crate::way_join::civ_join_dijkstra_segs_joined(ctx, &wps, j.route.mode, o).path,
+    };
     let out = Journey {
         route: JourneyRoute { points: joined.pts, breaks: joined.brks, length_km: joined.km, mode: j.route.mode },
         ..j.clone()

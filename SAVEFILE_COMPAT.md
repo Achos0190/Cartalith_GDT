@@ -1615,9 +1615,10 @@ writer stores exactly what it computed the journey's dates from:
 | `animal_entries` | species slot -> Travel Library entry id |
 | `trim` | `[from, to]`, fractions of the route's arc length; `[0.0, 1.0]` is the whole route |
 | `auto_carriage`, `auto_stage` | the planner's two auto-pick switches; a reader that replays the plan MUST run the same picks, since they change the plan they act on |
+| `river_legs` | **optional, added 2026-11-13 (Ruling EU item 3).** The river stretches the user accepted, in the order accepted, each `{"cells": [int, ...], "entry": [x, y], "exit": [x, y], "vessel": string}`: the channel's grid cells (`y * width + x`) in travel order, the route points the leg leaves and rejoins the route at (grid coordinates, the route's own point form), and the hull it sails by, **omitted** when the planner is to recommend one. A reader that replays the plan MUST re-check every leg against the world (each cell still a navigable channel, consecutive cells still linked by the river's flow, the route still passing both points in order) and MUST drop a leg that fails, naming it, never moving it onto another channel; a leg of fewer than two cells is dropped on read |
 
-`stage_overrides`, `stage_override_legs`, `layovers` and `animal_entries` are
-omitted when empty.
+`stage_overrides`, `stage_override_legs`, `layovers`, `animal_entries` and
+`river_legs` are omitted when empty.
 **The accepted resupply stops are not in `plan`**: they have one home, the
 journey's own `resupply_stops` (Ruling BS), and a reader MUST NOT expect them
 under `plan`.
@@ -1641,6 +1642,10 @@ being shown on.
 
 Compatibility, both directions:
 
+- **A missing `river_legs` is a legitimate, common file** (every journey before
+  2026-11-13, and any with no accepted river stretch): it plans exactly as it
+  always did and re-saves without the member. The addition does not change
+  `format_version`; an older reader ignores it and walks those stretches.
 - **A missing `start_day` or `stage_override_legs` is a legitimate, common
   file** (every journey before 2026-11-12): it opens with no departure day and
   with its overrides unverified, plans as it always did, and re-saves without

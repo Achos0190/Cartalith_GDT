@@ -1955,6 +1955,7 @@ mod tests {
             mx,
             my,
             slope: None,
+            river_leg: None,
         }
     }
 
