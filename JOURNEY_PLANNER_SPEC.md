@@ -170,6 +170,16 @@ prose with the actions that resolve it. Then collapsible groups:
 > or class, km) and what the way join did when it was committed; the route map
 > draws those stretches with a casing. A river leg's stage greys its own Vessel
 > override (§6) with that reason: the leg's hull is chosen in *River stretches*.
+> An accepted leg changes only the ground it covers: the walk to the river and
+> back is planned as walking, every other stage is planned as walked, and a
+> per-stage override (§6) stays on the stage it was set on (overrides are keyed
+> by the stages of the route as walked, so accepting or removing a leg never
+> moves one; a river leg's own stages take none). The accepted leg's hull menu
+> is drawn from the result, so a journey reopened from a save has it too. The
+> engine measures at most 32 candidate stretches per compute, after the
+> accepted ones are set aside; when a route has more, the section says how many
+> were not measured. The main map keeps drawing the committed (walked) route;
+> the party's marker follows the river leg.
 
 > **Port note — the trace is inline.** Built as an inline collapsible group over
 > the selected stage, not a `⧉` window, as `GUI_GAP_REGISTER.md` §7.12

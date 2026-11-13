@@ -15658,6 +15658,13 @@ pub struct JpDerivedStage {
     /// the plan's applied legs, `JpJourneyPlan::river_legs_applied`), or `None` for
     /// every stage not on a leg -- every stage of a plan with no legs.
     pub river_leg: Option<usize>,
+    /// Ruling EU item 3 (verifier findings, 2026-11-13): the stage of the route
+    /// **as walked** (the plan with no river legs) this stage is, or is a cut
+    /// piece of -- the index `JpPlan::stage_overrides` is keyed by. `Some(i)` for
+    /// stage `i` of every plan with no legs; `None` for a river leg's own stages,
+    /// which take no per-stage override (their hull is the leg's). An accepted
+    /// leg therefore never renumbers the stages an override was set on.
+    pub base: Option<usize>,
 }
 
 impl JpDerivedStage {
@@ -16055,6 +16062,11 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
 /// narrow water gap, never absorbed into a neighbour that is not on the same leg,
 /// and never merged by the 14-stage cap. With `leg_of == None` this is
 /// `jp_derive_stages` exactly, by control flow.
+///
+/// [`jp_plan_full`] calls it with legs only on a leg's own channel points
+/// ([`jp_derive_stages_spliced`]): the land around a leg is cut from the stages
+/// of the route as walked instead, so a leg never re-partitions unrelated land.
+/// Stages derived with `leg_of` carry `base: None`.
 pub fn jp_derive_stages_legs(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan, leg_of: Option<&[Option<usize>]>) -> Vec<JpDerivedStage> {
     if pts.len() < 2 {
         return Vec::new();
@@ -16449,6 +16461,9 @@ pub fn jp_derive_stages_legs(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan,
                 on_way: c.cond.is_some(),
             }),
             river_leg: c.leg,
+            // With legs marked this function numbers no stage of the route as
+            // walked (see `jp_derive_stages_spliced`); without, stage `i` is it.
+            base: leg_of.is_none().then_some(out.len()),
         };
         st.infra = match plan.infra.as_deref() {
             Some(v) if !v.is_empty() && v != "auto" => v.to_string(),
@@ -16519,6 +16534,193 @@ fn jp_merge_chunk(chunks: &mut Vec<JpChunk>, i: usize, nb: usize) {
     n.i0 = n.i0.min(i0);
     n.i1 = n.i1.max(i1);
     chunks.remove(i);
+}
+
+/// The stages of a route with accepted river legs (Ruling EU item 3, a port-only
+/// addition): **the stages of the route as walked, with each leg cut in**, and
+/// nothing else changed. Returns `(stages, the route-as-walked stages)`.
+///
+/// `pts` is the route **given** (on the map), `splice` its
+/// [`river_stretch::jp_apply_river_legs`] result; the returned stages index
+/// `splice.pts`. Two verifier findings of 2026-11-13 are behind the design:
+///
+/// 1. **A leg used to re-partition the whole route.** The spliced route was
+///    chunked afresh, so a 20 km leg split, merged or re-absorbed unrelated land
+///    stages (the sliver floor is 1.5 % of the route, the 14-stage cap merges the
+///    smallest), changed their terrain row or pace, and was offered as saving
+///    8.9 d when the land it replaced was 31 km. Here every stage no leg touches
+///    is the walked stage itself (index-shifted), and a stage a leg cuts keeps
+///    every intensive field it had (terrain, condition, infrastructure, slope,
+///    claimed share, settlements, midpoint) and loses the km of the steps the
+///    leg replaces, so an offer's saving is what the river buys.
+/// 2. **The step onto the river was sailed.** The chunk loop credits a step to
+///    the point it arrives at, so the overland hop from the route to the first
+///    channel cell (up to a day's walk) was costed at hull speed while the hop
+///    back was walked. Here both hops are walked: each is added to the land piece
+///    beside it (that piece's terrain and pace), never to the leg.
+///
+/// The arithmetic. Every step `k` (point `k - 1` to `k`) belongs to the walked
+/// stage that holds point `k`, the chunk loop's own rule (a point in no stage,
+/// where a narrow water gap was collapsed into its neighbour, belongs to the
+/// stage before it, or after it at the route's start). A leg spanning route
+/// points `entry..exit` removes steps `entry + 1 ..= exit`. A cut stage's km,
+/// gain, loss and river crossings are its walked figures times the share of its
+/// own step km it keeps (crossings rounded: a labelled simplification, the
+/// crossing points are not kept), plus the hop's km and climb; its waterless
+/// run is capped at its new km. A stage left with no steps is dropped unless it
+/// carries a hop. A hop joins the first kept piece after a leg and the last kept
+/// piece before one; that piece's `i0` (or `i1`) then reaches the leg's last (or
+/// first) channel point, so a party is drawn walking from the river and to it.
+/// A leg's own stages are derived from its channel points alone
+/// ([`jp_derive_stages_legs`]).
+///
+/// A cut can add one stage per leg beyond the walked count (the 14-stage cap is
+/// the walked route's; a leg's stages never counted toward it).
+/// **Must never** change a stage no leg touches, move a leg's km into land, or
+/// move a hop's km onto the river.
+pub fn jp_derive_stages_spliced(
+    world: &JpWorld,
+    pts: &[(f64, f64)],
+    plan: &JpPlan,
+    splice: &river_stretch::JpLegSplice,
+) -> (Vec<JpDerivedStage>, Vec<JpDerivedStage>) {
+    let pts_on_map = world.on_map_points(pts);
+    let pts = &pts_on_map[..];
+    let walked = jp_derive_stages(world, pts, plan);
+    let n = pts.len();
+    if splice.applied.is_empty() || walked.is_empty() || n < 2 || splice.spans.len() != splice.applied.len() {
+        return (walked.clone(), walked);
+    }
+    let gw = world.gw;
+    let cell_km = world.cell_km();
+    // The chunk loop's own step rule (wrap-aware, cylinder).
+    let step_km = |a: (f64, f64), b: (f64, f64)| {
+        let adx = (b.0 - a.0).abs();
+        adx.min(gw as f64 - adx).hypot(b.1 - a.1) * cell_km
+    };
+    let dh = |a: (f64, f64), b: (f64, f64)| world.height_m(b.0, b.1) - world.height_m(a.0, a.1);
+    // The walked stage that owns each point (and so the step arriving at it).
+    let mut owner = vec![usize::MAX; n];
+    for (si, st) in walked.iter().enumerate() {
+        for o in owner.iter_mut().take(st.i1.min(n - 1) + 1).skip(st.i0) {
+            if *o == usize::MAX {
+                *o = si;
+            }
+        }
+    }
+    let mut last = usize::MAX;
+    for o in owner.iter_mut() {
+        if *o == usize::MAX {
+            *o = last;
+        } else {
+            last = *o;
+        }
+    }
+    let mut next = usize::MAX;
+    for o in owner.iter_mut().rev() {
+        if *o == usize::MAX {
+            *o = next;
+        } else {
+            next = *o;
+        }
+    }
+    let sk: Vec<f64> = (0..n).map(|k| if k == 0 { 0.0 } else { step_km(pts[k - 1], pts[k]) }).collect();
+    let mut own_km = vec![0.0f64; walked.len()];
+    let mut own_steps = vec![0usize; walked.len()];
+    for k in 1..n {
+        own_km[owner[k]] += sk[k];
+        own_steps[owner[k]] += 1;
+    }
+    let cell_pt = |c: usize| ((c % gw) as f64, (c / gw) as f64);
+    let m = splice.applied.len();
+    // The land segments of the given route `(lo, hi, where lo lands in
+    // splice.pts)`, and where each leg's first cell lands.
+    let mut segs: Vec<(usize, usize, usize)> = Vec::with_capacity(m + 1);
+    let mut leg_at: Vec<usize> = Vec::with_capacity(m);
+    let (mut lo, mut at) = (0usize, 0usize);
+    for (l, &(a, b)) in splice.spans.iter().enumerate() {
+        segs.push((lo, a, at));
+        at += a - lo + 1;
+        leg_at.push(at);
+        at += splice.applied[l].cells.len();
+        lo = b;
+    }
+    segs.push((lo, n - 1, at));
+    let mut out: Vec<JpDerivedStage> = Vec::new();
+    for (j, &(lo, hi, off)) in segs.iter().enumerate() {
+        let to_spliced = |k: usize| off + (k - lo);
+        // The hop from the previous leg's last cell onto this segment, and from
+        // this segment onto the next leg's first cell: `(from, to, the cell's
+        // index in splice.pts)`.
+        let hop_from_leg = (j > 0).then(|| {
+            let c = *splice.applied[j - 1].cells.last().expect("an applied leg has cells");
+            (cell_pt(c), pts[lo], leg_at[j - 1] + splice.applied[j - 1].cells.len() - 1)
+        });
+        let hop_to_leg = (j < m).then(|| (pts[hi], cell_pt(splice.applied[j].cells[0]), leg_at[j]));
+        // The walked stages this segment meets, in order: (stage, kept km, kept
+        // steps, first point, last point). Owners rise along the route.
+        let mut pieces: Vec<(usize, f64, usize, usize, usize)> = Vec::new();
+        for si in owner[lo]..=owner[hi] {
+            let ks: Vec<usize> = (lo..=hi).filter(|&k| owner[k] == si).collect();
+            let (Some(&first), Some(&lastk)) = (ks.first(), ks.last()) else { continue };
+            let steps: Vec<usize> = ks.iter().copied().filter(|&k| k > lo).collect();
+            pieces.push((si, steps.iter().map(|&k| sk[k]).sum(), steps.len(), first, lastk));
+        }
+        let from_to = pieces.iter().position(|p| p.2 > 0).unwrap_or(0);
+        let to_to = pieces.iter().rposition(|p| p.2 > 0).unwrap_or(pieces.len().saturating_sub(1));
+        for (pi, &(si, km, steps, first, lastk)) in pieces.iter().enumerate() {
+            let w = &walked[si];
+            let carries_from = hop_from_leg.is_some() && pi == from_to;
+            let carries_to = hop_to_leg.is_some() && pi == to_to;
+            if steps == own_steps[si] && !carries_from && !carries_to {
+                // Untouched: the walked stage itself, index-shifted.
+                let mut st = w.clone();
+                st.i0 = to_spliced(w.i0.clamp(lo, hi));
+                st.i1 = to_spliced(w.i1.clamp(lo, hi));
+                out.push(st);
+                continue;
+            }
+            if steps == 0 && !carries_from && !carries_to {
+                continue;
+            }
+            let frac = if own_km[si] > 0.0 { km / own_km[si] } else { 0.0 };
+            let mut st = w.clone();
+            st.km = w.km * frac;
+            st.gain = w.gain * frac;
+            st.loss = w.loss * frac;
+            st.rx = (w.rx as f64 * frac).round() as u32;
+            st.i0 = to_spliced(first);
+            st.i1 = to_spliced(lastk);
+            for (hop, carries, from_side) in [(hop_from_leg, carries_from, true), (hop_to_leg, carries_to, false)] {
+                let Some((a, b, idx)) = hop.filter(|_| carries) else { continue };
+                st.km += step_km(a, b);
+                let d = dh(a, b);
+                if d > 0.0 {
+                    st.gain += d;
+                } else {
+                    st.loss -= d;
+                }
+                if from_side {
+                    st.i0 = idx;
+                } else {
+                    st.i1 = idx;
+                }
+            }
+            st.dry_km = w.dry_km.min(st.km);
+            out.push(st);
+        }
+        if j < m {
+            // The leg's own stages, from its channel points alone.
+            let cpts: Vec<(f64, f64)> = splice.applied[j].cells.iter().map(|&c| cell_pt(c)).collect();
+            let marks = vec![Some(j); cpts.len()];
+            for mut st in jp_derive_stages_legs(world, &cpts, plan, Some(&marks)) {
+                st.i0 += leg_at[j];
+                st.i1 += leg_at[j];
+                out.push(st);
+            }
+        }
+    }
+    (out, walked)
 }
 
 // ---- 5c: the journey orchestrator -----------------------------------------
@@ -16775,6 +16977,20 @@ pub struct JpJourneyPlan {
     /// river_leg` indexes this), and the legs dropped, each with its reason.
     pub river_legs_applied: Vec<river_stretch::JpRiverLeg>,
     pub river_legs_dropped: Vec<river_stretch::JpLegDrop>,
+    /// Ruling EU item 3 (verifier findings, 2026-11-13): when a leg was applied,
+    /// the stages of the route **as walked** -- the stages `stage_overrides` and
+    /// their saved leg fingerprints (Ruling EA item 10) are keyed by
+    /// (`JpDerivedStage::base` indexes this). `None` when no leg was applied:
+    /// `stages` are then those stages.
+    pub walked_stages: Option<Vec<JpDerivedStage>>,
+}
+
+impl JpJourneyPlan {
+    /// The stages an override index names: [`JpJourneyPlan::walked_stages`] when
+    /// a leg was applied, else [`JpJourneyPlan::stages`].
+    pub fn override_stages(&self) -> &[JpDerivedStage] {
+        self.walked_stages.as_deref().unwrap_or(&self.stages)
+    }
 }
 
 /// One leg's share of [`JpJourneyPlan`]'s supply forecast (`food_kg`,
@@ -16932,18 +17148,31 @@ pub fn jp_plan_full(
         Some(s) if legs_applied => &s.pts,
         _ => &pts_on_map,
     };
-    let mut stages = match &splice {
-        Some(s) if legs_applied => jp_derive_stages_legs(world, pts, plan, Some(&s.leg_of)),
-        _ => jp_derive_stages(world, pts, plan),
+    // Ruling EU item 3 (verifier findings, 2026-11-13): with legs, the walked
+    // route's stages with each leg cut in (`jp_derive_stages_spliced`), never a
+    // fresh partition of the spliced route.
+    let (mut stages, walked_stages) = match &splice {
+        Some(s) if legs_applied => {
+            let (st, walked) = jp_derive_stages_spliced(world, &pts_on_map, plan, s);
+            (st, Some(walked))
+        }
+        _ => (jp_derive_stages(world, pts, plan), None),
     };
     if stages.is_empty() {
         return None;
     }
+    // Ruling EU item 3: `stage_overrides` is keyed by the stage of the route as
+    // walked (`JpDerivedStage::base`), so an accepted leg, which cuts stages and
+    // inserts its own, never moves an override onto another stage. A leg's own
+    // stages take none. With no legs `base` is `Some(i)` for stage `i`, so every
+    // lookup below is the plain `stage_overrides.get(&i)` it always was.
+    let ov_keys: Vec<Option<usize>> = stages.iter().map(|s| s.base).collect();
+    let ov_at = |i: usize| ov_keys[i].and_then(|b| plan.stage_overrides.get(&b));
     // Per-stage routeCond/infra overrides apply directly to the derived stage
     // (they are already stage-local fields); every other override flows
     // through the effective per-stage plan below.
     for (i, s) in stages.iter_mut().enumerate() {
-        let Some(ov) = plan.stage_overrides.get(&i) else {
+        let Some(ov) = ov_at(i) else {
             continue;
         };
         if let Some(rc) = &ov.route_cond {
@@ -16973,7 +17202,7 @@ pub fn jp_plan_full(
         .map(|(i, s)| {
             s.cat == "sea"
                 && plan_manual_cond.is_none_or(|m| !jp_route_cond_valid("sea", m))
-                && plan.stage_overrides.get(&i).is_none_or(|o| o.route_cond.is_none())
+                && ov_at(i).is_none_or(|o| o.route_cond.is_none())
         })
         .collect();
     let sea_cond_for = |s: &JpDerivedStage, vessel: &str| -> String {
@@ -16986,7 +17215,7 @@ pub fn jp_plan_full(
         if !sea_auto[i] {
             continue;
         }
-        let v = jp_effective_stage_plan(plan, plan.stage_overrides.get(&i)).vessel;
+        let v = jp_effective_stage_plan(plan, ov_at(i)).vessel;
         if v != plan.vessel {
             let c = sea_cond_for(s, &v);
             s.route_cond = c.clone();
@@ -17012,7 +17241,7 @@ pub fn jp_plan_full(
                         .iter()
                         .enumerate()
                         .filter(|(_, s)| s.river_leg == Some(l))
-                        .map(|(i, _)| (jp_stages[i].clone(), jp_effective_stage_plan(plan, plan.stage_overrides.get(&i))))
+                        .map(|(i, _)| (jp_stages[i].clone(), jp_effective_stage_plan(plan, ov_at(i))))
                         .collect();
                     let ranks = river_stretch::jp_rank_river_vessels(&legs, &river_stretch::jp_builtin_hulls(), vessels);
                     river_stretch::jp_recommend(&ranks).map(|r| r.name.clone())
@@ -17043,7 +17272,7 @@ pub fn jp_plan_full(
         let mut acc = 0.0;
         let mut mids = Vec::with_capacity(stages.len());
         for (i, st) in jp_stages.iter().enumerate() {
-            let mut eff = jp_effective_stage_plan(plan, plan.stage_overrides.get(&i));
+            let mut eff = jp_effective_stage_plan(plan, ov_at(i));
             if let Some(v) = &leg_vessel[i] {
                 eff.vessel = v.clone();
             }
@@ -17062,7 +17291,7 @@ pub fn jp_plan_full(
 
     let mut results: Vec<JpLegResult> = Vec::with_capacity(stages.len());
     for (i, st) in jp_stages.iter().enumerate() {
-        let ov = plan.stage_overrides.get(&i);
+        let ov = ov_at(i);
         let mut eff = jp_effective_stage_plan(plan, ov);
         // Ruling EU item 3: a leg stage sails its leg's hull.
         if let Some(v) = &leg_vessel[i] {
@@ -17367,6 +17596,7 @@ pub fn jp_plan_full(
         route_pts,
         river_legs_applied,
         river_legs_dropped,
+        walked_stages,
         has_desert: stages
             .iter()
             .any(|s| s.cat == "land" && jp_biome(&s.biome).is_some_and(|b| b.desert_like)),
@@ -25571,6 +25801,7 @@ mod tests {
             my: 0.0,
             slope: None,
             river_leg: None,
+            base: Some(0),
         };
         assert_eq!(jp_stage_infra(&base, &ctx), "Sparse Settlements");
         assert_eq!(

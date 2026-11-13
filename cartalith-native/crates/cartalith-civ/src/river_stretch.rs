@@ -22,14 +22,16 @@
 //!   it walks each channel chain inside a corridor round the route and keeps, per
 //!   chain and direction, the longest stretch whose progress along the route is at
 //!   least [`ETA_MIN`] of its own length (the river runs "roughly the same
-//!   direction"), no shorter than the stage builder's own water-gap length.
+//!   direction"), measured on the route's line, and whose channel and progress
+//!   are both no shorter than the stage builder's own water-gap length.
 //! - A **river leg** ([`JpRiverLeg`]) is a stretch the user accepted. It lives on
 //!   the plan (`JpPlan::river_legs`), journey-wide like accepted resupply stops.
 //!   [`jp_apply_river_legs`] splices each leg's channel cells into the route the
 //!   planner plans (the committed route itself never changes), and
-//!   `jp_derive_stages` classifies the leg's points as river **whatever the
-//!   transport**, as stages of their own that never collapse, absorb or count
-//!   toward the 14-stage cap.
+//!   `crate::jp_derive_stages_spliced` cuts each leg into the stages of the route
+//!   as walked: the leg's channel points are river stages of their own **whatever
+//!   the transport**, the hops to and from the river are walked, and no stage the
+//!   leg does not touch changes.
 //! - [`jp_rank_river_vessels`] costs every hull on a leg's own stages through
 //!   `jp_calc_water_ex` (so the current, the rapids and the hold all count) and
 //!   recommends one ([`jp_recommend`]): the cheapest within [`RECOMMEND_MARGIN`]
@@ -38,7 +40,7 @@
 //!   is an exact re-plan with the leg against the plan as computed, never an
 //!   estimate, and an offer that saves no time is not made. A party with pack
 //!   animals, a mount or vehicles is offered nothing yet, with the reason
-//!   ([`NOTE_ANIMALS_ABOARD`]: owner question Q6 is open, and the hold costing
+//!   ([`NOTE_ANIMALS_ABOARD`]: owner question EU3-Q6 is open, and the hold costing
 //!   counts neither).
 //!
 //! **What it must never do:** change a plan with no legs (an empty `river_legs`
@@ -59,11 +61,11 @@ use crate::{
 /// and Wolman 1957; a recalled citation, to be confirmed), so a stretch that
 /// winds less than a meander does qualifies. In angle terms a straight reach
 /// qualifies up to about 48 degrees off the route (`acos(1/1.5)`). A labelled
-/// judgement (owner question Q1).
+/// judgement (owner question EU3-Q1).
 pub const ETA_MIN: f64 = 1.0 / 1.5;
 
 /// The least saving, in days, an offer must make: `0.05` d. A labelled judgement
-/// (owner question Q3): the planner prints days to one decimal, so a stretch that
+/// (owner question EU3-Q3): the planner prints days to one decimal, so a stretch that
 /// would show "saves 0.0 d" (measured on the census worlds: 4-12 km stretches
 /// saving minutes) is not an offer.
 pub const MIN_SAVING_DAYS: f64 = 0.05;
@@ -73,7 +75,7 @@ pub const MIN_SAVING_DAYS: f64 = 0.05;
 /// pick already uses for "close enough to the best", so the planner has one
 /// notion of it. Pure "fastest" would pick the Longship on almost every river (the
 /// reference rates it 11 km/h on rivers); pure "first that fits" is today's
-/// `jp_auto_pick_vessel`. A labelled judgement (owner question Q5).
+/// `jp_auto_pick_vessel`. A labelled judgement (owner question EU3-Q5).
 pub const RECOMMEND_MARGIN: f64 = JP_STAGE_PICK_MARGIN;
 
 /// The widest corridor, in cells, searched for channel either side of the route,
@@ -88,10 +90,18 @@ pub const CORRIDOR_MAX_CELLS: usize = 24;
 /// [`CORRIDOR_MAX_CELLS`] either side of the route.
 pub const CHAIN_MAX_CELLS: usize = 2000;
 
-/// How many candidate stretches a route is offered, longest first: each costs two
-/// exact re-plans ([`jp_river_offers`]). A labelled judgement; with it the offers
-/// added 1-7 ms (median) to a compute on the census worlds (`STATUS.md`).
-pub const MAX_OFFERS: usize = 6;
+/// How many candidate stretches one compute measures, longest first, after the
+/// stretches already accepted are set aside: each costs two exact re-plans
+/// ([`jp_river_offers`]). A labelled guard on the compute's time, not a cap on
+/// what is offered: the owner asked for "every stretch of river that is along
+/// the planned path", so every candidate within it that saves time is offered,
+/// and any beyond it are counted ([`JpRiverOffers::unmeasured`]) and named by
+/// the planner, never dropped silently; accepting or declining one measures the
+/// next on the following compute. Before 2026-11-13 the cap was 6 and was
+/// applied before the accepted and least-saving filters (verifier finding). The
+/// figure of 32 is a labelled judgement: the most candidates any census route
+/// had is recorded in `STATUS.md` (Ruling EU), well under it.
+pub const MAX_MEASURED: usize = 32;
 
 /// A river stretch the user accepted (Ruling EU item 3): its channel cells in
 /// travel order (grid indices, each a navigable land cell, each step one cell
@@ -133,6 +143,11 @@ pub struct JpLegSplice {
     pub pts: Vec<(f64, f64)>,
     pub leg_of: Vec<Option<usize>>,
     pub applied: Vec<JpRiverLeg>,
+    /// `spans[l]`: the route points (indices into the route **given**, not the
+    /// spliced one) applied leg `l` leaves and rejoins it at, `entry < exit`, in
+    /// route order. The route's own steps `entry + 1 ..= exit` are the ones the
+    /// leg replaces (`crate::jp_derive_stages_spliced`).
+    pub spans: Vec<(usize, usize)>,
     pub dropped: Vec<JpLegDrop>,
 }
 
@@ -198,7 +213,7 @@ pub fn jp_apply_river_legs(world: &JpWorld, pts: &[(f64, f64)], legs: &[JpRiverL
         placed.push((a, b, leg.clone()));
     }
     if placed.is_empty() {
-        return JpLegSplice { pts: pts.to_vec(), leg_of: vec![None; pts.len()], applied: Vec::new(), dropped };
+        return JpLegSplice { pts: pts.to_vec(), leg_of: vec![None; pts.len()], applied: Vec::new(), spans: Vec::new(), dropped };
     }
     placed.sort_by_key(|p| p.0);
     let gw = world.gw;
@@ -206,6 +221,7 @@ pub fn jp_apply_river_legs(world: &JpWorld, pts: &[(f64, f64)], legs: &[JpRiverL
     let mut leg_of = Vec::new();
     let mut next = 0usize;
     let mut applied = Vec::new();
+    let mut spans = Vec::new();
     for (li, (a, b, leg)) in placed.into_iter().enumerate() {
         out.extend_from_slice(&pts[next..=a]);
         leg_of.extend(std::iter::repeat_n(None, a + 1 - next));
@@ -215,10 +231,11 @@ pub fn jp_apply_river_legs(world: &JpWorld, pts: &[(f64, f64)], legs: &[JpRiverL
         }
         next = b;
         applied.push(leg);
+        spans.push((a, b));
     }
     out.extend_from_slice(&pts[next..]);
     leg_of.extend(std::iter::repeat_n(None, pts.len() - next));
-    JpLegSplice { pts: out, leg_of, applied, dropped }
+    JpLegSplice { pts: out, leg_of, applied, spans, dropped }
 }
 
 /// The route points `(entry, exit)` an accepted leg leaves and rejoins route
@@ -254,17 +271,32 @@ pub struct JpRiverCandidate {
 }
 
 /// The candidate stretches near route `pts` (on-map points, as the planner plans
-/// them), longest first, at most [`MAX_OFFERS`]. `radius_cells` is the corridor
-/// half-width (the caller's one day of the party's land travel, in cells, floored
-/// at one cell and capped at [`CORRIDOR_MAX_CELLS`]); `min_km` the shortest
-/// stretch, which the caller sets to the stage builder's own water-gap length
-/// (`max(2 cells, 3 km)`) because a shorter one would fold back into land.
+/// them), longest first, all of them (the caller bounds how many it measures,
+/// [`MAX_MEASURED`]). `radius_cells` is the corridor half-width (the caller's one
+/// day of the party's land travel, in cells, floored at one cell and capped at
+/// [`CORRIDOR_MAX_CELLS`]); `min_km` the shortest stretch, which the caller sets
+/// to the stage builder's own water-gap length (`max(2 cells, 3 km)`) because a
+/// shorter one would fold back into land. Both the stretch's **channel** length
+/// and its progress along the route must reach `min_km`.
+///
+/// **Progress is measured on the route's line, not at its points.** Every
+/// corridor cell is projected onto the nearest segment of the route polyline,
+/// and its route km is the arc length at that projection. Until 2026-11-13 a cell
+/// took the arc length of its nearest route *point*; a route drawn on a way's
+/// sparse points (about 3.6 cells apart on the owner world, Ruling EU item 2)
+/// then credited one channel step crossing the route at right angles with the
+/// whole gap between two points, and offered it as running along the route
+/// (verifier finding). A crossing now projects both its cells to about the same
+/// route km and fails [`ETA_MIN`].
 ///
 /// Per channel chain (cells inside the corridor, linked along the receiver tree)
 /// it keeps the longest stretch (by route km; the shorter channel on a tie) with
 /// `eta >= ETA_MIN` in each direction; stretches
 /// whose route spans overlap by more than half the shorter one keep only the
-/// longer, so a confluence is offered once. Empty without a river network.
+/// longer, so a confluence is offered once. The route points a stretch leaves
+/// and rejoins at (`entry_k`, `exit_k`) are the nearer end of the segment its
+/// first and last cells project onto (widened to the segments' outer ends where
+/// both round to one point). Empty without a river network.
 pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f64, min_km: f64) -> Vec<JpRiverCandidate> {
     let Some((net, _)) = world.river_inputs() else { return Vec::new() };
     if pts.len() < 2 {
@@ -278,22 +310,22 @@ pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f6
         let adx = (pts[k].0 - pts[k - 1].0).abs();
         arc[k] = arc[k - 1] + adx.min(gw as f64 - adx).hypot(pts[k].1 - pts[k - 1].1) * cell_km;
     }
-    // Nearest route point for every navigable cell inside the corridor.
+    // Every navigable cell inside the corridor, projected onto the nearest
+    // segment of the route: (distance in cells, route km at the projection, the
+    // nearer end of that segment, the segment).
     let r = radius_cells.clamp(1.0, CORRIDOR_MAX_CELLS as f64);
-    let ri = r.ceil() as i64;
-    let mut near: std::collections::HashMap<usize, (f64, usize)> = std::collections::HashMap::new();
-    for (k, &(px, py)) in pts.iter().enumerate() {
-        let (cx, cy) = world.clamp_cell(px, py);
-        for dy in -ri..=ri {
-            let y = cy as i64 + dy;
-            if y < 0 || y >= gh as i64 {
-                continue;
-            }
-            for dx in -ri..=ri {
-                let mut x = cx as i64 + dx;
-                if world.world {
-                    x = x.rem_euclid(gw as i64);
-                }
+    let mut near: std::collections::HashMap<usize, (f64, f64, usize, usize)> = std::collections::HashMap::new();
+    for k in 0..pts.len() - 1 {
+        let (ax, ay) = pts[k];
+        let sdx = world.wrap_dx(pts[k + 1].0 - ax);
+        let sdy = pts[k + 1].1 - ay;
+        let l2 = sdx * sdx + sdy * sdy;
+        let seg_km = arc[k + 1] - arc[k];
+        let (x0, x1) = ((ax.min(ax + sdx) - r).floor() as i64, (ax.max(ax + sdx) + r).ceil() as i64);
+        let (y0, y1) = ((ay.min(ay + sdy) - r).floor() as i64, (ay.max(ay + sdy) + r).ceil() as i64);
+        for y in y0.max(0)..=y1.min(gh as i64 - 1) {
+            for xx in x0..=x1 {
+                let x = if world.world { xx.rem_euclid(gw as i64) } else { xx };
                 if x < 0 || x >= gw as i64 {
                     continue;
                 }
@@ -301,14 +333,15 @@ pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f6
                 if !navigable(world, c) {
                     continue;
                 }
-                let ddx = world.wrap_dx(x as f64 - px);
-                let d = ddx.hypot(y as f64 - py);
+                let (ddx, ddy) = (world.wrap_dx(x as f64 - ax), y as f64 - ay);
+                let t = if l2 > 1e-12 { ((ddx * sdx + ddy * sdy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                let d = (ddx - sdx * t).hypot(ddy - sdy * t);
                 if d > r {
                     continue;
                 }
-                let e = near.entry(c).or_insert((f64::INFINITY, k));
+                let e = near.entry(c).or_insert((f64::INFINITY, 0.0, k, k));
                 if d < e.0 {
-                    *e = (d, k);
+                    *e = (d, arc[k] + seg_km * t, if t < 0.5 { k } else { k + 1 }, k);
                 }
             }
         }
@@ -327,6 +360,15 @@ pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f6
         let dx = world.wrap_dx((b % gw) as f64 - (a % gw) as f64);
         dx.hypot((b / gw) as f64 - (a / gw) as f64) * cell_km
     };
+    // The route points a stretch from cell `a` to cell `b` (in travel order)
+    // leaves and rejoins at: the nearer end of each one's segment, or, where both
+    // round to the same point (a stretch inside one or two long segments of a
+    // route drawn on a way's sparse points), the start of `a`'s segment and the
+    // end of `b`'s, so a real stretch is never dropped for rounding.
+    let ends = |a: usize, b: usize| {
+        let (na, nb) = (near[&a], near[&b]);
+        if na.2 < nb.2 { (na.2, nb.2) } else { (na.3, (nb.3 + 1).max(na.3 + 1)) }
+    };
     let mut cands: Vec<JpRiverCandidate> = Vec::new();
     for h in heads {
         let mut seq = vec![h];
@@ -342,7 +384,7 @@ pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f6
         if seq.len() < 2 {
             continue;
         }
-        let s: Vec<f64> = seq.iter().map(|c| arc[near[c].1]).collect();
+        let s: Vec<f64> = seq.iter().map(|c| near[c].1).collect();
         let mut ck = vec![0.0f64; seq.len()];
         for i in 1..seq.len() {
             ck[i] = ck[i - 1] + step_km(seq[i - 1], seq[i]);
@@ -356,7 +398,7 @@ pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f6
             for j in i + 1..seq.len() {
                 let len = ck[j] - ck[i];
                 let ds = s[j] - s[i];
-                if len <= 0.0 || ds.abs() < min_km || ds.abs() / len < ETA_MIN {
+                if len < min_km || ds.abs() < min_km || ds.abs() / len < ETA_MIN {
                     continue;
                 }
                 let slot = if ds > 0.0 { &mut best_down } else { &mut best_up };
@@ -366,10 +408,11 @@ pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f6
             }
         }
         if let Some((rk, _, i, j)) = best_down {
+            let (entry_k, exit_k) = ends(seq[i], seq[j]);
             cands.push(JpRiverCandidate {
                 cells: seq[i..=j].to_vec(),
-                entry_k: near[&seq[i]].1,
-                exit_k: near[&seq[j]].1,
+                entry_k,
+                exit_k,
                 route_km: rk,
                 channel_km: ck[j] - ck[i],
                 eta: rk / (ck[j] - ck[i]),
@@ -379,10 +422,11 @@ pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f6
         if let Some((rk, _, i, j)) = best_up {
             // Travelled against the flow: from the downstream end (nearer the
             // route's start) up to the upstream end.
+            let (entry_k, exit_k) = ends(seq[j], seq[i]);
             cands.push(JpRiverCandidate {
                 cells: seq[i..=j].iter().rev().copied().collect(),
-                entry_k: near[&seq[j]].1,
-                exit_k: near[&seq[i]].1,
+                entry_k,
+                exit_k,
                 route_km: rk,
                 channel_km: ck[j] - ck[i],
                 eta: rk / (ck[j] - ck[i]),
@@ -402,9 +446,6 @@ pub fn jp_river_candidates(world: &JpWorld, pts: &[(f64, f64)], radius_cells: f6
         });
         if !overlaps {
             kept.push(c);
-        }
-        if kept.len() >= MAX_OFFERS {
-            break;
         }
     }
     kept
@@ -495,6 +536,16 @@ pub struct JpRiverOffer {
     pub conditions: Vec<String>,
 }
 
+/// What [`jp_river_offers`] returns when it can offer something: the offers, and
+/// how many candidates were left unmeasured by [`MAX_MEASURED`] (`0` unless a
+/// route has more than that many). The planner names the second figure rather
+/// than let a bound read as "checked, none".
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpRiverOffers {
+    pub offers: Vec<JpRiverOffer>,
+    pub unmeasured: usize,
+}
+
 /// Why [`jp_river_offers`] offers nothing, for the planner to show in place of
 /// the list (a reason, never an empty list read as "checked, none").
 pub const NOTE_ALREADY_WATER: &str = "This journey already travels by water, so river stretches are not offered one by one.";
@@ -515,15 +566,18 @@ pub const NOTE_NONE_QUICKER: &str = "No navigable river along this route saves t
 /// recommended ([`jp_recommend`]), or the reason none can be offered.
 ///
 /// The corridor half-width is one day of the party's own land travel (`base`'s
-/// land km over its land days, in cells; owner question Q4's default), the
+/// land km over its land days, in cells; owner question EU3-Q4's default), the
 /// minimum stretch the stage builder's own water-gap length `max(2 cells, 3 km)`
 /// (a shorter one would fold back into land). A candidate overlapping a leg the
 /// plan already holds is skipped. Each offer's days come from an **exact**
 /// re-plan with the leg added, sailed by the recommended hull, against `base`
 /// (the plan as computed), never an estimate; an offer that saves less than
-/// [`MIN_SAVING_DAYS`] is not returned (owner question Q2's default: upstream
-/// only when quicker). Costs two
-/// `jp_plan_full` runs per candidate, at most [`MAX_OFFERS`] candidates.
+/// [`MIN_SAVING_DAYS`] is not returned (owner question EU3-Q2's default: upstream
+/// only when quicker). Costs two `jp_plan_full` runs per candidate, at most
+/// [`MAX_MEASURED`] candidates, counted **after** the accepted legs are set aside
+/// so accepting stretches never hides the next ones (verifier finding,
+/// 2026-11-13); candidates past the bound are counted in
+/// [`JpRiverOffers::unmeasured`].
 #[allow(clippy::too_many_arguments)]
 pub fn jp_river_offers(
     world: &JpWorld,
@@ -535,7 +589,7 @@ pub fn jp_river_offers(
     vessels: Option<&JpVesselResolver>,
     base: &JpJourneyPlan,
     hulls: &[String],
-) -> Result<Vec<JpRiverOffer>, &'static str> {
+) -> Result<JpRiverOffers, &'static str> {
     if matches!(plan.transport.as_str(), "River Transport" | "Sea Faring") {
         return Err(NOTE_ALREADY_WATER);
     }
@@ -557,10 +611,12 @@ pub fn jp_river_offers(
     let radius = (land_km / land_days / cell_km).max(1.0);
     let min_km = (cell_km * 2.0).max(3.0);
     let taken: Vec<(usize, usize)> = plan.river_legs.iter().filter_map(|l| leg_span(pts, l)).collect();
-    let cands: Vec<JpRiverCandidate> = jp_river_candidates(world, pts, radius, min_km)
+    let mut cands: Vec<JpRiverCandidate> = jp_river_candidates(world, pts, radius, min_km)
         .into_iter()
         .filter(|c| !taken.iter().any(|&(a, b)| c.entry_k < b && a < c.exit_k))
         .collect();
+    let unmeasured = cands.len().saturating_sub(MAX_MEASURED);
+    cands.truncate(MAX_MEASURED);
     let days_of = |j: &JpJourneyPlan| j.total_days.map_or((j.days, "travel"), |t| (t, "total"));
     let run = |p: &JpPlan| jp_plan_full(world, pts, p, layovers, forage, animals, vessels);
     let mut out = Vec::new();
@@ -603,8 +659,8 @@ pub fn jp_river_offers(
             days_with,
         });
     }
-    if out.is_empty() {
+    if out.is_empty() && unmeasured == 0 {
         return Err(NOTE_NONE_QUICKER);
     }
-    Ok(out)
+    Ok(JpRiverOffers { offers: out, unmeasured })
 }

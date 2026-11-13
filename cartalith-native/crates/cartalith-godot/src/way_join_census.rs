@@ -70,6 +70,101 @@ fn route_stretches(ways: &[AuditWay], places: &[(f64, f64)], view: AuditView, ri
     r
 }
 
+/// The beside-stroke measure the 2026-11-13 verifier used on Ruling EU item 2,
+/// at full resolution and so at every zoom: route `pts` (pen lifts `brks`) is
+/// sampled every [`BESIDE_STEP`] cells and each sample's distance to the nearest
+/// drawn way segment (`ways`, stored points, pen lifts and x-seam jumps skipped)
+/// is classed as on (`< BESIDE_ON`), beside (`BESIDE_ON..=BESIDE_FAR`) or off.
+/// Returns `(cells in beside runs of at least BESIDE_RUN cells, the largest
+/// offset inside such a run, the share of samples on a way)`. A measurement, not
+/// a gate: the thresholds are the verifier's own (0.4, 3 and 4 cells).
+fn beside_runs(pts: &[(f64, f64)], brks: &[usize], ways: &[(&[(f64, f64)], &[usize])], gw: usize) -> (f64, f64, f64) {
+    const B: f64 = 4.0;
+    let mut grid: HashMap<(i64, i64), Vec<[f64; 4]>> = HashMap::new();
+    for (wp, wb) in ways {
+        for k in 0..wp.len().saturating_sub(1) {
+            if wb.contains(&(k + 1)) || (wp[k + 1].0 - wp[k].0).abs() > gw as f64 / 2.0 {
+                continue;
+            }
+            let (a, b) = (wp[k], wp[k + 1]);
+            let (x0, x1) = (((a.0.min(b.0) - BESIDE_FAR) / B).floor() as i64, ((a.0.max(b.0) + BESIDE_FAR) / B).floor() as i64);
+            let (y0, y1) = (((a.1.min(b.1) - BESIDE_FAR) / B).floor() as i64, ((a.1.max(b.1) + BESIDE_FAR) / B).floor() as i64);
+            for gy in y0..=y1 {
+                for gx in x0..=x1 {
+                    grid.entry((gx, gy)).or_default().push([a.0, a.1, b.0, b.1]);
+                }
+            }
+        }
+    }
+    let dist = |x: f64, y: f64| -> f64 {
+        let mut best = f64::INFINITY;
+        if let Some(v) = grid.get(&((x / B).floor() as i64, (y / B).floor() as i64)) {
+            for s in v {
+                let (dx, dy) = (s[2] - s[0], s[3] - s[1]);
+                let l2 = dx * dx + dy * dy;
+                let t = if l2 > 1e-12 { (((x - s[0]) * dx + (y - s[1]) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                best = best.min((s[0] + dx * t - x).hypot(s[1] + dy * t - y));
+            }
+        }
+        best
+    };
+    let (mut beside, mut max_off, mut on, mut n) = (0.0f64, 0.0f64, 0usize, 0usize);
+    let (mut run, mut run_max) = (0usize, 0.0f64);
+    let close = |run: &mut usize, run_max: &mut f64, beside: &mut f64, max_off: &mut f64| {
+        let len = *run as f64 * BESIDE_STEP;
+        if len >= BESIDE_RUN {
+            *beside += len;
+            *max_off = max_off.max(*run_max);
+        }
+        *run = 0;
+        *run_max = 0.0;
+    };
+    for k in 0..pts.len().saturating_sub(1) {
+        let (a, b) = (pts[k], pts[k + 1]);
+        if brks.contains(&(k + 1)) || (b.0 - a.0).abs() > gw as f64 / 2.0 {
+            close(&mut run, &mut run_max, &mut beside, &mut max_off);
+            continue;
+        }
+        let m = ((b.0 - a.0).hypot(b.1 - a.1) / BESIDE_STEP).ceil().max(1.0) as usize;
+        for i in 0..m {
+            let t = i as f64 / m as f64;
+            let d = dist(a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+            n += 1;
+            if d < BESIDE_ON {
+                on += 1;
+            }
+            if (BESIDE_ON..=BESIDE_FAR).contains(&d) {
+                run += 1;
+                run_max = run_max.max(d);
+            } else {
+                close(&mut run, &mut run_max, &mut beside, &mut max_off);
+            }
+        }
+    }
+    close(&mut run, &mut run_max, &mut beside, &mut max_off);
+    (beside, max_off, on as f64 / n.max(1) as f64)
+}
+
+/// Town pairs (world tag, from, to) whose routes the 2026-11-13 verifier found
+/// drawn beside a way at x16 (the first three on the owner world, the last two
+/// on 483920), measured after the census's own eight.
+const VERIFIER_ROUTES: [(&str, &str, &str); 5] = [
+    ("owner", "Sevjuniana", "Valcorforum"),
+    ("owner", "Kadharyusnashrest", "Nashbahrdune"),
+    ("owner", "Skerulvebrenkellskerry", "Kellholvfjord"),
+    ("483920", "Sevjuniana", "Lucimparcnoviana"),
+    ("483920", "Sevjuniana", "Galcasgalregopolis"),
+];
+
+/// [`beside_runs`]' sample spacing, in full-res cells (a labelled measurement choice).
+const BESIDE_STEP: f64 = 0.25;
+/// [`beside_runs`]: closer than this to a way is drawn on it (the verifier's 0.4 cell).
+const BESIDE_ON: f64 = 0.4;
+/// [`beside_runs`]: farther than this from every way is off the network (the verifier's 3 cells).
+const BESIDE_FAR: f64 = 3.0;
+/// [`beside_runs`]: the shortest beside run counted, in cells (the verifier's 4 cells).
+const BESIDE_RUN: f64 = 4.0;
+
 /// Median with min..max of `v` (empty: `"-"`).
 fn spread(v: &mut [f64]) -> String {
     if v.is_empty() {
@@ -182,12 +277,26 @@ fn measure_planner_way_join_and_river_offers() {
         pairs.sort_by(|x, y| x.0.total_cmp(&y.0));
         pairs.truncate(ROUTES);
         assert!(!pairs.is_empty(), "{}: no town pair in range", s.tag);
+        // The routes the 2026-11-13 verifier read at x16 on these worlds, after
+        // the eight above (so their numbering is unchanged), when both towns
+        // exist by name; a missing one is said, never skipped silently.
+        for &(tag, a, b) in VERIFIER_ROUTES.iter().filter(|r| r.0 == s.tag) {
+            let find = |n: &str| civ.settlements.iter().position(|t| t.name == n);
+            match (find(a), find(b)) {
+                (Some(i), Some(j)) => {
+                    let dx = (places[i].0 - places[j].0).abs();
+                    let dx = if p.world { dx.min(gw as f64 - dx) } else { dx };
+                    pairs.push((dx.hypot(places[i].1 - places[j].1), i, j));
+                }
+                _ => println!("  {tag}: {a} -> {b} not on this world"),
+            }
+        }
         let join = WayJoin::new(civ.ways.len());
         let walk = JpPlan { transport: "Walking".into(), ..JpPlan::default() };
         let (mut t_off, mut t_on, mut t_offer) = (Vec::new(), Vec::new(), Vec::new());
         let hulls = river_stretch::jp_builtin_hulls();
         println!(
-            "{} {}x{} {} km: route | join legs ratio | way share off->on | beside@fit off->on | beside@x4 off->on | on@x4 off->on | days off->on | offers",
+            "{} {}x{} {} km: route | join legs ratio | way share off->on | beside@fit off->on | beside@x4 off->on | on@x4 off->on | full-res beside off->on | days off->on | offers",
             s.tag, gw, gh, p.map_width_km
         );
         for (ri, &(d, a, b)) in pairs.iter().enumerate() {
@@ -221,6 +330,10 @@ fn measure_planner_way_join_and_river_offers() {
                 cartalith_civ::jp_plan(&world, pts, &walk, &HashMap::new(), &|_, _| 1.0).map(|j| j.total_days.unwrap_or(j.days))
             };
             let leg = &on.legs[0];
+            // The verifier's full-resolution beside measure (any zoom).
+            let way_lines: Vec<(&[(f64, f64)], &[usize])> =
+                civ.ways.iter().filter(|w| !w.hidden && w.pts.len() >= 2).map(|w| (&w.pts[..], &w.brks[..])).collect();
+            let (bs_off, bs_on) = (beside_runs(&off.pts, &off.brks, &way_lines, gw), beside_runs(&on.path.pts, &on.path.brks, &way_lines, gw));
             // River offers on the joined route, walking.
             let t0 = Instant::now();
             let on_map = world.on_map_points(&on.path.pts);
@@ -232,12 +345,14 @@ fn measure_planner_way_join_and_river_offers() {
                 None => "no plan".to_string(),
                 Some(Err(note)) => format!("none ({note})"),
                 Some(Ok(o)) => o
+                    .offers
                     .iter()
                     .map(|x| {
                         format!(
-                            "[{:?} {:.0} km eta {:.2} saves {:.1} d ({}) by {}; {} fit]",
+                            "[{:?} {:.0} km (ch {:.0} km) eta {:.2} saves {:.1} d ({}) by {}; {} fit]",
                             x.cand.dir,
                             x.cand.route_km,
+                            x.cand.channel_km,
                             x.cand.eta,
                             x.saving_days,
                             x.basis,
@@ -246,10 +361,11 @@ fn measure_planner_way_join_and_river_offers() {
                         )
                     })
                     .collect::<Vec<_>>()
-                    .join(" "),
+                    .join(" ")
+                    + &if o.unmeasured > 0 { format!(" (+{} unmeasured)", o.unmeasured) } else { String::new() },
             };
             println!(
-                "  #{ri} {}->{} {:.0} cells | {} {:?} | {:.2}->{:.2} | {}/{:.0}px -> {}/{:.0}px | {}/{:.0}px -> {}/{:.0}px | {} -> {} | {:?}->{:?} | {}",
+                "  #{ri} {}->{} {:.0} cells | {} {:?} | {:.2}->{:.2} | {}/{:.0}px -> {}/{:.0}px | {}/{:.0}px -> {}/{:.0}px | {} -> {} | beside cells {:.1} (max {:.2}, on {:.2}) -> {:.1} (max {:.2}, on {:.2}) | {:?}->{:?} | {}",
                 civ.settlements[a].name,
                 civ.settlements[b].name,
                 d,
@@ -267,6 +383,12 @@ fn measure_planner_way_join_and_river_offers() {
                 b4_on.1,
                 b4_off.2,
                 b4_on.2,
+                bs_off.0,
+                bs_off.1,
+                bs_off.2,
+                bs_on.0,
+                bs_on.1,
+                bs_on.2,
                 days(&off.pts).map(|x| (x * 10.0).round() / 10.0),
                 days(&on.path.pts).map(|x| (x * 10.0).round() / 10.0),
                 offer_txt

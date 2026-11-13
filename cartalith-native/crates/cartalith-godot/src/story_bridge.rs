@@ -637,7 +637,7 @@ fn plan_saved_journey_checked(
     let mut planned = run(plan.clone());
     let mut check = cartalith_civ::travel_library::OverrideLegCheck::default();
     if let Some(jp) = &planned {
-        check = cartalith_civ::travel_library::check_override_legs(&plan.stage_overrides, &saved.override_legs, &jp.stages);
+        check = cartalith_civ::travel_library::check_override_legs(&plan.stage_overrides, &saved.override_legs, jp.override_stages());
         if !check.dropped.is_empty() {
             for d in &check.dropped {
                 plan.stage_overrides.remove(&d.stage);
@@ -806,7 +806,10 @@ impl WorldGen {
             if preset_missing {
                 d.set("preset_missing", true);
             }
-            let pts = &j.route.points;
+            // Ruling EU item 3: a plan with accepted river legs indexes the
+            // route with those legs spliced in, so the party is moved along
+            // that route, never along the committed one (`JourneyTimeline::points`).
+            let committed = &j.route.points;
             match timeline {
                 None => d.set("error", "no derivable stages for this journey's route"),
                 Some(Err(NoTimeline::Blocked { stage })) => {
@@ -815,7 +818,7 @@ impl WorldGen {
                 }
                 Some(Err(NoTimeline::NoTravel)) => d.set("error", "the plan has no travel time"),
                 Some(Ok(t)) => {
-                    let p = t.at(pts, elapsed as f64);
+                    let p = t.at(t.points(committed), elapsed as f64);
                     d.set("phase", p.phase.as_str());
                     d.set("x", p.point.0);
                     d.set("y", p.point.1);
@@ -898,9 +901,20 @@ impl WorldGen {
         let Some(infra) = self.infra.as_ref() else { return Array::new() };
         let mut rows: Vec<(i64, VarDictionary)> = planned
             .into_iter()
-            .map(|(ji, _, timeline)| {
+            .filter_map(|(ji, _, timeline)| {
                 let j = &infra.journeys[ji];
-                let pi = passes[&ji];
+                // Ruling EU item 3: a plan with accepted river legs is dated on
+                // the route it indexes (`JourneyTimeline::points`), so the pass
+                // is found again on that route; a journey whose spliced route
+                // no longer passes the settlement (it sails past out of reach)
+                // has no pass to list.
+                let pi = match &timeline {
+                    Some(Ok(t)) if t.route.is_some() => {
+                        let at = cartalith_civ::civ_passed_settlements_at(t.points(&j.route.points), &places, gw, self.world);
+                        at.iter().find(|&&(s, _)| s == target).map(|&(_, pi)| pi)?
+                    }
+                    _ => passes[&ji],
+                };
                 let departure = departure_day_number(j);
                 let mut d = vdict! {
                     "id" => j.id as i64,
@@ -930,7 +944,7 @@ impl WorldGen {
                     Some(Err(NoTimeline::NoTravel)) => d.set("error", "the plan has no travel time"),
                     None => d.set("error", "no derivable stages for this journey's route"),
                 }
-                (key, d)
+                Some((key, d))
             })
             .collect();
         rows.sort_by_key(|(k, _)| *k);

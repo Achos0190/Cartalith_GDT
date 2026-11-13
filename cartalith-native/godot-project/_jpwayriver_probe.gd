@@ -8,11 +8,13 @@ extends Node
 ##
 ##   desktop: Godot_v4.7.2-stable_win64_console.exe --path . _jpwayriver_probe.tscn -- --out <dir>
 ##   phone:   Godot_v4.7.2-stable_win64_console.exe --path . _jpwayriver_probe.tscn -- --out <dir> --vp 1080x2340 --force-touch
+##   tablet:  Godot_v4.7.2-stable_win64_console.exe --path . _jpwayriver_probe.tscn -- --out <dir> --vp 2560x1600 --force-touch
 ##
 ## WINDOWED on purpose (`MISTAKES.md`: pixel probes run windowed); refuses to
-## run headless. `--out` is required; `--vp WxH` sets the window after boot and
-## selects the phone form, `--force-touch` is accepted for the shell; any other
-## argument fails loudly (exit 2).
+## run headless. `--out` is required; `--vp WxH` sets the window after boot (a
+## portrait size must give the phone form, a landscape one with `--force-touch`
+## the tablet form, or the probe fails), `--force-touch` is accepted for the
+## shell; any other argument fails loudly (exit 2).
 ##
 ## What it does. Generates seed 912345 at 1024 x 656, 1 200 km (a main world of
 ## the way census, `way_census::MAIN`), then walks town pairs of the most
@@ -24,8 +26,11 @@ extends Node
 ## The first pair whose share rises by 0.20 or more is the join evidence: map
 ## frames at x4 with the join off and on, and the planner with its "On ways"
 ## section. The first pair the planner offers a river stretch on is the river
-## evidence: the offer, then "use river" pressed, then a different hull picked,
-## then "walk instead" pressed.
+## evidence: a manual override set on the last stage, the offer, then "use
+## river" pressed (the override must stay on the same walked stage, Ruling EU
+## item 3's verifier finding of 2026-11-13), then a different hull picked, then
+## the accepted leg re-presented as a saved journey restores it (no ranked hulls
+## stored with it) and its hull menu must still be drawn, then "walk instead".
 ##
 ## Prints `JPWR ...` lines; `JPWR PASS` and exit 0 when every check held, a
 ## `JPWR FAIL: ...` line and exit 1 on the first that did not, exit 2 when it
@@ -39,6 +44,7 @@ const KM := 1200.0
 var app: Node
 var mode := "desktop"
 var touch := false
+var vp_set := false
 var out_dir := ""
 
 func _p(s: String) -> void:
@@ -171,7 +177,7 @@ func _ready() -> void:
 		elif a == "--vp" and i + 1 < args.size():
 			var wh := String(args[i + 1]).split("x")
 			size = Vector2i(int(wh[0]), int(wh[1]))
-			mode = "phone"
+			vp_set = true
 			i += 1
 		elif a == "--out" and i + 1 < args.size():
 			out_dir = String(args[i + 1])
@@ -199,9 +205,14 @@ func _ready() -> void:
 	if app.phone_project_picker != null:
 		app.phone_project_picker.hide()
 	await _frames(3)
+	if vp_set:
+		mode = "phone" if size.y > size.x else "tablet"
 	_p("=== mode=%s phone=%s touch=%s screen=%s ===" % [mode, app.is_phone(), DccTheme.is_touch(), str(app.get_viewport_rect().size)])
 	if mode == "phone" and not app.is_phone():
 		_fail("--vp/--force-touch did not produce phone mode")
+		return
+	if mode == "tablet" and not DccTheme.is_tablet():
+		_fail("--vp WxH (landscape) --force-touch did not produce the tablet form")
 		return
 	var bridge = app.bridge
 	var wg = bridge.world_gen
@@ -341,8 +352,19 @@ func _ready() -> void:
 		jpv._compute()
 		app.right_dock_ctrl.refresh_journey()
 		await _frames(10)
+		## A manual override on the last stage, through the planner's own setter,
+		## before the offers are read (so the offer and the plan both carry it).
+		var st0: Array = (jpv._last_result.get("plan", {}) as Dictionary).get("stages", [])
+		var ov_idx := st0.size() - 1
+		jpv._set_stage_override(ov_idx, "hours", 5.0)
+		await _frames(10)
+		app.right_dock_ctrl.refresh_journey()
+		await _frames(6)
 		var res: Dictionary = jpv._last_result
 		var offers: Array = res.get("river_offers", [])
+		if offers.is_empty():
+			_fail("the override on stage %d removed every offer on this route" % ov_idx)
+			return
 		var oi := 0
 		for q in offers.size():
 			if float((offers[q] as Dictionary).get("route_km", 0.0)) > float((offers[oi] as Dictionary).get("route_km", 0.0)):
@@ -385,6 +407,25 @@ func _ready() -> void:
 		if absf(after - float(o.get("days_with", -1.0))) > 0.01:
 			_fail("the planned days (%.3f) differ from the offer's (%.3f)" % [after, float(o.get("days_with", -1.0))])
 			return
+		## The override stays on its walked stage: every stage cut from it plans
+		## 5 h, no other stage does, and its saved fingerprint is that stage's.
+		var results: Array = plan.get("results", [])
+		var on_it := 0
+		for si in stages.size():
+			var sd: Dictionary = stages[si]
+			var h := float(((results[si] as Dictionary).get("eff", {}) as Dictionary).get("hours", -1.0))
+			var mine := sd.has("base") and int(sd["base"]) == ov_idx
+			if mine:
+				on_it += 1
+			if mine != is_equal_approx(h, 5.0):
+				_fail("stage %d (base %s, leg %s) plans %.1f h with the override on walked stage %d" % [si, str(sd.get("base", "-")), str(sd.get("river_leg", "-")), h, ov_idx])
+				return
+		var ovl: Dictionary = jpv._override_legs_now()
+		var walked: PackedStringArray = plan.get("walked_legs", PackedStringArray())
+		_p("override on walked stage %d: %d stage(s) carry it of %d; fingerprint %s (walked %s)" % [ov_idx, on_it, stages.size(), str(ovl), walked[ov_idx] if ov_idx < walked.size() else "-"])
+		if ovl.keys() != [ov_idx] or ov_idx >= walked.size() or String(ovl[ov_idx]) != walked[ov_idx]:
+			_fail("the override's fingerprint is not its walked stage's")
+			return
 		await _reveal_section("river stretches")
 		await _shot("river_accepted")
 		## Pick a different hull for the accepted leg through its menu.
@@ -403,6 +444,28 @@ func _ready() -> void:
 				var v2 := String(((plan2.get("results", []) as Array)[leg_stage] as Dictionary).get("eff", {}).get("vessel", "")) if leg_stage < (plan2.get("results", []) as Array).size() else "-"
 				_p("re-hulled: %s, total_days %.2f" % [v2, float(plan2.get("total_days", -1.0))])
 				await _shot("river_rehulled")
+		## A saved journey restores its accepted legs in request form only (no
+		## ranked hulls: `jp_river_leg_dict`); re-present the leg that way and the
+		## hull menu must still be drawn, from the result's own ranks.
+		## Counted against the menus drawn before (the offers draw the same kind),
+		## so a missing leg menu cannot hide behind an offer's.
+		var is_hull := func(n): return n is OptionButton and (n as OptionButton).is_visible_in_tree() and String((n as OptionButton).tooltip_text).begins_with("Hull for this river stretch")
+		var menus_before: Array = []
+		_collect(_results_root(), is_hull, menus_before)
+		for l in jpv._river_legs:
+			(l as Dictionary).erase("hulls")
+			(l as Dictionary).erase("recommended")
+		jpv._compute()
+		app.right_dock_ctrl.refresh_journey()
+		await _frames(10)
+		var menus_after: Array = []
+		_collect(_results_root(), is_hull, menus_after)
+		var applied2: Array = (jpv._last_result.get("plan", {}) as Dictionary).get("river_legs_applied", [])
+		_p("restored leg: hull menus %d -> %d, %d ranked hulls from the result" % [menus_before.size(), menus_after.size(),
+			((applied2[0] as Dictionary).get("hulls", []) as Array).size() if applied2.size() > 0 else -1])
+		if menus_before.is_empty() or menus_after.size() != menus_before.size():
+			_fail("a restored river leg has no hull menu")
+			return
 		var walk := _button("walk instead")
 		if walk == null:
 			_fail("no walk instead button drawn")

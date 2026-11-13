@@ -943,8 +943,9 @@ pub struct OverrideLegCheck {
 /// Ruling EA item 10: sorts each manual override in `overrides` into verified,
 /// unverified or dropped by comparing the [`leg_key`] saved with it
 /// (`saved_legs`) to the leg `stages` now has at that number. `stages` must be
-/// the stages of the plan the override would be applied to
-/// (`JpJourneyPlan::stages`); they do not depend on the overrides themselves
+/// the stages the override indices name (`JpJourneyPlan::override_stages`: the
+/// route as walked, so an accepted river leg never renumbers them, Ruling EU
+/// item 3); they do not depend on the overrides themselves
 /// ([`crate::jp_derive_stages`] never reads `stage_overrides`), so one plan run
 /// is enough to decide, and a caller replans only if something was dropped.
 ///
@@ -1956,6 +1957,7 @@ mod tests {
             my,
             slope: None,
             river_leg: None,
+            base: Some(0),
         }
     }
 

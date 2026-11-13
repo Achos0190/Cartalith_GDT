@@ -21504,24 +21504,18 @@ fn jp_way_spans_array(
 /// `route_km`, `channel_km`, `eta`, `entry_k`/`exit_k` (route point indices),
 /// `saving_days` and `saving_basis` (`total` or `travel`), `days_with`,
 /// `recommended`, `terrains`, `conditions` and `hulls` -- one row per hull with
-/// `fits`, and `days`/`cost` when it fits or `reason` when it does not.
-fn jp_river_offers_dicts(offers: Result<Vec<cartalith_civ::river_stretch::JpRiverOffer>, &'static str>) -> (VarArray, Option<&'static str>) {
+/// `fits`, and `days`/`cost` when it fits or `reason` when it does not. The
+/// third value is how many candidates were left unmeasured
+/// (`JpRiverOffers::unmeasured`; `0` when the engine offered nothing).
+fn jp_river_offers_dicts(offers: Result<cartalith_civ::river_stretch::JpRiverOffers, &'static str>) -> (VarArray, Option<&'static str>, usize) {
     let mut out = VarArray::new();
     let offers = match offers {
         Ok(o) => o,
-        Err(note) => return (out, Some(note)),
+        Err(note) => return (out, Some(note), 0),
     };
-    for o in &offers {
+    for o in &offers.offers {
         let terrains: PackedStringArray = o.terrains.iter().map(GString::from).collect();
         let conds: PackedStringArray = o.conditions.iter().map(GString::from).collect();
-        let hull_rows: Array<VarDictionary> = o
-            .ranks
-            .iter()
-            .map(|r| match &r.fit {
-                Ok((days, cost)) => vdict! { "name" => r.name.as_str(), "fits" => true, "days" => *days, "cost" => *cost },
-                Err(why) => vdict! { "name" => r.name.as_str(), "fits" => false, "reason" => why.as_str() },
-            })
-            .collect();
         let mut d = jp_river_leg_dict(&o.leg);
         d.set("dir", match o.cand.dir {
             cartalith_civ::river_stretch::JpRiverDir::Downstream => "downstream",
@@ -21538,10 +21532,23 @@ fn jp_river_offers_dicts(offers: Result<Vec<cartalith_civ::river_stretch::JpRive
         d.set("recommended", o.recommended.as_str());
         d.set("terrains", &terrains);
         d.set("conditions", &conds);
-        d.set("hulls", &hull_rows);
+        d.set("hulls", &jp_hull_rows(&o.ranks));
         out.push(&d.to_variant());
     }
-    (out, None)
+    (out, None, offers.unmeasured)
+}
+
+/// Ruling EU item 3: one row per ranked hull (`name`, `fits`, and `days`/`cost`
+/// when it fits or the planner's `reason` when it does not), the form the
+/// planner's hull menu reads for an offer and for an accepted leg alike.
+fn jp_hull_rows(ranks: &[cartalith_civ::river_stretch::JpVesselRank]) -> Array<VarDictionary> {
+    ranks
+        .iter()
+        .map(|r| match &r.fit {
+            Ok((days, cost)) => vdict! { "name" => r.name.as_str(), "fits" => true, "days" => *days, "cost" => *cost },
+            Err(why) => vdict! { "name" => r.name.as_str(), "fits" => false, "reason" => why.as_str() },
+        })
+        .collect()
 }
 
 /// Ruling EU item 3: accepted river legs from a request's `river_legs` array.
@@ -21656,6 +21663,14 @@ fn jp_stage_dict(s: &cartalith_civ::JpDerivedStage) -> VarDictionary {
     // the plan's `river_legs_applied`); omitted for every stage not on a leg.
     if let Some(l) = s.river_leg {
         d.set("river_leg", l as i64);
+    }
+    // Ruling EU item 3 (verifier finding, 2026-11-13): the stage of the route as
+    // walked that `stage_overrides` keys this stage by (`JpDerivedStage::base`);
+    // omitted on a river leg's own stages, which take no per-stage override. The
+    // planner keys every override it writes by this, so accepting a leg never
+    // moves one onto another stage.
+    if let Some(b) = s.base {
+        d.set("base", b as i64);
     }
     d
 }
@@ -21831,6 +21846,14 @@ fn jp_journey_plan_dict(p: &cartalith_civ::JpJourneyPlan) -> VarDictionary {
         let dropped: Array<VarDictionary> =
             p.river_legs_dropped.iter().map(|x| vdict! { "key" => x.key.as_str(), "reason" => x.reason.as_str() }).collect();
         d.set("river_legs_dropped", &dropped);
+    }
+    // Ruling EU item 3 with Ruling EA item 10: the leg fingerprint of every
+    // stage an override index names (`JpJourneyPlan::override_stages`: the
+    // route as walked when a leg was applied). Present only when a leg was
+    // applied; otherwise each stage's own `leg` is that fingerprint.
+    if let Some(w) = &p.walked_stages {
+        let legs: PackedStringArray = w.iter().map(|s| GString::from(cartalith_civ::travel_library::leg_key(s).as_str())).collect();
+        d.set("walked_legs", &legs);
     }
     d
 }
@@ -22419,7 +22442,36 @@ impl WorldGen {
         let confidence = cartalith_civ::jp_confidence(&journey).map_or_else(VarDictionary::new, |c| {
             vdict! { "lo_days" => c.lo_days, "hi_days" => c.hi_days, "lo" => c.lo, "hi" => c.hi, "note" => c.note }
         });
-        let plan_dict = jp_journey_plan_dict(&journey);
+        let mut plan_dict = jp_journey_plan_dict(&journey);
+        // Ruling EU item 3 (verifier finding, 2026-11-13): every accepted leg
+        // carries its own ranked hulls and recommendation, computed here on the
+        // leg's stages, so its hull menu exists whether the leg was accepted this
+        // session or restored from a save (`river_legs_applied` alone carried
+        // only the request form).
+        if !journey.river_legs_applied.is_empty() {
+            let rows: Array<VarDictionary> = journey
+                .river_legs_applied
+                .iter()
+                .enumerate()
+                .map(|(l, leg)| {
+                    let stages: Vec<(cartalith_civ::JpStage, cartalith_civ::JpPlan)> = journey
+                        .stages
+                        .iter()
+                        .zip(&journey.results)
+                        .filter(|(s, _)| s.river_leg == Some(l))
+                        .map(|(s, r)| (s.to_stage(forage(s.mx, s.my)), r.eff.clone()))
+                        .collect();
+                    let ranks = cartalith_civ::river_stretch::jp_rank_river_vessels(&stages, &hulls, Some(&vessel_resolver));
+                    let mut d = jp_river_leg_dict(leg);
+                    if let Some(r) = cartalith_civ::river_stretch::jp_recommend(&ranks) {
+                        d.set("recommended", r.name.as_str());
+                    }
+                    d.set("hulls", &jp_hull_rows(&ranks));
+                    d
+                })
+                .collect();
+            plan_dict.set("river_legs_applied", &rows);
+        }
         // JP-04. `jp_journey_cost` has been ported and golden-tested since
         // milestone 3 and was called by nothing; `jp_plan_cost` is the
         // reference's own call site (line 19854), and this is the line that
@@ -22439,10 +22491,15 @@ impl WorldGen {
             "auto" => &auto,
             "way_spans" => &way_spans,
         };
-        if let Some((arr, note)) = offers {
+        if let Some((arr, note, unmeasured)) = offers {
             out.set("river_offers", &arr);
             if let Some(n) = note {
                 out.set("river_offers_note", n);
+            }
+            // Present only when the measuring bound left candidates out
+            // (`river_stretch::MAX_MEASURED`), so the planner can say so.
+            if unmeasured > 0 {
+                out.set("river_offers_unmeasured", unmeasured as i64);
             }
         }
         out

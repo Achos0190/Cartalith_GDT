@@ -3169,12 +3169,30 @@ func _on_trim_dragged(from_frac: float, to_frac: float) -> void:
 	_tool_options_journey()
 	_compute()
 
+## Ruling EU item 3 (verifier finding, 2026-11-13): the key `_stage_overrides` holds displayed stage `idx` under -- the
+## stage of the route as walked it is, or is a cut piece of (`plan.stages[idx].base`, `JpDerivedStage::base`) -- or -1
+## for a river leg's own stage, which takes no per-stage override. With no leg accepted `base` is `idx` itself. Keying
+## by it means accepting or removing a river leg, which inserts and removes stages, never moves an override onto
+## another leg. Every read and write of `_stage_overrides` by a displayed stage index goes through this.
+func _ov_key(idx: int) -> int:
+	var stages: Array = (_last_result.get("plan", {}) as Dictionary).get("stages", [])
+	if idx < 0 or idx >= stages.size():
+		return idx
+	var st: Dictionary = stages[idx]
+	return int(st["base"]) if st.has("base") else -1
+
 ## The override Dictionary for stage `idx` (field -> value), or an empty one. Do not mutate the result; use `_set_stage_override()`.
 func _stage_override(idx: int) -> Dictionary:
-	return _stage_overrides.get(idx, {})
+	var k := _ov_key(idx)
+	return _stage_overrides.get(k, {}) if k >= 0 else {}
 
 ## Writes one field of stage `idx`'s override. An empty string means "inherit", which erases the field; an empty entry is erased entirely so `overrides: N` counts are honest. Copies the entry before editing.
 func _set_stage_override(idx: int, field: String, value) -> void:
+	var k := _ov_key(idx)
+	if k < 0:
+		app.set_status("hint", "A river leg's stages follow the leg: choose its hull under River stretches.", "text_dim")
+		return
+	idx = k
 	var entry: Dictionary = (_stage_overrides.get(idx, {}) as Dictionary).duplicate()
 	var is_blank: bool = (typeof(value) == TYPE_STRING and value == "")
 	if is_blank:
@@ -3513,7 +3531,7 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 	actions_pad.add_theme_constant_override("margin_top", 6)
 	actions_pad.add_child(actions)
 	_inspector_body.add_child(actions_pad)
-	DccWidgets.action(actions, "clear overrides", func(): _stage_overrides.erase(idx); _compute())
+	DccWidgets.action(actions, "clear overrides", func(): _stage_overrides.erase(_ov_key(idx)); _compute())
 	DccWidgets.action(actions, "copy to all land stages", func(): _copy_override_to_land_stages(idx, plan))
 	DccWidgets.action(actions, "isolate stage", func(): _on_stage_clicked(idx, true))
 
@@ -3600,8 +3618,8 @@ func _copy_override_to_land_stages(idx: int, plan: Dictionary) -> void:
 	var stages: Array = plan.get("stages", [])
 	for i in stages.size():
 		var s: Dictionary = stages[i]
-		if String(s.get("cat", "land")) == "land":
-			_stage_overrides[i] = src.duplicate()
+		if String(s.get("cat", "land")) == "land" and _ov_key(i) >= 0:
+			_stage_overrides[_ov_key(i)] = src.duplicate()
 	_compute()
 
 # ======================================================== Stage matrix (§7) ====
@@ -3844,10 +3862,13 @@ func _matrix_fill_down(stages: Array) -> void:
 	if picked.is_empty():
 		return
 	for i in range(_selected_stage + 1, stages.size()):
-		var entry: Dictionary = (_stage_overrides.get(i, {}) as Dictionary).duplicate()
+		var k := _ov_key(i)
+		if k < 0:
+			continue
+		var entry: Dictionary = (_stage_overrides.get(k, {}) as Dictionary).duplicate()
 		for f in picked:
 			entry[f] = picked[f]
-		_stage_overrides[i] = entry
+		_stage_overrides[k] = entry
 	_compute()
 
 # ============================================================== Tool options ====
@@ -4015,15 +4036,22 @@ func _commit_saved_journey(jname: String) -> void:
 ## Ruling EA item 10: `{stage: leg fingerprint}` for every manual override held now, read from the stages of the plan
 ## the planner last computed (`plan.stages[i].leg`) -- the leg each override is being applied to at this moment. A stage
 ## the last result does not have, or one that reports no `leg`, is left out rather than keyed to an empty string: an
-## override with no recorded leg is "unverified" in the engine, never "matches".
+## override with no recorded leg is "unverified" in the engine, never "matches". Ruling EU item 3: with a river leg
+## accepted the overrides are keyed by the stages of the route as walked (`_ov_key`), so their fingerprints come from
+## those (`plan.walked_legs`), never from the spliced stage that now holds the same number.
 func _override_legs_now() -> Dictionary:
 	var legs: Dictionary = {}
-	var stages: Array = (_last_result.get("plan", {}) as Dictionary).get("stages", [])
+	var plan: Dictionary = _last_result.get("plan", {})
+	var walked: PackedStringArray = plan.get("walked_legs", PackedStringArray())
+	var stages: Array = plan.get("stages", [])
 	for idx in _stage_overrides:
 		var i := int(idx)
-		if i < 0 or i >= stages.size():
-			continue
-		var leg := String((stages[i] as Dictionary).get("leg", ""))
+		var leg := ""
+		if plan.has("walked_legs"):
+			if i >= 0 and i < walked.size():
+				leg = walked[i]
+		elif i >= 0 and i < stages.size():
+			leg = String((stages[i] as Dictionary).get("leg", ""))
 		if leg != "":
 			legs[i] = leg
 	return legs
@@ -4910,11 +4938,13 @@ func _build_river_group(body: Control, plan: Dictionary) -> void:
 		for l in _river_legs:
 			if String((l as Dictionary).get("key", "")) == key:
 				stored = l
-		var hulls: Array = stored.get("hulls", [])
+		## The leg's ranked hulls come with the result (`river_legs_applied[i].hulls`), so a leg restored from a save has
+		## its menu too; the copy stored from the offer is the fallback for a binary that does not send them.
+		var hulls: Array = a.get("hulls", stored.get("hulls", []))
 		## The menu on a row of its own: beside the buttons it is squeezed to a
 		## few letters on the phone (measured 2026-11-13, `_jpwayriver_probe`).
-		if not hulls.is_empty():
-			_hull_menu(g, hulls, String(stored.get("recommended", "")), hull, func(name: String):
+		if not hulls.is_empty() and not stored.is_empty():
+			_hull_menu(g, hulls, String(a.get("recommended", stored.get("recommended", ""))), hull, func(name: String):
 				stored["vessel"] = name
 				app.set_status("hint", "River leg #%d now sails a %s." % [i + 1, name], "accent")
 				_compute())
@@ -4928,6 +4958,12 @@ func _build_river_group(body: Control, plan: Dictionary) -> void:
 		var dd: Dictionary = d
 		var lab := DccWidgets.note(g, "%s A saved river leg was not applied: %s" % [DccIcons.SYMBOLS["blocked"], String(dd.get("reason", ""))])
 		lab.add_theme_color_override("font_color", DccTheme.c("warn"))
+	## The engine measures at most `river_stretch::MAX_MEASURED` candidates per compute (after the accepted ones are set
+	## aside); any beyond are counted, and said, so a bound never reads as "no more stretches".
+	if _last_result.has("river_offers_unmeasured"):
+		var unmeasured := int(_last_result["river_offers_unmeasured"])
+		DccWidgets.note(g, ("1 more stretch along this route was" if unmeasured == 1 else "%d more stretches along this route were" % unmeasured)
+			+ " not measured this time; accept or decline some to see them.")
 	if offers.is_empty():
 		if _last_result.has("river_offers_note") and applied.is_empty():
 			DccWidgets.note(g, String(_last_result["river_offers_note"]))

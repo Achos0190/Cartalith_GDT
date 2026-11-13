@@ -2366,13 +2366,14 @@ fn dto_to_journey_plan(d: &JourneyPlanDto) -> cartalith_civ::travel_library::Jou
         let (ov, _rejected) = journey_bridge::stage_override_from_pairs(&travel_fields_to_pairs(fields));
         plan.stage_overrides.insert(idx, ov);
     }
-    // Ruling EU item 3: a leg with fewer than two cells cannot be a stretch and
-    // is dropped here (the tolerance rule); the planner re-checks every other
-    // leg against the world and reports any it cannot apply.
+    // Ruling EU item 3: every saved leg is loaded as written. The planner checks
+    // each against the world when it plans (`river_stretch::jp_apply_river_legs`)
+    // and reports any it cannot apply with its reason, a leg of fewer than two
+    // cells included (verifier finding, 2026-11-13: a load-time filter here
+    // dropped such a leg with no reason).
     plan.river_legs = d
         .river_legs
         .iter()
-        .filter(|l| l.cells.len() >= 2)
         .map(|l| cartalith_civ::river_stretch::JpRiverLeg {
             cells: l.cells.clone(),
             entry: (l.entry[0], l.entry[1]),
@@ -6352,7 +6353,8 @@ mod tests {
     /// Protects: (Ruling EU item 3) accepted river legs are written under
     /// `plan.river_legs` as `{cells, entry, exit, vessel}`, round-trip field for
     /// field, a leg with no hull writes no `vessel`, and a leg of fewer than two
-    /// cells on a hand-edited file is dropped on read (never planned).
+    /// cells on a hand-edited file is kept on read, so the planner drops it with
+    /// its reason (`jp_apply_river_legs`) instead of the reader losing it silently.
     #[test]
     fn river_legs_round_trip_under_the_documented_key() {
         let mut j = full_plan_journey();
@@ -6372,7 +6374,9 @@ mod tests {
         let mut text = serde_json::to_value(journey_to_dto(&j)).unwrap();
         text["plan"]["river_legs"][1]["cells"] = serde_json::json!([10]);
         let dto: JourneyDto = serde_json::from_value(text).unwrap();
-        assert_eq!(dto_to_journey(&dto).plan.unwrap().plan.river_legs, legs[..1].to_vec());
+        let read = dto_to_journey(&dto).plan.unwrap().plan.river_legs;
+        assert_eq!(read.len(), 2, "the short leg is kept for the planner to report");
+        assert_eq!(read[1].cells, vec![10]);
     }
 
     /// Protects: (Ruling EA item 10 and SP-2 residual, backward compatibility)

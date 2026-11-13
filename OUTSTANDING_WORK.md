@@ -3286,15 +3286,17 @@ ER, ET and the VA-6 kinds) and `_roadsettle_probe`'s junction-end check (15 of 1
 are built (2026-11-13, `STATUS.md` "The planner joins ways, and offers river stretches"):** `cartalith_civ::way_join`
 (a planned route rides a way within `JOIN_MARGIN` and is drawn on the way's own line; on by default as a session setting,
 `set_route_join_ways`) and `cartalith_civ::river_stretch` (river stretches offered per stretch, each with a recommended
-hull, accepted as `JpPlan::river_legs`, saved with the journey's plan). **Still open for them:** owner questions Q1-Q5
-(world parameter or preference, and no UI toggle yet; margin, minimum ride and stickiness; sea lanes; a per-route
-direct-line opt-out, not built; old-route re-routes join) and item 3's (alignment tolerance 1/1.5; upstream only when
-quicker; a corridor of one day's travel; the hull rule, which picks the Longship on every offer measured; pack animals and
-vehicles aboard, which `jp_calc_water_ex` does not count against the hold, so such a party is offered none yet; the least
-saving, 0.05 d; auto-accept, off; declines saved, session only; precedence with item 2; offers drawn on the main map, not
-built); 2 of 24 measured routes plan slightly more days with the join (the margin is router cost, not days); the stop
-step's few-cells limit has no unit test; a leg is drawn on channel cells, which can sit off the painted river
-(unmeasured); the tablet form was not probed; a joined commit costs about 2.8-2.9 times a plain one.
+hull, accepted as `JpPlan::river_legs`, saved with the journey's plan). Their verifier findings were answered on
+2026-11-13 (`STATUS.md`, same entry). **Still open for them**, numbered as `STATUS.md` numbers them: item 2's owner
+questions EU2-Q1 to EU2-Q5 (world parameter or preference, and no UI toggle yet; margin, minimum ride and stickiness; sea
+lanes; a per-route direct-line opt-out, not built; old-route re-routes join) and item 3's EU3-Q1 to EU3-Q10 (alignment
+tolerance 1/1.5; upstream only when quicker; the least saving, 0.05 d; a corridor of one day's travel; the hull rule,
+which picks the Longship on every offer measured; pack animals and vehicles aboard, which `jp_calc_water_ex` does not
+count against the hold, so such a party is offered none yet; auto-accept, off; declines saved, session only; precedence
+with item 2; offers and accepted legs drawn on the main map, not built: the main map draws the committed, walked route);
+some routes still run beside a way for short stretches at full resolution (`STATUS.md` gives the census); planned days
+can rise with the join (the margin is router cost, not days); a leg is drawn on channel cells, which can sit off the
+painted river (unmeasured); a joined commit costs about 3 times a plain one.
 
 **Zoom-dependent river drawing (owner request, 2026-11-09).** The owner wants the map's drawn rivers to depend on
 zoom: *"smaller estuaries, rivers or channels won't be drawn until the appropriate zoom has been reached. There

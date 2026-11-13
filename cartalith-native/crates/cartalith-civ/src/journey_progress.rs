@@ -76,6 +76,14 @@ pub struct JourneyTimeline {
     pub travel_days: f64,
     /// `JpJourneyPlan::total_days`: travel + rest + layovers.
     pub calendar_days: f64,
+    /// The route the legs' `i0`/`i1` index when it is **not** the committed
+    /// route: `JpJourneyPlan::route_pts`, the route with accepted river legs
+    /// spliced in (Ruling EU item 3). `None` when no leg was applied, and the
+    /// caller's committed points are then the right ones. Read it through
+    /// [`Self::points`]; interpolating a spliced plan's indices on the
+    /// committed route draws the party off its path and dates passes against
+    /// the wrong points (verifier finding, 2026-11-13).
+    pub route: Option<Vec<(f64, f64)>>,
 }
 
 /// Where the party stands relative to its journey, as read off a
@@ -143,7 +151,15 @@ impl JourneyTimeline {
                 }
             })
             .collect();
-        Ok(JourneyTimeline { legs, travel_days: plan.days, calendar_days })
+        Ok(JourneyTimeline { legs, travel_days: plan.days, calendar_days, route: plan.route_pts.clone() })
+    }
+
+    /// The points this timeline's legs index: its own [`Self::route`] when the
+    /// plan spliced river legs in, else `committed` (the route it was planned
+    /// over). Every caller of [`Self::at`] and [`Self::elapsed_at_point`] passes
+    /// or tests against these, never the committed route alone.
+    pub fn points<'a>(&'a self, committed: &'a [(f64, f64)]) -> &'a [(f64, f64)] {
+        self.route.as_deref().unwrap_or(committed)
     }
 
     /// Whole days from departure to the first day the party starts already
@@ -378,6 +394,7 @@ mod tests {
             legs: vec![leg(10.0, 100.0, 0, 2, 50.0), leg(0.0, 0.0, 2, 2, 0.0), leg(30.0, 150.0, 2, 4, 150.0)],
             travel_days: 40.0,
             calendar_days: 50.0, // 10 rest days on top
+            route: None,
         };
         let pts = vec![(0.0, 0.0), (10.0, 0.0), (20.0, 0.0), (20.0, 10.0), (20.0, 20.0)];
         (t, pts)

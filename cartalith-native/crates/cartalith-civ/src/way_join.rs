@@ -30,12 +30,17 @@
 //!    which rides at least [`MIN_RIDE_CELLS`] more way cells than the direct path,
 //!    replaces it. A way that leads away from the destination is only taken when
 //!    the whole detour fits the margin; one beyond it never is. This is a
-//!    deliberate replacement for the read-only map's three-tree "join cell"
-//!    search: it yields a real least-cost path under one cost model, rides
-//!    through junctions onto further ways for free, and needs no new kernel.
+//!    deliberate replacement for a three-tree "join cell" search that an
+//!    uncommitted read-only planning pass of 2026-11-12 proposed: it yields a
+//!    real least-cost path under one cost model, rides through junctions onto
+//!    further ways for free, and needs no new kernel.
 //! 3. Draw every run of the chosen path that rides one drawn way for at least
 //!    [`MIN_RIDE_CELLS`] cells on **that way's own points** (the splice), so the
-//!    route renders on the way's curve instead of beside it. Only the off-way
+//!    route renders on the way's curve instead of beside it. Each routed point
+//!    rides the drawn way it actually lies on ([`reown_by_proximity`]), and runs
+//!    on short ways meeting end to end count together toward the minimum
+//!    ([`way_chain_runs`]), so a route along a chain of short merged ways is drawn
+//!    on them too (verifier finding, 2026-11-13). Only the off-way
 //!    pieces are smoothed ([`civ_smooth_path`]). A spliced point that fails the
 //!    mode's terrain test (a way sample drawn on water: Ruling EU item 1's
 //!    residue) keeps the routed cells for that run. A stop within reach of the
@@ -60,14 +65,14 @@ use crate::{TerrainValid, civ_smooth_path, js_hypot, road_dijkstra, way_merge};
 /// How much dearer, in router cost, a joined leg may be than the direct one:
 /// `way_merge::DETOUR_TOL` (0.15), so the planner and the generated network agree
 /// on how much extra effort riding a way is worth. A labelled judgement (owner
-/// question Q2), measured in router cost rather than planned days because the
+/// question EU2-Q2), measured in router cost rather than planned days because the
 /// router cost tracks planner speed through `way_class` and planning inside the
 /// router would mean running the planner per candidate.
 pub const JOIN_MARGIN: f64 = way_merge::DETOUR_TOL;
 
 /// The shortest ride, in routing cells, that counts as joining a way and that is
 /// drawn on the way's own line: `2 x way_merge::JUNCTION_SNAP_CELLS` (6). A
-/// labelled judgement (owner question Q2): twice the reach at which generation
+/// labelled judgement (owner question EU2-Q2): twice the reach at which generation
 /// already treats two road ends as one junction, so a route brushing a way's
 /// neighbourhood for a cell or two is not called a join.
 pub const MIN_RIDE_CELLS: usize = (2.0 * way_merge::JUNCTION_SNAP_CELLS) as usize;
@@ -290,7 +295,7 @@ fn polyline_km(pts: &[(f64, f64)], gw: usize, map_width_km: f64) -> f64 {
 /// one way, as `(way, first, last)` point indices, longest first not required:
 /// in route order. One point owned by another way or by none, between two points
 /// of the same way, is absorbed, so ownership flickering where two ways overlap
-/// does not split a ride (the read-only map's hysteresis risk). The route's own
+/// does not split a ride (a hysteresis risk that planning pass named). The route's own
 /// first and last points are never inside a run: they are the user's stops.
 fn way_runs(owners: &[i32], min_len: usize, drawn_ways: usize) -> Vec<(usize, usize, usize)> {
     let n = owners.len();
@@ -324,6 +329,97 @@ fn way_runs(owners: &[i32], min_len: usize, drawn_ways: usize) -> Vec<(usize, us
     }
     out
 }
+
+/// The runs of `owners` to splice, as [`way_runs`] gives them for one way at a
+/// time, but grouped into **chains**: consecutive runs on different ways that
+/// meet (the next starts at most one point after the previous ends) are one
+/// ride, and a chain whose span reaches `min_len` points keeps every run in it,
+/// down to two points each. A chain of short merged ways meeting at junctions
+/// (the owner world: runs of 2-5 routing cells on 10 ways in a row) is then drawn
+/// on each way's own line, joined by one straight step at each junction, instead
+/// of as a smoothed line beside them; a single way's run is kept exactly when
+/// [`way_runs`] keeps it at `min_len`. Verifier finding, 2026-11-13 (the
+/// parallel stroke at x16). A further step that carried each ride along its way
+/// to the junction point was tried and measured worse on the census (more
+/// beside-stroke cells on two owner-world routes, up to +16 planned days), so it
+/// is not built.
+fn way_chain_runs(owners: &[i32], min_len: usize, drawn_ways: usize) -> Vec<(usize, usize, usize)> {
+    let runs = way_runs(owners, 2, drawn_ways);
+    let mut out = Vec::new();
+    let mut g = 0usize;
+    while g < runs.len() {
+        let mut h = g;
+        while h + 1 < runs.len() && runs[h + 1].1 <= runs[h].2 + 2 {
+            h += 1;
+        }
+        if runs[h].2 + 1 - runs[g].1 >= min_len {
+            out.extend_from_slice(&runs[g..=h]);
+        }
+        g = h + 1;
+    }
+    out
+}
+
+/// Re-owns each raw point by the drawn way it actually lies on: the nearest
+/// drawn, visible land way within `reach` cells. The routing grid's owner
+/// (`owners[k]`, chosen by class priority over 3x3 routing-cell neighbourhoods)
+/// is kept when it is a drawn way within [`OWNER_SLACK_CELLS`] of that nearest
+/// one, so where two ways overlap the grid's order still decides; otherwise the
+/// nearest way wins, and a point within reach of no drawn way keeps its grid
+/// owner. Verifier finding, 2026-11-13: on the owner world (`sc` 0.5) the grid
+/// gave cells to a higher-class way 4-5 cells off while a way ran through them,
+/// and left cells between two short ways' neighbourhoods to none, so a route
+/// following them was drawn 1-3 cells beside them.
+fn reown_by_proximity(ctx: &RouteContext, raw: &[(f64, f64)], owners: &mut [i32], drawn_ways: usize, reach: f64) {
+    let drawn = drawn_ways.min(ctx.ways.len());
+    // Each drawn way's bounding box, padded by `reach`, to skip the far ones.
+    let boxes: Vec<Option<(f64, f64, f64, f64)>> = ctx.ways[..drawn]
+        .iter()
+        .map(|w| {
+            if w.hidden || w.sea || w.pts.len() < 2 {
+                return None;
+            }
+            let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+            for &(x, y) in w.pts {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+            Some((x0 - reach, y0 - reach, x1 + reach, y1 + reach))
+        })
+        .collect();
+    let dist_to = |i: usize, p: (f64, f64)| -> Option<f64> {
+        let (x0, y0, x1, y1) = boxes.get(i).copied().flatten()?;
+        if p.0 < x0 || p.0 > x1 || p.1 < y0 || p.1 > y1 {
+            return None;
+        }
+        project(ctx.ways[i].pts, p.0, p.1).map(|q| q.4).filter(|&d| d <= reach)
+    };
+    for (k, &p) in raw.iter().enumerate() {
+        let mut best: Option<(f64, usize)> = None;
+        for i in 0..drawn {
+            if let Some(d) = dist_to(i, p)
+                && best.is_none_or(|b| d < b.0)
+            {
+                best = Some((d, i));
+            }
+        }
+        let Some((bd, bi)) = best else { continue };
+        let g = owners[k];
+        let keep = g >= 0 && (g as usize) < drawn && dist_to(g as usize, p).is_some_and(|d| d <= bd + OWNER_SLACK_CELLS);
+        if !keep {
+            owners[k] = bi as i32;
+        }
+    }
+}
+
+/// How much farther than the nearest drawn way, in full-res cells, the routing
+/// grid's own owner may lie and still keep a point ([`reown_by_proximity`]): one
+/// cell, the width of a drawn road at the opening view. A labelled judgement: it
+/// keeps the grid's priority order where two ways overlap or run a cell apart,
+/// and hands the point over where another way plainly runs through it.
+const OWNER_SLACK_CELLS: f64 = 1.0;
 
 /// One leg through the join: the leg's line, its report, and its spliced
 /// stretches (indices into the returned `pts`). See the module doc for the
@@ -411,6 +507,8 @@ pub fn civ_dijkstra_path_joined(
     let reach = SPLICE_REACH_CELLS + 1.0 / sc;
     let checked = !matches!(valid, TerrainValid::Unchecked);
     let ok_at = |x: f64, y: f64| !checked || valid.check(x, y, ctx.gw, ctx.gh, ctx.water_bodies);
+    // Each raw point rides the drawn way it lies on (`reown_by_proximity`).
+    reown_by_proximity(ctx, &raw, &mut owners, opts.drawn_ways, reach);
     // A raw point whose nearest point on its own way fails the leg's terrain
     // test (a way sample drawn on water) rides no way for the splice, so a ride
     // that passes such a stretch splits around it and only the dry parts are
@@ -425,7 +523,7 @@ pub fn civ_dijkstra_path_joined(
         }
     }
     let mut splices: Vec<(usize, usize, usize, Vec<(f64, f64)>)> = Vec::new();
-    for (w, a, b) in way_runs(&owners, opts.min_ride_cells, opts.drawn_ways) {
+    for (w, a, b) in way_chain_runs(&owners, opts.min_ride_cells, opts.drawn_ways) {
         let wr = &ctx.ways[w];
         let Some(st) = way_stretch(wr.pts, wr.brks, raw[a], raw[b], reach, ctx.gw) else { continue };
         if !checked || stretch_is_valid(&st, &ok_at) {
@@ -842,6 +940,146 @@ mod tests {
             let off = dist_to(&w, *q).min(dist_to(&steps[0], *q)).min(dist_to(&steps[1], *q));
             assert!(off < 1e-9, "{q:?} is off the road: {:?}", p.pts);
         }
+    }
+
+    /// Test fixture: corrugated ground over `x0..=x1`, `y0..=y1` (a sawtooth of
+    /// period three, 0.45 / 0.95 / 1.45 over the 0.42 sea: a period of two would
+    /// cancel in a central difference), steep enough that the unjoined router
+    /// walks round it beside a road. Test-local values. The tests that use it
+    /// set the join margin to 0 so the sticky re-route (which rides over it at
+    /// about 1.04 of the direct cost) is refused and the routed line is the
+    /// direct one: what is tested is the stop step, not the margin.
+    fn corrugate(field: &mut [f32], gw: usize, x0: usize, x1: usize, y0: usize, y1: usize) {
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                field[y * gw + x] = [0.45, 0.95, 1.45][x % 3];
+            }
+        }
+    }
+
+    /// Protects the stop step's few-cells limit at the start (the first ride must
+    /// begin within `min_ride_cells` routed cells of the stop): where the router
+    /// walks round corrugated ground beside the road's first stretch and joins the
+    /// road only past it, the route is not redrawn along the road it avoided.
+    /// Kills the mutant that lifts the limit (`usize::MAX`), which the length
+    /// bound alone does not catch here: the road is straight.
+    #[test]
+    fn a_ride_joined_far_from_the_start_is_not_drawn_back_along_the_road() {
+        let (gw, gh) = (60, 30);
+        let (mut field, wb) = flat(gw, gh);
+        corrugate(&mut field, gw, 9, 22, 8, 16);
+        let w: Vec<(f64, f64)> = (0..=4).map(|k| (8.0 + 11.0 * k as f64, 12.0)).collect();
+        let ways = [road(&w)];
+        let c = ctx(&field, &wb, &ways, gw, gh);
+        let direct = civ_dijkstra_path(&c, 6.5, 13.5, 53.5, 13.5, RouteMode::Land);
+        assert!(!direct.pts.iter().any(|q| q.0 > 10.0 && q.0 < 21.0 && q.1 < 16.0), "premise: routed round: {:?}", direct.pts);
+        let opts = WayJoin { margin: 0.0, ..WayJoin::new(1) };
+        let (p, _, spans) = civ_dijkstra_path_joined(&c, 6.5, 13.5, 53.5, 13.5, RouteMode::Land, &opts);
+        assert!(!spans.is_empty(), "the road past the corrugation is ridden: {:?}", p.pts);
+        let over = p.pts.iter().filter(|q| q.0 > 10.0 && q.0 < 21.0 && q.1 < 16.0).count();
+        assert_eq!(over, 0, "drawn over the ground the router walked round: {:?}", p.pts);
+    }
+
+    /// Protects the same limit at the end of the route (`last_raw - l.2 <=
+    /// min_ride_cells + 1`): the mirror of the start case.
+    #[test]
+    fn a_ride_left_far_from_the_end_is_not_drawn_on_along_the_road() {
+        let (gw, gh) = (60, 30);
+        let (mut field, wb) = flat(gw, gh);
+        corrugate(&mut field, gw, 37, 50, 8, 16);
+        let w: Vec<(f64, f64)> = (0..=4).map(|k| (8.0 + 11.0 * k as f64, 12.0)).collect();
+        let ways = [road(&w)];
+        let c = ctx(&field, &wb, &ways, gw, gh);
+        let opts = WayJoin { margin: 0.0, ..WayJoin::new(1) };
+        let (p, _, spans) = civ_dijkstra_path_joined(&c, 6.5, 13.5, 53.5, 13.5, RouteMode::Land, &opts);
+        assert!(!spans.is_empty(), "the road before the corrugation is ridden: {:?}", p.pts);
+        let over = p.pts.iter().filter(|q| q.0 > 38.0 && q.0 < 49.0 && q.1 < 16.0).count();
+        assert_eq!(over, 0, "drawn over the ground the router walked round: {:?}", p.pts);
+    }
+
+    /// Protects the stop step's length bound (`extend_stretch`): a stop beside the
+    /// start of a road whose own line first loops far away is reached by the
+    /// routed step, never by riding the loop. Kills the mutant that drops the
+    /// bound (`if false`): the ride starts within the few-cells limit, so only the
+    /// bound refuses the loop.
+    #[test]
+    fn a_stop_beside_a_looping_road_end_is_not_reached_round_the_loop() {
+        let (gw, gh) = (60, 40);
+        let (field, wb) = flat(gw, gh);
+        // The road starts just south of the stop, runs down to y = 34, east, back
+        // up to y = 12 and on east: its start is within reach of the stop, its
+        // line to the ride is a 50-cell loop.
+        let w = vec![(6.0, 15.5), (6.0, 34.0), (12.0, 34.0), (12.0, 12.0), (23.0, 12.0), (34.0, 12.0), (45.0, 12.0), (54.0, 12.0)];
+        let ways = [road(&w)];
+        let c = ctx(&field, &wb, &ways, gw, gh);
+        let (p, _, spans) = civ_dijkstra_path_joined(&c, 6.5, 13.0, 53.5, 13.5, RouteMode::Land, &WayJoin::new(1));
+        assert!(!spans.is_empty(), "{:?}", p.pts);
+        assert!(p.pts.iter().all(|q| q.1 < 20.0), "the route rode the loop: {:?}", p.pts);
+    }
+
+    /// Protects the chained ride (`way_chain_runs`): a route along a line of short
+    /// ways meeting end to end, each shorter than `MIN_RIDE_CELLS`, is drawn on
+    /// each way's own line, where `way_runs` alone keeps none of them and the
+    /// routed cells are drawn beside them.
+    #[test]
+    fn a_route_along_a_chain_of_short_ways_is_drawn_on_them() {
+        let (gw, gh) = (60, 30);
+        let (field, wb) = flat(gw, gh);
+        // Ten diagonal ways of 4.6 cells each, end to end (slope 0.3, so routed
+        // cell centres cannot lie on them).
+        let lines: Vec<Vec<(f64, f64)>> = (0..10)
+            .map(|k| vec![(8.0 + 4.4 * k as f64, 6.0 + 1.32 * k as f64), (8.0 + 4.4 * (k + 1) as f64, 6.0 + 1.32 * (k + 1) as f64)])
+            .collect();
+        let ways: Vec<WayRef> = lines.iter().map(|l| road(l)).collect();
+        let c = ctx(&field, &wb, &ways, gw, gh);
+        let on_chain = |q: &(f64, f64)| lines.iter().map(|l| dist_to(l, *q)).fold(f64::INFINITY, f64::min);
+        let direct = civ_dijkstra_path(&c, 6.0, 5.4, 54.0, 19.8, RouteMode::Land);
+        assert!(
+            direct.pts.iter().any(|q| q.0 > 12.0 && q.0 < 48.0 && on_chain(q) > 0.25),
+            "premise: the unjoined stroke is beside the chain"
+        );
+        let (p, _, spans) = civ_dijkstra_path_joined(&c, 6.0, 5.4, 54.0, 19.8, RouteMode::Land, &WayJoin::new(ways.len()));
+        assert!(spans.len() >= 2, "{spans:?}");
+        let off: Vec<_> = p.pts.iter().filter(|q| q.0 > 12.0 && q.0 < 48.0 && on_chain(q) > 0.25).collect();
+        assert!(off.is_empty(), "drawn beside the chain: {off:?} of {:?}", p.pts);
+    }
+
+    /// Protects the chained ride at a turn: a route that turns from one road onto
+    /// another at a junction is drawn along both roads to the junction, not as a
+    /// chord cutting the corner beside them.
+    #[test]
+    fn a_turn_at_a_junction_is_drawn_through_the_junction() {
+        let (gw, gh) = (60, 50);
+        let (field, wb) = flat(gw, gh);
+        let east = vec![(4.0, 10.0), (15.0, 10.0), (26.0, 10.0), (36.0, 10.0)];
+        let south = vec![(36.0, 10.0), (36.0, 21.0), (36.0, 32.0), (36.0, 44.0)];
+        let ways = [road(&east), WayRef { pts: &south, brks: &[], sea: false, hidden: false, class: WayClass::Highway }];
+        let c = ctx(&field, &wb, &ways, gw, gh);
+        let (p, _, spans) = civ_dijkstra_path_joined(&c, 4.0, 10.0, 36.0, 44.0, RouteMode::Land, &WayJoin::new(2));
+        assert!(spans.len() >= 2, "{spans:?}");
+        let off: Vec<_> = p.pts.iter().filter(|q| dist_to(&east, **q).min(dist_to(&south, **q)) > 0.25).collect();
+        assert!(off.is_empty(), "drawn off both roads: {off:?} of {:?}", p.pts);
+    }
+
+    /// Protects `reown_by_proximity` with literal inputs: a point the grid gives to
+    /// a way 3.3 cells off is handed to the way running through it; one whose grid
+    /// owner is within `OWNER_SLACK_CELLS` of the nearest keeps it; a point near no
+    /// way keeps whatever the grid said; an unowned point near a way takes it.
+    #[test]
+    fn points_are_reowned_by_the_way_they_lie_on() {
+        let (gw, gh) = (40, 20);
+        let (field, wb) = flat(gw, gh);
+        let a = vec![(0.0, 10.0), (39.0, 10.0)];
+        let b = vec![(0.0, 13.5), (39.0, 13.5)];
+        let ways = [road(&a), road(&b)];
+        let c = ctx(&field, &wb, &ways, gw, gh);
+        let raw = [(5.0, 10.2), (8.0, 12.0), (12.0, 2.0), (15.0, 10.4)];
+        let mut owners = [1, 1, 1, -1];
+        reown_by_proximity(&c, &raw, &mut owners, 2, 4.0);
+        // (5, 10.2): b is 3.3 off, a 0.2 -> a. (8, 12): b 1.5, a 2.0 -> b kept.
+        // (12, 2): nothing within 4 -> kept. (15, 10.4): unowned -> a.
+        assert_eq!(owners, [0, 1, 1, 0]);
+        assert!((OWNER_SLACK_CELLS - 1.0).abs() < 1e-12);
     }
 
     /// Protects the terrain check on a splice: a way drawn across a lake (Ruling EU

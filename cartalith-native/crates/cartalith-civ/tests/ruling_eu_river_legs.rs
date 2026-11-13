@@ -231,7 +231,7 @@ fn a_party_with_animals_is_told_why_no_stretch_is_offered() {
     let base = cartalith_civ::jp_plan(&w, &pts, &plan, &none, &|_, _| 1.0).unwrap();
     let hulls = jp_builtin_hulls();
     let offered = cartalith_civ::river_stretch::jp_river_offers(&w, &pts, &plan, &none, &|_, _| 1.0, None, None, &base, &hulls);
-    assert!(offered.as_ref().is_ok_and(|o| !o.is_empty()), "{offered:?}");
+    assert!(offered.as_ref().is_ok_and(|o| !o.offers.is_empty() && o.unmeasured == 0), "{offered:?}");
     let mut mule = walking();
     mule.party.mule = 1;
     let base = cartalith_civ::jp_plan(&w, &pts, &mule, &none, &|_, _| 1.0).unwrap();
@@ -377,4 +377,231 @@ fn hulls_are_ranked_on_the_legs_own_stages() {
         .map(|f| f.0)
         .unwrap();
     assert_eq!(jp_recommend(&ranks).map(|r| r.name.as_str()), Some(want));
+}
+
+/// The fixture with two terrains along the route (biome 5 west of x = 25, biome
+/// 10 from it) and the channel navigable only over x = 2..=20 (order 0 beyond),
+/// so the walked route has at least two stages and a leg can cut the first
+/// without reaching the second. Test-local choices.
+fn two_terrains() -> Rv {
+    let mut r = river(4);
+    for y in 0..H {
+        for x in 25..W {
+            r.biome[y * W + x] = 10;
+        }
+    }
+    for x in 21..=37 {
+        r.order[ROW * W + x] = 0;
+    }
+    r
+}
+
+/// Protects the hops (verifier finding, 2026-11-13): the overland steps from the
+/// route onto the river and back are walked, never sailed. The route runs along
+/// row 1, seven cells north of the channel, so each hop is 7 x 12 = 84 km; the
+/// leg spans the whole route, so the plan's land km are exactly the two hops and
+/// its river km exactly the channel (31 x 12 = 372 km). Before the fix the
+/// entry hop was sailed (river km 456).
+#[test]
+fn the_hops_onto_and_off_the_river_are_walked() {
+    let r = river(4);
+    let road = HashMap::new();
+    let w = r.world(&road);
+    let north: Vec<(f64, f64)> = (4..=35).map(|x| (x as f64, 1.0)).collect();
+    let c = jp_river_candidates(&w, &north, 8.0, 24.0).remove(0);
+    assert_eq!((c.entry_k, c.exit_k), (0, 31), "premise");
+    let mut p = walking();
+    p.river_legs = vec![JpRiverLeg { cells: c.cells.clone(), entry: north[0], exit: north[31], vessel: Some("Keelboat".into()) }];
+    let sail = cartalith_civ::jp_plan(&w, &north, &p, &HashMap::new(), &|_, _| 1.0).expect("plans");
+    assert_eq!(sail.river_legs_applied.len(), 1);
+    let river_km: f64 = sail.stages.iter().filter(|s| s.river_leg.is_some()).map(|s| s.km).sum();
+    let land_km: f64 = sail.stages.iter().filter(|s| s.river_leg.is_none()).map(|s| s.km).sum();
+    assert!((river_km - 372.0).abs() < 1e-9, "river {river_km}");
+    assert!((land_km - 168.0).abs() < 1e-9, "land {land_km}");
+    // The walked pieces reach the river: the first ends at the leg's first
+    // channel point, the last starts at its last one.
+    let rp = sail.route_pts.as_ref().expect("a leg was applied");
+    let first = &sail.stages[0];
+    let last = sail.stages.last().unwrap();
+    assert_eq!((first.river_leg, rp[first.i1]), (None, (4.0, ROW as f64)));
+    assert_eq!((last.river_leg, rp[last.i0]), (None, (35.0, ROW as f64)));
+}
+
+/// Protects the cut (verifier finding, 2026-11-13: a 20 km leg re-partitioned
+/// unrelated land and was offered as saving days the river did not buy): a stage
+/// of the route as walked that no leg touches is planned exactly as walked
+/// (terrain, condition, infrastructure, km, climb), every stage is either a
+/// leg's or a piece of a walked stage, and a cut piece keeps its walked stage's
+/// terrain and loses only the km the leg replaces.
+#[test]
+fn a_leg_leaves_the_stages_it_does_not_touch_as_walked() {
+    let r = two_terrains();
+    let road = HashMap::new();
+    let w = r.world(&road);
+    let walked = cartalith_civ::jp_plan(&w, &east(), &walking(), &HashMap::new(), &|_, _| 1.0).expect("plans");
+    assert!(walked.stages.len() >= 2, "premise: two terrains, {:?}", walked.stages.iter().map(|s| &s.terrain).collect::<Vec<_>>());
+    let lastw = walked.stages.len() - 1;
+    assert!(walked.stages[lastw].i0 >= 17, "premise: the last walked stage starts past the river's end");
+    let c = jp_river_candidates(&w, &east(), 4.0, 24.0).remove(0);
+    assert_eq!((c.entry_k, c.exit_k), (0, 16), "premise: the channel ends at x = 20");
+    let mut p = walking();
+    p.river_legs = vec![JpRiverLeg { cells: c.cells.clone(), entry: east()[0], exit: east()[16], vessel: Some("Keelboat".into()) }];
+    let sail = cartalith_civ::jp_plan(&w, &east(), &p, &HashMap::new(), &|_, _| 1.0).expect("plans");
+    assert_eq!(sail.walked_stages.as_deref(), Some(&walked.stages[..]));
+    assert_eq!(sail.override_stages(), &walked.stages[..]);
+    for s in &sail.stages {
+        assert!(s.river_leg.is_some() != s.base.is_some(), "a stage is a leg's or a walked stage's: {s:?}");
+    }
+    let tail: Vec<_> = sail.stages.iter().filter(|s| s.base == Some(lastw)).collect();
+    assert_eq!(tail.len(), 1);
+    let (a, b) = (tail[0], &walked.stages[lastw]);
+    assert_eq!((&a.terrain, &a.route_cond, &a.infra, a.km, a.gain, a.loss), (&b.terrain, &b.route_cond, &b.infra, b.km, b.gain, b.loss));
+    // The leg's 16 channel steps replace 16 route steps of 12 km; the hops are
+    // three cells (36 km) each way.
+    let land_km: f64 = sail.stages.iter().filter(|s| s.river_leg.is_none()).map(|s| s.km).sum();
+    let walked_km: f64 = walked.stages.iter().map(|s| s.km).sum();
+    assert!((land_km - (walked_km - 16.0 * 12.0 + 2.0 * 36.0)).abs() < 1e-6, "land {land_km} walked {walked_km}");
+    for s in sail.stages.iter().filter(|s| s.base.is_some()) {
+        assert_eq!(s.terrain, walked.stages[s.base.unwrap()].terrain);
+    }
+}
+
+/// Protects the override keys (verifier finding, 2026-11-13): a per-stage
+/// override is keyed by the stage of the route as walked, so accepting a leg,
+/// which inserts stages, applies it to the same ground and never to the leg's
+/// stage that now holds the same number.
+#[test]
+fn an_override_stays_on_its_walked_stage_when_a_leg_is_accepted() {
+    let r = two_terrains();
+    let road = HashMap::new();
+    let w = r.world(&road);
+    let walked = cartalith_civ::jp_plan(&w, &east(), &walking(), &HashMap::new(), &|_, _| 1.0).expect("plans");
+    let lastw = walked.stages.len() - 1;
+    let c = jp_river_candidates(&w, &east(), 4.0, 24.0).remove(0);
+    let mut p = walking();
+    p.stage_overrides.insert(lastw, cartalith_civ::JpStageOverride { hours: Some(5.0), ..Default::default() });
+    p.river_legs = vec![JpRiverLeg { cells: c.cells.clone(), entry: east()[c.entry_k], exit: east()[c.exit_k], vessel: Some("Keelboat".into()) }];
+    let sail = cartalith_civ::jp_plan(&w, &east(), &p, &HashMap::new(), &|_, _| 1.0).expect("plans");
+    for (s, res) in sail.stages.iter().zip(&sail.results) {
+        let want = if s.base == Some(lastw) { 5.0 } else { 8.0 };
+        assert_eq!(res.eff.hours, want, "{s:?}");
+    }
+    // Premise of the failure it guards: the spliced number `lastw` names a
+    // different stage than the walked one.
+    assert_ne!(sail.stages[lastw].base, Some(lastw));
+}
+
+/// Protects progress measured on the route's line (verifier finding,
+/// 2026-11-13): a route drawn on sparse points (5 cells apart, as a route drawn
+/// on a way's own points is) crossing a river at 53 degrees, past the 48 the
+/// alignment rule allows, is not offered, though crediting each channel cell
+/// with its nearest route point's arc (the old measure, computed here
+/// independently) would have counted the crossing as running along the route.
+#[test]
+fn a_crossing_on_a_sparse_route_is_not_offered() {
+    let n = W * H;
+    let mut r = river(4);
+    r.order = vec![0; n];
+    r.recv = vec![-1; n];
+    let row = 6usize;
+    for x in 13..=19 {
+        let i = row * W + x;
+        r.order[i] = 4;
+        r.flow[i] = 30.0;
+        if x < 19 {
+            r.recv[i] = (i + 1) as i32;
+        }
+    }
+    let road = HashMap::new();
+    let w = r.world(&road);
+    let pts = vec![(11.0, 0.0), (14.0, 4.0), (17.0, 8.0), (20.0, 12.0), (22.0, 15.0)];
+    // The old measure: nearest route point's arc for the first and last cells.
+    let mut arc = vec![0.0f64];
+    for k in 1..pts.len() {
+        let (a, b): ((f64, f64), (f64, f64)) = (pts[k - 1], pts[k]);
+        arc.push(arc[k - 1] + (b.0 - a.0).hypot(b.1 - a.1) * 12.0);
+    }
+    let nearest = |x: f64, y: f64| {
+        (0..pts.len()).min_by(|&a, &b| (pts[a].0 - x).hypot(pts[a].1 - y).total_cmp(&(pts[b].0 - x).hypot(pts[b].1 - y))).unwrap()
+    };
+    let old_ds = arc[nearest(19.0, row as f64)] - arc[nearest(13.0, row as f64)];
+    assert!(old_ds >= 24.0 && old_ds / 72.0 >= ETA_MIN, "premise: the old measure credits {old_ds} km over 72");
+    assert!(jp_river_candidates(&w, &pts, 4.0, 24.0).is_empty());
+}
+
+/// Protects the party's path (verifier finding, 2026-11-13): a plan with a leg
+/// is replayed on the route its stages index (`JourneyTimeline::points`), so a
+/// party dated to a point on the leg is drawn on the river (row 8), not on the
+/// committed route's point of the same number (row 1).
+#[test]
+fn a_journey_with_a_leg_is_replayed_on_the_spliced_route() {
+    let r = river(4);
+    let road = HashMap::new();
+    let w = r.world(&road);
+    let north: Vec<(f64, f64)> = (4..=35).map(|x| (x as f64, 1.0)).collect();
+    let c = jp_river_candidates(&w, &north, 8.0, 24.0).remove(0);
+    let mut p = walking();
+    p.river_legs = vec![JpRiverLeg { cells: c.cells, entry: north[0], exit: north[31], vessel: Some("Keelboat".into()) }];
+    let sail = cartalith_civ::jp_plan(&w, &north, &p, &HashMap::new(), &|_, _| 1.0).expect("plans");
+    let t = cartalith_civ::journey_progress::JourneyTimeline::from_plan(&sail).expect("a timeline");
+    assert_eq!(t.route, sail.route_pts);
+    let pts = t.points(&north);
+    assert_eq!(pts.len(), 34, "1 route point, 32 channel cells, 1 route point");
+    let at = t.at(pts, t.elapsed_at_point(17));
+    assert_eq!(at.point, (20.0, ROW as f64));
+}
+
+/// The fixture with only `cells` (in flow order) navigable, at order 4.
+fn channel(cells: &[(usize, usize)]) -> Rv {
+    let n = W * H;
+    let mut r = river(4);
+    r.order = vec![0; n];
+    r.recv = vec![-1; n];
+    for (k, &(x, y)) in cells.iter().enumerate() {
+        let i = y * W + x;
+        r.order[i] = 4;
+        r.flow[i] = 30.0;
+        if let Some(&(nx, ny)) = cells.get(k + 1) {
+            r.recv[i] = (ny * W + nx) as i32;
+        }
+    }
+    r
+}
+
+/// Protects the channel's own minimum (verifier finding, 2026-11-13: one-step
+/// channels of 19.6 km were offered where the minimum was 39 km): a route that
+/// doubles back (east along row 5, then west along row 8) has a one-cell
+/// channel between its two arms whose progress along the route is hundreds of
+/// km, yet the channel itself is one 12 km step, under the 24 km water gap, so it
+/// would fold back into land and is not offered.
+#[test]
+fn a_channel_shorter_than_the_water_gap_is_not_offered_across_a_bend() {
+    let r = channel(&[(10, 6), (10, 7)]);
+    let road = HashMap::new();
+    let w = r.world(&road);
+    let mut pts: Vec<(f64, f64)> = (4..=20).map(|x| (x as f64, 5.0)).collect();
+    pts.extend((6..=8).map(|y| (20.0, y as f64)));
+    pts.extend((4..=19).rev().map(|x| (x as f64, 8.0)));
+    assert!(jp_river_candidates(&w, &pts, 2.0, 24.0).is_empty());
+    // Premise: a lower minimum would offer it, as a stretch cutting the bend.
+    let c = jp_river_candidates(&w, &pts, 2.0, 12.0);
+    assert_eq!(c.len(), 1, "{c:?}");
+    assert!(c[0].route_km > 100.0 && (c[0].channel_km - 12.0).abs() < 1e-9, "{:?}", c[0]);
+}
+
+/// Protects the end points of a stretch inside long route segments: on a route
+/// drawn on points six cells apart, a channel whose two ends are both nearest
+/// one route point (x = 16) is still offered, leaving the route at the start of
+/// its first end's segment (x = 10, point 1) and rejoining it at the end of its
+/// last end's segment (x = 22, point 3), never dropped for rounding to one point.
+#[test]
+fn a_stretch_whose_ends_round_to_one_route_point_is_kept() {
+    let r = channel(&[(14, 8), (15, 8), (16, 8), (17, 8), (18, 8)]);
+    let road = HashMap::new();
+    let w = r.world(&road);
+    let pts: Vec<(f64, f64)> = (0..6).map(|k| (4.0 + 6.0 * k as f64, 5.0)).collect();
+    let c = jp_river_candidates(&w, &pts, 4.0, 24.0);
+    assert_eq!(c.len(), 1, "{c:?}");
+    assert_eq!((c[0].entry_k, c[0].exit_k), (1, 3));
+    assert!((c[0].route_km - 48.0).abs() < 1e-9 && (c[0].channel_km - 48.0).abs() < 1e-9, "{:?}", c[0]);
 }
