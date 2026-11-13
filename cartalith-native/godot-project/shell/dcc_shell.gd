@@ -9244,7 +9244,9 @@ func _sync_phone_height(is_3d: bool) -> void:
 		return
 	_phone_height_box.visible = is_3d
 	var vp = get("viewport")
-	if is_3d and vp != null and vp.view3d() != null and not _phone_height.is_empty():
+	## Re-seeds whether or not 3D is showing: Preferences ▸ 3D height can move the value while 2D is up, and the slider
+	## must read it the next time the section shows.
+	if vp != null and vp.view3d() != null and not _phone_height.is_empty():
 		var s := _phone_height["slider"] as HSlider
 		s.set_value_no_signal(vp.view3d().current_height())
 		(_phone_height["readout"] as Label).text = (_phone_height["format"] as Callable).call(s.value)

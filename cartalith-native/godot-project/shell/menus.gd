@@ -178,6 +178,7 @@ const ID_WIN_VIEW_3D := 800
 ## `class_name` needs an import pass to register; `CLAUDE.md`'s
 ## `project.godot` note).
 const View3DGate := preload("res://shell/view3d_gate.gd")
+const View3DScript := preload("res://shell/view3d.gd")   ## no `class_name` there; the HEIGHT range constants for Preferences ▸ 3D height
 const ID_VIEW3D_RETEST := 801  ## Window ▸ 3D capability ▸ Re-test 3D.
 const ID_VIEW3D_FORCE_AUTO := 802  ## Window ▸ 3D capability, FORCE TIER band: Automatic (as measured).
 const ID_VIEW3D_FORCE_FIRST := 803  ## Window ▸ 3D capability, FORCE TIER band: tier t is +t (803-806).
@@ -426,6 +427,9 @@ const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
 const ID_ATLAS_CAP_FIRST := 630     ## rung i is +i (630-636)
 ## The built-in `Default` is `ID_WIN_LAYOUT_FIRST`; saved layout i is +1+i.
+## Preferences ▸ Graphics ▸ 3D height: rung i is +i, `HEIGHT_RUNGS` (13) long, 680-692. Clear of the layout span at 640
+## and of the 700s.
+const ID_GFX_H3D_FIRST := 680
 const ID_WIN_LAYOUT_FIRST := 640
 
 ## Tablet-only World menu (`TABLET_UI_SPEC.md` §2.1), 2026-09-12. 710-713 --
@@ -646,6 +650,7 @@ var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own ro
 var _reset_stage_popup: PopupMenu
 ## `Relief exaggeration` submenu.
 var _exag_popup: PopupMenu
+var _h3d_popup: PopupMenu  ## Preferences ▸ 3D height rungs (`_build_h3d_menu`)
 ## `Size cap · GB` submenu of the atlas cache.
 var _atlas_cap_popup: PopupMenu
 ## `Window ▸ Layouts` submenu; rebuilt on every popup because saving adds rows.
@@ -4593,8 +4598,9 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## rather than `Cartography` because that is the string the rail draws
 	## (`dcc_shell.gd` renders `String(d.rail).to_upper()`).
 	_signpost(p, "Colour management — CARTO ▸ Colours ▸ Colour management")
+	_build_h3d_menu(p)
 	_todo(p, "3D viewport defaults",
-		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. The 3D view (Window ▸ 3D view) draws terrain since 3D-2 and opens at the relief exaggeration kept for it, true scale 1.0x until set (not the 2D relief value above); the 3D card's HEIGHT slider writes it on the PC and the tablet, and this row does not yet. Detail and light are not wired yet (light is 3D-4's); until then oceans are always flattened.")
+		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. The 3D view (Window ▸ 3D view) draws terrain since 3D-2 and opens at the relief exaggeration kept for it, true scale 1.0x until set (not the 2D relief value above); the 3D card's HEIGHT slider writes it on the PC and the tablet, the phone's MAP sheet slider and Preferences ▸ Graphics ▸ 3D height write the same value. Detail and light are not wired yet (light is 3D-4's); until then oceans are always flattened.")
 	## Live since 2026-08-30. The reason that stood here identified its own fix
 	## exactly -- *"what is missing is only the project-level default store
 	## those per-layer values would seed from -- a settings key, not new
@@ -4906,6 +4912,83 @@ func _on_relief_exag(id: int) -> void:
 	_refresh_relief_exag_menu()
 	_host.set_status("hint", "relief exaggeration default %dx (next Generate)" % [
 		int(DccSettings.RELIEF_EXAG_CHOICES[i])], "text_dim")
+
+# -- Preferences ▸ 3D height (3D-2's HEIGHT row, Preferences control) ---------
+
+## Number of rungs: 1x to 4x in 0.25 steps (Ruling EB items 5-6; `View3D.HEIGHT_MIN/MAX/STEP`) = 13. A literal
+## on purpose: a probe asserts it against the view's own constants, so the two cannot drift silently.
+const H3D_RUNGS := 13
+
+## The rung value i: HEIGHT_MIN + i * HEIGHT_STEP, read from the view's constants so the range has one owner.
+func _h3d_rung(i: int) -> float:
+	return View3DScript.HEIGHT_MIN + float(i) * View3DScript.HEIGHT_STEP
+
+## Builds `Preferences ▸ 3D height` (`_h3d_popup`): one radio row per rung. Choosing one writes through
+## `View3D.set_height()` -- the SAME call as the PC/tablet card's HEIGHT row and the phone MAP slider -- so the mesh,
+## the stored preference (`DccSettings.view3d_exaggeration`) and every control read one state. Never the world or
+## its save. Rows are plain popup items, so the shared popup style gives touch its 44 dp floor.
+func _build_h3d_menu(p: PopupMenu) -> void:
+	_h3d_popup = PopupMenu.new()
+	_h3d_popup.name = "Height3D"
+	_shell.style_popup(_h3d_popup)
+	for i in H3D_RUNGS:
+		_h3d_popup.add_radio_check_item("%.2fx" % _h3d_rung(i), ID_GFX_H3D_FIRST + i)
+	_floor_h3d_rows()
+	_h3d_popup.id_pressed.connect(_on_h3d)
+	_h3d_popup.about_to_popup.connect(_refresh_h3d_menu)
+	p.add_child(_h3d_popup)
+	p.add_submenu_item("3D height", "Height3D")
+	p.set_item_tooltip(p.item_count - 1,
+		"The 3D view's vertical scale, 1x (true scale) to 4x. The same setting as the 3D card's HEIGHT row and the phone's MAP sheet; the last value set is the next session's default. Never the world or its save.")
+	_refresh_h3d_menu()
+
+## Raises the rung rows to 44 dp of REAL density on touch when the density is known. `style_popup()` draws a row at the
+## shell's own pitch (44 phone units, which is 40.9 dp at density 2.8125 on the 6T); a thirteen-rung list is a column of
+## taps, so it takes the real floor like the phone HEIGHT slider does. Extra pitch goes into `v_separation` with the
+## hover box's `expand_margin` claiming it back, exactly as `style_popup()` does. No-op on desktop or unknown density.
+func _floor_h3d_rows() -> void:
+	if not DccTheme.is_touch():
+		return
+	var d: Dictionary = _shell._density()
+	if not bool(d["known"]):
+		return
+	var f: Font = _h3d_popup.get_theme_font("font")
+	var fs: int = _h3d_popup.get_theme_font_size("font_size")
+	var line: float = f.get_height(fs) if f != null else float(fs)
+	var want: float = ceil(44.0 * float(d["value"]) / maxf(_shell.phone_scale(), 1.0))
+	var gap: int = maxi(_h3d_popup.get_theme_constant("v_separation"), int(ceil(want - line)))
+	_h3d_popup.add_theme_constant_override("v_separation", gap)
+	var hov := _h3d_popup.get_theme_stylebox("hover").duplicate() as StyleBoxFlat
+	if hov != null:
+		hov.expand_margin_top = gap / 2.0
+		hov.expand_margin_bottom = gap / 2.0
+		_h3d_popup.add_theme_stylebox_override("hover", hov)
+
+## The live value: the view's own (`current_height()`) when it exists, else the stored preference.
+func _h3d_current() -> float:
+	var vp = _host.viewport if _host != null and "viewport" in _host else null
+	if vp != null and vp.view3d() != null:
+		return vp.view3d().current_height()
+	return DccSettings.view3d_exaggeration(View3DScript.VERTICAL_EXAGGERATION_DEFAULT)
+
+## Ticks the rung equal to the current value (none when it is off-ladder).
+func _refresh_h3d_menu() -> void:
+	if _h3d_popup == null:
+		return
+	var cur := _h3d_current()
+	for i in H3D_RUNGS:
+		_h3d_popup.set_item_checked(i, is_equal_approx(_h3d_rung(i), cur))
+
+## Applies a rung through `ViewportHost.ensure_view3d().set_height()`.
+func _on_h3d(id: int) -> void:
+	var i := id - ID_GFX_H3D_FIRST
+	if i < 0 or i >= H3D_RUNGS:
+		return
+	_host.viewport.ensure_view3d().set_height(_h3d_rung(i))
+	## The phone MAP sheet's slider is seeded once per entry, so it is told (a no-op off the phone, or before the sheet exists).
+	if _shell.has_method("_sync_phone_height"):
+		_shell._sync_phone_height(_host.viewport.is_3d())
+	_refresh_h3d_menu()
 
 # -- §2.5 Performance ▸ multi-GPU ---------------------------------------------
 
