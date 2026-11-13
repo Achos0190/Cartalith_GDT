@@ -754,7 +754,9 @@ fn rewritten_target(span: &LinkSpan, original: &str, path: &str, source: &str, r
     let want = Resolution::Unique(path.to_string());
     let ok = |c: &str| resolver.resolve(c, source) == want;
     let wiki = span.syntax.is_wiki();
-    let keep_md = !wiki && has_md(original);
+    // An attachment is never a note: no `.md` is added to its bare name.
+    let att = is_attachment(path);
+    let keep_md = !wiki && !att && has_md(original);
     let fit = |p: &str| if keep_md { p.to_string() } else { strip_md(p).to_string() };
     let relative = if original.starts_with("./") || original.starts_with("../") {
         let rel = relative_path(folder_of(source), path);
@@ -770,7 +772,7 @@ fn rewritten_target(span: &LinkSpan, original: &str, path: &str, source: &str, r
             let rooted = original.starts_with('/');
             let mut candidates: Vec<String> = Vec::new();
             if !original.trim_start_matches('/').contains('/') {
-                candidates.push(fit(&format!("{}.md", stem(path))));
+                candidates.push(if att { stem(path).to_string() } else { fit(&format!("{}.md", stem(path))) });
             }
             candidates.push(if rooted { format!("/{}", fit(path)) } else { fit(path) });
             candidates.into_iter().find(|c| ok(c)).unwrap_or_else(|| fit(path))
@@ -940,7 +942,7 @@ fn check_rename(old: &str, new: &str, paths: &[String]) -> Result<(), RenameErro
 /// `(path, text)` pairs. See [`rename_plan_in`].
 pub fn rename_plan(old: &str, new: &str, files: &[(String, String)]) -> Result<RenamePlan, RenameError> {
     let paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
-    rename_plan_in(old, new, &paths, files)
+    rename_plan_in(old, new, &paths, &[], files)
 }
 
 /// One rename's two resolvers — the vault before and after — and the rule
@@ -970,10 +972,24 @@ enum Effect {
 
 impl Renaming {
     /// The resolvers over `paths` as they are and as they will be.
-    fn new(moves: &[(String, String)], dir: Option<(String, String)>, paths: &[String]) -> Self {
-        let moves: HashMap<String, String> = moves.iter().cloned().collect();
-        let after: Vec<String> = paths.iter().map(|p| moves.get(p).cloned().unwrap_or_else(|| p.clone())).collect();
-        Renaming { before: Resolver::new(paths), after: Resolver::new(&after), moves, dir }
+    ///
+    /// `attachments` are the vault's non-note files. They join both resolvers,
+    /// so a link to one resolves like a link to a note, and those inside a
+    /// renamed folder get a `moves` entry of their own (kept out of
+    /// [`RenamePlan::moves`], which lists notes) so a link to one from outside
+    /// the folder is rewritten exactly when its resolution would change.
+    fn new(moves: &[(String, String)], dir: Option<(String, String)>, paths: &[String], attachments: &[String]) -> Self {
+        let mut moves: HashMap<String, String> = moves.iter().cloned().collect();
+        if let Some((from, to)) = &dir {
+            for a in attachments {
+                if let Some(rest) = a.strip_prefix(from.as_str()).and_then(|r| r.strip_prefix('/')) {
+                    moves.insert(a.clone(), format!("{to}/{rest}"));
+                }
+            }
+        }
+        let all: Vec<String> = paths.iter().chain(attachments).cloned().collect();
+        let after: Vec<String> = all.iter().map(|p| moves.get(p).cloned().unwrap_or_else(|| p.clone())).collect();
+        Renaming { before: Resolver::new(&all), after: Resolver::new(&after), moves, dir }
     }
 
     /// The note `path` as it is called after the rename.
@@ -1027,13 +1043,14 @@ pub fn rename_candidates<'n, T>(
     old: &str,
     new: &str,
     paths: &[String],
+    attachments: &[String],
     notes: impl IntoIterator<Item = (&'n str, T)>,
 ) -> Result<Vec<String>, RenameError>
 where
     T: IntoIterator<Item = &'n str>,
 {
     check_rename(old, new, paths)?;
-    let r = Renaming::new(&[(old.to_string(), new.to_string())], None, paths);
+    let r = Renaming::new(&[(old.to_string(), new.to_string())], None, paths, attachments);
     Ok(candidates_of(&r, vec![old.to_string()], notes))
 }
 
@@ -1109,13 +1126,14 @@ pub fn folder_rename_candidates<'n, T>(
     old: &str,
     new: &str,
     paths: &[String],
+    attachments: &[String],
     notes: impl IntoIterator<Item = (&'n str, T)>,
 ) -> Result<Vec<String>, RenameError>
 where
     T: IntoIterator<Item = &'n str>,
 {
     let moves = check_folder_rename(old, new, paths)?;
-    let r = Renaming::new(&moves, Some((old.to_string(), new.to_string())), paths);
+    let r = Renaming::new(&moves, Some((old.to_string(), new.to_string())), paths, attachments);
     Ok(candidates_of(&r, moves.iter().map(|(o, _)| o.clone()).collect(), notes))
 }
 
@@ -1128,9 +1146,9 @@ where
 /// rewritten. `files` must include every note inside the folder, so their own
 /// relative links move with them. The plan's `moves` lists every note path
 /// that changes.
-pub fn folder_rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(String, String)]) -> Result<RenamePlan, RenameError> {
+pub fn folder_rename_plan_in(old: &str, new: &str, paths: &[String], attachments: &[String], files: &[(String, String)]) -> Result<RenamePlan, RenameError> {
     let moves = check_folder_rename(old, new, paths)?;
-    let r = Renaming::new(&moves, Some((old.to_string(), new.to_string())), paths);
+    let r = Renaming::new(&moves, Some((old.to_string(), new.to_string())), paths, attachments);
     Ok(plan_with(&r, old, new, moves, files))
 }
 
@@ -1151,8 +1169,13 @@ pub fn folder_rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(S
 ///
 /// Only the link's target is replaced: alias, heading, block id, `!`,
 /// Markdown text and title stay as written. Links inside code are not links
-/// and are not touched, and neither is a link to an attachment
-/// ([`is_attachment`]) — only notes are renamed. An already ambiguous link
+/// and are not touched. A link to an attachment ([`is_attachment`]) is
+/// rewritten by the same rule when `attachments` lists the file: a note
+/// rename moves no attachment, but a folder move
+/// ([`folder_rename_plan_in`]) carries every one inside it, so an outside
+/// embed or image link to it is re-pointed, keeping its form (a bare name
+/// stays bare while it is unique; a markdown path stays relative or
+/// vault-absolute). An already ambiguous link
 /// that may mean the renamed note is listed in [`RenamePlan::ambiguous`]
 /// and left alone.
 ///
@@ -1164,10 +1187,10 @@ pub fn folder_rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(S
 /// every image in a moved note.
 ///
 /// Pure: reads nothing, writes nothing.
-pub fn rename_plan_in(old: &str, new: &str, paths: &[String], files: &[(String, String)]) -> Result<RenamePlan, RenameError> {
+pub fn rename_plan_in(old: &str, new: &str, paths: &[String], attachments: &[String], files: &[(String, String)]) -> Result<RenamePlan, RenameError> {
     check_rename(old, new, paths)?;
     let moves = vec![(old.to_string(), new.to_string())];
-    let r = Renaming::new(&moves, None, paths);
+    let r = Renaming::new(&moves, None, paths, attachments);
     Ok(plan_with(&r, old, new, moves, files))
 }
 
@@ -1189,7 +1212,10 @@ fn plan_with(r: &Renaming, from: &str, to: &str, moves: Vec<(String, String)>, f
                 continue;
             }
             let Some(t) = span.target.as_deref() else { continue };
-            if span.is_note_link() {
+            // A note link, or a link to an attachment: both are rewritten
+            // exactly when the rename changes what they resolve to. An
+            // attachment only ever resolves when the provider listed it.
+            if span.is_note_link() || is_attachment(t) {
                 match r.effect(t, src) {
                     Effect::Retarget(p) => {
                         let written = rewritten_target(&span, t, &p, &src_after, &r.after);

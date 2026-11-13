@@ -744,11 +744,17 @@ impl VaultSession {
         }
         let v = self.bound()?;
         let paths = v.list_markdown(LIST_CAP)?;
-        let index = self.backlinks.notes.iter().map(|(p, r)| (p.as_str(), r.links.iter().map(|l| l.target.as_str())));
+        // The files a folder move carries that are not notes; a link to one is
+        // rewritten like a note link, so the index's attachment targets join
+        // each note's note-link targets when choosing which notes to open.
+        let attachments = v.list_attachments(LIST_CAP)?;
+        let index = self.backlinks.notes.iter().map(|(p, r)| {
+            (p.as_str(), r.links.iter().map(|l| l.target.as_str()).chain(r.attachments.iter().map(|t| t.as_str())))
+        });
         let candidates = if dir {
-            notelinks::folder_rename_candidates(old, new, &paths, index)?
+            notelinks::folder_rename_candidates(old, new, &paths, &attachments, index)?
         } else {
-            notelinks::rename_candidates(old, new, &paths, index)?
+            notelinks::rename_candidates(old, new, &paths, &attachments, index)?
         };
         let moving = |rel: &str| if dir { rel.strip_prefix(old).is_some_and(|r| r.starts_with('/')) } else { rel == old };
         let mut files: Vec<(String, String)> = Vec::with_capacity(candidates.len());
@@ -762,9 +768,9 @@ impl VaultSession {
             }
         }
         let plan = if dir {
-            notelinks::folder_rename_plan_in(old, new, &paths, &files)?
+            notelinks::folder_rename_plan_in(old, new, &paths, &attachments, &files)?
         } else {
-            notelinks::rename_plan_in(old, new, &paths, &files)?
+            notelinks::rename_plan_in(old, new, &paths, &attachments, &files)?
         };
         let hash = rename_guard(old, new, &files, &plan);
         let knowledge_links = self.store.links.iter().filter(|l| plan.moves.iter().any(|(o, _)| *o == l.relative_path)).count();
@@ -2955,6 +2961,41 @@ tags: [Town, port]
 ", "a path link written shortest comes back shortest");
         assert!(root.join("Places/img/x.png").exists() && !root.join("Atlas/Realms").exists());
         assert_eq!(s.store.get(&link).unwrap().relative_path, "Places/Kelvhold.md");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Protects: the folder move end to end for attachments -- an outside
+    /// note that only embeds a picture inside the folder (no note link, so
+    /// only the index's attachment targets make it a candidate) is rewritten
+    /// on disk, a markdown image path too, and the undo restores both.
+    /// MUTATION: drop `r.attachments` from the `index` chain in
+    /// `plan_rename_of` and the outside note is never opened.
+    #[test]
+    fn a_folder_move_rewrites_outside_picture_links() {
+        let root = scratch("folder-pictures");
+        let put = |rel: &str, text: &str| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        put("Places/K.md", "Seat.
+");
+        put("Places/img/x.png", "png");
+        put("J.md", "![[Places/img/x.png]] ![m](Places/img/x.png)
+");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let p = s.folder_rename_preview("Places", "Realms").unwrap();
+        assert_eq!(p.plan.moves.len(), 1, "the plan's moves list notes only");
+        let o = s.folder_rename("Places", "Realms", &p.hash).unwrap();
+        assert!(o.failed.is_empty(), "{:?}", o.failed);
+        let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap();
+        assert_eq!(read("J.md"), "![[x.png]] ![m](Realms/img/x.png)
+");
+        let back = s.folder_rename_preview("Realms", "Places").unwrap();
+        s.folder_rename("Realms", "Places", &back.hash).unwrap();
+        assert_eq!(read("J.md"), "![[x.png]] ![m](Places/img/x.png)
+");
         let _ = std::fs::remove_dir_all(&root);
     }
 

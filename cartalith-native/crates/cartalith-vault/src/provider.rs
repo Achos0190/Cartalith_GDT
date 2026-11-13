@@ -152,6 +152,17 @@ pub trait VaultProvider: std::fmt::Debug {
     /// (§31) — see [`FsVault::list_markdown`].
     fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError>;
 
+    /// Relative paths of the attachments (images, PDFs, audio...: the
+    /// extensions of [`crate::notelinks::ATTACHMENT_EXTENSIONS`]), bounded at
+    /// `limit`. Rename planning reads it so a link to a file a folder move
+    /// carries can be rewritten. The default is empty -- a provider that
+    /// cannot list them (the SAF one) leaves such links as they are, which is
+    /// the behaviour before this method existed.
+    fn list_attachments(&self, limit: usize) -> Result<Vec<String>, VaultError> {
+        let _ = limit;
+        Ok(Vec::new())
+    }
+
     /// The full text of `rel`.
     fn read(&self, rel: &str) -> Result<String, VaultError>;
     /// §14's change-detection basis for `rel`: modification time and length.
@@ -226,6 +237,10 @@ impl VaultProvider for FsVault {
     fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError> {
         FsVault::list_markdown(self, limit)
     }
+    /// Delegates to [`FsVault::list_attachments`].
+    fn list_attachments(&self, limit: usize) -> Result<Vec<String>, VaultError> {
+        FsVault::list_attachments(self, limit)
+    }
     /// Delegates to [`FsVault::read`].
     fn read(&self, rel: &str) -> Result<String, VaultError> {
         FsVault::read(self, rel)
@@ -294,6 +309,19 @@ impl FsVault {
     /// UI thread. Dot-directories are skipped, which also means Cartalith
     /// never lists the `.obsidian/` config it has no business reading.
     pub fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError> {
+        self.list_matching(limit, |name| name.rsplit('.').next().is_some_and(|e| e.eq_ignore_ascii_case("md")))
+    }
+
+    /// Relative paths of the attachment files (by
+    /// [`crate::notelinks::is_attachment`]), walked, skipped and capped as
+    /// [`Self::list_markdown`] is.
+    pub fn list_attachments(&self, limit: usize) -> Result<Vec<String>, VaultError> {
+        self.list_matching(limit, crate::notelinks::is_attachment)
+    }
+
+    /// The one directory walk behind both listings: file names only, no file
+    /// opened, dot-directories skipped, sorted and cut at `limit`.
+    fn list_matching(&self, limit: usize, want: impl Fn(&str) -> bool) -> Result<Vec<String>, VaultError> {
         if !self.available() {
             return Err(VaultError::RootUnavailable(self.root.clone()));
         }
@@ -309,7 +337,7 @@ impl FsVault {
                 let rel = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
                 match entry.file_type() {
                     Ok(t) if t.is_dir() => queue.push((entry.path(), rel)),
-                    Ok(t) if t.is_file() && name.rsplit('.').next().is_some_and(|e| e.eq_ignore_ascii_case("md")) => {
+                    Ok(t) if t.is_file() && want(&name) => {
                         out.push(rel)
                     }
                     _ => {}

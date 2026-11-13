@@ -51,16 +51,18 @@ use std::collections::BTreeMap;
 
 use crate::block;
 use crate::frontmatter;
-use crate::notelinks::{outgoing_links, LinkSyntax, Resolution, Resolver};
+use crate::notelinks::{is_attachment, link_spans, outgoing_links, LinkSyntax, Resolution, Resolver};
 use crate::provider::{VaultError, VaultProvider};
 
 /// Which link reader built an index's records. `0` (absent from the JSON)
 /// is this file's own pre-2026-10-31 parser; `1` is [`crate::notelinks`],
-/// whose targets are URL-decoded, skip code and leave out attachments. A
+/// whose targets are URL-decoded, skip code and leave out attachments from
+/// `links`; `2` adds [`NoteRecord::attachments`] (the attachment targets a
+/// folder move must rewrite, `notelinks::folder_rename_plan_in`). A
 /// [`BacklinkIndex::refresh`] that finds records from another reader
 /// re-reads every note, because their targets mean something different and
 /// `(modified, len)` alone would keep them for ever.
-pub const LINK_READER: u32 = 1;
+pub const LINK_READER: u32 = 2;
 
 /// Bits set per token. Two is the standard low-fill choice; with 64 bits and
 /// the few hundred distinct words a note carries the filter saturates, which
@@ -101,6 +103,13 @@ pub struct NoteRecord {
     pub len: u64,
     #[serde(default)]
     pub links: Vec<OutLink>,
+    /// The targets of this note's links to **attachments** (`![[img.png]]`,
+    /// `![](img/a.png)`), as written, sorted and deduplicated. Kept apart from
+    /// `links` so backlinks, orphans and the broken-link report never see an
+    /// image; read only by rename planning, which must know which notes could
+    /// name a file a folder move carries away.
+    #[serde(default)]
+    pub attachments: Vec<String>,
     /// `entity="settlement:42"` keys of every Cartalith block in this note.
     #[serde(default)]
     pub entities: Vec<String>,
@@ -416,6 +425,7 @@ pub fn parse_note(text: &str) -> NoteRecord {
         modified: 0,
         len: 0,
         links: parse_links(text),
+        attachments: parse_attachment_links(text),
         entities: parse_entities(text),
         aliases: frontmatter::aliases(text),
         word_bits: fingerprint_text(text),
@@ -439,6 +449,21 @@ pub fn parse_links(text: &str) -> Vec<OutLink> {
             s.target.map(|target| OutLink { target, form })
         })
         .collect()
+}
+
+/// The targets of `text`'s links to attachments ([`is_attachment`]), outside
+/// code: embeds and Markdown images alike, sorted and deduplicated. A URL is
+/// not one.
+pub fn parse_attachment_links(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = link_spans(text)
+        .into_iter()
+        .filter(|s| !s.external)
+        .filter_map(|s| s.target)
+        .filter(|t| is_attachment(t))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// `entity="…"` from every Cartalith block. A malformed block (a `BEGIN` with

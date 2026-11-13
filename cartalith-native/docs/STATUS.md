@@ -86,9 +86,14 @@ swapped, so a folder move is one undo step).
   from `same_place`, the into-itself refusal disabled, the entity relink loop disabled (Rust, 2 tests each or more); the copy
   rung's non-note refusal removed and its delete-failure report removed (SAF probe, 3 and 2 checks).
 - **Not done, honestly.** No device pass: the Java driver's `renameDocument`/`moveDocument` on a real provider for a
-  *folder* is unmeasured, as is the whole SAF vault (`vault_connect_saf` is still unwired in the shell). Links to an
-  **attachment** inside a moved folder from a note outside it are not rewritten (the same limit as a note rename: only notes
-  are tracked), so such a picture link breaks until fixed by hand. An empty folder, or one holding only images, cannot be
+  *folder* is unmeasured, as is the whole SAF vault (`vault_connect_saf` is still unwired in the shell). **Attachment links (closed
+  2026-11-13):** a link or embed to a picture inside a moved folder, from a note outside it, is now rewritten by the same
+  planner (`notelinks::Renaming` takes the vault's attachment paths; `VaultProvider::list_attachments`, default empty, `FsVault`
+  implements it; `NoteRecord.attachments` and `LINK_READER` 2 let `plan_rename_of` open notes that only embed a picture).
+  Wiki embeds regenerate shortest (a unique name goes bare), markdown images keep relative or vault-absolute form, links
+  inside the moved set stay byte-identical. A note rename moves no attachment, so it needs no outside rewrite. Open: the
+  Android SAF provider lists no attachments, so there the links are still left as they were; no shell probe was run (no shell
+  code changed). `cargo test -p cartalith-vault` 230 passed, 3 mutants killed. An empty folder, or one holding only images, cannot be
   renamed (the vault lists notes, not folders). The destination of "Move folder..." is typed, not picked.
 
 ### Phone landscape: the right-hand tool sheet has its peek detent again (built 2026-11-13)

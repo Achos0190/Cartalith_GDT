@@ -425,7 +425,7 @@ fn rename_candidates_are_the_notes_the_planner_would_touch() {
     let p = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<String>>();
     let notes = [("N1.md", vec!["K"]), ("N2.md", vec!["A/K"]), ("N3.md", vec!["Elsewhere"])];
     let pick = |old: &str, new: &str, paths: &[String], notes: &[(&'static str, Vec<&'static str>)]| {
-        rename_candidates(old, new, paths, notes.iter().map(|(n, t)| (*n, t.iter().copied())))
+        rename_candidates(old, new, paths, &[], notes.iter().map(|(n, t)| (*n, t.iter().copied())))
     };
     assert_eq!(pick("A/K.md", "Z/K.md", &p(&["A/K.md", "N1.md", "N2.md", "N3.md"]), &notes), Ok(p(&["A/K.md", "N2.md"])));
     assert_eq!(pick("A/K.md", "A/L.md", &p(&["A/K.md", "B/K.md", "N4.md"]), &[("N4.md", vec!["K"])]), Ok(p(&["A/K.md", "N4.md"])));
@@ -467,7 +467,7 @@ fn paths_of(files: &[(String, String)]) -> Vec<String> {
 #[test]
 fn a_folder_rename_rewrites_links_into_it_and_lists_every_note_that_moves() {
     let files = folder_vault();
-    let plan = folder_rename_plan_in("Places", "Realms", &paths_of(&files), &files).unwrap();
+    let plan = folder_rename_plan_in("Places", "Realms", &paths_of(&files), &[], &files).unwrap();
     assert_eq!(
         plan.moves,
         vec![
@@ -488,7 +488,7 @@ fn a_folder_rename_rewrites_links_into_it_and_lists_every_note_that_moves() {
 #[test]
 fn a_folder_moved_deeper_keeps_its_links_out_and_its_internal_links() {
     let files = folder_vault();
-    let plan = folder_rename_plan_in("Places", "Atlas/Places", &paths_of(&files), &files).unwrap();
+    let plan = folder_rename_plan_in("Places", "Atlas/Places", &paths_of(&files), &[], &files).unwrap();
     let ford = plan.files.iter().find(|f| f.path == "Places/Deep/Ford.md").expect("the nested note is rewritten");
     assert_eq!(ford.text, "[k](../Kelvhold.md) [o](../../../Journal/J.md) ![i](../img/x.png)\n");
     assert_eq!(ford.links, 1, "only the link out of the folder changed");
@@ -503,7 +503,7 @@ fn folder_candidates_are_the_moving_notes_and_the_notes_that_link_in() {
     let files = folder_vault();
     let paths = paths_of(&files);
     let notes = [("Journal/J.md", vec!["Places/Kelvhold"]), ("Other.md", vec!["Elsewhere", "Ford"])];
-    let got = folder_rename_candidates("Places", "Realms", &paths, notes.iter().map(|(n, t)| (*n, t.iter().copied())));
+    let got = folder_rename_candidates("Places", "Realms", &paths, &[], notes.iter().map(|(n, t)| (*n, t.iter().copied())));
     assert_eq!(got, Ok(vec!["Journal/J.md".to_string(), "Places/Deep/Ford.md".to_string(), "Places/Kelvhold.md".to_string()]));
 }
 
@@ -517,7 +517,7 @@ fn a_folder_rename_refuses_itself_a_taken_name_and_a_bad_path() {
     let mut files = folder_vault();
     files.push(("Atlas/Old.md".to_string(), "x\n".to_string()));
     let paths = paths_of(&files);
-    let try_it = |a: &str, b: &str| folder_rename_plan_in(a, b, &paths, &files).map(|_| ());
+    let try_it = |a: &str, b: &str| folder_rename_plan_in(a, b, &paths, &[], &files).map(|_| ());
     let itself = |a: &str, b: &str| Err(RenameError::IntoItself { from: a.to_string(), to: b.to_string() });
     assert_eq!(try_it("Places", "Places/Sub/Places"), itself("Places", "Places/Sub/Places"));
     assert_eq!(try_it("Places", "places/Deep"), itself("Places", "places/Deep"), "case-insensitively");
@@ -530,4 +530,81 @@ fn a_folder_rename_refuses_itself_a_taken_name_and_a_bad_path() {
     assert_eq!(try_it("Places", "places"), Ok(()), "a case-only rename is allowed");
     let msg = try_it("Places", "Places/Sub").unwrap_err().to_string();
     assert!(msg.contains("into itself"), "{msg}");
+}
+
+// ------------------------------------------------- attachments in a folder move
+
+/// The attachments of a fixture, from path literals.
+fn atts(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+/// Plans moving `Places` to `Realms` over `files` with `attachments` listed,
+/// returning each rewritten note's new text keyed by path.
+fn moved_texts(files: &[(&str, &str)], attachments: &[&str]) -> Vec<(String, String)> {
+    let v = vault(files);
+    let plan = folder_rename_plan_in("Places", "Realms", &paths_of(&v), &atts(attachments), &v).unwrap();
+    plan.files.into_iter().map(|f| (f.path, f.text)).collect()
+}
+
+/// Protects: an outside note's embeds of a picture inside the moved folder
+/// are re-pointed -- the path-qualified wiki embed, the vault-absolute and
+/// the relative markdown image -- the wiki embed regenerated shortest (as a note link is: the name is unique, so it goes bare) and the markdown paths each keeping their own form, with the alias
+/// (`|300`) and alt text untouched.
+/// MUTATION: skip attachment targets in `plan_with` (`|| is_attachment(t)`)
+/// and every assertion here fails.
+#[test]
+fn an_outside_note_embedding_a_picture_in_a_moved_folder_is_rewritten() {
+    let got = moved_texts(
+        &[
+            ("Places/K.md", "Seat.\n"),
+            ("Places/img/x.png", ""),
+            ("Journal/J.md", "![[Places/img/x.png|300]] ![a](/Places/img/x.png) ![b](../Places/img/x.png)\n"),
+        ],
+        &["Places/img/x.png"],
+    );
+    assert_eq!(
+        got,
+        vec![(
+            "Journal/J.md".to_string(),
+            "![[x.png|300]] ![a](/Realms/img/x.png) ![b](../Realms/img/x.png)\n".to_string()
+        )]
+    );
+}
+
+/// Protects: a bare-name embed that still resolves to the one file after the
+/// move is not touched (the planner's own keep-it-bare rule), and a link
+/// inside the moved set -- note and picture move together -- is left
+/// byte-for-byte alone.
+#[test]
+fn a_bare_embed_stays_bare_and_an_inside_link_is_untouched() {
+    let got = moved_texts(
+        &[
+            ("Places/K.md", "![[x.png]] ![i](img/x.png) ![j](./img/x.png)\n"),
+            ("Places/img/x.png", ""),
+            ("Journal/J.md", "![[x.png]]\n"),
+        ],
+        &["Places/img/x.png"],
+    );
+    assert!(got.is_empty(), "nothing needs rewriting: {got:?}");
+}
+
+/// Protects: the writer of a rewritten attachment link. A bare name that
+/// names two files after the move cannot stay bare, so a wiki embed is
+/// path-qualified and a markdown image's bare name falls back to the path
+/// (no `.md` is ever appended to a picture). A folder move alone cannot make
+/// a bare name ambiguous (names do not change), so this drives the writer
+/// directly with the resolver it would be handed.
+/// MUTATION: drop the `att` branch in `rewritten_target` and the markdown
+/// case comes back as `x.png.md`'s sibling or the wrong candidate.
+#[test]
+fn an_ambiguous_bare_attachment_name_is_written_path_qualified() {
+    let r = Resolver::new(["A/x.png", "B/x.png", "J.md"]);
+    let wiki = link_spans("![[x.png]]").remove(0);
+    assert_eq!(rewritten_target(&wiki, "x.png", "B/x.png", "J.md", &r), "B/x.png");
+    let md = link_spans("![](x.png)").remove(0);
+    assert_eq!(rewritten_target(&md, "x.png", "B/x.png", "J.md", &r), "B/x.png");
+    // Unique: a bare markdown name stays bare, with no `.md` added.
+    let r = Resolver::new(["B/x.png", "J.md"]);
+    assert_eq!(rewritten_target(&md, "x.png", "B/x.png", "J.md", &r), "x.png");
 }
