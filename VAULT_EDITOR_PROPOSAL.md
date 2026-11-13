@@ -240,8 +240,8 @@ coloured source plus Split is the honest substitute, and it is also what iA Writ
 - **Saving.** Autosave about a second after typing stops, and on leaving the note, through the same hash guard. The
   footer says **editing… / saved · time** so the save is visible. Ctrl/Cmd+S still saves at once.
 - **Conflicts.** If the file changed outside Cartalith, a banner says so and nothing is overwritten. As built (VE-4,
-  §7a) its choices are **Keep mine**, **Take theirs** and **Keep both**; the designed **Compare** (a two-column read
-  of both versions) is not built.
+  §7a) its choices are **Keep mine**, **Take theirs** and **Keep both**; a fourth, **Compare** (a two-column read
+  of both versions, `VaultCompare` and `_open_compare`), was built afterwards; see `STATUS.md`.
 - **Undo** survives a window rebuild: the history is held by the vault session, not the `TextEdit`.
 - **The session undo** (Ruling DY, VQ1). The owner's words: *"keep an undo that reverts untill the opened state.
   This should be session only."* The follow-up answer: "First open this session".
