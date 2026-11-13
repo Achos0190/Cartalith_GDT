@@ -13,6 +13,17 @@ extends RefCounted
 ## pass the user switched off; run Routes without Settlements (routes connect settlements, and
 ## `civ_auto_routes` refuses an empty roster).
 ##
+## **A switch that is off must leave its product absent (owner report, 2026-11-13: "generating roads, labels, the
+## toggle in new world seems to have no effect").** Generating a world is not terrain alone: `WorldGen::absorb`
+## computes the whole civ layer (settlements, ways, provinces) on every generate, and the shell's
+## `generation_finished` listener runs the labelling pass, so each of those products exists before any pass here
+## has run, and a switch that merely did not run its pass changed nothing. `run` therefore also removes what
+## Generate itself made for each switch that is off, through the very handler of the button that removes it by
+## hand (`CivilizationWorkspace._clear_places_now` and `_clear_territory_now`,
+## `InfrastructureWorkspace._clear_ways_now`, `CartographyWorkspace.clear_generated_labels`), so "Routes off"
+## equals "Generate, then Clear ways" by construction. Settlements off clears them BEFORE the later passes, so
+## landmarks and names are made over a world with none rather than over a roster the user declined.
+##
 ## **Order, and one deliberate departure from the proposal's table.** The table lists Names before
 ## Landmarks. The labelling pass reads the landmark store (`WorldGen::label_world` passes
 ## `landmark_store.last` as `LabelWorld.landmarks`), so names run first would name no landmark and the row's
@@ -55,10 +66,23 @@ static func plan(master: bool, on: Dictionary) -> Array[String]:
 ## workspaces `app` holds. Returns one row per pass, `{"pass": key, "ran": bool}` plus `"reason"` only when it
 ## did not run (a missing workspace or handler); a pass the engine itself refused reports that through its own
 ## workspace note and status line, exactly as when pressed by hand. Awaited by the caller.
+##
+## Then, for each of the four switches that is **not** in `passes`, removes what Generate made of that product
+## (see the class doc), reported as an extra row `{"pass": key, "ran": false, "dropped": true}` so a probe and a
+## status line can say what happened; a row appears only when a handler was reachable, never for a product that
+## was not there to remove. An empty `passes` (the master switch off) therefore leaves the terrain alone.
 static func run(app: Node, passes: Array) -> Array:
 	var rows: Array = []
 	var civ: Node = _workspace(app, "CivilizationWorkspace")
 	var carto: Node = _workspace(app, "CartographyWorkspace")
+	var infra: Object = civ.get("_infra") if civ != null else null
+	## Settlements off: Generate's settlements, ways, sea lanes and journeys go, and its territory and provinces with
+	## them, BEFORE any later pass reads them. `civ_clear_places` leaves territory alone (its own doc), so both
+	## buttons' handlers run, as pressing "Clear places" then "Clear territory" would.
+	if KEY_SETTLEMENTS not in passes and civ != null and civ.has_method("_clear_places_now") 			and civ.has_method("_clear_territory_now"):
+		civ._clear_places_now()
+		civ._clear_territory_now()
+		rows.append({"pass": KEY_SETTLEMENTS, "ran": false, "dropped": true})
 	for key in passes:
 		var row := {"pass": String(key), "ran": false}
 		match String(key):
@@ -66,10 +90,14 @@ static func run(app: Node, passes: Array) -> Array:
 				if civ != null and civ.has_method("_populate_world_now"):
 					await civ._populate_world_now()
 					row["ran"] = true
+					## The settlements pass builds the road network too (`civ_populate` reports "N ways"), so with
+					## Routes off those ways are removed here, after it and before anything else reads them.
+					if KEY_ROUTES not in passes and infra != null and infra.has_method("_clear_ways_now"):
+						infra._clear_ways_now()
+						row["ways_dropped"] = true
 				else:
 					row["reason"] = "the CIVIL workspace is not mounted"
 			KEY_ROUTES:
-				var infra: Object = civ.get("_infra") if civ != null else null
 				if infra != null and infra.has_method("_generate_roads"):
 					await infra._generate_roads()
 					row["ran"] = true
@@ -88,6 +116,10 @@ static func run(app: Node, passes: Array) -> Array:
 				else:
 					row["reason"] = "the CARTO workspace is not mounted"
 		rows.append(row)
+	## Names off: the labelling pass the shell runs on every `generation_finished` is undone (hand-placed labels stay).
+	if KEY_NAMES not in passes and carto != null and carto.has_method("clear_generated_labels"):
+		carto.clear_generated_labels()
+		rows.append({"pass": KEY_NAMES, "ran": false, "dropped": true})
 	return rows
 
 ## The one workspace of script class `cls` that `app` built (`DccApp._workspaces`), or null. Matched by the

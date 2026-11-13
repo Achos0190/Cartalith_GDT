@@ -277,6 +277,8 @@ func _digest() -> Dictionary:
 	d["labels"] = var_to_str(bridge.labels_render_list()).sha256_text().substr(0, 12)
 	d["edit_state"] = var_to_str(bridge.edit_state_digest()).sha256_text().substr(0, 12)
 	d["n_settlements"] = bridge.settlements().size()
+	d["n_ways"] = bridge.roads().size()
+	d["n_provinces"] = bridge.provinces().size()
 	d["n_landmarks"] = bridge.landmarks().size()
 	d["n_labels"] = bridge.labels_render_list().size()
 	return d
@@ -291,13 +293,23 @@ func _same(a: Dictionary, b: Dictionary, what: String) -> void:
 
 
 ## The hand sequence, minus the passes in `skip`: the engine's own entry points for the first three, the CARTO handler for names.
+## A switch that is off also means its product is ABSENT (owner report 2026-11-13), so the hand sequence removes what Generate
+## made, with the buttons' own engine calls: Settlements off = Clear places and Clear territory (which takes the ways with it,
+## and Routes is then not run, exactly as `AutoPopulate.plan` drops it); Routes off = Clear ways after the populate that built
+## them; Names off = drop the generated labels.
 func _by_hand(skip: Array) -> void:
 	var civ: Node = _ws("CivilizationWorkspace")
 	var carto: Node = _ws("CartographyWorkspace")
-	if "settlements" not in skip:
+	var no_routes: bool = "routes" in skip or "settlements" in skip
+	if "settlements" in skip:
+		bridge.civ_clear_places()
+		bridge.civ_clear_territory()
+	else:
 		var r: Dictionary = bridge.civ_populate()
 		_check(bool(r.get("ok", false)), "by hand: civ_populate ok")
-	if "routes" not in skip:
+		if no_routes:
+			bridge.civ_clear_ways()
+	if not no_routes:
 		var r2: Dictionary = bridge.civ_auto_routes()
 		_check(bool(r2.get("ok", false)), "by hand: civ_auto_routes ok")
 	if "landmarks" not in skip:
@@ -305,6 +317,8 @@ func _by_hand(skip: Array) -> void:
 		_check(bool(r3.get("ok", false)), "by hand: landmark_run ok")
 	if "names" not in skip:
 		carto._regenerate_labels()
+	else:
+		bridge.labels_clear_generated()
 	await _frames(4)
 	_check(civ != null and carto != null, "both workspaces are mounted")
 
@@ -322,7 +336,11 @@ func _leg_worlds(legs: PackedStringArray) -> void:
 	await _create(false, [])
 	var terrain := _digest()
 	_log("  terrain-only: %s" % str(terrain))
-	_check(int(terrain["n_landmarks"]) == 0 and int(terrain["n_settlements"]) >= 0, "terrain-only has no landmarks yet")
+	_check(int(terrain["n_landmarks"]) == 0, "terrain-only has no landmarks yet")
+	## Owner report 2026-11-13: a switch that is off leaves its product ABSENT. Terrain only means nothing a pass makes.
+	_check(int(terrain["n_settlements"]) == 0 and int(terrain["n_ways"]) == 0 and int(terrain["n_provinces"]) == 0,
+		"terrain-only has no settlements, ways or provinces (%d, %d, %d)" % [int(terrain["n_settlements"]), int(terrain["n_ways"]), int(terrain["n_provinces"])])
+	_check(int(terrain["n_labels"]) == 0, "terrain-only has no generated labels (%d)" % int(terrain["n_labels"]))
 	# Read before any hand pass: a generated label run is retained across a new generate, so a later read would
 	# carry the previous run's labels (measured on the tablet form, 36 against 32).
 	if "master" in legs:
@@ -365,8 +383,15 @@ func _leg_worlds(legs: PackedStringArray) -> void:
 			var auto_without := _digest()
 			_log("  without %s: %s" % [k, str(auto_without)])
 			_same(auto_without, hand_without, "%s off by itself equals Generate plus the other three by hand" % k)
+			if k == "routes":
+				_check(int(auto_without["n_ways"]) == 0 and int(auto_without["n_settlements"]) > 0,
+					"routes off: no ways, settlements kept (%d ways, %d settlements)" % [int(auto_without["n_ways"]), int(auto_without["n_settlements"])])
+			if k == "settlements":
+				_check(int(auto_without["n_settlements"]) == 0 and int(auto_without["n_ways"]) == 0,
+					"settlements off: no settlements and no ways (%d, %d)" % [int(auto_without["n_settlements"]), int(auto_without["n_ways"])])
 			if k == "landmarks":
 				_check(int(auto_without["n_landmarks"]) == 0, "landmarks off: no landmark was placed")
 				_check(auto_without["labels"] != full2["labels"], "landmarks off: names differ from the full run (landmarks are named when they ran first)")
 			if k == "names":
-				_check(auto_without["labels"] == terrain["labels"], "names off: the generated labels are the terrain-only ones")
+				_check(int(auto_without["n_labels"]) == 0, "names off: no generated labels (%d)" % int(auto_without["n_labels"]))
+				_check(auto_without["labels"] == terrain["labels"], "names off: the generated labels are the terrain-only ones (none)")

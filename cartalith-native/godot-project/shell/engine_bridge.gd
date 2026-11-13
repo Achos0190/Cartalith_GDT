@@ -579,20 +579,10 @@ func missing_bindings() -> PackedStringArray:
 #   * `ping` (`WalkingSkeleton`, `lib.rs`) -- the Phase 0 load proof, on a class
 #     that appears in no `.tscn` and no `.gd`. This node proves the library
 #     loads by constructing `WorldGen`; `_has()` proves it is the right one.
-#   * `labels_clear_generated` (`label_bridge/generate.rs`) -- drops the pass
-#     output and leaves hand-placed labels alone. Its own doc says to call it
-#     "when the world moves underneath it", and the three paths that move the
-#     world drop or replace the whole `LabelBridge` instead, so none of them
-#     needed it -- `absorb` assigns a fresh one, `release_world` and `load_save`
-#     both set it to `None` (`lib.rs`). The path that DOES leave
-#     a stale run is `sculpt_commit()` below, which emits only
-#     `sculpt_draft_changed` -- neither `generation_finished` nor
-#     `world_loaded` -- so `cartography_workspace.gd::_regenerate_labels()`
-#     does not re-run and the map keeps drawing labels placed against the
-#     pre-commit height field. **Clearing there is a UI decision, not a binding
-#     decision**: with no re-run route on that path a clear trades a stale run
-#     for a vanished one, which is the same shape as the `atlas_export_zip`
-#     note further down. Registered rather than wired.
+#   * (`labels_clear_generated` was in this list until 2026-11-13: it is now wired, below, and called by
+#     `CartographyWorkspace.clear_generated_labels` for New World's Auto-populate with Names off. The `sculpt_commit()`
+#     path this entry described is still left alone, for the reason it gave: with no re-run route there, a clear trades a
+#     stale run for a vanished one, which is the same shape as the `atlas_export_zip` note further down.)
 #
 # `WorldGen::label_clear_all` is NOT the missing caller and was checked: it
 # clears only the hand-placed collection, its shell button lives in the
@@ -6803,6 +6793,15 @@ func labels_generated_counts() -> Array:
 ## Everything the map should draw: the generated run first, hand-placed labels
 ## over it, each row carrying its class's resolved type spec.
 ##
+
+## Drops the generated label run (`WorldGen.labels_clear_generated`), leaving hand-placed labels alone. `true` when it
+## was called; `false` while `generating` (the worker holds `WorldGen`) or on an extension without the binding, in which
+## case nothing changed.
+func labels_clear_generated() -> bool:
+	if generating or not _has("labels_clear_generated"):
+		return false
+	world_gen.labels_clear_generated()
+	return true
 ## Falls back to `label_list()` rather than to `[]` on an older cdylib: losing
 ## the generated pass is a degrade, losing the user's own labels is a defect.
 ##

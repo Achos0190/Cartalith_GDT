@@ -972,7 +972,7 @@ func _build_auto_populate(card: Control) -> void:
 		"After the terrain is generated, runs the four passes below, in order, exactly as their own buttons do. Off: Create generates the terrain alone.")
 	var rows := [
 		[AutoPopulate.KEY_SETTLEMENTS, "Settlements, factions & territories",
-			"CIVIL ▸ Populate ▸ Auto-populate world. Uses the placement model in More options."],
+			"CIVIL ▸ Populate ▸ Auto-populate world. Uses the placement settings in Settlements & people, above."],
 		[AutoPopulate.KEY_ROUTES, "Routes",
 			"CIVIL ▸ Routes & ways ▸ Generate roads. Needs settlements."],
 		[AutoPopulate.KEY_LANDMARKS, "Landmarks & points of interest",
@@ -2609,12 +2609,15 @@ func generate_checked(on_cancel: Callable = Callable(), new_world: bool = false,
 	confirm_phone_memory_then(int(r["grid_w"]), int(r["grid_h"]),
 		func(): _generate_then_populate(r, new_world, populate), on_cancel)
 
-## Starts the generate and, when `populate` is not empty, arms a ONE-SHOT listener for its end. Armed only here, after the
-## phone-memory question is answered and only when no run is in flight (`EngineBridge.generate` returns silently while
-## `generating`, which would leave a one-shot behind to fire on someone else's generate). A refused or failed run
-## (`generation_finished(false)`) consumes the one-shot and runs nothing.
+## Starts the generate and, for a Create (`new_world`) or any non-empty `populate`, arms a ONE-SHOT listener for its end. A
+## Create arms it even when `populate` is empty (the master switch off), because `AutoPopulate.run` also removes what Generate
+## itself made for every switch that is off (settlements, ways, labels), and an empty plan is the case where all of that is
+## owed (owner report, 2026-11-13: the switches "have no effect"). Armed only here, after the phone-memory question is answered
+## and only when no run is in flight (`EngineBridge.generate` returns silently while `generating`, which would leave a one-shot
+## behind to fire on someone else's generate). A refused or failed run (`generation_finished(false)`) consumes the one-shot and
+## runs nothing.
 func _generate_then_populate(r: Dictionary, new_world: bool, populate: Array) -> void:
-	if not populate.is_empty() and not bridge.generating:
+	if (new_world or not populate.is_empty()) and not bridge.generating:
 		bridge.generation_finished.connect(_on_created_world.bind(populate), CONNECT_ONE_SHOT)
 	bridge.generate(r, new_world)
 
@@ -2634,7 +2637,7 @@ func _on_created_world(ok: bool, populate: Array) -> void:
 		if bool((row as Dictionary).get("ran", false)):
 			ran.append(String((row as Dictionary)["pass"]))
 	if app.has_method("set_status"):
-		var msg := ("Auto-populated: %s." % ", ".join(ran)) if not ran.is_empty() else "Auto-populate ran nothing."
+		var msg := ("Auto-populated: %s." % ", ".join(ran)) if not ran.is_empty() else "Auto-populate ran nothing: terrain only."
 		app.set_status("hint", msg, "text")
 	auto_populate_finished.emit(rows)
 

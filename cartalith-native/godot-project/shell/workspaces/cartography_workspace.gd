@@ -3159,6 +3159,25 @@ func _dead_text_row(parent: Control, label_text: String, why: String) -> HBoxCon
 ## Called from `_on_world_changed` (the world's features have all been replaced)
 ## and from any class dial's release. Never from a drag sample -- see
 ## `_label_class_dial`.
+## Drops the generated label run and leaves hand-placed labels alone (`bridge.labels_clear_generated`), then brings every
+## readout of that run back to "never generated": the class counts, the summary line and the Ruling AZ cue, which then
+## offers Generate labels. **For New World's Auto-populate with Names off** (`auto_populate.gd`, owner report 2026-11-13):
+## the shell runs the labelling pass on every `generation_finished`, so a Create with Names off had labels anyway.
+## Not an edit: the next `generation_finished` or Generate labels press runs the pass again, exactly as for any world.
+func clear_generated_labels() -> void:
+	if not bridge.labels_clear_generated():
+		return
+	_label_class_counts.clear()
+	_label_gen_ran = false
+	for key in _label_class_count_cells:
+		_refresh_label_class_row(String(key))
+	if _label_class_summary != null and is_instance_valid(_label_class_summary):
+		_label_class_summary.text = "No generated labels."
+	_label_role_recount()
+	_label_terrain_stale = false
+	_refresh_label_gen_cue()
+	app.viewport.refresh_annotations()
+
 func _regenerate_labels() -> void:
 	var typography := {}
 	for entry in _label_class_specs:
