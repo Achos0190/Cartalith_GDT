@@ -4619,6 +4619,39 @@ static func prompt(host: Node, title: String, field_label: String,
 	le.grab_focus.call_deferred()
 	return {"dialog": dlg, "field": le, "body": body}
 
+## **A prompt-shaped dialog whose body the caller fills** (no text field, no submit wiring): the same skeleton as
+## `prompt()` -- a `ConfirmationDialog` with the phone sheet body or the desktop `VBoxContainer`, added under
+## `stack_host(host)` -- for a body that is not one line of text (the folder tree of `VaultFolderPick.ask_move`).
+## The caller connects `confirmed` / `canceled` and then calls `present_custom_dialog(result)`, which is separate
+## so the body is built before the window is sized and shown. Returns `{"dialog", "body", "phone", "host", "width"}`.
+## MUST NEVER: show the dialog itself, or free it (the caller owns both).
+static func custom_dialog(host: Node, title: String, ok_text: String, width: int = 360) -> Dictionary:
+	var dlg := ConfirmationDialog.new()
+	dlg.title = title
+	var phone := phone_window(dlg, host)
+	dlg.ok_button_text = ok_text
+	var body: VBoxContainer
+	if phone:
+		body = _phone_dialog_body(dlg, title)
+	else:
+		body = VBoxContainer.new()
+		body.add_theme_constant_override("separation", 6)
+		dlg.add_child(body)
+		dlg.min_size = Vector2i(width, 0)
+	stack_host(host).add_child(dlg)
+	return {"dialog": dlg, "body": body, "phone": phone, "host": host, "width": width}
+
+
+## Shows a `custom_dialog()` the way `prompt()` shows its own: the phone fit and sheet, otherwise `PopoutHost`.
+static func present_custom_dialog(d: Dictionary) -> void:
+	var dlg: ConfirmationDialog = d["dialog"]
+	var host = d["host"]
+	if bool(d["phone"]) and host.has_method("phone_fit"):
+		host.phone_fit(dlg, 1.0)
+	if not phone_present(dlg, host):
+		PopoutHost.present(dlg, host, Vector2i(int(d["width"]), 0))
+
+
 # ---------------------------------------------------------------------------
 # The modal card
 #

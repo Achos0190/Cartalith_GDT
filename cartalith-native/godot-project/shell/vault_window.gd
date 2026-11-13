@@ -3287,16 +3287,18 @@ static func folder_rename_target(old: String, typed: String) -> String:
 	return t if parent == "" else parent + "/" + t
 
 
-## Move a FOLDER into another folder (the file tree's menu): asks for the destination folder (empty is the
-## vault's top level), then plans the same rename to `destination/<its name>`.
+## Move a FOLDER into another folder (the file tree's menu): asks for the destination folder in a tree (the root is
+## the vault's top level), then plans the same rename to `destination/<its name>`.
 func request_move_folder(old: String) -> void:
 	if old == "" or not bridge.vault_info().get("bound", false):
 		return
 	if not _write_now():
 		_rename_say("Not moved: this note is not saved yet. Resolve the message above first.")
 		return
-	DccWidgets.prompt(PopoutHost.dialog_host(app, self), "Move folder", "Move into folder (empty: the vault's top level)", old.get_base_dir(), "Move",
-		func(typed: String): _rename_plan(old, folder_move_target(old, typed), false, true),
+	## Owner, 2026-11-13: the destination is picked in the folder tree (`VaultFolderPick`, the
+	## chooser the note forms use) instead of typed; the folder's own subtree is not selectable.
+	VaultFolderPick.ask_move(PopoutHost.dialog_host(app, self), bridge, old,
+		func(dest: String): _rename_plan(old, folder_move_target(old, dest), false, true),
 		"Every note in %s moves with it. Links to them are rewritten, and you are told how many first. A folder cannot go into itself." % old.get_file())
 
 

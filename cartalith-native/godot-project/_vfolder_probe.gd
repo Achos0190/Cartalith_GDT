@@ -243,6 +243,17 @@ func _dlg(ok_text: String, field: bool) -> ConfirmationDialog:
 	return null
 
 
+## True when any item at or under `path` in the tree can be selected (the Move picker greys the moved folder's subtree).
+func _own_selectable(it: TreeItem, path: String) -> bool:
+	if String(it.get_metadata(0)) == path or String(it.get_metadata(0)).begins_with(path + "/"):
+		if it.is_selectable(0):
+			return true
+	for c in it.get_children():
+		if _own_selectable(c, path):
+			return true
+	return false
+
+
 func _wait_dlg(ok_text: String, field: bool, ms: int = 4000) -> ConfirmationDialog:
 	var t := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t < ms:
@@ -505,10 +516,21 @@ func _ready() -> void:
 	if pm != null:
 		pm.id_pressed.emit(1)
 	await _frames(4)
-	var mp := await _wait_dlg("Move", true)
-	_ok("2: the move prompt is up", mp != null)
+	## The destination is picked in the folder tree (`VaultFolderPick.ask_move`), not typed.
+	var mp := await _wait_dlg("Move", false)
+	_ok("2: the move picker is up, with a folder tree", mp != null and mp.find_child("NoteFolder", true, false) is Tree)
 	if mp != null:
-		await _type_name_and_enter("Move", "Atlas")
+		var mtree := mp.find_child("NoteFolder", true, false) as Tree
+		var atlas: TreeItem = null
+		for it in mtree.get_root().get_children():
+			if String(it.get_metadata(0)) == "Atlas":
+				atlas = it
+		_ok("2: its own subtree is not selectable", not _own_selectable(mtree.get_root(), "Realms"))
+		if atlas != null:
+			atlas.select(0)
+		await _frames(3)
+		mp.get_ok_button().pressed.emit()
+		await _frames(4)
 	var mc := await _wait_dlg("Move folder", false)
 	_ok("2: the confirmation says Move folder", mc != null)
 	if mc != null:
