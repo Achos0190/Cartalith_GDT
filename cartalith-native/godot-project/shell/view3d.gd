@@ -260,9 +260,9 @@ func _build_card() -> void:
 ## value; dragging rescales the drawn mesh live (a shader uniform, §3.1) and
 ## writes `Preferences ▸ Graphics ▸ 3D viewport defaults ▸ relief exaggeration`
 ## as it moves, so the last value is the next session's default. Never the
-## world, its save or `WorldState`. **Not on the phone**: its home there is a
-## row in MAP ▸ View (the design keeps the phone's card from growing), which is
-## not built yet, so the phone opens at the remembered value with no slider.
+## world, its save or `WorldState`. **Not on the phone's card**: its home there is
+## the MAP sheet's "3D height" section (`dcc_shell.gd::_rebuild_phone_map_body()`),
+## which writes through `set_height()` below; the card stays small.
 ## Touch: 44 dp tall, as every touch target.
 func _build_height_row(col: VBoxContainer) -> void:
 	if DccTheme.is_phone():
@@ -308,6 +308,11 @@ func set_height(v: float) -> void:
 	if _height_slider != null and not is_equal_approx(_height_slider.value, x):
 		_height_slider.set_value_no_signal(x)
 	_refresh()
+
+## The drawn vertical scale now (the terrain's when it exists, else the remembered default): what the phone's MAP
+## HEIGHT slider seeds from, so it and the PC/tablet row read one value.
+func current_height() -> float:
+	return _terrain.exaggeration() if _terrain != null else DccSettings.view3d_exaggeration(VERTICAL_EXAGGERATION_DEFAULT)
 
 ## A dp font size in device pixels.
 func _fs(dp: int) -> int:

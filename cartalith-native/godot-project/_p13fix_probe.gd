@@ -351,6 +351,8 @@ func _run(vw: int, vh: int) -> void:
 	_ok(opts.size() == 1 and (opts[0] as OptionButton).item_count >= 2, "MAP: one view-field dropdown with the base map and fields (%d items)" % [(opts[0] as OptionButton).item_count if opts.size() == 1 else -1])
 	var sl: Array = []
 	_find_class(body, "HSlider", sl)
+	## Visible ones only: the "3D height" slider is built beside it but shown only while 3D is (`_p3dheight_probe.gd`).
+	sl = sl.filter(func(n): return (n as Control).is_visible_in_tree())
 	_ok(sl.size() == 1, "MAP: one opacity slider (%d)" % sl.size())
 	# a real tap on a switch flips the host's layer and a second puts it back
 	var vp: Node = _app.viewport

@@ -550,6 +550,11 @@ var _phone_map_row: Control
 ## MS-3: the MAP sheet's scrolling body (`_refresh_phone_map_row()`), and its switches by layer id.
 var _phone_map_body: ScrollContainer
 var _phone_map_toggles: Dictionary = {}
+## 3D-2's phone HEIGHT row (`_rebuild_phone_map_body()`): the "3D height" section's box and its `DccWidgets.slider()`
+## result, or empty. The section shows only while 3D does (`ViewportHost.view_mode_changed`).
+const View3DScript := preload("res://shell/view3d.gd")   ## no `class_name` there; the HEIGHT range constants only
+var _phone_height_box: Control
+var _phone_height: Dictionary = {}
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
 	## `phone_content_insets()` reads its real height rather than recomputing it.
 var _phone_gesture_inset: Control
@@ -9134,6 +9139,8 @@ func _rebuild_phone_map_body() -> void:
 		_phone_map_body.remove_child(c)
 		c.queue_free()
 	_phone_map_toggles.clear()
+	_phone_height_box = null
+	_phone_height = {}
 	_phone_map_row = null
 	var vp = get("viewport")
 	var br := _find_engine_bridge()
@@ -9206,7 +9213,41 @@ func _rebuild_phone_map_body() -> void:
 		var vsec := DccWidgets.section(body, "Map view")
 		_phone_map_toggles["lod_grid"] = DccWidgets.toggle(vsec, "Chunk grid (tiled view)",
 			vp.lod_debug_enabled("grid"), func(on: bool): vp.set_lod_debug("grid", on))
+	## 3D-2's HEIGHT row for the phone (`View3D._build_height_row()` says its home here is MAP ▸ View): the same
+	## 1x..4x range and 0.25 step, written through the SAME call, `View3D.set_height()`, so the PC/tablet card row,
+	## the 3D mesh and `Preferences ▸ 3D viewport defaults` share one state. Shown only while 3D shows (a height for a
+	## view that is not on screen is a control that does nothing visible); re-seeded from the view on every entry.
+	## Never the world or its save. `phone_fit()` below gives the track its touch floor (`touch_slider()`).
+	_phone_height_box = DccWidgets.section(body, "3D height · 1× is true scale")
+	var cur_h: float = DccSettings.view3d_exaggeration(View3DScript.VERTICAL_EXAGGERATION_DEFAULT)
+	if vp.view3d() != null and vp.view3d().has_method("current_height"):
+		cur_h = vp.view3d().current_height()
+	_phone_height = DccWidgets.slider(_phone_height_box, "Height", View3DScript.HEIGHT_MIN, View3DScript.HEIGHT_MAX,
+		View3DScript.HEIGHT_STEP, cur_h, "×", func(v: float): vp.ensure_view3d().set_height(v))
+	_phone_height_box.visible = vp.is_3d()
+	## 44 dp of REAL density, as the task asks: `phone_fit()`'s floor is 44 phone units (115 px at the 6T's scale,
+	## 40.9 dp at density 2.8125), so the track is raised to the real-dp floor when the density is known.
+	var dv: Dictionary = _density()
+	if bool(dv["known"]):
+		(_phone_height["slider"] as HSlider).set_meta("dp_floor_px", 44.0 * float(dv["value"]))
+	if vp.has_signal("view_mode_changed") and not vp.view_mode_changed.is_connected(_sync_phone_height):
+		vp.view_mode_changed.connect(_sync_phone_height)
 	phone_fit(_phone_map_body, _phone_scale)
+	if _phone_height.has("slider") and (_phone_height["slider"] as HSlider).has_meta("dp_floor_px"):
+		var hs := _phone_height["slider"] as HSlider
+		hs.custom_minimum_size.y = maxf(hs.custom_minimum_size.y, float(hs.get_meta("dp_floor_px")))
+
+## Shows the phone HEIGHT section while 3D does and re-seeds its slider from the view's own value
+## (`set_value_no_signal()`, so the seed does not echo back into `set_height()`).
+func _sync_phone_height(is_3d: bool) -> void:
+	if _phone_height_box == null or not is_instance_valid(_phone_height_box):
+		return
+	_phone_height_box.visible = is_3d
+	var vp = get("viewport")
+	if is_3d and vp != null and vp.view3d() != null and not _phone_height.is_empty():
+		var s := _phone_height["slider"] as HSlider
+		s.set_value_no_signal(vp.view3d().current_height())
+		(_phone_height["readout"] as Label).text = (_phone_height["format"] as Callable).call(s.value)
 
 ## Re-seeds the MAP body's switches after a layer flips anywhere else (`ViewportHost.layer_visibility_changed`).
 ## `set_pressed_no_signal()`, so the write does not echo back into `set_layer_visible()`.
