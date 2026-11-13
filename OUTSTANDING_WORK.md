@@ -85,7 +85,8 @@ document, and `STATUS.md` records what lands)
   `MOBILE_SHELL_MS1_SPEC.md`. Queued after Compare. **Owner's landscape layout, same day:** *"move the small slider pill
   to the right next to the camera, and the search/name bar to the top right corner."* So in landscape the quick-drawer
   grip (the pill on the map's edge) sits on the right edge beside the camera cut-out, and the title/search header sits in
-  the top-right corner; the rail stays on the left.
+  the top-right corner; the rail stays on the left. Also (owner, same day): *"remove the white square backdrop from
+  the top bar"* — the header's title pill and buttons float over the map with no opaque rectangle behind them.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
