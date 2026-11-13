@@ -13,8 +13,10 @@ reachable from the **real** generated layout. **Nothing shipped changed.** The l
 4.3 says why). The only code added is the evidence harness `cartalith-native/godot-project/_citylook_probe.gd` (with its
 `.tscn`), which draws and asserts nothing that the app uses.
 
-**A note on Ruling EO.** The request cites Ruling EO. `LARGE_ITEM_RULINGS.md`'s last ruling is EI, and a search of
-every `.md` and `.gd` finds no "Ruling EO". Nothing here depends on its text; see Q10.
+**A note on Ruling EO.** Ruling EO exists (`LARGE_ITEM_RULINGS.md`): on touch a tap shows the action chips and a
+long-press opens the full card. This scope was first drafted against a checkout 163 commits behind origin, which
+lacked rulings EJ–EV; the coordinator corrected this note on 2026-11-13. Re-open every symbol cited below against
+origin/main before building (for example, the Note tab now binds labels, icons and landmarks too: 8206f6cb, 7039afa7).
 
 ---
 
@@ -269,7 +271,6 @@ a documented decision and needs one.
 | **Q7** | The serif font for the title | A bundled **OFL** face; two candidates to confirm the licence of before bundling: *Cinzel* and *IM Fell English*. Not checked in this pass |
 | **Q8** | Decorative trees outside the wall, to match the reference's groves, drawn but not part of the generated world? | **Yes**, seeded from the layout, never saved, never read by any engine path, included in export so export follows screen |
 | **Q9** | Cross the engine's pier geometry into the layout so piers can be drawn? | **Yes**: additive, no generated value moves |
-| **Q10** | The request names Ruling EO, which is not in `LARGE_ITEM_RULINGS.md` (last: EI) | Please state or record it; nothing here depends on its text |
 
 ---
 
