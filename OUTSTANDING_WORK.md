@@ -77,6 +77,12 @@ document, and `STATUS.md` records what lands)
     detour, and declined river stretches");
   - ~~declined river offers never reach the engine~~ -- closed 2026-11-13; see the same `STATUS.md` entry;
   - ~~way-merge test gaps~~ -- closed 2026-11-13; see `STATUS.md` ("Way-merge test gaps closed").
+- **Phone landscape: the shell fills only part of the screen** (owner, 2026-11-13, screenshot from the 6T in landscape:
+  *"Landscape mode seems to give a weird checkerboard style bug with a sliver of the right side appearing almost below
+  the screen area."*). The rail, header and map sit in the left ~1080 px of a ~2000 px-wide screen; the rest is the
+  bare background, and a strip of the map shows below the shell's bottom edge. Likely the shell or its map viewport keeps
+  portrait-sized bounds after rotation. Owner: `MOBILE_SHELL_PROPOSAL.md` (landscape rail, MS-1 live re-classification),
+  `MOBILE_SHELL_MS1_SPEC.md`. Queued after Compare.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
