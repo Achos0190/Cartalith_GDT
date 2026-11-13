@@ -809,6 +809,10 @@ keep their points.
   sit off the painted river (Ruling ER's display meander; not measured); a joined commit costs about 2.8-2.9 times a
   plain one.
 
+### `_quickbar_window_probe` section 9: no hang reproduced, sweep bounded, tablet check fixed (2026-11-13)
+
+**Verified by running it, on a fresh worktree of `origin/main` b259bef4 with its own `config/name` and a wiped user dir.** Desktop 1600x1000: RESULT PASS, 108 checks, section 9 included (the real-cursor sweep found the vault row at (436, 238)). The reported hang did not occur, on two runs, so no cause is claimed. The tablet (`--force-touch`, 1280x800) failed one check, section 0's *group 'Preferences'*: the probe still expected the glyph for a tablet, and `CommandIndex` now reports the real menu name there; the probe was stale, not the product (fixed to expect 'Preferences'), tablet then PASS, 108 checks. Guard added in `_quickbar_window_probe.gd::_row_point`: a wall-clock `ROW_SWEEP_MS` bound that prints the stuck item and returns a failing point, so a cursor the OS withholds from an unfocused window fails loudly rather than stalling. Mutant `ROW_SWEEP_MS := 0` turns it red (7 failed); restored. The earlier `--script` launch prints nothing: run the `.tscn`.
+
 ### Long-press to drag on touch: Asset library tiles (2026-11-12)
 
 **Built, verified on the probe named; the handset check (the owner's finger) stays open.** Owner's decision, 2026-11-12, after
@@ -840,8 +844,9 @@ drag sources and still are not (`draggable` false; the lift meta is on the share
   the `uid == ""` guard refuses everything else). Two earlier survivors were dead code and were removed rather than excused (a redundant
   generation bump at the slop crossing; an `is_tap` clause for `lifted`, since `force_drag` takes the mouse focus and the release never
   reaches the tile).
-- **Open, needs the owner's finger on the Pad/6T:** whether 0.4 s feels right, whether the dim and haptic read as "picked up", whether
-  the drag chip appears under the finger on glass, and whether a drag needs somewhere to land on the phone.
+- **Owner device check 2026-11-13:** "btw, the asset drag and drop works." (APK 4a3b5109 on the OnePlus 6T). That closes the
+  "for the owner's finger" note as to whether the drag works on glass. The owner said nothing about the 0.4 s timing, the dim/haptic feel,
+  or a phone drop target, so those stay unjudged.
 
 ### Touch-scroll leftovers closed: a shared fling, editable text boxes, the Asset library (2026-11-12)
 

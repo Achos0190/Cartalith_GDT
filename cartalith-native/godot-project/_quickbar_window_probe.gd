@@ -250,9 +250,10 @@ func _entry() -> void:
 		if String(r["title"]) == "Quick bar":
 			row = r
 	_ok(not row.is_empty(), "CommandIndex finds the Preferences row BY TITLE ('Quick bar'; the index drops a title's ellipsis)")
-	## Desktop names the menu; a tablet folds the whole menu bar into one button, so its group is that
-	## button's glyph (CQ-2's probe notes the same fold).
-	_ok(String(row.get("group", "")) == ("☰" if DccTheme.is_tablet() else "Preferences") and bool(row.get("pinnable", false)), "in the expected menu group and pinnable (a plain action row): group '%s'" % String(row.get("group", "")))
+	## The group is the menu's own name on every form factor: the tablet's "☰" button now nests the real
+	## menus (`command_index.gd` lists Preferences under it), so a tablet no longer reports a glyph as the group
+	## (this probe still expected one and failed 1 check on the tablet; fixed 2026-11-13).
+	_ok(String(row.get("group", "")) == "Preferences" and bool(row.get("pinnable", false)), "in the expected menu group and pinnable (a plain action row): group '%s'" % String(row.get("group", "")))
 	## 1. the Preferences row, run as the menu click runs it
 	_ok(idx.run_row(row), "the row runs through its own popup's id_pressed")
 	await _settle(4)
@@ -638,6 +639,11 @@ func _keyboard() -> void:
 ## Moves the REAL cursor: `DisplayServer.warp_mouse` is the only motion that updates a popup's
 ## hover (a synthetic `Input.parse_input_event` motion read `get_focused_item() == -1` across the
 ## whole popup when this was first tried; recorded in `quick_bar_menu_pin.gd`).
+## Longest a row sweep may take before it reports failure (a labelled judgement: a healthy sweep is a
+## few dozen 2-frame steps, well under a second).
+const ROW_SWEEP_MS := 8000
+
+
 func _hover(p: Vector2) -> void:
 	DisplayServer.warp_mouse(Vector2i(p))
 	await _settle(2)
@@ -651,7 +657,15 @@ func _row_point(popup: PopupMenu, id: int) -> Vector2:
 	var want := popup.get_item_index(id)
 	var x := float(popup.position.x) + float(popup.size.x) * 0.5
 	var y := float(popup.position.y)
+	## Wall-clock bound: a sweep that cannot make the popup report a hover (the OS withholding the
+	## warp from an unfocused or occluded window) must fail loudly, not stall the run. The verifier's
+	## 2026-11-13 report of a section-9 hang could not be reproduced (desktop PASS, 108 checks), so
+	## the bound is the guard, not a fix for a known cause.
+	var deadline := Time.get_ticks_msec() + ROW_SWEEP_MS
 	while y < float(popup.position.y + popup.size.y):
+		if Time.get_ticks_msec() > deadline:
+			print("  sweep timed out after %d ms at y=%s (popup focused item %d, wanted %d)" % [ROW_SWEEP_MS, y, popup.get_focused_item(), want])
+			return Vector2(-1, -1)
 		await _hover(Vector2(x, y))
 		if popup.get_focused_item() == want:
 			return Vector2(x, y)

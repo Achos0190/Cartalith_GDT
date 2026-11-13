@@ -80,7 +80,7 @@ document, and `STATUS.md` records what lands)
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
-  - `_quickbar_window_probe` section 9 hangs;
+  - ~~`_quickbar_window_probe` section 9 hangs~~ -- not reproduced, bounded; see `STATUS.md`;
   - 3D-3's CDLOD position morph has no measurable effect (keep or drop is the owner's);
   - phone: lifted Asset library tiles have no drop target in their own pane;
   - landmarks: Temple, Pilgrimage site, Tomb and Monument need designs; Delta to re-measure on the owner's saved
