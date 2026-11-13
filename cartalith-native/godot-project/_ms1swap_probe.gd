@@ -1253,8 +1253,11 @@ var _rep_bag := {}
 ## 1 139 px tall and scrolls again.
 const REP_SCROLL_ONE_WAY := ["settlement_types_window", "_credits_dialog"]
 ## New world's scroll is clamped on the way back too, but not to 0: the phone card is stretched to the tablet viewport (1800 x 1000)
-## before the swap captures it, which leaves it a scroll range of 12 (measured; the same clamp as the one-way windows, with room).
-const REP_SCROLL_BACK := {"new_world_dialog": 12}
+## before the swap captures it, which leaves it a scroll range of 20 (measured; the same clamp as the one-way windows, with room).
+## It was 12 until 0b485c6d added the "Settlements & people" section: the card grew 8 px, so the stretched page's clamp
+## grew by the same 8. A stale expectation, not a restore fault (the restore returns the clamp the engine gives; the oracle
+## layout differed from it by exactly those 8 px).
+const REP_SCROLL_BACK := {"new_world_dialog": 20}
 ## Frames a window needs to finish laying itself out after it opens, where ten (the default wait) is not enough: New world's card
 ## settles over about thirty (measured: its content was 15 px taller at frame 10 than at frame 40). Applied to the real window and
 ## to the fresh oracle alike, so the comparison is between two settled layouts.

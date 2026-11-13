@@ -79,7 +79,7 @@ document, and `STATUS.md` records what lands)
   - way-merge test gaps: removing the second half of `record_meets` and `min_by`→`max_by` in
     `civ_join_tracks_to_network` both survive; the lower bounds of `MEET_CELLS` and `REACH_PLACE_CELLS` are unpinned.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
-  - `_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap, unattributed to a commit;
+  - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
   - `_quickbar_window_probe` section 9 hangs;
   - 3D-3's CDLOD position morph has no measurable effect (keep or drop is the owner's);
