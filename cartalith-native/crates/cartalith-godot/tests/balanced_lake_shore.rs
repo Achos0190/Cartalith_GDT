@@ -32,8 +32,10 @@ const GH: usize = 24;
 const SEA: f64 = 0.42;
 /// Rain everywhere: under `LAKE_RAIN` (0.22), so the reference's rule makes no lake here at all.
 const DRY_RAIN: f32 = 0.1;
-/// Discharge in every cell: pays for 16 lake cells at 2.0 each (25 C) and not for 17.
-const INFLOW: f32 = 33.0;
+/// Discharge in every cell: after the runoff share (`RUNOFF_SHARE` 0.58, so 32.48 arrives) it pays for 16 lake cells
+/// at 2.0 each (25 C, 32.0) and not for 17 (34.0). Was 33.0 before the share (owner choice 2026-11-13): restated so
+/// the fixture still holds 16 cells, the expectation below unchanged and not weakened.
+const INFLOW: f32 = 56.0;
 /// The middle row of the bowl.
 const ROW: usize = 12;
 
@@ -77,7 +79,7 @@ fn the_balance_makes_a_two_column_lake_in_the_dry_bowl() {
     assert!(old.classification.iter().all(|&c| c != 2), "premise: rain 0.1 is under LAKE_RAIN, so the reference's rule makes no lake");
     let (wb, _, _) = water(true);
     let lake: Vec<usize> = (0..GW * GH).filter(|&i| wb.classification[i] == 2).collect();
-    assert_eq!(lake.len(), 16, "inflow 33 pays for 16 cells at 2.0 each");
+    assert_eq!(lake.len(), 16, "inflow 56 at the 0.58 runoff share (32.48) pays for 16 cells at 2.0 each");
     assert!(lake.iter().all(|&i| (8..16).contains(&(i / GW)) && (8..10).contains(&(i % GW))), "the two lowest columns: {lake:?}");
     assert_eq!(wb.fill_level[ROW * GW + 9], 0.52f32, "the surface is lowered to the first dry column's ground");
 }

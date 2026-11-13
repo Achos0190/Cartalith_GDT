@@ -14630,7 +14630,7 @@ pub fn water_bodies_floored_balanced(field: &[f32], rainfall: &[f32], gw: usize,
         }
     });
     if let Some(b) = balance {
-        cartalith_civ::lake_balance::apply_lake_balance(&mut wb, field, b.flow, b.temperature, gw, gh, sea, world);
+        cartalith_civ::lake_balance::apply_lake_balance(&mut wb, field, b.flow, b.temperature, gw, gh, sea, world, cartalith_civ::lake_balance::RUNOFF_SHARE);
     }
     cartalith_civ::apply_lake_area_floor(&mut wb, field, gw, gh, sea, world, floor);
     if let (Some(v), Some(b)) = (maars, before.as_deref()) {

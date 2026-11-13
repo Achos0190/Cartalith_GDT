@@ -50,6 +50,28 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Lake balance counts a runoff share of rain (owner choice "Runoff share of rain", built 2026-11-13)
+
+*Answering the question basin routing raised: lake area in the owner's view doubled (`DELTA_GEOMETRY_RESEARCH.md` 14.6).
+Ruling EV's follow-up in `LARGE_ITEM_RULINGS.md`; measurement in `DELTA_GEOMETRY_RESEARCH.md` 14.10.* Basin routing stays on.
+- **Built:** `cartalith_civ::lake_balance::RUNOFF_SHARE` = 0.58 multiplies every pool's inflow in `lake_pools` /
+  `apply_lake_balance` (a new `share` argument; the harness and the measurement's before arm pass 1.0, `render::
+  water_bodies_floored_balanced` passes the constant). Gate: rides on `lake_balance`, so on in `params::defaults`, off in
+  `WorldParams::defaults`, goldens unchanged. **Disclosed:** a world saved with `lake_balance` on reopens with the share
+  (lakes are derived, not stored). The constant is a calibrated judgement; a Budyko/Fu climate share was tried and dropped
+  (it sat at its floor on every pool).
+- **Measured** (`tests/lake_runoff_measurement.rs`, ignored, `BR_GPU=1`; lake cells with Ruling CC's floor): 246371
+  160 817 before basin routing, 171 809 whole discharge (+6.8 %), **171 399 with the share (+6.6 %)**; 483920 58 516,
+  58 976, **47 189 (-19.4 %)**; 912345 19 984, 26 261 (+31 %), **22 971 (+14.9 %)**. Lake counts 94/95, 40/41, 33/30.
+  The window is narrow (0.56 to 0.59). Frames: `docs/evidence/lake-runoff-2026-11-13/`.
+- **Verified:** `cargo test --workspace --release` green; one fixture restated, not weakened (`balanced_lake_shore.rs`
+  `INFLOW` 33 -> 56 so the same 16 cells are held after the share); the only goldens-adjacent suites (pipeline, parity) did
+  not move. Literal mutants killed: the constant 0.58 -> 0.5, the share factor dropped, and the share bound 1.0 -> 0.99.
+  Consumers (playa tint and salt trade, deltas, settlements) read the final classification and their suites pass; no
+  windowed run was made.
+- **Left:** the owner's 51203 window (14.6's 2.06x) was not re-measured; the headless frames are a classification
+  drawing, not the app's renderer.
+
 ### Where a new note goes: a folder chooser on Create (built 2026-11-13)
 
 Owner, 2026-11-13: *"make sure that from the note from the previous job, we also get the option to select where in the vault the note gets placed."* **Before:** the Note tab's Create (`ContextNote._build_create`) and the vault window's "New note from a template" form (`VaultWindow`) each gave a free-text path field seeded by `vault_suggested_path` (for example `Settlements/Name.md`); no folder list existed anywhere (the file tree is a read view). **Built:** new `shell/vault_folder_pick.gd` (`VaultFolderPick`), one implementation used by both forms on every form factor: a `Folder` dropdown of the vault's own folders (from `vault_list_files`, dot folders skipped, the vault root first, the suggestion's folder always included so the default is the old behaviour), a last `New folder...` entry that reveals a name field, and a rewrite of the existing path field's directory part, so the path stays what is created. The last folder used per entity kind is remembered per user in `[vault_note_folders]` (`DccSettings.vault_note_folder` returns null when none was stored, since "" is the vault root; `set_vault_note_folder`), written only after a create that held, and offered only when the connected vault has that folder. A New folder with no valid name refuses with a hint and creates nothing. Touch: dropdown, field and popup rows are 44 dp or more. No Rust change: `vault_create_file` and `vault_create_from_template` already create missing parents (`create_dir_all`; the SAF handler makes each missing folder).

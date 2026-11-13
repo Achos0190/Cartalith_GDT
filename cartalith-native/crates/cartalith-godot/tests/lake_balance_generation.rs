@@ -50,7 +50,7 @@ fn production_funnel_equals_the_shared_balance() {
     let on = render::water_bodies_floored_balanced(&ws.field, &ws.rainfall, gw, gh, sea, p.world, None, None, inputs);
 
     let flood = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, p.world, Some(&ws.rainfall));
-    let pools = lake_pools(&ws.field, &ws.flow_discharge, &ws.temperature, &flood.fill_level, gw, gh, sea, p.world, 1.0);
+    let pools = lake_pools(&ws.field, &ws.flow_discharge, &ws.temperature, &flood.fill_level, gw, gh, sea, p.world, 1.0, cartalith_civ::lake_balance::RUNOFF_SHARE);
     assert!(!pools.is_empty(), "the fixture world has pools");
     let mut in_pool = vec![false; gw * gh];
     let mut held = vec![false; gw * gh];
@@ -100,14 +100,14 @@ fn lake_balance_remeasure() {
         let before = render::water_bodies_floored_keep(&ws.field, &ws.rainfall, gw, gh, sea, p.world, None, None);
         let after = render::water_bodies_floored_balanced(&ws.field, &ws.rainfall, gw, gh, sea, p.world, None, None, LakeBalanceInputs::when(p.lake_balance, Some(&ws.flow_discharge), &ws.temperature));
         let flood = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, p.world, Some(&ws.rainfall));
-        let pools = lake_pools(&ws.field, &ws.flow_discharge, &ws.temperature, &flood.fill_level, gw, gh, sea, p.world, 1.0);
+        let pools = lake_pools(&ws.field, &ws.flow_discharge, &ws.temperature, &flood.fill_level, gw, gh, sea, p.world, 1.0, cartalith_civ::lake_balance::RUNOFF_SHARE);
         let lakes = |c: &[u8]| pools.iter().filter(|q| q.cells.iter().any(|&i| c[i] == 2)).count();
         let cells = |c: &[u8], f: &dyn Fn(usize) -> bool| (0..gw * gh).filter(|&i| c[i] == 2 && f(i) && ws.field[i] as f64 > sea).count();
         // The harness's own rows: before Ruling CC's lake-area floor (active from 1 006 848 cells), which is why
         // the owner world's floored count above is lower than the harness's 322 -> 356.
         let mut unfloored = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, p.world, Some(&ws.rainfall));
         let before_u = lakes(&unfloored.classification);
-        cartalith_civ::lake_balance::apply_lake_balance(&mut unfloored, &ws.field, &ws.flow_discharge, &ws.temperature, gw, gh, sea, p.world);
+        cartalith_civ::lake_balance::apply_lake_balance(&mut unfloored, &ws.field, &ws.flow_discharge, &ws.temperature, gw, gh, sea, p.world, cartalith_civ::lake_balance::RUNOFF_SHARE);
         println!("  before the Ruling CC floor (the harness's rows): lakes {before_u} -> {}", lakes(&unfloored.classification));
         let dried = (0..gw * gh).filter(|&i| before.classification[i] == 2 && after.classification[i] != 2).count();
         let flooded = (0..gw * gh).filter(|&i| before.classification[i] != 2 && after.classification[i] == 2).count();

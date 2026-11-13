@@ -255,7 +255,7 @@ fn measure(world: &str, arm: &str, p: &WorldParams) -> (Vec<f32>, f64) {
     // `lake_balance` is on (without Ruling CC's area floor, which the app applies after it): its pools take their
     // inflow from the routed discharge, so the routing decides how much water reaches a basin's floor.
     let mut wbb = cartalith_civ::build_water_bodies(field, gw, gh, sea, wrap, Some(&ws.rainfall));
-    let rep = cartalith_civ::lake_balance::apply_lake_balance(&mut wbb, field, &ws.flow_discharge, &ws.temperature, gw, gh, sea, wrap);
+    let rep = cartalith_civ::lake_balance::apply_lake_balance(&mut wbb, field, &ws.flow_discharge, &ws.temperature, gw, gh, sea, wrap, cartalith_civ::lake_balance::RUNOFF_SHARE);
     let balanced_lake_cells = wbb.classification.iter().filter(|&&c| c == 2).count();
     // And with Ruling CC's area floor after it, as the app draws them (`render::water_bodies_floored_balanced`
     // applies the floor after the balance; the maar exemption and painted lakes are not in a fresh world's

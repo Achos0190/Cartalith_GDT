@@ -86,8 +86,10 @@ struct Pool {
 
 /// The pools of a world and each one's change against today's lakes, at
 /// evaporation scale `ek`. The balance itself is `cartalith_civ::lake_balance`.
+/// The share is 1.0, Ruling ET's whole-discharge model this harness reports; the
+/// shipped runoff share is measured in `lake_runoff_measurement.rs`.
 fn pools(field: &[f32], flow: &[f32], temp: &[f32], class: &[u8], fill: &[f32], gw: usize, gh: usize, sea: f64, wrap: bool, ek: f64) -> Vec<Pool> {
-    lake_pools(field, flow, temp, fill, gw, gh, sea, wrap, ek)
+    lake_pools(field, flow, temp, fill, gw, gh, sea, wrap, ek, 1.0)
         .into_iter()
         .map(|q| {
             let today = q.cells.iter().filter(|&&i| class[i] == 2).count();

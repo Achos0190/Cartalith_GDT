@@ -14,7 +14,10 @@
 //! replaces the per-cell rain test). Per pool:
 //! * inflow `I` = the highest routed discharge (`flow_discharge`, rain-weighted
 //!   cell-units, mean 1 a cell) among its cells: the water the network brings
-//!   to it, the rain on the pool included;
+//!   to it, the rain on the pool included; **times [`RUNOFF_SHARE`]** in
+//!   production (owner choice 2026-11-13, *"Runoff share of rain"*), because
+//!   only a fraction of the rain that falls on a catchment reaches a basin as
+//!   water (the rest is evaporated or transpired on the way);
 //! * evaporation per pool cell `e(T) = EVAP_AT_25 * clamp(T, 0, T_MAX) / 25`
 //!   in the same cell-units;
 //! * the balanced lake is the lowest `k` cells (by height) with
@@ -54,6 +57,28 @@ pub const T_MAX: f64 = 35.0;
 /// The reference temperature of [`EVAP_AT_25`].
 const T_REF: f64 = 25.0;
 
+/// The share of a catchment's rain that reaches a basin as inflow (owner choice
+/// 2026-11-13, *"Runoff share of rain"*; `DELTA_GEOMETRY_RESEARCH.md` 14.10).
+/// **Calibrated judgement, with the literature as its frame, not its source.**
+/// Observed mean annual runoff coefficients run from about 0.05 (arid) to 0.6
+/// (humid), around 0.35 for the land's global mean (textbook orders,
+/// SECONDARY, recalled), and the Budyko/Fu curve (Fu 1981) gives the same
+/// span from aridity. This model's inflow is the highest routed discharge in
+/// a pool, which carries the rain of the whole upstream catchment, and the
+/// Fu share read at the pool's own climate sat at the clamp floor on all
+/// three measured worlds (a pool in dry country is fed by a wetter
+/// catchment), so a climate-dependent share was measured and dropped:
+/// clamped to 0.1..0.6 it shrank the lakes 33 % and 60 % on seeds 483920 and
+/// 912345 (and 0.3..0.8 gave 31 % and 50 %), and clamped to 0.5..0.8 it was
+/// identical to a flat 0.5. The constant is the one the owner's target
+/// selects: with it, lake area on the three measured worlds (246371, 483920,
+/// 912345; GPU on) lands within about 20 % of its size before basin routing
+/// (`tests/lake_runoff_measurement.rs`): at 0.58, +7 %, -19 % and +15 %; below
+/// about 0.555 seed 483920 is more than 20 % smaller, and at 0.60 a large basin
+/// on 912345 spills and its area jumps +31 %, so the window is narrow and the
+/// constant sits near its top.
+pub const RUNOFF_SHARE: f64 = 0.58;
+
 /// Evaporation from one lake cell at mean temperature `t`, in cell-units.
 pub fn lake_evaporation(t: f32) -> f64 {
     EVAP_AT_25 * (t as f64).clamp(0.0, T_MAX) / T_REF
@@ -87,10 +112,17 @@ fn nb4(i: usize, gw: usize, gh: usize, wrap: bool) -> impl Iterator<Item = usize
 
 /// The pools of a world and each one's balance at evaporation scale `ek`
 /// (`1.0` the model, `0.0` the do-nothing control where every pool spills).
-/// `fill` is [`WaterBodies::fill_level`].
+/// `fill` is [`WaterBodies::fill_level`]. `share` scales every pool's inflow:
+/// [`RUNOFF_SHARE`] in production, `1.0` the whole discharge (Ruling ET's
+/// model, which the harness and the measurement's before arm name explicitly).
+/// A `share` that is not finite and in `(0, 1]` returns no pools: nothing is
+/// balanced on a guessed value.
 #[allow(clippy::too_many_arguments)]
-pub fn lake_pools(field: &[f32], flow: &[f32], temp: &[f32], fill: &[f32], gw: usize, gh: usize, sea: f64, wrap: bool, ek: f64) -> Vec<LakePool> {
+pub fn lake_pools(field: &[f32], flow: &[f32], temp: &[f32], fill: &[f32], gw: usize, gh: usize, sea: f64, wrap: bool, ek: f64, share: f64) -> Vec<LakePool> {
     let n = gw * gh;
+    if !(share.is_finite() && share > 0.0 && share <= 1.0) {
+        return Vec::new();
+    }
     let deep = |i: usize| field[i] as f64 > sea && (fill[i] - field[i]) as f64 > LAKE_DEPTH;
     let mut seen = vec![false; n];
     let mut out = Vec::new();
@@ -111,7 +143,7 @@ pub fn lake_pools(field: &[f32], flow: &[f32], temp: &[f32], fill: &[f32], gw: u
                 }
             }
         }
-        let inflow = cells.iter().map(|&i| flow[i] as f64).filter(|q| q.is_finite()).fold(0.0, f64::max);
+        let inflow = share * cells.iter().map(|&i| flow[i] as f64).filter(|q| q.is_finite()).fold(0.0, f64::max);
         let mut by_h = cells.clone();
         by_h.sort_by(|&a, &b| field[a].total_cmp(&field[b]));
         let e_spill: f64 = cells.iter().map(|&i| ek * lake_evaporation(temp[i])).sum();
@@ -151,15 +183,16 @@ pub struct LakeBalanceReport {
 /// spill gets its `fill_level` lowered to the balanced surface so the drawn
 /// shoreline (`fill_level - LAKE_DEPTH`) contours the same water this
 /// classification holds. `flow` and `temp` must be `gw * gh` long or nothing
-/// changes and the default report returns.
+/// changes and the default report returns. `share` is [`lake_pools`]'s:
+/// production passes [`RUNOFF_SHARE`], the measurement's before arm `1.0`.
 #[allow(clippy::too_many_arguments)]
-pub fn apply_lake_balance(wb: &mut WaterBodies, field: &[f32], flow: &[f32], temp: &[f32], gw: usize, gh: usize, sea: f64, world: bool) -> LakeBalanceReport {
+pub fn apply_lake_balance(wb: &mut WaterBodies, field: &[f32], flow: &[f32], temp: &[f32], gw: usize, gh: usize, sea: f64, world: bool, share: f64) -> LakeBalanceReport {
     let n = gw * gh;
     let mut rep = LakeBalanceReport::default();
     if n == 0 || field.len() < n || flow.len() != n || temp.len() != n || wb.classification.len() != n || wb.fill_level.len() != n {
         return rep;
     }
-    let pools = lake_pools(field, flow, temp, &wb.fill_level, gw, gh, sea, world, 1.0);
+    let pools = lake_pools(field, flow, temp, &wb.fill_level, gw, gh, sea, world, 1.0, share);
     rep.pools = pools.len();
     for q in &pools {
         let keep: std::collections::HashSet<usize> = q.balanced.iter().copied().collect();
@@ -207,7 +240,7 @@ mod tests {
         let mut wb = build_water_bodies(&field, GW, GH, SEA, false, Some(&rainfall));
         let mut flow = vec![0.0f32; GW * GH];
         flow[cells[0]] = inflow;
-        let rep = apply_lake_balance(&mut wb, &field, &flow, &vec![temp; GW * GH], GW, GH, SEA, false);
+        let rep = apply_lake_balance(&mut wb, &field, &flow, &vec![temp; GW * GH], GW, GH, SEA, false, 1.0);
         (wb, rep, cells)
     }
 
@@ -295,8 +328,42 @@ mod tests {
         let rain = vec![1.0f32; GW * GH];
         let mut wb = build_water_bodies(&field, GW, GH, SEA, false, Some(&rain));
         let before = wb.classification.clone();
-        let rep = apply_lake_balance(&mut wb, &field, &[], &vec![25.0; GW * GH], GW, GH, SEA, false);
+        let rep = apply_lake_balance(&mut wb, &field, &[], &vec![25.0; GW * GH], GW, GH, SEA, false, 1.0);
         assert_eq!(rep, LakeBalanceReport::default());
         assert_eq!(wb.classification, before);
+    }
+
+    /// Protects the share's reach into the balance (a literal at each side of
+    /// its edge): the bowl's inflow of 10 pays for three cells at 25 C (3 x 2.0
+    /// = 6.0). At share 1.0 it is a lake; at share 0.5 only 5.0 arrives and the
+    /// shallowest-bed third dries; at share 0.25 (2.5) one cell remains; and a
+    /// share outside `(0, 1]` or non-finite balances nothing.
+    #[test]
+    fn the_runoff_share_scales_the_inflow() {
+        let (field, cells) = bowl();
+        let rain = vec![1.0f32; GW * GH];
+        let mut flow = vec![0.0f32; GW * GH];
+        flow[cells[0]] = 10.0;
+        let temp = vec![25.0f32; GW * GH];
+        let run = |share: f64| {
+            let mut wb = build_water_bodies(&field, GW, GH, SEA, false, Some(&rain));
+            let rep = apply_lake_balance(&mut wb, &field, &flow, &temp, GW, GH, SEA, false, share);
+            (lakes(&wb, cells), rep.pools)
+        };
+        assert_eq!(run(1.0).0, [true, true, true]);
+        assert_eq!(run(0.5).0, [true, true, false]);
+        assert_eq!(run(0.25).0, [true, false, false]);
+        let untouched = lakes(&build_water_bodies(&field, GW, GH, SEA, false, Some(&rain)), cells);
+        for bad in [0.0, -0.5, 1.5, f64::NAN, f64::INFINITY] {
+            assert_eq!(run(bad), (untouched, 0), "share {bad}");
+        }
+    }
+
+    /// Protects the shipped constant against drifting out of the window the
+    /// measurement chose it in (0.56 to 0.59, `RUNOFF_SHARE`'s doc). The bounds
+    /// are the measurement's, not read back from the constant.
+    #[test]
+    fn the_shipped_share_is_inside_the_measured_window() {
+        assert!((0.56..0.59).contains(&RUNOFF_SHARE));
     }
 }

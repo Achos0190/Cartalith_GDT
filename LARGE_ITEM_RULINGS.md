@@ -3686,3 +3686,25 @@ corrected (`DELTA_GEOMETRY_RESEARCH.md` 14.1, 14.3, 14.6, 14.8):
 - **The two tilts do not fill exactly the same depressions** (as the code's doc and `DELTA_GEOMETRY_RESEARCH.md` 14.3
   first claimed): the floor tilt's larger rise fills a few more rim cells and can capture a basin behind a low saddle;
   measured, 0.05-0.09 % of land cells drain to another seed. Recorded, not fixed.
+
+**Follow-up (2026-11-13): the lake growth question, answered.** The owner was asked what to do about basin routing
+plus the balance doubling lake area in the owner's view (+52 % map-wide, GPU on; `DELTA_GEOMETRY_RESEARCH.md` 14.6).
+The options were: keep; a runoff share of the rain; cap the carve inside a filled depression; or turn basin routing
+off. The owner chose, verbatim: **"Runoff share of rain"**.
+
+1. **The balance counts a runoff share of rain as inflow, not all of it.** A pool's inflow (the highest routed
+   discharge among its cells) is multiplied by `cartalith_civ::lake_balance::RUNOFF_SHARE`, **0.58**, before it is
+   compared with the evaporation over the pool. **Basin routing stays on** (Ruling EV item 2 is unchanged).
+2. **Gate (`DECISIONS.md` section 7p).** The share is part of the lake balance, so it is on exactly where `lake_balance`
+   is: on in `params::defaults` (new worlds, the app) and off in `WorldParams::defaults` (every golden unchanged). It
+   has no setting of its own. **Disclosed:** lake classification is derived from the field, not stored, so a world
+   saved with `lake_balance` on (Ruling ET, written 2026-11-12) draws its lakes with the share when reopened; a save
+   without the key still loads the balance off and keeps its rain-test lakes.
+3. **The constant is calibrated, not cited.** The literature span (observed runoff coefficients about 0.05 to 0.6, the
+   Budyko/Fu curve) frames it; a climate-dependent Fu share read at each pool's own climate was built and measured
+   first and dropped: this model's inflow is the whole upstream catchment's discharge, so a pool in dry country fed by
+   a wetter catchment read at the clamp floor on every measured world (clamped 0.1-0.6 it shrank the lakes 33 % and
+   60 % on seeds 483920 and 912345). The owner's target (lake area within about 20 % of its pre-Ruling-EV size) picks
+   0.58: **+7 %, -19 % and +15 %** on 246371, 483920 and 912345 (GPU on), against **+7 %, +1 % and +31 %** with the
+   whole discharge. The window is narrow (below about 0.555 seed 483920 is more than 20 % smaller; at 0.60 a large basin
+   on 912345 spills and the area jumps). `DELTA_GEOMETRY_RESEARCH.md` 14.10.

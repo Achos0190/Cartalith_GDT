@@ -793,3 +793,30 @@ for this). Owner / before / after:
 So in the window rough routing removes the comb, and basin routing removes the 45-degree ruler line and the straight
 runs; the drawn total falls 59 % at x7.88, where the traced network falls 18 % and 29 % of what is left lies under the
 new lake: the rest of the drop is the network converging into fewer, larger rivers, which the law draws by discharge.
+
+14.10 **The lake balance counts a runoff share of rain (owner choice 2026-11-13, "Runoff share of rain").** The question
+14.6 left open. Built as `cartalith_civ::lake_balance::RUNOFF_SHARE` (0.58), a factor on every pool's inflow; basin
+routing stays on. Measured with `tests/lake_runoff_measurement.rs` (`BR_GPU=1`, whole map, Ruling CC's area floor
+applied, lake cells / lakes):
+
+| World | before basin routing, whole discharge | basin routing, whole discharge | basin routing, share 0.58 |
+|---|---|---|---|
+| 246371 (owner) | 160 817 / 94 | 171 809 / 111 (+6.8 %) | **171 399 / 95 (+6.6 %)** |
+| 483920 | 58 516 / 40 | 58 976 / 41 (+0.8 %) | **47 189 / 41 (-19.4 %)** |
+| 912345 | 19 984 / 33 | 26 261 / 31 (+31.4 %) | **22 971 / 30 (+14.9 %)** |
+
+A flat share sweep on the basin-routed fields (cells, change against the first column): 246371 is almost insensitive (0.2: +1 %; 0.5 to 0.8: +6 to +7 %, a
+single large basin set that always spills); 483920 falls steadily as the share does (0.2: -39 %, 0.4: -29 %, 0.5: -23 %,
+0.55: -21 %, 0.58: -19 %, 0.8: -10 %); 912345 is a cliff (0.4: -27 %, 0.5: -3 %, 0.55: +9 %, 0.58: +15 %, 0.6: +31 %, as one large
+basin begins to spill). Hence a narrow window, 0.56 to 0.59, in which all three are within 20 % of their pre-Ruling-EV
+size. **A climate-dependent share was tried first and dropped:** the Budyko/Fu share `1 - E/P` (`w` 2.6) read at each
+pool's own mean rain and temperature, clamped to 0.1..0.6, gave 0 %, -33 % and -60 % on the three worlds; clamped to
+0.3..0.8, -31 % and -50 % on the last two; clamped to 0.5..0.8 it was identical to the flat 0.5 (every pool at the
+floor). The pool's local climate is the wrong read for an inflow that is the whole upstream catchment's discharge.
+
+The owner world (246371) is dominated by one inland sea of about 100 000 cells that spills at any share, so its total
+hardly moves (410 cells dry at the rim); the share's effect is in the smaller basins (483920 loses 11 787 cells). Frames
+(a classification drawing, not the app's renderer): `cartalith-native/docs/evidence/lake-runoff-2026-11-13/` (`<seed>_before_x1`,
+`_after_x1`, `_before_x4`, `_after_x4`; before = whole discharge, after = the share; a tan cell is a lake the other arm held).
+The 14.6 owner-window figure (2.06x on seed 51203) was not re-measured: the owner's 51203 world is not one of the three
+measured here.
