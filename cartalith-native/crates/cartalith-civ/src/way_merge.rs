@@ -1409,4 +1409,91 @@ mod tests {
         assert_eq!((WayMergeOpts::default().passes, PASSES), (3, 3));
         assert_eq!(WayMergeOpts::default().reuse_factor, 0.25);
     }
+
+    fn gap_way(pts: Vec<(f64, f64)>, t: crate::WayType, a: usize, b: usize) -> Way {
+        Way { tid: 0, pts, brks: Vec::new(), km: 10.0, name: String::new(), way_type: t, a_idx: a, b_idx: b, hidden: false }
+    }
+
+    /// Runs the branch-and-trunk fixture shared by the junction tests.
+    /// Trunk along y = 10 (x 0..40, town at (40, 10)); a branch road along
+    /// x = 20 from y 40 down to `(20, 10 + gap)`; a track from a village at
+    /// (21.5, 38) beside the branch, then beside the trunk, into the town.
+    /// `branch_first` lists the branch BEFORE the trunk. Returns the track's points.
+    fn branch_trunk_track(gap: f64, branch_first: bool) -> Vec<(f64, f64)> {
+        let trunk = gap_way(vec![(0.0, 10.0), (20.0, 10.0), (40.0, 10.0)], crate::WayType::Road, 0, 1);
+        let branch = gap_way(vec![(20.0, 40.0), (20.0, 20.0), (20.0, 10.0 + gap)], crate::WayType::Road, 2, 0);
+        let track = gap_way(
+            vec![(21.5, 38.0), (21.5, 11.5), (38.0, 11.5), (40.0, 10.0)],
+            crate::WayType::Ancient, 3, 1,
+        );
+        let mut ways = if branch_first { vec![branch, trunk, track] } else { vec![trunk, branch, track] };
+        civ_join_tracks_to_network(&mut ways, 128);
+        ways[2].pts.clone()
+    }
+
+    /// Protects: `record_meets` records a junction whichever line is listed
+    /// first, i.e. the SECOND half (the earlier line's end on the later line's
+    /// curve). Fixture: a branch listed BEFORE the trunk it ends on, and a track
+    /// beside the branch whose whole length is carried only through that junction
+    /// (branch -> trunk -> town); it must be cut at its village (two points,
+    /// onto the branch). Without the second half the branch never joins the
+    /// chain and the cut falls at the corner (21.5, 11.5) instead. Control: the
+    /// forward order gives the same cut.
+    #[test]
+    fn a_branch_listed_before_its_trunk_still_meets_it() {
+        for first in [true, false] {
+            let pts = branch_trunk_track(0.0, first);
+            assert_eq!(pts.len(), 2, "branch_first={first}: {pts:?}");
+            assert_eq!(pts[0], (21.5, 38.0), "the village end never moves");
+            assert!((pts[1].0 - 20.0).abs() < 1e-9 && (pts[1].1 - 38.0).abs() < 1e-9, "onto the branch: {:?}", pts[1]);
+        }
+    }
+
+    /// Protects: the lower side of `MEET_CELLS` -- a junction whose end is just
+    /// under half a cell off the trunk (float noise from the snap pass, or a
+    /// slightly short branch) is still a junction (0.49 off), while one just over
+    /// (0.51) is not. Lowering the reach to 0 would drop the first; raising it
+    /// the second. Same fixture as above.
+    #[test]
+    fn a_junction_just_under_half_a_cell_off_still_meets() {
+        let met = branch_trunk_track(0.49, true);
+        assert_eq!(met.len(), 2, "0.49 cells off is a junction: {met:?}");
+        assert!((met[1].0 - 20.0).abs() < 1e-9 && (met[1].1 - 38.0).abs() < 1e-9, "onto the branch: {met:?}");
+        let missed = branch_trunk_track(0.51, true);
+        assert_eq!(missed.len(), 2, "{missed:?}");
+        assert!((missed[1].1 - 10.0).abs() < 1e-9, "0.51 cells off is no junction, cut onto the trunk at the corner: {missed:?}");
+    }
+
+    /// Protects: of the chain lines near a cut, the NEAREST takes the track.
+    /// Fixture: roads A (y = 10) and B (y = 13, bending to the town), both
+    /// ending at the town (40, 10), and a track from (10, 11), 1 cell off A and
+    /// 2 off B, to the town: it must be joined onto A at (10, 10). Picking the
+    /// farthest would join B at (10, 13).
+    #[test]
+    fn a_track_joins_the_nearer_of_two_chain_lines() {
+        let a = gap_way(vec![(0.0, 10.0), (20.0, 10.0), (40.0, 10.0)], crate::WayType::Road, 0, 1);
+        let b = gap_way(vec![(0.0, 13.0), (30.0, 13.0), (40.0, 10.0)], crate::WayType::Road, 2, 1);
+        let track = gap_way(vec![(10.0, 11.0), (25.0, 11.0), (40.0, 10.0)], crate::WayType::Ancient, 3, 1);
+        let mut ways = vec![a, b, track];
+        civ_join_tracks_to_network(&mut ways, 128);
+        assert_eq!(ways[2].pts.len(), 2, "{:?}", ways[2].pts);
+        let end = ways[2].pts[1];
+        assert!((end.0 - 10.0).abs() < 1e-9 && (end.1 - 10.0).abs() < 1e-9, "joined onto the nearer road A: {end:?}");
+    }
+
+    /// Protects: the lower side of `REACH_PLACE_CELLS` -- a road whose end stops
+    /// 1.0 cell short of the town (its curve is not within `MEET_CELLS` of it)
+    /// still reaches the town, so a track beside it is joined. Fixture: a road
+    /// along y = 10 from x 0 to 39, a town at (40, 10), a track from (10, 12)
+    /// beside the road into the town. Were the reach under 1 cell, no line would
+    /// reach the destination and the track would stay whole (3 points).
+    #[test]
+    fn a_road_ending_a_cell_short_of_the_town_still_reaches_it() {
+        let road = gap_way(vec![(0.0, 10.0), (20.0, 10.0), (39.0, 10.0)], crate::WayType::Road, 0, 1);
+        let track = gap_way(vec![(10.0, 12.0), (30.0, 11.5), (40.0, 10.0)], crate::WayType::Ancient, 2, 1);
+        let mut ways = vec![road, track];
+        civ_join_tracks_to_network(&mut ways, 128);
+        assert_eq!(ways[1].pts.len(), 2, "{:?}", ways[1].pts);
+        assert!((ways[1].pts[1].1 - 10.0).abs() < 1e-9, "joined onto the road: {:?}", ways[1].pts[1]);
+    }
 }

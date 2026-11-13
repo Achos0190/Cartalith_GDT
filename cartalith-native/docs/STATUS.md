@@ -50,6 +50,16 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Way-merge test gaps closed (Ruling EU leftovers, 2026-11-13)
+
+Four tests added to `cartalith-civ/src/way_merge.rs` (tests only, no product code changed). Each of four mutants that
+survived is now killed, each re-run in isolation: deleting `record_meets`' second `at.extend` (a branch listed before
+its trunk), `min_by` to `max_by` in `civ_join_tracks_to_network`, `MEET_CELLS` 0.5 to 0.0 (junction 0.49 cells off), and
+`REACH_PLACE_CELLS` 1.5 to 0.5 (a road ending 1.0 cell short of the town). No fixture revealed a bug.
+
+---
+
+
 ### Planner: a V-shaped detour, and declined river stretches (Ruling EU leftovers, built 2026-11-13)
 
 Two of the three Ruling EU leftovers in `OUTSTANDING_WORK.md` (the third, the way-merge test gaps, is still open).

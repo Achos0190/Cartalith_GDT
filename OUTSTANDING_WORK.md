@@ -72,8 +72,7 @@ document, and `STATUS.md` records what lands)
   - ~~a V-shaped detour off the main way on seed 483920~~ -- closed 2026-11-13; see `STATUS.md` ("Planner: a V-shaped
     detour, and declined river stretches");
   - ~~declined river offers never reach the engine~~ -- closed 2026-11-13; see the same `STATUS.md` entry;
-  - way-merge test gaps: removing the second half of `record_meets` and `min_by`→`max_by` in
-    `civ_join_tracks_to_network` both survive; the lower bounds of `MEET_CELLS` and `REACH_PLACE_CELLS` are unpinned.
+  - ~~way-merge test gaps~~ -- closed 2026-11-13; see `STATUS.md` ("Way-merge test gaps closed").
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
