@@ -302,7 +302,10 @@ func _t_grip() -> void:
 	_ok(gr.size.x / u >= 44.0 - 0.6 and gr.size.y / u >= 88.0 - 0.6, "and at least 44 x 88 phone units (%.1f x %.1f)" % [gr.size.x / u, gr.size.y / u])
 	_ok(not _dp_ok(Rect2(0, 0, 40.0 * _dens, 80.0 * _dens), 44.0, 88.0), "positive control: a 40 x 80 dp rect IS flagged by the same walk")
 	var band := _band()
-	_ok(absf(gr.position.x - band.position.x) <= 1.5, "right-handed: the grip sits on the band's LEFT edge (x %.1f, band x %.1f)" % [gr.position.x, band.position.x])
+	if _app._landscape:
+		_ok(absf(gr.end.x - band.end.x) <= 1.5, "landscape (owner 2026-11-13): the grip sits on the band's RIGHT edge whatever the hand (end x %.1f, band end %.1f)" % [gr.end.x, band.end.x])
+	else:
+		_ok(absf(gr.position.x - band.position.x) <= 1.5, "right-handed: the grip sits on the band's LEFT edge (x %.1f, band x %.1f)" % [gr.position.x, band.position.x])
 	_ok(absf(gr.get_center().y - band.get_center().y) <= 2.0, "at the middle of the band's height (%.1f vs %.1f)" % [gr.get_center().y, band.get_center().y])
 	_ok(Rect2(Vector2.ZERO, Vector2(_vp.size)).encloses(gr), "wholly on screen")
 	_ok(not d.is_open() and not d.get("_panel").visible, "closed by default, the panel not drawn")
@@ -320,14 +323,20 @@ func _t_open_close() -> void:
 	var band := _band()
 	var want_w := minf(roundf(248.0 * _app.phone_scale()), band.size.x * 0.78)
 	_ok(absf(panel.size.x - want_w) <= 1.5, "the panel is %.0f px wide (248 units, at most 0.78 of the band): %.1f" % [want_w, panel.size.x])
-	_ok(absf(panel.get_global_rect().position.x - band.position.x) <= 1.5, "and flush with the band's left edge once open")
+	if _app._landscape:
+		_ok(absf(panel.get_global_rect().end.x - band.end.x) <= 1.5, "and flush with the band's right edge once open (landscape)")
+	else:
+		_ok(absf(panel.get_global_rect().position.x - band.position.x) <= 1.5, "and flush with the band's left edge once open")
 	_ok(absf(d.scrim().color.a - 0.35) < 0.01, "the scrim is at the 0.35 alpha (%.3f)" % d.scrim().color.a)
 	_ok(_depth() == 1, "an open drawer holds one share of the world pause: depth 1 (got %d)" % _depth())
 	var gr: Rect2 = d.grip().get_global_rect()
-	_ok(absf(gr.position.x - panel.get_global_rect().end.x) <= 1.5, "the grip rides on the panel's inner edge")
+	if _app._landscape:
+		_ok(absf(gr.end.x - panel.get_global_rect().position.x) <= 1.5, "the grip rides on the panel's inner edge (landscape: its left edge)")
+	else:
+		_ok(absf(gr.position.x - panel.get_global_rect().end.x) <= 1.5, "the grip rides on the panel's inner edge")
 	# the scrim: a tap on the band to the right of the panel
 	var clicks0 := _clicks
-	var far := Vector2(band.end.x - 12.0, band.position.y + band.size.y * 0.3)
+	var far := Vector2((band.position.x + 12.0) if _app._landscape else (band.end.x - 12.0), band.position.y + band.size.y * 0.3)
 	await _tap(far)
 	await _settle()
 	_ok(not d.is_open() and not panel.visible, "a tap on the scrim closes it")
@@ -340,21 +349,23 @@ func _t_drag() -> void:
 	var g: Control = d.grip()
 	var band := _band()
 	var w := minf(roundf(248.0 * _app.phone_scale()), band.size.x * 0.78)
+	## +1 when the grip is on the left edge (inward is rightward), -1 on the right edge (landscape).
+	var s := -1.0 if _app._landscape else 1.0
 	var c := _centre(g)
-	await _drag(c, c + Vector2(w * 0.2, 0.0))
+	await _drag(c, c + Vector2(s * w * 0.2, 0.0))
 	await _settle()
 	_ok(not d.is_open() and _depth() == 0, "a drag of 0.2 of the width settles shut")
 	c = _centre(g)
-	await _drag(c, c + Vector2(w * 0.7, 0.0))
+	await _drag(c, c + Vector2(s * w * 0.7, 0.0))
 	await _settle()
 	_ok(d.is_open() and _depth() == 1, "a drag of 0.7 of the width settles open, depth 1")
 	c = _centre(g)
-	await _drag(c, c - Vector2(w * 0.8, 0.0))
+	await _drag(c, c - Vector2(s * w * 0.8, 0.0))
 	await _settle()
 	_ok(not d.is_open() and _depth() == 0, "a drag of the grip back closes it, depth 0")
 	# a 3 px wobble is a tap
 	c = _centre(g)
-	await _drag(c, c + Vector2(3.0, 0.0), 1)
+	await _drag(c, c + Vector2(s * 3.0, 0.0), 1)
 	await _settle()
 	_ok(d.is_open(), "a 3 px wobble on the grip is a tap, not a drag (opens)")
 	await _tap(_centre(g))
@@ -501,6 +512,13 @@ func _t_hand() -> void:
 	DccSettings.set_dominant_hand("left")
 	await _settle()
 	var band := _band()
+	if _app._landscape:
+		## Landscape: the dominant hand does not move the grip (owner, 2026-11-13); it is on the right edge both ways.
+		_ok(absf(d.grip().get_global_rect().end.x - band.end.x) <= 1.5, "landscape, left-handed: the grip is on the band's RIGHT edge")
+		DccSettings.set_dominant_hand("right")
+		await _settle()
+		_ok(absf(d.grip().get_global_rect().end.x - band.end.x) <= 1.5, "landscape, right-handed: on the RIGHT edge too")
+		return
 	var gr: Rect2 = d.grip().get_global_rect()
 	_ok(absf(gr.end.x - band.end.x) <= 1.5, "the grip moved to the band's RIGHT edge at once (end x %.1f, band end %.1f)" % [gr.end.x, band.end.x])
 	_ok(_dp_ok(gr, 44.0, 88.0), "still at least 44 x 88 dp")

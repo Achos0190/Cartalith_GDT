@@ -1,7 +1,8 @@
 extends Control
 ## MS-11 (`MOBILE_SHELL_PROPOSAL.md` section 2.4, Ruling DY Q10 to Q12): the phone's quick drawer. The quick bar's
-## pins in a side drawer that slides over the map from a grip at the middle of the map band's edge, on the side
-## AWAY from the dominant hand (left for a right-handed user). It replaces CQ-6's chip row in the MAP sheet.
+## pins in a side drawer that slides over the map from a grip at the middle of the map band's edge. Portrait: on the side
+## AWAY from the dominant hand (left for a right-handed user). **Landscape: always the right edge** of the map band, beside
+## the camera cut-out when the display reports one (owner, 2026-11-13). It replaces CQ-6's chip row in the MAP sheet.
 ##
 ## Open: tap the grip, or drag it inward. Close: tap the scrim, drag the grip back, or system back (the shell's
 ## back chain asks [`close_if_open`]).
@@ -171,7 +172,10 @@ func relayout() -> void:
 	if _app == null or not is_inside_tree():
 		return
 	_reserve = float(_app.call("phone_tool_pill_reserve"))
-	_side = "right" if DccSettings.dominant_hand() == "left" else "left"
+	## Landscape (owner, 2026-11-13: *"move the small slider pill to the right next to the camera"*): the grip is on the
+	## right edge of the band whatever the hand; the band's right edge is the docked sheet's left edge, which is the
+	## screen's right edge region the camera sits on. Portrait keeps MS-11's rule: the edge AWAY from the dominant hand.
+	_side = "right" if bool(_app.call("phone_is_landscape")) or DccSettings.dominant_hand() == "left" else "left"
 	var vp := get_viewport_rect().size
 	var ins: Dictionary = _app.call("phone_content_insets")
 	var band := Rect2(float(ins["left"]), float(ins["top"]),
@@ -242,6 +246,13 @@ func _grip_px() -> Vector2:
 func _place() -> void:
 	var g := _grip_px()
 	var y_mid := size.y * 0.5
+	## Landscape with a display cut-out on the right half of the screen: centre the grip on the cut-out's height ("next to
+	## the camera"), kept wholly inside the band. No cut-out (a desktop, a handset without one): the band's middle,
+	## as in portrait. `phone_right_cutout_mid_y()` is -1.0 for "none", never a plausible y.
+	if bool(_app.call("phone_is_landscape")):
+		var cy := float(_app.call("phone_right_cutout_mid_y"))
+		if cy >= 0.0:
+			y_mid = clampf(cy - position.y, g.y * 0.5, maxf(g.y * 0.5, size.y - g.y * 0.5))
 	if _side == "left":
 		_panel.position = Vector2(_travel - _w, 0.0)
 		_grip.position = Vector2(_travel, y_mid - g.y * 0.5)

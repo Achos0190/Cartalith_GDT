@@ -558,6 +558,10 @@ var _phone_height: Dictionary = {}
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
 	## `phone_content_insets()` reads its real height rather than recomputing it.
 var _phone_gesture_inset: Control
+## Landscape only (owner report 2026-11-13): two strips (the inset band's own fill) along the bottom edge, under the rail (and the side
+## reserve) and under the docked sheet, so the map does not show through the system-gesture band there. Built lazily by
+## `_apply_phone_nav_orientation()`, shown only in landscape; freed with `_phone_root`.
+var _phone_land_strip: Control
 
 # -- Phone bottom-sheet detents ------------------------------------------------
 #
@@ -1121,6 +1125,7 @@ func _unmount_composition() -> void:
 	_phone_map_toggles.clear()
 	_phone_app_bar = null
 	_phone_gesture_inset = null
+	_phone_land_strip = null
 	_phone_sheet_grab = null
 	_phone_sheet_title = null
 	_phone_sheet_subtitle = null
@@ -1817,6 +1822,8 @@ func _on_window_resized() -> void:
 		_compute_layout_mode()
 		if _landscape != was_landscape:
 			_apply_phone_orientation()
+			## The sheet's body visibility depends on the orientation (`_phone_sheet_peeked()`); nothing else re-reads it.
+			_phone_orientation_resync()
 	else:
 		_on_tablet_resized()
 	if _resize_timer == null:
@@ -2286,6 +2293,32 @@ func _safe_bottom() -> int:
 func _safe_side() -> int:
 	return maxi(_pscale(DccTheme.H_PHONE_TOP_SAFE),
 		maxi(_display_safe_inset("left"), _display_safe_inset("right")))
+
+## True on the phone composition while it is in landscape. The quick drawer asks (`quick_drawer.gd`): in landscape its
+## grip is always on the right edge of the map band, whatever the dominant hand (owner, 2026-11-13).
+func phone_is_landscape() -> bool:
+	return _phone and _landscape
+
+## The vertical centre, in this viewport's pixels, of the display cut-out (camera hole or notch) that sits on the
+## right half of the screen, or -1.0 when there is none: a desktop, a handset with no cut-out or one on the left
+## edge. Read from `DisplayServer.get_display_cutouts()` (window coordinates, an empty array where the platform has
+## none). The landscape quick-drawer grip lines up with it ("next to the camera", owner 2026-11-13) and otherwise
+## falls back to the middle of the band's right edge. Never a guess: an empty or zero-sized rect is skipped.
+func phone_right_cutout_mid_y() -> float:
+	var half := get_viewport_rect().size.x * 0.5
+	for c in _cutout_rects():
+		var r: Rect2 = c
+		if r.size.x > 0.0 and r.size.y > 0.0 and r.get_center().x > half:
+			return r.get_center().y
+	return -1.0
+
+## The display's cut-out rectangles in window pixels: `DisplayServer.get_display_cutouts()`, or the Array of `Rect2` in
+## the meta `cutouts_probe` when a probe sets one (a desktop has no cut-out, so the right-edge grip placement could
+## not otherwise be exercised off a handset). Nothing in the product sets the meta.
+func _cutout_rects() -> Array:
+	if has_meta("cutouts_probe"):
+		return get_meta("cutouts_probe") as Array
+	return DisplayServer.get_display_cutouts()
 
 ## -- Haptics ------------------------------------------------------------------
 ##
@@ -7670,7 +7703,13 @@ func _build_phone_side_safe() -> Control:
 func _build_phone_app_bar() -> PanelContainer:
 	var bar := PanelContainer.new()
 	bar.custom_minimum_size.y = _ptap(DccTheme.H_PHONE_APP_BAR)
-	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
+	## **No backdrop** (owner, 2026-11-13: *"remove the white square backdrop from the top bar"*): the bar is an empty
+	## style, so the world pill and the round buttons (each with its own fill and hairline, `_phone_bar_pill()`) float over
+	## the map, which already runs behind the whole chrome column (`_build_phone_shell()`: the viewport is full-rect and
+	## `phone_content_insets()` keeps its own controls clear). It was an opaque `panel` bar with a bottom hairline; the
+	## hairline goes with it, since there is no edge left to draw it on. Both orientations: the pills carry their own
+	## contrast, so nothing becomes illegible (`_phoneland_probe.gd` screenshots, dark and light).
+	bar.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	var row := HBoxContainer.new()
 	## `gap:8px` and `padding:0 10px`, both the newer canvas's. They were 14 and
 	## 12, which is the 2026-08-30 canvas's four-cell row -- one cell fewer has
@@ -9018,7 +9057,7 @@ func _refresh_phone_sheet_body() -> void:
 	if _phone_tool_scroll != null and is_instance_valid(_phone_tool_scroll):
 		## On the MAP tab with the idle Inspect tool the tool-options row holds only a caption, and as an expanding
 		## sibling it took the room the MAP body needs; it comes back when a drawing tool is armed (`armed_tool`).
-		var map_body_on: bool = _phone and _phone_tab == "map" and _phone_detent != "peek" and String(get("armed_tool")) == "inspect"
+		var map_body_on: bool = _phone and _phone_tab == "map" and not _phone_sheet_peeked() and String(get("armed_tool")) == "inspect"
 		_phone_tool_scroll.visible = not dom and not map_body_on
 	## The phone seed readout in the Run section shows the dialog's pending seed, which a roll anywhere (the
 	## tool bar, File > New world) can change while the dock is out of sight; refresh it when the sheet shows.
@@ -9041,6 +9080,28 @@ func _mount_dock_in_sheet(on: bool) -> void:
 	_sync_dom_host_visible()
 	_sync_dom_rows(on)
 
+## True while the portrait sheet is collapsed to its `peek` detent, the one state in which its body is hidden.
+## **Always false in landscape** (owner report 2026-11-13, `OUTSTANDING_WORK.md` "Phone landscape"): the landscape sheet
+## is docked on the right at a width, with no detents (`_snap_phone_sheet()`, `BUILD_ANSWERS.md` section 4), so a
+## `_phone_detent` of `peek` left over from portrait must never hide its body. Before this, rotating a phone that sat at
+## `peek` (the cold-start detent) into landscape left every child of the docked 46 %-wide sheet hidden: an empty panel
+## beside a map that showed through the gesture strip under it, which the owner read as the shell filling only part of
+## the screen. Three readers share this one answer so they cannot disagree again: `_sync_dom_host_visible()`,
+## `_refresh_phone_map_row()` and `_refresh_phone_sheet_body()`.
+func _phone_sheet_peeked() -> bool:
+	return _phone_detent == "peek" and not _landscape
+
+## Re-reads the three readers of `_phone_sheet_peeked()` after the orientation flipped (`_on_window_resized()`): their
+## inputs are only the detent and `_landscape`, and nothing else re-runs them on a rotation, so a sheet built hidden
+## for one orientation stayed hidden in the other (portrait at `peek` to landscape: blank panel; landscape back to
+## portrait at `peek`: body overflowing the 66 dp strip). Never changes the detent itself.
+func _phone_orientation_resync() -> void:
+	_sync_dom_host_visible()
+	_refresh_phone_map_row()
+	_refresh_phone_sheet_body()
+	_refresh_phone_sheet_header()
+	phone_insets_changed.emit()
+
 ## Shows the domain host while the dock is mounted in it, except at the `peek` detent in portrait. The sheet's
 ## minimum height is the sum of its children's, and the dock's mode switch alone is a 44 dp row, so a visible
 ## host lifts the peek detent above its 66 dp (`_ms5b_probe`: the strip sat 131 px higher and the map's control
@@ -9049,7 +9110,8 @@ func _mount_dock_in_sheet(on: bool) -> void:
 func _sync_dom_host_visible() -> void:
 	if _phone_dom_host == null:
 		return
-	_phone_dom_host.visible = _dock_in_sheet and (_landscape or _phone_detent != "peek")
+	## Reads `_phone_sheet_peeked()`, which is false in landscape: a docked side sheet has no detent (see that function).
+	_phone_dom_host.visible = _dock_in_sheet and not _phone_sheet_peeked()
 
 ## Builds (once) and shows or hides the door row above the mounted dock for the CURRENT domain. Split out of
 ## `_mount_dock_in_sheet()` by Ruling EH item 1: WORLD now mounts the dock too, so a domain change from WORLD to
@@ -9099,7 +9161,7 @@ func _ensure_dom_rows() -> void:
 ## and off the MAP tab. Rebuilt each time the sheet shows and when a world loads, so the field list is the world's.
 ## `_phone_map_row` stays the first row (the view buttons) because `_ms3b_probe` and the 44 dp checks read it.
 func _refresh_phone_map_row() -> void:
-	var show: bool = _phone and _phone_tab == "map" and _phone_detent != "peek"
+	var show: bool = _phone and _phone_tab == "map" and not _phone_sheet_peeked()
 	var holder: Node = _phone_dom_host.get_parent() if _phone_dom_host != null else null
 	if show and _phone_map_body == null and holder != null:
 		_phone_map_body = ScrollContainer.new()
@@ -12304,6 +12366,28 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 			continue
 		node.get_parent().remove_child(node)
 		host.add_child(node)
+	## **The app bar** (owner, 2026-11-13: *"the search/name bar to the top right corner"*). In landscape it leaves the
+	## chrome column and sits in the top-right corner, as wide as the docked sheet and directly above it (the sheet's
+	## `offset_top` below is the bar's height), so the right-hand column reads header then sheet and the map keeps the
+	## whole of the left. Same pattern as the rail and the sheet: one node, reparented between `_phone_root` and the
+	## chrome column, never a second bar (the `_status_labels["top_world"]` subtitle and the search and overflow
+	## buttons each have one target). Back in portrait it returns to its slot just under the status safe row.
+	if _phone_app_bar != null:
+		var bar_h := _ptap(DccTheme.H_PHONE_APP_BAR)
+		if _landscape:
+			if _phone_app_bar.get_parent() != _phone_root:
+				_phone_app_bar.get_parent().remove_child(_phone_app_bar)
+				_phone_root.add_child(_phone_app_bar)
+			_phone_root.move_child(_phone_app_bar, 3)
+			_phone_app_bar.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+			_phone_app_bar.offset_left = -sheet_w
+			_phone_app_bar.offset_right = 0
+			_phone_app_bar.offset_top = 0
+			_phone_app_bar.offset_bottom = bar_h
+		elif _phone_app_bar.get_parent() != _phone_chrome_col:
+			_phone_app_bar.get_parent().remove_child(_phone_app_bar)
+			_phone_chrome_col.add_child(_phone_app_bar)
+			_phone_chrome_col.move_child(_phone_app_bar, _phone_top_safe.get_index() + 1 if _phone_top_safe != null else 0)
 	if _landscape:
 		## Index 3 is directly above `_phone_chrome_margin` and below every
 		## overlay (`_phone_side_safe`, the panel picker, `PhoneMenu`, the two
@@ -12331,6 +12415,46 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 		for i in range(1, order.size()):
 			_phone_chrome_col.move_child(order[i], order[i - 1].get_index() + 1)
 
+	## **The gesture band, edge to edge** (owner, 2026-11-13: *"a strip of map shows below the shell's bottom edge"*). The
+	## rail and the sheet stop above the system-gesture inset (`gesture`, so a docked panel never reaches into it), and the
+	## chrome column's own inset band (`_phone_gesture_inset`) spans only what lies between them, so the map showed
+	## through under the rail and under the sheet, a sliver unrelated to the map above it. Two strips (the inset band's own fill) close exactly
+	## those two gaps and leave the middle to the inset band, so no pixel is painted twice (its fill is translucent).
+	## Portrait has none: its bottom bar and inset band are full width.
+	if _landscape:
+		if _phone_land_strip == null or not is_instance_valid(_phone_land_strip):
+			_phone_land_strip = Control.new()
+			_phone_land_strip.name = "LandscapeGestureStrip"
+			_phone_land_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_phone_root.add_child(_phone_land_strip)
+			for nm in ["Left", "Right"]:
+				var bg := ColorRect.new()
+				bg.name = nm
+				bg.color = Color(DccTheme.c("bg"), 0.9)
+				bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				_phone_land_strip.add_child(bg)
+		_phone_land_strip.visible = true
+		_phone_root.move_child(_phone_land_strip, 3)
+		var strip_h := _safe_bottom()
+		_phone_land_strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+		_phone_land_strip.offset_top = -strip_h
+		_phone_land_strip.offset_bottom = 0
+		_phone_land_strip.offset_left = 0
+		_phone_land_strip.offset_right = 0
+		var ls := _phone_land_strip.get_node("Left") as ColorRect
+		ls.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		ls.offset_left = 0
+		ls.offset_top = 0
+		ls.offset_bottom = 0
+		ls.offset_right = side_reserve + rail_w
+		var rs := _phone_land_strip.get_node("Right") as ColorRect
+		rs.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+		rs.offset_left = -sheet_w
+		rs.offset_right = 0
+		rs.offset_top = 0
+		rs.offset_bottom = 0
+	elif _phone_land_strip != null and is_instance_valid(_phone_land_strip):
+		_phone_land_strip.visible = false
 	## -- the bar --------------------------------------------------------
 	for box in [_phone_bar_row, _phone_bar_domains, _phone_bar_cells,
 			_phone_bar_dests]:
@@ -12392,7 +12516,8 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 		_phone_tool_sheet.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
 		_phone_tool_sheet.offset_left = -sheet_w
 		_phone_tool_sheet.offset_right = 0
-		_phone_tool_sheet.offset_top = 0
+		## Below the app bar, which sits in the top-right corner directly above the sheet (see the bar block above).
+		_phone_tool_sheet.offset_top = _ptap(DccTheme.H_PHONE_APP_BAR)
 		## §13: "Timeline and sheets stop above it" -- the gesture inset is the
 		## one region a docked sheet still may not reach into.
 		_phone_tool_sheet.offset_bottom = -gesture
@@ -12435,7 +12560,10 @@ func phone_content_insets() -> Dictionary:
 		## never been anything but 0 before there was something over there.
 		left += float(_pscale(W_PHONE_LAND_RAIL))
 		right = float(_phone_land_sheet_width())
-	var top := float(_ptap(DccTheme.H_PHONE_APP_BAR))
+	## Landscape: the app bar is in the top-right corner above the docked sheet, outside the band the map's own
+	## controls live in (`left` and `right` already clear the rail and the sheet), so no top reserve at all. Portrait:
+	## the bar spans the width above the map and is reserved as before.
+	var top := 0.0 if _landscape else float(_ptap(DccTheme.H_PHONE_APP_BAR))
 	if not _landscape:
 		top += float(_safe_top())
 	## `scale` rides along because it is the one number `ViewportHost` needs and

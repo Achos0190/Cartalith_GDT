@@ -50,6 +50,47 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Phone landscape: the blank docked sheet after a rotation, the header in the top-right corner, the grip on the right (built 2026-11-13)
+
+**Owner report (6T, landscape):** *"a weird checkerboard style bug with a sliver of the right side appearing almost below
+the screen area"*; the rail, header and map filled the left ~half of the screen and the rest was bare. Then: *"move the
+small slider pill to the right next to the camera, and the search/name bar to the top right corner"* and *"remove the
+white square backdrop from the top bar"*.
+
+**The cause was not portrait-sized bounds.** Reproduced in a real window (`_phoneland_probe.gd`, 1170x540 at 1.40625 =
+832 x 384 dp, and a portrait-to-landscape `Window.size` change): the shell root, `_phone_root` and the map host are the
+window's rect after the rotation. What was bare is the docked landscape tool sheet, 46 % of the width. A phone at the `peek`
+detent (the cold-start detent) hides the sheet's body, and `_phone_sheet_peeked()`'s three readers
+(`_sync_dom_host_visible`, `_refresh_phone_map_row`, `_refresh_phone_sheet_body`) ignored the orientation and nothing re-ran
+them on a rotation, so every child of the landscape sheet stayed hidden: an empty panel. The "sliver" is the map showing
+through the system-gesture band under the rail and under the sheet (the chrome column's inset band only spans the middle).
+A cold start in landscape was already right (its detent is ignored in landscape); only a rotation from portrait broke it.
+Screenshots before and after: `docs/evidence/phone-landscape-2026-11-13/` (`before_rot/rotated.png` is the owner's screen).
+
+**Built (`dcc_shell.gd`, `quick_drawer.gd`):**
+- `_phone_sheet_peeked()` is false in landscape and `_phone_orientation_resync()` re-reads the three readers when
+  `_on_window_resized()` sees the orientation flip, both ways (landscape back to portrait at `peek` hides the body again).
+- Landscape only: the app bar leaves the chrome column and sits in the top-right corner, as wide as the sheet, with the
+  sheet below it (one node reparented, as the rail and the sheet already are; back in portrait it returns to its slot);
+  `phone_content_insets()` has no top reserve in landscape; two strips (`_phone_land_strip`) close the gesture band under the
+  rail and the sheet.
+- The quick-drawer grip is on the right edge of the map band in landscape whatever the dominant hand (portrait keeps the edge
+  away from the hand). **Cut-out:** it reads `DisplayServer.get_display_cutouts()` through `phone_right_cutout_mid_y()`:
+  a cut-out on the right half of the screen centres the grip on its height, otherwise the middle of the band's right edge.
+  Not seen on a handset: a desktop reports none, so the cut-out path is exercised through the `cutouts_probe` meta only,
+  and which edge the 6T's camera is on in landscape is unmeasured (a 6T device pass).
+- The header has no backdrop in both orientations (an empty panel style): the pills carry their own fill and hairline, so
+  the map shows between them. Checked in dark in both orientations; the light palette is not screenshotted.
+
+**Verified (windowed, real `Window.size`):** `_phoneland_probe.gd` `--leg cold` 22 checks and `--leg rotate` 56 checks pass
+(window and map host fill, band equals the area right of the rail and left of the sheet, sheet has a button body, header in
+the corner with an empty style, grip on the right edge and following a right-hand cut-out, strips present and hidden in
+portrait, portrait restored). Mutants: the cause restored fails 2 rotate checks, the grip side restored 2, the backdrop
+restored 1, the header moved left 1 (a first version of the body check passed the cause mutant and was tightened).
+`_ms11_probe.gd` landscape legs now assert the grip on the right edge (95 checks at 2340x1080 @2.8125 and 1920x1080 @3,
+103 portrait); `_ms2`, `_p13fix` and `_ms1swap --leg live` green (see the run in the commit).
+
+
 ### Preferences ▸ Graphics ▸ 3D height (built 2026-11-13, 3D-2's last HEIGHT row)
 
 `menus.gd::_build_h3d_menu()` adds a "3D height" submenu above the "3D viewport defaults" `_todo`: 13 radio rungs, 1.00x to 4.00x by 0.25 (`H3D_RUNGS`, values from `View3D.HEIGHT_MIN/STEP`), ids 680-692. A pick goes through `ViewportHost.ensure_view3d().set_height()`, the one call the PC/tablet card row and the phone MAP slider use, so the mesh, `DccSettings.view3d_exaggeration` and all three controls share one state; `_on_h3d` also re-seeds the phone slider (`dcc_shell.gd::_sync_phone_height()` now re-seeds whether or not 3D is showing). The checked rung is read from `View3D.current_height()` on open. On touch with a known density `_floor_h3d_rows()` raises the row pitch to 44 dp of real density (the shared popup style gives 41 dp at 2.8125). Probe `_prefheight_probe` (desktop 1600x1000: 11 checks; phone 1080x2340 @2.8125 touch: 12): a rung to 3.0 read back by the view, the preference and the HEIGHT control, the control to 1.5 read back as the one checked rung; `_p3dheight_probe` still 20/20. Mutants killed: `H3D_RUNGS` 13 to 12, the 44.0 floor to 40.0. Unmeasured: a real tap on a rung on glass.
