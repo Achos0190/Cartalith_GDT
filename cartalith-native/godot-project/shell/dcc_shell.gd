@@ -9431,9 +9431,21 @@ func _phone_map_sheet_content_height() -> float:
 	var row_h := 0.0
 	if tool_options_row != null and is_instance_valid(tool_options_row):
 		row_h = tool_options_row.get_combined_minimum_size().y
+	## The MAP body (`_refresh_phone_map_row()`, MS-3) is the sheet's real content now, an expanding ScrollContainer
+	## whose own minimum is ~12 px, so counting only the 40 px tool-options row sized `half` at header + 40 and left
+	## the body 66 px of its 239 px sheet (Ruling Z's figure predates MS-3; found by `_p3dheight_probe` 2026-11-13,
+	## the "first MAP tap" row in OUTSTANDING_WORK.md). Its column's minimum is what the body wants; the caller's
+	## `clampf` against the flat fraction still caps it, and the body scrolls past that. `_set_phone_detent()` runs
+	## `_refresh_phone_map_row()` (which fills the body) before `_snap_phone_sheet()` asks for this, so the column is
+	## already built on the very first tap. Peek never reaches here.
+	var body_h := 0.0
+	if _phone_map_body != null and is_instance_valid(_phone_map_body) and _phone_map_body.visible and _phone_map_body.get_child_count() > 0:
+		var col := _phone_map_body.get_child(0) as Control
+		if col != null:
+			body_h = col.get_combined_minimum_size().y
 	var sheet_style := _phone_sheet_box(false)
 	var vpad := sheet_style.get_margin(SIDE_TOP) + sheet_style.get_margin(SIDE_BOTTOM)
-	return header_h + row_h + float(_pscale(10)) + vpad
+	return header_h + maxf(row_h, body_h) + float(_pscale(10)) + vpad
 
 ## The phone tool sheet's current detent, and the way back to one.
 ##

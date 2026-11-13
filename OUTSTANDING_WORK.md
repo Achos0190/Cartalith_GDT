@@ -53,6 +53,8 @@ CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the in
 
 **Open from 2026-11-13: owner reports from the 6T and verifier leftovers** (rows only; the work happens in the owning
 document, and `STATUS.md` records what lands)
+- ~~**Phone: the first MAP tap sized the sheet from the wrong content**~~ (found by `_p3dheight_probe`, 2026-11-13: from a cold boot the MAP sheet
+  opened at 239 px with a 66 px body). **Built 2026-11-13**; see `STATUS.md`, "Phone MAP sheet: half height counts the body".
 - **Phone: the MAP drawer is empty; the domain tab (GENERATE / CARTO / CIVIL) is missing its indicator dots; selection
   switches are far too small** (owner, 2026-11-13: *"The drawer for map on mobile is empty and the button to select
   generate / carto / civil misses the indication balls. Also selection switches are ridiculously small."*). Owner:

@@ -148,16 +148,22 @@ func _run(vw: int, vh: int) -> void:
 		return
 	var dens := float(_arg("--density", "1"))
 	DccSettings.set_view3d_exaggeration(1.0)   ## a previous run's remembered 4.0 would fake the "opens at true scale" check
-	## Reaches MAP the way `_p13fix_probe.gd` does (domain sheet first): from a cold boot the first MAP tap leaves the
-	## sheet laid out at its 66 dp peek height while `_phone_detent` reads "half" (observed 2026-11-13, not fixed here).
-	await _tap(_cell("domain").get_global_rect().get_center())
-	await _settle()
+	## The FIRST MAP tap from a cold boot must lay the sheet out at the half-detent height, and a later one
+	## (peek, then half again) at the same height (the cold-boot defect in OUTSTANDING_WORK.md "Open from
+	## 2026-11-13": half was sized from the 40 px tool-options row, not the MAP body, so it came out 239 px).
 	var mp: Vector2 = _cell("map").get_global_rect().get_center()
 	await _tap(mp)
 	await _settle()
-	if _app._phone_detent == "peek":
-		await _tap(mp)
-		await _settle()
+	var sheet: Control = _app.get("_phone_tool_sheet")
+	var half_h: float = _app._phone_detent_height("half")
+	_ok(_app._phone_detent == "half" and absf(sheet.size.y - half_h) < 1.0 and half_h > 600.0, "first MAP tap: sheet laid out at the half-detent height (%s vs %s)" % [sheet.size.y, half_h])
+	var first_h: float = sheet.size.y
+	await _tap(mp)
+	await _settle()
+	_ok(_app._phone_detent == "peek", "second MAP tap folds to peek")
+	await _tap(mp)
+	await _settle()
+	_ok(_app._phone_detent == "half" and absf(sheet.size.y - first_h) < 1.0, "third MAP tap: half again, the same height as the first (%s)" % sheet.size.y)
 	_ok(_app._phone_tab == "map" and _app._phone_detent != "peek", "MAP sheet is up")
 	await get_tree().create_timer(1.0).timeout
 	var hb: Control = _app.get("_phone_height_box")
