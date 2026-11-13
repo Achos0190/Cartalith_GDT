@@ -51,6 +51,45 @@ Added by the 2026-10-26 docs reconciliation. Rows are grouped by subject; the ow
 row below overlaps an older row further down, this one is newer. Rows finished since (LLM-1 to LLM-6d, LLM-8 to LLM-12,
 CQ-0 to CQ-7, PW-0 to PW-3, RK-0 to RK-7, profiles, apply-and-regenerate, the industrial levy) are in `STATUS.md`, not here.
 
+**Open from 2026-11-13: owner reports from the 6T and verifier leftovers** (rows only; the work happens in the owning
+document, and `STATUS.md` records what lands)
+- **Phone: the MAP drawer is empty; the domain tab (GENERATE / CARTO / CIVIL) is missing its indicator dots; selection
+  switches are far too small** (owner, 2026-11-13: *"The drawer for map on mobile is empty and the button to select
+  generate / carto / civil misses the indication balls. Also selection switches are ridiculously small."*). Owner:
+  `MOBILE_SHELL_PROPOSAL.md` §2 (MS-2, MS-3); switches to the 44 dp floor through the shared theme. In progress
+  2026-11-13.
+- **New World: the roads and labels auto-populate toggles have no effect; the plate count and the village presets
+  (how many villages, how village population behaves) have gone missing; add a world-wide base tech level next to the
+  world phase; a rudimentary heightmap preview instead of grey on blue** (owner, 2026-11-13: *"Those should be
+  there"*). Owner: `MOBILE_SHELL_PROPOSAL.md` (MS-8), `NEW_WORLD_PREVIEW_PROPOSAL.md` (NWP-1…4), `GENERATION_PARAMETERS.md`.
+  Suspect regressions from `d41b3fc1` and `1a949abd`. In progress 2026-11-13.
+- **Lake balance counts a runoff share of rain, not all rain** (owner choice 2026-11-13, answering `1a949abd`'s question:
+  basin routing plus the balance doubled lake area in the owner's view, +52 % map-wide, with the GPU on). Keep basin
+  routing on. Owner: `DELTA_GEOMETRY_RESEARCH.md` §14, Ruling EV's follow-up in `LARGE_ITEM_RULINGS.md`; record the
+  choice there.
+- **Regenerating an opened world uses the seed field, not the world's own seed** (Ruling EV's final verifier, 2026-11-13):
+  WORLD ▸ Generate, the live regenerate and the tool-options Generate build from `NewWorldDialog.seed_input`, which no
+  load writes, so "a saved world regenerates with its own rules" does not hold in the app. Owner: Ruling EV; the probe
+  `_newworld_rules_probe` must stop writing the seed by hand.
+- **Ruling EU leftovers** (final verifiers of the ways/planner workflow, 2026-11-13; owner `LARGE_ITEM_RULINGS.md` Ruling
+  EU, `STATUS.md`):
+  - a V-shaped detour off the main way on seed 483920 (Orenelywash → Deleshshallows): the joined route leaves the road
+    about 3 cells across country to a thin track and back;
+  - declined river offers never reach the engine (`_river_declined` stays in GDScript; `jp_river_offers` sets aside only
+    accepted legs before `MAX_MEASURED`), though the doc and the UI say declining measures the next stretch;
+  - way-merge test gaps: removing the second half of `record_meets` and `min_by`→`max_by` in
+    `civ_join_tracks_to_network` both survive; the lower bounds of `MEET_CELLS` and `REACH_PLACE_CELLS` are unpinned.
+- **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
+  - `_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap, unattributed to a commit;
+  - `_storymenus`: 7 "Notes for this place" rows fail;
+  - `_quickbar_window_probe` section 9 hangs;
+  - 3D-3's CDLOD position morph has no measurable effect (keep or drop is the owner's);
+  - phone: lifted Asset library tiles have no drop target in their own pane;
+  - landmarks: Temple, Pilgrimage site, Tomb and Monument need designs; Delta to re-measure on the owner's saved
+    parameters;
+  - Ruling EV: basin capture affects 0.05–0.09 % of land (two candidate designs, `DELTA_GEOMETRY_RESEARCH.md` §14.8),
+    and small knots where rivers meet.
+
 **Assistant and consent (top priority first)**
 - **A Cartalith-specific small LLM, trained on the owner's own hardware (owner request, 2026-11-11).** **Deferred by Ruling EP until the rest of Cartalith is done; the model is Qwen3.5-4B.** The owner's
   words: *"training a custom llm (qwen 3.8 or similar) so it can be smaller, good at writing prose for villages but
