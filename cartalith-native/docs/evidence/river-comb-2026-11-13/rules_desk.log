@@ -1,0 +1,156 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 5f978b3a95c8
+ERROR: Couldn't open directory at path "C:/cw/combfix_appdata_rules_desk_final/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:880)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:910)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:978)
+       [3] _refresh (res://shell/open_project_dialog.gd:937)
+       [4] open_welcome (res://shell/open_project_dialog.gd:317)
+       [5] open_welcome (res://shell/app.gd:4973)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2515)
+[desk] viewport 1280x900 phone=false touch=false, extension has the restore: true
+[desk] -- L0 boot
+[desk]   OK   boot: rough_routing = true (expected true)
+[desk]   OK   boot: basin_routing = true (expected true)
+[desk]   OK   boot: lake_balance = true (expected true)
+[desk]   OK   boot: civ.merge_ways = true (expected true)
+[desk]   OK   boot: tect.orogen_relief = true (expected true)
+[desk]   OK   boot: tect.high_ceiling = true (expected true)
+[desk]   OK   boot: passes.glacial = true (expected true)
+[desk]   OK   boot: geology_model = true (expected true)
+[desk]   OK   boot: climate.rain_bspline = true (expected true)
+[desk]   OK   boot: volc.fill_edifice_pits = true (expected true)
+[desk]   OK   boot: volc.morphometry = true (expected true)
+[desk]   OK   boot: volc.kind_dome = true (expected true)
+[desk]   OK   boot: integrate_drainage = true (expected true)
+[desk]   OK   boot: tect.narrow_plate_base_blur = true (expected true)
+[desk]   OK   boot: geology_processes = false (expected false)
+[desk]   OK   boot: relief_model = false (expected false)
+[desk]   OK   boot: geology_karst = false (expected false)
+[desk]   OK   boot: geology_carve = false (expected false)
+[desk] -- L1 open the pre-Ruling-ER archive
+[desk]   OK   the archive opens
+[desk]   OK   opened: rough_routing = false (expected false)
+[desk]   OK   opened: basin_routing = false (expected false)
+[desk]   OK   opened: lake_balance = false (expected false)
+[desk]   OK   opened: civ.merge_ways = false (expected false)
+[desk]   OK   opened: tect.orogen_relief = false (expected false)
+[desk]   OK   opened: tect.high_ceiling = false (expected false)
+[desk]   OK   opened: passes.glacial = false (expected false)
+[desk]   OK   opened: geology_model = false (expected false)
+[desk]   OK   opened: climate.rain_bspline = false (expected false)
+[desk]   OK   opened: volc.fill_edifice_pits = false (expected false)
+[desk]   OK   opened: volc.morphometry = false (expected false)
+[desk]   OK   opened: volc.kind_dome = false (expected false)
+[desk]   OK   opened: integrate_drainage = true (expected true)
+[desk]   OK   opened: tect.narrow_plate_base_blur = true (expected true)
+[desk] -- L2 regenerate the opened world (not a new world)
+[desk]   OK   regenerated: rough_routing = false (expected false)
+[desk]   OK   regenerated: basin_routing = false (expected false)
+[desk]   OK   regenerated: lake_balance = false (expected false)
+[desk]   OK   regenerated: civ.merge_ways = false (expected false)
+[desk]   OK   regenerated: tect.orogen_relief = false (expected false)
+[desk]   OK   regenerated: tect.high_ceiling = false (expected false)
+[desk]   OK   regenerated: passes.glacial = false (expected false)
+[desk]   OK   regenerated: geology_model = false (expected false)
+[desk]   OK   regenerated: climate.rain_bspline = false (expected false)
+[desk]   OK   regenerated: volc.fill_edifice_pits = false (expected false)
+[desk]   OK   regenerated: volc.morphometry = false (expected false)
+[desk]   OK   regenerated: volc.kind_dome = false (expected false)
+[desk]   OK   a regenerate restores nothing ([])
+[desk] -- L3 open New World over it
+[desk]   OK   the dialog has its Lake water balance box
+[desk]   OK   the box shows ON (what Create will use)
+[desk]   OK   while the engine still holds the opened world's OFF
+[desk] -- L4 Create
+Cartalith: the new world uses the current generation rules for rough_routing, basin_routing, lake_balance, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways (the open world predates them).
+[desk]   OK   new world: rough_routing = true (expected true)
+[desk]   OK   new world: basin_routing = true (expected true)
+[desk]   OK   new world: lake_balance = true (expected true)
+[desk]   OK   new world: civ.merge_ways = true (expected true)
+[desk]   OK   new world: tect.orogen_relief = true (expected true)
+[desk]   OK   new world: tect.high_ceiling = true (expected true)
+[desk]   OK   new world: passes.glacial = true (expected true)
+[desk]   OK   new world: geology_model = true (expected true)
+[desk]   OK   new world: climate.rain_bspline = true (expected true)
+[desk]   OK   new world: volc.fill_edifice_pits = true (expected true)
+[desk]   OK   new world: volc.morphometry = true (expected true)
+[desk]   OK   new world: volc.kind_dome = true (expected true)
+[desk]   OK   new world: integrate_drainage = true (expected true)
+[desk]   OK   new world: tect.narrow_plate_base_blur = true (expected true)
+[desk]   OK   new world: geology_processes = false (expected false)
+[desk]   OK   new world: relief_model = false (expected false)
+[desk]   OK   new world: geology_karst = false (expected false)
+[desk]   OK   new world: geology_carve = false (expected false)
+[desk]   OK   the bridge reports rough_routing put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[desk]   OK   the bridge reports basin_routing put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[desk]   OK   the bridge reports lake_balance put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[desk]   OK   the bridge reports civ.merge_ways put back (["rough_routing", "basin_routing", "lake_balance", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial", "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law", "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera", "volc.kind_supervolcano", "volc.kind_flood_basalt", "civ.merge_ways"])
+[desk] -- L5 open it again, untick Lake water balance, Create
+[desk]   OK   the archive opens again
+[desk]   OK   reopened: lake_balance = false (expected false)
+[desk]   OK   reopened: rough_routing = false (expected false)
+[desk]   OK   the box shows ON again after the reopen
+[desk]   OK   the untick reached the engine
+Cartalith: the new world uses the current generation rules for rough_routing, basin_routing, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways (the open world predates them).
+[desk]   OK   the user's choice: lake_balance = false (expected false)
+[desk]   OK   the other rules: rough_routing = true (expected true)
+[desk]   OK   the other rules: basin_routing = true (expected true)
+[desk]   OK   the other rules: civ.merge_ways = true (expected true)
+[desk]   OK   the other rules: volc.kind_dome = true (expected true)
+[desk]   OK   the other rules: passes.glacial = true (expected true)
+[desk] -- L6 another New World, nothing opened between
+[desk]   OK   the box shows the session's choice (OFF)
+[desk]   OK   the session's choice carries: lake_balance = false (expected false)
+[desk]   OK   and the rules stay the app's: rough_routing = true (expected true)
+[desk]   OK   and the rules stay the app's: basin_routing = true (expected true)
+[desk]   OK   and the rules stay the app's: civ.merge_ways = true (expected true)
+[desk] -- L7 open the archive a third time, New World: the choice survives an open
+[desk]   OK   the archive opens a third time
+[desk]   OK   opened again: rough_routing = false (expected false)
+[desk]   OK   opened again: basin_routing = false (expected false)
+[desk]   OK   the box shows the session's choice (OFF), not the opened world's
+Cartalith: the new world uses the current generation rules for rough_routing, basin_routing, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways (the open world predates them).
+[desk]   OK   the choice made before the open: lake_balance = false (expected false)
+[desk]   OK   and the app's rules: rough_routing = true (expected true)
+[desk]   OK   and the app's rules: basin_routing = true (expected true)
+[desk]   OK   and the app's rules: civ.merge_ways = true (expected true)
+[desk]   OK   and the app's rules: passes.glacial = true (expected true)
+[desk] -- L8 the choice changed elsewhere (World > Hydrology's own write), then New World
+[desk]   OK   the box is re-read on open and shows ON (not the stale OFF)
+[desk]   OK   the latest choice: lake_balance = true (expected true)
+[desk] -- L9 Edit > Reset parameters
+[desk]   OK   reset: rough_routing = true (expected true)
+[desk]   OK   reset: basin_routing = true (expected true)
+[desk]   OK   reset: lake_balance = true (expected true)
+[desk]   OK   reset: civ.merge_ways = true (expected true)
+[desk]   OK   reset: tect.orogen_relief = true (expected true)
+[desk]   OK   reset: tect.high_ceiling = true (expected true)
+[desk]   OK   reset: passes.glacial = true (expected true)
+[desk]   OK   reset: geology_model = true (expected true)
+[desk]   OK   reset: climate.rain_bspline = true (expected true)
+[desk]   OK   reset: volc.fill_edifice_pits = true (expected true)
+[desk]   OK   reset: volc.morphometry = true (expected true)
+[desk]   OK   reset: volc.kind_dome = true (expected true)
+[desk]   OK   reset: integrate_drainage = true (expected true)
+[desk]   OK   reset: tect.narrow_plate_base_blur = true (expected true)
+[desk] -- L10 open the archive, then import a heightmap (the other run that makes a new world)
+[desk]   OK   the archive opens a fourth time
+[desk]   OK   opened before the import: rough_routing = false (expected false)
+[desk]   OK   opened before the import: lake_balance = false (expected false)
+[desk]   OK   opened before the import: civ.merge_ways = false (expected false)
+Cartalith: the new world uses the current generation rules for rough_routing, basin_routing, lake_balance, tect.orogen_relief, tect.high_ceiling, passes.glacial, geology_model, climate.rain_bspline, volc.fill_edifice_pits, volc.morphometry, volc.cinder_grid_law, volc.dry_active_craters, volc.lava_bench, volc.kind_dome, volc.kind_maar, volc.kind_caldera, volc.kind_supervolcano, volc.kind_flood_basalt, civ.merge_ways (the open world predates them).
+cartalith-godot: imported 64x40 heightmap onto a 2048x1280 grid
+[desk]   OK   imported world: rough_routing = true (expected true)
+[desk]   OK   imported world: basin_routing = true (expected true)
+[desk]   OK   imported world: lake_balance = true (expected true)
+[desk]   OK   imported world: civ.merge_ways = true (expected true)
+[desk]   OK   imported world: volc.kind_dome = true (expected true)
+[desk] RESULT desk fail=0 checks=121
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+EXIT 0

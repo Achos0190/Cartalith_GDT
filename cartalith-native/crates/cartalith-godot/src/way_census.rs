@@ -277,6 +277,7 @@ pub(crate) fn audit_at(
     let (river_order, _) = cartalith_civ::fresh_river_network_with(
         &ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, p.world, p.river_density, p.map_width_km,
         ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, p.world).as_ref(),
+        cartalith_engine::fill_tilt_of(ws.basin_routing),
     );
     let (all, bridges) =
         way_audit::river_crossings(&ways, &river_order, gw, gh, 0.25, cartalith_civ::river_class::NAVIGABLE_ORDER);
@@ -557,6 +558,7 @@ fn measure_way_merge_sweep() {
         let (river_order, _) = cartalith_civ::fresh_river_network_with(
             &ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, p.world, p.river_density, p.map_width_km,
             ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, p.world).as_ref(),
+        cartalith_engine::fill_tilt_of(ws.basin_routing),
         );
         let net_ways: Vec<Way> = off.ways.iter().filter(|w| w.way_type != WayType::Ancient).cloned().collect();
         let view = CivView { ways: &net_ways, ..CivView::of(&off) };

@@ -1205,6 +1205,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.volc.kind_flood_basalt = false;
     // And Ruling ER's rough routing: a save without the key was routed D8.
     expect.rough_routing = false;
+    // And Ruling EV's basin routing: a save without the key filled breadth-first.
+    expect.basin_routing = false;
     // And Ruling ET's lake balance: a save without the key kept its rain-test lakes.
     expect.lake_balance = false;
     // And Ruling EU item 1's shared trunks: a save without the key keeps its roads.
@@ -1225,6 +1227,35 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     assert_eq!(p.tect.plates, 40, "an out-of-range value is clamped, as it is from the GUI");
     assert_eq!(p.climate.lat_n, 12.0);
     assert!(p.tect.ridged, "a wrong-typed entry must leave the default alone");
+}
+
+/// Protects `params::LOADS_WHEN_ABSENT`, the one list `apply_saved_state` writes for a key a save does
+/// not carry and `restore_new_world_rules` reads (owner Ruling EV, 2026-11-13): every row names a real
+/// parameter and its value applies exactly (a typo'd key, or a value the setter clamps, would load the
+/// wrong thing in silence); the rules a New World puts back are exactly its boolean rows, never a
+/// setting; and Ruling EV's own row: a save without `basin_routing` loads it off (its world filled
+/// breadth-first), one carrying it keeps it. Deleting the `basin_routing` row, or typing its key wrong,
+/// fails here.
+#[test]
+fn every_absent_row_is_a_parameter_and_applies_exactly() {
+    for &(key, v) in params::LOADS_WHEN_ABSENT {
+        assert!(params::spec(key).is_some(), "{key} is not a parameter");
+        let mut p = params::defaults();
+        assert_eq!(params::set(&mut p, key, v), params::Outcome::Applied, "{key} must apply unclamped");
+        assert_eq!(params::get(&p, key), Some(v), "{key} must read back exactly");
+    }
+    let mut p = params::defaults();
+    params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"tect.plates": 30.0}}));
+    assert!(!p.basin_routing, "a save without the key: breadth-first, as its world was routed");
+    let mut p = params::defaults();
+    params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"basin_routing": true}}));
+    assert!(p.basin_routing, "a save carrying the key keeps it");
+    for k in ["basin_routing", "rough_routing", "lake_balance", "civ.merge_ways", "passes.glacial", "volc.kind_dome"] {
+        assert!(params::is_new_world_rule(k), "{k} is a generation rule");
+    }
+    for k in ["geo.age", "civ.garrison_exposure_scale", "river_density", "tect.plates", "not.a.parameter"] {
+        assert!(!params::is_new_world_rule(k), "{k} is not a generation rule a New World puts back");
+    }
 }
 
 // ===========================================================================
@@ -1264,7 +1295,8 @@ use cartalith_engine::{WorldParams, WorldState};
 /// owner Ruling DJ's `volc.kind_caldera`, `kind_maar`, `kind_supervolcano`
 /// and `kind_flood_basalt`; and the twenty-first, Ruling ER's
 /// `rough_routing`; the twenty-second, Ruling ET's `lake_balance`; the
-/// twenty-third, Ruling EU item 1's `civ.merge_ways`.)
+/// twenty-third, Ruling EU item 1's `civ.merge_ways`; the twenty-fourth,
+/// Ruling EV's `basin_routing`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1299,6 +1331,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.rough_routing && !parity.rough_routing, "rough routing for new worlds, Ruling ER");
     assert!(app.lake_balance && !parity.lake_balance, "lake water balance for new worlds, Ruling ET");
     assert!(app.civ.merge_ways && !parity.civ.merge_ways, "shared road trunks for new worlds, Ruling EU item 1");
+    assert!(app.basin_routing && !parity.basin_routing, "basin routing for new worlds, Ruling EV");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1312,8 +1345,8 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the twenty-three must make the two identical --
-    // which catches a twenty-fourth divergence added without a ruling, in either
+    // And nothing else. Neutralising the twenty-four must make the two identical --
+    // which catches a twenty-fifth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -1321,6 +1354,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.volc.edifice_model = false;
     neutral.integrate_drainage = false;
     neutral.rough_routing = false;
+    neutral.basin_routing = false;
     neutral.lake_balance = false;
     neutral.civ.merge_ways = false;
     neutral.tect.narrow_plate_base_blur = false;
@@ -1342,7 +1376,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twenty-three authorised fields"
+         twenty-four authorised fields"
     );
 }
 

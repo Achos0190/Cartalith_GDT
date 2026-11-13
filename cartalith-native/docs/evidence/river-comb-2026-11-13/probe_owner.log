@@ -1,0 +1,64 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+[owner] parameters: 124 from C:/cw/combfix/cartalith-native/crates/cartalith-godot/tests/fixtures/owner_world_51203_params.txt, overrides {"basin_routing":false}
+Cartalith shell build 5f978b3a95c8
+ERROR: Couldn't open directory at path "C:/cw/combfix_appdata_comb_owner/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:880)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:910)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:978)
+       [3] _refresh (res://shell/open_project_dialog.gd:937)
+       [4] open_welcome (res://shell/open_project_dialog.gd:317)
+       [5] open_welcome (res://shell/app.gd:4973)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2515)
+[owner]   OK   every parameter written as given (rejected [], clamped [])
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[owner] generated seed 51203 2048x1024 40075 km in 24.8 s
+[owner]   OK   every parameter reads back as asked after the run (124 checked; differing [])
+[owner] settlements 40, roads 48, river mouths 2899, fan-eligible 178, delta fans 138
+[owner]   whole  traced total 133846.0  comb  25.6 % (longest 335.0)  straight  35.2 % (longest 341.0)
+[owner]   whole  z1     total   3440.0  comb  64.3 % (longest 185.0)  straight  73.6 % (longest 136.0)
+[owner]   whole  z4     total   9614.0  comb  29.6 % (longest 185.0)  straight  43.7 % (longest 136.0)
+[owner]   whole  z7.88  total  16183.0  comb  20.8 % (longest 262.0)  straight  37.1 % (longest 210.7)
+[owner]   whole  z16    total  27898.0  comb  14.0 % (longest 282.0)  straight  30.4 % (longest 212.3)
+[owner]   whole  z64    total  73440.0  comb   9.7 % (longest 334.0)  straight  25.0 % (longest 212.3)
+[owner]   window traced total  30443.0  comb  75.1 % (longest 335.0)  straight  81.9 % (longest 341.0)
+[owner]   window z1     total   2858.0  comb  77.4 % (longest 185.0)  straight  82.2 % (longest 136.0)
+[owner]   window z4     total   4310.0  comb  65.6 % (longest 185.0)  straight  68.4 % (longest 136.0)
+[owner]   window z7.88  total   5265.0  comb  62.8 % (longest 262.0)  straight  65.1 % (longest 210.7)
+[owner]   window z16    total   6754.0  comb  54.1 % (longest 282.0)  straight  60.0 % (longest 212.3)
+[owner]   window z64    total  12045.0  comb  45.5 % (longest 334.0)  straight  47.5 % (longest 212.3)
+[owner]   OK   the world has traced rivers (positive control: an empty measure cannot pass)
+[owner]   OK   rivers are drawn at zoom 1.0
+[owner]   OK   rivers are drawn at zoom 4.0
+[owner]   OK   rivers are drawn at zoom 7.88
+[owner]   OK   rivers are drawn at zoom 16.0
+[owner]   OK   rivers are drawn at zoom 64.0
+[owner]   OK   the relief view is drawn
+[owner]   OK   frame relief x1.0 grabbed
+[owner]   frame relief zoom 1.00 (readout 100 %) saved
+[owner]   OK   frame relief x4.0 grabbed
+[owner]   frame relief zoom 4.00 (readout 400 %) saved
+[owner]   OK   frame relief x7.88 grabbed
+[owner]   frame relief zoom 7.88 (readout 788 %) saved
+[owner]   OK   frame relief x16.0 grabbed
+[owner]   frame relief zoom 16.00 (readout 1600 %) saved
+[owner]   OK   frame relief x64.0 grabbed
+[owner]   frame relief zoom 64.00 (readout 6400 %) saved
+[owner]   OK   the flow view is drawn
+[owner]   OK   frame flow x1.0 grabbed
+[owner]   frame flow zoom 1.00 (readout 100 %) saved
+[owner]   OK   frame flow x4.0 grabbed
+[owner]   frame flow zoom 4.00 (readout 400 %) saved
+[owner]   OK   frame flow x7.88 grabbed
+[owner]   frame flow zoom 7.88 (readout 788 %) saved
+[owner]   OK   frame flow x16.0 grabbed
+[owner]   frame flow zoom 16.00 (readout 1600 %) saved
+[owner]   OK   frame flow x64.0 grabbed
+[owner]   frame flow zoom 64.00 (readout 6400 %) saved
+[owner] RESULT owner fail=0 checks=20
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+EXIT 0

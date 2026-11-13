@@ -358,6 +358,7 @@ mod tests {
             flow_discharge: Arc::new(Vec::new()),
             integrated_drainage: false,
             routing_roughness: None,
+            basin_routing: false,
             channels: None,
             stream_order: None,
             river_mask: None,

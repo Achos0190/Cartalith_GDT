@@ -4897,16 +4897,20 @@ pub fn fresh_river_network(
     map_width_km: f64,
     integrate: bool,
 ) -> (Vec<i16>, Vec<Vec<(f64, f64)>>) {
-    fresh_river_network_with(field, flow, gw, gh, sea, world, river_density, map_width_km, integrate, None)
+    fresh_river_network_with(field, flow, gw, gh, sea, world, river_density, map_width_km, integrate, None, cartalith_hydrology::FillTilt::Breadth)
 }
 
-/// [`fresh_river_network`] for a world routed with a roughness (Ruling ER):
-/// `rough` is `cartalith_engine::routing_roughness_of` of the world's own
-/// `WorldState::routing_roughness`, so the tree rebuilt here is the tree the
-/// world's discharge was accumulated along and its rivers were drawn on.
-/// `None` is `fresh_river_network` exactly. Must never be handed a roughness
-/// the world was not generated with: the network would then describe rivers
-/// the map does not draw.
+/// [`fresh_river_network`] for a world routed with a roughness (Ruling ER)
+/// and a fill tilt (the 2026-11-13 basin routing): `rough` is
+/// `cartalith_engine::routing_roughness_of` of the world's own
+/// `WorldState::routing_roughness` and `tilt` is
+/// `cartalith_engine::fill_tilt_of` of its `WorldState::basin_routing`, so
+/// the tree rebuilt here is the tree the world's discharge was accumulated
+/// along and its rivers were drawn on. `None` with
+/// [`cartalith_hydrology::FillTilt::Breadth`] is `fresh_river_network`
+/// exactly. Must never be handed a roughness or a tilt the world was not
+/// generated with: the network would then describe rivers the map does not
+/// draw.
 #[allow(clippy::too_many_arguments)]
 pub fn fresh_river_network_with(
     field: &[f32],
@@ -4919,8 +4923,9 @@ pub fn fresh_river_network_with(
     map_width_km: f64,
     integrate: bool,
     rough: Option<&cartalith_hydrology::Roughness>,
+    tilt: cartalith_hydrology::FillTilt,
 ) -> (Vec<i16>, Vec<Vec<(f64, f64)>>) {
-    let route = cartalith_hydrology::routing_view(field, gw, gh, sea, world, integrate);
+    let route = cartalith_hydrology::routing_view_with(field, gw, gh, sea, world, integrate, tilt);
     let ch = cartalith_hydrology::build_channels_routed_with(
         field,
         &route,
@@ -4969,12 +4974,14 @@ pub fn fresh_river_channels(
     map_width_km: f64,
     integrate: bool,
 ) -> (Vec<i16>, Vec<i32>) {
-    fresh_river_channels_with(field, flow, gw, gh, sea, world, river_density, map_width_km, integrate, None)
+    fresh_river_channels_with(field, flow, gw, gh, sea, world, river_density, map_width_km, integrate, None, cartalith_hydrology::FillTilt::Breadth)
 }
 
-/// [`fresh_river_channels`] for a world routed with a roughness (Ruling ER);
-/// see [`fresh_river_network_with`], whose pass this must stay identical to.
-/// `None` is `fresh_river_channels` exactly.
+/// [`fresh_river_channels`] for a world routed with a roughness (Ruling ER)
+/// and a fill tilt (the 2026-11-13 basin routing); see
+/// [`fresh_river_network_with`], whose pass this must stay identical to.
+/// `None` with [`cartalith_hydrology::FillTilt::Breadth`] is
+/// `fresh_river_channels` exactly.
 #[allow(clippy::too_many_arguments)]
 pub fn fresh_river_channels_with(
     field: &[f32],
@@ -4987,8 +4994,9 @@ pub fn fresh_river_channels_with(
     map_width_km: f64,
     integrate: bool,
     rough: Option<&cartalith_hydrology::Roughness>,
+    tilt: cartalith_hydrology::FillTilt,
 ) -> (Vec<i16>, Vec<i32>) {
-    let route = cartalith_hydrology::routing_view(field, gw, gh, sea, world, integrate);
+    let route = cartalith_hydrology::routing_view_with(field, gw, gh, sea, world, integrate, tilt);
     let ch = cartalith_hydrology::build_channels_routed_with(
         field,
         &route,

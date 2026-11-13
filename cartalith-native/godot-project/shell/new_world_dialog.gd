@@ -318,6 +318,10 @@ var villages_check: CheckBox
 var metropolis_check: CheckBox
 ## Biome carrying-capacity toggle; its handler writes `_biome_k`.
 var biome_k_check: CheckBox
+## The "Lake water balance" toggle (`_build_lake_balance`), `null` on an extension without the row.
+## Re-read on every open by `_sync_from_engine()` from the value Create will use (Ruling EV), so it
+## can never show on while the engine would make the world with it off.
+var lake_balance_check: CheckBox
 ## The Recovery phase picker (names from `get_recovery_phase_names()`); its handler writes `_recovery_phase`.
 var recovery_input: OptionButton
 ## Warning line under the derived panel: the joined warnings, hidden when there are none (`_update_derived`).
@@ -2174,13 +2178,20 @@ func _set_extent_chips() -> void:
 ## what it holds. ON in the app, OFF in `WorldParams::defaults`; the label and
 ## hint come from nowhere else than this call. Drawn only when the running
 ## extension publishes the row (an older cdylib has none).
+##
+## **Shows the value Create will use** (Ruling EV, 2026-11-13), not the open
+## world's: opening a save from before Ruling ET turns the balance off for that
+## world, and Create puts it back on unless the user turned it off this session
+## (`EngineBridge.new_world_param`). Before, this box was set once at build and
+## never re-read, so it read on while Create made the world with it off.
+## `_sync_from_engine()` re-reads it on every open.
 func _build_lake_balance(parent: Control) -> void:
 	var row: Dictionary = bridge.param_info("lake_balance")
 	if row.is_empty():
 		return
-	var live = bridge.param_get("lake_balance")
+	var live = bridge.new_world_param("lake_balance")
 	var on := bool(live if live != null else row.get("default", false))
-	DccWidgets.toggle(parent, "Lake water balance", on,
+	lake_balance_check = DccWidgets.toggle(parent, "Lake water balance", on,
 		func(v: bool): bridge.param_set("lake_balance", v),
 		"On, a lake holds water only where the river and rain feeding it cover what its surface evaporates: a basin in dry or hot country shrinks, or is left as a dry playa (a salt flat), and a river-fed basin the rain alone would have left dry becomes a lake. Terrain and rivers are unchanged. Off keeps the reference's rain-only rule, where every pooled basin in wet enough ground is a full lake. A saved world keeps the lakes it was made with.")
 
@@ -2758,6 +2769,14 @@ func _sync_from_engine() -> void:
 	if recovery_input != null and recovery_input.item_count > 0:
 		_recovery_phase = clampi(bridge.get_recovery_phase(), 0, recovery_input.item_count - 1)
 		recovery_input.select(_recovery_phase)
+	## Ruling EV: the lake balance Create will use, not the open world's (see
+	## `_build_lake_balance`). Built once and never re-read before, so after
+	## opening a save from before Ruling ET it read on while the engine held it
+	## off and Create made the world with it off. `null` (no table yet) leaves it.
+	if lake_balance_check != null:
+		var lb = bridge.new_world_param("lake_balance")
+		if lb != null:
+			lake_balance_check.set_pressed_no_signal(bool(lb))
 	## **The fifth reader F14 missed, and the one this pass made visible.**
 	## `extent_input` is seeded from `param_get("world")` in `_build()` and was
 	## never read again, so opening this dialog over a project whose extent had

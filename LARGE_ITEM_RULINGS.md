@@ -3632,3 +3632,35 @@ The owner confirmed this reading of it, in three parts:
 
 Part 1 is built first (`cartalith_civ::way_merge`; measured in `cartalith-native/docs/STATUS.md`). Parts 2 and 3 are
 routed from `OUTSTANDING_WORK.md`.
+
+## Ruling EV: river combs are resolved at the root: a New World is made by the current rules, and filled basins route floor-first (owner, 2026-11-13)
+
+The owner, verbatim, with two phone screenshots of seed 51203 (the river flow view and the relief view at zoom 788 %,
+the APK from `da0dbbbf`): *"Still see some heavy combing:"*, and then, on the diagnosis: *"resolve it"*.
+
+1. **A New World is made by the current generation rules.** The screenshotted world had rough routing (Ruling ER),
+   the lake water balance (Ruling ET) and the shared road trunks (Ruling EU item 1) off in a build that ships them
+   on: opening an older save loads the rules it predates off for that world, and New World generated from that
+   table. Now New World's Create and the heightmap import put every generation rule back to `params::defaults()`
+   unless the user set it this session; one list (`params::LOADS_WHEN_ABSENT`) drives both the load and the
+   restore. **A saved world keeps loading, and regenerating, with its own rules** (a save without a key still loads
+   it off). The New World screen's Lake water balance box shows the value Create will use. This changes no default,
+   so it needs no re-baseline.
+2. **Basin routing, `basin_routing`, for new worlds.** Even with rough routing on, a filled depression was crossed
+   by parallel grid-axis runs hung from a 45-degree ruler line: the depression fill tilts a basin as a chessboard
+   distance from its spill, and on that line a cell has one way down. Now the fill runs down the basin's own floor
+   first, in chamfer steps (`cartalith_hydrology::FillTilt::Floor`), so water inside a basin runs to its floor and
+   leaves by one path. Rivers move where they cross filled ground: this **overrides Ruling EN item 5** ("never
+   moves: the generated river network") **for this purpose only**, as Ruling ER did. Per `DECISIONS.md` §7p it is
+   off in `WorldParams::defaults` (every golden unchanged) and on in `params::defaults`; **a save without the key
+   loads it off**, so a saved world keeps its rivers. No GUI control, like `rough_routing`; the assistant's
+   catalogue leaves it out. The GPU flow kernel is skipped when it is on.
+3. **What moves with it, measured** (`DELTA_GEOMETRY_RESEARCH.md` section 14): on seed 51203, 246371, 483920 and
+   912345 the straight share on filled ground falls from 26-34 % to 7-14 % and its longest stretch from 25-88 cells
+   to 16-21; the comb share stays under 2 %. **Lakes grow** where a basin's water now reaches its floor: the lake
+   balance takes a pool's inflow from the routed discharge, and the carve follows the converged trunk into the floor
+   (lake cells under the balance +17 % on 51203, +23 % on 246371, +1 % and +6 % on the small worlds). That is
+   disclosed here, not ruled; it is an owner question in `OUTSTANDING_WORK.md`.
+4. **The owner's own world keeps its combs until it is made again.** A saved world stores its rivers and its
+   routing record (`WorldState::basin_routing`, `routing_roughness`), so nothing is re-routed on load. To see the
+   fix on seed 51203, on a build with this change: New World with the same seed and settings.

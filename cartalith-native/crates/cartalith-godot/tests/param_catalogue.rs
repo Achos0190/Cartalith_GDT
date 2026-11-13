@@ -34,13 +34,13 @@ fn all_groups(c: &Catalogue) -> Vec<String> {
 
 /// Protects the LLM-6a bar: `DESCS` has a non-empty entry for 100% of the
 /// OFFERED keys, naming any key missing one; nothing in `DESCS` or `INERT_WHEN`
-/// names a key the registry lacks (a stale row); the registry has the 123 rows
-/// of 2026-11-12 (Ruling EU item 1's `civ.merge_ways`, offered, is the 123rd; Ruling ET's `lake_balance`, offered, the 122nd; Ruling ER's `rough_routing`, excluded, the 121st) and
-/// exactly seven are excluded. MUTATION: delete one `DESCS`
+/// names a key the registry lacks (a stale row); the registry has the 124 rows
+/// of 2026-11-13 (Ruling EV's `basin_routing`, excluded, is the 124th; Ruling EU item 1's `civ.merge_ways`, offered, the 123rd; Ruling ET's `lake_balance`, offered, the 122nd; Ruling ER's `rough_routing`, excluded, the 121st) and
+/// exactly eight are excluded. MUTATION: delete one `DESCS`
 /// row and this goes red naming it.
 #[test]
 fn every_offered_key_has_a_description_and_no_row_is_stale() {
-    assert_eq!(params::PARAMS.len(), 123, "registry rows counted 2026-11-12; re-read the scope's counts if this moves");
+    assert_eq!(params::PARAMS.len(), 124, "registry rows counted 2026-11-13; re-read the scope's counts if this moves");
     let offered: Vec<&str> =
         params::PARAMS.iter().map(|s| s.key).filter(|k| !param_catalogue::EXCLUDED.contains(k)).collect();
     assert_eq!(offered.len(), 116);

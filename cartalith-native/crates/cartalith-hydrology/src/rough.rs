@@ -23,9 +23,16 @@
 //! `(h_i - h_j + k * s_i * (n_i - n_j)) / d_ij`, where `s_i` is the cell's own
 //! steepest drop per cell and `k` is [`ROUGH_STRENGTH`]. The perturbation is
 //! scaled by the local slope, so it is the same fraction of the relief on a
-//! gentle plain and a steep flank, and it vanishes on the depression-filled
-//! flats (whose drops are the routing surface's few-ULP tilt), where water
-//! keeps the plain D8 path out of a lake.
+//! gentle plain and a steep flank -- **and on the depression-filled flats
+//! too**: there `s_i` is the routing surface's few-ULP tilt, but so is every
+//! drop it is compared with, so the noise decides the pick just as it does on
+//! a slope. (Until 2026-11-13 this said the perturbation *vanishes* on the
+//! flats; measured on the owner's combing world it does not -- it is what
+//! breaks the comb there, `DELTA_GEOMETRY_RESEARCH.md` section 14.) What it
+//! cannot do is choose among one candidate: on the breadth-first fill's
+//! 45-degree lines a cell has a single strictly lower neighbour, so the line
+//! stays straight whatever the noise; basin routing's tilt
+//! (`FillTilt::Floor`, Ruling EV) gives such cells several.
 //!
 //! **Must never** pick a neighbour that is not strictly lower on the surface
 //! (no uphill step, no cycle, and the descending-height accumulation order of

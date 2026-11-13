@@ -713,6 +713,7 @@ mod tests {
             flow_discharge: std::sync::Arc::new(Vec::new()),
             integrated_drainage: false,
             routing_roughness: None,
+            basin_routing: false,
             channels: None,
             stream_order: None,
             river_mask: None,

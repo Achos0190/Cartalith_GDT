@@ -693,6 +693,38 @@ func param_get(key: String):
 	_params_cache = values
 	return values.get(key)
 
+## The value of `key` a **New World** would generate with now (Ruling EV, 2026-11-13):
+## `WorldGen.get_new_world_params()`, which is `get_params()` with the generation rules an
+## opened older save turned off put back to the app's (`restore_new_world_rules`, read-only
+## here). For the New World screen's own controls, so they show what Create will use. Falls
+## back to `param_get` while `generating` and on an extension without the binding; `null`
+## exactly when `param_get` would be.
+func new_world_param(key: String):
+	if not _params_available or generating or not _has("get_new_world_params"):
+		return param_get(key)
+	return (world_gen.get_new_world_params() as Dictionary).get(key)
+
+## **Before a run that makes a NEW world** (New World's Create, the heightmap import): put the
+## generation rules back to the app's (Ruling EV, 2026-11-13). Opening an older save turns the
+## rules it predates off in the live table (`params::LOADS_WHEN_ABSENT`) and every generate
+## reads that table, so without this a world created after opening an old one was made by the
+## old rules -- the owner's 2026-11-13 combing world had rough routing, the lake balance and the
+## shared road trunks off for exactly that reason. `WorldGen.restore_new_world_rules` keeps any
+## rule the user changed this session. Never called for a regenerate of the open world, which
+## keeps the rules it was saved with. Main thread only, before the worker takes the engine; a
+## no-op on an extension without the binding.
+func _restore_new_world_rules() -> void:
+	if not _params_available or not _has("restore_new_world_rules"):
+		return
+	var changed: PackedStringArray = world_gen.restore_new_world_rules()
+	if not changed.is_empty():
+		print("Cartalith: the new world uses the current generation rules for %s (the open world predates them)." % ", ".join(changed))
+		last_new_world_restored = changed
+
+## The generation rules the last new-world run put back (`_restore_new_world_rules`), for a
+## probe; empty when it changed nothing. Nothing in the shell reads it.
+var last_new_world_restored := PackedStringArray()
+
 ## Every parameter's current value at once (LLM-6a/6b: the assistant's catalogue is rebuilt
 ## from this on every request): `WorldGen.get_params()`, or a copy of the snapshot taken
 ## before the worker started while `generating` (the same rule as `param_get`). `{}` with no
@@ -907,6 +939,12 @@ func generate(request: Dictionary, new_world: bool = false) -> void:
 		push_warning(last_summary)
 		generation_finished.emit(false)
 		return
+	## Ruling EV: a new world is made by the current generation rules. After the
+	## refusal above, so a refused Create changes nothing; before the snapshot,
+	## so `param_get` during the run answers with the rules being used.
+	last_new_world_restored = PackedStringArray()
+	if new_world:
+		_restore_new_world_rules()
 	## Snapshot the parameter table before the worker takes the engine: from
 	## here until `_finish`, `param_get` answers from this and nothing reaches
 	## a `#[func]` on the borrowed object.
@@ -1053,6 +1091,10 @@ func import_heightmap(path: String, request: Dictionary) -> void:
 	if generating or not import_api:
 		return
 	new_world_pending = true   ## a heightmap import is a new world, never the open project's regenerate
+	## Ruling EV: a new world is made by the current generation rules (the same
+	## call `generate()` makes for New World's Create).
+	last_new_world_restored = PackedStringArray()
+	_restore_new_world_rules()
 	## Snapshot the parameter table before the worker takes the engine: from
 	## here until `_finish`, `param_get` answers from this and nothing reaches
 	## a `#[func]` on the borrowed object.

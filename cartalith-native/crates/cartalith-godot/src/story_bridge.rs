@@ -265,6 +265,7 @@ impl WorldGen {
             self.map_width_km,
             ws.integrated_drainage,
             cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, self.world).as_ref(),
+            cartalith_engine::fill_tilt_of(ws.basin_routing),
         );
         JpWorldParts { jw, ocean, wind, river_order, river_recv }
     }

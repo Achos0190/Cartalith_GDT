@@ -31,6 +31,7 @@
 //! | `river_mask`, `river_floor` | stored |
 //! | `integrated_drainage` | the manifest member's `integrated_drainage` |
 //! | `routing_roughness` | the manifest member's optional `routing_roughness` (Ruling ER), absent for a plain-D8 world and every earlier archive |
+//! | `basin_routing` | the manifest member's optional `basin_routing` (Ruling EV), absent for a breadth-first world and every earlier archive |
 //! | `gpu_stages_used` | not stored: it says which stages ran on the GPU *in this process*, and nothing ran for a reopened world. Rebuilt empty, which is `load_save`'s long-standing answer |
 //!
 //! **Nothing is recomputed from the terrain.** Flow, channels and the carve
@@ -149,6 +150,15 @@ pub(crate) struct SubstrateManifest {
     /// §8.3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing_roughness: Option<i64>,
+    /// `WorldState::basin_routing` (the 2026-11-13 basin routing): whether
+    /// this world's filled depressions were tilted floor-first, so a reload
+    /// rebuilds the same receiver tree. **Optional and omitted when `false`**:
+    /// every archive written before the change, and every world with it off,
+    /// has no such key and reads back `false` -- the breadth-first tilt it was
+    /// routed with -- and such a world's manifest stays byte-identical
+    /// (`SAVEFILE_COMPAT.md` §8.3).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub basin_routing: bool,
     /// `channels` was `Some`: `channel_receiver.i32` and `channel_mask.u8` are
     /// present.
     pub channels: bool,
@@ -213,6 +223,7 @@ pub(crate) fn substrate_rasters(ws: &WorldState, n: usize) -> Result<(Vec<(&'sta
         version: SUBSTRATE_VERSION,
         integrated_drainage: ws.integrated_drainage,
         routing_roughness: ws.routing_roughness,
+        basin_routing: ws.basin_routing,
         channels: ws.channels.is_some(),
         river_intensity,
         stream_order: ws.stream_order.is_some(),
@@ -354,6 +365,7 @@ pub(crate) fn world_from_project(data: &mut ProjectData, save: &SaveData) -> Res
         flow_discharge: Arc::new(take_f32(data, FLOW)?),
         integrated_drainage: m.integrated_drainage,
         routing_roughness: m.routing_roughness,
+        basin_routing: m.basin_routing,
         channels,
         stream_order: m.stream_order.then(|| f.strahler_order.iter().map(|&o| i16::from(o)).collect()),
         river_mask: if m.river_mask { Some(take_u8(data, RIVER_MASK)?) } else { None },

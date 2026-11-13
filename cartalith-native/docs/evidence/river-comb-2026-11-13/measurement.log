@@ -1,0 +1,37 @@
+running 1 test
+test basin_routing_before_and_after ... == 51203 / owner: 2048x1024, density 2.5, rough false, basin false, generated in 20 s
+   comb  20.9 % of 134077 cells (longest 167) | on filled ground  61.5 % of 9858 | straight  30.9 % (tol 0.5:  32.9 %), longest 174 | filled  81.9 % longest 127 | elsewhere  24.3 % longest 49
+   owner window: comb  44.3 % of 15411 cells (longest 167), straight  57.7 % (longest 174)
+   plausibility: uphill_route 0, dry_ends 8, max rise above the fill 0.049 m | lake cells 6374 (under the balance 9654: 109 pools, 1026 dried, 4306 flooded), ocean cells 1461976, filled 31710 of 631887 land cells | mouths 6533, rivers 16044, traced 128422 cells
+== 51203 / before: 2048x1024, density 2.5, rough true, basin false, generated in 20 s
+   comb   0.8 % of 113478 cells (longest 20) | on filled ground   1.0 % of 6314 | straight   9.9 % (tol 0.5:  11.6 %), longest 59 | filled  30.9 % longest 59 | elsewhere   7.7 % longest 35
+   owner window: comb   0.6 % of 11547 cells (longest 16), straight  17.8 % (longest 46)
+   plausibility: uphill_route 0, dry_ends 2, max rise above the fill 0.049 m | lake cells 6483 (under the balance 10693: 111 pools, 835 dried, 5045 flooded), ocean cells 1461977, filled 31203 of 631889 land cells | mouths 4749, rivers 15159, traced 107997 cells
+== 51203 / after: 2048x1024, density 2.5, rough true, basin true, generated in 21 s
+   comb   0.7 % of 111100 cells (longest 20) | on filled ground   0.4 % of 7098 | straight   6.3 % (tol 0.5:   7.8 %), longest 21 | filled   7.2 % longest 17 | elsewhere   6.0 % longest 21
+   owner window: comb   0.4 % of 10365 cells (longest 13), straight   7.2 % (longest 17)
+   plausibility: uphill_route 0, dry_ends 2, max rise above the fill 0.437 m | lake cells 7261 (under the balance 12560: 106 pools, 244 dried, 5543 flooded), ocean cells 1461977, filled 34267 of 631889 land cells | mouths 4821, rivers 15131, traced 105629 cells
+   51203: routing surface Breadth 66 ms (66..72), Floor 73 ms (72..73)
+== 246371 / before: 2048x1311, density 1.55, rough true, basin false, generated in 7 s
+   comb   0.8 % of 244923 cells (longest 37) | on filled ground   0.4 % of 19250 | straight  19.5 % (tol 0.5:  22.3 %), longest 117 | filled  34.1 % longest 88 | elsewhere  17.6 % longest 106
+   plausibility: uphill_route 0, dry_ends 2, max rise above the fill 0.064 m | lake cells 166103 (under the balance 150058: 510 pools, 23252 dried, 7207 flooded), ocean cells 787307, filled 106929 of 1775851 land cells | mouths 1394, rivers 14296, traced 239091 cells
+== 246371 / after: 2048x1311, density 1.55, rough true, basin true, generated in 7 s
+   comb   0.7 % of 232974 cells (longest 37) | on filled ground   0.1 % of 21044 | straight  13.4 % (tol 0.5:  15.8 %), longest 42 | filled  13.9 % longest 21 | elsewhere  13.2 % longest 42
+   plausibility: uphill_route 0, dry_ends 2, max rise above the fill 0.938 m | lake cells 188721 (under the balance 184513: 514 pools, 16399 dried, 12191 flooded), ocean cells 787307, filled 135974 of 1775851 land cells | mouths 1618, rivers 14239, traced 227147 cells
+   246371: routing surface Breadth 142 ms (142..144), Floor 158 ms (157..158)
+== 483920 / before: 1024x656, density 1, rough true, basin false, generated in 2 s
+   comb   1.6 % of 86549 cells (longest 21) | on filled ground   0.0 % of 1303 | straight  10.2 % (tol 0.5:  12.0 %), longest 54 | filled  26.2 % longest 25 | elsewhere   9.6 % longest 28
+   plausibility: uphill_route 0, dry_ends 0, max rise above the fill 0.015 m | lake cells 91589 (under the balance 92366: 142 pools, 2884 dried, 3661 flooded), ocean cells 152470, filled 7124 of 436482 land cells | mouths 1635, rivers 10147, traced 82869 cells
+== 483920 / after: 1024x656, density 1, rough true, basin true, generated in 2 s
+   comb   1.5 % of 85443 cells (longest 21) | on filled ground   0.0 % of 1818 | straight   8.5 % (tol 0.5:  10.1 %), longest 21 | filled   6.6 % longest 16 | elsewhere   8.4 % longest 21
+   plausibility: uphill_route 0, dry_ends 0, max rise above the fill 0.115 m | lake cells 91704 (under the balance 93106: 141 pools, 2882 dried, 4284 flooded), ocean cells 152470, filled 7963 of 436482 land cells | mouths 1675, rivers 10155, traced 81762 cells
+   483920: routing surface Breadth 30 ms (30..30), Floor 33 ms (33..33)
+== 912345 / before: 1024x656, density 1, rough true, basin false, generated in 2 s
+   comb   1.7 % of 92200 cells (longest 32) | on filled ground   2.4 % of 6873 | straight  12.7 % (tol 0.5:  14.6 %), longest 58 | filled  26.5 % longest 43 | elsewhere  10.7 % longest 34
+   plausibility: uphill_route 0, dry_ends 0, max rise above the fill 0.053 m | lake cells 11277 (under the balance 17066: 31 pools, 1 dried, 5790 flooded), ocean cells 222660, filled 24303 of 449083 land cells | mouths 1130, rivers 10190, traced 88367 cells
+== 912345 / after: 1024x656, density 1, rough true, basin true, generated in 2 s
+   comb   1.3 % of 88980 cells (longest 28) | on filled ground   0.4 % of 7644 | straight   8.4 % (tol 0.5:  10.1 %), longest 23 | filled   7.3 % longest 16 | elsewhere   8.3 % longest 23
+   plausibility: uphill_route 0, dry_ends 0, max rise above the fill 0.384 m | lake cells 12879 (under the balance 18093: 30 pools, 1 dried, 5215 flooded), ocean cells 222660, filled 28402 of 449083 land cells | mouths 1291, rivers 10252, traced 85129 cells
+   912345: routing surface Breadth 30 ms (30..30), Floor 33 ms (33..33)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 93.01s
+EXIT 0

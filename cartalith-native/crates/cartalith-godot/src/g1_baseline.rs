@@ -107,27 +107,32 @@ type G1Row = (i32, u32, i32, u64, u64);
 /// merged network's usage is floored at the reference's): manpower moved on 7
 /// of 20 worlds, governments 0 of 20, the roster agreed with `fh_r2_baseline`
 /// on 20 of 20. Each moved row now says first what it was before this.
+/// **RE-RECORDED 2026-11-13 after owner Ruling EV** (basin routing, `basin_routing` on in the app's
+/// `params::defaults()` and off in `WorldParams::defaults`: filled depressions route floor-first, so the
+/// harness worlds' rivers and ways moved): manpower moved on 20 of 20 worlds, governments 0 of 20.
+/// Attributed, measured: with `basin_routing` forced off in `params::defaults()` every pin here held (4 of 4
+/// g1 tests, 6 of 6 fh_r2 tests). No manpower formula moved. Each moved row says first what it was.
 const G1_0: [G1Row; 20] = [
-    (12345, 800, 6, 0x387148c99c9fda6a, 0xfcde937df27b6bce), // 6 armed of 6; f1 standing 999 -> 1941 under empire; was 0x160622c110260b61 (merge off, before Ruling EU item 1), 0x0952af06bcae2404 (9a83061c), 0xfc0e51ebf531e378 (50a6fc6d), 0x8d1fce680f420476 (09a217dd), 0x40afff69143a03b2 (9b0bec28)
-    (12345, 800, 24, 0x629827ce9cd3ce9b, 0x1997a58b5308f80d), // 24 armed of 24; f1 standing 327 -> 636 under empire; was 0x3fb41cf3a98e8f23 (merge off, before Ruling EU item 1), 0x533dc283ee3e6944 (9a83061c), 0x4550aad3635d01a6 (50a6fc6d), 0xc0c340ff6043d71b (09a217dd), 0x9d68eb2559dbbfe5 (9b0bec28)
-    (12345, 40075, 6, 0x387148c99c9fda6a, 0x3f15a2f0e626a2a7), // was 0x5895bf7d2e8304f8 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); 6 armed of 6; f1 standing 5596 -> 10872 under empire; was 0x03114a87f7190b78 (merge off, before Ruling EU item 1), 0x7ffa18733e414344 (9a83061c), 0x3c4c7779c7b93439 (50a6fc6d), 0x90f507f70ee7a916 (09a217dd), 0x942515e5182ec33b (9b0bec28)
-    (12345, 40075, 24, 0x629827ce9cd3ce9b, 0xd08e866b4a2b1a35), // 22 armed of 24; f1 standing 129 -> 250 under empire; was 0x3449251b1b9bcd31 (9a83061c), 0xa3916268bad3166c (50a6fc6d), 0xf529f91b918f427d (09a217dd), 0xb9c622eafbea842e (9b0bec28)
-    (314159, 800, 6, 0x387148c99c9fda6a, 0xa9f1fd319e0f3609), // was 0x218fb1fff9a48e17 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); 6 armed of 6; f1 standing 913 -> 1774 under empire; was 0x2e88f91245b6569c (merge off, before Ruling EU item 1), 0x8364635321fe4160 (9a83061c), 0xa5a30c7edd7dd4d9 (50a6fc6d), 0xcb20fec4ea5a37b0 (09a217dd), 0x28cb137a53dc18cf (9b0bec28)
-    (314159, 800, 24, 0x629827ce9cd3ce9b, 0x1b8e6fa4ca883b83), // 24 armed of 24; f1 standing 318 -> 617 under empire; was 0xf97f6d325d543bd3 (merge off, before Ruling EU item 1), 0x40352f455a8eb6f9 (9a83061c), 0x01e8c323f75e71b5 (50a6fc6d), 0x5d4c0ef0357a761a (09a217dd), 0x7598d6d00551485a (9b0bec28)
-    (314159, 40075, 6, 0x387148c99c9fda6a, 0xca4ea3bc30f74384), // was 0xc14bd597f97e8c46 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); 6 armed of 6; f1 standing 1647 -> 3199 under empire; was 0x263139d41cf801ab (merge off, before Ruling EU item 1), 0xb88ae11059d35c3f (9a83061c), 0x1462ad18fb283f0e (50a6fc6d), 0xaf1f666fba6a5ead (09a217dd), 0x614af03e5d92179d (9b0bec28)
-    (314159, 40075, 24, 0x629827ce9cd3ce9b, 0xb588294bffc9f8b6), // 22 armed of 24; f1 standing 1308 -> 2541 under empire; was 0x6e2eea8789fcc3fc (9a83061c), 0xc54496cb9e16f46b (50a6fc6d), 0xdb356c6e0d222305 (09a217dd), 0xbf2a75aef7bd012b (9b0bec28)
-    (404, 800, 6, 0x387148c99c9fda6a, 0xe49fe26ee5cacc1e), // was 0xa42202b5b351876f (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); 6 armed of 6; f1 standing 1222 -> 2374 under empire; was 0x695c1258c2a8b6e2 (merge off, before Ruling EU item 1), 0xb65f4ab3e01565dc (9a83061c), 0xb0f7ef5cbe0949ae (50a6fc6d), 0x6711bce069a6a764 (09a217dd), 0x811803ddc0ede7a4 (9b0bec28)
-    (404, 800, 24, 0x629827ce9cd3ce9b, 0x2d27e88fa8743cfc), // 24 armed of 24; f1 standing 131 -> 254 under empire; was 0xd95bb665a2b3eb5f (merge off, before Ruling EU item 1), 0x085651e29c16515a (9a83061c), 0xea29d89d89d94327 (50a6fc6d), 0x7495b670bef43d8a (09a217dd), 0xa1b881a5f02187d5 (9b0bec28)
-    (404, 40075, 6, 0x387148c99c9fda6a, 0x8ce2a6d89264de2b), // was 0x8c2f54265ead3475 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); 6 armed of 6; f1 standing 2370 -> 4605 under empire; was 0x37d679638e0fc2cc (merge off, before Ruling EU item 1), 0x6914db27e6cd6a41 (9a83061c), 0xc8f1b87cc652c8da (50a6fc6d), 0x70e295d237feec7f (09a217dd), 0xef0b692385832191 (9b0bec28)
-    (404, 40075, 24, 0x629827ce9cd3ce9b, 0x0844c16deaed22e5), // 22 armed of 24; f1 standing 129 -> 252 under empire; was 0xc1ac09bbff8e5b3a (9a83061c), 0x79882e57d5958ea0 (50a6fc6d), 0x1d87ef0405ba9c73 (09a217dd), 0x628063fecd169372 (9b0bec28)
-    (707, 800, 6, 0x387148c99c9fda6a, 0x93b8f99386a9ead0), // 6 armed of 6; f1 standing 1543 -> 2997 under empire; was 0x5cbac70408df138c (merge off, before Ruling EU item 1), 0x4f9a6e604ffd9648 (9a83061c), 0x84c9fe7e30e6d628 (50a6fc6d), 0x3c1b811a681ef994 (09a217dd), 0xd4faed791bc4806d (9b0bec28)
-    (707, 800, 24, 0x629827ce9cd3ce9b, 0xebd8ba5ad09b16ce), // 24 armed of 24; f1 standing 128 -> 249 under empire; was 0x1b168f7d74de1342 (merge off, before Ruling EU item 1), 0x40150f5475edb4d6 (9a83061c), 0xc4c1ab53dfbd0250 (50a6fc6d), 0x3373836f05fd2a9f (09a217dd), 0x5e8dfd4bb51afb57 (9b0bec28)
-    (707, 40075, 6, 0x387148c99c9fda6a, 0x27ec7c1bc4477098), // 6 armed of 6; f1 standing 3105 -> 6031 under empire; was 0x5c27aa52c6324c16 (merge off, before Ruling EU item 1), 0x325c01cc92342341 (9a83061c), 0xba874abc6cef0dd8 (50a6fc6d), 0x57a839f04dd271e2 (09a217dd), 0x6bfe018f56856cd0 (9b0bec28)
-    (707, 40075, 24, 0x629827ce9cd3ce9b, 0x75335243288211c4), // 22 armed of 24; f1 standing 131 -> 255 under empire; was 0x6848e275052f0e9d (9a83061c), 0xab6410cafb16d9b9 (50a6fc6d), 0xbbc834eb6fc9668d (09a217dd), 0x2156b64519909040 (9b0bec28)
-    (24601, 800, 6, 0x387148c99c9fda6a, 0xafae7903b75fe44f), // was 0x3d91e72ac24b9f40 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); 6 armed of 6; f1 standing 476 -> 925 under empire; was 0x77bbfb32521d7dd0 (merge off, before Ruling EU item 1), 0x123fd1984c32de9c (9a83061c), 0x3aa52e78359cbdfd (50a6fc6d), 0xd9d08f090224da7b (09a217dd), 0x84342cc840db9ca6 (9b0bec28)
-    (24601, 800, 24, 0x629827ce9cd3ce9b, 0x58524e54580e58bc), // was 0x3693fb9a912137e0 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); 24 armed of 24; f1 standing 66 -> 128 under empire; was 0x5aff141f7051adf6 (merge off, before Ruling EU item 1), 0x21d738548a1f3bc9 (9a83061c), 0xe7dda0f9e601d90b (50a6fc6d), 0xbea007d250cc6805 (09a217dd), 0x9bece34622fe2b8d (9b0bec28)
-    (24601, 40075, 6, 0x387148c99c9fda6a, 0x489abbf1d420478b), // 6 armed of 6; f1 standing 803 -> 1560 under empire; was 0xcea2956655533442 (merge off, before Ruling EU item 1), 0xa0ed1173f7b6db96 (9a83061c), 0x1b3ddb6b9ddbc34a (50a6fc6d), 0xecedd7798babe72c (09a217dd), 0x6310552278c1adf1 (9b0bec28)
-    (24601, 40075, 24, 0x629827ce9cd3ce9b, 0x5bf7324dffc92a17), // 22 armed of 24; f1 standing 131 -> 255 under empire; was 0x7c1323cc6abdcdf3 (9a83061c), 0x98d63fc207bdb271 (50a6fc6d), 0xde62503484bbd60a (09a217dd), 0xac90c4fd8ff4ddf3 (9b0bec28)
+    (12345, 800, 6, 0x387148c99c9fda6a, 0x64b16d8af1206e49), // was 0xfcde937df27b6bce (before Ruling EV's basin routing); 6 armed of 6; f1 standing 920 -> 1788 under empire; was 0x160622c110260b61 (merge off, before Ruling EU item 1), 0x0952af06bcae2404 (9a83061c), 0xfc0e51ebf531e378 (50a6fc6d), 0x8d1fce680f420476 (09a217dd), 0x40afff69143a03b2 (9b0bec28)
+    (12345, 800, 24, 0x629827ce9cd3ce9b, 0xb8f70db309a08146), // was 0x1997a58b5308f80d (before Ruling EV's basin routing); 24 armed of 24; f1 standing 327 -> 636 under empire; was 0x3fb41cf3a98e8f23 (merge off, before Ruling EU item 1), 0x533dc283ee3e6944 (9a83061c), 0x4550aad3635d01a6 (50a6fc6d), 0xc0c340ff6043d71b (09a217dd), 0x9d68eb2559dbbfe5 (9b0bec28)
+    (12345, 40075, 6, 0x387148c99c9fda6a, 0x893f5e42f146feb3), // was 0x3f15a2f0e626a2a7 (before Ruling EV's basin routing); 6 armed of 6; f1 standing 3145 -> 6110 under empire; was 0x5895bf7d2e8304f8 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x03114a87f7190b78 (merge off, before Ruling EU item 1), 0x7ffa18733e414344 (9a83061c), 0x3c4c7779c7b93439 (50a6fc6d), 0x90f507f70ee7a916 (09a217dd), 0x942515e5182ec33b (9b0bec28)
+    (12345, 40075, 24, 0x629827ce9cd3ce9b, 0x386c9113163c50a5), // was 0xd08e866b4a2b1a35 (before Ruling EV's basin routing); 22 armed of 24; f1 standing 129 -> 250 under empire; was 0x3449251b1b9bcd31 (9a83061c), 0xa3916268bad3166c (50a6fc6d), 0xf529f91b918f427d (09a217dd), 0xb9c622eafbea842e (9b0bec28)
+    (314159, 800, 6, 0x387148c99c9fda6a, 0xc0f792e6e75c2f5e), // was 0xa9f1fd319e0f3609 (before Ruling EV's basin routing); 6 armed of 6; f1 standing 733 -> 1425 under empire; was 0x218fb1fff9a48e17 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x2e88f91245b6569c (merge off, before Ruling EU item 1), 0x8364635321fe4160 (9a83061c), 0xa5a30c7edd7dd4d9 (50a6fc6d), 0xcb20fec4ea5a37b0 (09a217dd), 0x28cb137a53dc18cf (9b0bec28)
+    (314159, 800, 24, 0x629827ce9cd3ce9b, 0xd501514e66d31f89), // was 0x1b8e6fa4ca883b83 (before Ruling EV's basin routing); 24 armed of 24; f1 standing 318 -> 617 under empire; was 0xf97f6d325d543bd3 (merge off, before Ruling EU item 1), 0x40352f455a8eb6f9 (9a83061c), 0x01e8c323f75e71b5 (50a6fc6d), 0x5d4c0ef0357a761a (09a217dd), 0x7598d6d00551485a (9b0bec28)
+    (314159, 40075, 6, 0x387148c99c9fda6a, 0x4a27fff0b82145b0), // was 0xca4ea3bc30f74384 (before Ruling EV's basin routing); 6 armed of 6; f1 standing 2226 -> 4324 under empire; was 0xc14bd597f97e8c46 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x263139d41cf801ab (merge off, before Ruling EU item 1), 0xb88ae11059d35c3f (9a83061c), 0x1462ad18fb283f0e (50a6fc6d), 0xaf1f666fba6a5ead (09a217dd), 0x614af03e5d92179d (9b0bec28)
+    (314159, 40075, 24, 0x629827ce9cd3ce9b, 0x17d7e873345e3401), // was 0xb588294bffc9f8b6 (before Ruling EV's basin routing); 22 armed of 24; f1 standing 1309 -> 2543 under empire; was 0x6e2eea8789fcc3fc (9a83061c), 0xc54496cb9e16f46b (50a6fc6d), 0xdb356c6e0d222305 (09a217dd), 0xbf2a75aef7bd012b (9b0bec28)
+    (404, 800, 6, 0x387148c99c9fda6a, 0x3cdf2e86364feda5), // was 0xe49fe26ee5cacc1e (before Ruling EV's basin routing); 6 armed of 6; f1 standing 2483 -> 4823 under empire; was 0xa42202b5b351876f (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x695c1258c2a8b6e2 (merge off, before Ruling EU item 1), 0xb65f4ab3e01565dc (9a83061c), 0xb0f7ef5cbe0949ae (50a6fc6d), 0x6711bce069a6a764 (09a217dd), 0x811803ddc0ede7a4 (9b0bec28)
+    (404, 800, 24, 0x629827ce9cd3ce9b, 0x50366977da15f149), // was 0x2d27e88fa8743cfc (before Ruling EV's basin routing); 24 armed of 24; f1 standing 132 -> 256 under empire; was 0xd95bb665a2b3eb5f (merge off, before Ruling EU item 1), 0x085651e29c16515a (9a83061c), 0xea29d89d89d94327 (50a6fc6d), 0x7495b670bef43d8a (09a217dd), 0xa1b881a5f02187d5 (9b0bec28)
+    (404, 40075, 6, 0x387148c99c9fda6a, 0x6c380f62a91ec15c), // was 0x8ce2a6d89264de2b (before Ruling EV's basin routing); 6 armed of 6; f1 standing 1312 -> 2548 under empire; was 0x8c2f54265ead3475 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x37d679638e0fc2cc (merge off, before Ruling EU item 1), 0x6914db27e6cd6a41 (9a83061c), 0xc8f1b87cc652c8da (50a6fc6d), 0x70e295d237feec7f (09a217dd), 0xef0b692385832191 (9b0bec28)
+    (404, 40075, 24, 0x629827ce9cd3ce9b, 0xf61ccf8d8b92ae01), // was 0x0844c16deaed22e5 (before Ruling EV's basin routing); 22 armed of 24; f1 standing 129 -> 252 under empire; was 0xc1ac09bbff8e5b3a (9a83061c), 0x79882e57d5958ea0 (50a6fc6d), 0x1d87ef0405ba9c73 (09a217dd), 0x628063fecd169372 (9b0bec28)
+    (707, 800, 6, 0x387148c99c9fda6a, 0xe61f4982af141b21), // was 0x93b8f99386a9ead0 (before Ruling EV's basin routing); 6 armed of 6; f1 standing 1571 -> 3052 under empire; was 0x5cbac70408df138c (merge off, before Ruling EU item 1), 0x4f9a6e604ffd9648 (9a83061c), 0x84c9fe7e30e6d628 (50a6fc6d), 0x3c1b811a681ef994 (09a217dd), 0xd4faed791bc4806d (9b0bec28)
+    (707, 800, 24, 0x629827ce9cd3ce9b, 0xfb0aef0e21ecf6b6), // was 0xebd8ba5ad09b16ce (before Ruling EV's basin routing); 24 armed of 24; f1 standing 129 -> 250 under empire; was 0x1b168f7d74de1342 (merge off, before Ruling EU item 1), 0x40150f5475edb4d6 (9a83061c), 0xc4c1ab53dfbd0250 (50a6fc6d), 0x3373836f05fd2a9f (09a217dd), 0x5e8dfd4bb51afb57 (9b0bec28)
+    (707, 40075, 6, 0x387148c99c9fda6a, 0xd95d0873b29acbe7), // was 0x27ec7c1bc4477098 (before Ruling EV's basin routing); 6 armed of 6; f1 standing 3994 -> 7758 under empire; was 0x5c27aa52c6324c16 (merge off, before Ruling EU item 1), 0x325c01cc92342341 (9a83061c), 0xba874abc6cef0dd8 (50a6fc6d), 0x57a839f04dd271e2 (09a217dd), 0x6bfe018f56856cd0 (9b0bec28)
+    (707, 40075, 24, 0x629827ce9cd3ce9b, 0x434bdbb5980caefe), // was 0x75335243288211c4 (before Ruling EV's basin routing); 22 armed of 24; f1 standing 131 -> 255 under empire; was 0x6848e275052f0e9d (9a83061c), 0xab6410cafb16d9b9 (50a6fc6d), 0xbbc834eb6fc9668d (09a217dd), 0x2156b64519909040 (9b0bec28)
+    (24601, 800, 6, 0x387148c99c9fda6a, 0xe0c210dd1606c326), // was 0xafae7903b75fe44f (before Ruling EV's basin routing); 6 armed of 6; f1 standing 623 -> 1210 under empire; was 0x3d91e72ac24b9f40 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x77bbfb32521d7dd0 (merge off, before Ruling EU item 1), 0x123fd1984c32de9c (9a83061c), 0x3aa52e78359cbdfd (50a6fc6d), 0xd9d08f090224da7b (09a217dd), 0x84342cc840db9ca6 (9b0bec28)
+    (24601, 800, 24, 0x629827ce9cd3ce9b, 0xbfe5878ed2f1a2a2), // was 0x58524e54580e58bc (before Ruling EV's basin routing); 24 armed of 24; f1 standing 327 -> 635 under empire; was 0x3693fb9a912137e0 (before the 2026-11-13 follow-up (track join to the same destination, usage floor)); was 0x5aff141f7051adf6 (merge off, before Ruling EU item 1), 0x21d738548a1f3bc9 (9a83061c), 0xe7dda0f9e601d90b (50a6fc6d), 0xbea007d250cc6805 (09a217dd), 0x9bece34622fe2b8d (9b0bec28)
+    (24601, 40075, 6, 0x387148c99c9fda6a, 0x8a3799cba977e4e9), // was 0x489abbf1d420478b (before Ruling EV's basin routing); 6 armed of 6; f1 standing 963 -> 1872 under empire; was 0xcea2956655533442 (merge off, before Ruling EU item 1), 0xa0ed1173f7b6db96 (9a83061c), 0x1b3ddb6b9ddbc34a (50a6fc6d), 0xecedd7798babe72c (09a217dd), 0x6310552278c1adf1 (9b0bec28)
+    (24601, 40075, 24, 0x629827ce9cd3ce9b, 0x830584814752af81), // was 0x5bf7324dffc92a17 (before Ruling EV's basin routing); 22 armed of 24; f1 standing 480 -> 932 under empire; was 0x7c1323cc6abdcdf3 (9a83061c), 0x98d63fc207bdb271 (50a6fc6d), 0xde62503484bbd60a (09a217dd), 0xac90c4fd8ff4ddf3 (9b0bec28)
 ];
 
 /// One world's reading: the two column hashes, the FH-R2-shaped roster hash
@@ -785,7 +790,8 @@ fn ea0_ecological_ordering_diagnostic() {
     );
     // before Ruling DE: (59, 88, 143); (138, 9, 143) at 50a6fc6d, before Rulings DG/DJ moved the worlds;
     // (132, 10, 148) at 9a83061c, before Rulings ER and ET moved them again (G1_0's 2026-11-12 note)
-    assert_eq!((default.within, default.above, default.below), (144, 13, 133), "standing verdicts");
+    // (144, 13, 133) before Ruling EV's basin routing moved the worlds again (2026-11-13)
+    assert_eq!((default.within, default.above, default.below), (138, 14, 138), "standing verdicts");
     // Ruling DE does not move E; Rulings DG/DJ's terrain does: 112 at 50a6fc6d,
     // 109 at 9a83061c, 117 after Ruling ER, 120 after Ruling ET
     assert_eq!(default.eco_above_one, 120, "non-empty factions with E > 1"); 
@@ -800,7 +806,8 @@ fn ea0_ecological_ordering_diagnostic() {
     // state capacity 0.91, all above their standing band (Ruling DL Q2's row).
     // Before Ruling DE: [290, 226, 239, 201, 170, 124]; [.., 289, 264, 127] at 50a6fc6d.
     assert_eq!(&sweep_ordered[..4], &[290, 290, 290, 290], "pre-industrial sweep, ordered of 290");
-    assert_eq!(&sweep_ordered[4..], &[290, 287], "industrial sweep, ordered of 290 (reported)");
+    // [290, 287] before Ruling EV's basin routing (2026-11-13): one of the three industrial leaves is ordered now.
+    assert_eq!(&sweep_ordered[4..], &[290, 288], "industrial sweep, ordered of 290 (reported)");
     // The positive control for Ruling DL's term: the four pre-industrial rows'
     // manpower hashes are the ones the tree before the term printed
     // (bit-identical by control flow), and the two industrial ones moved
@@ -818,16 +825,20 @@ fn ea0_ecological_ordering_diagnostic() {
     // RE-RECORDED 2026-11-13 after the 2026-11-13 follow-up (track join to the same destination, usage floor): every count above and below is
     // unchanged; only these six hashes moved. The six before, in order:
     // 0x42642d7c95319952, 0x97644360cc0d9e90, 0x4d7728e68f001c1b, 0xabced11d4985e5a3, 0x936c7648f57d3c4d, 0xd9169302f295bf33.
+    // RE-RECORDED 2026-11-13 after owner Ruling EV (basin routing moved the worlds; with it forced off every count
+    // and hash here held): the standing triple, `capped`, the industrial ordered count, both industrial mobilization
+    // triples and these six hashes moved. The six before, in order:
+    // 0xb3e0e2621f4cc562, 0x723dff919228f547, 0x4718189ba1b6b34e, 0x391a7378cdd1d915, 0xdbe9f09caced6832, 0x12380372dd01d789.
     let hashes: Vec<u64> = sweep_hash.iter().map(|h| h.0).collect();
     assert_eq!(
         hashes,
         vec![
-            0xb3e0e2621f4cc562,
-            0x723dff919228f547,
-            0x4718189ba1b6b34e,
-            0x391a7378cdd1d915,
-            0xdbe9f09caced6832,
-            0x12380372dd01d789,
+            0x511adf87e83e52d5,
+            0x10b3811dbc109969,
+            0x71dd901a4486bc99,
+            0xe263aa637cdcc157,
+            0xd19f5b0410e3c233,
+            0xc4c41e6bdc0504a8,
         ],
         "ag-tech sweep manpower hashes"
     );
@@ -836,11 +847,12 @@ fn ea0_ecological_ordering_diagnostic() {
     // restated (Q4 named the two unreachable cells); `industrial` reads its
     // restated 15-25 % band (Ruling DL Q4).
     let mob = |t: &Tally| (t.mob_within, t.mob_above, t.mob_below);
-    assert_eq!(mob(&sweep[4]), (26, 0, 264), "earlyIndustrial mobilization verdicts");
-    assert_eq!(mob(&sweep[5]), (290, 0, 0), "industrial mobilization verdicts");
+    // (26, 0, 264) and (290, 0, 0) before Ruling EV's basin routing (2026-11-13).
+    assert_eq!(mob(&sweep[4]), (25, 0, 265), "earlyIndustrial mobilization verdicts");
+    assert_eq!(mob(&sweep[5]), (289, 1, 0), "industrial mobilization verdicts");
     // Where FIELD_CAP binds (0 before the ruling: the share topped out at 0.54;
-    // 18 at 50a6fc6d, 21 at 9a83061c, 16 after Ruling ER, 15 after Ruling ET).
-    assert_eq!(default.capped, 15, "field armies at FIELD_CAP of the levy");
+    // 18 at 50a6fc6d, 21 at 9a83061c, 16 after Ruling ER, 15 after Ruling ET, 20 after Ruling EV).
+    assert_eq!(default.capped, 20, "field armies at FIELD_CAP of the levy");
 }
 
 // ============================================== G1 comparison (2026-11-12)

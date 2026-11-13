@@ -50,6 +50,51 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### River combs resolved (Ruling EV): New World uses the current rules, and filled basins route floor-first (2026-11-13)
+
+*The owner, with two phone screenshots of seed 51203 (river flow and relief views at 788 %, APK from `da0dbbbf`):
+"Still see some heavy combing:", then "resolve it".* Cause, design and the full measurement:
+`DELTA_GEOMETRY_RESEARCH.md` section 14; the ruling: `LARGE_ITEM_RULINGS.md` Ruling EV.
+
+- **Cause one, fixed: a New World was made by the rules of the last save opened.** The phone's world had
+  `rough_routing`, `lake_balance` and `civ.merge_ways` off because an older save had been opened in that session:
+  `params::apply_saved_state` loads a rule a save predates off (correct for that world), and New World's Create
+  generated from that live table. Built: `params::LOADS_WHEN_ABSENT` (the one list the load writes and the restore
+  reads), `params::restore_new_world_rules`, `WorldGen::restore_new_world_rules` / `get_new_world_params` and
+  `rules_chosen` (a rule the user set this session is kept; Edit > Reset parameters clears it), called by
+  `EngineBridge` before New World's Create and the heightmap import, never before a regenerate; the New World
+  screen's Lake water balance box shows the value Create will use and is re-read on every open
+  (`new_world_dialog.gd` `_sync_from_engine`). A saved world still loads and regenerates with its own rules.
+- **Cause two, fixed: basin routing** (`cartalith_hydrology::FillTilt::Floor`, `WorldParams::basin_routing`): the
+  depression fill runs down a basin's floor first, in 5- and 7-ULP chamfer steps, instead of the breadth-first
+  chessboard tilt whose 45-degree lines no receiver rule could bend. ON in `params::defaults`, OFF in
+  `WorldParams::defaults` and for a save without the key (§7p); recorded per world (`WorldState::basin_routing`, the
+  substrate manifest's optional `basin_routing`) and read by every consumer that rebuilds the receiver tree
+  (`cartalith_engine::fill_tilt_of`); the GPU flow kernel is skipped when it is on. New `PARAMS` and `JS_PATHS`
+  rows; excluded from the assistant's catalogue like `rough_routing`.
+- **Measured** (`tests/river_basin_routing_measurement.rs`, release, alone, full pipeline; the world's own network):
+  on 51203 / 246371 / 483920 / 912345 the straight share on filled ground falls 30.9 / 34.1 / 26.2 / 26.5 % to
+  7.2 / 13.9 / 6.6 / 7.3 % (longest 59 / 88 / 25 / 43 cells to 17 / 21 / 16 / 16), the whole network's straight share
+  9.9 / 19.5 / 10.2 / 12.7 % to 6.3 / 13.4 / 8.5 / 8.4 % (longest 59 / 117 / 54 / 58 to 21 / 42 / 21 / 23), and the comb
+  share stays 0.7 to 1.7 %. The owner's world as the phone made it: comb 20.9 %, straight 30.9 % (longest 174). No
+  uphill step anywhere; dry ends unchanged (2 / 2 / 0 / 0). The tilt rises at most 0.94 m above a spill (246371).
+  Routing surface cost 66 -> 73 ms on 51203. In the app (`_rivercomb_probe.tscn`, windowed, the owner's window on
+  51203): comb share drawn at x1 / x4 / x7.88 / x16 / x64 is 77 / 66 / 63 / 54 / 46 % as made, 0.8 / 0 / 0 / 0 / 0.3 %
+  before, 0 at every zoom after; the longest drawn straight stretch is 67.9 cells before (the 45-degree line) and
+  12.4 to 17.7 after.
+- **Also moves: lakes grow** where a basin's whole inflow now reaches its floor (the lake balance reads the routed
+  discharge, and the carve follows the converged trunk): lake cells under the balance +17 % on 51203, +23 % on
+  246371, +1 % and +6 % on the small worlds; in the owner's window a part-playa flat is now a lake. Disclosed in the
+  ruling; the owner question is routed (`OUTSTANDING_WORK.md` §2.13, "River combs after Ruling EV").
+- **Evidence**: `cartalith-native/docs/evidence/river-comb-2026-11-13/` (river flow and relief composites at x1, x4,
+  x7.88, x16 and x64, owner / before / after, looked at; the owner composite `owner_composite_combing_fixed.png`;
+  the probe and harness logs).
+- **Verified**: `cargo test --workspace --no-fail-fast` on this tree (worktree on `origin/main` `f7ce2bb7`): **275 result lines, 8 176 passed, 0 failed, 168 ignored** (the floor of the run before the fixture regeneration, 275 lines). Literal mutants **11 of 11 killed** in Rust (the two chamfer steps, the pit key, the diagonal test, the app default, the absent-row, the restore, the comb band, a river as its own neighbour, `fill_tilt_for`, the manifest omission) and **4 of 4** in GDScript against `_newworld_rules_probe` (the Create restore, the import restore, the dialog's re-read and its source); `evidence/river-comb-2026-11-13/mutants.log`. Windowed probes on a DLL built at 04:09:19 from these sources (every later `.rs` write is a mutation or attribution harness restoring the same bytes, sha256-checked, or a test pin): `_newworld_rules_probe.tscn` on the desktop shell **121 checks, 0 failed** and the phone form (`--force-touch`, 1080 x 2340) **121 checks, 0 failed** -- Create is pressed through its own signal, not a finger (`MISTAKES.md`: a synthetic tap cannot reach a control inside an embedded dialog on a phone), so the touch path itself is on glass only; `_rivercomb_probe.tscn` three arms, 20 checks each, 0 failed. `--check-only` passes on both probes, `shell/app.gd`, `engine_bridge.gd` and `new_world_dialog.gd`. **Pins re-recorded, not weakened**: the three knowledge fixtures (their worlds' rivers moved), `g1_baseline`'s `G1_0` (manpower moved on 20 of 20 worlds, governments 0) and EA-0's standing triple, `capped`, industrial counts and six hashes, and `fh_r2_baseline`'s `AT_CURRENT` (relations, belief and urban moved on 20 of 20, roster 0); attributed by forcing `basin_routing` off in `params::defaults()`: every pin held (4 of 4 and 6 of 6), and after the re-record 4 of 4 and 6 of 6 pass. The EA industrial row (`OUTSTANDING_WORK.md` §2.3) now reads 288 of 290.
+- **The owner's world must be made again to see the fix**: a saved world keeps its rivers (stored rasters and its
+  routing record), so the screenshotted world keeps its combs; New World with the same seed and settings on a build
+  with this change shows the fixed rivers.
+
+
 ### Verification pass for the runs left undone on 2026-11-12 (MS-9, assistant swap, vault edges, MS-11, New World sync)
 
 Run on this Windows machine after the Defender freeze was cleared, **windowed, a wiped `APPDATA`, one probe per lock hold**, on `origin/main` `8f1740ef` (the debug DLL built from it) unless a row says another tree. Where a failure was attributed to a parent, the parent was a separate worktree with the same DLL (GDScript only differs): `b1d84bd4` (MS-9's parent) and `3a71bc61` (MS-11's). *Two of the four fixes below are probe-side; one is a product fix.*

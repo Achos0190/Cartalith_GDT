@@ -6873,6 +6873,7 @@ mod tests {
             width_km,
             ws.integrated_drainage,
             cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(),
+            cartalith_engine::fill_tilt_of(ws.basin_routing),
         );
         let river_reach = crate::build_river_reach(&river_polys, &order, gw, gh);
         let ctx = crate::SuitabilityCtx {

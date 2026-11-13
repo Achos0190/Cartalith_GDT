@@ -995,7 +995,15 @@ rebuilds the same receiver tree for the planner, the pick and a run's
 continuation past its channel mask. **Absent means plain D8**: every archive
 written before the ruling, and every world generated with it off, carries no such
 key, and a plain-D8 world's manifest is byte-identical to before. A writer MUST
-omit it rather than write `null` or `0` (`0` is a real seed). The five booleans record which optional grids the world had, because
+omit it rather than write `null` or `0` (`0` is a real seed).
+
+**Optional `basin_routing`** (a boolean, owner Ruling EV, 2026-11-13). Whether the
+world's filled depressions were tilted floor-first when its flow and channels were
+routed (`WorldParams::basin_routing`, `cartalith_hydrology::FillTilt::Floor`), so a
+reopened world rebuilds the same receiver tree, like `routing_roughness`. **Absent
+means breadth-first**, the fill every archive written before the ruling and every
+world generated with it off was routed over; such a world's manifest is
+byte-identical to before. A writer MUST omit it rather than write `false`. The five booleans record which optional grids the world had, because
 they are not always together: river carving off leaves all of them absent, a
 sculpt commit then creates the carve lock alone, and recentring the landmasses
 can drop the channel network alone. **An absent grid is recorded absent and

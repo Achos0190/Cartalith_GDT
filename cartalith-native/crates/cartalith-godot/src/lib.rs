@@ -4896,7 +4896,7 @@ fn compute_civilisation(
     // Ruling N's suitability river term.
     let (river_order, river_polys) =
         // Ruling ER: rebuilt along the tree the world was routed with.
-        cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref());
+        cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing));
     let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
     drop(river_polys);
 
@@ -6376,6 +6376,16 @@ struct WorldGen {
     /// input — set by a generate, a load, and (Ruling AQ) the live control
     /// `set_sea_level_live`, which writes both.
     params: WorldParams,
+    /// **The generation rules the user chose this session** (owner Ruling EV,
+    /// 2026-11-13): for every [`params::is_new_world_rule`] key a `set_params`
+    /// or civ setter applied, the value it stored (the last write wins), so
+    /// [`Self::restore_new_world_rules`] gives a new world the user's choice
+    /// and puts every other rule back to `params::defaults()`. An open does not
+    /// touch it -- the opened world's values are that world's, not a choice for
+    /// the next one, and a choice made before the open still stands -- and a
+    /// New World keeps it, so a choice carries to the next world. Cleared by
+    /// `reset_params` only. Session-only, never saved.
+    rules_chosen: Vec<(&'static str, params::Value)>,
     /// `WorldState::gpu_stages_used` from the last generation — which of the
     /// GPU-eligible stages actually ran on GPU (`GPU_LAYER_INTEGRATION_SCOPE.md`
     /// milestone 6+). Empty when `use_gpu` was off *or* when every stage fell
@@ -7388,6 +7398,7 @@ impl IRefCounted for WorldGen {
             map_width_km: 0.0,
             sea_level: 0.42,
             params: params::defaults(),
+            rules_chosen: Vec::new(),
             gpu_stages_used: Vec::new(),
             world_epoch: 0,
             civ_day: 0,
@@ -8703,8 +8714,66 @@ impl WorldGen {
             {
                 self.mark_param_change(stage, &format!("param:{key}"));
             }
+            // Ruling EV: a generation rule the user wrote is their choice for
+            // the next world too (`restore_new_world_rules`).
+            if outcome != params::Outcome::Rejected {
+                self.note_rule_chosen(&key);
+            }
         }
         dict! { "rejected" => &rejected, "clamped" => &clamped }
+    }
+
+    /// Records the value `key` now holds in [`Self::rules_chosen`] when it is
+    /// a generation rule (`params::is_new_world_rule`); anything else is
+    /// ignored. Called by every user-facing parameter writer after a write
+    /// that landed, so the value recorded is the one stored.
+    fn note_rule_chosen(&mut self, key: &str) {
+        let Some(k) = params::new_world_rule_key(key) else { return };
+        let Some(v) = params::get(&self.params, k) else { return };
+        self.rules_chosen.retain(|&(c, _)| c != k);
+        self.rules_chosen.push((k, v));
+    }
+
+    /// **Gives a new world the current generation rules** (owner Ruling EV,
+    /// 2026-11-13): every `params::LOADS_WHEN_ABSENT` rule takes the value
+    /// the user chose for it this session ([`Self::rules_chosen`]) or, where
+    /// the user chose nothing, its `params::defaults()` value. So a world
+    /// created after opening an older save (which turns the rules it predates
+    /// off) is made by the current rules, while a rule the user turned off by
+    /// hand stays off. Returns the keys it changed (empty when the table
+    /// already held them, e.g. after a boot with nothing opened).
+    ///
+    /// Called by `engine_bridge.gd` just before a run that makes a **new**
+    /// world starts (New World's Create and the heightmap import), never
+    /// before a regenerate of the open world, which keeps the rules it was
+    /// saved with. Refuses like `set_params` on a finalized world (returns
+    /// nothing changed); marks the same stages `reset_params` does when it
+    /// changed anything.
+    #[func]
+    fn restore_new_world_rules(&mut self) -> PackedStringArray {
+        if self.bake.check(cartalith_engine::bake::Mutation::Generation).is_err() {
+            return PackedStringArray::new();
+        }
+        let chosen = self.rules_chosen.clone();
+        let changed = params::restore_new_world_rules(&mut self.params, &|k: &str| chosen.iter().find(|&&(c, _)| c == k).map(|&(_, v)| v));
+        if !changed.is_empty() {
+            self.mark_param_change(PipelineStage::Hydrology, "restore_new_world_rules");
+            self.mark_param_change(PipelineStage::Climate, "restore_new_world_rules");
+        }
+        changed.into_iter().map(GString::from).collect()
+    }
+
+    /// The parameters a New World would generate with **now**: `get_params()`
+    /// with [`Self::restore_new_world_rules`]' change applied to a copy, so a
+    /// dialog can show the value Create will use (the New World screen's lake
+    /// balance toggle) without changing anything. Same keys and types as
+    /// `get_params()`.
+    #[func]
+    fn get_new_world_params(&self) -> VarDictionary {
+        let mut p = self.params.clone();
+        let chosen = &self.rules_chosen;
+        params::restore_new_world_rules(&mut p, &|k: &str| chosen.iter().find(|&&(c, _)| c == k).map(|&(_, v)| v));
+        params_to_dict(&p)
     }
 
     /// One civ parameter, written through the same [`params::set`] the
@@ -8723,6 +8792,10 @@ impl WorldGen {
         if let Some(stage) = params::invalidates(key) {
             self.mark_param_change(stage, &format!("param:{key}"));
         }
+        // The same record `set_params` keeps (Ruling EV): none of the civ
+        // sugar setters writes a rule today, so this is the guard for one that
+        // does.
+        self.note_rule_chosen(key);
     }
 
     /// Restores every generation parameter to its
@@ -8752,6 +8825,9 @@ impl WorldGen {
     #[func]
     fn reset_params(&mut self) {
         self.params = params::defaults();
+        // Every rule is the app's again, so no earlier choice is kept over it
+        // (Ruling EV).
+        self.rules_chosen.clear();
         self.mark_param_change(PipelineStage::Hydrology, "reset_params");
         self.mark_param_change(PipelineStage::Climate, "reset_params");
     }
@@ -10598,6 +10674,10 @@ impl WorldGen {
         // existed -- see `apply_saved_state`'s own doc comment for why it
         // deliberately does not reconstruct them from the reference's
         // `state` instead.
+        // Ruling EV: this writes the opened world's generation rules -- off for
+        // every rule it predates -- into the live table for that world only;
+        // `rules_chosen` is left alone, so a New World after it is made by the
+        // app's rules and the user's own choices (`restore_new_world_rules`).
         params::apply_saved_state(&mut self.params, &save.state);
         self.seed = save.params.seed;
         // The archive's own record of its name, verbatim including its
@@ -13474,7 +13554,7 @@ impl WorldGen {
         // returned above.
         let down = {
             let (gw, gh) = (f.gw, f.gh);
-            let route = cartalith_hydrology::routing_view(f.field, gw, gh, f.sea_level, self.world, ws.integrated_drainage);
+            let route = cartalith_hydrology::routing_view_with(f.field, gw, gh, f.sea_level, self.world, ws.integrated_drainage, cartalith_engine::fill_tilt_of(ws.basin_routing));
             // Ruling ER: the tree the world was routed along (rough or D8).
             let d8 = cartalith_hydrology::flow_receivers_with(&route, gw, gh, self.world, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, self.world).as_ref());
             let chan = ws.channels.as_ref().map(|c| c.recv.as_slice()).unwrap_or(&[]);

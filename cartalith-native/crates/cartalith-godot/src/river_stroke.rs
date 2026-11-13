@@ -2791,6 +2791,91 @@ impl WorldGen {
         d
     }
 
+    /// **Parallel river combs, measured on the drawn map** (owner, 2026-11-13: *"Still see some heavy combing"*;
+    /// `DELTA_GEOMETRY_RESEARCH.md` section 14), for a probe. `river_straight::comb_stats` and `straight_stats`
+    /// (stretches of at least 8 cells within 0.5 cells of their chord: the display meander moves a ruler line by
+    /// 0.3 cells, so 0.25 would hide it) over `traced` (every traced river, `rivers_now(1)`) and over `z<zoom>`,
+    /// for each camera zoom of `zooms` (a multiple of the opening fit view, as the readout's `zoom NN%` / the
+    /// fit's): the drawn pieces' points that Ruling EN's law draws at that zoom at half strength or more
+    /// (`river_visibility >= 0.5`). `window` (`x0, y0, x1, y1` in cells; empty for the whole map) keeps only
+    /// the points inside it, splitting a line where it leaves. Lines are split where they cross a wrapped
+    /// world's seam. Keys per stage: `_total`, `_comb`, `_comb_runs`, `_comb_longest`, `_straight`,
+    /// `_straight_longest` (cells). A stage with nothing drawn has `_total` 0 and no other key. `{}` with no
+    /// rivers. Diagnostic; nothing in the shell reads it.
+    #[func]
+    fn river_comb(&self, zooms: PackedFloat32Array, window: PackedFloat32Array) -> VarDictionary {
+        use crate::river_straight::{comb_stats, straight_stats};
+        let mut d = VarDictionary::new();
+        let win = window.as_slice();
+        let inside = |p: (f64, f64)| win.len() != 4 || (p.0 >= win[0] as f64 && p.1 >= win[1] as f64 && p.0 <= win[2] as f64 && p.1 <= win[3] as f64);
+        // Cut every line at the window's edge and at a wrapped seam (a step of more than 2.5 cells).
+        let cut = |lines: Vec<Vec<(f64, f64)>>| -> Vec<Vec<(f64, f64)>> {
+            let mut out = Vec::new();
+            for l in lines {
+                let mut cur: Vec<(f64, f64)> = Vec::new();
+                for p in l {
+                    let jump = cur.last().is_some_and(|q: &(f64, f64)| (p.0 - q.0).abs() > 2.5);
+                    if !inside(p) || jump {
+                        if cur.len() > 1 {
+                            out.push(std::mem::take(&mut cur));
+                        } else {
+                            cur.clear();
+                        }
+                    }
+                    if inside(p) {
+                        cur.push(p);
+                    }
+                }
+                if cur.len() > 1 {
+                    out.push(cur);
+                }
+            }
+            out
+        };
+        let mut put = |k: &str, lines: &[Vec<(f64, f64)>]| {
+            let c = comb_stats(lines.iter().map(|v| v.as_slice()));
+            d.set(format!("{k}_total").as_str(), c.total);
+            if c.total <= 0.0 {
+                return;
+            }
+            let s = straight_stats(lines.iter().map(|v| v.as_slice()), 8.0, 0.5);
+            d.set(format!("{k}_comb").as_str(), c.comb);
+            d.set(format!("{k}_comb_runs").as_str(), c.runs as i64);
+            d.set(format!("{k}_comb_longest").as_str(), c.longest);
+            d.set(format!("{k}_straight").as_str(), s.straight);
+            d.set(format!("{k}_straight_longest").as_str(), s.longest);
+        };
+        let rivers = self.rivers_now(1);
+        if rivers.is_empty() {
+            return VarDictionary::new();
+        }
+        put("traced", &cut(rivers.iter().map(|r| r.pts.clone()).collect()));
+        if let Some(g) = self.river_geometry_any() {
+            let (fit, _) = scale();
+            for &z in zooms.as_slice() {
+                let mut seen: Vec<Vec<(f64, f64)>> = Vec::new();
+                for r in &g.runs {
+                    for &(a, b) in &r.pieces {
+                        let mut cur: Vec<(f64, f64)> = Vec::new();
+                        for k in a..b.min(r.pts.len()) {
+                            let u = r.ranks.get(k).copied().unwrap_or(0.0);
+                            if river_visibility(u, fit * z) >= 0.5 {
+                                cur.push((r.pts[k].0 as f64, r.pts[k].1 as f64));
+                            } else if !cur.is_empty() {
+                                seen.push(std::mem::take(&mut cur));
+                            }
+                        }
+                        if !cur.is_empty() {
+                            seen.push(cur);
+                        }
+                    }
+                }
+                put(&format!("z{z}"), &cut(seen));
+            }
+        }
+        d
+    }
+
     /// The last [`Self::river_delta_fans`] build, for a probe: `{built, mouths,
     /// eligible, no_discharge, fans, branches, dropped_dry, collided, splits,
     /// kind_river, kind_lobate, kind_wave, skipped, min_order,

@@ -1,0 +1,30 @@
+Literal mutants, Ruling EV (2026-11-13). Python harnesses: exact replace, occurs-exactly-once asserted, BUILD_ERROR separate from SURVIVED, restored in finally, sha256 checked after.
+
+Rust (cargo test on the named tests):
+M1 orth step 5 -> 4 -> KILLED ['KILLED']
+M2 diag step 7 -> 5 -> KILLED ['KILLED']
+M3 pit keyed by raised height, not terrain -> KILLED ['KILLED']
+M4 every step orthogonal -> KILLED ['KILLED']
+M5 app default basin_routing off -> KILLED ['KILLED', 'KILLED']
+M6 absent row for basin_routing dropped -> KILLED ['KILLED', 'KILLED']
+M7 restore skips every row -> KILLED ['KILLED']
+M8 comb band 5 -> 12 cells -> KILLED ['KILLED']
+M9 a river counts as its own neighbour -> KILLED ['KILLED']
+M10 fill_tilt_for never Floor -> KILLED ['KILLED']
+M11 manifest writes basin_routing false -> KILLED ['KILLED']
+all restored
+crates/cartalith-hydrology/src/lib.rs: OK
+crates/cartalith-godot/src/params.rs: OK
+crates/cartalith-godot/src/river_straight.rs: OK
+crates/cartalith-engine/src/lib.rs: OK
+crates/cartalith-godot/src/substrate.rs: OK
+
+GDScript (_newworld_rules_probe.tscn, windowed, desktop, one lock hold per mutant):
+mutG1 -> KILLED (fail=28 checks=121)
+mutG2 -> KILLED (fail=1 checks=121)
+mutG3 -> KILLED (fail=5 checks=121)
+mutG4 -> KILLED (fail=6 checks=121)
+  G1 the bridge never restores the rules for New World (engine_bridge.gd generate())
+  G2 the dialog never re-reads its lake box (new_world_dialog.gd _sync_from_engine)
+  G3 the import never restores the rules (engine_bridge.gd import_heightmap)
+  G4 the dialog's box reads the open world, not the new world (param_get for new_world_param)

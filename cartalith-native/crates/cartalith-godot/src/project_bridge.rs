@@ -7521,6 +7521,79 @@ mod tests {
         assert_eq!(warnings.iter().filter(|w| w.contains("religious policy")).count(), 1, "{warnings:?}");
     }
 
+    /// Protects owner Ruling EV (2026-11-13) on a REAL prior-format archive (written by the app on
+    /// 2026-09-24, before Rulings ER, ET, EU and EV): opening it loads every generation rule it
+    /// predates OFF, so the opened world regenerates as it was saved; then the New World restore
+    /// (`params::restore_new_world_rules`, what `WorldGen::restore_new_world_rules` runs before
+    /// New World's Create) puts exactly those rules back to the app's, leaves every setting the
+    /// save carried alone, keeps a rule the user chose this session, and changes nothing on a
+    /// session that opened nothing. Every expected value is a literal typed from the archive's
+    /// `params.json` and from `params::defaults`' ruled lines -- not read back from the table under
+    /// test. Removing the `basin_routing` row from `LOADS_WHEN_ABSENT`, or making the restore skip
+    /// a row, turns this red. The owner's 2026-11-13 combing world had rough routing, the lake
+    /// balance and the shared trunks off for exactly the first half of this.
+    #[test]
+    fn a_new_world_after_opening_a_pre_ruling_er_archive_is_made_by_the_app_rules() {
+        let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
+        let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
+        let native = data.save.state.get(crate::params::NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).expect("a native block");
+        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways"] {
+            assert!(!native.contains_key(k), "premise: the archive predates {k}");
+        }
+        assert_eq!(native.get("passes.glacial"), Some(&serde_json::json!(false)), "premise: an explicit false");
+        let mut p = crate::params::defaults();
+        crate::params::apply_saved_state(&mut p, &data.save.state);
+        // The opened world: every rule it predates (or saved off) is off.
+        assert_eq!((p.rough_routing, p.basin_routing, p.lake_balance, p.civ.merge_ways), (false, false, false, false));
+        assert_eq!(
+            (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
+            (false, false, false, false, false, false)
+        );
+        assert_eq!((p.volc.morphometry, p.volc.cinder_grid_law, p.volc.dry_active_craters, p.volc.lava_bench), (false, false, false, false));
+        assert_eq!(
+            (p.volc.kind_dome, p.volc.kind_maar, p.volc.kind_caldera, p.volc.kind_supervolcano, p.volc.kind_flood_basalt),
+            (false, false, false, false, false)
+        );
+        assert!(p.integrate_drainage && p.tect.narrow_plate_base_blur, "the two rules it carries as true");
+        let settings = |p: &cartalith_engine::WorldParams| (p.river_density, p.geo_age, p.civ.garrison_exposure_scale, p.tect.plates, p.climate.w_iters, p.peak_m);
+        let carried = settings(&p);
+        let opened = p.clone();
+        let mut changed = crate::params::restore_new_world_rules(&mut p, &|_: &str| None);
+        // The new world: the app's rules (`params::defaults`' ruled lines, as literals) ...
+        assert_eq!((p.rough_routing, p.basin_routing, p.lake_balance, p.civ.merge_ways), (true, true, true, true));
+        assert_eq!(
+            (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
+            (true, true, true, true, true, true)
+        );
+        assert_eq!((p.volc.morphometry, p.volc.cinder_grid_law, p.volc.dry_active_craters, p.volc.lava_bench), (true, true, true, true));
+        assert_eq!(
+            (p.volc.kind_dome, p.volc.kind_maar, p.volc.kind_caldera, p.volc.kind_supervolcano, p.volc.kind_flood_basalt),
+            (true, true, true, true, true)
+        );
+        assert!(p.integrate_drainage && p.tect.narrow_plate_base_blur);
+        // ... the geology processes and their dependants stay off, as the app ships them ...
+        assert_eq!((p.geology_processes, p.relief_model, p.geology_karst, p.geology_carve), (false, false, false, false));
+        // ... and the settings the open world carried are untouched.
+        assert_eq!(settings(&p), carried, "a New World carries the world on screen's settings");
+        changed.sort_unstable();
+        let mut want = vec![
+            "rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial",
+            "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law",
+            "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
+            "volc.kind_supervolcano", "volc.kind_flood_basalt",
+        ];
+        want.sort_unstable();
+        assert_eq!(changed, want, "the restore reports exactly the rules it put back");
+        // A rule the user chose this session is kept; the rest are still the app's.
+        let mut q = opened.clone();
+        let changed = crate::params::restore_new_world_rules(&mut q, &|k: &str| (k == "lake_balance").then_some(crate::params::Value::Bool(false)));
+        assert!(!q.lake_balance && q.rough_routing && q.basin_routing && q.civ.merge_ways);
+        assert!(!changed.contains(&"lake_balance"), "{changed:?}");
+        // A session that opened nothing: the table already holds the app's rules.
+        let mut fresh = crate::params::defaults();
+        assert!(crate::params::restore_new_world_rules(&mut fresh, &|_: &str| None).is_empty());
+    }
+
     /// Protects: R1 is additive. A project saved before custom religions
     /// existed (a real archive, not a hand-built one) opens with an empty
     /// library and **no warning**, and an untouched project writes no
@@ -9868,6 +9941,7 @@ mod substrate_tests {
         assert_eq!(a.boundary_type, b.boundary_type, "boundary_type");
         assert_eq!(a.integrated_drainage, b.integrated_drainage, "integrated_drainage");
         assert_eq!(a.routing_roughness, b.routing_roughness, "routing_roughness");
+        assert_eq!(a.basin_routing, b.basin_routing, "basin_routing");
         assert_eq!(a.stream_order, b.stream_order, "stream_order");
         assert_eq!(a.river_mask, b.river_mask, "river_mask");
         assert_eq!(a.river_floor.as_deref().map(bits), b.river_floor.as_deref().map(bits), "river_floor");
@@ -9912,6 +9986,7 @@ mod substrate_tests {
             &ws.field, &ws.flow_discharge, GW, GH, ws.sea_level, p.world, p.river_density, p.map_width_km,
             ws.integrated_drainage,
             cartalith_engine::routing_roughness_of(ws.routing_roughness, GW, GH, p.world).as_ref(),
+            cartalith_engine::fill_tilt_of(ws.basin_routing),
         );
         let jpw = cartalith_civ::JpWorld {
             gw: GW,
@@ -10490,6 +10565,28 @@ mod substrate_tests {
         assert!(err.contains("version 2"), "{err}");
     }
 
+    /// Protects the optional `basin_routing` manifest member (owner Ruling EV,
+    /// `SAVEFILE_COMPAT.md` §8.3): a breadth-first world's manifest has no such key at all, so
+    /// it is byte-identical to one written before the ruling; a floor-first world's carries
+    /// `true`; and a manifest without the key reads back `false`, the tilt every earlier archive
+    /// was routed with. Writing `false` (dropping the `skip_serializing_if`) or reading an absent
+    /// key as `true` fails here.
+    #[test]
+    fn the_basin_routing_member_is_omitted_when_off_and_absent_reads_breadth_first() {
+        let (_, ws, _) = world();
+        let mut off = clone_ws(ws);
+        off.basin_routing = false;
+        let (_, m_off) = substrate::substrate_rasters(&off, GW * GH).unwrap();
+        let j_off = serde_json::to_value(&m_off).unwrap();
+        assert!(j_off.get("basin_routing").is_none(), "absent, not false: {j_off}");
+        let mut on = clone_ws(ws);
+        on.basin_routing = true;
+        let (_, m_on) = substrate::substrate_rasters(&on, GW * GH).unwrap();
+        assert_eq!(serde_json::to_value(&m_on).unwrap().get("basin_routing"), Some(&serde_json::json!(true)));
+        let back: SubstrateManifest = serde_json::from_value(j_off).unwrap();
+        assert!(!back.basin_routing, "an archive without the key was routed breadth-first");
+    }
+
     /// Protects: the substrate manifest records each optional grid as present or absent as it
     /// was; a world with no carve writes only the nine always-present grids and reopens with
     /// those grids `None`.
@@ -10503,6 +10600,7 @@ mod substrate_tests {
                 version: 1,
                 integrated_drainage: ws.integrated_drainage,
                 routing_roughness: ws.routing_roughness,
+                basin_routing: ws.basin_routing,
                 channels: true,
                 river_intensity: !ws.channels.as_ref().unwrap().intensity.is_empty(),
                 stream_order: true,
@@ -10564,6 +10662,7 @@ mod substrate_tests {
             flow_discharge: ws.flow_discharge.clone(),
             integrated_drainage: ws.integrated_drainage,
             routing_roughness: ws.routing_roughness,
+            basin_routing: ws.basin_routing,
             channels: ws.channels.as_ref().map(|c| cartalith_hydrology::ChannelResult {
                 recv: c.recv.clone(),
                 chan: c.chan.clone(),

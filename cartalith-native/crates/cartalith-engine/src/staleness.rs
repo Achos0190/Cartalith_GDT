@@ -246,6 +246,9 @@ pub fn recompute_stale(g: &mut StageGraph, p: &WorldParams, ws: &mut WorldState)
         // `refresh_climate` just routed `flow_discharge` with the live flag, so
         // the world's own record of how its drainage was routed follows it.
         ws.integrated_drainage = p.integrate_drainage;
+        // And with the live fill tilt (`fill_tilt_for`, the 2026-11-13 basin
+        // routing), so the tilt record follows it the same way.
+        ws.basin_routing = crate::fill_tilt_for(p) == cartalith_hydrology::FillTilt::Floor;
         // Order is load-bearing: hydrology's own version bumps here, and
         // climate must observe *that* version, not the one before it.
         g.mark_recomputed(hydro, "flow_recomputed");

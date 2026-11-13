@@ -355,6 +355,10 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         // Ruling ER: an imported DEM is routed plain D8 -- its relief is real
         // data, not a model's planar slopes, so no roughness is added to it.
         routing_roughness: None,
+        // The 2026-11-13 basin routing, the same way: the import routes over
+        // the breadth-first fill (`compute_flow_routed` above), and this is
+        // its record. An imported DEM's filled pits are measured data.
+        basin_routing: false,
         // River carving is likewise a height stage. The reference's
         // inferTectonics does not carve either -- it stops at computeFlow.
         channels: None,

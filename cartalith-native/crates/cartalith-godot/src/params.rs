@@ -132,9 +132,16 @@ pub struct ParamSpec {
 /// This function is where the product's own rulings land instead: a divergence
 /// recorded in `DECISIONS.md` or `LARGE_ITEM_RULINGS.md` turns on here, not
 /// there, so it reaches every generated world without deleting the parity
-/// baseline underneath it. Today that is thirteen flags (enumerated by
-/// `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`),
-/// each independently revertible by deleting its own line.
+/// baseline underneath it. The flags are enumerated, not counted, by
+/// `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`
+/// (a count written here went stale at thirteen); each is independently
+/// revertible by deleting its own line.
+///
+/// **A New World starts from these switches** (Ruling EV): the generation
+/// rules in [`LOADS_WHEN_ABSENT`] that opening an older save turned off are
+/// put back to their value here when the next world is created
+/// ([`restore_new_world_rules`]), so a world made after opening an old one
+/// is made by the current rules.
 pub fn defaults() -> WorldParams {
     let mut p = WorldParams::defaults(0, 0, 0);
     // `DECISIONS.md` §7l (owner ruling, 2026-09-02): craters generate from an
@@ -165,6 +172,13 @@ pub fn defaults() -> WorldParams {
     // on a grid axis. Off in `WorldParams::defaults`, the goldens' plain D8.
     // Acts only with `integrate_drainage` (on above).
     p.rough_routing = true;
+    // Owner Ruling EV (2026-11-13; `DELTA_GEOMETRY_RESEARCH.md` section 14):
+    // new worlds tilt every filled depression floor-first, so water inside a
+    // basin runs down to its floor and out by one path instead of crossing it
+    // in parallel grid-axis runs (the owner's "heavy combing"). Off in
+    // `WorldParams::defaults`, the goldens' breadth-first fill. Acts only with
+    // `integrate_drainage` (on above).
+    p.basin_routing = true;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
     // where inflow covers evaporation, else a playa). Off in
@@ -329,6 +343,15 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "rough_routing", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Rough routing (rivers wander across smooth slopes)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.rough_routing), set_fn: |p, v| p.rough_routing = v != 0.0 },
+    // Ruling EV (2026-11-13): basin routing, the floor-first tilt of every
+    // filled depression (`cartalith_hydrology::FillTilt::Floor`). ON at the
+    // app boundary, OFF in `WorldParams::defaults`; no reference control (the
+    // reference has no fill). A row so a save records how its world's basins
+    // were routed; a save without the key loads OFF (`LOADS_WHEN_ABSENT`).
+    // No GUI control, like `rough_routing`.
+    ParamSpec { key: "basin_routing", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Basin routing (rivers in filled basins run to the floor)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.basin_routing), set_fn: |p, v| p.basin_routing = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -958,6 +981,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("integrate_drainage", ""),
     // Port-only (Ruling ER); the reference routes plain D8.
     ("rough_routing", ""),
+    // Port-only (Ruling EV); the reference has no fill to tilt.
+    ("basin_routing", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1237,6 +1262,173 @@ pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
     state
 }
 
+/// **What a save WITHOUT a key loads, for every key whose absence is
+/// information** -- the one list [`apply_saved_state`] writes before a save's
+/// own values and [`restore_new_world_rules`] reads (Ruling EV: one
+/// definition, so the two can never drift).
+///
+/// Each row is a parameter added after saves already existed. `save_state`
+/// writes every row of [`PARAMS`], so a save from the row's own change on
+/// always carries it, and its absence means "written before this existed":
+/// the world was generated without it, and a regenerate from the save's
+/// parameters must reproduce that world. A save that carries the key -- an
+/// explicit `false` included -- is honoured by `apply_saved_state`'s loop.
+///
+/// The boolean rows are **generation rules** (each a ruled divergence of
+/// `DECISIONS.md` §7p, or a geology switch measured off): opening an old save
+/// turns them off for that world only, and a New World puts them back to
+/// [`defaults`] ([`restore_new_world_rules`]). The two numeric rows are
+/// **settings** a user moves on a dial; their absence means only that the
+/// save predates the dial, and a New World carries them like every other
+/// setting of the world on screen.
+pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
+    // Owner Ruling BW item 4 (2026-10-10): every archive written before
+    // `integrate_drainage` existed, and every reference-app export, was
+    // generated without integrated drainage. Until 2026-10-10 it reloaded as
+    // that world (off), as the source's own loader does for
+    // `state.hydro.integrate` (`RC_ENGINE_CHANGES.md` §6k); the ruling
+    // reversed that, so such a save now loads with it ON, accepting that its
+    // rivers visibly change on load. The only row whose absent value is on.
+    ("integrate_drainage", Value::Bool(true)),
+    // Every save without the key was generated at the pre-v2.57 plate-base
+    // blur, so a regenerate from its parameters must reproduce that
+    // coastline. (The source has no key to consult -- K is a constant there
+    // -- so this follows `integrate_drainage` here, not a source loader.)
+    ("tect.narrow_plate_base_blur", Value::Bool(false)),
+    // Rough routing (Ruling ER, 2026-11-11): every save without the key was
+    // generated with plain D8 routing, so a regenerate reproduces its rivers.
+    ("rough_routing", Value::Bool(false)),
+    // Basin routing (Ruling EV, 2026-11-13): every save without the key was
+    // routed over the breadth-first fill, so a regenerate reproduces it.
+    ("basin_routing", Value::Bool(false)),
+    // The lake water balance (Ruling ET, 2026-11-12): every save without the
+    // key kept the per-cell rain-test lakes.
+    ("lake_balance", Value::Bool(false)),
+    // The orogen relief term (Ruling CU item 1, 2026-10-19): every save
+    // without the key was generated with smooth belts and clipped summits.
+    ("tect.orogen_relief", Value::Bool(false)),
+    // The higher world ceiling (Ruling DB item 3, 2026-10-25): every save
+    // without the key was generated with the top at 1.
+    ("tect.high_ceiling", Value::Bool(false)),
+    // The glacial pass (Ruling AU). Every save this port has written since
+    // `1f7c295` (2026-08-23) carries `passes.glacial`, so the key is missing
+    // only from a reference-app export -- whose world was generated without
+    // it, because the reference runs `glacialKernel` from a button and never
+    // inside generation -- or a native block from before that commit.
+    ("passes.glacial", Value::Bool(false)),
+    // The geology model (Ruling BH, GF-1): every save without the key was
+    // generated before the model existed.
+    ("geology_model", Value::Bool(false)),
+    // GF-2's processes: a save without the key was generated with no process
+    // reading rock.
+    ("geology_processes", Value::Bool(false)),
+    // GF-11's relief switch: a save without the key was generated with no
+    // construction (§4.16: "a save without the key reloads off").
+    ("relief_model", Value::Bool(false)),
+    // GF-5's karst switch: a save without the key was generated with no
+    // dissolution and the rain itself seeding its rivers.
+    ("geology_karst", Value::Bool(false)),
+    // GF-6's carve switch: a save without the key was generated with every
+    // valley at the rock-blind width.
+    ("geology_carve", Value::Bool(false)),
+    // GF-7's geological age, a setting: a save without the key was generated
+    // before the clock, and τ = 1 reproduces exactly those pass counts by
+    // control flow (`GEOLOGY_FIRST_SCOPE.md` §2.6: "Its clock is read as 1.0").
+    ("geo.age", Value::Num(cartalith_engine::geo_clock::GEO_AGE_DEFAULT)),
+    // The rain up-sample (Ruling CM, 2026-10-18), like the plate-base blur and
+    // the geology model rather than like `integrate_drainage`: every save
+    // without the key was generated with the reference's bilinear rain, so a
+    // regenerate reproduces the rain, rivers and biomes it was saved with.
+    ("climate.rain_bspline", Value::Bool(false)),
+    // The edifice flank-pit fill (Ruling CO, 2026-10-18): every save without
+    // the key was generated with the pits unfilled, so a regenerate
+    // reproduces the small volcano lakes it was saved with.
+    ("volc.fill_edifice_pits", Value::Bool(false)),
+    // VA-5's morphometry (2026-10-24).
+    ("volc.morphometry", Value::Bool(false)),
+    // Ruling CX item 4's cinder law (2026-10-24).
+    ("volc.cinder_grid_law", Value::Bool(false)),
+    // Ruling CX item 6's dry active craters (2026-10-24).
+    ("volc.dry_active_craters", Value::Bool(false)),
+    // Ruling DB item 2's lava benches (2026-10-25).
+    ("volc.lava_bench", Value::Bool(false)),
+    // VA-6's domes and maars (2026-10-25), and Ruling DJ's calderas,
+    // supervolcano and flood basalt (2026-10-25).
+    ("volc.kind_dome", Value::Bool(false)),
+    ("volc.kind_maar", Value::Bool(false)),
+    ("volc.kind_caldera", Value::Bool(false)),
+    ("volc.kind_supervolcano", Value::Bool(false)),
+    ("volc.kind_flood_basalt", Value::Bool(false)),
+    // The garrison border-exposure scale (Ruling AZ), a setting: a save
+    // without `civ.garrison_exposure_scale` at all is either a genuine
+    // reference-app export or one written between 382945a and the `CivParams`
+    // fold-in -- both predate this key, so this row and
+    // `project_bridge.rs`'s `resolve_garrison_exposure_scale` (which reads the
+    // 382945a-era `factions.json` fallback) are what actually decide that
+    // value. Its absent value is not `false` but
+    // `cartalith_civ::garrison::EXPOSURE_SCALE`'s own `1.0`, duplicated as a
+    // literal for the reason `CivParams::garrison_exposure_scale`'s own doc
+    // comment gives.
+    ("civ.garrison_exposure_scale", Value::Num(1.0)),
+    // The shared road trunks (Ruling EU item 1, 2026-11-12), like the lake
+    // balance: every save without the key was built with the reference's
+    // network, so a Recompute or Generate roads on it rebuilds those roads.
+    ("civ.merge_ways", Value::Bool(false)),
+];
+
+/// Whether `key` is one of [`LOADS_WHEN_ABSENT`]'s **generation rules** (its
+/// boolean rows), the switches a New World puts back to [`defaults`]
+/// (Ruling EV). `false` for every setting and every unknown key.
+pub fn is_new_world_rule(key: &str) -> bool {
+    new_world_rule_key(key).is_some()
+}
+
+/// The table's own `&'static str` for a [`is_new_world_rule`] key, so a
+/// caller can record it without allocating; `None` for anything else.
+pub fn new_world_rule_key(key: &str) -> Option<&'static str> {
+    LOADS_WHEN_ABSENT.iter().find(|&&(k, v)| k == key && matches!(v, Value::Bool(_))).map(|&(k, _)| k)
+}
+
+/// **Puts the generation rules back to [`defaults`] for a new world**
+/// (owner Ruling EV, 2026-11-13). Opening an older save writes its
+/// generation rules into the live table -- off, for a rule the save predates
+/// ([`LOADS_WHEN_ABSENT`]) -- and New World generates from the live table, so
+/// before this every world made after opening an old one was made by the old
+/// rules (the owner's "heavy combing" world had rough routing, the lake
+/// balance and the shared trunks off for exactly that reason, while the build
+/// it ran had all three on).
+///
+/// Sets every rule to the value the user chose for it this session --
+/// `chosen(key)`, the caller's record of the last value the user wrote
+/// (`WorldGen::rules_chosen`) -- or, where the user chose nothing, to its
+/// [`defaults`] value, and returns the keys whose value it changed. So a
+/// rule the user turned off by hand stays off, and a value that came from a
+/// save, present or absent, is never taken as the user's choice for the next
+/// world (an older save carries an explicit `false` for a rule that was simply
+/// off by default when it was written: the fixture
+/// `project_pre_substrate_2026-09-24.zip`'s `passes.glacial`). Settings (the
+/// numeric rows, and every parameter outside the table) are never touched: a
+/// New World carries the world on screen's settings by design
+/// (`new_world_dialog.gd`'s `_sync_from_engine`).
+///
+/// Must never be called for a regenerate of the open world, which keeps the
+/// rules it was saved with.
+pub fn restore_new_world_rules(p: &mut WorldParams, chosen: &dyn Fn(&str) -> Option<Value>) -> Vec<&'static str> {
+    let app = defaults();
+    let mut changed = Vec::new();
+    for &(key, absent) in LOADS_WHEN_ABSENT {
+        if !matches!(absent, Value::Bool(_)) {
+            continue;
+        }
+        let Some(want) = chosen(key).or_else(|| get(&app, key)) else { continue };
+        if get(p, key) != Some(want) {
+            set(p, key, want);
+            changed.push(key);
+        }
+    }
+    changed
+}
+
 /// Restores what [`save_state`] wrote, from a save's `state` object.
 /// Returns how many parameters were applied.
 ///
@@ -1250,109 +1442,16 @@ pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
 /// in a hand-edited (or future-version) save is clamped or rejected on the
 /// same terms as a GUI write, and never panics.
 pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usize {
-    // Parameters whose *absence* is information. A save that does not carry
-    // `integrate_drainage` -- every archive written before it existed, and
-    // every reference-app export -- was generated without integrated drainage.
-    // Until 2026-10-10 it reloaded as that world (off), as the source's own
-    // loader does for `state.hydro.integrate` (`RC_ENGINE_CHANGES.md` §6k).
-    // Owner Ruling BW item 4 (2026-10-10) reversed that: such a save now loads
-    // with it ON, accepting that its rivers visibly change on load. Detection
-    // is by ABSENCE of the key in the native block (or of the whole block, for
-    // a reference-app export): a save that carries the key -- true or an
-    // explicit false -- sets it in the loop below like any other row, so a
-    // deliberate false is never overridden. The key is always written by
-    // `save_state`, which is what makes absence mean "old save".
-    p.integrate_drainage = true;
-    // Same reasoning, same shape: every save without the key was generated
-    // at the pre-v2.57 plate-base blur, so a regenerate from its parameters
-    // must reproduce that coastline. (The source has no key to consult -- K
-    // is a constant there -- so this follows `integrate_drainage` here, not a
-    // source loader.)
-    p.tect.narrow_plate_base_blur = false;
-    // And rough routing (Ruling ER, 2026-11-11), the same way: every save
-    // without the key was generated with plain D8 routing, so a regenerate
-    // from its parameters reproduces its rivers.
-    p.rough_routing = false;
-    // And the lake water balance (Ruling ET, 2026-11-12), the same way: every
-    // save without the key kept the per-cell rain-test lakes.
-    p.lake_balance = false;
-    // And the orogen relief term (Ruling CU item 1, 2026-10-19), the same way:
-    // every save without the key was generated with smooth belts and clipped
-    // summits, so a regenerate from its parameters reproduces them.
-    p.tect.orogen_relief = false;
-    // And the higher world ceiling (Ruling DB item 3, 2026-10-25), the same
-    // way: every save without the key was generated with the top at 1.
-    p.tect.high_ceiling = false;
-    // And the glacial pass (Ruling AU). Every save this port has written since
-    // `1f7c295` (2026-08-23) carries `passes.glacial`, so the key is missing
-    // only from a reference-app export -- whose world was generated without
-    // it, because the reference runs `glacialKernel` from a button and never
-    // inside generation -- or a native block from before that commit.
-    p.passes.glacial = false;
-    // And the geology model (Ruling BH, GF-1): every save without the key was
-    // generated before the model existed, so it reloads without it.
-    p.geology_model = false;
-    // And GF-2's processes, the same way: a save without the key was generated
-    // with no process reading rock.
-    p.geology_processes = false;
-    // And GF-11's relief switch, the same way: a save without the key was
-    // generated with no construction (§4.16: "a save without the key reloads
-    // off").
-    p.relief_model = false;
-    // And GF-5's karst switch, the same way: a save without the key was
-    // generated with no dissolution and the rain itself seeding its rivers.
-    p.geology_karst = false;
-    // And GF-6's carve switch, the same way: a save without the key was
-    // generated with every valley at the rock-blind width.
-    p.geology_carve = false;
-    // And GF-7's geological age: a save without the key was generated before
-    // the clock, and τ = 1 reproduces exactly those pass counts by control
-    // flow (`GEOLOGY_FIRST_SCOPE.md` §2.6: "Its clock is read as 1.0").
-    p.geo_age = cartalith_engine::geo_clock::GEO_AGE_DEFAULT;
-    // And the rain up-sample (Ruling CM, 2026-10-18), like the plate-base blur
-    // and the geology model rather than like `integrate_drainage`: every save
-    // without the key was generated with the reference's bilinear rain, so it
-    // reloads with it, and a regenerate from its parameters reproduces the
-    // rain, rivers and biomes it was saved with. A save from this change on
-    // always carries the key (`save_state` writes every row).
-    p.climate.rain_bspline = false;
-    // And the edifice flank-pit fill (Ruling CO, 2026-10-18), the same way:
-    // every save without the key was generated with the pits unfilled, so a
-    // regenerate from its parameters reproduces the small volcano lakes it
-    // was saved with. A save from this change on always carries the key.
-    p.volc.fill_edifice_pits = false;
-    // And VA-5's morphometry (2026-10-24), the same way: off for every save
-    // without the key.
-    p.volc.morphometry = false;
-    // And Ruling CX item 4's cinder law (2026-10-24), the same way: off for
-    // every save without the key.
-    p.volc.cinder_grid_law = false;
-    // And Ruling CX item 6's dry active craters (2026-10-24), the same way.
-    p.volc.dry_active_craters = false;
-    // And Ruling DB item 2's lava benches (2026-10-25), the same way.
-    p.volc.lava_bench = false;
-    // And VA-6's domes and maars (2026-10-25), the same way; and Ruling
-    // DJ's calderas, supervolcano and flood basalt (2026-10-25).
-    p.volc.kind_dome = false;
-    p.volc.kind_maar = false;
-    p.volc.kind_caldera = false;
-    p.volc.kind_supervolcano = false;
-    p.volc.kind_flood_basalt = false;
-    // And the garrison border-exposure scale (Ruling AZ): a save without
-    // `civ.garrison_exposure_scale` at all is either a genuine reference-app
-    // export or one written between 382945a and the `CivParams` fold-in --
-    // both predate this key, so this line's default and
-    // `project_bridge.rs`'s `resolve_garrison_exposure_scale` (which reads
-    // the 382945a-era `factions.json` fallback) are what actually decide
-    // that value. Unlike the boolean lines above, this one's default is not
-    // `false` -- it is `cartalith_civ::garrison::EXPOSURE_SCALE`'s own
-    // `1.0`, duplicated as a literal for the reason
-    // `CivParams::garrison_exposure_scale`'s own doc comment gives.
-    p.civ.garrison_exposure_scale = 1.0;
-    // And the shared road trunks (Ruling EU item 1, 2026-11-12), like the lake
-    // balance: every save without the key was built with the reference's
-    // network, so a Recompute or Generate roads on it rebuilds those roads.
-    p.civ.merge_ways = false;
+    // Parameters whose *absence* is information (`LOADS_WHEN_ABSENT`, where
+    // each row says why): every row is written first, so a key the save does
+    // not carry keeps that value, and one it carries -- an explicit `false`
+    // included -- is set in the loop below like any other row. The key is
+    // always written by `save_state`, which is what makes absence mean "old
+    // save". Every row is a real parameter whose value applies exactly
+    // (`every_absent_row_is_a_parameter_and_applies_exactly`).
+    for &(key, value) in LOADS_WHEN_ABSENT {
+        set(p, key, value);
+    }
     let Some(native) = state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()) else {
         return 0;
     };

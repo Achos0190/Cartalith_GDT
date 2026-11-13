@@ -2408,7 +2408,8 @@ fn construct(p: &WorldParams, pre: &WorldState, shape: &[f64], ocean0: &[bool], 
 fn priming_climate(p: &WorldParams, sea: f64, field: &[f32]) -> (Vec<f32>, Vec<f32>) {
     assert!(!p.use_gpu, "the replica covers the app's CPU path");
     let (gw, gh, world) = (p.gw, p.gh, p.world);
-    let route = cartalith_hydrology::routing_view(field, gw, gh, sea, world, p.integrate_drainage);
+    // Ruling EV: the same fill tilt `generate_terrain` routes over.
+    let route = cartalith_hydrology::routing_view_with(field, gw, gh, sea, world, p.integrate_drainage, cartalith_engine::fill_tilt_for(p));
     // Ruling ER: the same roughness `generate_terrain` routes with.
     let flow_area = cartalith_hydrology::compute_flow_with(gw, gh, &route, None, false, world, cartalith_engine::roughness_for(p).as_ref());
     let cp = cartalith_engine::climate_params_for(p, sea);
@@ -2519,7 +2520,9 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
         cartalith_erosion::lift_column(c, &before_rb, &field);
     }
     let integrate = p.integrate_drainage;
-    let route = cartalith_hydrology::routing_view(&field, gw, gh, sea, world, integrate);
+    // Ruling EV: the same fill tilt `generate_terrain` routes over.
+    let tilt = cartalith_engine::fill_tilt_for(p);
+    let route = cartalith_hydrology::routing_view_with(&field, gw, gh, sea, world, integrate, tilt);
     // Ruling ER: the same roughness `generate_terrain` routes with.
     let rough = cartalith_engine::roughness_for(p);
     let flow_net = cartalith_hydrology::compute_flow_with(gw, gh, &route, Some(&rain), true, world, rough.as_ref());
@@ -2571,7 +2574,7 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
     drop(lake_surface);
     let rfloor: Vec<f32> = (0..gw * gh).map(|i| if rmask[i] != 0 { field[i] } else { 0.0 }).collect();
     let mut flow = {
-        let route = cartalith_hydrology::routing_view(&field, gw, gh, sea, world, integrate);
+        let route = cartalith_hydrology::routing_view_with(&field, gw, gh, sea, world, integrate, tilt);
         cartalith_hydrology::compute_flow_with(gw, gh, &route, Some(&rain), true, world, rough.as_ref())
     };
     let cp = cartalith_engine::climate_params_for(p, sea);
@@ -2677,6 +2680,7 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
         flow_discharge: std::sync::Arc::new(flow),
         integrated_drainage: integrate,
         routing_roughness: rough.as_ref().map(|_| p.tect.seed as i64),
+        basin_routing: tilt == cartalith_hydrology::FillTilt::Floor,
         channels: Some(ch),
         stream_order: Some(order),
         river_mask: Some(rmask),
@@ -3036,6 +3040,7 @@ fn fixture_world(z0: Vec<f32>, col: GeologyColumn, sea: f64) -> WorldState {
         flow_discharge: std::sync::Arc::new(vec![0.0; n]),
         integrated_drainage: true,
         routing_roughness: None,
+        basin_routing: false,
         channels: None,
         stream_order: None,
         river_mask: None,

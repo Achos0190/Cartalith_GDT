@@ -1237,7 +1237,7 @@ impl RouteInputs {
         let (biome, river_order) = if mode == RouteMode::Mixed {
             let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
             // Ruling ER: rebuilt along the tree the world was routed with.
-            let river_order = cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref()).0;
+            let river_order = cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing)).0;
             (Some(biome), Some(river_order))
         } else {
             (None, None)

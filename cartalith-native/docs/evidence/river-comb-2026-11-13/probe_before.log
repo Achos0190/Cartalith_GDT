@@ -1,0 +1,64 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+[before] parameters: 124 from C:/cw/combfix/cartalith-native/crates/cartalith-godot/tests/fixtures/owner_world_51203_params.txt, overrides {"basin_routing":false,"civ.merge_ways":true,"lake_balance":true,"rough_routing":true}
+Cartalith shell build 5f978b3a95c8
+ERROR: Couldn't open directory at path "C:/cw/combfix_appdata_comb_before/Godot/app_userdata/Cartalith Terrain Generator/Worlds".
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:880)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:910)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:978)
+       [3] _refresh (res://shell/open_project_dialog.gd:937)
+       [4] open_welcome (res://shell/open_project_dialog.gd:317)
+       [5] open_welcome (res://shell/app.gd:4973)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2515)
+[before]   OK   every parameter written as given (rejected [], clamped [])
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[before] generated seed 51203 2048x1024 40075 km in 25.6 s
+[before]   OK   every parameter reads back as asked after the run (124 checked; differing [])
+[before] settlements 40, roads 42, river mouths 2816, fan-eligible 250, delta fans 172
+[before]   whole  traced total 105363.0  comb   0.7 % (longest  22.0)  straight   9.7 % (longest 110.3)
+[before]   whole  z1     total   3593.0  comb   0.4 % (longest  13.0)  straight  25.8 % (longest  67.9)
+[before]   whole  z4     total  10614.0  comb   0.0 % (longest   0.0)  straight  20.5 % (longest  67.9)
+[before]   whole  z7.88  total  17987.0  comb   0.1 % (longest  14.0)  straight  18.3 % (longest  67.9)
+[before]   whole  z16    total  31396.0  comb   0.1 % (longest  16.0)  straight  15.2 % (longest  67.9)
+[before]   whole  z64    total  83904.0  comb   0.2 % (longest  17.0)  straight  12.5 % (longest  67.9)
+[before]   window traced total  14486.0  comb   0.6 % (longest  18.0)  straight  22.8 % (longest 110.3)
+[before]   window z1     total   1595.0  comb   0.8 % (longest  13.0)  straight  33.2 % (longest  67.9)
+[before]   window z4     total   2683.0  comb   0.0 % (longest   0.0)  straight  30.7 % (longest  67.9)
+[before]   window z7.88  total   3616.0  comb   0.0 % (longest   0.0)  straight  29.6 % (longest  67.9)
+[before]   window z16    total   5132.0  comb   0.0 % (longest   0.0)  straight  26.3 % (longest  67.9)
+[before]   window z64    total  10944.0  comb   0.3 % (longest  14.0)  straight  21.5 % (longest  67.9)
+[before]   OK   the world has traced rivers (positive control: an empty measure cannot pass)
+[before]   OK   rivers are drawn at zoom 1.0
+[before]   OK   rivers are drawn at zoom 4.0
+[before]   OK   rivers are drawn at zoom 7.88
+[before]   OK   rivers are drawn at zoom 16.0
+[before]   OK   rivers are drawn at zoom 64.0
+[before]   OK   the relief view is drawn
+[before]   OK   frame relief x1.0 grabbed
+[before]   frame relief zoom 1.00 (readout 100 %) saved
+[before]   OK   frame relief x4.0 grabbed
+[before]   frame relief zoom 4.00 (readout 400 %) saved
+[before]   OK   frame relief x7.88 grabbed
+[before]   frame relief zoom 7.88 (readout 788 %) saved
+[before]   OK   frame relief x16.0 grabbed
+[before]   frame relief zoom 16.00 (readout 1600 %) saved
+[before]   OK   frame relief x64.0 grabbed
+[before]   frame relief zoom 64.00 (readout 6400 %) saved
+[before]   OK   the flow view is drawn
+[before]   OK   frame flow x1.0 grabbed
+[before]   frame flow zoom 1.00 (readout 100 %) saved
+[before]   OK   frame flow x4.0 grabbed
+[before]   frame flow zoom 4.00 (readout 400 %) saved
+[before]   OK   frame flow x7.88 grabbed
+[before]   frame flow zoom 7.88 (readout 788 %) saved
+[before]   OK   frame flow x16.0 grabbed
+[before]   frame flow zoom 16.00 (readout 1600 %) saved
+[before]   OK   frame flow x64.0 grabbed
+[before]   frame flow zoom 64.00 (readout 6400 %) saved
+[before] RESULT before fail=0 checks=20
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+ERROR: 5 resources still in use at exit (run with --verbose for details).
+EXIT 0

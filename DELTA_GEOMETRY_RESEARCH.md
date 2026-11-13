@@ -491,8 +491,11 @@ resolve.
   `ROUGH_WAVELENGTH_CELLS` = 4), `s_i` is the cell's own steepest drop per cell, and `k` is `ROUGH_STRENGTH` = 4. The
   constants were chosen from the table.
 - **What it guarantees.** Only strictly lower cells are candidates, so no step goes up the routing surface. Every cell
-  that had a receiver still has one, and the descending-height accumulation order stays valid. On the fill's flats the
-  slope is a few ULPs, so the perturbation vanishes there and water leaves a lake by the plain D8 path.
+  that had a receiver still has one, and the descending-height accumulation order stays valid. (This said, until
+  2026-11-13, that on the fill's flats "the slope is a few ULPs, so the perturbation vanishes there and water leaves a
+  lake by the plain D8 path". **That was wrong**: `s_i` is a few ULPs there, but so is every drop it is compared with,
+  so the noise decides the pick on a flat as on a slope. Measured on the owner's combing world, it is what breaks the
+  comb there. What it cannot do is choose among one candidate; section 14 has the measurement and the fix.)
 - **Where it applies.** Every flow routing of the generation uses it (the pre-carve, coastal, network and final
   passes), and so does `refresh_climate`. The GPU flow kernel, which is plain D8, is skipped when it is on. The
   channel network follows the rough accumulation tree (`build_channels_routed_with`) instead of real-aspect steering:
@@ -571,3 +574,128 @@ lake mouth). `delta_after_*` are section 12's per-mouth frames; their "before" i
 `d1_owner.log` (the delta diagnosis), `d2_*.log` (after), `r_*_off/on.log` (13.4) and `routing_candidates.txt`
 (13.1). Looked at: at x16 and x64 the after frames show winding channels where the before frames show parallel ruler
 lines down the lake shore, and the 2584 delta draws its branching fan.
+
+
+## 14. "Still see some heavy combing" (owner, 2026-11-13): two causes, both fixed (Ruling EV)
+
+The owner, with two phone screenshots of seed 51203 (the river flow view and the relief view at zoom 788 %; APK from
+`da0dbbbf`): *"Still see some heavy combing:"*, then *"resolve it"* (Ruling EV). The screenshots show dozens of
+dead-straight north-south channels hanging from a 45-degree line across a broad basin, and in the relief view the
+same comb carved into the ground.
+
+14.1 **Cause one: the world was made by the old rules.** The phone's World info printed `rough_routing`,
+`lake_balance` and `civ.merge_ways` as `false`, in a build whose `params::defaults()` has all three `true`. Opening a
+save writes its generation rules into the engine's live table (`params::apply_saved_state`), and a save written
+before a rule existed loads that rule off, correctly, so the opened world regenerates as it was saved. But New
+World's Create generated from that same live table and never went back to the app's rules, so every world made
+after opening an older save in the session was made by the old rules (reproduced windowed on `d3942d42`: open a
+save without the three keys, then New World, Earth, Create: all three off). The New World screen's Lake water
+balance box read ON meanwhile: it was set once when the dialog was built.
+- **Fixed** (`params::LOADS_WHEN_ABSENT`, `params::restore_new_world_rules`, `WorldGen::restore_new_world_rules`,
+  `EngineBridge._restore_new_world_rules`). One list holds what a save without each key loads; `apply_saved_state`
+  writes it, and before New World's Create and the heightmap import the bridge puts every rule in it (its boolean
+  rows) back to `params::defaults()`, except a rule the user set this session (`WorldGen::rules_chosen`, recorded by
+  `set_params`, cleared by Edit > Reset parameters). Settings (the numeric rows and every other parameter) are not
+  touched: a New World still carries the world on screen's settings. A saved world still loads and regenerates with
+  its own rules. The dialog's Lake water balance box now shows the value Create will use
+  (`WorldGen.get_new_world_params`), re-read on every open.
+
+14.2 **Cause two: the fill tilts a basin as a chessboard.** Even with rough routing on, a long 45-degree ruler line
+and straight north-south runs remained in the owner's window (the "before" column of the frames). The window holds
+the map's largest filled depression (lane B: 20 114 cells, about 118 m deep at the 4 000 m peak), mostly drawn as
+land. Every routing surface is built by `cartalith_hydrology::build_routing_surface`, Barnes, Lehman & Mulla (2014)'s
+Priority-Flood+epsilon with a first-in-first-out pit queue: a filled cell sits one `f32` ULP above the cell that
+reached it, so its height is the spill plus its chessboard distance from the spill. Water then crosses the basin on
+shortest grid paths, parallel runs on an axis that join 45-degree diagonals, and a cell ON such a diagonal has one
+strictly lower neighbour, so no receiver rule that only steps down (D8 or rough) can bend it. Measured with rough
+routing on (14.5, `before`): the straight share on filled ground is 26 to 34 % on the four worlds against 8 to 18 %
+elsewhere, with stretches up to 88 cells on filled ground. (Section 13.3's claim that rough routing's perturbation
+"vanishes" on the flats was wrong and is corrected there: it is the single candidate, not the noise, that holds the
+line.)
+
+14.3 **Built: basin routing** (`cartalith_hydrology::FillTilt::Floor`, `WorldParams::basin_routing`).
+- **The rule.** The pit queue is a priority queue on the cell's own terrain height (then its raised height, then its
+  index), so from the spill the fill runs down the basin's lowest ground to its floor and spreads up from there, the
+  way a basin fills; and a cell is raised `FLOOR_TILT_ORTH_ULPS` (5) ULPs above the cell that reached it
+  orthogonally and `FLOOR_TILT_DIAG_ULPS` (7) diagonally, Borgefors (1986)'s 5-7 chamfer, so the tilt grows like a
+  Euclidean distance (within about 2 %) rather than a chessboard one. Water inside a basin runs down its real slopes
+  to its floor and leaves by one path: least-cost routing through the depression (Metz, Mitasova & Harmon 2011),
+  carried as an epsilon tilt that every steepest-descent or rough receiver follows. A filled cell has several
+  strictly lower neighbours almost everywhere, so rough routing can turn the flow there too.
+- **Why both halves.** Screened on the owner's window with rough routing on (frames looked at, from a scratch
+  harness that was not kept): the chamfer steps alone turn the 45-degree lines into parallel diagonal runs; ordering
+  by terrain alone gives a converging network across sloping basin floors, but on an exactly flat floor it falls back
+  to the raised height, a chessboard again; together they give a converging network with no forced line. The hydrology tests pin each half
+  (`the_floor_tilt_sends_a_basins_water_to_its_floor_before_the_spill`,
+  `the_floor_tilt_leaves_no_filled_cell_a_single_way_down_on_a_flat`).
+- **What it guarantees.** The seeds, the open queue, RichDEM's equal-height tie rule and the raise test are the
+  breadth-first fill's, so both tilts fill the same depressions to the same spill; cells outside every depression
+  come back bit-identical; every filled cell has a strictly lower neighbour and drains to a seed
+  (`the_floor_tilt_drains_every_cell_to_a_seed_and_never_lowers`). The tilt rises at most 0.94 m above the spill at
+  a 4 000 m peak on the four worlds (14.5).
+- **Where it applies.** Every routing surface of generation (the pre-carve, coastal, network and final passes, the
+  sediment routing) and `refresh_climate`. The world records it (`WorldState::basin_routing`; the substrate
+  manifest's optional `basin_routing`, omitted when off, so earlier archives and breadth-first worlds are
+  byte-identical), and every consumer that rebuilds its receiver tree uses the world's own record
+  (`cartalith_engine::fill_tilt_of`): `fresh_river_network_with` and `fresh_river_channels_with` (settlements and
+  Ruling N's river term, the planner's river transport, the route tool, landmarks, the export, the way census), the
+  pick bridges and the draw plan's downhill tree. The GPU flow kernel is skipped when it is on, as with rough
+  routing: its D8 pick over the 5- and 7-ULP steps has not been measured against the CPU's.
+- **§7p.** OFF in `WorldParams::defaults` (every golden and the reference path unchanged by control flow), ON in
+  `params::defaults`, OFF for a save without the key; acts only with `integrate_drainage`. A heightmap import keeps
+  the breadth-first fill (its relief is data), and so does the rock-paint pass's local coastal cut.
+
+14.4 **The comb measure** (`river_straight::comb_stats`, tested against known combs and known non-combs): the length
+of a network that runs 2 to 5 cells beside ANOTHER river, within 20 degrees of its direction, for 12 cells or more,
+every line resampled at one cell. `straight_stats` (section 11) cannot see a comb of wavy teeth, and one straight
+trunk is no comb. `WorldGen.river_comb` applies both to the traced network and to what Ruling EN's law draws at a
+given zoom (`_rivercomb_probe.tscn`).
+
+14.5 **Measured, full pipeline** (`tests/river_basin_routing_measurement.rs`, release, alone, `use_gpu` off; the
+world's own drawn network, traced). Columns: the comb share; the straight share at 0.25 cells with the longest
+stretch; the same on filled ground and elsewhere; lake cells by the rain test and under the lake water balance
+(without Ruling CC's area floor); river mouths; the tilt's largest rise above the spill. `owner` is seed 51203 as the
+phone made it; `before` is rough routing on and basin routing off; `after` is Ruling EV.
+
+| World | Arm | Comb | Straight (longest) | Filled ground | Elsewhere | Lake cells, rain test / balance | Mouths | Max rise |
+|---|---|---|---|---|---|---|---|---|
+| 51203 (owner's, 2048x1024, density 2.5) | owner | 20.9 % | 30.9 % (174) | 81.9 % (127) | 24.3 % (49) | 6 374 / 9 654 | 6 533 | 0.05 m |
+| | before | 0.8 % | 9.9 % (59) | 30.9 % (59) | 7.7 % (35) | 6 483 / 10 693 | 4 749 | 0.05 m |
+| | **after** | **0.7 %** | **6.3 % (21)** | **7.2 % (17)** | 6.0 % (21) | 7 261 / 12 560 | 4 821 | 0.44 m |
+| 246371 (2048x1311, 1.55) | before | 0.8 % | 19.5 % (117) | 34.1 % (88) | 17.6 % (106) | 166 103 / 150 058 | 1 394 | 0.06 m |
+| | **after** | **0.7 %** | **13.4 % (42)** | **13.9 % (21)** | 13.2 % (42) | 188 721 / 184 513 | 1 618 | 0.94 m |
+| 483920 (1024x656) | before | 1.6 % | 10.2 % (54) | 26.2 % (25) | 9.6 % (28) | 91 589 / 92 366 | 1 635 | 0.02 m |
+| | **after** | **1.5 %** | **8.5 % (21)** | **6.6 % (16)** | 8.4 % (21) | 91 704 / 93 106 | 1 675 | 0.12 m |
+| 912345 (1024x656) | before | 1.7 % | 12.7 % (58) | 26.5 % (43) | 10.7 % (34) | 11 277 / 17 066 | 1 130 | 0.05 m |
+| | **after** | **1.3 %** | **8.4 % (23)** | **7.3 % (16)** | 8.3 % (23) | 12 879 / 18 093 | 1 291 | 0.38 m |
+
+Inside the owner's window (cells 35..295 x 50..463) the traced comb share is 44.3 % as made, 0.6 % before and 0.4 %
+after, and the straight share 57.7 % (longest 174 cells), 17.8 % (46) and 7.2 % (17). Plausibility on every arm: no
+step of the consumers' rebuilt tree fails to descend the routing surface; dry ends are 8 / 2 / 2 on 51203, 2 / 2 on
+246371 and 0 on the two small worlds, so the switch adds none. Building the routing surface costs 73 ms against 66
+on 51203, 158 against 142 on 246371 and 33 against 30 on the small worlds (median of five, each spread under 7 ms).
+
+**In the app** (`_rivercomb_probe.tscn`, windowed, GPU on as in the owner's world; seed 51203, the owner's window,
+what Ruling EN's law draws at half strength or more): the comb share at x1 / x4 / x7.88 / x16 / x64 is 77 / 66 / 63 /
+54 / 46 % as made, 0.8 / 0 / 0 / 0 / 0.3 % before and 0 at every zoom after; the longest drawn straight stretch is
+136 to 212 cells as made, 67.9 cells before (the 45-degree line) and 12.4 to 17.7 cells after.
+
+14.6 **What else moves.**
+- **Lakes grow where a basin's water now reaches its floor.** The lake water balance (Ruling ET) takes a pool's
+  inflow as the highest routed discharge among its cells; with the breadth-first tilt the water crossed a basin
+  beside its deepest part, so the pool saw only part of it. Now the whole inflow reaches the floor. The carve also
+  follows the converged trunk into the floor, so depressions deepen: filled ground grows 10 to 27 % on the four
+  worlds. Lake cells under the balance (no area floor) grow 17 % on 51203, 23 % on 246371, and 1 % and 6 % on the two
+  small worlds. In the owner's window the basin that was a part-playa flat crossed by rivers is now a lake (the
+  relief frames).
+- **Rivers.** The traced network is 1 to 5 % shorter (parallel channels merge) and more rivers end in a lake (mouths
+  up 2 to 16 %). On the owner's world the window draws less river at x1, because the lake covers it.
+- **Consumers.** In the app, 51203 has 40 settlements on all three arms and 48 / 42 / 40 roads; the knowledge
+  fixtures were regenerated (their worlds' rivers moved).
+
+14.7 **Verified.** `cargo test --workspace` and the literal mutants are recorded in `STATUS.md`'s entry for this
+work. Frames: `cartalith-native/docs/evidence/river-comb-2026-11-13/` (the river flow and relief views at x1, x4,
+x7.88, x16 and x64, owner / before / after, and the owner's composite), looked at at every zoom: the after frames
+show a converging, branching network across the basin, with no parallel teeth and no 45-degree line. One thing the
+frames show that is not a river: at x64 the new lake's shore is drawn cell-stepped, where earlier x64 lake frames are
+smooth; it is routed as a symptom to measure (`OUTSTANDING_WORK.md` §2.13).

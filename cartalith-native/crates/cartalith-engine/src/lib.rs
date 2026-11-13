@@ -210,7 +210,7 @@ use cartalith_erosion::{
 };
 use cartalith_hydrology::{
     build_channels_routed_with, compute_flow_routed_with, compute_flow_with, carve_channel_network, river_width_scale_k,
-    routing_view, strahler_from_receivers, trace_river_polylines, ChannelResult,
+    routing_view_with, strahler_from_receivers, trace_river_polylines, ChannelResult,
 };
 use cartalith_terrain::{
     apply_world_structure_sea_level, assign_plates, build_age_field, build_orogeny_field, build_plates,
@@ -1042,6 +1042,24 @@ pub struct WorldParams {
     /// rivers move -- Ruling ER overrides Ruling EN item 5 for new worlds;
     /// a saved world keeps its rivers ([`WorldState::routing_roughness`]).
     pub rough_routing: bool,
+    /// **Basin routing** (owner Ruling EV, 2026-11-13, after *"Still see some
+    /// heavy combing"*; `DELTA_GEOMETRY_RESEARCH.md` section 14): the routing
+    /// surface tilts each filled depression by
+    /// [`cartalith_hydrology::FillTilt::Floor`] -- water inside the basin runs
+    /// down its real slopes to its floor and leaves by one path to the spill
+    /// -- instead of [`cartalith_hydrology::FillTilt::Breadth`], whose
+    /// chessboard tilt crossed every filled basin in parallel grid-axis runs
+    /// hung from 45-degree diagonals (measured on the full pipeline with rough
+    /// routing on, on the four worlds of `DELTA_GEOMETRY_RESEARCH.md` 14.5: 26
+    /// to 34 % of the traced network on filled ground was straight, against 8
+    /// to 18 % elsewhere; 7 to 14 % with this on).
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p):
+    /// every golden and every world before the change fills breadth-first. It
+    /// acts only with [`Self::integrate_drainage`] on (without it nothing is
+    /// filled). The world's rivers move where they cross filled ground; a
+    /// saved world keeps its rivers ([`WorldState::basin_routing`]).
+    pub basin_routing: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1258,6 +1276,9 @@ impl WorldParams {
             // Off: the reference routes plain D8. On at the app boundary
             // (Ruling ER) -- see the field's own doc comment.
             rough_routing: false,
+            // Off: the shipped breadth-first fill every golden routes over.
+            // On at the app boundary (2026-11-13) -- see the field's doc.
+            basin_routing: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,
@@ -1564,6 +1585,15 @@ pub struct WorldState {
     /// `flow_discharge` ([`routing_roughness_of`]) must use it to rebuild the
     /// same tree, whatever the live parameters say now.
     pub routing_roughness: Option<i64>,
+    /// **Whether this world's filled depressions were tilted floor-first**
+    /// ([`WorldParams::basin_routing`] with integrated drainage on:
+    /// [`cartalith_hydrology::FillTilt::Floor`]), or breadth-first (`false`:
+    /// every world before the change, every golden, and every world generated
+    /// with it off). Like [`Self::routing_roughness`], a property of *this
+    /// world's* drainage: a consumer that rebuilds a receiver tree from
+    /// `field` ([`fill_tilt_of`]) must use it, whatever the live parameters
+    /// say now.
+    pub basin_routing: bool,
     /// **`ChannelResult::slope` is released before this is stored** and is
     /// an empty `Vec` here — see `generate_terrain`'s own note at the point
     /// it drops it (`MEMORY_OPTIMIZATION_SCOPE.md` R2). `recv` and `chan`
@@ -2752,10 +2782,19 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // was before, cell for cell.
     let rough = roughness_for(p);
     let rough_seed = rough.as_ref().map(|_| p.tect.seed as i64);
+    // The basin-routing tilt (2026-11-13; `WorldParams::basin_routing`), the
+    // same for every routing surface below so the accumulation and channel
+    // trees are one tree. `Breadth` (off, or no integrated drainage) is the
+    // surface every call below built before, cell for cell.
+    let tilt = fill_tilt_for(p);
     // The GPU kernel routes plain D8 only, so with a roughness the CPU path
     // runs (the same rule `use_gpu` off takes).
     let flow_on_gpu = |field: &[f32], rain: Option<&[f32]>, use_rain: bool| -> Option<Vec<f32>> {
-        if rough.is_some() {
+        // Basin routing (Ruling EV) skips the kernel the same way: its D8 pick
+        // over the Floor tilt's 5- and 7-ULP steps has not been measured
+        // against the CPU's, so the CPU path, whose receivers every consumer
+        // rebuilds, is the one that runs.
+        if rough.is_some() || tilt == cartalith_hydrology::FillTilt::Floor {
             return None;
         }
         gpu_flow.as_ref().and_then(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world)).map(|r| r.acc)
@@ -3166,7 +3205,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // orders and picks receivers by the heights it is handed.
     let integrate = p.integrate_drainage;
     let flow_area = {
-        let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+        let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
         match flow_on_gpu(&route, None, false) {
             Some(v) => {
                 gpu_stages_used.push("flow".to_string());
@@ -3294,7 +3333,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     let mut flow_discharge = if p.carve_rivers && !force_precarve_flow {
         Vec::new()
     } else {
-        let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+        let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
         match flow_on_gpu(&route, Some(&rainfall), true) {
             Some(v) => {
                 if !gpu_stages_used.iter().any(|s| s == "flow") {
@@ -3409,7 +3448,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // routing surface), taken on this pre-trace surface, so it costs one
         // extra flow accumulation on worlds with the pass on.
         if p.passes.coastal {
-            let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+            let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
             let coast_flow = match flow_on_gpu(&route, Some(&rainfall), true) {
                 Some(v) => {
                     if !gpu_stages_used.iter().any(|s| s == "flow") {
@@ -3451,7 +3490,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // one and not the other makes the flow and the traced network describe
         // two different objects). Slope stays on the real field inside
         // `build_channels_routed`.
-        let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+        let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
         // GF-5 (§4.6, §3.1: "flow uses permeability-reduced runoff"): with
         // `geology_karst` on, the network's accumulation seeds with the
         // runoff permeable outcrops leave at the surface; off, `rainfall`
@@ -3597,7 +3636,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // monotonic contract forbids.
         crate::progress::advance(crate::progress::CLIMATE);
         flow_discharge = {
-            let route = routing_view(&field, gw, gh, sea_level, world, integrate);
+            let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
             match flow_on_gpu(&route, Some(&rainfall), true) {
                 Some(v) => {
                     if !gpu_stages_used.iter().any(|s| s == "flow") {
@@ -3819,7 +3858,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 }
             }
             // discharge on the carved surface, before routing
-            flow_discharge = compute_flow_routed_with(gw, gh, &field, Some(&rainfall), true, world, sea_level, integrate, rough.as_ref());
+            flow_discharge = compute_flow_routed_with(gw, gh, &field, Some(&rainfall), true, world, sea_level, integrate, rough.as_ref(), tilt);
             // GF-2 (§4.9): what routing deposits is regolith.
             let pre_route = rock.on.then(|| field.clone());
             route_sediment(&mut field, &flow_discharge, &supply, gw, gh, sea_level, q.sediment_capacity, world);
@@ -4055,6 +4094,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         flow_discharge: Arc::new(flow_discharge),
         integrated_drainage: integrate,
         routing_roughness: rough_seed,
+        basin_routing: tilt == cartalith_hydrology::FillTilt::Floor,
         channels,
         stream_order,
         river_mask,
@@ -4182,6 +4222,26 @@ pub fn routing_roughness_of(ws_seed: Option<i64>, gw: usize, gh: usize, world: b
     ws_seed.map(|s| cartalith_hydrology::Roughness::new(gw, gh, roughness_seed_bits(s), world))
 }
 
+/// **The fill tilt generation uses for parameters `p`**:
+/// [`cartalith_hydrology::FillTilt::Floor`] exactly when
+/// [`WorldParams::basin_routing`] and [`WorldParams::integrate_drainage`] are
+/// both on (without the fill there is nothing to tilt), else `Breadth`, the
+/// reference path's and every earlier world's.
+pub fn fill_tilt_for(p: &WorldParams) -> cartalith_hydrology::FillTilt {
+    if p.basin_routing && p.integrate_drainage {
+        cartalith_hydrology::FillTilt::Floor
+    } else {
+        cartalith_hydrology::FillTilt::Breadth
+    }
+}
+
+/// The fill tilt a stored world was routed with ([`WorldState::basin_routing`]),
+/// for a consumer rebuilding its receiver tree: pass the world's own flag,
+/// never the live parameters'.
+pub fn fill_tilt_of(ws_basin_routing: bool) -> cartalith_hydrology::FillTilt {
+    if ws_basin_routing { cartalith_hydrology::FillTilt::Floor } else { cartalith_hydrology::FillTilt::Breadth }
+}
+
 /// The one mapping from a world's seed to the roughness noise's seed, so
 /// generation and every rebuild agree bit for bit.
 fn roughness_seed_bits(seed: i64) -> u64 {
@@ -4205,7 +4265,7 @@ pub fn refresh_climate(
     // was handed -- see this function's own doc for why.
     // Ruling ER: the same roughness generation routed with (`roughness_for`).
     *flow_discharge =
-        compute_flow_routed_with(gw, gh, field, Some(rainfall), true, world, sea_level, p.integrate_drainage, roughness_for(p).as_ref());
+        compute_flow_routed_with(gw, gh, field, Some(rainfall), true, world, sea_level, p.integrate_drainage, roughness_for(p).as_ref(), fill_tilt_for(p));
     apply_climate_moisture_correctors_with(
         gw,
         gh,
@@ -4259,6 +4319,41 @@ mod tests {
     /// the app) -- and the parity defaults leave all three off (literals). A
     /// switch whose wiring was lost would read as "no effect" in the spike's
     /// measurements; this makes that a failure.
+    /// Protects owner Ruling EV's switch (`WorldParams::basin_routing`) reaching generation and doing
+    /// only what it says, on a small app-like world (integrated drainage on): it is off in the parity
+    /// defaults (a literal); on, the world records it (`WorldState::basin_routing`, which every
+    /// consumer rebuilds its receiver tree from) and its discharge moves (the world has a depression
+    /// the two tilts fill differently: checked, so the test cannot pass on a world without one); with
+    /// integrated drainage off the switch is inert (bit-identical world, recorded false). A lost
+    /// wiring, or a switch that leaks past `integrate_drainage`, fails here. That the tilt it routes
+    /// over is the Floor one is the hydrology tests' and `fill_tilt_for`'s (one variable, every call
+    /// site); the final discharge is accumulated with the rain of the step before the last climate
+    /// refresh, so it cannot be recomputed from the stored rain here.
+    #[test]
+    fn the_basin_routing_switch_reaches_generation_and_only_with_the_fill() {
+        let mut base = WorldParams::defaults(192, 124, 314_159);
+        assert!(!base.basin_routing, "the parity baseline fills breadth-first");
+        base.integrate_drainage = true;
+        let off = generate_terrain(&base);
+        let mut p = base.clone();
+        p.basin_routing = true;
+        let on = generate_terrain(&p);
+        assert!(!off.basin_routing && on.basin_routing, "the world records the tilt it was routed with");
+        let (gw, gh) = (p.gw, p.gh);
+        let floor = cartalith_hydrology::build_routing_surface_with(&on.field, gw, gh, on.sea_level, p.world, cartalith_hydrology::FillTilt::Floor);
+        let breadth = cartalith_hydrology::build_routing_surface(&on.field, gw, gh, on.sea_level, p.world);
+        assert_ne!(floor, breadth, "premise: the world has a depression the two tilts fill differently");
+        assert_ne!(*on.flow_discharge, *off.flow_discharge, "the switch moved nothing");
+        // Without the fill there is nothing to tilt: the switch is inert.
+        let mut raw = WorldParams::defaults(192, 124, 314_159);
+        raw.integrate_drainage = false;
+        let raw_off = generate_terrain(&raw);
+        raw.basin_routing = true;
+        let raw_on = generate_terrain(&raw);
+        assert!(!raw_on.basin_routing, "no fill, no tilt recorded");
+        assert!(raw_on.field == raw_off.field && raw_on.flow_discharge == raw_off.flow_discharge, "inert without integrated drainage");
+    }
+
     #[test]
     fn every_streak_switch_reaches_generation() {
         let mut base = WorldParams::defaults(192, 124, 314_159);
@@ -4595,7 +4690,7 @@ mod tests {
         refresh_climate(&p, sea, &ws.field, &cp, &wp, &mut t, &mut r, &mut f);
         let chain = |weather: CoarseUpsample| {
             let mut rain = simulate_weather_with(p.gw, p.gh, &ws.field, p.climate.w_iters, 0.0, &wp, weather);
-            let flow = compute_flow_routed_with(p.gw, p.gh, &ws.field, Some(&rain), true, p.world, sea, p.integrate_drainage, roughness_for(&p).as_ref());
+            let flow = compute_flow_routed_with(p.gw, p.gh, &ws.field, Some(&rain), true, p.world, sea, p.integrate_drainage, roughness_for(&p).as_ref(), fill_tilt_for(&p));
             apply_climate_moisture_correctors_with(p.gw, p.gh, &ws.field, &flow, &mut rain, sea, p.world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k, CoarseUpsample::CubicBSpline);
             rain
         };

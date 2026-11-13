@@ -228,7 +228,94 @@ pub fn compute_flow_with(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32
 /// Seeds whose eight neighbours are all seeds are never pushed — popping one
 /// could only visit closed cells — so the heap holds the coastline and the map
 /// edge, not the ocean. `O(n log n)` worst case.
+///
+/// This is [`build_routing_surface_with`] at [`FillTilt::Breadth`], the tilt
+/// every golden and every world made before the 2026-11-13 basin-routing
+/// change routes over.
 pub fn build_routing_surface(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool) -> Vec<f32> {
+    build_routing_surface_with(field, gw, gh, sea, world, FillTilt::Breadth)
+}
+
+/// **How [`build_routing_surface_with`] tilts the ground it fills**, which
+/// decides where water goes inside a filled depression. Both give every filled
+/// cell a neighbour strictly below it, so every land cell drains to a seed
+/// either way; they differ in which neighbour.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FillTilt {
+    /// **Breadth-first from the spill, one `f32` ULP a ring**: Barnes, Lehman
+    /// & Mulla (2014)'s Priority-Flood+ε with its first-in-first-out pit queue
+    /// (RichDEM's `PriorityFloodEpsilon`). A filled cell's height is the spill
+    /// plus its ring count from the spill, a chessboard distance, so every
+    /// cell's lowest neighbour is one ring nearer the spill: water crosses the
+    /// basin on shortest grid paths, parallel runs on a grid axis that join
+    /// 45-degree diagonals, and on such a diagonal only one neighbour is lower,
+    /// so not even rough routing can bend it. Measured as the owner's
+    /// 2026-11-13 comb (`DELTA_GEOMETRY_RESEARCH.md` section 14). The
+    /// reference-path and pre-change tilt, kept for them by control flow.
+    #[default]
+    Breadth,
+    /// **The basin's own floor first, in chamfer steps** (owner Ruling EV,
+    /// 2026-11-13: the basin-routing switch, `WorldParams::basin_routing`). The pit queue is a
+    /// priority queue on the cell's OWN terrain height (then its raised
+    /// height, then its index), so from the spill the fill runs down the
+    /// lowest ground to the basin's floor and spreads up from there, the way a
+    /// basin fills and spills; a cell is raised by [`FLOOR_TILT_ORTH_ULPS`]
+    /// ULPs above the cell that reached it orthogonally and
+    /// [`FLOOR_TILT_DIAG_ULPS`] diagonally, so the raised heights grow like a
+    /// Euclidean distance, not a chessboard one. Water inside the basin then
+    /// runs down its real slopes to its floor (and through each nested
+    /// sub-basin's sill) and leaves by one path to the spill: least-cost
+    /// routing through the depression (Metz, Mitasova & Harmon 2011,
+    /// *Hydrology and Earth System Sciences* 15, 667-678), carried as an ε
+    /// tilt so every consumer's steepest-descent or rough receiver follows it.
+    /// A cell has several strictly lower neighbours almost everywhere, so
+    /// rough routing can turn the flow, and no diagonal ruler line is forced.
+    Floor,
+}
+
+/// The [`FillTilt::Floor`] raise of a cell reached **orthogonally**, in `f32`
+/// ULPs above the cell it was reached from. With [`FLOOR_TILT_DIAG_ULPS`] it
+/// is Borgefors (1986)'s 5-7 chamfer (*Computer Vision, Graphics, and Image
+/// Processing* 34, 344-371): 7/5 = 1.4 against the diagonal's true 1.414, so
+/// a raised height grows like Euclidean distance within about 2 %, and a
+/// steepest-descent pick compares a drop per distance of 5 orthogonally and
+/// 4.95 diagonally: nearly isotropic, where a 1-and-1 step makes every
+/// diagonal cell's only lower neighbour its diagonal one. Integer steps keep
+/// the tilt exact in `f32` (`next_up`, no real-valued ε). Cost: the tilt rises
+/// up to 7 ULPs a step instead of 1 (measured in `DELTA_GEOMETRY_RESEARCH.md`
+/// section 14: under 1 m above the spill at a 4 000 m peak on the four
+/// measured worlds). Labelled judgement on the published weights.
+pub const FLOOR_TILT_ORTH_ULPS: u32 = 5;
+
+/// The [`FillTilt::Floor`] raise of a cell reached **diagonally**, in `f32`
+/// ULPs; see [`FLOOR_TILT_ORTH_ULPS`] for why 7.
+pub const FLOOR_TILT_DIAG_ULPS: u32 = 7;
+
+/// `v` raised by `k` representable `f32` steps (`next_up` `k` times): exact,
+/// monotone and the same on every machine.
+fn next_up_by(v: f32, k: u32) -> f32 {
+    let mut x = v;
+    for _ in 0..k {
+        x = x.next_up();
+    }
+    x
+}
+
+/// [`build_routing_surface`] with the tilt chosen: [`FillTilt::Breadth`] is
+/// that function exactly (the same statements: a first-in-first-out pit queue
+/// and one `next_up` a step); [`FillTilt::Floor`] processes the pit queue by
+/// the cell's own terrain height and raises in chamfer steps (see the
+/// variant's doc). The seeds, the open queue, RichDEM's equal-height tie rule
+/// (checked against the pit queue's next cell) and the raise test
+/// (`surf[j] <= up`) are shared, so the two tilts fill the same depressions to
+/// the same spill and differ only by the tilt's sub-metre rise inside them.
+///
+/// **Must never** lower a cell, move a cell outside every depression (they
+/// come back bit-identical to `field`), leave a non-seed cell without a
+/// strictly lower neighbour, or depend on anything but its arguments: every
+/// filled cell is raised strictly above the cell that reached it, and every
+/// cell the open queue keeps is higher than the cell that reached it.
+pub fn build_routing_surface_with(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool, tilt: FillTilt) -> Vec<f32> {
     use std::cmp::Reverse;
     use std::collections::{BinaryHeap, VecDeque};
 
@@ -291,9 +378,15 @@ pub fn build_routing_surface(field: &[f32], gw: usize, gh: usize, sea: f64, worl
         }
     }
 
+    // Breadth's first-in-first-out pit queue, or Floor's pit queue ordered by
+    // (terrain height, raised height, index) -- the terrain height read from
+    // `field`, which raising never touches. Only the tilt's own one is used.
+    let floor = tilt == FillTilt::Floor;
     let mut pit: VecDeque<u32> = VecDeque::new();
+    let mut floor_pit: BinaryHeap<Reverse<(u32, u32, u32)>> = BinaryHeap::new();
     loop {
-        let c = match (pit.front().copied(), open.peek().copied()) {
+        let front = if floor { floor_pit.peek().map(|&Reverse((_, _, p))| p) } else { pit.front().copied() };
+        let c = match (front, open.peek().copied()) {
             // RichDEM's tie rule: an open cell at exactly the pit front's
             // height goes first, so a flat that meets unraised ground of the
             // same height drains into it rather than being raised over it.
@@ -302,7 +395,11 @@ pub fn build_routing_surface(field: &[f32], gw: usize, gh: usize, sea: f64, worl
                 o
             }
             (Some(p), _) => {
-                pit.pop_front();
+                if floor {
+                    floor_pit.pop();
+                } else {
+                    pit.pop_front();
+                }
                 p
             }
             (None, Some(Reverse((_, o)))) => {
@@ -311,18 +408,37 @@ pub fn build_routing_surface(field: &[f32], gw: usize, gh: usize, sea: f64, worl
             }
             (None, None) => break,
         } as usize;
-        let up = surf[c].next_up();
         let k = neighbours(c, &mut nb);
-        for &j in &nb[..k] {
-            if closed[j] {
-                continue;
+        if !floor {
+            let up = surf[c].next_up();
+            for &j in &nb[..k] {
+                if closed[j] {
+                    continue;
+                }
+                closed[j] = true;
+                if surf[j] <= up {
+                    surf[j] = up;
+                    pit.push_back(j as u32);
+                } else {
+                    open.push(Reverse((key(surf[j]), j as u32)));
+                }
             }
-            closed[j] = true;
-            if surf[j] <= up {
-                surf[j] = up;
-                pit.push_back(j as u32);
-            } else {
-                open.push(Reverse((key(surf[j]), j as u32)));
+        } else {
+            let (up_orth, up_diag) = (next_up_by(surf[c], FLOOR_TILT_ORTH_ULPS), next_up_by(surf[c], FLOOR_TILT_DIAG_ULPS));
+            for &j in &nb[..k] {
+                if closed[j] {
+                    continue;
+                }
+                closed[j] = true;
+                // Diagonal when both coordinates differ (on a wrapped grid the
+                // seam's x step is still a different column).
+                let up = if j % gw != c % gw && j / gw != c / gw { up_diag } else { up_orth };
+                if surf[j] <= up {
+                    surf[j] = up;
+                    floor_pit.push(Reverse((key(field[j]), key(up), j as u32)));
+                } else {
+                    open.push(Reverse((key(surf[j]), j as u32)));
+                }
             }
         }
     }
@@ -332,6 +448,7 @@ pub fn build_routing_surface(field: &[f32], gw: usize, gh: usize, sea: f64, worl
 /// The routing surface to use for a world: [`build_routing_surface`] when
 /// `integrate` is on, `field` itself when it is off — borrowed, so the
 /// off-path costs nothing and routes on the raw field exactly as before.
+/// [`routing_view_with`] at [`FillTilt::Breadth`].
 pub fn routing_view<'a>(
     field: &'a [f32],
     gw: usize,
@@ -340,8 +457,25 @@ pub fn routing_view<'a>(
     world: bool,
     integrate: bool,
 ) -> std::borrow::Cow<'a, [f32]> {
+    routing_view_with(field, gw, gh, sea, world, integrate, FillTilt::Breadth)
+}
+
+/// [`routing_view`] with the world's [`FillTilt`]: the tilt matters only when
+/// `integrate` is on (with it off there is no fill to tilt, and `field` is
+/// returned borrowed whatever `tilt` says). Every consumer that rebuilds a
+/// world's receiver tree passes the tilt that world was routed with
+/// (`cartalith_engine::fill_tilt_of`), never the live parameters'.
+pub fn routing_view_with<'a>(
+    field: &'a [f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    integrate: bool,
+    tilt: FillTilt,
+) -> std::borrow::Cow<'a, [f32]> {
     if integrate {
-        std::borrow::Cow::Owned(build_routing_surface(field, gw, gh, sea, world))
+        std::borrow::Cow::Owned(build_routing_surface_with(field, gw, gh, sea, world, tilt))
     } else {
         std::borrow::Cow::Borrowed(field)
     }
@@ -367,7 +501,8 @@ pub fn compute_flow_routed(
 }
 
 /// [`compute_flow_routed`] with the world's optional [`Roughness`] (Ruling
-/// ER): `None` is `compute_flow_routed` exactly.
+/// ER) and its [`FillTilt`] (the 2026-11-13 basin routing): `None` with
+/// [`FillTilt::Breadth`] is `compute_flow_routed` exactly.
 #[allow(clippy::too_many_arguments)]
 pub fn compute_flow_routed_with(
     gw: usize,
@@ -379,8 +514,9 @@ pub fn compute_flow_routed_with(
     sea: f64,
     integrate: bool,
     rough: Option<&Roughness>,
+    tilt: FillTilt,
 ) -> Vec<f32> {
-    compute_flow_with(gw, gh, &routing_view(field, gw, gh, sea, world, integrate), rain, use_rain, world, rough)
+    compute_flow_with(gw, gh, &routing_view_with(field, gw, gh, sea, world, integrate, tilt), rain, use_rain, world, rough)
 }
 
 /// Every cell's single D8 receiver over `field` — the tree [`compute_flow`]
@@ -4920,6 +5056,168 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ---- the basin-routing tilt: `FillTilt::Floor` (2026-11-13) -------------
+
+    /// `cells` steps of `next_up` above `v`: the expected value written out
+    /// independently of `next_up_by`.
+    fn ulps_above(v: f32, cells: u32) -> f32 {
+        f32::from_bits(v.to_bits() + cells)
+    }
+
+    /// The Floor tilt keeps every promise the Breadth tilt makes, on the same
+    /// generated fixtures: every cell's receiver chain strictly descends to a
+    /// genuine seed, no cell is lowered, and a field with no depression comes
+    /// back bit-identical.
+    #[test]
+    fn the_floor_tilt_drains_every_cell_to_a_seed_and_never_lowers() {
+        // Protects: build_routing_surface_with(.., FillTilt::Floor)'s must-nevers -- in wrapped and unwrapped, sea-level-zero and non-zero worlds, every cell's D8 receiver chain on the Floor surface strictly descends and ends at a genuine seed (no cycle, no interior pit), no cell ends below its terrain, and a depression-free ramp is returned bit for bit.
+        for &(w, h, world, sea) in &[(40usize, 30usize, false, 0.0f64), (40, 30, true, 0.0), (33, 21, false, 0.45), (33, 21, true, 0.45)] {
+            let f = lcg_field(w, h, 0xC0FFEE ^ w as u64 ^ (world as u64) << 8);
+            let s = super::build_routing_surface_with(&f, w, h, sea, world, super::FillTilt::Floor);
+            let breadth = super::build_routing_surface(&f, w, h, sea, world);
+            assert_ne!(s, breadth, "the fixture must have a depression the two tilts fill differently ({w}x{h} world={world})");
+            let r = super::flow_receivers(&s, w, h, world);
+            for start in 0..w * h {
+                assert!(s[start] >= f[start], "cell {start} was lowered");
+                let mut i = start;
+                let mut steps = 0;
+                while r[i] >= 0 {
+                    assert!(s[r[i] as usize] < s[i], "receiver must be strictly lower");
+                    i = r[i] as usize;
+                    steps += 1;
+                    assert!(steps <= w * h, "cycle");
+                }
+                assert!(is_seed(&f, w, h, i, sea, world), "cell {start} ends in a non-seed pit at {i} ({w}x{h} world={world} sea={sea})");
+            }
+        }
+        let (w, h) = (9, 7);
+        let ramp: Vec<f32> = (0..w * h).map(|i| 0.4 + 0.05 * (i / w) as f32 + 0.001 * (i % w) as f32).collect();
+        let s = super::build_routing_surface_with(&ramp, w, h, 0.0, false, super::FillTilt::Floor);
+        assert!(s.iter().zip(&ramp).all(|(a, b)| a.to_bits() == b.to_bits()), "a field with nothing enclosed must come back unchanged");
+    }
+
+    /// The Floor tilt's steps, by literal: a cell reached orthogonally sits
+    /// exactly 5 ULPs above the cell that reached it, one reached diagonally 7.
+    #[test]
+    fn the_floor_tilt_raises_five_ulps_orthogonally_and_seven_diagonally() {
+        // Protects: FLOOR_TILT_ORTH_ULPS = 5 and FLOOR_TILT_DIAG_ULPS = 7 (Borgefors' 5-7 chamfer) as LITERALS, and the diagonal test that picks between them: in a corridor whose fill order is forced, the first pit cell is reached orthogonally from the open cell at 0.5 (5 ULPs) and the next orthogonally from it (10), while a pit cell whose only unclosed reacher is diagonal sits 7 ULPs above it.
+        assert_eq!((super::FLOOR_TILT_ORTH_ULPS, super::FLOOR_TILT_DIAG_ULPS), (5, 7));
+        // 5 x 3: the y = 0 and y = 2 rows are edge seeds at 0.9, (0,1) is the
+        // outlet seed at 0.3; (1,1) is open ground at 0.5 and (2,1), (3,1) a
+        // pit at 0.4 behind it.
+        let (w, h) = (5usize, 3usize);
+        let mut f = vec![0.9f32; w * h];
+        f[w] = 0.3;
+        f[w + 1] = 0.5;
+        f[w + 2] = 0.4;
+        f[w + 3] = 0.4;
+        let s = super::build_routing_surface_with(&f, w, h, 0.0, false, super::FillTilt::Floor);
+        assert_eq!(s[w + 1], 0.5, "open ground keeps its height");
+        assert_eq!(s[w + 2], ulps_above(0.5, 5), "reached orthogonally from (1,1)");
+        assert_eq!(s[w + 3], ulps_above(0.5, 10), "reached orthogonally from (2,1)");
+        // The same corridor bent by one diagonal step: (3,2) is reached only
+        // from (2,1), diagonally (its other neighbours are seeds or closed
+        // later). 5 x 4, rows 0 and 3 seeds.
+        let (w, h) = (5usize, 4usize);
+        let mut f = vec![0.9f32; w * h];
+        f[w] = 0.3; // (0,1) outlet
+        f[w + 1] = 0.5; // (1,1) open
+        f[w + 2] = 0.4; // (2,1) pit
+        f[2 * w + 3] = 0.4; // (3,2) pit, diagonal from (2,1)
+        let s = super::build_routing_surface_with(&f, w, h, 0.0, false, super::FillTilt::Floor);
+        assert_eq!(s[w + 2], ulps_above(0.5, 5));
+        assert_eq!(s[2 * w + 3], ulps_above(0.5, 12), "5 to (2,1), then 7 diagonally to (3,2)");
+        // Breadth on the first corridor is one ULP a step (its own literals).
+        let (w, h) = (5usize, 3usize);
+        let mut f = vec![0.9f32; w * h];
+        f[w] = 0.3;
+        f[w + 1] = 0.5;
+        f[w + 2] = 0.4;
+        f[w + 3] = 0.4;
+        let b = super::build_routing_surface(&f, w, h, 0.0, false);
+        assert_eq!((b[w + 2], b[w + 3]), (ulps_above(0.5, 1), ulps_above(0.5, 2)));
+    }
+
+    /// A basin whose floor lies far from its spill: the Breadth tilt sends the
+    /// far side's water straight at the spill, past the floor; the Floor tilt
+    /// sends it down to the floor first.
+    #[test]
+    fn the_floor_tilt_sends_a_basins_water_to_its_floor_before_the_spill() {
+        // Protects: the point of FillTilt::Floor -- its pit queue is ordered by the TERRAIN height, so the fill runs from the spill down to the basin's floor and spreads up from there, and the D8 path from the basin's far side passes the floor (within one cell) before leaving by the spill; on the same basin the Breadth tilt's path never comes within three cells of the floor (a shortest grid path to the spill). Keying the Floor queue by the raised height instead of the terrain makes the first half fail.
+        let (w, h) = (44usize, 34usize);
+        let (fx, fy) = (30i64, 20i64); // the basin floor
+        let mut f = vec![0.9f32; w * h];
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                let d = (((x as i64 - fx).pow(2) + (y as i64 - fy).pow(2)) as f64).sqrt();
+                f[y * w + x] = (0.5 + 0.002 * d) as f32;
+            }
+        }
+        f[5] = 0.3; // (5,0): the outlet on the top edge
+        let floor = fy as usize * w + fx as usize;
+        let far = 27 * w + 30; // (30,27), on the floor's far side from the spill
+        let path = |s: &[f32]| -> Vec<usize> {
+            let r = super::flow_receivers(s, w, h, false);
+            let mut out = vec![far];
+            let mut i = far;
+            while r[i] >= 0 {
+                i = r[i] as usize;
+                out.push(i);
+            }
+            out
+        };
+        let nearest = |p: &[usize]| -> i64 {
+            p.iter().map(|&i| ((i % w) as i64 - fx).abs().max(((i / w) as i64 - fy).abs())).min().unwrap()
+        };
+        let floor_path = path(&super::build_routing_surface_with(&f, w, h, 0.0, false, super::FillTilt::Floor));
+        let breadth_path = path(&super::build_routing_surface(&f, w, h, 0.0, false));
+        assert_eq!(*floor_path.last().unwrap(), 5, "the Floor path leaves by the outlet");
+        assert_eq!(*breadth_path.last().unwrap(), 5, "the Breadth path leaves by the outlet");
+        assert!(floor_path.len() > 2 && breadth_path.len() > 2, "both paths must cross the basin to be a test");
+        assert!(nearest(&floor_path) <= 1, "Floor: the far side's water must pass the floor, came within {} cells", nearest(&floor_path));
+        assert!(nearest(&breadth_path) >= 3, "Breadth (positive control): the path must miss the floor, came within {} cells", nearest(&breadth_path));
+        assert!(!breadth_path.contains(&floor));
+    }
+
+    /// On an exactly flat basin floor the Breadth tilt is a chessboard
+    /// distance, so every cell on its 45-degree lines has ONE strictly lower
+    /// neighbour (a forced ruler line, whatever the receiver rule); the Floor
+    /// tilt's chamfer steps leave exactly one such cell, the one beside the
+    /// open cell the flat spills through, whose only lower neighbour is that
+    /// open cell.
+    #[test]
+    fn the_floor_tilt_leaves_no_filled_cell_a_single_way_down_on_a_flat() {
+        // Protects: the chamfer half of FillTilt::Floor and its diagonal test -- on a flat 31 x 31 basin with one outlet at (16,0), the Breadth surface has filled cells with exactly one strictly lower neighbour (the 45-degree lines rough routing cannot bend; positive control), and the Floor surface has exactly one, (14,1): the outlet makes (15,1), (16,1) and (17,1) open ground at the flat's own height, the open queue pops (15,1) first (lowest index), the whole flat is filled from it, and (14,1) beside it has (15,1) as its only lower neighbour -- a convergence on the spill, not a ruler line. Making the Floor step 1 ULP in both directions, or reading every neighbour as orthogonal, brings the diagonals back.
+        let (w, h) = (33usize, 33usize);
+        let mut f = vec![0.9f32; w * h];
+        for y in 1..h - 1 {
+            for x in 1..w - 1 {
+                f[y * w + x] = 0.5;
+            }
+        }
+        f[16] = 0.3; // (16,0): the outlet
+        let lower = |s: &[f32], i: usize| -> usize {
+            let (x, y) = ((i % w) as i64, (i / w) as i64);
+            let mut n = 0;
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if (dx, dy) != (0, 0) && nx >= 0 && ny >= 0 && nx < w as i64 && ny < h as i64 && s[ny as usize * w + nx as usize] < s[i] {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let singles = |s: &[f32]| (0..w * h).filter(|&i| s[i] > f[i] && lower(s, i) == 1).collect::<Vec<usize>>();
+        let filled = |s: &[f32]| (0..w * h).filter(|&i| s[i] > f[i]).count();
+        let b = super::build_routing_surface(&f, w, h, 0.0, false);
+        let fl = super::build_routing_surface_with(&f, w, h, 0.0, false, super::FillTilt::Floor);
+        assert!(filled(&fl) > 800 && filled(&b) > 800, "the flat must be filled to be a test ({} / {})", filled(&fl), filled(&b));
+        assert!(singles(&b).len() > 20, "Breadth (positive control): the chessboard diagonals must have one way down, {}", singles(&b).len());
+        assert_eq!(singles(&fl), vec![w + 14], "Floor: only the cell beside the open spill cell (15,1) may have a single way down");
     }
 
     /// Inside a filled depression, `build_channels_routed`'s receiver for a
