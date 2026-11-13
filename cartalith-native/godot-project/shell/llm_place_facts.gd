@@ -329,7 +329,7 @@ static func gather_vault(bridge: Object, stream: Object, facts: Dictionary, pick
 	if not bool(info.get("bound", false)):
 		return {"ok": false, "reason": "No Vault is connected.", "read": [], "own_note_text": "", "own_note_rel": "", "notes": []}
 	var limits: Dictionary = stream.place_limits()
-	var files: PackedStringArray = bridge.vault_list_files(2000)
+	var files: PackedStringArray = bridge.vault_list_files(0)  # 0 = the crate's LIST_CAP (Ruling DY), not a literal here
 	var file_set := {}
 	for f in files:
 		file_set[f] = true

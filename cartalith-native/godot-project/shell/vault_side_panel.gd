@@ -45,7 +45,7 @@ const REFRESH_SEC := 0.45
 
 ## Notes the Tags index opens at most (the crate says how many it opened; see `tag_index`). Equals the
 ## shell's note cap of the moment; VE-9 raises the cap and this follows it.
-const TAG_SCAN_MAX := 2000
+const TAG_SCAN_MAX := 0  # non-positive = the crate's LIST_CAP (Ruling DY: the 2 000 cap is gone)
 
 var bridge
 var phone := false

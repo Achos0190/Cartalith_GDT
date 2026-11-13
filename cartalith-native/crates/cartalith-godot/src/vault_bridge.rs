@@ -720,7 +720,7 @@ impl WorldGen {
     #[func]
     fn vault_templates(&self) -> Array<VarDictionary> {
         self.vault
-            .templates(2000)
+            .templates(cartalith_vault::LIST_CAP)
             .unwrap_or_default()
             .into_iter()
             .map(|t| vdict! { "rel" => t.rel.as_str(), "label" => t.label.as_str() })
@@ -1958,11 +1958,11 @@ impl WorldGen {
 
     /// Every tag in the vault with the notes that carry it (VE-5's Tags index):
     /// `{ok, tags: [{tag, notes: [rel]}], scanned, total}`, most-used first. Opens at most `max_reads`
-    /// notes (`<= 0` means 2 000), so `scanned < total` means the index is partial and the caller says
+    /// notes (`<= 0` means `cartalith_vault::LIST_CAP`, Ruling DY), so `scanned < total` means the index is partial and the caller says
     /// so. `{ok: false, error}` with no vault bound.
     #[func]
     fn vault_tag_index(&self, max_reads: i64) -> VarDictionary {
-        let cap = if max_reads > 0 { max_reads as usize } else { 2000 };
+        let cap = if max_reads > 0 { max_reads as usize } else { cartalith_vault::LIST_CAP };
         match self.vault.tag_index(cap) {
             Ok(ix) => {
                 let mut d = ok();

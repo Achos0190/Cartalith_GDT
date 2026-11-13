@@ -41,8 +41,10 @@ pub const MAX_NOTE_CHARS: usize = 1_500;
 pub const MAX_TOTAL_CHARS: usize = 6_000;
 /// Most notes the shell reads for one request (a margin over [`MAX_NOTES`] for private ones).
 pub const MAX_READS: usize = 10;
-/// Most paths considered from the vault listing.
-pub const MAX_FILES: usize = 2_000;
+/// Most paths considered from the vault listing: the shared note-listing cap (Ruling DY, the 2 000
+/// cap raised to 12 000 at every site), so a note past the 2 000th can still be ranked. This is a
+/// listing bound, not the token budget: the per-request budget is [`MAX_READS`] / [`MAX_NOTES`].
+pub const MAX_FILES: usize = cartalith_vault::LIST_CAP;
 
 /// Why a note is a candidate. The order is the preference order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -469,6 +471,16 @@ open text"},
         assert_eq!(v.withheld, 1);
         assert!(!v.text.contains("secret") && !v.corpus.contains("secret"));
         assert!(v.truncated.iter().any(|t| t.contains("1 Vault note(s) withheld")));
+    }
+
+    /// Protects (Ruling DY): the place planner still considers a note listed past the 2 000th.
+    /// MUTATION: put MAX_FILES back to 2_000 and the late note drops out.
+    #[test]
+    fn a_note_past_the_two_thousandth_is_still_a_candidate() {
+        let mut files: Vec<String> = (0..2_500).map(|i| format!("n{i}.md")).collect();
+        files.push("late.md".to_string());
+        let c = plan(&json!({"files": files, "attached": ["late.md"], "backlinks": ["n2400.md"]}));
+        assert!(c.iter().any(|c| c.rel == "n2400.md"), "{c:?}");
     }
 
     /// Protects: caps are literal and every cut is listed. 8 notes of 2 000 characters: six are

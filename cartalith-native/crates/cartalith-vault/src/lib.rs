@@ -2698,6 +2698,31 @@ tags: [Town, port]
         assert_eq!((part.scanned, part.total), (1, 4), "a capped scan says it is partial");
     }
 
+    /// Protects (Ruling DY, the 2 000-note cap gone): a vault of more than 2 000 notes is fully
+    /// listed, fully tag-scanned (`vault_bridge`'s non-positive `max_reads` is `LIST_CAP`) and
+    /// searched for templates with `LIST_CAP`, including a template and a tag that sit past the
+    /// 2 000th note. MUTATION: set the limit passed below back to 2000 and every assertion fails.
+    #[test]
+    fn a_vault_past_two_thousand_notes_is_fully_indexed() {
+        let root = scratch("past2000");
+        let n = 2_100usize;
+        for i in 0..n {
+            let text = if i == n - 1 { "#lasttag
+".to_string() } else { "plain
+".to_string() };
+            std::fs::write(root.join(format!("n{i:05}.md")), text).unwrap();
+        }
+        std::fs::write(root.join("zz-template.md"), "# T
+").unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let ix = s.tag_index(LIST_CAP).unwrap();
+        assert!(ix.total > 2_000 && ix.scanned == ix.total, "all {} notes scanned, got {}/{}", n + 1, ix.scanned, ix.total);
+        assert!(ix.tags.iter().any(|t| t.tag == "lasttag"), "the tag on a late note is indexed");
+        let t = s.templates(LIST_CAP).unwrap();
+        assert!(t.iter().any(|t| t.rel == "zz-template.md"), "a template past the 2 000th file is found: {t:?}");
+    }
+
     /// `resolve_link` and `note_candidates` read the same vault, the latter
     /// offering an alias from the index.
     #[test]
