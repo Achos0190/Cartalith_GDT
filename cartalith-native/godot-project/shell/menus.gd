@@ -4594,7 +4594,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## (`dcc_shell.gd` renders `String(d.rail).to_upper()`).
 	_signpost(p, "Colour management — CARTO ▸ Colours ▸ Colour management")
 	_todo(p, "3D viewport defaults",
-		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. The 3D view (Window ▸ 3D view) draws terrain since 3D-2 and opens at the relief exaggeration kept for it, true scale 1.0x until set (not the 2D relief value above); the 3D card's HEIGHT slider writes it on the PC and the tablet, and this row does not yet. Detail and light arrive with 3D-3 and 3D-4; until then oceans are always flattened.")
+		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. The 3D view (Window ▸ 3D view) draws terrain since 3D-2 and opens at the relief exaggeration kept for it, true scale 1.0x until set (not the 2D relief value above); the 3D card's HEIGHT slider writes it on the PC and the tablet, and this row does not yet. Detail and light are not wired yet (light is 3D-4's); until then oceans are always flattened.")
 	## Live since 2026-08-30. The reason that stood here identified its own fix
 	## exactly -- *"what is missing is only the project-level default store
 	## those per-layer values would seed from -- a settings key, not new

@@ -57,8 +57,8 @@ const LEVELS_BELOW_2D := 1
 ## judgement: about half of a 60 Hz frame, so one tile per frame on this
 ## machine's 7 ms tiles (§8.1) and one per frame wherever a tile costs more
 ## (unmeasured on the 6T). A single slow tile still lands in one frame: a tile
-## cannot be split, and moving synthesis off the main thread is 3D-3's
-## streaming (§3.13).
+## cannot be split. 3D-3 streams Standard and Full through the LOD worker
+## (`view3d_quadtree.gd`, §3.13); Basic still synthesises here.
 const FILL_BUDGET_MS := 8.0
 ## The window's rim, as a fraction of its side, over which its height eases to
 ## the backdrop's so the two surfaces meet (labelled judgement: one sixteenth,

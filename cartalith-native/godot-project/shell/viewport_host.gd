@@ -212,6 +212,10 @@ var _applied_hand := ""
 ## and kept for the session. **Null until the user first opens 3D**, which is
 ## what keeps a 2D-only session byte-identical to before this milestone.
 var _view3d: View3DScene = null
+## 3D-3: true while the 3D view shows, so 2D's LOD tiles stay parked (§3.12).
+var _lod_parked_3d := false
+## `_lod_parents_due` as it was when 3D parked the tiles, restored on leaving.
+var _lod_parents_due_parked := false
 ## The zoom rocker's hairline. Held because `_apply_touch_scale()` has to grow
 ## it with everything else, and it is the one navpad child that is not a
 ## `Button` and so is invisible to that pass's meta filter.
@@ -1940,9 +1944,21 @@ func view_for_3d() -> Dictionary:
 	if disp.size.x <= 0.0 or disp.size.y <= 0.0 or _zoom <= 0.0:
 		return {}
 	var g := _bridge.grid_size()
-	var local := (size * 0.5 - _camera.position) / _zoom
+	## `_camera` is a Control, so `gui/common/snap_controls_to_pixels` draws it
+	## at its position ROUNDED to whole pixels: the map the user sees is up to
+	## half a pixel off the unrounded position. 3D-3's bar B1 compares the two
+	## frames pixel for pixel and measured exactly that residue (best-fit
+	## shifts of (-0.5, +0.5), (-0.125, -0.375) and (0, -0.125) px at x16, x4
+	## and x64 before this), so the 3D view opens on the map as drawn.
+	var local := (size * 0.5 - _camera.position.round()) / _zoom
 	var c := Vector2((local.x - disp.position.x) / disp.size.x * g.x, (local.y - disp.position.y) / disp.size.y * g.y)
-	return {"centre": c, "px_per_cell": disp.size.x / float(g.x) * _zoom * get_viewport().get_final_transform().x.x}
+	var phys := get_viewport().get_final_transform().x.x
+	## 3D-3: EF-9.4's boost as 2D runs it -- on or off (`_ef9_enabled()`), and
+	## 2D's LOD entry in physical px per cell (`_ef9_plan()`'s `zoom_entry`
+	## times the native scale), from which the boost's gain is measured.
+	var native_scale := minf(size.x / float(g.x), size.y / float(g.y))
+	var entry := native_scale * maxf(LOD_AUTO_ZOOM, LOD_PX_PER_CELL_THRESHOLD / maxf(native_scale, 1e-9)) * phys
+	return {"centre": c, "px_per_cell": disp.size.x / float(g.x) * _zoom * phys, "ef9": _ef9_enabled(), "lod_entry_ppc": entry}
 
 ## The 3D view node, or null when 3D was never opened this session.
 func view3d() -> View3DScene:
@@ -1973,8 +1989,9 @@ func ensure_view3d() -> View3DScene:
 ## **3D-1: switch the viewport between the 2D map and the 3D view**
 ## (`Window ▸ 3D view`, the navpad pill; `3D_VIEWPORT_SCOPE.md` §3.14). Entering
 ## runs the capability gate first when this device was never tested or its
-## result is stale (§4.2). Leaving hides the 3D view and changes nothing in 2D:
-## the map, its zoom and its tiles were never touched while 3D was shown.
+## result is stale (§4.2). Since 3D-3 entering parks 2D's deep-zoom tiles
+## (§3.12) and leaving rebuilds them; the map and its zoom are never touched,
+## and the rebuilt picture is the same (`_view3d_quadtree_probe.gd` leg H).
 func set_3d(on: bool) -> void:
 	if on == is_3d():
 		return
@@ -1984,12 +2001,27 @@ func set_3d(on: bool) -> void:
 		if _panning:
 			_panning = false
 		v.set_entry_view(view_for_3d())
+		## 3D-3 (§3.12, "the 2D tiles give way in 3D"): 2D's deep-zoom tiles
+		## and their parked cache are freed while 3D shows, so 3D's layer
+		## budget replaces 2D's rather than adding to it; `_update_lod()`
+		## builds nothing until 3D is left, which rebuilds them.
+		_lod_parked_3d = true
+		_lod_parents_due_parked = _lod_parents_due
+		_set_lod_active(false)
 		view_mode_changed.emit(true)
 		v.entered()
 	else:
 		if _view3d == null:
 			return
 		_view3d.visible = false
+		_lod_parked_3d = false
+		## Freeing the tiles reset LOD-D3's entry band (`_clear_lod_tiles()`),
+		## which would bring 2D back blending with the base raster instead of
+		## the parent tiles it had (137 px of one x16 frame differed,
+		## `_view3d_quadtree_probe.gd` leg H, 2026-11-13). Leaving 3D is not a
+		## new entry, so the flag comes back as it was.
+		_lod_parents_due = _lod_parents_due_parked
+		_update_lod()
 		view_mode_changed.emit(false)
 
 ## The navpad's ⌖ and every "fit the map" command. 3D-2 (Ruling EB item 4):
@@ -4149,6 +4181,10 @@ func _update_lod() -> void:
 	## `queue_redraw()` (see `map_overlay.gd::_draw`).
 	if overlay != null:
 		overlay.view_changed()
+	## 3D-3: parked while 3D shows (`set_3d()`); leaving 3D calls this again.
+	if _lod_parked_3d:
+		_set_lod_active(false)
+		return
 	if not _engine_readable():
 		## A move made while a worker owns the engine is not lost, only late:
 		## `_resume_after_engine_busy()` re-runs this once the engine is free.

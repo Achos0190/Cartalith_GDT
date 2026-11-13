@@ -12,8 +12,10 @@ extends Control
 ## first (research §D, Milestone 0). **3D-2 draws the Basic tier's terrain**
 ## (`view3d_terrain.gd`: one displaced patch over tiles at the camera's level,
 ## draped with the 2D picture, unlit) under an orbit or top-down camera
-## (`view3d_camera.gd`), wherever the tier is Basic or above. Standard and Full
-## draw Basic's patch until 3D-3 builds the quadtree; the card says so.
+## (`view3d_camera.gd`), wherever the tier is Basic. **3D-3 draws Standard and
+## Full as a quadtree** (`view3d_quadtree.gd`: the pyramid's tiles from the LOD
+## worker, one patch instance per node, the `L_3d` morph, skirts, frustum
+## culling, prefetch and a node-level debug view), at the tier's patch size.
 ##
 ## Input (§3.9): on a mouse, left or middle drag pans, right drag orbits and
 ## tilts, the wheel zooms about the pivot. On touch, one finger pans, two
@@ -24,8 +26,9 @@ extends Control
 ##
 ## Why it covers the map rather than replacing it: in 3D-1 nothing 3D reads
 ## the 2D map, so the 2D view is left exactly as it was underneath, and leaving
-## 3D shows it again untouched. Parking the 2D tiles while 3D is on (§3.12) is
-## 3D-3's job, when 3D has tiles of its own to budget against them.
+## 3D shows it again. Since 3D-3 the 2D view's deep-zoom tiles are parked
+## while 3D shows (§3.12, `ViewportHost.set_3d()`), so 3D's layers replace
+## them rather than adding to them, and leaving 3D rebuilds the same picture.
 ##
 ## What it must never do:
 ## - **Change anything 2D draws.** It is created only on first entry
@@ -43,6 +46,8 @@ const View3DGate := preload("res://shell/view3d_gate.gd")
 ## 3D-2's camera state and terrain, preloaded for the same reason.
 const View3DCamera := preload("res://shell/view3d_camera.gd")
 const View3DTerrain := preload("res://shell/view3d_terrain.gd")
+## 3D-3's quadtree terrain for Standard and Full, preloaded for the same reason.
+const View3DQuadtree := preload("res://shell/view3d_quadtree.gd")
 
 ## The user asked to go back to the 2D map (the card's own button).
 signal exit_requested()
@@ -120,6 +125,13 @@ var _note := ""
 ## 3D-2: the camera state and the terrain node (the node is null until `_ready()`).
 var _vcam: View3DCamera = View3DCamera.new()
 var _terrain: View3DTerrain
+## 3D-3: the Standard and Full tiers' quadtree (null until such a tier draws).
+var _quad: View3DQuadtree = null
+## The "Tile levels" toggle on the card (the node-level debug view), shown on
+## Standard and Full only.
+var _levels_btn: Button
+## Whether `_quad` has been bound to the engine for its tier.
+var _quad_bound := false
 ## The engine, bound by `ViewportHost.ensure_view3d()`: the `EngineBridge`, a
 ## `Callable() -> bool` false while a generate holds `WorldGen`, and a
 ## `Callable() -> Texture2D` answering the 2D base map texture.
@@ -227,6 +239,8 @@ func _build_card() -> void:
 	col.add_child(row)
 	_back_btn = _button(row, "Back to 2D", func(): exit_requested.emit(), true)
 	_mode_btn = _button(row, "Top-down", func(): set_top_down(not is_top_down()))
+	_levels_btn = _button(row, "Tile levels", func(): set_debug_levels(1 if _quad == null or _quad.debug_levels == 0 else 0))
+	_levels_btn.toggle_mode = true
 	_retest_btn = _button(row, "Re-test 3D", retest)
 	_force_btn = _button(row, "Force tier…", _open_force_menu)
 	_force_menu = PopupMenu.new()
@@ -286,6 +300,8 @@ func set_height(v: float) -> void:
 	var x := clampf(v, HEIGHT_MIN, HEIGHT_MAX)
 	if _terrain != null:
 		_terrain.set_exaggeration(x)
+	if _quad != null:
+		_quad.set_exaggeration(x)
 	DccSettings.set_view3d_exaggeration(x)
 	if _height_value != null:
 		_height_value.text = "×%.2f" % x
@@ -409,6 +425,9 @@ func _refresh() -> void:
 	for b in [_back_btn, _retest_btn, _force_btn, _mode_btn]:
 		b.disabled = _busy
 	_mode_btn.visible = tier() != View3DGate.TIER_OFF
+	_levels_btn.visible = tier() >= View3DGate.TIER_STANDARD
+	_levels_btn.disabled = _busy
+	_levels_btn.set_pressed_no_signal(_quad != null and _quad.debug_levels == 1)
 	if _height_box != null:
 		_height_box.visible = tier() != View3DGate.TIER_OFF
 		_height_slider.editable = not _busy
@@ -425,10 +444,13 @@ func entered() -> void:
 	else:
 		_refresh()
 	## A re-entry starts from the 2D view again, with fresh tiles: the look,
-	## the world or a sculpt may have changed while 3D was hidden, and 3D-2
-	## keeps no tile across that (3D-3's cache keys will).
+	## the world or a sculpt may have changed while 3D was hidden, and neither
+	## Basic nor the quadtree keeps a tile across that (the quadtree keeps its
+	## layer arrays allocated, not their contents).
 	if _terrain != null:
 		_terrain.clear("waiting for the first tile")
+	if _quad != null:
+		_quad.clear("waiting for the first tile")
 	_place_pending = true
 
 # -- 3D-2: terrain and camera ---------------------------------------------------
@@ -450,6 +472,8 @@ func set_entry_view(v: Dictionary) -> void:
 func world_changed() -> void:
 	if _terrain != null:
 		_terrain.clear("waiting for the first tile")
+	if _quad != null:
+		_quad.clear("waiting for the first tile")
 	_rebind_check_grid = true
 
 ## Whether terrain is drawn at the current tier (Basic and above).
@@ -462,6 +486,33 @@ func camera_state() -> View3DCamera:
 
 func terrain() -> View3DTerrain:
 	return _terrain
+
+## 3D-3's quadtree (null until Standard or Full has drawn), for the probe.
+func quadtree() -> View3DQuadtree:
+	return _quad
+
+## Whether this tier draws the quadtree (Standard and Full) rather than
+## Basic's single patch.
+func uses_quadtree() -> bool:
+	return tier() >= View3DGate.TIER_STANDARD
+
+## The gate's workload key for the quadtree at this tier (§3.12's rows):
+## "full", or Standard's phone or desktop row by `View3DGate.phone_class`.
+func quad_key() -> String:
+	if tier() >= View3DGate.TIER_FULL:
+		return "full"
+	return View3DGate.standard_key(View3DGate.phone_class(OS.get_name()))
+
+## The node-level debug view (§5, 3D-3): 0 off, 1 tint each node by its level,
+## 2 the per-pixel level index (the B1 probe's).
+func set_debug_levels(mode: int) -> void:
+	if _quad != null:
+		_quad.debug_levels = mode
+	_refresh()
+
+## The surface the camera clamps against: the quadtree's or Basic's.
+func _surface_bound(x: float, z: float) -> float:
+	return _quad.surface_bound(x, z) if uses_quadtree() and _quad != null else _terrain.surface_bound(x, z)
 
 func camera3d() -> Camera3D:
 	return _cam
@@ -486,9 +537,15 @@ func set_top_down(on: bool) -> void:
 ## The info line under the disclosure: what is drawn, at which level, and why
 ## when nothing is. Never a level for a window that is not drawn.
 func _terrain_line() -> String:
+	if uses_quadtree():
+		var tn: String = View3DGate.TIER_NAMES[tier()]
+		var qx := _quad.exaggeration() if _quad != null else VERTICAL_EXAGGERATION_DEFAULT
+		if _quad == null or _quad.drawn_count == 0:
+			var qwhy: String = _quad.reason if _quad != null else "not started"
+			return "%s terrain: %s. Heights at %.2f× (1× is true scale)." % [tn, qwhy, qx]
+		var lv := "level %d" % _quad.level_min if _quad.level_min == _quad.level_max else "levels %d–%d" % [_quad.level_min, _quad.level_max]
+		return "%s terrain, %d tiles at %s. Heights at %.2f× (1× is true scale)." % [tn, _quad.drawn_count, lv, qx]
 	var t := "Basic"
-	if tier() > View3DGate.TIER_BASIC:
-		t = "Basic (%s draws Basic's single patch until the 3D quadtree is built)" % View3DGate.TIER_NAMES[tier()]
 	var x := _terrain.exaggeration() if _terrain != null else VERTICAL_EXAGGERATION_DEFAULT
 	var w: Dictionary = _terrain.window() if _terrain != null else {}
 	if w.is_empty():
@@ -509,6 +566,11 @@ func _process(delta: float) -> void:
 		return
 	if not (_readable.is_valid() and bool(_readable.call())):
 		return
+	if uses_quadtree():
+		_process_quad(delta)
+		return
+	if _quad != null and _quad.drawn_count > 0:
+		_quad.clear("this tier draws Basic's patch")
 	if not _terrain.world_known():
 		var bt: Texture2D = _base_tex.call() if _base_tex.is_valid() else null
 		_terrain.bind(_bridge.get("world_gen"), _readable, bt)
@@ -557,6 +619,61 @@ func _process(delta: float) -> void:
 	_cam.near = near
 	_cam.far = maxf(_vcam.far_for(pos), near * 2.0)
 	if changed:
+		_refresh()
+
+## **3D-3's per-frame step for Standard and Full**: the same camera steps as
+## Basic's (entry pose, tilt, ground clamp, §3.11's depth range), then the
+## quadtree's selection against the camera's frustum. Basic's patch is hidden
+## while the quadtree draws, so the two never draw over each other.
+func _process_quad(delta: float) -> void:
+	var wg: Object = _bridge.get("world_gen")
+	if _quad == null:
+		_quad = View3DQuadtree.new()
+		_sv.add_child(_quad)
+		_quad.set_exaggeration(_terrain.exaggeration())
+	if _quad.tier_key() != quad_key() or not _quad_bound:
+		_quad.bind(wg, _readable, quad_key())
+		_quad_bound = true
+	if _terrain.window().size() > 0 or _terrain.world_known():
+		_terrain.clear("this tier draws the quadtree")
+	_quad.set_boost(bool(_entry.get("ef9", false)), float(_entry.get("lod_entry_ppc", 0.0)))
+	var vh := float(_sv.size.y)
+	if not _quad.world_known() or not _vcam.has_world():
+		_quad.update([0.0, 0.0, 0.0], [], 1.0, 0.0, _bridge)
+		if not _quad.world_known():
+			_refresh()
+			return
+		var g := _quad.grid()
+		var same := _vcam.has_world() and is_equal_approx(_vcam.world_w_m, g.x * _quad.cell_m()) and is_equal_approx(_vcam.world_h_m, g.y * _quad.cell_m())
+		if _rebind_check_grid and not same:
+			_frame_world_pending = true
+		_rebind_check_grid = false
+		_vcam.set_world(g.x, g.y, _quad.cell_m())
+	if _frame_world_pending:
+		_frame_world_pending = false
+		_place_pending = false
+		frame_world()
+	elif _place_pending:
+		_place_pending = false
+		if _entry.has("centre") and _entry.has("px_per_cell"):
+			_vcam.enter_from_2d(_entry["centre"], float(_entry["px_per_cell"]), vh, true)
+		else:
+			frame_world()
+	_vcam.step(delta)
+	last_clamp_steps = _vcam.clamp_to_ground(_surface_bound)
+	var pos := _vcam.position()
+	var hag: float = float(pos[1]) - _quad.surface_bound(pos[0], pos[2])
+	last_hag = hag
+	_cam.rotation = _vcam.rotation()
+	_cam.projection = Camera3D.PROJECTION_ORTHOGONAL if _vcam.ortho else Camera3D.PROJECTION_PERSPECTIVE
+	if _vcam.ortho:
+		_cam.size = _vcam.ortho_size
+	var near := View3DCamera.near_for(hag)
+	_cam.near = near
+	_cam.far = maxf(_vcam.far_for(pos), near * 2.0)
+	var f_px := vh / (2.0 * tan(deg_to_rad(View3DCamera.FOV_DEG) * 0.5))
+	var ortho_ppc := _vcam.cell_m / maxf(_vcam.metres_per_px(vh), 1e-9) if _vcam.ortho else 0.0
+	if _quad.update(pos, _cam.get_frustum(), f_px, ortho_ppc, _bridge):
 		_refresh()
 
 ## §3.9's input, on this node (it is `MOUSE_FILTER_STOP` and covers the map;

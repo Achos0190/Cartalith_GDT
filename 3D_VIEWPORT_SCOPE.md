@@ -989,6 +989,51 @@ what removes that.
 
 **Acceptance:** B1, B2, B3, B6, and Standard's frame and memory bars.
 
+**How the build read this milestone (2026-11-12; the numbers, and whether
+each bar held, are `STATUS.md`'s).** Four readings the text above leaves
+open:
+
+- **Heights and colour are functions of position, not of the node.** §3.3's
+  morph, read literally (a level-k vertex mixes `h_{k−1}` and `h_k` by
+  `w = smoothstep01(L − k + 0.5)`), does not meet at a boundary between a
+  level-k and a level-(k−1) node unless `L` is exactly `k − 0.5` there,
+  because the coarser node shows its own blend of `h_{k−2}` and `h_{k−1}`.
+  So every node evaluates the same function of the ground point:
+  `j = round(L)`, `value = mix(level j−1, level j, smoothstep01(L − j + 0.5))`
+  — exactly the 2D tile blend — from its own, its parent's and its
+  grandparent's layers. Two nodes that touch then agree on every shared
+  vertex, and a split changes nothing at the moment it happens (the children
+  enter fully morphed).
+- **The position morph runs over half a level** (`morph_band`, a labelled
+  judgement), so an edge facing a coarser node is fully morphed and the
+  coarser node is unmorphed along it whenever `L` falls by at most half a
+  level across a finer node (about 0.35 at the desktop's focal length);
+  where the boost makes it fall faster, the skirt covers the gap. Measured
+  2026-11-13: the skirts are load-bearing (without them B2 counted 1 153 hole
+  pixels on one path), and the position morph is not visible to any bar
+  (removing it moved the skirt share from 0.00011 to 0.00012 of pixels),
+  because the geometry is low-passed.
+- **The distance's height is the level-0 relief**, not the drawn surface, so
+  `L` is one function of position that every node evaluates alike; the
+  selection's upper bound uses that relief's range over the node.
+- **2D parks while 3D shows** (§3.12): `ViewportHost.set_3d(true)` frees
+  2D's tiles and their parked cache, and `_update_lod()` builds none until 3D
+  is left; leaving restores LOD-D3's `_lod_parents_due`, so 2D comes back to
+  the same picture rather than to its entry band. Relief tiles come from the
+  LOD worker's own queue (`LodWorker::request_relief`), sharing the tier's
+  in-flight cap.
+- **Top-down samples the drape at mip 0**, as 2D's unmipped sprites do;
+  perspective keeps mipmaps. With EF-9's boost a pixel can draw a level whose
+  texels are minified up to 2.8×, and a mip there cost 4 % of detail against
+  2D (B1/B6).
+
+Two corrections to 3D-2's entry, both found by B1 comparing the two frames
+pixel for pixel: 2D draws sample `s` at the centre of cell `s`, so the pivot is
+the 2D centre's cell coordinate minus half a cell
+(`View3DCamera.enter_from_2d`); and the 2D camera is a `Control` drawn at its
+position rounded to whole pixels, so `ViewportHost.view_for_3d()` reads the
+rounded position.
+
 ### 3D-4 · Lit drape, sea and atmosphere
 
 - The hillshade-off tile request, with its own cache key; per-pixel normals;

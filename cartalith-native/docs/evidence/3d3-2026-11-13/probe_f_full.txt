@@ -1,0 +1,63 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 2009164332fe
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x18202798350, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x18202798350, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x18202798350, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+WORLD seed=483920 grid=512x384 generate_ms=3520
+PASS  A: the forced tier is in force  tier Full
+PASS  A: the quadtree draws  16 nodes, levels 2..2, reason ''
+PASS  A: Basic's patch is not drawn under it  
+PASS  A: the patch is the tier's row (full)  33792 triangles per patch
+PASS  A: 2D's LOD tiles are parked while 3D shows (§3.12)  0 live, 0 cached
+PASS  A: the card names the tiles and levels  Full terrain, 16 tiles at level 2. Heights at 1.00× (1× is true scale).
+PASS  B1 x4: mean |dL*| <= 1.0  mean 0.087, p99 0.423, 81500 px
+PASS  B1 x4: p99 |dL*| <= 4.0  p99 0.423
+B1 x4 own-level pixels only (2D weight 1, no blend partner): 632 px, mean 0.110, p99 0.573
+PASS  B6 x4: 3D detail >= 2D detail at the same px per cell  3D 3.424 vs 2D 3.453
+PASS  B6 x4: the deepest drawn level rises with the zoom  levels 5..5
+PASS  B1 x4: level index per pixel equals 2D's on >= 99.9 % away from rounding ties  1.0000 away from ties (0.9985 raw) of 36239 px, decode linear; misses {"coarser":33,"finer":21,"tie":54}
+B1 x4 level share away from ties 0.9985
+PASS  B1 x16: mean |dL*| <= 1.0  mean 0.057, p99 0.399, 81500 px
+PASS  B1 x16: p99 |dL*| <= 4.0  p99 0.399
+B1 x16 own-level pixels only (2D weight 1, no blend partner): 0 px, mean 0.000, p99 -1.000
+PASS  B6 x16: 3D detail >= 2D detail at the same px per cell  3D 8.976 vs 2D 8.981
+PASS  B6 x16: the deepest drawn level rises with the zoom  levels 7..7
+PASS  B1 x16: level index per pixel equals 2D's on >= 99.9 % away from rounding ties  1.0000 away from ties (1.0000 raw) of 36239 px, decode linear; misses {"coarser":0,"finer":0,"tie":0}
+B1 x16 level share away from ties 1.0000
+PASS  B1 x64: mean |dL*| <= 1.0  mean 0.052, p99 0.381, 81500 px
+PASS  B1 x64: p99 |dL*| <= 4.0  p99 0.381
+B1 x64 own-level pixels only (2D weight 1, no blend partner): 0 px, mean 0.000, p99 -1.000
+PASS  B6 x64: 3D detail >= 2D detail at the same px per cell  3D 6.566 vs 2D 6.578
+PASS  B6 x64: the deepest drawn level rises with the zoom  levels 9..9
+PASS  B1 x64: level index per pixel equals 2D's on >= 99.9 % away from rounding ties  1.0000 away from ties (1.0000 raw) of 36239 px, decode linear; misses {"coarser":0,"finer":0,"tie":0}
+B1 x64 level share away from ties 1.0000
+PASS  B2: no hole on any frame of a descent through level changes  0 hole px over 48 frames, level spans ["1-3", "2-3", "3-4", "3-5", "4-5", "4-6", "3-6", "4-7", "5-7", "3-8", "4-8", "2-8", "5-8", "5-9", "4-9", "3-9", "1-9", "2-9"]
+PASS  B2: the path crossed level changes  ["1-3", "2-3", "3-4", "3-5", "4-5", "4-6", "3-6", "4-7", "5-7", "3-8", "4-8", "2-8", "5-8", "5-9", "4-9", "3-9", "1-9", "2-9"]
+PASS  B3: no pop at a selection change (T_i <= 1.5 x neighbours, unreprojected)  0 of 85 change frames
+PASS  B3: the dolly changed the selection  85 change frames
+PASS  B4: no frame below the drawn surface (quadtree, 4x, 8° pitch)  0 below, min margin 644.3 m
+PASS  G: the wheel zooms the 3D camera in  248537 -> 216119 m
+PASS  G: a right drag orbits  yaw 0.0° -> -25.0°
+PASS  G: the quadtree still draws after the gestures  
+FRAME static median=2.905 min=2.873 max=3.908 p95=3.035 ms primitives=3917310 draws=2261 nodes=112 levels=6..7 resident=333 select_ms=1.43
+PASS  F: Full frame bar, static: p95 <= 16.7 ms  p95 3.035 ms
+FRAME orbiting median=5.508 min=3.052 max=17.049 p95=9.784 ms
+PASS  F: frame bar, orbiting: p95 <= 16.7 ms  p95 9.784 ms
+FRAME zooming (level changes) median=4.939 min=2.948 max=11.871 p95=6.848 ms tiles_uploaded=210
+PASS  F: frame bar, zooming through levels: p95 <= 16.7 ms  p95 6.848 ms, 210 tiles landed
+MEMORY 2D steady 292.3 MB, 3D steady 276.0 MB, 3D above 2D -16.2 MB (bar 299.2 MB), layers 512
+PASS  F: 3D video memory above 2D's steady state <= the tier's §3.12 figure + 10 %  -16.2 MB vs 299.2 MB
+PASS  H: leaving 3D gives back the 2D frame byte-identical  0 px differ
+RESULT checks=34 fail=0
+EXIT=0

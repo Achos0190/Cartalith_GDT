@@ -1,0 +1,30 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build e84c05f2a7e9
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x15d9759df60, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x15d9759df60, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x15d9759df60, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+WORLD seed=483920 grid=512x384 generate_ms=3325
+PASS  A: the forced tier is in force  tier Standard
+PASS  A: the quadtree draws  16 nodes, levels 2..2, reason ''
+PASS  A: Basic's patch is not drawn under it  
+PASS  A: the patch is the tier's row (standard_desktop)  8704 triangles per patch
+PASS  A: 2D's LOD tiles are parked while 3D shows (§3.12)  0 live, 0 cached
+PASS  A: a 2D update while 3D shows builds no 2D tile  0 live, 0 pending
+PASS  A: the card names the tiles and levels  Standard terrain, 16 tiles at level 2. Heights at 1.00× (1× is true scale).
+SKIRT share of sampled pixels over the path: 0.00011 (1199 of 11156832)
+PASS  B2: little skirt shows, so the morph closes the level boundaries (<= 1.0000 of pixels)  0.00011
+PASS  B2: no hole on any frame of a descent through level changes  0 hole px over 48 frames, level spans ["2-3", "3-4", "4-4", "4-5", "3-5", "2-5", "5-6", "4-6", "2-6", "3-6", "1-6"]
+PASS  B2: the path crossed level changes  ["2-3", "3-4", "4-4", "4-5", "3-5", "2-5", "5-6", "4-6", "2-6", "3-6", "1-6"]
+RESULT checks=10 fail=0
+EXIT=0

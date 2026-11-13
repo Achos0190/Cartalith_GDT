@@ -680,6 +680,65 @@ pub struct TileRelief {
     pub height: Vec<f32>,
 }
 
+/// **3D-3: a relief tile low-passed onto a `g × g` vertex grid**
+/// (`3D_VIEWPORT_SCOPE.md` §3.2, §8.3's candidate (a)).
+///
+/// What it does: vertex `(i, j)` sits at tile pixel `(i·(w−1)/(g−1),
+/// j·(h−1)/(g−1))`, the layout [`TileRelief`] and [`tile_bounds`] share (pixel
+/// 0 on the footprint's first sample, pixel `w−1` on its last), and takes the
+/// mean of the pixels within half a vertex step of it on each axis (a box
+/// low-pass). Why: §8.3 measured the deep-zoom heights displaced texel for
+/// texel as needles; the geometry carries the silhouette and the drape the
+/// detail (§3.2), so a vertex must stand for the ground around it, not one
+/// texel of it.
+///
+/// **The edges are what make neighbours meet.** A vertex on the tile's edge
+/// is shared with the neighbouring tile, which has its own pixels on the other
+/// side. So an edge vertex averages **along the edge only** (the edge row or
+/// column, which both tiles hold as the same samples, [`tile_bounds`]), and a
+/// corner vertex is the corner pixel itself. A box clamped into the core would
+/// average a different set of pixels on each side and open a crack.
+///
+/// Must never: read outside `height` (`None` when `height.len() != w·h`, `w`
+/// or `h` under 2, or `g` under 2), or return a grid whose length is not
+/// `g·g`.
+pub fn geometry_grid(height: &[f32], w: usize, h: usize, g: usize) -> Option<Vec<f32>> {
+    if w < 2 || h < 2 || g < 2 || height.len() != w * h {
+        return None;
+    }
+    let sx = (w - 1) as f64 / (g - 1) as f64;
+    let sy = (h - 1) as f64 / (g - 1) as f64;
+    // The pixels within half a step of `p` on an axis of `n` pixels, as an
+    // inclusive range; at least the nearest pixel.
+    let span = |p: f64, step: f64, n: usize| -> (usize, usize) {
+        let lo = (p - step * 0.5).ceil().max(0.0) as usize;
+        let hi = ((p + step * 0.5).floor() as usize).min(n - 1);
+        if lo > hi {
+            let c = (p.round() as usize).min(n - 1);
+            (c, c)
+        } else {
+            (lo, hi)
+        }
+    };
+    let mut out = Vec::with_capacity(g * g);
+    for j in 0..g {
+        let py = j as f64 * sy;
+        let (y0, y1) = if j == 0 { (0, 0) } else if j == g - 1 { (h - 1, h - 1) } else { span(py, sy, h) };
+        for i in 0..g {
+            let px = i as f64 * sx;
+            let (x0, x1) = if i == 0 { (0, 0) } else if i == g - 1 { (w - 1, w - 1) } else { span(px, sx, w) };
+            let mut sum = 0.0f64;
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    sum += f64::from(height[y * w + x]);
+                }
+            }
+            out.push((sum / ((y1 - y0 + 1) * (x1 - x0 + 1)) as f64) as f32);
+        }
+    }
+    Some(out)
+}
+
 /// One tile's heights, before colour: the shading tile, the water tile when
 /// it needs one, and the geometry both are laid out on. Built by
 /// [`tile_heights`].
@@ -1141,6 +1200,49 @@ mod tests {
         f
     }
 
+    // -- 3D-3: the geometry grid ----------------------------------------------
+
+    /// Protects `geometry_grid`'s three rules with hand-computed literals on a
+    /// 9 × 9 tile of `x² + 10·y` (a curved field, so a box mean differs from a
+    /// point sample and a wrong box width shows): an interior vertex is its 5 × 5
+    /// box's mean (58, where the point is 56), an edge vertex averages along its
+    /// edge only (18 on the top edge, 40 on the left), and a corner is its pixel.
+    #[test]
+    fn the_geometry_grid_boxes_interior_vertices_and_keeps_edges_on_the_edge() {
+        let (w, h) = (9usize, 9usize);
+        let height: Vec<f32> = (0..w * h).map(|p| ((p % w) * (p % w) + 10 * (p / w)) as f32).collect();
+        let g = geometry_grid(&height, w, h, 3).expect("grid");
+        assert_eq!(g.len(), 9);
+        assert_eq!(g[4], 58.0, "interior vertex (1,1): mean of x^2 over 2..6 is 18, of 10y is 40");
+        assert_eq!(g[1], 18.0, "top-edge vertex (1,0): along the edge only");
+        assert_eq!(g[3], 40.0, "left-edge vertex (0,1): along the edge only");
+        assert_eq!(g[0], 0.0, "corner (0,0) is its pixel");
+        assert_eq!(g[8], 144.0, "corner (2,2) is its pixel, 64 + 80");
+        assert!(geometry_grid(&height, w, h, 1).is_none(), "one vertex a side is no grid");
+        assert!(geometry_grid(&height[1..], w, h, 3).is_none(), "a short buffer is refused, not read past");
+    }
+
+    /// Protects the crack rule: two tiles that share their edge column (as
+    /// `tile_bounds` neighbours do) but differ everywhere else give the SAME
+    /// heights on that edge, so their meshes meet. A clamped 2D box would
+    /// average different interiors on each side and fail this.
+    #[test]
+    fn neighbouring_tiles_agree_on_their_shared_edge_vertices() {
+        let (w, h, g) = (17usize, 13usize, 5usize);
+        let a: Vec<f32> = (0..w * h).map(|p| ((p * 37) % 101) as f32 * 0.01).collect();
+        let mut b: Vec<f32> = (0..w * h).map(|p| ((p * 53) % 97) as f32 * 0.02).collect();
+        for y in 0..h {
+            b[y * w] = a[y * w + w - 1];
+        }
+        let ga = geometry_grid(&a, w, h, g).unwrap();
+        let gb = geometry_grid(&b, w, h, g).unwrap();
+        let mut interior_differs = false;
+        for j in 0..g {
+            assert_eq!(ga[j * g + g - 1], gb[j * g], "row {j}: the shared edge vertex differs");
+            interior_differs |= ga[j * g + 1] != gb[j * g + 1];
+        }
+        assert!(interior_differs, "the fixture must differ off the edge, or the test pins nothing");
+    }
 
     // -- addressing -------------------------------------------------------
 

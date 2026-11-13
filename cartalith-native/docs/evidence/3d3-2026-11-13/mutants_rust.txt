@@ -1,0 +1,31 @@
+KILLED  '(p - step * 0.5).ceil()' -> '(p - step * 1.0).ceil()'
+    test lod_bridge::tests::the_geometry_grid_boxes_interior_vertices_and_keeps_edges_on_the_edge ... FAILED
+    thread 'lod_bridge::tests::the_geometry_grid_boxes_interior_vertices_and_keeps_edges_on_the_edge' (18148) panicked at crates\cartalith-godot\src\lod_bridge.rs:1216:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 1343 filtered out; finished in 0.49s
+KILLED  'if j == 0 { (0, 0) }' -> 'if j == 0 { (0, 1) }'
+    test lod_bridge::tests::the_geometry_grid_boxes_interior_vertices_and_keeps_edges_on_the_edge ... FAILED
+    thread 'lod_bridge::tests::the_geometry_grid_boxes_interior_vertices_and_keeps_edges_on_the_edge' (13968) panicked at crates\cartalith-godot\src\lod_bridge.rs:1217:9:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 1343 filtered out; finished in 0.29s
+KILLED  'if i == 0 { (0, 0) } else if i == g - 1 { (w - 1, w - 1) }' -> 'if i == 0 { (0, 0) } else if i == g - 1 { span(px, sx, w) }'
+    test lod_bridge::tests::the_geometry_grid_boxes_interior_vertices_and_keeps_edges_on_the_edge ... FAILED
+    test lod_bridge::tests::neighbouring_tiles_agree_on_their_shared_edge_vertices ... FAILED
+    thread 'lod_bridge::tests::the_geometry_grid_boxes_interior_vertices_and_keeps_edges_on_the_edge' (7344) panicked at crates\cartalith-godot\src\lod_bridge.rs:1220:9:
+    thread 'lod_bridge::tests::neighbouring_tiles_agree_on_their_shared_edge_vertices' (240) panicked at crates\cartalith-godot\src\lod_bridge.rs:1241:13:
+    test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 1343 filtered out; finished in 0.16s
+KILLED  'let geo_min = geo.iter().copied().fold(f32::INFINITY, f32::min);' -> 'let geo_min = geo.iter().copied().fold(f32::INFINITY, f32::max);'
+    test lod_worker::tests::worker_relief_tiles_equal_the_main_thread_in_colour_and_height ... FAILED
+    thread 'lod_worker::tests::worker_relief_tiles_equal_the_main_thread_in_colour_and_height' (13408) panicked at crates\cartalith-godot\src\lod_worker.rs:2257:13:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 1343 filtered out; finished in 0.06s
+SURVIVED  '            st.relief_ready.clear();' -> ''
+KILLED  'let geo = lod_bridge::geometry_grid(&tile.height, tile.w, tile.h, grid)?;' -> 'let geo = lod_bridge::geometry_grid(&tile.height, tile.w, tile.h, grid + 2)?;'
+    test lod_worker::tests::worker_relief_tiles_equal_the_main_thread_in_colour_and_height ... FAILED
+    thread 'lod_worker::tests::worker_relief_tiles_equal_the_main_thread_in_colour_and_height' (7456) panicked at crates\cartalith-godot\src\lod_worker.rs:2255:13:
+    test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 1343 filtered out; finished in 0.06s
+
+# Re-run after the test was strengthened (it now waits for the tile to be WAITING
+# before invalidating; the first version invalidated mid-job, so the generation
+# check dropped the tile whether or not invalidate cleared the ready list):
+KILLED  '            st.relief_ready.clear();' -> ''
+    thread 'lod_worker::tests::worker_relief_tiles_equal_the_main_thread_in_colour_and_height' panicked at crates\cartalith-godot\src\lod_worker.rs:2272:9
+# All six Rust mutants killed. Harness: exact literal replace, occurs once,
+# restore in a finally, sha256 checked after each.

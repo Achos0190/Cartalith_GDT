@@ -54,7 +54,8 @@ const MAX_DIST_DIAGONALS := 2.5
 const CLEARANCE_CELLS := 0.2
 const NEAR_CLEARANCE_NEARS := 2.0
 ## §3.11's dynamic near plane, `clamp(0.05 · height_above_ground, 1 m, 1 km)`,
-## a labelled judgement of the scope's, to be calibrated at 3D-3.
+## a labelled judgement of the scope's. 3D-3 left it as 3D-2 measured it (B5
+## held at the highest and lowest altitudes); it did not re-measure B5.
 const NEAR_FRACTION := 0.05
 const NEAR_MIN_M := 1.0
 const NEAR_MAX_M := 1000.0
@@ -140,8 +141,13 @@ func metres_per_px(view_h_px: float) -> float:
 ## `px_per_cell` its physical pixels per cell, both from
 ## `ViewportHost.view_for_3d()`; `view_h_px` this view's physical height.
 func enter_from_2d(centre_cell: Vector2, px_per_cell: float, view_h_px: float, tilt: bool) -> void:
-	pivot_x = float(centre_cell.x) * cell_m
-	pivot_z = float(centre_cell.y) * cell_m
+	## 3D places sample `s` at `s * cell_m`; 2D draws sample `s` at the centre
+	## of cell `s`, cell coordinate `s + 0.5` (`viewport_host.gd::_lod_tile_rect`).
+	## So the cell coordinate under 2D's centre is sample `c - 0.5`: 3D-3's bar
+	## B1 compares the two frames pixel for pixel, and 3D-2's `c` was half a
+	## cell off.
+	pivot_x = (float(centre_cell.x) - 0.5) * cell_m
+	pivot_z = (float(centre_cell.y) - 0.5) * cell_m
 	_clamp_pivot()
 	yaw = 0.0
 	pitch = deg_to_rad(PITCH_MAX_DEG)

@@ -1,0 +1,76 @@
+Initialize godot-rust (API v4.7.stable.official, runtime v4.7.2.stable.official, safeguards strict)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+
+Cartalith shell build 2009164332fe
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x24b1c703420, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x24b1c703420, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x24b1c703420, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+WORLD seed=483920 grid=512x384 generate_ms=3204
+PASS  A: Window ▸ 3D view row exists  
+PASS  A: the gate ran and measured at least Basic  tier Full, cause ''
+PASS  A: opens at the 2D view's centre  pivot 598419.4,448736.9 m vs 2D centre (255.8256, 191.9611) cells x 2343.750 m
+PASS  A: opens at the 2D view's ground scale  3D span 900000 m vs 2D 900000 m
+PASS  A: opens straight down, then tilts  pitch 85.2°
+PASS  A: the tilt ends at 55° within 0.9 s  pitch 55.00°
+PASS  A: a tile window is drawn  {"c0":0,"k":2,"last_fill_ms":60.7,"mosaic":"511x383","r0":0,"tiles_built":5,"z":1}
+PASS  A: true scale by default (Ruling CT)  1.00
+PASS  A: terrain covers the 3D view  background 10.0 % of the 3D frame
+PASS  A: the card names the tile level  Basic terrain, tile level 1. Heights at 1.00× (1× is true scale).
+PASS  B: x4: the window is one level below 2D's, 4 tiles a side  z 3, 2D z 4, k 4
+PASS  B: x4: no hole in the drawn ground (no crack at the window's rim)  0 px
+DETAIL x4 z=3 1.876 vs z=1 1.406 (1.33x) window {"c0":0,"k":4,"last_fill_ms":237.1,"mosaic":"1021x765","r0":0,"tiles_built":41,"z":3}
+PASS  B: x4: the drawn level carries more detail than two levels coarser  z3 1.876 vs z1 1.406
+PASS  B: x16: the window is one level below 2D's, 4 tiles a side  z 5, 2D z 6, k 4
+PASS  B: x16: no hole in the drawn ground (no crack at the window's rim)  0 px
+DETAIL x16 z=5 3.518 vs z=3 0.471 (7.47x) window {"c0":4,"k":4,"last_fill_ms":317.4,"mosaic":"1021x765","r0":7,"tiles_built":89,"z":5}
+PASS  B: x16: the drawn level carries more detail than two levels coarser  z5 3.518 vs z3 0.471
+PASS  B: x64: the window is one level below 2D's, 4 tiles a side  z 7, 2D z 8, k 4
+PASS  B: x64: no hole in the drawn ground (no crack at the window's rim)  0 px
+DETAIL x64 z=7 3.224 vs z=5 0.450 (7.17x) window {"c0":21,"k":4,"last_fill_ms":471.8,"mosaic":"1021x765","r0":35,"tiles_built":137,"z":7}
+PASS  B: x64: the drawn level carries more detail than two levels coarser  z7 3.224 vs z5 0.450
+PASS  B: the level rises at every zoom step  [3, 5, 7]
+PASS  C: 1x against 4x moves pixels (heights reach the vertices)  539910 px moved
+B4 control (clamp off): {"below":16,"clamped":0,"frames":180,"min_clamped_hag":1e99999,"min_margin":-2486.68632973124,"sky_frames":2}
+PASS  D: control: without the clamp the path goes below the ground  {"below":16,"clamped":0,"frames":180,"min_clamped_hag":1e99999,"min_margin":-2486.68632973124,"sky_frames":2}
+B4 (clamp on): {"below":0,"clamped":31,"frames":180,"min_clamped_hag":521.085966665931,"min_margin":742.167212058615,"sky_frames":0}
+PASS  D: B4: no frame below the drawn ground  min margin 742.2 m over 180 frames
+PASS  D: B4: no frame sees through the ground  {"below":0,"clamped":31,"frames":180,"min_clamped_hag":521.085966665931,"min_margin":742.167212058615,"sky_frames":0}
+PASS  D: the clamp acted on the path  31 frames clamped
+PASS  D: a clamped camera keeps 2 cells x 0.1 above the drawn ground (§3.9)  min 521.1 m against 468.8 m
+PASS  E: B5 at the highest altitude: two static frames identical  0 px differ
+PASS  E: the near plane low down is 5 % of the height above ground (§3.11)  near 37.507 m at 750.1 m above ground
+PASS  E: B5 at the lowest altitude over a coast: two static frames identical  0 px differ, near 37.51 m far 872713 m
+PASS  F: the near plane is 5 % of the height above ground, 1 m..1 km (§3.11)  near 1000.000 m at 49441.7 m above ground
+PASS  F: the far plane reaches the farthest world corner  far 1206563 m, corner 1149108 m
+PASS  F: the patch is 257 x 257 vertices, 131 072 triangles (§3.12's Basic row)  131072 triangles in the patch; 427022 primitives in the frame
+FRAME static median=1.778 min=1.692 max=1.941 p95=1.852 ms primitives=427022 draws=1128 video_mem=97.9 MiB (2D before 3D 52.6 MiB, +45.3 MiB) window={"c0":4,"k":4,"last_fill_ms":321.8,"mosaic":"1021x765","r0":7,"tiles_built":225,"z":5}
+PASS  F: Basic's frame bar, static: p95 <= 33 ms  p95 1.852 ms
+FRAME orbiting median=1.790 min=1.689 max=2.814 p95=2.029 ms
+FRAME zooming (level changes, fills) median=17.325 min=1.724 max=40.085 p95=36.897 ms tiles_built=64
+PASS  G: the wheel zooms in by ZOOM_WHEEL_STEP  ratio 1.150000
+PASS  G: a right drag orbits  yaw moved -25.00°
+PASS  G: a right drag up stops at 5°  pitch 5.00°, clamp steps 0
+PASS  G: a right drag down stops at 90°  pitch 90.00°, clamp steps 0
+PASS  G: a left drag to the right moves the pivot west (the ground follows)  218382.3 -> 202592.9 m
+PASS  G: Top-down switches to an orthographic camera  Orbit
+PASS  G: Orbit switches back  
+PASS  G: ViewportHost.zoom_step() moves the 3D camera  ratio 1.350000
+PASS  G: ViewportHost.reset_view() frames the 3D world  
+PASS  G: none of it moved the hidden 2D zoom  1.0302 vs 1.0302
+PASS  I: the HEIGHT row exists and is shown  
+PASS  I: between the info line and the actions  info end 221, slider 256, actions 307
+PASS  I: 1x to 4x in steps of 0.25  1.00..4.00 step 0.25
+PASS  I: a press at the track's right end sets 4x on the mesh and in Preferences  mesh 4.00, stored 4.00, readout ×4.00
+PASS  I: a press at the track's left end sets 1x on the mesh and in Preferences  mesh 1.00, stored 1.00, readout ×1.00
+PASS  H: leaving 3D gives back the 2D map byte-identical  0 px differ
+RESULT checks=49 fail=0
+EXIT=0

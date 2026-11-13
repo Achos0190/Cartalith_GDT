@@ -20106,6 +20106,77 @@ impl WorldGen {
         }
     }
 
+    /// **3D-3: the world as the 3D quadtree reads it** (`shell/view3d_quadtree.gd`):
+    /// `{gw, gh, cell_m, sea_level, peak_m, max_level}` from the LIVE tile
+    /// snapshot, never building one (that is [`Self::lod_prepare`]'s job, on a
+    /// worker). `max_level` is `lod_bridge::MAX_LEVEL` capped by the quality
+    /// tier's `LodBudget::max_level`, exactly the two caps 2D applies.
+    ///
+    /// **Empty** while no snapshot is live for this world and appearance, so
+    /// the caller waits instead of drawing a world it has no scale for.
+    #[func]
+    fn view3d_world(&self) -> VarDictionary {
+        let key = self.lod_cache_key();
+        let Some(snap) = self.lod_worker.snapshot_for(&key) else { return VarDictionary::new() };
+        if self.gw < 2 || self.gh < 2 || self.map_width_km <= 0.0 {
+            return VarDictionary::new();
+        }
+        let (sea, peak) = snap.sea_and_peak();
+        let tier_max = lod_worker::budget_for_tier(self.quality).max_level;
+        dict! {
+            "gw" => self.gw as i64, "gh" => self.gh as i64,
+            "cell_m" => self.map_width_km * 1000.0 / self.gw as f64,
+            "sea_level" => sea, "peak_m" => peak,
+            "max_level" => i64::from(lod_bridge::MAX_LEVEL.min(tier_max)),
+            "max_in_flight" => lod_worker::budget_for_tier(self.quality).max_in_flight as i64,
+        }
+    }
+
+    /// **3D-3: queue one relief tile** for the 3D view on the LOD worker
+    /// ([`lod_worker::LodWorker::request_relief`]): the plain tile's colour,
+    /// its relief and a `grid × grid` vertex grid. `false` is a refusal, not an
+    /// error (no snapshot yet, already queued, the tier's in-flight cap full);
+    /// the caller asks again next frame.
+    #[func]
+    fn view3d_request_tile(&self, z: i32, col: i32, row: i32, grid: i32) -> bool {
+        if !(2..=1025).contains(&grid) {
+            return false;
+        }
+        self.lod_worker.request_relief(z, col, row, grid as usize, lod_worker::budget_for_tier(self.quality).max_in_flight)
+    }
+
+    /// **3D-3: collect up to `max` finished relief tiles**, as `{z, col, row,
+    /// grid, w, h, rgba: Image RGBA8 w×h, height: Image RF w×h, geo: Image RF
+    /// grid×grid, geo_min, geo_max, tb_x, tb_y, tb_w, tb_h}`. A tile whose
+    /// images cannot be made is dropped, never returned half-filled
+    /// (`MISTAKES.md`: omit, don't fake).
+    #[func]
+    fn view3d_take_ready(&self, max: i32) -> Array<VarDictionary> {
+        let mut out: Array<VarDictionary> = Array::new();
+        for t in self.lod_worker.take_ready_relief(max.max(0) as usize) {
+            let (w, h, g) = (t.tile.w as i32, t.tile.h as i32, t.grid as i32);
+            let f32_bytes = |v: &[f32]| -> PackedByteArray { PackedByteArray::from(v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>()) };
+            let Some(rgba) = Image::create_from_data(w, h, false, Format::RGBA8, &PackedByteArray::from(t.tile.rgba)) else { continue };
+            let Some(height) = Image::create_from_data(w, h, false, Format::RF, &f32_bytes(&t.tile.height)) else { continue };
+            let Some(geo) = Image::create_from_data(g, g, false, Format::RF, &f32_bytes(&t.geo)) else { continue };
+            out.push(&dict! {
+                "z" => t.z, "col" => t.col, "row" => t.row, "grid" => g, "w" => w, "h" => h,
+                "rgba" => &rgba, "height" => &height, "geo" => &geo,
+                "geo_min" => f64::from(t.geo_min), "geo_max" => f64::from(t.geo_max),
+                "tb_x" => t.tile.tb.x, "tb_y" => t.tile.tb.y, "tb_w" => t.tile.tb.w, "tb_h" => t.tile.tb.h,
+            });
+        }
+        out
+    }
+
+    /// `{in_flight, waiting, built, dropped}` for 3D-3's relief jobs: the
+    /// card's and the probe's diagnostics, never a decision.
+    #[func]
+    fn view3d_stats(&self) -> VarDictionary {
+        let (in_flight, waiting, built, dropped) = self.lod_worker.relief_stats();
+        dict! { "in_flight" => in_flight as i64, "waiting" => waiting as i64, "built" => built as i64, "dropped" => dropped as i64 }
+    }
+
     // ------------------------------------------------------------------
     // LOD-D6 — the asynchronous half of the same path
     //

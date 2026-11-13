@@ -110,7 +110,9 @@ func _ready() -> void:
 		return
 	DirAccess.make_dir_recursive_absolute(_out)
 	DccSettings.set_view3d_result({})
-	DccSettings.set_view3d_forced_tier(-1)
+	## Basic forced: since 3D-3, Standard and Full draw the quadtree
+	## (`_view3d_quadtree_probe.gd`), and this probe measures Basic's patch.
+	DccSettings.set_view3d_forced_tier(View3DGate.TIER_BASIC)
 	DccSettings.clear_view3d_exaggeration()
 	app = load("res://shell/app.tscn").instantiate()
 	add_child(app)
@@ -206,7 +208,7 @@ func _holes(img: Image) -> int:
 	if v._card != null and v._card.is_visible_in_tree():
 		var cr: Rect2 = v._card.get_global_rect() * get_viewport().get_final_transform()
 		card_bottom = int(cr.end.y - _rect3d().position.y) + 1
-	var bg := DccTheme.c("bg")
+	var bg := SKY
 	var n := 0
 	for x in range(0, img.get_width(), 3):
 		var seen := false
@@ -240,9 +242,22 @@ func _crop(img: Image, r: Rect2) -> Image:
 	var ri := Rect2i(r).intersection(Rect2i(Vector2i.ZERO, img.get_size()))
 	return img.get_region(ri)
 
+## The 3D view's background while this probe runs: magenta, a colour no
+## terrain look draws. The probe first compared against the theme's own
+## background, and on 2026-11-13 (3D-3's re-run) bright snow texels within 6
+## levels of the light theme's (244, 242, 238) read as 1 273 "holes" at x16,
+## 97 % of them isolated pixels inside the snow (`MISTAKES.md`: a pixel
+## threshold is palette-bound).
+const SKY := Color(1.0, 0.0, 1.0)
+
+func _set_sky() -> void:
+	for ch in v.subviewport().get_children():
+		if ch is WorldEnvironment:
+			(ch as WorldEnvironment).environment.background_color = SKY
+
 ## Pixels within 6 levels of the 3D background colour, as a fraction of `img`.
 func _bg_fraction(img: Image) -> float:
-	var bg := DccTheme.c("bg")
+	var bg := SKY
 	var d := img.get_data()
 	var n := 0
 	var tot := 0
@@ -412,6 +427,7 @@ func _leg_a() -> bool:
 		return false
 	win.id_pressed.emit(DccMenus.ID_WIN_VIEW_3D)
 	v = vp.view3d()
+	_set_sky()
 	if v == null:
 		_ok("A: the 3D view was built", false)
 		return false
@@ -429,7 +445,7 @@ func _leg_a() -> bool:
 	var c: View3DCamera = v.camera_state()
 	var cm := c.cell_m
 	_ok("A: opens at the 2D view's centre", not expect.is_empty()
-		and absf(c.pivot_x - float(expect["centre"].x) * cm) < 1.0 and absf(c.pivot_z - float(expect["centre"].y) * cm) < 1.0,
+		and absf(c.pivot_x - (float(expect["centre"].x) - 0.5) * cm) < 1.0 and absf(c.pivot_z - (float(expect["centre"].y) - 0.5) * cm) < 1.0,
 		"pivot %.1f,%.1f m vs 2D centre %s cells x %.3f m" % [c.pivot_x, c.pivot_z, str(expect.get("centre")), cm])
 	var span_2d := float(v.subviewport().size.y) / float(expect.get("px_per_cell", 1.0)) * cm
 	_ok("A: opens at the 2D view's ground scale", absf(c.view_span_m() - clampf(span_2d, c.min_ortho(), c.max_ortho())) < 0.01 * span_2d,

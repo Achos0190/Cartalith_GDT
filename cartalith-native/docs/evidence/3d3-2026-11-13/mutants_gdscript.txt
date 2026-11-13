@@ -1,0 +1,58 @@
+# 3D-3 GDScript and shader literal mutants (2026-11-13), one windowed probe run each under the window lock.
+# m3 first SURVIVED; leg A gained a 2D-update-while-3D check and the re-run below killed it.
+m1_halfcell KILLED  'pivot_x = (float(centre_cell.x) - 0.5) * cell_m' -> 'pivot_x = (float(centre_cell.x) - 0.0) * cell_m'
+     FAIL  B1 x4: mean |dL*| <= 1.0  mean 3.573, p99 23.085, 81500 px
+     FAIL  B1 x4: p99 |dL*| <= 4.0  p99 23.085
+     FAIL  B1 x4: level index per pixel equals 2D's on >= 99.9 % away from rounding ties  0.9938 away from ties (0.9889 raw) of 36239 px, decode linear; misses {"coarser":162,"finer":241,"tie":180}
+     FAIL  B1 x16: mean |dL*| <= 1.0  mean 19.843, p99 54.775, 81500 px
+     FAIL  B1 x16: p99 |dL*| <= 4.0  p99 54.775
+m2_snap KILLED  '(size * 0.5 - _camera.position.round()) / _zoom' -> '(size * 0.5 - _camera.position) / _zoom'
+     FAIL  B1 x4: p99 |dL*| <= 4.0  p99 5.166
+     FAIL  B1 x16: mean |dL*| <= 1.0  mean 2.069, p99 10.717, 81500 px
+     FAIL  B1 x16: p99 |dL*| <= 4.0  p99 10.717
+     RESULT checks=21 fail=3
+m3_park SURVIVED  '\t\t_lod_parked_3d = true\n' -> '\t\t_lod_parked_3d = false\n'
+     RESULT checks=6 fail=0
+m4_mip0 KILLED  '\t\treturn textureLod(col, uvl, 0.0);' -> '\t\treturn texture(col, uvl, drape_bias);'
+     FAIL  B6 x16: 3D detail >= 2D detail at the same px per cell  3D 8.596 vs 2D 8.981
+     FAIL  B6 x64: 3D detail >= 2D detail at the same px per cell  3D 6.306 vs 2D 6.578
+     RESULT checks=21 fail=2
+m5_split KILLED  'var split := key.x < _max_level and lmax >= key.x + 0.5' -> 'var split := key.x < _max_level and lmax >= key.x + 1.5'
+     FAIL  B1 x4: p99 |dL*| <= 4.0  p99 10.999
+     FAIL  B6 x4: 3D detail >= 2D detail at the same px per cell  3D 3.015 vs 2D 3.453
+     FAIL  B1 x4: level index per pixel equals 2D's on >= 99.9 % away from rounding ties  0.5577 away from ties (0.5553 raw) of 36239 px, decode linear; misses {"coarser":16115,"finer":0,"tie":157}
+     FAIL  B1 x16: mean |dL*| <= 1.0  mean 3.844, p99 18.309, 81500 px
+     FAIL  B1 x16: p99 |dL*| <= 4.0  p99 18.309
+m6_weight KILLED  '\tfloat w = smoothstep(0.0, 1.0, L - j + 0.5);\n\tvec4 cj' -> '\tfloat w = smoothstep(0.0, 1.0, L - j + 1.0);\n\tvec4 cj'
+     FAIL  B1 x4: mean |dL*| <= 1.0  mean 2.289, p99 21.781, 81500 px
+     FAIL  B1 x4: p99 |dL*| <= 4.0  p99 21.781
+     FAIL  B1 x16: mean |dL*| <= 1.0  mean 5.666, p99 27.511, 81500 px
+     FAIL  B1 x16: p99 |dL*| <= 4.0  p99 27.511
+     FAIL  B1 x64: mean |dL*| <= 1.0  mean 3.956, p99 25.652, 81500 px
+m7_skirt KILLED  '\t\ty -= skirt_m;' -> '\t\ty -= 0.0;'
+     FAIL  B2: no hole on any frame of a descent through level changes  1153 hole px over 48 frames, level spans ["2-3", "3-4", "4-4", "4-5", "3-5", "2-5", "5-5", "5-6", "3-6", "4-6", "2-6", "1-6"]
+     RESULT checks=8 fail=1
+m8_nomorph SURVIVED  '\tp -= odd / (grid_n - 1.0) * (1.0 - wk);' -> '\tp -= odd / (grid_n - 1.0) * 0.0;'
+     RESULT checks=10 fail=0
+m10_parents KILLED  '\t\t_lod_parents_due = _lod_parents_due_parked\n' -> '\t\t_lod_parents_due = false\n'
+     FAIL  H: leaving 3D rebuilds 2D's deep-zoom frame byte-identical  137 px differ; 115 tiles before, 106 after
+     RESULT checks=8 fail=1
+m9_band SURVIVED  'const MORPH_BAND := 0.5' -> 'const MORPH_BAND := 1.0'
+     RESULT checks=10 fail=0
+
+# Re-runs after leg A's park check and the skirt view (debug mode 3):
+SKIRT share of sampled pixels over the path: 0.00011 (1199 of 11156832)
+RESULT checks=10 fail=0
+m3_park KILLED  '\t\t_lod_parked_3d = true\n' -> '\t\t_lod_parked_3d = false\n'
+     FAIL  A: a 2D update while 3D shows builds no 2D tile  24 live, 25 pending
+     RESULT checks=7 fail=1
+m8_nomorph SURVIVED  '\tp -= odd / (grid_n - 1.0) * (1.0 - wk);' -> '\tp -= odd / (grid_n - 1.0) * 0.0;'
+     RESULT checks=12 fail=0
+m9_band SURVIVED  'const MORPH_BAND := 0.5' -> 'const MORPH_BAND := 1.0'
+     RESULT checks=12 fail=0
+SKIRT share of sampled pixels over the path: 0.00012 (1324 of 11156832)
+SKIRT share of sampled pixels over the path: 0.00011 (1198 of 11156832)
+
+[exited with code 0]
+# baseline skirt share (no mutant):
+SKIRT share of sampled pixels over the path: 0.00011 (1199 of 11156832)

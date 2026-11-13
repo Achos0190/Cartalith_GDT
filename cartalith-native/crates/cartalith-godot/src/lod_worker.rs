@@ -1538,6 +1538,13 @@ struct WorkerState {
     /// drops them.
     info_in_flight: HashSet<(crate::info_tile::InfoView, i32, i32, i32)>,
     info_ready: Vec<ReadyInfoTile>,
+    /// 3D-3: relief tiles (colour, heights and a vertex grid) in flight /
+    /// finished, keyed by `(z, col, row, grid)`. Cleared with `in_flight` and
+    /// `ready` everywhere those are, so the generation rule drops them too.
+    relief_in_flight: HashSet<(i32, i32, i32, usize)>,
+    relief_ready: Vec<ReadyRelief>,
+    relief_built: u64,
+    relief_dropped: u64,
     /// Counters for the shell's diagnostics, never for a decision.
     built: u64,
     dropped: u64,
@@ -1976,8 +1983,103 @@ impl LodWorker {
             st.info_in_flight.clear();
             st.info_dropped += st.info_ready.len() as u64;
             st.info_ready.clear();
+            st.relief_in_flight.clear();
+            st.relief_dropped += st.relief_ready.len() as u64;
+            st.relief_ready.clear();
         }
     }
+
+    /// **3D-3: queue one relief tile for the 3D view** (`3D_VIEWPORT_SCOPE.md`
+    /// §3.13, "requests go to `lod_worker`"). The job is
+    /// [`LodSnapshot::render_tile_relief`] (the plain 2D tile's colour and the
+    /// relief it was coloured from, from one synthesis, §3.1) plus
+    /// [`lod_bridge::geometry_grid`] at `grid` vertices a side. Why on the
+    /// worker: 3D-2 synthesised on the main thread and a level change cost a
+    /// frame per tile, 7–30 ms on this desktop (`STATUS.md`, the 3D-2 entry).
+    ///
+    /// Same discipline as [`Self::request_info`]: refused (never an error)
+    /// with no snapshot, when the tile is already in flight or waiting, or when
+    /// terrain, info and relief jobs together fill `max_in_flight`; a result
+    /// landing after [`Self::invalidate`] is dropped by the generation check.
+    /// Must never touch the plain-tile cache (`render_tile_relief`'s rule).
+    pub fn request_relief(self: &Arc<Self>, z: i32, col: i32, row: i32, grid: usize, max_in_flight: usize) -> bool {
+        let Some(pool) = pool() else { return false };
+        let (snap, generation) = {
+            let Ok(mut st) = self.state.lock() else { return false };
+            let Some(snap) = st.snapshot.clone() else { return false };
+            let id = (z, col, row, grid);
+            if st.relief_in_flight.contains(&id) || st.relief_ready.iter().any(|t| (t.z, t.col, t.row, t.grid) == id) {
+                return false;
+            }
+            if st.in_flight.len() + st.info_in_flight.len() + st.relief_in_flight.len() >= max_in_flight.max(1) {
+                return false;
+            }
+            st.relief_in_flight.insert(id);
+            (snap, self.generation.load(Ordering::SeqCst))
+        };
+        let me = Arc::clone(self);
+        pool.spawn(move || {
+            let out = relief_job(&snap, z, col, row, grid);
+            let Ok(mut st) = me.state.lock() else { return };
+            st.relief_in_flight.remove(&(z, col, row, grid));
+            if me.generation.load(Ordering::SeqCst) != generation {
+                st.relief_dropped += 1;
+                return;
+            }
+            match out {
+                Some(t) => {
+                    st.relief_ready.push(t);
+                    st.relief_built += 1;
+                }
+                None => st.relief_dropped += 1,
+            }
+        });
+        true
+    }
+
+    /// Take up to `max` finished relief tiles (main thread, which then makes
+    /// the textures).
+    pub fn take_ready_relief(&self, max: usize) -> Vec<ReadyRelief> {
+        let Ok(mut st) = self.state.lock() else { return Vec::new() };
+        let n = max.min(st.relief_ready.len());
+        st.relief_ready.drain(..n).collect()
+    }
+
+    /// `(in_flight, waiting, built, dropped)` for relief tiles: diagnostics and
+    /// probes, never a decision.
+    pub fn relief_stats(&self) -> (usize, usize, u64, u64) {
+        let Ok(st) = self.state.lock() else { return (0, 0, 0, 0) };
+        (st.relief_in_flight.len(), st.relief_ready.len(), st.relief_built, st.relief_dropped)
+    }
+}
+
+/// A finished 3D relief tile ([`LodWorker::request_relief`]). Plain data; the
+/// textures are made on the main thread.
+pub struct ReadyRelief {
+    pub z: i32,
+    pub col: i32,
+    pub row: i32,
+    /// Vertices per side of `geo`, as requested.
+    pub grid: usize,
+    /// The plain 2D tile and its relief ([`lod_bridge::TileRelief`]).
+    pub tile: lod_bridge::TileRelief,
+    /// [`lod_bridge::geometry_grid`] of `tile.height`, `grid * grid`.
+    pub geo: Vec<f32>,
+    /// The lowest and highest value in `geo` (normalised heights): the node's
+    /// own relief range, which bounds its culling box (§3.13).
+    pub geo_min: f32,
+    pub geo_max: f32,
+}
+
+/// One relief job: the tile, its vertex grid and the grid's range. `None`
+/// exactly where the tile or the grid is refused. Shared by the worker and by
+/// the determinism test, so the two cannot be two implementations.
+pub fn relief_job(snap: &LodSnapshot, z: i32, col: i32, row: i32, grid: usize) -> Option<ReadyRelief> {
+    let tile = snap.render_tile_relief(z, col, row)?;
+    let geo = lod_bridge::geometry_grid(&tile.height, tile.w, tile.h, grid)?;
+    let geo_min = geo.iter().copied().fold(f32::INFINITY, f32::min);
+    let geo_max = geo.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    Some(ReadyRelief { z, col, row, grid, tile, geo, geo_min, geo_max })
 }
 
 /// Tests for the budget table, the snapshot, the worker's generation rule and
@@ -2109,6 +2211,74 @@ mod tests {
             assert_eq!((t.w, t.h), (direct[i].1, direct[i].2), "tile {:?} size", asked[i]);
             assert_eq!(t.rgba, direct[i].0, "tile {:?} bytes differ between the worker and the main thread", asked[i]);
         }
+    }
+
+    /// **3D-3's determinism claim, extended to the heights** (§5, 3D-3: "the
+    /// determinism test extended to the heights"). Relief tiles from the worker
+    /// pool equal the main thread's `render_tile_relief` bit for bit in colour
+    /// AND relief, their vertex grid equals `geometry_grid` of that relief, the
+    /// colour is still the 2D tile's, and the range is the grid's own. No tile
+    /// may be empty or flat, so nothing passes vacuously; a request landing
+    /// after `invalidate` is dropped.
+    #[test]
+    fn worker_relief_tiles_equal_the_main_thread_in_colour_and_height() {
+        let snap = Arc::new(LodSnapshot::build(inputs_with_litho(96, 72)).expect("snapshot"));
+        let worker = Arc::new(LodWorker::default());
+        worker.install(Arc::clone(&snap));
+        let asked: Vec<(i32, i32, i32)> = vec![(0, 0, 0), (1, 1, 0), (2, 2, 1), (2, 3, 3), (3, 5, 6)];
+        let mut got: Vec<ReadyRelief> = Vec::new();
+        let mut queued = 0usize;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while std::time::Instant::now() < deadline {
+            while queued < asked.len() {
+                let (z, c, r) = asked[queued];
+                if !worker.request_relief(z, c, r, 33, 4) {
+                    break;
+                }
+                queued += 1;
+            }
+            got.extend(worker.take_ready_relief(16));
+            if got.len() == asked.len() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(got.len(), asked.len(), "every relief tile must come back");
+        for t in &got {
+            let direct = snap.render_tile_relief(t.z, t.col, t.row).expect("direct relief");
+            let plain = snap.render_tile(t.z, t.col, t.row).expect("2D tile");
+            assert_eq!(t.tile.rgba, direct.rgba, "tile {:?}: worker colour differs", (t.z, t.col, t.row));
+            assert_eq!(t.tile.rgba, plain.0, "tile {:?}: drape is not the 2D tile", (t.z, t.col, t.row));
+            let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<u32>>();
+            assert_eq!(bits(&t.tile.height), bits(&direct.height), "tile {:?}: worker relief differs", (t.z, t.col, t.row));
+            let geo = lod_bridge::geometry_grid(&direct.height, direct.w, direct.h, 33).unwrap();
+            assert_eq!(bits(&t.geo), bits(&geo), "tile {:?}: vertex grid differs", (t.z, t.col, t.row));
+            assert_eq!(t.geo.len(), 33 * 33);
+            assert!(t.geo_max > t.geo_min, "tile {:?} is flat: the range check would be vacuous", (t.z, t.col, t.row));
+            assert_eq!(t.geo_min, geo.iter().copied().fold(f32::INFINITY, f32::min));
+            assert_eq!(t.geo_max, geo.iter().copied().fold(f32::NEG_INFINITY, f32::max));
+        }
+        // A tile WAITING when the world is invalidated is dropped too, not only
+        // one still running: wait for it to land first (a test that
+        // invalidated mid-job passed with `invalidate`'s clear of the ready
+        // list deleted, because the generation check dropped it instead).
+        assert!(worker.request_relief(1, 0, 0, 33, 4));
+        let late = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while worker.relief_stats().1 == 0 && std::time::Instant::now() < late {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(worker.relief_stats().1, 1, "the tile must be waiting before the invalidate");
+        worker.invalidate();
+        assert!(worker.take_ready_relief(16).is_empty(), "a waiting relief tile must be dropped by invalidate");
+        // And one still running when invalidated never lands (`invalidate`
+        // dropped the snapshot, so install it again first).
+        worker.install(Arc::clone(&snap));
+        assert!(worker.request_relief(1, 1, 1, 33, 4));
+        worker.invalidate();
+        while worker.relief_stats().0 > 0 && std::time::Instant::now() < late {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(worker.take_ready_relief(16).is_empty(), "a relief tile landing after invalidate must be dropped");
     }
 
     /// Protects: EF-9.4's conform mask as part of a tile's identity on the
