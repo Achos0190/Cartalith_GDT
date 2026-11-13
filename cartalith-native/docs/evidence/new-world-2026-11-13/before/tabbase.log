@@ -1,0 +1,16 @@
+[tabbase] viewport 1600x2560 phone=false tablet=true touch=true
+[tabbase] leg layout
+[tabbase]   OK   'Plates' is on the first screen of the form
+[tabbase]   FAIL 'Factions' is on the first screen of the form
+[tabbase]   FAIL 'Village seeding (additive hamlets)' is on the first screen of the form
+[tabbase]   FAIL 'Fixed settlement counts' is on the first screen of the form
+[tabbase]   FAIL 'Recovery phase' is on the first screen of the form
+[tabbase]   FAIL 'Capitals' is on the first screen of the form
+[tabbase]   FAIL 'Cities' is on the first screen of the form
+[tabbase]   FAIL 'Towns' is on the first screen of the form
+[tabbase]   FAIL 'Villages' is on the first screen of the form
+[tabbase]   FAIL 'Hamlets' is on the first screen of the form
+[tabbase] leg preview
+[tabbase]   OK   a preview is drawn (state drawn)
+[tabbase]   FAIL the dialog holds a height byte for every preview cell (0 heights, 65600 mask cells)
+[tabbase] RESULT tabbase fail=10 checks=12

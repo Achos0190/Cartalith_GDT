@@ -190,10 +190,104 @@ pub fn land_mask(p: &WorldParams, preview_w: usize) -> Vec<u8> {
     }
 }
 
+/// The byte a cell encodes as when [`height_bytes`] writes it: **`>= SEA_BYTE` is land, `< SEA_BYTE` is ocean**, exactly
+/// [`is_land`]'s verdict. A literal, because the New World shader tests the same number (`0.5` of the byte range: 128 / 255
+/// is just above it, 127 / 255 just below).
+pub const SEA_BYTE: u8 = 128;
+
+/// One preview cell's byte, from its normalised height `h` and the sea level: **land** (`h >= sea_level`, [`is_land`]) is
+/// `128 + round(127 * (h - sea) / (1 - sea))`, `128` (the shore) to `255` (the highest ground); **ocean** is
+/// `round(127 * h / sea)`, clamped to `0..=127`, `0` (the deepest) to `127` (just under the shore). Each side is stretched to
+/// its own half of the byte range so the one byte keeps the coast exact AND shows relief on both sides, and so the shell needs
+/// no second channel for the sea level. A NaN height is ocean at `0`, like [`is_land`] (`NaN >= sea` is false); a degenerate sea
+/// level (`<= 0` leaves no ocean to scale, `>= 1` no land) divides by nothing because the branch that would use it is empty.
+#[must_use]
+fn height_byte(h: f32, sea_level: f64) -> u8 {
+    if h.is_nan() {
+        return 0;
+    }
+    let h = f64::from(h);
+    if h >= sea_level {
+        // `sea_level < 1` whenever a cell can be land and `h <= 1`; if `h` exceeds 1 (it cannot after normalisation) the clamp
+        // keeps the byte in range.
+        let span = 1.0 - sea_level;
+        let t = if span > 0.0 { ((h - sea_level) / span).clamp(0.0, 1.0) } else { 0.0 };
+        SEA_BYTE + (127.0 * t).round() as u8
+    } else {
+        // `h < sea_level` so `sea_level > 0` here; the clamp covers a negative `h`.
+        let t = (h / sea_level).clamp(0.0, 1.0);
+        ((127.0 * t).round() as u8).min(SEA_BYTE - 1)
+    }
+}
+
+/// [`height_byte`] over a field: the pure half of [`height_bytes`], separate so a test can feed it a literal field.
+#[must_use]
+pub fn encode_heights(field: &[f32], sea_level: f64) -> Vec<u8> {
+    field.iter().map(|&h| height_byte(h, sea_level)).collect()
+}
+
+/// **The New World preview as a heightmap** (owner, 2026-11-13: *"the preview, instead of grey on blue a rudimentary heightmap
+/// would be preferred"*): the same field [`land_mask`] thresholds, one byte a cell by [`height_byte`]'s encoding, row-major,
+/// `preview_w * preview_height(p, preview_w)` bytes. It costs nothing beyond [`land_mask`]: the substrate is the work and both
+/// read it from [`preview_field`]. `byte >= SEA_BYTE` is **exactly** `land_mask`'s `1` (a test holds the two together over a real
+/// field), so every consumer of the mask keeps its meaning.
+///
+/// Empty exactly when [`preview_height`] is `None`, never a plausible field.
+#[must_use]
+pub fn height_bytes(p: &WorldParams, preview_w: usize) -> Vec<u8> {
+    match preview_field(p, preview_w) {
+        Some((field, sea_level)) => encode_heights(&field, sea_level),
+        None => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::generate_terrain;
+
+    /// Protects: the encoding by LITERAL values (not by re-running its formula) -- sea 0.5 over `[0, .25, .5, .75, 1]` gives
+    /// `[0, 64, 128, 192, 255]`; the shore cell is land at 128; NaN is ocean at 0; degenerate sea levels do not divide by zero
+    /// and keep the land/ocean verdict of [`is_land`] (sea 0 = all land, sea 1 = all ocean except a cell at exactly 1).
+    #[test]
+    fn the_height_encoding_has_literal_values_and_keeps_the_coast_exact() {
+        assert_eq!(encode_heights(&[0.0, 0.25, 0.5, 0.75, 1.0], 0.5), vec![0, 64, 128, 192, 255]);
+        assert_eq!(encode_heights(&[0.4999, 0.5], 0.5), vec![127, 128], "the coast is the byte boundary");
+        assert_eq!(encode_heights(&[f32::NAN], 0.5), vec![0]);
+        assert_eq!(encode_heights(&[0.0, 0.3, 1.0], 0.0), vec![128, 128 + 38, 255], "sea 0: all land, no division by the sea level");
+        assert_eq!(encode_heights(&[0.0, 0.5, 0.999], 1.0), vec![0, 64, 127], "sea 1: all ocean");
+        assert_eq!(encode_heights(&[1.0], 1.0), vec![128], "a cell at exactly the sea level is land (is_land's >=), even at 1");
+        // Out-of-range input is clamped, never wrapped into the wrong half.
+        assert_eq!(encode_heights(&[-3.0, 9.0], 0.5), vec![0, 255]);
+    }
+
+    /// Protects: the heightmap and the land mask are one verdict -- over a real 6-plate world, `byte >= SEA_BYTE` equals
+    /// `land_mask == 1` cell for cell, and the bytes use far more than two values (a heightmap, not the mask again).
+    #[test]
+    fn the_heightmap_agrees_with_the_land_mask_and_is_not_binary() {
+        let p = region(42, 2048, 1311);
+        let mask = land_mask(&p, 96);
+        let bytes = height_bytes(&p, 96);
+        assert_eq!(bytes.len(), mask.len());
+        assert!(!bytes.is_empty());
+        for (i, (&b, &m)) in bytes.iter().zip(&mask).enumerate() {
+            assert_eq!(b >= SEA_BYTE, m == 1, "cell {i}: byte {b} against mask {m}");
+        }
+        let mut seen = [false; 256];
+        for &b in &bytes {
+            seen[b as usize] = true;
+        }
+        assert!(seen.iter().filter(|&&v| v).count() > 40, "a heightmap spans many levels, saw {}", seen.iter().filter(|&&v| v).count());
+        assert!(bytes.iter().any(|&b| b >= 200) && bytes.iter().any(|&b| b <= 60), "both ends of the range occur");
+    }
+
+    /// Protects: an invalid grid is an empty heightmap, never a plausible one.
+    #[test]
+    fn an_invalid_grid_gives_an_empty_heightmap() {
+        let mut bad = region(1, 256, 164);
+        bad.gw = 3;
+        assert!(height_bytes(&bad, 64).is_empty());
+    }
 
     /// A small region with the app's two shipped divergences that reach the
     /// substrate (`narrow_plate_base_blur`), so the tests exercise the path the

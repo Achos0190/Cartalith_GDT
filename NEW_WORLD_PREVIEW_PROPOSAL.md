@@ -685,6 +685,7 @@ has it). Then a verifier. No lane writes another lane's files. If lane B needs
 | Q5 | How many history thumbnails, and do they persist? | **4, session only**, as requested. |
 | Q6 | Should the busy overlay's card show the preview of the seed being generated? | **Optional, later.** It is cheap and makes the wait legible, but it is a separate change. |
 | Q7 | Preview colours. | **Grey #8f9295 on blue #2b4d6b**, independent of the map's look, as asked. |
+| Q7, revised 2026-11-13 | Preview colours. | The owner asked for *"a rudimentary heightmap"* instead of grey on blue (2026-11-13, verbatim: *"the preview, instead of grey on blue a rudimentary heightmap would be preferred"*). The preview now draws the same substrate field as a hypsometric tint with a north-west hillshade: land green to sand to near-white by height, ocean from deep navy up to the owner's #2b4d6b at the shore, still independent of the map's look. The engine returns one byte a cell (`preview_height_field`: `>= 128` land, `< 128` ocean, exactly the mask's verdict), so the land/ocean claim and the 97-98 % agreement are unchanged and the cost is the same single substrate run. Height here is the early substrate (no erosion, volcanism or hydrology), so it is a rough relief, not the finished map's. |
 | Q8 | Under an archetype, show the derived plate count read-only, or let the width rule override the archetype? | **Read-only.** Overriding would change what an archetype means. |
 
 ---

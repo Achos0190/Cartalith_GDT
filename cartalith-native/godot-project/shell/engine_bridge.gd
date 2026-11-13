@@ -935,6 +935,20 @@ func preview_land_mask(params: Dictionary, preview_w: int, target_w: int) -> Pac
 		return PackedByteArray()
 	return world_gen.preview_land_mask(params, preview_w, target_w)
 
+## Whether the loaded extension exports the static `WorldGen.preview_height_field` (the New World preview as a heightmap,
+## owner request 2026-11-13). `false` on a build from before it, which the dialog then draws with the land mask alone.
+func has_height_binding() -> bool:
+	return _has("preview_height_field")
+
+## Forwards to `WorldGen.preview_height_field(params, preview_w, target_w)`: the same request and the same size as
+## `preview_land_mask`, one byte per cell by height -- `>= 128` land, `< 128` ocean, exactly the mask's verdict; 128 the shore,
+## 255 the highest ground, 0 the deepest sea. **Empty is the failure answer**, and a call while `generating` is refused for
+## `preview_land_mask`'s reason.
+func preview_height_field(params: Dictionary, preview_w: int, target_w: int) -> PackedByteArray:
+	if generating or not _has("preview_height_field"):
+		return PackedByteArray()
+	return world_gen.preview_height_field(params, preview_w, target_w)
+
 ## Cartalith is a one-shot generator: a moved dial does not recompute a stage,
 ## it marks the world stale until the next full generate. §7's stale marks and
 ## the status bar both hang off this.
@@ -6780,6 +6794,15 @@ func labels_generate(options: Dictionary) -> Dictionary:
 		return {}
 	return world_gen.labels_generate(options)
 
+## Drops the generated label run (`WorldGen.labels_clear_generated`), leaving hand-placed labels alone. `true` when it
+## was called; `false` while `generating` (the worker holds `WorldGen`) or on an extension without the binding, in which
+## case nothing changed.
+func labels_clear_generated() -> bool:
+	if generating or not _has("labels_clear_generated"):
+		return false
+	world_gen.labels_clear_generated()
+	return true
+
 ## The last run's per-class counts without re-running it. `[]` before the first
 ## run -- which the panel draws as `--`, not as `0`.
 ##
@@ -6793,15 +6816,6 @@ func labels_generated_counts() -> Array:
 ## Everything the map should draw: the generated run first, hand-placed labels
 ## over it, each row carrying its class's resolved type spec.
 ##
-
-## Drops the generated label run (`WorldGen.labels_clear_generated`), leaving hand-placed labels alone. `true` when it
-## was called; `false` while `generating` (the worker holds `WorldGen`) or on an extension without the binding, in which
-## case nothing changed.
-func labels_clear_generated() -> bool:
-	if generating or not _has("labels_clear_generated"):
-		return false
-	world_gen.labels_clear_generated()
-	return true
 ## Falls back to `label_list()` rather than to `[]` on an older cdylib: losing
 ## the generated pass is a degrade, losing the user's own labels is a defect.
 ##

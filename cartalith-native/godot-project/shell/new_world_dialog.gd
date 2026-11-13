@@ -228,20 +228,26 @@ const PREVIEW_DISPLAY_W_PHONE := 296  ## Phone preview width in dp, used to size
 ## form, not the label, decides the width.
 const PHONE_PREVIEW_LABEL_FLOOR := 200
 const PREVIEW_REGION_ASPECT := 0.64  ## Stage height / width, the region frame's `round(w * 0.64)` (proposal §2.1, per the block above).
-## Grey land on blue ocean, the owner's colours and Q7's default (Ruling CE).
-## Literals, deliberately independent of `DccTheme`'s palette and of the map's
-## look: the preview is a diagnostic, and the owner asked for exactly these two.
-const PREVIEW_LAND := Color("#8f9295")
-## Ocean colour of the new-world mask preview, #2b4d6b: the owner's colour and Q7's default (Ruling
-## CE, per the comment above); passed as the `ocean_color` shader parameter in `_build_preview`.
-const PREVIEW_OCEAN := Color("#2b4d6b")
+## **The preview's colours.** It began as grey (#8f9295) land on blue (#2b4d6b) ocean, the owner's colours and Q7's default
+## (Ruling CE); on 2026-11-13 the owner asked for *"a rudimentary heightmap"* instead of grey on blue, so each side is now a
+## ramp by height, and the ocean ramp ENDS at the owner's blue so the water still reads as the water they chose. Literals,
+## deliberately independent of `DccTheme`'s palette and of the map's look: the preview is a diagnostic, not the finished map.
+## Labelled judgements: green lowland, tan upland, pale sand highland, near-white peaks, so brightness rises with height on
+## land (the sea darkens with depth) and the picture reads as a heightmap at a glance; the shipped map's own ramps are not used
+## because the preview must not change with the user's Look.
+const PREVIEW_OCEAN_DEEP := Color("#16293d")
+const PREVIEW_OCEAN_SHALLOW := Color("#2b4d6b")  ## The owner's original ocean blue.
+const PREVIEW_LAND_LOW := Color("#6f9a5b")
+const PREVIEW_LAND_MID := Color("#c9b57e")
+const PREVIEW_LAND_HIGH := Color("#dccaa6")
+const PREVIEW_LAND_PEAK := Color("#f1f0ea")
 ## **The disclaimer Ruling CE makes part of the screen** (owner, 2026-10-12:
 ## *"put the new screen in with a disclaimer that the preview is an
 ## approximation"*): visible on the preview frame at every density, in plain
 ## words, never only in a tooltip. The figure is from the owner-side measurement
 ## (Classic land/ocean agreement with the finished world ~97-98%; low-land
 ## archetypes barely informative), so it is a measured claim, not a judgement.
-const PREVIEW_DISCLAIMER := "Approximate preview: plate layout and land/ocean split only, not the finished map. Classic agrees closely (about 97-98% in measured runs); low-land archetypes (Volcanic, Archipelago) are rough."
+const PREVIEW_DISCLAIMER := "Approximate preview: plate layout, land/ocean split and a rough height shading only, not the finished map. Classic's coastline agrees closely (about 97-98% in measured runs); low-land archetypes (Volcanic, Archipelago) are rough."
 ## The dash reasons. Each names the state the code branches on (`MISTAKES.md`,
 ## "Dash a field with a reason": the reason is a claim). The first is the
 ## proposal's own wording for the missing binding (§8 NWP-3).
@@ -288,7 +294,7 @@ const ICON_BTN_DESKTOP := Vector2(28, 24)
 ## The canvas_item shader that turns the engine's 0/1 mask (an `L8` image, so
 ## no per-cell GDScript loop builds colours) into the two preview colours. A
 ## byte of 1 samples as 1/255, so anything above 0.001 is land.
-const MASK_SHADER := "shader_type canvas_item;\nuniform vec4 land_color;\nuniform vec4 ocean_color;\nvoid fragment() {\n\tCOLOR = texture(TEXTURE, UV).r > 0.001 ? land_color : ocean_color;\n}\n"
+const HEIGHT_SHADER := "shader_type canvas_item;\nuniform vec4 ocean_deep;\nuniform vec4 ocean_shallow;\nuniform vec4 land_low;\nuniform vec4 land_mid;\nuniform vec4 land_high;\nuniform vec4 land_peak;\nuniform float relief = 4.0;\n// A neighbouring texel on the other side of the coast is replaced by this texel, so the byte's jump at the shore is never shaded as a cliff.\nfloat tap(sampler2D tex, vec2 px, vec2 uv, vec2 o, float own) {\n\tfloat a = texture(tex, uv + o * px).r;\n\treturn ((a >= 0.5) == (own >= 0.5)) ? a : own;\n}\nvoid fragment() {\n\tfloat v = texture(TEXTURE, UV).r;\n\tfloat gx = tap(TEXTURE, TEXTURE_PIXEL_SIZE, UV, vec2(1.0, 0.0), v) - tap(TEXTURE, TEXTURE_PIXEL_SIZE, UV, vec2(-1.0, 0.0), v);\n\tfloat gy = tap(TEXTURE, TEXTURE_PIXEL_SIZE, UV, vec2(0.0, 1.0), v) - tap(TEXTURE, TEXTURE_PIXEL_SIZE, UV, vec2(0.0, -1.0), v);\n\t// Light from the north-west: ground rising toward the south-east faces it.\n\tfloat shade = clamp((gx + gy) * relief, -0.3, 0.3);\n\tvec3 c;\n\tif (v >= 0.5) {\n\t\tfloat t = clamp((v - 128.0 / 255.0) / (127.0 / 255.0), 0.0, 1.0);\n\t\tif (t < 0.35) { c = mix(land_low.rgb, land_mid.rgb, t / 0.35); }\n\t\telse if (t < 0.7) { c = mix(land_mid.rgb, land_high.rgb, (t - 0.35) / 0.35); }\n\t\telse { c = mix(land_high.rgb, land_peak.rgb, (t - 0.7) / 0.3); }\n\t\tc *= 1.0 + shade;\n\t} else {\n\t\tfloat u = clamp(v / (127.0 / 255.0), 0.0, 1.0);\n\t\tc = mix(ocean_deep.rgb, ocean_shallow.rgb, u) * (1.0 + 0.3 * shade);\n\t}\n\tCOLOR = vec4(c, 1.0);\n}\n"
 
 # -- Controls -------------------------------------------------------------------
 
@@ -329,14 +335,14 @@ var rules_notice_label: Label
 const RULES_NOTICE_TOOLTIP := "A new world is made by this build's generation rules. Opening a world made by an older build, or saved with a rule switched off, loads its own rules so it regenerates exactly as it was saved, and Create puts them back to this build's. A rule you set yourself this session (in the WORLD dock's generation stages, or this window's Lake water balance box) is kept. Regenerating the open world at its own seed keeps its rules."
 ## The Recovery phase picker (names from `get_recovery_phase_names()`); its handler writes `_recovery_phase`.
 var recovery_input: OptionButton
+## The Base technology dropdown (`civ.base_ag_tech`), built in `_build_tech_row`; null when the extension lacks the parameter.
+var tech_input: OptionButton
 ## Warning line under the derived panel: the joined warnings, hidden when there are none (`_update_derived`).
 var dimension_warning_label: Label
 var _derived_labels: Dictionary = {} ## "Grid"/"Extent"/"Cell size"/"Aspect" -> value Label
 
 ## Archetype keys read from `bridge.archetypes()` when the form is built.
 var _archetype_names: PackedStringArray = []
-## The Base technology dropdown (`civ.base_ag_tech`), built in `_build_tech_row`; null when the extension lacks the parameter.
-var tech_input: OptionButton
 var _archetype := "" ## Empty = Classic (World Structure disabled).
 ## Village-seeding choice posted by `request()`; refreshed from the engine by `_sync_from_engine()`.
 var _villages := false
@@ -420,7 +426,7 @@ var _preview_frame: PanelContainer
 var _preview_title: Label
 ## The `PREVIEW_DISCLAIMER` label, visible on the frame at every density (Ruling CE).
 var _preview_disclaimer: Label
-## The `TextureRect` that draws the mask through `_mask_material`.
+## The `TextureRect` that draws the mask through `_preview_material`.
 var _preview_canvas: TextureRect
 ## The `ImageTexture` (an `L8` mask) the canvas shows.
 var _preview_tex: ImageTexture
@@ -430,8 +436,8 @@ var _preview_dash: Label
 var _preview_reason: Label
 ## The stats line under the preview: land share, plates and draw time, the `PREVIEW_HELD` note, or a dash with its reason.
 var _preview_stats: Label
-## The `ShaderMaterial` running `MASK_SHADER` with `PREVIEW_LAND` / `PREVIEW_OCEAN` as its uniforms.
-var _mask_material: ShaderMaterial
+## The `ShaderMaterial` running `HEIGHT_SHADER` with the `PREVIEW_OCEAN_*` / `PREVIEW_LAND_*` colours as its uniforms.
+var _preview_material: ShaderMaterial
 ## What the canvas shows now: "drawn", "held", "no_binding", "no_params",
 ## "refused", or "" before the first attempt. Read by the probe; the dash and
 ## the stats line are what a person reads.
@@ -439,6 +445,13 @@ var preview_state := ""
 ## The last mask drawn, as the engine returned it (1 = land, 0 = ocean), and its
 ## height. Empty until a draw succeeds. Never filled with a placeholder.
 var preview_mask := PackedByteArray()
+## The drawn preview's height bytes (`EngineBridge.preview_height_field`: `>= 128` land, `< 128` ocean, 0 deepest to 255 highest),
+## the texture the shader colours. Empty when no preview is drawn, and also on a build without the heightmap binding, where the
+## land mask alone is drawn at two flat levels and `preview_is_height` is false.
+var preview_heights := PackedByteArray()
+## Whether the drawn preview is a real heightmap (true) or the two-level land mask of a build without the binding (false); the
+## title says which.
+var preview_is_height := false
 ## Height in cells of `preview_mask`, as returned by the engine; 0 until a draw succeeds.
 var preview_h := 0
 ## The full input key of the last successful draw (the whole parameter table
@@ -894,6 +907,12 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		"The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generate ▸ 03 World structure, editable there after Create.")
 
 	_build_auto_populate(card)
+	## Owner report 2026-11-13: *"the option for the amount of plates or the world presets such as how much villages and how the
+	## population of villages behaves seems to have gone missing"*. The village seeding, factions, suitability and packing dials,
+	## the fixed settlement counts and the recovery phase were built into `rest` -- HIDDEN on a phone and folded away under More
+	## options on desktop and tablet -- so a phone never offered them and the others had to be hunted. They are on the first
+	## screen of every form now, with the new base technology beside the phase.
+	_build_settlements_section(card)
 
 	if not _phone:
 		_build_more(card, rest)
@@ -904,12 +923,6 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		"Reference civMetropolisChk, default off. After the road network is scored, promotes up to three capitals that are both dominant trade hubs (normalised betweenness >= 0.85) and seats of a large polity (>= 6 settlements) to the metropolis tier -- at most one per faction. Off means auto-populate output is bit-identical to not having the pass at all.")
 	biome_k_check = DccWidgets.toggle(gen_sec, "Biome carrying-capacity residual", false,
 		func(v: bool): _biome_k = v,
-	## Owner report 2026-11-13: *"the option for the amount of plates or the world presets such as how much villages and how the
-	## population of villages behaves seems to have gone missing"*. The village seeding, factions, suitability and packing dials,
-	## the fixed settlement counts and the recovery phase were built into `rest` -- HIDDEN on a phone and folded away under More
-	## options on desktop and tablet -- so a phone never offered them and the others had to be hunted. They are on the first
-	## screen of every form now, with the new base technology beside the phase.
-	_build_settlements_section(card)
 		"Reference civBiomeKChk, default off. Applies a per-biome disease/climate correction to carrying capacity K -- and, where a cell is a lowland wetland, the wetland residual instead. K feeds settlement suitability and the food-shed ceiling, so turning it on moves where settlements are placed and how large they get. Off short-circuits the whole correction, so output is bit-identical to not having it (the reference's own comment).")
 	_build_lake_balance(gen_sec)
 	DccWidgets.note(gen_sec,
@@ -951,19 +964,6 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		advisory.tooltip_text = NOTE_CREATION_ONLY + "\n\n" + NOTE_APPEARANCE_KEPT
 		advisory.mouse_filter = Control.MOUSE_FILTER_PASS
 
-## MS-8: the **Auto-populate** section (`MOBILE_SHELL_PROPOSAL.md` section 2.3), built into `card` so it is on the first
-## screen on desktop, tablet and phone alike (the phone never shows More options). One master switch and four that name
-## the passes it runs after the terrain is generated; each switch's tooltip names the button it stands for. Routes greys
-## (disabled, with its reason on the row below) while Settlements is off; all four grey while the master is off. Every
-## switch is floored to the 44 dp touch target on a touch density.
-func _build_auto_populate(card: Control) -> void:
-	var sec := DccWidgets.section(card, "Auto-populate")
-	_ap_checks["master"] = DccWidgets.toggle(sec, "Auto-populate the world", _ap_master,
-		func(v: bool):
-			_ap_master = v
-			_refresh_auto_populate(),
-		"After the terrain is generated, runs the four passes below, in order, exactly as their own buttons do. Off: Create generates the terrain alone.")
-	var rows := [
 ## The **Settlements & people** section, built into `card` so it is on the first screen on desktop, tablet and phone alike (the
 ## phone never shows More options). It holds what decides how many settlements a new world gets and how its people behave:
 ## the recovery phase the world is in and, beside it, the **base technology** every faction starts at (owner request
@@ -1013,6 +1013,19 @@ func _build_tech_row(parent: Control) -> void:
 		"How advanced farming is for every faction at the start of the world, from hoe agriculture to industrial. It sets how many people the land can spare from the fields, which feeds the levy and standing army sizes and the trade balances; each faction's own level can still be changed in CIVIL ▸ Factions. Applies when the world is created. The default, Traditional Agrarian, is the reference's own.")
 	tech_input.name = "nw_base_tech"
 
+## MS-8: the **Auto-populate** section (`MOBILE_SHELL_PROPOSAL.md` section 2.3), built into `card` so it is on the first
+## screen on desktop, tablet and phone alike (the phone never shows More options). One master switch and four that name
+## the passes it runs after the terrain is generated; each switch's tooltip names the button it stands for. Routes greys
+## (disabled, with its reason on the row below) while Settlements is off; all four grey while the master is off. Every
+## switch is floored to the 44 dp touch target on a touch density.
+func _build_auto_populate(card: Control) -> void:
+	var sec := DccWidgets.section(card, "Auto-populate")
+	_ap_checks["master"] = DccWidgets.toggle(sec, "Auto-populate the world", _ap_master,
+		func(v: bool):
+			_ap_master = v
+			_refresh_auto_populate(),
+		"After the terrain is generated, runs the four passes below, in order, exactly as their own buttons do. Off: Create generates the terrain alone.")
+	var rows := [
 		[AutoPopulate.KEY_SETTLEMENTS, "Settlements, factions & territories",
 			"CIVIL ▸ Populate ▸ Auto-populate world. Uses the placement settings in Settlements & people, above."],
 		[AutoPopulate.KEY_ROUTES, "Routes",
@@ -1206,18 +1219,23 @@ func _floor_touch(c: Control) -> void:
 ## the left column on desktop and tablet and §6.7's card on a phone.
 ##
 ## The canvas is a `TextureRect` over an `ImageTexture` holding the engine's
-## mask as an `L8` image (proposal §8 NWP-3), `TEXTURE_FILTER_NEAREST`, scaled up
-## to fit with its aspect kept; `MASK_SHADER` maps the 0/1 bytes to the two
-## colours, so no GDScript loop touches the 65 600 cells. The stage behind the
+## height bytes as an `L8` image (proposal §8 NWP-3; the heightmap, not the 0/1 mask, since 2026-11-13),
+## `TEXTURE_FILTER_NEAREST`, scaled up to fit with its aspect kept; `HEIGHT_SHADER` turns each byte into a hypsometric
+## tint with a north-west hillshade, so the colouring is on the GPU (`_draw_preview` does keep one GDScript pass over the
+## 65 600 cells, for `preview_mask`). The stage behind the
 ## canvas is the `bg` token, never ocean blue: a letterboxed world mask, or the
 ## dash with no mask at all, must not read as a sea (acceptance (ix)).
 func _build_preview(parent: VBoxContainer) -> void:
 	var shader := Shader.new()
-	shader.code = MASK_SHADER
-	_mask_material = ShaderMaterial.new()
-	_mask_material.shader = shader
-	_mask_material.set_shader_parameter("land_color", PREVIEW_LAND)
-	_mask_material.set_shader_parameter("ocean_color", PREVIEW_OCEAN)
+	shader.code = HEIGHT_SHADER
+	_preview_material = ShaderMaterial.new()
+	_preview_material.shader = shader
+	_preview_material.set_shader_parameter("ocean_deep", PREVIEW_OCEAN_DEEP)
+	_preview_material.set_shader_parameter("ocean_shallow", PREVIEW_OCEAN_SHALLOW)
+	_preview_material.set_shader_parameter("land_low", PREVIEW_LAND_LOW)
+	_preview_material.set_shader_parameter("land_mid", PREVIEW_LAND_MID)
+	_preview_material.set_shader_parameter("land_high", PREVIEW_LAND_HIGH)
+	_preview_material.set_shader_parameter("land_peak", PREVIEW_LAND_PEAK)
 
 	var display_w := PREVIEW_DISPLAY_W_PHONE if _phone else PREVIEW_DISPLAY_W_DESKTOP
 	_preview_frame = PanelContainer.new()
@@ -1285,7 +1303,7 @@ func _build_preview(parent: VBoxContainer) -> void:
 	_preview_canvas.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_preview_canvas.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_preview_canvas.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_preview_canvas.material = _mask_material
+	_preview_canvas.material = _preview_material
 	_preview_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_preview_canvas.visible = false
 	stage.add_child(_preview_canvas)
@@ -1317,12 +1335,12 @@ func _build_preview(parent: VBoxContainer) -> void:
 	## until the first draw replaces it -- never a blank or a blue rectangle.
 	_show_preview_dash("", "preview not drawn yet")
 
-## The caption above the canvas: `§ PREVIEW · LAND VS OCEAN · 320 × 205`, its
-## height the drawn mask's, or a dash before a mask exists (never a guessed one).
+## The caption above the canvas: `§ PREVIEW · HEIGHT · 320 × 205` (`LAND VS OCEAN` on a build without the heightmap binding),
+## its height the drawn preview's, or a dash before one exists (never a guessed one).
 func _set_preview_title(h: int) -> void:
 	if _preview_title == null:
 		return
-	_preview_title.text = "PREVIEW · LAND VS OCEAN · %d × %s" % [PREVIEW_W, str(h) if h > 0 else "—"]
+	_preview_title.text = "PREVIEW · %s · %d × %s" % ["HEIGHT" if preview_is_height or h == 0 else "LAND VS OCEAN", PREVIEW_W, str(h) if h > 0 else "—"]
 
 ## The debounce and the open-dialog poll, and the signals that start them.
 ## Built once, after the form exists, so no handler fires into half a dialog.
@@ -1408,19 +1426,37 @@ func _redraw_preview() -> void:
 		return
 	_preview_key = key
 	var t0 := Time.get_ticks_usec()
-	var mask: PackedByteArray = bridge.preview_land_mask(params, PREVIEW_W, target_w)
+	## The heightmap (owner request 2026-11-13) when this build has it, else the land mask alone, as before.
+	var is_height: bool = bridge.has_height_binding()
+	var bytes: PackedByteArray = bridge.preview_height_field(params, PREVIEW_W, target_w) if is_height \
+		else bridge.preview_land_mask(params, PREVIEW_W, target_w)
 	var ms := float(Time.get_ticks_usec() - t0) / 1000.0
-	if mask.is_empty() or mask.size() % PREVIEW_W != 0:
+	if bytes.is_empty() or bytes.size() % PREVIEW_W != 0:
 		_show_preview_dash("refused", PREVIEW_REASON_REFUSED)
 		return
-	_draw_preview_mask(mask, ms)
+	_draw_preview(bytes, is_height, ms)
 
-## Puts `mask` on the canvas, fills the stats line from it, and pushes a
-## history entry if an input that pushes one is pending. `ms` is the measured
-## time of this one engine call, shown as it was measured.
-func _draw_preview_mask(mask: PackedByteArray, ms: float) -> void:
-	var h := mask.size() / PREVIEW_W
-	var img := Image.create_from_data(PREVIEW_W, h, false, Image.FORMAT_L8, mask)
+## Puts the answer on the canvas, fills the stats line from it, and pushes a history entry if an input that pushes one is
+## pending. `bytes` is the engine's heightmap (`is_height`) or, on a build without it, the 0/1 land mask; either way it is
+## the L8 texture the shader colours, and `preview_mask` (1 = land, 0 = ocean, the array every older reader and probe knows)
+## is derived from it. `ms` is the measured time of the one engine call, shown as it was measured -- the cost of this
+## function's own work (the mask and the texture upload) is not in it.
+func _draw_preview(bytes: PackedByteArray, is_height: bool, ms: float) -> void:
+	var h := bytes.size() / PREVIEW_W
+	## One pass over the bytes: the mask, and the heights for a mask-only build (land 192, ocean 64: two flat levels).
+	var mask := PackedByteArray()
+	mask.resize(bytes.size())
+	var heights := bytes
+	if is_height:
+		for i in bytes.size():
+			mask[i] = 1 if bytes[i] >= 128 else 0
+	else:
+		heights = PackedByteArray()
+		heights.resize(bytes.size())
+		for i in bytes.size():
+			mask[i] = bytes[i]
+			heights[i] = 192 if bytes[i] == 1 else 64
+	var img := Image.create_from_data(PREVIEW_W, h, false, Image.FORMAT_L8, heights)
 	if _preview_tex == null:
 		_preview_tex = ImageTexture.create_from_image(img)
 	else:
@@ -1429,6 +1465,8 @@ func _draw_preview_mask(mask: PackedByteArray, ms: float) -> void:
 	_preview_canvas.visible = true
 	_preview_dash.get_parent().visible = false
 	preview_mask = mask
+	preview_heights = heights if is_height else PackedByteArray()
+	preview_is_height = is_height
 	preview_h = h
 	preview_state = "drawn"
 	_set_preview_title(h)
@@ -1451,6 +1489,8 @@ func _draw_preview_mask(mask: PackedByteArray, ms: float) -> void:
 func _show_preview_dash(state: String, reason: String) -> void:
 	preview_state = state
 	preview_mask = PackedByteArray()
+	preview_heights = PackedByteArray()
+	preview_is_height = false
 	preview_h = 0
 	if _preview_canvas == null:
 		return
@@ -1493,7 +1533,7 @@ func _build_history(parent: VBoxContainer) -> void:
 		thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		thumb.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		thumb.material = _mask_material
+		thumb.material = _preview_material
 		thumb.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		inner.add_child(thumb)
 		var cap := DccTheme.mono_label("—", "text_secondary", DccTheme.FS_MICRO)
@@ -2302,7 +2342,47 @@ func _build_placement_dials(parent: Control) -> void:
 			if not _dials_syncing:
 				bridge.param_set("civ.seed_suppress_div", v),
 		"How close two settlements may stand. The engine suppresses a new seed within max(6, grid width / this) cells of an existing one, so the reference's default of 22 is a 17-cell radius on a 384-wide grid. Higher packs them tighter; the six-cell floor is what stops a small grid from suppressing nothing.")
+	_thresh_row = thr_row
+	_packing_row = sup_row
 	_build_fixed_counts([thr_row, sup_row], parent)
+
+## The Factions spin box, the two placement sliders' row dictionaries (`DccWidgets.slider`'s return) and whether a re-read from
+## the engine is in progress (the sliders' handlers must not write back what is being read). Set by `_build_placement_dials`; all
+## null/false when the extension lacks the civ placement rows.
+var _factions_spin: SpinBox
+var _thresh_row: Dictionary = {}
+var _packing_row: Dictionary = {}
+var _dials_syncing := false
+
+## Puts the placement dials, the fixed-count switch and its five counts back on screen from the engine's live values -- the
+## same read-back `_sync_from_engine()` does for the other controls. Built once from the engine's values at construction and
+## never re-read before 2026-11-13, so after opening a saved world (whose `civ.*` rows differ) this form showed the previous
+## values and Create posted them back (the defect `_sync_from_engine`'s own biome-K clause records, one control at a time).
+## A value the engine does not answer (`param_get` is null while a generation holds the object) leaves the control as it was.
+func _refresh_dials_from_engine() -> void:
+	if bridge == null:
+		return
+	_dials_syncing = true
+	if _factions_spin != null:
+		var f = bridge.param_get("civ.factions")
+		if f != null:
+			_factions_spin.set_value_no_signal(float(f))
+	for pair in [["civ.seed_thresh", _thresh_row], ["civ.seed_suppress_div", _packing_row]]:
+		var row: Dictionary = pair[1]
+		var v = bridge.param_get(String(pair[0]))
+		if v != null and row.has("slider"):
+			(row["slider"] as HSlider).value = float(v)
+	if _count_toggle != null:
+		var on = bridge.param_get("civ.fixed_counts")
+		if on != null:
+			_count_toggle.set_pressed_no_signal(bool(on))
+	for k in _count_boxes.size():
+		var c = bridge.param_get(String((COUNT_ROWS[k] as Array)[0]))
+		if c != null:
+			_count_boxes[k].set_value_no_signal(float(c))
+	_dials_syncing = false
+	if _count_toggle != null:
+		_refresh_fixed_counts()
 
 ## The reference's Auto-populate count inputs (`civNCap`..`civNHam`), as one
 ## switch and five counts -- `CivParams::want_counts` says why a switch rather
@@ -2342,48 +2422,8 @@ func _build_fixed_counts(dials: Array, parent: Control) -> void:
 		var key: String = row[0]
 		var info: Dictionary = bridge.param_info(key)
 		_count_boxes.append(DccWidgets.number(parent, row[1], float(info.get("min", 0.0)),
-	_thresh_row = thr_row
-	_packing_row = sup_row
 			float(info.get("max", 50.0)), 1.0, _param_or_default(key, info),
 			func(v: float):
-## The Factions spin box, the two placement sliders' row dictionaries (`DccWidgets.slider`'s return) and whether a re-read from
-## the engine is in progress (the sliders' handlers must not write back what is being read). Set by `_build_placement_dials`; all
-## null/false when the extension lacks the civ placement rows.
-var _factions_spin: SpinBox
-var _thresh_row: Dictionary = {}
-var _packing_row: Dictionary = {}
-var _dials_syncing := false
-
-## Puts the placement dials, the fixed-count switch and its five counts back on screen from the engine's live values -- the
-## same read-back `_sync_from_engine()` does for the other controls. Built once from the engine's values at construction and
-## never re-read before 2026-11-13, so after opening a saved world (whose `civ.*` rows differ) this form showed the previous
-## values and Create posted them back (the defect `_sync_from_engine`'s own biome-K clause records, one control at a time).
-## A value the engine does not answer (`param_get` is null while a generation holds the object) leaves the control as it was.
-func _refresh_dials_from_engine() -> void:
-	if bridge == null:
-		return
-	_dials_syncing = true
-	if _factions_spin != null:
-		var f = bridge.param_get("civ.factions")
-		if f != null:
-			_factions_spin.set_value_no_signal(float(f))
-	for pair in [["civ.seed_thresh", _thresh_row], ["civ.seed_suppress_div", _packing_row]]:
-		var row: Dictionary = pair[1]
-		var v = bridge.param_get(String(pair[0]))
-		if v != null and row.has("slider"):
-			(row["slider"] as HSlider).value = float(v)
-	if _count_toggle != null:
-		var on = bridge.param_get("civ.fixed_counts")
-		if on != null:
-			_count_toggle.set_pressed_no_signal(bool(on))
-	for k in _count_boxes.size():
-		var c = bridge.param_get(String((COUNT_ROWS[k] as Array)[0]))
-		if c != null:
-			_count_boxes[k].set_value_no_signal(float(c))
-	_dials_syncing = false
-	if _count_toggle != null:
-		_refresh_fixed_counts()
-
 				bridge.param_set(key, int(v))
 				_refresh_fixed_counts(),
 			"Reference %s. Read only while Fixed settlement counts is on." % info.get("reference_control", key)))
@@ -2888,6 +2928,13 @@ func _sync_from_engine() -> void:
 	if recovery_input != null and recovery_input.item_count > 0:
 		_recovery_phase = clampi(bridge.get_recovery_phase(), 0, recovery_input.item_count - 1)
 		recovery_input.select(_recovery_phase)
+	## The base technology and the placement dials (owner report 2026-11-13: they are on the first screen now, so a stale
+	## value there is the first thing seen). `param_get` answers null while a generation holds the object: left as it was.
+	if tech_input != null:
+		var tech = bridge.param_get("civ.base_ag_tech")
+		if tech != null and tech_input.item_count > 0:
+			tech_input.select(clampi(int(tech), 0, tech_input.item_count - 1))
+	_refresh_dials_from_engine()
 	## Ruling EV: the lake balance Create will use, not the open world's (see
 	## `_build_lake_balance`). Built once and never re-read before, so after
 	## opening a save from before Ruling ET it read on while the engine held it
@@ -2928,13 +2975,6 @@ func _sync_from_engine() -> void:
 ## every open after a boot with no world or over a world this build made. Called from
 ## `_sync_from_engine()` on every open and after this window's own Lake water balance box moves.
 func _refresh_rules_notice() -> void:
-	## The base technology and the placement dials (owner report 2026-11-13: they are on the first screen now, so a stale
-	## value there is the first thing seen). `param_get` answers null while a generation holds the object: left as it was.
-	if tech_input != null:
-		var tech = bridge.param_get("civ.base_ag_tech")
-		if tech != null and tech_input.item_count > 0:
-			tech_input.select(clampi(int(tech), 0, tech_input.item_count - 1))
-	_refresh_dials_from_engine()
 	if rules_notice_label == null or bridge == null:
 		return
 	var keys: PackedStringArray = bridge.new_world_rule_changes()

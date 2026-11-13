@@ -1,0 +1,99 @@
+[phonez] viewport 1080x2340 phone=true tablet=false touch=true
+[phonez] leg layout
+[phonez]   OK   'Plates' is on the first screen of the form
+[phonez]   OK   'Factions' is on the first screen of the form
+[phonez]   OK   'Village seeding (additive hamlets)' is on the first screen of the form
+[phonez]   OK   'Fixed settlement counts' is on the first screen of the form
+[phonez]   OK   'Recovery phase' is on the first screen of the form
+[phonez]   OK   'Capitals' is on the first screen of the form
+[phonez]   OK   'Cities' is on the first screen of the form
+[phonez]   OK   'Towns' is on the first screen of the form
+[phonez]   OK   'Villages' is on the first screen of the form
+[phonez]   OK   'Hamlets' is on the first screen of the form
+[phonez] leg preview, seed 4242
+[phonez]   OK   a preview is drawn (state drawn)
+[phonez]   OK   the dialog holds a height byte for every preview cell (65600 heights, 65600 mask cells)
+[phonez]   OK   land is the same cells in both encodings (65600 of 65600 agree)
+[phonez]   OK   the dialog's heights equal the engine's preview_height_field for the same request (65600 bytes)
+[phonez]   TIMING engine call 11 ms (min 11, max 12); dialog draw 1.6 ms (min 1.6, max 1.7); five runs each
+[phonez]   OK   the shader ran: 46380 of 46431 land cells are tinted, not grey
+[phonez]   OK   the shader ran: 19169 of 19169 sea cells are bluer than red
+[phonez]   OK   more than two colour levels: 17 of 32 luminance bins each hold at least 1% of the cells
+[phonez]   land brightness against height: r = 0.880 over 46431 land cells; mean luminance land 0.723, sea 0.221
+[phonez]   OK   land brightness tracks height (|r| = 0.880, bar 0.5)
+[phonez]   OK   both land and sea are present in the sample world (46431 land, 19169 sea)
+[phonez]   sea brightness against depth byte: r = 0.968
+[phonez]   OK   the sea is darker where it is deeper (r = 0.968, bar 0.5)
+[phonez] leg preview, seed 51127
+[phonez]   OK   a preview is drawn (state drawn)
+[phonez]   OK   the dialog holds a height byte for every preview cell (65600 heights, 65600 mask cells)
+[phonez]   OK   land is the same cells in both encodings (65600 of 65600 agree)
+[phonez]   OK   the dialog's heights equal the engine's preview_height_field for the same request (65600 bytes)
+[phonez]   TIMING engine call 11 ms (min 11, max 12); dialog draw 1.6 ms (min 1.6, max 1.9); five runs each
+[phonez]   OK   the shader ran: 47930 of 48040 land cells are tinted, not grey
+[phonez]   OK   the shader ran: 17560 of 17560 sea cells are bluer than red
+[phonez]   OK   more than two colour levels: 17 of 32 luminance bins each hold at least 1% of the cells
+[phonez]   land brightness against height: r = 0.841 over 48040 land cells; mean luminance land 0.690, sea 0.242
+[phonez]   OK   land brightness tracks height (|r| = 0.841, bar 0.5)
+[phonez]   OK   both land and sea are present in the sample world (48040 land, 17560 sea)
+[phonez]   sea brightness against depth byte: r = 0.982
+[phonez]   OK   the sea is darker where it is deeper (r = 0.982, bar 0.5)
+[phonez] leg preview, seed 776010
+[phonez]   OK   a preview is drawn (state drawn)
+[phonez]   OK   the dialog holds a height byte for every preview cell (65600 heights, 65600 mask cells)
+[phonez]   OK   land is the same cells in both encodings (65600 of 65600 agree)
+[phonez]   OK   the dialog's heights equal the engine's preview_height_field for the same request (65600 bytes)
+[phonez]   TIMING engine call 11 ms (min 11, max 12); dialog draw 1.7 ms (min 1.6, max 1.8); five runs each
+[phonez]   OK   the shader ran: 33487 of 33674 land cells are tinted, not grey
+[phonez]   OK   the shader ran: 31926 of 31926 sea cells are bluer than red
+[phonez]   OK   more than two colour levels: 16 of 32 luminance bins each hold at least 1% of the cells
+[phonez]   land brightness against height: r = 0.868 over 33674 land cells; mean luminance land 0.695, sea 0.213
+[phonez]   OK   land brightness tracks height (|r| = 0.868, bar 0.5)
+[phonez]   OK   both land and sea are present in the sample world (33674 land, 31926 sea)
+[phonez]   sea brightness against depth byte: r = 0.982
+[phonez]   OK   the sea is darker where it is deeper (r = 0.982, bar 0.5)
+[phonez] leg presets
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   OK   plates 23 reached the engine (23)
+[phonez]   OK   the WORLD dock's Plates control shows 23 (23.0)
+[phonez]   OK   9 factions reached the engine and the roster (9, 9)
+[phonez]   OK   the fixed counts 2/3/4/5/6 reached the engine
+[phonez]   OK   recovery phase 2 reached the engine (2)
+[phonez]   settlements by kind with fixed counts 2/3/4/5/6: { "town": 4, "city": 1, "village": 5, "hamlet": 10 }
+[phonez]   OK   the fixed counts bound the world (20 settlements, at most 20 asked)
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   OK   village seeding reached the engine
+[phonez] leg tech
+[phonez]   OK   a 'Base technology' row is built
+[phonez]   OK   Base technology is on the first screen of the form
+[phonez]   OK   Base technology sits in the same section as Recovery phase
+[phonez]   OK   it lists the engine's six levels (6)
+[phonez]   OK   and starts on the reference's own default, Traditional Agrarian (index 1)
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   OK   subsistence: the engine holds civ.base_ag_tech 0 (got 0)
+[phonez]   OK   subsistence: every faction in the roster has ag_tech 'subsistence' (["subsistence"])
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   OK   industrial: the engine holds civ.base_ag_tech 5 (got 5)
+[phonez]   OK   industrial: every faction in the roster has ag_tech 'industrial' (["industrial"])
+[phonez] leg toggles (seed 4242, grid 192)
+[phonez]   civ parameters on entry: { "tect.plates": 14, "civ.villages": false, "civ.metropolis": false, "civ.recovery_phase": 0, "civ.biome_k": false, "civ.factions": 6, "civ.seed_thresh": 0.42, "civ.seed_suppress_div": 22.0, "civ.fixed_counts": false, "civ.n_capital": 2, "civ.n_city": 3, "civ.n_town": 4, "civ.n_village": 5, "civ.n_hamlet": 6, "civ.garrison_exposure_scale": 1.0, "civ.merge_ways": true, "civ.base_ag_tech": 1 }
+[phonez]   the form would post: villages false, recovery_phase 0, metropolis false, biome_k false; dialog open false
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   all-on world: grid (192, 123), width 800.0 km, sea level 0.42, plates 14, kinds { "capital": 4, "town": 3, "city": 1 }, recovery 0, factions 6
+[phonez]   all on           { "ways": 6, "labels": 39, "settlements": 8, "landmarks": 368 }
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   routes off       { "ways": 0, "labels": 39, "settlements": 8, "landmarks": 323 }
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   names off        { "ways": 6, "labels": 0, "settlements": 8, "landmarks": 368 }
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   settlements off  { "ways": 0, "labels": 49, "settlements": 0, "landmarks": 252 }
+[phonez]   OK   Create finished (and its passes, if any)
+[phonez]   master off       { "ways": 0, "labels": 0, "settlements": 0, "landmarks": 0 }
+[phonez]   OK   positive control: with everything on there are ways, generated labels and settlements ({ "ways": 6, "labels": 39, "settlements": 8, "landmarks": 368 })
+[phonez]   OK   Routes off: no ways (0)
+[phonez]   OK   Routes off: settlements are still placed (8)
+[phonez]   OK   Names off: no generated labels (0)
+[phonez]   OK   Names off: roads are still generated (6)
+[phonez]   OK   Settlements off: no settlements and no ways ({ "ways": 0, "labels": 49, "settlements": 0, "landmarks": 252 })
+[phonez]   OK   Master off: terrain only, nothing generated by any pass ({ "ways": 0, "labels": 0, "settlements": 0, "landmarks": 0 })
+[phonez] RESULT phonez fail=0 checks=72

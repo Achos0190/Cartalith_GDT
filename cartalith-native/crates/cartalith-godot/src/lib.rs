@@ -8452,6 +8452,24 @@ fn preview_world_params(lookup: &dyn Fn(&str) -> Option<PreviewArg>, target_w: i
 /// engine panic (none is known) is caught here rather than crossing the gdext
 /// boundary (`cartalith-rust-conventions`).
 fn preview_land_mask_inner(lookup: &dyn Fn(&str) -> Option<PreviewArg>, preview_w: i64, target_w: i64) -> Result<Vec<u8>, String> {
+    preview_checked(lookup, preview_w, target_w, cartalith_engine::preview::land_mask)
+}
+
+/// `preview_height_field` minus the `Variant` conversion: [`cartalith_engine::preview::height_bytes`] over the same validated
+/// input as [`preview_land_mask_inner`], so the two cannot disagree about what a bad request is.
+fn preview_height_field_inner(lookup: &dyn Fn(&str) -> Option<PreviewArg>, preview_w: i64, target_w: i64) -> Result<Vec<u8>, String> {
+    preview_checked(lookup, preview_w, target_w, cartalith_engine::preview::height_bytes)
+}
+
+/// The validation and panic fence both preview entry points share: the width range, the parameter set, the size cap, then
+/// `build(&params, preview_w)` inside `catch_unwind`, and the length check. One function so the mask and the heightmap are
+/// refused for exactly the same inputs.
+fn preview_checked(
+    lookup: &dyn Fn(&str) -> Option<PreviewArg>,
+    preview_w: i64,
+    target_w: i64,
+    build: fn(&WorldParams, usize) -> Vec<u8>,
+) -> Result<Vec<u8>, String> {
     if !(PREVIEW_W_MIN..=PREVIEW_W_MAX).contains(&preview_w) {
         return Err(format!("preview_w {preview_w} outside {PREVIEW_W_MIN}..={PREVIEW_W_MAX}"));
     }
@@ -8461,12 +8479,12 @@ fn preview_land_mask_inner(lookup: &dyn Fn(&str) -> Option<PreviewArg>, preview_
     if pw * ph > PREVIEW_MAX_CELLS {
         return Err(format!("{pw} x {ph} preview exceeds {PREVIEW_MAX_CELLS} cells (target aspect too tall)"));
     }
-    let mask = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cartalith_engine::preview::land_mask(&p, pw)))
+    let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(&p, pw)))
         .map_err(|_| "the engine panicked building the preview".to_string())?;
-    if mask.len() != pw * ph {
-        return Err(format!("engine returned {} cells, expected {}", mask.len(), pw * ph));
+    if out.len() != pw * ph {
+        return Err(format!("engine returned {} cells, expected {}", out.len(), pw * ph));
     }
-    Ok(mask)
+    Ok(out)
 }
 
 /// A `Variant` as a [`PreviewArg`]. Only the four types a parameter or call
@@ -8532,6 +8550,28 @@ mod preview_binding_tests {
         want.world_structure = archetype_knobs_str("archipelago").expect("known archetype");
         assert_eq!(preview_world_params(&|k| m.get(k).cloned(), 1024).expect("complete dict"), want);
         assert_eq!(run(&m, 320, 1024).expect("mask"), cartalith_engine::preview::land_mask(&want, 320));
+    }
+
+    /// Protects: the heightmap binding is the engine's `height_bytes` for the same `WorldParams`, byte for byte, agrees with
+    /// the mask this same dictionary gives cell for cell (`byte >= 128` is `1`), and refuses exactly what the mask refuses
+    /// (one shared validator): a missing key, an out-of-range width and a too-tall aspect all give an error, never a field.
+    #[test]
+    fn the_height_binding_equals_the_engine_and_agrees_with_the_mask() {
+        let m = full_dict(51127, 200.0, 655, "");
+        let want = with_call_args(params::defaults(), 51127, 200.0, 1024, 655);
+        let h = preview_height_field_inner(&|k| m.get(k).cloned(), 160, 1024).expect("heightmap");
+        assert_eq!(h, cartalith_engine::preview::height_bytes(&want, 160));
+        let mask = run(&m, 160, 1024).expect("mask");
+        assert_eq!(h.len(), mask.len());
+        assert!(h.iter().zip(&mask).all(|(&b, &k)| (b >= 128) == (k == 1)), "one verdict, two encodings");
+        assert!(h.iter().any(|&b| b > 128 && b < 255) && h.iter().any(|&b| b > 0 && b < 128), "relief on both sides of the coast");
+        let mut missing = m.clone();
+        missing.remove("sea_level");
+        assert!(preview_height_field_inner(&|k| missing.get(k).cloned(), 160, 1024).is_err());
+        assert!(preview_height_field_inner(&|k| m.get(k).cloned(), 15, 1024).is_err());
+        let mut tall = m.clone();
+        tall.insert("grid_h".into(), PreviewArg::Int(8192));
+        assert!(preview_height_field_inner(&|k| tall.get(k).cloned(), 320, 4).is_err());
     }
 
     /// Protects: a dictionary value reaches the mask (the binding does not read
@@ -10462,6 +10502,26 @@ impl WorldGen {
             Ok(mask) => PackedByteArray::from(mask.as_slice()),
             Err(reason) => {
                 godot_print!("cartalith-godot: preview_land_mask: {reason}");
+                PackedByteArray::new()
+            }
+        }
+    }
+
+    /// **The New World preview as a heightmap** (owner, 2026-11-13): the same arguments, the same size and row order as
+    /// [`Self::preview_land_mask`], but each byte is the cell's height instead of a 0/1 flag -- `>= 128` is land and `< 128`
+    /// is ocean, **exactly** the mask's verdict, with `128` the shore, `255` the highest ground and `0` the deepest sea (each
+    /// side stretched over its own half of the range; `cartalith_engine::preview::height_bytes` has the formula). The shell
+    /// colours it in a shader, so a preview costs the same one substrate run as before.
+    ///
+    /// Static and empty-on-failure exactly like the mask (it shares `preview_checked`): an invalid request prints its reason
+    /// and returns an **empty** array, never a plausible field.
+    #[func]
+    fn preview_height_field(params: VarDictionary, preview_w: i64, target_w: i64) -> PackedByteArray {
+        let lookup = |k: &str| params.get(k).map(|v| preview_arg(&v));
+        match preview_height_field_inner(&lookup, preview_w, target_w) {
+            Ok(bytes) => PackedByteArray::from(bytes.as_slice()),
+            Err(reason) => {
+                godot_print!("cartalith-godot: preview_height_field: {reason}");
                 PackedByteArray::new()
             }
         }
