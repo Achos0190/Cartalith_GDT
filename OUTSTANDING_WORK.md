@@ -56,8 +56,9 @@ document, and `STATUS.md` records what lands)
 - **Phone: the MAP drawer is empty; the domain tab (GENERATE / CARTO / CIVIL) is missing its indicator dots; selection
   switches are far too small** (owner, 2026-11-13: *"The drawer for map on mobile is empty and the button to select
   generate / carto / civil misses the indication balls. Also selection switches are ridiculously small."*). Owner:
-  `MOBILE_SHELL_PROPOSAL.md` §2 (MS-2, MS-3); switches to the 44 dp floor through the shared theme. In progress
-  2026-11-13.
+  `MOBILE_SHELL_PROPOSAL.md` §2 (MS-2, MS-3); switches to the 44 dp floor through the shared theme. **Built 2026-11-13**
+  (`STATUS.md`, "Phone fixes from the 6T report"); left: the 6T glass check, windows' own switches (not opened by the probe),
+  and MAP's North up, grid and scale-bar toggles and the 43 fields as inline groups (a dropdown ships).
 - **New World: the roads and labels auto-populate toggles have no effect; the plate count and the village presets
   (how many villages, how village population behaves) have gone missing; add a world-wide base tech level next to the
   world phase; a rudimentary heightmap preview instead of grey on blue** (owner, 2026-11-13: *"Those should be
