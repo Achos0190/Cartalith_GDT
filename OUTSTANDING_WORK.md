@@ -81,12 +81,8 @@ document, and `STATUS.md` records what lands)
   blank docked sheet after a rotation, the header in the top-right corner, the grip on the right"). The owner's three
   asks (the empty right-hand panel and the map sliver under it; the quick-drawer grip to the right edge beside the camera
   and the title/search header to the top-right corner; no backdrop behind the header) are all in that entry.
-- **Phone landscape: the right-hand tool sheet must still slide down like the portrait drawer** (owner, 2026-11-13: asked
-  *"the lower drawer that is now shown on the right, can still slide it down asa drawer?"* and chose *"Slide down like
-  portrait"*). After `90cd811c` the landscape sheet is always open (`_phone_sheet_peeked()` is false in landscape).
-  Restore the drag-down gesture so it collapses to a peek bar at the bottom of the right column and drags back up,
-  without bringing back the blank-after-rotation bug. Owner: `MOBILE_SHELL_PROPOSAL.md` (landscape), `STATUS.md`
-  ("Phone landscape").
+- ~~**Phone landscape: the right-hand tool sheet must still slide down like the portrait drawer**~~ -- closed 2026-11-13; see
+  `STATUS.md` ("Phone landscape: the right-hand tool sheet has its peek detent again").
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;

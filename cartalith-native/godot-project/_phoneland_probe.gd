@@ -20,7 +20,10 @@ extends Node
 ##   godot --path . --resolution 1170x540 _phoneland_probe.tscn -- --force-touch --density 1.40625 --leg cold
 ##   godot --path . --resolution 540x1000 _phoneland_probe.tscn -- --force-touch --density 1.40625 --leg rotate
 ## 1170x540 at 1.40625 is 832 x 384 dp, the shape of the 6T's 2340x1080 at 2.8125; the same dp at any scale.
-## Legs: `cold` (boot in landscape, checks 1 to 6), `rotate` (boot portrait, rotate to landscape, back, to landscape again),
+##   7. THE PEEK DETENT (owner choice 2026-11-13, "slide down like portrait"; leg `drag`, 2340x1080 @2.8125): real touch events
+##      on the sheet's handle: a drag down collapses it to a peek bar at the foot of the right column (header still top-right),
+##      a drag up reopens, a tap toggles; rotating while peeked and while open never leaves a blank body.
+## Legs: `drag` (boot landscape, then the touch checks above, rotating at peek and at open), `cold` (boot in landscape, checks 1 to 6), `rotate` (boot portrait, rotate to landscape, back, to landscape again),
 ## `plain` / `plainrot` (screenshots only, no pins, no assertions beyond the phone form), `dump` (prints the sheet's tree).
 ## Reads: `--leg`, `--shots DIR`; the shell reads `--force-touch`, `--density`. Anything else aborts with exit 2.
 ## Result: `RESULT: PASS|FAIL (<n> failed, <m> checks)`. Exit 0 pass, 1 fail, 2 bad argument, 3 watchdog.
@@ -140,6 +143,9 @@ func _run(leg: String) -> void:
 		await _settle()
 		await _shot("rotated_again")
 		_check_landscape("rotated to landscape a second time")
+	elif leg == "drag":
+		await _store_pins()
+		await _leg_drag(w0)
 	elif leg == "plainrot":
 		get_window().size = Vector2i(w0.y, w0.x)
 		await _settle()
@@ -165,6 +171,8 @@ func _filled(tag: String) -> void:
 func _has_tall_body(c: Control, min_h: float) -> bool:
 	for n in c.find_children("*", "BaseButton", true, false):
 		var k := n as Control
+		if _app._phone_sheet_grab != null and _app._phone_sheet_grab.is_ancestor_of(k):
+			continue   ## the header's own buttons (close, handle row) show at every detent: not a body
 		if k.is_visible_in_tree() and k.size.y >= min_h and k.size.x >= 40.0:
 			return true
 	return false
@@ -180,8 +188,13 @@ func _check_landscape(tag: String) -> void:
 	_ok(absf(float(ins["left"]) - rail.end.x) <= 1.5, "%s: the map band starts where the rail ends (%.1f vs %.1f)" % [tag, float(ins["left"]), rail.end.x])
 	_ok(absf(float(ins["right"]) - sheet.size.x) <= 1.5 and absf(sheet.end.x - win.x) <= 1.5, "%s: the band ends where the sheet begins, the sheet at the window's right edge (%.1f)" % [tag, sheet.end.x])
 	_ok(float(ins["top"]) == 0.0, "%s: no top reserve in the band (the header is in the corner, not over the map)" % tag)
-	_ok(_app._phone_tool_sheet.is_visible_in_tree() and _has_tall_body(_app._phone_tool_sheet, 40.0), "%s: the docked sheet has a visible body (not an empty panel)" % tag)
-	_ok(absf(sheet.position.y - bar.end.y) <= 1.5, "%s: the sheet starts under the header (%.1f vs %.1f)" % [tag, sheet.position.y, bar.end.y])
+	## The landscape sheet has a peek detent again (owner choice 2026-11-13): a cold start is at peek like portrait's, so the
+	## body and the top edge are asserted for the detent the sheet is AT, and the open form is reached by the `drag` leg.
+	if _app._phone_detent == "peek":
+		_ok(_app._phone_tool_sheet.is_visible_in_tree() and sheet.size.y > 20.0 and sheet.size.y <= win.y * 0.3, "%s: at peek the sheet is a bar at the foot of the column (%.0f)" % [tag, sheet.size.y])
+	else:
+		_ok(_app._phone_tool_sheet.is_visible_in_tree() and _has_tall_body(_app._phone_tool_sheet, 40.0), "%s: the docked sheet has a visible body (not an empty panel)" % tag)
+		_ok(absf(sheet.position.y - bar.end.y) <= 1.5, "%s: the sheet starts under the header (%.1f vs %.1f)" % [tag, sheet.position.y, bar.end.y])
 	_ok(sheet.end.y < win.y and win.y - sheet.end.y >= 4.0, "%s: and stops above the gesture band (%.1f of %.1f)" % [tag, sheet.end.y, win.y])
 	_ok(absf(bar.end.x - win.x) <= 1.5 and bar.position.y == 0.0 and bar.position.x >= win.x * 0.4, "%s: the header is in the TOP-RIGHT corner (%s)" % [tag, str(bar)])
 	_ok(_app._phone_app_bar.get_theme_stylebox("panel") is StyleBoxEmpty, "%s: the header has no backdrop (an empty panel style)" % tag)
@@ -249,3 +262,90 @@ func _dump(n: Node, depth: int, maxd: int) -> void:
 	print("   ".repeat(depth + 1), c.name, " ", c.get_class(), " vis=", c.visible, " ", c.get_global_rect())
 	for k in c.get_children():
 		_dump(k, depth + 1, maxd)
+
+
+# ---- the landscape peek detent (leg `drag`) ----------------------------------------------------------------------------
+
+## One touch finger from `a` to `b` in 8 steps through the viewport, the way a thumb arrives (press, drags, release).
+func _touch_drag(a: Vector2, b: Vector2) -> void:
+	var press := InputEventScreenTouch.new()
+	press.index = 0
+	press.position = a
+	press.pressed = true
+	Input.parse_input_event(press)
+	await _frames(1)
+	for k in range(1, 9):
+		var d := InputEventScreenDrag.new()
+		d.index = 0
+		d.position = a.lerp(b, float(k) / 8.0)
+		d.relative = (b - a) / 8.0
+		Input.parse_input_event(d)
+		await _frames(1)
+	var rel := InputEventScreenTouch.new()
+	rel.index = 0
+	rel.position = b
+	rel.pressed = false
+	Input.parse_input_event(rel)
+	await _settle()
+
+func _tap(a: Vector2) -> void:
+	await _touch_drag(a, a)
+
+func _handle() -> Vector2:
+	return _app._phone_sheet_grab.get_global_rect().get_center()
+
+## Open: top under the header, body visible. Peeked: a short bar at the foot of the column, body hidden, header unmoved.
+func _check_sheet(tag: String, peeked: bool) -> void:
+	var win := Vector2(get_window().size)
+	var sheet: Rect2 = _app._phone_tool_sheet.get_global_rect()
+	var bar: Rect2 = _app._phone_app_bar.get_global_rect()
+	_ok((_app._phone_detent == "peek") == peeked, "%s: detent is %s (%s)" % [tag, "peek" if peeked else "open", _app._phone_detent])
+	_ok(absf(bar.end.x - win.x) <= 1.5 and bar.position.y == 0.0, "%s: the header stays top-right (%s)" % [tag, str(bar)])
+	_ok(absf(sheet.end.x - win.x) <= 1.5, "%s: the sheet is on the right edge" % tag)
+	if peeked:
+		_ok(sheet.size.y <= win.y * 0.3 and sheet.size.y > 20.0, "%s: a peek bar, not the full column (%.0f of %.0f)" % [tag, sheet.size.y, win.y])
+		_ok(sheet.end.y < win.y and sheet.end.y >= win.y - 1.0 - float(_app._safe_bottom()) - 8.0, "%s: at the foot of the column (end %.0f)" % [tag, sheet.end.y])
+		_ok(not _has_tall_body(_app._phone_tool_sheet, 40.0), "%s: the body is hidden" % tag)
+	else:
+		_ok(absf(sheet.position.y - bar.end.y) <= 1.5, "%s: open, top under the header (%.1f vs %.1f)" % [tag, sheet.position.y, bar.end.y])
+		_ok(_has_tall_body(_app._phone_tool_sheet, 40.0), "%s: the body is visible (no blank panel)" % tag)
+
+func _leg_drag(w0: Vector2i) -> void:
+	_check_sheet("cold boot (portrait's cold detent)", true)
+	_ok(_app._landscape, "boot is landscape")
+	## cold start opens where portrait would: peek
+	_ok(_app._phone_detent == "peek", "cold start in landscape is at peek, like portrait")
+	await _shot("drag_peek0")
+	var win := Vector2(get_window().size)
+	## drag up reopens
+	await _touch_drag(_handle(), _handle() - Vector2(0.0, win.y * 0.7))
+	_check_sheet("after dragging up", false)
+	await _shot("drag_open")
+	## drag down collapses
+	await _touch_drag(_handle(), Vector2(_handle().x, win.y - 2.0))
+	_check_sheet("after dragging down", true)
+	await _shot("drag_peeked")
+	## a tap toggles, both ways
+	await _tap(_handle())
+	_check_sheet("tap on the handle at peek", false)
+	await _tap(_handle())
+	_check_sheet("tap on the handle when open", true)
+	## rotate while peeked: portrait at peek, then back to landscape still peeked
+	get_window().size = Vector2i(w0.y, w0.x)
+	await _settle()
+	_check_portrait("rotated at peek")
+	await _shot("rot_peek_portrait")
+	get_window().size = w0
+	await _settle()
+	_check_sheet("rotated at peek, back in landscape", true)
+	## rotate while open
+	await _tap(_handle())
+	_check_sheet("opened again", false)
+	get_window().size = Vector2i(w0.y, w0.x)
+	await _settle()
+	_ok(not _app._landscape and _app._phone_detent != "peek" and _has_tall_body(_app._phone_tool_sheet, 40.0), "rotated open: the portrait sheet is open with a body")
+	await _shot("rot_open_portrait")
+	get_window().size = w0
+	await _settle()
+	_check_sheet("rotated open, back in landscape", false)
+	await _shot("rot_open_landscape")

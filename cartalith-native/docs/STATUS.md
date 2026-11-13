@@ -91,6 +91,21 @@ swapped, so a folder move is one undo step).
   are tracked), so such a picture link breaks until fixed by hand. An empty folder, or one holding only images, cannot be
   renamed (the vault lists notes, not folders). The destination of "Move folder..." is typed, not picked.
 
+### Phone landscape: the right-hand tool sheet has its peek detent again (built 2026-11-13)
+
+**Owner choice:** *"Slide down like portrait"*. In landscape the docked sheet collapses by dragging its handle down to a
+peek bar at the foot of the right column, drags back up to open, and a tap on the handle toggles. Opened at `DccShell`:
+`_phone_sheet_peeked()` is now the detent alone (it ignored the landscape before); `_snap_phone_sheet()` and
+`_on_phone_sheet_grab_input()` serve both orientations, moving the sheet's top edge (`_landscape_sheet_top()`) rather than a
+height minimum, and `_apply_phone_orientation()` shows the handle in landscape too. One detent value and one drag handler,
+no second implementation. The blank-after-rotation bug stays fixed by `_phone_orientation_resync()`, not by ignoring the
+detent. Choices: a cold start is at `peek` like portrait; the header stays in the top-right corner; the map's right
+reserve stays the sheet's width at both stops (the peek bar still occupies the column's foot, and the band must not
+re-warp under the finger), so the map does not widen. `phone_toggle_tool_options()` and `phone_drop_sheet_to_peek()` stay
+portrait-only. Verified by `_phoneland_probe` leg `drag` at 2340x1080 @2.8125 (real touch events: drag down/up, handle
+taps, rotate at peek and at open, header top-right; 58 checks), `cold` 21, `rotate` 54, `_ms11` 95, `_p13fix` 102, `_ms2` 52,
+all passing; two literal mutants (landscape ignored in `_phone_sheet_peeked`, tap-toggle always to peek) fail it.
+
 ### Phone landscape: the blank docked sheet after a rotation, the header in the top-right corner, the grip on the right (built 2026-11-13)
 
 **Owner report (6T, landscape):** *"a weird checkerboard style bug with a sliver of the right side appearing almost below

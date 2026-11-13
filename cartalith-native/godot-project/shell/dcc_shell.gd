@@ -9080,16 +9080,16 @@ func _mount_dock_in_sheet(on: bool) -> void:
 	_sync_dom_host_visible()
 	_sync_dom_rows(on)
 
-## True while the portrait sheet is collapsed to its `peek` detent, the one state in which its body is hidden.
-## **Always false in landscape** (owner report 2026-11-13, `OUTSTANDING_WORK.md` "Phone landscape"): the landscape sheet
-## is docked on the right at a width, with no detents (`_snap_phone_sheet()`, `BUILD_ANSWERS.md` section 4), so a
-## `_phone_detent` of `peek` left over from portrait must never hide its body. Before this, rotating a phone that sat at
-## `peek` (the cold-start detent) into landscape left every child of the docked 46 %-wide sheet hidden: an empty panel
-## beside a map that showed through the gesture strip under it, which the owner read as the shell filling only part of
-## the screen. Three readers share this one answer so they cannot disagree again: `_sync_dom_host_visible()`,
+## True while the sheet is collapsed to its `peek` detent, the one state in which its body is hidden, in BOTH orientations.
+## History (owner report 2026-11-13, `OUTSTANDING_WORK.md` "Phone landscape"): this was `false` in landscape, because a
+## `peek` left over from portrait hid the whole body of the docked sheet and nothing re-ran the readers on a rotation
+## (the blank panel). The owner then chose "slide down like portrait": the landscape sheet has a real peek detent again
+## (`_snap_phone_sheet()` places its top at the bottom of the right column), so the answer is the detent alone, and the
+## blank-after-rotation bug stays fixed by `_phone_orientation_resync()` re-reading the three readers on every
+## rotation, not by ignoring the detent. Readers share this one answer: `_sync_dom_host_visible()`,
 ## `_refresh_phone_map_row()` and `_refresh_phone_sheet_body()`.
 func _phone_sheet_peeked() -> bool:
-	return _phone_detent == "peek" and not _landscape
+	return _phone_detent == "peek"
 
 ## Re-reads the three readers of `_phone_sheet_peeked()` after the orientation flipped (`_on_window_resized()`): their
 ## inputs are only the detent and `_landscape`, and nothing else re-runs them on a rotation, so a sheet built hidden
@@ -9110,7 +9110,7 @@ func _phone_orientation_resync() -> void:
 func _sync_dom_host_visible() -> void:
 	if _phone_dom_host == null:
 		return
-	## Reads `_phone_sheet_peeked()`, which is false in landscape: a docked side sheet has no detent (see that function).
+	## Reads `_phone_sheet_peeked()`, which now holds in both orientations (see that function).
 	_phone_dom_host.visible = _dock_in_sheet and not _phone_sheet_peeked()
 
 ## Builds (once) and shows or hides the door row above the mounted dock for the CURRENT domain. Split out of
@@ -9602,7 +9602,25 @@ func _set_phone_detent(det: String, animate: bool = true) -> void:
 ## delta, which is why `phone_insets_changed` only has to reach
 ## `ViewportHost`'s floating chrome and not the chrome column.
 func _snap_phone_sheet(animate: bool) -> void:
-	if _phone_tool_sheet == null or _landscape:
+	if _phone_tool_sheet == null:
+		return
+	if _landscape:
+		## Landscape (owner choice 2026-11-13, "slide down like portrait"): the docked right-hand sheet keeps its
+		## anchors and moves its TOP edge between the app bar (open: `half` and `full` are the same) and the bottom of
+		## the column (`peek`), the same detent value and the same drag handler as portrait, no second implementation.
+		## The map's right reserve stays the sheet's width at both: the peek bar still occupies the column's foot, and
+		## widening the band on every drag would re-warp the map under the finger.
+		var top_target := _landscape_sheet_top(_phone_detent)
+		if _phone_sheet_tween != null and _phone_sheet_tween.is_valid():
+			_phone_sheet_tween.kill()
+		if not animate:
+			_phone_tool_sheet.offset_top = top_target
+			phone_insets_changed.emit()
+			return
+		_phone_sheet_tween = create_tween()
+		_phone_sheet_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_phone_sheet_tween.tween_property(_phone_tool_sheet, "offset_top", top_target, PHONE_DETENT_ANIM)
+		_phone_sheet_tween.finished.connect(func() -> void: phone_insets_changed.emit())
 		return
 	var target := _phone_detent_height(_phone_detent)
 	if _phone_sheet_tween != null and _phone_sheet_tween.is_valid():
@@ -9620,6 +9638,15 @@ func _snap_phone_sheet(animate: bool) -> void:
 	## chrome, and doing that on every tween frame would animate the scale bar
 	## and the coordinate readout along with the sheet for no stated reason.
 	_phone_sheet_tween.finished.connect(func() -> void: phone_insets_changed.emit())
+
+## Landscape only: the y of the docked sheet's top edge at `det`. Open is directly under the app bar (the header
+## stays in the top-right corner); `peek` is `PHONE_DETENT_PEEK` above the gesture band, never above the open top.
+func _landscape_sheet_top(det: String) -> float:
+	var open_top := float(_ptap(DccTheme.H_PHONE_APP_BAR))
+	if det != "peek":
+		return open_top
+	var foot := get_viewport_rect().size.y - float(_safe_bottom() + _phone_kb_height)
+	return maxf(open_top, foot - _phone_detent_height("peek"))
 
 ## One drag on the sheet's grab handle -- the prototype's `_sd`/`_sm`/`_su`
 ## triple:
@@ -9651,9 +9678,8 @@ func _snap_phone_sheet(animate: bool) -> void:
 ## inside the sheet, and the sheet's origin moves upward as it grows, so local
 ## coordinates shift under a finger that has not moved.
 func _on_phone_sheet_grab_input(event: InputEvent) -> void:
-	if _landscape or _phone_tool_sheet == null:
-		return  ## `_sd()` returns immediately in landscape too: a docked side
-			## sheet has a width, not a detent.
+	if _phone_tool_sheet == null:
+		return
 	var press_state := 0  ## -1 release, +1 press, 0 not a press event at all.
 	var moved := false
 	var local_y := 0.0
@@ -9680,12 +9706,24 @@ func _on_phone_sheet_grab_input(event: InputEvent) -> void:
 	if press_state == 1:
 		if _phone_sheet_tween != null and _phone_sheet_tween.is_valid():
 			_phone_sheet_tween.kill()
-		_phone_sheet_drag = {"y0": gy, "h0": _phone_tool_sheet.size.y}
+		_phone_sheet_drag = {"y0": gy, "h0": _phone_tool_sheet.size.y, "top0": _phone_tool_sheet.offset_top, "moved": false}
 		_phone_sheet_grab.accept_event()
 		return
 	if _phone_sheet_drag.is_empty():
 		return
 	if moved:
+		if _landscape:
+			## Landscape: the finger moves the sheet's top between its two stops (absolute: start top plus travel).
+			var t_open := _landscape_sheet_top("half")
+			var t_peek := _landscape_sheet_top("peek")
+			var travel: float = gy - float(_phone_sheet_drag["y0"])
+			if absf(travel) > float(_pscale(6)):
+				_phone_sheet_drag["moved"] = true
+			var t := clampf(float(_phone_sheet_drag["top0"]) + travel, t_open, maxf(t_open, t_peek))
+			_phone_sheet_drag["t"] = t
+			_phone_tool_sheet.offset_top = t
+			_phone_sheet_grab.accept_event()
+			return
 		var lo := float(_pscale(PHONE_DETENT_MIN_DRAG))
 		## The prototype's ceiling is `frameH - 90` on an absolutely-positioned
 		## sheet, which cannot push anything: here the sheet is a row in a
@@ -9705,6 +9743,18 @@ func _on_phone_sheet_grab_input(event: InputEvent) -> void:
 		return
 	## Release. `_su()`: nearest detent by absolute height difference, with the
 	## prototype's own `best='half'` as the seed.
+	if _landscape:
+		## Release in landscape: a tap (no travel past 6 dp) toggles; a drag snaps to the nearer stop.
+		var r_open := _landscape_sheet_top("half")
+		var r_peek := _landscape_sheet_top("peek")
+		var cur: float = float(_phone_sheet_drag.get("t", _phone_tool_sheet.offset_top))
+		var was_moved: bool = bool(_phone_sheet_drag.get("moved", false))
+		_phone_sheet_drag = {}
+		if not was_moved:
+			_set_phone_detent("half" if _phone_detent == "peek" else "peek")
+		else:
+			_set_phone_detent("peek" if absf(cur - r_peek) < absf(cur - r_open) else "half")
+		return
 	var final_h: float = float(_phone_sheet_drag.get("h", _phone_sheet_drag["h0"]))
 	_phone_sheet_drag = {}
 	if final_h < float(_pscale(PHONE_DETENT_DISMISS)):
@@ -12511,13 +12561,13 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 	## surface on a phone to carry the reason in a tooltip -- the coach mark is
 	## skipped in landscape instead (`_show_next_coach_mark()`).
 	if _phone_sheet_grab != null:
-		_phone_sheet_grab.visible = not _landscape
+		_phone_sheet_grab.visible = true   ## the landscape sheet has a peek detent again, so it keeps its handle
 	if _landscape:
 		_phone_tool_sheet.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
 		_phone_tool_sheet.offset_left = -sheet_w
 		_phone_tool_sheet.offset_right = 0
-		## Below the app bar, which sits in the top-right corner directly above the sheet (see the bar block above).
-		_phone_tool_sheet.offset_top = _ptap(DccTheme.H_PHONE_APP_BAR)
+		## Top edge by detent (open: below the app bar, which sits in the top-right corner; peek: the column's foot).
+		_phone_tool_sheet.offset_top = _landscape_sheet_top(_phone_detent)
 		## §13: "Timeline and sheets stop above it" -- the gesture inset is the
 		## one region a docked sheet still may not reach into.
 		_phone_tool_sheet.offset_bottom = -gesture
