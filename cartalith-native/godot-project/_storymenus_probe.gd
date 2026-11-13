@@ -96,7 +96,7 @@ const FILE_EXPORT_ROWS: Array = ["|FOR THE TABLE", "Player map…", "DM / full m
 const STORY_ROWS: Array = ["|TIME", "Timeline", "Political history of the selection",
 	"Faction history…", "|JOURNEYS", "Journey planner", "Saved journeys…", "Travel library…",
 	"|CONFLICTS & CAMPAIGNS", "Conflicts…", "Draw a conflict", "Campaigns*",
-	"|NOTES", "Notes for this place", "Places without notes is in Records", "Ask the assistant about the selection"]
+	"|NOTES", "Note for the selection", "Places without notes is in Records", "Ask the assistant about the selection"]
 ## The rows SM-2 drew disabled, built by SM-5/SM-6: row -> the id it must carry
 ## (written as literals, not read from `DccMenus`, so a renumbered id fails here).
 ## PC-9: Story's Places without notes… is a signpost now; id 731 is Records' row (checked there).
@@ -680,7 +680,7 @@ func _sm2() -> void:
 	## `_bind_accelerator` (so rebindable); Travel library keeps Shift+L; Journey
 	## planner draws none (Shift+J is `app.gd`'s, listed in UNLISTED).
 	var want_acc := {"Timeline": KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_T,
-		"Notes for this place": KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N,
+		"Note for the selection": KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_N,
 		"Travel library…": KEY_MASK_SHIFT | KEY_L, "Journey planner": 0}
 	for t in want_acc:
 		var i := _index_of(story, String(t))
@@ -707,14 +707,14 @@ func _sm2() -> void:
 			and app.menus.is_rebindable_shortcut(DccMenus.ID_WIN_SESSION_MODE), str(sess_users))
 	## The shortcuts dialog reads the live menus: both new keys must be listed.
 	var listed: Array = app.shortcuts_dialog._collect_from_menus()
-	for t in ["Timeline", "Notes for this place"]:
+	for t in ["Timeline", "Note for the selection"]:
 		_check("Help ▸ Keyboard shortcuts lists Story ▸ %s" % t,
 			listed.any(func(e): return String(e[0]) == "Story" and String(e[2]) == t), str(listed.size()))
 
 	## No world yet: the place rows say so, and the readout prints no count.
 	story.about_to_popup.emit()
 	var pi := _index_of(story, "Political history of the selection")
-	var ni := _index_of(story, "Notes for this place")
+	var ni := _index_of(story, "Note for the selection")
 	_check("no world: the place rows are disabled with a reason",
 		story.is_item_disabled(pi) and story.is_item_disabled(ni)
 			and story.get_item_tooltip(ni) != "", story.get_item_tooltip(ni))
@@ -753,8 +753,12 @@ func _sm2() -> void:
 	await _sm3_presets()
 	await _sm4()
 
+	## PC-4/PC-5: the note row gates on the one selection (`DccApp.selection`), which the earlier
+	## `_sm3`/`_sm4` steps leave on a place; clear it so "nothing selected" is actually true here.
+	app.select("", -1)
+	await _frames(2)
 	story.about_to_popup.emit()
-	_check("world, nothing selected: Notes for this place is disabled with the no-place reason",
+	_check("world, nothing selected: Note for the selection is disabled with the no-place reason",
 		story.is_item_disabled(ni) and story.get_item_tooltip(ni).findn("Nothing selected") >= 0,
 		story.get_item_tooltip(ni))
 	_check("world: the campaigns readout counts this year",
@@ -780,8 +784,63 @@ func _sm2() -> void:
 			"history=%s" % str(hist))
 		story.id_pressed.emit(DccMenus.ID_STORY_NOTES_HERE)
 		await _frames(4)
-		_check("Notes for this place opens the vault window", app.vault_window.visible)
-		app.vault_window.hide()
+		## PC-5 (Ruling DY): the row is "Note for the selection" and opens the Context panel's Note
+		## tab, not the vault window (the whole vault is Records ▸ Markdown vault…). Re-pointed
+		## from the pre-PC-5 vault-window assertion, which tested a form the shell no longer builds.
+		_check("Note for the selection opens the Context panel's Note tab",
+			app.right_dock_ctrl.current_tab() == "note", str(app.right_dock_ctrl.current_tab()))
+		## Owner, 2026-11-13: a place's note IS its vault note (the entity binding), never a separate
+		## store. So bind a real file in a throw-away vault to settlement 0 and assert the row reaches
+		## that file; then, for a settlement with no note, assert the row's tab offers Create and that
+		## pressing it writes the file and binds it (`vault_links_for`).
+		var vroot := OS.get_environment("TEMP").replace("\\", "/") + "/cartalith-sm-note-%d" % Time.get_ticks_msec()
+		DirAccess.make_dir_recursive_absolute(vroot)
+		var nf := FileAccess.open(vroot + "/SmNoteA.md", FileAccess.WRITE)
+		nf.store_string("# SmNoteA
+
+Bound text.
+")
+		nf.close()
+		var vconn: Dictionary = bridge.vault_connect(vroot, "SmVault")
+		var s0: Dictionary = setts[0]
+		var t0 := int(s0.get("tid", 0))
+		_check("note rows: the throw-away vault binds and settlement 0 attaches SmNoteA.md",
+			bool(vconn.get("ok", false)) and t0 != 0
+				and bool(bridge.vault_attach("settlement", t0, String(s0.get("name", "")), "SmNoteA.md", "").get("ok", false)),
+			str(vconn))
+		app.select("settlement", 0)
+		await _frames(2)
+		story.id_pressed.emit(DccMenus.ID_STORY_NOTES_HERE)
+		var got := false
+		for _f in 120:
+			await _frames(1)
+			if app.vault_window.is_docked() and app.vault_window.docked_path() == "SmNoteA.md":
+				got = true
+				break
+		_check("Note for the selection reaches the place's bound vault note (SmNoteA.md)", got,
+			str(app.vault_window.docked_path()))
+		_check("... and the binding is the vault's own link, not a second store",
+			not bridge.vault_links_for("settlement", t0).is_empty())
+		if setts.size() > 1:
+			var s1: Dictionary = setts[1]
+			var t1 := int(s1.get("tid", 0))
+			_check("note rows: settlement 1 has no note before the row is pressed",
+				t1 != 0 and bridge.vault_links_for("settlement", t1).is_empty())
+			app.select("settlement", 1)
+			await _frames(2)
+			story.id_pressed.emit(DccMenus.ID_STORY_NOTES_HERE)
+			await _frames(6)
+			var cb := app.find_child("NoteCreate", true, false) as Button
+			_check("a place with no note: the row's Note tab offers Create (nothing created by looking)",
+				cb != null and cb.is_visible_in_tree() and bridge.vault_links_for("settlement", t1).is_empty())
+			var cpath := app.find_child("NotePath", true, false) as LineEdit
+			if cb != null and cpath != null:
+				var crel := cpath.text
+				cb.pressed.emit()
+				await _frames(10)
+				_check("pressing Create writes the file in the vault and binds it to the place",
+					FileAccess.file_exists(vroot + "/" + crel)
+						and not bridge.vault_links_for("settlement", t1).is_empty(), crel)
 		app.select("", -1)
 		await _frames(2)
 

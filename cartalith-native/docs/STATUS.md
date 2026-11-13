@@ -50,6 +50,17 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### `_storymenus` "Notes for this place" rows: stale probe text, product correct (2026-11-13)
+
+The 7 failures were the probe asserting the pre-PC-5 form (label "Notes for this place", press opens the vault window);
+`menus.gd::_story` builds "Note for the selection" once the Context panel has a Note tab, and its press opens that tab
+(`_story_forms["note"]`, PC-5). No product change. The probe now uses the live label and, per the owner (a place's note is its
+vault note, never a second store), binds a real file in a throw-away vault to settlement 0 and asserts the row docks that
+file and `vault_links_for` holds the link; for a settlement with no note it asserts the tab offers Create, that looking
+creates nothing, and that Create writes the file in the vault and binds it. It also clears the selection before its
+"nothing selected" check (earlier steps left one). Run desktop windowed: 0 failing checks; `_pc5note_probe` 0 failing; mutant
+(`set_item_disabled(..., false)` in `_refresh_story_menu`) fails 3 gate checks. Opened: `menus.gd` `_story`, `_refresh_story_menu`.
+
 ### Opened world regenerates with its own seed and size (Ruling EV, 2026-11-13)
 
 `DccApp._load_project()` now calls `NewWorldDialog.adopt_opened_world()` after a successful open, writing the world's seed and grid into the dialog's fields, which WORLD ▸ Generate, the live regenerate and the tool-options Generate build `request()` from. It is not on `world_loaded` (which also fires for centring and fjord passes and would overwrite a typed seed). `_newworld_rules_probe` no longer writes the seed by hand and asserts the load filled it.

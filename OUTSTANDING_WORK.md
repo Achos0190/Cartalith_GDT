@@ -79,7 +79,7 @@ document, and `STATUS.md` records what lands)
     `civ_join_tracks_to_network` both survive; the lower bounds of `MEET_CELLS` and `REACH_PLACE_CELLS` are unpinned.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - `_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap, unattributed to a commit;
-  - `_storymenus`: 7 "Notes for this place" rows fail;
+  - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
   - `_quickbar_window_probe` section 9 hangs;
   - 3D-3's CDLOD position morph has no measurable effect (keep or drop is the owner's);
   - phone: lifted Asset library tiles have no drop target in their own pane;
