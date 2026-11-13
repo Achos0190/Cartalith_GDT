@@ -178,14 +178,21 @@ func _ready() -> void:
 	## asserts the same fact from the rendered labels. Protected here: the lifted
 	## controls are visible AND inside the card (not merely visible somewhere), so
 	## the request()-reads-hidden-controls leg below still means what it says for
-	## the controls that remain hidden (grid_w, grid_h, aspect, extent, villages).
+	## the controls that remain hidden (grid_w, grid_h, aspect, extent, metropolis).
 	_ck("map width preset is on the card",
 		dlg.size_preset_input.is_visible_in_tree() and card.is_ancestor_of(dlg.size_preset_input))
 	_ck("width (km) is on the card",
 		dlg.width_input.is_visible_in_tree() and card.is_ancestor_of(dlg.width_input))
 	_ck("archetype is on the card",
 		dlg.archetype_input.is_visible_in_tree() and card.is_ancestor_of(dlg.archetype_input))
-	_ck("village toggle hidden", not dlg.villages_check.is_visible_in_tree())
+	## Owner report 2026-11-13: the settlement presets were unreachable on a phone, so village seeding (and Factions, the two
+	## placement dials, the fixed counts, Recovery phase and Base technology) are now ON the card. This line used to assert the
+	## opposite (`village toggle hidden`); the hidden form that remains is Imperial seats, Biome K and Lake water balance.
+	_ck("village toggle is on the card",
+		dlg.villages_check.is_visible_in_tree() and card.is_ancestor_of(dlg.villages_check))
+	_ck("recovery phase is on the card",
+		dlg.recovery_input.is_visible_in_tree() and card.is_ancestor_of(dlg.recovery_input))
+	_ck("imperial-seat toggle stays hidden (still under More options)", not dlg.metropolis_check.is_visible_in_tree())
 
 	## ---- hidden but LIVE -----------------------------------------------------
 	## The six keys `request()` reads off controls that are no longer drawn. A

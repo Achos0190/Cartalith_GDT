@@ -170,7 +170,10 @@ func _digest() -> Dictionary:
 	hc.update(img.get_data())
 	return {"map": hc.finish().hex_encode().substr(0, 16),
 		"water": String(bridge.world_gen.drawn_water_digest().get("fnv1a", "none")),
-		"settle": var_to_str(bridge.settlements()).sha256_text().substr(0, 12)}
+		## No settlement digest: this probe Creates with the passes OFF (`_ap_master = false`), and since the owner's 2026-11-13
+		## report a Create with them off leaves NO settlements, while the dock's Generate (a regenerate, no passes) keeps what
+		## every generate computes, so the two legitimately differ and a digest of them said nothing about the terrain.
+		}
 
 
 ## Presses the dialog's Generate and waits for the world.

@@ -335,6 +335,8 @@ var _derived_labels: Dictionary = {} ## "Grid"/"Extent"/"Cell size"/"Aspect" -> 
 
 ## Archetype keys read from `bridge.archetypes()` when the form is built.
 var _archetype_names: PackedStringArray = []
+## The Base technology dropdown (`civ.base_ag_tech`), built in `_build_tech_row`; null when the extension lacks the parameter.
+var tech_input: OptionButton
 var _archetype := "" ## Empty = Classic (World Structure disabled).
 ## Village-seeding choice posted by `request()`; refreshed from the engine by `_sync_from_engine()`.
 var _villages := false
@@ -897,27 +899,18 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		_build_more(card, rest)
 
 	var gen_sec := DccWidgets.section(rest, "Generation")
-	villages_check = DccWidgets.toggle(gen_sec, "Village seeding (additive hamlets)", false,
-		func(v: bool): _villages = v,
-		"Reference civVillagesChk, default off. Seeds an extra tier of hamlets after the main settlement pass.")
 	metropolis_check = DccWidgets.toggle(gen_sec, "Imperial-seat tier (metropolis ★)", false,
 		func(v: bool): _metropolis = v,
 		"Reference civMetropolisChk, default off. After the road network is scored, promotes up to three capitals that are both dominant trade hubs (normalised betweenness >= 0.85) and seats of a large polity (>= 6 settlements) to the metropolis tier -- at most one per faction. Off means auto-populate output is bit-identical to not having the pass at all.")
 	biome_k_check = DccWidgets.toggle(gen_sec, "Biome carrying-capacity residual", false,
 		func(v: bool): _biome_k = v,
+	## Owner report 2026-11-13: *"the option for the amount of plates or the world presets such as how much villages and how the
+	## population of villages behaves seems to have gone missing"*. The village seeding, factions, suitability and packing dials,
+	## the fixed settlement counts and the recovery phase were built into `rest` -- HIDDEN on a phone and folded away under More
+	## options on desktop and tablet -- so a phone never offered them and the others had to be hunted. They are on the first
+	## screen of every form now, with the new base technology beside the phase.
+	_build_settlements_section(card)
 		"Reference civBiomeKChk, default off. Applies a per-biome disease/climate correction to carrying capacity K -- and, where a cell is a lowland wetland, the wetland residual instead. K feeds settlement suitability and the food-shed ceiling, so turning it on moves where settlements are placed and how large they get. Off short-circuits the whole correction, so output is bit-identical to not having it (the reference's own comment).")
-	## Filled from the engine's own `_CIV_RECOVERY_NAME` table rather than a
-	## second transcription of it here -- `get_recovery_phase_names()`.
-	var recovery_labels: Array = []
-	if bridge.world_gen != null and bridge.world_gen.has_method("get_recovery_phase_names"):
-		for n in bridge.world_gen.get_recovery_phase_names():
-			recovery_labels.append(String(n))
-	if recovery_labels.is_empty():
-		recovery_labels = ["Stable"]
-	recovery_input = DccWidgets.choice(gen_sec, "Recovery phase", recovery_labels, 0,
-		func(i: int): _recovery_phase = i,
-		"Reference civRecoveryPhase, default Stable. A world that is still recovering from a collapse runs BELOW its ecological ceiling: every settlement's population is scaled by a fraction drawn inside the phase's band, and a nucleus scaled below the labour its tier needs demotes into its own ruins. Phases I and II also abandon tiny settlements that are neither formerly-urban nor ports. Stable is a strict no-op.")
-	_build_placement_dials(gen_sec)
 	_build_lake_balance(gen_sec)
 	DccWidgets.note(gen_sec,
 		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live settings, not part of this dialog -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
@@ -971,6 +964,55 @@ func _build_auto_populate(card: Control) -> void:
 			_refresh_auto_populate(),
 		"After the terrain is generated, runs the four passes below, in order, exactly as their own buttons do. Off: Create generates the terrain alone.")
 	var rows := [
+## The **Settlements & people** section, built into `card` so it is on the first screen on desktop, tablet and phone alike (the
+## phone never shows More options). It holds what decides how many settlements a new world gets and how its people behave:
+## the recovery phase the world is in and, beside it, the **base technology** every faction starts at (owner request
+## 2026-11-13); village seeding; the faction count; the suitability floor and packing dials; and the fixed settlement counts.
+## Every control is a live engine parameter written straight through `param_set` (no dialog state), so Create reads what they
+## hold, CIVIL ▸ Populate re-reads them, and `_sync_from_engine()` puts them back on screen whenever the dialog opens.
+func _build_settlements_section(card: Control) -> void:
+	var sec := DccWidgets.section(card, "Settlements & people")
+	## Filled from the engine's own `_CIV_RECOVERY_NAME` table rather than a
+	## second transcription of it here -- `get_recovery_phase_names()`.
+	var recovery_labels: Array = []
+	if bridge.world_gen != null and bridge.world_gen.has_method("get_recovery_phase_names"):
+		for n in bridge.world_gen.get_recovery_phase_names():
+			recovery_labels.append(String(n))
+	if recovery_labels.is_empty():
+		recovery_labels = ["Stable"]
+	recovery_input = DccWidgets.choice(sec, "Recovery phase", recovery_labels, 0,
+		func(i: int): _recovery_phase = i,
+		"Reference civRecoveryPhase, default Stable. A world that is still recovering from a collapse runs BELOW its ecological ceiling: every settlement's population is scaled by a fraction drawn inside the phase's band, and a nucleus scaled below the labour its tier needs demotes into its own ruins. Phases I and II also abandon tiny settlements that are neither formerly-urban nor ports. Stable is a strict no-op.")
+	_build_tech_row(sec)
+	villages_check = DccWidgets.toggle(sec, "Village seeding (additive hamlets)", false,
+		func(v: bool): _villages = v,
+		"Reference civVillagesChk, default off. Seeds an extra tier of hamlets after the main settlement pass.")
+	_build_placement_dials(sec)
+
+## The **Base technology** row, beside the recovery phase: the agricultural-technology level every faction in a new world
+## starts at (`civ.base_ag_tech`, an index into the engine's own six-level vocabulary, `civ_ag_tech_vocabulary()`; the labels
+## and hints are read from it, never transcribed here). Written through `param_set` like the placement dials, so there is one
+## path, and re-read by `_sync_from_engine()`.
+##
+## **Drawn only when the running extension publishes both the parameter and the vocabulary**: a control whose write the engine
+## would refuse is an inert control, which this shell does not draw (`_build_placement_dials`' rule), and an empty label list
+## would be a dropdown with nothing to pick.
+func _build_tech_row(parent: Control) -> void:
+	var info: Dictionary = bridge.param_info("civ.base_ag_tech")
+	var vocab: Array = bridge.civ_ag_tech_vocabulary()
+	if info.is_empty() or vocab.is_empty():
+		return
+	var labels: Array = []
+	var hints := PackedStringArray()
+	for v in vocab:
+		labels.append(String((v as Dictionary).get("label", "")))
+		hints.append(String((v as Dictionary).get("hint", "")))
+	var cur := clampi(int(_param_or_default("civ.base_ag_tech", info)), 0, labels.size() - 1)
+	tech_input = DccWidgets.choice(parent, "Base technology", labels, cur,
+		func(i: int): bridge.param_set("civ.base_ag_tech", i),
+		"How advanced farming is for every faction at the start of the world, from hoe agriculture to industrial. It sets how many people the land can spare from the fields, which feeds the levy and standing army sizes and the trade balances; each faction's own level can still be changed in CIVIL ▸ Factions. Applies when the world is created. The default, Traditional Agrarian, is the reference's own.")
+	tech_input.name = "nw_base_tech"
+
 		[AutoPopulate.KEY_SETTLEMENTS, "Settlements, factions & territories",
 			"CIVIL ▸ Populate ▸ Auto-populate world. Uses the placement settings in Settlements & people, above."],
 		[AutoPopulate.KEY_ROUTES, "Routes",
@@ -2242,19 +2284,23 @@ func _build_placement_dials(parent: Control) -> void:
 	## own `default` out of `param_info` -- the engine's number either way,
 	## never one transcribed here.
 	var fac: Dictionary = bridge.param_info("civ.factions")
-	DccWidgets.number(parent, "Factions", float(fac.get("min", 1.0)), float(fac.get("max", 24.0)),
+	_factions_spin = DccWidgets.number(parent, "Factions", float(fac.get("min", 1.0)), float(fac.get("max", 24.0)),
 		1.0, _param_or_default("civ.factions", fac),
 		func(v: float): bridge.param_set("civ.factions", int(v)),
 		"How many rival polities settlement placement distributes into. The reference's own CIV_FACTIONS carries six. Faction 0 is \"Unclaimed\" and is not counted, so the floor is one. Renaming, recolouring and adding factions by hand stays in CIVIL ▸ Factions -- this is only what a fresh placement pass seeds into.")
 	var thr: Dictionary = bridge.param_info("civ.seed_thresh")
 	var thr_row: Dictionary = DccWidgets.slider(parent, "Suitability floor", float(thr.get("min", 0.1)), float(thr.get("max", 0.8)),
 		float(thr.get("step", 0.01)), _param_or_default("civ.seed_thresh", thr), "",
-		func(v: float): bridge.param_set("civ.seed_thresh", v),
+		func(v: float):
+			if not _dials_syncing:
+				bridge.param_set("civ.seed_thresh", v),
 		"Reference SETTLE_SEED_THRESH, default 0.42. How good a site has to be before anyone settles it at all. Raise it and only the best land is occupied; lower it and marginal ground gets villages. Suitability rarely exceeds 0.8, so the top of this range settles almost nothing.")
 	var sup: Dictionary = bridge.param_info("civ.seed_suppress_div")
 	var sup_row: Dictionary = DccWidgets.slider(parent, "Packing", float(sup.get("min", 8.0)), float(sup.get("max", 60.0)),
 		float(sup.get("step", 1.0)), _param_or_default("civ.seed_suppress_div", sup), "",
-		func(v: float): bridge.param_set("civ.seed_suppress_div", v),
+		func(v: float):
+			if not _dials_syncing:
+				bridge.param_set("civ.seed_suppress_div", v),
 		"How close two settlements may stand. The engine suppresses a new seed within max(6, grid width / this) cells of an existing one, so the reference's default of 22 is a 17-cell radius on a 384-wide grid. Higher packs them tighter; the six-cell floor is what stops a small grid from suppressing nothing.")
 	_build_fixed_counts([thr_row, sup_row], parent)
 
@@ -2296,8 +2342,48 @@ func _build_fixed_counts(dials: Array, parent: Control) -> void:
 		var key: String = row[0]
 		var info: Dictionary = bridge.param_info(key)
 		_count_boxes.append(DccWidgets.number(parent, row[1], float(info.get("min", 0.0)),
+	_thresh_row = thr_row
+	_packing_row = sup_row
 			float(info.get("max", 50.0)), 1.0, _param_or_default(key, info),
 			func(v: float):
+## The Factions spin box, the two placement sliders' row dictionaries (`DccWidgets.slider`'s return) and whether a re-read from
+## the engine is in progress (the sliders' handlers must not write back what is being read). Set by `_build_placement_dials`; all
+## null/false when the extension lacks the civ placement rows.
+var _factions_spin: SpinBox
+var _thresh_row: Dictionary = {}
+var _packing_row: Dictionary = {}
+var _dials_syncing := false
+
+## Puts the placement dials, the fixed-count switch and its five counts back on screen from the engine's live values -- the
+## same read-back `_sync_from_engine()` does for the other controls. Built once from the engine's values at construction and
+## never re-read before 2026-11-13, so after opening a saved world (whose `civ.*` rows differ) this form showed the previous
+## values and Create posted them back (the defect `_sync_from_engine`'s own biome-K clause records, one control at a time).
+## A value the engine does not answer (`param_get` is null while a generation holds the object) leaves the control as it was.
+func _refresh_dials_from_engine() -> void:
+	if bridge == null:
+		return
+	_dials_syncing = true
+	if _factions_spin != null:
+		var f = bridge.param_get("civ.factions")
+		if f != null:
+			_factions_spin.set_value_no_signal(float(f))
+	for pair in [["civ.seed_thresh", _thresh_row], ["civ.seed_suppress_div", _packing_row]]:
+		var row: Dictionary = pair[1]
+		var v = bridge.param_get(String(pair[0]))
+		if v != null and row.has("slider"):
+			(row["slider"] as HSlider).value = float(v)
+	if _count_toggle != null:
+		var on = bridge.param_get("civ.fixed_counts")
+		if on != null:
+			_count_toggle.set_pressed_no_signal(bool(on))
+	for k in _count_boxes.size():
+		var c = bridge.param_get(String((COUNT_ROWS[k] as Array)[0]))
+		if c != null:
+			_count_boxes[k].set_value_no_signal(float(c))
+	_dials_syncing = false
+	if _count_toggle != null:
+		_refresh_fixed_counts()
+
 				bridge.param_set(key, int(v))
 				_refresh_fixed_counts(),
 			"Reference %s. Read only while Fixed settlement counts is on." % info.get("reference_control", key)))
@@ -2842,6 +2928,13 @@ func _sync_from_engine() -> void:
 ## every open after a boot with no world or over a world this build made. Called from
 ## `_sync_from_engine()` on every open and after this window's own Lake water balance box moves.
 func _refresh_rules_notice() -> void:
+	## The base technology and the placement dials (owner report 2026-11-13: they are on the first screen now, so a stale
+	## value there is the first thing seen). `param_get` answers null while a generation holds the object: left as it was.
+	if tech_input != null:
+		var tech = bridge.param_get("civ.base_ag_tech")
+		if tech != null and tech_input.item_count > 0:
+			tech_input.select(clampi(int(tech), 0, tech_input.item_count - 1))
+	_refresh_dials_from_engine()
 	if rules_notice_label == null or bridge == null:
 		return
 	var keys: PackedStringArray = bridge.new_world_rule_changes()
