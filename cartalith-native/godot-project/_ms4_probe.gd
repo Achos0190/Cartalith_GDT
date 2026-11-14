@@ -47,10 +47,13 @@ const DESKTOP_ONLY: Dictionary = {
 ## Rows the PHONE adds, as [anchor title prefix, new title]: the new row sits directly after the anchor.
 const PHONE_ONLY: Dictionary = {
 	"Help": [["Keyboard reference…", "Gesture reference…"]],  ## MS-4, draft 09: the mockup's own row.
-	"Preferences": [["Handedness", "UI scale"]],  ## MS-1 S5: touch builds only (MQ-4, Ruling DY).
+	"Preferences": [["Stylus", "UI scale"]],  ## MS-1 S5: touch builds only (MQ-4, Ruling DY); built after Stylus (`menus.gd` fill order: Handedness, Stylus, UI scale).
 }
 ## Ids of the phone-only rows, which the desktop dump cannot hold (menus.gd::ID_HELP_GESTURES).
 const PHONE_ONLY_IDS: Dictionary = {"Gesture reference": 919}
+## Ruling EK: the Stylus > Pen link subtree sits one tap deeper than the three-tap bar; bounded here, not unbounded.
+const PENLINK_PREFIX := "Preferences > Stylus > Pen link"
+const PENLINK_MAX_TAPS := 4
 ## Levels whose rows are the app's live state, not the menu's structure: compared as "draws at least one row".
 const DYNAMIC_LEVELS: Array = ["Window > Open windows"]
 ## Drill rows whose COUNT is live state (the adapters present, the windows open), not menu structure.
@@ -65,6 +68,7 @@ var _app: Node
 var _dens := 1.0
 var _expect: Dictionary = {}
 var _max_taps := 0
+var _penlink_max_taps := 0
 var _rows_seen := 0
 var _taps_total := 0
 
@@ -330,7 +334,12 @@ func _walk_level(menu: String, path: String, rows: Array, taps: int, depth: int)
 	_quiet(gt == wt2, "%s: drawn rows equal the desktop's, in order (%d want, %d got) %s" % [path, wt2.size(), gt.size(),
 		"" if gt == wt2 else "\n  want " + str(wt2) + "\n  got  " + str(gt)])
 	_rows_seen += gt.size()
-	_max_taps = maxi(_max_taps, taps)
+	# The Pen link subtree is one level deeper than the three-tap bar by Ruling EK (a per-tool-kind submenu under
+	# Stylus > Pen link, `menus.gd::_build_penlink_submenu`); the desktop dump has the same depth. Held to PENLINK_MAX_TAPS.
+	if path.begins_with(PENLINK_PREFIX):
+		_penlink_max_taps = maxi(_penlink_max_taps, taps)
+	else:
+		_max_taps = maxi(_max_taps, taps)
 	# touch floor: every drawn row is at least 44 dp tall (phone_scale px per dp, one px of rounding)
 	var floor_px: float = 44.0 * float(_app.phone_scale()) - 1.0
 	for g in got:
@@ -464,6 +473,7 @@ func _walk_root() -> void:
 		_ok(String(_pm()._screen_head_title.text) == "MENU", "%s: back returns to MENU's root" % t)
 	print("info: %d rows drawn across the eight menus, deepest level displayed after %d taps, %d taps in all" % [
 		_rows_seen, _max_taps, _taps_total])
+	_ok(_penlink_max_taps <= PENLINK_MAX_TAPS, "Pen link levels are within %d taps (deepest %d)" % [PENLINK_MAX_TAPS, _penlink_max_taps])
 	_ok(_max_taps <= 3, "every row is displayed within three taps of MENU (deepest %d)" % _max_taps)
 	_ok(_rows_seen >= 300, "the walk covered at least 300 drawn rows (%d)" % _rows_seen)
 	_pm().close()
