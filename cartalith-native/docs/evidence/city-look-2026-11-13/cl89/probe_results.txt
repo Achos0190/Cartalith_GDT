@@ -1,0 +1,75 @@
+OpenGL API 3.3.0 Core Profile Context 26.7.1.260716 - Compatibility - Using Device: ATI Technologies Inc. - AMD Radeon RX 7800 XT
+Cartalith shell build e254b4d5ba82
+   GDScript backtrace (most recent call first):
+       [0] _paths (res://shell/open_project_dialog.gd:880)
+       [1] _welcome_paths (res://shell/open_project_dialog.gd:910)
+       [2] _refresh_picker (res://shell/open_project_dialog.gd:978)
+       [3] _refresh (res://shell/open_project_dialog.gd:937)
+       [4] open_welcome (res://shell/open_project_dialog.gd:317)
+       [5] open_welcome (res://shell/app.gd:5037)
+       [6] _open_welcome_when_drawn (res://shell/app.gd:2565)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cc2f590010, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\amdvlk.inf_amd64_e18b53841ff643e4\amd-vulkan64.json) because it is a duplicate of VK_LAYER_AMD_switchable_graphics (C:\WINDOWS\System32\DriverStore\FileRepository\u0202642.inf_amd64_870f6b155aa057ce\B026261\amd-vulkan64.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cc2f590010, name: ?)
+[WARN wgpu_hal::vulkan::instance] GENERAL [Loader Message (0x0)]
+	Removing layer VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win64.json) because it is a duplicate of VK_LAYER_EOS_Overlay (C:\Program Files (x86)\Epic Games\Launcher\Portal\Extras\Overlay\EOSOverlayVkLayer-Win32.json)
+[WARN wgpu_hal::vulkan::instance] 	objects: (type: INSTANCE, hndl: 0x1cc2f590010, name: ?)
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+[INFO wgpu_hal::vulkan::adapter] Found 3 cooperative matrix configurations supported by wgpu
+== 1. the engine's key, and the settlement's name ==
+  82 layouts with a harbour (1 with a mole), 151 without; 0 malformed
+  PASS  both a harbour and a no-harbour population exist in this world (82 / 151)
+  PASS  `harbour` is present exactly when `harbour_pt` is, shaped as piers (even, 1 to 90 m: a river harbour's piers are short, `water.rs` `min(river_w * 0.55, 13)`) and a 4-point mole, and `place_name` follows the name
+  town #0 Crungarnridge kind=capital site=bay wall=curtain/321 water_poly=110 piers=3 mole=false buildings=3109 (seed 31337, 1600 km, sea 0.60)
+  PASS  the framed town's layout carries the settlement's name (Crungarnridge)
+  PASS  the title text is capitals, 'THE CITY OF CRUNGARNRIDGE'
+  PASS  a layout with a name and no kind gives the name alone, never an invented word
+  PASS  a layout with no name has no title
+  PASS  the word follows the kind, for each of the six kinds the engine has
+== 2. the bundled font and the stroke ==
+  PASS  the title face is the bundled Cinzel (Cinzel)
+  PASS  the licence text is bundled beside the font
+  PASS  the stroke is 6 px at 24, 10 px at 40 and beyond, never under 6
+  PASS  title fill against stroke contrast 16.2:1 (at least 4.5)
+  PASS  the title face measures differently from the UI sans (267 vs 216 px), so it is not the fallback
+== 3. the City Viewer, both looks, four zooms ==
+  PASS  the viewer's own layout carries the harbour and the name
+  PASS  zoom 1, map look: the title is drawn and lies inside the canvas ([P: (32.51587, 24.0), S: (555.424, 54.424)])
+  PASS  zoom 1, map look: the rectangle holds the cream fill (3239 px) and the dark stroke (3732 px)
+  PASS  zoom 1, ink look: no title drawn, and the same rectangle holds 0 cream px against 3239 (control)
+  PASS  zoom 3, map look: the title is drawn and lies inside the canvas ([P: (8.0, 8.0), S: (555.424, 54.424)])
+  PASS  zoom 3, map look: the rectangle holds the cream fill (3235 px) and the dark stroke (4966 px)
+  PASS  zoom 3, ink look: no title drawn, and the same rectangle holds 0 cream px against 3235 (control)
+  PASS  zoom 6, map look: the title is drawn and lies inside the canvas ([P: (8.0, 8.0), S: (555.424, 54.424)])
+  PASS  zoom 6, map look: the rectangle holds the cream fill (3239 px) and the dark stroke (6004 px)
+  PASS  zoom 6, ink look: no title drawn, and the same rectangle holds 0 cream px against 3239 (control)
+  PASS  zoom 12, map look: the title is drawn and lies inside the canvas ([P: (8.0, 8.0), S: (555.424, 54.424)])
+  PASS  zoom 12, map look: the rectangle holds the cream fill (3239 px) and the dark stroke (4365 px)
+  PASS  zoom 12, ink look: no title drawn, and the same rectangle holds 0 cream px against 3239 (control)
+  PASS  the first pier's midpoint is on screen at zoom 12 ((648, 444))
+  PASS  map look, zoom 12: the first pier's midpoint is timber (25 of 25 pixels)
+  PASS  ink look, zoom 12: no timber there (0 of 25; control)
+  PASS  zoom 12: the pier deck measures 44.5 px across, a 3.4 m jetty at 13.38 px per metre is 45.5
+  timber-coloured pixels in the zoom 12 frame: map 15170, ink 0
+  PASS  the zoom 12 map frame holds the pier timber (15170 px against 0 in the ink look)
+  PASS  with the harbour key erased the same view holds 0 timber px against 15170 (control)
+  PASS  the breakwater mole's middle is stone at zoom 6 (49 of 49 pixels; a SYNTHETIC control mole)
+  zoom 3 shore-band pixels: map 28955, ink 0; zoom 1 deep-water pixels in the map look: 114512
+  PASS  the shallow shore band is on screen in the map look (28955 px) and not in the ink look (0)
+  PASS  deep water is on screen in the map look at zoom 1 (114512 px)
+== 4. export uses both ==
+  PASS  the live overlay holds a world
+  PASS  an export copy with capital-tier town plans at 4096 px, 3.95 km across ()
+  PASS  the export copy lists the chosen town (copy index 0 of 233)
+  PASS  the export copy laid out the chosen town and its layout carries the harbour and the name (fetch: ''; 7 plans)
+  export px: town box top-left (68, 1067), first pier midpoint (705, 1262); title tile at (48, 1047), pier tile at (495, 1051)
+  export: title tile cream px map 4798 / ink 5; pier tile timber-coloured px map 10122 / ink 1124 / map without the key 9576
+  PASS  the export's title tile carries the title's cream only in the map look (4798 vs 5)
+  PASS  the export's pier timber comes from the harbour key: 10122 timber-coloured px with it, 9576 without
+  composite 2560x878 -> C:/cw/cl89_final/composite.png
+RESULT: PASS (0 failed) checks=40
+WARNING: 10 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+EXIT 0

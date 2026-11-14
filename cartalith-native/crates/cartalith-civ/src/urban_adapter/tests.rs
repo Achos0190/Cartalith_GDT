@@ -2023,3 +2023,92 @@ fn fh_r2_r24_a_faith_override_reaches_the_faith_sites() {
     let centres = |l: &UrbanLayout| l.faith_sites.iter().map(|x| (x.center.x.to_bits(), x.center.y.to_bits())).collect::<Vec<_>>();
     assert_eq!(centres(&plain), centres(&temple));
 }
+
+/// A fixed, platform-independent digest (FNV-1a over `f64` bit patterns) of every
+/// generated field of a layout that existed BEFORE the harbour works were crossed
+/// (`harbour_works`, `CITY_MAP_LOOK_SCOPE.md` CL-9): the head counts, the street
+/// edges, the blocks, the parcels, the buildings, the water outline, the wall and the
+/// harbour's own point. Order matters, so any value that moves changes it.
+fn pre_harbour_digest(l: &UrbanLayout) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut put = |v: f64| {
+        for b in v.to_bits().to_le_bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    let mut pv = |p: Vec2, put: &mut dyn FnMut(f64)| {
+        put(p.x);
+        put(p.y);
+    };
+    put(l.wm);
+    put(l.hm);
+    put(l.pop);
+    put(l.street_len);
+    put(l.edges.len() as f64);
+    for e in &l.edges {
+        pv(e.a, &mut put);
+        pv(e.b, &mut put);
+        put(e.w);
+    }
+    for b in &l.blocks {
+        for p in b {
+            pv(*p, &mut put);
+        }
+    }
+    for p in &l.water_poly {
+        pv(*p, &mut put);
+    }
+    for p in &l.river {
+        pv(*p, &mut put);
+    }
+    put(l.parcels.len() as f64);
+    put(l.buildings.len() as f64);
+    for (i, b) in l.buildings.iter().enumerate() {
+        put(l.building_tone[i]);
+        for p in &b.poly {
+            pv(*p, &mut put);
+        }
+    }
+    if let Some(ring) = &l.wall.ring {
+        for p in ring {
+            pv(*p, &mut put);
+        }
+    }
+    if let Some(p) = l.harbour_pt {
+        pv(p, &mut put);
+    }
+    h
+}
+
+/// Protects: the harbour works crossed into the layout (`UrbanLayout::harbour`,
+/// CL-9) are `buildHarbour`'s own geometry and ADD NOTHING to what was generated: a
+/// coastal harbour town's digest over every pre-existing field is the literal
+/// captured on the commit before the crossing existed (so a change that moved a
+/// generated value, however slightly, turns this red), `harbour_pt` is the works'
+/// own `pt`, the piers are real (at least two, each of finite positive length) and
+/// the inland town has no harbour at all.
+#[test]
+fn the_harbour_works_cross_additively_and_move_no_generated_value() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(32, 46, 6_000);
+    let l = settlement_layout(&w, &s, &[]).expect("a layout");
+    // The literal below was captured on the commit BEFORE `UrbanLayout::harbour` existed
+    // (2026-11-14, origin/main 9973c256), by this same digest over the same town.
+    assert_eq!(l.site_kind, "bay");
+    assert_eq!(pre_harbour_digest(&l), 0xae21_f325_014d_95bd, "a generated value moved");
+    assert_eq!((l.edges.len(), l.buildings.len()), (618, 1823));
+
+    let h = l.harbour.as_ref().expect("a bay town with a harbour_pt has its works");
+    assert_eq!(l.harbour_pt, Some(h.pt), "harbour_pt is the works' own point");
+    assert!(h.piers.len() >= 2, "build_harbour always builds at least two piers, got {}", h.piers.len());
+    for p in &h.piers {
+        let len = ((p.b.x - p.a.x).powi(2) + (p.b.y - p.a.y).powi(2)).sqrt();
+        assert!(len.is_finite() && (3.0..=80.0).contains(&len), "a pier of {len} m");
+    }
+
+    // Absent when there is no harbour: an inland town has neither the point nor the works.
+    let inland = settlement_layout(&w, &settlement(50, 8, 4_000), &[]).expect("a layout");
+    assert!(inland.harbour_pt.is_none() && inland.harbour.is_none());
+}

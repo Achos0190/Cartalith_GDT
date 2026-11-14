@@ -174,8 +174,9 @@
 //!   today — walls, buildings, districts, markets, farmland, the head count
 //!   ([`UrbanLayout::pop`]) and, since 2026-09-05, the crossings
 //!   ([`UrbanLayout::bridges`] / [`UrbanLayout::ford`]). The harbour is
-//!   surfaced as its **point only** ([`UrbanLayout::harbour_pt`]); its quay,
-//!   piers, mole and defence stay on [`cartalith_urban::HarbourWorks`]. The
+//!   surfaced as its point ([`UrbanLayout::harbour_pt`]) and, since 2026-11-14
+//!   (CL-9), whole as [`UrbanLayout::harbour`] (quay, piers, mole, defence: a
+//!   copy of [`cartalith_urban::HarbourWorks`], no generated value moved). The
 //!   civic hall ([`cartalith_urban::Town::civic`], and the games buildings
 //!   beside it) is the one layer with no field here at all, and it is still one
 //!   field away on the [`cartalith_urban::Town`] this function projects from.
@@ -1922,6 +1923,15 @@ pub struct UrbanLayout {
     /// point. `None` both when the site has no harbour and when `buildHarbour`
     /// refused one (unnavigable water, or a cliff shore).
     pub harbour_pt: Option<Vec2>,
+    /// `buildHarbour`'s whole works, carried through untouched (`CITY_MAP_LOOK_SCOPE.md` CL-9,
+    /// Q9: cross the pier geometry). The timber piers (`piers`) and the breakwater mole (`mole`)
+    /// are what a renderer draws; the quay and the defence ride along because they are the same
+    /// value, not because anything reads them yet. `Some` exactly when [`Self::harbour_pt`] is
+    /// (it is that value's own `pt`). **Additive**: it is a copy of what `generate()` already
+    /// returned, so no generated value moves (the test
+    /// `the_harbour_works_cross_additively_and_move_no_generated_value` pins a digest of every
+    /// earlier field captured before this one existed).
+    pub harbour: Option<cartalith_urban::HarbourWorks>,
     pub edges: Vec<LayoutEdge>,
     /// The town blocks — the faces of the street graph, inset to their
     /// buildable interiors. The polygon only; the face, ids and edge distances
@@ -2207,6 +2217,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         ford: t.site.ford,
         route_ends: t.site.route_ends,
         harbour_pt: t.harbour.as_ref().map(|h| h.pt),
+        harbour: t.harbour,
         edges,
         blocks,
         block_plaza,

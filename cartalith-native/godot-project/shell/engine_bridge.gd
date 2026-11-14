@@ -1684,6 +1684,15 @@ func urban_layouts(indices: PackedInt32Array) -> Array:
 			var g: Variant = settlement_ground_colour(places[si])
 			if g != null:
 				(d as Dictionary)["ground_color"] = g
+			## CL-8: the settlement's own name and kind, so the map look can title the plan ("THE CITY OF ...",
+			## `urban_layout_look.gd::title_text`) on every surface that fetches through here. A key is ABSENT
+			## when the settlement has no name or kind, never a stand-in word.
+			var nm := String((places[si] as Dictionary).get("name", "")).strip_edges()
+			if nm != "":
+				(d as Dictionary)["place_name"] = nm
+				var kd := String((places[si] as Dictionary).get("kind", ""))
+				if kd != "":
+					(d as Dictionary)["place_kind"] = kd
 	return got
 
 ## The image behind `color_texture()`'s last build, read back from the GPU once per texture and

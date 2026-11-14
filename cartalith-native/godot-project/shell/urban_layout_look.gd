@@ -22,6 +22,12 @@ extends RefCounted
 ##      layout's `citadel_*` geometry. It is not a pin.
 ##   3. Dark outlined roofs with ridge and slope lines; a stone wall band with outlined round towers and paved
 ##      gates; tan streets and plazas; outlined clumped trees; furrowed fields.
+##   4. (CL-9) The harbour: deep water with a lighter shore band drawn inside the water's edge, wooden piers with
+##      planks and a stone breakwater mole, from the layout's `harbour` key (`urban_bridge.rs`: `piers`, `mole`).
+##   5. (CL-8) A title, "THE CITY OF <NAME>" (the word follows the settlement's kind), in a bundled serif display
+##      face with a dark stroke at the top-left of the town. The City Viewer draws it itself (`draw_title`), clamped
+##      inside its canvas so it stays on screen at every zoom; the map's town layer and the export draw it from
+##      `draw_layout` when the town is wide enough on screen (`TITLE_MIN_BOX_PX`) to carry one.
 ##
 ## **Every colour below is a labelled judgement** read off the owner's reference image (a WorldAnvil city map,
 ## screenshot not stored: third-party art) and then checked against the scratch render
@@ -72,6 +78,47 @@ const CANOPY_GROUND_MIX := 0.15
 const SEA := Color(0.06, 0.17, 0.36)
 const SEA_SHORE := Color(0.20, 0.42, 0.55)
 const SAND := Color(0.86, 0.80, 0.62)
+## Harbour timber (CL-9): the pier deck, its darker plank joints and its dark outline. Judgement, read off the
+## reference's pier: a warm mid brown deck with darker cross-planks.
+const PIER_WOOD := Color(0.58, 0.41, 0.24)
+const PIER_PLANK := Color(0.34, 0.22, 0.12)
+const PIER_EDGE := Color(0.13, 0.08, 0.05)
+## A pier deck's width and its plank pitch, in metres. Judgement: the engine's pier is a bare segment of 13 to 54 m
+## (`water.rs`, `Pier`), and a real timber jetty is a few metres wide.
+const PIER_WIDTH_M := 3.4
+const PIER_PLANK_PITCH_M := 1.1
+## The breakwater mole's width, in metres. Judgement.
+const MOLE_WIDTH_M := 7.0
+## The shallow-water band along a shore, in metres, and its floor and ceiling in screen pixels, so it stays a band
+## and neither a hair nor a lake of its own at any zoom. Judgement, from the reference's sea.
+const SHORE_BAND_M := 8.0
+const SHORE_BAND_MIN_PX := 3.0
+const SHORE_BAND_MAX_PX := 22.0
+## The title (CL-8). Cream fill over a dark stroke: the pair is far above 4.5:1 and the stroke keeps it readable
+## over grass, dirt and water alike (judgement, read off the reference's lettering).
+const TITLE_FILL := Color(0.97, 0.93, 0.80)
+const TITLE_STROKE := Color(0.09, 0.06, 0.04)
+## The title's size range in pixels, its stroke range (the milestone's 6 to 10 px), and the share of the text's
+## width it may take of the town's. The size is the largest of these that fits.
+const TITLE_MIN_PX := 22.0
+const TITLE_MAX_PX := 72.0
+const TITLE_STROKE_MIN_PX := 6.0
+const TITLE_STROKE_MAX_PX := 10.0
+const TITLE_STROKE_PER_SIZE := 0.25
+const TITLE_BOX_SIZE_SHARE := 0.040
+const TITLE_FIT_SHARE := 0.80
+## The map's town layer and the export draw a title only when the town is at least this many pixels wide: below it
+## the lettering would be a smudge, or larger than the town. Judgement.
+const TITLE_MIN_BOX_PX := 480.0
+## The bundled title face: Cinzel (a variable-weight serif display face by the Cinzel Project Authors,
+## SIL Open Font License 1.1). Source: https://github.com/google/fonts/tree/main/ofl/cinzel , licence text
+## https://github.com/google/fonts/blob/main/ofl/cinzel/OFL.txt (also `fonts/Cinzel-OFL.txt`, verbatim), page
+## https://fonts.google.com/specimen/Cinzel . Bundled, never the OS's, so it is the same on Android.
+const TITLE_FONT_FILE := preload("res://fonts/Cinzel-Variable.ttf")
+## Glyphs Cinzel lacks (it is Latin only) fall back to the shell's bold sans, so a name never draws a tofu box.
+const TITLE_FALLBACK_FILE := preload("res://fonts/FiraSans-Bold.ttf")
+## The weight axis value for the title (the variable font runs 400 to 900).
+const TITLE_WEIGHT := 700
 ## Field wheat tone mixed toward the ground, and how far.
 const FIELD_TONE := Color(0.62, 0.58, 0.30)
 const FIELD_MIX := 0.48
@@ -121,7 +168,7 @@ static func draw_ground(ci: CanvasItem, rect: Rect2, layout: Dictionary) -> void
 ## `alpha <= 0`. Never mutates `layout`.
 static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		m_scale: float, px_floor: float, alpha: float, show_route_ends: bool,
-		detail: float = 1.0, draw_water: bool = true) -> void:
+		detail: float = 1.0, draw_water: bool = true, with_title: bool = true) -> void:
 	if alpha <= 0.0:
 		return
 	var ground := ground_of(layout)
@@ -158,6 +205,10 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		# The mask paints `tint.call(WATER)`; this tint ignores its argument and answers the look's own sea.
 		BASE._draw_water_mask(ci, layout, project, func(_c: Color) -> Color:
 			return Color(SEA.r, SEA.g, SEA.b, alpha))
+		# The mask repaints flat deep water over the real shore, so the shallow band goes back on top of it.
+		_draw_shore_band(ci, layout, project, m_scale, px_floor, tint)
+	# CL-9: the engine's piers and mole, over the water and under the props (the bollards stand on the pier roots).
+	_draw_harbour(ci, layout, project, m_scale, px_floor, tint)
 	# Props after the water mask, as in the ink plan: the crane and bollards belong on the water.
 	BASE._draw_details(ci, layout, to_screen, m_scale, px_floor, alpha, detail, false)
 
@@ -178,6 +229,8 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		for p in layout.get("route_ends", PackedVector2Array()):
 			ci.draw_circle(to_screen.call(p), maxf(px_floor * 1.5, 4.0 * m_scale), tint.call(BASE.ROUTE_END))
 	_draw_fountain(ci, layout, to_screen, m_scale, px_floor, tint)
+	if with_title:
+		_draw_map_title(ci, layout, to_screen, alpha)
 
 
 ## Fields outside the town: a flat fill mixed from the ground, and (at `detail >= 1`) furrow rows along each
@@ -279,6 +332,209 @@ static func _draw_water(ci: CanvasItem, layout: Dictionary, project: Callable, m
 	if water.size() < 3 and river.size() >= 2:
 		ci.draw_polyline(project.call(river), tint.call(SEA),
 			maxf(px_floor * 3.0, float(layout.get("river_w", 20.0)) * m_scale), true)
+
+
+## The shallow band along the water's edge, on the WATER side (CL-9): the water polygon's outline pulled half a band
+## inward and stroked one band wide, in the lighter shore tone. Drawn after the water mask, which repaints flat deep
+## water over the layout and would otherwise hide the band. Only where `water_poly` is a body; a river-only site
+## has none and keeps its single stroke. The inset is a `Geometry2D.offset_polygon` in screen space, so the band is
+## a constant number of pixels at every zoom (`SHORE_BAND_MIN_PX` to `SHORE_BAND_MAX_PX`); it may return no polygon
+## (a body thinner than the band) or several, and either is drawn as it comes. Never draws on land, never changes
+## the layout.
+static func _draw_shore_band(ci: CanvasItem, layout: Dictionary, project: Callable, m_scale: float,
+		px_floor: float, tint: Callable) -> void:
+	var water: PackedVector2Array = layout.get("water_poly", PackedVector2Array())
+	if water.size() < 3:
+		return
+	var band := clampf(SHORE_BAND_M * m_scale, SHORE_BAND_MIN_PX * px_floor, SHORE_BAND_MAX_PX * px_floor)
+	var wp: PackedVector2Array = project.call(water)
+	for inner in Geometry2D.offset_polygon(wp, -band * 0.5, Geometry2D.JOIN_ROUND):
+		var ring: PackedVector2Array = inner
+		if ring.size() < 3:
+			continue
+		var closed := ring.duplicate()
+		closed.append(closed[0])
+		ci.draw_polyline(closed, tint.call(SEA_SHORE), band, true)
+
+
+## The harbour the engine built (CL-9, Ruling EW, `CITY_MAP_LOOK_SCOPE.md` Q9): `layout["harbour"]` is a dictionary
+## with `piers` (two points a pier: its root on the water edge, then its tip out in the water) and, on an open
+## coast only, `mole` (the breakwater's four-point polyline). Piers are a dark-edged timber deck with a cross-plank
+## every `PIER_PLANK_PITCH_M` (coarser when the planks would be closer than two pixels, and none when the deck is
+## under three pixels wide), the mole a dark-edged stone band. A layout with no `harbour` key (a landlocked town,
+## or one the engine refused a harbour) draws nothing. Never invents a pier: every point is the engine's.
+static func _draw_harbour(ci: CanvasItem, layout: Dictionary, project: Callable, m_scale: float,
+		px_floor: float, tint: Callable) -> void:
+	var h: Variant = layout.get("harbour", null)
+	if not (h is Dictionary):
+		return
+	var hd: Dictionary = h
+	var mole: PackedVector2Array = hd.get("mole", PackedVector2Array())
+	if mole.size() >= 2:
+		var mp: PackedVector2Array = project.call(mole)
+		var mw := maxf(px_floor * 3.0, MOLE_WIDTH_M * m_scale)
+		ci.draw_polyline(mp, tint.call(STONE_DARK), mw + maxf(px_floor * 1.6, 0.18 * mw), true)
+		ci.draw_polyline(mp, tint.call(STONE), mw, true)
+	var piers: PackedVector2Array = hd.get("piers", PackedVector2Array())
+	var deck := maxf(px_floor * 2.2, PIER_WIDTH_M * m_scale)
+	var edge := maxf(px_floor * 1.3, 0.16 * deck)
+	var pitch := maxf(PIER_PLANK_PITCH_M * m_scale, 2.2 * px_floor)
+	var pp: PackedVector2Array = project.call(piers)
+	var i := 0
+	while i + 1 < pp.size():
+		var a: Vector2 = pp[i]
+		var b: Vector2 = pp[i + 1]
+		i += 2
+		var len := a.distance_to(b)
+		if len <= 0.0:
+			continue
+		ci.draw_line(a, b, tint.call(PIER_EDGE), deck + 2.0 * edge, true)
+		ci.draw_line(a, b, tint.call(PIER_WOOD), deck, true)
+		if deck < 3.0 * px_floor:
+			continue
+		# Cross-planks: one short stroke across the deck every `pitch`, all in one multiline.
+		var u := (b - a) / len
+		var nv := Vector2(-u.y, u.x) * (deck * 0.5)
+		var planks := PackedVector2Array()
+		var t := pitch * 0.5
+		while t < len:
+			var c := a + u * t
+			planks.append(c - nv)
+			planks.append(c + nv)
+			t += pitch
+		ci.draw_multiline(planks, tint.call(PIER_PLANK), maxf(px_floor * 0.8, 0.12 * pitch))
+
+
+## The title text of a layout (CL-8): "THE <CITY|TOWN|VILLAGE|HAMLET> OF <NAME>" in capitals, the word following the
+## settlement's kind (`place_kind`, set with `place_name` by `EngineBridge.urban_layouts` from the settlement
+## itself). `""` when the layout carries no name, so a layout without one draws no title and nothing is invented;
+## a kind with no word (unknown) gives the name alone.
+static func title_text(layout: Dictionary) -> String:
+	var nm := String(layout.get("place_name", "")).strip_edges()
+	if nm == "":
+		return ""
+	var word := ""
+	match String(layout.get("place_kind", "")):
+		"metropolis", "capital", "city":
+			word = "CITY"
+		"town":
+			word = "TOWN"
+		"village":
+			word = "VILLAGE"
+		"hamlet":
+			word = "HAMLET"
+	return (nm if word == "" else "THE %s OF %s" % [word, nm]).to_upper()
+
+
+static var _title_font_cached: Font = null
+
+## The title face: Cinzel at weight `TITLE_WEIGHT`, with the bold sans behind it for any glyph it lacks.
+static func title_font() -> Font:
+	if _title_font_cached == null:
+		var fv := FontVariation.new()
+		fv.base_font = TITLE_FONT_FILE
+		fv.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("wght"): TITLE_WEIGHT}
+		fv.fallbacks = [TITLE_FALLBACK_FILE]
+		_title_font_cached = fv
+	return _title_font_cached
+
+
+## The pixel stroke for a title of `size` px: a quarter of the size, within the milestone's 6 to 10 px.
+static func title_stroke_px(size: float) -> float:
+	return clampf(size * TITLE_STROKE_PER_SIZE, TITLE_STROKE_MIN_PX, TITLE_STROKE_MAX_PX)
+
+
+## The largest size up to `want` at which `text` is no wider than `max_w` pixels, or `0.0` when even
+## `TITLE_MIN_PX` would not fit. Pure arithmetic over the font's measure.
+static func title_fit_size(text: String, want: float, max_w: float) -> float:
+	var f := title_font()
+	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, int(want)).x
+	if w <= max_w:
+		return want
+	var fitted := floorf(want * max_w / maxf(w, 1.0))
+	return fitted if fitted >= TITLE_MIN_PX else 0.0
+
+
+## Draws `text` with its top-left at `top_left`: the dark stroke first, then the cream fill. Returns the rectangle
+## it covered (the stroke included), so a caller can place something beside it or assert on it.
+static func _draw_title_at(ci: CanvasItem, text: String, top_left: Vector2, size: float, alpha: float) -> Rect2:
+	var f := title_font()
+	var stroke := title_stroke_px(size)
+	var isz := int(size)
+	var base := top_left + Vector2(stroke * 0.5, f.get_ascent(isz) + stroke * 0.5)
+	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, isz).x
+	ci.draw_string_outline(f, base, text, HORIZONTAL_ALIGNMENT_LEFT, -1, isz, int(stroke),
+		Color(TITLE_STROKE.r, TITLE_STROKE.g, TITLE_STROKE.b, alpha))
+	ci.draw_string(f, base, text, HORIZONTAL_ALIGNMENT_LEFT, -1, isz,
+		Color(TITLE_FILL.r, TITLE_FILL.g, TITLE_FILL.b, alpha))
+	return Rect2(top_left, Vector2(w + stroke, f.get_height(isz) + stroke))
+
+
+## The City Viewer's title (CL-8): the layout's title at the top-left of `town_rect` (the town's box in canvas
+## pixels), moved as far as needed to lie wholly inside `canvas_rect`, so it stays on screen at every zoom and pan
+## and never falls off an edge. Sized from the canvas width (`size_px` is the caller's choice; the viewer passes a
+## share of its canvas), and shrunk to fit the canvas width. Returns the rectangle drawn, or an empty `Rect2`
+## when the layout has no title or nothing fits. Draws nothing in the ink look (the caller checks
+## `UrbanLayoutDraw.look_is_map()`).
+static func draw_title(ci: CanvasItem, layout: Dictionary, town_rect: Rect2, canvas_rect: Rect2,
+		size_px: float, alpha: float = 1.0) -> Rect2:
+	var text := title_text(layout)
+	if text == "":
+		return Rect2()
+	var size := title_fit_size(text, clampf(size_px, TITLE_MIN_PX, TITLE_MAX_PX), canvas_rect.size.x - 24.0)
+	if size <= 0.0:
+		return Rect2()
+	var f := title_font()
+	var stroke := title_stroke_px(size)
+	var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size)).x + stroke
+	var h := f.get_height(int(size)) + stroke
+	var pos := town_rect.position + Vector2(8.0, 8.0)
+	pos.x = clampf(pos.x, canvas_rect.position.x + 8.0, maxf(canvas_rect.position.x + 8.0, canvas_rect.end.x - w - 8.0))
+	pos.y = clampf(pos.y, canvas_rect.position.y + 8.0, maxf(canvas_rect.position.y + 8.0, canvas_rect.end.y - h - 8.0))
+	return _draw_title_at(ci, text, pos, size, alpha)
+
+
+## The map's and the export's title (CL-8): placed at the top-left of the town's box on the plan itself (it pans
+## and scales with the town), sized from the town's width on screen, and drawn only when that width is at least
+## `TITLE_MIN_BOX_PX`. The "town" is the wall circuit's bounding box (else the buildings', else the site box), the
+## City Viewer's own fit box without its padding, taken through `to_screen` so a rotated layout (the map rotates
+## every town by its terrain orientation) still has its title upright at the screen-space top-left corner of the
+## town. Never draws without a `place_name`.
+static func _draw_map_title(ci: CanvasItem, layout: Dictionary, to_screen: Callable, alpha: float) -> void:
+	var text := title_text(layout)
+	if text == "":
+		return
+	var box := _town_box(layout)
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for corner in [box.position, Vector2(box.end.x, box.position.y), Vector2(box.position.x, box.end.y), box.end]:
+		var q: Vector2 = to_screen.call(corner)
+		lo = lo.min(q)
+		hi = hi.max(q)
+	if hi.x - lo.x < TITLE_MIN_BOX_PX:
+		return
+	var size := title_fit_size(text, clampf((hi.x - lo.x) * TITLE_BOX_SIZE_SHARE, TITLE_MIN_PX, TITLE_MAX_PX),
+		(hi.x - lo.x) * TITLE_FIT_SHARE)
+	if size <= 0.0:
+		return
+	_draw_title_at(ci, text, lo + Vector2(6.0, 6.0), size, alpha)
+
+
+## The town's box in model metres: the wall ring's bounding box, else the buildings', else the whole site box.
+static func _town_box(layout: Dictionary) -> Rect2:
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p in layout.get("wall_ring", PackedVector2Array()):
+		lo = lo.min(p)
+		hi = hi.max(p)
+	if not (hi.x > lo.x and hi.y > lo.y):
+		for b: PackedVector2Array in layout.get("buildings", []) as Array:
+			for p in b:
+				lo = lo.min(p)
+				hi = hi.max(p)
+	if not (hi.x > lo.x and hi.y > lo.y):
+		return Rect2(Vector2.ZERO, Vector2(float(layout.get("wm", 1700.0)), float(layout.get("hm", 1250.0))))
+	return Rect2(lo, hi - lo)
 
 
 ## Dirt and paving inside the town: the wall ring's whole interior in the lighter interior tone, then every

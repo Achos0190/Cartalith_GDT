@@ -292,8 +292,11 @@ func _ready() -> void:
 					kc += p
 				kc /= float(keep.size())
 				var kp: Vector2i = sp.call(cd, kc)
+				## CL-1 (d2a8b6a3) draws the citadel's teardrop pin with its TIP on the keep's centroid, so the centre pixel
+				## is the pin's ink; sample 60 px to the right of it (a pin head is about 9 px across), still on the roof.
+				kp += Vector2i(60, 0)
 				_ok(_near(mm.get_pixelv(kp), LOOK.KEEP_ROOF, 0.05), "town %s: the keep's roof at its centre (%s vs %s)" % [tag, mm.get_pixelv(kp), LOOK.KEEP_ROOF])
-				_ok(not _near(ii.get_pixelv(sp.call(ci2, kc)), LOOK.KEEP_ROOF, 0.05), "town %s: ink look keep is not the map look roof (control)" % tag)
+				_ok(not _near(ii.get_pixelv(sp.call(ci2, kc) + Vector2i(60, 0)), LOOK.KEEP_ROOF, 0.05), "town %s: ink look keep is not the map look roof (control)" % tag)
 		cv.hide()
 		await _frames(2)
 

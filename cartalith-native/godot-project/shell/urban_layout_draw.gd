@@ -365,6 +365,16 @@ static func draw_ground(ci: CanvasItem, rect: Rect2, layout: Dictionary) -> void
 		ci.draw_rect(rect, GROUND)
 
 
+## The City Viewer's title (CL-8): in the map look, "THE CITY OF <NAME>" at the top-left of `town_rect`, kept wholly
+## inside `canvas_rect` (see `urban_layout_look.gd::draw_title`); in the ink look, nothing, and an empty `Rect2`
+## comes back. Returns the rectangle drawn.
+static func draw_title(ci: CanvasItem, layout: Dictionary, town_rect: Rect2, canvas_rect: Rect2,
+		size_px: float) -> Rect2:
+	if not look_is_map():
+		return Rect2()
+	return _look_script().draw_title(ci, layout, town_rect, canvas_rect, size_px)
+
+
 ## `to_screen` maps a model-metre `Vector2` into `ci`'s own coordinate space.
 ## `m_scale` is that space's units per model metre, for stroke widths — the
 ## reference keeps position and width scaling separate for the same reason
@@ -395,9 +405,15 @@ static func draw_ground(ci: CanvasItem, rect: Rect2, layout: Dictionary) -> void
 ## default `true`; only `map_overlay.gd`'s main-map call passes `false`.
 ## Whether a town's water should instead connect to the map's own rivers is a
 ## separate, deferred question (owner) and is untouched here.
+##
+## `with_title` (CL-8, the map look only; the ink plan ignores it and draws no title): whether the plan
+## stamps its "THE CITY OF ..." title at the top-left of the town when the town is big enough on screen to
+## carry one (`urban_layout_look.gd`'s `TITLE_MIN_BOX_PX`). The City Viewer passes `false` because it draws its
+## own title, clamped inside its canvas so it stays on screen at every zoom; the map's town layer and the
+## export copy keep the default `true` so they cannot differ from each other.
 static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		m_scale: float, px_floor: float, alpha: float, show_route_ends: bool,
-		detail: float = 1.0, draw_water: bool = true) -> void:
+		detail: float = 1.0, draw_water: bool = true, with_title: bool = true) -> void:
 	if alpha <= 0.0:
 		return
 	## CL-1 (Ruling EW Q1/Q2): ONE entry point for every surface -- City Viewer, the map's town layer,
@@ -406,7 +422,7 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	## look. A single check here, not one per caller, is what keeps the surfaces from drifting apart.
 	if look_is_map():
 		_look_script().draw_layout(ci, layout, to_screen, m_scale, px_floor, alpha,
-			show_route_ends, detail, draw_water)
+			show_route_ends, detail, draw_water, with_title)
 		return
 	var tint := func(c: Color) -> Color:
 		return Color(c.r, c.g, c.b, c.a * alpha)

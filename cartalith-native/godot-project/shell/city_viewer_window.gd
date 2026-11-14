@@ -71,6 +71,9 @@ const ContextWindow := preload("res://shell/context_window.gd")
 const PinMarker := preload("res://shell/pin_marker.gd")
 ## Head radius of a viewer pin, in px per UI unit (18 px across on the desktop, 18 dp on the phone; the scope's figure).
 const PIN_HEAD_R := 9.0
+## CL-8: the title's size as a share of the canvas width (clamped 24 to 48 px at the call): about 40 px on the
+## 1560 px-wide window the probe frames, so the lettering reads without taking the plan.
+const TITLE_CANVAS_SHARE := 0.026
 ## Slop (px) between a press and its release that still counts as a click rather than a pan.
 const PIN_CLICK_SLOP := 6.0
 
@@ -108,6 +111,8 @@ var _zoom := 1.0
 ## Screen-space pan offset of the canvas, applied after the fit scale (see the comment above);
 ## changed by `_zoom_by` and the drag handler, zeroed by `_reset_view`, read by `_draw_canvas`.
 var _pan := Vector2.ZERO
+## The rectangle the last `_draw_canvas` drew the title in (CL-8), canvas px; empty when none was drawn.
+var _title_rect := Rect2()
 ## The canvas size the view (`_zoom`, `_pan`) was last set against: `_pan` is in canvas pixels, so it means a fraction of THIS
 ## size. Kept separately because by the time a class swap captures the window the engine has already resized it to the new
 ## viewport (S4_INVENTORY.md section 18.3), and `_canvas.size` is then not what the user was looking at. Written by every
@@ -524,7 +529,13 @@ func _draw_canvas() -> void:
 	var origin: Vector2 = vt["origin"]
 	var to_screen := func(p: Vector2) -> Vector2: return origin + p * view_scale
 	## `px_floor` is 1.0: this canvas draws straight into screen space.
-	DRAW.draw_layout(_canvas, _layout, to_screen, view_scale, 1.0, 1.0, true)
+	DRAW.draw_layout(_canvas, _layout, to_screen, view_scale, 1.0, 1.0, true, 1.0, true, false)
+	## CL-8: the map look's title (the ink plan has none: `DRAW.draw_title` answers an empty rect there), clamped
+	## inside this canvas so it is on screen at every zoom and pan. The town's box is the fit box in canvas pixels;
+	## its top-left anchors the title. `_title_rect` is what was drawn (a probe reads it).
+	var fb := _fit_box()
+	_title_rect = DRAW.draw_title(_canvas, _layout, Rect2(to_screen.call(fb.position), fb.size * view_scale),
+		rect, clampf(rect.size.x * TITLE_CANVAS_SHARE, 24.0, 48.0))
 	## CL-1: the derived pins, a screen-space pass AFTER `draw_layout` (which the map's town layer and the export share
 	## and which is screen-agnostic), so a pin keeps its size at every zoom and its tip stays on its place.
 	var has_note := _settlement_has_note()

@@ -94,8 +94,8 @@ Ranked by how much each changes the first impression, biggest first.
 | 5 | **Trees as clumps** | `_draw_details(..., trees=true)`: rim circle then fill, already merged "as the target image's clumps"; radius `rr * m_scale` (about 1 to 2 m), so at fit zoom a tree is 2 to 3 px | A larger canopy with a highlight, and a shadow. **The reference has dense groves outside the wall; the engine's hinterland emits few trees there**, so a faithful look needs either decorative scatter seeded from the layout hash (render-only, never saved) or an engine change to `hinterland.rs` (moves generated output) | S (look), M (scatter), L (engine) | look and scatter yes; engine change **no** |
 | 6 | **Fields as rows** | `_draw_farmland`: `FARM_FIELD` fill, one 0.22-alpha outline per strip (`FARM_LINE`); the frames show pale stripes | Furrow rows across each strip (dark and light alternating, clipped with `Geometry2D.intersect_polyline_with_polygon`, as the mock does), a farm hut where the engine already has `detail_kind` huts | S | **yes** |
 | 7 | **Water and shoreline** | `draw_layout` fills `water_poly` flat `WATER` and `_draw_water_mask` re-paints it last; a coastal site draws only the river centreline | A deep-blue fill, a lighter shore band and a beach line from the polygon's own outline (the mock does the band in two strokes) | S | **yes** |
-| 8 | **Harbour and piers** | `urban_bridge.rs::layout_dict` crosses `harbour_pt` and the `quay` street class; `growth.rs` builds piers and a mole (its doc says so) and `hinterland.rs` places a bollard per pier. **Piers are not crossed**; `urban_layout_draw.gd` never reads `harbour_pt` | Cross the pier polylines in the bridge (a new key, additive), draw planks as short cross-strokes and a moored boat as a stamp. **No generated value moves**, the geometry already exists | M | the draw is; the crossing is a Rust change, not a golden change |
-| 9 | **Title** | The City Viewer's window title bar (`_title_label`); no title on the map or in an export | A serif stroked title as an overlay in the viewer (and optionally the export). Needs a serif font: the project bundles only Fira Sans, Fira Code and IBM Plex Mono (`godot-project/fonts/`); the mock used the OS's Georgia through `SystemFont`, which is not portable to Android | S (draw), S (a licensed bundled font) | **yes** |
+| 8 | **Harbour and piers** | `urban_bridge.rs::layout_dict` crosses `harbour_pt` and the `quay` street class; `growth.rs` builds piers and a mole (its doc says so) and `hinterland.rs` places a bollard per pier. **Piers are not crossed** (as of 2026-11-13; crossed as `harbour` on 2026-11-14, see the fourth build note); `urban_layout_draw.gd` never reads `harbour_pt` | Cross the pier polylines in the bridge (a new key, additive), draw planks as short cross-strokes and a moored boat as a stamp. **No generated value moves**, the geometry already exists | M | the draw is; the crossing is a Rust change, not a golden change |
+| 9 | **Title** | The City Viewer's window title bar (`_title_label`); no title on the map or in an export (as of 2026-11-13; the map look gained one on 2026-11-14, see the fourth build note) | A serif stroked title as an overlay in the viewer (and optionally the export). Needs a serif font: the project bundles only Fira Sans, Fira Code and IBM Plex Mono (`godot-project/fonts/`); the mock used the OS's Georgia through `SystemFont`, which is not portable to Android | S (draw), S (a licensed bundled font) | **yes** |
 | 10 | **Markers** | Section 4 | Section 4 | M to L | the glyphs yes; the click path is a behaviour change |
 | 11 | **Hand-drawn stroke quality** (wobble, ink pooling, paper grain) | None; every edge is a straight `draw_*` | Out of reach for a vector draw; the reference's roofs are painted art. The look in the mock stops short of it by design. A line-art or sprite route exists (`ASSET_PACK_TOOLS_PROPOSAL.md` section 9, AP-10) but is not part of this scope | L, not proposed | yes |
 
@@ -261,7 +261,7 @@ The bars above that quote luminance and pixel widths were NOT measured; the prob
 `STATUS.md` instead. Numbering note: the milestone table's CL-1 is the marker draw, and this step is not it. The wall
 that hugs the built area (Ruling EW item 1) was **built 2026-11-14** as `cartalith_urban::wallhug` behind `WorldParams::urban_wall_hug`
 (`DECISIONS.md` section 7p; measured numbers and the open pockets in `STATUS.md`; frames `evidence/city-look-2026-11-13/wallhug_before_after.png`).
-Still open: CL-1 to CL-3, CL-8 to CL-11, and the choice of default look.
+Still open: CL-1's head-overlap nudge, CL-10, and the choice of default look. (CL-1's draw, CL-2 and CL-3 are the second build note; CL-11 the third; CL-8 and CL-9 the fourth, below.)
 
 **Build note, 2026-11-13 (the second build step: CL-1's shared draw, CL-2 and CL-3; status is `STATUS.md`'s).**
 `shell/pin_marker.gd` is the one teardrop (tip on the anchor, head 2.1 radii above it, vector pictograms for the engine's kinds:
@@ -317,6 +317,25 @@ generated landmarks'); a name is required to place one; in circles mode a POI is
 Context panel follows) and opens no card, as for its derived pins. **Not built:** a POI category or a faction or way snap in CIVIL (CV-01's own design), a
 settlement-to-POI conversion, hover tooltips for POIs, the tablet frames of the new tool, and POIs drawn into the town plan's own geometry.
 
+**Build note, 2026-11-14 (the fourth build step: CL-8 the title and CL-9 the harbour, in the map look; status is `STATUS.md`'s).**
+CL-9's Rust half is the one additive `harbour` key (Q9 above). The draw is `urban_layout_look.gd::_draw_harbour` (a dark-edged timber deck
+with a cross-plank every 1.1 m, coarser when the planks would be under 2 px apart; a stone-and-outline breakwater when `mole` is
+present) and `_draw_shore_band` (the lighter shallow band drawn on the WATER side of the polygon's edge, after the mask that repaints
+flat deep water). Piers draw wherever the layout is drawn, the map's town layer included (where, as for the quay street, the layout's
+water is not the base map's, so a pier could stand on land the raster shows as water: not measured). CL-8's title is
+`urban_layout_look.gd::draw_title` / `_draw_map_title`: "THE CITY OF <NAME>" in capitals, the word following the settlement's kind
+(CITY for city, capital and metropolis; TOWN; VILLAGE; HAMLET; none and the name alone for an unknown kind), in bundled Cinzel at
+weight 700 with a cream fill over a dark 6 to 10 px stroke. **Where it sits (the choice the task left to the builder):** in the City
+Viewer it is anchored to the top-left of the town's fit box and clamped inside the canvas, so it is on screen at every zoom and pan
+(a title pinned to the town would leave the screen at x6); in the map's town layer and the export it is pinned to the top-left of the
+town's screen-space bounding box and drawn only when that box is at least 480 px wide (`TITLE_MIN_BOX_PX`), so an overview map
+carries no titles and a deep-zoom or large export does; a rotated town (the map rotates every plan by its terrain orientation) keeps
+its title upright at the corner of the rotated bounding box. The name and kind reach the draw as two GDScript-side keys,
+`place_name` and `place_kind`, added by `EngineBridge.urban_layouts` beside `ground_color`; absent when the settlement has no name. The
+ink plan draws no title and is otherwise untouched. **Not built here:** a moored boat, the quay as a drawn timber edge, and the
+mole on a frame (the engine builds one on an open `coast` site only, and no walled coast town was found; its draw is proven on a
+labelled synthetic mole).
+
 CL-0 to CL-3 are the owner's literal asks; CL-4 to CL-8 are render-only and need no ruling; CL-9 adds a Rust key; CL-11 reverses
 a documented decision and needs one.
 
@@ -332,9 +351,9 @@ a documented decision and needs one.
 | **Q4** | Single click or double click? | **Single**, as asked, only under the pointer tool; a double tap on a phone stays the zoom (`_double_tap_zoom`) |
 | **Q5** | Taverns, inns, shops: add a place-of-interest entity users can place in a city and bind a note to? | **Not now.** Ship derived pins first (CL-1 to CL-3); decide CL-11 after seeing them. It reverses CV-01, so it is yours to rule |
 | **Q6** | What does pin colour mean? | **Orange = has a linked note, white = none**, and a "?" head when the subject has no name or note yet. The reference gives no legend |
-| **Q7** | The serif font for the title | A bundled **OFL** face; two candidates to confirm the licence of before bundling: *Cinzel* and *IM Fell English*. Not checked in this pass |
+| **Q7** | The serif font for the title | A bundled **OFL** face; two candidates to confirm the licence of before bundling: *Cinzel* and *IM Fell English*. Not checked in this pass. **Answered 2026-11-14 by the agent that built CL-8, on this default (not by the owner; overturn in one line): Cinzel**, bundled as `godot-project/fonts/Cinzel-Variable.ttf` (the variable-weight file from `https://github.com/google/fonts/tree/main/ofl/cinzel`, page `https://fonts.google.com/specimen/Cinzel`) with its licence beside it, verbatim, as `Cinzel-OFL.txt` (`https://github.com/google/fonts/blob/main/ofl/cinzel/OFL.txt`: "Copyright 2020 The Cinzel Project Authors", SIL Open Font License 1.1, no Reserved Font Name declared; the file is shipped unmodified). Chosen over IM Fell English for its capital-led display letterforms (the title is in capitals) and its weight axis; the bold sans behind it covers glyphs Cinzel lacks |
 | **Q8** | Decorative trees outside the wall, to match the reference's groves, drawn but not part of the generated world? | **Yes**, seeded from the layout, never saved, never read by any engine path, included in export so export follows screen |
-| **Q9** | Cross the engine's pier geometry into the layout so piers can be drawn? | **Yes**: additive, no generated value moves |
+| **Q9** | Cross the engine's pier geometry into the layout so piers can be drawn? | **Yes**: additive, no generated value moves. **Answered 2026-11-14 by the agent that built CL-9, on this default (not by the owner): done** as ONE new key, `harbour`, on a layout that already has `harbour_pt` (`urban_bridge.rs::layout_dict`): a dictionary with `piers` (two points a pier) and, only where the engine built a breakwater, `mole` (four points); absent when `harbour_pt` is. `UrbanLayout::harbour` carries `buildHarbour`'s whole works from `generate()` untouched; `urban_adapter/tests.rs::the_harbour_works_cross_additively_and_move_no_generated_value` pins a digest of every earlier field captured on the commit before the key existed |
 
 ---
 

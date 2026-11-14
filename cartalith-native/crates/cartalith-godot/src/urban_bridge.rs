@@ -518,6 +518,26 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     if let Some(h) = l.harbour_pt {
         d.set("harbour_pt", pt(h));
     }
+    // CL-9 (`CITY_MAP_LOOK_SCOPE.md` Q9): `buildHarbour`'s timber piers and breakwater mole, ONE additive key
+    // so a renderer can draw the harbour the engine built. A `Dictionary` with `"piers"` (a packed point array,
+    // two points per pier: `a` on the water edge, `b` out in the water; always at least one pier, because
+    // `build_harbour` builds at least two) and `"mole"` (four points, the breakwater's polyline; **absent**
+    // on a river or bay harbour that builds none, never an empty array). Absent altogether exactly when
+    // `"harbour_pt"` is. Same local-metre frame as every other point in this dictionary. Nothing generated
+    // moves: this is a copy of the value `generate()` already returned, and no existing key is touched.
+    if let Some(h) = &l.harbour {
+        let mut hd = VarDictionary::new();
+        let mut piers: Vec<UVec2> = Vec::with_capacity(h.piers.len() * 2);
+        for p in &h.piers {
+            piers.push(p.a);
+            piers.push(p.b);
+        }
+        hd.set("piers", &poly(&piers));
+        if let Some(m) = &h.mole {
+            hd.set("mole", &poly(m));
+        }
+        d.set("harbour", &hd);
+    }
 
     // What actually ran, in the order it ran, for a viewer to state rather than
     // imply. Kept as data so the disclosure cannot drift from the code.
