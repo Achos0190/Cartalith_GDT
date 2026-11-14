@@ -95,6 +95,7 @@ use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
 use crate::site::{Economy, SiteOpts, TerrainCtx, WaterCtx, build_site};
+use crate::wallhug::hug_wall;
 use crate::wallside::build_wall_lots;
 use crate::water::{
     Bridge, Crossings, Ford, HarbourOpts, HarbourOutcome, HarbourWorks, add_river_bridges,
@@ -182,6 +183,11 @@ pub struct GenOpts {
     /// `opts.primaryPaths` — the host's real inter-settlement roads. Non-empty
     /// takes `buildPrimariesFromPaths` instead of `buildPrimaries`.
     pub primary_paths: Vec<Vec<Vec2>>,
+    /// **Not the reference** -- Ruling EW item 1 (owner, 2026-11-13): the town wall
+    /// hugs the built-up area ([`crate::wallhug`]). `false` is the reference's
+    /// growth-reserve circuit, byte for byte, so every JS-captured golden and
+    /// every other `GenOpts` literal is unmoved by control flow.
+    pub wall_hug: bool,
 }
 
 // ------------------------------------------------------------------- output --
@@ -303,6 +309,10 @@ pub struct Town {
     /// one, or where no stretch of curtain qualifies. **Not part of
     /// [`Self::wall`]'s ring** — see `crate::citadel` for that default.
     pub citadel: Option<Citadel>,
+    /// **Not the reference** -- what Ruling EW's wall hug did ([`crate::wallhug`]):
+    /// [`None`] when [`GenOpts::wall_hug`] was off or the town has no wall, else the
+    /// outcome (a refit with its clearance, or why the circuit was kept).
+    pub wall_hug: Option<crate::wallhug::HugOutcome>,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -512,6 +522,22 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
 
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
     let mut parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));
+    // **Not the reference** (Ruling EW item 1, `crate::wallhug`): the wall is
+    // refitted to the platted town, so no wide empty band stands between it and
+    // the first buildings. After the street lots exist (the mass it fits) and
+    // before the wall lots, courtyards, districts, buildings, farmland, details
+    // and the citadel, so all of them are made from the circuit that stays.
+    // Off (`false`) is the reference's growth-reserve circuit untouched.
+    let mut hug_outcome = None;
+    if opts.wall_hug && walls && wall_state.ring.is_some() {
+        let front = harbour_works(&harbour_outcome).map(HarbourWorks::front);
+        let fo = FortOpts {
+            wall_style: opts.wall_style.clone(),
+            fortified,
+            wet_moat: profile.planning == "radial" && profile.waterway,
+        };
+        hug_outcome = Some(hug_wall(seed, &site, &anchors, &mut g, &parcels, terrain_aware, &mut wall_state, front.as_ref(), &fo));
+    }
     // **Not the reference** — a Ruling H departure (owner, 2026-09-22): lots
     // backing onto the wall from inside, and a faubourg against it outside.
     // Appended after every street-platted lot and drawn from their own
@@ -853,6 +879,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         churches,
         details,
         citadel,
+        wall_hug: hug_outcome,
         pop,
         metrics,
         through: site.through,

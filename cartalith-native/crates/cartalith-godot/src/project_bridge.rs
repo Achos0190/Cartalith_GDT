@@ -7614,7 +7614,7 @@ mod tests {
         let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
         let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
         let native = data.save.state.get(crate::params::NATIVE_PARAMS_KEY).and_then(|v| v.as_object()).expect("a native block");
-        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways"] {
+        for k in ["rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "urban_wall_hug"] {
             assert!(!native.contains_key(k), "premise: the archive predates {k}");
         }
         assert_eq!(native.get("passes.glacial"), Some(&serde_json::json!(false)), "premise: an explicit false");
@@ -7622,6 +7622,8 @@ mod tests {
         crate::params::apply_saved_state(&mut p, &data.save.state);
         // The opened world: every rule it predates (or saved off) is off.
         assert_eq!((p.rough_routing, p.basin_routing, p.lake_balance, p.civ.merge_ways), (false, false, false, false));
+        // Ruling EW item 1 (2026-11-14): an archive that predates the wall hug draws the walls it had.
+        assert!(!p.urban_wall_hug, "an old archive keeps the reference's growth-reserve circuit");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (false, false, false, false, false, false)
@@ -7638,6 +7640,7 @@ mod tests {
         let mut changed = crate::params::restore_new_world_rules(&mut p, &|_: &str| None);
         // The new world: the app's rules (`params::defaults`' ruled lines, as literals) ...
         assert_eq!((p.rough_routing, p.basin_routing, p.lake_balance, p.civ.merge_ways), (true, true, true, true));
+        assert!(p.urban_wall_hug, "a new world hugs its town walls (Ruling EW item 1)");
         assert_eq!(
             (p.tect.orogen_relief, p.tect.high_ceiling, p.passes.glacial, p.geology_model, p.climate.rain_bspline, p.volc.fill_edifice_pits),
             (true, true, true, true, true, true)
@@ -7657,7 +7660,7 @@ mod tests {
             "rough_routing", "basin_routing", "lake_balance", "civ.merge_ways", "tect.orogen_relief", "tect.high_ceiling", "passes.glacial",
             "geology_model", "climate.rain_bspline", "volc.fill_edifice_pits", "volc.morphometry", "volc.cinder_grid_law",
             "volc.dry_active_craters", "volc.lava_bench", "volc.kind_dome", "volc.kind_maar", "volc.kind_caldera",
-            "volc.kind_supervolcano", "volc.kind_flood_basalt",
+            "volc.kind_supervolcano", "volc.kind_flood_basalt", "urban_wall_hug",
         ];
         want.sort_unstable();
         assert_eq!(changed, want, "the restore reports exactly the rules it put back");

@@ -42,6 +42,12 @@ mod g1_baseline;
 // measurement through the real pipeline, OFF then ON `civ.merge_ways`.
 #[cfg(test)]
 mod way_census;
+
+// Ruling EW's wall-hugging measurement (`CITY_MAP_LOOK_SCOPE.md`): the empty band
+// between a town wall and its first buildings, before and after the switch, an
+// ignored measurement over real generated worlds.
+#[cfg(test)]
+mod wall_gap_census;
 // Ruling EU items 2 and 3 (2026-11-13): the planner census -- routes with
 // the way join off and on, and the river stretches offered along them; an
 // ignored measurement through the real pipeline.

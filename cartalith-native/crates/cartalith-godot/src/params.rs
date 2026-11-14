@@ -179,6 +179,11 @@ pub fn defaults() -> WorldParams {
     // `WorldParams::defaults`, the goldens' breadth-first fill. Acts only with
     // `integrate_drainage` (on above).
     p.basin_routing = true;
+    // Owner Ruling EW item 1 (2026-11-13): town walls hug the built-up area.
+    // Off in `WorldParams::defaults`, the reference's growth-reserve circuit
+    // every urban golden reads (`DECISIONS.md` section 7p). See
+    // `WorldParams::urban_wall_hug`.
+    p.urban_wall_hug = true;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
     // where inflow covers evaporation, else a playa). Off in
@@ -352,6 +357,16 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "basin_routing", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Basin routing (rivers in filled basins run to the floor)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.basin_routing), set_fn: |p, v| p.basin_routing = v != 0.0 },
+    // Ruling EW item 1 (2026-11-13): town walls hug the built-up area. ON at
+    // the app boundary, OFF in `WorldParams::defaults`; no reference control
+    // (the reference has no such step). A save without the key loads OFF
+    // (`LOADS_WHEN_ABSENT`). Read fresh whenever a town layout is asked for
+    // (`urban_layouts`), never by a generation stage, so it invalidates
+    // nothing (`invalidates` -> `None`) and `param_catalogue::regen` calls it
+    // live.
+    ParamSpec { key: "urban_wall_hug", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Town walls hug the built-up area", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_wall_hug), set_fn: |p, v| p.urban_wall_hug = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -994,6 +1009,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("rough_routing", ""),
     // Port-only (Ruling EV); the reference has no fill to tilt.
     ("basin_routing", ""),
+    // Port-only (Ruling EW item 1); the reference's wall stands at its growth-reserve hull.
+    ("urban_wall_hug", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1314,6 +1331,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Basin routing (Ruling EV, 2026-11-13): every save without the key was
     // routed over the breadth-first fill, so a regenerate reproduces it.
     ("basin_routing", Value::Bool(false)),
+    // Wall hug (Ruling EW item 1, 2026-11-13): every save without the key drew
+    // the reference's growth-reserve circuit.
+    ("urban_wall_hug", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),

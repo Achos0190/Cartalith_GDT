@@ -43,6 +43,12 @@
 //!   CY item 1) the layout takes the app's faith (`CivData::town_faith`), as
 //!   `urban_layouts` does, so the rite's cleared houses move this column
 //!   where a top-three town's faction has a rite other than the default.
+//!   **Not with the wall hug** (Ruling EW item 1, 2026-11-14): this column
+//!   pins the layout with `PlaceOverrides::wall_hug` at its `false` default,
+//!   the reference's growth-reserve circuit, so it did not move when the app
+//!   switched the hug on (`params::defaults().urban_wall_hug`). The hug's own
+//!   before/after is measured by `wall_gap_census.rs` and gated in
+//!   `cartalith-urban`'s `wallhug` tests, not hashed here.
 //!
 //! Worlds: five seeds x {800 km plain, 40 075 km wrapped} x {6 factions (the
 //! app default, `cartalith_engine::WorldParams::defaults()`'s `civ.factions`),
@@ -258,7 +264,8 @@ fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
     let (mut towns, mut buildings) = (0usize, 0usize);
     for &i in order.iter().take(3) {
         // Since 2026-10-25 (Ruling CY item 1) with the app's faith, so this
-        // column measures what `urban_layouts` lays out.
+        // column measures what `urban_layouts` lays out -- except the wall hug,
+        // left at `PlaceOverrides`' off default on purpose (see the module doc).
         let s = &civ.settlements[i];
         let o = cartalith_civ::urban_adapter::PlaceOverrides { faith: civ.town_faith(s), ..Default::default() };
         let ctx = cartalith_civ::urban_adapter::um_place_context_with(&uw, s, &civ.ways, &o);

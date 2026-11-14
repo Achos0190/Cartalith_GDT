@@ -915,6 +915,32 @@ fn a_save_without_the_merge_ways_key_reloads_with_it_off() {
     assert!(!p.civ.merge_ways, "an older save keeps the network it was built with");
 }
 
+/// Protects owner Ruling EW item 1's switch (2026-11-14): the town wall hug is ON in the app's
+/// parameters and OFF in the parity baseline (literals, so a flipped default is caught); a new
+/// save records it; a save that says on reloads on; a save without the key (every save before
+/// the ruling) reloads with it OFF, so its walls are drawn as they were, while every other row
+/// still applies; and it is read fresh (marks no pipeline stage stale, regenerates live).
+#[test]
+fn the_wall_hug_is_on_in_the_app_off_in_parity_and_a_save_without_it_loads_off() {
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).urban_wall_hug, "the reference has no wall hug");
+    assert!(params::defaults().urban_wall_hug, "new worlds hug their town walls (Ruling EW item 1)");
+    let mut state = params::save_state(&params::defaults());
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert_eq!(native.get("urban_wall_hug"), Some(&serde_json::json!(true)), "a new save records the switch");
+    let mut p = params::defaults();
+    p.urban_wall_hug = false;
+    params::apply_saved_state(&mut p, &state);
+    assert!(p.urban_wall_hug, "a save that says on reloads on");
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("urban_wall_hug").is_some());
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of an older save still applies");
+    assert!(!p.urban_wall_hug, "an older save keeps the walls it was drawn with");
+    // Read when a town is laid out, never by a generation stage.
+    assert_eq!(params::invalidates("urban_wall_hug"), None);
+}
+
 /// Protects: a save lacking `volc.morphometry`, or carrying it `false`, reloading without
 /// VA-5's morphometry (owner Ruling CX item 1, 2026-10-24).
 #[test]
@@ -1221,6 +1247,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.lake_balance = false;
     // And Ruling EU item 1's shared trunks: a save without the key keeps its roads.
     expect.civ.merge_ways = false;
+    // And Ruling EW item 1's wall hug: a save without the key kept the reference's walls.
+    expect.urban_wall_hug = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1306,7 +1334,8 @@ use cartalith_engine::{WorldParams, WorldState};
 /// and `kind_flood_basalt`; and the twenty-first, Ruling ER's
 /// `rough_routing`; the twenty-second, Ruling ET's `lake_balance`; the
 /// twenty-third, Ruling EU item 1's `civ.merge_ways`; the twenty-fourth,
-/// Ruling EV's `basin_routing`.)
+/// Ruling EV's `basin_routing`; the twenty-fifth, Ruling EW item 1's
+/// `urban_wall_hug`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1342,6 +1371,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.lake_balance && !parity.lake_balance, "lake water balance for new worlds, Ruling ET");
     assert!(app.civ.merge_ways && !parity.civ.merge_ways, "shared road trunks for new worlds, Ruling EU item 1");
     assert!(app.basin_routing && !parity.basin_routing, "basin routing for new worlds, Ruling EV");
+    assert!(app.urban_wall_hug && !parity.urban_wall_hug, "town walls hug the built-up area for new worlds, Ruling EW item 1");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1355,7 +1385,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
     assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
-    // And nothing else. Neutralising the twenty-four must make the two identical --
+    // And nothing else. Neutralising the twenty-five must make the two identical --
     // which catches a twenty-fifth divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
@@ -1365,6 +1395,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.integrate_drainage = false;
     neutral.rough_routing = false;
     neutral.basin_routing = false;
+    neutral.urban_wall_hug = false;
     neutral.lake_balance = false;
     neutral.civ.merge_ways = false;
     neutral.tect.narrow_plate_base_blur = false;
@@ -1386,7 +1417,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twenty-four authorised fields"
+         twenty-five authorised fields"
     );
 }
 

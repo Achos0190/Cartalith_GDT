@@ -258,8 +258,10 @@ CL-5 (roofs), CL-6 (curtain wall, towers, gates) and CL-7 (trees, fields) were b
 `shell/urban_layout_look.gd`, with Ruling EW's two additions: the ground comes from the settlement's terrain
 (`EngineBridge.settlement_ground_colour`, a `ground_color` key on every layout) and the citadel is drawn as a full fortification.
 The bars above that quote luminance and pixel widths were NOT measured; the probe `_citylook1_probe.gd` checks the claims named in
-`STATUS.md` instead. Numbering note: the milestone table's CL-1 is the marker draw, and this step is not it. Still open: the wall
-that hugs the built area (an engine change), CL-1 to CL-3, CL-8 to CL-11, and the choice of default look.
+`STATUS.md` instead. Numbering note: the milestone table's CL-1 is the marker draw, and this step is not it. The wall
+that hugs the built area (Ruling EW item 1) was **built 2026-11-14** as `cartalith_urban::wallhug` behind `WorldParams::urban_wall_hug`
+(`DECISIONS.md` section 7p; measured numbers and the open pockets in `STATUS.md`; frames `evidence/city-look-2026-11-13/wallhug_before_after.png`).
+Still open: CL-1 to CL-3, CL-8 to CL-11, and the choice of default look.
 
 **Build note, 2026-11-13 (the second build step: CL-1's shared draw, CL-2 and CL-3; status is `STATUS.md`'s).**
 `shell/pin_marker.gd` is the one teardrop (tip on the anchor, head 2.1 radii above it, vector pictograms for the engine's kinds:

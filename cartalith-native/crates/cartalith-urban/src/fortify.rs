@@ -515,6 +515,34 @@ pub fn build_wall(
     opts: &FortOpts,
 ) {
     let Some(bmh) = built_mass_hull(site, anchors, g) else { return };
+    build_wall_from_mass(seed, site, anchors, g, wall_state, ep, harbour, opts, bmh, true);
+}
+
+/// [`build_wall`] from a built mass the caller supplies -- everything after
+/// `builtMassHull` in the reference's `buildWall`, unchanged, so the circuit,
+/// its land arc, water walls, spurs, gates and (when `opts.fortified`) star fort
+/// are made by exactly the same code whoever chose the hull.
+///
+/// **Not the reference**: the split exists for Ruling EW's wall hug
+/// ([`crate::wallhug`]), which refits a finished town's wall to a tight hull of
+/// its built nodes instead of the reference's growth-reserve hull. `deflect`
+/// is the v1.17 (S4c) terrain deflection of each hull vertex by up to 60 m onto
+/// higher ground: [`build_wall`] passes `true` (the reference, byte for byte);
+/// the wall hug passes `false`, because a 60 m outward shift is exactly the
+/// empty band the hug removes.
+#[allow(clippy::too_many_arguments)]
+pub fn build_wall_from_mass(
+    seed: u32,
+    site: &Site,
+    anchors: &Anchors,
+    g: &Graph,
+    wall_state: &mut WallState,
+    ep: i32,
+    harbour: Option<&HarbourFront>,
+    opts: &FortOpts,
+    bmh: BuiltMass,
+    deflect: bool,
+) {
     let mut hull = bmh.hull;
     let spans_water = bmh.spans_water;
     let rk = site.kind == "river" || site.kind == "riverthrough";
@@ -546,7 +574,7 @@ pub fn build_wall(
     // byte-identical.
     let mut terrain_deflected = 0u32;
     let relief = js_or(site.terrain_relief, 0.0);
-    if site.uses_real_terrain && relief >= 0.01 && hull.len() >= 3 {
+    if deflect && site.uses_real_terrain && relief >= 0.01 && hull.len() >= 3 {
         let min_gain = 0.015 * relief;
         let cost_m = 3.3e-4 * relief;
         let c0 = poly_centroid(&hull);

@@ -286,6 +286,8 @@ fn opts_for(c: &golden::Case) -> GenOpts {
         ore_bearing: c.o_ore_bearing,
         route_ends: if c.o_route_ends { route_ends() } else { Vec::new() },
         primary_paths: if c.o_primary_paths { primary_paths() } else { Vec::new() },
+        // The reference has no wall hug: every captured case runs with it off.
+        wall_hug: false,
     }
 }
 

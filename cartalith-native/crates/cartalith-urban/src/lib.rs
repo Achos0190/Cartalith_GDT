@@ -85,6 +85,8 @@ pub mod rng;
 pub mod routes;
 pub mod rules;
 pub mod site;
+pub mod wallgap;
+pub mod wallhug;
 pub mod wallside;
 pub mod water;
 

@@ -589,6 +589,12 @@ const PROV_REAR_RANGE: &str = "Rear range closing a courtyard plan (M-BLD-3).";
 // The burgage grammar's detached rear outbuilding, every non-courtyard plot.
 const PROV_OUTBUILDING: &str = "Rear outbuilding (barn/workshop) at the plot tail (M-BLD-6).";
 
+/// The terrain-suitability score below which `terrain_aware` leaves a lot vacant
+/// (docs/08, M-TER-2; the threshold is the reference's, explained at its use in
+/// [`build_buildings`]). A constant so [`crate::wallhug`] fits the wall to the
+/// lots that will really be built on, from the one definition.
+pub const TERRAIN_BUILD_MIN: f64 = 0.5;
+
 /// `buildBuildings` (line 30431) — the parcel-conditioned building grammar.
 ///
 /// Three grammars share one loop: Venus's banded blend (pavilions inside
@@ -669,7 +675,7 @@ pub fn build_buildings(
         // setback margin scores 0.5) — either constraint alone can already drag
         // a real site below this bar, matching the "neither factor can cancel
         // the other out" design (docs/08 §2).
-        if terrain_aware && lot.suitability < 0.5 {
+        if terrain_aware && lot.suitability < TERRAIN_BUILD_MIN {
             lot.empty = true;
             lot.unsuitable = true;
             continue;

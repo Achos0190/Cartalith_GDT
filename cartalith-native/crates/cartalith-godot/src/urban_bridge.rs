@@ -539,7 +539,19 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         format!("grow → {} live street segments, {:.0} m", l.edges.len(), l.street_len),
         format!("buildBlocks/buildParcels → {} blocks, {} lots", l.blocks.len(), l.parcels.len()),
         match &l.wall.ring {
-            Some(_) => format!("buildWall → {} circuit, {} gates", l.wall.style, l.wall.gates.len()),
+            Some(_) => format!(
+                "buildWall → {} circuit, {} gates{}",
+                l.wall.style,
+                l.wall.gates.len(),
+                // Ruling EW item 1: what the wall hug did, when the switch was on.
+                match l.wall_hug {
+                    Some(urban_adapter::HugOutcome::Refit { clearance_m, streets_removed, .. }) => format!(
+                        "; refitted to the built-up area ({clearance_m:.0} m wall street, {streets_removed} stray streets removed)"
+                    ),
+                    Some(urban_adapter::HugOutcome::Kept(why)) => format!("; wall hug kept the original circuit ({why:?})"),
+                    None => String::new(),
+                }
+            ),
             None => format!("buildWall → none ({} on the wall ladder)", l.wall_spec),
         },
         format!("assignDistricts/buildBuildings → {} footprints", l.buildings.len()),
@@ -759,6 +771,9 @@ impl WorldGen {
                 // Measured: site count, centres, yards and parcels unchanged;
                 // every moved house sits under a site (`fh_r2_m3_rite_only`).
                 faith: civ.town_faith(s),
+                // Ruling EW item 1: the wall hugs the built-up area. Read from the
+                // live parameters, so it is the switch the app and a save carry.
+                wall_hug: self.params.urban_wall_hug,
             };
             // Per-settlement rule set: empty follows the world's active rules,
             // "default" pins `DEFAULT_RULES` (the `None` case), anything else a

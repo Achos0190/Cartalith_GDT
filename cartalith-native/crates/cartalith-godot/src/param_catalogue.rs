@@ -127,6 +127,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("carve_rivers", "On: rivers cut real valleys into the terrain while generating. Off: no river channels are carved at all."),
     ("river_density", "Raise: more, smaller river channels. Lower: fewer, larger rivers."),
     ("integrate_drainage", "On: water reaching a hollow carries on to the sea, so rivers connect (current). Off: rivers end in local pits (older)."),
+    ("urban_wall_hug", "On: town walls hug the built-up area, a wall street of a few metres. Off: the wall keeps the wide growth-reserve gap. Read when a town is drawn."),
     ("lake_balance", "On: a lake holds water only where inflow covers evaporation; dry basins shrink or become playas. Off: every wet-enough basin is a full lake."),
     // ---- planet
     ("planet.g", "Raise: stronger gravity, lower mountains, smaller craters, colder heights. Lower: taller mountains and bigger craters."),
@@ -281,7 +282,7 @@ pub fn regen(key: &str) -> Regen {
         Some(PipelineStage::Hydrology) => Regen::RefreshClimate,
         Some(PipelineStage::Climate) => Regen::RefreshSettlements,
         Some(_) => Regen::FullGenerate,
-        None if key == "civ.garrison_exposure_scale" => Regen::Live,
+        None if key == "civ.garrison_exposure_scale" || key == "urban_wall_hug" => Regen::Live,
         None => Regen::FullGenerate,
     }
 }

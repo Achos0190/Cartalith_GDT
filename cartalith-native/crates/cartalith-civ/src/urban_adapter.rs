@@ -198,6 +198,11 @@ pub use cartalith_urban::{
     Plaza, RULES_PRESETS, Rules, Vec2, WallState, apply_plot_chaos, apply_wildness,
     resolve_profile, rules_preset,
 };
+/// Ruling EW's wall-gap measurement (`cartalith_urban::wallgap`), spelled here for the
+/// `cartalith-godot` census, which has no direct dependency on the urban crate.
+pub use cartalith_urban::wallgap;
+/// What the wall hug did to a town (Ruling EW), for the same census.
+pub use cartalith_urban::wallhug::HugOutcome;
 
 /// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and
 /// `military.rs` already takes them from `cartalith-jsmath` directly.
@@ -1672,6 +1677,8 @@ pub struct UrbanContext {
     /// [`PlaceOverrides::faith`], carried to `GenOpts::faith` (FH-R2 R2-4).
     /// `None` takes the culture profile's default rite, the reference's path.
     pub faith: Option<String>,
+    /// [`PlaceOverrides::wall_hug`], carried to `GenOpts::wall_hug` (Ruling EW).
+    pub wall_hug: bool,
 }
 
 /// The four things `_umPlaceContext` reads off `p` that this port's
@@ -1725,6 +1732,13 @@ pub struct PlaceOverrides<'a> {
     /// codebases). `None` is exactly that reference behaviour, so every
     /// JS-captured golden (which never sets it) is unmoved by construction.
     pub faith: Option<&'a str>,
+    /// Ruling EW item 1 (2026-11-13): the town wall hugs the built-up area
+    /// (`cartalith_urban::wallhug`) instead of standing at the reference's
+    /// growth-reserve hull. **Not a `_umPlaceContext` field** and not in the
+    /// reference, so `false` (the `Default`) is the reference layout and every
+    /// JS-captured golden is unmoved by control flow. The app sets it from
+    /// `WorldParams::civ.wall_hug` (`DECISIONS.md` section 7p).
+    pub wall_hug: bool,
 }
 
 /// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
@@ -1805,6 +1819,7 @@ pub fn um_place_context_with(
         route_ends: um_route_ends(ways, px, py, w.gw, SITE_WM, SITE_HM, orient),
         primary_paths: um_primary_paths(ways, px, py, w.gw, w.map_width_km, orient),
         faith: o.faith.map(str::to_string),
+        wall_hug: o.wall_hug,
     }
 }
 
@@ -1973,6 +1988,8 @@ pub struct UrbanLayout {
     /// Not part of [`Self::wall`]'s ring, so [`Self::building_intramural`] is
     /// unaffected by it.
     pub citadel: Option<cartalith_urban::Citadel>,
+    /// What the wall hug did to this town's circuit (Ruling EW); `None` when the switch was off or there is no wall.
+    pub wall_hug: Option<cartalith_urban::wallhug::HugOutcome>,
     /// `wallStyle` as *requested* ([`UrbanContext::wall_style`]), before
     /// `build_wall` maps `stone` onto its legacy `curtain` tag. The two differ
     /// by that one rename, and both are worth having: this one is the ladder's
@@ -2123,6 +2140,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         ore_bearing: ctx.ore_bearing,
         route_ends: ctx.route_ends.clone().unwrap_or_default(),
         primary_paths: ctx.primary_paths.clone().unwrap_or_default(),
+        wall_hug: ctx.wall_hug,
     };
     let t = generate(ctx.seed, &opts);
 
@@ -2199,6 +2217,7 @@ pub fn run_layout(ctx: &UrbanContext, rules: Option<&Rules>) -> Option<UrbanLayo
         building_intramural,
         wall: t.wall,
         citadel: t.citadel,
+        wall_hug: t.wall_hug,
         wall_spec: ctx.wall_style,
         markets: t.markets,
         farmland,

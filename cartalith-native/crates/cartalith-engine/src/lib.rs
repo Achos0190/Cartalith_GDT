@@ -1076,6 +1076,22 @@ pub struct WorldParams {
     /// filled). The world's rivers move where they cross filled ground; a
     /// saved world keeps its rivers ([`WorldState::basin_routing`]).
     pub basin_routing: bool,
+    /// **Town walls hug the built-up area** -- owner Ruling EW item 1
+    /// (2026-11-13, `LARGE_ITEM_RULINGS.md`: *"walls were expensive so a lot of
+    /// free space between the wall and the first city on the inside is
+    /// unrealistic"*). On, a generated town layout refits its wall to the
+    /// platted lots (`cartalith_urban::wallhug`, reached through
+    /// `cartalith_civ::urban_adapter::PlaceOverrides::wall_hug`) instead of
+    /// the reference's growth-reserve circuit.
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p):
+    /// the reference has no such step, so every JS-captured urban golden keeps
+    /// its circuit. Read fresh each time a layout is asked for (a town is laid
+    /// out on demand from the world, never stored), so it moves no terrain,
+    /// water or civ value and needs no regeneration. A save without the key
+    /// loads it off (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the
+    /// walls it was saved with.
+    pub urban_wall_hug: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1295,6 +1311,9 @@ impl WorldParams {
             // Off: the shipped breadth-first fill every golden routes over.
             // On at the app boundary (2026-11-13) -- see the field's doc.
             basin_routing: false,
+            // Off: the reference's growth-reserve circuit. On at the app boundary
+            // (Ruling EW item 1) -- see the field's own doc comment.
+            urban_wall_hug: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

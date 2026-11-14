@@ -74,8 +74,7 @@ and two gatehouse towers, a paved court and a keep with a lighter roof and corne
 Rust touched). Also: dark outlined roofs with ridge and slope lines, stone curtain band with outlined round towers and paved gates
 (palisade, ditch and bastioned keep the ink strokes), tan streets and plazas, outlined clumped trees, furrowed fields, a market
 fountain. **Switch:** `DccSettings.city_look()` (`ink` default, `map`), the City Viewer's Look dropdown and Preferences ▸ Graphics ▸ Town
-look. **Not built / left:** the wall-hugs-the-town layout change (Ruling EW item 1's last point, an engine step and a §7p
-re-baseline), pins (CL-1 to CL-3), the title (CL-8), harbour and piers (CL-9), the default flip to `map` (an owner call, one word in
+look. **Not built / left:** pins (CL-1 to CL-3), the title (CL-8), harbour and piers (CL-9), the default flip to `map` (an owner call, one word in
 `DccSettings.city_look`), per-bar luminance measurements of CL-4 to CL-7, redraw timing against the shipped draw, and phone and
 tablet frames. **Verified:** windowed `_citylook1_probe.tscn` (scratch `config/name`, wiped user dir) **27 checks, 0 failed**: two walled
 towns on ground 0.516 apart, `ground_color` equals the displayed map's mean to 0.000, corner pixels match, both looks draw, the
@@ -84,6 +83,36 @@ citadel (with ink-look controls), and an `ExportOverlay` tile holds 105 map-look
 literal mutants killed (dispatch disabled, citadel guard, channel swap in the ground sample). `_prefvalue_probe` passes with the new
 group. `--check-only` clean on every touched `.gd` and `shell/app.gd`. Frames: `evidence/city-look-2026-11-13/cl1/`, composite
 `cl1_after.png`.
+
+### Town walls hug the built-up area (Ruling EW item 1, last point; built 2026-11-14, `CITY_MAP_LOOK_SCOPE.md`, `DECISIONS.md` section 7p)
+
+*"walls were expensive so a lot of free space between the wall and the first city on the inside is unrealistic."* **Built** in
+`cartalith-urban`: `wallhug::hug_wall` (called in `generate()` straight after `build_parcels`, before the wall lots, districts,
+buildings, farmland and citadel) refits the circuit, through `fortify::build_wall_from_mass` (the old `build_wall` body, unchanged,
+terrain deflection off), to the star-shaped envelope (`wallhug::envelope`, 180 sectors) of the buildable lots plus the streets that
+front them, plus an 8 m wall street (`CLEARANCE_M`, a labelled judgement), checked so every lot stands 5 m inside and falling back to
+the original circuit otherwise (`HugOutcome::Kept`). Stray dead-end streets that ran only into the freed band are removed; gates are
+re-derived on the primaries that cross the new ring; wall lots, faubourg, fields and the citadel follow the new ring (the citadel's
+centre stays on the curtain). **Chose shrinking the wall over filling the town**: filling would add lots and so move the population.
+`wallgap::wall_gap` is the measuring tape (median and p90 wall-to-nearest-building distance, free share). **Switch:**
+`WorldParams::urban_wall_hug` (`urban_wall_hug`, group `world`): `false` in `WorldParams::defaults`, `true` in `params::defaults()`,
+a save without the key loads it off; read fresh at every `urban_layouts` call (no layout is stored anywhere, so a saved world keeps
+the walls it was saved with by the key rule, and no golden, terrain, water or civ value moves); `invalidates` is `None`, `regen` is
+`Live`; the layout's `stages` line says what the hug did. **Measured** (`wall_gap_census.rs`, three seeds 483920 / 912345 / 246371,
+800 km, 6 factions, 37 walled towns, off then on): median of the towns' median wall-to-building gap 9.0 to 7.1 m, median p90 56.0 to
+31.5 m, median free share 0.076 to 0.024; the worst town (22 000 people) 66.8 to 11.2 m median; 32 of 37 refit, 5 kept their circuit
+(p90 40 to 69 m there). Layout head count -6.2 % to +5.6 % a town, +0.8 % in total (wall lots are platted from the circuit).
+**Verified:** `cargo test --workspace --no-fail-fast` 8 357 passed, 0 failed (JS-captured urban goldens unchanged: they pass
+`wall_hug: false`); 11 new `wallhug` tests (gap bars on six synthetic towns, no lot under the wall, no building cut, streets cross only at
+gates on primaries, citadel on the curtain, street lots and blocks unchanged, a kept circuit untouched, envelope and margin units, a
+hand-computed gap); 6 of 6 literal mutants killed (`CLEARANCE_M` 8 to 40, `SECTORS` 180 to 24, `MAX_AREA_RATIO` 0.995 to 0.50,
+`MIN_MARGIN_M` 5 to 60, `FRONT_REACH_M` 12 to 0.5, `WINDOW` 3 to 0). Windowed `_wallhug_probe.tscn` (scratch user dir, window lock):
+9 checks, 0 failed; frames `evidence/city-look-2026-11-13/wallhug_before_after.png`. **Moved fixtures, disclosed:** none was
+weakened. `fh_r2_baseline`'s urban column still lays towns out with the hug off (documented in its module doc, so it did not move);
+count-bearing tests gained the new row (`params_mapping`: 25 divergences and a save-without-key test; `param_catalogue` and
+`ac2_actions`: 118 offered rows; `project_bridge`'s New World restore list). **Left:** open pockets of unplatted ground inside a wall
+where the street plan leaves them, the 5 kept towns, a ragged (not polygonal) outline on some towns, the wall hug in the radial (Venus)
+plan is run but not measured, and `MIN_MARGIN_M`'s widening retry is not exercised by any measured town (a mutant that removes the retry was not run).
 
 ### Vault: rename and move a folder (built 2026-11-13, VE-6's "moving a folder" edge)
 
