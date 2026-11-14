@@ -208,7 +208,7 @@ static func context_actions(app, req: Dictionary) -> Array:
 ## (`DccApp.tool_kind`), so a touch drag still pans and the click lands where the finger lifts.
 const MOVE_TOOL := "move_element"
 
-## What the next `MOVE_TOOL` click moves: `{kind: "label"|"icon", id: int, name: String}`, or `{}` when
+## What the next `MOVE_TOOL` click moves: `{kind: "label"|"icon"|"poi", id: int, name: String}`, or `{}` when
 ## nothing is pending. Cleared by the click, by Escape and by `_begin_move` replacing it.
 static var _move_target: Dictionary = {}
 
@@ -250,6 +250,9 @@ static func element_rows(app, req: Dictionary) -> Array:
 	if first.has("icon"):
 		var h2: Dictionary = first["icon"]
 		rows.append_array(_icon_rows(app, domain, int(h2["id"]), String(h2.get("label", "icon"))))
+	if first.has("poi"):
+		var h3: Dictionary = first["poi"]
+		rows.append_array(_poi_rows(app, int(h3["id"]), String(h3.get("label", ""))))
 	return rows
 
 ## A one-field rename prompt: `DccWidgets.prompt` hosted on the app (so the phone form is the protocol's own);
@@ -377,13 +380,84 @@ static func _icon_rows(app, domain: String, idx: int, name: String) -> Array:
 	rows.append_array(_item_note_rows(app, "icon", idx, name))
 	return rows
 
+## Point-of-interest rows (Ruling EW item 4, CL-11), the same in every domain: **Rename** (`poi_rename`), **Move**
+## (`poi_move`, the Move destination click), **Change kind** (a submenu of the twelve kinds, `poi_set_kind`), **Delete**
+## and the Note row. Each edit is one undo step in the annotation ledger (`annotation_undo.rs`), so Delete does not
+## confirm, for the reason a label's and an icon's do not. A POI is the user's own mark, so no domain's provider carries
+## these verbs for it: they are here for all three.
+static func _poi_rows(app, idx: int, name: String) -> Array:
+	var rows: Array = []
+	var pd: Dictionary = app.bridge.poi_get(idx)
+	if pd.is_empty():
+		return rows
+	var t := name if name != "" else String(pd.get("kind_label", "point of interest"))
+	var nm := String(pd.get("name", ""))
+	rows.append({"id": "el.poi_rename", "label": "Rename “%s”…" % t, "section": "object", "enabled": true,
+		"tap": "Rename", "callable": func() -> void:
+			rename_prompt(app, "Rename point of interest", nm, func(nt: String) -> void:
+				if app.bridge.poi_rename(idx, nt):
+					_annotations_changed(app)
+					app.set_status("hint", "Renamed to %s" % nt, "text_ghost")
+				else:
+					app.set_status("hint", "Rename refused.", "accent"))})
+	rows.append({"id": "el.poi_move", "label": "Move “%s”" % t, "section": "object", "enabled": true,
+		"tap": "Move", "callable": func() -> void: _begin_move(app, "poi", idx, t)})
+	var kinds: Array = []
+	for k in app.bridge.poi_kinds():
+		var kd: Dictionary = k
+		var key := String(kd.get("key", ""))
+		kinds.append({"label": String(kd.get("label", key)), "callable": func() -> void:
+			if app.bridge.poi_set_kind(idx, key):
+				_annotations_changed(app)
+				app.set_status("hint", "Kind changed to %s" % String(kd.get("label", key)), "text_ghost")})
+	if not kinds.is_empty():
+		rows.append({"id": "el.poi_kind", "label": "Change kind", "section": "object", "enabled": true, "children": kinds,
+			"phone_jump": func() -> void: _poi_kind_dialog(app, idx)})
+	rows.append({"id": "el.poi_delete", "label": "Delete “%s”" % t, "section": "object", "enabled": true,
+		"danger": true, "tap": "Delete", "callable": func() -> void:
+			if app.bridge.poi_delete(idx):
+				_annotations_changed(app)
+				app.set_status("hint", "Point of interest deleted · Edit > Undo puts it back", "text_ghost")})
+	rows.append_array(_item_note_rows(app, "poi", idx, t))
+	return rows
+
+## **The phone's Change kind** (`phone_jump` of the `el.poi_kind` row): the sheet has no second menu level, so the row
+## opens one small dialog listing the twelve kinds (`DccWidgets.custom_dialog`, the phone sheet body on the phone). A
+## press sets the kind through `poi_set_kind` (one undo step) and closes it; Close changes nothing. The desktop and tablet
+## card use the row's own `children` instead, so this is the second route to the same engine call, never a second rule.
+static func _poi_kind_dialog(app, idx: int) -> void:
+	var made: Dictionary = DccWidgets.custom_dialog(app, "Change kind", "Close")
+	var dlg: ConfirmationDialog = made["dialog"]
+	var body: VBoxContainer = made["body"]
+	var cur := String(app.bridge.poi_get(idx).get("kind", ""))
+	for k in app.bridge.poi_kinds():
+		var kd: Dictionary = k
+		var key := String(kd.get("key", ""))
+		var lbl := String(kd.get("label", key)) + ("  ✓" if key == cur else "")
+		var b := DccWidgets.action(body, lbl, func() -> void:
+			if app.bridge.poi_set_kind(idx, key):
+				_annotations_changed(app)
+				app.set_status("hint", "Kind changed to %s" % String(kd.get("label", key)), "text_ghost")
+			if is_instance_valid(dlg) and not dlg.is_queued_for_deletion():
+				dlg.hide()
+				dlg.queue_free())
+		b.name = "PoiKind_" + key
+		if DccTheme.is_phone():
+			var t := float(app._ptap(44))
+			b.custom_minimum_size = Vector2(b.custom_minimum_size.x, maxf(b.custom_minimum_size.y, t))
+	dlg.canceled.connect(func() -> void:
+		if is_instance_valid(dlg) and not dlg.is_queued_for_deletion():
+			dlg.queue_free())
+	DccWidgets.present_custom_dialog(made)
+
 ## Ruling EQ item 2: the Note row of a label or an icon, in every domain. The vault entity id comes from the
 ## engine (the item's cell, `vault_label_entity_id` / `vault_icon_entity_id`), never from the index, which
 ## shifts when an earlier item is deleted. The row opens the vault at that entity (an existing note, or the
 ## attach-or-create flow), the way a settlement's does. No row, rather than a dead one, when the engine
 ## cannot name the item (an index the list no longer holds, or a build without the binding).
 static func _item_note_rows(app, kind: String, idx: int, name: String) -> Array:
-	var got: Dictionary = app.bridge.vault_label_entity_id(idx) if kind == "label" else app.bridge.vault_icon_entity_id(idx)
+	var got: Dictionary = app.bridge.vault_label_entity_id(idx) if kind == "label" \
+		else (app.bridge.vault_poi_entity_id(idx) if kind == "poi" else app.bridge.vault_icon_entity_id(idx))
 	if not bool(got.get("ok", false)) or not got.has("entity_id"):
 		return []
 	var eid := int(got["entity_id"])
@@ -399,7 +473,7 @@ static func _annotations_changed(app) -> void:
 	if app.viewport != null:
 		app.viewport.refresh_annotations()
 	## A selected label or icon (Context panel page, header) re-reads what a rename or move just changed.
-	if app.right_dock_ctrl != null and String(app.selection.get("kind", "")) in ["label", "icon"]:
+	if app.right_dock_ctrl != null and String(app.selection.get("kind", "")) in ["label", "icon", "poi"]:
 		app.right_dock_ctrl.refresh_shown()
 	for ws in app._workspaces:
 		if ws.has_method("on_annotations_changed"):
@@ -419,7 +493,8 @@ static func _move_click(app, gx: float, gy: float) -> void:
 		return
 	var kind := String(_move_target["kind"])
 	var id := int(_move_target["id"])
-	var ok: bool = app.bridge.label_move(id, gx, gy) if kind == "label" else app.bridge.icon_move(id, gx, gy)
+	var ok: bool = app.bridge.label_move(id, gx, gy) if kind == "label" \
+		else (app.bridge.poi_move(id, gx, gy) if kind == "poi" else app.bridge.icon_move(id, gx, gy))
 	if not ok:
 		app.set_status("hint", "Cannot move there. Click a spot on the map.", "accent")
 		return

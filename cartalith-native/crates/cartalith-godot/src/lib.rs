@@ -24,6 +24,7 @@ static LAST_RANK_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64
 // `render.rs` so that file's standalone `#[path]` test targets compile them
 // too; see that declaration's doc.
 mod annotation_bridge;
+mod poi_bridge;
 mod annotation_undo;
 mod asset_bridge;
 mod bake_bridge;
@@ -7161,6 +7162,14 @@ struct WorldGen {
     /// landmark that is no longer placed is inert.
     landmark_user_names: std::collections::BTreeMap<String, String>,
 
+    /// Ruling EW item 4 (CL-11): the user-placed points of interest, in placement order. A fourth annotation store
+    /// (`AnnoStore::Pois`), so every edit is an undo step. Saved as `annotations/pois.json` only when it has rows or the
+    /// counter below has moved; cleared where the labels and the landmark names are (a new world, a load, a project open).
+    pois: Vec<cartalith_civ::poi::Poi>,
+    /// The id the next POI gets at least (`cartalith_civ::poi::issue_id`). **Only grows**, is not part of any undo snapshot
+    /// and is saved, so a retired id (a deleted or undone POI) is never reissued to a different POI.
+    poi_next_id: u32,
+
     /// `STORY_PLANNING_SCOPE.md` SP-4: every drawn conflict. Emptied with
     /// the world (`absorb`, `load_save`, a recentre); anchors detached when
     /// `tid`s are reissued (`civ_populate`, `civ_clear_places`). See
@@ -7536,6 +7545,8 @@ impl IRefCounted for WorldGen {
             wildlife: None,
             landmark_store: cartalith_civ::landmark::LandmarkStore::new(),
             landmark_user_names: std::collections::BTreeMap::new(),
+            pois: Vec::new(),
+            poi_next_id: 1,
             conflicts: cartalith_civ::conflict::ConflictStore::new(),
             carried_foreign: std::collections::BTreeMap::new(),
             landmark_error: String::new(),
@@ -7963,6 +7974,9 @@ impl WorldGen {
         self.civ = None;
         self.sculpt = None;
         self.icons = None;
+        // Ruling EW item 4 (CL-11): a new world has none of the previous world's user-placed points of interest.
+        self.pois.clear();
+        self.poi_next_id = 1;
         self.civ_tools = None;
         self.paint = None;
         self.labels = None;
@@ -10643,6 +10657,11 @@ impl WorldGen {
         // installed at the end of this function (Ruling AU); a tree's are
         // restored by `project_open` from `annotations/icons.json`.
         self.icons = None;
+        // Ruling EW item 4 (CL-11): the outgoing world's points of interest go for the same reason (grid coordinates over the
+        // previous world's dimensions) and their id counter restarts; `project_open` restores this archive's own from
+        // `annotations/pois.json`.
+        self.pois.clear();
+        self.poi_next_id = 1;
         // Same restriction as `civ` above, for the same reason: a loaded
         // save has no `territory` for `civ_tools_bridge::CivTools::
         // territory_base` to be a snapshot OF (`project_open` builds one

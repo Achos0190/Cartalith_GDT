@@ -25,7 +25,8 @@ class_name PlaceEditorWindow
 ##
 ## ## What is deliberately absent
 ##
-## - **Category (settlement ↔ POI).** POI is not a ported concept
+## - **Category (settlement ↔ POI).** (As of Ruling EW item 4, 2026-11-14, user-placed POIs exist as their own marker, placed
+##   by the CARTO Point of interest tool; they are not a settlement category, so this selector is still absent.) POI is not a ported SETTLEMENT concept
 ##   (`civ_tools_bridge.rs`'s module doc, `GUI_GAP_REGISTER.md` CV-01) -- the
 ##   selector would have exactly one option.
 ## - **`peCityPreview`** (the town-layout *thumbnail* inline in the popup,

@@ -197,6 +197,8 @@ impl WorldGen {
             d.set("icons", hex(fnv1a(format!("{:?}", i.icons).as_bytes())).as_str());
         }
         d.set("landmark_names", hex(fnv1a(format!("{:?}", self.landmark_user_names).as_bytes())).as_str());
+        // Ruling EW item 4: the user-placed points of interest, a fourth annotation store.
+        d.set("pois", hex(fnv1a(format!("{:?}", self.pois).as_bytes())).as_str());
         d
     }
 }

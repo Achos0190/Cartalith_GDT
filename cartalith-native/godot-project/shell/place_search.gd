@@ -128,6 +128,8 @@ func build(bridge) -> void:
 	if bool(bridge.get("has_world")):
 		_add_cultures(bridge.get_cultures() if bridge.has_method("get_cultures") else [])
 	_add_labels(labels)
+	## Ruling EW item 4: the user-placed points of interest.
+	_add_pois(bridge.poi_list() if bridge.has_method("poi_list") else [])
 	## Ruling EI/EL: placed landmarks, by their name (the user's, else type + nearest place). `landmark_names()`
 	## is empty before a landmark run, so a world with none indexes none.
 	_add_landmarks(bridge.landmark_names() if bridge.has_method("landmark_names") else [])
@@ -287,6 +289,26 @@ func _add_labels(labels: Array) -> void:
 			"x": float(d.get("x", 0)),
 			"y": float(d.get("y", 0)),
 			"entity": "label",
+			"id": int(d.get("index", -1)),
+		})
+
+# -- Points of interest (Ruling EW item 4, CL-11) ----------------------------------------------------------------------
+
+## One row per user-placed point of interest (`EngineBridge.poi_list()`). The name is the user's, or the kind's label for an
+## unnamed one (so it is findable by what it is, never by an invented name). `id` is the row's index in `poi_list()`, the
+## handle `select("poi", id)`, `poi_get()` and the card take; the position is the pin's own (a continuous grid point).
+func _add_pois(pois: Array) -> void:
+	for p in pois:
+		var d: Dictionary = p
+		var named := String(d.get("name", "")).strip_edges()
+		var kind_label := String(d.get("kind_label", "Point of interest"))
+		_rows.append({
+			"name": named if named != "" else kind_label,
+			"kind": "poi",
+			"subtitle": "%s · at grid (%d, %d)" % [kind_label, int(float(d.get("x", 0.0))), int(float(d.get("y", 0.0)))],
+			"x": float(d.get("x", 0.0)),
+			"y": float(d.get("y", 0.0)),
+			"entity": "poi",
 			"id": int(d.get("index", -1)),
 		})
 

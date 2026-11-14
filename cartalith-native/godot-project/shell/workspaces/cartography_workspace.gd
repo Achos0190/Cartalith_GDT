@@ -386,6 +386,9 @@ func _build() -> void:
 	DccWidgets.tools_block(self, app, app.tool_group, [
 		{"id": "icon", "glyph": "tool_icon", "label": "Icon (I)"},
 		{"id": "label", "glyph": "tool_label", "label": "Label (L)"},
+		## Ruling EW item 4 (CL-11): user-placed points of interest. CARTO beside Label and Icon, the other two hand-placed
+		## marks that share the annotation undo ledger and the Context card's Move / Rename / Delete / Note rows.
+		{"id": "poi", "glyph": "tool_poi", "label": "Point of interest"},
 	])
 
 	## Added and set up *before* the categories, because those categories are
@@ -1258,6 +1261,8 @@ func _register_tools() -> void:
 	app.register_tool_drag_handler("icon", _on_icon_drag)
 	app.register_tool_release_handler("icon", _on_icon_release)
 
+	## Ruling EW item 4 (CL-11): a click places a point of interest of the kind the tool options row holds.
+	app.register_tool_click_handler("poi", _on_poi_click)
 	app.register_tool_click_handler("label", _on_label_click)
 	app.register_tool_drag_handler("label", _on_label_drag)
 	app.register_tool_release_handler("label", _on_label_release)
@@ -1302,6 +1307,9 @@ func _on_any_tool_armed(id: String) -> void:
 			_rebuild_label_panel()
 			if app.right_dock_ctrl.has_method("show_anno"):
 				app.right_dock_ctrl.show_anno()
+		"poi":
+			## Ruling EW item 4 (CL-11): the kind picker is the tool's whole option row; nothing in the dock changes.
+			app.set_tool_options(_build_poi_tool_options_row)
 		_:
 			_label_drag_mode = DragMode.NONE
 			_label_drag_index = -1
@@ -2170,6 +2178,64 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 	DccWidgets.action(row, "Cancel", _cancel_label_edit)
 	row.add_child(DccTheme.spacer())
 
+
+# -- The Point of interest tool (Ruling EW item 4, CL-11, `CITY_MAP_LOOK_SCOPE.md`) -------------------------------------
+#
+# **Why CARTO, beside Label and Icon.** A point of interest is the user's own hand-placed mark: it has no simulation
+# meaning, it is saved with the world as `annotations/pois.json`, and its edits go through the same annotation undo
+# ledger (`AnnoStore::Pois`) as a label's and an icon's. CARTO already owns the other two such tools, and the Context
+# card's Move / Rename / Delete / Note rows (`GlobalTools._poi_rows`) are domain-independent, so the placed mark stays
+# editable from WORLD and CIVIL. CIVIL's tools place simulated things (settlements, ways), which a POI is not.
+
+## The `poi_kinds()` key the next placement uses. A kind the engine does not list is never held: the picker is built from
+## the engine's own list, so this starts as the list's first entry and only ever takes one of its keys.
+var _poi_kind := "tavern"
+
+## The Point of interest tool's options row: the kind picker (the engine's twelve kinds, `poi_kinds()`) and the one line
+## that says what a click does. The name is asked for at the click, not held here, so no stale name is ever placed.
+func _build_poi_tool_options_row(row: HBoxContainer) -> void:
+	row.add_child(DccTheme.mono_label("CARTO · POINT OF INTEREST", "accent", DccTheme.FS_SMALL, 2, true))
+	var kinds: Array = bridge.poi_kinds()
+	if kinds.is_empty():
+		row.add_child(DccTheme.label("this build has no point-of-interest binding", "text_ghost", DccTheme.FS_MICRO))
+		row.add_child(DccTheme.spacer())
+		return
+	var labels: Array = []
+	var sel := 0
+	for i in kinds.size():
+		var kd: Dictionary = kinds[i]
+		labels.append(String(kd.get("label", kd.get("key", ""))))
+		if String(kd.get("key", "")) == _poi_kind:
+			sel = i
+	var pick := DccWidgets.choice(row, "Kind", labels, sel, func(i: int) -> void:
+		_poi_kind = String((kinds[i] as Dictionary).get("key", _poi_kind)))
+	pick.name = "PoiKind"
+	row.add_child(DccTheme.label("click the map to place one · Inspect then picks it, and its card moves, renames and deletes it",
+		"text_ghost", DccTheme.FS_MICRO))
+	row.add_child(DccTheme.spacer())
+
+## A click with the Point of interest tool armed: asks for the name, then places one of `_poi_kind` there. An empty name
+## places nothing (`DccWidgets.prompt` calls back only for a non-empty answer), so a stray click never leaves an unnamed
+## pin. Cancelling places nothing.
+func _on_poi_click(gx: float, gy: float) -> void:
+	var kind := _poi_kind
+	var label := kind
+	for k in bridge.poi_kinds():
+		if String((k as Dictionary).get("key", "")) == kind:
+			label = String((k as Dictionary).get("label", kind))
+	DccWidgets.prompt(app, "New %s" % label.to_lower(), "Name", "", "Place", func(nm: String) -> void:
+		place_poi(gx, gy, kind, nm), "Name the place; it can be renamed, moved, given a note or deleted from its card.")
+
+## Places a point of interest and refreshes the map: the one path the click's dialog and the probes both take. Returns
+## its index, or -1 (and says why on the status line) when the engine refused (off the grid, no world).
+func place_poi(gx: float, gy: float, kind: String, nm: String) -> int:
+	var idx := bridge.poi_add(gx, gy, kind, nm)
+	if idx < 0:
+		app.set_status("hint", "Cannot place a point of interest there. Click a spot on the map.", "accent")
+		return -1
+	app.viewport.refresh_annotations()
+	app.set_status("hint", "Placed %s · Edit > Undo takes it back" % nm, "text_ghost")
+	return idx
 
 
 # -- The ENV prototype's two new CARTO panels (stage 2, 2026-08-31) -----------

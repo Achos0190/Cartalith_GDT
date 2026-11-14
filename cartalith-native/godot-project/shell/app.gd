@@ -205,7 +205,7 @@ static func tool_kind(id: String) -> int:
 	match id:
 		"inspect":
 			return ViewportHost.TOOL_NONE
-		"measure", "settlement", "label", "icon", "conflict", "route", "move_element", "colour_fill":
+		"measure", "settlement", "label", "icon", "poi", "conflict", "route", "move_element", "colour_fill":
 			## `colour_fill` (CP-5): a tap seeds the crater outline, so a one-finger drag pans, like the tap tools.
 			return ViewportHost.TOOL_PLACING
 	return ViewportHost.TOOL_DRAWING
@@ -623,7 +623,7 @@ func _select_pick(raw: Dictionary) -> void:
 		return
 	for h in raw.get("hits", []):
 		var k := String((h as Dictionary).get("kind", ""))
-		if k == "label" or k == "icon":
+		if k == "label" or k == "icon" or k == "poi":
 			select(k, int((h as Dictionary)["id"]))
 			return
 		if k == "settlement" or k == "landmark":
@@ -847,7 +847,7 @@ func _apply_lighting_defaults() -> void:
 const SELECTION_HISTORY_MAX := 64
 
 ## PC-1. The one selection: `{"kind": String, "id": int}`, kind one of "settlement", "landmark",
-## "faction", "culture", "conflict", "note", "label", "icon" (the last two Edit-from-context: the id is the index in the
+## "faction", "culture", "conflict", "note", "label", "icon", "poi" (the last three Edit-from-context: the id is the index in the
 ## engine's label or icon store, dropped by `EngineBridge.annotations_removed`); `{}` when nothing is selected (never a plausible default
 ## such as settlement 0: `MISTAKES.md`, "Return, marshal or default a value that can be absent").
 ## Written only by `select()` (and through it by `select_back()`, `select_forward()` and
@@ -896,6 +896,10 @@ func select(kind: String, id: int, opts: Dictionary = {}) -> void:
 	if String(next.get("kind", "")) == "label" and bridge.label_get(id).is_empty():
 		next = {}
 	if String(next.get("kind", "")) == "icon" and bridge.icon_get(id).is_empty():
+		next = {}
+	## Ruling EW item 4 (CL-11): a user-placed point of interest's id is its index in `poi_list()`; one the store does not
+	## hold selects nothing, never a neighbour.
+	if String(next.get("kind", "")) == "poi" and bridge.poi_get(id).is_empty():
 		next = {}
 	if bool(opts.get("history", true)) and next != selection:
 		_selection_back.append(selection.duplicate())

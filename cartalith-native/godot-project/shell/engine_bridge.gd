@@ -34,12 +34,12 @@ signal params_applied()            ## A generate landed; nothing is stale.
 signal world_loaded()              ## A save or asset pack changed the world.
 signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
 ## Edit-from-context: items were REMOVED from a hand-placed store, so the indices of the ones after them shifted.
-## `kind` is `"label"` or `"icon"`. Emitted after a successful `label_delete` / `icon_delete` and after
+## `kind` is `"label"`, `"icon"` or `"poi"` (Ruling EW item 4). Emitted after a successful `label_delete` / `icon_delete` / `poi_delete` and after
 ## `label_clear_all` / `icon_clear_all`; `DccApp` drops a selection of that kind (its id would now name a neighbour).
 ## Not emitted for a move, a rename or a create, which keep every index.
 signal annotations_removed(kind: String)
 ## Edit-from-context undo: a label, icon or landmark-name edit was UNDONE or REDONE (by Edit > Undo, Ctrl+Z, the phone's
-## chip, the History panel or a grouped undo). `store` is `"label"`, `"icon"` or `"name"`; `shifted` is whether the
+## chip, the History panel or a grouped undo). `store` is `"label"`, `"icon"`, `"name"` or `"poi"`; `shifted` is whether the
 ## store's row count changed, so every later index moved. For `"label"` / `"icon"` with `shifted`, `annotations_removed`
 ## is emitted first (a selection or history entry naming an index is stale); this signal then tells the shell to redraw.
 ## Emitted after the engine call, from `undo_last` / `redo_last` / `undo_revert_to` themselves.
@@ -4029,7 +4029,7 @@ func _publish_annotation_step() -> void:
 	_anno_step_seen = int(st["n"])
 	var store := String(st.get("store", ""))
 	var shifted := bool(st.get("shifted", false))
-	if shifted and (store == "label" or store == "icon"):
+	if shifted and (store == "label" or store == "icon" or store == "poi"):
 		annotations_removed.emit(store)
 	annotations_restored.emit(store, shifted)
 	_annotations_edited()
@@ -4863,6 +4863,87 @@ func icon_clear_all() -> void:
 	world_gen.icon_clear_all()
 	_annotations_edited()
 	annotations_removed.emit("icon")
+
+# -- User-placed points of interest (Ruling EW item 4, CL-11) -----------------------------------------------------
+# `WorldGen`'s `poi_*` surface (`poi_bridge.rs`). Each mutating wrapper refuses while `generating` (the worker holds
+# `WorldGen`; any `#[func]` call then is the `bind() failed` panic, see `param_get`), marks the world dirty, queues the
+# `annotations_edited` signal AFTER the engine call, and `poi_delete` also emits `annotations_removed("poi")` because
+# the rows after it shifted. Every edit is one undo step in the annotation ledger.
+
+## The kinds the Place tool offers, in picker order: `[{key, label}]`. `[]` against a cdylib without the binding.
+func poi_kinds() -> Array:
+	if generating or not _has("poi_kinds"):
+		return []
+	return world_gen.poi_kinds()
+
+## Places a point of interest of kind `kind` (a `poi_kinds` key) named `name` (may be empty) at grid `(gx, gy)`.
+## The new POI's index, or `-1` when refused (no world, off-grid, unknown kind) or against a cdylib without the binding.
+func poi_add(gx: float, gy: float, kind: String, name: String) -> int:
+	if generating or not _has("poi_add"):
+		return -1
+	mark_world_dirty()
+	var idx: int = world_gen.poi_add(gx, gy, kind, name)
+	_annotations_edited()
+	return idx
+
+## POI `index` as `{id, x, y, kind, kind_label}` plus `name` when it has one; `{}` for an index the store does not hold.
+func poi_get(index: int) -> Dictionary:
+	if generating or not _has("poi_get"):
+		return {}
+	return world_gen.poi_get(index)
+
+## Every POI in store order, each `poi_get`'s shape plus `index`. `[]` for none, while generating, or without the binding.
+func poi_list() -> Array:
+	if generating or not _has("poi_list"):
+		return []
+	return world_gen.poi_list()
+
+## Moves POI `index` to `(gx, gy)`; its note stays bound. `false` for a bad index or an off-grid point.
+func poi_move(index: int, gx: float, gy: float) -> bool:
+	if generating or not _has("poi_move"):
+		return false
+	mark_world_dirty()
+	var ok: bool = world_gen.poi_move(index, gx, gy)
+	_annotations_edited()
+	return ok
+
+## Renames POI `index` (an empty name makes it unnamed). `false` for a bad index.
+func poi_rename(index: int, name: String) -> bool:
+	if generating or not _has("poi_rename"):
+		return false
+	mark_world_dirty()
+	var ok: bool = world_gen.poi_rename(index, name)
+	_annotations_edited()
+	return ok
+
+## Changes POI `index`'s kind to `kind` (a `poi_kinds` key). `false` for a bad index or an unknown key.
+func poi_set_kind(index: int, kind: String) -> bool:
+	if generating or not _has("poi_set_kind"):
+		return false
+	mark_world_dirty()
+	var ok: bool = world_gen.poi_set_kind(index, kind)
+	_annotations_edited()
+	return ok
+
+## Deletes POI `index`; later indices shift (`annotations_removed("poi")`). `false` for a bad index.
+func poi_delete(index: int) -> bool:
+	if generating or not _has("poi_delete"):
+		return false
+	mark_world_dirty()
+	var ok: bool = world_gen.poi_delete(index)
+	_annotations_edited()
+	if ok:
+		annotations_removed.emit("poi")
+	return ok
+
+## The vault binding of POI `index`: `{ok, entity_id, label}` (the entity id IS the stored id, so a move or rename keeps
+## the note), or `{ok: false, error}`. The vault's own kind is `"poi"`.
+func vault_poi_entity_id(index: int) -> Dictionary:
+	if generating:
+		return {"ok": false, "error": _BUSY_TEXT}
+	if not _has("vault_poi_entity_id"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_poi_entity_id(index)
 
 
 # icon_bridge/generate.rs -- the generated placement pass (owner ruling
@@ -8723,8 +8804,8 @@ func vault_write_section(link_id: String, expect_hash: String) -> Dictionary:
 ## Every entity kind this build can address in a vault, in the order the
 ## docks list them. `faction` and `culture` both joined
 ## `settlement`/`province`/`continent` on 2026-08-25 (`GUI_GAP_REGISTER.md`
-## CV-22 and CV-02); `poi` is deliberately absent and will stay absent while
-## this port has no point-of-interest entity (CV-01).
+## CV-22 and CV-02); `label`, `icon` (Ruling EQ item 2) and `poi` (Ruling EW item 4, CL-11, 2026-11-14: a user-placed point of
+## interest, reversing CV-01) joined later: the engine's own list is the one to read.
 ##
 ## **Build every kind list from this, never from a literal.** The fallback
 ## below carried the pre-2026-08-25 three for months after the engine grew

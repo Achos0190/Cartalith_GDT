@@ -428,6 +428,8 @@ const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623  ## Relief exaggeration ▸ Use the engine's own value.
 ## Preferences ▸ Graphics ▸ Town look (CL-1): row 0 map look, row 1 ink plan. 625-626, free of 620-623 and 630.
 const ID_GFX_CITY_LOOK_FIRST := 625
+## Marker style (owner request 2026-11-14): row 0 Pins, row 1 Circles. 627-628, free by grep of shell/ and drafts/.
+const ID_GFX_MARKER_STYLE_FIRST := 627
 const ID_ATLAS_CAP_FIRST := 630     ## rung i is +i (630-636)
 ## The built-in `Default` is `ID_WIN_LAYOUT_FIRST`; saved layout i is +1+i.
 ## Preferences ▸ Graphics ▸ 3D height: rung i is +i, `HEIGHT_RUNGS` (13) long, 680-692. Clear of the layout span at 640
@@ -655,6 +657,8 @@ var _reset_stage_popup: PopupMenu
 var _exag_popup: PopupMenu
 ## Preferences ▸ Graphics ▸ Town look (CL-1), the same two looks the City Viewer's dropdown offers.
 var _city_look_popup: PopupMenu
+## Every Marker style submenu (Preferences ▸ Graphics and Assets), all ticked from the one stored value.
+var _marker_style_popups: Array = []
 var _h3d_popup: PopupMenu  ## Preferences ▸ 3D height rungs (`_build_h3d_menu`)
 ## `Size cap · GB` submenu of the atlas cache.
 var _atlas_cap_popup: PopupMenu
@@ -2696,6 +2700,8 @@ const LANDMARK_TYPES_WINDOW := preload("res://shell/landmark_types_window.gd")
 func _build_landmark_types_row(p: PopupMenu) -> void:
 	_live(p, "Landmark types…", ID_LM_TYPES)
 	p.set_item_tooltip(p.item_count - 1, LANDMARK_TYPES_NOTE)
+	## The marker-style choice sits beside the landmarks it restyles (owner request 2026-11-14).
+	_build_marker_style_menu(p, "MarkerStyleAssets")
 
 ## Opens (building on first use) the Landmark types window. Also the entry for probes and the phone MENU.
 func _open_landmark_types() -> void:
@@ -4643,6 +4649,7 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 	## defaults to true scale instead (Ruling CT; `View3D.VERTICAL_EXAGGERATION_DEFAULT`).
 	_build_relief_exag_menu(p)
 	_build_city_look_menu(p)
+	_build_marker_style_menu(p, "MarkerStyle")
 	p.add_separator("TILES & LOD")
 	## **§2.5's Tiles & LOD group is four items, and this menu shipped all four
 	## behind one disabled row** reading `Tiled LOD · tile size · LOD level ·
@@ -4964,6 +4971,45 @@ func _on_city_look(id: int) -> void:
 	_refresh_city_look_menu()
 	_host.set_status("hint", "town look: %s" % ("map look" if DccSettings.city_look() == "map" else "ink plan"), "text_dim")
 	## The overlay holds the town layer; it re-reads the look on every draw, so a redraw is all it needs.
+	if _host != null and "viewport" in _host and _host.viewport != null and _host.viewport.overlay != null:
+		_host.viewport.overlay.queue_redraw()
+
+# -- Preferences ▸ Graphics ▸ Marker style (owner request 2026-11-14, Ruling EW) ---------------------------------------
+
+## Builds a Marker style submenu for parent `p`: two radio rows, Pins (the teardrop, the default) and Circles (the
+## class ring from before CL-2), ticked from `DccSettings.marker_style()` at build time and on `about_to_popup`
+## (a group with no tick at build time reads as having no setting, `_prefvalue_probe`). Called for Preferences ▸ Graphics
+## and for Assets, beside Landmark types, so the choice is where either the map's look or its landmarks are being thought
+## about; each builds its OWN popup (a PopupMenu has one parent) and both are ticked from the one stored value.
+func _build_marker_style_menu(p: PopupMenu, node_name: String) -> void:
+	var pop := PopupMenu.new()
+	pop.name = node_name
+	_shell.style_popup(pop)
+	pop.add_radio_check_item("Pins", ID_GFX_MARKER_STYLE_FIRST)
+	pop.add_radio_check_item("Circles", ID_GFX_MARKER_STYLE_FIRST + 1)
+	pop.id_pressed.connect(_on_marker_style)
+	pop.about_to_popup.connect(_refresh_marker_style_menus)
+	_marker_style_popups.append(pop)
+	_refresh_marker_style_menus()
+	p.add_child(pop)
+	p.add_submenu_item("Marker style", node_name)
+	p.set_item_tooltip(p.item_count - 1,
+		"How the map's markers are drawn and clicked: Pins are teardrops that hold a pictogram (orange when the place has a note); Circles are the original landmark rings. The card, the note, the chips and your own points of interest work the same in both. A per-user setting, never stored in a world.")
+
+## Ticks every Marker style popup from the stored choice.
+func _refresh_marker_style_menus() -> void:
+	var circles := DccSettings.markers_are_circles()
+	for pop in _marker_style_popups:
+		if pop != null and is_instance_valid(pop):
+			pop.set_item_checked(0, not circles)
+			pop.set_item_checked(1, circles)
+
+## Serves both Marker style submenus: stores the choice and redraws the map, so the new shape (and its footprint, which
+## every hit test re-reads) is live at once. Never touches the world.
+func _on_marker_style(id: int) -> void:
+	DccSettings.set_marker_style("pins" if id == ID_GFX_MARKER_STYLE_FIRST else "circles")
+	_refresh_marker_style_menus()
+	_host.set_status("hint", "marker style: %s" % DccSettings.marker_style(), "text_dim")
 	if _host != null and "viewport" in _host and _host.viewport != null and _host.viewport.overlay != null:
 		_host.viewport.overlay.queue_redraw()
 

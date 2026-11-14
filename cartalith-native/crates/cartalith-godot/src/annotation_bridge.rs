@@ -85,6 +85,7 @@ impl WorldGen {
             AnnoStore::Labels => self.labels.as_ref().map(|l| AnnoSnap::Labels(l.labels.clone())),
             AnnoStore::Icons => self.icons.as_ref().map(|i| AnnoSnap::Icons(i.icons.clone())),
             AnnoStore::Names => Some(AnnoSnap::Names(self.landmark_user_names.clone())),
+            AnnoStore::Pois => Some(AnnoSnap::Pois(self.pois.clone())),
         }
     }
 
@@ -95,6 +96,7 @@ impl WorldGen {
             AnnoSnap::Labels(v) => self.labels.as_ref().is_some_and(|l| l.labels == *v),
             AnnoSnap::Icons(v) => self.icons.as_ref().is_some_and(|i| i.icons == *v),
             AnnoSnap::Names(m) => self.landmark_user_names == *m,
+            AnnoSnap::Pois(v) => self.pois == *v,
         }
     }
 
@@ -121,6 +123,7 @@ impl WorldGen {
                 self.landmark_store.mark_icon_committed();
             }
             AnnoSnap::Names(m) => self.landmark_user_names = m.clone(),
+            AnnoSnap::Pois(v) => self.pois = v.clone(),
         }
         self.anno_undo.set_last_step(AnnoStep { store: s.store(), shifted: was != s.len() });
     }
@@ -289,7 +292,7 @@ impl WorldGen {
     }
 
     /// What the last undo or redo of an annotation step did, for the shell's
-    /// repaint: `{store: "label"|"icon"|"name", shifted: bool, n: int}`. **Empty**
+    /// repaint: `{store: "label"|"icon"|"name"|"poi", shifted: bool, n: int}`. **Empty**
     /// before any such step (never a plausible store name for "none").
     /// `shifted` means the row count changed, so every later index moved and a
     /// selection or history entry naming one is stale.

@@ -58,6 +58,7 @@ use std::sync::Arc;
 
 use cartalith_assets::manual::ManualIcon;
 use cartalith_civ::labels::MapLabel;
+use cartalith_civ::poi::Poi;
 
 /// How many annotation edits are held. A labelled judgement, not a
 /// measurement: an entry is two shared `Vec` snapshots of a store that holds
@@ -74,11 +75,13 @@ pub enum AnnoStore {
     Icons,
     /// `WorldGen::landmark_user_names`.
     Names,
+    /// `WorldGen::pois`, the user-placed points of interest (Ruling EW item 4, CL-11).
+    Pois,
 }
 
 impl AnnoStore {
     /// Every store, in the order the liveness walk takes them.
-    pub const ALL: [AnnoStore; 3] = [AnnoStore::Labels, AnnoStore::Icons, AnnoStore::Names];
+    pub const ALL: [AnnoStore; 4] = [AnnoStore::Labels, AnnoStore::Icons, AnnoStore::Names, AnnoStore::Pois];
 
     /// The key `annotation_last_step` reports and the shell matches on
     /// (`"label"` and `"icon"` are the `annotations_removed` kinds).
@@ -87,6 +90,7 @@ impl AnnoStore {
             AnnoStore::Labels => "label",
             AnnoStore::Icons => "icon",
             AnnoStore::Names => "name",
+            AnnoStore::Pois => "poi",
         }
     }
 }
@@ -100,6 +104,9 @@ pub enum AnnoSnap {
     Icons(Vec<ManualIcon>),
     /// Landmark key to the user's name for it.
     Names(BTreeMap<String, String>),
+    /// The user-placed points of interest (`WorldGen::pois`; Ruling EW item 4). The id counter is NOT in the snapshot, so an
+    /// undone placement never lets a later one reuse its id.
+    Pois(Vec<Poi>),
 }
 
 impl AnnoSnap {
@@ -109,6 +116,7 @@ impl AnnoSnap {
             AnnoSnap::Labels(_) => AnnoStore::Labels,
             AnnoSnap::Icons(_) => AnnoStore::Icons,
             AnnoSnap::Names(_) => AnnoStore::Names,
+            AnnoSnap::Pois(_) => AnnoStore::Pois,
         }
     }
 
@@ -119,6 +127,7 @@ impl AnnoSnap {
             AnnoSnap::Labels(v) => v.len(),
             AnnoSnap::Icons(v) => v.len(),
             AnnoSnap::Names(m) => m.len(),
+            AnnoSnap::Pois(v) => v.len(),
         }
     }
 }

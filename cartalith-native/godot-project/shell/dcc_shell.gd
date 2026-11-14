@@ -10746,7 +10746,7 @@ func _select_search_hit(d: Dictionary, close_fn: Callable) -> void:
 			vw.call("open_note", String(d["rel"]))
 		close_fn.call()
 		return
-	if (entity == "settlement" or entity == "faction" or entity == "culture") and d.has("id") and has_method("select"):
+	if (entity == "settlement" or entity == "faction" or entity == "culture" or entity == "poi") and d.has("id") and has_method("select"):
 		call("select", entity, int(d["id"]))
 	close_fn.call()
 

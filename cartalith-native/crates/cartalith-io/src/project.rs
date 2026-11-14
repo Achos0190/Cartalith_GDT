@@ -618,6 +618,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "history/timeline.json",
     "annotations/labels.json",
     "annotations/icons.json",
+    "annotations/pois.json",
     "annotations/regions.json",
     "annotations/measurements.json",
     "annotations/bookmarks.json",

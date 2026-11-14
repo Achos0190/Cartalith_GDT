@@ -251,7 +251,7 @@ sample), through `_citylook_probe.gd`'s harness extended for the sweep. **Pixel 
 | **CL-8** | **Title** (row 9) | Serif face with a 6 to 10 px stroke, readable (stroke versus fill contrast at least 4.5:1) over grass, dirt and water; the font is bundled with its licence file, not the OS's |
 | **CL-9** | **Harbour and piers** (row 8), only on a town with a harbour | Pier geometry crossed additively (no existing key changes, `urban_layouts` shipped keys byte-equal); piers drawn with planks, at least 2 piers on a harbour of rank 3 or above; none on a town with no `harbour_pt` |
 | **CL-10** | **The map's own markers** get the same shape (settlement, landmark, manual icon), behind Q1 | The settlement pin's class, capital ring, coastal badge and trait badges all still drawn and distinguishable at x1 and x16; `_pinlabelovr_probe` (labels clear of pins) unchanged |
-| **CL-11** | **User-placed city pins and Poi** (only if Q5 is answered yes) | A `Poi` entity kind (a seventh `EntityKind`, which moves the guard count in `links.rs`'s doc), save round trip byte-identical on a real prior-format save, undo, a note bound by id |
+| **CL-11** | **User-placed city pins and Poi** (Q5 answered yes, Ruling EW item 4; built, see the 2026-11-14 build note) | A `Poi` entity kind (a seventh `EntityKind`, which moves the guard count in `links.rs`'s doc), save round trip byte-identical on a real prior-format save, undo, a note bound by id |
 
 **Build note, 2026-11-13 (the first build step; status is `STATUS.md`'s).** The restyle rows CL-4 (ground, streets, plaza, water),
 CL-5 (roofs), CL-6 (curtain wall, towers, gates) and CL-7 (trees, fields) were built together as the second selectable style in
@@ -284,6 +284,38 @@ section is what a touch hold opens, and the one-tap route to the note is the chi
 click opens no card (it selects the town and the Context panel follows; the card there needs an anchor in the viewer's own
 window), the CL-1 head-overlap nudge, the settlement pin and the manual icons keep their shapes (CL-10, behind Q1's map half), and
 a landmark's card header still reads `(unnamed)` because `hits_at` carries no landmark name (the Note row below it does).
+
+**Build note, 2026-11-14 (the third build step: CL-11, user-placed points of interest, and the marker-style option; status is `STATUS.md`'s).**
+Ruling EW item 4 (*"Yes, user-placed POIs"*) is built, reversing CV-01 in the code.
+*The entity.* `cartalith-civ/src/poi.rs`: `Poi {id, x, y, kind, name}` and `PoiKind`, the owner's twelve kinds (tavern or inn, shop, smithy,
+temple, shrine, guild, gate, well, ruin, camp, mine, other). The `id` is **stored and never reissued** (a counter that only grows and is
+saved), unlike a label's or an icon's cell-hash identity, so a move or a rename leaves the note bound and a delete leaves an absent
+entity that no later POI can inherit. `EntityKind::Poi` is the ninth kind (`links.rs`'s guard count moved), with a vault folder
+`Points of interest/`.
+*The store.* A fourth annotation store, `AnnoStore::Pois` (`annotation_undo.rs`, `annotation_bridge.rs`): every `poi_*` call
+(`poi_bridge.rs`) goes through `anno_scope`, so a placement, a move, a rename, a kind change and a delete are **one undo step each** and a
+refused call records nothing; the id counter is outside the snapshot, so an undone placement never lets a later POI reuse its id.
+*The file.* The optional `annotations/pois.json` (`SAVEFILE_COMPAT.md` section 11.2a), written only when a POI exists or one ever did, so every older save
+re-serialises unchanged; unreadable rows (unknown kind, off-grid or non-finite point, id 0, repeated id) are dropped, counted and reported.
+*The tool.* CARTO's tools block gains **Point of interest** (beside Label and Icon, which it shares the ledger and the card's rows with; CIVIL's
+tools place simulated things, which a POI is not): a click asks for the name (`DccWidgets.prompt`; an empty name places nothing), the options row
+holds the kind picker. `shell/pin_marker.gd` gains seven pictograms (mug, shop, anvil, banner, gate, ruin, tent) and maps the twelve kinds
+(temple, shrine, well and mine share the landmark pictograms; `other` is the stated dot).
+*A first-class marker.* The overlay draws POIs through the shared `PinMarker` (orange with a linked note, white without), picks them through
+the same head-plus-stem footprint (`_hit_test_poi`, `hits_at`, `_pick_mark`, `marker_at`; a POI takes a pick only when its anchor is strictly nearer than
+the settlement, landmark or icon, so no earlier pair resolves differently), and a left click opens the card with its NOTE section and, through
+`GlobalTools._poi_rows`, **Rename, Move, Change kind (a submenu; on the phone a jump to a dialog) and Delete**; the Context panel has a
+Point of interest page and the Note tab binds through `ContextNote` (`vault_poi_entity_id`). Find on map lists them by name or kind and selects the hit. The City Viewer draws the
+POIs inside the town (within 850 m of the layout's market anchor, by the map town transform inverted) and a click on one selects it.
+*The marker-style option (owner, 2026-11-14: "Can you keep the old circle markers as an option").* `DccSettings.marker_style()`, `pins` (default) or `circles`, in
+Preferences > Graphics beside Town look and in Assets beside Landmark types; per user, never in a world save. `circles` draws the landmark class ring
+**restored from `d2a8b6a3^`** (`map_overlay.gd::_draw_landmark_ring`) with the ring's own footprint (`_landmark_footprint`), and POIs and the City Viewer's derived markers as a
+disc with the same pictogram (`PinMarker.draw_ring`, `hit_ring`); `PinMarker.draw_styled` / `hit_styled` / `rank_distance` are the one branch every drawn
+marker and every pick goes through, so the picked shape is the drawn one in either style.
+**Judgements, for the owner to overturn:** the tool lives in CARTO; a POI is sized like a Local-class landmark and is always shown (the Landmarks switch is the
+generated landmarks'); a name is required to place one; in circles mode a POI is a disc centred on its anchor, not a ring; the City Viewer click selects the POI (the
+Context panel follows) and opens no card, as for its derived pins. **Not built:** a POI category or a faction or way snap in CIVIL (CV-01's own design), a
+settlement-to-POI conversion, hover tooltips for POIs, the tablet frames of the new tool, and POIs drawn into the town plan's own geometry.
 
 CL-0 to CL-3 are the owner's literal asks; CL-4 to CL-8 are render-only and need no ruling; CL-9 adds a Rust key; CL-11 reverses
 a documented decision and needs one.

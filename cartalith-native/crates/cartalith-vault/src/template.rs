@@ -271,6 +271,8 @@ pub fn suggested_path(kind: crate::EntityKind, name: &str) -> String {
         // Ruling EQ item 2, 2026-11-11.
         crate::EntityKind::Label => "Labels",
         crate::EntityKind::Icon => "Icons",
+        // Ruling EW item 4 (CL-11), 2026-11-14: a user-placed point of interest.
+        crate::EntityKind::Poi => "Points of interest",
     };
     format!("{folder}/{}.md", sanitise(name))
 }

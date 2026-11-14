@@ -71,14 +71,16 @@ use std::collections::BTreeMap;
 /// the definition on 2026-09-06:
 /// `awk '/^pub enum EntityKind \{/,/^\}/' links.rs | grep -cE '^    [A-Z][A-Za-z]+,$'`
 /// → `6`. **Ruling EQ item 2 (2026-11-11) added `Label` and `Icon`: the count is
-/// now `8`.** A ninth needs this number moved in the same change.
+/// now `8`.** **Ruling EW item 4 (2026-11-14) added `Poi`: the count is now
+/// `9`.** A tenth needs this number moved in the same change.
 ///
-/// §3 of the design also lists POIs and region labels. **POIs are not a
-/// ported concept** in this port at all — `civ_tools_bridge.rs`'s module doc
-/// and `GUI_GAP_REGISTER.md` CV-01 record that as a deliberate decision, and
-/// `place_editor_window.gd` already tells the user so — so there is no
-/// `Poi` variant here and building one would be inventing an entity to hang
-/// a feature on. The enum is `#[non_exhaustive]`-in-spirit: §3's own
+/// §3 of the design also lists POIs and region labels. **POIs were not a
+/// ported concept until Ruling EW item 4**: `civ_tools_bridge.rs`'s module doc
+/// and `GUI_GAP_REGISTER.md` CV-01 recorded that as a deliberate decision, and
+/// `place_editor_window.gd` told the user so, until the owner reversed it on
+/// 2026-11-13 (*"Yes, user-placed POIs"*). `Poi` is now a variant, which is
+/// the "one variant plus a `key()` case" change below; region labels are
+/// still not one. The enum is `#[non_exhaustive]`-in-spirit: §3's own
 /// requirement is that "additional Cartalith entity types can be added later
 /// without redesigning the storage model", and adding a variant here plus a
 /// `key()` case is that whole change.
@@ -143,6 +145,11 @@ pub enum EntityKind {
     /// addressed by [`icon_entity_id`] over its cell, with the same move and
     /// delete rules as [`EntityKind::Label`].
     Icon,
+    /// Ruling EW item 4 (CL-11, 2026-11-13: *"Yes, user-placed POIs"*), which **reverses CV-01**: a user-placed point of
+    /// interest (`cartalith_civ::poi::Poi`), addressed by its **stored, never-reissued id** (`Poi::id`), not by a hash of
+    /// its cell as a label and an icon are. A move or rename therefore leaves its note bound, and a delete leaves the
+    /// link as an absent entity that no later POI can inherit.
+    Poi,
 }
 
 /// The wire key of a hand-placed label: `label@<x>,<y>` over the label's grid
@@ -358,6 +365,7 @@ impl EntityKind {
             EntityKind::Landmark => "landmark",
             EntityKind::Label => "label",
             EntityKind::Icon => "icon",
+            EntityKind::Poi => "poi",
         }
     }
 
@@ -374,6 +382,7 @@ impl EntityKind {
             "landmark" => Some(EntityKind::Landmark),
             "label" => Some(EntityKind::Label),
             "icon" => Some(EntityKind::Icon),
+            "poi" => Some(EntityKind::Poi),
             _ => None,
         }
     }
@@ -1276,12 +1285,16 @@ mod tests {
             (EntityKind::Landmark, "landmark"),
             (EntityKind::Label, "label"),
             (EntityKind::Icon, "icon"),
+            (EntityKind::Poi, "poi"),
         ];
         for (k, s) in wire {
             assert_eq!(k.as_str(), *s, "as_str drifted from the wire name");
             assert_eq!(EntityKind::parse(s), Some(*k), "parse does not invert as_str");
         }
-        assert_eq!(EntityKind::parse("poi"), None, "POI is not a ported concept");
+        // Ruling EW item 4 reversed CV-01: `poi` is a kind now (it was asserted `None` here until 2026-11-14), and
+        // the spelling that is still not one is the variant's own `Debug` text.
+        assert_eq!(EntityKind::parse("Poi"), None, "only the wire spelling parses");
+        assert_eq!(EntityKind::parse("region"), None, "a region label is still not a ported concept");
         // This assertion used to read `parse("landmark") == None`, with the
         // comment *"owner ruling 13 asks for one, and ruling 10's
         // persistence -- the stable id it would be keyed by -- is not
@@ -1458,6 +1471,34 @@ mod tests {
         assert!(s.get(&other).is_some(), "a settlement filed under the same number is not touched");
         assert_eq!(s.reassign_entity(EntityKind::Label, from, to), 0, "nothing left under the old id");
         assert_eq!(s.reassign_entity(EntityKind::Label, to, to), 0, "same id is a no-op");
+    }
+
+    /// Protects Ruling EW item 4 (CL-11): a `poi` link says `poi` on the wire and round-trips byte for byte; a store with
+    /// no POI link (every older vault) re-serialises unchanged; and the link is addressed by the POI's STORED id, so
+    /// nothing re-points it when the POI moves (`reassign_entity` is never needed, unlike a label or an icon), while a link
+    /// for a POI that is gone stays in the store (an absent entity, never a deletion).
+    #[test]
+    fn a_poi_link_is_filed_by_its_stored_id_and_survives_a_move() {
+        let mut old = LinkStore::default();
+        let vid = old.add_vault("Elaris");
+        old.attach(link_for(EntityKind::Landmark, 5, &vid, "Landmarks/a.md"));
+        let before = old.to_json();
+        assert_eq!(LinkStore::from_json(&before).unwrap().to_json(), before, "an old vault is unchanged");
+        assert!(!before.contains("\"poi\""), "premise: no POI link in the old document");
+
+        let mut s = old.clone();
+        s.attach(link_for(EntityKind::Poi, 4, &vid, "Points of interest/Gilded Mug.md"));
+        // The same number under another kind is a different entity.
+        s.attach(link_for(EntityKind::Settlement, 4, &vid, "Settlements/x.md"));
+        let json = s.to_json();
+        assert!(json.contains("\"entity_kind\": \"poi\""), "{json}");
+        assert_eq!(LinkStore::from_json(&json).unwrap().to_json(), json, "byte for byte");
+        let found = s.links_for(EntityKind::Poi, 4);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].relative_path, "Points of interest/Gilded Mug.md");
+        assert!(s.links_for(EntityKind::Poi, 5).is_empty(), "another POI's id has no link");
+        // A POI that was deleted: nothing here removes its link.
+        assert_eq!(LinkStore::from_json(&json).unwrap().links_for(EntityKind::Poi, 4).len(), 1);
     }
 
     /// Protects: **non-destruction.** Owner ruling 13's second requirement: a note for
@@ -1663,6 +1704,7 @@ mod tests {
             EntityKind::Landmark,
             EntityKind::Label,
             EntityKind::Icon,
+            EntityKind::Poi,
         ] {
             assert!(
                 store.links_for(k, 7).is_empty(),

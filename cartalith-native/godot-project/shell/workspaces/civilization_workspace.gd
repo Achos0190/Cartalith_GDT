@@ -754,7 +754,7 @@ func draft_verbs(tool_id: String) -> Dictionary:
 
 ## `_civCtxShow` (reference 25857) and the `contextmenu` handler that builds
 ## its item list (25888). Five of the reference's six operations; the sixth
-## ("Drop POI here") is absent because POI is not a ported concept
+## ("Drop POI here") is absent because POI was not a ported concept (since Ruling EW item 4, 2026-11-14, the CARTO Point of interest tool places user POIs; this CIVIL row stays absent)
 ## (`GUI_GAP_REGISTER.md` CV-01, `civ_tools_bridge.rs`'s own module doc) --
 ## omitted rather than shown disabled, matching how this file's own
 ## `_build_tools()` already treats the POI tool.

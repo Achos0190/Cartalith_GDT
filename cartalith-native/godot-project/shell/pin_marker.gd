@@ -63,6 +63,9 @@ const KIND_PICTOGRAM := {
 	"bridge_site": "bridge", "river_crossing": "bridge", "fortified_crossing": "bridge",
 	"ancient_forest": "tree",
 	"battlefield": "swords",
+	# User-placed points of interest (Ruling EW item 4): the `poi` kinds with no landmark meaning of their own. `temple`,
+	# `shrine`, `well` and `mine` are above and shared; `other` is the stated dot fallback.
+	"tavern": "mug", "shop": "shop", "smithy": "anvil", "guild": "banner", "gate": "gate", "ruin": "ruin", "camp": "tent",
 }
 
 ## The pictograms (a static var, not a const: a `PackedVector2Array(...)` is not a constant expression): `{lines: [polyline], fills: [polygon], cuts: [polygon], dots: [[centre, radius]]}` in the unit square.
@@ -147,6 +150,47 @@ static var PICTOGRAMS: Dictionary = {
 		"lines": [PackedVector2Array([Vector2(0, -0.7), Vector2(0.5, -0.5), Vector2(0.7, 0), Vector2(0.5, 0.5),
 			Vector2(0, 0.7), Vector2(-0.5, 0.5), Vector2(-0.7, 0), Vector2(-0.5, -0.5), Vector2(0, -0.7)])],
 		"dots": [[Vector2(0, 0), 0.25]],
+	},
+	# User-placed points of interest (Ruling EW item 4, CL-11): the kinds `cartalith_civ::poi::PoiKind` lists that no
+	# landmark kind already draws. Each is a labelled judgement of a small recognisable silhouette, drawn to read at 18 px.
+	"mug": {
+		"fills": [PackedVector2Array([Vector2(-0.65, -0.5), Vector2(0.4, -0.5), Vector2(0.4, 0.85), Vector2(-0.65, 0.85)])],
+		"cuts": [PackedVector2Array([Vector2(-0.65, -0.12), Vector2(0.4, -0.12), Vector2(0.4, -0.02), Vector2(-0.65, -0.02)])],
+		"lines": [PackedVector2Array([Vector2(0.4, -0.2), Vector2(0.85, -0.2), Vector2(0.85, 0.5), Vector2(0.4, 0.5)])],
+	},
+	"shop": {
+		"fills": [
+			PackedVector2Array([Vector2(-0.95, -0.2), Vector2(-0.65, -0.8), Vector2(0.65, -0.8), Vector2(0.95, -0.2)]),
+			PackedVector2Array([Vector2(-0.75, -0.05), Vector2(0.75, -0.05), Vector2(0.75, 0.9), Vector2(-0.75, 0.9)]),
+		],
+		"cuts": [PackedVector2Array([Vector2(-0.25, 0.25), Vector2(0.25, 0.25), Vector2(0.25, 0.9), Vector2(-0.25, 0.9)])],
+	},
+	"anvil": {
+		"fills": [PackedVector2Array([Vector2(-0.95, -0.45), Vector2(0.7, -0.45), Vector2(0.95, -0.15), Vector2(0.4, -0.1),
+			Vector2(0.25, 0.3), Vector2(0.65, 0.85), Vector2(-0.65, 0.85), Vector2(-0.25, 0.3), Vector2(-0.4, -0.1),
+			Vector2(-0.95, -0.1)])],
+	},
+	"banner": {
+		"fills": [PackedVector2Array([Vector2(-0.6, -0.8), Vector2(0.8, -0.8), Vector2(0.45, -0.3), Vector2(0.8, 0.2),
+			Vector2(-0.6, 0.2)])],
+		"lines": [PackedVector2Array([Vector2(-0.6, -0.95), Vector2(-0.6, 0.95)])],
+	},
+	"gate": {
+		"fills": [PackedVector2Array([Vector2(-0.85, 0.9), Vector2(-0.85, -0.2), Vector2(-0.5, -0.7), Vector2(0, -0.9),
+			Vector2(0.5, -0.7), Vector2(0.85, -0.2), Vector2(0.85, 0.9)])],
+		"cuts": [PackedVector2Array([Vector2(-0.4, 0.9), Vector2(-0.4, -0.05), Vector2(-0.2, -0.35), Vector2(0, -0.45),
+			Vector2(0.2, -0.35), Vector2(0.4, -0.05), Vector2(0.4, 0.9)])],
+		"lines": [PackedVector2Array([Vector2(-0.2, 0.9), Vector2(-0.2, -0.3)]), PackedVector2Array([Vector2(0.2, 0.9), Vector2(0.2, -0.3)])],
+	},
+	"ruin": {
+		"fills": [
+			PackedVector2Array([Vector2(-0.75, 0.9), Vector2(-0.75, -0.3), Vector2(-0.5, -0.45), Vector2(-0.25, -0.2), Vector2(-0.25, 0.9)]),
+			PackedVector2Array([Vector2(0.1, 0.9), Vector2(0.1, 0.1), Vector2(0.4, -0.1), Vector2(0.7, 0.1), Vector2(0.7, 0.9)]),
+		],
+	},
+	"tent": {
+		"fills": [PackedVector2Array([Vector2(0, -0.85), Vector2(0.95, 0.85), Vector2(-0.95, 0.85)])],
+		"cuts": [PackedVector2Array([Vector2(0, 0.05), Vector2(0.3, 0.85), Vector2(-0.3, 0.85)])],
 	},
 	"dot": {"dots": [[Vector2(0, 0), 0.5]]},
 }
@@ -268,3 +312,62 @@ static func _xf(pts: PackedVector2Array, head: Vector2, s: float) -> PackedVecto
 	for p in pts:
 		out.append(head + p * s)
 	return out
+
+
+# -- The circle style (owner request 2026-11-14: "keep the old circle markers as an option") ---------------------------
+# `DccSettings.marker_style()` is `pins` (everything above) or `circles`. A landmark in circles mode is the original class
+# ring (`map_overlay.gd::_draw_landmark_ring`, restored from `d2a8b6a3^`); everything else that is drawn through this file
+# (a user-placed point of interest, the City Viewer's derived markers) takes the circle form below: a disc centred on the
+# anchor, in the same orange/white note state, holding the same pictogram. The footprint follows the shape: a circle's
+# own radius in circles mode, the head plus stem in pins mode.
+
+## Draws a circle marker centred on `centre`: a disc of radius `r` in the note-state colour, its outline and the pictogram
+## for `kind` inside. Same arguments as `draw()` (`w` stroke scale, `alpha` fade, `outline` ink). Nothing for `r <= 0`.
+static func draw_ring(ci: CanvasItem, centre: Vector2, r: float, kind: String, has_note: bool, w: float = 1.0,
+		alpha: float = 1.0, outline: Color = INK) -> void:
+	if r <= 0.0:
+		return
+	var fill := COL_NOTE if has_note else COL_NONE
+	fill.a *= alpha
+	var ink := INK
+	ink.a *= alpha
+	var edge := outline
+	edge.a *= alpha
+	ci.draw_circle(centre, r, fill, true, -1.0, true)
+	ci.draw_arc(centre, r, 0.0, TAU, 28, edge, maxf(1.0, 1.3 * w * r / 9.0), true)
+	var pic: Dictionary = PICTOGRAMS[pictogram_for(kind)]
+	var s := r * 0.62
+	var lw := maxf(1.0, 1.4 * w * r / 9.0)
+	for f in pic.get("fills", []):
+		ci.draw_colored_polygon(_xf(f, centre, s), ink)
+	for c in pic.get("cuts", []):
+		ci.draw_colored_polygon(_xf(c, centre, s), fill)
+	for l in pic.get("lines", []):
+		ci.draw_polyline(_xf(l, centre, s), ink, lw, true)
+	for d in pic.get("dots", []):
+		ci.draw_circle(centre + (d[0] as Vector2) * s, float(d[1]) * s, ink, true, -1.0, true)
+
+
+## True when `p` is on a circle marker centred on `centre`: within `r + pad`. The circle style's whole footprint.
+static func hit_ring(centre: Vector2, r: float, p: Vector2, pad: float) -> bool:
+	return p.distance_to(centre) <= r + pad
+
+
+## `draw()` or `draw_ring()` by style (`circles` is `DccSettings.markers_are_circles()`): the ONE branch every drawn
+## marker goes through, so no caller picks a shape on its own and then picks a footprint for another.
+static func draw_styled(ci: CanvasItem, tip: Vector2, r: float, kind: String, has_note: bool, circles: bool,
+		w: float = 1.0, alpha: float = 1.0, outline: Color = INK) -> void:
+	if circles:
+		draw_ring(ci, tip, r, kind, has_note, w, alpha, outline)
+	else:
+		draw(ci, tip, r, kind, has_note, w, alpha, outline)
+
+
+## `hit()` or `hit_ring()` by style: the footprint that goes with `draw_styled()`'s shape, read by every pick.
+static func hit_styled(tip: Vector2, r: float, p: Vector2, pad: float, circles: bool) -> bool:
+	return hit_ring(tip, r, p, pad) if circles else hit(tip, r, p, pad)
+
+
+## The sort key of a hit by style: the distance to the circle's centre in circles mode, `axis_distance()` for a pin.
+static func rank_distance(tip: Vector2, r: float, p: Vector2, circles: bool) -> float:
+	return p.distance_to(tip) if circles else axis_distance(tip, r, p)

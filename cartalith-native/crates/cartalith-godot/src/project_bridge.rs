@@ -169,7 +169,7 @@
 
 use crate::{
     civ_military_bridge, civ_roster_bridge, icon_bridge, infra_tools_bridge, journey_bridge,
-    label_bridge, lod_bridge, params, CivData, WorldGen, WorldSource,
+    label_bridge, lod_bridge, params, poi_bridge, CivData, WorldGen, WorldSource,
 };
 use cartalith_io::project::{self, ProjectWrite, Raster};
 use godot::prelude::*;
@@ -198,6 +198,9 @@ const SLOT_TIMELINE: &str = "history/timeline.json";
 const SLOT_LABELS: &str = "annotations/labels.json";
 /// Manually placed and generated icons.
 const SLOT_ICONS: &str = "annotations/icons.json";
+/// Ruling EW item 4 (CL-11): the user-placed points of interest and their id counter (`poi_bridge::PoisDoc`). Optional:
+/// written only when a POI exists or one ever did, so every older save is unchanged.
+const SLOT_POIS: &str = "annotations/pois.json";
 /// The regions annotation document.
 const SLOT_REGIONS: &str = "annotations/regions.json";
 /// The look, quality, ramp, NPR, `biome_cols` and (ET-C2, optional)
@@ -243,6 +246,7 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     SLOT_TIMELINE,
     SLOT_LABELS,
     SLOT_ICONS,
+    SLOT_POIS,
     SLOT_REGIONS,
     SLOT_APPEARANCE,
     SLOT_VAULT,
@@ -3659,6 +3663,12 @@ impl WorldGen {
             );
         }
 
+        // Ruling EW item 4 (CL-11): the user-placed points of interest, only when one exists or one ever did
+        // (`poi_bridge::pois_to_doc`), so a save from a world that never had one is unchanged.
+        if let Some(doc) = poi_bridge::pois_to_doc(&self.pois, self.poi_next_id) {
+            insert_doc(&mut documents, SLOT_POIS, &doc);
+        }
+
         insert_doc(
             &mut documents,
             SLOT_APPEARANCE,
@@ -4168,6 +4178,22 @@ impl WorldGen {
             }
             self.icons = Some(editor);
             restored.push("icons");
+        }
+
+        // Ruling EW item 4 (CL-11): the user-placed points of interest. A row that cannot be read is skipped and
+        // reported (section 6.4a), never repaired; the grid is this world's, already installed above.
+        if let Some(Ok(doc)) = data.parse::<poi_bridge::PoisDoc>(SLOT_POIS) {
+            let got = poi_bridge::pois_from_doc(&doc, self.gw, self.gh);
+            if got.dropped > 0 {
+                restore_warnings.push(format!(
+                    "{SLOT_POIS}: {} of {} points of interest skipped (unknown kind, off-grid or non-finite point, or a bad or repeated id)",
+                    got.dropped,
+                    doc.pois.len()
+                ));
+            }
+            self.pois = got.pois;
+            self.poi_next_id = got.next_id;
+            restored.push("pois");
         }
 
         let hand_drawn = data

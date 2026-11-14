@@ -17,7 +17,8 @@
 //! Two gaps found while binding this, both real and both reported rather
 //! than papered over:
 //!
-//! - **POI is not a ported concept.** `cartalith-civ/src/tools.rs` ports
+//! - **POI is not a ported SETTLEMENT-TOOL concept** (Ruling EW item 4, 2026-11-14, reversed CV-01 for *user-placed* points of
+//!   interest, which live in `cartalith-civ/src/poi.rs` and `poi_bridge.rs`, outside this tool group). `cartalith-civ/src/tools.rs` ports
 //!   Settlement (`civ_drop_place`) and Territory (`merge_territory_paint`)
 //!   only; its own doc comment for `civ_place_pick_weight` says outright
 //!   that "the reference's POI branch ... is likewise absent because this

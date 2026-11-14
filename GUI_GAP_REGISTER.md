@@ -8667,3 +8667,5 @@ Cartalith.apk` and md5-verified there. Device size and density reset to physical
 (1080×2340, 450); the override density of 314 the device carried on arrival was
 **not** restored, since an earlier session left it rather than it being the
 device's own setting.
+
+**CV-01, 2026-11-14 update (owner Ruling EW item 4, "Yes, user-placed POIs").** The decision recorded above (POI "is not a ported concept") is reversed for user-placed points of interest, built as CL-11: a CARTO tool, the `Poi` marker with twelve kinds, the vault entity kind `poi`, `annotations/pois.json` (`SAVEFILE_COMPAT.md` section 11.2a). What CV-01 designed in §4.5.3 for the CIVIL tool (kind, faction, name, snap to way) is NOT what was built: the owner's ruling asked for user-placed markers with notes, not a civ entity, so a POI has no faction and no way snap, and CIVIL's palette still has no POI tool.

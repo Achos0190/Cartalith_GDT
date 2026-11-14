@@ -954,6 +954,38 @@ static func set_city_look(v: String) -> void:
 	_cfg.set_value(_SEC_CITY_LOOK, "style", v)
 	_save()
 
+# -- Marker style (Ruling EW, owner request 2026-11-14: "Can you keep the old circle markers as an option") --------
+
+## The two ways the map's markers are drawn and picked. `pins` is the teardrop of `shell/pin_marker.gd` (CL-2, the
+## default); `circles` is the landmark's class ring from before CL-2, restored byte for byte from `d2a8b6a3^`'s
+## `map_overlay.gd::_draw_landmark_ring`, with a ring-shaped footprint to match. The card, the Note section, the chips
+## and the user-placed points of interest behave identically in both; only the shape and its hit footprint differ.
+const MARKER_STYLES: Array[String] = ["pins", "circles"]
+
+## Ground for `_SEC_MARKER_STYLE`: one key, `style`. A per-user preference like the town look, never part of a world
+## save (a map drawn by one user must open the same in another's style).
+const _SEC_MARKER_STYLE := "marker_style"
+
+## The stored marker style, one of `MARKER_STYLES`. Unset or corrupt reads as `"pins"`, the shipped default.
+static func marker_style() -> String:
+	_ensure_loaded()
+	var v := String(_cfg.get_value(_SEC_MARKER_STYLE, "style", "pins"))
+	return v if MARKER_STYLES.has(v) else "pins"
+
+## Whether markers are drawn as circles. The one test every draw and every hit test asks, so no consumer reads the
+## string itself and the picked footprint can never be the other style's.
+static func markers_are_circles() -> bool:
+	return marker_style() == "circles"
+
+## Stores the marker style and saves. An unknown value is ignored, not stored. Does not redraw anything: the caller
+## asks its own canvas to redraw (every draw re-reads this, so no cache can go stale).
+static func set_marker_style(v: String) -> void:
+	if not MARKER_STYLES.has(v):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_MARKER_STYLE, "style", v)
+	_save()
+
 # -- §2.5 Graphics > relief exaggeration default -------------------------------
 
 ## The three rungs `Preferences > Graphics` offers. `render.rs`'s own tunable

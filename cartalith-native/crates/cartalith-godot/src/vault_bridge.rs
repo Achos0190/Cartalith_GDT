@@ -305,6 +305,7 @@ impl WorldGen {
             EntityKind::Landmark,
             EntityKind::Label,
             EntityKind::Icon,
+            EntityKind::Poi,
         ]
         .iter()
         .map(|k| GString::from(k.as_str()))
@@ -2325,7 +2326,7 @@ impl WorldGen {
         // Ruling EQ item 2: a label or an icon answers its type and its cell,
         // before the `civ` guard for the landmark's reason (neither needs a
         // civilisation layer). One that is no longer placed answers an empty map.
-        if kind == EntityKind::Label || kind == EntityKind::Icon {
+        if kind == EntityKind::Label || kind == EntityKind::Icon || kind == EntityKind::Poi {
             let Some((x, y)) = self.item_cell_for_entity(kind, entity_id) else { return out };
             out.insert("entity_type", kind.as_str().to_string());
             out.insert("coordinates", format!("{}, {}", x.round(), y.round()));
@@ -2531,7 +2532,7 @@ impl WorldGen {
             // Recompute. Same empty-arm reasoning as the line above.
             EntityKind::Landmark => {}
             // Answered above, before the `civ` guard (Ruling EQ item 2).
-            EntityKind::Label | EntityKind::Icon => {}
+            EntityKind::Label | EntityKind::Icon | EntityKind::Poi => {}
         }
         self.append_snapshot_fields(&mut out, kind, entity_id);
         out
@@ -2604,6 +2605,8 @@ impl WorldGen {
         match kind {
             EntityKind::Label => label_cell(&self.labels.as_ref()?.labels, entity_id),
             EntityKind::Icon => icon_cell(&self.icons.as_ref()?.icons, entity_id),
+            // Ruling EW item 4: a POI is found by its stored id, so two on one cell are both addressable.
+            EntityKind::Poi => self.pois.iter().find(|p| i64::from(p.id) == entity_id).map(|p| (p.x, p.y)),
             _ => None,
         }
     }
@@ -2741,7 +2744,7 @@ impl WorldGen {
             }
             EntityKind::Culture => return None,
             // Ruling EQ item 2: the item's own cell, floored (a label or icon sits at a fractional grid position).
-            EntityKind::Label | EntityKind::Icon => {
+            EntityKind::Label | EntityKind::Icon | EntityKind::Poi => {
                 let (fx, fy) = self.item_cell_for_entity(kind, entity_id)?;
                 (fx.floor() as i64, fy.floor() as i64)
             }
@@ -2924,7 +2927,9 @@ mod tests {
     fn an_unknown_entity_kind_is_none_not_a_default() {
         assert_eq!(EntityKind::parse("settlement"), Some(EntityKind::Settlement));
         assert_eq!(EntityKind::parse("continent"), Some(EntityKind::Continent));
-        assert_eq!(EntityKind::parse("poi"), None, "POI is not a ported concept");
+        // Ruling EW item 4 (2026-11-14) reversed CV-01: `poi` is a kind now (this asserted `None` until then).
+        assert_eq!(EntityKind::parse("poi"), Some(EntityKind::Poi));
+        assert_eq!(EntityKind::parse("region"), None, "a region label is still not a ported concept");
         assert_eq!(EntityKind::parse("Settlement"), None);
         assert_eq!(EntityKind::parse(""), None);
     }

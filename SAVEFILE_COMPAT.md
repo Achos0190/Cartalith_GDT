@@ -329,6 +329,7 @@ history/                              recorded past states — see §10
 annotations/                          marks on the sheet — see §11
   labels.json                 MAY
   icons.json                  MAY
+  pois.json                   MAY       CL-11, since 2026-11-14 (§11.2a)
   regions.json                MAY
   measurements.json           MAY
 
@@ -2110,6 +2111,50 @@ zero or negative `scale` as `1.0`, the value a plain click placement writes.
 
 Array order is draw order.
 
+### 11.2a `annotations/pois.json`
+
+*Added 2026-11-14 (owner Ruling EW item 4, CL-11: "Yes, user-placed POIs", which reverses CV-01). **Optional**, a new slot.*
+
+```json
+{
+  "next_id": 4,
+  "pois": [
+    { "id": 1, "x": 184.62, "y": 140.96, "kind": "tavern", "name": "The Gilded Mug" },
+    { "id": 3, "x": 190.0,  "y": 150.5,  "kind": "well" }
+  ]
+}
+```
+
+A **point of interest** is a mark the *user* placed (a tavern, a shop, a smithy...). It is not generated, nothing simulated or
+generated reads it, and it carries no simulation meaning. Members:
+
+- `id` — an integer `>= 1`, **issued by the writer and never reissued**: it is the identity a vault note binds to
+  (`entity_kind` `poi`, `entity_id` = this `id`, §13.3.4), so a move or a rename keeps the note. `0`, a missing `id` and an
+  `id` already used by an earlier row are unreadable (below).
+- `x`, `y` — continuous grid coordinates (a click's own, like an icon's), finite and inside the grid.
+- `kind` — one of `tavern`, `shop`, `smithy`, `temple`, `shrine`, `guild`, `gate`, `well`, `ruin`, `camp`, `mine`, `other`.
+  **An unknown value is not read as `other`**: it costs its row (§6.4a rung 2), because guessing would relabel a place the
+  author named.
+- `name` — the user's text. **Omitted when the user gave none** (an empty string is not a name; an unnamed point of interest
+  is shown by its kind), and a reader MUST treat an absent `name` as unnamed, never as a default word.
+- `next_id` (document level) — the lowest id the writer will issue next. A reader MUST resume from the larger of this and one
+  past the largest id it read, so a deleted point of interest's id is never handed to a different one (its note link stays in the
+  vault as an absent entity, §13.3.5). Absent or `0` reads as "from the start".
+
+**Optional, and absent for every older save.** A writer MUST omit the whole member when there is no point of interest **and**
+none was ever placed (`next_id` is still `1`), so a world that never had one re-serialises byte for byte. It MUST write the member
+when the list is empty but `next_id` has moved, so a retired id survives a reload. A reader that does not know the member ignores
+it (§6.3) and opens the project without the points of interest; this build, opening an older save, finds none.
+
+**Reading.** A row with an unknown `kind`, a non-finite or off-grid point, `id` `0` or a repeated `id` (the first wins) is skipped,
+**counted and reported**, and the rest of the array is kept (§6.4a). Array order is placement order (the order the program lists
+them in; an undo that restores a deleted row restores its place). The undo history is not saved (as for every annotation).
+
+Tests: `cartalith-civ` `poi.rs` `kinds_round_trip_and_an_unknown_key_is_refused`, `issue_id_never_reuses_a_live_id_or_zero`;
+`cartalith-godot` `poi_bridge.rs` `the_member_is_omitted_until_a_poi_was_ever_placed`, `a_saved_document_round_trips_byte_for_byte`,
+`unreadable_rows_are_dropped_and_counted_not_repaired`; the windowed probe `_cl11_probe.gd` leg D (a save with and without a
+point of interest, the zip entry present only in the first, a reload keeping ids, kinds, names and positions).
+
 ### 11.3 `annotations/regions.json`
 
 ```json
@@ -2361,7 +2406,7 @@ clock-derived id, which makes the two devices' links permanently disjoint.
 | Member | Type | Required | Meaning |
 |---|---|---|---|
 | `link_id` | string, non-empty | MUST | Opaque, unique within `links`. A reader MUST NOT parse it. If two links share one, the reader MUST keep the first and report the rest (§3's duplicate rule, applied inside a document). |
-| `entity_kind` | string | MUST | One of `settlement`, `province`, `continent`, `faction`, `culture`, `landmark`, `label`, `icon`. §13.3.4 fixes what each `entity_id` means. An unrecognised value MUST NOT drop the link — see §13.3.5. |
+| `entity_kind` | string | MUST | One of `settlement`, `province`, `continent`, `faction`, `culture`, `landmark`, `label`, `icon`, `poi`. §13.3.4 fixes what each `entity_id` means. An unrecognised value MUST NOT drop the link — see §13.3.5. |
 | `entity_id` | integer | MUST | The entity's own id, subject to §14.1. |
 | `entity_label` | string | MUST | The entity's name **at the time the link was made**. May be empty. It is never used to resolve — §13.3.5. |
 | `vault_id` | string | MUST | Matches a `vaults[].id`. |
@@ -2423,6 +2468,8 @@ and the properties a reader needs are these:
   ceiling.
 
 `label` and `icon` (added 2026-11-11, Ruling EQ item 2) are derived the same way, for the same reason: a hand-placed map label or a placed icon has no id the engine issued, and the index the program holds shifts whenever an earlier one is deleted. The key is `label@<x>,<y>` or `icon@<x>,<y>` over the item's grid position, each coordinate in the shortest text that reads back as the same IEEE-754 double (an integral value has no `.0`: `label@12.5,40`), which is also how the archive stores the position. The `entity_id` is the first 13 hex digits of the same FNV-1a 64 over that key as a landmark's, so it is below 2^52. A reader MUST resolve by recomputing the key of every label (or icon) it has, and MUST treat two or more matches (two items in one cell) as unresolvable (§13.3.5). **A move changes the cell, so a writer that moves the item SHOULD re-point its links** (this port does, in `label_move` and `icon_move`); an item that is deleted leaves its link as an absent entity, never a deletion. **Old documents are unchanged:** they hold no such link, a vault with only the six older kinds re-serialises byte for byte, and a reader that does not know `label` or `icon` already keeps the link and reports it unresolved (§13.3.3, §13.3.5). Tests: `links.rs` `a_label_and_an_icon_are_filed_by_their_cell`, `label_links_round_trip_and_follow_a_move`; `vault_bridge.rs` `a_label_or_icon_resolves_by_its_cell_and_refuses_a_shared_one`.
+
+`poi` (added 2026-11-14, Ruling EW item 4, CL-11) is **not derived from a position**: a user-placed point of interest (§11.2a) carries a stored `id`, and the `entity_id` **is** that id (a small integer `>= 1`). A reader resolves it by looking the id up among the points of interest it read; an id it does not hold (the point of interest was deleted, or this reader has no §11.2a) is an absent entity, never an error and never a deletion (§13.3.5). Because the id is never reissued, a move, a rename or a kind change leaves the link bound, and a deleted point of interest's link can never attach to a later one. **Old documents are unchanged:** they hold no `poi` link, a vault with only the eight older kinds re-serialises byte for byte, and a reader that does not know `poi` already keeps the link and reports it unresolved (§13.3.3, §13.3.5). Tests: `links.rs` `entity_keys_and_kinds_round_trip` (the `poi` row), `a_poi_link_is_filed_by_its_stored_id_and_survives_a_move`; `_cl11_probe.gd` legs B and C (create a note, move, rename, delete and undo, the link bound throughout).
 
 `culture` is the odd one in the other direction and is worth naming as such.
 A culture is not

@@ -3240,6 +3240,8 @@ func refresh_annotations() -> void:
 	## a path whose existing work is all list marshalling. Nothing about a
 	## faction's colour can change while a label is being dragged.
 	overlay.set_manual_icons(_bridge.icon_list())
+	## Ruling EW item 4 (CL-11): the user-placed points of interest, a fourth annotation store pushed the same way.
+	overlay.set_pois(_bridge.poi_list())
 	## Generated landmarks (`LANDMARK_GENERATION_SCOPE.md`). Guarded on the
 	## method rather than assumed: the landmark bridge is newer than this call
 	## site, and an older cdylib must lose the overlay rather than the whole

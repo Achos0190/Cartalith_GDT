@@ -68,6 +68,7 @@ const HINTS := {
 	"settlement": "Tap to place a settlement",
 	"label": "Tap to place a label",
 	"icon": "Tap to stamp an icon",
+	"poi": "Tap to place a point of interest",
 	"conflict": "Tap points · Commit saves the conflict",
 	"route": "Tap waypoints · Commit solves the route",
 	"way": "Tap points · Commit lays the way",

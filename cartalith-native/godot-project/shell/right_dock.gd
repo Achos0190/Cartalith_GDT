@@ -45,6 +45,9 @@ const CTX_ICON := "icon"
 ## chips). A selection kind like the landmark and the icon, so its bound vault note shows in the Context panel's
 ## Note tab (`context_note.gd::BINDABLE`). Its id is the label's index in the engine's store (`label_get`).
 const CTX_LABEL := "label"
+## Ruling EW item 4 (CL-11): a user-placed point of interest picked on the map. A selection kind like the label and the
+## icon, so its bound vault note shows in the Note tab (`context_note.gd::BINDABLE`). Its id is its index in `poi_list()`.
+const CTX_POI := "poi"
 ## `STORY_PLANNING_SCOPE.md` SP-4: a drawn conflict, selected from CIVIL ▸
 ## Military ▸ Conflicts or just committed by the Conflict tool. A selection,
 ## so a context -- the tool itself appends nothing here.
@@ -473,6 +476,8 @@ var _icon_data: Dictionary = {}
 ## `CTX_LABEL`'s selection: the label's index in `bridge.label_list()` / `label_get()`, re-read on every rebuild.
 ## -1 when no label is shown (never a plausible index such as 0: `MISTAKES.md`, "no value as a plausible value").
 var _label_index := -1
+## `CTX_POI`'s selection: the POI's index in `bridge.poi_list()` / `poi_get()`, re-read on every rebuild. -1 when none is shown.
+var _poi_index := -1
 ## `CTX_CONFLICT`'s selection: an id, re-read from `conflict_get()` on every
 ## rebuild so the form can never show a copy the engine has moved past.
 var _conflict_id := -1
@@ -706,7 +711,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## right -- an imported heightmap is a new world.
 		if ok:
 			clear_measurements()
-		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON or _context == CTX_LABEL:
+		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON or _context == CTX_LABEL or _context == CTX_POI:
 			_context = CTX_SAMPLE
 		## And the pinned settlement, which had no clause here at all until
 		## 2026-09-05 and kept drawing a town out of the world that was just
@@ -746,7 +751,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## `journey_planner_view.gd` already draws for its own list.
 		if not bridge.has_world:
 			clear_measurements()
-		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON or _context == CTX_LABEL:
+		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON or _context == CTX_LABEL or _context == CTX_POI:
 			_context = CTX_SAMPLE
 		## Unconditional, unlike the measurements two lines up, and that is a
 		## decision rather than an oversight: this signal's emitters split in
@@ -1143,6 +1148,14 @@ func show_subject(sel: Dictionary) -> void:
 				_rebuild()
 				_show_on_phone()
 				return
+		"poi":
+			## Ruling EW item 4 (CL-11): a user-placed point of interest; `poi_get` is the engine's row at that index.
+			if id >= 0 and not bridge.poi_get(id).is_empty():
+				_context = CTX_POI
+				_poi_index = id
+				_rebuild()
+				_show_on_phone()
+				return
 		"icon":
 			## The icon's context is `on_icon_selected`'s, minus its pin release (a selection follows the pin
 			## rules of PC-4 like a landmark's). `icon_get` is the engine's row at that index.
@@ -1181,6 +1194,9 @@ func shown_subject() -> Dictionary:
 		CTX_LABEL:
 			if _label_index >= 0:
 				return {"kind": "label", "id": _label_index}
+		CTX_POI:
+			if _poi_index >= 0:
+				return {"kind": "poi", "id": _poi_index}
 		CTX_ICON:
 			if _icon_index >= 0:
 				return {"kind": "icon", "id": _icon_index}
@@ -1532,6 +1548,11 @@ func _subject_text(subj: Dictionary) -> Array:
 				var lt := String(lb.get("text", ""))
 				return [lt if lt != "" else "(untitled label)", "Label · cell %d, %d" % [
 					floori(float(lb.get("x", 0.0))), floori(float(lb.get("y", 0.0)))]]
+		"poi":
+			var pd: Dictionary = bridge.poi_get(id) if id >= 0 else {}
+			if not pd.is_empty():
+				return [_poi_title(pd), "%s · cell %d, %d" % [String(pd.get("kind_label", "Point of interest")),
+					floori(float(pd.get("x", 0.0))), floori(float(pd.get("y", 0.0)))]]
 		"icon":
 			var ic: Dictionary = bridge.icon_get(id) if id >= 0 else {}
 			if not ic.is_empty():
@@ -2472,7 +2493,7 @@ const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History", CTX_LANDMARK: "Landmark", CTX_ICON: "Icon",
-	CTX_CONFLICT: "Conflict", CTX_CULTURE: "Culture", CTX_LABEL: "Label",
+	CTX_CONFLICT: "Conflict", CTX_CULTURE: "Culture", CTX_LABEL: "Label", CTX_POI: "Point of interest",
 }
 
 ## Tears the dock body down and redraws it: frees every child of `app.right_dock_body`,
@@ -2673,6 +2694,9 @@ func _dock_readout_text() -> String:
 			return _measure_readout()
 		CTX_LANDMARK:
 			return _landmark_label(String(_landmark.get("kind", ""))) if not _landmark.is_empty() else "no landmark"
+		CTX_POI:
+			var pdr: Dictionary = bridge.poi_get(_poi_index) if _poi_index >= 0 else {}
+			return _poi_title(pdr) if not pdr.is_empty() else "no point of interest"
 		CTX_ICON:
 			return _icon_title(_icon_data) if not _icon_data.is_empty() else "no icon"
 		CTX_LABEL:
@@ -2715,6 +2739,8 @@ func _dispatch(body: Control) -> void:
 			_build_icon(body)
 		CTX_LABEL:
 			_build_label(body)
+		CTX_POI:
+			_build_poi(body)
 		CTX_CONFLICT:
 			_build_conflict(body)
 		CTX_CULTURE:
@@ -4742,6 +4768,28 @@ func _build_icon(body: Control) -> void:
 			DccWidgets.note(src, "Scattered over the terrain by automatic placement; it " +
 				"stands for its kind, not for a single feature.")
 
+## A point of interest's name, or its kind when the user gave none (never an invented name).
+func _poi_title(pd: Dictionary) -> String:
+	var nm := String(pd.get("name", ""))
+	return nm if nm != "" else String(pd.get("kind_label", "Point of interest"))
+
+## The Context panel's page for a selected user-placed point of interest (Ruling EW item 4, CL-11): what the engine's
+## store holds for it (`poi_get`: name, kind, cell) and the card's own verbs as buttons (`_element_actions`: Move, Rename,
+## Delete, Note). Reads fresh from the bridge on every rebuild; an index the store no longer holds says so rather than
+## showing a neighbour.
+func _build_poi(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Point of interest")
+	var pd: Dictionary = bridge.poi_get(_poi_index) if _poi_index >= 0 else {}
+	if pd.is_empty():
+		DccWidgets.note(sec, "That point of interest is no longer on the map -- it was deleted or the world was replaced " +
+			"since it was picked. Pick it again on the map.")
+		return
+	_accent_readout(sec, "Name", _poi_title(pd), "The name you gave it; a point of interest with none is shown by its kind.")
+	_field(sec, "Kind", String(pd.get("kind_label", "")), "What kind of place it is; it decides the pictogram on its pin.")
+	_field(sec, "Cell", "%d, %d" % [floori(float(pd.get("x", 0.0))), floori(float(pd.get("y", 0.0)))],
+		"Grid cell (x, y) the pin's tip stands in.", true, true)
+	_element_actions(sec, "poi", _poi_index, _poi_title(pd))
+
 ## The Context panel's page for a selected label (Edit-from-context, Ruling EO / EQ item 2). What the engine's
 ## store holds for it (`label_get`: text, cell, size mode) and the card's own verbs as buttons. Reads fresh from the
 ## bridge on every rebuild; an index the store no longer holds says so rather than showing a neighbour.
@@ -4772,7 +4820,7 @@ func _element_actions(parent: Control, kind: String, id: int, label: String) -> 
 	var grp: Control = null
 	for r in rows:
 		var rid := String((r as Dictionary).get("id", ""))
-		if rid.ends_with("_select") or not bool((r as Dictionary).get("enabled", true)):
+		if rid.ends_with("_select") or not bool((r as Dictionary).get("enabled", true)) or (r as Dictionary).has("children"):
 			continue
 		if grp == null:
 			grp = DccWidgets.group(parent, "Actions")

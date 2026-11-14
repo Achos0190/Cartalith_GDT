@@ -529,8 +529,11 @@ func _draw_canvas() -> void:
 	## and which is screen-agnostic), so a pin keeps its size at every zoom and its tip stays on its place.
 	var has_note := _settlement_has_note()
 	var pr := PIN_HEAD_R * _pin_unit()
+	var circles := DccSettings.markers_are_circles()
 	for pin in _pins():
-		PinMarker.draw(_canvas, to_screen.call(pin["at"]), pr, String(pin["kind"]), has_note)
+		## A user-placed POI (Ruling EW item 4) speaks for itself; every derived pin speaks for its town.
+		var pin_note: bool = bool(pin["has_note"]) if pin.has("poi") else has_note
+		PinMarker.draw_styled(_canvas, to_screen.call(pin["at"]), pr, String(pin["kind"]), pin_note, circles)
 
 
 ## The model-metre to canvas-px transform of the current view: `{scale, origin}`, `to_screen(p) = origin + p * scale`.
@@ -590,6 +593,43 @@ func _pins() -> Array:
 			best = fp
 	if best.size() >= 3:
 		out.append({"kind": "farm", "at": _centroid(best)})
+	out.append_array(_poi_pins())
+	return out
+
+
+## A user-placed POI counts as inside this town when it stands within this many metres of the layout's market anchor. Half
+## of the map's site box (`MapOverlay.URBAN_SITE_BOX_KM`, 1.7 km): the layout is generated inside that box, so a POI
+## farther out has no ground in this plan. A labelled judgement, not a measurement.
+const POI_TOWN_RADIUS_M := 850.0
+
+## The user-placed points of interest (Ruling EW item 4, CL-11) that stand inside this town, as pins:
+## `[{kind, at, poi, id, has_note}]`, `kind` the POI's own kind key (so it takes its pictogram), `at` in model metres,
+## `poi` its index in `poi_list()` (the selection handle). **The map's own town transform, inverted**
+## (`MapOverlay._draw_urban_layouts`): map point = settlement cell + 0.5 + R(orient) * (model - market) / metres-per-cell,
+## so a POI's model point is `market + R(-orient) * (map point - settlement cell - 0.5) * metres-per-cell`. Empty, never a
+## guess, when the layout has no `market` anchor, the settlement has no cell, or the engine reports no cell size.
+func _poi_pins() -> Array:
+	var out: Array = []
+	if _layout.is_empty() or not _layout.has("market") or not _settlement.has("x") or not _settlement.has("y"):
+		return out
+	var km: float = float(bridge.world_crs().get("cell_km", 0.0))
+	if km <= 0.0:
+		return out
+	var m_per_cell := km * 1000.0
+	var anchor: Vector2 = _layout["market"]
+	var rot := float(_layout.get("orient", 0.0))
+	var c := cos(-rot)
+	var s := sin(-rot)
+	var base := Vector2(float(_settlement["x"]) + 0.5, float(_settlement["y"]) + 0.5)
+	for p in bridge.poi_list():
+		var pd: Dictionary = p
+		var d := (Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))) - base) * m_per_cell
+		if d.length() > POI_TOWN_RADIUS_M:
+			continue
+		var at := anchor + Vector2(d.x * c - d.y * s, d.x * s + d.y * c)
+		var linked := int(bridge.vault_entity_summary("poi", int(pd.get("id", 0))).get("link_count", 0)) > 0
+		out.append({"kind": String(pd.get("kind", "")), "at": at, "poi": int(pd.get("index", -1)),
+			"id": int(pd.get("id", 0)), "has_note": linked})
 	return out
 
 
@@ -620,13 +660,14 @@ func pin_at(pos: Vector2) -> int:
 	var vt := _view_transform()
 	var pr := PIN_HEAD_R * _pin_unit()
 	var pad := PinMarker.touch_pad(pr, _pin_unit()) if DccTheme.is_touch() else PinMarker.HIT_PAD
+	var circles := DccSettings.markers_are_circles()   ## the footprint follows the drawn style (owner request 2026-11-14)
 	var best := -1
 	var best_d := INF
 	var pins := _pins()
 	for i in pins.size():
 		var tip: Vector2 = (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"])
-		if PinMarker.hit(tip, pr, pos, pad):
-			var d := PinMarker.axis_distance(tip, pr, pos)
+		if PinMarker.hit_styled(tip, pr, pos, pad, circles):
+			var d := PinMarker.rank_distance(tip, pr, pos, circles)
 			if d < best_d:
 				best = i
 				best_d = d
@@ -661,7 +702,13 @@ func _on_canvas_input(event: InputEvent) -> void:
 				elif _press_travel <= PIN_CLICK_SLOP and pin_at(_press_pos) >= 0:
 					var host = get_parent()
 					if host != null and host.has_method("select") and _index >= 0:
-						host.select("settlement", _index)
+						## A user-placed POI selects itself (its note is the Context panel's Note tab, Ruling EW
+						## item 4); every derived pin selects this town, as before.
+						var hit_pin: Dictionary = _pins()[pin_at(_press_pos)]
+						if hit_pin.has("poi"):
+							host.select("poi", int(hit_pin["poi"]))
+						else:
+							host.select("settlement", _index)
 			_canvas.accept_event()
 	elif event is InputEventMouseMotion and _dragging:
 		_press_travel += (event as InputEventMouseMotion).relative.length()

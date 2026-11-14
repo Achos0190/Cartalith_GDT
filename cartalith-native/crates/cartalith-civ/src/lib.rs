@@ -31,6 +31,8 @@ pub mod lake_balance;
 pub mod naming;
 /// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
 pub mod labels;
+/// User-placed points of interest (Ruling EW item 4, CL-11): the record, the kind list, id issue. Never read by generation.
+pub mod poi;
 /// `LANDMARK_GENERATION_RESEARCH.md` / `LANDMARK_GENERATION_SCOPE.md` — the
 /// landmark record (§22), the 49-type cap table (§29/§23) and the placement
 /// pass (§30), including the per-kind funnel that answers "why fewer than the

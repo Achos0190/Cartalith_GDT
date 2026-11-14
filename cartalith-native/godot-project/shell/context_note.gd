@@ -61,8 +61,11 @@ var _wired := false
 ## icon's selection id is its index in the engine's store, which shifts when an earlier item is deleted, so
 ## `resolve` turns it into the vault entity id through the engine (`vault_label_entity_id` /
 ## `vault_icon_entity_id`: the item's cell, never the index) and refuses, saying why, when two items share a cell.
+## **A point of interest is bound too** (Ruling EW item 4, CL-11, a user-placed POI): its selection id is its index in
+## `poi_list()`, and `resolve` turns it into the vault entity id through `vault_poi_entity_id` (its STORED id, so a move or
+## a rename keeps the note).
 const BINDABLE := {"settlement": "settlement", "faction": "faction", "landmark": "landmark",
-	"label": "label", "icon": "icon"}
+	"label": "label", "icon": "icon", "poi": "poi"}
 
 ## The shared vault-folder chooser (owner, 2026-11-13); see `vault_folder_pick.gd`.
 const VaultFolderPick := preload("res://shell/vault_folder_pick.gd")
@@ -176,6 +179,19 @@ func resolve(subject: Dictionary) -> Dictionary:
 				String(eid.get("error", "no vault id"))], "name": nm}
 		vid = int(eid["entity_id"])
 		nm = String(eid.get("label", nm))
+	if kind == "poi":
+		## Ruling EW item 4 (CL-11): a user-placed point of interest. The selection id is its index in `poi_list()`
+		## (it shifts on a delete), so `resolve` turns it into the vault entity id through the engine, which is the
+		## POI's STORED id (never its cell or its index): a move or a rename keeps the note bound.
+		var pd: Dictionary = bridge.poi_get(vid) if vid >= 0 else {}
+		if pd.is_empty():
+			return {"state": "none"}
+		var peid: Dictionary = bridge.vault_poi_entity_id(vid)
+		if not bool(peid.get("ok", false)) or not peid.has("entity_id"):
+			return {"state": "unsupported", "why": "This point of interest cannot be bound to a note now: %s" % String(
+				peid.get("error", "no vault id")), "name": nm}
+		vid = int(peid["entity_id"])
+		nm = String(peid.get("label", nm))
 	if kind == "settlement":
 		var all: Array = bridge.settlements()
 		if vid < 0 or vid >= all.size():

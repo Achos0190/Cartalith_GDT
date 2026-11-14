@@ -1672,6 +1672,15 @@ func _resolve_entity(kind: String, id: int) -> Dictionary:
 				var got: Dictionary = bridge.vault_label_entity_id(idx) if kind == "label" else bridge.vault_icon_entity_id(idx)
 				if bool(got.get("ok", false)) and got.has("entity_id") and int(got["entity_id"]) == id:
 					return {"name": String(got.get("label", "")), "x": float(d.get("x", 0.0)), "y": float(d.get("y", 0.0))}
+		"poi":
+			## Ruling EW item 4 (CL-11): a user-placed point of interest is addressed by its STORED id, which
+			## `poi_list()` carries as `id`; `{name, x, y}` for Show on map, `{}` when it is no longer placed.
+			for it in bridge.poi_list():
+				var pd: Dictionary = it
+				if int(pd.get("id", -1)) == id:
+					var pname := String(pd.get("name", ""))
+					return {"name": pname if pname != "" else String(pd.get("kind_label", "Point of interest")),
+						"x": float(pd.get("x", 0.0)), "y": float(pd.get("y", 0.0))}
 		"culture":
 			## VE-9. A culture is addressed by its `CIV_CULTURES` index (`get_cultures`' `id`), has no map
 			## position (so no Centre on map), and its name is the title-cased key the engine gives it.
