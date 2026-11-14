@@ -284,6 +284,21 @@ static func set_gpu_devices(keys: PackedStringArray) -> void:
 	_cfg.set_value(_SEC_GPU, "devices", keys)
 	_save()
 
+## The user's explicit GPU on/off choice: `1` on, `0` off, `-1` never chosen.
+## Only an explicit toggle (`Preferences > GPU acceleration`) writes it, so the
+## boot default (`EngineBridge.default_gpu_on`) can differ by device class without
+## overriding anyone's choice (owner, 2026-11-14, Ruling EY).
+static func gpu_enabled() -> int:
+	_ensure_loaded()
+	var v = _cfg.get_value(_SEC_GPU, "enabled", -1)
+	return int(v) if typeof(v) == TYPE_INT and (int(v) == 0 or int(v) == 1) else -1
+
+## Stores the explicit GPU choice (see `gpu_enabled()`) and saves at once.
+static func set_gpu_enabled(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_GPU, "enabled", 1 if on else 0)
+	_save()
+
 ## `"single_device"` / `"split_tiles"` / `"alternate_frames"`. Empty string
 ## means "never set", which the bridge treats as "leave the engine default".
 static func gpu_mode() -> String:

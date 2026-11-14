@@ -398,8 +398,19 @@ func _ready() -> void:
 	## engine's own notion of "default". `Preferences ▸ GPU acceleration`
 	## can turn it back off before the first generate.
 	if _params_available:
-		param_set("use_gpu", true)
+		var stored := DccSettings.gpu_enabled()
+		param_set("use_gpu", default_gpu_on() if stored < 0 else stored == 1)
 		params_dirty = false
+
+## The boot default for `use_gpu` when the user never chose: on for the PC, **off on
+## touch-class devices** (owner choice 2026-11-14, "CPU on phones/tablets", Ruling EY).
+## Why: the GPU path gives a different world per device for one seed, the CPU digest is
+## identical on PC, 6T and Pad, and the GPU gains nothing on the Pad and loses 4 % on the
+## 6T (`PERFORMANCE_BENCHMARKS.md` section 12). Same touch predicate as `dcc_shell.gd::_ready`.
+## Never overrides a stored explicit choice (`DccSettings.gpu_enabled`).
+static func default_gpu_on() -> bool:
+	var touch: bool = (DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")) 		or "--force-touch" in OS.get_cmdline_user_args()
+	return not touch
 
 ## Joins a still-running worker thread so quitting mid-generate never frees
 ## `world_gen` out from under it. Must not return with a started `Thread` unjoined.

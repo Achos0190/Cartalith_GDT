@@ -3750,3 +3750,7 @@ Measured first (`cartalith-native/crates/cartalith-godot/src/town_river_census.r
 2. *"Placement should be checked and corrected by an opus agent"*
 
 What they change: the restraint recorded in the last bullet (keep most of a world's towns on their cells) is **lifted** for this term; moving towns is accepted. The goal is every river town on its river, as near 0 % off as practical, and a town that cannot sit on a river is not a river town: it is drawn landlocked or coastal, never with an invented river. Ruling N's constraint still holds: the suitability ranking decides where on the river a town goes. Built the same day under `civ.river_front` (the same switch, §7p unchanged); the check, the causes and the numbers are in `cartalith-native/docs/STATUS.md` ("Towns sit on their river"), the frames in `cartalith-native/docs/evidence/town-river-2026-11-14/`.
+
+## Ruling EY: phones and tablets default to the CPU path (owner, 2026-11-14)
+
+Owner choice, *"CPU on phones/tablets"*. The GPU path gives a different world per device for one seed; the CPU digest is identical on PC, 6T and Pad (`PERFORMANCE_BENCHMARKS.md` section 12). On touch-class devices `use_gpu` defaults off at boot (`EngineBridge.default_gpu_on`); the PC keeps GPU on. GPU stays a user setting: `Preferences > GPU acceleration` now stores an explicit choice (`DccSettings.gpu_enabled`), which always beats the default.

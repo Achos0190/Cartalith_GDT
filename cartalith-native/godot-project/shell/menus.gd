@@ -6544,6 +6544,7 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 	var on := not bool(_bridge.param_get("use_gpu"))
 	if _bridge.param_set("use_gpu", on):
 		p.set_item_checked(idx, on)
+		DccSettings.set_gpu_enabled(on)  ## explicit choice: boot default no longer applies (Ruling EY)
 		## §2.5's backend readout carries the on/off half of `WebGPU · on`, so
 		## it has to move with the check mark rather than waiting for the next
 		## `about_to_popup` -- the popup stays open after a toggle, and a row

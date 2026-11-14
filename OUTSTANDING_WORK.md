@@ -127,10 +127,7 @@ document, and `STATUS.md` records what lands)
   A red line-art trash can at the bottom right of each world card on the welcome/project picker (desktop, tablet and
   phone pickers), opening a confirmation splash naming the world before anything is deleted; 44 dp target on touch;
   deleting removes the project file (on Android through the existing storage path) and the card. Queued (GUI).
-- **Phones and tablets default to the CPU path** (owner choice 2026-11-14, *"CPU on phones/tablets"*): the GPU path makes a
-  different world per device for the same seed (Pad `a98006fb…`, 6T `14fa38fa…`; CPU digest identical on PC, 6T and Pad)
-  and gives no gain on the Pad, 4 % loss on the 6T (`PERFORMANCE_BENCHMARKS.md` §12, `2a303a11`). Default `use_gpu` off
-  on Android/touch-class devices at boot; the PC keeps its default; GPU stays a user setting. Queued.
+- ~~**Phones and tablets default to the CPU path**~~ (owner choice 2026-11-14, *"CPU on phones/tablets"*, Ruling EY): built; see `cartalith-native/docs/STATUS.md`.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
