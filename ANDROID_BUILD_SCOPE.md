@@ -784,3 +784,5 @@ and `classes.dex` carries `CartalithPenPlugin`. `apksigner verify`: verifies und
 `libcartalith_godot.so` inside matches the fresh build after stripping (sha256 `7dae8fa0...`). **Not measured:** an install, a
 cold start (SP-2's 5 % bar), or anything on a device: the auto-mode classifier denied an earlier agent's `adb install` to the
 Pad 3, and this pass did not retry or work around it. The owner's steps are in `STYLO2_PEN_PROPOSAL.md` section 11.3.
+
+**Verify every plugin change with a full Godot export, not the plugin's own Gradle build.** The plugin's `assembleRelease test` does not run the app's manifest merge; a duplicate component (a second `androidx.core.content.FileProvider`, which Godot's template already declares) only fails when Godot exports. Export until `export DONE` and an APK exists, then read its manifest (`aapt dump xmltree`). A FileProvider here must be a subclass (`CartalithShareProvider`).
