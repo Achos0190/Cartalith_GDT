@@ -711,3 +711,121 @@ cards; every mode prints which device it requested and which one
 self-documenting rather than inheriting this one's assumptions. The same
 applies to `device_weight`'s 0.17 integrated-GPU ratio, which
 `per_device_warp_throughput_measured` exists to let another machine re-measure.
+
+---
+
+## 12. Snapdragon handsets: per-stage generation on the OnePlus Pad 3 and 6T (2026-11-14)
+
+**The question** (owner, 2026-11-14): *"we should also check optimisation on snapdragon cpu (like the pad3 and 6t, now
+the 6t is old, but generation in the pad feels as slow."* Measured over `adb` on both handsets the same evening, then
+tuned one change at a time. Routed from `OUTSTANDING_WORK.md` ("Snapdragon CPU optimisation").
+
+### 12.1 Method
+
+- **Harness:** `cartalith-godot/src/device_stage_bench.rs` (`device_stage_bench`, `#[ignore]`d), added by this pass. It
+  generates the world the app makes, `generate_terrain` over `params::defaults()` then `compute_civilisation`, at the New
+  World dialog's defaults: 2048 x 1311 cells (2K, region frame), 800 km, seed 12345, CPU path unless `SNAP_GPU=1`. Stage
+  boundaries come from polling `cartalith_engine::progress` every 1 ms, so no engine code is touched. On Android it also
+  reads each stage's process CPU time from `/proc/self/stat` (CPU time / wall time = average busy cores) and which core
+  each thread ran on. It prints a digest of the field, temperature, rainfall, discharge, river mask, settlements and ways.
+- **On the handsets** the test binary is built with `cargo ndk -t arm64-v8a test --release -p cartalith-godot --lib
+  --no-run`, pushed to `/data/local/tmp` and run from `adb shell` under `nohup` (an `adb` server restart by another
+  session killed two attached runs). The binary is the same code and profile as the shipped `.so`, but it runs in the
+  shell's cpuset, not the app's (both are `0-7` on both handsets). **It does not measure the app's own extra steps**:
+  `absorb()`, `warm_render_caches()`, the first draw, or the shell's idle-mode frame pacing.
+- **Comparisons are interleaved:** each variant runs once per round in its own process, with a cooldown before every run
+  (60 s on the Pad, 20 s on the 6T) and a guard that waits until the installed Cartalith app is under 10 % CPU. One 6T
+  round set (A/B2) was discarded because another session launched the app mid-run (it used 103 % CPU, and CPU
+  temperatures reached 89 degC); A/B3 repeated it with the guard.
+- `simpleperf` is not usable from the `adb shell` user on either handset ("Event type 'cpu-clock' is not supported on the
+  device"), hence the `/proc` CPU-time method.
+- **The PC:** same harness, `cargo test --release`, run alone. The first baseline ran at 2 % background load; the
+  LTO comparison ran at 47 % background load from another session, and its fifth round (34.5 s) is excluded below.
+
+**Hardware, as read on the devices:** OnePlus 6T (`ONEPLUS A6013`, Snapdragon 845): cpu0-3 at 1.766 GHz and cpu4-7 at
+2.803 GHz; the kernel advertises `fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp` (no `asimddp`,
+`asimdrdm` or `lrcpc`). OnePlus Pad 3 (`OPD2415`, Snapdragon 8 Elite): cpu0-5 at 3.533 GHz and cpu6-7 at 4.320 GHz, all
+one core type; its feature list adds `asimdrdm lrcpc asimddp i8mm bf16` and others. Both run Android API 35/36.
+
+### 12.2 Results: total New World generation, median (min..max)
+
+| | OnePlus 6T | OnePlus Pad 3 | PC |
+|---|---|---|---|
+| **Before** (cargo defaults), 5 interleaved runs | **55.55 s** (55.22..55.69) | **20.94 s** (20.82..24.74) | 10.44 s (10.42..10.46), 5 runs alone |
+| `lto = "fat"`, `codegen-units = 1` | **54.09 s** (53.98..54.44), A/B1; 53.76 s (53.72..54.27), A/B3 | 20.70 s (20.38..23.09), A/B1; 20.57 s (20.40..24.50), A/B2 | 10.63 s (10.62..10.79) vs 10.80 s (10.73..10.86) before, 4 interleaved runs |
+| LTO + `+v8.2a,+dotprod,+fp16,+rcpc` | 54.71 s (54.02..54.75), A/B3 | 20.57 s (20.45..20.67), A/B2 | not built (Android-only flags) |
+| LTO + `RAYON_NUM_THREADS=8` | 53.01 s (52.86..53.84), A/B3 | not run (the Pad's pool is already 8) | - |
+| LTO + `use_gpu` on (the shell's boot default) | 56.65 s (56.26..56.83) vs 54.51 s (54.16..54.84) CPU, 3 interleaved | 20.74 s (20.60..20.85) vs 20.49 s (20.42..21.00) CPU, 3 interleaved | - |
+| **Final (shipped): LTO only** | **54.51 s** (54.16..54.84) | **20.49 s** (20.42..21.00) | 10.63 s (10.62..10.79) |
+
+Reading it: **LTO is a 2.6 % gain on the 6T** (A/B1's ranges do not overlap) and **no difference is established on the
+Pad or the PC** (the ranges overlap). The target features and the 8-thread pool show **no difference established** on
+either handset (each range overlaps LTO's), so neither shipped. The GPU path is **slower on the 6T** (about 4 %, ranges
+apart) and **no different on the Pad**.
+
+### 12.3 Per stage, before and final (median, min..max, seconds; busy cores from the final build's CPU time)
+
+| stage | 6T before | 6T final | 6T busy cores | Pad before | Pad final | Pad busy cores | PC before |
+|---|---|---|---|---|---|---|---|
+| Tectonics | 21.44 (21.36..21.69) | 20.70 (20.66..20.79) | 2.15 | 8.07 (8.01..8.62) | 7.81 (7.75..8.06) | 2.13 | 4.55 (4.54..4.56) |
+| Volcanism & impacts | 2.90 (2.82..3.04) | 2.90 (2.82..2.92) | 1.86 | 0.96 (0.94..1.33) | 0.92 (0.90..0.97) | 2.43 | 0.39 (0.39..0.40) |
+| Erosion | 7.09 (6.95..7.25) | 7.27 (7.12..7.50) | 1.17 | 1.80 (1.76..2.02) | 1.92 (1.86..1.94) | 1.13 | 1.03 (1.02..1.04) |
+| Hydrology | 2.07 (2.06..2.10) | 2.06 (2.06..2.07) | 1.11 | 0.72 (0.71..1.06) | 0.68 (0.67..0.69) | 1.11 | 0.30 (0.29..0.30) |
+| Climate (to the end of terrain) | 8.24 (8.15..8.63) | 8.37 (8.33..8.56) | 1.54 | 2.92 (2.88..4.20) | 2.83 (2.79..2.94) | 1.91 | 1.26 (1.25..1.27) |
+| terrain total | 41.78 (41.77..42.10) | 41.51 (41.04..41.60) | 1.78 | 14.43 (14.37..16.67) | 14.09 (14.03..14.60) | 1.92 | 7.51 (7.51..7.56) |
+| civilisation | 13.60 (13.45..13.77) | 13.11 (12.99..13.24) | 2.69 | 6.57 (6.44..8.62) | 6.40 (6.33..6.45) | 2.75 | 2.93 (2.85..2.94) |
+
+"Before" is A/B1's five runs of the default build; "final" is the shipped LTO build's three CPU runs (the CPU column of
+the GPU comparison); the PC column is the first, quiet baseline. Stages 0-2 (Planet, Extent, World structure) take under
+1 ms and get no row; "Climate" runs from the climate stage to the end of `generate_terrain`, because the last two stages
+are advanced together at the end. The 6T's busy cores are of 6 pool threads, the Pad's of 8.
+
+**Determinism.** Every CPU run on every machine and build printed the same digest, `terrain=632b22edf25908e1
+civ=f6708d1a30982bb1` (40 settlements, 66 ways): default and LTO on the PC, the 6T and the Pad, the target-feature build
+on both handsets, and the 8-thread pool. No flag moved a value, so none had to be dropped for it. The GPU path differs
+by design (`DECISIONS.md` section 7c), and it also **differs between the two handsets**: `terrain=a98006fb0982d1fa
+civ=c1ee4e88332f4367` (63 ways) on the Pad's Adreno, `terrain=14fa38faada65f7a civ=81260e568e825a3c` (64 ways) on the
+6T's, both using the same six GPU stages (warp, plate assignment, stress, base field blur, heterogeneity, weather). With
+the shell's boot default (`use_gpu` on, `engine_bridge.gd`), one seed therefore makes a different world on each handset.
+
+### 12.4 Why the Pad is not as much faster as its CPU
+
+1. **It is faster, by 2.6 times on the engine path:** 20.5-20.9 s against 53.8-55.6 s for the same world, cold. The
+   harness does not reproduce "as slow" for generation itself; what it does not cover (above) is still open.
+2. **The pipeline keeps about two cores busy.** Over the whole terrain pass the Pad averaged 1.92 busy cores of 8, and the
+   6T 1.78 of 6; erosion and hydrology run at about 1.1, i.e. serially. So the 8 Elite's six extra cores mostly idle,
+   and the speed-up between the handsets is roughly the single-core one. This is the same Amdahl limit section 3.4 found
+   on the PC, and it is not a build setting: it needs parallel algorithms in the serial stages.
+3. **The Pad throttles under sustained load; the 6T does not.** Five generations back to back in one process (before
+   the cooldown method was adopted): Pad 20.90, 20.94, 26.31, 29.44, 30.94 s; 6T 55.12, 55.45, 55.14, 55.15, 55.17 s.
+   After about two minutes of load the Pad lost about a third of its speed. The cause of the slowdown (thermal
+   throttling) is inferred from the shape, not measured directly.
+4. **Not the causes:** the thread pool is not capped (8 threads on the Pad; 6 on the 6T, where `available_parallelism()`
+   reports 6 at start because two cores are offline, and 8 threads made no established difference); the build was not
+   the problem (LTO 0-2.6 %, the ISA baseline nothing); the GPU path runs on both (wgpu on Vulkan, six stages) and helps
+   neither.
+
+**Core use (6T, final build, share of CPU ticks):** cpu4-7 (the 2.8 GHz cores) carried 77-78 % of the ticks and cpu0-3
+22-23 %, so the work does reach the big cores. On the Pad the two 4.32 GHz cores carried 47-49 %.
+
+### 12.5 What shipped, and reproducing it
+
+`[profile.release] lto = "fat", codegen-units = 1` in `cartalith-native/Cargo.toml`, with this table's figures in its
+comment. No `.cargo/config.toml` and no thread-pool change. The ISA baseline tried was chosen as one both handsets'
+cores implement: Armv8.2-A with dot product on the SD845's Cortex-A75/A55-derived cores (Arm, *Exploring the Arm dot
+product instructions*, developer.arm.com community blog, which names the Cortex-A55 and A75 as implementing them), fp16
+as the 6T's own `fphp asimdhp` features show, and RCpc. The 6T's kernel does not advertise `asimddp` or `lrcpc`, so
+the only evidence that they execute there is that the build ran: its disassembly carries 16 642 `ldapr`/`ldaprb`
+(RCpc) sites and inline LSE atomics, and no `sdot`/`udot` at all, so dot product was never exercised. A later ISA flag
+needs that check again. The release `.so` built with it is 27 920 368 bytes; the
+Android test binary went from 46 269 576 to 33 045 896 bytes and its cold build from 7 m 13 s to 10 m 57 s.
+
+```
+cargo test --release -p cartalith-godot --lib device_stage_bench -- --ignored --nocapture --test-threads 1
+cargo ndk -t arm64-v8a test --release -p cartalith-godot --lib --no-run
+adb push target/aarch64-linux-android/release/deps/cartalith_godot-<hash> /data/local/tmp/snap_bench
+adb shell "cd /data/local/tmp && SNAP_REPS=1 SNAP_WARM=0 ./snap_bench device_stage_bench --ignored --nocapture --test-threads 1"
+```
+
+Environment: `SNAP_REPS`, `SNAP_WARM`, `SNAP_GW`, `SNAP_SEED`, `SNAP_GPU` (the module comment). Run one variant per
+process with a cooldown between runs on the Pad, or its throttling becomes the measurement.

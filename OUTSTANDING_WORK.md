@@ -87,14 +87,28 @@ document, and `STATUS.md` records what lands)
   `STATUS.md` ("Phone landscape: the right-hand tool sheet has its peek detent again").
 - ~~**Phone landscape: the quick-drawer grip sits mid-screen**~~ -- closed 2026-11-13; see `STATUS.md` ("Phone landscape: the
   quick-drawer grip at the screen's outer edge").
-- **Snapdragon CPU optimisation: generation on the Pad 3 feels as slow as on the 6T** (owner, 2026-11-14: *"we should also
-  check optimisation on snapdragon cpu (like the pad3 and 6t, now the 6t is old, but generation in the pad feels as
-  slow."*). Read on 2026-11-14 at origin `976a5d59`: the workspace has no `[profile.release]` block (cargo defaults:
-  opt-level 3, no LTO, 16 codegen units) and no `.cargo/config.toml`, so the Android `.so` is built for generic aarch64
-  (ARMv8.0, no dotprod/fp16) with no target-cpu tuning. Measure first, on both devices over adb: per-stage generation
-  times, rayon's thread count on Android, whether the GPU (wgpu/Vulkan) path runs there, and big-vs-little core use; then
-  try LTO, `codegen-units = 1`, and a common `armv8.2-a` feature baseline both phones support (the SD845 is ARMv8.2;
-  the Pad 3's 8 Elite is ARMv9.2), keeping one APK. Belongs with the "Performance pass across devices" row below.
+- ~~**Snapdragon CPU optimisation: generation on the Pad 3 feels as slow as on the 6T**~~ -- measured and closed
+  2026-11-14; see `STATUS.md` ("Snapdragon generation measured on the Pad 3 and 6T") and `PERFORMANCE_BENCHMARKS.md`
+  section 12. Release builds now use LTO; the ISA baseline and thread-pool changes were measured and not kept. Its
+  three leftovers are the rows below.
+- **Generation keeps about two cores busy on the handsets** (measured 2026-11-14, `PERFORMANCE_BENCHMARKS.md` section
+  12.3): terrain averages 1.92 busy cores of 8 on the Pad 3 and 1.78 of 6 on the 6T; erosion 1.13/1.17 and hydrology
+  1.11/1.11; tectonics, the largest stage (7.8 s Pad, 20.7 s 6T, 38 % of the total), 2.13/2.15. More cores do not help
+  until those stages run in parallel; that is `CPU_MULTITHREADING_SCOPE.md`'s ground (and, for stream power,
+  `GPU_STREAM_POWER_SCOPE.md`). Re-measure with `device_stage_bench` on both handsets. Belongs with the "Performance
+  pass across devices" row below.
+- **The GPU path makes a different world on each handset, and is slower on the 6T, while the shell turns it on at boot**
+  (measured 2026-11-14, `PERFORMANCE_BENCHMARKS.md` section 12.3): seed 12345 at 2048 x 1311 with `use_gpu` on gives
+  `terrain=a98006fb0982d1fa` (63 ways) on the Pad 3's Adreno and `terrain=14fa38faada65f7a` (64 ways) on the 6T's, while
+  the CPU path is identical on the PC and both handsets; and it costs the 6T 56.65 s (56.26..56.83) against 54.51 s
+  (54.16..54.84) on the CPU (no difference on the Pad). `engine_bridge.gd` sets `use_gpu` true at boot. Whether a seed
+  must give the same world across devices, and whether the phone default should be the CPU path, are owner questions.
+- **How generation feels in the app on the Pad 3 is not yet measured** (2026-11-14): the harness above times
+  `generate_terrain` plus `compute_civilisation` only, not `absorb()`, `warm_render_caches()`, the first draw or the
+  shell's idle-mode frame pacing. The owner's report ("generation in the pad feels as slow") is not reproduced by the
+  engine path (Pad 20.5-20.9 s vs 6T 53.8-55.6 s), so the remaining time, if any, is in those steps or in the sustained
+  throttling the Pad showed (20.90 to 30.94 s over five back-to-back runs). Measure `bridge.last_generate_ms` on both
+  handsets in the app. Belongs with the "Performance pass across devices" row below.
 - **Marker card click-through, and private notes never sent to the assistant** (owner, 2026-11-14). (1) After a marker
   click opens the information card (CL-3, `d2a8b6a3`), the next map click only closes the card; the owner chose
   *"Click-through"*: a click elsewhere closes the card AND does what it would do (select, pan, open the next marker's

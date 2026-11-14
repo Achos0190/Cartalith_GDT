@@ -50,6 +50,33 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### Snapdragon generation measured on the Pad 3 and 6T; release builds get LTO (2026-11-14, owner: "check optimisation on snapdragon cpu")
+
+Measured over `adb` with a new headless harness, `cartalith-godot/src/device_stage_bench.rs` (`#[ignore]`d; the app's
+`params::defaults()` world at the New World defaults, 2048 x 1311, seed 12345, per stage, with CPU time and a world
+digest). Full tables, method and caveats: `PERFORMANCE_BENCHMARKS.md` section 12.
+
+- **Engine path, cold, median (min..max):** 6T 55.55 s (55.22..55.69), Pad 3 20.94 s (20.82..24.74), PC 10.44 s
+  (10.42..10.46). The Pad is 2.6 times faster; the harness does not reproduce "as slow" for generation itself.
+- **Why not faster still:** the pipeline keeps about two cores busy (terrain 1.92 of 8 on the Pad, 1.78 of 6 on the 6T;
+  erosion and hydrology about 1.1, i.e. serial), and the Pad throttles under sustained load (five back-to-back
+  generations: 20.90 to 30.94 s; the 6T stays at 55.1-55.5 s).
+- **Not the cause:** the rayon pool (8 threads on the Pad; 6 on the 6T, and 8 made no established difference), the
+  GPU path (runs on both with six stages; no difference on the Pad, about 4 % slower on the 6T), or the build.
+- **Shipped:** `[profile.release] lto = "fat", codegen-units = 1` (`cartalith-native/Cargo.toml`): 6T 54.09 s
+  (53.98..54.44), -2.6 %; no difference established on the Pad or the PC. An `+v8.2a,+dotprod,+fp16,+rcpc` baseline ran
+  on both handsets without a crash and made no established difference, so it was not kept.
+- **Determinism:** the CPU digest `terrain=632b22edf25908e1 civ=f6708d1a30982bb1` is identical on the PC, the 6T and the
+  Pad, with and without LTO, the ISA flags and the 8-thread pool. The GPU path gives a different world on each handset
+  (Pad `a98006fb0982d1fa`, 6T `14fa38faada65f7a`), routed in `OUTSTANDING_WORK.md`.
+- `cargo test --workspace` green on the PC after the change: 8 370 passed, 0 failed, 175 ignored (it builds the dev
+  profile, so it does not exercise the new release profile; the release test binaries above do).
+- **Installed** on both handsets with `adb install -r` (6T 22:53:19, Pad 22:53:37): an APK from this change on origin
+  `fbcd869f`, the pen `.aar` rebuilt from the same tree, the `.so` inside matching the stripped fresh build
+  (sha256 `7bf374f0...`), signed `CN=Godot`. Both launched to `Cartalith shell build 6c6a92770a22` with no fatal signal.
+- **Not measured:** the app's own steps after generation (`absorb()`, `warm_render_caches()`, the first draw) and how
+  generation feels in the shell; routed.
+
 ### A world card on the welcome no longer freezes the screen (owner, 2026-11-14: "On the tab it seems frozen")
 
 GDScript only. **Cause, measured with adb on the OnePlus Pad 3 (build `df4d3d18`, portrait, cold start):** not a hang,

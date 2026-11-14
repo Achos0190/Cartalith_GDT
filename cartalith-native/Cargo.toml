@@ -7,6 +7,38 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
 
+# Release builds: whole-program LTO and one codegen unit (owner request,
+# 2026-11-14, "check optimisation on snapdragon cpu"; PERFORMANCE_BENCHMARKS.md
+# section 12). Cargo's defaults are `lto = false` and 16 codegen units, which
+# stop LLVM inlining across crate and unit boundaries; this workspace's hot
+# loops call across `cartalith-engine` / `-terrain` / `-civ` / `-jsmath`
+# constantly. Measured on the shipped New World size (2048 x 1311, seed 12345,
+# app parameters, CPU path), five interleaved runs each, median (min..max):
+#   OnePlus 6T (SD845)   55.55 s (55.22..55.69) -> 54.09 s (53.98..54.44), -2.6 %
+#   OnePlus Pad 3 (8 Elite) 20.94 s (20.82..24.74) -> 20.70 s (20.38..23.09):
+#                        no difference established (ranges overlap)
+#   PC                   10.80 s (10.73..10.86) -> 10.63 s (10.62..10.79), 4 runs:
+#                        no difference established (ranges overlap)
+# The world digest (field, temperature, rainfall, discharge, river mask,
+# settlements, ways) is identical with and without it on all three machines:
+# LTO changes inlining, not float semantics (Rust never contracts a*b+c into an
+# FMA on its own, and no fast-math flag is set).
+# Deliberately absent: an aarch64 ISA baseline in `.cargo/config.toml`
+# (`+v8.2a,+dotprod,+fp16,+rcpc`, a set both handsets' cores implement: the
+# SD845's Cortex-A75/A55-derived cores are Armv8.2-A with dot product, Arm,
+# "Exploring the Arm dot product instructions"; the 6T's kernel advertises
+# `fphp asimdhp` but not `asimddp`/`lrcpc`). Built and run on both handsets
+# with no crash and the same digest, it made no established difference (6T
+# 54.71 s (54.02..54.75) vs LTO alone 53.76 s (53.72..54.27); Pad 20.57 s both),
+# so it was not kept. PERFORMANCE_BENCHMARKS.md section 12.2.
+# Cost: a longer release link (the Android test binary went from 7 m 13 s to
+# 10 m 57 s from cold on this machine, one build each). Must never be combined
+# with a flag that changes float results; any such flag needs a golden check
+# and an owner ruling first (MISTAKES.md, "Change generated output").
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [profile.dev]
 opt-level = 1
 

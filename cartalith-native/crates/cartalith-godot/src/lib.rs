@@ -35,6 +35,10 @@ mod bugsweep_seed707;
 // check, an ignored measurement over 20 generated worlds.
 #[cfg(test)]
 mod fh_r2_baseline;
+// Snapdragon CPU optimisation (owner, 2026-11-14): per-stage New World
+// generation timing for the PC and the handsets, an ignored measurement.
+#[cfg(test)]
+mod device_stage_bench;
 // G1-0 (GOVERNMENTS_SCOPE.md §8, Ruling CZ): the roster-government and
 // manpower columns over the same 20 worlds, an ignored measurement.
 #[cfg(test)]
