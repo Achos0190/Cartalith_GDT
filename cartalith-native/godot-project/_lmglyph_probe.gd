@@ -120,15 +120,18 @@ func _synthetic() -> void:
 	var crops: Array = []
 	var inner: Array = []
 	for c: Vector2i in cells:
+		## CL-2: a landmark is a teardrop pin now, its HEAD (and the pictogram) floating 2.1 radii above the cell, so the crop and
+		## the ink box are taken at the head centre (PinMarker.STEM_RATIO), not at the cell.
 		var sp: Vector2 = ov._cell_to_screen(Vector2(c.x, c.y), rect)
+		sp.y -= 2.1 * float(ov._landmark_pin_r(ov._landmarks[crops.size()]))
 		crops.append(img.get_region(Rect2i(int(sp.x) - HALF, int(sp.y) - HALF, HALF * 2, HALF * 2)).get_data())
-		## Bright pixels well inside the ring (r >= 6.75 px for local): a box of
-		## half-width 3 at the centre, which the ring stroke never reaches.
+		## Dark pictogram ink inside the pin head (the head fill is white, the ink near black): a box of half-width 5 at the
+		## head centre, which the head's outline stroke never reaches (radius >= 9 px).
 		var n := 0
-		for y in range(int(sp.y) - 3, int(sp.y) + 4):
-			for x in range(int(sp.x) - 3, int(sp.x) + 4):
+		for y in range(int(sp.y) - 5, int(sp.y) + 6):
+			for x in range(int(sp.x) - 5, int(sp.x) + 6):
 				var px := img.get_pixel(x, y)
-				if maxf(px.r, maxf(px.g, px.b)) > 0.30:
+				if maxf(px.r, maxf(px.g, px.b)) < 0.25:
 					n += 1
 		inner.append(n)
 	if _out != "":
@@ -143,8 +146,10 @@ func _synthetic() -> void:
 	_check("S1 positive control: same kind is far closer than a different kind", same * 4 < diff)
 	_check("S2 waterfall vs cave (same class) draw DIFFERENT marks", diff > 0)
 	_check("S3 shrine vs no-glyph kind (both local) differ", crops[4] != crops[3])
-	_check("S4 glyph kinds put ink inside the ring", inner[0] > 0 and inner[1] > 0 and inner[4] > 0 and inner[5] > 0)
-	_check("S5 a kind with no glyph falls back to ring only (no ink inside)", inner[3] == 0, "inner=%d" % inner[3])
+	_check("S4 pictogram kinds put ink inside the pin head", inner[0] > 0 and inner[1] > 0 and inner[4] > 0 and inner[5] > 0)
+	## Since CL-2 a kind with no pictogram draws the round dot, a stated fallback (`PinMarker.pictogram_for`), not a bare ring.
+	const PinRef := preload("res://shell/pin_marker.gd")
+	_check("S5 a kind with no pictogram falls back to the round dot (unmapped, ink inside)", not PinRef.is_mapped("zz_no_glyph_kind") and PinRef.pictogram_for("zz_no_glyph_kind") == "dot" and inner[3] > 0, "inner=%d" % inner[3])
 	vp.queue_free()
 
 func _dist(a: PackedByteArray, b: PackedByteArray) -> int:

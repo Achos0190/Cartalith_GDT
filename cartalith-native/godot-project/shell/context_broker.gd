@@ -80,12 +80,14 @@ extends RefCounted
 ## `hits` as it always did.
 
 ## §4.1's sections after the header, in their fixed order.
-const SECTIONS: Array = ["draft", "tool", "object", "place", "go", "info"]
+const SECTIONS: Array = ["draft", "tool", "object", "note", "place", "go", "info"]
 ## The desktop/tablet presenter's script, preloaded so `card` can be typed.
 ## Must stay a preload: `context_card.gd` declares no `class_name` (project rule).
 const ContextCard := preload("res://shell/context_card.gd")
 ## CM-3's ring script, preloaded for the same reason as `ContextCard`.
 const RadialRing := preload("res://shell/radial_ring.gd")
+## CL-3: the Note tab's logic, reused (never copied) for the card's Note section; see `note_rows()`.
+const ContextNoteScript := preload("res://shell/context_note.gd")
 
 ## The owning `app.gd` (untyped: it is a Control script with no `class_name`).
 ## Set once by `_init`; every provider, bridge and viewport read goes through it.
@@ -232,7 +234,34 @@ func collect(req: Dictionary) -> Array:
 	for ws in app._workspaces:
 		if ws.has_method("context_actions"):
 			rows.append_array(ws.context_actions(req))
+	rows.append_array(note_rows(req))
 	return merge(rows)
+
+
+## The Note-tab logic instance the card's Note section asks (`ContextNote.card_rows`). It holds no frame: `resolve`,
+## `peek` and `ask_create` need only the shell, so the card works with no Context panel built (the phone).
+var _note = null
+
+## CL-3 (Ruling EW item 3): the card's NOTE section. Rows only when the request has exactly ONE hit the vault can bind a
+## note to (a settlement, a landmark, a label or an icon): a marker click gives one hit, Select narrows to one, and a touch
+## hold's wider pick can add a river or a way beside the marker, which has no note and must not hide the marker's own. With
+## two or more bindable hits under the pointer there is no one subject to show a note for, so the section waits until Select
+## narrows it (the same rule the card's title follows). No bindable hit, no section (never a disabled row that says nothing
+## true). The rows are `ContextNote.card_rows`'s, never built here.
+func note_rows(req: Dictionary) -> Array:
+	var subject: Dictionary = {}
+	for h in req.get("hits", []):
+		var kind := String((h as Dictionary).get("kind", ""))
+		if not ContextNoteScript.BINDABLE.has(kind) or kind == "faction" or int((h as Dictionary).get("id", -1)) < 0:
+			continue
+		if not subject.is_empty():
+			return []   ## a second bindable hit: no single subject
+		subject = {"kind": kind, "id": int((h as Dictionary)["id"])}
+	if subject.is_empty():
+		return []
+	if _note == null:
+		_note = ContextNoteScript.new(app)
+	return _note.card_rows(subject)
 
 
 ## Stable sort by §4.1 section; provider order kept within a section. An

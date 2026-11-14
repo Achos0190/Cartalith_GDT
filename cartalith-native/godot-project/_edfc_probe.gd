@@ -1034,6 +1034,9 @@ func _resolver(dock):
 ##   NTP  the phone's equivalent (no tabs): the sheet's page offers the Note row; a chip press leaves the world pause level
 func _leg_note(bridge) -> void:
 	print("== NT selection and the Note tab ==")
+	## CL-3: a left click on a marker now opens that marker's card (Ruling EW item 3), and the legs before this one click
+	## markers, so a card can still be up (it pauses the world and takes the next click). Closed here, as every context leg does.
+	await _close_card()
 	await _domain("world")
 	await _centre(Vector2(128, 96))
 	_app.arm_tool("inspect")

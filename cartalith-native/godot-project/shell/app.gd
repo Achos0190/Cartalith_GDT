@@ -565,6 +565,53 @@ func _on_element_clicked(local_pos: Vector2) -> void:
 	if armed_tool != "inspect" or bridge == null or bridge.generating:
 		return
 	_select_pick(viewport.overlay.request_at(local_pos, "mouse"))
+	_open_marker_card(local_pos)
+
+## CL-3 (Ruling EW item 3, `CITY_MAP_LOOK_SCOPE.md` section 4.3): a left click on a MARKER (a settlement, a landmark pin or a
+## placed icon) opens the existing information card for that one marker, with its Note section, through the
+## existing broker (`ContextBroker.resolve`): no second path, one selection (the press already made it), no map edit.
+## Reached only from `_on_element_clicked`, so only with the pointer (`inspect`) tool armed and the engine idle; an
+## armed Route, Settlement or Sculpt tool never gets here and keeps placing or painting. The marker is the overlay's own
+## pick (`marker_at`, the one `_pick_mark`), so the card is for exactly what the press selected. Nothing under the
+## pointer, or a pick the request's hit list does not contain, opens nothing. The request's `source` is `"click"`:
+## `present()` treats every source but `"touch"` as a pointer, so a click's card places like a right-click's.
+## A touch tap never comes here (`element_tapped` shows the chips instead, Ruling EO).
+func _open_marker_card(local_pos: Vector2) -> void:
+	var m: Dictionary = viewport.overlay.marker_at(local_pos)
+	if m.is_empty() or context_broker == null:
+		return
+	var raw: Dictionary = viewport.overlay.request_at(local_pos, "click")
+	if raw.is_empty():
+		return
+	var hit: Dictionary = {}
+	for h in raw.get("hits", []):
+		var hd := h as Dictionary
+		## An icon's list index is the overlay's, the hit's `id` the engine's: the nearest icon hit is the marker.
+		if String(hd.get("kind", "")) == String(m["kind"]) and (String(m["kind"]) == "icon" or int(hd.get("id", -1)) == int(m["id"])):
+			hit = hd
+			break
+	if hit.is_empty():
+		return
+	raw["all_hits"] = raw["hits"]
+	raw["hits"] = [hit]
+	context_broker.resolve(raw)
+
+## The source the overlay's pins read their orange/white state from (`MapOverlay.set_pin_note_source`): `{"linked": {"kind:id":
+## true, ...}, "landmark_ids": [the vault entity id of each landmark, in `bridge.landmarks()` order]}`, or `{}` while the
+## engine is generating (the overlay then asks again; an empty answer is never cached as "no notes"). `linked` is every
+## link's `kind:entity_id` in the vault store; `landmark_ids` is `landmark_names()`'s `id` column, one engine call for all
+## landmarks (not one `vault_landmark_entity_id` per pin, which scans every landmark and recomputes every name).
+func pin_note_state() -> Dictionary:
+	if bridge == null or bridge.generating:
+		return {}
+	var linked := {}
+	for l in bridge.vault_all_links():
+		var ld := l as Dictionary
+		linked["%s:%d" % [String(ld.get("entity_kind", "")), int(ld.get("entity_id", 0))]] = true
+	var ids: Array = []
+	for n in bridge.landmark_names():
+		ids.append(int((n as Dictionary).get("id", 0)))
+	return {"linked": linked, "landmark_ids": ids}
 
 ## Selects the nearest label or icon of request `raw` (`map_overlay.gd::request_at`'s shape), but only when the same
 ## gesture selected nothing else: a settlement or landmark under the pointer already won the selection through the
@@ -2286,7 +2333,10 @@ func _make_window(field: String) -> Node:
 			## A link or entity change in the vault is saved with the project the same way, however many times a swap rebuilds it.
 			w.store_changed.connect(func():
 				VaultStore.save_from(bridge, current_project_path != "")
-				bridge.mark_world_dirty())
+				bridge.mark_world_dirty()
+				## CL-2: a link was made, removed or reloaded, so the map's pins re-read their orange/white state.
+				if viewport != null and viewport.overlay != null:
+					viewport.overlay.invalidate_pin_notes())
 		"asset_library_window":
 			w = AssetLibraryWindow.new()
 			add_child(w)
@@ -3319,6 +3369,7 @@ func _wire_selection() -> void:
 	viewport.overlay.map_clicked.connect(func(_gx: float, _gy: float) -> void: element_chips.hide_chips())
 	viewport.overlay.element_tapped.connect(_on_element_tapped)
 	viewport.overlay.element_clicked.connect(_on_element_clicked)
+	viewport.overlay.set_pin_note_source(pin_note_state)
 	tool_armed.connect(func(_id: String) -> void: element_chips.hide_chips())
 	selection_changed.connect(func(cur: Dictionary) -> void:
 		if cur.is_empty():
@@ -4764,7 +4815,7 @@ func _on_tl_selection_changed(_current: Dictionary) -> void:
 ## no actions left on the bar, its one line says what a click and the two context gestures do. Q is the
 ## cartwheel at the pointer and right-click the context card (`PC_SHELL_PROPOSAL.md` §3.9).
 ## Must never name an action that is not on the map itself; the bar holds settings, not commands.
-const WORLD_IDLE_HINT_POINTER := "Click selects · right-click opens the card · Q opens the cartwheel"
+const WORLD_IDLE_HINT_POINTER := "Click selects and opens a marker's card · right-click opens the card · Q opens the cartwheel"
 
 ## The same line on a touch tablet. A 500 ms hold opens the cartwheel together with the context card (CM-3,
 ## CM-4, kept as shipped by Ruling DY Q12).

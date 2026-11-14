@@ -606,7 +606,7 @@ const ICON_FAMILY_COLORS := {
 ## control's own LOCAL pixels -- no `rect`/grid term and no `_civ_zoom_k()`
 ## term -- so the camera, which is an ancestor scale (see `_crisp_begin()`),
 ## multiplies it: an icon's mark grows with zoom rather than holding a
-## constant on-screen size the way a settlement pin does. `_draw_landmark_ring`
+## constant on-screen size the way a settlement pin does. `_draw_landmark_pin` (the ring until CL-2)
 ## was written the same way until 2026-10-19, when the owner asked for landmark
 ## marks to scale with zoom under a law: it now multiplies by
 ## `_landmark_zoom_k()` (sub-linear growth past the opening view, a ceiling, a
@@ -1674,7 +1674,47 @@ func set_landmarks(items: Array) -> void:
 	_landmarks = items
 	_lm_hover_index = -1   ## an index into the array just replaced
 	_rebuild_lm_hidden_cells()   ## the hidden-cell set is keyed off this list
+	_pin_notes_dirty = true   ## the note state is per landmark index, so it is read again
 	queue_redraw()
+
+## CL-1 / CL-2 (`CITY_MAP_LOOK_SCOPE.md` section 4.2, Ruling EW item 3): the teardrop pin this overlay and the City
+## Viewer both draw and pick through (`shell/pin_marker.gd`).
+const PinMarker := preload("res://shell/pin_marker.gd")
+## The head radius floor, in screen px per UI unit: a head is never under 18 px across (the scope's desktop figure),
+## which on the phone is 18 dp. The shipped class radius (`_landmark_radius`) is larger for the bigger classes and
+## still carries class and importance; this only stops the smallest landmarks shrinking below a readable pictogram.
+const PIN_HEAD_MIN_PX := 9.0
+
+## Where a pin gets its orange/white state: `Callable() -> Dictionary` returning `{"linked": {"kind:id": true},
+## "landmark_ids": [vault entity id per landmark index]}`, or `{}` while the engine cannot say (it is generating).
+## Installed by `DccApp`; unset (a probe, an export with no shell) every pin is white. The overlay never reads the vault.
+var _pin_note_source: Callable = Callable()
+## The last answer, read lazily: `_pin_notes_dirty` is set by `set_landmarks()` and `invalidate_pin_notes()`.
+var _pin_notes: Dictionary = {}
+var _pin_notes_dirty := true
+
+## Installs the note-state source (see `_pin_note_source`) and marks it unread.
+func set_pin_note_source(cb: Callable) -> void:
+	_pin_note_source = cb
+	invalidate_pin_notes()
+
+## A link was made or removed (or the vault was connected): the pins' colours are read again on the next draw.
+func invalidate_pin_notes() -> void:
+	_pin_notes_dirty = true
+	queue_redraw()
+
+## Whether landmark `index` has a linked vault note, from the installed source. False with no source, an engine that
+## cannot answer yet, or an index the source's id list does not cover: absent is white, never a guessed orange.
+func landmark_has_note(index: int) -> bool:
+	if _pin_notes_dirty and _pin_note_source.is_valid():
+		var got: Variant = _pin_note_source.call()
+		if got is Dictionary and not (got as Dictionary).is_empty():
+			_pin_notes = got
+			_pin_notes_dirty = false
+	var ids: Array = _pin_notes.get("landmark_ids", [])
+	if index < 0 or index >= ids.size():
+		return false
+	return (_pin_notes.get("linked", {}) as Dictionary).has("landmark:%d" % int(ids[index]))
 
 ## ── The landmark filter and the landmark zoom law (owner, 2026-10-19) ──────────
 ##
@@ -5819,7 +5859,7 @@ func _draw_settlement_pin(e: Dictionary, sc: float, k: float, font: Font) -> voi
 
 ## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1): the phone's sample pin, drawn as a
 ## small ringed dot with a stem, the same two-pass dark-halo-then-colour trick
-## `_draw_landmark_ring()` uses so it survives on pale terrain. No glyph: the
+## the landmark ring used (before CL-2 made landmarks teardrop pins) so it survives on pale terrain. No glyph: the
 ## pin marks a point, not a kind.
 func _draw_sample_pin(rect: Rect2) -> void:
 	var pos := _cell_to_screen(Vector2(float(_sample_pin["gx"]), float(_sample_pin["gy"])), rect)
@@ -6007,26 +6047,18 @@ func _icon_shadowed_by_ring(ic: Dictionary, ringed: Dictionary) -> bool:
 func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 	var ringed := _ringed_cells()
 
-	## Landmarks FIRST since Ruling AL. The ring now carries a plate and a glyph,
-	## so drawn last it would cover a hand-placed icon standing on the same cell
-	## -- measured: `_vfy_iconmerge_probe.gd`'s authored icon at (21,0) went from
-	## poi=32 to poi=0. Authored content wins the pixel; the ring (radius >= 6.75
-	## px) still shows around a manual glyph (5.5 px at scale 1).
+	## Landmarks FIRST since Ruling AL, so a hand-placed icon standing on the same cell still wins the pixel (measured
+	## then: `_vfy_iconmerge_probe.gd`'s authored icon at (21,0) went from poi=32 to poi=0). Since CL-2 the mark is a
+	## teardrop pin whose HEAD floats above the cell and only its tip is on it, so that overlap is rarer, not gone.
 	if _landmarks_visible:
-		## The glyph inside each ring is rasterised for the size it reaches the
-		## screen at, and the camera is an ancestor scale -- read once.
-		## Scaled from the live camera to the zoom this draw is built for (a
-		## background chunk draws at its key's zoom, `_draw_chunk`): identical
-		## whenever the two agree, which is every settled frame.
-		var live := _live_zoom if _live_zoom > 0.0 else _camera_zoom
-		var glyph_scale := maxf(1.0, get_screen_transform().get_scale().x * _camera_zoom / maxf(live, 0.001))
-		for lm: Dictionary in _landmarks:
+		for li in _landmarks.size():
+			var lm: Dictionary = _landmarks[li]
 			if not _landmark_shown(lm):
 				continue   ## its kind is filtered out (owner, 2026-10-19)
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
-			_draw_landmark_ring(lpos, lm, glyph_scale)
+			_draw_landmark_pin(lpos, lm, li)
 
 	for ic: Dictionary in _manual_icons:
 		if _icon_layer_hidden(ic):
@@ -6301,70 +6333,60 @@ func _icon_radius(ic: Dictionary) -> float:
 	return ICON_BASE_RADIUS * maxf(0.2, float(ic.get("scale", 1.0))) * _sym_gain
 
 
-## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes,
-## drawn as open rings sized by class and modulated by importance, each holding
-## its per-kind glyph (Ruling AL).
+## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes, drawn since CL-2 (`CITY_MAP_LOOK_SCOPE.md`
+## section 4.2, Ruling EW item 3) as a TEARDROP PIN (`shell/pin_marker.gd`, the one draw the City Viewer shares): the tip
+## is the landmark's cell, the head floats above it and holds a vector pictogram for the landmark's kind. Class and
+## importance still set the SIZE (`_landmark_radius`, via `_landmark_pin_r`), so the class hierarchy still reads; the
+## colour is the NOTE STATE (orange = a linked vault note, white = none) and no longer the class tint.
 ##
-## Positions are grid CELLS (`Landmark.x`/`.y` are `usize` cell indices, unlike
-## the manual Icon tool's continuous click coordinates), so this is
-## `_cell_to_screen`, not `_point_to_screen`. Getting that wrong puts every
-## landmark half a cell out at every zoom, which is invisible at fit and
-## obvious at deep zoom — the same distinction `set_civ_data`'s own doc comment
-## draws for roads.
+## Positions are grid CELLS (`Landmark.x`/`.y` are `usize` cell indices, unlike the manual Icon tool's continuous click
+## coordinates), so the caller passes `_cell_to_screen`, not `_point_to_screen`. Getting that wrong puts every landmark
+## half a cell out at every zoom, which is invisible at fit and obvious at deep zoom.
 ##
-## An unknown class falls through to the Local radius rather than being skipped:
-## a landmark the engine placed and this build cannot categorise is still a real
-## landmark, and dropping it would be this file quietly disagreeing with the
-## panel about how many exist.
+## An unknown class falls through to the Local radius rather than being skipped, and a kind with no pictogram draws
+## the round dot (`PinMarker.pictogram_for`): a landmark the engine placed and this build cannot categorise is still a
+## real landmark, and dropping it would be this file quietly disagreeing with the panel about how many exist.
 ##
-## Called from `_draw_annotation_marks`, which owns the `_landmarks_visible`
-## gate, the `_cell_to_screen` transform and the interior test -- so this draws
-## a ring at `pos` and asks no questions. It is also the mark a *generated* POI
-## icon gets, which is the whole of ruling 14's "one layer": see that function
-## for why the ring wins over the glyph.
-##
-## **Ruling AL** added the glyph: see `LANDMARK_MARK_SCALE`. A kind this build
-## has no glyph for (`DccIcons.landmark_glyph()` returns `""`) draws the ring
-## alone, with the pre-AL centre-dot rule, rather than a wrong or blank icon.
-## `glyph_scale` is the canvas's screen scale, read once per pass by the caller.
-func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0) -> void:
-	var cls := String(lm.get("class", "local")).to_lower()
+## Called from `_draw_annotation_marks`, which owns the `_landmarks_visible` gate, the transform and the interior test,
+## so this draws a pin at `pos` and asks no questions. It is also the mark a *generated* POI icon gets (ruling 14's
+## "one layer"; see that function for why the landmark mark wins over the icon glyph). `index` is the landmark's
+## position in `_landmarks`, which keys its note state. **It must never decide what a click does and never read the
+## vault** (`landmark_has_note` answers from the installed source).
+func _draw_landmark_pin(pos: Vector2, lm: Dictionary, index: int) -> void:
+	var inks := landmark_inks(String(lm.get("class", "local")).to_lower())
+	PinMarker.draw(_cv, pos, _landmark_pin_r(lm), String(lm.get("kind", "")), landmark_has_note(index),
+		_sym_gain * _landmark_zoom_k(), 1.0, inks["outline"])
+
+
+## The pin head's radius in this control's local px: the class-and-importance radius (`_landmark_radius`), floored so
+## a head is at least `PIN_HEAD_MIN_PX` screen px (times the phone's UI unit) in radius. The floor converts
+## through the camera's zoom because this control is an ancestor-scaled child (`_camera_zoom`); an export has no camera
+## and takes the unfloored radius, which already carries `_sym_gain`. The ONE definition `_draw_landmark_pin` and the
+## three hit tests share, so the picked footprint is the drawn one.
+func _landmark_pin_r(lm: Dictionary) -> float:
 	var r := _landmark_radius(lm)
-	var inks := landmark_inks(cls)   ## the preset's icon inks (Ruling BX item 2), else the constants
-	var col: Color = inks["col"]
-	var glyph := DccIcons.landmark_glyph(String(lm.get("kind", "")))
-	if glyph != "":
-		_cv.draw_circle(pos, r, inks["plate"], true, -1.0, true)
-	## Dark halo first so the ring survives on pale terrain, the same
-	## two-pass trick the settlement labels use for their outline.
-	## Widths carry `_sym_gain` as `r` does (E4 uniform magnification; `1.0` live),
-	## and the zoom law's `k` as `r` does, so the stroke keeps its proportion to the
-	## ring at every zoom instead of thickening to ~80 px at x64 (`k = 1` with the
-	## law off or at/below the opening view, so those frames are unchanged).
-	var wk := _sym_gain * _landmark_zoom_k()
-	_cv.draw_arc(pos, r, 0, TAU, 28, inks["outline"], 2.4 * wk, true)
-	_cv.draw_arc(pos, r, 0, TAU, 28, col, 1.3 * wk, true)
-	if glyph != "":
-		var side := r * LANDMARK_GLYPH_FRAC
-		var on_screen := side * glyph_scale
-		var raster: int = LANDMARK_GLYPH_RASTERS[-1]
-		for b: int in LANDMARK_GLYPH_RASTERS:
-			if float(b) >= on_screen:
-				raster = b
-				break
-		var tex := DccIcons.get_icon(glyph, raster)
-		if tex != null:
-			_cv.draw_texture_rect(tex, Rect2(pos - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
-		return
-	## No glyph: the ring alone. A centre dot only on the two rare classes. On
-	## Local, where a dense world can carry hundreds, it fills the ring in and
-	## the mark stops reading as open.
-	if cls == "continental" or cls == "regional":
-		_cv.draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
+	if _export_mode:
+		return r
+	return maxf(r, PIN_HEAD_MIN_PX * _pin_unit() / maxf(_camera_zoom, 0.001))
+
+
+## Pixels per dp for this form: the phone's density-based scale, 1.0 on desktop and tablet (the same unit the element
+## chips use, `DccApp._on_element_tapped`).
+func _pin_unit() -> float:
+	return DccTheme.phone_scale() if DccTheme.is_phone() else 1.0
+
+
+## The hit slack (local px) for a landmark pin of head radius `r`: the pointer's `PinMarker.HIT_PAD` (scaled by the zoom
+## law like the ring's old pad), or on a touch form the pad that makes the target 44 dp across (`PinMarker.touch_pad`).
+func _landmark_pin_pad(r: float) -> float:
+	var pad := PinMarker.HIT_PAD * _landmark_zoom_k()
+	if DccTheme.is_touch():
+		pad = maxf(pad, PinMarker.touch_pad(r, _pin_unit() / maxf(_camera_zoom, 0.001)))
+	return pad
 
 
 ## The drawn ring radius in this control's local pixels -- the ONE definition
-## both `_draw_landmark_ring` and `_hit_test_landmark` use, so the click target
+## both `_draw_landmark_pin` (through `_landmark_pin_r`) and `_hit_test_landmark` use, so the click target
 ## is always exactly the mark on screen.
 func _landmark_radius(lm: Dictionary) -> float:
 	var cls := String(lm.get("class", "local")).to_lower()
@@ -6392,7 +6414,7 @@ func _landmark_radius(lm: Dictionary) -> float:
 ## many marks it holds. The per-mark work left is arithmetic.
 ##
 ## Positions are grid CELLS, so `_cell_to_screen`, for the reason
-## `_draw_landmark_ring` states directly above: `Landmark.x`/`.y` and a reject's
+## `_draw_landmark_pin` states directly above: `Landmark.x`/`.y` and a reject's
 ## `x`/`y` are the same `usize` cell space, unlike the Icon tool's continuous
 ## click coordinates.
 ##
@@ -7817,20 +7839,23 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 	return closest
 
 
-## Ruling AL: nearest landmark whose drawn ring (`_landmark_radius`, the exact
-## radius `_draw_landmark_ring` draws) plus `HOVER_RADIUS_PAD` contains `mouse`,
-## or `-1`. Same shape as `_hit_test_settlement`, and it refuses the same
-## "nothing is drawn there" cases: the layer switched off, a mark off the plate.
-## Returns `[index, distance]` so `_pick_mark()` can compare it with a
-## settlement hit.
+## Ruling AL, CL-2: nearest landmark whose drawn PIN (the head circle and the stem, `PinMarker.hit`, at the radius
+## `_landmark_pin_r` draws) contains `mouse`, or `-1`. Same shape as `_hit_test_settlement`, and it refuses the same
+## "nothing is drawn there" cases: the layer switched off, a mark off the plate. Returns `[index, distance]` so
+## `_pick_mark()` can compare it with a settlement hit. **Two distances, on purpose:** among landmark pins the NEAREST is
+## the one the pointer is most central on (`PinMarker.axis_distance`, so a click on a head picks that head and not a
+## neighbour whose tip is nearer); but the distance RETURNED for the cross-kind comparison is the distance to the pin's
+## ANCHOR (its tip, the cell), the same figure a settlement's or icon's anchor distance is and `hits_at` reports. A pin's
+## head and stem rise 3 radii above its cell, so on axis distance a landmark would swallow every settlement under its
+## footprint (measured: `_ctxphone_probe`'s settlement tap picked a landmark); on anchor distance the settlement whose
+## disc holds the pointer keeps it, as it did against the old ring. `hits_at` below tests the same footprint through the
+## same two helpers, so the three never disagree about WHETHER a pin is hit.
 func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 	var closest := -1
 	var closest_dist := INF
+	var best_axis := INF
 	if not _landmarks_visible:
 		return [closest, closest_dist]
-	## The pad scales with the zoom law as the ring does, so the target keeps its
-	## proportion to the mark (`k = 1`, the old pad, wherever the law is idle).
-	var pad := HOVER_RADIUS_PAD * _landmark_zoom_k()
 	for i in _landmarks.size():
 		var lm: Dictionary = _landmarks[i]
 		## A filtered-out kind draws nothing, so it must not be hoverable or
@@ -7840,10 +7865,14 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 		if not interior.has_point(pos):
 			continue
-		var d := mouse.distance_to(pos)
-		if d <= _landmark_radius(lm) + pad and d < closest_dist:
+		var r := _landmark_pin_r(lm)
+		if not PinMarker.hit(pos, r, mouse, _landmark_pin_pad(r)):
+			continue
+		var d := PinMarker.axis_distance(pos, r, mouse)
+		if d < best_axis:
+			best_axis = d
 			closest = i
-			closest_dist = d
+			closest_dist = mouse.distance_to(pos)   ## the anchor distance the cross-kind comparison uses (see above)
 	return [closest, closest_dist]
 
 
@@ -7903,6 +7932,24 @@ func _pick_mark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Dictionary:
 	return out
 
 
+## CL-3 (Ruling EW item 3): the marker `_pick_mark` picks at `mouse` (this control's local space), as `{kind, id}`
+## (`settlement`, `landmark` or `icon`, the id each is keyed by elsewhere), or `{}` when no marker is under the
+## pointer. A public wrapper over the ONE pick, so a left click's card (`DccApp._on_element_clicked`) opens for exactly
+## the marker the press selected, never a second hit rule. Reads nothing it does not draw.
+func marker_at(mouse: Vector2) -> Dictionary:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0:
+		return {}
+	var pick := _pick_mark(mouse, _interior_rect(rect), rect)
+	if int(pick["s"]) != -1:
+		return {"kind": "settlement", "id": int(pick["s"])}
+	if int(pick["l"]) != -1:
+		return {"kind": "landmark", "id": int(pick["l"])}
+	if int(pick["i"]) != -1:
+		return {"kind": "icon", "id": int(pick["i"])}
+	return {}
+
+
 ## **Everything** under `mouse`, nearest first -- `MAP_CONTEXT_SCOPE.md` §9.1's
 ## `hits_at`, CM-1. Each entry is `{kind, id, label?, dist}`:
 ##
@@ -7948,8 +7995,7 @@ func hits_at(mouse: Vector2) -> Array:
 		if d <= _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD:
 			hits.append(_hit("settlement", i, s.get("name"), d))
 	if _landmarks_visible:
-		## Same refusals and the same scaled pad as `_hit_test_landmark`.
-		var lpad := HOVER_RADIUS_PAD * _landmark_zoom_k()
+		## Same refusals and the same pin footprint as `_hit_test_landmark` (CL-2).
 		for i in _landmarks.size():
 			var lm: Dictionary = _landmarks[i]
 			if not _landmark_shown(lm):
@@ -7957,9 +8003,9 @@ func hits_at(mouse: Vector2) -> Array:
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
-			var ld := mouse.distance_to(lpos)
-			if ld <= _landmark_radius(lm) + lpad:
-				hits.append(_hit("landmark", i, lm.get("name"), ld))
+			var lr := _landmark_pin_r(lm)
+			if PinMarker.hit(lpos, lr, mouse, _landmark_pin_pad(lr)):
+				hits.append(_hit("landmark", i, lm.get("name"), mouse.distance_to(lpos)))   ## anchor distance, as `_hit_test_landmark` returns
 	var p := _grid_point(mouse, rect, interior)
 	if _context_pick.is_valid() and p["valid"]:
 		for e in _context_pick.call(p["gx"], p["gy"], label_px_per_cell(), _camera_zoom):

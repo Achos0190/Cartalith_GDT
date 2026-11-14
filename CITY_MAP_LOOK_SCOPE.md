@@ -261,6 +261,28 @@ The bars above that quote luminance and pixel widths were NOT measured; the prob
 `STATUS.md` instead. Numbering note: the milestone table's CL-1 is the marker draw, and this step is not it. Still open: the wall
 that hugs the built area (an engine change), CL-1 to CL-3, CL-8 to CL-11, and the choice of default look.
 
+**Build note, 2026-11-13 (the second build step: CL-1's shared draw, CL-2 and CL-3; status is `STATUS.md`'s).**
+`shell/pin_marker.gd` is the one teardrop (tip on the anchor, head 2.1 radii above it, vector pictograms for the engine's kinds:
+castle, spire, tower, anchor, wheat, pick, peak, cave, drop, bridge, tree, swords, well and the round dot as the stated fallback),
+orange with a linked vault note, white without. The map draws **generated landmarks** through it (replacing the class ring; the
+class and importance still set the size, `_landmark_pin_r`), the City Viewer draws derived pins through it (citadel, worship,
+harbour, market, farm; wells are mapped, not pinned). `PinMarker.hit` (head circle plus stem triangle) is the ONE footprint:
+`_hit_test_landmark`, `hits_at` and `_pick_mark` all read it, and the City Viewer's `pin_at` too; a touch form widens the pad to
+a 44 dp target (`touch_pad`). A left click (desktop, pointer tool only) on a settlement, landmark pin or icon opens the existing
+card for that one marker through `ContextBroker.resolve` (`DccApp._open_marker_card`); the card's NOTE section is broker rows
+from `ContextNote.card_rows` (the Note tab's own `resolve`, never a copy): *Open note · title* with the note's first lines,
+*Create note...* (a dialog with the 4df2db45 folder chooser, one create-and-bind path shared with the Note tab), or a disabled row
+that says why (no vault, cannot bind).
+**Reconciling Ruling EO with Ruling EW on touch (a judgement, for the owner to overturn in one line).** EO is the later word on
+the touch gesture itself and is explicit (a tap selects and shows chips, a long-press keeps the card), while EW's "(tap on touch)"
+was written beside a desktop-click question. So on touch the TAP keeps EO's chips, whose Note chip is the existing state-aware
+*Open note for X* / *Attach note to X...* route into the vault window (it has the same folder chooser), and the LONG-PRESS card
+(the card on a tablet, the peek sheet on the phone) carries the new Note section. Both owner texts hold: the card with the Note
+section is what a touch hold opens, and the one-tap route to the note is the chip. **Not built in this step:** the City Viewer's
+click opens no card (it selects the town and the Context panel follows; the card there needs an anchor in the viewer's own
+window), the CL-1 head-overlap nudge, the settlement pin and the manual icons keep their shapes (CL-10, behind Q1's map half), and
+a landmark's card header still reads `(unnamed)` because `hits_at` carries no landmark name (the Note row below it does).
+
 CL-0 to CL-3 are the owner's literal asks; CL-4 to CL-8 are render-only and need no ruling; CL-9 adds a Rust key; CL-11 reverses
 a documented decision and needs one.
 

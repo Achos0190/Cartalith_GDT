@@ -67,6 +67,12 @@ class_name CityViewerWindow
 const DRAW := preload("res://shell/urban_layout_draw.gd")
 ## PC-7: the non-blocking, follow-until-pinned rules shared by the five context windows.
 const ContextWindow := preload("res://shell/context_window.gd")
+## CL-1 / CL-2: the teardrop pin, shared with the map overlay (`shell/pin_marker.gd`).
+const PinMarker := preload("res://shell/pin_marker.gd")
+## Head radius of a viewer pin, in px per UI unit (18 px across on the desktop, 18 dp on the phone; the scope's figure).
+const PIN_HEAD_R := 9.0
+## Slop (px) between a press and its release that still counts as a click rather than a pan.
+const PIN_CLICK_SLOP := 6.0
 
 ## The engine bridge, set by `setup()`. Source of the settlement list and the
 ## per-settlement layouts; this window never mutates the world except through
@@ -111,6 +117,9 @@ const WindowRepresent := preload("res://shell/window_represent.gd")
 ## True while the mouse button is held on the canvas, set from the button state in
 ## `_on_canvas_input`; motion events pan only while it is set.
 var _dragging := false
+## Where the left press that may become a pin click went down, and how far the pointer has moved since (px).
+var _press_pos := Vector2.ZERO
+var _press_travel := 0.0
 
 ## Zoom clamp floor, a multiple of the fit scale. Labelled judgement: low enough
 ## to see the whole 1.7 x 1.25 km box inside a large frame, no lower.
@@ -482,15 +491,118 @@ func _draw_canvas() -> void:
 	## around it (`urban_layout_draw.gd`'s header).
 	DRAW.draw_ground(_canvas, rect, _layout)
 
+	var vt := _view_transform()
+	var view_scale: float = vt["scale"]
+	var origin: Vector2 = vt["origin"]
+	var to_screen := func(p: Vector2) -> Vector2: return origin + p * view_scale
+	## `px_floor` is 1.0: this canvas draws straight into screen space.
+	DRAW.draw_layout(_canvas, _layout, to_screen, view_scale, 1.0, 1.0, true)
+	## CL-1: the derived pins, a screen-space pass AFTER `draw_layout` (which the map's town layer and the export share
+	## and which is screen-agnostic), so a pin keeps its size at every zoom and its tip stays on its place.
+	var has_note := _settlement_has_note()
+	var pr := PIN_HEAD_R * _pin_unit()
+	for pin in _pins():
+		PinMarker.draw(_canvas, to_screen.call(pin["at"]), pr, String(pin["kind"]), has_note)
+
+
+## The model-metre to canvas-px transform of the current view: `{scale, origin}`, `to_screen(p) = origin + p * scale`.
+## The ONE place the fit, zoom and pan combine, so the draw above and the pin pick below cannot disagree.
+func _view_transform() -> Dictionary:
 	var box := _fit_box()
 	var margin := 16.0
 	var fit: float = minf((_canvas.size.x - 2.0 * margin) / maxf(1.0, box.size.x),
 		(_canvas.size.y - 2.0 * margin) / maxf(1.0, box.size.y))
 	var view_scale := fit * _zoom
-	var origin := (_canvas.size - box.size * view_scale) * 0.5 - box.position * view_scale + _pan
-	var to_screen := func(p: Vector2) -> Vector2: return origin + p * view_scale
-	## `px_floor` is 1.0: this canvas draws straight into screen space.
-	DRAW.draw_layout(_canvas, _layout, to_screen, view_scale, 1.0, 1.0, true)
+	return {"scale": view_scale,
+		"origin": (_canvas.size - box.size * view_scale) * 0.5 - box.position * view_scale + _pan}
+
+
+## Pixels per dp: the phone's density-based scale, 1.0 on the desktop and tablet (the map overlay's `_pin_unit`).
+func _pin_unit() -> float:
+	return DccTheme.phone_scale() if DccTheme.is_phone() else 1.0
+
+
+## Whether the town's settlement has a linked vault note, one engine call (`vault_entity_summary`; `link_count` is 0
+## while the engine is generating or when the vault is not connected: absent is white, never a guessed orange). Every
+## derived pin here shares it: a citadel or a church has no vault entity of its own, so the pin speaks for its town.
+func _settlement_has_note() -> bool:
+	var tid := int(_settlement.get("tid", 0))
+	return tid != 0 and int(bridge.vault_entity_summary("settlement", tid).get("link_count", 0)) > 0
+
+
+## The derived pins of the current layout: `[{kind, at}]` with `at` in model metres, from what the layout already holds
+## (nothing is a new entity): the citadel (its keep, else its wall), one per place of worship (its first building), the
+## harbour point, each market centre and one for the farmland (its largest field). A layout key that is absent draws no
+## pin, never a pin at the origin. Wells are mapped by `PinMarker.pictogram_for` but not pinned: a town holds dozens.
+func _pins() -> Array:
+	var out: Array = []
+	var keep: PackedVector2Array = _layout.get("citadel_keep", PackedVector2Array())
+	var wall: PackedVector2Array = _layout.get("citadel_wall", PackedVector2Array())
+	if keep.size() >= 3:
+		out.append({"kind": "citadel", "at": _centroid(keep)})
+	elif wall.size() >= 3:
+		out.append({"kind": "citadel", "at": _centroid(wall)})
+	for sv in _layout.get("worship_sites", []):
+		var polys: Array = (sv as Dictionary).get("polys", [])
+		if not polys.is_empty() and (polys[0] as PackedVector2Array).size() >= 3:
+			out.append({"kind": "worship", "at": _centroid(polys[0])})
+	if _layout.has("harbour_pt"):
+		out.append({"kind": "harbour", "at": _layout["harbour_pt"]})
+	for c in _layout.get("market_centers", PackedVector2Array()):
+		out.append({"kind": "market", "at": c})
+	var best: PackedVector2Array = PackedVector2Array()
+	var best_area := 0.0
+	for f in _layout.get("farmland", []):
+		var fp: PackedVector2Array = f
+		if fp.size() < 3:
+			continue
+		var a := absf(_area(fp))
+		if a > best_area:
+			best_area = a
+			best = fp
+	if best.size() >= 3:
+		out.append({"kind": "farm", "at": _centroid(best)})
+	return out
+
+
+## The mean of a polygon's vertices: enough to put a pin on a building or a field (an area centroid is not needed).
+static func _centroid(poly: PackedVector2Array) -> Vector2:
+	var s := Vector2.ZERO
+	for p in poly:
+		s += p
+	return s / float(maxi(poly.size(), 1))
+
+
+## A polygon's signed area (shoelace), for choosing the largest field.
+static func _area(poly: PackedVector2Array) -> float:
+	var a := 0.0
+	for i in poly.size():
+		var p := poly[i]
+		var q := poly[(i + 1) % poly.size()]
+		a += p.x * q.y - q.x * p.y
+	return a * 0.5
+
+
+## The pin under canvas point `pos`, as its index in `_pins()` (the nearest by `PinMarker.axis_distance`), or -1. The
+## footprint is `PinMarker.hit` (head and stem) at the radius `_draw_canvas` draws, widened to the 44 dp floor on a touch
+## form: the same two functions the map overlay's landmark pick uses.
+func pin_at(pos: Vector2) -> int:
+	if _layout.is_empty():
+		return -1
+	var vt := _view_transform()
+	var pr := PIN_HEAD_R * _pin_unit()
+	var pad := PinMarker.touch_pad(pr, _pin_unit()) if DccTheme.is_touch() else PinMarker.HIT_PAD
+	var best := -1
+	var best_d := INF
+	var pins := _pins()
+	for i in pins.size():
+		var tip: Vector2 = (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"])
+		if PinMarker.hit(tip, pr, pos, pad):
+			var d := PinMarker.axis_distance(tip, pr, pos)
+			if d < best_d:
+				best = i
+				best_d = d
+	return best
 
 
 ## Canvas input: wheel zoom about the cursor, left/middle drag pan, and the
@@ -511,8 +623,20 @@ func _on_canvas_input(event: InputEvent) -> void:
 			_canvas.accept_event()
 		elif mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_MIDDLE:
 			_dragging = mb.pressed
+			## CL-3 (the viewer's half): a left press that releases within `PIN_CLICK_SLOP` of where it went down, on a
+			## pin, selects this town (the one `select`; the Context panel follows, Note tab included). A press that
+			## travels further was a pan and selects nothing.
+			if mb.button_index == MOUSE_BUTTON_LEFT:
+				if mb.pressed:
+					_press_pos = mb.position
+					_press_travel = 0.0
+				elif _press_travel <= PIN_CLICK_SLOP and pin_at(_press_pos) >= 0:
+					var host = get_parent()
+					if host != null and host.has_method("select") and _index >= 0:
+						host.select("settlement", _index)
 			_canvas.accept_event()
 	elif event is InputEventMouseMotion and _dragging:
+		_press_travel += (event as InputEventMouseMotion).relative.length()
 		_pan += (event as InputEventMouseMotion).relative
 		_view_canvas = _canvas.size
 		_canvas.queue_redraw()

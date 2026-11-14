@@ -77,7 +77,7 @@ const SELECT_CAP := 8
 ## table's). An unknown id falls back to its upper-cased name in
 ## `_section_title()`; the TOOL and CARTO PLACE variants are applied there.
 const SECTION_TITLES := {
-	"draft": "DRAFT", "tool": "TOOL", "object": "OBJECT",
+	"draft": "DRAFT", "tool": "TOOL", "object": "OBJECT", "note": "NOTE",
 	"place": "PLACE HERE", "go": "GO / MEASURE", "info": "INFO",
 }
 
@@ -449,6 +449,10 @@ func _row_for(a: Dictionary, indent: bool = false) -> void:
 		hint = DccIcons.SYMBOLS["submenu"]
 	var ink := "block" if bool(a.get("danger", false)) else "text_bright"
 	var row := _action_row(label, hint, ink, false, false, indent)
+	## CL-3: a row may carry a `detail` (the Note section's note snippet), drawn as a wrapped dim line inside it. It is part
+	## of the same row (a press anywhere on it runs the action), never a separate target.
+	if a.has("detail") and String(a["detail"]) != "":
+		_detail_in(row, String(a["detail"]))
 	## `tip` (SM-4): an enabled row's hover text, for a verb whose limits must
 	## be on the row itself -- Add event's "only the four conflict kinds"
 	## (`STORY_MENUS_PROPOSAL.md` Q7). A disabled row's `reason` is drawn
@@ -457,6 +461,29 @@ func _row_for(a: Dictionary, indent: bool = false) -> void:
 	row.set_meta("card_row", {"kind": "action", "text": label, "id": String(a.get("id", "")),
 		"submenu": a.has("children")})
 	_nav.append({"node": row, "kind": "action", "action": a})
+
+
+## CL-3: adds `text` as a dim wrapped second line inside action row `row` (which `_action_row` built as a `PanelContainer`
+## holding a margin holding an `HBoxContainer`): the row's label becomes the first line of a column. Mouse-transparent, so
+## the press reaches the row. Named `Detail` for probes.
+func _detail_in(row: PanelContainer, text: String) -> void:
+	var h: HBoxContainer = row.get_child(0).get_child(0)
+	var lbl: Control = h.get_node("Text")
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 1)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(col)
+	h.move_child(col, lbl.get_index())
+	h.remove_child(lbl)
+	col.add_child(lbl)
+	var d := DccTheme.label(text, "text_secondary", _m("fs_hint"))
+	d.name = "Detail"
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d.custom_minimum_size.x = 120
+	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(d)
+	row.custom_minimum_size.y = 0
 
 
 ## Adds a 1 px divider line; `soft` uses the dimmer `line_soft` (used between a

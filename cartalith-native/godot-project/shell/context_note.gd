@@ -312,9 +312,20 @@ func _build_create(r: Dictionary) -> void:
 
 ## Creates the note and binds it, then redraws (the tab shows it). A refusal says why and changes nothing.
 func _create(r: Dictionary, template_rel: String, rel: String) -> void:
+	if create_note(r, template_rel, rel):
+		refresh(_subject)
+
+
+## **The one create-and-bind path** (CL-3: the Note tab's Create button and the information card's Create note dialog both
+## call it, so a note made from either is the same note): creates `rel` (blank, or from `template_rel` when not `""`),
+## links it to the subject `r` came from (`resolve()`'s `no_note` state: `vk`, `vid`, `name`), remembers the folder
+## and says what happened on the status line. Returns true when the FILE was made (it may still have failed to link; the
+## status line says which). A refusal changes nothing. Never overwrites: the crate refuses an existing path. It does not
+## redraw the tab (the tab's own `_create` does; a caller outside the tab refreshes the panel itself).
+func create_note(r: Dictionary, template_rel: String, rel: String) -> bool:
 	if rel == "":
 		app.set_status("hint", "Give the new note a path.", "accent")
-		return
+		return false
 	var bridge = app.bridge
 	var made: Dictionary
 	if template_rel == "":
@@ -323,7 +334,7 @@ func _create(r: Dictionary, template_rel: String, rel: String) -> void:
 		made = bridge.vault_create_from_template(template_rel, rel, String(r["name"]))
 	if not bool(made.get("ok", false)):
 		app.set_status("hint", "Create: %s" % String(made.get("error", "refused")), "accent")
-		return
+		return false
 	var a: Dictionary = bridge.vault_attach(String(r["vk"]), int(r["vid"]), String(r["name"]), rel, "")
 	if bool(a.get("ok", false)):
 		app.vault_window.store_changed.emit()
@@ -332,7 +343,133 @@ func _create(r: Dictionary, template_rel: String, rel: String) -> void:
 	else:
 		VaultFolderPick.remember(String(r["vk"]), rel)   ## the file exists there, linked or not
 		app.set_status("hint", "%s created, but could not be linked: %s" % [rel, String(a.get("error", ""))], "accent")
-	refresh(_subject)
+	return true
+
+
+## CL-3 (Ruling EW item 3): the information card's Create note. A small dialog (the shell's own `custom_dialog`, so it is
+## a phone sheet or a desktop window like every other prompt) holding the path field and the SAME folder chooser the
+## Note tab uses (`VaultFolderPick.build`, 4df2db45), then `create_note`. The template choice stays in the Note tab (VQ2):
+## this dialog makes a blank note. Create is disabled while "New folder..." is open with no valid name. After a create the
+## panel's Note tab is redrawn and the pins re-read their colour (`store_changed`, which `create_note` emits).
+func ask_create(r: Dictionary) -> void:
+	var bridge = app.bridge
+	var d: Dictionary = DccWidgets.custom_dialog(app, "Create note", "Create", 380)
+	var dlg: ConfirmationDialog = d["dialog"]
+	var body: VBoxContainer = d["body"]
+	body.add_child(DccTheme.label("New note for %s" % String(r["name"]), "text_dim", DccTheme.FS_SMALL))
+	var suggested: String = bridge.vault_suggested_path(String(r["vk"]), String(r["name"]))
+	var edit := LineEdit.new()
+	edit.name = "CardNotePath"
+	edit.text = suggested
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	edit.tooltip_text = "Where the new note goes, relative to the vault folder."
+	if DccTheme.is_touch():
+		edit.custom_minimum_size.y = 44
+	var fp: Dictionary = VaultFolderPick.build(body, bridge, String(r["vk"]), suggested, edit)
+	body.add_child(edit)
+	var sync := func() -> void:
+		dlg.get_ok_button().disabled = fp["folder"].call() == null
+	(fp["tree"] as Tree).item_selected.connect(sync)
+	(fp["new_edit"] as LineEdit).text_changed.connect(func(_t: String) -> void: sync.call())
+	(fp["new_button"] as Button).toggled.connect(func(_on: bool) -> void: sync.call())
+	sync.call()
+	dlg.confirmed.connect(func() -> void:
+		if fp["folder"].call() != null and create_note(r, "", edit.text.strip_edges()):
+			if app.right_dock_ctrl != null:
+				app.right_dock_ctrl.refresh_note()
+		if is_instance_valid(dlg):
+			dlg.queue_free())
+	dlg.canceled.connect(func() -> void:
+		if is_instance_valid(dlg):
+			dlg.queue_free())
+	DccWidgets.present_custom_dialog(d)
+	d["field"] = edit
+	d["chooser"] = fp
+	_last_dialog = d
+
+
+## The last Create dialog's `{dialog, body, field, ...}`, so a probe can drive it. Never read by shell code.
+var _last_dialog: Dictionary = {}
+
+
+## Characters a card snippet is cut to, and how much of a note is read to make it.
+const SNIPPET_MAX := 140
+const PEEK_READ_MAX := 4000
+
+
+## The note behind a `note` state: `{title, snippet}`, read through the vault (`vault_read_file`), never invented. The title
+## is the note's first `#` heading, else its file name without the extension; the snippet is its first non-heading
+## lines (front matter skipped), whitespace collapsed and cut at `SNIPPET_MAX` characters with an ellipsis. An unreadable
+## or empty note gives its title and `(empty note)`, never a made-up line. Reads at most `PEEK_READ_MAX` characters.
+func peek(rel: String) -> Dictionary:
+	return peek_text(app.bridge.vault_read_file(rel).substr(0, PEEK_READ_MAX), rel)
+
+
+## `peek`'s pure half, so a probe can drive it with a literal text. See `peek`.
+static func peek_text(text: String, rel: String) -> Dictionary:
+	var lines := text.replace("\r", "").split("\n")
+	var i := 0
+	if lines.size() > 0 and String(lines[0]).strip_edges() == "---":
+		i = 1
+		while i < lines.size() and String(lines[i]).strip_edges() != "---":
+			i += 1
+		i += 1   # past the closing fence (or past the end of an unterminated one)
+	var title := ""
+	var body: Array = []
+	while i < lines.size():
+		var ln := String(lines[i]).strip_edges()
+		i += 1
+		if ln == "":
+			continue
+		if ln.begins_with("#"):
+			if title == "":
+				title = ln.lstrip("#").strip_edges()
+			continue
+		body.append(ln)
+		if body.size() >= 2:
+			break
+	if title == "":
+		title = rel.get_file().get_basename()
+	var snippet := " ".join(body)
+	if snippet == "":
+		snippet = "(empty note)"
+	elif snippet.length() > SNIPPET_MAX:
+		snippet = snippet.substr(0, SNIPPET_MAX - 1).strip_edges() + "…"
+	return {"title": title, "snippet": snippet}
+
+
+## CL-3: the information card's NOTE section for the card's one subject (`{kind, id}`, a `DccApp.selection`-shaped value),
+## as broker action rows (`ContextBroker.collect` appends them; section `note`). The rows come from `resolve()`, the
+## Note tab's own state function, so the card and the tab can never disagree about a subject's note:
+##   `note`         an enabled `Open note · <title>` row, with the note's first lines as its `detail`;
+##   `no_note`      an enabled `Create note…` row (the dialog above), with `<name> has no note yet.` as its `detail`;
+##   `novault`      a disabled row whose `reason` is the missing vault (the card draws it inline, never only a tooltip);
+##   `unsupported`  a disabled row with the state's own `why`;
+##   `none`         no rows (the subject is gone), never a blank row.
+## Open runs the same route the Note tab's own menu row does: on desktop and tablet it selects the subject and shows the
+## panel's Note tab (`open_context_tab`), on the phone it opens the vault scoped to the entity (`open_vault`).
+func card_rows(subject: Dictionary) -> Array:
+	var r := resolve(subject)
+	var nm := String(r.get("name", ""))
+	match String(r["state"]):
+		"note":
+			var pk := peek(String(r["rel"]))
+			return [{"id": "note.open", "label": "Open note · %s" % String(pk["title"]), "detail": String(pk["snippet"]),
+				"section": "note", "enabled": true, "callable": func() -> void:
+					if app.is_phone():
+						app.open_vault(String(r["vk"]), int(r["vid"]), nm)
+					else:
+						app.select(String(subject["kind"]), int(subject["id"]))
+						app.open_context_tab("note")}]
+		"no_note":
+			return [{"id": "note.create", "label": "Create note…", "detail": "%s has no note yet." % nm,
+				"section": "note", "enabled": true, "callable": func() -> void: ask_create(r)}]
+		"novault":
+			return [{"id": "note.none", "label": "Note", "section": "note", "enabled": false,
+				"reason": "No vault folder is connected, so %s has no note to show." % nm}]
+		"unsupported":
+			return [{"id": "note.none", "label": "Note", "section": "note", "enabled": false, "reason": String(r["why"])}]
+	return []
 
 
 ## The note's dated entries (authored ` ```chronos ` lines, read through `vault_entity_chronos`): a row per

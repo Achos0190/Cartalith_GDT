@@ -235,7 +235,8 @@ func _census(img: Image, cell: Vector2i) -> Dictionary:
 	var out := {"ring": 0, "poi": 0, "feature": 0}
 	var x0 := maxi(0, int(c.x) - HALF)
 	var x1 := mini(W - 1, int(c.x) + HALF)
-	var y0 := maxi(0, int(c.y) - HALF)
+	## CL-2: the landmark mark is a pin whose head floats up to ~3 head radii above its cell, so the box reaches 3 HALF up.
+	var y0 := maxi(0, int(c.y) - 3 * HALF)
 	var y1 := mini(H - 1, int(c.y) + HALF)
 	for y in range(y0, y1 + 1):
 		for x in range(x0, x1 + 1):
@@ -244,7 +245,8 @@ func _census(img: Image, cell: Vector2i) -> Dictionary:
 			## must not score as the mark it belongs to.
 			if maxf(p.r, maxf(p.g, p.b)) < 0.30:
 				continue
-			if p.b > p.r and p.b > p.g:
+			## CL-2: the landmark mark is the pin's near-white fill now (it was the ring's cool blue); POI yellow and Feature green are not white.
+			if p.r > 0.85 and p.g > 0.85 and p.b > 0.80:
 				out["ring"] += 1
 			elif p.r > 0.45 and p.g > 0.45 and p.b < 0.40:
 				out["poi"] += 1

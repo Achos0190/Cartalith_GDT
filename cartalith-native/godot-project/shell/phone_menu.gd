@@ -851,6 +851,18 @@ func _build_peek_row(a: Dictionary) -> Control:
 			_dismiss_peek_card()
 			_shell.call_arming_from_map(cb))
 	wrap.add_child(b)
+	## CL-3: a row's `detail` (the Note section's note snippet) is a wrapped dim line under its button, as a reason is.
+	if enabled and String(a.get("detail", "")) != "":
+		var dl := DccTheme.label(String(a["detail"]), "text_secondary", _ps(10))
+		dl.name = "Detail"
+		dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		dl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var dp := MarginContainer.new()
+		dp.add_theme_constant_override("margin_left", _ps(16))
+		dp.add_theme_constant_override("margin_right", _ps(16))
+		dp.add_theme_constant_override("margin_bottom", _ps(6))
+		dp.add_child(dl)
+		wrap.add_child(dp)
 	if not enabled:
 		var reason := DccTheme.mono_label(String(a.get("reason", "")), "text_faint", _ps(9), 0)
 		## Wrapped: a reason is a sentence, and unwrapped its one-line minimum
