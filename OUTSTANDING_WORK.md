@@ -94,6 +94,14 @@ document, and `STATUS.md` records what lands)
   times, rayon's thread count on Android, whether the GPU (wgpu/Vulkan) path runs there, and big-vs-little core use; then
   try LTO, `codegen-units = 1`, and a common `armv8.2-a` feature baseline both phones support (the SD845 is ARMv8.2;
   the Pad 3's 8 Elite is ARMv9.2), keeping one APK. Belongs with the "Performance pass across devices" row below.
+- **Marker card click-through, and private notes never sent to the assistant** (owner, 2026-11-14). (1) After a marker
+  click opens the information card (CL-3, `d2a8b6a3`), the next map click only closes the card; the owner chose
+  *"Click-through"*: a click elsewhere closes the card AND does what it would do (select, pan, open the next marker's
+  card). Six probes fail on origin today for this reason (`_pc4context`, `_pc6ask`, `_pc7windows`, `_pc10modules`,
+  `_pc1select`, `_pc8planner` desktop; PC-7 report, `e5893f7a`). (2) The assistant's Edit-note task lists private
+  notes and sends their text when "Send: notes" is ticked (`llm_assistant_window.gd`, task `note`); the owner chose
+  *"Never send private"*, per Ruling DP: hide them from that picker or show them greyed with the reason, and never
+  send them.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
