@@ -111,6 +111,11 @@ document, and `STATUS.md` records what lands)
   Width (km) and Seed fields dark on the light theme (landscape draws them light); "Continue without a world" is
   only as wide as its text, so a tap at its right end misses; `_openfailgate_probe` desktop fails 2 checks on origin
   (it finds the card by file name, and the card now shows the world's name).
+- **World cards: a delete button** (owner, 2026-11-14: *"Small addition to the world cards screen, a delete button.
+  Maybe something simple, a trash can in the bottom right of the card line art, red. And with a confirmation splash."*).
+  A red line-art trash can at the bottom right of each world card on the welcome/project picker (desktop, tablet and
+  phone pickers), opening a confirmation splash naming the world before anything is deleted; 44 dp target on touch;
+  deleting removes the project file (on Android through the existing storage path) and the card. Queued (GUI).
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
