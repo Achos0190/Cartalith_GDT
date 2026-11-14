@@ -3725,3 +3725,21 @@ Questions not asked (Q4, Q6–Q9) take the scope's defaults.
 **2026-11-14, owner request on the marker shape (item 3, the pins).** *"Can you keep the old circle markers as an option"* — the landmark class rings drawn before the teardrop pins (`d2a8b6a3`). Built as a per-user **marker style** setting, `Pins` (the teardrop, the default) or `Circles` (the original ring, restored from git history), in Preferences ▸ Graphics beside Town look and in the Assets menu beside Landmark types; the hit test follows the chosen style (the ring's own footprint for circles, the pin's head plus stem for pins), and the card, the Note section, the chips and the user-placed points of interest behave identically in both. Not part of any world save.
 
 **2026-11-14, item 4 built (CL-11).** User-placed points of interest: a CARTO tool places one of twelve kinds (tavern or inn, shop, smithy, temple, shrine, guild, gate, well, ruin, camp, mine, other) with a name; it is a first-class marker (teardrop pin, orange with a note, the shared hit test, the card with its Note section, Move, Rename, Change kind and Delete, one undo step each in the annotation ledger, shown in the City Viewer inside a town), saved as the optional `annotations/pois.json` (`SAVEFILE_COMPAT.md` section 11.2a), bound to the vault as the entity kind `poi` by a stored never-reissued id, and found by Find on map. CV-01 is thereby reversed in the code: `cartalith-vault`'s `EntityKind` has a ninth variant.
+
+## Ruling EX: a river town sits on its river, and a town draws only the water the map has (owner, 2026-11-14)
+
+The owner, on the City Viewer frame of seed 483920's settlement #6 sent with Ruling EW item 1 (`cartalith-native/docs/evidence/city-look-2026-11-13/wallhug_before_after.png`):
+
+> *"Can you check the town/city you just sent me. The river passes below it. It's not on the river. And for the same matter double check this on the bigger map that it sits correctly."*
+
+Measured first (`cartalith-native/crates/cartalith-godot/src/town_river_census.rs`, the windowed `_townriver_probe.tscn`; numbers and frames in `cartalith-native/docs/STATUS.md`, "Towns sit on their river", and `cartalith-native/docs/evidence/town-river-2026-11-14/`). Three causes, all real:
+
+1. **That town was not on a river, and its layout invented one.** Settlement #6 was laid out `riverthrough` with `uses_real_water` false: the flow proxy (`um_site_kind_from_terrain`, two cells, 4 km, at 384 cells) saw river and sea cells, but none reached the 1.7 km town box, so `build_site` drew the reference's synthetic west-to-east river through it. On the map its river ends in a pool about a cell and a half away.
+2. **The town's river was drawn half a cell off the map's.** `um_water_ctx` compared traced river points (written at `col + 0.5`) with the settlement's `col`, so every real river reached the layout half a cell east and south of where the map draws it (1.04 km each way at 384 cells): 39 % of river towns drawn more than half a cell off at 384, 30 % at 2 048.
+3. **Siting left most river towns beside their river.** At the app's 2 048 cells, 60 % of river towns had their river further than 625 m (half the box's short side) from the marker.
+
+**What this ruling records** (the owner asked for the check and the fix; the brief that carried the request set the form: a Ruling N siting term, a term in the ranking, on for new worlds and off at the reference boundary):
+
+- `um_water_ctx` reads traced points in the settlement's frame (`traced_to_cell`): a coordinate fix, no switch. `um_site_profile` keeps the reference's frame because it is golden-pinned; moving it is left open.
+- A box no real water reaches is laid out `landlocked` when the world has a river network (`dry_box_kind`): no invented river or shoreline. No switch; no golden reaches it.
+- **`civ.river_front`**: settlement suitability gains a river frontage term (`build_river_front`, weight 0.25, reach 625 m), under Ruling N's constraint that the ranking stays the authority. On in `params::defaults`, off in `WorldParams::defaults` and for a save without the key (`DECISIONS.md` §7p). The weight is a measured judgement; 0.40 put more towns on rivers but moved most of a world's towns, which Ruling N's constraint rules out.

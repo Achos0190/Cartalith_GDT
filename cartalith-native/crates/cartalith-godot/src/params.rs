@@ -310,6 +310,11 @@ pub fn defaults() -> WorldParams {
     // reference's network every golden reads (`DECISIONS.md` §7p). See
     // `CivParams::merge_ways`.
     p.civ.merge_ways = true;
+    // Ruling EX (owner report 2026-11-14): a river town sits on its river,
+    // through the river frontage suitability term. Off in
+    // `WorldParams::defaults`, the reference's placements every golden reads
+    // (`DECISIONS.md` section 7p). See `CivParams::river_front`.
+    p.civ.river_front = true;
     p
 }
 
@@ -907,6 +912,16 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.merge_ways", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Merge roads into shared trunks", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.merge_ways), set_fn: |p, v| p.civ.merge_ways = v != 0.0 },
+    // Ruling EX (owner report 2026-11-14): the river frontage suitability
+    // term, so a river town sits on its river. ON at the app boundary, OFF in
+    // `WorldParams::defaults`; no reference control (the reference has no such
+    // term). A save without the key loads OFF (`LOADS_WHEN_ABSENT`), so an old
+    // world's regenerate places its towns where they were. Read by
+    // `compute_civilisation`, so the `civ.*` wildcard in `invalidates` marks the
+    // civ layer stale, which is true of it.
+    ParamSpec { key: "civ.river_front", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "River towns sit on their river", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.civ.river_front), set_fn: |p, v| p.civ.river_front = v != 0.0 },
     // Owner request 2026-11-13 (New World's base technology, next to the recovery phase): the
     // `AG_TECH_LEVELS` index every faction's roster row is seeded with. `0..=5` is the table's own length; an `Int`
     // row, so a dropdown's `2.0000001` rounds rather than is rejected. Default `1` (`traditionalAgrarian`) is the
@@ -1190,6 +1205,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("civ.garrison_exposure_scale", ""),
     // Ruling EU item 1: no reference control; the reference has no trunk pass.
     ("civ.merge_ways", ""),
+    // Ruling EX: no reference control; the reference has no frontage term.
+    ("civ.river_front", ""),
     ("civ.base_ag_tech", ""),
 ];
 
@@ -1407,6 +1424,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // balance: every save without the key was built with the reference's
     // network, so a Recompute or Generate roads on it rebuilds those roads.
     ("civ.merge_ways", Value::Bool(false)),
+    // River frontage (Ruling EX, 2026-11-14): every save without the key placed
+    // its towns without the term, so a regenerate places them there again.
+    ("civ.river_front", Value::Bool(false)),
 ];
 
 /// Whether `key` is one of [`LOADS_WHEN_ABSENT`]'s **generation rules** (its

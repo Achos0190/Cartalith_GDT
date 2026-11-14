@@ -516,6 +516,10 @@ pub struct SuitabilityWeights {
     pub flood: f64,
     pub islet: f64,
     pub islet_knee: f64,
+    /// `SUIT_W_FULL_RIVER_FRONT` (Ruling EX, 2026-11-14). Multiplies
+    /// [`SuitabilityGpuInputs::river_front`]'s plane, which is all zeros when
+    /// the term is off, so the term then adds exactly `0.0`.
+    pub river_front: f64,
 }
 
 /// Every input `build_settlement_suitability` reads when its `ctx` is fully
@@ -534,6 +538,10 @@ pub struct SuitabilityGpuInputs<'a> {
     pub flow: &'a [f32],
     pub river_reach: &'a [f32],
     pub coast_reach: &'a [f32],
+    /// `cartalith_civ::build_river_front`'s raster (Ruling EX), or `None` with
+    /// the term off: the plane is then cleared to zeros on the device (no
+    /// upload), matching the CPU, which adds nothing.
+    pub river_front: Option<&'a [f32]>,
     pub resources: [&'a [f32]; 9],
     pub rain: &'a [f32],
     pub flood: &'a [f32],
@@ -546,8 +554,9 @@ pub struct SuitabilityGpuInputs<'a> {
 
 /// `gpu_suitability.wgsl`'s uniform layout: grid shape, the lake-neighbourhood
 /// radius (`lake_r`, derived from `gw`), the exact f32 cuts the kernel's
-/// branches need, and the thirteen `SuitabilityWeights` fields (as f32) in the
-/// shader's fixed order.
+/// branches need, and the fourteen `SuitabilityWeights` fields (as f32) in the
+/// shader's fixed order, then three words of padding that round the uniform
+/// to 128 bytes (a multiple of 16, the uniform address space's alignment).
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct SuitParams {
@@ -566,7 +575,8 @@ struct SuitParams {
     rr_lt085: f32,
     gw_f: f32,
     islet_knee: f32,
-    w: [f32; 13],
+    w: [f32; 14],
+    _pad_tail: [u32; 3],
 }
 
 /// GPU sibling of `cartalith_civ::build_settlement_suitability` with a
@@ -608,7 +618,7 @@ pub fn settlement_suitability_grid_gpu_with(
         assert_eq!(p.len(), n);
     }
     let plane = (n * 4) as u64;
-    gate(gpu, n, plane * 22, || {
+    gate(gpu, n, plane * 23, || {
         let ctx = build_pipeline_shared(gpu, SHADER_SUITABILITY, "gpu_suitability", &PLANAR_LAYOUT);
         let (_, _, row_threads) = lin_dispatch(n as u32);
         let sea = inp.sea;
@@ -631,12 +641,18 @@ pub fn settlement_suitability_grid_gpu_with(
             islet_knee: f(wt.islet_knee),
             w: [
                 wt.k, wt.w, wt.a, wt.d, wt.agri, wt.build, wt.coast, wt.river, wt.lake, wt.mineral, wt.corridor, wt.flood,
-                wt.islet,
+                wt.islet, wt.river_front,
             ]
             .map(f),
+            _pad_tail: [0; 3],
         };
         let pbuf = uniform(&ctx, &params);
-        let planes: Vec<Option<&[u8]>> = f32_planes.iter().map(|p| Some(bytemuck::cast_slice::<f32, u8>(p))).collect();
+        // Plane 22 is the river frontage term (Ruling EX), absent (zeros) when off.
+        let mut planes: Vec<Option<&[u8]>> = f32_planes.iter().map(|p| Some(bytemuck::cast_slice::<f32, u8>(p))).collect();
+        planes.push(inp.river_front.map(|p| {
+            assert_eq!(p.len(), n);
+            bytemuck::cast_slice::<f32, u8>(p)
+        }));
         let fin = planar_buffer(&ctx, "suit fin", plane, &planes);
         let wb = storage_init(&ctx, "suit wb", bytemuck::cast_slice(&pack_u8(inp.water_bodies)));
         let out = out_buffer(&ctx, "suit out", plane);

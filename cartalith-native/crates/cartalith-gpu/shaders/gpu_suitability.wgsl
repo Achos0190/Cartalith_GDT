@@ -14,11 +14,12 @@
 // against the CPU's f64-then-round; the measured bound is
 // `affordance::SUITABILITY_TOLERANCE`.
 //
-// `fin` is 22 planar f32 planes of n cells: 0 soil, 1 water, 2 carrying
+// `fin` is 23 planar f32 planes of n cells: 0 soil, 1 water, 2 carrying
 // capacity, 3 field, 4 slope_n, 5 coast_reach, 6 flow, 7 river_reach,
 // 8 rain, 9 flood, 10 slope_raw, 11 corridor, 12 landmass quality, 13..21 the
 // nine SUIT_RESOURCE_KEYS fields in that order (copper, tin, iron, gold,
-// salt, timber, lead, silver, gems). `wb` is the water-body class, u8
+// salt, timber, lead, silver, gems), 22 the river frontage term (Ruling EX,
+// 2026-11-14; zeros when the term is off). `wb` is the water-body class, u8
 // packed four per u32.
 
 struct SuitParams {
@@ -50,6 +51,10 @@ struct SuitParams {
     w_corridor: f32,
     w_flood: f32,
     w_islet: f32,
+    w_river_front: f32,
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: SuitParams;
@@ -63,7 +68,7 @@ fn wb_at(i: u32) -> u32 {
     return (wb[i >> 2u] >> (8u * (i & 3u))) & 0xffu;
 }
 
-// Reads cell i from the p'th of `fin`'s 22 planar f32 planes.
+// Reads cell i from the p'th of `fin`'s 23 planar f32 planes.
 fn plane(p: u32, i: u32) -> f32 {
     return fin[p * params.n + i];
 }
@@ -161,6 +166,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
           + params.w_build * build
           - params.w_flood * fl
           - params.w_islet * islet;
+    // Ruling EX: the river frontage term. Its plane is zeros and its product
+    // exactly 0.0 when the term is off, so z is then the sum above.
+    z = z + params.w_river_front * plane(22u, i);
 
     out_suit[i] = clamp(1.0 / (1.0 + exp(-6.0 * (z - 0.5))), 0.0, 1.0);
 }

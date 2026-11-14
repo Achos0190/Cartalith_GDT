@@ -269,8 +269,9 @@ fn every_engine_param_struct_is_reachable() {
 #[test]
 fn the_civ_group_defaults_are_the_references_own_constants() {
     // Both ends: the parity baseline *and* the shipped app boundary. The
-    // reference constants below must agree at both. The group's one ruled
-    // divergence, `merge_ways` (Ruling EU item 1), is asserted after the loop at
+    // reference constants below must agree at both. The group's two ruled
+    // divergences, `merge_ways` (Ruling EU item 1) and `river_front` (Ruling
+    // EX), are asserted after the loop at
     // each end separately -- and
     // `exactly_the_ruled_divergences_ship_at_the_app_boundary` independently
     // fails if another one ever appears without a ruling.
@@ -292,9 +293,12 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
     // Ruling EU item 1 (2026-11-12): shared road trunks, on in the app only.
     assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.merge_ways, "the reference has no trunk pass");
     assert!(params::defaults().civ.merge_ways, "new worlds merge their roads (Ruling EU item 1)");
+    // Ruling EX (2026-11-14): the river frontage term, on in the app only.
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).civ.river_front, "the reference has no frontage term");
+    assert!(params::defaults().civ.river_front, "new worlds put river towns on their river (Ruling EX)");
 }
 
-/// Protects: the civ group being sixteen contiguous `civ.`-keyed rows that `groups()` lists,
+/// Protects: the civ group being seventeen contiguous `civ.`-keyed rows that `groups()` lists,
 /// that `set` reaches and types correctly, and that clamp at their floors (factions >= 1,
 /// recovery_phase 0..=4).
 ///
@@ -304,11 +308,12 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 /// would be the old `WorldGen` flags renamed, which is not what was ruled),
 /// `wantCounts`' flag and its five counts, plus `civ.garrison_exposure_scale`
 /// (Ruling AZ, folded in from a standalone `WorldGen` field), plus
-/// `civ.merge_ways` (Ruling EU item 1, 2026-11-12), plus `civ.base_ag_tech` (New World's base technology, 2026-11-13).
+/// `civ.merge_ways` (Ruling EU item 1, 2026-11-12), plus `civ.base_ag_tech` (New World's base technology, 2026-11-13),
+/// plus `civ.river_front` (Ruling EX, 2026-11-14).
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_sixteen() {
+fn the_civ_group_is_a_real_contiguous_group_of_seventeen() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 16, "the civ group is sixteen rows");
+    assert_eq!(rows.len(), 17, "the civ group is seventeen rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -915,6 +920,28 @@ fn a_save_without_the_merge_ways_key_reloads_with_it_off() {
     assert!(!p.civ.merge_ways, "an older save keeps the network it was built with");
 }
 
+/// Protects Ruling EX's save rule (2026-11-14): a save that carries `civ.river_front: true`
+/// reloads with it on, and a save without the key (every save before 2026-11-14) reloads with it
+/// OFF, so regenerating that world places its towns where they were, while every other row still
+/// applies. Literals, so a flipped default is caught.
+#[test]
+fn a_save_without_the_river_front_key_reloads_with_it_off() {
+    assert!(params::defaults().civ.river_front, "the shipped app generates with it on");
+    let mut state = params::save_state(&params::defaults());
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert_eq!(native.get("civ.river_front"), Some(&serde_json::json!(true)), "a new save records the switch");
+    let mut p = params::defaults();
+    p.civ.river_front = false;
+    params::apply_saved_state(&mut p, &state);
+    assert!(p.civ.river_front, "a save that says on reloads on");
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("civ.river_front").is_some());
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of an older save still applies");
+    assert!(!p.civ.river_front, "an older save keeps the placements it was made with");
+}
+
 /// Protects owner Ruling EW item 1's switch (2026-11-14): the town wall hug is ON in the app's
 /// parameters and OFF in the parity baseline (literals, so a flipped default is caught); a new
 /// save records it; a save that says on reloads on; a save without the key (every save before
@@ -1249,6 +1276,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.civ.merge_ways = false;
     // And Ruling EW item 1's wall hug: a save without the key kept the reference's walls.
     expect.urban_wall_hug = false;
+    // And Ruling EX's river frontage: a save without the key placed its towns without it.
+    expect.civ.river_front = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1335,7 +1364,7 @@ use cartalith_engine::{WorldParams, WorldState};
 /// `rough_routing`; the twenty-second, Ruling ET's `lake_balance`; the
 /// twenty-third, Ruling EU item 1's `civ.merge_ways`; the twenty-fourth,
 /// Ruling EV's `basin_routing`; the twenty-fifth, Ruling EW item 1's
-/// `urban_wall_hug`.)
+/// `urban_wall_hug`; the twenty-sixth, Ruling EX's `civ.river_front`.)
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -1372,6 +1401,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.civ.merge_ways && !parity.civ.merge_ways, "shared road trunks for new worlds, Ruling EU item 1");
     assert!(app.basin_routing && !parity.basin_routing, "basin routing for new worlds, Ruling EV");
     assert!(app.urban_wall_hug && !parity.urban_wall_hug, "town walls hug the built-up area for new worlds, Ruling EW item 1");
+    assert!(app.civ.river_front && !parity.civ.river_front, "river towns sit on their river for new worlds, Ruling EX");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1398,6 +1428,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.urban_wall_hug = false;
     neutral.lake_balance = false;
     neutral.civ.merge_ways = false;
+    neutral.civ.river_front = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;
@@ -1417,7 +1448,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twenty-five authorised fields"
+         twenty-six authorised fields"
     );
 }
 

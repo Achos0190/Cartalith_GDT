@@ -91,6 +91,7 @@ fn weights() -> cartalith_gpu::SuitabilityWeights {
         flood: civ::SUIT_W_FULL_FLOOD,
         islet: civ::SUIT_W_FULL_ISLET,
         islet_knee: civ::ISLET_KNEE,
+        river_front: civ::SUIT_W_FULL_RIVER_FRONT,
     }
 }
 
@@ -240,6 +241,7 @@ fn main() {
                 flow: Some(&ws.flow_discharge),
                 river_reach: Some(&river_reach),
                 coast_reach: Some(&coast_reach),
+                river_front: None,
                 resources: Some(res),
                 rain: Some(&ws.rainfall),
                 flood: Some(&flood),
@@ -261,6 +263,7 @@ fn main() {
                 flow: &ws.flow_discharge,
                 river_reach: &river_reach,
                 coast_reach: &coast_reach,
+                river_front: None,
                 resources: suit_res(res),
                 rain: &ws.rainfall,
                 flood: &flood,

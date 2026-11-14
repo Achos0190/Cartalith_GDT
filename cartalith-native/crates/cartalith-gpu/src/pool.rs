@@ -795,6 +795,7 @@ mod tests {
                 flow: &f[7],
                 river_reach: &f[8],
                 coast_reach: &f[9],
+                river_front: None,
                 resources: [&f[10], &f[11], &f[12], &f[13], &f[14], &f[15], &f[16], &f[17], &f[18]],
                 rain: &f[19],
                 flood: &f[20],
@@ -819,6 +820,7 @@ mod tests {
                 flood: 0.1,
                 islet: 0.1,
                 islet_knee: 0.3,
+                river_front: 0.1,
             };
             bits(&crate::settlement_suitability_grid_gpu_with(&gpu, &inp, &wt).expect("readback"))
         });
@@ -871,6 +873,7 @@ mod tests {
             flow: &f,
             river_reach: &f,
             coast_reach: &f,
+            river_front: None,
             resources: [&f; 9],
             rain: &f,
             flood: &f,
@@ -895,6 +898,7 @@ mod tests {
             flood: 0.1,
             islet: 0.1,
             islet_knee: 0.3,
+            river_front: 0.1,
         };
         crate::settlement_suitability_grid_gpu_with(&gpu, &inp, &wt).expect("readback");
         let s = gpu.pool.stats();

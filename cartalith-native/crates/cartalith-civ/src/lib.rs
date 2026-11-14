@@ -4121,6 +4121,89 @@ pub fn build_river_reach(polys: &[Vec<(f64, f64)>], order: &[i16], gw: usize, gh
     out
 }
 
+/// Weight of the **river frontage** term ([`build_river_front`]) in
+/// `build_settlement_suitability`'s full-context sum -- Ruling EX
+/// (`LARGE_ITEM_RULINGS.md`, owner report 2026-11-14, under Ruling N).
+///
+/// **A labelled judgement, measured, not a reference value** (the reference
+/// has no such term). Swept on `town_river_census` (seeds 483920, 912345 and
+/// 246371 at 2 048 cells over 800 km, the app's default grid): the share of
+/// river towns whose river runs further than [`SUIT_RIVER_FRONT_M`] from the
+/// marker was 60 % with the term off, 47 % at 0.14, 31 % at 0.25 and 11 % at
+/// 0.40; but at 0.40 only 4 to 8 of each world's 40 settlements kept their
+/// cell (median move 23 to 37 cells), which Ruling N's constraint (the
+/// ranking stays the authority for where towns go) rules out, while at 0.25
+/// 18 to 21 kept theirs (median move 0 to 5 cells). 0.14 (Ruling N's own
+/// river weight) is the weight the sweep started from. Numbers in `cartalith-native/docs/STATUS.md`
+/// ("Towns sit on their river").
+pub const SUIT_W_FULL_RIVER_FRONT: f64 = 0.25;
+
+/// How far from a cell's centre a traced river may run and still front a
+/// town there, in metres: half the town layout box's short side
+/// (`urban_adapter::SITE_HM / 2` = 625 m, the reference's `UME.SITE_HM`).
+/// A river nearer than this crosses the box the town is drawn in on every
+/// side of its market, so the City Viewer shows the town on it.
+///
+/// In metres, not cells, on purpose: "on the river" is a question about the
+/// town's own size, so it must mean the same thing at every resolution. At
+/// 2 048 cells over 800 km (391 m a cell) it reaches 1.6 cells; at 384
+/// (2 083 m a cell) only the river's own cell counts.
+pub const SUIT_RIVER_FRONT_M: f64 = urban_adapter::SITE_HM / 2.0;
+
+/// [`SuitabilityCtx::river_front`]'s raster: per cell, how squarely a **real,
+/// traced** river runs through the town box a settlement there would be drawn
+/// in (Ruling EX, owner report 2026-11-14).
+///
+/// `tier(order at the traced cell) * (1 - d / F)`, maximised over every traced
+/// point within `F` = [`SUIT_RIVER_FRONT_M`], `d` in metres from this cell's
+/// centre to the traced point. The same tiers and the same polylines as
+/// [`build_river_reach`] (Ruling N's river term); only the reach differs:
+/// that term rewards a river five cells off, this one only a river through the
+/// town. `cell_m` is the grid's cell size in metres. A cell further than `F`
+/// from every traced cell reads `0`.
+///
+/// Distance is cell centre to cell centre: `trace_river_polylines` writes
+/// `(col + 0.5, row + 0.5)`, so a traced point names its cell exactly. Never
+/// wraps the seam, as [`build_river_reach`] does not.
+pub fn build_river_front(polys: &[Vec<(f64, f64)>], order: &[i16], gw: usize, gh: usize, cell_m: f64) -> Vec<f32> {
+    let mut out = vec![0f32; gw * gh];
+    if !(cell_m > 0.0) {
+        return out;
+    }
+    let reach = SUIT_RIVER_FRONT_M / cell_m; // in cells
+    let r = reach.floor() as isize;
+    for pl in polys {
+        for &(px, py) in pl {
+            let (cx, cy) = (px.floor() as isize, py.floor() as isize);
+            if cx < 0 || cy < 0 || cx >= gw as isize || cy >= gh as isize {
+                continue;
+            }
+            let tier = river_order_tier(order[cy as usize * gw + cx as usize]);
+            if tier <= 0.0 {
+                continue;
+            }
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if nx < 0 || ny < 0 || nx >= gw as isize || ny >= gh as isize {
+                        continue;
+                    }
+                    let d = ((dx * dx + dy * dy) as f64).sqrt() / reach;
+                    if d >= 1.0 {
+                        continue;
+                    }
+                    let v = (tier * (1.0 - d)) as f32;
+                    let o = &mut out[ny as usize * gw + nx as usize];
+                    if v > *o {
+                        *o = v;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// How far a real traced coastline reaches, in grid cells, before
 /// [`build_coast_reach`] falls to zero -- Ruling N's coastal half
 /// (`LARGE_ITEM_RULINGS.md`, 2026-09-20).
@@ -4349,6 +4432,11 @@ pub struct SuitabilityCtx<'a> {
     /// `coast_dist_cells` reading in the settlement panel, and the
     /// renderer's coastal-shading stage.
     pub coast_reach: Option<&'a [f32]>,
+    /// [`build_river_front`]'s raster, the river frontage term (Ruling EX,
+    /// 2026-11-14). `None` is the term switched off (`CivParams::river_front`
+    /// false, the reference boundary): it adds nothing and is not listed in a
+    /// cell's explanation, rather than being listed as a zero.
+    pub river_front: Option<&'a [f32]>,
     pub resources: Option<&'a ResourcePotentials>,
     pub rain: Option<&'a [f32]>,
     pub flood: Option<&'a [f32]>,
@@ -4513,6 +4601,11 @@ pub fn build_settlement_suitability(
                     + SUIT_W_FULL_BUILD * build
                     - SUIT_W_FULL_FLOOD * fl
                     - SUIT_W_FULL_ISLET * islet;
+                // Ruling EX: added only when switched on, so the reference
+                // boundary's sum is the same expression it always was.
+                if let Some(rf) = c.river_front {
+                    z += SUIT_W_FULL_RIVER_FRONT * rf[i] as f64;
+                }
             }
         }
 
@@ -4771,6 +4864,13 @@ pub fn explain_settlement_suitability(
                 + SUIT_W_FULL_BUILD * build
                 - SUIT_W_FULL_FLOOD * fl
                 - SUIT_W_FULL_ISLET * islet;
+            // Ruling EX, as in `build_settlement_suitability`: listed and
+            // added only when switched on.
+            if let Some(rf) = c.river_front {
+                let v = rf[i] as f64;
+                push(&mut terms, "river_frontage", v, SUIT_W_FULL_RIVER_FRONT);
+                z += SUIT_W_FULL_RIVER_FRONT * v;
+            }
         }
     }
 
@@ -22898,6 +22998,7 @@ mod tests {
             flow: Some(&f.flow),
             river_reach: Some(&f.river_reach),
             coast_reach: Some(&f.coast_reach),
+            river_front: None,
             resources: Some(&f.res),
             rain: Some(&f.rain),
             flood: Some(&f.flood),
@@ -22965,6 +23066,79 @@ mod tests {
             scored > 100,
             "fixture produced too few scored cells: {scored}"
         );
+    }
+
+    /// Protects Ruling EX's river frontage raster (owner report 2026-11-14):
+    /// the full order tier on the traced river's own cell, a linear fall to
+    /// exactly zero at `SUIT_RIVER_FRONT_M` = 625 m measured in metres (so the
+    /// same river reaches 1.6 cells at 391 m a cell and only its own cell at
+    /// 2 083 m), and Ruling N's tiers (order 1 earns nothing). Literals, not the
+    /// formula. MUTATION: `SUIT_RIVER_FRONT_M` 625 -> 1250 moves the 391 m
+    /// neighbours; dropping `/ cell_m` breaks both widths.
+    #[test]
+    fn river_front_reaches_half_the_town_box_in_metres() {
+        assert_eq!(SUIT_RIVER_FRONT_M, 625.0, "half SITE_HM (1 250 m)");
+        let (gw, gh) = (9usize, 9usize);
+        let mut order = vec![1i16; gw * gh];
+        order[4 * gw + 4] = 4;
+        let poly = vec![vec![(4.5, 4.5)]];
+        // 2 048 cells over 800 km: 390.625 m a cell, reach 1.6 cells.
+        let r = build_river_front(&poly, &order, gw, gh, 390.625);
+        let at = |x: usize, y: usize| r[y * gw + x] as f64;
+        assert_eq!(at(4, 4), 1.0, "the river's own cell, order 4");
+        assert!((at(5, 4) - 0.375).abs() < 1e-6, "one cell (391 m) off: 1 - 1/1.6, got {}", at(5, 4));
+        assert!((at(5, 5) - 0.116_116_5).abs() < 1e-6, "a diagonal (552 m) off: 1 - sqrt(2)/1.6, got {}", at(5, 5));
+        assert_eq!(at(6, 4), 0.0, "two cells (781 m) off is past 625 m");
+        // 384 cells over 800 km: 2 083 m a cell, reach 0.3 cells -- only the river's own cell.
+        let r = build_river_front(&poly, &order, gw, gh, 2083.333);
+        assert_eq!(r[4 * gw + 4], 1.0);
+        assert_eq!(r.iter().filter(|&&v| v > 0.0).count(), 1, "nothing but the river's own cell");
+        // Ruling N's tiers: order 2 is 0.3, order 1 nothing.
+        order[4 * gw + 4] = 2;
+        assert!((build_river_front(&poly, &order, gw, gh, 390.625)[4 * gw + 4] - 0.3).abs() < 1e-6);
+        order[4 * gw + 4] = 1;
+        assert!(build_river_front(&poly, &order, gw, gh, 390.625).iter().all(|&v| v == 0.0), "a brook earns nothing");
+        // No cell size is no reach, not a division by zero.
+        assert!(build_river_front(&poly, &order, gw, gh, 0.0).iter().all(|&v| v == 0.0));
+    }
+
+    /// Protects Ruling EX's term in the ranking: switched off (`None`, the
+    /// reference boundary) the explanation lists no frontage row (that the
+    /// score itself is unchanged is the suitability goldens' job: they pass
+    /// `None` and still match the reference); switched on
+    /// it adds exactly `SUIT_W_FULL_RIVER_FRONT` (0.25, a literal) times the
+    /// raster to `z` and the explainer still reconstructs the score.
+    /// MUTATION: the weight 0.25 -> 0.14 fails the `z` delta.
+    #[test]
+    fn river_front_is_one_more_term_and_nothing_when_off() {
+        assert_eq!(SUIT_W_FULL_RIVER_FRONT, 0.25);
+        let f = suit_fixture();
+        let off = suit_ctx(&f);
+        let rf: Vec<f32> = (0..f.gw * f.gh).map(|i| if i % 7 == 0 { 1.0 } else { 0.4 }).collect();
+        let on = SuitabilityCtx { river_front: Some(&rf), ..suit_ctx(&f) };
+        let run = |c: &SuitabilityCtx| {
+            build_settlement_suitability(&f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(c))
+        };
+        let (a, b) = (run(&off), run(&on));
+        assert_ne!(a, b, "premise: the term moves the score");
+        let mut checked = 0;
+        for y in 0..f.gh {
+            for x in 0..f.gw {
+                let ex = |c: &SuitabilityCtx| {
+                    explain_settlement_suitability(&f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(c), x, y)
+                };
+                let (e0, e1) = (ex(&off), ex(&on));
+                assert_eq!(e1.score, b[y * f.gw + x], "the explainer reconstructs the on score at ({x},{y})");
+                if e0.excluded.is_some() {
+                    continue;
+                }
+                assert!(!e0.terms.iter().any(|t| t.key == "river_frontage"), "off lists no frontage row");
+                let want = 0.25 * rf[y * f.gw + x] as f64;
+                assert!((e1.z - e0.z - want).abs() < 1e-12, "z moves by 0.25 x frontage at ({x},{y})");
+                checked += 1;
+            }
+        }
+        assert!(checked > 100, "a vacuous pass: {checked} scored cells");
     }
 
     /// Same equality demand on the no-context branch, which uses a

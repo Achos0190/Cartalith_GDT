@@ -135,62 +135,72 @@ fn affordance_kernels_match_cpu_on_real_worlds() {
             &ws.field, &ws.flow_discharge, gw, gh, sea, world, p.river_density, p.map_width_km, ws.integrated_drainage,
         );
         let river_reach = civ::build_river_reach(&polys, &order, gw, gh);
-        let ctx = civ::SuitabilityCtx {
-            water_bodies: Some(&wb.classification),
-            corridor: Some(&corridors),
-            landmass: Some(&landmass.quality),
-            flow: Some(&ws.flow_discharge),
-            river_reach: Some(&river_reach),
-            coast_reach: Some(&coast_reach),
-            resources: Some(&res),
-            rain: Some(&ws.rainfall),
-            flood: Some(&flood),
-            slope_raw: Some(&raw_slope),
-            flow_thresh,
-        };
-        let cpu = civ::build_settlement_suitability(&soil, &water, &k, &ws.field, &slope_n, gw, gh, sea, Some(&ctx));
-        let inp = cartalith_gpu::SuitabilityGpuInputs {
-            soil: &soil,
-            water: &water,
-            carrying_cap: &k,
-            field: &ws.field,
-            slope_n: &slope_n,
-            water_bodies: &wb.classification,
-            corridor: &corridors,
-            landmass: &landmass.quality,
-            flow: &ws.flow_discharge,
-            river_reach: &river_reach,
-            coast_reach: &coast_reach,
-            resources: [&res.copper, &res.tin, &res.iron, &res.gold, &res.salt, &res.timber, &res.lead, &res.silver, &res.gems],
-            rain: &ws.rainfall,
-            flood: &flood,
-            slope_raw: &raw_slope,
-            flow_thresh,
-            gw,
-            gh,
-            sea,
-        };
-        let wt = cartalith_gpu::SuitabilityWeights {
-            k: civ::SUIT_W_FULL_K,
-            w: civ::SUIT_W_FULL_W,
-            a: civ::SUIT_W_FULL_A,
-            d: civ::SUIT_W_FULL_D,
-            agri: civ::SUIT_W_FULL_AGRI,
-            build: civ::SUIT_W_FULL_BUILD,
-            coast: civ::SUIT_W_FULL_COAST,
-            river: civ::SUIT_W_FULL_RIVER,
-            lake: civ::SUIT_W_FULL_LAKE,
-            mineral: civ::SUIT_W_FULL_MINERAL,
-            corridor: civ::SUIT_W_FULL_CORRIDOR,
-            flood: civ::SUIT_W_FULL_FLOOD,
-            islet: civ::SUIT_W_FULL_ISLET,
-            islet_knee: civ::ISLET_KNEE,
-        };
-        let g1 = cartalith_gpu::settlement_suitability_grid_gpu_with(gpu, &inp, &wt).unwrap();
-        let g2 = cartalith_gpu::settlement_suitability_grid_gpu_with(gpu, &inp, &wt).unwrap();
-        let d = max_abs(&cpu, &g1);
-        assert!(d <= cartalith_gpu::SUITABILITY_TOLERANCE, "{gw}x{gh}: suitability |d| {d:e}");
-        assert!(bits_eq(&g1, &g2), "{gw}x{gh}: suitability not deterministic across dispatches");
-        assert!(cpu.iter().any(|&v| v > civ::SETTLE_SEED_THRESH as f32), "{gw}x{gh}: no seedable cell");
+        // Ruling EX's river frontage term: the GPU must agree with the CPU with
+        // the term off (its plane cleared to zeros on the device) and on.
+        let cell_m = p.map_width_km * 1000.0 / gw as f64;
+        let rf = civ::build_river_front(&polys, &order, gw, gh, cell_m);
+        assert!(rf.iter().any(|&v| v > 0.0), "{gw}x{gh}: premise: the frontage raster is not empty");
+        for front in [None, Some(rf.as_slice())] {
+            let ctx = civ::SuitabilityCtx {
+                water_bodies: Some(&wb.classification),
+                corridor: Some(&corridors),
+                landmass: Some(&landmass.quality),
+                flow: Some(&ws.flow_discharge),
+                river_reach: Some(&river_reach),
+                coast_reach: Some(&coast_reach),
+                river_front: front,
+                resources: Some(&res),
+                rain: Some(&ws.rainfall),
+                flood: Some(&flood),
+                slope_raw: Some(&raw_slope),
+                flow_thresh,
+            };
+            let cpu = civ::build_settlement_suitability(&soil, &water, &k, &ws.field, &slope_n, gw, gh, sea, Some(&ctx));
+            let inp = cartalith_gpu::SuitabilityGpuInputs {
+                soil: &soil,
+                water: &water,
+                carrying_cap: &k,
+                field: &ws.field,
+                slope_n: &slope_n,
+                water_bodies: &wb.classification,
+                corridor: &corridors,
+                landmass: &landmass.quality,
+                flow: &ws.flow_discharge,
+                river_reach: &river_reach,
+                coast_reach: &coast_reach,
+                river_front: front,
+                resources: [&res.copper, &res.tin, &res.iron, &res.gold, &res.salt, &res.timber, &res.lead, &res.silver, &res.gems],
+                rain: &ws.rainfall,
+                flood: &flood,
+                slope_raw: &raw_slope,
+                flow_thresh,
+                gw,
+                gh,
+                sea,
+            };
+            let wt = cartalith_gpu::SuitabilityWeights {
+                k: civ::SUIT_W_FULL_K,
+                w: civ::SUIT_W_FULL_W,
+                a: civ::SUIT_W_FULL_A,
+                d: civ::SUIT_W_FULL_D,
+                agri: civ::SUIT_W_FULL_AGRI,
+                build: civ::SUIT_W_FULL_BUILD,
+                coast: civ::SUIT_W_FULL_COAST,
+                river: civ::SUIT_W_FULL_RIVER,
+                lake: civ::SUIT_W_FULL_LAKE,
+                mineral: civ::SUIT_W_FULL_MINERAL,
+                corridor: civ::SUIT_W_FULL_CORRIDOR,
+                flood: civ::SUIT_W_FULL_FLOOD,
+                islet: civ::SUIT_W_FULL_ISLET,
+                islet_knee: civ::ISLET_KNEE,
+                river_front: civ::SUIT_W_FULL_RIVER_FRONT,
+            };
+            let g1 = cartalith_gpu::settlement_suitability_grid_gpu_with(gpu, &inp, &wt).unwrap();
+            let g2 = cartalith_gpu::settlement_suitability_grid_gpu_with(gpu, &inp, &wt).unwrap();
+            let d = max_abs(&cpu, &g1);
+            assert!(d <= cartalith_gpu::SUITABILITY_TOLERANCE, "{gw}x{gh} (river frontage {}): suitability |d| {d:e}", front.is_some());
+            assert!(bits_eq(&g1, &g2), "{gw}x{gh} (river frontage {}): suitability not deterministic across dispatches", front.is_some());
+            assert!(cpu.iter().any(|&v| v > civ::SETTLE_SEED_THRESH as f32), "{gw}x{gh}: no seedable cell");
+        }
     }
 }

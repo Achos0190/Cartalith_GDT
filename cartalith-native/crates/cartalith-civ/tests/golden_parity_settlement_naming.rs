@@ -404,6 +404,7 @@ fn compute_named_settlements(
         flow: Some(&ws.flow_discharge),
         river_reach: Some(&river_reach),
         coast_reach: Some(&coast_reach),
+        river_front: None,
         resources: Some(&resources),
         rain: Some(&ws.rainfall),
         flood: Some(&flood),

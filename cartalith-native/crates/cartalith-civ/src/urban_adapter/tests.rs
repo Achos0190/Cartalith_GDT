@@ -1863,6 +1863,21 @@ fn site_profile_elev_n_divisor_is_floored_at_1e_minus_6() {
 
 // =========================== the crossings ==================================
 
+/// A point of a traced river polyline for grid cell `(x, y)`, written the way
+/// the live producer writes it: `trace_river_polylines` emits the cell centre,
+/// `(x + 0.5, y + 0.5)`. The `um_water_ctx` fixtures build their stems through
+/// this, so the layout's river is tested on the coordinates the app hands it.
+///
+/// Until 2026-11-14 the water-context fixtures wrote `(x, y)` (the cell's
+/// corner), which no producer writes and which hid `um_water_ctx`'s half-cell
+/// offset (the owner's town-on-its-river report); those are restated, not
+/// weakened: every assertion still reads the distances it read before. The
+/// `um_site_profile` fixtures keep `(x, y)`: that function still compares in the
+/// reference's frame, golden-pinned (see its doc comment).
+fn traced(x: usize, y: usize) -> (f64, f64) {
+    (x as f64 + 0.5, y as f64 + 0.5)
+}
+
 /// A river world: the fixture's flow column at `x == 20` traced as a real
 /// stem, with a Strahler order beside it, so [`um_water_ctx`] returns a
 /// `river_path` and `build_site` sets `realRiver`. Both of
@@ -1919,7 +1934,7 @@ fn a_road_that_crosses_the_river_becomes_a_bridge_on_the_layout() {
     // centreline within 80 m, with a unit direction and not a quay, and no ford.
     let f = Fixture::new();
     let order = vec![4i16; GW * GH];
-    let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| traced(20, y)).collect();
     let polys = vec![stem];
     let w = river_world(&f, &order, &polys);
 
@@ -1971,7 +1986,7 @@ fn a_through_town_with_no_crossing_road_gets_a_ford() {
     // and no bridges.
     let f = Fixture::new();
     let order = vec![4i16; GW * GH];
-    let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| traced(20, y)).collect();
     let polys = vec![stem];
     let w = river_world(&f, &order, &polys);
 
@@ -2111,4 +2126,67 @@ fn the_harbour_works_cross_additively_and_move_no_generated_value() {
     // Absent when there is no harbour: an inland town has neither the point nor the works.
     let inland = settlement_layout(&w, &settlement(50, 8, 4_000), &[]).expect("a layout");
     assert!(inland.harbour_pt.is_none() && inland.harbour.is_none());
+}
+
+/// Protects the owner's town-on-its-river report (2026-11-14: *"The river
+/// passes below it. It's not on the river."*): a town whose own cell the traced
+/// river runs through gets that river through its market, and reads the
+/// river's Strahler order at the river's own cell.
+///
+/// `traced_to_cell` takes the producer's half cell off before the river enters
+/// the town's frame. Without it (the reference's arithmetic) the stem lands
+/// `0.5 / grid_per_meter` = 6.25 km east of the box centre at this fixture's
+/// 12.5 km cells, and the order is read one column east, where the fixture
+/// puts order 1 (width 17 m), not the stem's 4 (width 38 m).
+/// MUTATION: `TRACED_CELL_CENTRE` = 0.0 fails both the distance and the order.
+#[test]
+fn a_town_on_its_traced_river_has_the_river_through_its_market() {
+    let f = Fixture::new();
+    // Order 4 on the stem's own column, 1 everywhere else.
+    let order: Vec<i16> = (0..GW * GH).map(|i| if i % GW == 20 { 4 } else { 1 }).collect();
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| traced(20, y)).collect();
+    let polys = vec![stem];
+    let w = river_world(&f, &order, &polys);
+    let water = um_water_ctx(&w, 20.0, 24.0).expect("a river town has a water context");
+    let path = water.ctx.river_path.as_ref().expect("the stem is within the box radius");
+    // Box centre (SITE_WM / 2, SITE_HM / 2) = (850, 625) is the settlement's
+    // own position in the town's frame; the stem runs north-south through it.
+    for p in path {
+        assert!((p.x - 850.0).abs() < 1e-6, "the stem is off the town's column: x = {}", p.x);
+    }
+    assert_eq!(water.ctx.river_order, 4.0, "the order is read at the stem's own cell");
+    assert_eq!(water.ctx.river_width_m, Some(38.0), "max(12, min(46, 10 + 4 * 7))");
+}
+
+/// Protects the second half of the owner's town-on-its-river report
+/// (2026-11-14): a town the flow proxy calls `river` (the fixture's flow column
+/// at `x == 20` is two cells, 25 km, from the town and inside
+/// `um_site_kind_from_terrain`'s two-cell window) but whose 1.7 km box no real
+/// water reaches is laid out `landlocked`, with no invented river through it,
+/// when the world has a river network. Without one (`order: None`) the
+/// reference's synthetic river is the only river there is, and it stays.
+/// MUTATION: `dry_box_kind` returning `kind` fails the first half.
+#[test]
+fn a_dry_box_in_a_world_with_rivers_is_not_given_an_invented_river() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| traced(20, y)).collect();
+    let polys = vec![stem];
+    let w = river_world(&f, &order, &polys);
+    let s = settlement(22, 20, 4_000);
+    assert_eq!(um_site_kind_from_terrain(&w, 22.0, 20.0), "river", "premise: the proxy calls it a river town");
+    assert!(um_water_ctx(&w, 22.0, 20.0).is_none(), "premise: no real water reaches the box");
+    let ctx = um_place_context(&w, &s, &[]);
+    assert_eq!(ctx.site_kind, "landlocked");
+    let l = run_layout(&ctx, None).expect("a layout");
+    assert!(!l.uses_real_water);
+    let inside = |p: &Vec2| p.x >= 0.0 && p.x <= l.wm && p.y >= 0.0 && p.y <= l.hm;
+    assert!(!l.river.iter().any(inside), "an invented river crosses the box: {:?}", &l.river[..l.river.len().min(3)]);
+    assert!(l.water_poly.is_empty(), "an invented water body");
+
+    // Control: no river network, so the proxy's verdict and the synthetic
+    // river stand, as in the reference.
+    let bare = f.world();
+    let ctx0 = um_place_context(&bare, &s, &[]);
+    assert_eq!(ctx0.site_kind, "river");
 }

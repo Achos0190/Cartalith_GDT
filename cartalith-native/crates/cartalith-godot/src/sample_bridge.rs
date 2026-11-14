@@ -2571,7 +2571,10 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
             // `landmass` (the reference's own "natural route corridor"
             // affordance -- a real, disclosed gap, not core to placement
             // scoring the way the rest of `ctx` is; see this view's own
-            // `LAYER_GROUPS` hint).
+            // `LAYER_GROUPS` hint), and Ruling EX's `river_front`: this view
+            // is not handed the world's `civ` parameters, so it cannot know
+            // whether the term placed the towns; it shows the term off (a
+            // disclosed gap, 2026-11-14).
             let ctx = SuitabilityCtx {
                 water_bodies: f.water_bodies,
                 corridor: None,
@@ -2579,6 +2582,7 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
                 flow: Some(f.flow_discharge),
                 river_reach: river_reach.as_deref(),
                 coast_reach: coast_reach.as_deref(),
+                river_front: None,
                 resources: Some(&rp),
                 rain: Some(f.rainfall),
                 flood: Some(&flood),

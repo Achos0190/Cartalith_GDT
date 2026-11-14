@@ -246,6 +246,7 @@ pub const DESCS: &[(&str, &str)] = &[
     ("civ.n_hamlet", "Raise: more hamlets. Lower: fewer hamlets. Read only with fixed settlement counts on."),
     ("civ.garrison_exposure_scale", "Raise: garrisons grow more on exposed borders. Lower: border exposure matters less; 0 ignores it."),
     ("civ.merge_ways", "On: roads heading the same way share one trunk (current). Off: each road keeps its own line, as older worlds were built."),
+    ("civ.river_front", "On: a town near a river is placed on it, the river through the town (current). Off: a town may sit a little off its river, as older worlds did."),
     ("civ.base_ag_tech", "Raise: every faction starts with more advanced farming, 0 hoe to 5 industrial. Lower: simpler farming. Applies to a newly generated world."),
 ];
 

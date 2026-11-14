@@ -49,6 +49,11 @@ mod way_census;
 // ignored measurement over real generated worlds.
 #[cfg(test)]
 mod wall_gap_census;
+// The owner's town-on-its-river report (2026-11-14): how far each river town
+// sits from its river in the world, and where the town layer draws that river
+// against the map; an ignored measurement over real generated worlds.
+#[cfg(test)]
+mod town_river_census;
 // Ruling EU items 2 and 3 (2026-11-13): the planner census -- routes with
 // the way join off and on, and the river stretches offered along them; an
 // ignored measurement through the real pipeline.
@@ -2646,6 +2651,27 @@ mod civ_pipeline_tests {
         }
     }
 
+    /// Protects Ruling EX's wiring (owner report 2026-11-14) on a real world
+    /// (the 256 x 192 app fixture): `civ.river_front` reaches placement through
+    /// `compute_civilisation`'s suitability context, so switching it off moves
+    /// towns, and with it on (the fixture's own setting, the app's) the
+    /// settlements' own suitability is higher on average (the term only adds).
+    /// MUTATION: building `river_front` as `None` in `compute_civilisation`
+    /// makes the two worlds identical.
+    #[test]
+    fn river_frontage_reaches_placement() {
+        let on_p = world().1.clone();
+        assert!(on_p.civ.river_front, "premise: the app fixture has the term on");
+        let mut off_p = on_p.clone();
+        off_p.civ.river_front = false;
+        let (on, off) = (civ(&on_p, &[]), civ(&off_p, &[]));
+        let cells = |c: &CivData| c.settlements.iter().map(|s| (s.placement.x, s.placement.y)).collect::<Vec<_>>();
+        assert!(cells(&off).len() > 5, "premise: the fixture places towns");
+        assert_ne!(cells(&on), cells(&off), "the term moved no town: it never reached placement");
+        let mean = |c: &CivData| c.settlements.iter().map(|s| s.placement.suit).sum::<f64>() / c.settlements.len() as f64;
+        assert!(mean(&on) > mean(&off), "the term only adds: {} vs {}", mean(&on), mean(&off));
+    }
+
     /// Protects owner Ruling EU item 1's contract on a real world (the 256 x 192
     /// app fixture, villages on): with `civ.merge_ways` on, the network joins
     /// exactly the same settlement pairs in the same order as with it off (only
@@ -4932,6 +4958,11 @@ fn compute_civilisation(
         // Ruling ER: rebuilt along the tree the world was routed with.
         cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing));
     let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
+    // Ruling EX (2026-11-14): the river frontage term, built only when it is
+    // switched on, so the reference boundary allocates nothing for it.
+    let river_front = opts
+        .river_front
+        .then(|| cartalith_civ::build_river_front(&river_polys, &river_order, gw, gh, map_width_km * 1000.0 / gw as f64));
     drop(river_polys);
 
     // One definition, built twice: here for the suitability grid, and again
@@ -4949,6 +4980,7 @@ fn compute_civilisation(
                 flow: Some(&ws.flow_discharge),
                 river_reach: Some(&river_reach),
                 coast_reach: Some(&coast_reach),
+                river_front: river_front.as_deref(),
                 resources: Some(&resources),
                 rain: Some(&ws.rainfall),
                 flood: Some(&flood),
@@ -4980,6 +5012,7 @@ fn compute_civilisation(
                 flow: &ws.flow_discharge,
                 river_reach: &river_reach,
                 coast_reach: &coast_reach,
+                river_front: river_front.as_deref(),
                 // `SUIT_RESOURCE_KEYS`' order.
                 resources: [&r.copper, &r.tin, &r.iron, &r.gold, &r.salt, &r.timber, &r.lead, &r.silver, &r.gems],
                 rain: &ws.rainfall,
@@ -5005,6 +5038,7 @@ fn compute_civilisation(
                 flood: cartalith_civ::SUIT_W_FULL_FLOOD,
                 islet: cartalith_civ::SUIT_W_FULL_ISLET,
                 islet_knee: cartalith_civ::ISLET_KNEE,
+                river_front: cartalith_civ::SUIT_W_FULL_RIVER_FRONT,
             },
         )
     });

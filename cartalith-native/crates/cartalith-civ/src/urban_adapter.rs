@@ -223,6 +223,37 @@ pub const SITE_WM: f64 = 1700.0;
 /// See [`SITE_WM`].
 pub const SITE_HM: f64 = 1250.0;
 
+/// Where `cartalith_hydrology::trace_river_polylines` puts a cell's point inside
+/// the cell: its documented output is `(col + 0.5, row + 0.5)`, the centre.
+///
+/// Everything else this adapter reads puts cell `c` at coordinate `c`: the
+/// settlement's `placement` (the `(px, py)` every function here takes),
+/// `bilin_field`'s taps, the flow/order rasters, the ways' points. So a traced
+/// point must lose this half cell before it is compared with `(px, py)` or
+/// carried into the town's frame; [`traced_to_cell`] does that.
+const TRACED_CELL_CENTRE: f64 = 0.5;
+
+/// A traced river point in this adapter's frame (cell `c` at `c`); see
+/// [`TRACED_CELL_CENTRE`].
+///
+/// **Why, and the divergence it is.** The reference's `_umWaterCtx` compared
+/// the traced points with `p.x`/`p.y` as they came (`_umSiteProfile` still
+/// does, golden-pinned; see [`um_site_profile`]), so
+/// every real river reached the town half a cell east and half a cell south of
+/// where the map draws it: 1.04 km each way at 384 cells over 800 km, which put
+/// seed 483920's settlement #6, whose marker the river passes through, beside
+/// its river instead of on it (owner report, 2026-11-14; measured by
+/// `town_river_census`). It also read the river's Strahler order one cell to the
+/// south-east (`Math.round(c + 0.5)` is `c + 1`). A coordinate fix, not a
+/// behaviour choice, so it carries no switch (`DECISIONS.md` section 7p); no
+/// golden reaches `um_water_ctx`.
+///
+/// Must never be applied twice, nor to a point that is not a traced river
+/// point (a way's points are already in this frame).
+fn traced_to_cell(q: (f64, f64)) -> (f64, f64) {
+    (q.0 - TRACED_CELL_CENTRE, q.1 - TRACED_CELL_CENTRE)
+}
+
 /// The mask/heightfield raster cell used by `_umWaterCtx`/`_umTerrainCtx`
 /// (reference: `const cellM=22`), metres.
 const CTX_CELL_M: f64 = 22.0;
@@ -779,6 +810,10 @@ pub struct UmWater {
 ///
 /// `None` when the settlement is effectively dry — `build_site` then keeps its
 /// synthetic path.
+///
+/// The traced river is read through [`traced_to_cell`], unlike the reference,
+/// so the town's river is the river the map draws through its cell rather than
+/// one half a cell south-east of it (owner report, 2026-11-14).
 pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
     if w.field.is_empty() {
         return None;
@@ -800,8 +835,12 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
     if let Some(order) = w.order {
         let mut best: Option<(&Vec<(f64, f64)>, usize)> = None;
         let mut best_d = f64::INFINITY;
+        // Every traced point goes through `traced_to_cell` first, so the search,
+        // the clip, the order lookup and the town-frame path all read it in the
+        // frame `(px, py)` is in (the 2026-11-14 fix; see that function).
         for pl in w.river_polys {
-            for (i, &(qx, qy)) in pl.iter().enumerate() {
+            for (i, &q) in pl.iter().enumerate() {
+                let (qx, qy) = traced_to_cell(q);
                 let d = js_hypot(qx - px, qy - py);
                 if d < best_d {
                     best_d = d;
@@ -813,6 +852,7 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
             && best_d < box_rad_g
         {
             {
+                let pl: Vec<(f64, f64)> = pl.iter().map(|&q| traced_to_cell(q)).collect();
                 let mut lo = bi;
                 let mut hi = bi;
                 while lo > 0 && js_hypot(pl[lo - 1].0 - px, pl[lo - 1].1 - py) < box_rad_g {
@@ -840,6 +880,31 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
         }
     }
     finish_water_ctx(w, local_to_grid, river_path, river_width_m, river_order)
+}
+
+/// The site kind a town is laid out as, given the proxy's verdict `kind`
+/// ([`um_site_kind_from_terrain`]) and whether [`um_water_ctx`] found no real
+/// water in the town's box (`dry`).
+///
+/// **Why.** The proxy calls a town `river`/`riverthrough`/`coast`/`bay` from
+/// flow and sea cells up to [`um_water_reach_km`] away (two cells, 4 km, at
+/// 384 cells over 800 km), while the box is 1.7 x 1.25 km. When none of that
+/// water reaches the box, `build_site` (reference `buildSite`) then **invents**
+/// one: a synthetic west-to-east river through the middle, or a synthetic
+/// shoreline, that the world does not have. That is the owner's report of
+/// 2026-11-14 (*"The river passes below it. It's not on the river."*): seed
+/// 483920's settlement #6 at 384 x 288 was laid out `riverthrough` with
+/// `uses_real_water` false and a 60-point invented river, while the map's river
+/// ran past the town outside its box. With a real world behind it (a field and
+/// a river network) a dry box is drawn as what it is, `landlocked`.
+///
+/// Unchanged: a world with no river network (`order` `None`), where the
+/// reference's synthetic river is the only river there is, and every kind when
+/// the box holds real water. No golden reaches this function (`um_place_context`
+/// is unit-tested only; `cartalith-urban`'s goldens pass their own kinds), so no
+/// switch (`DECISIONS.md` section 7p). Must never make a box wet.
+fn dry_box_kind(w: &UrbanWorld, kind: &'static str, dry: bool) -> &'static str {
+    if dry && w.order.is_some() && !w.field.is_empty() { "landlocked" } else { kind }
 }
 
 /// Part (b) of `_umWaterCtx`: the local sea/lake mask, the river-band stamp,
@@ -1291,6 +1356,14 @@ pub struct SiteProfile {
 ///
 /// `None` for an absent or wrong-length field — the reference's own
 /// `if(typeof field==='undefined'||!field||!field.length) return null`.
+///
+/// **Still the reference's half-cell frame** (golden-verified field by field in
+/// `tests/golden_parity_urban_adapter.rs`, `site_profile_matches_reference`):
+/// the river distance, order and confluence compare traced points, written at
+/// `col + 0.5`, with the settlement's `col`, so a town on its river reads about
+/// 0.7 cells from it. The layout's own river does not (`um_water_ctx` reads
+/// through [`traced_to_cell`]); bringing the profile across is a re-baseline
+/// left open (owner report, 2026-11-14).
 pub fn um_site_profile(
     w: &UrbanWorld,
     e: &SiteProfileWorld,
@@ -1764,8 +1837,8 @@ pub fn um_place_context_with(
     // Not a reference field: a variant mixes into the seed and nothing else,
     // so every other input (site, water, terrain, roads) is the same town's.
     let seed = o.variant.map_or(seed, |v| seed ^ v.wrapping_mul(0x9E37_79B9));
-    let site_kind = um_site_kind_from_terrain(w, px, py);
     let water = um_water_ctx(w, px, py);
+    let site_kind = dry_box_kind(w, um_site_kind_from_terrain(w, px, py), water.is_none());
     let terrain = um_terrain_ctx(w, px, py);
     // v0.98: with real water the geometry is already in position, so no
     // rotation is needed and the reference bypasses `_umTerrainOrient`.

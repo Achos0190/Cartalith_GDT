@@ -2148,6 +2148,10 @@ impl AtlasFields {
         let (river_order, river_polys) =
             cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea, world, wg.params.river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing));
         let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
+        // Ruling EX's river frontage term, exactly as `compute_civilisation` builds it.
+        let river_front = wg.params.civ.river_front.then(|| {
+            cartalith_civ::build_river_front(&river_polys, &river_order, gw, gh, map_width_km * 1000.0 / gw as f64)
+        });
         let ctx = cartalith_civ::SuitabilityCtx {
             water_bodies: Some(&wb.classification),
             corridor: Some(&corridors),
@@ -2155,6 +2159,7 @@ impl AtlasFields {
             flow: Some(&ws.flow_discharge),
             river_reach: Some(&river_reach),
             coast_reach: Some(&coast_reach),
+            river_front: river_front.as_deref(),
             resources: Some(&resources),
             rain: Some(&ws.rainfall),
             flood: Some(&flood),

@@ -972,6 +972,21 @@ pub struct CivParams {
     /// the key loads it off (`params::apply_saved_state`), so a Recompute or
     /// Generate roads on an old world rebuilds the roads it had.
     pub merge_ways: bool,
+    /// Owner report 2026-11-14 (`LARGE_ITEM_RULINGS.md` Ruling EX, under Ruling
+    /// N): *"The river passes below it. It's not on the river. And for the same
+    /// matter double check this on the bigger map that it sits correctly."*
+    /// Settlement suitability gains a **river frontage** term
+    /// (`cartalith_civ::build_river_front`, weight
+    /// `cartalith_civ::SUIT_W_FULL_RIVER_FRONT`): a cell whose own town box a real
+    /// traced river crosses scores higher, so a river town sits on its river.
+    /// It is one more term in the ranking, never a gate or a snap.
+    ///
+    /// **`false` here, `true` in the shipped app** (`cartalith-godot`'s
+    /// `params::defaults`), the `DECISIONS.md` §7p split: the reference has no
+    /// such term, so every golden keeps the reference's placements. A save
+    /// without the key loads it off (`params::apply_saved_state`), so a
+    /// regenerate of an old world places its towns where they were.
+    pub river_front: bool,
     /// Owner request 2026-11-13 (New World: "set the base tech level for the whole world also, next to the phase the
     /// world is in"): the **base agricultural technology** every faction's roster row starts with, an index into
     /// `cartalith_civ::roster::AG_TECH_LEVELS` (`0` subsistence, `1` traditional agrarian, `2` advanced agrarian, `3`
@@ -1472,6 +1487,8 @@ impl WorldParams {
                 garrison_exposure_scale: 1.0,
                 // Ruling EU item 1: the reference has no trunk-merging pass.
                 merge_ways: false,
+                // Ruling EX: the reference has no river frontage term.
+                river_front: false,
                 // The reference's own default tech level for every faction (`traditionalAgrarian`, index 1).
                 base_ag_tech: 1,
             },
