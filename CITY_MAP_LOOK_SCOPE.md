@@ -261,7 +261,7 @@ The bars above that quote luminance and pixel widths were NOT measured; the prob
 `STATUS.md` instead. Numbering note: the milestone table's CL-1 is the marker draw, and this step is not it. The wall
 that hugs the built area (Ruling EW item 1) was **built 2026-11-14** as `cartalith_urban::wallhug` behind `WorldParams::urban_wall_hug`
 (`DECISIONS.md` section 7p; measured numbers and the open pockets in `STATUS.md`; frames `evidence/city-look-2026-11-13/wallhug_before_after.png`).
-Still open: CL-1's head-overlap nudge, CL-10, and the choice of default look. (CL-1's draw, CL-2 and CL-3 are the second build note; CL-11 the third; CL-8 and CL-9 the fourth, below.)
+Still open: CL-10 and the choice of default look. (CL-1's head-overlap nudge and the City Viewer's click card were built 2026-11-15, the fifth build note below.) (CL-1's draw, CL-2 and CL-3 are the second build note; CL-11 the third; CL-8 and CL-9 the fourth, below.)
 
 **Build note, 2026-11-13 (the second build step: CL-1's shared draw, CL-2 and CL-3; status is `STATUS.md`'s).**
 `shell/pin_marker.gd` is the one teardrop (tip on the anchor, head 2.1 radii above it, vector pictograms for the engine's kinds:
@@ -386,3 +386,7 @@ and its renderers), `ASSET_LIBRARY_SCOPE.md` and `ASSET_PACK_TOOLS_PROPOSAL.md` 
   source is the reference screenshot, labelled a judgement).
 - **A palette change re-bases every contrast pair**: the legend swatches in `city_viewer_window.gd::_swatch` use the old
   colours and must be recomputed.
+
+**Build note, 2026-11-15 (the fifth build step: the City Viewer's card and CL-1's head-overlap nudge; status is `STATUS.md`'s).**
+*The viewer click.* `city_viewer_window.gd::_select_pin` selects the pin's town or POI and, on a desktop click or a touch long press, calls `DccApp.open_viewer_marker_card(kind, id, anchor, source)`, which builds a one-hit request from the engine's row (`bridge.settlements()` or `poi_get`) and calls `ContextBroker.resolve`, the map's path. The request's `anchor` is the pin's place in the shell viewport (the window position plus the canvas transform), and `present()` uses it instead of the overlay's `screen_pos`. A tap on touch keeps Ruling EO (select, no card); the hold is the map's 480/500 ms. Judgements, for the owner to overturn: the viewer's card is not gated on the armed tool; a viewer popped out into a native window selects and opens no card.
+*The nudge.* `PinMarker.fan_offsets` is the one algorithm for the map (landmarks and POIs, both marker styles) and the viewer. Heads overlapping by more than 25 % of the radii sum cluster; a cluster of up to 18 is fanned (pins in rows of six with half-spacing stagger so no tip lands on a neighbour's head, which the first ring layout did; circles on a ring), a larger knot is left (zoom resolves it). A fan that lands on a neighbouring cluster widens the link distance (four passes, fewest residual overlaps wins). Offsets read only relative positions, so a pan changes nothing (the map computes them on a canonical rect). Every pick reads the nudged position. Leaders and the true-point dot are drawn under the markers.

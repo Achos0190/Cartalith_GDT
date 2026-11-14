@@ -1672,6 +1672,7 @@ var _landmarks_visible := true
 ## landmark.
 func set_landmarks(items: Array) -> void:
 	_landmarks = items
+	_fan_rev += 1   ## the head-overlap nudge is built from this list
 	_lm_hover_index = -1   ## an index into the array just replaced
 	_rebuild_lm_hidden_cells()   ## the hidden-cell set is keyed off this list
 	_pin_notes_dirty = true   ## the note state is per landmark index, so it is read again
@@ -6064,6 +6065,7 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 	## Landmarks FIRST since Ruling AL, so a hand-placed icon standing on the same cell still wins the pixel (measured
 	## then: `_vfy_iconmerge_probe.gd`'s authored icon at (21,0) went from poi=32 to poi=0). Since CL-2 the mark is a
 	## teardrop pin whose HEAD floats above the cell and only its tip is on it, so that overlap is rarer, not gone.
+	_draw_fan_leaders(rect, interior)   ## the head-overlap nudge's leader lines, under every marker
 	if _landmarks_visible:
 		## Circles style only: the ring's glyph is rasterised for the size it reaches the screen at, and the camera is an
 		## ancestor scale -- read once (from the pre-CL-2 draw pass). Scaled from the live camera to the zoom this draw
@@ -6079,6 +6081,7 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
+			lpos = _nudged_lm(li, lpos, rect)   ## the head-overlap nudge (a no-op for a lone marker)
 			if circles:
 				_draw_landmark_ring(lpos, lm, glyph_scale)
 			else:
@@ -6473,6 +6476,7 @@ var _pois: Array = []
 ## Replaces the points of interest and redraws. Called with `poi_list()`; an empty array (no world, none placed) draws nothing.
 func set_pois(rows: Array) -> void:
 	_pois = rows
+	_fan_rev += 1   ## the head-overlap nudge is built from this list
 	queue_redraw()
 
 ## A POI is sized like a Local-class landmark (a stand-in class row, `importance` mid-range): it carries no class of its own,
@@ -6497,10 +6501,12 @@ func _draw_poi_marks(rect: Rect2, interior: Rect2) -> void:
 		return
 	var circles := DccSettings.markers_are_circles()
 	var r := _poi_pin_r()
-	for pd: Dictionary in _pois:
+	for pi in _pois.size():
+		var pd: Dictionary = _pois[pi]
 		var pos := _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), rect)
 		if not interior.has_point(pos):
 			continue
+		pos = _nudged_poi(pi, pos, rect)
 		PinMarker.draw_styled(_cv, pos, r, String(pd.get("kind", "")), poi_has_note(pd), circles, _sym_gain * _landmark_zoom_k())
 
 ## Nearest user-placed POI whose footprint holds `mouse`, as `[index, anchor_distance]` (`-1`, `INF` on a miss). Same
@@ -6518,6 +6524,7 @@ func _hit_test_poi(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		var pos := _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), rect)
 		if not interior.has_point(pos):
 			continue
+		pos = _nudged_poi(i, pos, rect)   ## the drawn head, not the true point
 		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles):
 			continue
 		var d := PinMarker.rank_distance(pos, r, mouse, circles)
@@ -6526,6 +6533,82 @@ func _hit_test_poi(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 			closest = i
 			closest_dist = mouse.distance_to(pos)
 	return [closest, closest_dist]
+
+
+## ── Head-overlap nudge (CL-1's last bar, `CITY_MAP_LOOK_SCOPE.md` section 4.2) ─────────────────────────────────────────
+##
+## Markers whose heads overlap at the current zoom are fanned apart in SCREEN space (`PinMarker.fan_offsets`, the one
+## algorithm the City Viewer shares) with a thin leader to the true point. Covers the generated landmarks and the
+## user-placed POIs together (a POI can sit on a landmark), in both marker styles (pins: the head; circles: the ring or
+## disc). The offsets are computed on a CANONICAL rect (the displayed size at the origin), so they depend on the zoom and the
+## data and never on the pan: a pan cannot move a nudged head relative to its true point (no jitter). **Drawn and picked
+## positions are the nudged ones**: `_nudged` is the one place every draw and every hit test asks.
+##
+## Never writes generation data, never decides what a click does. Settlement pins and placed icons are not nudged (CL-10's
+## shapes decision is still open); a knot bigger than `PinMarker.FAN_MAX` is left in place (zoom resolves it).
+var _fan_rev := 0
+var _fan_cache: Dictionary = {}   ## {key: {"lm": {index: offset}, "poi": {index: offset}}}, a few entries at most
+## POI items take ids from this base so one id space serves both lists (a landmark index never reaches it).
+const _FAN_POI_BASE := 1000000
+
+## `{"lm": {landmark index: offset}, "poi": {poi index: offset}}` for the displayed rect `rect`: only markers that move.
+func _fan(rect: Rect2) -> Dictionary:
+	var circles := DccSettings.markers_are_circles()
+	var key := [rect.size, _camera_zoom, circles, _fan_rev, _landmarks.size(), _pois.size(), _landmarks_visible,
+		_hidden_landmark_kinds.hash(), _sym_gain, _export_mode, _pin_unit(), _landmark_zoom_k()]
+	if _fan_cache.has(key):
+		return _fan_cache[key]
+	var canon := Rect2(Vector2.ZERO, rect.size)
+	var items: Array = []
+	if _landmarks_visible:
+		for i in _landmarks.size():
+			var lm: Dictionary = _landmarks[i]
+			if not _landmark_shown(lm):
+				continue
+			items.append({"id": i, "r": float(_landmark_footprint(lm, circles)[0]),
+				"pos": _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), canon)})
+	for i in _pois.size():
+		var pd: Dictionary = _pois[i]
+		items.append({"id": _FAN_POI_BASE + i, "r": float(_poi_footprint(circles)[0]),
+			"pos": _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), canon)})
+	var raw := PinMarker.fan_offsets(items, circles)
+	var res := {"lm": {}, "poi": {}}
+	for id in raw:
+		if int(id) >= _FAN_POI_BASE:
+			res["poi"][int(id) - _FAN_POI_BASE] = raw[id]
+		else:
+			res["lm"][int(id)] = raw[id]
+	if _fan_cache.size() > 6:
+		_fan_cache.clear()
+	_fan_cache[key] = res
+	return res
+
+
+## The drawn and picked tip (pins) or centre (circles) of landmark `i` whose true place is `pos`.
+func _nudged_lm(i: int, pos: Vector2, rect: Rect2) -> Vector2:
+	return pos + ((_fan(rect)["lm"] as Dictionary).get(i, Vector2.ZERO) as Vector2)
+
+
+## The drawn and picked tip or centre of POI `i` whose true place is `pos`.
+func _nudged_poi(i: int, pos: Vector2, rect: Rect2) -> Vector2:
+	return pos + ((_fan(rect)["poi"] as Dictionary).get(i, Vector2.ZERO) as Vector2)
+
+
+## The leaders, drawn before every nudged marker so the marker covers the line's far end.
+func _draw_fan_leaders(rect: Rect2, interior: Rect2) -> void:
+	var f := _fan(rect)
+	var circles := DccSettings.markers_are_circles()
+	var w := _sym_gain * _landmark_zoom_k()
+	for i: int in f["lm"]:
+		var lm: Dictionary = _landmarks[i]
+		var t := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
+		if interior.has_point(t):
+			PinMarker.draw_leader(_cv, t, t + (f["lm"][i] as Vector2), float(_landmark_footprint(lm, circles)[0]), w)
+	for i: int in f["poi"]:
+		var pd: Dictionary = _pois[i]
+		var t := _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), rect)
+		if interior.has_point(t):
+			PinMarker.draw_leader(_cv, t, t + (f["poi"][i] as Vector2), float(_poi_footprint(circles)[0]), w)
 
 
 ## One landmark's hit footprint under the current marker style (owner request 2026-11-14): `[radius, pad]` in this
@@ -8021,6 +8104,7 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 		if not interior.has_point(pos):
 			continue
+		pos = _nudged_lm(i, pos, rect)   ## the drawn head, not the true point
 		var fp := _landmark_footprint(lm, circles)
 		var r: float = fp[0]
 		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles):
@@ -8172,6 +8256,7 @@ func hits_at(mouse: Vector2) -> Array:
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
 				continue
+			lpos = _nudged_lm(i, lpos, rect)   ## the drawn head, as `_hit_test_landmark` reads it
 			var lfp := _landmark_footprint(lm, circles)
 			if PinMarker.hit_styled(lpos, float(lfp[0]), mouse, float(lfp[1]), circles):
 				hits.append(_hit("landmark", i, lm.get("name"), mouse.distance_to(lpos)))   ## anchor distance, as `_hit_test_landmark` returns
@@ -8181,6 +8266,7 @@ func hits_at(mouse: Vector2) -> Array:
 		var ppos := _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), rect)
 		if not interior.has_point(ppos):
 			continue
+		ppos = _nudged_poi(i, ppos, rect)   ## the drawn head, as `_hit_test_poi` reads it
 		var pfp := _poi_footprint(circles)
 		if PinMarker.hit_styled(ppos, float(pfp[0]), mouse, float(pfp[1]), circles):
 			hits.append(_hit("poi", i, pd.get("name", pd.get("kind_label", "")), mouse.distance_to(ppos)))

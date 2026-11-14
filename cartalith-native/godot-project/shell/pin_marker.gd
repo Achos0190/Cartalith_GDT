@@ -371,3 +371,240 @@ static func hit_styled(tip: Vector2, r: float, p: Vector2, pad: float, circles: 
 ## The sort key of a hit by style: the distance to the circle's centre in circles mode, `axis_distance()` for a pin.
 static func rank_distance(tip: Vector2, r: float, p: Vector2, circles: bool) -> float:
 	return p.distance_to(tip) if circles else axis_distance(tip, r, p)
+
+
+# -- Head-overlap nudge (CL-1's last bar, `CITY_MAP_LOOK_SCOPE.md` section 4.2) ---------------------------------------------
+#
+# Markers that stand close together at the current zoom hide one another's heads and leave all but one unclickable. The
+# fix is a SCREEN-SPACE nudge, never a data change: a cluster of overlapping markers is fanned out around its centroid and
+# each moved marker keeps a thin leader line to its true point. Drawn and picked positions are the nudged ones, so the hit
+# test follows the drawn head (`pin_at`, `_hit_test_landmark`, `_hit_test_poi`, `hits_at` all read `fan_offsets`).
+#
+# **Why it cannot jitter while panning.** A pan translates every marker by the same vector. The function below reads
+# only the markers' positions RELATIVE to one another (cluster membership is a distance test, the centre is the mean of the
+# members, the slot order is angle about that centre, ties break on the caller's stable `id`), so its offsets are the same
+# for every pan and only a zoom or a data change can alter them. It must never read the screen position itself, a clock or
+# a random number.
+
+## Two heads overlap enough to need a nudge when their centres are closer than this share of the sum of their radii
+## (0.75 = overlapping by more than a quarter, the scope's CL-1 bar "0 overlaps by more than 25 %"). A labelled judgement.
+const FAN_OVERLAP_KEEP := 0.75
+## Where a nudged head ends up: its neighbours' head centres are at least this share of the radii sum apart (a 5 % gap).
+const FAN_CLEAR := 1.05
+## The largest cluster that is fanned. A bigger knot (the whole-world view of a dense landmark field) is left in place:
+## a fan of 40 would cover the map, and zooming in resolves it. Stated, not silent: `fan_stats` reports how many knots
+## were left.
+const FAN_MAX := 18
+
+
+## The nudge for markers `items` (each `{id: int, pos: Vector2, r: float}`: the stable caller key, the TIP (pin) or
+## CENTRE (circles) in screen px, the head radius), as `{id: Vector2 offset}` holding ONLY the markers that move (a lone
+## marker is absent). `circles` is the marker style: a circle's head is its centre, a pin's is `STEM_RATIO` radii above
+## the tip. The offset is added to the drawn tip or centre; the leader runs from the true `pos` to `pos + offset`.
+## Pure: no node, no state, deterministic, translation-invariant (see the block above).
+static func fan_offsets(items: Array, circles: bool) -> Dictionary:
+	var n := items.size()
+	if n < 2:
+		return {}
+	# A fanned cluster can land on a NEIGHBOUR the first pass did not link (the phone's 23 px heads made nine derived pins and
+	# three POIs do exactly that). So the link distance widens, pass by pass, until no two drawn heads overlap by the bar or
+	# the passes run out, and the pass with the fewest residual overlaps wins. Every pass reads only relative positions, so
+	# the result stays pan-invariant.
+	var best := {}
+	var best_bad := 1 << 30
+	for mult in [1.0, 1.7, 2.6, 3.6]:
+		var off := _fan_pass(items, circles, FAN_OVERLAP_KEEP * mult)
+		var bad := _overlaps(items, off, circles)
+		if bad < best_bad:
+			best = off
+			best_bad = bad
+		if bad == 0:
+			break
+	return best
+
+
+## The number of colliding pairs after applying `off`: two drawn heads closer than `FAN_OVERLAP_KEEP` times their radii sum,
+## or (pins) one pin's head centre within 0.9 radius of the other's tip-to-head axis, a TIP ON A HEAD. The second case has
+## heads far enough apart and still leaves both pins pickable from the same point (their axis distances tie at 0, and the
+## lower index wins), which a vertical stack of two fanned rows does; the first fan layout and a head-only count missed it.
+static func _overlaps(items: Array, off: Dictionary, circles: bool) -> int:
+	var lift := 0.0 if circles else STEM_RATIO
+	var rmax := 0.0
+	var tips: Array = []
+	var heads: Array = []
+	for it in items:
+		rmax = maxf(rmax, float(it["r"]))
+		var t: Vector2 = (it["pos"] as Vector2) + (off.get(it["id"], Vector2.ZERO) as Vector2)
+		tips.append(t)
+		heads.append(t + Vector2(0.0, -lift * float(it["r"])))
+	var cell := (2.0 if circles else 3.2 + STEM_RATIO) * rmax
+	var grid := {}
+	for i in heads.size():
+		var key := Vector2i(floori((heads[i] as Vector2).x / cell), floori((heads[i] as Vector2).y / cell))
+		if not grid.has(key):
+			grid[key] = []
+		(grid[key] as Array).append(i)
+	var bad := 0
+	for i in heads.size():
+		var hi: Vector2 = heads[i]
+		var ci := Vector2i(floori(hi.x / cell), floori(hi.y / cell))
+		for dx in range(-1, 2):
+			for dy in range(-1, 2):
+				for j in grid.get(Vector2i(ci.x + dx, ci.y + dy), []):
+					if int(j) <= i:
+						continue
+					var ri := float(items[i]["r"])
+					var rj := float(items[j]["r"])
+					var hit_pair := hi.distance_to(heads[j]) < FAN_OVERLAP_KEEP * (ri + rj)
+					if not circles and not hit_pair:
+						hit_pair = axis_distance(tips[i], ri, heads[j]) < 0.9 * ri or axis_distance(tips[j], rj, hi) < 0.9 * rj
+					if hit_pair:
+						bad += 1
+	return bad
+
+
+## One clustering-and-fan pass with link threshold `keep` (a share of the radii sum).
+static func _fan_pass(items: Array, circles: bool, keep: float) -> Dictionary:
+	var out := {}
+	var n := items.size()
+	var lift := 0.0 if circles else STEM_RATIO
+	var rmax := 0.0
+	for it in items:
+		rmax = maxf(rmax, float(it["r"]))
+	if rmax <= 0.0:
+		return out
+	# A grid of cells wide enough for the link distance finds every linked pair in the 3x3 neighbourhood.
+	var cell := 2.0 * rmax * maxf(1.0, keep / FAN_OVERLAP_KEEP)
+	var grid := {}
+	var heads: Array = []
+	for i in n:
+		var h: Vector2 = (items[i]["pos"] as Vector2) + Vector2(0.0, -lift * float(items[i]["r"]))
+		heads.append(h)
+		var key := Vector2i(floori(h.x / cell), floori(h.y / cell))
+		if not grid.has(key):
+			grid[key] = []
+		(grid[key] as Array).append(i)
+	var parent := PackedInt32Array()
+	parent.resize(n)
+	for i in n:
+		parent[i] = i
+	for i in n:
+		var hi: Vector2 = heads[i]
+		var ci := Vector2i(floori(hi.x / cell), floori(hi.y / cell))
+		for dx in range(-1, 2):
+			for dy in range(-1, 2):
+				var bucket: Array = grid.get(Vector2i(ci.x + dx, ci.y + dy), [])
+				for j in bucket:
+					if int(j) <= i:
+						continue
+					var sum_r := float(items[i]["r"]) + float(items[j]["r"])
+					if hi.distance_to(heads[j]) < keep * sum_r:
+						var a := i
+						while parent[a] != a:
+							a = parent[a]
+						var b: int = int(j)
+						while parent[b] != b:
+							b = parent[b]
+						if a != b:
+							parent[maxi(a, b)] = mini(a, b)
+	var clusters := {}
+	for i in n:
+		var root := i
+		while parent[root] != root:
+			root = parent[root]
+		if not clusters.has(root):
+			clusters[root] = []
+		(clusters[root] as Array).append(i)
+	for root in clusters:
+		var members: Array = clusters[root]
+		if members.size() < 2 or members.size() > FAN_MAX:
+			continue
+		out.merge(_fan_cluster(items, members, circles), true)
+	return out
+
+
+## One cluster's slots; returns `{id: offset}` for every member. The mean of the members' true places is the centre.
+## **Circles:** slots on a ring (two when more than seven) whose neighbours are `FAN_CLEAR` diameters apart, members taking
+## them in the angular order of their true places about the centre (ties on `id`) so the leaders do not cross.
+## **Pins:** slots in a ROW (rows of at most six, each next row half a spacing over and 0.9 spacings down). A pin's head
+## floats `STEM_RATIO` radii over its tip, so two slots one spacing apart VERTICALLY would put one pin's tip on the other's
+## head (the first ring layout did exactly that for two pins); a row keeps every stem clear of its neighbours' heads.
+## Members are sorted by true y then x then `id` and dealt into the rows, each row left to right.
+static func _fan_cluster(items: Array, members: Array, circles: bool) -> Dictionary:
+	var c := Vector2.ZERO
+	var rmax := 0.0
+	for m in members:
+		c += items[m]["pos"] as Vector2
+		rmax = maxf(rmax, float(items[m]["r"]))
+	c /= float(members.size())
+	var spacing := 2.0 * rmax * FAN_CLEAR
+	var slots: Array = []
+	var order: Array = members.duplicate()
+	if circles:
+		order.sort_custom(func(a, b) -> bool:
+			var aa := ((items[a]["pos"] as Vector2) - c).angle()
+			var bb := ((items[b]["pos"] as Vector2) - c).angle()
+			# A 1e-4 rad resolution so a sub-pixel wobble cannot reorder two members; `id` decides a tie.
+			if absf(aa - bb) > 1e-4:
+				return aa < bb
+			return int(items[a]["id"]) < int(items[b]["id"]))
+		var remaining := order.size()
+		var ring := 1
+		var radius := 0.0
+		while remaining > 0:
+			var cap := remaining
+			var rad := spacing / (2.0 * sin(PI / float(maxi(cap, 2)))) if cap > 1 else 0.0
+			# A ring holds at most 7; the next one sits one spacing further out.
+			if cap > 7:
+				cap = 7
+				rad = spacing / (2.0 * sin(PI / 7.0))
+			radius = maxf(rad, radius + spacing) if ring > 1 else rad
+			for k in cap:
+				var ang := -PI * 0.5 + TAU * float(k) / float(cap) + (PI / float(cap) if ring > 1 else 0.0)
+				slots.append(c + Vector2.from_angle(ang) * radius)
+			remaining -= cap
+			ring += 1
+	else:
+		order.sort_custom(func(a, b) -> bool:
+			var pa := items[a]["pos"] as Vector2
+			var pb := items[b]["pos"] as Vector2
+			if absf(pa.y - pb.y) > 1e-3:
+				return pa.y < pb.y
+			if absf(pa.x - pb.x) > 1e-3:
+				return pa.x < pb.x
+			return int(items[a]["id"]) < int(items[b]["id"]))
+		var rows := int(ceil(float(order.size()) / 6.0))
+		var left := order.size()
+		var assigned: Array = []
+		for rw in rows:
+			var cnt := mini(6, left)
+			left -= cnt
+			var row_ids: Array = order.slice(order.size() - left - cnt, order.size() - left)
+			row_ids.sort_custom(func(a, b) -> bool:
+				var pa := items[a]["pos"] as Vector2
+				var pb := items[b]["pos"] as Vector2
+				if absf(pa.x - pb.x) > 1e-3:
+					return pa.x < pb.x
+				return int(items[a]["id"]) < int(items[b]["id"]))
+			var y := (float(rw) - float(rows - 1) * 0.5) * 0.9 * spacing
+			var shift := 0.5 * spacing * float(rw % 2) if rows > 1 else 0.0
+			for k in cnt:
+				slots.append(c + Vector2((float(k) - float(cnt - 1) * 0.5) * spacing + shift, y))
+				assigned.append(row_ids[k])
+		order = assigned
+	var out := {}
+	for k in order.size():
+		out[int(items[order[k]]["id"])] = (slots[k] as Vector2) - (items[order[k]]["pos"] as Vector2)
+	return out
+
+
+## Draws the thin leader line and the true-point dot for a nudged marker: from `true_pos` to the drawn `tip` (pin) or
+## centre (circle). Drawn BEFORE the markers so the head covers the line's far end. `w` is the stroke scale as in `draw()`.
+static func draw_leader(ci: CanvasItem, true_pos: Vector2, drawn: Vector2, r: float, w: float = 1.0) -> void:
+	if true_pos.distance_to(drawn) < 0.5:
+		return
+	var lw := maxf(1.0, 1.1 * w * r / 9.0)
+	ci.draw_line(true_pos, drawn, Color(1, 1, 1, 0.85), lw + 2.0 * maxf(1.0, w * r / 18.0), true)
+	ci.draw_line(true_pos, drawn, INK, lw, true)
+	ci.draw_circle(true_pos, maxf(1.5, 0.28 * r), INK, true, -1.0, true)
+	ci.draw_circle(true_pos, maxf(0.8, 0.14 * r), COL_NONE, true, -1.0, true)

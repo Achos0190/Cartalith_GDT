@@ -326,6 +326,10 @@ func present(req: Dictionary, actions: Array) -> void:
 		## zoom; the card pops in the viewport `app` is in (the measured
 		## correction CX-01's menu made, 2026-09-23).
 		var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * Vector2(req["screen_pos"])
+		## CL-3's City Viewer half: a request from a window other than the map carries its own `anchor`, already in
+		## this viewport's space, because `screen_pos` is the overlay's local space and means nothing there.
+		if req.has("anchor"):
+			at = req["anchor"]
 		## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): on the tablet's touch-hold
 		## gesture only, the card docks on the side away from the dominant
 		## hand rather than always trying the pointer's right side first --

@@ -596,6 +596,36 @@ func _open_marker_card(local_pos: Vector2) -> void:
 	raw["hits"] = [hit]
 	context_broker.resolve(raw)
 
+## CL-3's City Viewer half (`CITY_MAP_LOOK_SCOPE.md` section 4.3): the information card, with its NOTE section, for the town
+## or POI a City Viewer pin stands for, through the same `ContextBroker.resolve` as `_open_marker_card`. The viewer has no map
+## overlay to pick from, so the request is built here from the engine's own row: `kind` is `settlement` (the pin's town) or
+## `poi`, `id` the handle `select()` takes, and `anchor` is the pin's place in THIS viewport's space (the broker places the
+## card there instead of at an overlay point). One hit, so the card's title and NOTE rows are for exactly that subject.
+## Nothing is opened while the engine is generating or when the engine has no such row. Returns whether a card was
+## requested. **Selection is the caller's** (the viewer already called `select`); this writes nothing.
+func open_viewer_marker_card(kind: String, id: int, anchor: Vector2, source: String = "click") -> bool:
+	if context_broker == null or bridge == null or bridge.generating or id < 0:
+		return false
+	var row: Dictionary = {}
+	if kind == "settlement":
+		var rows: Array = bridge.settlements()
+		if id < rows.size():
+			row = rows[id]
+	elif kind == "poi":
+		row = bridge.poi_get(id)
+	else:
+		return false
+	if row.is_empty():
+		return false
+	var hit := {"kind": kind, "id": id, "dist": 0.0}
+	var nm = row.get("name", row.get("kind_label", ""))
+	if nm != null and String(nm) != "":
+		hit["label"] = String(nm)
+	var raw := {"gx": float(row.get("x", 0.0)), "gy": float(row.get("y", 0.0)), "screen_pos": Vector2.ZERO,
+		"anchor": anchor, "hits": [hit], "all_hits": [hit], "source": source}
+	context_broker.resolve(raw)
+	return true
+
 ## The source the overlay's pins read their orange/white state from (`MapOverlay.set_pin_note_source`): `{"linked": {"kind:id":
 ## true, ...}, "landmark_ids": [the vault entity id of each landmark, in `bridge.landmarks()` order]}`, or `{}` while the
 ## engine is generating (the overlay then asks again; an empty answer is never cached as "no notes"). `linked` is every

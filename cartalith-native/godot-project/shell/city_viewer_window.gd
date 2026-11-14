@@ -541,10 +541,18 @@ func _draw_canvas() -> void:
 	var has_note := _settlement_has_note()
 	var pr := PIN_HEAD_R * _pin_unit()
 	var circles := DccSettings.markers_are_circles()
-	for pin in _pins():
+	var all_pins := _pins()
+	var nudge := _pin_nudges(all_pins, vt, pr, circles)
+	## The head-overlap nudge (CL-1): leaders first, so a moved head covers its line's far end.
+	for i in nudge:
+		var t: Vector2 = to_screen.call(all_pins[i]["at"])
+		PinMarker.draw_leader(_canvas, t, t + (nudge[i] as Vector2), pr)
+	for i in all_pins.size():
+		var pin: Dictionary = all_pins[i]
 		## A user-placed POI (Ruling EW item 4) speaks for itself; every derived pin speaks for its town.
 		var pin_note: bool = bool(pin["has_note"]) if pin.has("poi") else has_note
-		PinMarker.draw_styled(_canvas, to_screen.call(pin["at"]), pr, String(pin["kind"]), pin_note, circles)
+		PinMarker.draw_styled(_canvas, (to_screen.call(pin["at"]) as Vector2) + (nudge.get(i, Vector2.ZERO) as Vector2),
+			pr, String(pin["kind"]), pin_note, circles)
 
 
 ## The model-metre to canvas-px transform of the current view: `{scale, origin}`, `to_screen(p) = origin + p * scale`.
@@ -662,6 +670,29 @@ static func _area(poly: PackedVector2Array) -> float:
 	return a * 0.5
 
 
+## The head-overlap nudge of `pins` under view transform `vt`: `{pin index: screen offset}` for the pins that move
+## (`PinMarker.fan_offsets`, the algorithm the map's landmarks use). Keyed on the pin's index in `_pins()`, which is stable
+## across a pan (a pan changes no pin), so the nudge cannot jitter; read by the draw and by `pin_at`, so the picked head is
+## the drawn one.
+func _pin_nudges(pins: Array, vt: Dictionary, pr: float, circles: bool) -> Dictionary:
+	var items: Array = []
+	for i in pins.size():
+		items.append({"id": i, "r": pr,
+			"pos": (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"])})
+	return PinMarker.fan_offsets(items, circles)
+
+
+## The DRAWN tip (pin) or centre (circle) of pin `i` of `_pins()` in canvas px, nudge included; `Vector2.INF` for a bad index.
+## What a probe reads to click a nudged pin and to check its leader's true end.
+func pin_tip(i: int) -> Vector2:
+	var pins := _pins()
+	if i < 0 or i >= pins.size() or _layout.is_empty():
+		return Vector2.INF
+	var vt := _view_transform()
+	var nudge := _pin_nudges(pins, vt, PIN_HEAD_R * _pin_unit(), DccSettings.markers_are_circles())
+	return (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"]) + (nudge.get(i, Vector2.ZERO) as Vector2)
+
+
 ## The pin under canvas point `pos`, as its index in `_pins()` (the nearest by `PinMarker.axis_distance`), or -1. The
 ## footprint is `PinMarker.hit` (head and stem) at the radius `_draw_canvas` draws, widened to the 44 dp floor on a touch
 ## form: the same two functions the map overlay's landmark pick uses.
@@ -675,14 +706,60 @@ func pin_at(pos: Vector2) -> int:
 	var best := -1
 	var best_d := INF
 	var pins := _pins()
+	var nudge := _pin_nudges(pins, vt, pr, circles)
 	for i in pins.size():
-		var tip: Vector2 = (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"])
+		var tip: Vector2 = (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"]) \
+			+ (nudge.get(i, Vector2.ZERO) as Vector2)   ## the drawn head, nudge included
 		if PinMarker.hit_styled(tip, pr, pos, pad, circles):
 			var d := PinMarker.rank_distance(tip, pr, pos, circles)
 			if d < best_d:
 				best = i
 				best_d = d
 	return best
+
+
+## True once a touch long press on a pin has opened the card for the press in progress (see `_start_touch_hold`).
+var _hold_fired := false
+## Bumped by every press and release, so a hold timer started for an earlier press knows it is stale.
+var _hold_token := 0
+
+## The long-press hold, ms: the map overlay's own figure per form (`MapOverlay.touch_hold_ms`: the phone's 480, the tablet's
+## 500), so a hold means the same here as on the map.
+func _hold_ms() -> int:
+	return 500 if DccTheme.is_tablet() else 480
+
+## Touch (Ruling EO, kept): a TAP selects and the Context panel follows (the viewer has no chips of its own); a LONG PRESS
+## opens the information card (the card on a tablet, the peek sheet on the phone) for the pin under the finger. The hold
+## fires only while the finger is still down, has not travelled past the click slop, and is still on the same pin.
+func _start_touch_hold(token: int) -> void:
+	await get_tree().create_timer(float(_hold_ms()) / 1000.0).timeout
+	if token != _hold_token or not _dragging or _press_travel > PIN_CLICK_SLOP:
+		return
+	var i := pin_at(_press_pos)
+	if i < 0:
+		return
+	_hold_fired = true
+	_select_pin(i, true, "touch")
+
+
+## Selects the town or POI that pin `i` of `_pins()` stands for (the Context panel follows) and, when `card`, opens the
+## information card with its NOTE section through the shell's one broker path (`DccApp.open_viewer_marker_card`, which is
+## `ContextBroker.resolve`, the path the map's own click takes). A user-placed POI selects itself; every derived pin
+## selects this town, as before. `source` is `"click"` or `"touch"`, as the map's request carries.
+func _select_pin(i: int, card: bool, source: String) -> void:
+	var host = get_parent()
+	if host == null or not host.has_method("select") or _index < 0 or i < 0:
+		return
+	var hit_pin: Dictionary = _pins()[i]
+	var kind := "settlement"
+	var id := _index
+	if hit_pin.has("poi"):
+		kind = "poi"
+		id = int(hit_pin["poi"])
+	host.select(kind, id)
+	if card and host.has_method("open_viewer_marker_card"):
+		var anchor := Vector2(position) + _canvas.get_global_transform_with_canvas() * pin_tip(i)
+		host.open_viewer_marker_card(kind, id, anchor, source)
 
 
 ## Canvas input: wheel zoom about the cursor, left/middle drag pan, and the
@@ -710,16 +787,15 @@ func _on_canvas_input(event: InputEvent) -> void:
 				if mb.pressed:
 					_press_pos = mb.position
 					_press_travel = 0.0
+					_hold_fired = false
+					_hold_token += 1
+					if DccTheme.is_touch() and pin_at(_press_pos) >= 0:
+						_start_touch_hold(_hold_token)
+				elif _hold_fired:
+					_hold_fired = false   ## the long press already opened the card: its lift selects and opens nothing
 				elif _press_travel <= PIN_CLICK_SLOP and pin_at(_press_pos) >= 0:
-					var host = get_parent()
-					if host != null and host.has_method("select") and _index >= 0:
-						## A user-placed POI selects itself (its note is the Context panel's Note tab, Ruling EW
-						## item 4); every derived pin selects this town, as before.
-						var hit_pin: Dictionary = _pins()[pin_at(_press_pos)]
-						if hit_pin.has("poi"):
-							host.select("poi", int(hit_pin["poi"]))
-						else:
-							host.select("settlement", _index)
+					_hold_token += 1
+					_select_pin(pin_at(_press_pos), not DccTheme.is_touch(), "click")
 			_canvas.accept_event()
 	elif event is InputEventMouseMotion and _dragging:
 		_press_travel += (event as InputEventMouseMotion).relative.length()

@@ -730,14 +730,19 @@ func _leg_f() -> void:
 		cv.hide()
 		return
 	var vt: Dictionary = cv._view_transform()
-	var tip: Vector2 = (vt["origin"] as Vector2) + ((pins[0] as Dictionary)["at"] as Vector2) * float(vt["scale"])
 	var pr: float = cv.PIN_HEAD_R * cv._pin_unit()
 	var idx := -1
 	var all_pins: Array = cv._pins()
 	for k in all_pins.size():
 		if (all_pins[k] as Dictionary).has("poi"):
 			idx = k
-	_ok("F3: its head picks it through the viewer's own hit test", idx >= 0 and cv.pin_at(tip + Vector2(0.0, -Pin.STEM_RATIO * pr)) == idx)
+	## The DRAWN tip: the head-overlap nudge (CL-1) may have moved this pin off its true place on a phone, where the heads are large.
+	var tip: Vector2 = cv.pin_tip(idx)
+	var f3dbg := "idx %d got %d tip %s pr %.1f" % [idx, cv.pin_at(tip + Vector2(0.0, -Pin.STEM_RATIO * pr)), str(tip), pr]
+	for k in all_pins.size():
+		f3dbg += "
+     pin %d %s tip %s" % [k, str((all_pins[k] as Dictionary)["kind"]), str(cv.pin_tip(k))]
+	_ok("F3: its head picks it through the viewer's own hit test", idx >= 0 and cv.pin_at(tip + Vector2(0.0, -Pin.STEM_RATIO * pr)) == idx, f3dbg)
 	_ok("F3: 40 px away picks nothing", cv.pin_at(tip + Vector2(40.0 * cv._pin_unit(), 0.0)) < 0 or cv.pin_at(tip + Vector2(40.0 * cv._pin_unit(), 0.0)) != idx)
 	_ok("F4: the pin is in the model frame: its tip is near the market anchor (within the 850 m radius)", ((pins[0] as Dictionary)["at"] as Vector2).distance_to(
 		(cv._layout["market"] as Vector2)) <= cv.POI_TOWN_RADIUS_M + 1.0)
