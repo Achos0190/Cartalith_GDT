@@ -1,6 +1,10 @@
 package org.cartalith.pen
 
+import android.content.ClipData
+import android.content.Intent
 import android.util.Log
+import androidx.core.content.FileProvider
+import java.io.File
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.SignalInfo
@@ -59,6 +63,41 @@ class CartalithPenPlugin(godot: Godot) : GodotPlugin(godot), Stylo2Pen.Listener 
 
     @UsedByGodot
     fun query_info() { runCatching { pen?.queryInfo() } }
+
+    /**
+     * File > Share project...: copies the saved project at [path] into the app's cache `share/` folder (the only
+     * folder the FileProvider serves, see cartalith_share_paths.xml), then opens the system share sheet with
+     * ACTION_SEND for a content:// uri to that copy, read permission granted to the receiver. Returns true when the
+     * sheet was launched, false (never an exception) when the file is unreadable, there is no activity or anything
+     * threw; the facade then says so. MUST NEVER: share anything but the one file named, or leave a file:// uri
+     * in the intent. Cannot be run off a device; the owner's device check is the proof.
+     */
+    @UsedByGodot
+    fun share_file(path: String, mime: String, title: String): Boolean {
+        return try {
+            val act = activity ?: return false
+            val src = File(path)
+            if (!src.isFile) return false
+            val dir = File(act.cacheDir, "share").apply { mkdirs() }
+            val dst = File(dir, src.name)
+            src.copyTo(dst, overwrite = true)
+            val uri = FileProvider.getUriForFile(act, act.packageName + ".cartalith.share", dst)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri(src.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(send, title).apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            act.runOnUiThread { act.startActivity(chooser) }
+            true
+        } catch (e: Exception) {
+            Log.w("CartalithPen", "share failed: " + e.javaClass.simpleName)
+            false
+        }
+    }
 
     override fun onMainPause() { runCatching { pen?.suspend() } }
     override fun onMainResume() { runCatching { pen?.resume() } }

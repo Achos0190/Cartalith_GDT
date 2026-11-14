@@ -7172,6 +7172,53 @@ func open_undo_history() -> void:
 func show_project_on_disk() -> void:
 	reveal_on_disk(current_project_path)
 
+## `File ▸ Share project…`. Saves the world to its project file (the ordinary save path: `save_project()`,
+## which asks for a name first when the world has never been saved), then, once the write has succeeded:
+##
+##   - **Android:** `share_file()` on the `CartalithPen` plugin singleton opens the system share sheet with
+##     ACTION_SEND for a FileProvider content:// uri to a cache copy of the file, read permission granted to the
+##     receiver (`android/pen-plugin`, `CartalithPenPlugin.share_file`). The project is a `.ctl` zip, sent as
+##     `application/zip`. A build without the plugin, or one whose plugin predates `share_file`, says so in the
+##     status line; the device is the owner's check, this path has never run off a device.
+##   - **Desktop:** `reveal_on_disk()` shows the saved file in the OS file manager, from which it can be attached
+##     or copied. No share sheet exists there.
+##
+## Never silent: every outcome sets the status line. `_share_spy` is a test seam only: a probe sets a Callable
+## taking the saved path and it replaces the platform call, so a desktop probe can prove the call is made.
+var _share_spy: Callable = Callable()
+
+func share_project() -> void:
+	if not bridge.has_world:
+		set_status("hint", "no world to share", "accent")
+		return
+	var shared := func() -> void:
+		_share_saved_file(current_project_path)
+	if current_project_path == "":
+		save_project_as(shared)
+		return
+	await _write_project_busy(current_project_path, shared, _include_lod_tiles_pref)
+
+## The platform half of `share_project()`; `path` is the file that was just written.
+func _share_saved_file(path: String) -> void:
+	if _share_spy.is_valid():
+		_share_spy.call(path)
+		return
+	if OS.get_name() == "Android":
+		if Engine.has_singleton("CartalithPen"):
+			var plugin: Object = Engine.get_singleton("CartalithPen")
+			if plugin.has_method("share_file"):
+				var ok: Variant = plugin.call("share_file", ProjectSettings.globalize_path(path),
+					"application/zip", "Share %s" % path.get_file())
+				set_status("hint", "sharing %s" % path.get_file() if ok == true
+					else "could not share %s; the project is saved at %s" % [path.get_file(), path], "accent")
+				return
+		set_status("hint", "this build cannot open the share sheet; the project is saved at %s" % path, "accent")
+		return
+	if reveal_on_disk(path):
+		set_status("hint", "saved %s and showed it in the file manager" % path.get_file(), "text_ghost")
+	else:
+		set_status("hint", "saved %s; no file manager to show it in" % path.get_file(), "accent")
+
 ## Show `path` in the desktop file manager. Extracted from
 ## `show_project_on_disk()` so an export can end somewhere rather than in
 ## silence: `data_manager_window.gd` reported how many pixels and how many

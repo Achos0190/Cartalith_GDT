@@ -22,5 +22,8 @@ android {
 
 dependencies {
     compileOnly("org.godotengine:godot:4.7.2.stable")
+    // FileProvider for File > Share project. compileOnly for the same reason as Godot: the app's own build already
+    // carries androidx.core (through Godot's fragment dependency), and a second copy would clash.
+    compileOnly("androidx.core:core:1.13.1")
     testImplementation("junit:junit:4.13.2")
 }

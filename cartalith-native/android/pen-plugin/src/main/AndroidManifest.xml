@@ -9,5 +9,20 @@
         <meta-data
             android:name="org.godotengine.plugin.v2.CartalithPen"
             android:value="org.cartalith.pen.CartalithPenPlugin" />
+        <!-- File ▸ Share project…: serves the copied project .zip to the share sheet's receiver as a content://
+             uri (no file:// uri may leave the app since API 24). Not exported; read access is granted per intent
+             (FLAG_GRANT_READ_URI_PERMISSION), never globally. The authority equals the one
+             CartalithPenPlugin.share_file builds from the package name. The pen plugin carries this rather than a
+             second plugin because Godot's template must not be hand-edited and one more .aar is one more thing to
+             keep in addons/; the plugin is otherwise read-only, and share_file runs only when a person taps Share. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.cartalith.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/cartalith_share_paths" />
+        </provider>
     </application>
 </manifest>

@@ -220,6 +220,7 @@ func _ready() -> void:
 		"close_project": DccMenus.ID_CLOSE,
 		"open_storage_locations": DccMenus.ID_STORAGE,
 		"show_project_on_disk": DccMenus.ID_SHOW_ON_DISK,
+		"share_project": DccMenus.ID_SHARE_PROJECT,
 		"open_recent_project": -1,
 		"undo_last": DccMenus.ID_UNDO,
 		"open_undo_history": DccMenus.ID_UNDO_HISTORY,

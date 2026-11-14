@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- File ▸ Share project…: the ONLY place a FileProvider may serve from is the app's cache folder `share/`, where
+     CartalithPenPlugin.share_file copies the saved project before sharing it. Nothing else of the app's storage is
+     exposed, so a receiver can read the one file it was handed and no sibling. -->
+<paths>
+    <cache-path name="cartalith_share" path="share/" />
+</paths>

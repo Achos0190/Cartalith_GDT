@@ -25,6 +25,7 @@ const ID_REVERT := 15  ## File ▸ Revert to last save.
 const ID_CLOSE := 16  ## File ▸ Close project (Ctrl+W).
 const ID_STORAGE := 17  ## File ▸ Change locations… (storage-locations dialog); Preferences' entry is `ID_PREF_STORAGE`.
 const ID_SHOW_ON_DISK := 19  ## File ▸ Show project on disk.
+const ID_SHARE_PROJECT := 24  ## File ▸ Share project… (`app.gd::share_project()`): the Android share sheet, or reveal on desktop.
 ## `File ▸ New world from selection…` -- `ops_bridge.rs::region_new_world`, the
 ## reference's `#regionNewWorldBtn`. **`18` by the same whole-file grep of
 ## `^const ID_[A-Z_0-9]* := [0-9]+` its neighbours record making**: §2.1's block
@@ -1115,6 +1116,13 @@ func _file(p: PopupMenu) -> void:
 	var show_idx := p.item_count - 1
 	p.set_item_tooltip(show_idx,
 		"Reveals the project's folder in the OS file manager. Disabled until a project has been opened this session.")
+	## Share project…: one row on every form factor, through this builder, so the MENU parity probe stays row for
+	## row. Enabled whenever a world exists (the action saves first); `app.gd::share_project()` says what it does
+	## on this platform. Never a dead row: with no world it is disabled with its reason as the tooltip.
+	_live(p, "Share project…", ID_SHARE_PROJECT)
+	var share_idx := p.item_count - 1
+	p.set_item_tooltip(share_idx,
+		"Saves the world, then hands the .zip to another app (Android share sheet) or reveals it in the file manager (desktop). Disabled until a world exists.")
 
 	## §2.1's static note: imports do not live in File. The canvas sets it in
 	## `9.5px 'IBM Plex Mono';color:#5f6468;line-height:1.6` and lets it **wrap
@@ -1131,6 +1139,7 @@ func _file(p: PopupMenu) -> void:
 		_refresh_recent_worlds()
 		_refresh_storage_rows(p, root_rows)
 		p.set_item_disabled(show_idx, _host.current_project_path == "")
+		p.set_item_disabled(share_idx, not _bridge.has_world)
 		var can_write: bool = _bridge.save_api
 		var has_world: bool = _bridge.has_world
 		for idx in [save_idx, save_as_idx]:
@@ -1373,6 +1382,7 @@ func _on_file(id: int) -> void:
 		ID_CLOSE: _host.close_project()
 		ID_STORAGE: _host.open_storage_locations()
 		ID_SHOW_ON_DISK: _host.show_project_on_disk()
+		ID_SHARE_PROJECT: _host.share_project()
 		## Guarded rather than called bare, the same way `ID_FIND_ON_MAP` is:
 		## the confirm and every refusal live in `app.gd`, which is a different
 		## pass's file, so a shell built against an older `app.gd` opens every
