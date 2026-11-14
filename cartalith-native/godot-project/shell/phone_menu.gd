@@ -672,6 +672,7 @@ func peek_card(req: Dictionary, actions: Array, reselect: Callable,
 	_peek_open = true
 	_sheet_scrim.visible = true
 	_peek_panel.visible = true
+	_hook_tap_through()
 	## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §9.4: "the card, ring, peek sheet
 	## and thumb fan all lack it"). Guarded on `was_open` so a re-resolve (the
 	## pin dragged to a new spot, same sheet) does not pause a second time --
@@ -965,6 +966,38 @@ func _on_peek_grab_input(event: InputEvent) -> void:
 	var final_h: float = float(_peek_drag.get("h", _peek_drag["h0"]))
 	_peek_drag = {}
 	_set_peek_detent("half" if absf(final_h - hi) < absf(final_h - lo) else "peek")
+
+## **Tap-through** (owner choice "Click-through", 2026-11-14; `OUTSTANDING_WORK.md` row "Marker card
+## click-through"): a tap outside the peek/half card closes it AND does what it would otherwise do. The scrim
+## is `MOUSE_FILTER_STOP`, so the tap that dismissed the sheet never reached the map (a select, a chip, a pan or
+## a long press was lost). The same cure as the desktop card's (`context_card.gd::_hook_click_through`): the
+## root window emits `window_input` BEFORE it routes an event to the GUI, so dismissing from there hides the
+## scrim before the scrim is asked, and the press reaches whatever is under the finger. Hooked once, at the
+## first `peek_card()`. Never handles the event. Presses inside the card (grab handle, chips, rows) are left to
+## the card; every other sheet and menu level keeps the scrim's own "tap goes back one level".
+func _hook_tap_through() -> void:
+	if not is_inside_tree():
+		return
+	var root := get_tree().root
+	var cb := Callable(self, "_on_root_window_input")
+	if not root.window_input.is_connected(cb):
+		root.window_input.connect(cb)
+
+## The root window's pre-routing look (see `_hook_tap_through`): a press (mouse button or finger) outside the
+## open peek card's rect dismisses it, exactly as the scrim tap does (`go_back()`), and is otherwise ignored.
+func _on_root_window_input(ev: InputEvent) -> void:
+	if not _peek_open:
+		return
+	var at := Vector2.ZERO
+	if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed:
+		at = (ev as InputEventMouseButton).position
+	elif ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed:
+		at = (ev as InputEventScreenTouch).position
+	else:
+		return
+	if _peek_panel != null and _peek_panel.get_global_rect().has_point(at):
+		return
+	_dismiss_peek_card()
 
 ## Closes the card by the user's own action -- scrim tap, system back, or a
 ## drag down to `peek` and then further (there is nowhere lower than `peek`,

@@ -110,14 +110,10 @@ document, and `STATUS.md` records what lands)
   engine path (Pad 20.5-20.9 s vs 6T 53.8-55.6 s), so the remaining time, if any, is in those steps or in the sustained
   throttling the Pad showed (20.90 to 30.94 s over five back-to-back runs). Measure `bridge.last_generate_ms` on both
   handsets in the app. Belongs with the "Performance pass across devices" row below.
-- **Marker card click-through, and private notes never sent to the assistant** (owner, 2026-11-14). (1) After a marker
-  click opens the information card (CL-3, `d2a8b6a3`), the next map click only closes the card; the owner chose
-  *"Click-through"*: a click elsewhere closes the card AND does what it would do (select, pan, open the next marker's
-  card). Six probes fail on origin today for this reason (`_pc4context`, `_pc6ask`, `_pc7windows`, `_pc10modules`,
-  `_pc1select`, `_pc8planner` desktop; PC-7 report, `e5893f7a`). (2) The assistant's Edit-note task lists private
-  notes and sends their text when "Send: notes" is ticked (`llm_assistant_window.gd`, task `note`); the owner chose
-  *"Never send private"*, per Ruling DP: hide them from that picker or show them greyed with the reason, and never
-  send them.
+- ~~**Marker card click-through, and private notes never sent to the assistant**~~ -- closed 2026-11-14; see
+  `STATUS.md` ("Marker card click-through, and private notes never sent to the assistant"). Left from it, stated
+  there: the Rust request builder (`llm_stream.rs`) has no private check of its own (the shell is the one gate),
+  and the phone's peek sheet tap-through is proved with a synthetic touch on a 393 x 852 window, not on a device.
 - ~~**The tablet seems frozen on the welcome screen** (owner, 2026-11-14, OnePlus Pad 3: *"On the tab it seems frozen"*)~~ --
   closed 2026-11-14; see `STATUS.md` ("A world card on the welcome no longer freezes the screen"). Not a hang and not
   swallowed input: a world card opened the world synchronously, so the welcome stayed unchanged for about 10 s on the

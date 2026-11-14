@@ -515,6 +515,8 @@ tool switch, which works today. The fan is the smaller half of this proposal.
   rule).
 - **An open surface never commits or discards a draft by being dismissed.**
   Esc and tap-outside close the surface only. Commit and Discard are rows.
+  *(Amended 2026-11-14, owner choice "Click-through": the card's tap-outside also lets the tap do what it would
+  otherwise do -- select, pan, open the next marker's card. It still never commits or discards anything. `STATUS.md`.)*
 - **Probes.** One new `_ctxmenu_probe.gd` that walks every domain × {empty
   cell, settlement, label, icon} × {no tool, brush armed, draft present}. It
   asserts the card is **non-empty**, every disabled row has a non-empty

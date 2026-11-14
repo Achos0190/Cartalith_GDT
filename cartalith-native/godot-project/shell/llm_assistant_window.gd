@@ -178,6 +178,9 @@ const _ACTIONS := preload("res://shell/llm_actions.gd")
 ## AC-7: the words of an action card, per kind (reads the app, builds nothing, runs nothing).
 const _CARDS := preload("res://shell/llm_action_cards.gd")
 ## LLM-7: the edit card and its one writer (`llm_edit.gd`), and the region the user chose (`llm_region.gd`).
+## Ruling DP (private notes are never sent): the shared private-note cache, asked of the one rule in
+## `cartalith_vault::private`; this window decides nothing itself. See `_note_block()`.
+const _PRIVACY := preload("res://shell/vault_privacy.gd")
 const _EDIT := preload("res://shell/llm_edit.gd")
 const _REGION := preload("res://shell/llm_region.gd")
 ## "Choose groups" (scope s.5b.1 fallback, LLM-6d): the setting groups the USER ticked, at most
@@ -911,9 +914,19 @@ func _fill_notes() -> void:
 		return
 	ob.disabled = false
 	var files: PackedStringArray = bridge.vault_list_files(MAX_NOTES)
+	## Ruling DP, "Never send private" (owner, 2026-11-14): a private note is LISTED but greyed, with the badge
+	## and the reason beside it, and cannot be picked. A note whose answer is not final yet (past the read
+	## budget) is listed plainly and decided at the pick (`_note_block()`), never assumed public.
+	var privacy := _privacy()
+	privacy.clear()
+	privacy.decide(Array(files))
 	for f in files:
-		ob.add_item(f)
+		ob.add_item(f + privacy.suffix(f))
 		_note_paths.append(f)
+		if privacy.is_private(f):
+			var at := ob.item_count - 1
+			ob.set_item_disabled(at, true)
+			ob.set_item_tooltip(at, "Never sent to the assistant: %s." % privacy.reason(f))
 	if not _note.is_empty():
 		var i := _note_paths.find(String(_note["rel"]))
 		ob.select(i + 1 if i >= 0 else 0)
@@ -969,6 +982,32 @@ func _entity_events() -> String:
 	return "\n".join(lines)
 
 
+## The private-note cache (`vault_privacy.gd`), made on first use over the bridge.
+var _privacy_cache: RefCounted = null
+
+func _privacy() -> RefCounted:
+	if _privacy_cache == null:
+		_privacy_cache = _PRIVACY.new(bridge)
+	return _privacy_cache
+
+
+## **Ruling DP, "Never send private"** (owner choice, 2026-11-14): why note `rel` may not go to the model, or `""`
+## when it may. Asks the one rule afresh every time (`forget` then `decide`: it reads the file as it is NOW, so a
+## marker added since the note was picked still holds it back) and fails CLOSED: a note whose answer cannot be had
+## (no engine, past the read budget, unreadable) is refused too, because "not looked at" is not "not private".
+## Whatever "Send: named Vault notes" says, a private note is never sent; that switch only chooses whether public
+## notes are. Read-only; never touches the note.
+func _note_block(rel: String) -> String:
+	var privacy := _privacy()
+	privacy.forget(rel)
+	privacy.decide([rel])
+	if privacy.is_private(rel):
+		return "%s is private (%s) and is never sent to the assistant, whatever Send: named Vault notes says." % [rel, privacy.reason(rel)]
+	if not privacy.is_decided(rel):
+		return "Could not check whether %s is private, so it is not sent." % rel
+	return ""
+
+
 ## The request arguments for the current task and the ticked sources. A source that is not
 ## allowed or not available is ABSENT (not empty), so it is neither sent nor mentioned.
 func _args(request: String) -> Dictionary:
@@ -987,7 +1026,9 @@ func _args(request: String) -> Dictionary:
 			a["entity_label"] = String(_place["name"])
 			a["events"] = _entity_events()
 	elif _task == "note":
-		if bool(DccSettings.llm_value("ctx_notes")) and not _note.is_empty():
+		## The last gate before the wire (Ruling DP): even if a private note got into `_note` some other way (a
+		## marker added after the pick, a probe), its text is ABSENT from the request, not blanked.
+		if bool(DccSettings.llm_value("ctx_notes")) and not _note.is_empty() and _note_block(String(_note["rel"])) == "":
 			a["note_path"] = String(_note["rel"])
 			a["note_text"] = String(_note["text"])
 	a.merge(_shown_args())
@@ -1232,6 +1273,8 @@ func _refresh() -> void:
 		reason = "Turn on \"Edit actions\" in Settings first."
 	elif _task == "edit" and _edit_region_reason() != "":
 		reason = _edit_region_reason()
+	elif _task == "note" and bool(DccSettings.llm_value("ctx_notes")) and not _note.is_empty() and _note_block(String(_note["rel"])) != "":
+		reason = _note_block(String(_note["rel"]))
 	elif request == "":
 		reason = "Type a request first."
 	elif _task == "edit":
@@ -1533,13 +1576,22 @@ func _on_note_picked(index: int) -> void:
 		return
 	if index <= 0 or index - 1 >= _note_paths.size():
 		_note = {}
-	else:
-		_read_note(_note_paths[index - 1])
+	elif not _read_note(_note_paths[index - 1]):
+		## Refused (a private note, Ruling DP, or unreadable): the picker goes back to "No note chosen", so
+		## it never shows a note the window is not holding.
+		(controls["note"] as OptionButton).select(0)
 	_refresh()
 
 
 ## Reads the note and remembers the hash it was read at: the guard for the later write.
 func _read_note(rel: String) -> bool:
+	## Ruling DP: a private note is never picked (`_note_block()`); the picker greys it, and this is the check
+	## for a pick that did not come from the list (a reload after a marker was added, a probe).
+	var block := _note_block(rel)
+	if block != "":
+		_note = {}
+		_add_msg("", block, "block")
+		return false
 	var r: Dictionary = bridge.vault_read_file_for_edit(rel)
 	if not bool(r.get("ok", false)):
 		_note = {}
@@ -1552,8 +1604,11 @@ func _read_note(rel: String) -> bool:
 func _reload_note() -> void:
 	if _note.is_empty():
 		return
-	if _read_note(String(_note["rel"])):
-		_add_msg("", "Reloaded %s. Saving now guards against edits made after this moment." % String(_note["rel"]), "text_ghost")
+	var rel := String(_note["rel"])
+	if _read_note(rel):
+		_add_msg("", "Reloaded %s. Saving now guards against edits made after this moment." % rel, "text_ghost")
+	else:
+		(controls["note"] as OptionButton).select(0)
 	_refresh()
 
 
@@ -1708,6 +1763,14 @@ func _on_send() -> void:
 			go.call()
 		return
 	var request := _input.text.strip_edges()
+	## Ruling DP: a Note task whose picked note is private (or cannot be checked) sends nothing at all, rather
+	## than a request with the note quietly left out (`_args()` also leaves it out, as the last gate).
+	if _task == "note" and bool(DccSettings.llm_value("ctx_notes")) and not _note.is_empty():
+		var blocked := _note_block(String(_note["rel"]))
+		if blocked != "":
+			_add_msg("", "Nothing was sent. " + blocked, "block")
+			_refresh()
+			return
 	if _task == "prose" and not _place.is_empty():
 		## Fresh at every Send: the model is given the world as it is NOW, not as the cache last saw it.
 		_place = _current_place()

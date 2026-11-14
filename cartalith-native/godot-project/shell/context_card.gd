@@ -224,7 +224,73 @@ func open(req: Dictionary, actions: Array, anchor: Vector2, on_select: Callable,
 	_sub = {}
 	_filter = ""
 	_rebuild()
+	_hook_click_through()
 	_place()
+
+
+## The frame a press last closed this card from `_on_root_window_input`, or -1. A card opened again in that very
+## frame (the next marker's card, opened by the same press) is popped up one idle step later: measured, Godot
+## closes a popup that is shown while its own press is still being routed, so the new card was gone again in
+## the same frame (hide, popup, hide in frame 174 of the probe's trace) unless it waited.
+var _through_frame := -1
+
+
+## **Click-through** (owner choice "Click-through", 2026-11-14; `OUTSTANDING_WORK.md` row "Marker card click-through").
+## An embedded `PopupPanel` closes on a press outside it AND consumes that press, so with CL-3's card open
+## (`d2a8b6a3`) the next map click only closed the card: a select, a pan start or a wheel notch was lost (measured:
+## the press is gone, the release still arrives, so a settlement click selected without opening its card and a
+## wheel or middle-drag did nothing). The owner's rule is that the click closes the card AND does what it
+## would otherwise do, so this closes the card from the root window's `window_input`, which Godot emits BEFORE it
+## routes the event to its embedded sub-windows: the card is already hidden when the popup logic looks, nothing
+## is consumed here, and the press reaches the map, a dock or a menu as if no card had been open.
+## Hooked once, at the first `open()` (the card is not in the tree during `setup()`), on the root window. It
+## never handles the event, and a press inside the card's own window (shadow margin included) is left alone, so
+## the card's rows work as before; Esc still closes it through the `Popup`'s own `ui_cancel`.
+func _hook_click_through() -> void:
+	if not is_inside_tree():
+		return
+	var root := get_tree().root
+	var cb := Callable(self, "_on_root_window_input")
+	if not root.window_input.is_connected(cb):
+		root.window_input.connect(cb)
+
+
+## Whether `k` is a shortcut chord: a fresh press (not an echo) with Ctrl, Alt or Meta held, on a key that is not
+## itself a modifier. A bare key, Shift+letter included, is never one: those are the card's own (its filter typing).
+func _is_shortcut(k: InputEventKey) -> bool:
+	if not k.pressed or k.echo:
+		return false
+	if k.keycode in [KEY_CTRL, KEY_ALT, KEY_META, KEY_SHIFT]:
+		return false
+	return k.ctrl_pressed or k.alt_pressed or k.meta_pressed
+
+
+## The root window's pre-routing look at every event (see `_hook_click_through`): a press (mouse button, wheel
+## included, or a finger's touch) outside this card's window hides the card and is otherwise ignored; so does a
+## shortcut chord (below).
+## Does nothing while the card is hidden or when it is a native window (it then has its own pointer
+## routing, and its screen position is not the root's).
+func _on_root_window_input(ev: InputEvent) -> void:
+	if not visible or not is_embedded():
+		return
+	var at := Vector2.ZERO
+	if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed:
+		at = (ev as InputEventMouseButton).position
+	elif ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed:
+		at = (ev as InputEventScreenTouch).position
+	elif ev is InputEventKey and _is_shortcut(ev as InputEventKey):
+		## A SHORTCUT (a chord with Ctrl, Alt or Meta; never a bare key, which is the card's own: arrows, Enter, its
+		## filter typing). The card is the focused window, so a shortcut pressed while it is open reached the card and
+		## nothing else (measured: Ctrl+J, Ctrl+F and Ctrl+Z all dead with a card up). It closes the card and goes on
+		## to the shell, the same click-through rule for the keyboard. Esc keeps closing the card by itself.
+		hide()
+		return
+	else:
+		return
+	if Rect2(Vector2(position), Vector2(size)).has_point(at):
+		return
+	_through_frame = Engine.get_process_frames()
+	hide()
 
 
 ## Coordinator review, 2026-09-27 (overlap follow-up). A sub-ring re-centres
@@ -933,7 +999,10 @@ func _place() -> void:
 	var want := Vector2(minf(content.x + 2.0, bounds.size.x - 2.0 * margin), minf(content.y, avail_h) + 2.0)
 	var t := _target_rect(want)
 	if not visible:
-		popup(Rect2i(Vector2i(t.position), Vector2i(t.size.ceil())))
+		if _through_frame == Engine.get_process_frames():
+			popup.call_deferred(Rect2i(Vector2i(t.position), Vector2i(t.size.ceil())))
+		else:
+			popup(Rect2i(Vector2i(t.position), Vector2i(t.size.ceil())))
 	_reclamp()
 	_reclamp.call_deferred()
 
