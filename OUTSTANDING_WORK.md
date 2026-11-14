@@ -86,6 +86,14 @@ document, and `STATUS.md` records what lands)
   `STATUS.md` ("Phone landscape: the right-hand tool sheet has its peek detent again").
 - ~~**Phone landscape: the quick-drawer grip sits mid-screen**~~ -- closed 2026-11-13; see `STATUS.md` ("Phone landscape: the
   quick-drawer grip at the screen's outer edge").
+- **Snapdragon CPU optimisation: generation on the Pad 3 feels as slow as on the 6T** (owner, 2026-11-14: *"we should also
+  check optimisation on snapdragon cpu (like the pad3 and 6t, now the 6t is old, but generation in the pad feels as
+  slow."*). Read on 2026-11-14 at origin `976a5d59`: the workspace has no `[profile.release]` block (cargo defaults:
+  opt-level 3, no LTO, 16 codegen units) and no `.cargo/config.toml`, so the Android `.so` is built for generic aarch64
+  (ARMv8.0, no dotprod/fp16) with no target-cpu tuning. Measure first, on both devices over adb: per-stage generation
+  times, rayon's thread count on Android, whether the GPU (wgpu/Vulkan) path runs there, and big-vs-little core use; then
+  try LTO, `codegen-units = 1`, and a common `armv8.2-a` feature baseline both phones support (the SD845 is ARMv8.2;
+  the Pad 3's 8 Elite is ARMv9.2), keeping one APK. Belongs with the "Performance pass across devices" row below.
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;
