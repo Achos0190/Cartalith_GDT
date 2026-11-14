@@ -430,8 +430,14 @@ func _build_world_row(path: String) -> Control:
 ## The one function both this screen's routes to a chosen path share -- the
 ## recent-world tap below and `_on_open_zip()`'s browse callback -- so neither
 ## can drift back to the unguarded order the other still had.
+##
+## **Under the busy card** (2026-11-14, the same change as `open_project_dialog.gd::_pick_path()`,
+## whose comment carries the Pad 3 measurement): a synchronous open left this screen frozen on its
+## last frame for the whole load, with no sign the tap was taken. `open_project_busy()` paints the
+## card first and keeps this window muted while the open runs; hide-only-on-success is unchanged.
 func _pick_world(path: String) -> void:
-	if _host.open_recent_project(path):
+	var ok: bool = await _host.open_project_busy(path)
+	if ok:
 		hide()
 	else:
 		## `app.gd::_load_project()`'s own refusal branch already sent this

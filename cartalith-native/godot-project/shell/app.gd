@@ -6036,10 +6036,13 @@ func _write_project_busy(path: String, then: Callable = Callable(), include_lod_
 	await busy_run("saving project…", _write_project.bind(path, then, include_lod_tiles, preview))
 
 ## `_load_project` under the busy overlay ("opening project…"), returning its success bool (false
-## if the call aborted). For the callers that act on nothing until it returns -- Recent worlds and
-## Revert. The picker dialogs still call `open_recent_project()` synchronously: they read the
-## result before their next line, and the overlay would draw underneath them anyway (an embedded
-## window draws above every `CanvasLayer`; `busy_overlay.gd::_mute_subwindows`).
+## if the call aborted). For Recent worlds, Revert and, since 2026-11-14, both pickers' world
+## cards (`open_project_dialog.gd::_pick_path()`, `phone_project_picker.gd::_pick_world()`). The
+## pickers used to call `open_recent_project()` synchronously, on the reasoning that the overlay
+## would draw underneath their embedded window; `busy_overlay.gd::_mute_subwindows` has since
+## mirrored the card into every open embedded window, and the synchronous open was what the owner
+## saw on the Pad 3 as a frozen welcome screen (about 10 s with no frame change; measured in
+## `_pick_path()`'s comment). They now await this and still hide only on success.
 func open_project_busy(path: String) -> bool:
 	var ok: Variant = await busy_run("opening project…", _load_project.bind(path))
 	return ok is bool and ok

@@ -103,6 +103,14 @@ document, and `STATUS.md` records what lands)
   notes and sends their text when "Send: notes" is ticked (`llm_assistant_window.gd`, task `note`); the owner chose
   *"Never send private"*, per Ruling DP: hide them from that picker or show them greyed with the reason, and never
   send them.
+- ~~**The tablet seems frozen on the welcome screen** (owner, 2026-11-14, OnePlus Pad 3: *"On the tab it seems frozen"*)~~ --
+  closed 2026-11-14; see `STATUS.md` ("A world card on the welcome no longer freezes the screen"). Not a hang and not
+  swallowed input: a world card opened the world synchronously, so the welcome stayed unchanged for about 10 s on the
+  Pad; the 6T's picker dimmed with no card. Left from it, measured and not changed: the 6T shows Godot's splash for
+  about 35 s on a cold start before the picker (same on `df4d3d18`); the tablet-portrait New world dialog draws its
+  Width (km) and Seed fields dark on the light theme (landscape draws them light); "Continue without a world" is
+  only as wide as its text, so a tap at its right end misses; `_openfailgate_probe` desktop fails 2 checks on origin
+  (it finds the card by file name, and the card now shows the world's name).
 - **Smaller verified leftovers of 2026-11-12/13** (each recorded in its `STATUS.md` entry):
   - ~~`_ms1swap --leg represent`: 6 New World dialog layout checks fail after a class swap~~ -- stale probe constant, see `STATUS.md`;
   - ~~`_storymenus`: 7 "Notes for this place" rows fail~~ -- probe text was stale, see `STATUS.md`;

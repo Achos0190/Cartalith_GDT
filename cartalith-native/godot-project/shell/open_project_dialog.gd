@@ -1247,8 +1247,22 @@ func _refresh_open_button() -> void:
 ## the one the rest of the shell already shows. `_say()` picks `_picker_note`
 ## or `_foot_note` for whichever composition (welcome/gallery) is open, same
 ## as the existing bad-drop and empty-search call sites just above and below.
+##
+## **It opens under the busy card** (owner, 2026-11-14, OnePlus Pad 3: "On the tab it seems
+## frozen"). `open_recent_project()` blocks the main thread for the whole open, and the map's first
+## repaint runs inside it (`world_loaded` -> `ViewportHost.refresh()`), so a tap on a world card left
+## the welcome drawn exactly as it was, with no press feedback, for the whole load. Measured with
+## adb on the Pad (build `df4d3d18`, the owner's 2048 x 1024 world, status `repaint 7185 ms`):
+## eight screenshots from +1.3 s to +9.1 s after the tap were byte-identical to the one before it,
+## and the map first appeared at +10.7 s. `DccApp.open_project_busy()` is the same open inside
+## `busy_run()`: the card is painted first (it mirrors into this embedded window and mutes its
+## input, `busy_overlay.gd::_mute_subwindows`, so a second tap cannot start a second open), then
+## the open runs, then the card goes. The order the gate above fixed is kept: this window hides
+## only once the open has succeeded, and a refusal still lands in `_say()`. This is a coroutine
+## now; no caller reads its result, and `_openfailgate_probe.gd` waits frames after calling it.
 func _pick_path(path: String) -> void:
-	if _host.open_recent_project(path):
+	var ok: bool = await _host.open_project_busy(path)
+	if ok:
 		hide()
 	else:
 		_say(_host.last_open_refusal)

@@ -50,6 +50,37 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### A world card on the welcome no longer freezes the screen (owner, 2026-11-14: "On the tab it seems frozen")
+
+GDScript only. **Cause, measured with adb on the OnePlus Pad 3 (build `df4d3d18`, portrait, cold start):** not a hang,
+not idle mode and not swallowed input. The welcome appears within 2 s; "+ New world…", "Open project" and "Continue
+without a world" all respond (the coordinator's tap on Continue at x 1345 landed on the right end of the text, which is
+the button's edge, and missed). A tap on the world card opened the world synchronously
+(`open_project_dialog.gd::_pick_path()` → `open_recent_project()`, map repaint inside it): eight screenshots from +1.3 s
+to +9.1 s after the tap were byte-identical to the one before it, and the map appeared at +10.7 s (`repaint 7185 ms`).
+The phone picker (`phone_project_picker.gd::_pick_world()`) had the same synchronous open.
+
+- **Fixed:** both pickers' world cards open through `DccApp.open_project_busy()` (the busy card, as Recent worlds and
+  Revert already did) and still hide only on success. On the Pad the "OPENING PROJECT" card is on screen at +1.8 s.
+- **Fixed, found on the 6T by the same change:** the busy overlay's window mirror scaled the card by the phone scale a
+  second time inside a window the phone already draws at that scale (`content_scale_factor`), so the card did not fit and
+  only the scrim was drawn: the 6T picker dimmed for 15 s with no card. `busy_overlay.gd::_layout()` now divides by the
+  window's content scale. On the 6T the card is on screen at +0.9 s.
+- **Probe:** new `_welcomeopen_probe.gd` mounts the app under the window root (idle mode on, as on a device), clicks the
+  fixture's card with a real pushed event, and asserts the open ran under the card, a frame was drawn before the work,
+  and the card (not the scrim) fills the window's centre. Windowed, scratch `APPDATA`: **0 failures** at the Pad's
+  2400 x 3392 (`--density 2.225`, tablet), the 6T's 1080 x 2340 (phone), 1600 x 1000 tablet, 450 x 1000 phone and the
+  desktop. Mutations: origin's `open_project_dialog.gd` fails 3 checks at the Pad size; origin's `busy_overlay.gd` fails
+  the card check at the 6T size (panel share 0.00 against 1.00). `_busysync_probe` 93 checks, 0 failures.
+  `_openfailgate_probe`: phone 0 failures; desktop 2 failures, the same 2 on origin (it finds the card by file name).
+- **APK** (Gradle route, `ANDROID_BUILD_SCOPE.md` §3.14, pen `.aar` rebuilt from origin with `CartalithShareProvider`):
+  md5 `3c38c5f71840bf09899f8e117b117ec0`, installed with `install -r` on the Pad 3 and the 6T and copied to the D drive
+  (md5 checked). Device checks after install: + New world opens the dialog, Continue closes the welcome, a card shows the
+  card then the world, on both devices.
+- **Measured, not changed** (rows in `OUTSTANDING_WORK.md`): the 6T shows Godot's splash for about 35 s on a cold start
+  (36 s on `df4d3d18` too); the tablet-portrait New world dialog draws Width (km) and Seed dark; Continue is only as wide
+  as its text.
+
 ### PC-7's leftover built: one host with a back stack, the W7 refresh items, Find above an open window, and the private line live in the Note tab (2026-11-14)
 
 `PC_SHELL_PROPOSAL.md` §3.6, §6 (PC-7 and PC-5 notes). GDScript only. *Re-opened at the symbols first:* `context_window.gd`, the five windows' `open*()`, `app.gd::open_place_editor` and its siblings, `dcc_shell.gd::_open_desktop_find_on_map`, `right_dock.gd::refresh_settlement` / `on_timeline_changed`, `civilization_workspace.gd::_on_roster_changed` / `_on_civ_edited`, `llm_assistant_window.gd::_on_save` (`note_saved`), `vault_window.gd::_build_editor_pane` / `_free_dock_node` / `_clear` / `_after_save`.

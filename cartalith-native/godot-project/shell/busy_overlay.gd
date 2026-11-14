@@ -681,9 +681,14 @@ func _stage_text() -> String:
 const FOOT := "Input is paused while the engine has the world. A run can't be cancelled once it starts; it ends on its own."
 
 ## Computes every rect `_draw` uses (see `layout()`), against this overlay's own size or, for a window mirror,
-## against `for_size` (the embedded window's).
-func _layout(for_size: Vector2 = Vector2.ZERO) -> Dictionary:
-	var s := _scale()
+## against `for_size` (the embedded window's). `content_scale` is that window's `content_scale_factor` (1.0
+## for the overlay itself): the phone scale is divided by it, because a window the phone presents is already
+## drawn at the phone scale (`DccWidgets.phone_present()` sets `content_scale_factor = phone_scale()`), so its
+## `size` is in reference px. Scaling the card a second time made it about 2.6 times too tall for the
+## 6T's full-screen project picker, and `_paint()` then drew the scrim alone: measured with adb on the 6T
+## (2026-11-14), a world-card tap dimmed the picker for 15 s with no card on it.
+func _layout(for_size: Vector2 = Vector2.ZERO, content_scale: float = 1.0) -> Dictionary:
+	var s := _scale() / maxf(1.0, content_scale)
 	var vs := for_size if for_size != Vector2.ZERO else size
 	var gutter := GUTTER * s
 	var card_w := minf(CARD_W * s, maxf(1.0, vs.x - 2.0 * gutter))
@@ -730,7 +735,8 @@ func _draw() -> void:
 ## `_WindowMirror` inside an embedded window. Never draws a card taller than `vs` -- a small dialog
 ## gets the scrim alone, because a clipped half card would read as a bug (see `_WindowMirror`).
 func _paint(ci: Control, vs: Vector2) -> void:
-	var L := _layout(vs)
+	var cs := 1.0 if ci == self or ci.get_window() == null else ci.get_window().content_scale_factor
+	var L := _layout(vs, cs)
 	var s: float = L["scale"]
 	ci.draw_rect(Rect2(Vector2.ZERO, vs), Color(DccTheme.c("bg"), SCRIM_ALPHA))
 	var card: Rect2 = L["card"]
