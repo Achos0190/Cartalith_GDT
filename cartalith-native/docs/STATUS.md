@@ -207,7 +207,71 @@ count-bearing tests gained the new row (127 registry rows, 119 offered, 26 app d
 list). The suitability, placement and urban goldens did not move (they pass `None` and their own site kinds). **Left:**
 `um_site_profile`'s river distance keeps the reference's half-cell frame (golden-pinned against the reference; a re-baseline); the
 Map view's suitability layer (`sample_bridge.rs`) shows the term off; at 384 cells (2 km a cell) the reach covers only a river's own
-cell, so the owner's #6 stays 1.5 cells from its river with the term on and is now drawn landlocked.
+cell, so the owner's #6 stays 1.5 cells from its river with the term on and is now drawn landlocked. *(Superseded the same day by
+the follow-up below: that last item is fixed, and `dry_box_kind` is now `box_water_kind`.)*
+
+**Follow-up, placement checked town by town and corrected (owner 2026-11-14: *"You can push it harder, roads will connect anyway. But
+per town placement is critical. If it misses it just looks silly."* and *"Placement should be checked and corrected by an opus
+agent"*; Ruling EX's follow-ups).** **The check** (`town_river_census.rs::town_placement_audit`, every town of seeds 483920, 912345
+and 246371 at 384 x 288 and 2 048 x 1311, villages on as the app makes them; kinds in its `KINDS`): a town in water; a river town
+(the layout's own proxy calls it `river`/`riverthrough`) whose river runs further than 625 m from the marker; a layout called a river
+town with no traced river crossing its box, or with it only at the box's edge; the map's river within 625 m but the layout not a river
+town; `coast`/`bay` without sea in the box, `landlocked` with sea (more than 2 % of it); a bridge or ford more than 120 m from the
+map's river; the harbour badge (`coastal`) with no sea in the box. **Before (40747897, shipped) -> after**, mismatches by kind, 3
+seeds pooled: at 384, river towns off their river **159 of 675 (23.6 %) -> 1 of 688 (0.1 %)**, river layouts without the river
+**131 -> 0**; at 2 048, **366 of 686 (53.4 %) -> 12 of 694 (1.7 %)**, river layouts without the river **117 -> 0**, river only at the
+box edge **101 -> 0**; towns in water, `coast`/`bay` without sea, `landlocked` with sea, map river by the marker but not a river
+layout, and crossings off the map's river: **0 before and after** at both sizes (the reference boundary, term off: 287 of 656 and 501
+of 679 off; 221 and 194 without the river; 3 river-by-the-marker layouts not river towns at 384). Harbour badge with no sea in the
+box: 6 and 2 before, **9 and 7 after**: towns on a river a cell or two up from the sea, which `civ_is_coastal` (a ruled proxy, Ruling N
+and Ruling AR, about 12.5 km reach) still badges; reported, not changed. **The causes found:** (1) the frontage term was built on the civ
+pass's rebuilt river network, which shares only 4 408 of the map's 6 941 river cells at 384 on 483920 (about two thirds on every
+seed and size), so it pulled towns onto rivers the map does not draw; (2) at 384 the term reached only the river's own cell; (3)
+`um_water_ctx` kept a river stem lying wholly outside the 1.7 km box (its search reaches 1.8 cells, 3.75 km at 384) and drew it as the
+town's river, and the site kind was the flow proxy's, from a 4 km square; (4) the term alone reaches the target at neither size short of a weight above every other term (below). **Built**
+(all under `civ.river_front`, on in `params::defaults`, off in `WorldParams::defaults` and for a save without the key, except the
+two layout rules, which no golden reaches): the term and a new **river constraint** read the map's own network
+(`WorldState::stream_order` traced along `channels`); the term's reach is floored at `SUIT_RIVER_FRONT_MIN_CELLS` = 1.5 cells (the
+reference's own `_umWaterReachKm` floor; 1.6 cells at 2 048 unchanged); `civ_settle_on_river` moves a placed town (in
+`place_settlements_on_rivers`) or a village (in `civ_seed_villages_on_rivers`) that has the map's river in the proxy's own search
+square (`um_site_kind_radius_cells`: 2 cells at 384, 5 at 2 048) but not within 625 m of it (`build_river_on`, segment distance)
+onto the best-suitability dry cell on it, on its own landmass, clear of the towns placed before it (villages: clear of the 10 km
+village spacing); `um_water_ctx` drops a stem that never enters the box (`path_touches_box`); `box_water_kind` makes the kind agree
+with the box both ways (river in the box -> `river`/`riverthrough`, sea -> `coast`/`bay`, neither -> `landlocked`). **Chosen by
+measurement** (scratch switches, removed): the term alone at 0.25 left 7.6 % (384) and 39.7 % (2 048) off, at 0.5 2.1 % and 15.4 %,
+at 1.0 1.0 % and 0.0 %, but 1.0 outweighs every other suitability term (carrying capacity is 0.35); the constraint alone 0.4 % and
+1.3 %; the constraint with the term at 0.25 0.1 % and 1.7 %, with 0.5 0.0 % and 0.6 %. Kept: 0.25 plus the constraint, so the ranking
+keeps its weights and the constraint guarantees the river. **The remaining misses, each:** at 384 one village (912345 #204), and at
+2 048 twelve villages; none is a town of the road network. Four (483920 #135, #194; 912345 #209, #233) have no cell of the map's river
+within the proxy's square at all (7 to 10 cells off): the proxy saw flow cells the map's network does not draw, so they are drawn
+`landlocked` or `coast`, correctly. The other nine had dry river cells in reach, all refused by the 10 km village spacing: each sits
+26 to 29 cells (spacing 26) from its nearest neighbour at 2 048, and 5 (spacing 5) at 384. **Moves** (network towns, against the same
+world with the switch off): at 384, 40 of 99 on the same cell, median move 2.24 cells (4.7 km); at 2 048, 22 of 120, median 23.5 cells
+(9.2 km), where 40747897 had 21 of 99 / 6.71 and 58 of 120 / 2.24. **Roads:** every network town has a way (an endpoint, or a way point
+within 1.5 cells) on every seed at both sizes, after as before. **The City Viewer** drew no river for a town whose river crosses its
+box straight east-west (seed 483920 #36 and #70 of the app's world): `urban_layout_draw.gd::_draw_water_mask` released a whole mask row
+when its centre lay near a bridge or ford, and such a row spans the box; it now releases only the stretch within reach of the
+crossing. **Frames** (`docs/evidence/town-river-2026-11-14/placement/`, composite `placement_before_after.png`; windowed
+`_townriver_probe.tscn`, scratch `config/name`, window lock; before = 40747897's DLL in its own worktree): the owner's town (before #4
+at 158,265, landlocked 1.5 cells from its river; after #12 at 156,263, on it, the city that stood there now placed elsewhere), #16 ->
+#21 (`riverthrough` with its river 2 km outside the town -> the river along its north wall) and #2 -> #36 (`riverthrough` with no river
+-> on the river mouth, its ford drawn), each in the City Viewer and on the map at x16. Numbers: `placement_audit.txt`. **Verified:**
+`cargo test --workspace --no-fail-fast` 8 378 passed, 0 failed (278 result lines); new tests
+`river_on_marks_cells_the_river_passes_within_625_m_of`, `a_town_beside_its_river_moves_onto_the_best_cell_on_it`,
+`placement_puts_a_river_town_on_its_river_only_when_asked`, `a_village_beside_its_river_is_seeded_on_it_only_when_asked`,
+`the_site_kind_follows_the_water_in_the_box`, `a_river_that_misses_the_box_is_not_the_towns_river`,
+`a_path_touches_the_box_only_where_it_enters_it` and, on the 256 x 192 app fixture, `river_towns_sit_on_the_maps_river` (210 of 212
+river settlements on the map's river, every network town; 112 of 207 with the switch off); the suitability, placement and urban
+goldens unchanged (they pass `None`). 14 of 14 literal mutants killed (the floor 1.5 to 1.0 and dropped, `BOX_SEA_FRAC` 0.02 to 0,
+the in-box filter off, the proxy's river kind not kept, the kind table off, segment to vertex distance, the `ok` test ignored, nearest
+instead of best, the village's own cell kept, the constraint skipped in placement and in village seeding, `None` for the constraint in
+`compute_civilisation`, the constraint on the rebuilt network); one first survived (`None` to placement alone: the villages carried
+the share) and was killed after the test gained its network-town bar, re-run alone. `--check-only` clean on
+`shell/urban_layout_draw.gd`, `shell/app.gd` and `_townriver_probe.gd`, with a positive control. **Moved fixtures, disclosed, none weakened:**
+`river_front_reaches_half_the_town_box_in_metres`' 2 083 m leg asserted one scored cell, the pre-floor behaviour, and now asserts the
+nine of the 1.5-cell floor with their literal values; `project_bridge`'s substrate fixture pins `civ.river_front` off, beside its
+`tect.orogen_relief` pin and for the same reason (its premise, a straight 4-cell road-edge-only stretch, is a property of the placement,
+gone with the constraint on); the knowledge-eval fixture worlds were regenerated by their own ignored test.
 
 ### Town walls hug the built-up area (Ruling EW item 1, last point; built 2026-11-14, `CITY_MAP_LOOK_SCOPE.md`, `DECISIONS.md` section 7p)
 

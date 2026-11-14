@@ -358,6 +358,21 @@ impl UrbanWorld<'_> {
 
 // ------------------------------------------------------------ site kind --
 
+/// The half-side, in grid cells, of the square [`um_site_kind_from_terrain`]
+/// looks for sea and river cells in: [`um_water_reach_km`] in cells, rounded,
+/// at least one (reference `_umSiteKindFromTerrain`, line 22055, the same two
+/// lines). 2 at 384 cells over 800 km, 5 at 2 048.
+///
+/// Split out (2026-11-14) so the river constraint
+/// (`crate::civ_settle_on_river`, Ruling EX) searches exactly the square the
+/// proxy calls a town a river town from: the towns it moves are the ones the
+/// layout would otherwise call river towns from a river beside them. The
+/// arithmetic is the reference's, unchanged.
+pub fn um_site_kind_radius_cells(gw: usize, map_width_km: f64) -> i64 {
+    let cell_km = js_max(1e-6, map_width_km / gw as f64);
+    js_max(1.0, js_round(um_water_reach_km(gw, map_width_km) / cell_km)) as i64
+}
+
 /// `_umSiteKindFromTerrain` (line 22055) — `river` | `riverthrough` | `bay` |
 /// `coast` | `landlocked`.
 ///
@@ -368,8 +383,7 @@ impl UrbanWorld<'_> {
 /// one on the near-radius is why its reference world produced **zero**
 /// `coast` or `bay` settlements.
 pub fn um_site_kind_from_terrain(w: &UrbanWorld, px: f64, py: f64) -> &'static str {
-    let cell_km = js_max(1e-6, w.map_width_km / w.gw as f64);
-    let r = js_max(1.0, js_round(um_water_reach_km(w.gw, w.map_width_km) / cell_km)) as i64;
+    let r = um_site_kind_radius_cells(w.gw, w.map_width_km);
     let px0 = js_round(px) as i64;
     let py0 = js_round(py) as i64;
     let mut sea_hits = 0u64;
@@ -792,6 +806,12 @@ pub struct UmWater {
     /// test wrongly suppressed small-island towns whose surrounding sea fills
     /// the box even though the settlement is on land.
     pub mostly_water: bool,
+    /// The share of the box's 22 m raster that is sea: the bilinear
+    /// `field < sea_level` test this function's mask uses, minus the lake
+    /// cells. Not a reference field; [`box_water_kind`] reads it, so the site
+    /// kind follows the water the box really holds (Ruling EX, owner
+    /// 2026-11-14).
+    pub sea_frac: f64,
 }
 
 /// `_umWaterCtx` (line 22300) — the real water near the settlement, packaged
@@ -814,6 +834,17 @@ pub struct UmWater {
 /// The traced river is read through [`traced_to_cell`], unlike the reference,
 /// so the town's river is the river the map draws through its cell rather than
 /// one half a cell south-east of it (owner report, 2026-11-14).
+///
+/// **And only a river that enters the box is the town's river**, also unlike
+/// the reference (Ruling EX's follow-up, owner 2026-11-14: *"per town placement
+/// is critical"*). The stem search reaches `max(1.8 cells, 0.75 x the box's
+/// long side)`, which at 384 cells over 800 km is 3.75 km, more than twice the
+/// 1.7 km box; the reference then drew a stem lying wholly outside the town
+/// as its river, with its bridge point on it. A stem that touches no part of
+/// the box ([`path_touches_box`]) is dropped, so the town is laid out from the
+/// water it really has, and [`box_water_kind`] calls it what it is. No golden
+/// reaches this function, so no switch (`DECISIONS.md` section 7p), as for the
+/// transform fix above.
 pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
     if w.field.is_empty() {
         return None;
@@ -871,10 +902,14 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
                         0.0
                     };
                     // `|| 1` — order 0 (or a lookup off the grid) reads as 1.
-                    river_order = if raw == 0.0 { 1.0 } else { raw };
-                    river_width_m = js_max(12.0, js_min(46.0, 10.0 + river_order * 7.0));
-                    river_path =
-                        Some(pl[lo..=hi].iter().map(|&(gx, gy)| grid_to_local(gx, gy)).collect());
+                    let local: Vec<Vec2> = pl[lo..=hi].iter().map(|&(gx, gy)| grid_to_local(gx, gy)).collect();
+                    // Not the reference: a river that never enters the town box
+                    // is not the town's river (see this function's doc).
+                    if path_touches_box(&local, wm, hm) {
+                        river_order = if raw == 0.0 { 1.0 } else { raw };
+                        river_width_m = js_max(12.0, js_min(46.0, 10.0 + river_order * 7.0));
+                        river_path = Some(local);
+                    }
                 }
             }
         }
@@ -882,29 +917,96 @@ pub fn um_water_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<UmWater> {
     finish_water_ctx(w, local_to_grid, river_path, river_width_m, river_order)
 }
 
-/// The site kind a town is laid out as, given the proxy's verdict `kind`
-/// ([`um_site_kind_from_terrain`]) and whether [`um_water_ctx`] found no real
-/// water in the town's box (`dry`).
+/// Whether polyline `path` (local box metres) touches the town box
+/// `[0, wm] x [0, hm]`: any segment with a point inside it (Liang-Barsky
+/// clipping per segment). A one-point path is tested as its point. Used by
+/// [`um_water_ctx`] to keep a river stem only when it enters the town.
+fn path_touches_box(path: &[Vec2], wm: f64, hm: f64) -> bool {
+    let hits = |a: Vec2, b: Vec2| -> bool {
+        let (dx, dy) = (b.x - a.x, b.y - a.y);
+        let (mut t0, mut t1) = (0.0f64, 1.0f64);
+        for (p, q) in [(-dx, a.x), (dx, wm - a.x), (-dy, a.y), (dy, hm - a.y)] {
+            if p == 0.0 {
+                if q < 0.0 {
+                    return false;
+                }
+            } else {
+                let r = q / p;
+                if p < 0.0 {
+                    t0 = t0.max(r);
+                } else {
+                    t1 = t1.min(r);
+                }
+                if t0 > t1 {
+                    return false;
+                }
+            }
+        }
+        true
+    };
+    match path.len() {
+        0 => false,
+        1 => hits(path[0], path[0]),
+        _ => path.windows(2).any(|s| hits(s[0], s[1])),
+    }
+}
+
+/// The share of the box raster that must be sea before the box counts as
+/// holding sea, for [`box_water_kind`]: the reference's own `sea_frac > 0.02`
+/// in [`um_site_kind_from_terrain`] (the line between `landlocked` and
+/// `coast`), applied to the box instead of the proxy's wider square. Keeps a
+/// one-pixel sliver of sea in a corner from turning an inland town coastal.
+const BOX_SEA_FRAC: f64 = 0.02;
+
+/// The site kind a town is laid out as: the proxy's verdict `kind`
+/// ([`um_site_kind_from_terrain`]) where the town box's real water agrees with
+/// it, and the box's water where it does not (Ruling EX and its follow-up,
+/// owner 2026-11-14).
 ///
 /// **Why.** The proxy calls a town `river`/`riverthrough`/`coast`/`bay` from
-/// flow and sea cells up to [`um_water_reach_km`] away (two cells, 4 km, at
-/// 384 cells over 800 km), while the box is 1.7 x 1.25 km. When none of that
-/// water reaches the box, `build_site` (reference `buildSite`) then **invents**
-/// one: a synthetic west-to-east river through the middle, or a synthetic
-/// shoreline, that the world does not have. That is the owner's report of
-/// 2026-11-14 (*"The river passes below it. It's not on the river."*): seed
-/// 483920's settlement #6 at 384 x 288 was laid out `riverthrough` with
-/// `uses_real_water` false and a 60-point invented river, while the map's river
-/// ran past the town outside its box. With a real world behind it (a field and
-/// a river network) a dry box is drawn as what it is, `landlocked`.
+/// flow and sea cells up to [`um_site_kind_radius_cells`] away (two cells,
+/// 4 km, at 384 cells over 800 km; five, 2 km, at 2 048), while the box is
+/// 1.7 x 1.25 km. When the box holds none of that water, `build_site`
+/// (reference `buildSite`) **invents** it: a synthetic river through the
+/// middle, or a synthetic shoreline. That was the owner's report of 2026-11-14
+/// (*"The river passes below it. It's not on the river."*): seed 483920's
+/// settlement #6 at 384 x 288 was laid out `riverthrough` with a 60-point
+/// invented river. The follow-up asked that the kind and the box agree both
+/// ways, so a town is never `river` unless its own box holds the map's river:
 ///
-/// Unchanged: a world with no river network (`order` `None`), where the
-/// reference's synthetic river is the only river there is, and every kind when
-/// the box holds real water. No golden reaches this function (`um_place_context`
-/// is unit-tested only; `cartalith-urban`'s goldens pass their own kinds), so no
-/// switch (`DECISIONS.md` section 7p). Must never make a box wet.
-fn dry_box_kind(w: &UrbanWorld, kind: &'static str, dry: bool) -> &'static str {
-    if dry && w.order.is_some() && !w.field.is_empty() { "landlocked" } else { kind }
+/// | box holds (`water`) | proxy `river`/`riverthrough` | proxy `coast`/`bay` | proxy `landlocked` |
+/// |---|---|---|---|
+/// | river and sea | kept | `riverthrough` | `riverthrough` |
+/// | river only | kept | `river` | `river` |
+/// | sea only | `coast` | kept | `coast` |
+/// | neither (dry, or a lake) | `landlocked` | `landlocked` | kept |
+///
+/// "River" is [`UmWater`]'s real river path, which [`um_water_ctx`] keeps only
+/// when it enters the box; "sea" is [`UmWater::sea_frac`] above
+/// [`BOX_SEA_FRAC`]. A lake is not sea: a lakeside town keeps `landlocked`,
+/// and its shore is still drawn from the mask.
+///
+/// Unchanged: a world with no river network (`order` `None`) or no field,
+/// where the reference's synthetic water is the only water there is. No golden
+/// reaches this function (`um_place_context` is unit-tested only;
+/// `cartalith-urban`'s goldens pass their own kinds), so no switch
+/// (`DECISIONS.md` section 7p). Must never call a town `river` without the
+/// map's river in its box, nor `coast` or `bay` without sea in it.
+fn box_water_kind(w: &UrbanWorld, kind: &'static str, water: Option<&UmWater>) -> &'static str {
+    if w.order.is_none() || w.field.is_empty() {
+        return kind;
+    }
+    let river = water.is_some_and(|u| u.ctx.has_real_river_path());
+    let sea = water.is_some_and(|u| u.sea_frac > BOX_SEA_FRAC);
+    let river_kind = kind == "river" || kind == "riverthrough";
+    match (river, sea) {
+        (true, _) if river_kind => kind,
+        (true, true) => "riverthrough",
+        (true, false) => "river",
+        (false, true) if kind == "coast" || kind == "bay" => kind,
+        (false, true) => "coast",
+        (false, false) => "landlocked",
+    }
 }
 
 /// Part (b) of `_umWaterCtx`: the local sea/lake mask, the river-band stamp,
@@ -929,6 +1031,8 @@ fn finish_water_ctx(
     let mh = js_max(8.0, js_round(hm / cell_m)) as usize;
     let mut mask = vec![0u8; mw * mh];
     let mut water_cells = 0u64;
+    // Sea only, for `UmWater::sea_frac`.
+    let mut sea_cells = 0u64;
 
     for j in 0..mh {
         for i in 0..mw {
@@ -942,9 +1046,13 @@ fn finish_water_ctx(
                 let gi = js_round(gy) as usize * w.gw + js_round(gx) as usize;
                 w.water_bodies.get(gi).copied() == Some(2)
             };
-            if w.bilin_field(gx, gy) < w.sea_level || lake {
+            let sea_here = w.bilin_field(gx, gy) < w.sea_level;
+            if sea_here || lake {
                 mask[j * mw + i] = 1;
                 water_cells += 1;
+            }
+            if sea_here && !lake {
+                sea_cells += 1;
             }
         }
     }
@@ -1068,6 +1176,7 @@ fn finish_water_ctx(
             sea_lake_cells,
         },
         mostly_water,
+        sea_frac: sea_cells as f64 / (mw * mh) as f64,
     })
 }
 
@@ -1838,7 +1947,7 @@ pub fn um_place_context_with(
     // so every other input (site, water, terrain, roads) is the same town's.
     let seed = o.variant.map_or(seed, |v| seed ^ v.wrapping_mul(0x9E37_79B9));
     let water = um_water_ctx(w, px, py);
-    let site_kind = dry_box_kind(w, um_site_kind_from_terrain(w, px, py), water.is_none());
+    let site_kind = box_water_kind(w, um_site_kind_from_terrain(w, px, py), water.as_ref());
     let terrain = um_terrain_ctx(w, px, py);
     // v0.98: with real water the geometry is already in position, so no
     // rotation is needed and the reference bypasses `_umTerrainOrient`.

@@ -4146,21 +4146,60 @@ pub const SUIT_W_FULL_RIVER_FRONT: f64 = 0.25;
 ///
 /// In metres, not cells, on purpose: "on the river" is a question about the
 /// town's own size, so it must mean the same thing at every resolution. At
-/// 2 048 cells over 800 km (391 m a cell) it reaches 1.6 cells; at 384
-/// (2 083 m a cell) only the river's own cell counts.
+/// 2 048 cells over 800 km (391 m a cell) it is 1.6 cells; at 384 (2 083 m a
+/// cell) only the river's own cell is within it. [`build_river_on`] and the
+/// placement audit (`cartalith-godot`'s `town_river_census.rs`) use it as the
+/// definition of "on the river"; [`build_river_front`]'s ramp reaches
+/// [`river_front_reach_cells`], which is never shorter.
 pub const SUIT_RIVER_FRONT_M: f64 = urban_adapter::SITE_HM / 2.0;
+
+/// The shortest reach, in grid cells, [`build_river_front`]'s ramp is given
+/// (owner, 2026-11-14, Ruling EX's first follow-up: *"per town placement is
+/// critical"*).
+///
+/// **Why a floor in cells.** At 384 cells over 800 km [`SUIT_RIVER_FRONT_M`]
+/// is 0.3 cells, so a ramp of that length scored the river's own cell and
+/// nothing else: a town one cell off saw no gradient pointing at its river,
+/// which is how the owner's seed-483920 town #6 stayed 1.5 cells away with the
+/// term on. One and a half cells is the floor `_umWaterReachKm` (reference line
+/// 22050, [`urban_adapter::um_water_reach_km`]) puts on the water reach for
+/// the same reason: a reach under a cell cannot be satisfied, and 1.5 reaches
+/// the eight neighbours (the diagonal at 1.41). **A labelled judgement that
+/// borrows the reference's figure**, not a measurement.
+pub const SUIT_RIVER_FRONT_MIN_CELLS: f64 = 1.5;
+
+/// [`build_river_front`]'s reach in grid cells for a grid of `cell_m` metres a
+/// cell: [`SUIT_RIVER_FRONT_M`] in cells, floored at
+/// [`SUIT_RIVER_FRONT_MIN_CELLS`]. 1.6 cells at 2 048 over 800 km (the metre
+/// figure wins), 1.5 at 384 (the floor wins). `0` for a cell size that is not
+/// positive, which [`build_river_front`] reads as "no term".
+pub fn river_front_reach_cells(cell_m: f64) -> f64 {
+    if !(cell_m > 0.0) {
+        return 0.0;
+    }
+    (SUIT_RIVER_FRONT_M / cell_m).max(SUIT_RIVER_FRONT_MIN_CELLS)
+}
 
 /// [`SuitabilityCtx::river_front`]'s raster: per cell, how squarely a **real,
 /// traced** river runs through the town box a settlement there would be drawn
 /// in (Ruling EX, owner report 2026-11-14).
 ///
 /// `tier(order at the traced cell) * (1 - d / F)`, maximised over every traced
-/// point within `F` = [`SUIT_RIVER_FRONT_M`], `d` in metres from this cell's
-/// centre to the traced point. The same tiers and the same polylines as
-/// [`build_river_reach`] (Ruling N's river term); only the reach differs:
-/// that term rewards a river five cells off, this one only a river through the
+/// point within `F` = [`river_front_reach_cells`] (in cells), `d` in cells from
+/// this cell's centre to the traced point. The same tiers as
+/// [`build_river_reach`] (Ruling N's river term); only the reach differs: that
+/// term rewards a river five cells off, this one only a river through the
 /// town. `cell_m` is the grid's cell size in metres. A cell further than `F`
 /// from every traced cell reads `0`.
+///
+/// **Which rivers.** `polys` and `order` must be the network the map draws and
+/// the town layouts read (`WorldState::stream_order` traced along
+/// `WorldState::channels`): the civ pass's own rebuild
+/// (`fresh_river_network_with`) shares only about two thirds of its cells with
+/// it (measured 2026-11-14 on seeds 483920, 912345 and 246371: 4 408 of 6 941
+/// map cells at 384 x 288 on the first), so a term built on the rebuild pulls
+/// towns onto rivers the map does not draw. `cartalith-godot`'s
+/// `compute_civilisation` passes the map's network when the world has one.
 ///
 /// Distance is cell centre to cell centre: `trace_river_polylines` writes
 /// `(col + 0.5, row + 0.5)`, so a traced point names its cell exactly. Never
@@ -4170,7 +4209,7 @@ pub fn build_river_front(polys: &[Vec<(f64, f64)>], order: &[i16], gw: usize, gh
     if !(cell_m > 0.0) {
         return out;
     }
-    let reach = SUIT_RIVER_FRONT_M / cell_m; // in cells
+    let reach = river_front_reach_cells(cell_m);
     let r = reach.floor() as isize;
     for pl in polys {
         for &(px, py) in pl {
@@ -4202,6 +4241,122 @@ pub fn build_river_front(polys: &[Vec<(f64, f64)>], order: &[i16], gw: usize, gh
         }
     }
     out
+}
+
+/// Per cell, whether a town there sits **on** a traced river: the nearest
+/// river segment passes within [`SUIT_RIVER_FRONT_M`] (625 m, half the town
+/// box's short side) of the cell's centre, so the river runs through the box
+/// the town is drawn in, through or beside its market (owner, 2026-11-14:
+/// *"per town placement is critical. If it misses it just looks silly"*).
+///
+/// `polys` are `trace_river_polylines` output (points at `(col + 0.5,
+/// row + 0.5)`), every order: a brook the map draws is a river a town can sit
+/// on. Like [`build_river_front`] they must be the map's own network. Distance
+/// is to the segment, not the vertex, so it is the distance the placement audit
+/// measures. A one-point polyline counts as its point. `cell_m <= 0` (no grid)
+/// marks nothing. Never wraps the seam.
+///
+/// Must never mark a cell the river does not reach: [`civ_settle_on_river`]
+/// moves towns onto exactly these cells, and the urban layout then draws the
+/// river through the town (`urban_adapter::um_water_ctx`).
+pub fn build_river_on(polys: &[Vec<(f64, f64)>], gw: usize, gh: usize, cell_m: f64) -> Vec<bool> {
+    let mut out = vec![false; gw * gh];
+    if !(cell_m > 0.0) || gw == 0 || gh == 0 {
+        return out;
+    }
+    let near = SUIT_RIVER_FRONT_M / cell_m; // in cells
+    let pad = near.ceil() as isize + 1;
+    let seg = |p: (f64, f64), a: (f64, f64), b: (f64, f64)| -> f64 {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 > 0.0 { (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+        ((p.0 - a.0 - t * dx).powi(2) + (p.1 - a.1 - t * dy).powi(2)).sqrt()
+    };
+    for pl in polys {
+        // Every segment, and a one-point line as a segment of zero length.
+        let pairs: Vec<((f64, f64), (f64, f64))> = match pl.len() {
+            0 => Vec::new(),
+            1 => vec![(pl[0], pl[0])],
+            _ => pl.windows(2).map(|w| (w[0], w[1])).collect(),
+        };
+        for (a, b) in pairs {
+            let (x0, x1) = (a.0.min(b.0).floor() as isize - pad, a.0.max(b.0).floor() as isize + pad);
+            let (y0, y1) = (a.1.min(b.1).floor() as isize - pad, a.1.max(b.1).floor() as isize + pad);
+            for y in y0.max(0)..=y1.min(gh as isize - 1) {
+                for x in x0.max(0)..=x1.min(gw as isize - 1) {
+                    let i = y as usize * gw + x as usize;
+                    if !out[i] && seg((x as f64 + 0.5, y as f64 + 0.5), a, b) <= near {
+                        out[i] = true;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Moves a river-town candidate at `(x, y)` onto its river, or `None` when it
+/// stays (owner, 2026-11-14, Ruling EX's follow-ups: *"You can push it harder,
+/// roads will connect anyway. But per town placement is critical"*).
+///
+/// **A river-town candidate** is a town with a cell of `on` ([`build_river_on`])
+/// in the square of half-side `reach` cells round it. `reach` is the radius the
+/// siting proxy (`urban_adapter::um_site_kind_from_terrain`) looks for river
+/// cells in ([`urban_adapter::um_site_kind_radius_cells`]), so the towns it moves are the
+/// ones the layout would otherwise call a river town from a river beside them.
+/// A town already on an `on` cell, and one with no river in reach, stay.
+///
+/// **Inside the ranking, per Ruling N.** Among the `on` cells in reach that
+/// `ok` accepts (the caller's dry-land, landmass and spacing tests), the town
+/// takes the one with the highest suitability `suit`, the nearer on a tie, the
+/// earlier in row-then-column order after that. Suitability still decides
+/// where on the river; the constraint only decides that it is on the river.
+/// When `ok` refuses every `on` cell in reach the town stays where it is, and
+/// the layout then draws it without a river (`urban_adapter::um_place_context`).
+///
+/// Never moves a town further than `reach` cells on either axis, never onto a
+/// cell `ok` refuses, and never off an `on` cell.
+pub fn civ_settle_on_river(
+    x: usize,
+    y: usize,
+    on: &[bool],
+    suit: &[f32],
+    gw: usize,
+    gh: usize,
+    reach: isize,
+    ok: impl Fn(usize, usize) -> bool,
+) -> Option<(usize, usize)> {
+    if x >= gw || y >= gh || on[y * gw + x] {
+        return None;
+    }
+    let mut best: Option<(usize, usize, f64, f64)> = None;
+    for dy in -reach..=reach {
+        let yy = y as isize + dy;
+        if yy < 0 || yy >= gh as isize {
+            continue;
+        }
+        for dx in -reach..=reach {
+            let xx = x as isize + dx;
+            if xx < 0 || xx >= gw as isize {
+                continue;
+            }
+            let (ux, uy) = (xx as usize, yy as usize);
+            let i = uy * gw + ux;
+            if !on[i] || !ok(ux, uy) {
+                continue;
+            }
+            let sv = suit.get(i).copied().unwrap_or(0.0) as f64;
+            let d = ((dx * dx + dy * dy) as f64).sqrt();
+            let better = match best {
+                None => true,
+                Some((_, _, bs, bd)) => sv > bs || (sv == bs && d < bd),
+            };
+            if better {
+                best = Some((ux, uy, sv, d));
+            }
+        }
+    }
+    best.map(|(bx, by, _, _)| (bx, by))
 }
 
 /// How far a real traced coastline reaches, in grid cells, before
@@ -5938,6 +6093,54 @@ pub fn place_settlements_with_counts(
     map_width_km: f64,
     want_counts: Option<[usize; 5]>,
 ) -> Vec<SettlementPlacement> {
+    place_settlements_on_rivers(
+        seeds, suit, field, wb, lake_fill, gw, gh, sea, world, faction_count, flood, flow, flow_thresh, map_width_km, want_counts,
+        None,
+    )
+}
+
+/// Where river-town candidates may be moved to, for
+/// [`place_settlements_on_rivers`] and [`civ_seed_villages_on_rivers`]: the
+/// [`build_river_on`] raster and the reach [`civ_settle_on_river`] searches.
+#[derive(Clone, Copy)]
+pub struct RiverOn<'a> {
+    /// [`build_river_on`] over the map's own river network.
+    pub on: &'a [bool],
+    /// Half-side of the search square, in cells:
+    /// [`urban_adapter::um_site_kind_radius_cells`].
+    pub reach: isize,
+}
+
+/// [`place_settlements_with_counts`] with Ruling EX's river constraint
+/// (`civ.river_front`, owner 2026-11-14): `Some(r)` moves each placed town
+/// that has the map's river within `r.reach` cells, but is not on it, onto the
+/// best-ranked cell on it ([`civ_settle_on_river`]), after the water-edge snap
+/// and before the coastal flag is taken, so the flag describes where the pin
+/// is. The cell must be dry land in the sense [`civ_snap_land`] tests, on the
+/// town's own landmass, and not touching (Chebyshev distance 1) a town placed
+/// before it in rank order.
+///
+/// `None` is [`place_settlements_with_counts`] by control flow: the reference
+/// boundary (`DECISIONS.md` section 7p) and every golden-parity caller.
+#[allow(clippy::too_many_arguments)]
+pub fn place_settlements_on_rivers(
+    seeds: &[SettlementSeed],
+    suit: &[f32],
+    field: &[f32],
+    wb: &[u8],
+    lake_fill: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    faction_count: i32,
+    flood: &[f32],
+    flow: &[f32],
+    flow_thresh: f64,
+    map_width_km: f64,
+    want_counts: Option<[usize; 5]>,
+    river: Option<RiverOn<'_>>,
+) -> Vec<SettlementPlacement> {
     let max_places = match want_counts {
         Some(w) => w.iter().sum(),
         None => (((gw * gh) as f64 / 65536.0 * 20.0) as i64).clamp(8, 40) as usize,
@@ -5994,6 +6197,8 @@ pub fn place_settlements_with_counts(
     // (`civ_ocean_dist_field`), so that's what drives the seaNear widening
     // here instead of porting `_umSiteProfile` for one number.
     let ocean_dist = civ_ocean_dist_field(Some(wb), field, gw, gh, sea);
+    // Final positions so far, rank order: the river constraint's spacing test.
+    let mut placed: Vec<(usize, usize)> = Vec::new();
 
     candidates
         .iter()
@@ -6043,6 +6248,25 @@ pub fn place_settlements_with_counts(
                 tolerance,
             )
             .unwrap_or((c.x, c.y));
+            // Ruling EX's river constraint; `None` leaves (fx, fy) alone.
+            let (fx, fy) = match river {
+                Some(r) => {
+                    let home = comp[fy * gw + fx];
+                    let dry = |x: usize, y: usize| {
+                        let i = y * gw + x;
+                        (field[i] as f64) >= sea && wb[i] == 0 && !civ_lake_flooded(x, y, field, wb, lake_fill, gw, gh)
+                    };
+                    let clear = |x: usize, y: usize| {
+                        placed.iter().all(|&(px, py): &(usize, usize)| px.abs_diff(x).max(py.abs_diff(y)) > 1)
+                    };
+                    civ_settle_on_river(fx, fy, r.on, suit, gw, gh, r.reach, |x, y| {
+                        dry(x, y) && comp[y * gw + x] == home && clear(x, y)
+                    })
+                    .unwrap_or((fx, fy))
+                }
+                None => (fx, fy),
+            };
+            placed.push((fx, fy));
             let coastal = civ_is_coastal(fx, fy, coast_r, true, field, Some(wb), gw, gh, sea, world);
             SettlementPlacement {
                 x: fx,
@@ -8837,6 +9061,39 @@ pub fn civ_seed_villages(
     map_width_km: f64,
     cultures: &[&str],
 ) -> Vec<VillageSettlement> {
+    civ_seed_villages_on_rivers(
+        places, edges, routing_rw, routing_sc, rng, suit, field, water_bodies, lake_fill, gw, gh, sea, map_width_km, cultures, None,
+    )
+}
+
+/// [`civ_seed_villages`] with Ruling EX's river constraint (`civ.river_front`,
+/// owner 2026-11-14). With `Some(r)` an accepted village with the map's river
+/// within `r.reach` cells, but not on it, is moved onto the best-ranked cell on
+/// it ([`civ_settle_on_river`]) that is dry and keeps the village spacing from
+/// every settlement and village placed so far; the spacing bucket and the
+/// nearest-faction choice then read the moved position.
+///
+/// The accept roll, the candidate order and the name draw all read the
+/// candidate as found, so the `rng` stream is consumed exactly as without the
+/// constraint. `None` is [`civ_seed_villages`] by control flow.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_seed_villages_on_rivers(
+    places: &[NamedSettlement],
+    edges: &[RoadEdge],
+    routing_rw: usize,
+    routing_sc: f64,
+    rng: &mut cartalith_rng::Mulberry32,
+    suit: &[f32],
+    field: &[f32],
+    water_bodies: &[u8],
+    lake_fill: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    map_width_km: f64,
+    cultures: &[&str],
+    river: Option<RiverOn<'_>>,
+) -> Vec<VillageSettlement> {
     let spacing = suppression_radius_cells(VILLAGE_SPACING_KM, gw, map_width_km);
     let spacing_sq = spacing * spacing;
     let cell = spacing.max(3.0);
@@ -8911,6 +9168,16 @@ pub fn civ_seed_villages(
         if rng.next_f64() >= accept_prob {
             continue; // soft reject -- no hard road/no-road cutoff
         }
+        // Ruling EX's river constraint: after the accept roll, so the stream is
+        // the same; `None` keeps the candidate's own cell.
+        let (vx, vy) = match river {
+            Some(r) => civ_settle_on_river(c.x, c.y, r.on, suit, gw, gh, r.reach, |x, y| {
+                is_dry(x, y) && fits(x as f64, y as f64, &reject_buckets)
+            })
+            .unwrap_or((c.x, c.y)),
+            None => (c.x, c.y),
+        };
+        let (cx, cy) = (vx as f64, vy as f64);
         let mut faction = 1;
         let mut fd = f64::INFINITY;
         for p in places {
@@ -8923,8 +9190,8 @@ pub fn civ_seed_villages(
         }
         let name = civ_settle_name(rng, civ_faction_culture(cultures, faction));
         added.push(VillageSettlement {
-            x: c.x,
-            y: c.y,
+            x: vx,
+            y: vy,
             name,
             faction,
         });
@@ -23068,16 +23335,23 @@ mod tests {
         );
     }
 
-    /// Protects Ruling EX's river frontage raster (owner report 2026-11-14):
-    /// the full order tier on the traced river's own cell, a linear fall to
-    /// exactly zero at `SUIT_RIVER_FRONT_M` = 625 m measured in metres (so the
-    /// same river reaches 1.6 cells at 391 m a cell and only its own cell at
-    /// 2 083 m), and Ruling N's tiers (order 1 earns nothing). Literals, not the
-    /// formula. MUTATION: `SUIT_RIVER_FRONT_M` 625 -> 1250 moves the 391 m
-    /// neighbours; dropping `/ cell_m` breaks both widths.
+    /// Protects Ruling EX's river frontage raster (owner report 2026-11-14) and
+    /// its reach floor (the follow-up of the same day): the full order tier on
+    /// the traced river's own cell, a linear fall to exactly zero at
+    /// `SUIT_RIVER_FRONT_M` = 625 m where that is longer than 1.5 cells (1.6
+    /// cells at 391 m a cell), and at the 1.5-cell floor where it is not (at
+    /// 2 083 m a cell 625 m is 0.3 cells, which reached nothing but the river's
+    /// own cell and left the owner's town #6 with no gradient to its river);
+    /// and Ruling N's tiers (order 1 earns nothing). Literals, not the formula.
+    /// Moved 2026-11-14: the 2 083 m leg asserted one scored cell, the
+    /// pre-floor behaviour the follow-up replaced. MUTATION:
+    /// `SUIT_RIVER_FRONT_M` 625 -> 1250 moves the 391 m neighbours; the floor
+    /// 1.5 -> 1.0 or dropped empties the 2 083 m neighbours.
     #[test]
     fn river_front_reaches_half_the_town_box_in_metres() {
         assert_eq!(SUIT_RIVER_FRONT_M, 625.0, "half SITE_HM (1 250 m)");
+        assert_eq!(SUIT_RIVER_FRONT_MIN_CELLS, 1.5);
+        assert_eq!(river_front_reach_cells(0.0), 0.0, "no cell size, no reach");
         let (gw, gh) = (9usize, 9usize);
         let mut order = vec![1i16; gw * gh];
         order[4 * gw + 4] = 4;
@@ -23089,10 +23363,14 @@ mod tests {
         assert!((at(5, 4) - 0.375).abs() < 1e-6, "one cell (391 m) off: 1 - 1/1.6, got {}", at(5, 4));
         assert!((at(5, 5) - 0.116_116_5).abs() < 1e-6, "a diagonal (552 m) off: 1 - sqrt(2)/1.6, got {}", at(5, 5));
         assert_eq!(at(6, 4), 0.0, "two cells (781 m) off is past 625 m");
-        // 384 cells over 800 km: 2 083 m a cell, reach 0.3 cells -- only the river's own cell.
+        // 384 cells over 800 km: 2 083 m a cell; 625 m is 0.3 cells, so the
+        // 1.5-cell floor is the reach: the river's cell and its eight neighbours.
         let r = build_river_front(&poly, &order, gw, gh, 2083.333);
-        assert_eq!(r[4 * gw + 4], 1.0);
-        assert_eq!(r.iter().filter(|&&v| v > 0.0).count(), 1, "nothing but the river's own cell");
+        let at = |x: usize, y: usize| r[y * gw + x] as f64;
+        assert_eq!(at(4, 4), 1.0);
+        assert!((at(5, 4) - 1.0 / 3.0).abs() < 1e-6, "one cell off: 1 - 1/1.5, got {}", at(5, 4));
+        assert!((at(3, 5) - 0.057_190_96).abs() < 1e-6, "a diagonal off: 1 - sqrt(2)/1.5, got {}", at(3, 5));
+        assert_eq!(r.iter().filter(|&&v| v > 0.0).count(), 9, "the river's cell and its eight neighbours");
         // Ruling N's tiers: order 2 is 0.3, order 1 nothing.
         order[4 * gw + 4] = 2;
         assert!((build_river_front(&poly, &order, gw, gh, 390.625)[4 * gw + 4] - 0.3).abs() < 1e-6);
@@ -23100,6 +23378,131 @@ mod tests {
         assert!(build_river_front(&poly, &order, gw, gh, 390.625).iter().all(|&v| v == 0.0), "a brook earns nothing");
         // No cell size is no reach, not a division by zero.
         assert!(build_river_front(&poly, &order, gw, gh, 0.0).iter().all(|&v| v == 0.0));
+    }
+
+    /// Protects Ruling EX's follow-up "on the river" raster (owner 2026-11-14):
+    /// a cell is on the river when the traced SEGMENT, not only its vertices,
+    /// passes within 625 m of the cell's centre, at every cell size. Literals.
+    /// MUTATION: measuring to the vertex instead of the segment fails the
+    /// 800 m diagonal leg; `SUIT_RIVER_FRONT_M` 625 -> 1250 marks the 781 m row.
+    #[test]
+    fn river_on_marks_cells_the_river_passes_within_625_m_of() {
+        let (gw, gh) = (9usize, 9usize);
+        let at = |v: &[bool], x: usize, y: usize| v[y * gw + x];
+        let line = vec![vec![(1.5, 4.5), (7.5, 4.5)]];
+        let on = build_river_on(&line, gw, gh, 390.625);
+        assert!(at(&on, 1, 4) && at(&on, 4, 4) && at(&on, 7, 4), "the river's own cells");
+        assert!(at(&on, 4, 5) && at(&on, 4, 3), "one cell (391 m) off");
+        assert!(!at(&on, 4, 6) && !at(&on, 4, 2), "two cells (781 m) off");
+        assert!(at(&on, 0, 4) && !at(&on, 0, 6), "past the end: 391 m in, 874 m out");
+        let coarse = build_river_on(&line, gw, gh, 2083.333);
+        assert_eq!(coarse.iter().filter(|&&b| b).count(), 7, "at 2 083 m a cell only the river's own seven cells");
+        // Cell (1, 0)'s centre is 0.707 cells from this diagonal, 1 cell from either vertex.
+        let diag = vec![vec![(0.5, 0.5), (2.5, 2.5)]];
+        assert!(at(&build_river_on(&diag, gw, gh, 800.0), 1, 0), "566 m from the segment at 800 m a cell");
+        assert!(!at(&build_river_on(&diag, gw, gh, 1000.0), 1, 0), "707 m is past 625 m");
+        assert!(at(&build_river_on(&[vec![(3.5, 3.5)]], gw, gh, 390.625), 3, 3), "a one-point line marks its cell");
+        assert!(build_river_on(&line, gw, gh, 0.0).iter().all(|&b| !b), "no cell size marks nothing");
+        assert!(build_river_on(&[], gw, gh, 390.625).iter().all(|&b| !b), "no river marks nothing");
+    }
+
+    /// Protects the river constraint (Ruling EX's follow-up, owner 2026-11-14):
+    /// a town beside its river moves onto the highest-suitability cell on it
+    /// within reach that the caller accepts, the nearer on a tie; a town already
+    /// on its river, one with no river in reach, and one whose every river cell
+    /// is refused all stay. MUTATION: ignoring `ok` lands on the refused cell;
+    /// taking the nearest cell instead of the best lands on (5, 4).
+    #[test]
+    fn a_town_beside_its_river_moves_onto_the_best_cell_on_it() {
+        let (gw, gh) = (11usize, 9usize);
+        let mut on = vec![false; gw * gh];
+        for y in 0..gh {
+            on[y * gw + 5] = true; // a river down column 5
+        }
+        let mut suit = vec![0.5f32; gw * gh];
+        suit[6 * gw + 5] = 0.9;
+        suit[2 * gw + 5] = 0.8;
+        let any = |_: usize, _: usize| true;
+        assert_eq!(civ_settle_on_river(2, 4, &on, &suit, gw, gh, 2, any), None, "column 5 is three cells off, past a reach of 2");
+        assert_eq!(civ_settle_on_river(2, 4, &on, &suit, gw, gh, 3, any), Some((5, 6)), "the best-ranked cell on the river");
+        assert_eq!(
+            civ_settle_on_river(2, 4, &on, &suit, gw, gh, 3, |x, y| (x, y) != (5, 6)),
+            Some((5, 2)),
+            "the next best when that one is refused"
+        );
+        assert_eq!(civ_settle_on_river(5, 4, &on, &suit, gw, gh, 3, any), None, "already on its river");
+        let flat = vec![0.5f32; gw * gh];
+        assert_eq!(civ_settle_on_river(3, 4, &on, &flat, gw, gh, 3, any), Some((5, 4)), "a tie goes to the nearer cell");
+        assert_eq!(civ_settle_on_river(2, 4, &on, &suit, gw, gh, 3, |_, _| false), None, "every cell refused: it stays");
+    }
+
+    /// Protects the river constraint's wiring into placement (Ruling EX's
+    /// follow-up): with `Some` a town three cells from the river is placed on
+    /// it; with `None` (the reference boundary) it stays where suitability put
+    /// it, and `place_settlements_with_counts` is that `None`.
+    /// MUTATION: skipping the constraint in `place_settlements_on_rivers` leaves
+    /// the town at x = 10.
+    #[test]
+    fn placement_puts_a_river_town_on_its_river_only_when_asked() {
+        let (gw, gh) = (24usize, 20usize);
+        let n = gw * gh;
+        let field = vec![0.6f32; n];
+        let wb = vec![0u8; n];
+        let lake_fill = vec![0.0f32; n];
+        let zeros = vec![0.0f32; n];
+        let mut suit = vec![0.5f32; n];
+        suit[10 * gw + 10] = 0.9;
+        let seeds = vec![SettlementSeed { x: 10, y: 10, score: 0.9 }];
+        let mut on = vec![false; n];
+        for y in 0..gh {
+            on[y * gw + 13] = true;
+        }
+        let place = |river: Option<RiverOn<'_>>| {
+            place_settlements_on_rivers(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, 0.2, false, 1, &zeros, &zeros, 1.0, 800.0, None, river)
+        };
+        let off = place(None);
+        assert_eq!((off[0].x, off[0].y), (10, 10), "premise: suitability put it at (10, 10)");
+        let plain = place_settlements_with_counts(&seeds, &suit, &field, &wb, &lake_fill, gw, gh, 0.2, false, 1, &zeros, &zeros, 1.0, 800.0, None);
+        assert_eq!(plain, off, "the plain entry point is the constraint switched off");
+        let moved = place(Some(RiverOn { on: &on, reach: 5 }));
+        assert_eq!((moved[0].x, moved[0].y), (13, 10), "three cells east onto the river, the nearest of equal cells");
+        assert_eq!(place(Some(RiverOn { on: &on, reach: 2 }))[0].x, 10, "a river past the reach leaves it");
+    }
+
+    /// Protects the river constraint in village seeding (Ruling EX's follow-up):
+    /// an accepted village three cells from the river is seeded on it with
+    /// `Some`, at its own cell with `None`, and the two draw the same name (the
+    /// stream is consumed the same way). MUTATION: pushing the candidate's own
+    /// cell instead of the moved one leaves x at 30.
+    #[test]
+    fn a_village_beside_its_river_is_seeded_on_it_only_when_asked() {
+        let (gw, gh) = (40usize, 40usize);
+        let n = gw * gh;
+        let field = vec![1.0f32; n];
+        let wb = vec![0u8; n];
+        let lake_fill = vec![0.0f32; n];
+        let mut suit = vec![0.30f32; n];
+        suit[30 * gw + 30] = 0.9; // above SETTLE_SEED_THRESH: accepted whatever the roll
+        let places = vec![NamedSettlement {
+            tid: 0,
+            placement: SettlementPlacement { x: 5, y: 5, suit: 0.9, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false },
+            name: "Capital".to_string(),
+            pop: 15000,
+        }];
+        let mut on = vec![false; n];
+        for y in 0..gh {
+            on[y * gw + 33] = true;
+        }
+        let seed = |river: Option<RiverOn<'_>>| {
+            let mut rng = cartalith_rng::Mulberry32::new(1);
+            civ_seed_villages_on_rivers(&places, &[], 1, 1.0, &mut rng, &suit, &field, &wb, &lake_fill, gw, gh, 0.0, 40.0, &[], river)
+        };
+        let off = seed(None);
+        assert_eq!(off.len(), 1, "premise: one village");
+        assert_eq!((off[0].x, off[0].y), (30, 30));
+        let on_v = seed(Some(RiverOn { on: &on, reach: 5 }));
+        assert_eq!((on_v[0].x, on_v[0].y), (33, 30), "seeded on the river");
+        assert_eq!(on_v[0].name, off[0].name, "the same name draw");
     }
 
     /// Protects Ruling EX's term in the ranking: switched off (`None`, the

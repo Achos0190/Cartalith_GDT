@@ -9955,6 +9955,14 @@ mod substrate_tests {
             // stretch of 4 road-edge-only cells"; not re-measured under the
             // follow-up's gully term, since the pin stands either way).
             p.tect.orogen_relief = false;
+            // Ruling EX's river constraint (`civ.river_front`, its follow-up of
+            // 2026-11-14) is pinned OFF for the same reason: it moves towns and
+            // so roads, and with it on this seed has no straight road-edge-only
+            // stretch of 4 cells (measured 2026-11-14: "no stretch of 4
+            // road-edge-only cells"). The save and reopen paths under test do
+            // not read the switch; with it off the fixture is the placement it
+            // was built on.
+            p.civ.river_front = false;
             let ws = cartalith_engine::generate_terrain(&p);
             let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
             let civ = crate::compute_civilisation(

@@ -979,7 +979,12 @@ pub struct CivParams {
     /// (`cartalith_civ::build_river_front`, weight
     /// `cartalith_civ::SUIT_W_FULL_RIVER_FRONT`): a cell whose own town box a real
     /// traced river crosses scores higher, so a river town sits on its river.
-    /// It is one more term in the ranking, never a gate or a snap.
+    /// **And, since the same day's follow-ups** (*"per town placement is
+    /// critical. If it misses it just looks silly"*), a constraint: a town or
+    /// village with the map's river in reach but not on it is moved onto the
+    /// best-ranked cell on it (`cartalith_civ::civ_settle_on_river`), the
+    /// ranking still choosing where on the river (Ruling N). Until then this
+    /// doc said "never a gate or a snap"; the owner lifted that restraint.
     ///
     /// **`false` here, `true` in the shipped app** (`cartalith-godot`'s
     /// `params::defaults`), the `DECISIONS.md` §7p split: the reference has no

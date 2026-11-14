@@ -2165,7 +2165,7 @@ fn a_town_on_its_traced_river_has_the_river_through_its_market() {
 /// water reaches is laid out `landlocked`, with no invented river through it,
 /// when the world has a river network. Without one (`order: None`) the
 /// reference's synthetic river is the only river there is, and it stays.
-/// MUTATION: `dry_box_kind` returning `kind` fails the first half.
+/// MUTATION: `box_water_kind` returning `kind` fails the first half.
 #[test]
 fn a_dry_box_in_a_world_with_rivers_is_not_given_an_invented_river() {
     let f = Fixture::new();
@@ -2189,4 +2189,102 @@ fn a_dry_box_in_a_world_with_rivers_is_not_given_an_invented_river() {
     let bare = f.world();
     let ctx0 = um_place_context(&bare, &s, &[]);
     assert_eq!(ctx0.site_kind, "river");
+}
+
+/// A water context for [`box_water_kind`]'s table: `river` says whether the
+/// box holds a real river path, `sea_frac` how much of it is sea.
+fn box_water(river: bool, sea_frac: f64) -> UmWater {
+    UmWater {
+        ctx: WaterCtx {
+            mask: vec![0; 4],
+            dt: vec![0.0; 4],
+            mw: 2,
+            mh: 2,
+            cell_m: 22.0,
+            river_path: river.then(|| vec![Vec2::new(0.0, 600.0), Vec2::new(1700.0, 650.0)]),
+            river_width_m: Some(24.0),
+            river_order: 3.0,
+            sea_lake_cells: 0.0,
+        },
+        mostly_water: false,
+        sea_frac,
+    }
+}
+
+/// Protects Ruling EX's follow-up (owner 2026-11-14): the site kind agrees with
+/// the box's real water both ways, cell for cell of `box_water_kind`'s table: a
+/// town is `river`/`riverthrough` only with the map's river in its box,
+/// `coast`/`bay` only with sea in it, and the proxy's word stands wherever the
+/// box agrees with it; a sea sliver at or under 2 % is not sea; and a world with
+/// no river network keeps the proxy (the reference's case). Literals.
+/// MUTATION: `BOX_SEA_FRAC` 0.02 -> 0.0 fails the sliver row; dropping the
+/// `river_kind` keep fails the first row.
+#[test]
+fn the_site_kind_follows_the_water_in_the_box() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let w = river_world(&f, &order, &[]);
+    let k = |kind: &'static str, water: Option<UmWater>| box_water_kind(&w, kind, water.as_ref());
+    // river and sea
+    assert_eq!(k("river", Some(box_water(true, 0.3))), "river");
+    assert_eq!(k("riverthrough", Some(box_water(true, 0.3))), "riverthrough");
+    assert_eq!(k("bay", Some(box_water(true, 0.3))), "riverthrough");
+    assert_eq!(k("landlocked", Some(box_water(true, 0.3))), "riverthrough");
+    // river only
+    assert_eq!(k("riverthrough", Some(box_water(true, 0.0))), "riverthrough");
+    assert_eq!(k("coast", Some(box_water(true, 0.0))), "river");
+    assert_eq!(k("landlocked", Some(box_water(true, 0.0))), "river");
+    // sea only
+    assert_eq!(k("river", Some(box_water(false, 0.3))), "coast");
+    assert_eq!(k("riverthrough", Some(box_water(false, 0.3))), "coast");
+    assert_eq!(k("bay", Some(box_water(false, 0.3))), "bay");
+    assert_eq!(k("landlocked", Some(box_water(false, 0.3))), "coast");
+    // neither: dry, a lake, or a sea sliver of 2 % or less
+    assert_eq!(k("river", None), "landlocked");
+    assert_eq!(k("coast", Some(box_water(false, 0.0))), "landlocked");
+    assert_eq!(k("bay", Some(box_water(false, 0.02))), "landlocked");
+    assert_eq!(k("landlocked", None), "landlocked");
+    // no river network: the proxy stands
+    let bare = f.world();
+    assert_eq!(box_water_kind(&bare, "river", None), "river");
+    assert_eq!(box_water_kind(&bare, "bay", Some(&box_water(false, 0.0))), "bay");
+}
+
+/// Protects Ruling EX's follow-up (owner 2026-11-14): a traced stem inside
+/// `um_water_ctx`'s stem search (1.8 cells at this fixture's 12.5 km cells) but
+/// wholly outside the 1.7 x 1.25 km town box is not the town's river: no river
+/// path, so the box is dry, the town is laid out `landlocked` and draws no
+/// river. The reference drew that stem, outside the town, as its river, with
+/// its bridge point on it. The same stem through the box is kept (control).
+/// MUTATION: `path_touches_box` returning true fails the first assertion.
+#[test]
+fn a_river_that_misses_the_box_is_not_the_towns_river() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| traced(21, y)).collect();
+    let polys = vec![stem];
+    let w = river_world(&f, &order, &polys);
+    assert!(um_water_ctx(&w, 20.0, 24.0).is_none(), "a stem one cell (12.5 km) east is outside the box");
+    let ctx = um_place_context(&w, &settlement(20, 24, 4_000), &[]);
+    assert_eq!(ctx.site_kind, "landlocked");
+    let l = run_layout(&ctx, None).expect("a layout");
+    assert!(!l.uses_real_water && l.bridges.is_none() && l.ford.is_none());
+    // Control: the stem through the town's own cell is its river.
+    let water = um_water_ctx(&w, 21.0, 24.0).expect("the stem crosses this box");
+    assert!(water.ctx.has_real_river_path());
+    assert_eq!(um_place_context(&w, &settlement(21, 24, 4_000), &[]).site_kind, "river");
+}
+
+/// Protects `path_touches_box`: a segment crossing the box with both ends
+/// outside touches it, one passing beside it does not, a point inside does.
+/// Literals.
+#[test]
+fn a_path_touches_the_box_only_where_it_enters_it() {
+    let (wm, hm) = (1700.0, 1250.0);
+    assert!(path_touches_box(&[Vec2::new(-100.0, 600.0), Vec2::new(1800.0, 650.0)], wm, hm), "straight across");
+    assert!(path_touches_box(&[Vec2::new(-500.0, -500.0), Vec2::new(500.0, 500.0)], wm, hm), "in through a corner");
+    assert!(!path_touches_box(&[Vec2::new(-100.0, 1300.0), Vec2::new(1800.0, 1400.0)], wm, hm), "beside it, to the south");
+    assert!(!path_touches_box(&[Vec2::new(-500.0, 100.0), Vec2::new(100.0, -500.0)], wm, hm), "past the corner, outside");
+    assert!(path_touches_box(&[Vec2::new(850.0, 625.0)], wm, hm), "a point inside");
+    assert!(!path_touches_box(&[], wm, hm));
 }

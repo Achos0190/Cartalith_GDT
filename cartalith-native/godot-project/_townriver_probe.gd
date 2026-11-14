@@ -3,7 +3,7 @@ extends Node
 ## same matter double check this on the bigger map that it sits correctly."*): frames of the real shell, the same
 ## settlement in the City Viewer and on the world map, for `docs/evidence/town-river-2026-11-14/`.
 ##
-##   Godot_v4.7.2-stable_win64_console.exe --path . --resolution 1600x1000 _townriver_probe.tscn -- --out <dir> [--seed N] [--viewer I] [--crops I,J,K] [--zoom Z] [--front 0|1] [--grid WxH]
+##   Godot_v4.7.2-stable_win64_console.exe --path . --resolution 1600x1000 _townriver_probe.tscn -- --out <dir> [--seed N] [--viewer I] [--crops I,J,K] [--zoom Z] [--front 0|1] [--grid WxH] [--min-pop P]
 ##
 ## **Windowed, never `--headless`** (it reads rendered pixels). Defaults: seed 483920 at 384 x 288 over 800 km (`--grid` for another, e.g. the app's 2048 x 1311) (the
 ## grid `_wallhug_probe.gd` sent the owner's frame from), City Viewer for settlement 6 in the map look, world-map
@@ -59,6 +59,8 @@ func _ready() -> void:
 	var front := -1
 	var gw := 384
 	var gh := 288
+	## `--min-pop P`: list every town of at least P people (default 3 000; 0 lists every settlement).
+	var min_pop := 3000
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
@@ -77,6 +79,8 @@ func _ready() -> void:
 				zoom = float(args[i + 1])
 			"--front":
 				front = int(args[i + 1])
+			"--min-pop":
+				min_pop = int(args[i + 1])
 			"--grid":
 				var wh := String(args[i + 1]).split("x")
 				gw = int(wh[0])
@@ -115,9 +119,9 @@ func _ready() -> void:
 	var places: Array = bridge.settlements()
 	_ok(places.size() > maxi(viewer, 0), "the world generated (%d settlements)" % places.size())
 
-	## Every town of at least 3 000 people, with what its layout was given: the list a frame is chosen from.
+	## Every town of at least `min_pop` people, with what its layout was given: the list a frame is chosen from.
 	for k in places.size():
-		if int(places[k].get("population", 0)) >= 3000:
+		if int(places[k].get("population", 0)) >= min_pop:
 			var lt: Dictionary = bridge.urban_layouts(PackedInt32Array([k]))[0]
 			## Market to the layout's river, in metres (`Geometry2D` on each segment); `-` without a river of two points.
 			var rv: PackedVector2Array = lt.get("river", PackedVector2Array())
@@ -168,6 +172,10 @@ func _ready() -> void:
 			int(places[viewer]["x"]), int(places[viewer]["y"]), lay.get("site_kind", "?"), lay.get("uses_real_water", "?"),
 			riv.size(), riv[0] if riv.size() > 0 else Vector2.INF, riv[riv.size() - 1] if riv.size() > 0 else Vector2.INF,
 			lay.get("market", "?")])
+		## The water the layout draws: river width, the water polygon, the mask runs, and its crossings.
+		print("  river_w %s water_poly %d pts water_mask_runs %d bridges %d ford %s" % [lay.get("river_w", "?"),
+			PackedVector2Array(lay.get("water_poly", PackedVector2Array())).size(), Array(lay.get("water_mask_runs", [])).size(),
+			PackedVector2Array(lay.get("bridges", PackedVector2Array())).size(), lay.has("ford")])
 		_app.open_city_viewer(viewer)
 		await _frames(12)
 		var cv = _app.city_viewer_window

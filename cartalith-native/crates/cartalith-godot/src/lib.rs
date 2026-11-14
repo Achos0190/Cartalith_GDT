@@ -2676,6 +2676,69 @@ mod civ_pipeline_tests {
         assert!(mean(&on) > mean(&off), "the term only adds: {} vs {}", mean(&on), mean(&off));
     }
 
+    /// Protects Ruling EX's follow-up (owner 2026-11-14: *"per town placement is
+    /// critical. If it misses it just looks silly"*) on a real world (the
+    /// 256 x 192 app fixture, villages on): with `civ.river_front` on, the
+    /// settlements whose proxy square (`um_site_kind_radius_cells`) holds the
+    /// map's river (the world's own traced network through `build_river_on`)
+    /// sit on it, nineteen in twenty or better, and every one of the network
+    /// towns (placement's own call, apart from village seeding's); with it off
+    /// a measurable share sit beside it, so the bar measures something. Every
+    /// network town still has a way. MUTATION: passing `None` for the
+    /// constraint to placement, or building it from the civ pass's rebuilt
+    /// network, fails a bar.
+    #[test]
+    fn river_towns_sit_on_the_maps_river() {
+        let (ws, base) = world();
+        let (gw, gh) = (base.gw, base.gh);
+        let mut on_p = base.clone();
+        on_p.civ.villages = true;
+        assert!(on_p.civ.river_front, "premise: the app has the constraint on");
+        let mut off_p = on_p.clone();
+        off_p.civ.river_front = false;
+        let order = ws.stream_order.as_ref().expect("premise: a river network");
+        let recv = &ws.channels.as_ref().expect("premise: channels").recv;
+        let polys = cartalith_hydrology::trace_river_polylines(order, recv, gw, gh, 1);
+        let on_cells = cartalith_civ::build_river_on(&polys, gw, gh, base.map_width_km * 1000.0 / gw as f64);
+        let reach = cartalith_civ::urban_adapter::um_site_kind_radius_cells(gw, base.map_width_km) as usize;
+        // `network`: only the placed towns (not the villages), whose constraint
+        // is a separate call (`place_settlements_on_rivers`).
+        let share_of = |c: &CivData, network: bool| {
+            let (mut cand, mut sat) = (0usize, 0usize);
+            for s in c.settlements.iter().filter(|s| !network || !c.village_tids.contains(&s.tid)) {
+                let (x, y) = (s.placement.x, s.placement.y);
+                let near = (y.saturating_sub(reach)..=(y + reach).min(gh - 1))
+                    .any(|yy| (x.saturating_sub(reach)..=(x + reach).min(gw - 1)).any(|xx| on_cells[yy * gw + xx]));
+                if near {
+                    cand += 1;
+                    sat += on_cells[y * gw + x] as usize;
+                }
+            }
+            (cand, sat)
+        };
+        let share = |c: &CivData| share_of(c, false);
+        let (on, off) = (civ(&on_p, &[]), civ(&off_p, &[]));
+        let ((c_on, s_on), (c_off, s_off)) = (share(&on), share(&off));
+        let ((n_on, t_on), (n_off, t_off)) = (share_of(&on, true), share_of(&off, true));
+        // Measured 2026-11-14: all settlements 210 of 212 on, 112 of 207 off;
+        // the network towns 15 of 15 on, 7 of 15 off.
+        assert!(n_on >= 10, "premise: network river towns to measure, got {n_on}");
+        assert_eq!(t_on, n_on, "every network river town on the map's river (off: {t_off} of {n_off})");
+        assert!(c_on >= 20, "premise: river towns to measure, got {c_on}");
+        assert!(s_on * 20 >= c_on * 19, "on: {s_on} of {c_on} river towns on the map's river");
+        assert!(s_off * 10 < c_off * 9, "control: off already has {s_off} of {c_off} on it, so the bar measures nothing");
+        for (i, s) in on.settlements.iter().enumerate() {
+            if on.village_tids.contains(&s.tid) {
+                continue;
+            }
+            let (sx, sy) = (s.placement.x as f64, s.placement.y as f64);
+            assert!(
+                on.ways.iter().any(|w| w.a_idx == i || w.b_idx == i || w.pts.iter().any(|&(qx, qy)| (qx - sx).powi(2) + (qy - sy).powi(2) <= 2.25)),
+                "network town {i} at ({sx}, {sy}) has no way"
+            );
+        }
+    }
+
     /// Protects owner Ruling EU item 1's contract on a real world (the 256 x 192
     /// app fixture, villages on): with `civ.merge_ways` on, the network joins
     /// exactly the same settlement pairs in the same order as with it off (only
@@ -4962,11 +5025,37 @@ fn compute_civilisation(
         // Ruling ER: rebuilt along the tree the world was routed with.
         cartalith_civ::fresh_river_network_with(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage, cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, world).as_ref(), cartalith_engine::fill_tilt_of(ws.basin_routing));
     let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
-    // Ruling EX (2026-11-14): the river frontage term, built only when it is
-    // switched on, so the reference boundary allocates nothing for it.
-    let river_front = opts
-        .river_front
-        .then(|| cartalith_civ::build_river_front(&river_polys, &river_order, gw, gh, map_width_km * 1000.0 / gw as f64));
+    // Ruling EX (2026-11-14): the river frontage term and the river constraint
+    // (`river_on`, read by placement and village seeding below), built only
+    // when `civ.river_front` is on, so the reference boundary allocates nothing
+    // for them. Both read the river network the MAP draws and the town layouts
+    // read (`WorldState::stream_order` traced along `channels`), not the
+    // rebuild above, which shares only about two thirds of its cells with it
+    // (`cartalith_civ::build_river_front`'s doc); a world without that network
+    // (a loaded save) falls back to the rebuild.
+    let cell_m = map_width_km * 1000.0 / gw as f64;
+    let (river_front, river_on) = if opts.river_front {
+        let map_net = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => Some((cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1), order)),
+            _ => None,
+        };
+        let (polys, order): (&[Vec<(f64, f64)>], &[i16]) = match map_net.as_ref() {
+            Some((p, o)) => (p, o),
+            None => (&river_polys, &river_order),
+        };
+        (
+            Some(cartalith_civ::build_river_front(polys, order, gw, gh, cell_m)),
+            Some(cartalith_civ::build_river_on(polys, gw, gh, cell_m)),
+        )
+    } else {
+        (None, None)
+    };
+    // The proxy's own search square (`um_site_kind_from_terrain`): the towns
+    // the constraint moves are the ones the layout would call river towns.
+    let river_constraint = river_on.as_deref().map(|on| cartalith_civ::RiverOn {
+        on,
+        reach: cartalith_civ::urban_adapter::um_site_kind_radius_cells(gw, map_width_km) as isize,
+    });
     drop(river_polys);
 
     // One definition, built twice: here for the suitability grid, and again
@@ -5094,9 +5183,11 @@ fn compute_civilisation(
                 None => (opts.seed_thresh, (gw as f64 / opts.seed_suppress_div.max(1.0)).floor().max(6.0)),
             };
             let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, thresh, supp_r);
-            cartalith_civ::place_settlements_with_counts(
+            // `river_constraint` is `None` with `civ.river_front` off: the
+            // reference's placement by control flow.
+            cartalith_civ::place_settlements_on_rivers(
                 &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, opts.factions.max(1),
-                &flood, &ws.flow_discharge, flow_thresh, map_width_km, want,
+                &flood, &ws.flow_discharge, flow_thresh, map_width_km, want, river_constraint,
             )
         }
     };
@@ -5287,7 +5378,7 @@ fn compute_civilisation(
         // second hardcoded literal drifting from it.
         let routing_rw = gw.min(cartalith_civ::RW_CAP);
         let routing_sc = routing_rw as f64 / gw as f64;
-        let villages = cartalith_civ::civ_seed_villages(
+        let villages = cartalith_civ::civ_seed_villages_on_rivers(
             &settlements,
             roads,
             routing_rw,
@@ -5302,6 +5393,7 @@ fn compute_civilisation(
             sea_level,
             map_width_km,
             faction_cultures,
+            river_constraint,
         );
         // Reference `_civSeedVillages`'s own added object has no
         // suitability score, no capital/coastal flags, and an

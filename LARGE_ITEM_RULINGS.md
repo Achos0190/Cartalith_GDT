@@ -3743,3 +3743,10 @@ Measured first (`cartalith-native/crates/cartalith-godot/src/town_river_census.r
 - `um_water_ctx` reads traced points in the settlement's frame (`traced_to_cell`): a coordinate fix, no switch. `um_site_profile` keeps the reference's frame because it is golden-pinned; moving it is left open.
 - A box no real water reaches is laid out `landlocked` when the world has a river network (`dry_box_kind`): no invented river or shoreline. No switch; no golden reaches it.
 - **`civ.river_front`**: settlement suitability gains a river frontage term (`build_river_front`, weight 0.25, reach 625 m), under Ruling N's constraint that the ranking stays the authority. On in `params::defaults`, off in `WorldParams::defaults` and for a save without the key (`DECISIONS.md` §7p). The weight is a measured judgement; 0.40 put more towns on rivers but moved most of a world's towns, which Ruling N's constraint rules out.
+
+**Follow-ups, owner, 2026-11-14** (on the build above, verbatim):
+
+1. *"You can push it harder, roads will connect anyway. But per town placement is critical. If it misses it just looks silly."*
+2. *"Placement should be checked and corrected by an opus agent"*
+
+What they change: the restraint recorded in the last bullet (keep most of a world's towns on their cells) is **lifted** for this term; moving towns is accepted. The goal is every river town on its river, as near 0 % off as practical, and a town that cannot sit on a river is not a river town: it is drawn landlocked or coastal, never with an invented river. Ruling N's constraint still holds: the suitability ranking decides where on the river a town goes. Built the same day under `civ.river_front` (the same switch, §7p unchanged); the check, the causes and the numbers are in `cartalith-native/docs/STATUS.md` ("Towns sit on their river"), the frames in `cartalith-native/docs/evidence/town-river-2026-11-14/`.

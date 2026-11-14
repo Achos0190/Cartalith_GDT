@@ -705,22 +705,43 @@ static func _draw_water_mask(ci: CanvasItem, layout: Dictionary, project: Callab
 		release_pts.append(layout["ford"])
 
 	var river_w: float = float(layout.get("river_w", 20.0))
-	var release_r2: float = pow(river_w * 0.5 + 20.0, 2.0)
+	var release_r: float = river_w * 0.5 + 20.0
 	var water: Color = tint.call(WATER)
 
+	## Each run is one mask row, `quad[0]` its low corner and `quad[2]` its high
+	## one. Only the stretch of the row within `release_r` of a crossing is
+	## released; the rest of the row is drawn. Until 2026-11-14 a run was
+	## released WHOLE when its centre lay that near, and a river crossing the
+	## town box straight east-west is one run per row spanning the whole box,
+	## centred on the crossing: every row was released and the town drew no
+	## river at all (seed 483920 at 384 x 288, settlements #36 and #70 of the
+	## app's world, both on the map's river; the town-placement follow-up of
+	## Ruling EX). Must never release more of a row than lies within
+	## `release_r` of a crossing.
 	for run in runs:
 		var quad: PackedVector2Array = run
 		if quad.size() < 4:
 			continue
-		var center: Vector2 = (quad[0] + quad[2]) * 0.5
-		var released := false
+		var y0: float = quad[0].y
+		var y1: float = quad[2].y
+		var cy: float = (y0 + y1) * 0.5
+		## The row's kept stretches, each as (from x, to x).
+		var pieces: Array[Vector2] = [Vector2(quad[0].x, quad[2].x)]
 		for p in release_pts:
-			if center.distance_squared_to(p) < release_r2:
-				released = true
-				break
-		if released:
-			continue
-		_fill_ground_polygon(ci, project.call(quad), water)
+			var dy: float = absf(p.y - cy)
+			if dy >= release_r:
+				continue
+			var dx: float = sqrt(release_r * release_r - dy * dy)
+			var kept: Array[Vector2] = []
+			for piece in pieces:
+				if piece.x < p.x - dx:
+					kept.append(Vector2(piece.x, minf(piece.y, p.x - dx)))
+				if piece.y > p.x + dx:
+					kept.append(Vector2(maxf(piece.x, p.x + dx), piece.y))
+			pieces = kept
+		for piece in pieces:
+			var q := PackedVector2Array([Vector2(piece.x, y0), Vector2(piece.y, y0), Vector2(piece.y, y1), Vector2(piece.x, y1)])
+			_fill_ground_polygon(ci, project.call(q), water)
 
 
 ## `buildFarmland`'s fields and pastures, filled flat with a hairline furrow

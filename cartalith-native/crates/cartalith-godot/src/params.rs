@@ -311,7 +311,8 @@ pub fn defaults() -> WorldParams {
     // `CivParams::merge_ways`.
     p.civ.merge_ways = true;
     // Ruling EX (owner report 2026-11-14): a river town sits on its river,
-    // through the river frontage suitability term. Off in
+    // through the river frontage suitability term and, since the follow-ups of
+    // the same day, the river constraint (`civ_settle_on_river`). Off in
     // `WorldParams::defaults`, the reference's placements every golden reads
     // (`DECISIONS.md` section 7p). See `CivParams::river_front`.
     p.civ.river_front = true;
@@ -913,7 +914,8 @@ pub const PARAMS: &[ParamSpec] = &[
         label: "Merge roads into shared trunks", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.civ.merge_ways), set_fn: |p, v| p.civ.merge_ways = v != 0.0 },
     // Ruling EX (owner report 2026-11-14): the river frontage suitability
-    // term, so a river town sits on its river. ON at the app boundary, OFF in
+    // term and the river constraint (its follow-ups, the same day), so a river
+    // town sits on its river. ON at the app boundary, OFF in
     // `WorldParams::defaults`; no reference control (the reference has no such
     // term). A save without the key loads OFF (`LOADS_WHEN_ABSENT`), so an old
     // world's regenerate places its towns where they were. Read by

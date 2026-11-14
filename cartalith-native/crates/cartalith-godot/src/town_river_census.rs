@@ -46,6 +46,14 @@
 //! same world with the term off and report how far the towns moved), and
 //! `TOWN_RIVER_DUMP` (above). The numbers quoted in `STATUS.md` ("Towns sit on
 //! their river") are in `docs/evidence/town-river-2026-11-14/census.txt`.
+//!
+//! **`town_placement_audit`** (below, Ruling EX's follow-ups of the same day:
+//! *"per town placement is critical"*) is the wider check: every town, against
+//! what the map draws, counted by the mismatch kinds in [`KINDS`]. Same world
+//! and environment, plus `TOWN_RIVER_LIST=1` (a row per mismatched town, with
+//! the nearest cell it would be on its river from), `TOWN_RIVER_ALL=1` (a row
+//! per town) and `TOWN_RIVER_SEEDS=a,b` (other seeds). Its numbers are in
+//! `docs/evidence/town-river-2026-11-14/placement_audit.txt`.
 
 /// `fh_r2_baseline::generate_world`'s world (the app's `params::defaults()`,
 /// 800 km, 6 factions, CPU), with the river frontage term (Ruling EX) set to
@@ -347,4 +355,375 @@ fn write_dump(
         blocks.join(","), blds.join(","), wpolys.join(","), cells.join(","),
     );
     std::fs::write(format!("{dir}/{seed}_{i}.json"), json).expect("dump");
+}
+
+// ------------------------------------------------------------------------
+// The placement audit (owner, 2026-11-14, Ruling EX follow-ups: *"per town
+// placement is critical. If it misses it just looks silly"* and *"Placement
+// should be checked and corrected by an opus agent"*).
+// ------------------------------------------------------------------------
+
+/// Whether segment `a`-`b` touches the axis-aligned rectangle centred on `c`
+/// with half extents `h` (all in grid cells). Liang-Barsky clipping: the
+/// segment's parameter interval inside each slab, intersected.
+fn seg_hits_box(a: (f64, f64), b: (f64, f64), c: (f64, f64), h: (f64, f64)) -> bool {
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    let d = (b.0 - a.0, b.1 - a.1);
+    for (p, q) in [
+        (-d.0, a.0 - (c.0 - h.0)),
+        (d.0, (c.0 + h.0) - a.0),
+        (-d.1, a.1 - (c.1 - h.1)),
+        (d.1, (c.1 + h.1) - a.1),
+    ] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return false;
+            }
+        } else {
+            let r = q / p;
+            if p < 0.0 {
+                t0 = t0.max(r);
+            } else {
+                t1 = t1.min(r);
+            }
+            if t0 > t1 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Bilinear height at a fractional position in the frame cell `c` at `c`,
+/// each tap clamped into the grid on its own: `UrbanWorld::bilin_field`'s
+/// arithmetic, restated because that method is private to the adapter.
+fn bilin(field: &[f32], gw: usize, gh: usize, gx: f64, gy: f64) -> f64 {
+    let (x0, y0) = (gx.floor(), gy.floor());
+    let (fx, fy) = (gx - x0, gy - y0);
+    let cl = |v: f64, hi: usize| v.clamp(0.0, (hi - 1) as f64) as usize;
+    let (cx0, cy0, cx1, cy1) = (cl(x0, gw), cl(y0, gh), cl(x0 + 1.0, gw), cl(y0 + 1.0, gh));
+    let at = |x: usize, y: usize| field[y * gw + x] as f64;
+    at(cx0, cy0) * (1.0 - fx) * (1.0 - fy) + at(cx1, cy0) * fx * (1.0 - fy) + at(cx0, cy1) * (1.0 - fx) * fy + at(cx1, cy1) * fx * fy
+}
+
+/// The mismatch kinds the audit counts, in the order it prints them. Each is
+/// a town the map and the town disagree about, or a town placed where it
+/// looks wrong on the map:
+///
+/// - `in_water`: the marker's own cell is sea or lake (`field < sea` or a
+///   water-body class), or the layout reports the pin in open water.
+/// - `river_town_off_river`: the siting proxy (`um_site_kind_from_terrain`)
+///   calls it a river town, and the map's river runs further than
+///   `SITE_HM / 2` (625 m) from the marker: the town is beside its river.
+/// - `river_kind_without_river`: laid out `river`/`riverthrough`, but no traced
+///   river crosses the town box (the layout's river is invented, or lies
+///   outside the town).
+/// - `river_kind_off_river`: laid out as a river town and the river crosses
+///   the box, but further than 625 m from the marker: drawn at the box's edge.
+/// - `river_in_box_not_river_kind`: the map's river passes within 625 m of the
+///   marker, but the layout is `landlocked`, `coast` or `bay`.
+/// - `coast_kind_without_sea`: laid out `coast`/`bay` and no sea in the box.
+/// - `landlocked_with_sea`: laid out `landlocked` with sea in the box.
+/// - `crossing_off_map_river`: a bridge or ford point further than
+///   `CROSSING_SLACK_M` from the map's river (a crossing of an invented river).
+/// - `harbour_badge_inland`: the `coastal` flag (`civ_is_coastal`, the map's
+///   harbour badge) with no sea in the box. A ruled proxy (Ruling N, Ruling AR),
+///   reported, not corrected here.
+const KINDS: [&str; 9] = [
+    "in_water",
+    "river_town_off_river",
+    "river_kind_without_river",
+    "river_kind_off_river",
+    "river_in_box_not_river_kind",
+    "coast_kind_without_sea",
+    "landlocked_with_sea",
+    "crossing_off_map_river",
+    "harbour_badge_inland",
+];
+
+/// How far a bridge or ford point may sit from the map's traced river and
+/// still be a crossing of it, in metres. **A labelled judgement**: the widest
+/// river a layout draws (46 m, `um_water_ctx`'s width clamp) plus the largest
+/// drawn offset of a town's river from the map's measured after the
+/// 2026-11-14 transform fix (0.15 cells, 59 m at 2 048; 0.03 cells, 62 m at
+/// 384), rounded up.
+const CROSSING_SLACK_M: f64 = 120.0;
+
+/// The placement audit: every settlement of each seed laid out as the app lays
+/// it out, checked against the map's own rivers, sea and lakes and counted by
+/// [`KINDS`]; then whether every network town still has a way, and with
+/// `TOWN_RIVER_COMPARE` how far the towns moved against the same world with
+/// `civ.river_front` flipped. A measurement, not a gate: it asserts nothing.
+#[test]
+#[ignore = "measurement; see the module doc and KINDS"]
+fn town_placement_audit() {
+    let gw: usize = std::env::var("TOWN_RIVER_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(384);
+    let list = std::env::var("TOWN_RIVER_LIST").is_ok_and(|v| v == "1");
+    // `TOWN_RIVER_ALL=1`: a row for every town, matched or not (to choose frames).
+    let all_rows = std::env::var("TOWN_RIVER_ALL").is_ok_and(|v| v == "1");
+    let front = std::env::var("TOWN_RIVER_FRONT").map_or(true, |v| v != "0");
+    let seeds: Vec<i32> = std::env::var("TOWN_RIVER_SEEDS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| SEEDS.to_vec());
+    let mut total: std::collections::BTreeMap<&str, usize> = KINDS.iter().map(|&k| (k, 0)).collect();
+    let (mut all_towns, mut all_river_towns, mut all_moved, mut all_same) = (0usize, 0usize, Vec::new(), 0usize);
+    for seed in seeds {
+        let (ws, civ, gh, p) = generate_world(seed, gw, front);
+        let gpm = gw as f64 / (p.map_width_km * 1000.0);
+        let cell_m = 1.0 / gpm;
+        let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+            (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1),
+            _ => Vec::new(),
+        };
+        let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km);
+        // Premise: the rivers settlement siting reads (`compute_civilisation`'s
+        // `fresh_river_network_with`) are the rivers the map draws and the
+        // layouts read (the world's own `stream_order`/`channels`).
+        let (_, civ_polys) = cartalith_civ::fresh_river_network_with(
+            &ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, p.world, p.river_density, p.map_width_km, ws.integrated_drainage,
+            cartalith_engine::routing_roughness_of(ws.routing_roughness, gw, gh, p.world).as_ref(),
+            cartalith_engine::fill_tilt_of(ws.basin_routing),
+        );
+        {
+            let cells = |v: &[Vec<(f64, f64)>]| -> std::collections::HashSet<(i64, i64)> {
+                v.iter().flatten().map(|q| (q.0.floor() as i64, q.1.floor() as i64)).collect()
+            };
+            let (a, b) = (cells(&civ_polys), cells(&river_polys));
+            println!(
+                "  the civ pass's rivers are the map's: {} ({} and {} polylines; cells civ {}, map {}, shared {})",
+                civ_polys == river_polys, civ_polys.len(), river_polys.len(), a.len(), b.len(), a.intersection(&b).count()
+            );
+        }
+        let uw = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: ws.sea_level,
+            map_width_km: p.map_width_km,
+            flow_thresh,
+            world_seed: seed,
+        };
+        let (wm, hm) = (cartalith_civ::urban_adapter::SITE_WM, cartalith_civ::urban_adapter::SITE_HM);
+        let half_box = (wm / 2.0 * gpm, hm / 2.0 * gpm);
+        let near_m = hm / 2.0;
+        let mut counts: std::collections::BTreeMap<&str, usize> = KINDS.iter().map(|&k| (k, 0)).collect();
+        let mut river_towns = 0usize;
+        // For the miss explanations: the cells a town would be on its river
+        // from, and the proxy's search square.
+        let on = cartalith_civ::build_river_on(&river_polys, gw, gh, cell_m);
+        let reach = cartalith_civ::urban_adapter::um_site_kind_radius_cells(gw, p.map_width_km) as i64;
+        let mut slivers = 0usize;
+        println!("seed {seed} at {gw}x{gh} ({cell_m:.0} m a cell), civ.river_front {front}: {} settlements ({} villages)", civ.settlements.len(), civ.village_tids.len());
+        for (i, s) in civ.settlements.iter().enumerate() {
+            let (x, y) = (s.placement.x, s.placement.y);
+            let m = (x as f64 + 0.5, y as f64 + 0.5);
+            let o = PlaceOverrides { faith: civ.town_faith(s), ..Default::default() };
+            let ctx = um_place_context_with(&uw, s, &civ.ways, &o);
+            let proxy = cartalith_civ::urban_adapter::um_site_kind_from_terrain(&uw, x as f64, y as f64);
+            let kind = ctx.site_kind;
+            // The map's river nearest the marker, segment distance, metres.
+            let mut river_m = f64::INFINITY;
+            let mut in_box = false;
+            for pl in &river_polys {
+                if pl.len() == 1 {
+                    river_m = river_m.min(((pl[0].0 - m.0).powi(2) + (pl[0].1 - m.1).powi(2)).sqrt() * cell_m);
+                }
+                for w in pl.windows(2) {
+                    river_m = river_m.min(seg_dist(m, w[0], w[1]) * cell_m);
+                    in_box |= seg_hits_box(w[0], w[1], m, half_box);
+                }
+            }
+            // Sea and lake in the box, on `um_water_ctx`'s own 22 m raster and
+            // its own tests (bilinear sea, nearest-cell lake), in the frame cell
+            // `c` at `c`, where the box centre is the settlement's (x, y).
+            let (mw, mh) = ((wm / 22.0).round() as usize, (hm / 22.0).round() as usize);
+            let (mut sea, mut lake) = (0usize, 0usize);
+            for j in 0..mh {
+                for k in 0..mw {
+                    let gx = x as f64 + ((k as f64 + 0.5) * 22.0 - wm / 2.0) * gpm;
+                    let gy = y as f64 + ((j as f64 + 0.5) * 22.0 - hm / 2.0) * gpm;
+                    if gx < 0.0 || gy < 0.0 || gx >= gw as f64 || gy >= gh as f64 {
+                        continue;
+                    }
+                    let gi = (gy.round() as usize).min(gh - 1) * gw + (gx.round() as usize).min(gw - 1);
+                    if civ.water_bodies.get(gi).copied() == Some(2) {
+                        lake += 1;
+                    } else if bilin(&ws.field, gw, gh, gx, gy) < ws.sea_level {
+                        sea += 1;
+                    }
+                }
+            }
+            let ci = y * gw + x;
+            let layout = run_layout(&ctx, None);
+            let mostly_water = ctx.water.as_ref().is_some_and(|w| w.mostly_water);
+            let mut hits: Vec<&str> = Vec::new();
+            if (ws.field[ci] as f64) < ws.sea_level || civ.water_bodies.get(ci).is_some_and(|&c| c != 0) || mostly_water {
+                hits.push("in_water");
+            }
+            let river_town = proxy == "river" || proxy == "riverthrough";
+            if river_town {
+                river_towns += 1;
+                if river_m > near_m {
+                    hits.push("river_town_off_river");
+                }
+            }
+            let river_kind = kind == "river" || kind == "riverthrough";
+            if river_kind && !in_box {
+                hits.push("river_kind_without_river");
+            }
+            if river_kind && in_box && river_m > near_m {
+                hits.push("river_kind_off_river");
+            }
+            if !river_kind && river_m <= near_m {
+                hits.push("river_in_box_not_river_kind");
+            }
+            // "Sea in the box" is more than 2 % of its raster, the line the
+            // proxy draws between `landlocked` and `coast` (reference
+            // `_umSiteKindFromTerrain`); a smaller sliver is counted apart.
+            let sea_in_box = sea as f64 / (mw * mh) as f64 > 0.02;
+            if sea > 0 && !sea_in_box {
+                slivers += 1;
+            }
+            if (kind == "coast" || kind == "bay") && !sea_in_box {
+                hits.push("coast_kind_without_sea");
+            }
+            if kind == "landlocked" && sea_in_box {
+                hits.push("landlocked_with_sea");
+            }
+            let mut crossing_off = Vec::new();
+            if let Some(l) = layout.as_ref() {
+                let to_grid = |v: Vec2| (m.0 + (v.x - l.market.x) * gpm, m.1 + (v.y - l.market.y) * gpm);
+                let mut pts: Vec<Vec2> = l.bridges.as_ref().map(|b| b.iter().map(|b| b.pt).collect()).unwrap_or_default();
+                if let Some(f) = l.ford.as_ref() {
+                    pts.push(f.pt);
+                }
+                for q in pts {
+                    let g = to_grid(q);
+                    let d = river_polys.iter().filter_map(|pl| line_dist(g, pl)).fold(f64::INFINITY, f64::min) * cell_m;
+                    if d > CROSSING_SLACK_M {
+                        crossing_off.push(d);
+                    }
+                }
+            }
+            if !crossing_off.is_empty() {
+                hits.push("crossing_off_map_river");
+            }
+            if s.placement.coastal && !sea_in_box {
+                hits.push("harbour_badge_inland");
+            }
+            for h in &hits {
+                *counts.get_mut(h).unwrap() += 1;
+            }
+            if (list && !hits.is_empty()) || all_rows {
+                let village = civ.village_tids.contains(&s.tid);
+                // Why a river town is off its river: the nearest cell it would
+                // be on its river from (Chebyshev cells), and of the cells in
+                // the proxy's square, how many are on the river and dry.
+                let (mut near_on, mut in_reach, mut dry) = (i64::MAX, 0usize, 0usize);
+                for yy in (y as i64 - 12).max(0)..=(y as i64 + 12).min(gh as i64 - 1) {
+                    for xx in (x as i64 - 12).max(0)..=(x as i64 + 12).min(gw as i64 - 1) {
+                        let k = yy as usize * gw + xx as usize;
+                        if !on[k] {
+                            continue;
+                        }
+                        let d = (xx - x as i64).abs().max((yy - y as i64).abs());
+                        near_on = near_on.min(d);
+                        if d <= reach {
+                            in_reach += 1;
+                            if (ws.field[k] as f64) >= ws.sea_level && civ.water_bodies[k] == 0 {
+                                dry += 1;
+                            }
+                        }
+                    }
+                }
+                println!(
+                    "  #{i:3} ({x:4},{y:4}) {}{proxy}>{kind} river {:.0} m in_box {in_box} sea {sea} lake {lake} uses_real_water {} crossings_off {:?} | on-river cell {} cells off, {in_reach} in reach {reach} ({dry} dry): {}",
+                    if village { "village " } else { "" },
+                    river_m,
+                    layout.as_ref().is_some_and(|l| l.uses_real_water),
+                    crossing_off.iter().map(|d| d.round()).collect::<Vec<_>>(),
+                    if near_on == i64::MAX { "none within 12".to_string() } else { near_on.to_string() },
+                    hits.join(", ")
+                );
+            }
+        }
+        println!("  river towns (proxy river/riverthrough): {river_towns} of {}; boxes with a sea sliver of 2 % or less (not counted as sea): {slivers}", civ.settlements.len());
+        for k in KINDS {
+            println!("  {k:28} {}", counts[k]);
+            *total.get_mut(k).unwrap() += counts[k];
+        }
+        println!(
+            "  river towns off their river: {} of {river_towns} ({:.1}%)",
+            counts["river_town_off_river"],
+            100.0 * counts["river_town_off_river"] as f64 / river_towns.max(1) as f64
+        );
+        // Every network town reaches a way: an endpoint, or a way point
+        // within 1.5 cells (a merged trunk passes through the town).
+        let mut unlinked = Vec::new();
+        for (i, s) in civ.settlements.iter().enumerate() {
+            if civ.village_tids.contains(&s.tid) {
+                continue;
+            }
+            let (sx, sy) = (s.placement.x as f64, s.placement.y as f64);
+            let linked = civ.ways.iter().any(|w| {
+                w.a_idx == i || w.b_idx == i || w.pts.iter().any(|&(qx, qy)| (qx - sx).powi(2) + (qy - sy).powi(2) <= 2.25)
+            });
+            if !linked {
+                unlinked.push(i);
+            }
+        }
+        println!(
+            "  network towns with no way: {} of {} {:?}",
+            unlinked.len(),
+            civ.settlements.iter().filter(|s| !civ.village_tids.contains(&s.tid)).count(),
+            unlinked
+        );
+        if std::env::var("TOWN_RIVER_COMPARE").is_ok() {
+            let (_, off, _, _) = generate_world(seed, gw, !front);
+            let mut moved: Vec<f64> = civ
+                .settlements
+                .iter()
+                .filter(|a| !civ.village_tids.contains(&a.tid))
+                .map(|a| {
+                    off.settlements
+                        .iter()
+                        .filter(|b| !off.village_tids.contains(&b.tid))
+                        .map(|b| ((a.placement.x as f64 - b.placement.x as f64).powi(2) + (a.placement.y as f64 - b.placement.y as f64).powi(2)).sqrt())
+                        .fold(f64::INFINITY, f64::min)
+                })
+                .collect();
+            let same = moved.iter().filter(|&&d| d == 0.0).count();
+            let n = moved.len();
+            let med = median(&mut moved).unwrap_or(f64::NAN);
+            let max = moved.iter().cloned().fold(f64::NAN, f64::max);
+            println!(
+                "  network towns against civ.river_front {}: {same} of {n} on the same cell; distance to the nearest town there median {med:.2} cells ({:.2} km), max {max:.2} cells",
+                !front,
+                med * cell_m / 1000.0
+            );
+            all_same += same;
+            all_moved.extend(moved);
+        }
+        all_towns += civ.settlements.len();
+        all_river_towns += river_towns;
+    }
+    println!("all seeds at {gw}: {all_towns} towns, {all_river_towns} river towns");
+    for k in KINDS {
+        println!("  {k:28} {}", total[k]);
+    }
+    println!(
+        "  river towns off their river: {} of {all_river_towns} ({:.1}%)",
+        total["river_town_off_river"],
+        100.0 * total["river_town_off_river"] as f64 / all_river_towns.max(1) as f64
+    );
+    if !all_moved.is_empty() {
+        let n = all_moved.len();
+        let med = median(&mut all_moved).unwrap_or(f64::NAN);
+        println!("  network towns on the same cell as with the term flipped: {all_same} of {n}; median move {med:.2} cells");
+    }
 }
