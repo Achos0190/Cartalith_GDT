@@ -160,6 +160,9 @@ var _phone := false
 const PHONE_CANVAS_H := 330
 
 
+## The host `setup()` was given (the shell), kept so the open path can tell the Back / Forward trail (`ContextWindow.arrived()`).
+var _host_ref = null
+
 ## `host` is the `DccApp` this window is parented to, needed for the phone
 ## treatment. Defaulted rather than added to the call site because `app.gd` is
 ## shared and this is the only fact this window wants from it -- the parent is
@@ -175,6 +178,7 @@ func setup(b: EngineBridge, host = null) -> void:
 	ok_button_text = "Close"
 	if host == null:
 		host = get_parent()
+	_host_ref = host
 	## Also turns `wrap_controls` off -- on with a canvas child that has no
 	## natural size, which is the worst possible combination of the two.
 	_phone = DccWidgets.phone_window(self, host)
@@ -300,6 +304,9 @@ func setup(b: EngineBridge, host = null) -> void:
 	## times a second. Desktop only, like the rest of PC-7.
 	if ContextWindow.applies(host) and host.has_signal("timeline_changed"):
 		host.timeline_changed.connect(_on_year_moved)
+	## PC-7's leftover (§3.6, one host with a back stack): the Back / Forward row above the content, last, once the
+	## content exists (`ContextWindow.attach_nav()`).
+	ContextWindow.attach_nav(self, host)
 
 
 ## The town-look dropdown (`DccSettings.CITY_LOOKS` order: map first here, ink second).
@@ -380,6 +387,27 @@ func open(index: int) -> void:
 		## PW-3: re-decides native versus docked for this open.
 		PopoutHost.prepare(self)
 		popup_centered()
+		## PC-7's leftover: the open is a visit on the Back / Forward trail (`ContextNav`).
+		ContextWindow.arrived(self, _host_ref)
+
+
+## PC-7's leftover (`ContextNav`): the town this viewer shows and whether it was pinned.
+func context_state() -> Dictionary:
+	return {"index": _index, "pinned": not ContextWindow.is_following(self)}
+
+
+## Re-opens on a `context_state()` through `open()`.
+func context_restore(st: Dictionary) -> void:
+	open(int(st.get("index", -1)))
+	if bool(st.get("pinned", false)):
+		ContextWindow.pin(self)
+
+
+## The words for this visit on the trail: the town it showed.
+func context_label(st: Dictionary) -> String:
+	var all: Array = bridge.settlements() if bridge != null else []
+	var i := int(st.get("index", -1))
+	return "City: %s" % String((all[i] as Dictionary).get("name", "?")) if i >= 0 and i < all.size() else "City"
 
 
 ## Rebuilds the dropdown from `bridge.settlements()` and selects `_index`.

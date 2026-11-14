@@ -3,7 +3,14 @@ extends RefCounted
 ## PC-7 (`PC_SHELL_PROPOSAL.md` §3.6, milestone PC-7; Ruling DY PQ3): the context windows that do
 ## not block the map and follow the selection until pinned. One place holds the rules, so the five
 ## windows (the faction roster, the Place editor, the City viewer, Conflicts and Saved journeys) carry
-## two calls each and no copy of them.
+## a few calls each and no copy of them: `make_context()` and `attach_nav()` from `setup()`,
+## `reset_on_open()` and `arrived()` from the open path.
+##
+## **The back stack (§3.6, finding W2) is `context_nav.gd`'s; this file only wires a window to it.**
+## `attach_nav()` puts the Back / Forward row above a window's content and registers the window,
+## `arrived()` tells the trail the window was opened. One window opening another hides the first and
+## stands the second where it was; Back and Forward walk the trail through each window's own
+## `context_state()` / `context_restore()` / `context_label()`.
 ##
 ## **What it does, on the desktop form only.** `make_context()` clears the window's `exclusive` flag
 ## (an `AcceptDialog` is born exclusive, so while one was open the map, the menus, the docks and the
@@ -39,6 +46,8 @@ extends RefCounted
 ## Preloaded by each window (`const ContextWindow := preload(...)`), no `class_name`, so adding it
 ## needs no `--headless --import` pass (CLAUDE.md: that pass strips `project.godot`'s comments).
 
+## The Back / Forward trail (`context_nav.gd`), the PC-7 leftover of §3.6's "one host with a back stack".
+const NAV := preload("res://shell/context_nav.gd")
 ## The menu-chord relay every non-blocking window carries (`context_key_relay.gd`).
 const KEY_RELAY := preload("res://shell/context_key_relay.gd")
 ## Name of that relay node, so a probe finds it.
@@ -134,6 +143,67 @@ static func make_context(dlg: AcceptDialog, host, follows: bool) -> Button:
 		host.selection_changed.connect(func(sel: Dictionary) -> void: _on_selection(dlg, host, sel))
 	_sync_chip(dlg)
 	return chip
+
+## PC-7's leftover (§3.6 "One host with a back stack"): puts the Back / Forward row (`ContextNav`) above `dlg`'s
+## content, and registers `dlg` with the app's trail (`DccApp.context_nav`). Called once from a hosted window's
+## `setup()`, AFTER it has added its content. Returns the row, or `null` when it did not apply (the tablet and the
+## phone, a host with no trail, a window already wired, a window with no content to wrap).
+##
+## **Why a wrapper.** An `AcceptDialog` gives its FIRST content child the whole rect, so a sibling row would simply
+## overlap it. The content is moved into a zero-separation `VBoxContainer` (`ContextNav.WRAP_NAME`) under the row;
+## the row is hidden until there is a trail (`ContextNav._sync()`), so a window that was opened alone lays out
+## exactly as before (measured pixel-identical, `_pc7nav_probe` leg I). The content keeps its own minimum; it only
+## gains the expand flags a container child needs to still fill the rect.
+static func attach_nav(dlg: AcceptDialog, host) -> Control:
+	if not applies(host) or host.get("context_nav") == null:
+		return null
+	if dlg.find_child(NAV.BAR_NAME, true, false) != null:
+		return dlg.find_child(NAV.BAR_NAME, true, false) as Control
+	var content: Control = null
+	for c in dlg.get_children():
+		if c is Control:
+			content = c as Control
+			break
+	if content == null:
+		return null
+	var idx := content.get_index()
+	var wrap := VBoxContainer.new()
+	wrap.name = NAV.WRAP_NAME
+	wrap.add_theme_constant_override("separation", 0)
+	dlg.remove_child(content)
+	dlg.add_child(wrap)
+	dlg.move_child(wrap, idx)
+	var bar := HBoxContainer.new()
+	bar.name = NAV.BAR_NAME
+	bar.add_theme_constant_override("separation", 6)
+	var back := DccWidgets.chip(bar, "‹ BACK", func() -> void: host.context_nav.back(), false, 7, 2)
+	back.name = NAV.BACK_NAME
+	var fwd := DccWidgets.chip(bar, "FORWARD ›", func() -> void: host.context_nav.forward(), false, 7, 2)
+	fwd.name = NAV.FORWARD_NAME
+	var pos := DccTheme.label("", "text_dim", DccTheme.FS_TINY)
+	pos.name = NAV.POS_NAME
+	pos.mouse_filter = Control.MOUSE_FILTER_PASS
+	bar.add_child(pos)
+	var pad := MarginContainer.new()
+	pad.name = "ContextNavPad"
+	for side in ["left", "right", "top", "bottom"]:
+		pad.add_theme_constant_override("margin_" + side, 6 if side != "bottom" else 4)
+	pad.add_child(bar)
+	pad.visible = false
+	wrap.add_child(pad)
+	wrap.add_child(content)
+	content.size_flags_horizontal |= Control.SIZE_EXPAND_FILL
+	content.size_flags_vertical |= Control.SIZE_EXPAND_FILL
+	host.context_nav.register(dlg, pad, back, fwd, pos)
+	return pad
+
+## A hosted window's own `open*()` finished showing it: tells the trail (`ContextNav.arrived()`). The call every
+## open path ends with, after `popup_centered()`, so the previous window can be handed over to this one's place
+## once this one has its size. No effect on the tablet and the phone, or without a trail.
+static func arrived(dlg: Window, host) -> void:
+	if not applies(host) or host.get("context_nav") == null:
+		return
+	host.context_nav.arrived(dlg)
 
 ## Wires the map-press relay (`_on_window_input()`) and the menu-chord relay (`KEY_RELAY`) on a
 ## non-blocking window. Called by

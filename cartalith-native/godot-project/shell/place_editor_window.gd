@@ -376,6 +376,9 @@ func setup(a, b: EngineBridge) -> void:
 		app.timeline_changed.connect(func():
 			if visible and _index >= 0 and not bool(bridge.generating):
 				ContextWindow.defer_while_typing(self, func() -> void: if _index >= 0: _rebuild()))
+	## PC-7's leftover (§3.6, one host with a back stack): the Back / Forward row above the content, last, once the
+	## content exists (`ContextWindow.attach_nav()`).
+	ContextWindow.attach_nav(self, a)
 
 
 ## `_civOpenPlacePopup`: opens on the settlement at `index` into
@@ -407,6 +410,8 @@ func open_for(index: int) -> void:
 		## place list), a native editor lands on the opener's screen (`PopoutHost._restore`).
 		PopoutHost.prepare(self)
 		popup_centered()
+		## PC-7's leftover: the open is a visit on the Back / Forward trail (`ContextNav`).
+		ContextWindow.arrived(self, app)
 	## §4.5.3 asks for the editor to open "focused on the name field", and on a
 	## pointer that costs nothing. On a phone a focused `LineEdit` raises the
 	## IME, which on the device pass covered the form from Traits down before
@@ -686,6 +691,26 @@ func open_for_tab(index: int, tab: String) -> void:
 	open_for(index)
 	if _index >= 0 and TAB_ORDER.has(tab):
 		_switch_tab(tab)
+
+
+## PC-7's leftover (`ContextNav`): what this window shows, for Back / Forward to put it back: the place, the tab
+## and whether it was pinned (so Back does not silently start following).
+func context_state() -> Dictionary:
+	return {"index": _index, "tab": _active_tab, "pinned": not ContextWindow.is_following(self)}
+
+
+## Re-opens on a `context_state()` through `open_for_tab()`, the one path that builds this window.
+func context_restore(st: Dictionary) -> void:
+	open_for_tab(int(st.get("index", -1)), String(st.get("tab", "overview")))
+	if bool(st.get("pinned", false)):
+		ContextWindow.pin(self)
+
+
+## The words for this visit on the trail: the place it showed.
+func context_label(st: Dictionary) -> String:
+	var all: Array = bridge.settlements() if bridge != null else []
+	var i := int(st.get("index", -1))
+	return "Place: %s" % String((all[i] as Dictionary).get("name", "?")) if i >= 0 and i < all.size() else "Place"
 
 
 # -- Timeline / Political history placeholders ---------------------------------

@@ -334,7 +334,10 @@ The context windows become **non-exclusive in-app windows**:
 - **Above the map, not in front of everything.** It never blocks the map, the menus, the docks or the strip.
   Find (Ctrl+F) opens above it.
 - **One host with a back stack.** One window opening another pushes onto it instead of closing the first or
-  stacking a second exclusive window (finding W2).
+  stacking a second exclusive window (finding W2). Built on the desktop (`shell/context_nav.gd`, see §6's PC-7
+  note): the new window stands where the old one did, the old one is hidden and kept, and a **‹ BACK · FORWARD ›**
+  row above the content, with the position ("2 / 3"), walks the trail. The tablet and the phone keep their modal
+  windows.
 - **Following.** Each follows the selection until its **FOLLOW** chip is pressed to pin it (finding W3):
   - the roster shows the selection's faction, or the holder in the shown year when a settlement is selected;
   - the Place editor and the City viewer show the selected settlement;
@@ -344,6 +347,8 @@ The context windows become **non-exclusive in-app windows**:
   (flow F3).
 - **Window ▸ Open windows** lists every open window, the Context panel and pop-outs included (finding W5). While an exclusive dialog is open the menu bar takes no input; since PC-7 the five context windows are not exclusive on the desktop, so the list shows them (picking one raises it where the user left it).
 - **Refresh.** Roster edits refresh the Context panel, and an assistant save refreshes the vault (finding W7).
+  Built (§6's PC-7 note): the Context panel's faction page re-reads on a roster edit, and an assistant save re-reads
+  the note open in the Note tab or the vault window when it holds no unsaved typing.
 
 **What stays modal.** The Data manager, the Asset library, New world, Export, Open project and file dialogs stay
 modal. Ruling DK Q4 already keeps the first two and the file dialogs out of pop-out. A modal window there
@@ -683,12 +688,9 @@ non-Button holder because `AcceptDialog` resets the minimum width of every Butto
 out lays out at 81 px and not the 84 its builder asks. (5) **Saved journeys
 has no chip**: it lists every journey and nothing in it depends on the year; a row closed it while the planner replaced the map; since PC-8 it stays open (see PC-8's note). (6) Conflicts stays open when a row is pressed, and marks the selected conflict.
 (7) The roster, the City viewer and Conflicts now redraw on a year move (one redraw per frame); the City viewer keeps the
-user's zoom. Every open follows again. Not built, stated: §3.6's one host with a back stack (finding W2), ~~the roster's
-"Capital: X" as a link (flow F3)~~ (built 2026-11-08: the Territory tab's "Capital: X ›" row selects the capital; the
-note above it keeps its text, and the link closes the window only where it is modal), the refresh items (finding W7), and Find drawing above an open window (Ctrl+F works
-from a window; whether Find's results draw above a window that overlaps them was not measured). The assistant's window is not one of the five and stays
+user's zoom. Every open follows again. Not built when PC-7 landed, built since (2026-11-14, `shell/context_nav.gd`, probe `_pc7nav_probe`): **(8) §3.6's one host with a back stack (finding W2).** A visit is a window's own `open*()`, announced by `ContextWindow.arrived()`; opening one of the five while another embedded one shows hides the first and puts the second where the first stood (kept on screen), and a **‹ BACK · FORWARD ›** row above the content (hidden until there is a trail; a zero-height wrapper, so a lone window lays out as before) walks the trail by re-opening each window through its own `context_restore()` with the state it was left in (the faction, tab and pair; the place and tab; the town; and the pin). A new open after a Back cuts Forward off; the same window re-opened on another subject is a visit and on the same subject is not; the trail caps at 24 and ends when the last window closes and on a world change; a popped-out window is neither hidden, moved nor recorded; the tablet and phone register nothing. **(9) The refresh items (finding W7)** the year (PC-7) and the selection already re-read all five; added: a roster edit re-reads the Context panel's faction page, and an assistant save (`note_saved`, which had no listener) re-reads the note open in the Note tab or the vault window when it holds no unsaved typing (with unsaved typing the editor is left alone and the status line says so). **(10) Find above an open window:** measured, already true (Find is exclusive and pops after the window; two pixel patches inside both rects are Find's). (The roster's "Capital: X" link, flow F3, was built 2026-11-08: the Territory tab's "Capital: X ›" row selects the capital.) Still not built, stated: Window ▸ Open windows lists only the window on screen, a window behind the trail is reached by Back; no key for Back and Forward (Alt+←/→ is the map's Previous selection). The assistant's window is not one of the five and stays
 exclusive, so PC-6's "close that window to bring it back" still holds; the vault, the Data manager and the rest stay
-modal. The probe is `_pc7windows_probe`.
+modal. The probes are `_pc7windows_probe` and `_pc7nav_probe`.
 
 PC-8 (2026-11-08), with PW-4 as one change: on the desktop (`DccApp.planner_in_window()`, true where PC-7's
 `ContextWindow.applies()` is) the planner draws in its own window, `shell/planner_window.gd` (an `AcceptDialog`,
@@ -780,8 +782,7 @@ side panel (backlinks, outline, properties) is not drawn in the tab**: the heade
 which keeps it. (7) **The phone** keeps its sheet: `open_context_tab("note")` there opens the vault at the subject's note
 (`DccApp._phone_open_note()`, the call Story's "Notes for this place" made before), so the phone's Story and Window rows
 lose nothing; the phone shell is unchanged. (8) A selection that changes while another tab is shown does not re-dock: the
-note on screen stays docked and autosaving until the tab is shown again. Not built, stated: private notes shown as private
-(Ruling DP); the Ask tab's note chip and a note card going to the subject's note (PC-6's deferred items); a note citation
+note on screen stays docked and autosaving until the tab is shown again. **Private notes (Ruling DP), built since:** the "Private note: <reason>" line the editor pane draws (VE-9, 2026-11-09) shows in the tab's frame, was made live on 2026-11-14 (a save that adds or removes the marker updates it; switching notes in the tab no longer leaves the last note's line behind), and Ask is never handed the note (its context is the selection's name and the year; the note chip does not exist). Not built, stated: the Ask tab's note chip and a note card going to the subject's note (PC-6's deferred items); a note citation
 opening the tab at its heading; the tab on a landmark; Pop out. The probe is `_pc5note_probe`.
 
 PC-1 and PC-2 come first: everything else reads them. PC-4 and PC-6 can run in parallel after them. PC-10 follows PC-4.

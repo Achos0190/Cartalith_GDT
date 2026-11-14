@@ -510,6 +510,9 @@ func setup(a, b: EngineBridge) -> void:
 	## rest of PC-7: on the phone and the tablet the window is modal, so the year cannot move under it.
 	if ContextWindow.applies(a) and a.has_signal("timeline_changed"):
 		a.timeline_changed.connect(_on_year_moved)
+	## PC-7's leftover (§3.6, one host with a back stack): the Back / Forward row above the content, last, once the
+	## content exists (`ContextWindow.attach_nav()`).
+	ContextWindow.attach_nav(self, a)
 
 
 ## Both O(cells) caches are per-world, so both are marked stale here and
@@ -737,6 +740,28 @@ func open(select_faction: int = -1, tab: String = "", pair_with: int = -1) -> vo
 		## Nothing re-runs that sizing when the label shrinks, so ask once
 		## more after the first layout pass (measured: 2 602 -> 581).
 		child_controls_changed.call_deferred()
+		## PC-7's leftover: the open is a visit on the Back / Forward trail (`ContextNav`).
+		ContextWindow.arrived(self, app)
+
+
+## PC-7's leftover (`ContextNav`): what this window shows, for Back / Forward to put it back. The faction, the
+## tab and the pair mark; whether it was pinned is kept too, so Back does not silently start following.
+func context_state() -> Dictionary:
+	return {"sel": _selected, "tab": _tab, "pair": _pair, "pinned": not ContextWindow.is_following(self)}
+
+
+## Re-opens on a `context_state()`. Through `open()`, the one path that builds this window; the pin it had is put
+## back after (an open follows again).
+func context_restore(st: Dictionary) -> void:
+	open(int(st.get("sel", -1)), String(st.get("tab", "")), int(st.get("pair", -1)))
+	if bool(st.get("pinned", false)):
+		ContextWindow.pin(self)
+
+
+## The words for this visit on the trail: the faction it showed.
+func context_label(st: Dictionary) -> String:
+	var f := _faction(int(st.get("sel", -1)))
+	return "Factions: %s" % String(f.get("name", "?")) if not f.is_empty() else "Factions"
 
 
 ## MS-1 S4.5 (`window_represent.gd`): what a class swap carries across the window's rebuild. Committed first, so a

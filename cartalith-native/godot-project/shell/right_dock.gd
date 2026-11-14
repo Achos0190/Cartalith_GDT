@@ -987,6 +987,14 @@ func refresh_settlement() -> void:
 		return
 	on_settlement_selected(live, _settlement_index)
 
+## W7 (`PC_SHELL_PROPOSAL.md` §3.6): the faction roster changed (a rename, a colour, a currency, a removal). A faction
+## page is read live from the engine on every rebuild, so redrawing it is the whole refresh; any other context holds
+## nothing the roster edits (a settlement's Faction row is refreshed by the CIVIL workspace's `_on_civ_edited`).
+## Connected by `DccApp._on_roster_edited()`, deferred and coalesced there.
+func on_roster_changed() -> void:
+	if _context == CTX_FACTION:
+		_rebuild()
+
 ## PC-2 (`PC_SHELL_PROPOSAL.md` §3.2, finding T2): the year moved, from any surface. The two
 ## contexts that read the cursor -- a settlement's Garrison row (`_build_settlement`) and a
 ## conflict's siege garrison (`_build_siege_garrison`) -- redraw; every other context holds no

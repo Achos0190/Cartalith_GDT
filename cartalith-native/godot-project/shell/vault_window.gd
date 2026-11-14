@@ -2480,6 +2480,7 @@ func _dock_follow(path: String) -> void:
 ## Frees the docked editor's node and every reference to it. The unsaved-text state (`_browse_text`,
 ## `_browse_saved`) is not touched: a caller that discards has done `_close_editor`.
 func _free_dock_node() -> void:
+	_drop_private_notice()
 	if _dock_node != null and is_instance_valid(_dock_node):
 		if _browse_path != "" and _editor_path == _browse_path and _browse_edit != null and is_instance_valid(_browse_edit):
 			_browse_text = _browse_edit.text
@@ -2576,14 +2577,9 @@ func _load_note_state(rel: String) -> bool:
 func _build_editor_pane(parent: Control, docked: bool = false) -> void:
 	## Ruling DP (VE-9): the open note says so when it is private, whichever host it is in. Asked afresh (the
 	## text may have just been saved with or without a marker), never assumed from an earlier list.
-	privacy().forget(_browse_path)
-	privacy().decide([_browse_path])
-	if privacy().is_private(_browse_path):
-		var pn := DccTheme.label("Private note: %s. Cartalith withholds it from the assistant's knowledge and place prose." % privacy().reason(_browse_path), "accent", DccTheme.FS_TINY)
-		pn.name = "VaultPrivateNotice"
-		pn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		pn.custom_minimum_size.x = 160
-		parent.add_child(pn)
+	_drop_private_notice()
+	_priv_parent = parent
+	_sync_private_notice()
 	## VE-5: the editor and its side panel share one host, side by side on a wide window and stacked on a
 	## narrow one (`SIDE_RIGHT_MIN_W`). The host fills the pane exactly as the bare editor did.
 	var wide := (not _phone) and size.x >= SIDE_RIGHT_MIN_W and not docked
@@ -2771,13 +2767,98 @@ func _set_side(on: bool) -> void:
 			_editor.text_edit.release_focus()
 
 
+## The open note's "Private note" line and the box it sits in (`_build_editor_pane`'s `parent`), so a save that adds or
+## removes a private marker updates the line live (PC-5's leftover: "private notes shown as private" had been built for
+## the editor pane by VE-9 but only drew when the pane was built, so typing `private: true` into the Note tab showed
+## nothing until the note was reopened).
+var _priv_notice: Label = null
+var _priv_parent: Control = null
+
+
+## Frees the line and forgets it. Called when a pane is built (a new note's pane draws its own, and the old one sits in
+## the Note tab's slot, not in the editor node the dock frees) and when the docked editor goes (`_free_dock_node`).
+func _drop_private_notice() -> void:
+	if _priv_notice != null and is_instance_valid(_priv_notice):
+		var par := _priv_notice.get_parent()
+		if par != null:
+			par.remove_child(_priv_notice)
+		_priv_notice.queue_free()
+	_priv_notice = null
+
+
+## Makes the line match the open note: asked afresh from the Rust rule (`privacy()`, never a guess), created ahead of
+## the editor host when the note is private and none is drawn, updated when the reason changed, freed when the note
+## stopped being private. Safe with no pane built.
+func _sync_private_notice() -> void:
+	if _priv_parent == null or not is_instance_valid(_priv_parent) or _browse_path == "":
+		return
+	privacy().forget(_browse_path)
+	privacy().decide([_browse_path])
+	var priv: bool = privacy().is_private(_browse_path)
+	var have := _priv_notice != null and is_instance_valid(_priv_notice)
+	if not priv:
+		if have:
+			_priv_notice.get_parent().remove_child(_priv_notice)
+			_priv_notice.queue_free()
+		_priv_notice = null
+		return
+	var text := "Private note: %s. Cartalith withholds it from the assistant's knowledge and place prose." % privacy().reason(_browse_path)
+	if have:
+		_priv_notice.text = text
+		return
+	var pn := DccTheme.label(text, "accent", DccTheme.FS_TINY)
+	pn.name = "VaultPrivateNotice"
+	pn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pn.custom_minimum_size.x = 160
+	_priv_parent.add_child(pn)
+	var host := _priv_parent.get_node_or_null("VaultEditorHost")
+	if host != null:
+		_priv_parent.move_child(pn, host.get_index())
+	_priv_notice = pn
+
+
+## W7 (`PC_SHELL_PROPOSAL.md` §3.6, "an assistant save refreshes the vault"): note `rel` was written by something
+## other than this editor (the assistant's Save, `LlmAssistantWindow.note_saved`). Its privacy answer is dropped, the
+## backlink index follows, and when `rel` is the note open here (docked in the Note tab, or in this window) and the
+## editor holds no unsaved text, the editor is rebuilt from the file, so it neither shows the old text nor writes it
+## back over the new (the hash guard would refuse that, with a banner; this avoids the round trip). With unsaved text
+## the editor is left alone and the status line says so: the user's typing is never replaced, and the next save asks
+## which to keep through the banner it already has. The session undo is re-based on the new text (`_note_opened`).
+func note_written_elsewhere(rel: String) -> void:
+	privacy().forget(rel)
+	if bool(bridge.vault_backlink_stats().get("built", false)):
+		bridge.vault_refresh_backlinks()
+	if rel == "" or _browse_path != rel:
+		return
+	if _is_dirty():
+		app.set_status("hint", "%s was saved to by the assistant while you have unsaved edits to it here. Nothing of yours was replaced; saving asks which to keep." % rel.get_file(), "accent")
+		return
+	if _dock_host != null:
+		## NOT `_dock_follow()`: it reads first and frees second, and the free copies the old editor's text back over
+		## `_browse_text` when the path matches (here it does), undoing the read. Free first (the old text is
+		## checkpointed into the session undo, which is right: it was the note's text a moment ago), then read, then
+		## build. A failed read keeps the text this window already holds.
+		var host := _dock_host
+		_free_dock_node()
+		_load_note_state(rel)
+		_dock_into(host, rel)
+	elif visible and bool(bridge.vault_read_file_for_edit(rel).get("ok", false)):
+		## `_clear()` copies a live editor's text back over `_browse_text` when `_editor_path == _browse_path`; here
+		## the editor's text is the stale one, so the path is dropped first. Only after a successful read, so a
+		## failure leaves the editor and its invariant (`_editor_path == _browse_path`) exactly as they were.
+		_editor_path = ""
+		_enter_note(rel)
+
+
 ## After a note was written: the backlink index follows (only if it was built -- a first build is a
 ## whole-vault read and is the person's to ask for), then the panel redraws. Deferred so a keystroke
 ## pause is never what waits for it. "The index refreshes on save and on rename, not only on a manual
 ## Refresh" (proposal s.3.2).
 func _after_save() -> void:
-	## Its frontmatter may have gained or lost a private marker: ask again next time it is listed.
+	## Its frontmatter may have gained or lost a private marker: ask again next time it is listed, and say so now on
+	## the open note's own line (`_sync_private_notice`).
 	privacy().forget(_browse_path)
+	_sync_private_notice()
 	dock_saved.emit()
 	if bool(bridge.vault_backlink_stats().get("built", false)):
 		bridge.vault_refresh_backlinks()

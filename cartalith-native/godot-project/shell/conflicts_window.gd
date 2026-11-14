@@ -124,6 +124,9 @@ func setup(host, bridge: EngineBridge) -> void:
 	ContextWindow.make_context(self, host, true)
 	if ContextWindow.applies(host) and host.has_signal("timeline_changed"):
 		host.timeline_changed.connect(_on_year_moved)
+	## PC-7's leftover (§3.6, one host with a back stack): the Back / Forward row above the content, last, once the
+	## content exists (`ContextWindow.attach_nav()`).
+	ContextWindow.attach_nav(self, host)
 
 ## Shows the window with a fresh read: phone-shaped on a phone, centred elsewhere.
 func open() -> void:
@@ -133,8 +136,27 @@ func open() -> void:
 	_refresh()
 	if not DccWidgets.phone_present(self, _host):
 		popup_centered()
+		## PC-7's leftover: the open is a visit on the Back / Forward trail (`ContextNav`).
+		ContextWindow.arrived(self, _host)
 	if _phone:
 		_host.phone_fit(self, 1.0)
+
+## PC-7's leftover (`ContextNav`): what this window shows. The mark is the selection's, re-read by `open()`, so
+## there is nothing to put back; the pin is.
+func context_state() -> Dictionary:
+	return {"pinned": not ContextWindow.is_following(self)}
+
+
+## Re-opens through `open()`; the pin it had is put back after.
+func context_restore(st: Dictionary) -> void:
+	open()
+	if bool(st.get("pinned", false)):
+		ContextWindow.pin(self)
+
+
+## The words for this visit on the trail.
+func context_label(_st: Dictionary) -> String:
+	return "Conflicts"
 
 ## Rebuilds the chips and the list from `conflict_list()`, or draws the state
 ## that stops it: a generation running, no world, nothing recorded.

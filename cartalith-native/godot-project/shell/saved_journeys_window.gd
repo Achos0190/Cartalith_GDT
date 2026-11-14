@@ -118,6 +118,9 @@ func setup(host, bridge: EngineBridge) -> void:
 	bridge.world_loaded.connect(func(): if visible: _refresh())
 	## PC-7: non-blocking on the desktop; no subject to follow (see the header).
 	ContextWindow.make_context(self, host, false)
+	## PC-7's leftover (§3.6, one host with a back stack): the Back / Forward row above the content, last, once the
+	## content exists (`ContextWindow.attach_nav()`).
+	ContextWindow.attach_nav(self, host)
 
 ## Shows the window with a fresh read: phone-shaped on a phone, centred
 ## elsewhere.
@@ -125,8 +128,26 @@ func open() -> void:
 	_refresh()
 	if not DccWidgets.phone_present(self, _host):
 		popup_centered()
+		## PC-7's leftover: the open is a visit on the Back / Forward trail (`ContextNav`).
+		ContextWindow.arrived(self, _host)
 	if _phone:
 		_host.phone_fit(self, 1.0)
+
+
+## PC-7's leftover (`ContextNav`): this window lists every journey and shows nothing that depends on a subject, so
+## there is no state to put back.
+func context_state() -> Dictionary:
+	return {}
+
+
+## Re-opens through `open()`, the one path that builds this window.
+func context_restore(_st: Dictionary) -> void:
+	open()
+
+
+## The words for this visit on the trail.
+func context_label(_st: Dictionary) -> String:
+	return "Saved journeys"
 
 ## Rebuilds the list from `journey_list()`, or draws the state that stops it:
 ## a generation running, no world, nothing saved.

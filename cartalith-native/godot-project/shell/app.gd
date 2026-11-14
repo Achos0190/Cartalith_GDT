@@ -1253,6 +1253,28 @@ func open_context_tab_window(key: String) -> bool:
 	w.open()
 	return true
 
+## W7. A roster edit (a rename, a colour, a currency, a removal): the Context panel's faction page re-reads. Deferred
+## and coalesced to a frame, because the edit may have come from a control inside the panel itself (a module tab's
+## detached roster host forwards `roster_changed`), and a rebuild frees the control that is calling.
+func _on_roster_edited() -> void:
+	if right_dock_ctrl == null or _roster_refresh_queued:
+		return
+	_roster_refresh_queued = true
+	(func() -> void:
+		_roster_refresh_queued = false
+		if right_dock_ctrl != null:
+			right_dock_ctrl.on_roster_changed()).call_deferred()
+
+## W7. Whether `_on_roster_edited()` has a refresh queued.
+var _roster_refresh_queued := false
+
+## W7. The assistant wrote to note `rel` (`LlmAssistantWindow.note_saved`): the vault window and the Note tab re-read
+## it, so an open copy does not keep showing, and later overwrite, the text from before. See
+## `VaultWindow.note_written_elsewhere()`.
+func _on_assistant_note_saved(rel: String) -> void:
+	if vault_window != null and is_instance_valid(vault_window):
+		vault_window.note_written_elsewhere(rel)
+
 ## PC-10. The open module windows by key (`open_context_tab_window()`).
 var _module_windows: Dictionary = {}
 
@@ -1746,6 +1768,12 @@ func _ready() -> void:
 	## MS-1 S4.2: the safe-insets relay and `menus.build()` moved to `_mount_app_composition()`, after the
 	## windows below (their order there is documented in `S4_INVENTORY.md` section 15).
 
+	## PC-7's leftover (`PC_SHELL_PROPOSAL.md` §3.6, one host with a back stack): the trail the five context
+	## windows register with. Built once, BEFORE the windows, because their `setup()` registers a Back / Forward
+	## row with it (`ContextWindow.attach_nav()`); a class swap rebuilds the windows and not this.
+	if context_nav == null:
+		context_nav = CONTEXT_NAV.new(self)
+
 	new_world_dialog = _make_window("new_world_dialog")
 
 	## MS-1 S4.5: these windows are built through `_make_window()`, the one path a class swap rebuilds them by.
@@ -1780,6 +1808,9 @@ func _ready() -> void:
 	assistant_window = LlmAssistantWindow.new()
 	add_child(assistant_window)
 	assistant_window.setup(self, bridge)
+	## W7 (`PC_SHELL_PROPOSAL.md` §3.6): an assistant save reaches the vault's open note. The window is kept across a
+	## class swap, so this is wired once; the vault window is looked up when the signal fires.
+	assistant_window.note_saved.connect(_on_assistant_note_saved)
 	## CQ-6: the phone's quick bar. After the assistant panel exists, because the Assistant chip's rule asks
 	## for it. Re-derived after a world load or a generate for the reason `_quick_bar` is (a pin's live or
 	## greyed state is read from the menus' built state), deferred so no listener sees a half-updated row. On
@@ -2247,6 +2278,9 @@ func _make_window(field: String) -> Node:
 			w = FactionRosterWindow.new()
 			add_child(w)
 			w.setup(self, bridge)
+			## W7 (`PC_SHELL_PROPOSAL.md` §3.6): a roster edit reaches the Context panel's faction page, however many
+			## times a swap rebuilds the window (the CIVIL workspace wires the map's half of it).
+			w.roster_changed.connect(_on_roster_edited)
 		"world_data_window":
 			w = WorldDataWindow.new()
 			add_child(w)
@@ -6719,6 +6753,10 @@ func open_places_without_notes() -> void:
 const SAVED_JOURNEYS_WINDOW := preload("res://shell/saved_journeys_window.gd")
 ## PC-7's rules for the non-blocking desktop windows; `planner_in_window()` asks it which form this is (PC-8).
 const CONTEXT_WINDOW := preload("res://shell/context_window.gd")
+## PC-7's leftover: the Back / Forward trail of the five context windows (`context_nav.gd`).
+const CONTEXT_NAV := preload("res://shell/context_nav.gd")
+## The one trail (`ContextNav`), or `null` before `_build` made it. The windows read it through their host.
+var context_nav = null
 const CONFLICTS_WINDOW := preload("res://shell/conflicts_window.gd")
 ## Story ▸ Saved journeys…'s window, built on first open and kept (it holds no
 ## state worth discarding, and a second instance would be a second window).
