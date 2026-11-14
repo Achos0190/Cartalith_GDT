@@ -1,5 +1,6 @@
 extends AcceptDialog
 class_name PhoneProjectPicker
+const WorldDelete := preload("res://shell/world_delete.gd")
 
 ## The Android phone's entry screen. The owner's locked `docs/ANDROID_UI_SPEC
 ## .md` (`design/android-2026-08-30/README.md` points at it; the file itself
@@ -410,11 +411,16 @@ func _build_world_row(path: String) -> Control:
 		DccIcons.SYMBOLS["expand"], "text_ghost", DccTheme.FS_BODY))
 
 	_ignore_mouse(wrap)
+	## Delete (owner 2026-11-14): after `_ignore_mouse` so the can keeps its press; see `world_delete.gd`.
+	var trash := WorldDelete.make_button(func():
+		WorldDelete.ask(_host, path, display_title, _show_error, _refresh))
+	cap_row.add_child(trash)
 	wrap.gui_input.connect(func(event: InputEvent):
 		if not (event is InputEventMouseButton):
 			return
 		var mb := event as InputEventMouseButton
-		if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+		## `phone_fit()` makes the can PASS, so its press also arrives here: skip it (`WorldDelete.hits`).
+		if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and not WorldDelete.hits(trash, wrap, mb.position):
 			_pick_world(path))
 	return wrap
 

@@ -1,5 +1,6 @@
 extends AcceptDialog
 class_name OpenProjectDialog
+const WorldDelete := preload("res://shell/world_delete.gd")
 
 ## File ▸ Open project…, drawn from the "Open project dialog 1920" screen in
 ## `design/Cartalith DCC Shell.dc.html`.
@@ -1142,6 +1143,17 @@ func _build_tile(path: String, meta: Dictionary, picker: bool = false) -> Contro
 		DccTheme.FS_MICRO if picker else DccTheme.FS_TINY))
 
 	_ignore_mouse(wrap)
+	## Delete (owner 2026-11-14): a red can at the card's bottom right, added AFTER `_ignore_mouse` so it keeps
+	## its own press; `world_delete.gd` refuses the open world and asks first.
+	var trash := WorldDelete.make_button(func():
+		WorldDelete.ask(_host, path, display_title, _say, _refresh))
+	var cap_row := HBoxContainer.new()
+	cap_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cap_pad.remove_child(caption)
+	caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cap_row.add_child(caption)
+	cap_row.add_child(trash)
+	cap_pad.add_child(cap_row)
 	if picker:
 		## The canvas card is `onClick="{{ hPickWorld }}"` straight to the shell
 		## -- there is no selection on this screen and no `Open selected` button
@@ -1157,6 +1169,8 @@ func _build_tile(path: String, meta: Dictionary, picker: bool = false) -> Contro
 				return
 			var mb := event as InputEventMouseButton
 			if not (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT):
+				return
+			if WorldDelete.hits(trash, wrap, mb.position):
 				return
 			## The same guard `_confirm()` has, in the same words as
 			## `_refresh_open_button()`'s tooltip: a card is built from a

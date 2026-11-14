@@ -263,6 +263,16 @@ static func remember_project(path: String) -> void:
 	_cfg.set_value(_SEC_RECENT, "paths", list)
 	_save()
 
+## Drops `path` from the recent list (a world card's delete button removed the file behind it).
+static func forget_project(path: String) -> void:
+	_ensure_loaded()
+	var list := recent_projects()
+	if not list.has(path):
+		return
+	list.erase(path)
+	_cfg.set_value(_SEC_RECENT, "paths", list)
+	_save()
+
 # -- Multi-GPU (§2.5 Performance) ----------------------------------------------
 
 ## Selected device keys, in dispatch order. **Empty is the default and means
