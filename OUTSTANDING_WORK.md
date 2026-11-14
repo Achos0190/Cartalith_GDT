@@ -114,6 +114,7 @@ document, and `STATUS.md` records what lands)
   `STATUS.md` ("Marker card click-through, and private notes never sent to the assistant"). Left from it, stated
   there: the Rust request builder (`llm_stream.rs`) has no private check of its own (the shell is the one gate),
   and the phone's peek sheet tap-through is proved with a synthetic touch on a 393 x 852 window, not on a device.
+- ~~**Six desktop PC probes left red by the marker-card click-through** (`_pc1select`, `_pc4context`, `_pc6ask`, `_pc7windows`, `_pc8planner`, `_pc10modules`)~~ -- closed 2026-11-15; see `STATUS.md` ("The six PC probes that stayed red after the marker-card click-through are green on the desktop"). All six were stale probes (an open marker card covering the next click, a 960 px roster covering the map, stale planner hashes), none a product bug. Left from it, stated there: desktop form only.
 - ~~**The tablet seems frozen on the welcome screen** (owner, 2026-11-14, OnePlus Pad 3: *"On the tab it seems frozen"*)~~ --
   closed 2026-11-14; see `STATUS.md` ("A world card on the welcome no longer freezes the screen"). Not a hang and not
   swallowed input: a world card opened the world synchronously, so the welcome stayed unchanged for about 10 s on the

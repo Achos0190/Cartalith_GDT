@@ -21,7 +21,8 @@ extends Node
 ##   R. ROUTES: for three seeds (4242, 24601, 71077345) two routes each are committed through the engine's
 ##      own route calls between fixed settlement pairs and opened in the planner; each `_last_result` and
 ##      each request (`_plan_request()`) is hashed. The hashes are compared against the literals the SAME
-##      legs printed on the pre-PC-8 tree (`BEFORE_ROUTES`), so a planned route is identical.
+##      legs printed on the baseline (`BASELINE_ROUTES`, re-baselined 2026-11-15, its comment says why), so a planned
+##      route is identical, and each result is also compared with a direct `bridge.jp_compute()` of the request.
 ##   I. INVENTORY: every interactive control the planner draws (party form, centre, results, toolbar, day
 ##      band) is listed as `INV <class>|<text>` lines, before and after; the harness diffs the two logs.
 ##   E. ENTRY POINTS, each by a real input: Story ▸ Journey planner (a real click on the bar, then keys in
@@ -46,18 +47,34 @@ extends Node
 ## tab's own opener) for the harness to compare with two captures of the pristine tree.
 ## Exit 0 pass, 1 fail, 2 bad argument, watchdog or no world, 3 a leg could not run.
 
-## The pre-PC-8 tree's hashes of leg R, pasted from its run (see `PC_SHELL_PROPOSAL.md` §6, PC-8's note).
-## Key "seed:pair" -> [result hash, request hash], from the baseline run on `de1568cc` (2026-11-08,
-## `cartalith-native/docs/evidence/pc8-2026-11-08/base_desk.log`). An empty table FAILS the comparison (it
-## never passes by having nothing to compare). The far pair of each seed is a BLOCKED journey (no
-## calendar, `total_days` -1): a real answer of the planner, and compared like any other.
-const BEFORE_ROUTES := {
-	"4242:0": [3929851557, 2183103439],
-	"4242:1": [3426043075, 2183103439],
-	"24601:0": [76986086, 2183103439],
-	"24601:1": [2688649912, 2183103439],
-	"71077345:0": [2710342202, 2183103439],
-	"71077345:1": [3777137194, 2183103439],
+## The baseline hashes of leg R, **re-baselined 2026-11-15** on origin/main `5baac436`. Key "seed:pair" ->
+## [result hash, request hash].
+##
+## History. They were first pasted from the pre-PC-8 tree (`de1568cc`, 2026-11-08, `cartalith-native/docs/
+## evidence/pc8-2026-11-08/base_desk.log`) to prove that opening a route in the planner WINDOW changes nothing
+## about the planned route. They went stale the way the engine moved on, not through PC-8: every one of the
+## six rows failed with the request hash 2183103439 -> 416343692 (all six requests are the party form's
+## defaults, so one value) and all six result hashes changed, after `80f8f8a1` (a departure day and per-leg
+## override fingerprints joined the request), `ebbd5db4` / `5e179830` / `97209d6e` / `d0a1f373` (Ruling EU: the
+## planner joins ways, walked hops, river stretches) and `8f1740ef` (generated roads share trunks, which moves
+## the roads the planner walks).
+##
+## Why re-pasting is not a weaker check. PC-8's claim is that the window path equals the pre-window path on
+## the SAME engine, and that is measured, not assumed: the tablet keeps the pre-PC-8 swap (no planner window,
+## `_leg_tablet()`), and the same R leg run on the tablet form (`--force-touch`, 1600x1000) on this tree printed
+## the identical six `ROUTE seed:pair result request` lines as the desktop window form. Every row still
+## compares BOTH hashes against a literal, an empty table still fails, and a second check below compares each
+## result with a direct `bridge.jp_compute()` of the planner's own request, so a window path that altered the
+## route would fail whichever way it did it. The far pair of each seed is a BLOCKED journey (no calendar,
+## `total_days` -1): a real answer of the planner, compared like any other.
+## Re-baseline again the same way (tablet oracle first) whenever a planner or road-generation change lands.
+const BASELINE_ROUTES := {
+	"4242:0": [2442811611, 416343692],
+	"4242:1": [3473665668, 416343692],
+	"24601:0": [3056905376, 416343692],
+	"24601:1": [3658827470, 416343692],
+	"71077345:0": [1773636061, 416343692],
+	"71077345:1": [367944316, 416343692],
 }
 
 const SEEDS := [4242, 24601, 71077345]
@@ -321,14 +338,21 @@ func _leg_routes() -> void:
 			var days := float((_jp._last_result.get("plan", {}) as Dictionary).get("total_days", -1.0))
 			print("ROUTE %d:%d %d %d ok=%s days=%.3f" % [seed, p, res_h, req_h, str(ok), days])
 			_ok(ok, "R seed %d pair %d: the planner computed (ok; %.2f days, -1 = blocked)" % [seed, p, days])
+			## The window path's result must equal the engine's own answer to the planner's own request.
+			## (`_compute()` adds the route and `river_offers`; nothing is declined on a fresh open.)
+			var direct_req: Dictionary = _jp._plan_request()
+			direct_req["route"] = idx
+			direct_req["river_offers"] = true
+			var direct_h := hash(var_to_str(_bridge.jp_compute(direct_req)))
+			_ok(direct_h == res_h, "R seed %d pair %d: the result equals a direct jp_compute of the request (%d vs %d)" % [seed, p, res_h, direct_h])
 			now["%d:%d" % [seed, p]] = [res_h, req_h]
 			_close_planner()
 			await _settle(4)
 	if _app.has_method("planner_in_window"):
-		_ok(not BEFORE_ROUTES.is_empty(), "R: the pre-PC-8 hashes are pasted (an empty table compares nothing)")
+		_ok(not BASELINE_ROUTES.is_empty(), "R: the baseline hashes are pasted (an empty table compares nothing)")
 		for key in now:
-			_ok(BEFORE_ROUTES.has(key) and BEFORE_ROUTES[key] == now[key],
-				"R %s: result and request equal the pre-PC-8 tree's (%s vs %s)" % [key, str(now[key]), str(BEFORE_ROUTES.get(key, "missing"))])
+			_ok(BASELINE_ROUTES.has(key) and BASELINE_ROUTES[key] == now[key],
+				"R %s: result and request equal the baseline (%s vs %s)" % [key, str(now[key]), str(BASELINE_ROUTES.get(key, "missing"))])
 
 
 ## Closes the planner in whichever form this tree has, through its own close path.

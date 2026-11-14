@@ -226,23 +226,57 @@ func _screen_of(cell: Vector2) -> Vector2:
 
 ## Named settlements whose marker is inside the map view, as indices.
 func _visible_settlements() -> Array:
-	var ov = _app.viewport.overlay
-	var r: Rect2 = (ov as Control).get_global_rect().grow(-40.0)
 	var all: Array = _bridge.settlements()
 	var out: Array = []
 	for i in all.size():
 		var s: Dictionary = all[i]
 		if String(s.get("name", "")).strip_edges() == "":
 			continue
-		if r.has_point(_screen_of(Vector2(float(s.get("x", 0)), float(s.get("y", 0))))):
+		if _on_map(_screen_of(Vector2(float(s.get("x", 0)), float(s.get("y", 0))))):
 			out.append(i)
 	return out
+
+
+## Whether screen point `p` lands on the map itself, so a press there reaches the map and not a panel. The map
+## host's rect (`DccApp.viewport`) ends where the docks begin, while the overlay is laid out underneath them: a
+## settlement can be DRAWN beneath a dock and still be inside the overlay's rect (measured: settlement 0 at
+## (365, 717), under the left dock's 6 px resize grip, `dcc_shell.gd::_dock_drag_handle()`, so the press landed
+## on the dock). So the point must be inside the host's rect, 30 px in from its edges, and clear of every
+## visible shell region (docks, bars, the timeline strip) grown by 20 px, the same test `_pc7windows_probe.gd`
+## calls `_covered()`. A dock grip swallowing a press is the dock's by design (WI-04), not a map fault.
+func _on_map(p: Vector2) -> bool:
+	if not (_app.viewport as Control).get_global_rect().grow(-30.0).has_point(p):
+		return false
+	for n in _app._region_nodes.values():
+		if n is Control and (n as Control).is_visible_in_tree() and (n as Control).get_global_rect().grow(20.0).has_point(p):
+			return false
+	if _app.timeline_row != null and (_app.timeline_row as Control).is_visible_in_tree() 			and (_app.timeline_row as Control).get_global_rect().grow(20.0).has_point(p):
+		return false
+	return true
 
 
 func _click_settlement(i: int) -> void:
 	var s: Dictionary = _bridge.settlements()[i]
 	await _click_at(_screen_of(Vector2(float(s.get("x", 0)), float(s.get("y", 0)))))
 	await _settle(4)
+	await _close_card()
+
+
+## A left click on a marker opens that marker's card beside it (CL-3; click-through since 5baac436). The card
+## is a popup over the map, and a card is rightly not click-through inside its own rect, so it can cover the
+## NEXT place this probe clicks: measured, place 0's card covered place 2 at (1087,765) and the click that
+## should have re-selected it landed on the card (selection stayed 0), which showed as 7 failures in leg F.
+## Escape closes the card (it holds the focus right after the click) and never changes the selection
+## (`_ctthru_probe.gd` leg X), so every later press reaches what is under it. Says so when the card stays up.
+func _close_card() -> void:
+	var c = _app.context_broker.card if _app.context_broker != null else null
+	if c != null and is_instance_valid(c) and c.visible:
+		await _key(KEY_ESCAPE)
+		await _settle(4)
+		if c.visible:
+			print("  info the marker card stayed up after Escape; hiding it directly")
+			c.hide()
+			await _settle(2)
 
 
 func _ready() -> void:

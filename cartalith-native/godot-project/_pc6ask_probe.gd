@@ -199,21 +199,39 @@ func _screen_of(cell: Vector2) -> Vector2:
 
 ## Named settlements whose marker is inside the map view, as indices.
 func _visible_settlements() -> Array:
-	## Inside the map's own host rect, which ends at both docks: the overlay runs beneath them, and a
-	## click there lands in a panel (measured: a pick at x 350 hit the left dock).
-	var r: Rect2 = (_app.viewport as Control).get_global_rect().grow(-40.0)
+	## Where a press reaches the map (`_on_map()`): inside the map's own host rect, which ends at both docks (the
+	## overlay runs beneath them, and a click there lands in a panel: a pick at x 350 hit the left dock), and
+	## clear of the bars and the timeline strip drawn over it (a click at y 908 landed below the map).
 	var all: Array = _bridge.settlements()
 	var out: Array = []
 	for i in all.size():
 		var s: Dictionary = all[i]
 		if String(s.get("name", "")).strip_edges() == "":
 			continue
-		if r.has_point(_screen_of(Vector2(float(s.get("x", 0)), float(s.get("y", 0))))):
+		if _on_map(_screen_of(Vector2(float(s.get("x", 0)), float(s.get("y", 0))))):
 			out.append(i)
 	## Largest first: a village's marker is not drawn at every zoom, and a click on an undrawn one lands
 	## on whatever is under it (measured: a river, which the panel then shows).
 	out.sort_custom(func(p, q): return float(all[p].get("population", 0)) > float(all[q].get("population", 0)))
 	return out
+
+
+## Whether screen point `p` lands on the map itself, so a press there reaches the map and not a panel. The map
+## host's rect (`DccApp.viewport`) ends where the docks begin, while the overlay is laid out underneath them: a
+## settlement can be DRAWN beneath a dock and still be inside the overlay's rect (measured: settlement 0 at
+## (365, 717), under the left dock's 6 px resize grip, `dcc_shell.gd::_dock_drag_handle()`, so the press landed
+## on the dock). So the point must be inside the host's rect, 30 px in from its edges, and clear of every
+## visible shell region (docks, bars, the timeline strip) grown by 20 px, the same test `_pc7windows_probe.gd`
+## calls `_covered()`. A dock grip swallowing a press is the dock's by design (WI-04), not a map fault.
+func _on_map(p: Vector2) -> bool:
+	if not (_app.viewport as Control).get_global_rect().grow(-30.0).has_point(p):
+		return false
+	for n in _app._region_nodes.values():
+		if n is Control and (n as Control).is_visible_in_tree() and (n as Control).get_global_rect().grow(20.0).has_point(p):
+			return false
+	if _app.timeline_row != null and (_app.timeline_row as Control).is_visible_in_tree() 			and (_app.timeline_row as Control).get_global_rect().grow(20.0).has_point(p):
+		return false
+	return true
 
 
 func _click_settlement(i: int) -> void:

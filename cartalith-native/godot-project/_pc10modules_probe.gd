@@ -326,6 +326,20 @@ func _click_place(i: int) -> bool:
 	return hit
 
 
+## Closes the marker card a left click on a place opened, by Escape (the card holds the focus right after the
+## click), and says so when it is still up: every leg below that presses a control the card could cover needs
+## it gone. Never changes the selection (Escape only closes the card, `_ctthru_probe.gd` leg X).
+func _close_card() -> void:
+	var c = _app.context_broker.card if _app.context_broker != null else null
+	if c != null and is_instance_valid(c) and c.visible:
+		await _key(KEY_ESCAPE)
+		await _settle(4)
+		if c.visible:
+			print("  info the marker card stayed up after Escape; hiding it directly")
+			c.hide()
+			await _settle(2)
+
+
 ## Two places a real click selects, at least 60 px apart: `[a, b]`, or fewer when none are found.
 func _two_places() -> Array:
 	var got: Array = []
@@ -772,6 +786,12 @@ func _leg_window(a: int, b: int) -> void:
 	await _settle(4)
 	var bi := await _click_other(a, b)
 	_ok(bi >= 0 and w._subject == {"kind": "settlement", "id": bi}, "the window follows a real click to place B (got %s)" % str(w._subject))
+	## A left click on a marker opens that marker's card beside it (CL-3, click-through since 5baac436), and
+	## the card is a popup drawn OVER the module window: measured, B's card (1021,267 322x546) covered the
+	## chip at (1243,605), so the press below landed on the card, and a card is rightly not click-through
+	## inside its own rect. Escape closes it (the card is the focused popup right after the click) and the
+	## selection stays, so the press reaches the chip as a user's would after dismissing the card.
+	await _close_card()
 	var chip := w.find_child("FollowChip", true, false) as Button
 	if chip != null:
 		await _click_at(Vector2(w.position) + chip.get_global_rect().get_center())

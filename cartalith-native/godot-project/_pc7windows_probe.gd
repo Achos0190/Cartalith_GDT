@@ -105,6 +105,25 @@ func _click_at(at: Vector2) -> void:
 	await _settle(4)
 
 
+## A real click on a place on the map, then the marker card that click opened is closed. A left click on a
+## marker opens that marker's card beside it (CL-3; click-through since 5baac436). The card is a popup over the
+## map and a card is rightly not click-through inside its own rect, so it can cover the NEXT point this probe
+## uses: measured, after the roster's map click the card covered the place the wheel notch was aimed at, so the
+## notch scrolled the card and the map never zoomed (leg M's one failure). Escape closes the card (it holds the
+## focus right after the click) and never changes the selection (`_ctthru_probe.gd` leg X); says so when the
+## card stays up and hides it directly.
+func _click_map_place(at: Vector2) -> void:
+	await _click_at(at)
+	var c = _app.context_broker.card if _app.context_broker != null else null
+	if c != null and is_instance_valid(c) and c.visible:
+		await _key(KEY_ESCAPE)
+		await _settle(4)
+		if c.visible:
+			print("  info the marker card stayed up after Escape; hiding it directly")
+			c.hide()
+			await _settle(2)
+
+
 func _wheel(at: Vector2) -> void:
 	await _move(at)
 	await _button(at, MOUSE_BUTTON_WHEEL_UP, true)
@@ -374,7 +393,7 @@ func _leg_tablet() -> void:
 			var others := _clickable(w).filter(func(i): return i != idx)
 			_ok(not others.is_empty(), "roster: a place outside the modal window to click (got %d)" % others.size())
 			if not others.is_empty():
-				await _click_at(_screen_of(int(others[0])))
+				await _click_map_place(_screen_of(int(others[0])))
 				_ok(_app.selection == {"kind": "settlement", "id": idx},
 					"roster: a map click while it is open selects nothing on the tablet (selection %s)" % str(_app.selection))
 		w.hide()
@@ -528,7 +547,7 @@ func _leg_window(key: String) -> void:
 		w.hide()
 		return
 	var tgt := int(cands[0])
-	await _click_at(_screen_of(tgt))
+	await _click_map_place(_screen_of(tgt))
 	_ok(_app.selection == {"kind": "settlement", "id": tgt},
 		"%s M: a map click outside the open window selects that place (selection %s, wanted %d)" % [key, str(_app.selection), tgt])
 	_ok(w.visible, "%s M: the window stays open" % key)
@@ -626,7 +645,7 @@ func _leg_pin(key: String, w: Window) -> void:
 	if cands.is_empty():
 		_ok(false, "%s P: a clickable place to move the selection to" % key)
 		return
-	await _click_at(_screen_of(int(cands[0])))
+	await _click_map_place(_screen_of(int(cands[0])))
 	_ok(_app.selection == {"kind": "settlement", "id": int(cands[0])}, "%s P: the map click moved the selection (to %s, clicked %d at %s)" % [key, str(_app.selection), int(cands[0]), str(_screen_of(int(cands[0])))])
 	_ok(_shows(key) == held, "%s P: pinned, the window keeps its subject (%d, selection asks %d)" % [key, _shows(key), _wants(key)])
 	if not await _press_chip(w, "%s P: the PINNED chip" % key):
@@ -736,12 +755,18 @@ func _leg_held() -> void:
 	var again: LineEdit = w.find_child("ReligionName", true, false)
 	print("  info after typing: held ref valid %s text '%s'; live field %s text '%s'" % [str(is_instance_valid(rname)), rname.text if is_instance_valid(rname) else "", str(again), again.text if again else ""])
 	_ok(rname.text.ends_with("Zor"), "H: a name was typed into the editor ('%s')" % rname.text)
+	## The roster is 960 px wide now and sits against the screen's right edge, so it covers all but a strip of
+	## the 950 px map and that strip held no place of another faction (measured: one candidate, of the SAME
+	## faction). Hang it half off the screen, as a user drags a window aside (`_open()` does the same); the
+	## editor and the typed name are already in place, and `_press_chip()` drags it back for the chip.
+	w.position = Vector2i(int(get_viewport().get_visible_rect().size.x) - 420, 90)
+	await _settle(6)
 	var cands := _clickable(w).filter(func(i): return int((_bridge.settlements()[i] as Dictionary).get("faction", 0)) != fid \
 		and int((_bridge.settlements()[i] as Dictionary).get("faction", 0)) > 0)
 	if cands.is_empty():
 		_ok(false, "H: a place of another faction to click")
 		return
-	await _click_at(_screen_of(int(cands[0])))
+	await _click_map_place(_screen_of(int(cands[0])))
 	_ok(String(_app.selection.get("kind", "")) == "settlement", "H: the map click selected a place of another faction")
 	_ok(not _following(w) and _chip(w).text == "PINNED", "H: the roster pinned itself instead of following ('%s')" % _chip(w).text)
 	_ok(int(w._selected) == fid, "H: it kept its faction (%d)" % int(w._selected))
@@ -775,7 +800,7 @@ func _leg_held() -> void:
 	pe._ae_name = "Siege of probe"
 	var others := _clickable(pe).filter(func(i): return i != int(start[0]))
 	if not others.is_empty():
-		await _click_at(_screen_of(int(others[0])))
+		await _click_map_place(_screen_of(int(others[0])))
 		_ok(not _following(pe) and int(pe._index) == int(start[0]) and pe._ae_name == "Siege of probe",
 			"H: an unsaved event pins the Place editor on its place and keeps the draft (index %d)" % int(pe._index))
 	## A year move while the name field is being typed in keeps the typed text.

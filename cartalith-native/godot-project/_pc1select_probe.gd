@@ -131,17 +131,36 @@ func _history(i: int, way: String) -> void:
 	_all_name(i, way + " then Alt+← again")
 
 
-## The first named settlement whose marker lies inside the map's visible rect, or -1.
+## Whether screen point `p` lands on the map itself, so a press there reaches the map and not a panel. The map
+## host's rect (`DccApp.viewport`) ends where the docks begin, while the overlay is laid out underneath them: a
+## settlement can be DRAWN beneath a dock and still be inside the overlay's rect (measured: settlement 0 at
+## (365, 717), under the left dock's 6 px resize grip, `dcc_shell.gd::_dock_drag_handle()`, so the press landed
+## on the dock). So the point must be inside the host's rect, 30 px in from its edges, and clear of every
+## visible shell region (docks, bars, the timeline strip) grown by 20 px, the same test `_pc7windows_probe.gd`
+## calls `_covered()`. A dock grip swallowing a press is the dock's by design (WI-04), not a map fault.
+func _on_map(p: Vector2) -> bool:
+	if not (_app.viewport as Control).get_global_rect().grow(-30.0).has_point(p):
+		return false
+	for n in _app._region_nodes.values():
+		if n is Control and (n as Control).is_visible_in_tree() and (n as Control).get_global_rect().grow(20.0).has_point(p):
+			return false
+	if _app.timeline_row != null and (_app.timeline_row as Control).is_visible_in_tree() 			and (_app.timeline_row as Control).get_global_rect().grow(20.0).has_point(p):
+		return false
+	return true
+
+
+## The first named settlement whose marker lies where a press reaches the map (`_on_map()`), or -1. It was the
+## overlay's own rect, which runs beneath the docks, so the first place drawn under the left dock's grip was
+## picked and its click never reached the map.
 func _visible_settlement() -> int:
 	var ov = _app.viewport.overlay
-	var r: Rect2 = (ov as Control).get_global_rect().grow(-40.0)
 	var all: Array = _bridge.settlements()
 	for i in all.size():
 		var s: Dictionary = all[i]
 		if String(s.get("name", "")).strip_edges() == "":
 			continue
 		var at: Vector2 = (ov as Control).get_global_transform() * ov._cell_to_screen(Vector2(float(s.get("x", 0)), float(s.get("y", 0))), ov._displayed_rect())
-		if r.has_point(at):
+		if _on_map(at):
 			return i
 	return -1
 
