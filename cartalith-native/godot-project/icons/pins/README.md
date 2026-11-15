@@ -39,3 +39,17 @@ bottom-centre pixel); these have a gold rim on a charcoal ground, so the fit max
 ground-outside brightness, with the tip factor K fitted per pin (1.575 to 1.875). All 38 checked by eye.
 The glyph set has none of these; a kind with no glyph icon falls back to the drawn pin. The owner ruled that fort
 must not borrow the castle icon.
+
+## Glyph set, drawn in code (owner-approved, 2026-11-15)
+
+39 more pins in `glyph/`, drawn to the owner's flat style because the owner's sheet had none for these kinds:
+city, hamlet, tavern, smithy, shrine, guild, gate, well, camp, other, spring, river_confluence, delta, ford, portage,
+historic_crossing, mountain_pass, ridge, cliff, gorge, rock_formation, glacier, quarry, salt_works, road_junction,
+caravan_station, trade_depot, ancient_road, fort, watchtower, fortified_pass, fortified_crossing, battlefield,
+border_marker, sacred_grove, sacred_mountain, ceremonial_site, tomb, monument. A first coded draft was refined by a
+Fable agent at the owner's request: each pin body (outline, rim shading, disc) is the per-pixel median of the owner's
+five pins of that colour, so the silhouette and hit shape match the owner's pins; only the pictogram is drawn.
+The owner reviewed the contact sheets and chose: ancient_road option B (road under a ruined arch), portage option C
+(boat on a cart), caravan_station option B (wagon under a waystation roof with a lantern), historic_crossing kept
+as the bridge with a fallen middle arch, road_junction approved; fort is a timber stockade, never the castle.
+Generators and sheets: `design/pin-icons-2026-11-15/glyph-drawn/` (`fable_glyphs.py`, `alts.py`).
