@@ -763,6 +763,11 @@ STYLO2_PEN_PROPOSAL.md section 6.4/6.5 and section 11 are the design; this is th
 3. Point Cargo at the workspace `target` directory: set `CARGO_TARGET_DIR` to `cartalith-native/target` for the
    `cargo ndk` step. `cartalith.gdextension` resolves every library as `res://../target/...`, so a build that writes
    anywhere else (a worktree's own `target`, a different drive) exports an APK with no `libcartalith_godot.so`, or a stale one.
+   **Exporting from a git worktree** (2026-11-15): pointing `CARGO_TARGET_DIR` at the main checkout's `target` is not
+   enough, because the export reads `res://../target/...` relative to the *worktree*, which has no `target`. That export
+   succeeded and shipped a **0-byte** `libcartalith_godot.so`. Make the worktree's `cartalith-native/target` a directory
+   junction to the shared `target` before exporting (`cmd /c mklink /J <worktree>/cartalith-native/target <checkout>/cartalith-native/target`),
+   remove the junction afterwards, and always check the `.so` size inside the APK.
 
 **Per APK:** (the `CARGO_TARGET_DIR` of step 3 applies) the Rust steps of section 1.3 are unchanged (`cargo ndk -t arm64-v8a build --release -p cartalith-godot`, check the
 `.so` is fresh). Then export, supplying Godot's debug keystore through the environment (the Gradle route checks for a
