@@ -114,7 +114,7 @@ document, and `STATUS.md` records what lands)
   6T. `engine_bridge.gd::_restore_cpu_pref` pushes only a stored non-zero count; pushing `0` (auto) at boot as well
   would apply the rule. A one-line GDScript change, left for the shell lane; verify with `cpu_thread_count_active()` on
   the 6T after a cold start.
-- ~~**Re-measure generation on the Pad 3 with the 2026-11-15 build**~~ -- **timed 2026-11-15** (section 12.7, "Timing, run by the coordinator"): 23.76 s -> 15.69 s, digest identical; left: the `RAYON_NUM_THREADS=1` column and a sustained-throttling run (the quick run kept the Pad at a flat 41.3 C) (`PERFORMANCE_BENCHMARKS.md` section 12.6,
+- ~~**Re-measure generation on the Pad 3 with the 2026-11-15 build**~~ -- **timed 2026-11-15** (section 12.7, "Timing, run by the coordinator"): 23.76 s -> 15.69 s, digest identical; left: the `RAYON_NUM_THREADS=1` column only. A sustained-throttling run is dropped (owner, 2026-11-15: *"No longer run needed, it's not a use case. It generates per user input"*) (`PERFORMANCE_BENCHMARKS.md` section 12.6,
   "For the Pad 3"): `device_stage_bench` before/after interleaved with the 60 s cooldown, the CPU path's digest, and
   whether more busy cores bring the sustained throttling of section 12.4 point 3 sooner. **Part done 2026-11-15
   (section 12.7): the app's cold start runs 8 Rayon workers on the Pad. Still open: the timing matrix, the Pad's digest
