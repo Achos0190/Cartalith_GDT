@@ -853,8 +853,13 @@ func _select_pin(i: int, card: bool, source: String) -> void:
 		id = int(hit_pin["poi"])
 	host.select(kind, id)
 	if card and host.has_method("open_viewer_marker_card"):
-		var anchor := Vector2(position) + _canvas.get_global_transform_with_canvas() * pin_tip(i)
-		host.open_viewer_marker_card(kind, id, anchor, source)
+		## Docked, this dialog is embedded in the main window, so the pin's place in the main window's space is the
+		## dialog's `position` plus the canvas transform. Popped out, the window IS its own viewport and the card opens
+		## inside it (`ContextBroker._card_host`): the anchor is the canvas transform alone, in the window's coordinates.
+		var anchor := _canvas.get_global_transform_with_canvas() * pin_tip(i)
+		if PopoutHost.dialog_host(host, self) == host:
+			anchor += Vector2(position)
+		host.open_viewer_marker_card(kind, id, anchor, source, self)
 
 
 ## Canvas input: wheel zoom about the cursor, left/middle drag pan, and the

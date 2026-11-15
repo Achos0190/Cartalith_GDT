@@ -602,8 +602,8 @@ func _open_marker_card(local_pos: Vector2) -> void:
 ## `poi`, `id` the handle `select()` takes, and `anchor` is the pin's place in THIS viewport's space (the broker places the
 ## card there instead of at an overlay point). One hit, so the card's title and NOTE rows are for exactly that subject.
 ## Nothing is opened while the engine is generating or when the engine has no such row. Returns whether a card was
-## requested. **Selection is the caller's** (the viewer already called `select`); this writes nothing.
-func open_viewer_marker_card(kind: String, id: int, anchor: Vector2, source: String = "click") -> bool:
+## requested. `asker` is the viewer window, so a pop-out is found (see below). **Selection is the caller's** (the viewer already called `select`); this writes nothing.
+func open_viewer_marker_card(kind: String, id: int, anchor: Vector2, source: String = "click", asker: Node = null) -> bool:
 	if context_broker == null or bridge == null or bridge.generating or id < 0:
 		return false
 	var row: Dictionary = {}
@@ -623,6 +623,11 @@ func open_viewer_marker_card(kind: String, id: int, anchor: Vector2, source: Str
 		hit["label"] = String(nm)
 	var raw := {"gx": float(row.get("x", 0.0)), "gy": float(row.get("y", 0.0)), "screen_pos": Vector2.ZERO,
 		"anchor": anchor, "hits": [hit], "all_hits": [hit], "source": source}
+	## A viewer popped out to its own OS window (`asker` is, or sits in, a visible native pop-out): the card opens
+	## inside THAT window, and `anchor` is then the pin's place in the window's own coordinates (the caller's job).
+	var ph := PopoutHost.dialog_host(self, asker) if asker != null else self
+	if ph != self:
+		raw["host_window"] = ph
 	context_broker.resolve(raw)
 	return true
 

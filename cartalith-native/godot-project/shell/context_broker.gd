@@ -322,6 +322,17 @@ func present(req: Dictionary, actions: Array) -> void:
 			card = ContextCard.new()
 			card.setup(app)
 			app.add_child(card)
+		## Popped-out City Viewer (`OUTSTANDING_WORK.md`, "City map look", the popped-out viewer's card): a request that
+		## names a native pop-out in `host_window` is presented INSIDE that window, so the card is on the monitor the pin
+		## is on and its anchor is in that window's own coordinates. The one card node follows its request: it is
+		## hidden, moved under the window the request names (the app for every other request, exactly as before) and
+		## only then opened, so there is never a second card to keep in step.
+		var chost: Node = _card_host(req)
+		if card.get_parent() != chost:
+			card.hide()
+			if card.get_parent() != null:
+				card.get_parent().remove_child(card)
+			chost.add_child(card)
 		## `screen_pos` is `map_overlay`'s local space, under the map camera's
 		## zoom; the card pops in the viewport `app` is in (the measured
 		## correction CX-01's menu made, 2026-09-23).
@@ -378,6 +389,17 @@ func present(req: Dictionary, actions: Array) -> void:
 			float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]), float(cc["ring_down"]))
 		return
 	_present_phone(req, actions)
+
+
+## The node the card is presented under for `req`: the native pop-out `req["host_window"]` names while it is still a
+## visible, native, live window (a window that docked or closed since the request was built falls back), else the app.
+## Never null. A phone or tablet never pops out, so for them this is always the app.
+func _card_host(req: Dictionary) -> Node:
+	var w = req.get("host_window", null)
+	if w is Window and is_instance_valid(w) and (w as Window).visible and not (w as Window).is_embedded() \
+			and (w as Window).is_in_group(PopoutHost.GROUP):
+		return w
+	return app
 
 
 ## Phone presentation: drops card-only rows (`children`, `param`) -- except a submenu row that carries `phone_jump`

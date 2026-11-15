@@ -369,7 +369,10 @@ func create_note(r: Dictionary, template_rel: String, rel: String) -> bool:
 ## panel's Note tab is redrawn and the pins re-read their colour (`store_changed`, which `create_note` emits).
 func ask_create(r: Dictionary) -> void:
 	var bridge = app.bridge
-	var d: Dictionary = DccWidgets.custom_dialog(app, "Create note", "Create", 380)
+	## Ruling EA item 11's rule: a dialog a pop-out spawns opens in that pop-out. The asker is the marker card, which
+	## sits under the popped City Viewer when that is where the pin was clicked; for every other caller it is under the app.
+	var asker: Node = app.context_broker.card if app.context_broker != null and app.context_broker.card != null else app
+	var d: Dictionary = DccWidgets.custom_dialog(PopoutHost.dialog_host(app, asker), "Create note", "Create", 380)
 	var dlg: ConfirmationDialog = d["dialog"]
 	var body: VBoxContainer = d["body"]
 	body.add_child(DccTheme.label("New note for %s" % String(r["name"]), "text_dim", DccTheme.FS_SMALL))

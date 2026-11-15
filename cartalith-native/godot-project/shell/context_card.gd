@@ -259,6 +259,14 @@ func _hook_click_through() -> void:
 	var cb := Callable(self, "_on_root_window_input")
 	if not root.window_input.is_connected(cb):
 		root.window_input.connect(cb)
+	## A card under a native pop-out has its own embedder, and a press in THAT window never reaches the root's
+	## `window_input`; it is hooked the same way, so a click in the popped viewer closes the card and goes on to the
+	## viewer (the rule the main window follows). Bound with the window so a press in a window the card has left is ignored.
+	var pw := get_parent() as Window
+	if pw != null and pw != root:
+		var cb2 := Callable(self, "_on_host_window_input").bind(pw)
+		if not pw.window_input.is_connected(cb2):
+			pw.window_input.connect(cb2)
 
 
 ## Whether `k` is a shortcut chord: a fresh press (not an echo) with Ctrl, Alt or Meta held, on a key that is not
@@ -277,6 +285,20 @@ func _is_shortcut(k: InputEventKey) -> bool:
 ## Does nothing while the card is hidden or when it is a native window (it then has its own pointer
 ## routing, and its screen position is not the root's).
 func _on_root_window_input(ev: InputEvent) -> void:
+	_press_outside(ev, get_parent() == null or get_parent().get_viewport() == get_tree().root)
+
+
+## The same look at a press in the pop-out window this card sits under (see `_hook_click_through`); `pw` is the window
+## whose signal fired, ignored once the card has moved to another window. Its coordinates are the card's own.
+func _on_host_window_input(ev: InputEvent, pw: Window) -> void:
+	if get_parent() == pw:
+		_press_outside(ev, true)
+
+
+## The shared body of both hooks. `same_space` is whether `ev.position` is in the space the card's `position` is in
+## (the root's events for a card under the app, the pop-out's own for a card under it). A press from the OTHER window
+## is never inside this card, so it always closes it.
+func _press_outside(ev: InputEvent, same_space: bool) -> void:
 	if not visible or not is_embedded():
 		return
 	var at := Vector2.ZERO
@@ -293,7 +315,7 @@ func _on_root_window_input(ev: InputEvent) -> void:
 		return
 	else:
 		return
-	if Rect2(Vector2(position), Vector2(size)).has_point(at):
+	if same_space and Rect2(Vector2(position), Vector2(size)).has_point(at):
 		return
 	_through_frame = Engine.get_process_frames()
 	hide()
@@ -1051,7 +1073,10 @@ func _place() -> void:
 ## The visible rect of the viewport the card pops into (the host's, not the
 ## popup's own), in the space `_anchor` uses.
 func _bounds() -> Rect2:
-	var host_vp: Viewport = app.get_viewport() if app != null else get_viewport()
+	## The viewport this card is embedded in: its parent's. That is the app's for every ordinary card, and a native
+	## pop-out's own window when `context_broker.gd::present` put the card under one (the popped-out City Viewer).
+	var p := get_parent()
+	var host_vp: Viewport = p.get_viewport() if p != null else (app.get_viewport() if app != null else get_viewport())
 	return host_vp.get_visible_rect()
 
 
