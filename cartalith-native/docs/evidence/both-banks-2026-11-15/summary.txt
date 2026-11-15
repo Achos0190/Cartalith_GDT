@@ -1,0 +1,99 @@
+River towns on both banks, with a mixed riverside (Rulings FB and EZ item 1, owner 2026-11-15), under urban_riverbank.
+
+Owner, verbatim. FB: "Big river towns can grow around both banks when the terrain allows it." EZ item 1: "Riverside houses
+are fine, as well as having a street in between the river and house. So both conditions can exist (look at for example
+Amsterdam)".
+
+Route (DECISIONS.md section 7p): rides WorldParams::urban_riverbank (true in params::defaults, false in
+WorldParams::defaults and for a save without the key; read fresh when a town is laid out). The urban goldens and the
+FH-R2 / G1 harnesses lay towns out with it off, so none moved.
+
+What changed (cartalith-urban, each new constant labelled in its doc comment):
+ 1. Both banks. A town of BOTH_BANKS_MIN_POP and up (= plaza::PLAZA_MARKET_POP, 1 500: the urban crate's chartered-town
+    line, village below) on a riverbank river site gets a bridge before it grows (riverbank::lay_town_bridge): a 6 m
+    primary across the site's bridge point, joined to the nearest street on the market's bank within 240 m, with a 60 m
+    approach on the far bank; an existing primary counts only if it crosses at the bridge itself. grow then lifts the
+    reference's 190 m bridgehead rule (GrowOpts::far_bank): a far-bank origin must be buildable
+    (riverbank::far_bank_buildable: terrain_suitability >= 0.5, so no gorge or marsh bank) and the far bank's streets may
+    not exceed the market bank's (FAR_BANK_MAX_RATIO 1.0).
+ 2. The wall. The wall hug decides from the lots whether the circuit spans the river (wallhug::one_bank_by_lots: the
+    smaller bank must hold 32 % of the larger's lots and 8), else it is refitted round the larger bank alone; when that
+    one-bank refit cannot meet the 5 m margin in four widenings, the last widening is taken rather than keeping the
+    reference circuit round an empty bank.
+ 3. Riverside frontage. build_embankment alternates 90-220 m stretches of the 4 m embankment quay with 'bank' edges (1 m,
+    not drawn) along which the lots front the water; each run's ends are tied to the nearest street node within 46 m so
+    it closes its faces; lots fronting either are judged on slope alone (districts::lot_suitability), since the flood
+    factor otherwise leaves exactly that row vacant.
+ 4. Villages. A riverbank village (under 1 500) housing over RIVER_HOUSING_CAP (125 %) of its target empties its
+    outermost inland lots, those outside its wall first (riverbank::trim_overbuilt).
+ 5. Bay towns. Not in this code: the 457 "buildings in water" in six bay towns of seed 483920 at 2 048 were the census
+    test's artefact. On a coast or bay layout the 'river' polyline is shore_from_mask's shoreline (land cells beside the
+    sea sorted along one axis, zigzagging across the town) and the channel test counted houses within 6 m of it. 0 of
+    them are in a sea or lake cell, 0 in water_poly (both_banks_audit's split columns, before and after). The census's
+    wet_buildings now applies the channel test to river layouts only; the housing audit reads 0 in water at both sizes.
+
+Measured: town_river_census.rs::both_banks_audit (new), town_housing_audit, riverbank_gap_audit; seeds 483920, 912345,
+246371; 800 km; CPU; villages on; params::defaults (the app). Release build, one thread:
+  TOWN_RIVER_GW=<384|2048> TOWN_RIVER_VILLAGES=1 TOWN_RIVER_LIST=1 cargo test --release -p cartalith-godot --lib \
+    both_banks_audit -- --ignored --nocapture --test-threads 1
+"Before" is 6d098e1b (urban_riverbank on, ed6e3b96's riverbank), the same audit built in a detached worktree.
+Files: audit_before_<gw>.txt, audit_after_<gw>.txt (a row per town), housing_after_<gw>.txt, gap_before_<gw>.txt,
+gap_after_<gw>.txt, mutants.txt, viewer/ (City Viewer before | after), plans/ (data plots of the layouts, plot.py).
+
+                                            384 before   384 after   2048 before   2048 after
+villages (<1 500) housed % p10/med/p90      32/139/226   40/125/125   53/146/229    61/125/125
+  under 80 % / over 200 %                    135 / 117    108 / 1      124 / 143     100 / 3
+towns >= 1 500 housed % p10/med/p90          53/86/124    73/104/152   57/83/134     55/100/148
+  under 80 % / over 200 %   (34-35 towns)     14 / 0       7 / 0        16 / 0        6 / 0
+towns >= 5 000 housed % p10/med/p90          71/89/121    77/109/150   57/78/129     55/100/148
+  under 80 %                (28 / 24 towns)   9            4            13            4
+houses within 1 / 2 street widths (5.4 m)   0.2 / 4.3 %  2.9 / 6.6 %  0.2 / 4.5 %   3.0 / 7.0 %
+  of the bank, pooled over river towns
+river towns whose every house is over 2      176 of 618   87 of 617    238 of 666    156 of 666
+  street widths (10.8 m) off the bank
+house over the town's widest street          544 of 618   259 of 617   607 of 666    329 of 666
+  (riverbank_gap_audit)
+towns with a crossing (all / >= 1 500)       212 / 15     223 / 26     233 / 17      241 / 25
+towns on both banks, >10 % of houses on the  32 / 4       51 / 24      27 / 1        44 / 20
+  smaller bank (all / >= 1 500)
+walled river towns whose wall crosses the    9 of 31      19 of 32     15 of 33      23 of 34
+  river; of those round an empty bank         6            3            14            5
+  (<10 % of intramural houses on the smaller bank)
+buildings in water (channel / sea-lake cell  0/0/0        0/0/0        0/0/0         0/0/0
+  / water_poly); bay-shoreline artefact       0            0            457           457 (column kept as the diagnosis)
+
+Reading the table:
+- Big towns: the median rises to about target and the under-80 % tail halves; on both banks 4 -> 24 of 33 at 384 and
+  1 -> 20 of 34 at 2 048. More walls cross the river because more towns are built on both banks; the ones round an empty
+  bank fall (6 -> 3, 14 -> 5). The residue at 2 048 is mostly one-bank circuits whose water wall follows a bend and
+  touches the centreline (seed 912345 #20, unchanged by this work), which the audit's crude test cannot tell apart.
+- The cap makes the village median exactly 125 %: over half of riverbank villages are trimmed. Villages under 80 %
+  are not helped (pre-existing; mostly towns whose layout places few streets).
+- The setback: the share of towns with every house over 2 street widths halves at 384 (176 -> 87) and falls by a third at
+  2 048 (238 -> 156). The pooled house shares move little because most of a town's houses are inland.
+- 'built frontage (a house or a quay's water side) over the widest street' (riverbank_gap_audit) rose 14 -> 42 of 617
+  at 384 and 85 -> 112 of 666 at 2 048: where a bank stretch replaces a quay and the lots behind it are not built (too steep), nothing reaches the
+  bank. Left open.
+
+Screenshots (viewer/, City Viewer via _viewerframe_probe.tscn, windowed, scratch APPDATA, the app's GPU world, so the
+settlement numbers are the app's, not the census's): before | after, each looked at.
+- 483920_70 (384x288): a hamlet at its quay; one new tie closes a small triangle by the bridge, otherwise unchanged
+  (no houses reach the river: its streets end short of it).
+- 483920_6: houses now stand on the river bank (a 'bank' stretch, top left of the town); the trim emptied its southern
+  block (the village houses 125 % of its target, not more).
+- 483920_15: a village 300 m from its river (placement, not this code); trimmed lots show as empty plots on its fringe.
+- 12345_0 (the harness town at (43,34), 384x246): unchanged in kind, one bank; no far-bank growth (no bridge was laid:
+  see the row; the far bank stays empty, as the ruling allows).
+- 12345_4 (the town at (108,71)): a bridge and a quarter on the far bank, outside the one-bank wall. NOT RIGHT YET: the
+  near-bank town is smaller (the far bank took part of the street budget) and its refitted wall encloses an unbuilt
+  patch between its two eastern lobes (streets with nothing platted beside them). Routed.
+- 483920_165 (2 048 x 1 311, a bay town): byte-identical before and after (not a river site).
+Plans (plans/, data plots of the census layouts, not the renderer): 483920 #4 and 912345 #6 at 384 before | after (the
+far-bank regressions an intermediate build had and the final build does not), and 483920 #0 at 2 048 (the case that
+led to the bridge rule and the one-bank fallback; after: a walled city on both banks, the river through two water
+gates, 136 % of its target: big towns are not capped).
+
+Mutants (mutants.txt): 25 literal mutants of the new constants and branches, 24 killed. Survivor: removing the far
+bank's length cap at its grow call site (FAR_BANK_MAX_RATIO is pinned through bank_street_lengths' test; the call site is
+not, since the final street lengths also count the lane passes and primaries). The one-bank wall fallback (accept the
+last widening) has no unit test of its own; it is measured here (483920 #0 at 2 048).

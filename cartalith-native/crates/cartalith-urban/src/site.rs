@@ -1028,6 +1028,20 @@ pub fn build_site(seed: u32, wm: f64, hm: f64, kind: &str, opts: SiteOpts) -> Si
     site
 }
 
+/// The slope factor of [`terrain_suitability`], on its own: `exp(-s^2 /
+/// (2 * 0.3^2))` of the slope `s` clipped to 1, the reference's own terms in
+/// its own order (so [`terrain_suitability`] is unchanged to the bit).
+///
+/// **Not a reference function**: split out on 2026-11-15 for Ruling EZ item 1,
+/// where a lot fronting a riverbank site's own riverside edge is judged on its
+/// slope alone (`crate::districts::lot_suitability`). Must never be used to
+/// judge ground the river can flood with no bank between.
+pub fn slope_suitability(site: &Site, p: Vec2) -> f64 {
+    // clip the rare coastline isWater() step-discontinuity
+    let s = js_min(1.0, site.slope(p));
+    js_exp(-(s * s) / (2.0 * 0.3 * 0.3))
+}
+
 /// `terrainSuitability(site, p)` — reference line 28723.
 ///
 /// A `[0, 1]` buildability score, **multiplicative** by design: a flood-prone
@@ -1040,9 +1054,7 @@ pub fn build_site(seed: u32, wm: f64, hm: f64, kind: &str, opts: SiteOpts) -> Si
 /// `hashModel` deliberately does not hash it, which is what keeps it
 /// cross-version neutral.
 pub fn terrain_suitability(site: &Site, p: Vec2) -> f64 {
-    // clip the rare coastline isWater() step-discontinuity
-    let s = js_min(1.0, site.slope(p));
-    let slope_score = js_exp(-(s * s) / (2.0 * 0.3 * 0.3));
+    let slope_score = slope_suitability(site, p);
     // the SAME flood-band margin placeAnchors and buildWall use, not a new constant
     let margin = js_or(site.river_w, 0.0) / 2.0 + 30.0;
     let rd = if site.is_water(p) { 0.0 } else { site.river_dist(p) };

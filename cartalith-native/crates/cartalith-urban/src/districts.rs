@@ -88,7 +88,7 @@ use crate::growth::{WallState, dist_to_line};
 use crate::rng::{Substream, fnv1a, stream};
 use crate::routes::Anchors;
 use crate::rules::{CultureProfile, MEDIEVAL};
-use crate::site::{Site, terrain_suitability};
+use crate::site::{Site, slope_suitability, terrain_suitability};
 use crate::wallside::WallBacking;
 use std::f64::consts::PI;
 
@@ -253,7 +253,7 @@ pub fn assign_districts<'a>(
         let d_m = c.dist(anchors.market);
         let rd = site.river_dist(c);
         // docs/08: informational by default (M-TER-1)
-        lot.suitability = terrain_suitability(site, c);
+        lot.suitability = lot_suitability(site, lot.par);
         // `plaza && distPtSeg(c, plaza.poly[0], plaza.poly[1]) < depth+22`: a
         // plaza with fewer than two points would index `undefined` in JS and
         // make the comparison NaN-false, which is what the length guard says.
@@ -588,6 +588,35 @@ const PROV_COURTYARD_RING: &str = "Perimeter-block range: one of a continuous ri
 const PROV_REAR_RANGE: &str = "Rear range closing a courtyard plan (M-BLD-3).";
 // The burgage grammar's detached rear outbuilding, every non-courtyard plot.
 const PROV_OUTBUILDING: &str = "Rear outbuilding (barn/workshop) at the plot tail (M-BLD-6).";
+
+/// The suitability a lot is built or left vacant on: [`terrain_suitability`]
+/// at its centroid (the reference), except **on a riverbank site**
+/// ([`Site::riverbank`], not the reference) for a lot fronting the river's own
+/// riverside edge (the embankment `quay` or a
+/// [`crate::riverbank::BANK_CLASS`] edge), which is judged on its slope alone
+/// ([`slope_suitability`]).
+///
+/// **Why** (Ruling EZ item 1, owner 2026-11-15: *"Riverside houses are fine,
+/// as well as having a street in between the river and house"*): the flood
+/// factor scores ground by its distance from the channel, zero at the water
+/// and full only `riverW/2 + 30` m from the centreline, so it leaves vacant
+/// exactly the riverside row the embankment and the bank frontage exist to
+/// build. Measured on seed 912345 at 384 before this: 57 % of bank-fronting
+/// and 82 % of quay-fronting lots built, against 92 % of street lots. The
+/// frontage is the bank's revetment; the row behind it is no more flood-prone
+/// than the quay itself.
+///
+/// **What it must never do**: change any lot on a site the riverbank
+/// geometry did not switch, or any lot not fronting a riverside edge.
+/// Shared by [`assign_districts`] and [`crate::wallhug`], so the wall is fitted
+/// to the lots that will really be built.
+pub fn lot_suitability(site: &Site, par: &crate::blocks::Parcel) -> f64 {
+    let c = poly_centroid(&par.poly);
+    if site.riverbank() && (par.edge_cls == crate::riverbank::BANK_CLASS || par.edge_cls == "quay") {
+        return slope_suitability(site, c);
+    }
+    terrain_suitability(site, c)
+}
 
 /// The terrain-suitability score below which `terrain_aware` leaves a lot vacant
 /// (docs/08, M-TER-2; the threshold is the reference's, explained at its use in

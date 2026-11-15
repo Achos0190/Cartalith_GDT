@@ -329,6 +329,7 @@ fn setup(c: &Case) -> Fixture {
                 fortified: false,
                 wet_moat: false,
                 pop: pop_target,
+                far_bank: false,
             };
             let mut walls = RecordingWallBuilder::default();
             grow(

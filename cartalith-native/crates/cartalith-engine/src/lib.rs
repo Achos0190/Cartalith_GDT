@@ -1146,7 +1146,17 @@ pub struct WorldParams {
     /// (`cartalith_urban::riverbank::fine_river_path`) and lays an embankment
     /// along each bank the town reaches (`riverbank::build_embankment`), so the
     /// riverside streets, lots and buildings stand at the bank rather than a
-    /// band back from it, and the town draws its river as the channel. **The reference's distance raster already measures from the
+    /// band back from it, and the town draws its river as the channel. The
+    /// same switch carries Rulings FB and EZ item 1 (owner, 2026-11-15): the
+    /// riverside alternates embankment quays with houses on the water
+    /// (`riverbank::BANK_CLASS`), a riverside lot is judged on its slope alone
+    /// (`districts::lot_suitability`), a town of
+    /// `riverbank::BOTH_BANKS_MIN_POP` and up bridges its river
+    /// (`riverbank::lay_town_bridge`) and grows on a buildable far bank, its
+    /// wall spans the river only when both banks are built
+    /// (`wallhug::one_bank_by_lots`), and a village housing over
+    /// `riverbank::RIVER_HOUSING_CAP` of its target leaves its outermost
+    /// lots empty (`riverbank::trim_overbuilt`). **The reference's distance raster already measures from the
     /// bank** (`_umWaterCtx` stamps the river band into the mask before the
     /// distance transform), and its margins (`riverW/2+1`, `riverW/2+30`, ...)
     /// were written for the synthetic site, whose distance is to the

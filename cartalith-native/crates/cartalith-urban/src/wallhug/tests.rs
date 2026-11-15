@@ -277,3 +277,19 @@ fn the_wall_gap_matches_a_hand_computed_square() {
     assert!(wall_gap(&ring, None, &[&outside[..]]).is_none(), "a building outside the wall is not inside");
     assert!(wall_gap(&ring[..2], None, &[&bld[..]]).is_none());
 }
+
+/// Protects Ruling FB's span test, `one_bank_by_lots` (literals): 100 lots
+/// on the market's bank and 32 on the other span the river (32 is 32 %); 31
+/// do not, and the circuit keeps the market's bank; 5 on the market's bank
+/// and 100 across keep the other bank; 10 and 7 do not span (under eight on
+/// the smaller bank), and an even split keeps the market's.
+#[test]
+fn a_wall_spans_its_river_only_when_both_banks_are_built() {
+    let sides = |near: usize, far: usize| -> Vec<f64> { std::iter::repeat_n(1.0, near).chain(std::iter::repeat_n(-1.0, far)).collect() };
+    assert_eq!(super::one_bank_by_lots(&sides(100, 32), 1.0), None);
+    assert_eq!(super::one_bank_by_lots(&sides(100, 31), 1.0), Some(1.0));
+    assert_eq!(super::one_bank_by_lots(&sides(5, 100), 1.0), Some(-1.0));
+    assert_eq!(super::one_bank_by_lots(&sides(10, 7), 1.0), Some(1.0));
+    assert_eq!(super::one_bank_by_lots(&sides(10, 8), 1.0), None);
+    assert_eq!(super::one_bank_by_lots(&sides(4, 4), -1.0), Some(-1.0));
+}

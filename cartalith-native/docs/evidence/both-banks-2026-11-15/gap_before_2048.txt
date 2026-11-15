@@ -1,0 +1,22 @@
+
+running 1 test
+test town_river_census::riverbank_gap_audit ... seed 483920 at 2048x1311, urban_riverbank true: built-to-bank n 224 min 2 p10 6 median 9 p90 270 max 575
+seed 912345 at 2048x1311, urban_riverbank true: built-to-bank n 213 min 1 p10 6 median 8 p90 39 max 571
+seed 246371 at 2048x1311, urban_riverbank true: built-to-bank n 229 min 1 p10 6 median 7 p90 231 max 574
+all seeds at 2048, urban_riverbank Some(true): 666 judged river-kind layouts (19 not judged: no street, water or building)
+  built-to-bank over the widest street: 607 of 666
+  built frontage (a building or a quay's water side) over the widest street: 85 of 666
+  frontage to bank  n 666 min 0 p10 0 median 1 p90 117 max 575
+  non-primary edges crossing the river centreline: 2 in 2 towns
+  field and pasture strips crossing the river centreline: 0
+  housed as % of pop_target n 666 min 6 p10 61 median 146 p90 229 max 378; over 150 %: 316
+  building to bank  n 666 min 1 p10 6 median 8 p90 173 max 575
+  building to mask  n 623 min 0 p10 0 median 0 p90 30 max 370
+  parcel to bank    n 666 min 1 p10 6 median 8 p90 173 max 575
+  block to bank     n 666 min 0 p10 5 median 7 p90 78 max 575
+  street to bank    n 666 min 0 p10 1 median 3 p90 43 max 522
+  buildings in water: channel 0, sea or lake 0, water_poly 0 (of 150204 buildings); on the stamped 22 m mask 8558 (drawn only with the switch off)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1389 filtered out; finished in 59.25s
+

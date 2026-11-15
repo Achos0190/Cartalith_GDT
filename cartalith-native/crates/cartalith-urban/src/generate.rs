@@ -91,7 +91,7 @@ use crate::hinterland::{
 };
 use crate::plaza::{Plaza, build_plaza};
 use crate::radial::{build_radial_streets, build_waterway};
-use crate::riverbank::{build_embankment, fine_river_path};
+use crate::riverbank::{BOTH_BANKS_MIN_POP, TownBridge, build_embankment, fine_river_path, lay_town_bridge};
 use crate::rng::fnv1a;
 use crate::routes::{Anchors, build_primaries, build_primaries_from_paths, place_anchors};
 use crate::rules::{CultureProfile, RulesPatch, resolve_profile, resolve_rules};
@@ -330,6 +330,11 @@ pub struct Town {
     /// What [`crate::riverbank::build_embankment`] laid, [`None`] when
     /// [`Self::riverbank`] is off.
     pub embankment: Option<crate::riverbank::Embankment>,
+    /// **Not the reference** -- what Ruling FB's town bridge did
+    /// ([`crate::riverbank::lay_town_bridge`]): [`None`] for a town that does
+    /// not grow on both banks (the switch off, a village, the radial plan or
+    /// a site with no river).
+    pub town_bridge: Option<TownBridge>,
     /// The head count: 5.2 per built, non-churchyard, non-ruined parcel,
     /// accumulated in parcel order and then rounded.
     pub pop: f64,
@@ -411,6 +416,15 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     // river port, `water_poly` and route ends are the reference's choices on
     // the resampled centreline. Off: the reference's stamped-mask water.
     let riverbank = opts.riverbank && site.use_riverbank();
+    // **Not the reference** (Ruling FB, owner 2026-11-15: *"Big river towns
+    // can grow around both banks when the terrain allows it"*): which towns
+    // may. A riverbank river site of the chartered-town size class and up;
+    // the organic plan only (the radial plan never calls `grow`).
+    let both_banks = riverbank
+        && pop_target >= BOTH_BANKS_MIN_POP
+        && (site.kind == "river" || site.kind == "riverthrough")
+        && profile.planning != "radial";
+    let mut town_bridge: Option<TownBridge> = None;
     // v0.95: the host's real connected neighbours, not `buildSite`'s synthetic
     // map-edge endpoints. `buildPrimaries` reads only `site.routeEnds`, so this
     // is the whole of the route-locking hook.
@@ -509,6 +523,14 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         if site.through {
             add_river_bridges(seed, &site, &anchors, &mut g, 2);
         }
+        // **Not the reference** (Ruling FB, `crate::riverbank`): a big river
+        // town on a riverbank site gets a bridge joined to its streets before
+        // it grows, and grows onto the far bank where that is buildable.
+        // After the primaries, plaza and harbour, so the bridge joins the
+        // streets they laid; before `grow`, so growth radiates from it.
+        if both_banks {
+            town_bridge = Some(lay_town_bridge(&site, &anchors, &mut g, max_rf));
+        }
         let grow_opts = GrowOpts {
             target_len,
             max_rf,
@@ -523,6 +545,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
             // the radial branch sets a wet moat.
             wet_moat: false,
             pop: pop_target,
+            far_bank: town_bridge.is_some_and(|b| b != TownBridge::None),
         };
         let mut builder = FortificationBuilder;
         grow(
@@ -558,7 +581,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
     // **Not the reference** (2026-11-15, `crate::riverbank`): the river town's
     // embankment, after the last street pass and before the faces become
     // blocks, so the riverside blocks it closes are platted like any other.
-    let embankment = if riverbank { Some(build_embankment(&site, &mut g, wall_state.ring.as_deref())) } else { None };
+    let embankment = if riverbank { Some(build_embankment(&site, &mut g, wall_state.ring.as_deref(), Some(seed))) } else { None };
 
     let blocks = build_blocks(&g, plaza.as_ref(), &site);
     let mut parcels = build_parcels(seed, &g, &blocks, anchors.market, epochs, &site, Some(&rules));
@@ -576,7 +599,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
             fortified,
             wet_moat: profile.planning == "radial" && profile.waterway,
         };
-        hug_outcome = Some(hug_wall(seed, &site, &anchors, &mut g, &parcels, terrain_aware, &mut wall_state, front.as_ref(), &fo));
+        hug_outcome = Some(hug_wall(seed, &site, &anchors, &mut g, &parcels, terrain_aware, &mut wall_state, front.as_ref(), &fo, both_banks));
     }
     // **Not the reference** — a Ruling H departure (owner, 2026-09-22): lots
     // backing onto the wall from inside, and a faubourg against it outside.
@@ -622,6 +645,15 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         Some(&profile),
         terrain_aware,
     );
+    // **Not the reference** (2026-11-15, Ruling FB's "villages must not be
+    // over-built"; `crate::riverbank::trim_overbuilt`): on a riverbank site a
+    // village (under `BOTH_BANKS_MIN_POP`) housing more than
+    // `RIVER_HOUSING_CAP` times its target leaves its outermost inland lots
+    // vacant down to it, those outside its wall first. Before the places of
+    // worship, which claim lots of their own.
+    if riverbank && pop_target < BOTH_BANKS_MIN_POP {
+        crate::riverbank::trim_overbuilt(&mut lots, &mut buildings, anchors.market, pop_target, wall_state.ring.as_deref());
+    }
 
     // `p.ruined` / `b.ruined`. Both are absent (falsy) with the toggle off,
     // which is what these all-false vectors are.
@@ -953,6 +985,7 @@ pub fn generate(seed: u32, opts: &GenOpts) -> Town {
         citadel,
         wall_hug: hug_outcome,
         riverbank,
+        town_bridge,
         embankment,
         pop,
         metrics,

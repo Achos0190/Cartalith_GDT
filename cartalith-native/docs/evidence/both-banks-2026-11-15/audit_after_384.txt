@@ -1,0 +1,698 @@
+
+running 1 test
+test town_river_census::both_banks_audit ...   #  0        river target  20000 housed  81.4 % bld  3515 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.4 m far bank 40 % crossing true wall cuts 2 intra 3092 far 1335 hug Some(Kept(NotSmaller))
+  #  1 riverthrough target  20000 housed  77.4 % bld  3538 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.8 m far bank 14 % crossing false wall cuts 1 intra 3094 far 258 hug Some(Kept(NotSmaller))
+  #  2 riverthrough target   9546 housed  88.1 % bld  1847 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.3 m far bank 18 % crossing true wall cuts 0 intra 1331 far 0 hug Some(Refit { clearance_m: 46.0, area_ratio: 0.49917740718172243, streets_removed: 36 })
+  #  3        river target    464 housed 100.9 % bld    90 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.1 m far bank 0 % crossing false no wall hug None
+  #  4 riverthrough target  20000 housed  92.3 % bld  4002 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.0 m far bank 43 % crossing false wall cuts 1 intra 3422 far 1409 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9306899265532479, streets_removed: 10 })
+  #  5        river target    400 housed 123.5 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 8.9 m far bank 17 % crossing true no wall hug None
+  #  6 riverthrough target   2352 housed  77.2 % bld   403 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #  7        river target  19654 housed  99.5 % bld  4247 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.5 m far bank 30 % crossing true wall cuts 2 intra 3773 far 1025 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9121298864195023, streets_removed: 26 })
+  #  8 riverthrough target  17984 housed  97.4 % bld  3674 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.1 m far bank 39 % crossing false wall cuts 1 intra 3367 far 1415 hug Some(Kept(NotSmaller))
+  #  9 riverthrough target   1922 housed 147.2 % bld   688 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 0.9 m far bank 20 % crossing true wall cuts 2 intra 563 far 46 hug Some(Kept(NotSmaller))
+  # 10        river target  20000 housed 125.6 % bld  5795 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.2 m far bank 15 % crossing true wall cuts 0 intra 4681 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9259685737033436, streets_removed: 55 })
+  # 11        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 12        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  # 13        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.9 m far bank 22 % crossing false no wall hug None
+  # 14        river target    400 housed 124.8 % bld   115 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 15        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 26 % crossing true no wall hug None
+  # 16        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.7 m far bank 0 % crossing true no wall hug None
+  # 17 riverthrough target    483 housed 124.8 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.7 m far bank 0 % crossing false no wall hug None
+  # 18        river target   7492 housed 114.9 % bld  1976 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.3 m far bank 0 % crossing true wall cuts 0 intra 1875 far 0 hug Some(Kept(MarginNotMet))
+  # 19        river target   8838 housed 124.6 % bld  2392 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.1 m far bank 0 % crossing true wall cuts 0 intra 2192 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9817622545918564, streets_removed: 7 })
+  # 20        river target    600 housed  65.8 % bld    78 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.5 m far bank 0 % crossing true no wall hug None
+  # 21        river target    400 housed 121.0 % bld    95 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  # 22        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.7 m far bank 0 % crossing true no wall hug None
+  # 23        river target    469 housed  65.5 % bld    60 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  # 24        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 25        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 26        river target    400 housed  45.5 % bld    35 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 27        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.2 m far bank 17 % crossing true no wall hug None
+  # 28        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.1 m far bank 0 % crossing false no wall hug None
+  # 29        river target    400 housed 118.2 % bld    91 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 6.0 m far bank 0 % crossing false no wall hug None
+  # 30        river target    400 housed 124.8 % bld   119 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.3 m far bank 0 % crossing true no wall hug None
+  # 31        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.1 m far bank 0 % crossing true no wall hug None
+  # 32        river target    400 housed 108.0 % bld    86 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.2 m far bank 0 % crossing false no wall hug None
+  # 33        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.3 m far bank 0 % crossing false no wall hug None
+  # 34        river target    400 housed 118.2 % bld    94 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.7 m far bank 0 % crossing false no wall hug None
+  # 35        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.0 m far bank 0 % crossing false no wall hug None
+  # 36        river target    400 housed  82.0 % bld    63 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing false no wall hug None
+  # 37        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  # 38        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  # 39        river target    400 housed 124.8 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 40 riverthrough target    400 housed 111.8 % bld   117 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 41        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.3 m far bank 0 % crossing true no wall hug None
+  # 42        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 7.0 m far bank 0 % crossing true no wall hug None
+  # 43        river target    400 housed 108.0 % bld    84 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.6 m far bank 0 % crossing false no wall hug None
+  # 44        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 45        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.6 m far bank 23 % crossing true no wall hug None
+  # 46        river target    400 housed  75.5 % bld    92 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 47        river target    400 housed 124.8 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.7 m far bank 0 % crossing false no wall hug None
+  # 48        river target    400 housed 124.8 % bld   117 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 49        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.6 m far bank 0 % crossing true no wall hug None
+  # 50        river target    400 housed  95.0 % bld    73 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.0 m far bank 0 % crossing true no wall hug None
+  # 51        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 52        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 53 riverthrough target    400 housed 123.5 % bld    95 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.2 m far bank 0 % crossing false no wall hug None
+  # 54        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  # 55        river target    400 housed 108.0 % bld    83 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.2 m far bank 0 % crossing false no wall hug None
+  # 56        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 57        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.8 m far bank 0 % crossing false no wall hug None
+  # 58        river target    400 housed 124.8 % bld   117 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 20.9 m far bank 0 % crossing false no wall hug None
+  # 59 riverthrough target    400 housed 118.2 % bld    91 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 36 % crossing false no wall hug None
+  # 60        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.7 m far bank 0 % crossing false no wall hug None
+  # 61 riverthrough target    400 housed  33.8 % bld    26 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 62        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  # 63        river target    400 housed 113.0 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 64        river target    400 housed 104.0 % bld    80 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.1 m far bank 0 % crossing false no wall hug None
+  # 65        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 66        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.7 m far bank 0 % crossing true no wall hug None
+  # 67        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 68        river target    400 housed 124.8 % bld   125 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  # 69        river target    400 housed 124.8 % bld   119 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.7 m far bank 0 % crossing false no wall hug None
+  # 70 riverthrough target    400 housed 118.2 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 9.3 m far bank 0 % crossing false no wall hug None
+  # 71        river target    400 housed 124.8 % bld   112 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  # 72        river target    400 housed 124.8 % bld   123 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.2 m far bank 0 % crossing true no wall hug None
+  # 73        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 74        river target    400 housed 124.8 % bld   117 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.0 m far bank 0 % crossing false no wall hug None
+  # 75        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 76        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 77        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 78        river target    400 housed 100.0 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 79        river target    400 housed 124.8 % bld   118 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 2.0 m far bank 5 % crossing true no wall hug None
+  # 80        river target    400 housed  97.5 % bld    75 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 81        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  # 82        river target    400 housed 124.8 % bld   124 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 7.6 m far bank 0 % crossing false no wall hug None
+  # 83        river target    400 housed 124.8 % bld   118 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.4 m far bank 0 % crossing true no wall hug None
+  # 84 riverthrough target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  # 85        river target    400 housed 108.0 % bld    83 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  # 86        river target    400 housed   7.8 % bld     6 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 13.2 m far bank 0 % crossing false no wall hug None
+  # 87   landlocked target    400 housed 130.0 % bld   102 wet ch/open/poly 0/0/0 shore-line 0
+  # 88        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.0 m far bank 0 % crossing false no wall hug None
+  # 89 riverthrough target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.7 m far bank 0 % crossing false no wall hug None
+  # 90        river target    400 housed 122.2 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  # 91        river target    400 housed 121.0 % bld    93 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  # 92        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 13.8 m far bank 0 % crossing false no wall hug None
+  # 93        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.9 m far bank 0 % crossing false no wall hug None
+  # 94        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.3 m far bank 0 % crossing false no wall hug None
+  # 95        river target    400 housed 110.5 % bld    89 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 24 % crossing true no wall hug None
+  # 96        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.9 m far bank 0 % crossing true no wall hug None
+  # 97 riverthrough target    400 housed  76.8 % bld    64 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing true no wall hug None
+  # 98        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 34.2 m far bank 0 % crossing false no wall hug None
+  # 99        river target    400 housed 119.5 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #100        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #101        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.7 m far bank 0 % crossing true no wall hug None
+  #102        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 4.3 m far bank 0 % crossing false no wall hug None
+  #103        river target    400 housed 102.8 % bld    80 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.3 m far bank 0 % crossing true no wall hug None
+  #104        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.5 m far bank 0 % crossing false no wall hug None
+  #105        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.1 m far bank 0 % crossing true no wall hug None
+  #106 riverthrough target    400 housed 104.0 % bld    80 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 11.0 m far bank 0 % crossing false no wall hug None
+  #107        river target    400 housed  93.5 % bld    72 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing false no wall hug None
+  #108        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.1 m far bank 0 % crossing true no wall hug None
+  #109        river target    400 housed 124.8 % bld   137 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #110        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #111        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 24.9 m far bank 4 % crossing false no wall hug None
+  #112        river target    400 housed 124.8 % bld   121 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 23.7 m far bank 0 % crossing true no wall hug None
+  #113        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #114        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.8 m far bank 0 % crossing false no wall hug None
+  #115        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 40 % crossing true no wall hug None
+  #116        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #117        river target    400 housed 124.8 % bld   119 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  #118        river target    400 housed 124.8 % bld   122 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #119        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 10.9 m far bank 0 % crossing false no wall hug None
+  #120        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing true no wall hug None
+  #121   landlocked target    400 housed 100.0 % bld    79 wet ch/open/poly 0/0/0 shore-line 0
+  #122   landlocked target    400 housed  54.5 % bld    42 wet ch/open/poly 0/0/0 shore-line 0
+  #123        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 44.1 m far bank 0 % crossing true no wall hug None
+  #124        river target    400 housed  37.8 % bld    29 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.1 m far bank 0 % crossing true no wall hug None
+  #125        river target    400 housed 108.0 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.1 m far bank 0 % crossing false no wall hug None
+  #126   landlocked target    400 housed  93.5 % bld    72 wet ch/open/poly 0/0/0 shore-line 0
+  #127        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.1 m far bank 0 % crossing false no wall hug None
+  #128   landlocked target    400 housed  72.8 % bld    79 wet ch/open/poly 0/0/0 shore-line 0
+  #129        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #130        river target    400 housed 124.8 % bld   121 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 17.6 m far bank 0 % crossing false no wall hug None
+  #131        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 10.0 m far bank 0 % crossing false no wall hug None
+  #132        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.6 m far bank 0 % crossing true no wall hug None
+  #133   landlocked target    400 housed 152.0 % bld   117 wet ch/open/poly 0/0/0 shore-line 0
+  #134        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 33.2 m far bank 0 % crossing false no wall hug None
+  #135        river target    400 housed  89.8 % bld    69 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #136        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 7.2 m far bank 0 % crossing false no wall hug None
+  #137        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.0 m far bank 0 % crossing true no wall hug None
+  #138        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #139        river target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 16 % crossing true no wall hug None
+  #140   landlocked target    400 housed  32.5 % bld    25 wet ch/open/poly 0/0/0 shore-line 0
+  #141        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.6 m far bank 0 % crossing false no wall hug None
+  #142        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #143        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.5 m far bank 0 % crossing true no wall hug None
+  #144        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 7.3 m far bank 0 % crossing false no wall hug None
+  #145        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #146        river target    400 housed 124.8 % bld   115 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.6 m far bank 0 % crossing false no wall hug None
+  #147        river target    400 housed 124.8 % bld   122 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 7.8 m far bank 0 % crossing true no wall hug None
+  #148        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 8.4 m far bank 0 % crossing false no wall hug None
+  #149        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #150        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #151        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 7.9 m far bank 0 % crossing false no wall hug None
+  #152        river target    400 housed 105.2 % bld    86 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.9 m far bank 0 % crossing true no wall hug None
+  #153        river target    400 housed 124.8 % bld   112 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.0 m far bank 0 % crossing false no wall hug None
+  #154 riverthrough target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.4 m far bank 41 % crossing false no wall hug None
+  #155        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #156        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.8 m far bank 0 % crossing true no wall hug None
+  #157        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.0 m far bank 0 % crossing true no wall hug None
+  #158        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #159        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #160        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.8 m far bank 0 % crossing true no wall hug None
+  #161        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.6 m far bank 0 % crossing false no wall hug None
+  #162        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.5 m far bank 0 % crossing false no wall hug None
+  #163        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.0 m far bank 0 % crossing false no wall hug None
+  #164        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  #165        river target    400 housed 122.2 % bld    94 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #166        river target    400 housed 106.5 % bld    82 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #167        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #168        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #169        river target    400 housed 104.0 % bld    82 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  #170   landlocked target    400 housed  32.5 % bld    25 wet ch/open/poly 0/0/0 shore-line 0
+  #171        river target    400 housed  97.5 % bld    75 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 97.0 m far bank 0 % crossing false no wall hug None
+  #172        river target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #173   landlocked target    400 housed 100.0 % bld    77 wet ch/open/poly 0/0/0 shore-line 0
+  #174        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.4 m far bank 0 % crossing true no wall hug None
+  #175        river target    400 housed 124.8 % bld   132 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 2.1 m far bank 0 % crossing false no wall hug None
+  #176 riverthrough target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #177 riverthrough target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 2.1 m far bank 4 % crossing true no wall hug None
+  #178        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #179        river target    400 housed  69.0 % bld    56 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #180        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.8 m far bank 0 % crossing false no wall hug None
+  #181   landlocked target    400 housed  19.5 % bld    15 wet ch/open/poly 0/0/0 shore-line 0
+  #182        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #183   landlocked target    400 housed 238.0 % bld   257 wet ch/open/poly 0/0/0 shore-line 0
+  #184        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.7 m far bank 34 % crossing true no wall hug None
+  #185   landlocked target    400 housed  88.5 % bld    72 wet ch/open/poly 0/0/0 shore-line 0
+  #186        river target    400 housed 101.5 % bld    94 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  #187        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #188        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #189   landlocked target    400 housed 101.5 % bld    79 wet ch/open/poly 0/0/0 shore-line 0
+  #190        river target    400 housed  24.8 % bld    19 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 21.2 m far bank 0 % crossing true no wall hug None
+  #191        river target    400 housed 124.8 % bld   136 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing false no wall hug None
+  #192        river target    400 housed 124.8 % bld   117 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.4 m far bank 0 % crossing true no wall hug None
+  #193        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #194        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.2 m far bank 0 % crossing false no wall hug None
+  #195        river target    400 housed  84.5 % bld    65 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.6 m far bank 0 % crossing false no wall hug None
+  #196   landlocked target    400 housed 119.5 % bld   114 wet ch/open/poly 0/0/0 shore-line 0
+  #197        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #198        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.5 m far bank 0 % crossing true no wall hug None
+  #199 riverthrough target    400 housed  95.0 % bld    76 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.8 m far bank 0 % crossing false no wall hug None
+  #200   landlocked target    400 housed 134.0 % bld   136 wet ch/open/poly 0/0/0 shore-line 0
+  #201        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #202        river target    400 housed  76.8 % bld    59 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #203        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.4 m far bank 0 % crossing true no wall hug None
+  #204   landlocked target    400 housed 166.5 % bld   131 wet ch/open/poly 0/0/0 shore-line 0
+  #205        river target    400 housed  91.0 % bld    74 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  #206        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  #207        river target    400 housed  84.5 % bld    66 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 54.9 m far bank 0 % crossing false no wall hug None
+  #208        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.2 m far bank 0 % crossing false no wall hug None
+  #209        river target    400 housed 124.8 % bld   122 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #210        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.1 m far bank 0 % crossing false no wall hug None
+  #211        river target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 9.3 m far bank 0 % crossing false no wall hug None
+  #212        river target    400 housed 102.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #213        river target    400 housed 124.8 % bld   120 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 11.3 m far bank 0 % crossing false no wall hug None
+  #214        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #215        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #216        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #217        river target    400 housed 124.8 % bld   123 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #218 riverthrough target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.9 m far bank 0 % crossing false no wall hug None
+  #219        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.7 m far bank 0 % crossing true no wall hug None
+  #220 riverthrough target    400 housed  89.8 % bld    77 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.5 m far bank 0 % crossing false no wall hug None
+  #221   landlocked target    400 housed  91.0 % bld    71 wet ch/open/poly 0/0/0 shore-line 0
+  #222        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #223        river target    400 housed 114.5 % bld    91 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 50.2 m far bank 0 % crossing true no wall hug None
+  #224        river target    400 housed  92.2 % bld    71 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #225        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing false no wall hug None
+  #226        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 22.4 m far bank 0 % crossing false no wall hug None
+  #227        river target    400 housed 124.8 % bld   118 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 30.0 m far bank 0 % crossing false no wall hug None
+  #  0        river target   2117 housed  40.5 % bld   165 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 2.0 m far bank 0 % crossing false no wall hug None
+  #  1        river target   8737 housed 158.4 % bld  2966 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.4 m far bank 7 % crossing true wall cuts 0 intra 2575 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.8899372100441759, streets_removed: 5 })
+  #  2        river target   9786 housed 151.7 % bld  3216 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 2.0 m far bank 14 % crossing true wall cuts 0 intra 2741 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.941352720558681, streets_removed: 1 })
+  #  3        river target  17914 housed 140.5 % bld  5728 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 1.8 m far bank 44 % crossing true wall cuts 2 intra 5079 far 2159 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9577704078424292, streets_removed: 2 })
+  #  4        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 2.5 m far bank 0 % crossing true no wall hug None
+  #  5        river target    400 housed 124.8 % bld   118 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 5.3 m far bank 0 % crossing true no wall hug None
+  #  6        river target  20000 housed  73.2 % bld  3287 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 2.0 m far bank 0 % crossing true wall cuts 0 intra 2929 far 0 hug Some(Kept(MarginNotMet))
+  #  7        river target    551 housed 124.5 % bld   148 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.1 m far bank 14 % crossing true no wall hug None
+  #  8        river target  18939 housed  76.2 % bld  3096 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.4 m far bank 0 % crossing true wall cuts 0 intra 2851 far 0 hug Some(Kept(NotSmaller))
+  #  9        river target    538 housed 110.2 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.1 m far bank 0 % crossing false no wall hug None
+  # 10        river target    400 housed 124.8 % bld   139 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.1 m far bank 0 % crossing false no wall hug None
+  # 11        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.5 m far bank 0 % crossing false no wall hug None
+  # 12        river target    548 housed 124.3 % bld   143 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.5 m far bank 0 % crossing false no wall hug None
+  # 13        river target  19458 housed   4.1 % bld   175 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 4.4 m far bank 0 % crossing false no wall hug None
+  # 14        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  # 15        river target  20000 housed 100.0 % bld  4417 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.0 m far bank 33 % crossing true wall cuts 2 intra 3966 far 1353 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9739562639066282, streets_removed: 17 })
+  # 16        river target    400 housed  95.0 % bld    78 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.1 m far bank 0 % crossing true no wall hug None
+  # 17        river target    508 housed 124.8 % bld   125 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.9 m far bank 0 % crossing false wall cuts 0 intra 125 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.8797936453512777, streets_removed: 4 })
+  # 18        river target    400 housed  28.5 % bld    22 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing false no wall hug None
+  # 19        river target   9251 housed 140.1 % bld  2873 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.4 m far bank 20 % crossing true wall cuts 2 intra 2171 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9030296127225172, streets_removed: 2 })
+  # 20 riverthrough target   9414 housed 108.6 % bld  2174 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.0 m far bank 45 % crossing true wall cuts 2 intra 1910 far 843 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9488654513954147, streets_removed: 14 })
+  # 21   landlocked target   8818 housed 109.8 % bld  2305 wet ch/open/poly 0/0/0 shore-line 0
+  # 22 riverthrough target    400 housed  45.5 % bld    35 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 23        river target    400 housed 124.8 % bld   130 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.3 m far bank 0 % crossing true no wall hug None
+  # 24        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 25        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  # 26        river target    400 housed 122.2 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.7 m far bank 0 % crossing true no wall hug None
+  # 27        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 22.9 m far bank 0 % crossing true no wall hug None
+  # 28        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 4.2 m far bank 0 % crossing false no wall hug None
+  # 29        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  # 30        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 31        river target    400 housed 119.5 % bld   118 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 2.9 m far bank 0 % crossing false no wall hug None
+  # 32        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 33        river target    400 housed  76.8 % bld    62 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.9 m far bank 0 % crossing false no wall hug None
+  # 34        river target    400 housed 124.8 % bld   121 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 2.0 m far bank 0 % crossing false no wall hug None
+  # 35        river target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 2.3 m far bank 0 % crossing true no wall hug None
+  # 36        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.6 m far bank 0 % crossing false no wall hug None
+  # 37        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.0 m far bank 0 % crossing true no wall hug None
+  # 38        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 5.7 m far bank 0 % crossing false no wall hug None
+  # 39        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 40        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.9 m far bank 0 % crossing false no wall hug None
+  # 41        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.7 m far bank 0 % crossing true no wall hug None
+  # 42        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 43        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.6 m far bank 0 % crossing false no wall hug None
+  # 44        river target    400 housed  33.8 % bld    26 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 45        river target    400 housed 124.8 % bld   175 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 46        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 4.4 m far bank 0 % crossing true no wall hug None
+  # 47        river target    400 housed  32.5 % bld    25 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 32.4 m far bank 0 % crossing false no wall hug None
+  # 48        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 7.3 m far bank 5 % crossing false no wall hug None
+  # 49        river target    400 housed 119.5 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 50        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 40 % crossing true no wall hug None
+  # 51        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.2 m far bank 0 % crossing false no wall hug None
+  # 52        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 53        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 42 % crossing true no wall hug None
+  # 54        river target    400 housed 124.8 % bld   126 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.1 m far bank 0 % crossing false no wall hug None
+  # 55        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 5.7 m far bank 0 % crossing true no wall hug None
+  # 56        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing false no wall hug None
+  # 57        river target    400 housed  14.2 % bld    11 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 58        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.0 m far bank 0 % crossing true no wall hug None
+  # 59        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 60        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 5.7 m far bank 0 % crossing false no wall hug None
+  # 61        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  # 62        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 4.7 m far bank 0 % crossing false no wall hug None
+  # 63        river target    400 housed 124.8 % bld   123 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.0 m far bank 0 % crossing false no wall hug None
+  # 64        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.8 m far bank 0 % crossing true no wall hug None
+  # 65        river target    400 housed 124.8 % bld   129 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 66        river target    400 housed  53.2 % bld    41 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 4.4 m far bank 0 % crossing false no wall hug None
+  # 67        river target    400 housed 123.5 % bld    95 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.1 m far bank 0 % crossing false no wall hug None
+  # 68        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.1 m far bank 0 % crossing false no wall hug None
+  # 69        river target    400 housed  14.2 % bld    11 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 70        river target    400 housed 124.8 % bld   133 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 71        river target    400 housed 104.0 % bld    81 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 7.2 m far bank 0 % crossing true no wall hug None
+  # 72        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.4 m far bank 0 % crossing false no wall hug None
+  # 73        river target    400 housed 101.5 % bld    78 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 74        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.0 m far bank 14 % crossing true no wall hug None
+  # 75        river target    400 housed 122.2 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  # 76        river target    400 housed 124.8 % bld   127 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.5 m far bank 0 % crossing false no wall hug None
+  # 77        river target    400 housed  14.2 % bld    11 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  # 78        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing true no wall hug None
+  # 79        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 7.5 m far bank 20 % crossing true no wall hug None
+  # 80        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 81        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.2 m far bank 0 % crossing true no wall hug None
+  # 82        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 70.7 m far bank 0 % crossing false no wall hug None
+  # 83        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  # 84        river target    400 housed 124.8 % bld   137 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  # 85        river target    400 housed 124.8 % bld   124 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  # 86        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  # 87        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 88        river target    400 housed 124.8 % bld   112 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 4.6 m far bank 0 % crossing false no wall hug None
+  # 89        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 11.3 m far bank 0 % crossing true no wall hug None
+  # 90        river target    400 housed  84.5 % bld    72 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  # 91        river target    400 housed  82.0 % bld    69 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.4 m far bank 30 % crossing true no wall hug None
+  # 92        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  # 93        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing true no wall hug None
+  # 94        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 95        river target    400 housed  82.0 % bld    63 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.2 m far bank 0 % crossing true no wall hug None
+  # 96        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.0 m far bank 0 % crossing true no wall hug None
+  # 97        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.0 m far bank 0 % crossing false no wall hug None
+  # 98        river target    400 housed 110.5 % bld    91 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.3 m far bank 0 % crossing true no wall hug None
+  # 99        river target    400 housed  96.2 % bld    74 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.0 m far bank 0 % crossing false no wall hug None
+  #100        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #101        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.6 m far bank 0 % crossing true no wall hug None
+  #102        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.2 m far bank 0 % crossing false no wall hug None
+  #103        river target    400 housed  33.8 % bld    26 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 11.5 m far bank 0 % crossing false no wall hug None
+  #104        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 11.9 m far bank 0 % crossing false no wall hug None
+  #105        river target    400 housed 124.8 % bld   115 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 49.8 m far bank 0 % crossing false no wall hug None
+  #106        river target    400 housed  53.2 % bld    41 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #107        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #108        river target    400 housed 115.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.2 m far bank 0 % crossing false no wall hug None
+  #109        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.2 m far bank 0 % crossing false no wall hug None
+  #110        river target    400 housed 124.8 % bld   115 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #111        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #112        river target    400 housed  71.5 % bld    55 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #113        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.7 m far bank 0 % crossing true no wall hug None
+  #114        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.6 m far bank 0 % crossing true no wall hug None
+  #115        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.7 m far bank 0 % crossing false no wall hug None
+  #116        river target    400 housed  84.5 % bld    75 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 54.1 m far bank 0 % crossing false no wall hug None
+  #117 riverthrough target    400 housed  67.5 % bld    52 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 63.9 m far bank 0 % crossing true no wall hug None
+  #118        river target    400 housed 109.2 % bld    90 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 8.1 m far bank 0 % crossing false no wall hug None
+  #119 riverthrough target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.3 m far bank 0 % crossing false no wall hug None
+  #120        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 9.4 m far bank 0 % crossing false no wall hug None
+  #121        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.5 m far bank 8 % crossing true no wall hug None
+  #122        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #123        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 22.9 m far bank 0 % crossing false no wall hug None
+  #124        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.1 m far bank 0 % crossing true no wall hug None
+  #125        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.1 m far bank 0 % crossing false no wall hug None
+  #126        river target    400 housed  26.0 % bld    20 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 18.3 m far bank 0 % crossing false no wall hug None
+  #127        river target    400 housed 115.8 % bld    95 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 34.0 m far bank 0 % crossing true no wall hug None
+  #128        river target    400 housed  46.8 % bld    36 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.5 m far bank 0 % crossing false no wall hug None
+  #129 riverthrough target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.8 m far bank 33 % crossing false no wall hug None
+  #130        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 44.7 m far bank 0 % crossing false no wall hug None
+  #131 riverthrough target    400 housed 124.8 % bld   124 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 10.0 m far bank 0 % crossing false no wall hug None
+  #132        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #133        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.1 m far bank 0 % crossing false no wall hug None
+  #134        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #135        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.1 m far bank 0 % crossing true no wall hug None
+  #136        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 22.9 m far bank 0 % crossing false no wall hug None
+  #137        river target    400 housed 114.5 % bld    89 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #138        river target    400 housed  88.5 % bld    68 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.5 m far bank 0 % crossing false no wall hug None
+  #139        river target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #140        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 25.9 m far bank 0 % crossing false no wall hug None
+  #141        river target    400 housed 124.8 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 6 % crossing true no wall hug None
+  #142        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 15.0 m far bank 0 % crossing false no wall hug None
+  #143        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 9.0 m far bank 0 % crossing true no wall hug None
+  #144        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #145        river target    400 housed 124.8 % bld   138 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.7 m far bank 0 % crossing false no wall hug None
+  #146        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  #147 riverthrough target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.8 m far bank 0 % crossing true no wall hug None
+  #148        river target    400 housed  67.5 % bld    52 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 26.8 m far bank 0 % crossing false no wall hug None
+  #149        river target    400 housed 124.8 % bld   129 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #150        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #151        river target    400 housed  74.0 % bld    66 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #152        river target    400 housed 124.8 % bld   125 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #153 riverthrough target    400 housed 119.5 % bld   115 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 13.0 m far bank 0 % crossing false no wall hug None
+  #154        river target    400 housed 124.8 % bld   124 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #155        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #156        river target    400 housed  95.0 % bld    73 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 5 % crossing false no wall hug None
+  #157        river target    400 housed 111.8 % bld   145 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.8 m far bank 6 % crossing true no wall hug None
+  #158        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #159   landlocked target    400 housed 180.8 % bld   154 wet ch/open/poly 0/0/0 shore-line 0
+  #160        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 58.3 m far bank 0 % crossing false no wall hug None
+  #161        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  #162        river target    400 housed  97.5 % bld    86 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #163        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing true no wall hug None
+  #164        river target    400 housed  37.8 % bld    30 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 28.4 m far bank 0 % crossing true no wall hug None
+  #165        river target    400 housed 124.8 % bld   119 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.2 m far bank 0 % crossing false no wall hug None
+  #166        river target    400 housed 123.5 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #167        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #168        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.4 m far bank 0 % crossing true no wall hug None
+  #169 riverthrough target    400 housed 114.5 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.1 m far bank 0 % crossing false no wall hug None
+  #170        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #171        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #172        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.0 m far bank 0 % crossing false no wall hug None
+  #173        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #174        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing true no wall hug None
+  #175 riverthrough target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #176        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #177        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #178        river target    400 housed 115.8 % bld    89 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 10.6 m far bank 0 % crossing false no wall hug None
+  #179        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #180        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #181        river target    400 housed  66.2 % bld    54 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.9 m far bank 0 % crossing true no wall hug None
+  #182        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  #183 riverthrough target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 13.9 m far bank 0 % crossing false no wall hug None
+  #184        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.1 m far bank 0 % crossing false no wall hug None
+  #185   landlocked target    400 housed  30.0 % bld    23 wet ch/open/poly 0/0/0 shore-line 0
+  #186        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 11.1 m far bank 0 % crossing false no wall hug None
+  #187        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.7 m far bank 0 % crossing false no wall hug None
+  #188   landlocked target    400 housed 157.2 % bld   129 wet ch/open/poly 0/0/0 shore-line 0
+  #189        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #190        river target    400 housed 124.8 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 1.7 m far bank 0 % crossing false no wall hug None
+  #191        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #192        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #193        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing true no wall hug None
+  #194        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing true no wall hug None
+  #195        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 8.5 m far bank 0 % crossing true no wall hug None
+  #196        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  #197        river target    400 housed  53.2 % bld    41 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.1 m far bank 0 % crossing false no wall hug None
+  #198        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #199        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #200        river target    400 housed 102.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.2 m far bank 0 % crossing true no wall hug None
+  #201        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 8.6 m far bank 0 % crossing false no wall hug None
+  #202        river target    400 housed 104.0 % bld    81 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.7 m far bank 32 % crossing true no wall hug None
+  #203        river target    400 housed 124.8 % bld   123 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #204        river target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.3 m far bank 0 % crossing false no wall hug None
+  #205        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  #206        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.0 m far bank 0 % crossing true no wall hug None
+  #207        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 13.7 m far bank 0 % crossing false no wall hug None
+  #208        river target    400 housed  96.2 % bld    74 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 15.2 m far bank 0 % crossing true no wall hug None
+  #209        river target    400 housed  13.0 % bld    10 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 9.3 m far bank 0 % crossing false no wall hug None
+  #210        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.8 m far bank 0 % crossing false no wall hug None
+  #211 riverthrough target    400 housed 124.8 % bld   133 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 0.2 m far bank 0 % crossing true no wall hug None
+  #212        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 4.0 m far bank 0 % crossing false no wall hug None
+  #213        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.6 m far bank 0 % crossing false no wall hug None
+  #214        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #215   landlocked target    400 housed 170.2 % bld   131 wet ch/open/poly 0/0/0 shore-line 0
+  #216        river target    400 housed 124.8 % bld   124 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.1 m far bank 0 % crossing true no wall hug None
+  #217        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.8 m far bank 0 % crossing false no wall hug None
+  #218        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #219        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #220        river target    400 housed 114.5 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.0 m far bank 0 % crossing false no wall hug None
+  #221   landlocked target    400 housed 144.2 % bld   111 wet ch/open/poly 0/0/0 shore-line 0
+  #222        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.1 m far bank 0 % crossing true no wall hug None
+  #223   landlocked target    400 housed  66.2 % bld    66 wet ch/open/poly 0/0/0 shore-line 0
+  #224        river target    400 housed 115.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #225        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #226        river target    400 housed  52.0 % bld    49 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 19.5 m far bank 0 % crossing true no wall hug None
+  #227        river target    400 housed 109.2 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #  0        river target  20000 housed 116.6 % bld  5196 wet ch/open/poly 0/0/0 shore-line 0 | river_w 45 nearest 1.9 m far bank 22 % crossing true wall cuts 0 intra 3822 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.8576601547144619, streets_removed: 27 })
+  #  1        river target    583 housed 124.9 % bld   155 wet ch/open/poly 0/0/0 shore-line 0 | river_w 45 nearest 2.3 m far bank 0 % crossing true no wall hug None
+  #  2        river target  20000 housed 103.8 % bld  4667 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 2.2 m far bank 49 % crossing true wall cuts 2 intra 4241 far 2050 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.989515103941516, streets_removed: 9 })
+  #  3        river target   7103 housed 117.4 % bld  1780 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 1.6 m far bank 21 % crossing true wall cuts 2 intra 1592 far 379 hug Some(Kept(NotSmaller))
+  #  4        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 12.7 m far bank 0 % crossing true no wall hug None
+  #  5        river target  20000 housed  99.1 % bld  4319 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 48 % crossing true wall cuts 2 intra 3805 far 1602 hug Some(Kept(NotSmaller))
+  #  6        river target  20000 housed  89.5 % bld  3963 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.1 m far bank 48 % crossing true wall cuts 2 intra 3712 far 1841 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.9917138755578188, streets_removed: 7 })
+  #  7        river target   2018 housed 160.3 % bld   758 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.5 m far bank 46 % crossing true wall cuts 2 intra 660 far 286 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.6606554702029555, streets_removed: 11 })
+  #  8        river target    400 housed 109.2 % bld    90 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.0 m far bank 0 % crossing false no wall hug None
+  #  9 riverthrough target  19451 housed 100.5 % bld  4309 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.1 m far bank 41 % crossing false wall cuts 1 intra 3945 far 1594 hug Some(Kept(NotSmaller))
+  # 10        river target  20000 housed 114.3 % bld  4972 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.2 m far bank 40 % crossing true wall cuts 2 intra 4657 far 1832 hug Some(Refit { clearance_m: 12.401153158380705, area_ratio: 0.9620887409021918, streets_removed: 9 })
+  # 11        river target   7171 housed 150.4 % bld  2487 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.2 m far bank 39 % crossing true wall cuts 2 intra 2304 far 783 hug Some(Refit { clearance_m: 10.61605197481714, area_ratio: 0.9299282037445782, streets_removed: 15 })
+  # 12        river target    400 housed  83.2 % bld    64 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.8 m far bank 0 % crossing false no wall hug None
+  # 13        river target    501 housed 124.6 % bld   133 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.7 m far bank 0 % crossing true no wall hug None
+  # 14        river target    525 housed 124.8 % bld   132 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 4.1 m far bank 0 % crossing true no wall hug None
+  # 15        river target    400 housed 102.8 % bld    79 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing true no wall hug None
+  # 16        river target   2045 housed  59.8 % bld   236 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.2 m far bank 0 % crossing true wall cuts 0 intra 208 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.8988527971080839, streets_removed: 5 })
+  # 17 riverthrough target   1852 housed  86.8 % bld   400 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.9 m far bank 38 % crossing true wall cuts 2 intra 362 far 115 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.6384498630073352, streets_removed: 17 })
+  # 18        river target    400 housed 106.5 % bld    83 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 19.4 m far bank 0 % crossing true no wall hug None
+  # 19 riverthrough target    400 housed  48.0 % bld    37 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 33.7 m far bank 0 % crossing false no wall hug None
+  # 20        river target    400 housed 124.8 % bld   133 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  # 21        river target   8615 housed 160.9 % bld  3228 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.0 m far bank 25 % crossing true wall cuts 0 intra 2213 far 0 hug Some(Refit { clearance_m: 8.0, area_ratio: 0.960420968692448, streets_removed: 0 })
+  # 22        river target    503 housed  94.0 % bld    91 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 24.1 m far bank 0 % crossing false wall cuts 0 intra 91 far 0 hug Some(Refit { clearance_m: 10.790703007977937, area_ratio: 0.64178016832792, streets_removed: 10 })
+  # 23        river target    400 housed 119.5 % bld    92 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 4 % crossing true no wall hug None
+  # 24        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.1 m far bank 0 % crossing false no wall hug None
+  # 25        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 40.8 m far bank 10 % crossing true no wall hug None
+  # 26        river target    400 housed 124.8 % bld   122 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 8.2 m far bank 0 % crossing true no wall hug None
+  # 27 riverthrough target    400 housed 100.0 % bld    77 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 47.5 m far bank 0 % crossing false no wall hug None
+  # 28        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 45 nearest 4.7 m far bank 0 % crossing true no wall hug None
+  # 29        river target    400 housed 113.0 % bld    88 wet ch/open/poly 0/0/0 shore-line 0 | river_w 45 nearest 2.6 m far bank 0 % crossing true no wall hug None
+  # 30        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 31        river target    400 housed 124.8 % bld   118 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 1.4 m far bank 0 % crossing true no wall hug None
+  # 32        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.1 m far bank 0 % crossing false no wall hug None
+  # 33        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 5.6 m far bank 0 % crossing false no wall hug None
+  # 34        river target    400 housed 123.5 % bld    95 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  # 35        river target    400 housed 119.5 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 36        river target    400 housed  95.0 % bld    73 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 42.6 m far bank 0 % crossing false no wall hug None
+  # 37        river target    400 housed  88.5 % bld    78 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 8.8 m far bank 0 % crossing false no wall hug None
+  # 38        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 45 nearest 3.7 m far bank 0 % crossing true no wall hug None
+  # 39        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.9 m far bank 38 % crossing true no wall hug None
+  # 40        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.6 m far bank 2 % crossing true no wall hug None
+  # 41        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  # 42        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.9 m far bank 0 % crossing true no wall hug None
+  # 43        river target    400 housed  88.5 % bld    70 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 7.5 m far bank 0 % crossing true no wall hug None
+  # 44        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.7 m far bank 0 % crossing false no wall hug None
+  # 45        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 46        river target    400 housed 101.5 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  # 47        river target    400 housed 119.5 % bld    93 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 5.9 m far bank 0 % crossing true no wall hug None
+  # 48        river target    400 housed 124.8 % bld   129 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.7 m far bank 0 % crossing true no wall hug None
+  # 49        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  # 50        river target    400 housed 124.8 % bld   115 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 7.5 m far bank 0 % crossing false no wall hug None
+  # 51        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.0 m far bank 0 % crossing false no wall hug None
+  # 52        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.0 m far bank 0 % crossing false no wall hug None
+  # 53        river target    400 housed 124.8 % bld   128 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.1 m far bank 0 % crossing false no wall hug None
+  # 54        river target    400 housed 124.8 % bld   121 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.7 m far bank 0 % crossing true no wall hug None
+  # 55        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.7 m far bank 0 % crossing true no wall hug None
+  # 56        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.1 m far bank 0 % crossing true no wall hug None
+  # 57        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.7 m far bank 0 % crossing false no wall hug None
+  # 58        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.1 m far bank 41 % crossing true no wall hug None
+  # 59        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  # 60        river target    400 housed   5.2 % bld     4 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.8 m far bank 0 % crossing true no wall hug None
+  # 61        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 8.9 m far bank 0 % crossing true no wall hug None
+  # 62 riverthrough target    400 housed 124.8 % bld   126 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.0 m far bank 0 % crossing false no wall hug None
+  # 63        river target    400 housed  40.2 % bld    32 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.6 m far bank 0 % crossing false no wall hug None
+  # 64        river target    400 housed 124.8 % bld   121 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 19.4 m far bank 0 % crossing false no wall hug None
+  # 65        river target    400 housed 113.0 % bld    90 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.1 m far bank 0 % crossing true no wall hug None
+  # 66        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.2 m far bank 0 % crossing false no wall hug None
+  # 67        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.0 m far bank 0 % crossing false no wall hug None
+  # 68        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 2 % crossing true no wall hug None
+  # 69        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.0 m far bank 0 % crossing true no wall hug None
+  # 70        river target    400 housed  13.0 % bld    10 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 9.4 m far bank 0 % crossing false no wall hug None
+  # 71        river target    400 housed 124.8 % bld   143 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 34.8 m far bank 0 % crossing false no wall hug None
+  # 72        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing true no wall hug None
+  # 73        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 5.4 m far bank 0 % crossing false no wall hug None
+  # 74        river target    400 housed 124.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 22.9 m far bank 0 % crossing false no wall hug None
+  # 75        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.1 m far bank 0 % crossing false no wall hug None
+  # 76        river target    400 housed 113.0 % bld    87 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing false no wall hug None
+  # 77        river target    400 housed  40.2 % bld    31 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 69.7 m far bank 0 % crossing false no wall hug None
+  # 78        river target    400 housed  71.5 % bld    61 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  # 79        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 7.6 m far bank 0 % crossing false no wall hug None
+  # 80        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  # 81        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 1.6 m far bank 0 % crossing false no wall hug None
+  # 82        river target    400 housed  88.5 % bld    68 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 10.6 m far bank 0 % crossing false no wall hug None
+  # 83        river target    400 housed 124.8 % bld   124 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.3 m far bank 0 % crossing true no wall hug None
+  # 84        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 4.2 m far bank 0 % crossing false no wall hug None
+  # 85        river target    400 housed 115.8 % bld   108 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.0 m far bank 0 % crossing false no wall hug None
+  # 86        river target    400 housed 124.8 % bld   125 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.1 m far bank 0 % crossing false no wall hug None
+  # 87        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 88        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.6 m far bank 0 % crossing false no wall hug None
+  # 89        river target    400 housed 117.0 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.5 m far bank 0 % crossing false no wall hug None
+  # 90        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.2 m far bank 0 % crossing false no wall hug None
+  # 91        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  # 92        river target    400 housed  78.0 % bld    63 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  # 93 riverthrough target    400 housed  59.8 % bld    47 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  # 94 riverthrough target    400 housed  75.5 % bld    58 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 83.0 m far bank 0 % crossing false no wall hug None
+  # 95        river target    400 housed 124.8 % bld   124 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  # 96        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  # 97        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.9 m far bank 0 % crossing true no wall hug None
+  # 98        river target    400 housed 124.8 % bld   112 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.1 m far bank 0 % crossing false no wall hug None
+  # 99        river target    400 housed 124.8 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.9 m far bank 0 % crossing false no wall hug None
+  #100        river target    400 housed  57.2 % bld    44 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #101        river target    400 housed  74.0 % bld    57 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.5 m far bank 40 % crossing true no wall hug None
+  #102        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.9 m far bank 0 % crossing false no wall hug None
+  #103        river target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.0 m far bank 0 % crossing false no wall hug None
+  #104        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.1 m far bank 0 % crossing true no wall hug None
+  #105        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.6 m far bank 0 % crossing false no wall hug None
+  #106        river target    400 housed  69.0 % bld    54 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.0 m far bank 0 % crossing true no wall hug None
+  #107        river target    400 housed 124.8 % bld   110 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.8 m far bank 0 % crossing true no wall hug None
+  #108        river target    400 housed  66.2 % bld    51 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 20 % crossing true no wall hug None
+  #109        river target    400 housed  63.8 % bld    49 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #110        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.5 m far bank 0 % crossing false no wall hug None
+  #111 riverthrough target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.2 m far bank 0 % crossing false no wall hug None
+  #112        river target    400 housed 124.8 % bld   117 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.7 m far bank 0 % crossing false no wall hug None
+  #113 riverthrough target    400 housed 124.8 % bld   141 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  #114 riverthrough target    400 housed 108.0 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 18.1 m far bank 0 % crossing false no wall hug None
+  #115        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 63.1 m far bank 0 % crossing false no wall hug None
+  #116        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.7 m far bank 0 % crossing false no wall hug None
+  #117        river target    400 housed  89.8 % bld    86 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #118        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing false no wall hug None
+  #119        river target    400 housed  65.0 % bld    50 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #120        river target    400 housed  76.8 % bld    59 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 12.1 m far bank 0 % crossing false no wall hug None
+  #121        river target    400 housed 124.8 % bld   117 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.2 m far bank 0 % crossing false no wall hug None
+  #122        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 11.3 m far bank 0 % crossing false no wall hug None
+  #123        river target    400 housed 124.8 % bld   137 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 9.4 m far bank 0 % crossing false no wall hug None
+  #124        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.8 m far bank 0 % crossing false no wall hug None
+  #125        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.7 m far bank 0 % crossing false no wall hug None
+  #126        river target    400 housed 105.2 % bld    81 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.4 m far bank 0 % crossing true no wall hug None
+  #127        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.2 m far bank 0 % crossing true no wall hug None
+  #128        river target    400 housed  40.2 % bld    31 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.8 m far bank 0 % crossing false no wall hug None
+  #129        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.1 m far bank 0 % crossing true no wall hug None
+  #130        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #131        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.0 m far bank 0 % crossing true no wall hug None
+  #132        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.6 m far bank 0 % crossing false no wall hug None
+  #133        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #134        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #135        river target    400 housed 108.0 % bld    84 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 19.4 m far bank 0 % crossing false no wall hug None
+  #136        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.7 m far bank 2 % crossing false no wall hug None
+  #137        river target    400 housed 124.8 % bld   112 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.0 m far bank 0 % crossing false no wall hug None
+  #138 riverthrough target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 3.6 m far bank 0 % crossing false no wall hug None
+  #139        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 2.1 m far bank 0 % crossing false no wall hug None
+  #140        river target    400 housed  75.5 % bld    59 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #141        river target    400 housed 111.8 % bld    86 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #142        river target    400 housed 124.8 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 2.8 m far bank 0 % crossing false no wall hug None
+  #143        river target    400 housed   6.5 % bld     5 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #144        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 28.3 m far bank 0 % crossing false no wall hug None
+  #145        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing true no wall hug None
+  #146        river target    400 housed 124.8 % bld   120 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing false no wall hug None
+  #147        river target    400 housed 105.2 % bld    88 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #148        river target    400 housed 124.8 % bld   125 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.0 m far bank 0 % crossing true no wall hug None
+  #149        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.6 m far bank 0 % crossing true no wall hug None
+  #150        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 10.5 m far bank 0 % crossing false no wall hug None
+  #151        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #152        river target    400 housed 123.5 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.9 m far bank 0 % crossing false no wall hug None
+  #153        river target    400 housed 124.8 % bld   126 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  #154        river target    400 housed  80.5 % bld    68 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 22.1 m far bank 0 % crossing false no wall hug None
+  #155        river target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  #156 riverthrough target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 38 nearest 8.9 m far bank 0 % crossing false no wall hug None
+  #157        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 5.7 m far bank 0 % crossing true no wall hug None
+  #158        river target    400 housed  53.2 % bld    41 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 19.4 m far bank 0 % crossing true no wall hug None
+  #159        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing true no wall hug None
+  #160        river target    400 housed  91.0 % bld    72 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.5 m far bank 0 % crossing false no wall hug None
+  #161 riverthrough target    400 housed 124.8 % bld   101 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  #162        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #163        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #164        river target    400 housed 105.2 % bld    81 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #165        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 9.3 m far bank 0 % crossing false no wall hug None
+  #166 riverthrough target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.6 m far bank 0 % crossing true no wall hug None
+  #167        river target    400 housed 122.2 % bld    94 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 32.7 m far bank 0 % crossing false no wall hug None
+  #168        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.1 m far bank 0 % crossing true no wall hug None
+  #169        river target    400 housed 124.8 % bld   107 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.2 m far bank 0 % crossing false no wall hug None
+  #170        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.5 m far bank 0 % crossing true no wall hug None
+  #171        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #172        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.8 m far bank 0 % crossing false no wall hug None
+  #173 riverthrough target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.2 m far bank 0 % crossing false no wall hug None
+  #174        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  #175        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 4.1 m far bank 0 % crossing false no wall hug None
+  #176        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.7 m far bank 0 % crossing true no wall hug None
+  #177        river target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #178        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 43.6 m far bank 0 % crossing false no wall hug None
+  #179        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 52.7 m far bank 0 % crossing false no wall hug None
+  #180        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.2 m far bank 0 % crossing false no wall hug None
+  #181 riverthrough target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 17.6 m far bank 0 % crossing false no wall hug None
+  #182        river target    400 housed  74.0 % bld    57 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #183        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing false no wall hug None
+  #184        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 11.4 m far bank 0 % crossing true no wall hug None
+  #185        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #186 riverthrough target    400 housed 124.8 % bld   113 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 5 % crossing false no wall hug None
+  #187        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.7 m far bank 0 % crossing true no wall hug None
+  #188        river target    400 housed 124.8 % bld    98 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 9.3 m far bank 0 % crossing false no wall hug None
+  #189        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #190        river target    400 housed 124.8 % bld   109 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #191        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 2.4 m far bank 0 % crossing false no wall hug None
+  #192        river target    400 housed 124.8 % bld   123 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 27 % crossing true no wall hug None
+  #193        river target    400 housed 124.8 % bld   116 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 9.0 m far bank 0 % crossing false no wall hug None
+  #194        river target    400 housed 113.0 % bld    87 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 3.4 m far bank 32 % crossing true no wall hug None
+  #195        river target    400 housed 124.8 % bld   100 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #196        river target    400 housed 124.8 % bld   115 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 40.6 m far bank 0 % crossing false no wall hug None
+  #197 riverthrough target    400 housed  75.5 % bld    66 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.0 m far bank 0 % crossing false no wall hug None
+  #198        river target    400 housed  91.0 % bld    70 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.1 m far bank 0 % crossing false no wall hug None
+  #199        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #200        river target    400 housed 124.8 % bld   106 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 9.4 m far bank 0 % crossing true no wall hug None
+  #201        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 33 % crossing false no wall hug None
+  #202        river target    400 housed 124.8 % bld   134 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing true no wall hug None
+  #203        river target    400 housed 124.8 % bld   125 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #204        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 8.3 m far bank 0 % crossing false no wall hug None
+  #205        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing true no wall hug None
+  #206        river target    400 housed 124.8 % bld   127 wet ch/open/poly 0/0/0 shore-line 0 | river_w 17 nearest 13.0 m far bank 0 % crossing false no wall hug None
+  #207        river target    400 housed 124.8 % bld    97 wet ch/open/poly 0/0/0 shore-line 0 | river_w 31 nearest 3.6 m far bank 0 % crossing true no wall hug None
+  #208        river target    400 housed  79.2 % bld    62 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #209        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 7.0 m far bank 0 % crossing false no wall hug None
+  #210        river target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 7.4 m far bank 0 % crossing false no wall hug None
+  #211        river target    400 housed 124.8 % bld   123 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.3 m far bank 0 % crossing false no wall hug None
+  #212        river target    400 housed 124.8 % bld   114 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.4 m far bank 0 % crossing false no wall hug None
+  #213        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #214        river target    400 housed 124.8 % bld    99 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 14.1 m far bank 0 % crossing false no wall hug None
+  #215        river target    400 housed 124.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #216        river target    400 housed 124.8 % bld   103 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.1 m far bank 0 % crossing false no wall hug None
+  #217        river target    400 housed 111.8 % bld   102 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 2.0 m far bank 2 % crossing true no wall hug None
+  #218        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #219        river target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+  #220 riverthrough target    400 housed 124.8 % bld    96 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.2 m far bank 0 % crossing false no wall hug None
+  #221        river target    400 housed  45.5 % bld    35 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing true no wall hug None
+  #222        river target    400 housed 124.8 % bld   104 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 3.5 m far bank 0 % crossing false no wall hug None
+  #223        river target    400 housed 111.8 % bld    92 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 1.9 m far bank 0 % crossing false no wall hug None
+  #224        river target    400 housed  69.0 % bld    53 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 35.7 m far bank 0 % crossing false no wall hug None
+  #225        river target    400 housed 124.8 % bld   111 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 6.4 m far bank 0 % crossing false no wall hug None
+  #226        river target    400 housed 124.8 % bld   105 wet ch/open/poly 0/0/0 shore-line 0 | river_w 24 nearest 37.4 m far bank 0 % crossing false no wall hug None
+  #227 riverthrough target    400 housed   0.0 % bld     0 wet ch/open/poly 0/0/0 shore-line 0
+all seeds at 384, urban_riverbank Some(true)
+  villages (pop_target < 1500) housed % n 650 min 0 p10 40 median 125 p90 125 max 238; under 80 %: 108; over 200 %: 1
+  towns (pop_target >= 1500) housed % n 34 min 4 p10 73 median 104 p90 152 max 161; under 80 %: 7; over 200 %: 0
+  towns >= 5000 housed % n 28 min 4 p10 77 median 109 p90 150 max 161; under 80 %: 4; over 200 %: 0
+  river-kind towns with houses 617 (33 >= 1500): houses within 1 street width of the bank 2.9 %, within 2 6.6 % (of 153153); every house over 2 street widths: 87
+  with a crossing 223 (26 >= 1500); on both banks 51 (24 >= 1500)
+  walled river towns 32: wall crosses the river 19, of which around an empty far bank 3
+  buildings in water: river channel 0, sea or lake cell 0, water_poly 0; within half river_w of a coast's shoreline polyline (not water) 0
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1389 filtered out; finished in 22.16s
+

@@ -174,6 +174,10 @@ func _ready() -> void:
 	for k in places.size():
 		var lay: Dictionary = bridge.urban_layouts(PackedInt32Array([k]))[0]
 		var kind := String(lay.get("site_kind", ""))
+		## The `bay` towns, listed so a shot of one can be asked for by index (2026-11-15, Ruling FB's
+		## both-banks change: the census's six "wet" bay towns were a measurement artefact; the shot shows one).
+		if kind == "bay":
+			print("  BAY #%d" % k)
 		if not (kind in ["river", "riverthrough"]):
 			continue
 		n_river += 1

@@ -74,7 +74,8 @@ use crate::geom::{Vec2, convex_hull, dist_pt_seg, point_in_poly, poly_area, poly
 use crate::graph::Graph;
 use crate::growth::{HarbourFront, WallState, ring_crossings};
 use crate::routes::Anchors;
-use crate::site::{Site, terrain_suitability};
+use crate::districts::lot_suitability;
+use crate::site::Site;
 use std::f64::consts::PI;
 
 /// Distance from the lots' outer edge to the wall, metres: the room for a wall
@@ -117,6 +118,11 @@ const EDGE_SAMPLE_M: f64 = 10.0;
 /// the street line and lots are 4.5-15 m wide, so a fronted street always has a
 /// corner within half a lot width; 12 m is that plus slack. A labelled judgement.
 const FRONT_REACH_M: f64 = 12.0;
+/// The least share of the near bank's lots the far bank must hold for a
+/// both-banks town's refitted circuit to span the river (Ruling FB). **The
+/// reference's** own far-bank share, `builtMassHull`'s `max(20, 32 %)` of the
+/// near bank's street nodes, applied to lots instead of nodes.
+pub const FAR_BANK_LOT_SHARE: f64 = 0.32;
 /// How close to the water side of the ring a point must be to be left out of the
 /// margin test, metres ([`least_margin`]). A labelled judgement: the bank wall
 /// is `town_bank`'s 5 m off the shore line, and a shore street's samples fall
@@ -158,6 +164,22 @@ pub enum KeptReason {
     MarginNotMet,
     /// The refitted ring was not smaller than the one it replaces.
     NotSmaller,
+}
+
+/// Ruling FB's span test on a both-banks town's lots (see [`hug_wall`]):
+/// `sides` is each buildable lot's bank (`Site::bank_side`, +1 or -1) and
+/// `mkt_side` the market's. `None` when the circuit should span the river
+/// (the smaller bank holds at least [`FAR_BANK_LOT_SHARE`] of the larger
+/// bank's lots and at least [`MIN_LOTS`]); otherwise `Some` of the larger
+/// bank, the one the circuit is refitted round (the market's on a tie).
+/// Must never answer a bank that holds no lots while the other holds some.
+pub fn one_bank_by_lots(sides: &[f64], mkt_side: f64) -> Option<f64> {
+    let near = sides.iter().filter(|&&s| s == mkt_side).count();
+    let far = sides.len() - near;
+    if (near.min(far) as f64) >= (MIN_LOTS as f64).max(near.max(far) as f64 * FAR_BANK_LOT_SHARE) {
+        return None;
+    }
+    Some(if near >= far { mkt_side } else { -mkt_side })
 }
 
 /// Samples of one street edge: both ends and a point every [`EDGE_SAMPLE_M`].
@@ -271,6 +293,7 @@ pub fn hug_wall(
     wall_state: &mut WallState,
     harbour: Option<&HarbourFront>,
     opts: &FortOpts,
+    both_banks: bool,
 ) -> HugOutcome {
     let Some(old_ring) = wall_state.ring.clone() else {
         return HugOutcome::Kept(KeptReason::NoWall);
@@ -282,6 +305,8 @@ pub fn hug_wall(
     // The mass: lots `build_buildings` will build on (its own floors, so a lot
     // it would leave empty does not hold the wall out), inside the old circuit.
     let mut mass: Vec<Vec2> = Vec::new();
+    // Each counted lot's centroid and footprint, for the far-bank test below.
+    let mut lot_polys: Vec<(Vec2, &Vec<Vec2>)> = Vec::new();
     let mut lots = 0usize;
     for p in parcels {
         if p.frontage < 3.2 || p.depth < 6.0 || p.poly.len() < 3 {
@@ -293,14 +318,46 @@ pub fn hug_wall(
         }
         // `terrain_aware` leaves a lot below the suitability bar vacant, so it
         // does not hold the wall out either (steep or flood-prone ground).
-        if terrain_aware && terrain_suitability(site, c) < TERRAIN_BUILD_MIN {
+        if terrain_aware && lot_suitability(site, p) < TERRAIN_BUILD_MIN {
             continue;
         }
         lots += 1;
+        lot_polys.push((c, &p.poly));
         mass.extend(p.poly.iter().copied());
     }
     if lots < MIN_LOTS {
         return HugOutcome::Kept(KeptReason::TooFewLots);
+    }
+    // **Not the reference** (Ruling FB, owner 2026-11-15: the wall must follow
+    // the built-up area and not enclose an empty river). The reference decides
+    // that a circuit spans the river from the far bank's *street nodes* when
+    // the wall rises (`built_mass_hull`), before the far bank has been platted,
+    // and always on a `riverthrough` site; on a both-banks town (`both_banks`,
+    // `crate::riverbank::BOTH_BANKS_MIN_POP` and up) the refit asks the lots
+    // instead. The circuit spans the river only when its smaller bank holds at
+    // least [`FAR_BANK_LOT_SHARE`] of the larger bank's lots (and
+    // [`MIN_LOTS`]); otherwise it is refitted round the larger bank alone, and
+    // the other bank's few lots stay a suburb outside it. The larger bank need
+    // not be the market's (a market pinned on a bank the town could not build
+    // on): the circuit builder decides which bank is "land" from the market
+    // (`build_wall_from_mass`'s `is_land`), so it is handed `home`, the lot
+    // nearest the larger bank's lots' mean, in the market's place.
+    let mut spans_water = wall_state.spans_water;
+    let mut home = anchors.clone();
+    if both_banks && spans_water && (site.kind == "river" || site.kind == "riverthrough") && site.river.len() >= 2 {
+        let mkt_side = site.bank_side(anchors.market);
+        let sides: Vec<f64> = lot_polys.iter().map(|(c, _)| site.bank_side(*c)).collect();
+        if let Some(big_side) = one_bank_by_lots(&sides, mkt_side) {
+            spans_water = false;
+            let kept: Vec<Vec2> = lot_polys.iter().filter(|(c, _)| site.bank_side(*c) == big_side).map(|(c, _)| *c).collect();
+            mass = lot_polys.iter().filter(|(c, _)| site.bank_side(*c) == big_side).flat_map(|(_, p)| p.iter().copied()).collect();
+            if big_side != mkt_side {
+                let mean = kept.iter().fold(Vec2::new(0.0, 0.0), |a, c| a + *c) * (1.0 / kept.len().max(1) as f64);
+                if let Some(c) = kept.iter().copied().min_by(|a, b| a.dist(mean).total_cmp(&b.dist(mean))) {
+                    home.market = c;
+                }
+            }
+        }
     }
 
     // Street edges those lots front join the mass; every other non-primary edge
@@ -333,11 +390,13 @@ pub fn hug_wall(
     let c0 = poly_centroid(&convex_hull(&mass));
     let old_area = poly_area(&old_ring).abs();
     let mut pad = CLEARANCE_M;
-    for _ in 0..=MAX_REFITS {
+    // Ruling FB: a circuit the lots no longer let span the river.
+    let downgraded = spans_water != wall_state.spans_water;
+    for attempt in 0..=MAX_REFITS {
         let mut trial = wall_state.clone();
         let hull = envelope(c0, &mass, pad);
-        let built = BuiltMass { hull, spans_water: wall_state.spans_water };
-        build_wall_from_mass(seed, site, anchors, g, &mut trial, wall_state.epoch, harbour, opts, built, false);
+        let built = BuiltMass { hull, spans_water };
+        build_wall_from_mass(seed, site, &home, g, &mut trial, wall_state.epoch, harbour, opts, built, false);
         let Some(ring) = trial.ring.clone() else {
             return HugOutcome::Kept(KeptReason::Refused);
         };
@@ -346,7 +405,14 @@ pub fn hug_wall(
             return HugOutcome::Kept(KeptReason::Refused);
         }
         let margin = least_margin(&mass, ring, trial.land_arc.as_deref());
-        if margin >= MIN_MARGIN_M {
+        // **Not the reference** (Ruling FB): when the span test refitted a
+        // spanning circuit to one bank, the last widening is taken even if a
+        // lot still stands within the margin, because the alternative this
+        // function would otherwise keep is the reference circuit round an
+        // empty bank and across the river twice, the defect the ruling forbids
+        // (seed 483920 #0 at 2 048 x 1 311: `MarginNotMet`, the wall round the
+        // empty far bank).
+        if margin >= MIN_MARGIN_M || (downgraded && attempt == MAX_REFITS) {
             let area_ratio = poly_area(ring).abs() / old_area;
             if area_ratio > MAX_AREA_RATIO {
                 return HugOutcome::Kept(KeptReason::NotSmaller);

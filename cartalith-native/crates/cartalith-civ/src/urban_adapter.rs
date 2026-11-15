@@ -204,6 +204,10 @@ pub use cartalith_urban::{
 pub use cartalith_urban::wallgap;
 /// What the wall hug did to a town (Ruling EW), for the same census.
 pub use cartalith_urban::wallhug::HugOutcome;
+/// The chartered-town line (`cartalith_urban::plaza::PLAZA_MARKET_POP`) and the
+/// polygon centroid, spelled here for the same census's size classes and
+/// bank sides (2026-11-15, Ruling FB's both-banks audit).
+pub use cartalith_urban::{geom::poly_centroid, plaza::PLAZA_MARKET_POP};
 
 /// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and
 /// `military.rs` already takes them from `cartalith-jsmath` directly.
@@ -1991,7 +1995,8 @@ pub struct PlaceOverrides<'a> {
     /// field** and not in the reference, so `false` (the `Default`) is the
     /// reference layout and every JS-captured golden is unmoved by control
     /// flow. The app sets it from `WorldParams::urban_riverbank`
-    /// (`DECISIONS.md` section 7p).
+    /// (`DECISIONS.md` section 7p), which since Rulings FB and EZ item 1
+    /// (2026-11-15) also carries the both-banks town and the mixed riverside.
     pub riverbank: bool,
 }
 

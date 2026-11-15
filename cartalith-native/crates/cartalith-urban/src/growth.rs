@@ -251,6 +251,16 @@ pub struct GrowOpts {
     /// fill in for itself.
     pub wet_moat: bool,
     pub pop: f64,
+    /// **Not the reference** -- Ruling FB (owner, 2026-11-15: *"Big river
+    /// towns can grow around both banks when the terrain allows it"*): lift
+    /// the bridgehead rule (rule 3 of [`grow`]) for this town, so its far
+    /// bank grows like its own, but only from origins the town could build
+    /// on (`crate::riverbank::far_bank_buildable`: not a gorge or a marsh
+    /// bank) and only while its streets are shorter than the market's bank's
+    /// times `crate::riverbank::FAR_BANK_MAX_RATIO`. `generate` sets it on a riverbank site of
+    /// `crate::riverbank::BOTH_BANKS_MIN_POP` and up; `false` (the default)
+    /// is the reference, byte for byte.
+    pub far_bank: bool,
 }
 
 /// `buildWall` (reference line 29748) plus an epoch observer, injected.
@@ -580,6 +590,10 @@ pub fn grow(
             g.edges.iter().filter(|e| e.alive && e.cls == "primary").map(|e| e.id).collect();
         let mut len = 0.0f64;
         let mut tries = 0i32;
+        // **Not the reference** (Ruling FB): each bank's street length, kept
+        // current through the epoch, for the far bank's cap.
+        let (mut near_len, mut far_len) =
+            if opts.far_bank { crate::riverbank::bank_street_lengths(site, g, mkt_side) } else { (0.0, 0.0) };
         while len < budget && tries < 2600 {
             tries += 1;
             let explore = r.chance(explore_share);
@@ -640,7 +654,19 @@ pub fn grow(
             // The bridgehead stays small: growth on the far bank is confined to
             // the bridge approach. Sea sites have no far bank.
             let o_side = site.bank_side(o);
-            if site.kind == "river" && o_side != mkt_side {
+            // **Not the reference** (Ruling FB, `GrowOpts::far_bank`): a big
+            // river town's far bank grows like its own where it is buildable,
+            // up to the size of the market's bank; an unbuildable far bank (a
+            // gorge, a marsh) grows nothing. Both
+            // kinds of river site: a `riverthrough` town has no bridgehead
+            // rule to lift, but its far bank is held to the same ground.
+            if opts.far_bank && (site.kind == "river" || site.kind == "riverthrough") && o_side != mkt_side {
+                if !crate::riverbank::far_bank_buildable(site, o)
+                    || far_len >= near_len * crate::riverbank::FAR_BANK_MAX_RATIO
+                {
+                    continue;
+                }
+            } else if site.kind == "river" && o_side != mkt_side {
                 // A `'river'` site always has a bridge point (`buildSite` sets
                 // one on every river branch); the reference would throw on
                 // `null.x` if it did not, and `NaN` fails the `>` test the same
@@ -812,7 +838,15 @@ pub fn grow(
             let made = g.add_street(o.x, o.y, b.x, b.y, cls, wdt, ep, &prov);
             for eid in made {
                 let e = &g.edges[eid];
-                len += g.nodes[e.a].pt().dist(g.nodes[e.b].pt());
+                let (pa, pb) = (g.nodes[e.a].pt(), g.nodes[e.b].pt());
+                len += pa.dist(pb);
+                if opts.far_bank {
+                    if site.bank_side(pa.lerp(pb, 0.5)) == mkt_side {
+                        near_len += pa.dist(pb);
+                    } else {
+                        far_len += pa.dist(pb);
+                    }
+                }
             }
         }
         placed_len += len;

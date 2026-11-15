@@ -158,7 +158,19 @@ fn a_river_town_builds_to_its_bank_and_never_into_the_channel() {
     let (g_off, g_on) = (built_to_bank(&off), built_to_bank(&on));
     assert!(g_off > widest(&off), "premise: the reference stands back ({g_off} m, street {})", widest(&off));
     assert!(on.riverbank);
-    assert!(g_on <= widest(&on), "built to bank {g_on} m against a widest street of {} m", widest(&on));
+    // Since Rulings FB and EZ item 1 (2026-11-15) the town grows on both banks
+    // and its riverside mixes quays with houses on the water, so which stretch
+    // a given seed's town reaches is a property of its growth: the bar is over
+    // twelve seeds (4240-4251, measured 8 of 12 within the widest street, the
+    // rest 4.9-6.4 m), not this one seed (6.2 m).
+    let within = (4240..4252u32)
+        .filter(|&s| {
+            let t = generate(s, &opts(true, true));
+            built_to_bank(&t) <= widest(&t)
+        })
+        .count();
+    assert!(within >= 8, "{within} of 12 towns have a house within a street's width of the bank");
+    let _ = g_on;
     let emb = on.embankment.as_ref().expect("an embankment report");
     assert!(!emb.runs.is_empty());
     for run in &emb.runs {
@@ -331,16 +343,343 @@ fn neither_the_embankment_nor_a_tie_crosses_the_wall() {
     };
     // No wall: an embankment and one tie.
     let (site, mut g) = bank_site_and_streets(&street);
-    let e = super::build_embankment(&site, &mut g, None);
-    assert!(!e.runs.is_empty() && e.ties == 1, "premise: {e:?}");
+    let e = super::build_embankment(&site, &mut g, None, None);
+    assert!(!e.runs.is_empty() && e.ties >= 1, "premise: {e:?}");
     // A wall across the bank line.
     let ring_a = [Vec2::new(605.0, r + 12.0), Vec2::new(640.0, r + 12.0), Vec2::new(640.0, r + 60.0), Vec2::new(605.0, r + 60.0)];
     let (site, mut g) = bank_site_and_streets(&street);
-    super::build_embankment(&site, &mut g, Some(&ring_a));
+    super::build_embankment(&site, &mut g, Some(&ring_a), None);
     assert!(!cross(&g, &ring_a, "quay"), "an embankment segment crosses the wall");
     // A wall between the street end and the bank.
     let ring_b = [Vec2::new(560.0, r + 17.0), Vec2::new(640.0, r + 17.0), Vec2::new(640.0, r + 60.0), Vec2::new(560.0, r + 60.0)];
     let (site, mut g) = bank_site_and_streets(&street);
-    let e = super::build_embankment(&site, &mut g, Some(&ring_b));
+    let e = super::build_embankment(&site, &mut g, Some(&ring_b), None);
     assert_eq!(e.ties, 0, "the tie would cross the wall");
 }
+
+// ------------------------------------------------ Rulings FB and EZ item 1 --
+
+/// The bank of point `p` on the fixture: `true` north of the centreline.
+fn north(p: Vec2) -> bool {
+    p.y < RIVER_Y
+}
+
+/// The share of a town's houses on its smaller bank (centroid by vertex mean).
+fn minority_share(t: &crate::generate::Town) -> f64 {
+    let n = t.buildings.len().max(1);
+    let k = t
+        .buildings
+        .iter()
+        .filter(|b| north(b.poly.iter().fold(Vec2::new(0.0, 0.0), |a, v| a + *v) * (1.0 / b.poly.len() as f64)))
+        .count();
+    k.min(t.buildings.len() - k) as f64 / n as f64
+}
+
+/// Protects Ruling FB end to end on the fixture, and its size class: a town
+/// of 6 000 has a crossing at its bridge point and houses on both banks (each
+/// bank at least 10 % of them); a town of `BOTH_BANKS_MIN_POP` (1 500, a
+/// literal) is offered the treatment (`town_bridge` is `Some`, whatever it
+/// found) and one of 1 499 is not (`None`); with the switch off neither is a
+/// big one.
+#[test]
+fn a_big_river_town_bridges_its_river_and_builds_on_both_banks() {
+    assert!(generate(4242, &GenOpts { pop: Some(1500.0), ..opts(true, true) }).town_bridge.is_some());
+    let big = generate(4242, &opts(true, true));
+    assert!(matches!(big.town_bridge, Some(super::TownBridge::Laid) | Some(super::TownBridge::Existing)), "{:?}", big.town_bridge);
+    let crosses = big.graph.edges.iter().any(|e| {
+        let (a, b) = (big.graph.nodes[e.a].pt(), big.graph.nodes[e.b].pt());
+        e.cls == "primary" && north(a) != north(b)
+    });
+    assert!(crosses, "no road spans the river");
+    assert!(minority_share(&big) >= 0.10, "smaller bank holds {:.3} of the houses", minority_share(&big));
+    let village = generate(4242, &GenOpts { pop: Some(1499.0), ..opts(true, true) });
+    assert_eq!(village.town_bridge, None);
+    let off = generate(4242, &GenOpts { pop: Some(6000.0), ..opts(false, true) });
+    assert_eq!(off.town_bridge, None);
+}
+
+/// Protects the 6 000-person fixture town's far bank against the reference's
+/// bridgehead: with the switch on its smaller bank holds more of its houses
+/// than the reference's town, which confines the far bank to 190 m of the
+/// bridge, and the town houses at least as many (literal bar: 10 %).
+#[test]
+fn the_far_bank_grows_past_the_bridgehead() {
+    let on = generate(4242, &opts(true, true));
+    let off = generate(4242, &opts(false, true));
+    assert!(minority_share(&on) >= 0.10, "on: {:.3}", minority_share(&on));
+    assert!(minority_share(&on) > minority_share(&off), "on {:.3} off {:.3}", minority_share(&on), minority_share(&off));
+}
+
+/// Protects `far_bank_buildable` (literals worked from the fixture's flat
+/// analytic relief, slope under 0.1): 15 m from the centreline the flood
+/// factor is 15 / 42 and the ground is refused (a marsh bank); 100 m out it is
+/// accepted.
+#[test]
+fn a_marsh_bank_is_not_buildable_and_dry_ground_is() {
+    let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts { water: Some(water(true)), ..Default::default() });
+    assert!(site.use_riverbank());
+    assert!(!super::far_bank_buildable(&site, Vec2::new(850.0, RIVER_Y + 15.0)));
+    assert!(super::far_bank_buildable(&site, Vec2::new(850.0, RIVER_Y + 100.0)));
+}
+
+/// Protects `lay_town_bridge`'s three outcomes on the fixture: with a street
+/// on the north bank it lays a 6 m `primary` across the bridge point, joined
+/// to that street, and a far approach on the south bank; with a road already
+/// across the river it adds nothing (`Existing`); with the bridge point
+/// beyond `max_r` of the market it lays nothing (`None`).
+#[test]
+fn a_town_bridge_is_laid_joined_or_refused() {
+    let mut w = water(true);
+    w.river_path = crate::riverbank::fine_river_path(w.river_path.as_deref().unwrap(), 1700.0, 1250.0);
+    let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts { water: Some(w), ..Default::default() });
+    assert!(site.use_riverbank());
+    let bp = site.bridge_pt.expect("a river site has a bridge point");
+    let anchors = crate::routes::Anchors { market: Vec2::new(bp.x, RIVER_Y - 120.0), ..crate::routes::place_anchors(7, &site) };
+    let mut g = crate::graph::Graph::new();
+    g.add_street(bp.x - 100.0, RIVER_Y - 80.0, bp.x + 100.0, RIVER_Y - 80.0, "street", 4.0, 0, "test");
+    assert_eq!(super::lay_town_bridge(&site, &anchors, &mut g, 400.0), super::TownBridge::Laid);
+    let span = g.edges.iter().find(|e| e.cls == "primary").expect("a span");
+    let (a, b) = (g.nodes[span.a].pt(), g.nodes[span.b].pt());
+    assert!(north(a) != north(b) && span.w == 6.0);
+    // The half-length is `riverW/2 + 16` = 28 m each side of the centreline.
+    assert!(((a.y - RIVER_Y).abs() - 28.0).abs() < 1e-6 && ((b.y - RIVER_Y).abs() - 28.0).abs() < 1e-6);
+    let streets: Vec<(Vec2, Vec2)> = g.edges.iter().filter(|e| e.cls == "street").map(|e| (g.nodes[e.a].pt(), g.nodes[e.b].pt())).collect();
+    assert!(streets.iter().any(|(p, q)| !north(*p) && !north(*q)), "no far-bank approach");
+    assert!(streets.iter().any(|(p, q)| (p.y - (RIVER_Y - 28.0)).abs() < 1e-6 || (q.y - (RIVER_Y - 28.0)).abs() < 1e-6), "the near end is not joined");
+    // Again on the graph that now crosses: nothing more is laid.
+    let edges = g.edges.len();
+    assert_eq!(super::lay_town_bridge(&site, &anchors, &mut g, 400.0), super::TownBridge::Existing);
+    assert_eq!(g.edges.len(), edges);
+    // A bridge point 120 m from the market, with `max_r` 100 m: refused.
+    let mut g = crate::graph::Graph::new();
+    g.add_street(bp.x - 100.0, RIVER_Y - 80.0, bp.x + 100.0, RIVER_Y - 80.0, "street", 4.0, 0, "test");
+    assert_eq!(super::lay_town_bridge(&site, &anchors, &mut g, 100.0), super::TownBridge::None);
+    assert!(g.edges.iter().all(|e| e.cls != "primary"));
+    // A primary already crossing 25 m from the bridge point counts (within
+    // the span's half-length `riverW/2 + 16` = 28 m); one 35 m away does not,
+    // and the bridge is laid.
+    let mut g = crate::graph::Graph::new();
+    g.add_street(bp.x - 100.0, RIVER_Y - 80.0, bp.x + 100.0, RIVER_Y - 80.0, "street", 4.0, 0, "test");
+    g.add_street(bp.x + 25.0, RIVER_Y - 100.0, bp.x + 25.0, RIVER_Y + 100.0, "primary", 6.0, 0, "test");
+    assert_eq!(super::lay_town_bridge(&site, &anchors, &mut g, 400.0), super::TownBridge::Existing);
+    let mut g = crate::graph::Graph::new();
+    g.add_street(bp.x - 100.0, RIVER_Y - 80.0, bp.x + 100.0, RIVER_Y - 80.0, "street", 4.0, 0, "test");
+    g.add_street(bp.x + 35.0, RIVER_Y - 100.0, bp.x + 35.0, RIVER_Y + 100.0, "primary", 6.0, 0, "test");
+    assert_eq!(super::lay_town_bridge(&site, &anchors, &mut g, 400.0), super::TownBridge::Laid);
+    // No street within `BRIDGE_JOIN_M` (240 m) of the near end: refused.
+    let mut g = crate::graph::Graph::new();
+    g.add_street(bp.x, RIVER_Y - 300.0, bp.x + 100.0, RIVER_Y - 300.0, "street", 4.0, 0, "test");
+    assert_eq!(super::lay_town_bridge(&site, &anchors, &mut g, 400.0), super::TownBridge::None);
+    let mut g = crate::graph::Graph::new();
+    g.add_street(bp.x, RIVER_Y - 250.0, bp.x + 100.0, RIVER_Y - 250.0, "street", 4.0, 0, "test");
+    assert_eq!(super::lay_town_bridge(&site, &anchors, &mut g, 400.0), super::TownBridge::Laid, "222 m away is within 240 m");
+}
+
+/// Protects Ruling EZ item 1's mixed frontage (literals from the fixture):
+/// with a frontage seed, the riverside is cut into embankment `quay` stretches
+/// whose every vertex is 15 m from the centreline (12 + 1 + 2) and `bank`
+/// stretches whose interior vertices are 13.5 m from it (12 + 1 + 0.5), each
+/// stretch 90-220 m long but for a run's last; both kinds are in the graph,
+/// and a house fronts a `bank` edge within one street width (5.4 m) of the
+/// channel's edge. Without a seed every stretch is a quay.
+#[test]
+fn the_riverside_mixes_quays_and_houses_on_the_water() {
+    let streets: Vec<(Vec2, Vec2)> = (0..20).map(|k| {
+        let x = 200.0 + k as f64 * 60.0;
+        (Vec2::new(x, RIVER_Y - 120.0), Vec2::new(x, RIVER_Y - 30.0))
+    }).collect();
+    let (site, mut g) = bank_site_and_streets(&streets);
+    let e = super::build_embankment(&site, &mut g, None, Some(11));
+    assert!(!e.runs.is_empty() && !e.banks.is_empty(), "both forms: {} quay, {} bank", e.runs.len(), e.banks.len());
+    for run in &e.runs {
+        assert!(run.iter().all(|v| ((v.y - RIVER_Y).abs() - 15.0).abs() < 1e-9), "quay vertex off 15 m: {run:?}");
+    }
+    let len = |r: &Vec<Vec2>| r.windows(2).map(|w| w[0].dist(w[1])).sum::<f64>();
+    let mut stretches: Vec<&Vec<Vec2>> = e.runs.iter().chain(e.banks.iter()).collect();
+    stretches.sort_by(|a, b| a[0].x.total_cmp(&b[0].x));
+    for s in &stretches[..stretches.len() - 1] {
+        // A stretch ends once 90-220 m of centreline is behind it; the bank
+        // stretch's junction step adds at most 1.5 m.
+        assert!(len(s) >= 90.0 - 8.0 && len(s) <= 220.0 + 8.0 + 1.5, "stretch of {} m", len(s));
+    }
+    for b in &e.banks {
+        assert!(b[1..b.len() - 1].iter().all(|v| ((v.y - RIVER_Y).abs() - 13.5).abs() < 1e-9), "bank vertex off 13.5 m: {b:?}");
+    }
+    assert!(g.edges.iter().any(|x| x.alive && x.cls == super::BANK_CLASS));
+    assert!(g.edges.iter().any(|x| x.alive && x.cls == "quay"));
+    let (site, mut g) = bank_site_and_streets(&streets);
+    let e = super::build_embankment(&site, &mut g, None, None);
+    assert!(e.banks.is_empty() && !e.runs.is_empty());
+    // End to end (seed 4243, four bank stretches, measured 1.9 m): a big
+    // town's houses on a bank edge stand within a street width of the
+    // channel's edge.
+    let t = generate(4243, &opts(true, true));
+    assert!(t.embankment.as_ref().is_some_and(|e| !e.banks.is_empty()), "the fixture town has a bank stretch");
+    assert!(built_to_bank(&t) <= 5.4, "nearest house {} m", built_to_bank(&t));
+}
+
+/// Protects `lot_suitability`: on a riverbank site a lot fronting a `bank` or
+/// `quay` edge 3.4 m off the channel is judged on its slope alone (the flood
+/// factor would score it 0.47 at its centroid, 19.9 m out: vacant), a lot
+/// in the same place fronting a `street` keeps the reference's score, and on a
+/// site the riverbank geometry did not take, a `bank` lot keeps it too.
+#[test]
+fn a_riverside_lot_is_judged_on_its_slope() {
+    let lot = |cls: &'static str| crate::blocks::Parcel {
+        id: "t".into(),
+        poly: vec![
+            Vec2::new(800.0, RIVER_Y + 15.4),
+            Vec2::new(810.0, RIVER_Y + 15.4),
+            Vec2::new(810.0, RIVER_Y + 24.4),
+            Vec2::new(800.0, RIVER_Y + 24.4),
+        ],
+        block: "b".into(),
+        frontage: 10.0,
+        depth: 9.0,
+        area: 90.0,
+        age: 0.0,
+        edge_cls: cls,
+        tone: 0.5,
+        wall_backing: crate::wallside::WallBacking::No,
+        courtyard_ring: false,
+        gate_quality: None,
+    };
+    let mut site = build_site(7, 1700.0, 1250.0, "river", SiteOpts { water: Some(water(true)), ..Default::default() });
+    let c = Vec2::new(805.0, RIVER_Y + 19.9);
+    let reference = crate::site::terrain_suitability(&site, c);
+    assert_eq!(crate::districts::lot_suitability(&site, &lot(super::BANK_CLASS)), reference, "not a riverbank site yet");
+    assert!(site.use_riverbank());
+    let flood = crate::site::terrain_suitability(&site, c);
+    let slope = crate::site::slope_suitability(&site, c);
+    assert!(flood < crate::districts::TERRAIN_BUILD_MIN && slope >= crate::districts::TERRAIN_BUILD_MIN, "premise: {flood} {slope}");
+    assert_eq!(crate::districts::lot_suitability(&site, &lot(super::BANK_CLASS)), slope);
+    assert_eq!(crate::districts::lot_suitability(&site, &lot("quay")), slope);
+    assert_eq!(crate::districts::lot_suitability(&site, &lot("street")), flood);
+}
+
+
+/// Protects the run-end ties (literals): a U-shaped street whose corners
+/// stand 40 m from the river and whose ends are 200 m back has no dead end
+/// near the bank, so only the ends of the riverside runs laid by its corners
+/// can be tied to it; they are (at least one tie), which closes the faces
+/// between the street and the river.
+#[test]
+fn a_riverside_run_is_tied_at_its_ends() {
+    let r = RIVER_Y;
+    let u = [
+        (Vec2::new(400.0, r - 200.0), Vec2::new(400.0, r - 40.0)),
+        (Vec2::new(400.0, r - 40.0), Vec2::new(800.0, r - 40.0)),
+        (Vec2::new(800.0, r - 40.0), Vec2::new(800.0, r - 200.0)),
+    ];
+    let (site, mut g) = bank_site_and_streets(&u);
+    let e = super::build_embankment(&site, &mut g, None, None);
+    assert!(!e.runs.is_empty(), "premise: a run is laid by the corners");
+    assert!(e.ties >= 1, "{e:?}");
+}
+
+/// Protects `trim_overbuilt` (literals): ten built lots in a row 10-100 m
+/// from the market, the two farthest fronting a `quay` and a `bank` edge; a
+/// town of 20.8 people may house `floor(20.8 * 1.25 / 5.2)` = 5 lots, so the
+/// five farthest inland lots (40-80 m) are emptied with their buildings and
+/// the riverside lots stay built; a town within its cap is left alone; and
+/// with a wall, the lots outside it go before any inside it.
+#[test]
+fn an_overbuilt_river_town_empties_its_farthest_inland_lots() {
+    let parcel = |k: usize| crate::blocks::Parcel {
+        id: format!("p{k}"),
+        poly: vec![
+            Vec2::new(10.0 * k as f64 + 8.0, 0.0),
+            Vec2::new(10.0 * k as f64 + 12.0, 0.0),
+            Vec2::new(10.0 * k as f64 + 12.0, 4.0),
+            Vec2::new(10.0 * k as f64 + 8.0, 4.0),
+        ],
+        block: "b".into(),
+        frontage: 4.0,
+        depth: 4.0,
+        area: 16.0,
+        age: 0.0,
+        edge_cls: match k {
+            9 => "quay",
+            10 => super::BANK_CLASS,
+            _ => "street",
+        },
+        tone: 0.5,
+        wall_backing: crate::wallside::WallBacking::No,
+        courtyard_ring: false,
+        gate_quality: None,
+    };
+    let parcels: Vec<crate::blocks::Parcel> = (1..=10).map(parcel).collect();
+    let building = |k: usize| crate::districts::Building {
+        id: format!("b{k}"),
+        poly: parcels[k - 1].poly.clone(),
+        ridge: [Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0)],
+        parcel: format!("p{k}"),
+        kind: "house",
+        district: "",
+        age: 0.0,
+        courtyard: false,
+        prov: "test",
+    };
+    let fresh = || {
+        let mut lots: Vec<crate::districts::Lot<'_>> = parcels.iter().map(crate::districts::Lot::new).collect();
+        for l in &mut lots {
+            l.built = true;
+        }
+        lots
+    };
+    let mut lots = fresh();
+    let mut blds: Vec<crate::districts::Building> = (1..=10).map(building).collect();
+    super::trim_overbuilt(&mut lots, &mut blds, Vec2::new(0.0, 2.0), 20.8, None);
+    let built: Vec<&str> = lots.iter().filter(|l| l.built).map(|l| l.par.id.as_str()).collect();
+    assert_eq!(built, ["p1", "p2", "p3", "p9", "p10"]);
+    assert_eq!(blds.iter().map(|b| b.parcel.as_str()).collect::<Vec<_>>(), ["p1", "p2", "p3", "p9", "p10"]);
+    assert!(lots.iter().filter(|l| !l.built).all(|l| l.empty));
+    let mut lots = fresh();
+    let mut blds: Vec<crate::districts::Building> = (1..=10).map(building).collect();
+    super::trim_overbuilt(&mut lots, &mut blds, Vec2::new(0.0, 2.0), 41.6, None);
+    assert_eq!(lots.iter().filter(|l| l.built).count(), 10, "41.6 people may house 10 lots");
+    assert_eq!(blds.len(), 10);
+    // A wall round the lots 50-90 m out (p5-p8, x 58-92): the inland lots
+    // outside it go first (p4, p3, p2, p1), then the farthest inside (p8).
+    let ring = [Vec2::new(55.0, -10.0), Vec2::new(95.0, -10.0), Vec2::new(95.0, 10.0), Vec2::new(55.0, 10.0)];
+    let mut lots = fresh();
+    let mut blds: Vec<crate::districts::Building> = (1..=10).map(building).collect();
+    super::trim_overbuilt(&mut lots, &mut blds, Vec2::new(0.0, 2.0), 20.8, Some(&ring));
+    let built: Vec<&str> = lots.iter().filter(|l| l.built).map(|l| l.par.id.as_str()).collect();
+    assert_eq!(built, ["p5", "p6", "p7", "p9", "p10"]);
+}
+
+/// Protects `generate`'s call of the housing cap and its village gate: the
+/// 400-person fixture village houses at most 500 (125 %) with the switch on, where the same
+/// village with the riverbank geometry but no cap would house more (its
+/// streets plat more lots than 400 people need: the reference's 1 600 m
+/// street floor). The premise is read off the switch-off town.
+#[test]
+fn a_river_village_is_not_overbuilt() {
+    let off = generate(4242, &GenOpts { pop: Some(400.0), ..opts(false, true) });
+    let on = generate(4242, &GenOpts { pop: Some(400.0), ..opts(true, true) });
+    assert!(off.pop > 500.0, "premise: the reference's village houses {}", off.pop);
+    assert!(on.pop <= 500.0, "the riverbank village houses {}", on.pop);
+    // A town of 1 500 (not a village) is never trimmed: seed 4201's houses
+    // 2 616 (found by scanning seeds 4200-4259), over 125 %.
+    let town = generate(4201, &GenOpts { pop: Some(1500.0), ..opts(true, true) });
+    assert!(town.pop > 1875.0, "a chartered town keeps its houses: {}", town.pop);
+}
+
+/// Protects `bank_street_lengths`, which `grow` reads against
+/// `FAR_BANK_MAX_RATIO`: a 100 m street north of the river and a 30 m one
+/// south of it split by bank (literals). The cap's call site in `grow` is not
+/// pinned by a test (its mutant survives: the far bank's final street length
+/// also counts the lane passes and primaries after `grow`); the both-banks
+/// audit measures its effect.
+#[test]
+fn bank_street_lengths_split_by_bank() {
+    let (site, g) = bank_site_and_streets(&[
+        (Vec2::new(100.0, RIVER_Y - 100.0), Vec2::new(200.0, RIVER_Y - 100.0)),
+        (Vec2::new(100.0, RIVER_Y + 100.0), Vec2::new(130.0, RIVER_Y + 100.0)),
+    ]);
+    let north_side = site.bank_side(Vec2::new(150.0, RIVER_Y - 100.0));
+    let (n, f) = super::bank_street_lengths(&site, &g, north_side);
+    assert!((n - 100.0).abs() < 1e-9 && (f - 30.0).abs() < 1e-9, "{n} {f}");
+}
+
