@@ -184,6 +184,11 @@ pub fn defaults() -> WorldParams {
     // every urban golden reads (`DECISIONS.md` section 7p). See
     // `WorldParams::urban_wall_hug`.
     p.urban_wall_hug = true;
+    // Ruling EX's follow-up (c) (2026-11-15): a river town is a town on the
+    // map's river, not one beside high-flow cells the map does not draw. Off in
+    // `WorldParams::defaults`, the reference's flow test the urban golden pins
+    // (`DECISIONS.md` section 7p). See `WorldParams::urban_river_kind_map`.
+    p.urban_river_kind_map = true;
     // Owner Ruling ET (2026-11-12; `RIVER_REALISM_SCOPE.md` RR-6): new worlds
     // classify lakes by a per-basin water balance (a lake holds water only
     // where inflow covers evaporation, else a playa). Off in
@@ -373,6 +378,16 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "urban_wall_hug", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Town walls hug the built-up area", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.urban_wall_hug), set_fn: |p, v| p.urban_wall_hug = v != 0.0 },
+    // Ruling EX's follow-up (c) (2026-11-15): which towns are river towns reads
+    // the map's rivers. ON at the app boundary, OFF in `WorldParams::defaults`;
+    // no reference control (the reference reads flow cells). A save without the
+    // key loads OFF (`LOADS_WHEN_ABSENT`). Read fresh whenever a layout, a trade
+    // answer or a water-access row is asked for, never by a generation stage, so
+    // it invalidates nothing (`invalidates` -> `None`) and
+    // `param_catalogue::regen` calls it live.
+    ParamSpec { key: "urban_river_kind_map", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "River towns read the map's rivers", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.urban_river_kind_map), set_fn: |p, v| p.urban_river_kind_map = v != 0.0 },
     // Ruling ET (2026-11-12): the lake water balance. ON at the app boundary,
     // OFF in `WorldParams::defaults`; no reference control (the reference
     // classifies lakes by per-cell rain). A save without the key loads OFF
@@ -1028,6 +1043,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("basin_routing", ""),
     // Port-only (Ruling EW item 1); the reference's wall stands at its growth-reserve hull.
     ("urban_wall_hug", ""),
+    // Port-only (Ruling EX follow-up (c)); the reference counts flow cells as river.
+    ("urban_river_kind_map", ""),
     // Port-only (Ruling ET); the reference classifies lakes by per-cell rain.
     ("lake_balance", ""),
     // Port-only (Ruling BH); the reference has no lithology model.
@@ -1353,6 +1370,9 @@ pub const LOADS_WHEN_ABSENT: &[(&str, Value)] = &[
     // Wall hug (Ruling EW item 1, 2026-11-13): every save without the key drew
     // the reference's growth-reserve circuit.
     ("urban_wall_hug", Value::Bool(false)),
+    // River towns from the map's rivers (Ruling EX follow-up (c), 2026-11-15):
+    // every save without the key called its river towns from flow cells.
+    ("urban_river_kind_map", Value::Bool(false)),
     // The lake water balance (Ruling ET, 2026-11-12): every save without the
     // key kept the per-cell rain-test lakes.
     ("lake_balance", Value::Bool(false)),

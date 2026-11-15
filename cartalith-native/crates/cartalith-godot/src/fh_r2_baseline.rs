@@ -49,6 +49,12 @@
 //!   switched the hug on (`params::defaults().urban_wall_hug`). The hug's own
 //!   before/after is measured by `wall_gap_census.rs` and gated in
 //!   `cartalith-urban`'s `wallhug` tests, not hashed here.
+//!   **Nor with the map's river-town test** (Ruling EX follow-up (c),
+//!   2026-11-15): every `UrbanWorld` here sets `river_kind_from_map: false`,
+//!   the reference's flow-cell test, for the same reason, so neither this
+//!   column nor the trade columns moved when the app switched
+//!   `params::defaults().urban_river_kind_map` on. Its before/after is
+//!   `town_river_census.rs::town_placement_audit`.
 //!
 //! Worlds: five seeds x {800 km plain, 40 075 km wrapped} x {6 factions (the
 //! app default, `cartalith_engine::WorldParams::defaults()`'s `civ.factions`),
@@ -257,6 +263,7 @@ fn fingerprint(seed: i32, width_km: f64, factions: i32) -> Print {
         map_width_km: p.map_width_km,
         flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km),
         world_seed: seed,
+        river_kind_from_map: false, // FH-R2 pins the reference river-town test (module doc)
     };
     let mut order: Vec<usize> = (0..civ.settlements.len()).collect();
     order.sort_by(|&a, &b| civ.settlements[b].pop.cmp(&civ.settlements[a].pop).then(a.cmp(&b)));
@@ -529,6 +536,7 @@ fn trade_world<'a>(
         map_width_km: p.map_width_km,
         flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
         world_seed: seed,
+        river_kind_from_map: false, // FH-R2 pins the reference river-town test (module doc)
     }
 }
 
@@ -956,6 +964,7 @@ fn fh_r2_m3_rite_only() {
                 map_width_km: p.map_width_km,
                 flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km),
                 world_seed: seed,
+                river_kind_from_map: false, // FH-R2 pins the reference river-town test (module doc)
             };
             for s in civ.settlements.iter() {
                 let faith = civ.town_faith(s);

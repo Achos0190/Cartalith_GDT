@@ -968,6 +968,31 @@ fn the_wall_hug_is_on_in_the_app_off_in_parity_and_a_save_without_it_loads_off()
     assert_eq!(params::invalidates("urban_wall_hug"), None);
 }
 
+/// Protects Ruling EX's follow-up (c) switch (2026-11-15): river towns read from the map's
+/// rivers is ON in the app's parameters and OFF in the parity baseline (literals, so a flipped
+/// default is caught); a new save records it; a save that says on reloads on; a save without the
+/// key (every save before the change) reloads with it OFF, so a reopened world calls its river
+/// towns as it did, while every other row still applies; and it is read fresh (no stage stale).
+#[test]
+fn the_map_river_kind_is_on_in_the_app_off_in_parity_and_a_save_without_it_loads_off() {
+    assert!(!cartalith_engine::WorldParams::defaults(0, 0, 0).urban_river_kind_map, "the reference reads flow cells");
+    assert!(params::defaults().urban_river_kind_map, "new worlds read the map's rivers (Ruling EX follow-up (c))");
+    let mut state = params::save_state(&params::defaults());
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert_eq!(native.get("urban_river_kind_map"), Some(&serde_json::json!(true)), "a new save records the switch");
+    let mut p = params::defaults();
+    p.urban_river_kind_map = false;
+    params::apply_saved_state(&mut p, &state);
+    assert!(p.urban_river_kind_map, "a save that says on reloads on");
+    let native = state[params::NATIVE_PARAMS_KEY].as_object_mut().expect("native block");
+    assert!(native.remove("urban_river_kind_map").is_some());
+    let rows = native.len();
+    let mut p = params::defaults();
+    assert_eq!(params::apply_saved_state(&mut p, &state), rows, "every other row of an older save still applies");
+    assert!(!p.urban_river_kind_map, "an older save keeps the river towns it had");
+    assert_eq!(params::invalidates("urban_river_kind_map"), None);
+}
+
 /// Protects: a save lacking `volc.morphometry`, or carrying it `false`, reloading without
 /// VA-5's morphometry (owner Ruling CX item 1, 2026-10-24).
 #[test]
@@ -1278,6 +1303,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.urban_wall_hug = false;
     // And Ruling EX's river frontage: a save without the key placed its towns without it.
     expect.civ.river_front = false;
+    // And Ruling EX follow-up (c): a save without the key called its river towns from flow cells.
+    expect.urban_river_kind_map = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -1402,6 +1429,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert!(app.basin_routing && !parity.basin_routing, "basin routing for new worlds, Ruling EV");
     assert!(app.urban_wall_hug && !parity.urban_wall_hug, "town walls hug the built-up area for new worlds, Ruling EW item 1");
     assert!(app.civ.river_front && !parity.civ.river_front, "river towns sit on their river for new worlds, Ruling EX");
+    assert!(app.urban_river_kind_map && !parity.urban_river_kind_map, "river towns read the map's rivers, Ruling EX follow-up (c)");
     // The streak spike's two ablations are NOT divergences: off at both
     // boundaries (`StreakSpikeParams`). Literals, not `Default`.
     assert_eq!(app.streak, cartalith_engine::StreakSpikeParams { skip_light_pass: false, skip_channel_carve: false });
@@ -1429,6 +1457,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.lake_balance = false;
     neutral.civ.merge_ways = false;
     neutral.civ.river_front = false;
+    neutral.urban_river_kind_map = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
     neutral.geology_model = false;
@@ -1448,7 +1477,7 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         twenty-six authorised fields"
+         twenty-seven authorised fields"
     );
 }
 

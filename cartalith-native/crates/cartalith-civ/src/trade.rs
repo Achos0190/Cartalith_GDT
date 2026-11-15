@@ -522,7 +522,9 @@ fn connected(rc: &mut RoadComponents, dst: usize, src: usize, dist_km: f64, mode
 /// four mappings: `coast`/`bay` → sea, `riverthrough` (the estuary case,
 /// v1.37) → sea, `river` → river. `landlocked` falls through to
 /// [`NavKind::None`]; see the module doc for why branch (c) adds nothing
-/// here.
+/// here. With [`UrbanWorld::river_kind_from_map`] set (the app, Ruling EX
+/// follow-up (c)) a `river` site is one with the map's river in reach, not
+/// high flow the map does not draw.
 pub fn place_navigability(w: &UrbanWorld, s: &NamedSettlement) -> Navigability {
     if s.placement.coastal {
         return Navigability { kind: NavKind::Sea, basis: "sea route" };

@@ -97,6 +97,7 @@ fn wall_gap_before_and_after() {
             map_width_km: p.map_width_km,
             flow_thresh: cartalith_hydrology::river_flow_thresh(GW, gh, GW, p.map_width_km),
             world_seed: seed,
+            river_kind_from_map: p.urban_river_kind_map,
         };
         println!("seed {seed}: {} settlements", civ.settlements.len());
         println!("  idx  pop  sw | bld  area_ha | OFF med p90 free | ON med p90 free bld pop");

@@ -68,6 +68,11 @@ pub(crate) struct KnowledgeWorld<'a> {
     pub(crate) world: bool,
     /// `WorldParams::peak_m`, for river elevations in metres.
     pub(crate) peak_m: f64,
+    /// `WorldParams::urban_river_kind_map`, for the trade and water-access
+    /// rows' river-town test (`UrbanWorld::river_kind_from_map`): the same
+    /// switch the `WorldGen` path reads, so the knowledge base and the trade
+    /// window agree.
+    pub(crate) river_kind_map: bool,
 }
 
 /// The Story layer's and the planner's stores, borrowed; empty slices when there are none.
@@ -253,7 +258,7 @@ impl KnowledgeWorld<'_> {
             .map(|c| ContinentIn { id: i64::from(c.id), name: c.name.clone(), cells: c.cells as u64, faction: i64::from(c.faction), absent: Absent::new() })
             .collect();
 
-        let trade = crate::civ_trade_bridge::trade_network_for(self.ws, civ, self.gw, self.gh, self.sea, self.map_width_km, self.seed).map(|net| {
+        let trade = crate::civ_trade_bridge::trade_network_for(self.ws, civ, self.gw, self.gh, self.sea, self.map_width_km, self.seed, self.river_kind_map).map(|net| {
             net.flows
                 .iter()
                 .filter_map(|f| {
@@ -355,7 +360,7 @@ impl KnowledgeWorld<'_> {
     /// no-claim-grid case reported as absent figures and not as zeros.
     fn relations(&self) -> Vec<RelationIn> {
         let civ = self.civ;
-        let mw = MilWorld { civ, ws: self.ws, gw: self.gw, gh: self.gh, sea: self.sea, map_width_km: self.map_width_km, seed: self.seed };
+        let mw = MilWorld { civ, ws: self.ws, gw: self.gw, gh: self.gh, sea: self.sea, map_width_km: self.map_width_km, seed: self.seed, river_kind_map: self.river_kind_map };
         let view = CivView::live(civ);
         let defences = mw.defences_of(&civ.settlements, None);
         let agg = mw.aggregates_of(&view, &defences, true);
@@ -677,6 +682,7 @@ impl WorldGen {
             seed: self.seed,
             world: self.world,
             peak_m: self.params.peak_m,
+            river_kind_map: self.params.urban_river_kind_map,
         };
         let landmarks: &[cartalith_civ::landmark::Landmark] = self.landmark_store.last.as_ref().map_or(&[], |r| r.landmarks.as_slice());
         let journeys: &[cartalith_civ::travel_library::Journey] = self.infra.as_ref().map_or(&[], |i| i.journeys.as_slice());
@@ -704,7 +710,7 @@ mod tests {
 
     fn collect(seed: i32) -> (WorldInput, CivData, cartalith_engine::WorldState, usize) {
         let (ws, civ, gh, p) = world(seed);
-        let kw = KnowledgeWorld { civ: &civ, ws: &ws, gw: GW, gh, sea: ws.sea_level, map_width_km: p.map_width_km, seed, world: p.world, peak_m: p.peak_m };
+        let kw = KnowledgeWorld { civ: &civ, ws: &ws, gw: GW, gh, sea: ws.sea_level, map_width_km: p.map_width_km, seed, world: p.world, peak_m: p.peak_m, river_kind_map: p.urban_river_kind_map };
         let input = kw.input(&StoryParts { landmarks: &[], conflicts: &[], journeys: &[] });
         (input, civ, ws, gh)
     }
@@ -734,7 +740,7 @@ mod tests {
             let n = civ.faction_roster.0.len() - 1;
             assert_eq!(doc_count(&docs, "relation"), n * (n - 1) / 2, "seed {seed}: one document per unordered faction pair");
             // Trade: one document per distinct unordered settlement pair with a flow.
-            let net = crate::civ_trade_bridge::trade_network_for(&ws, &civ, GW, civ.territory.len() / GW, ws.sea_level, 800.0, seed).expect("trade runs on a world with settlements");
+            let net = crate::civ_trade_bridge::trade_network_for(&ws, &civ, GW, civ.territory.len() / GW, ws.sea_level, 800.0, seed, crate::params::defaults().urban_river_kind_map).expect("trade runs on a world with settlements");
             let pairs: BTreeSet<(usize, usize)> = net.flows.iter().map(|f| (f.from.min(f.to), f.from.max(f.to))).collect();
             assert_eq!(doc_count(&docs, "trade"), pairs.len(), "seed {seed}");
             assert!(!pairs.is_empty(), "seed {seed}: the fixture world must have trade, or the relational category is untested");
@@ -851,7 +857,7 @@ mod tests {
         for seed in SEEDS {
             let (input, civ, ws, gh) = collect(seed);
             let docs = render_documents(&input);
-            let net = crate::civ_trade_bridge::trade_network_for(&ws, &civ, GW, gh, ws.sea_level, 800.0, seed).unwrap();
+            let net = crate::civ_trade_bridge::trade_network_for(&ws, &civ, GW, gh, ws.sea_level, 800.0, seed, crate::params::defaults().urban_river_kind_map).unwrap();
             let mut want: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
             for f in &net.flows {
                 let (a, b) = (civ.settlements[f.from].tid, civ.settlements[f.to].tid);
@@ -949,7 +955,7 @@ mod tests {
     fn relation_documents_equal_civ_faction_relations_and_absent_without_a_claim_grid() {
         let (input, civ, ws, gh) = collect(SEEDS[1]);
         let docs = render_documents(&input);
-        let mw = MilWorld { civ: &civ, ws: &ws, gw: GW, gh, sea: ws.sea_level, map_width_km: 800.0, seed: SEEDS[1] };
+        let mw = MilWorld { civ: &civ, ws: &ws, gw: GW, gh, sea: ws.sea_level, map_width_km: 800.0, seed: SEEDS[1], river_kind_map: crate::params::defaults().urban_river_kind_map };
         let agg = mw.aggregates_of(&CivView::live(&civ), &mw.defences_of(&civ.settlements, None), true);
         let cultures: Vec<&str> = civ.faction_roster.0.iter().map(|e| e.culture.as_str()).collect();
         let religions: Vec<&str> = civ.faction_roster.engine_religions(&civ.religions);
@@ -965,7 +971,7 @@ mod tests {
         // Without a claim grid the figures are absent, not zero.
         let mut civ2 = civ;
         civ2.territory = Vec::new();
-        let kw = KnowledgeWorld { civ: &civ2, ws: &ws, gw: GW, gh, sea: ws.sea_level, map_width_km: 800.0, seed: SEEDS[1], world: false, peak_m: 1000.0 };
+        let kw = KnowledgeWorld { civ: &civ2, ws: &ws, gw: GW, gh, sea: ws.sea_level, map_width_km: 800.0, seed: SEEDS[1], world: false, peak_m: 1000.0, river_kind_map: crate::params::defaults().urban_river_kind_map };
         let docs2 = render_documents(&kw.input(&StoryParts { landmarks: &[], conflicts: &[], journeys: &[] }));
         let r0 = docs2.iter().find(|d| d.kind == "relation").unwrap();
         assert!(r0.body.contains("stance: not available (the territory grid is not known"), "{}", r0.body);
@@ -985,7 +991,7 @@ mod tests {
         let cell = s.placement.y * GW + s.placement.x;
         civ.provinces[cell] = 0;
         fn input_of(civ: &CivData, ws: &cartalith_engine::WorldState, gh: usize) -> WorldInput {
-            KnowledgeWorld { civ, ws, gw: GW, gh, sea: ws.sea_level, map_width_km: 800.0, seed: SEEDS[0], world: false, peak_m: 1000.0 }.input(&StoryParts { landmarks: &[], conflicts: &[], journeys: &[] })
+            KnowledgeWorld { civ, ws, gw: GW, gh, sea: ws.sea_level, map_width_km: 800.0, seed: SEEDS[0], world: false, peak_m: 1000.0, river_kind_map: crate::params::defaults().urban_river_kind_map }.input(&StoryParts { landmarks: &[], conflicts: &[], journeys: &[] })
         }
         let docs = render_documents(&input_of(&civ, &ws, gh));
         let body = &docs.iter().find(|d| d.id == format!("W:settlement:{}", s.tid)).unwrap().body;
@@ -1002,7 +1008,7 @@ mod tests {
     #[test]
     fn story_rows_convert_with_absent_notes_and_a_nearest_settlement() {
         let (_, civ, ws, gh) = collect(SEEDS[2]);
-        let kw = KnowledgeWorld { civ: &civ, ws: &ws, gw: GW, gh, sea: ws.sea_level, map_width_km: 800.0, seed: SEEDS[2], world: false, peak_m: 1000.0 };
+        let kw = KnowledgeWorld { civ: &civ, ws: &ws, gw: GW, gh, sea: ws.sea_level, map_width_km: 800.0, seed: SEEDS[2], world: false, peak_m: 1000.0, river_kind_map: crate::params::defaults().urban_river_kind_map };
         let s0 = &civ.settlements[0];
         let lm = cartalith_civ::landmark::Landmark {
             id: 7,
@@ -1054,7 +1060,7 @@ mod tests {
         let mut all: Vec<(f64, f64, f64)> = Vec::new();
         for seed in SEEDS {
             let (ws, civ, gh, p) = crate::fh_r2_baseline::generate_world(seed, 800.0, 8, 2048);
-            let kw = KnowledgeWorld { civ: &civ, ws: &ws, gw: 2048, gh, sea: ws.sea_level, map_width_km: p.map_width_km, seed, world: p.world, peak_m: p.peak_m };
+            let kw = KnowledgeWorld { civ: &civ, ws: &ws, gw: 2048, gh, sea: ws.sea_level, map_width_km: p.map_width_km, seed, world: p.world, peak_m: p.peak_m, river_kind_map: p.urban_river_kind_map };
             let story = StoryParts { landmarks: &[], conflicts: &[], journeys: &[] };
             let (mut tc, mut tr, mut tb) = (Vec::new(), Vec::new(), Vec::new());
             let mut docs = 0;

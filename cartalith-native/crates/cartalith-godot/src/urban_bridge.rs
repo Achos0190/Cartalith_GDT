@@ -699,6 +699,7 @@ impl WorldGen {
             // network the rest of the civ layer was built against.
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
+            river_kind_from_map: self.params.urban_river_kind_map,
         };
 
         // `currentResourcePotentials()`, for the one override that needs a
@@ -901,6 +902,7 @@ impl WorldGen {
             map_width_km: self.map_width_km,
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
+            river_kind_from_map: self.params.urban_river_kind_map,
         };
 
         let mut out = out;

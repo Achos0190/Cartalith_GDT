@@ -82,6 +82,7 @@ impl Fixture {
             map_width_km: 800.0,
             flow_thresh: 1_000.0,
             world_seed: 7,
+            river_kind_from_map: false,
         }
     }
 }
@@ -176,6 +177,53 @@ fn site_kind_reads_the_real_field() {
     assert_eq!(um_site_kind_from_terrain(&w, 20.0, 8.0), "river");
     // On the shore *and* on the river: an estuary.
     assert_eq!(um_site_kind_from_terrain(&w, 20.0, 46.0), "riverthrough");
+}
+
+/// Protects Ruling EX's follow-up (c) (2026-11-15): with
+/// `UrbanWorld::river_kind_from_map` on, `um_site_kind_from_terrain` calls a town
+/// a river town from the map's river (`order >= 1`), not from flow: the fixture's
+/// flow column at `x == 20` carries no map river, and a map river of order
+/// exactly 1 runs down `x == 40` where there is no flow. Off, or with no order
+/// at all, the reference's flow test answers as before. The reference's three-hit
+/// rule still applies to map cells (two cells in the 5 x 5 square are not a
+/// river, three are), and navigability follows the kind
+/// (`trade::place_navigability`). Mutating `MAP_RIVER_MIN_ORDER` to 2, the
+/// comparison to `>`, or dropping the switch turns this red.
+#[test]
+fn site_kind_reads_the_map_river_when_switched_on() {
+    let f = Fixture::new();
+    let mut order = vec![0i16; GW * GH];
+    for y in 0..48 {
+        order[y * GW + 40] = 1;
+    }
+    let on = UrbanWorld { order: Some(&order), river_kind_from_map: true, ..f.world() };
+    // High flow, no map river: not a river town; on the shore it is plain sea front.
+    assert_eq!(um_site_kind_from_terrain(&on, 20.0, 8.0), "landlocked");
+    assert_eq!(um_site_kind_from_terrain(&on, 20.0, 46.0), "bay", "one sea row of five, past the 0.15 bay line");
+    // The map's river with no flow under it: a river town, an estuary at the shore.
+    assert_eq!(um_site_kind_from_terrain(&on, 40.0, 8.0), "river");
+    assert_eq!(um_site_kind_from_terrain(&on, 40.0, 46.0), "riverthrough");
+    let nav = |w: &UrbanWorld, x: usize| crate::trade::place_navigability(w, &settlement(x, 8, 500)).kind;
+    assert_eq!(nav(&on, 20), crate::trade::NavKind::None, "no map river: no river navigation");
+    assert_eq!(nav(&on, 40), crate::trade::NavKind::River);
+    // Off: the reference's flow test, the same world.
+    let off = UrbanWorld { order: Some(&order), river_kind_from_map: false, ..f.world() };
+    assert_eq!(um_site_kind_from_terrain(&off, 20.0, 8.0), "river");
+    assert_eq!(um_site_kind_from_terrain(&off, 40.0, 8.0), "landlocked");
+    assert_eq!(nav(&off, 20), crate::trade::NavKind::River);
+    // On but no network: nothing to read, so the flow test stands.
+    let bare = UrbanWorld { order: None, river_kind_from_map: true, ..f.world() };
+    assert_eq!(um_site_kind_from_terrain(&bare, 20.0, 8.0), "river");
+    // Three map cells in the square make a river town; two do not.
+    let mut short = vec![0i16; GW * GH];
+    for y in 6..=8 {
+        short[y * GW + 40] = 1;
+    }
+    let three = UrbanWorld { order: Some(&short), river_kind_from_map: true, ..f.world() };
+    assert_eq!(um_site_kind_from_terrain(&three, 40.0, 8.0), "river", "rows 6-8 in the square rows 6-10");
+    short[6 * GW + 40] = 0;
+    let two = UrbanWorld { order: Some(&short), river_kind_from_map: true, ..f.world() };
+    assert_eq!(um_site_kind_from_terrain(&two, 40.0, 8.0), "landlocked", "two map cells are not a river");
 }
 
 /// Protects: `um_water_ctx` is `None` for a dry inland box, and for a mid-sea box
@@ -1116,6 +1164,7 @@ fn site_profile_visibility_and_relief_read_the_real_disc() {
         map_width_km: 800.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     let summit = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     // defR = max(4, round(64/70)) = 4, stepping by 2 over [-4,4]: a 5x5
@@ -1156,6 +1205,7 @@ fn site_profile_visibility_needs_the_0_004_deadband() {
         map_width_km: 800.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     assert_eq!(p.visibility, 0.0, "the 0.004 deadband is gone");
@@ -1362,6 +1412,7 @@ fn site_profile_buildable_fraction_reads_slope_and_sea() {
             map_width_km: 800.0,
             flow_thresh: 1_000.0,
             world_seed: 7,
+            river_kind_from_map: false,
         };
         um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0)
             .expect("a profile")
@@ -1449,6 +1500,7 @@ fn site_profile_relief_disc_radius_reads_gw_over_70() {
         map_width_km: 800.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 192.0, 8.0).expect("a profile");
     // 6 x 6 = 36 samples, exactly one of them the planted low cell.
@@ -1487,6 +1539,7 @@ fn site_profile_slope_n_is_normalised_by_gw() {
         map_width_km: 800.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     // 0.05 per cell -> central difference 0.05 -> x 64.
@@ -1572,6 +1625,7 @@ fn site_profile_buildable_lattice_is_eleven_by_nine_over_the_site_box() {
         map_width_km: 8.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     // The slope is gentle enough everywhere that only the sea test can reject
@@ -1676,6 +1730,7 @@ fn site_profile_buildable_slope_sample_is_the_nearest_cell() {
         map_width_km: 8.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     // Nothing here is under water, so only the slope ladder can reject a
@@ -1709,6 +1764,7 @@ fn site_profile_buildable_slope_sample_is_the_nearest_row() {
         map_width_km: 8.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     assert!((p.buildable_frac - 7.0 / 9.0).abs() < 1e-12, "{}", p.buildable_frac);
@@ -1789,6 +1845,7 @@ fn site_profile_samples_the_rounded_cell() {
         map_width_km: 800.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     // 50.6 rounds to 51 and floors to 50, and the two cells differ.
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 50.6, 8.0).expect("a profile");
@@ -1821,6 +1878,7 @@ fn site_profile_elev_n_divisor_is_floored_at_1e_minus_6() {
         map_width_km: 800.0,
         flow_thresh: 1_000.0,
         world_seed: 7,
+        river_kind_from_map: false,
     };
     let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
     assert_eq!(p.elev_n, 0.0, "elevN went NaN -- the 1e-6 floor is gone");

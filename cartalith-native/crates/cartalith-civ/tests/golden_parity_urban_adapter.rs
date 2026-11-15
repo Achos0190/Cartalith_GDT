@@ -303,10 +303,12 @@ fn build_ways(w: &World) -> Vec<Way> {
 }
 
 fn urban_world<'a>(w: &World, f: &'a Fixture) -> UrbanWorld<'a> {
+    // `river_kind_from_map: false`: the reference's flow-cell river test, which these captures pin
+    // (the app's map-river test is `WorldParams::urban_river_kind_map`, DECISIONS.md section 7p).
     UrbanWorld {
         field: &f.field, flow: &f.flow, water_bodies: &f.wb, order: Some(&f.order),
         river_polys: &f.polys, gw: w.gw, gh: w.gh, sea_level: w.sea_level,
-        map_width_km: w.map_width_km, flow_thresh: w.flow_thresh, world_seed: 12345,
+        map_width_km: w.map_width_km, flow_thresh: w.flow_thresh, world_seed: 12345, river_kind_from_map: false,
     }
 }
 

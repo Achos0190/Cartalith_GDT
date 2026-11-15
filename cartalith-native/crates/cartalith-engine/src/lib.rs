@@ -1118,6 +1118,25 @@ pub struct WorldParams {
     /// loads it off (`params::LOADS_WHEN_ABSENT`), so a reopened world draws the
     /// walls it was saved with.
     pub urban_wall_hug: bool,
+    /// **River towns are the towns on the map's rivers** -- Ruling EX's
+    /// follow-up (c) (2026-11-15; owner, 2026-11-14: *"per town placement is
+    /// critical. If it misses it just looks silly"*). On, the siting proxy
+    /// `cartalith_civ::urban_adapter::um_site_kind_from_terrain` counts the
+    /// map's river cells (`stream_order`, the network the map draws, the river
+    /// constraint moves towns onto and a town's drawn river is bound to)
+    /// instead of the reference's flow cells when it calls a town a river
+    /// town (`UrbanWorld::river_kind_from_map`). It decides a town's laid-out
+    /// kind before the box check, a trade site's navigability
+    /// (`cartalith_civ::trade::place_navigability`, also read by the military
+    /// water access and the knowledge base) and the site profile's kind.
+    ///
+    /// **`false` here and `true` in the shipped app** (`DECISIONS.md` §7p):
+    /// the reference reads flow, and `golden_parity_urban_adapter`'s
+    /// `site_kind_matches_reference` pins it. Read fresh each time a layout or
+    /// a trade answer is asked for (never stored), so it moves no generated
+    /// field and needs no regeneration. A save without the key loads it off
+    /// (`params::LOADS_WHEN_ABSENT`), so a reopened world answers as it did.
+    pub urban_river_kind_map: bool,
     /// **The per-basin lake water balance** (`RIVER_REALISM_SCOPE.md` RR-6,
     /// owner Ruling ET, 2026-11-12: *"In regards to the lakes, make it the new
     /// default on setting"*): a lake holds water only where its inflow covers
@@ -1340,6 +1359,9 @@ impl WorldParams {
             // Off: the reference's growth-reserve circuit. On at the app boundary
             // (Ruling EW item 1) -- see the field's own doc comment.
             urban_wall_hug: false,
+            // Off: the reference's flow-cell river test. On at the app boundary
+            // (Ruling EX follow-up (c)) -- see the field's own doc comment.
+            urban_river_kind_map: false,
             // Off: the reference's per-cell rain test. On at the app boundary
             // (Ruling ET) -- see the field's own doc comment.
             lake_balance: false,

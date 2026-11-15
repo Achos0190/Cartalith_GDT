@@ -280,6 +280,7 @@ impl WorldGen {
             sea: self.sea_level,
             map_width_km: self.map_width_km,
             seed: self.seed,
+            river_kind_map: self.params.urban_river_kind_map,
         })
     }
 }
@@ -306,6 +307,9 @@ pub(crate) struct MilWorld<'a> {
     pub(crate) map_width_km: f64,
     /// `WorldGen::seed`, read only as `UrbanWorld::world_seed`.
     pub(crate) seed: i32,
+    /// `WorldParams::urban_river_kind_map`, read only as
+    /// `UrbanWorld::river_kind_from_map` (the water-access row's river test).
+    pub(crate) river_kind_map: bool,
 }
 
 /// The military chain's bodies, moved here from `impl WorldGen` (see
@@ -463,9 +467,10 @@ impl MilWorld<'_> {
 
         // Water access, per settlement. The same `UrbanWorld` shape
         // `civ_trade_bridge.rs` builds, with the same deliberately-empty
-        // `river_polys`: `um_site_kind_from_terrain` reads `field`, `flow`
-        // and `flow_thresh` and never consults the traced polylines, so the
-        // expensive trace is not paid for a share.
+        // `river_polys`: `um_site_kind_from_terrain` reads `field` and either
+        // `flow`/`flow_thresh` (the reference) or `order` (the map's river,
+        // `river_kind_from_map`), and never consults the traced polylines, so
+        // the expensive trace is not paid for a share.
         let polys: Vec<Vec<(f64, f64)>> = Vec::new();
         let world = UrbanWorld {
             field: &ws.field,
@@ -479,6 +484,7 @@ impl MilWorld<'_> {
             map_width_km: self.map_width_km,
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
+            river_kind_from_map: self.river_kind_map,
         };
         let nav: Vec<NavKind> =
             view.settlements.iter().map(|s| place_navigability(&world, s).kind).collect();

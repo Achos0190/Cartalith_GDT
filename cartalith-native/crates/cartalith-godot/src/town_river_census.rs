@@ -52,7 +52,10 @@
 //! what the map draws, counted by the mismatch kinds in [`KINDS`]. Same world
 //! and environment, plus `TOWN_RIVER_LIST=1` (a row per mismatched town, with
 //! the nearest cell it would be on its river from), `TOWN_RIVER_ALL=1` (a row
-//! per town) and `TOWN_RIVER_SEEDS=a,b` (other seeds). Its numbers are in
+//! per town), `TOWN_RIVER_SEEDS=a,b` (other seeds) and `TOWN_RIVER_KIND_MAP=0`
+//! (the siting proxy's reference flow-cell test instead of the app's map-river
+//! test, `WorldParams::urban_river_kind_map`: the "before" of Ruling EX's
+//! follow-up (c)). Its numbers are in
 //! `docs/evidence/town-river-2026-11-14/placement_audit.txt`.
 
 /// `fh_r2_baseline::generate_world`'s world (the app's `params::defaults()`,
@@ -83,6 +86,14 @@ fn generate_world(
     (ws, civ, gh, p)
 }
 use cartalith_civ::urban_adapter::{PlaceOverrides, UrbanWorld, Vec2, run_layout, um_place_context_with};
+
+/// The river-town test the census lays towns out with: the app's
+/// (`WorldParams::urban_river_kind_map` from `params::defaults`, on) unless
+/// `TOWN_RIVER_KIND_MAP=0` asks for the reference's flow-cell test, the
+/// "before" of Ruling EX's follow-up (c) (2026-11-15).
+fn river_kind_map(p: &cartalith_engine::WorldParams) -> bool {
+    std::env::var("TOWN_RIVER_KIND_MAP").map_or(p.urban_river_kind_map, |v| v != "0")
+}
 
 /// The seeds the owner's request names: the frame's own world (483920) and the
 /// two the wall-hug census used beside it, the second being the owner's world.
@@ -187,6 +198,7 @@ fn town_river_census() {
             map_width_km: p.map_width_km,
             flow_thresh,
             world_seed: seed,
+            river_kind_from_map: river_kind_map(&p),
         };
         let gpm = gw as f64 / (p.map_width_km * 1000.0);
         let cell_m = 1.0 / gpm;
@@ -394,6 +406,49 @@ fn seg_hits_box(a: (f64, f64), b: (f64, f64), c: (f64, f64), h: (f64, f64)) -> b
     true
 }
 
+/// The gap, in layout metres, between a layout's built mass and its water:
+/// the least distance from any building footprint vertex to the river's bank
+/// (the distance to `river`'s centreline less half of `river_w`, at least 0)
+/// or to an edge of `water_poly` (0 for a vertex inside it). `None` when the
+/// layout has no building or no water to measure to: "no gap" is not a
+/// distance.
+fn built_water_gap_m(l: &cartalith_civ::urban_adapter::UrbanLayout) -> Option<f64> {
+    let river: Vec<(f64, f64)> = l.river.iter().map(|v| (v.x, v.y)).collect();
+    let poly: Vec<(f64, f64)> = l.water_poly.iter().map(|v| (v.x, v.y)).collect();
+    if (river.len() < 2 && poly.len() < 3) || l.buildings.is_empty() {
+        return None;
+    }
+    let inside = |p: (f64, f64)| {
+        let mut c = false;
+        for i in 0..poly.len() {
+            let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+            if (a.1 > p.1) != (b.1 > p.1) && p.0 < a.0 + (p.1 - a.1) * (b.0 - a.0) / (b.1 - a.1) {
+                c = !c;
+            }
+        }
+        c
+    };
+    let mut best = f64::INFINITY;
+    for b in &l.buildings {
+        for v in &b.poly {
+            let p = (v.x, v.y);
+            if let Some(d) = line_dist(p, &river) {
+                best = best.min((d - l.river_w / 2.0).max(0.0));
+            }
+            if poly.len() >= 3 {
+                if inside(p) {
+                    best = 0.0;
+                } else {
+                    for i in 0..poly.len() {
+                        best = best.min(seg_dist(p, poly[i], poly[(i + 1) % poly.len()]));
+                    }
+                }
+            }
+        }
+    }
+    best.is_finite().then_some(best)
+}
+
 /// Bilinear height at a fractional position in the frame cell `c` at `c`,
 /// each tap clamped into the grid on its own: `UrbanWorld::bilin_field`'s
 /// arithmetic, restated because that method is private to the adapter.
@@ -415,6 +470,20 @@ fn bilin(field: &[f32], gw: usize, gh: usize, gx: f64, gy: f64) -> f64 {
 /// - `river_town_off_river`: the siting proxy (`um_site_kind_from_terrain`)
 ///   calls it a river town, and the map's river runs further than
 ///   `SITE_HM / 2` (625 m) from the marker: the town is beside its river.
+/// - `river_town_no_map_river`: the siting proxy calls it a river town, and no
+///   cell of the map's river (`stream_order >= 1`, on land) lies in the
+///   proxy's own square (`um_site_kind_radius_cells`). Counted from the world,
+///   not from the proxy, so it measures the proxy (Ruling EX follow-up (c)).
+/// - `proxy_and_layout_disagree`: the proxy calls it a river town and the
+///   layout does not, or the other way round (`box_water_kind` overruled it).
+/// - `river_kind_built_off_water`: laid out `river`/`riverthrough`, and the
+///   nearest building footprint vertex lies further than a street from the
+///   layout's water: the river's bank (centreline less half of `river_w`) or
+///   the edge of `water_poly`. "A street" is the town's own widest `street`
+///   edge (`LayoutEdge::w`); a layout with no street edge, or with no water or
+///   no building, is counted apart and not judged (coordinator, 2026-11-15,
+///   after seed 483920's #70 at 384 drew its buildings about 39 m from its
+///   water).
 /// - `river_kind_without_river`: laid out `river`/`riverthrough`, but no traced
 ///   river crosses the town box (the layout's river is invented, or lies
 ///   outside the town).
@@ -429,9 +498,12 @@ fn bilin(field: &[f32], gw: usize, gh: usize, gx: f64, gy: f64) -> f64 {
 /// - `harbour_badge_inland`: the `coastal` flag (`civ_is_coastal`, the map's
 ///   harbour badge) with no sea in the box. A ruled proxy (Ruling N, Ruling AR),
 ///   reported, not corrected here.
-const KINDS: [&str; 9] = [
+const KINDS: [&str; 12] = [
     "in_water",
     "river_town_off_river",
+    "river_town_no_map_river",
+    "proxy_and_layout_disagree",
+    "river_kind_built_off_water",
     "river_kind_without_river",
     "river_kind_off_river",
     "river_in_box_not_river_kind",
@@ -507,6 +579,7 @@ fn town_placement_audit() {
             map_width_km: p.map_width_km,
             flow_thresh,
             world_seed: seed,
+            river_kind_from_map: river_kind_map(&p),
         };
         let (wm, hm) = (cartalith_civ::urban_adapter::SITE_WM, cartalith_civ::urban_adapter::SITE_HM);
         let half_box = (wm / 2.0 * gpm, hm / 2.0 * gpm);
@@ -518,6 +591,8 @@ fn town_placement_audit() {
         let on = cartalith_civ::build_river_on(&river_polys, gw, gh, cell_m);
         let reach = cartalith_civ::urban_adapter::um_site_kind_radius_cells(gw, p.map_width_km) as i64;
         let mut slivers = 0usize;
+        // River-kind layouts the built-off-water test could not judge (see KINDS).
+        let (mut no_street, mut no_water_or_buildings) = (0usize, 0usize);
         println!("seed {seed} at {gw}x{gh} ({cell_m:.0} m a cell), civ.river_front {front}: {} settlements ({} villages)", civ.settlements.len(), civ.village_tids.len());
         for (i, s) in civ.settlements.iter().enumerate() {
             let (x, y) = (s.placement.x, s.placement.y);
@@ -573,6 +648,43 @@ fn town_placement_audit() {
                 }
             }
             let river_kind = kind == "river" || kind == "riverthrough";
+            if river_town {
+                let r = reach;
+                let mut map_cells = 0usize;
+                if let Some(order) = ws.stream_order.as_ref() {
+                    for yy in (y as i64 - r).max(0)..=(y as i64 + r).min(gh as i64 - 1) {
+                        for xx in (x as i64 - r).max(0)..=(x as i64 + r).min(gw as i64 - 1) {
+                            let k = yy as usize * gw + xx as usize;
+                            if order[k] >= 1 && (ws.field[k] as f64) >= ws.sea_level {
+                                map_cells += 1;
+                            }
+                        }
+                    }
+                }
+                if map_cells == 0 {
+                    hits.push("river_town_no_map_river");
+                }
+            }
+            if river_town != river_kind {
+                hits.push("proxy_and_layout_disagree");
+            }
+            let mut built_gap_m: Option<f64> = None;
+            if river_kind {
+                if let Some(l) = layout.as_ref() {
+                    let street = l.edges.iter().filter(|e| e.cls == "street").map(|e| e.w).fold(f64::NAN, f64::max);
+                    match (street.is_nan(), built_water_gap_m(l)) {
+                        (true, _) => no_street += 1,
+                        (false, Some(g)) => {
+                            built_gap_m = Some(g);
+                            if g > street {
+                                hits.push("river_kind_built_off_water");
+                            }
+                        }
+                        // A river-kind layout with no water or no building: not a gap.
+                        (false, None) => no_water_or_buildings += 1,
+                    }
+                }
+            }
             if river_kind && !in_box {
                 hits.push("river_kind_without_river");
             }
@@ -642,9 +754,10 @@ fn town_placement_audit() {
                     }
                 }
                 println!(
-                    "  #{i:3} ({x:4},{y:4}) {}{proxy}>{kind} river {:.0} m in_box {in_box} sea {sea} lake {lake} uses_real_water {} crossings_off {:?} | on-river cell {} cells off, {in_reach} in reach {reach} ({dry} dry): {}",
+                    "  #{i:3} ({x:4},{y:4}) {}{proxy}>{kind} river {:.0} m built-to-water {} in_box {in_box} sea {sea} lake {lake} uses_real_water {} crossings_off {:?} | on-river cell {} cells off, {in_reach} in reach {reach} ({dry} dry): {}",
                     if village { "village " } else { "" },
                     river_m,
+                    built_gap_m.map_or("-".to_string(), |g| format!("{g:.0} m")),
                     layout.as_ref().is_some_and(|l| l.uses_real_water),
                     crossing_off.iter().map(|d| d.round()).collect::<Vec<_>>(),
                     if near_on == i64::MAX { "none within 12".to_string() } else { near_on.to_string() },
@@ -653,6 +766,7 @@ fn town_placement_audit() {
             }
         }
         println!("  river towns (proxy river/riverthrough): {river_towns} of {}; boxes with a sea sliver of 2 % or less (not counted as sea): {slivers}", civ.settlements.len());
+        println!("  river-town test: {}; river-kind layouts not judged for built-to-water: no street edge {no_street}, no water or no building {no_water_or_buildings}", if uw.river_kind_from_map { "the map's rivers" } else { "the reference's flow cells" });
         for k in KINDS {
             println!("  {k:28} {}", counts[k]);
             *total.get_mut(k).unwrap() += counts[k];

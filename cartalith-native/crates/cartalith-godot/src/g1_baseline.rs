@@ -160,7 +160,7 @@ fn read(
     seed: i32,
     with_resources: bool,
 ) -> Reading {
-    let mw = MilWorld { civ, ws, gw: GW, gh, sea: ws.sea_level, map_width_km, seed };
+    let mw = MilWorld { civ, ws, gw: GW, gh, sea: ws.sea_level, map_width_km, seed, river_kind_map: crate::params::defaults().urban_river_kind_map };
     let view = CivView::live(civ);
     let defences = mw.defences_of(&civ.settlements, None);
     let agg = mw.aggregates_of(&view, &defences, with_resources);

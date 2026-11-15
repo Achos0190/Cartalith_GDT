@@ -241,6 +241,7 @@ fn run_t(
         map_width_km,
         flow_thresh: 1.0,
         world_seed: 1,
+        river_kind_from_map: false,
     };
     let input = TradeInput { settlements, balances, ways, map_width_km, gw: 16, tariffs };
     trade_flows(&input, &w)

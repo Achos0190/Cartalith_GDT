@@ -1766,3 +1766,343 @@ v6_term100_2048: river towns off their river: 0 of 715 (0.0%) | network towns on
 v6_term100_384: river towns off their river: 7 of 699 (1.0%) | network towns on the same cell as with the term flipped: 37 of 99; median move 5.00 cells
 v7_term050_constraint_2048: river towns off their river: 4 of 711 (0.6%) | network towns on the same cell as with the term flipped: 19 of 120; median move 37.34 cells
 v7_term050_constraint_384: river towns off their river: 0 of 698 (0.0%) | network towns on the same cell as with the term flipped: 37 of 99; median move 5.00 cells
+
+################ follow-up (c), 2026-11-15: river towns read the map's rivers (WorldParams::urban_river_kind_map)
+Command as above plus TOWN_RIVER_KIND_MAP=<0|1> (0 = the reference's flow-cell test, the 'before'; 1 = the app, the
+'after'), release build, worktree of 6908e254. New kinds: river_town_no_map_river, proxy_and_layout_disagree,
+river_kind_built_off_water (see KINDS). Rows whose only hit is river_kind_built_off_water are left out (578 and 652 of them);
+built-to-water distribution, after, both runs alike: 384 judged 578, min 8 m, p10 20, median 38, p90 61, max 184;
+2 048 judged 652, min 6, p10 20, median 38, p90 202, max 586.
+
+======== audit_384_km0
+  the civ pass's rivers are the map's: false (653 and 603 polylines; cells civ 6701, map 6941, shared 4408)
+seed 483920 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  # 24 ( 315, 199) riverthrough>riverthrough river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water, harbour_badge_inland
+  # 27 ( 348, 260) riverthrough>riverthrough river 0 m built-to-water 68 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water, harbour_badge_inland
+  # 31 ( 346, 280) riverthrough>riverthrough river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water, harbour_badge_inland
+  #135 ( 342, 216) village landlocked>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): proxy_and_layout_disagree, river_kind_built_off_water
+  river towns (proxy river/riverthrough): 225 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the reference's flow cells; river-kind layouts not judged for built-to-water: no street edge 1, no water or no building 38
+  in_water                     0
+  river_town_off_river         0
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    1
+  river_kind_built_off_water   187
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         3
+  river towns off their river: 0 of 225 (0.0%)
+  network towns with no way: 0 of 33 []
+  the civ pass's rivers are the map's: false (555 and 595 polylines; cells civ 5647, map 5961, shared 3680)
+seed 912345 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  # 18 ( 184, 201) riverthrough>riverthrough river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water, harbour_badge_inland
+  # 30 ( 144, 155) riverthrough>riverthrough river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water, harbour_badge_inland
+  #141 ( 383, 258) village landlocked>river river 0 m built-to-water - in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): proxy_and_layout_disagree
+  #204 ( 304, 239) village river>landlocked river 2083 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 1 cells off, 5 in reach 2 (4 dry): river_town_off_river, proxy_and_layout_disagree
+  river towns (proxy river/riverthrough): 230 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the reference's flow cells; river-kind layouts not judged for built-to-water: no street edge 1, no water or no building 33
+  in_water                     0
+  river_town_off_river         1
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    2
+  river_kind_built_off_water   196
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         2
+  river towns off their river: 1 of 230 (0.4%)
+  network towns with no way: 0 of 33 []
+  the civ pass's rivers are the map's: false (565 and 593 polylines; cells civ 6832, map 7220, shared 4116)
+seed 246371 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  # 12 (  88,  98) riverthrough>riverthrough river 0 m built-to-water 92 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water, harbour_badge_inland
+  # 13 ( 157, 126) riverthrough>riverthrough river 0 m built-to-water 9 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water, harbour_badge_inland
+  # 26 (  64,  95) river>river river 0 m built-to-water 57 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (6 dry): river_kind_built_off_water, harbour_badge_inland
+  # 31 (  22,  78) river>river river 0 m built-to-water 9 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water, harbour_badge_inland
+  river towns (proxy river/riverthrough): 233 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the reference's flow cells; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 38
+  in_water                     0
+  river_town_off_river         0
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    0
+  river_kind_built_off_water   195
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         4
+  river towns off their river: 0 of 233 (0.0%)
+  network towns with no way: 0 of 33 []
+all seeds at 384: 699 towns, 688 river towns
+  in_water                     0
+  river_town_off_river         1
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    3
+  river_kind_built_off_water   578
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         9
+  river towns off their river: 1 of 688 (0.1%)
+
+======== audit_384_km1
+  the civ pass's rivers are the map's: false (653 and 603 polylines; cells civ 6701, map 6941, shared 4408)
+seed 483920 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  # 24 ( 315, 199) riverthrough>riverthrough river 0 m built-to-water 37 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water, harbour_badge_inland
+  # 27 ( 348, 260) riverthrough>riverthrough river 0 m built-to-water 68 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water, harbour_badge_inland
+  # 31 ( 346, 280) riverthrough>riverthrough river 0 m built-to-water 41 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water, harbour_badge_inland
+  river towns (proxy river/riverthrough): 226 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 1, no water or no building 38
+  in_water                     0
+  river_town_off_river         0
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    0
+  river_kind_built_off_water   187
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         3
+  river towns off their river: 0 of 226 (0.0%)
+  network towns with no way: 0 of 33 []
+  the civ pass's rivers are the map's: false (555 and 595 polylines; cells civ 5647, map 5961, shared 3680)
+seed 912345 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  # 18 ( 184, 201) riverthrough>riverthrough river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 3 in reach 2 (3 dry): river_kind_built_off_water, harbour_badge_inland
+  # 30 ( 144, 155) riverthrough>riverthrough river 0 m built-to-water 19 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water, harbour_badge_inland
+  #204 ( 304, 239) village river>landlocked river 2083 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 1 cells off, 5 in reach 2 (4 dry): river_town_off_river, proxy_and_layout_disagree
+  river towns (proxy river/riverthrough): 231 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 1, no water or no building 33
+  in_water                     0
+  river_town_off_river         1
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    1
+  river_kind_built_off_water   196
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         2
+  river towns off their river: 1 of 231 (0.4%)
+  network towns with no way: 0 of 33 []
+  the civ pass's rivers are the map's: false (565 and 593 polylines; cells civ 6832, map 7220, shared 4116)
+seed 246371 at 384x288 (2083 m a cell), civ.river_front true: 233 settlements (200 villages)
+  # 12 (  88,  98) riverthrough>riverthrough river 0 m built-to-water 92 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 4 in reach 2 (4 dry): river_kind_built_off_water, harbour_badge_inland
+  # 13 ( 157, 126) riverthrough>riverthrough river 0 m built-to-water 9 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 5 in reach 2 (5 dry): river_kind_built_off_water, harbour_badge_inland
+  # 26 (  64,  95) river>river river 0 m built-to-water 57 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (6 dry): river_kind_built_off_water, harbour_badge_inland
+  # 31 (  22,  78) river>river river 0 m built-to-water 9 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 7 in reach 2 (7 dry): river_kind_built_off_water, harbour_badge_inland
+  river towns (proxy river/riverthrough): 233 of 233; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 38
+  in_water                     0
+  river_town_off_river         0
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    0
+  river_kind_built_off_water   195
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         4
+  river towns off their river: 0 of 233 (0.0%)
+  network towns with no way: 0 of 33 []
+all seeds at 384: 699 towns, 690 river towns
+  in_water                     0
+  river_town_off_river         1
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    1
+  river_kind_built_off_water   578
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         9
+  river towns off their river: 1 of 690 (0.1%)
+
+======== audit_2048_km0
+  the civ pass's rivers are the map's: false (696 and 570 polylines; cells civ 28454, map 29666, shared 20233)
+seed 483920 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  #  5 (1359,1247) river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 44 in reach 5 (44 dry): river_kind_built_off_water, harbour_badge_inland
+  # 19 (1289, 534) river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 66 in reach 5 (66 dry): river_kind_built_off_water, harbour_badge_inland
+  # 27 (1292, 415) river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 67 in reach 5 (67 dry): river_kind_built_off_water, harbour_badge_inland
+  # 34 (1129, 197) river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 38 in reach 5 (38 dry): river_kind_built_off_water, harbour_badge_inland
+  #135 (  97, 444) village river>landlocked river 3338 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 7 cells off, 0 in reach 5 (0 dry): river_town_off_river, river_town_no_map_river, proxy_and_layout_disagree
+  #191 (1173,1110) village landlocked>river river 552 m built-to-water 546 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 26 in reach 5 (26 dry): proxy_and_layout_disagree, river_kind_built_off_water
+  #194 ( 136,  24) village river>landlocked river 4367 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 9 cells off, 0 in reach 5 (0 dry): river_town_off_river, river_town_no_map_river, proxy_and_layout_disagree
+  #198 ( 446, 701) village river>landlocked river 1992 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 4 cells off, 7 in reach 5 (7 dry): river_town_off_river, proxy_and_layout_disagree
+  river towns (proxy river/riverthrough): 234 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the reference's flow cells; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 12
+  in_water                     0
+  river_town_off_river         3
+  river_town_no_map_river      2
+  proxy_and_layout_disagree    4
+  river_kind_built_off_water   220
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         4
+  river towns off their river: 3 of 234 (1.3%)
+  network towns with no way: 0 of 40 []
+  the civ pass's rivers are the map's: false (890 and 647 polylines; cells civ 30368, map 31825, shared 21562)
+seed 912345 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  #  0 ( 251,1145) river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 75 in reach 5 (75 dry): river_kind_built_off_water, harbour_badge_inland
+  # 37 (1945, 676) riverthrough>riverthrough river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 41 in reach 5 (39 dry): river_kind_built_off_water, harbour_badge_inland
+  # 39 (1578, 444) river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 55 in reach 5 (55 dry): river_kind_built_off_water, harbour_badge_inland
+  # 53 ( 281,1155) village coast>riverthrough river 0 m built-to-water 26 m in_box true sea 357 lake 36 uses_real_water true crossings_off [] | on-river cell 0 cells off, 30 in reach 5 (29 dry): proxy_and_layout_disagree, river_kind_built_off_water
+  #205 (1108,1093) village riverthrough>coast river 2344 m built-to-water - in_box false sea 1741 lake 0 uses_real_water true crossings_off [] | on-river cell 5 cells off, 7 in reach 5 (7 dry): river_town_off_river, river_town_no_map_river, proxy_and_layout_disagree
+  #209 (2027,1197) village river>landlocked river 5093 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 10 cells off, 0 in reach 5 (0 dry): river_town_off_river, river_town_no_map_river, proxy_and_layout_disagree
+  #226 (  29,   1) village river>landlocked river 1235 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 2 cells off, 26 in reach 5 (26 dry): river_town_off_river, proxy_and_layout_disagree
+  #233 (1127,1173) village riverthrough>coast river 5688 m built-to-water - in_box false sea 2162 lake 0 uses_real_water true crossings_off [] | on-river cell 10 cells off, 0 in reach 5 (0 dry): river_town_off_river, river_town_no_map_river, proxy_and_layout_disagree
+  #235 (1541,1240) village river>landlocked river 2620 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 5 cells off, 3 in reach 5 (3 dry): river_town_off_river, river_town_no_map_river, proxy_and_layout_disagree
+  river towns (proxy river/riverthrough): 223 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 3
+  river-town test: the reference's flow cells; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 9
+  in_water                     0
+  river_town_off_river         5
+  river_town_no_map_river      4
+  proxy_and_layout_disagree    6
+  river_kind_built_off_water   210
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         3
+  river towns off their river: 5 of 223 (2.2%)
+  network towns with no way: 0 of 40 []
+  the civ pass's rivers are the map's: false (847 and 643 polylines; cells civ 35390, map 37661, shared 25174)
+seed 246371 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  #115 (1913,1175) village river>landlocked river 2376 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 5 cells off, 3 in reach 5 (3 dry): river_town_off_river, river_town_no_map_river, proxy_and_layout_disagree
+  #142 (1920,1294) village river>landlocked river 2104 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 4 cells off, 10 in reach 5 (10 dry): river_town_off_river, proxy_and_layout_disagree
+  #150 ( 476, 305) village river>landlocked river 1992 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 4 cells off, 10 in reach 5 (10 dry): river_town_off_river, proxy_and_layout_disagree
+  #194 ( 510, 311) village landlocked>river river 391 m built-to-water 323 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 30 in reach 5 (30 dry): proxy_and_layout_disagree, river_kind_built_off_water
+  #216 (1855,1173) village river>landlocked river 2376 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 5 cells off, 3 in reach 5 (3 dry): river_town_off_river, river_town_no_map_river, proxy_and_layout_disagree
+  river towns (proxy river/riverthrough): 237 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the reference's flow cells; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 11
+  in_water                     0
+  river_town_off_river         4
+  river_town_no_map_river      2
+  proxy_and_layout_disagree    5
+  river_kind_built_off_water   222
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 4 of 237 (1.7%)
+  network towns with no way: 0 of 40 []
+all seeds at 2048: 720 towns, 694 river towns
+  in_water                     0
+  river_town_off_river         12
+  river_town_no_map_river      8
+  proxy_and_layout_disagree    15
+  river_kind_built_off_water   652
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         7
+  river towns off their river: 12 of 694 (1.7%)
+
+======== audit_2048_km1
+  the civ pass's rivers are the map's: false (696 and 570 polylines; cells civ 28454, map 29666, shared 20233)
+seed 483920 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  #  5 (1359,1247) river>river river 0 m built-to-water 45 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 44 in reach 5 (44 dry): river_kind_built_off_water, harbour_badge_inland
+  # 19 (1289, 534) river>river river 0 m built-to-water 30 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 66 in reach 5 (66 dry): river_kind_built_off_water, harbour_badge_inland
+  # 27 (1292, 415) river>river river 0 m built-to-water 46 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 67 in reach 5 (67 dry): river_kind_built_off_water, harbour_badge_inland
+  # 34 (1129, 197) river>river river 0 m built-to-water 34 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 38 in reach 5 (38 dry): river_kind_built_off_water, harbour_badge_inland
+  river towns (proxy river/riverthrough): 232 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 12
+  in_water                     0
+  river_town_off_river         0
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    0
+  river_kind_built_off_water   220
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         4
+  river towns off their river: 0 of 232 (0.0%)
+  network towns with no way: 0 of 40 []
+  the civ pass's rivers are the map's: false (890 and 647 polylines; cells civ 30368, map 31825, shared 21562)
+seed 912345 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  #  0 ( 251,1145) river>river river 0 m built-to-water 29 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 75 in reach 5 (75 dry): river_kind_built_off_water, harbour_badge_inland
+  # 37 (1945, 676) riverthrough>riverthrough river 0 m built-to-water 44 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 41 in reach 5 (39 dry): river_kind_built_off_water, harbour_badge_inland
+  # 39 (1578, 444) river>river river 0 m built-to-water 18 m in_box true sea 0 lake 0 uses_real_water true crossings_off [] | on-river cell 0 cells off, 55 in reach 5 (55 dry): river_kind_built_off_water, harbour_badge_inland
+  #226 (  29,   1) village river>landlocked river 1235 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 2 cells off, 26 in reach 5 (26 dry): river_town_off_river, proxy_and_layout_disagree
+  river towns (proxy river/riverthrough): 220 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 3
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 9
+  in_water                     0
+  river_town_off_river         1
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    1
+  river_kind_built_off_water   210
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         3
+  river towns off their river: 1 of 220 (0.5%)
+  network towns with no way: 0 of 40 []
+  the civ pass's rivers are the map's: false (847 and 643 polylines; cells civ 35390, map 37661, shared 25174)
+seed 246371 at 2048x1311 (391 m a cell), civ.river_front true: 240 settlements (200 villages)
+  #154 (1914,1224) village river>landlocked river 1953 m built-to-water - in_box false sea 0 lake 0 uses_real_water false crossings_off [] | on-river cell 3 cells off, 13 in reach 5 (13 dry): river_town_off_river, proxy_and_layout_disagree
+  river towns (proxy river/riverthrough): 235 of 240; boxes with a sea sliver of 2 % or less (not counted as sea): 0
+  river-town test: the map's rivers; river-kind layouts not judged for built-to-water: no street edge 0, no water or no building 11
+  in_water                     0
+  river_town_off_river         1
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    1
+  river_kind_built_off_water   222
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         0
+  river towns off their river: 1 of 235 (0.4%)
+  network towns with no way: 0 of 40 []
+all seeds at 2048: 720 towns, 687 river towns
+  in_water                     0
+  river_town_off_river         2
+  river_town_no_map_river      0
+  proxy_and_layout_disagree    2
+  river_kind_built_off_water   652
+  river_kind_without_river     0
+  river_kind_off_river         0
+  river_in_box_not_river_kind  0
+  coast_kind_without_sea       0
+  landlocked_with_sea          0
+  crossing_off_map_river       0
+  harbour_badge_inland         7
+  river towns off their river: 2 of 687 (0.3%)

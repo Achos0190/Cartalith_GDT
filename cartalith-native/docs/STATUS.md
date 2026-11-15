@@ -50,6 +50,54 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### River towns read the map's rivers (2026-11-15, Ruling EX follow-up (c)): BUILT, measured on 3 seeds at 384 and 2 048, `DECISIONS.md` section 7p
+
+**What was wrong, at the symbols.** `urban_adapter::um_site_kind_from_terrain` (reference `_umSiteKindFromTerrain`) calls a town a
+river town from flow cells (`flow > riverFlowThresh`, three in the proxy's square), not from the river the map draws
+(`WorldState::stream_order` traced along `channels`). Its verdict is the layout's first guess (then `box_water_kind` corrects it from
+the box, so the drawing was right), the site profile's kind, trade navigability (`trade::place_navigability`, which the military
+water access and the knowledge base also read) and the census's "river town". The row's claim that it also decided the river
+constraint was stale: `civ_settle_on_river` already picks its towns from `build_river_on` over the map's network; it shares only
+the proxy's square (`um_site_kind_radius_cells`). **Built:** with the new switch `WorldParams::urban_river_kind_map`
+(`UrbanWorld::river_kind_from_map`) the proxy counts the map's river cells, `stream_order >= MAP_RIVER_MIN_ORDER` (1, the
+`min_order` every drawn and placement trace passes), on land, in the same square; the sea test, the three-hit rule and every other
+threshold are the reference's. The affected code was **not** behind Ruling EX's `civ.river_front` (the proxy and navigability are
+read on demand, outside the civ pass), so it got its own switch rather than riding that one: **on** in `params::defaults`, **off** in
+`WorldParams::defaults` and for a save without the key (`LOADS_WHEN_ABSENT`), read fresh (`invalidates` -> `None`, `regen` live), a
+`PARAMS` row ("River towns read the map's rivers"), a `JS_PATHS` row (port-only), a catalogue line, the New World restore lists.
+Every app `UrbanWorld` (`urban_bridge.rs` x2, `civ_trade_bridge.rs` x3 through `trade_network_for`'s new argument,
+`civ_military_bridge.rs` through `MilWorld`, `knowledge_bridge.rs` through `KnowledgeWorld`) passes the switch; with no network
+(`order` `None`) it changes nothing. The urban golden (`site_kind_matches_reference`) passes `false` and did not move. The FH-R2
+harness passes `false` too, as it pins the wall hug off, so its columns cannot move; `g1_baseline` passes the app's value.
+
+**Measured** (`town_river_census.rs::town_placement_audit`, villages on, seeds 483920, 912345, 246371 pooled; before =
+`TOWN_RIVER_KIND_MAP=0`, the same code with the reference's test; numbers in
+`docs/evidence/town-river-2026-11-14/placement_audit.txt`, section "follow-up (c)"). New audit kinds: `river_town_no_map_river`
+(counted from `stream_order` in the square, not from the proxy), `proxy_and_layout_disagree`, `river_kind_built_off_water`.
+
+| | 384 x 288 before | after | 2 048 x 1311 before | after |
+|---|---|---|---|---|
+| river towns (the proxy) | 688 of 699 | 690 | 694 of 720 | 687 |
+| river towns with no map river in the square | 0 | 0 | **8** | **0** |
+| river towns off their river (> 625 m) | 1 | 1 | **12** | **2** |
+| proxy and layout disagree | 3 | 1 | 15 | 2 |
+| every other kind (in water, river layout without river or at the box edge, coast without sea, landlocked with sea, crossing off the map's river) | 0 | 0 | 0 | 0 |
+| harbour badge with no sea in the box (item (b), not changed) | 9 | 9 | 7 | 7 |
+
+Placement, the ways and every layout are unchanged by construction (the civ pass never reads the proxy; `box_water_kind` decides the
+drawn kind from the box); the audit's layout-side kinds are equal before and after. **The misses left** are the constraint's refusals,
+not the proxy's: 912345 #204 at 384, and 912345 #226 and 246371 #154 at 2 048, villages with the map's river 1.2 to 2.1 km off whose
+on-river cells are all refused by the 10 km village spacing, drawn `landlocked`. **Worse:** 246371 #154 at 2 048 is newly counted
+off its river: it always sat 1 953 m from the map's river, which lies in its square, but the flow test called it landlocked, so
+before it was not counted at all. **The coordinator's question** (is a river-kind town ever more than a street from its water?):
+yes, almost always, before and after alike: the nearest building footprint vertex lies further from the layout river's bank (or
+`water_poly`) than the town's own widest `street` edge on 578 of 578 judged layouts at 384 and 652 of 652 at 2 048 (median 38 m;
+p10 20 m; p90 61 m at 384 and 202 m at 2 048). A layout property, routed on the City Viewer row in `OUTSTANDING_WORK.md`.
+
+**Verified:** 7 of 7 literal mutants killed (`MAP_RIVER_MIN_ORDER` 1 to 2, `>=` to `>`, the switch ignored either way (the always-on mutant also turns the urban golden red), the app default off, an absent key loading on, the regeneration class not live); `cargo test --workspace --no-fail-fast` green, 8 389 passed, 0 failed, 177 ignored over 278 test binaries (count-bearing tests
+moved: 128 registry rows, 120 offered, a world group of 37, the authorised-divergence list, the New World restore list); the desktop DLL built
+in a scratch target (`cargo build -p cartalith-godot`, not the owner's `target/`), so the owner's DLL is not rebuilt. The G1 harnesses (`g1_baseline`, release, `--ignored`) read **identically with the switch on and off**, and are already red at `6908e254` (G1-0: 20 of 20 manpower hashes moved; EA-0 standing verdicts 124 / 10 / 156 against pinned 138 / 14 / 138): a pre-existing drift, routed in `OUTSTANDING_WORK.md`, not re-recorded here. FH-R2 not run (it passes `false`, so it cannot move).
+
 ### City Viewer opening frame takes in the nearest water (2026-11-15): BUILT, measured, probed and screenshotted
 
 **Measured first** (`_viewerframe_probe.gd`, headless, scratch `APPDATA`, seed 483920 at 384 x 288 over 800 km, the app's world, canvas 1296 x 888): of 233 settlements 221 have `site_kind` `river`/`riverthrough`, and **37 of those 221 opened with no layout water in the frame** (the suspicion in `OUTSTANDING_WORK.md` was right), settlement #70 among them: nearest water 39 m outside a frame 211 x 145 m, the built mass 166 x 139 m. Gaps of the 37: 1 to 218 m, median about 31 m. **Cause:** `city_viewer_window.gd::_fit_box` fits the wall ring or else the building footprints (the reference's `_umDrawLayoutPreview` rule) and never looks at water. **Fix:** `CityViewerWindow.fit_with_water` (static, pure) grows that box, before the 8% pad, to the nearest stretch of the `river` centreline, `water_poly` or `water_mask_runs` plus one `river_w`, only when no water touches the box already and the water is within `max(0.6 x the longer side, 30 m)` (`WATER_FIT_MAX_GAP`, `WATER_FIT_MIN_GAP_M`, `WATER_MARGIN_RIVER_W`: labelled judgements; the longer side grows by under about 1.7x, so the town keeps over about 60% of its old size). **After: 215 of 221 show water, 6 do not** (#88, #103, #107, #212, #214, #224: nearest water beyond the bound, left out on purpose). Probe 10 checks green (#70, at most 8 misses, six literal-layout cases of the function); **3 of 3 literal mutants killed** (the merge returning `built`, `WATER_FIT_MAX_GAP` 0.6 to 0.0, `_fit_box` not calling the function); the unmutated probe exits 0. Windowed frames of #70 before and after: `docs/evidence/viewer-frame-2026-11-15/{before,after}/viewer_483920_70.png` (before: no water; after: the river and its bridge at the top, the town about 15% smaller). **Not measured:** the 2 048 x 1 311 grid (the probe takes `--grid`; a run takes far longer than the 120 s tool limit here), phone and tablet canvases (same function, different canvas aspect), and the ink and map looks were not compared separately (one fit box serves both).

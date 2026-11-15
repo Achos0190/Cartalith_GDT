@@ -104,7 +104,7 @@ impl WorldGen {
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let t0 = std::time::Instant::now();
-        let net = trade_network_for(ws, civ, gw, gh, self.sea_level, self.map_width_km, self.seed)?;
+        let net = trade_network_for(ws, civ, gw, gh, self.sea_level, self.map_width_km, self.seed, self.params.urban_river_kind_map)?;
         Some((net, t0.elapsed().as_millis()))
     }
 
@@ -140,8 +140,9 @@ impl WorldGen {
 
         // Same `UrbanWorld` shape `trade_network()` builds above, with the
         // same deliberately-empty `river_polys` — `place_navigability`'s
-        // branch (b) reads `field`/`flow`/`flow_thresh` only, never the
-        // traced polylines (see `trade_network`'s own comment).
+        // branch (b) reads `field` and `flow`/`flow_thresh` or, with
+        // `river_kind_from_map`, `order`; never the traced polylines (see
+        // `trade_network`'s own comment).
         let polys: Vec<Vec<(f64, f64)>> = Vec::new();
         let world = UrbanWorld {
             field: &ws.field,
@@ -155,6 +156,7 @@ impl WorldGen {
             map_width_km: self.map_width_km,
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
+            river_kind_from_map: self.params.urban_river_kind_map,
         };
         let navigability: Vec<Navigability> = civ
             .settlements
@@ -359,6 +361,7 @@ impl WorldGen {
             map_width_km: self.map_width_km,
             flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
             world_seed: self.seed,
+            river_kind_from_map: self.params.urban_river_kind_map,
         };
         let rows: Vec<SaltAccess> = civ
             .settlements
@@ -385,12 +388,16 @@ pub(crate) fn trade_network_for(
     sea_level: f64,
     map_width_km: f64,
     seed: i32,
+    // `WorldParams::urban_river_kind_map`: which river test the navigability
+    // sweep makes (`UrbanWorld::river_kind_from_map`).
+    river_kind_map: bool,
 ) -> Option<TradeNetwork> {
     if gw == 0 || gh == 0 || civ.settlements.is_empty() {
         return None;
     }
-    // `um_site_kind_from_terrain` reads `field`, `flow` and
-    // `flow_thresh` and nothing else, so the expensive
+    // `um_site_kind_from_terrain` reads `field` and `flow`/`flow_thresh`
+    // (or, with `river_kind_from_map`, the map's `order`) and nothing else,
+    // so the expensive
     // `trace_river_polylines` pass `urban_bridge.rs` hoists is
     // deliberately not made here -- an empty slice is the reference's own
     // "no traced network" case and this code path never consults it.
@@ -410,6 +417,7 @@ pub(crate) fn trade_network_for(
         // network the rest of the civ layer was built against.
         flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km),
         world_seed: seed,
+        river_kind_from_map: river_kind_map,
     };
     let tariffs = civ.faction_roster.tariff_rows();
     let input = TradeInput {

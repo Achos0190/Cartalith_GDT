@@ -314,7 +314,36 @@ pub struct UrbanWorld<'a> {
     pub flow_thresh: f64,
     /// `state.tect.seed`, for `_umPlaceContext`'s per-settlement seed hash.
     pub world_seed: i32,
+    /// Whether [`um_site_kind_from_terrain`] counts the **map's** river cells
+    /// (`order`, the network the map draws, Ruling EX's constraint moves towns
+    /// onto and [`box_water_kind`] binds a town's drawn river to) instead of
+    /// the reference's flow cells (`flow > flow_thresh`) when it decides
+    /// whether a town is a river town (item (c) of Ruling EX's follow-ups,
+    /// 2026-11-15).
+    ///
+    /// **`false` is the reference** and what every golden passes; the app
+    /// passes `WorldParams::urban_river_kind_map` (`true` in
+    /// `cartalith-godot`'s `params::defaults`, `false` in
+    /// `WorldParams::defaults`, the `DECISIONS.md` §7p split). With `order`
+    /// `None` the flag changes nothing: there is no map river to read.
+    pub river_kind_from_map: bool,
 }
+
+/// The lowest Strahler order that counts as **the map's river** for
+/// [`um_site_kind_from_terrain`] under [`UrbanWorld::river_kind_from_map`]:
+/// `1`, the `min_order` every caller of
+/// `cartalith_hydrology::trace_river_polylines` that builds the drawn and the
+/// placement networks passes (`urban_bridge.rs`, `compute_civilisation`'s
+/// river constraint, the placement audit), and which that tracer treats as
+/// "every order-1 cell and up". Not a new tunable: a brook the map draws is a
+/// river a town can sit on (`crate::build_river_on`'s doc says the same).
+///
+/// The one cell this counts and the tracer does not draw is a lone order-1
+/// cell whose receiver is not a river (a one-point trace is dropped). It can
+/// add one hit, which cannot make a town `river` (three hits) on its own; it
+/// can turn a `coast` into `riverthrough`, which navigability treats alike
+/// (`trade::place_navigability`) and [`box_water_kind`] redraws from the box.
+pub const MAP_RIVER_MIN_ORDER: i16 = 1;
 
 impl UrbanWorld<'_> {
     /// Row-major cell index into any of the grid-sized field slices.
@@ -382,8 +411,25 @@ pub fn um_site_kind_radius_cells(gw: usize, map_width_km: f64) -> i64 {
 /// [`um_water_near_km`] — the reference's own note records that leaving this
 /// one on the near-radius is why its reference world produced **zero**
 /// `coast` or `bay` settlements.
+///
+/// **Which cells are river** (Ruling EX's follow-up (c), 2026-11-15). The
+/// reference counts flow cells (`flow > flow_thresh`). With
+/// [`UrbanWorld::river_kind_from_map`] set and a river network present, it
+/// counts the map's river cells instead (`order >=` [`MAP_RIVER_MIN_ORDER`]),
+/// so the towns this calls river towns are the towns the map draws a river
+/// beside, the ones the river constraint moves onto it and the layout draws it
+/// through. Measured before the change (three seeds, 2 048 cells): 8 towns
+/// were `river`/`riverthrough` here from flow cells with no map river cell in
+/// the square, and 15 disagreed with the drawn kind; after, 0 and 2
+/// (`docs/evidence/town-river-2026-11-14/placement_audit.txt`). The sea test,
+/// the three-hit rule and every other threshold are the reference's,
+/// unchanged; only the river cells' source moves. Must never call a cell
+/// river from flow when the switch is on and the map has a network.
 pub fn um_site_kind_from_terrain(w: &UrbanWorld, px: f64, py: f64) -> &'static str {
     let r = um_site_kind_radius_cells(w.gw, w.map_width_km);
+    // `Some` only when the switch is on and the world has a network; `None`
+    // is the reference's flow test by control flow.
+    let map_order = if w.river_kind_from_map { w.order } else { None };
     let px0 = js_round(px) as i64;
     let py0 = js_round(py) as i64;
     let mut sea_hits = 0u64;
@@ -403,6 +449,12 @@ pub fn um_site_kind_from_terrain(w: &UrbanWorld, px: f64, py: f64) -> &'static s
             n += 1;
             if (w.field[i] as f64) < w.sea_level {
                 sea_hits += 1;
+            } else if let Some(order) = map_order {
+                // The map's river (see the doc above); `get` so a short slice
+                // reads as no river rather than panicking.
+                if order.get(i).is_some_and(|&o| o >= MAP_RIVER_MIN_ORDER) {
+                    river_hits += 1;
+                }
             } else if !w.flow.is_empty() && (w.flow[i] as f64) > w.flow_thresh {
                 river_hits += 1;
             }
@@ -964,7 +1016,8 @@ const BOX_SEA_FRAC: f64 = 0.02;
 /// owner 2026-11-14).
 ///
 /// **Why.** The proxy calls a town `river`/`riverthrough`/`coast`/`bay` from
-/// flow and sea cells up to [`um_site_kind_radius_cells`] away (two cells,
+/// river cells (flow cells in the reference, the map's river cells with
+/// [`UrbanWorld::river_kind_from_map`]) and sea cells up to [`um_site_kind_radius_cells`] away (two cells,
 /// 4 km, at 384 cells over 800 km; five, 2 km, at 2 048), while the box is
 /// 1.7 x 1.25 km. When the box holds none of that water, `build_site`
 /// (reference `buildSite`) **invents** it: a synthetic river through the
