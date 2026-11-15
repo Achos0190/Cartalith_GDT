@@ -626,6 +626,24 @@ func open_viewer_marker_card(kind: String, id: int, anchor: Vector2, source: Str
 	context_broker.resolve(raw)
 	return true
 
+## Ruling FD (PP-3/PP-5): the information card, with its Note section, for user pin `idx`, anchored at the pin's tip, through
+## the one broker (`open_viewer_marker_card` is the shared opener: it needs no map pick, so it also serves a pin that was just
+## dropped under another armed tool). Returns whether a card was requested.
+func open_poi_card(idx: int) -> bool:
+	if viewport == null or viewport.overlay == null:
+		return false
+	var ov = viewport.overlay
+	var tip: Vector2 = ov.poi_tip(idx)
+	return open_viewer_marker_card("poi", idx, ov.get_global_transform_with_canvas() * tip)
+
+## Ruling FD (PP-4): the card's Change kind. Hands user pin `idx` to the CARTO workspace, which arms the Pins tool with the
+## palette in change mode (the next pick replaces the pin's kind).
+func begin_pin_change(idx: int) -> void:
+	for ws in _workspaces:
+		if ws.has_method("begin_pin_change"):
+			ws.begin_pin_change(idx)
+			return
+
 ## The source the overlay's pins read their orange/white state from (`MapOverlay.set_pin_note_source`): `{"linked": {"kind:id":
 ## true, ...}, "landmark_ids": [the vault entity id of each landmark, in `bridge.landmarks()` order]}`, or `{}` while the
 ## engine is generating (the overlay then asks again; an empty answer is never cached as "no notes"). `linked` is every

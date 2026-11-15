@@ -14,7 +14,21 @@
 //! is saved), so a move or a rename leaves its note bound, two POIs may stand on one cell, and a deleted POI's note link is an
 //! absent entity that no later POI can inherit.
 //!
-//! ## The kind list
+//! ## Kind names (Ruling FD, `PIN_PALETTE_SCOPE.md` PP-2)
+//!
+//! A [`Poi`] stores its kind as a **name** (`Poi::kind`, a `String`): any icon name the pin palette offers
+//! (`icons/pins/{glyph,painted}/<name>.png`: `tavern`, `capital`, `waterfall`, ...), not one of a fixed enum. The twelve
+//! [`PoiKind`]s below are now only the *legacy* list: every one of their keys is a valid name, so an old save's `kind`
+//! loads as the same string, unchanged. The engine cannot read the shell's icon files at run time, so [`KIND_NAMES`] is a
+//! copy of the union of both icon sets' file names (a test compares it with the folders, so a new icon without a row, or
+//! a row without a file, fails the build), plus the twelve legacy keys; a name outside both is **refused**, never turned into `other`, the same rule the
+//! legacy kind key always had.
+//!
+//! A **free-text kind** is a `free_label` the user typed ("Beehives") with a mark: the kind name is `other` (a question
+//! mark) or `notice` (an exclamation mark), the user's choice ([`FREE_MARKS`]). The label is shown by the card and Find
+//! in place of the kind's words; it never replaces the icon, which stays that mark.
+//!
+//! ## The legacy kind list
 //!
 //! [`PoiKind`] is the owner's list (tavern or inn, shop, smithy, temple, shrine, guild, gate, well, ruin, camp, mine, other).
 //! Each has a stable wire `key()` (saved), a display `label()` and the pin pictogram the shell draws (`shell/pin_marker.gd`,
@@ -110,6 +124,62 @@ impl PoiKind {
     }
 }
 
+/// Every kind name a pin may carry: the union of the file names in `godot-project/icons/pins/glyph/` and
+/// `.../painted/` (62: `rockfall` is glyph-only, `hazard` and `inn` painted-only). Sorted. The legacy `shop` is not here
+/// (no file); `is_valid_kind_name` accepts it separately. A test
+/// (`kind_names_match_the_icon_folders`) reads both folders and fails when this list and the folders differ, so a pin
+/// kind cannot exist without a picture or the reverse.
+pub const KIND_NAMES: [&str; 62] = [
+    "ancient_road", "battlefield", "border_marker", "bridge", "camp",
+    "capital", "caravan_station", "castle", "cave", "ceremonial_site",
+    "city", "cliff", "delta", "desert", "farmland",
+    "ford", "forest", "fort", "fortified_crossing", "fortified_pass",
+    "gate", "glacier", "gorge", "guild", "hamlet",
+    "harbour", "hazard", "historic_crossing", "inn", "lake",
+    "market", "mine", "monument", "mountain", "mountain_pass",
+    "notice", "other", "portage", "quarry", "ridge",
+    "river_confluence", "road_junction", "rock_formation", "rockfall", "ruin",
+    "sacred_grove", "sacred_mountain", "salt_works", "shrine", "smithy",
+    "spring", "tavern", "temple", "tomb", "town",
+    "trade_depot", "village", "volcano", "watchtower", "waterfall",
+    "well", "wildlife",
+];
+
+/// The longest free-text kind label stored, in characters. A labelled judgement: a place's kind in a few words.
+pub const FREE_LABEL_MAX: usize = 60;
+
+/// The two marks a free-text kind may draw: the question mark (`other`) or the exclamation mark (`notice`), the user's
+/// choice (Ruling FD item 2). Any other name with a free label is refused.
+pub const FREE_MARKS: [&str; 2] = ["other", "notice"];
+
+/// Whether `name` is one of [`KIND_NAMES`] **or a legacy [`PoiKind::key`]** (`shop` has no icon file of its own, the
+/// shell draws it as `market`, but a saved `shop` must keep loading). Exact, case-sensitive: `Tavern` is not `tavern`.
+pub fn is_valid_kind_name(name: &str) -> bool {
+    KIND_NAMES.contains(&name) || PoiKind::from_key(name).is_some()
+}
+
+/// The words for a kind name: the legacy [`PoiKind::label`] for the twelve ("Tavern or inn"), else the name with `_`
+/// turned to spaces and its first letter capitalised ("Mountain pass"). Never invents: an empty name gives an empty string.
+pub fn kind_label_for(name: &str) -> String {
+    if let Some(k) = PoiKind::from_key(name) {
+        return k.label().to_string();
+    }
+    let spaced = name.replace('_', " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Trims a free label and caps it at [`FREE_LABEL_MAX`] characters; `None` for a label that is empty after trimming (an
+/// empty string is not a label).
+pub fn clean_free_label(raw: &str) -> Option<String> {
+    let t: String = raw.trim().chars().take(FREE_LABEL_MAX).collect();
+    let t = t.trim().to_string();
+    (!t.is_empty()).then_some(t)
+}
+
 /// One user-placed point of interest.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Poi {
@@ -119,8 +189,12 @@ pub struct Poi {
     pub x: f64,
     /// Grid y, as [`Poi::x`].
     pub y: f64,
-    /// What kind of place it is.
-    pub kind: PoiKind,
+    /// What kind of place it is: a kind **name** (see [`is_valid_kind_name`]; a legacy [`PoiKind::key`] is one). Names the
+    /// pin's icon.
+    pub kind: String,
+    /// The user's own words for the kind ("Beehives"), or empty. Non-empty only with a [`FREE_MARKS`] kind; empty is "none"
+    /// (a free label is never an empty string).
+    pub free_label: String,
     /// The name the user gave it; may be empty (an unnamed POI is shown by its kind, never by an invented name).
     pub name: String,
 }
@@ -142,7 +216,7 @@ mod tests {
     use super::*;
 
     fn p(id: u32) -> Poi {
-        Poi { id, x: 1.0, y: 2.0, kind: PoiKind::Well, name: String::new() }
+        Poi { id, x: 1.0, y: 2.0, kind: "well".into(), free_label: String::new(), name: String::new() }
     }
 
     /// Protects: the kind list is the owner's twelve, every key round-trips and is unique, and an unknown key is a refusal
@@ -163,6 +237,48 @@ mod tests {
         assert_eq!(PoiKind::from_key("tavern"), Some(PoiKind::Tavern));
         assert_eq!(PoiKind::from_key("brothel"), None);
         assert_eq!(PoiKind::from_key(""), None);
+    }
+
+    /// Protects: the name list is exactly the union of the two icon folders (a new icon needs a row, a row needs a file),
+    /// is sorted and unique, and holds all twelve legacy keys so an old save's kind is always a valid name.
+    #[test]
+    fn kind_names_match_the_icon_folders() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../godot-project/icons/pins");
+        let mut files = std::collections::BTreeSet::new();
+        for set in ["glyph", "painted"] {
+            let dir = root.join(set);
+            let entries = std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+            for e in entries {
+                let name = e.unwrap().file_name().to_string_lossy().into_owned();
+                if let Some(stem) = name.strip_suffix(".png") {
+                    files.insert(stem.to_string());
+                }
+            }
+        }
+        assert_eq!(files.len(), 62, "the sets changed: update KIND_NAMES and the shell's PinPalette table");
+        let listed: Vec<String> = KIND_NAMES.iter().map(|s| s.to_string()).collect();
+        let on_disk: Vec<String> = files.into_iter().collect();
+        assert_eq!(listed, on_disk);
+        for k in PoiKind::ALL {
+            assert!(is_valid_kind_name(k.key()), "legacy key {} must stay a valid name", k.key());
+        }
+    }
+
+    /// Protects: names are matched exactly (no case folding, no trimming, no guessing), the words for a name, and the free
+    /// label's trimming and cap.
+    #[test]
+    fn kind_names_labels_and_free_labels() {
+        assert!(is_valid_kind_name("mountain_pass") && is_valid_kind_name("inn") && is_valid_kind_name("notice"));
+        for bad in ["", "Tavern", "mountain pass", " tavern", "brothel", "../x"] {
+            assert!(!is_valid_kind_name(bad), "{bad:?}");
+        }
+        assert_eq!(kind_label_for("tavern"), "Tavern or inn", "a legacy key keeps its words");
+        assert_eq!(kind_label_for("mountain_pass"), "Mountain pass");
+        assert_eq!(kind_label_for(""), "");
+        assert_eq!(clean_free_label("  Beehives \n"), Some("Beehives".to_string()));
+        assert_eq!(clean_free_label("   "), None);
+        assert_eq!(clean_free_label(&"b".repeat(100)).unwrap().chars().count(), FREE_LABEL_MAX);
+        assert_eq!(FREE_MARKS, ["other", "notice"]);
     }
 
     /// Protects: an id is never reissued and never `0`, even when the counter lags the list.

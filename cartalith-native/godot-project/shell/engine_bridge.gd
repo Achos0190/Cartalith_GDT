@@ -4915,7 +4915,33 @@ func poi_kinds() -> Array:
 		return []
 	return world_gen.poi_kinds()
 
-## Places a point of interest of kind `kind` (a `poi_kinds` key) named `name` (may be empty) at grid `(gx, gy)`.
+## Every kind name a pin may carry (the icon sets' union, Ruling FD), sorted. `[]` against a cdylib without the binding.
+func poi_kind_names() -> PackedStringArray:
+	if generating or not _has("poi_kind_names"):
+		return PackedStringArray()
+	return world_gen.poi_kind_names()
+
+## As `poi_add` for a free-text kind: `mark` is `"other"` (?) or `"notice"` (!), `free_label` the user's words. `-1` when
+## refused (another mark, an empty label, off-grid, no world) or against a cdylib without the binding. One undo step.
+func poi_add_free(gx: float, gy: float, mark: String, free_label: String, name: String) -> int:
+	if generating or not _has("poi_add_free"):
+		return -1
+	mark_world_dirty()
+	var idx: int = world_gen.poi_add_free(gx, gy, mark, free_label, name)
+	_annotations_edited()
+	return idx
+
+## Gives POI `index` a free-text kind (`mark` is `"other"` or `"notice"`). `false` for a bad index, another mark or an empty
+## label. One undo step.
+func poi_set_free_kind(index: int, mark: String, free_label: String) -> bool:
+	if generating or not _has("poi_set_free_kind"):
+		return false
+	mark_world_dirty()
+	var ok: bool = world_gen.poi_set_free_kind(index, mark, free_label)
+	_annotations_edited()
+	return ok
+
+## Places a point of interest of kind `kind` (any kind name, see `poi_kind_names`) named `name` (may be empty) at grid `(gx, gy)`.
 ## The new POI's index, or `-1` when refused (no world, off-grid, unknown kind) or against a cdylib without the binding.
 func poi_add(gx: float, gy: float, kind: String, name: String) -> int:
 	if generating or not _has("poi_add"):
@@ -4925,7 +4951,7 @@ func poi_add(gx: float, gy: float, kind: String, name: String) -> int:
 	_annotations_edited()
 	return idx
 
-## POI `index` as `{id, x, y, kind, kind_label}` plus `name` when it has one; `{}` for an index the store does not hold.
+## POI `index` as `{id, x, y, kind, kind_label}` plus `name` and `free_label` when it has them; `{}` for an index the store does not hold.
 func poi_get(index: int) -> Dictionary:
 	if generating or not _has("poi_get"):
 		return {}
@@ -4955,7 +4981,7 @@ func poi_rename(index: int, name: String) -> bool:
 	_annotations_edited()
 	return ok
 
-## Changes POI `index`'s kind to `kind` (a `poi_kinds` key). `false` for a bad index or an unknown key.
+## Changes POI `index`'s kind to `kind` (any kind name; clears a free label). `false` for a bad index or an unknown name.
 func poi_set_kind(index: int, kind: String) -> bool:
 	if generating or not _has("poi_set_kind"):
 		return false

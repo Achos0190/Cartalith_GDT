@@ -149,6 +149,9 @@ const TOOL_STOPS := "stops"
 ## `rdAnno` (§1.10) -- Label and Icon share one section, exactly as they
 ## share one entry in the design's own right-dock title table.
 const TOOL_ANNO := "anno"
+## Ruling FD (`PIN_PALETTE_SCOPE.md` PP-3): the pin palette, shown while CARTO's Pins tool (`poi`) is armed. Drawn by
+## `cartography_workspace.gd::build_pin_palette`, never here (this file only hosts it).
+const TOOL_PINS := "pins"
 ## `rdTerr` (§1.12). Named `TOOL_TERR` (not `TOOL_TERRITORY`) to match the
 ## design doc's own short id and the grep this stage's own brief was
 ## written against.
@@ -2426,6 +2429,21 @@ func leave_stops_context() -> void:
 func show_anno() -> void:
 	_rebuild()
 
+## Ruling FD: called by `cartography_workspace.gd` when the Pins tool arms and whenever its palette state changes from outside
+## the palette (change mode begun or ended). A plain rebuild: the section is derived from `app.armed_tool` by `_tool_section()`.
+func show_pins() -> void:
+	_rebuild()
+
+## The Pins section: the palette, built by the CARTO workspace that owns the tool and its state (one drop path, never a
+## second copy here). A build without that workspace says so rather than drawing nothing.
+func _build_pins(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Pins")
+	for ws in app._workspaces:
+		if ws.has_method("build_pin_palette"):
+			ws.build_pin_palette(sec)
+			return
+	DccWidgets.note(sec, "This build has no pin palette.")
+
 ## Called when the Label/Icon tools disarm: a plain rebuild so the appended Annotation
 ## section (derived from `app.armed_tool` by `_tool_section()`) goes away. Holds no state.
 func leave_anno_context() -> void:
@@ -2538,11 +2556,18 @@ func _rebuild() -> void:
 	## PC-10: a module tab draws its module where Inspect's page goes; the armed tool and Layers still
 	## append below it, so a tool armed while a module is open still answers (the ruling's order).
 	var eff := _effective_tab() if _panel_chrome() else TAB_INSPECT
-	if eff != TAB_INSPECT and eff != TAB_ASK and eff != TAB_NOTE:
+	## Ruling FD: with the Pins tool armed and NOTHING selected the palette is the dock's page and comes first (the idle
+	## Sample readout alone is 800 px tall and would push it off the screen). A selection still wins, as the ruling says:
+	## a picked pin's page is drawn first and the palette appends below it.
+	var palette_first := eff == TAB_INSPECT and _context == CTX_SAMPLE and _tool_section() == TOOL_PINS
+	if palette_first:
+		_append_tool(body)
+	elif eff != TAB_INSPECT and eff != TAB_ASK and eff != TAB_NOTE:
 		_build_module_tab(body, eff)
 	else:
 		_dispatch(body)
-	_append_tool(body)
+	if not palette_first:
+		_append_tool(body)
 	## **After** the dispatch, deliberately -- see `_append_layers()`.
 	_append_layers(body)
 	app.set_right_dock_title(_current_title())
@@ -2633,6 +2658,8 @@ func _fallback_readout() -> String:
 			return ("%d stop%s" % [n, "" if n == 1 else "s"]) if n > 0 else "no ramp"
 		TOOL_ANNO:
 			return "%d labels · %d icons" % [bridge.label_list().size(), bridge.icon_list().size()]
+		TOOL_PINS:
+			return "%d pins" % bridge.poi_list().size()
 		TOOL_TERR:
 			var stats := bridge.civ_faction_territory_stats(_terr_faction) if _terr_faction >= 0 else {}
 			return ("%s cells" % _thousands(float(stats.get("claimed_cells", 0)))) if not stats.is_empty() else "no claim"
@@ -2817,6 +2844,8 @@ func _tool_section() -> String:
 			return TOOL_TERR
 		"label", "icon":
 			return TOOL_ANNO
+		"poi":
+			return TOOL_PINS
 		"inspect":
 			if app.active_domain() == "cartography":
 				return TOOL_STOPS
@@ -2869,6 +2898,8 @@ func _append_tool(body: Control) -> void:
 			_build_stops(body)
 		TOOL_ANNO:
 			_build_anno(body)
+		TOOL_PINS:
+			_build_pins(body)
 		TOOL_TERR:
 			_build_territory(body)
 		TOOL_STAMPS:

@@ -1013,6 +1013,39 @@ static func markers_are_circles() -> bool:
 static func marker_icon_set() -> String:
 	return String(MARKER_ICON_SETS.get(marker_style(), ""))
 
+## Ruling FD (`PIN_PALETTE_SCOPE.md` PP-3): the pin palette's recents row. Per user, never part of a world save (a map drawn by
+## one user must open the same for another), so they live here with the other per-user preferences. `section = pin_palette`,
+## key `recents` (an array of kind names, newest first).
+const _SEC_PIN_PALETTE := "pin_palette"
+## How many recents the row keeps (`PIN_PALETTE_SCOPE.md` PP-3: the last 8).
+const PIN_RECENTS_MAX := 8
+
+## The stored recents, newest first, at most `PIN_RECENTS_MAX`, strings only. Anything else in the file (a hand edit, an
+## older build) is dropped rather than shown, so the row never holds a value the palette cannot draw.
+static func pin_recents() -> Array:
+	_ensure_loaded()
+	var raw = _cfg.get_value(_SEC_PIN_PALETTE, "recents", [])
+	var out: Array = []
+	if raw is Array:
+		for v in raw:
+			if v is String and String(v) != "" and not out.has(v) and out.size() < PIN_RECENTS_MAX:
+				out.append(String(v))
+	return out
+
+## Pushes `kind` to the front of the recents (moving it up when already there), trims to `PIN_RECENTS_MAX` and saves.
+## An empty name is ignored.
+static func pin_recent_push(kind: String) -> void:
+	if kind == "":
+		return
+	_ensure_loaded()
+	var cur := pin_recents()
+	cur.erase(kind)
+	cur.push_front(kind)
+	while cur.size() > PIN_RECENTS_MAX:
+		cur.pop_back()
+	_cfg.set_value(_SEC_PIN_PALETTE, "recents", cur)
+	_save()
+
 ## Stores the marker style and saves. An unknown value is ignored, not stored. Does not redraw anything: the caller
 ## asks its own canvas to redraw (every draw re-reads this, so no cache can go stale).
 static func set_marker_style(v: String) -> void:

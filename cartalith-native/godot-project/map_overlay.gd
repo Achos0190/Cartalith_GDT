@@ -8327,6 +8327,55 @@ func marker_at(mouse: Vector2) -> Dictionary:
 	return {}
 
 
+## Ruling FD (`PIN_PALETTE_SCOPE.md` PP-5): the index of the user-placed pin whose footprint holds `mouse` (this control's local
+## space), or -1. The POI-only half of `_pick_mark`, public so the Pins tool can tell "press on a pin" (drag it) from "press
+## on bare map" (drop one) without a settlement or landmark under the same point stealing the answer; hidden-in-a-town pins
+## (Ruling FC) are not hit, exactly as `_hit_test_poi` already refuses them.
+func poi_at(mouse: Vector2) -> int:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0:
+		return -1
+	return int(_hit_test_poi(mouse, _interior_rect(rect), rect)[0])
+
+
+## Ruling FD: the overlay-local point of POI `index`'s tip (where the pin stands), or `Vector2(-1, -1)` for an index this
+## overlay does not hold. What the probes and the post-drop card anchor read.
+func poi_tip(index: int) -> Vector2:
+	if index < 0 or index >= _pois.size():
+		return Vector2(-1.0, -1.0)
+	var pd: Dictionary = _pois[index]
+	return _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), _displayed_rect())
+
+
+## Ruling FD (PP-5): who receives a pin dragged from the palette: `Callable(kind: String, gx: float, gy: float)`. Set by the
+## CARTO workspace; invalid means "nobody", and then nothing is accepted as a drop.
+var _pin_drop_cb := Callable()
+
+func set_pin_drop_handler(cb: Callable) -> void:
+	_pin_drop_cb = cb
+
+
+## Godot's drop protocol: accept a `{"pin_kind": name}` payload (the palette's drag data) over a valid grid point while a
+## handler is set. Never accepts any other payload.
+func _can_drop_data(at_position: Vector2, data: Variant) -> bool:
+	if not _pin_drop_cb.is_valid() or not (data is Dictionary) or not (data as Dictionary).has("pin_kind"):
+		return false
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0:
+		return false
+	return bool(_grid_point(at_position, rect, _interior_rect(rect))["valid"])
+
+
+## The drop itself: the grid point under the pointer is where the pin's TIP stands (the palette's drag preview holds the tip
+## at the pointer), handed to the workspace's one drop path.
+func _drop_data(at_position: Vector2, data: Variant) -> void:
+	if not _can_drop_data(at_position, data):
+		return
+	var rect := _displayed_rect()
+	var p := _grid_point(at_position, rect, _interior_rect(rect))
+	_pin_drop_cb.call(String((data as Dictionary)["pin_kind"]), float(p["gx"]), float(p["gy"]))
+
+
 ## **Everything** under `mouse`, nearest first -- `MAP_CONTEXT_SCOPE.md` §9.1's
 ## `hits_at`, CM-1. Each entry is `{kind, id, label?, dist}`:
 ##

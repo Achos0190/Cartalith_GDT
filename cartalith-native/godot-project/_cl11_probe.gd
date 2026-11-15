@@ -410,8 +410,11 @@ func _leg_a() -> void:
 	app.arm_tool("poi")
 	await _frames(6)
 	_ok("A1: the tool is armed and is a tap tool (a placing tool, not a drawing one)", app.armed_tool == "poi" and DccApp.tool_kind("poi") == ViewportHost.TOOL_PLACING)
-	var pk = app.find_child("PoiKind", true, false)
-	_ok("A1: the tool options row holds the kind picker with all twelve", pk is OptionButton and (pk as OptionButton).item_count == 12)
+	## Ruling FD: the twelve-item picker became the pin palette in the right dock (`_pinpalette_probe.gd` holds its checks).
+	var pal = app.find_child("PinPalette", true, false)
+	_ok("A1: the right dock holds the pin palette, which offers every legacy kind", pal != null and ["tavern", "shop", "smithy", "temple", "shrine", "guild", "gate", "well", "ruin", "camp", "mine", "other"].all(func(k): return k == "shop" or pal.find_child("Pin_" + k, true, false) != null))
+	(pal.find_child("Pin_tavern", true, false) as Button).pressed.emit()
+	await _frames(3)
 	var n0 := _undo_n()
 	# Re-resolve the spots now the bars changed under the armed tool.
 	spots = _free_spots(4)
@@ -420,12 +423,13 @@ func _leg_a() -> void:
 	for d in app.find_children("*", "ConfirmationDialog", true, false):
 		if (d as ConfirmationDialog).visible:
 			asked = true
-	_ok("A2: a click on the map asks for the name", asked)
-	_ok("A2: ... and an answer places a tavern there, one undo step", _answer_dialog("tavern", "The Gilded Mug"))
+	_ok("A2: a click on the map drops the pin and asks for its name", asked)
+	_ok("A2: ... and an answer names the tavern", _answer_dialog("Name this pin", "The Gilded Mug"))
 	await _frames(6)
+	await _close_card()   # Ruling FD: the drop opened the pin's card; it would consume the next click
 	var l: Array = _bridge.poi_list()
 	_ok("A2: one POI, a tavern named as typed", l.size() == 1 and String(l[0]["kind"]) == "tavern" and String(l[0]["name"]) == "The Gilded Mug", str(l))
-	_ok("A2: exactly one undo step", _undo_n() == n0 + 1, "%d -> %d" % [n0, _undo_n()])
+	_ok("A2: two undo steps: the drop, then the name (Ruling FD)", _undo_n() == n0 + 2, "%d -> %d" % [n0, _undo_n()])
 	_ok("A2: the overlay has it", _ov._pois.size() == 1)
 	if l.size() != 1:
 		return
@@ -434,26 +438,30 @@ func _leg_a() -> void:
 	_ok("A2: it stands where the click was (grid %.2f,%.2f vs %.2f,%.2f)" % [float(l[0]["x"]), float(l[0]["y"]), float(g["gx"]), float(g["gy"])],
 		absf(float(l[0]["x"]) - float(g["gx"])) < 0.05 and absf(float(l[0]["y"]) - float(g["gy"])) < 0.05)
 	## The second kind, through the picker.
-	var smith_idx := keys.find("smithy")
-	(pk as OptionButton).select(smith_idx)
-	(pk as OptionButton).item_selected.emit(smith_idx)
+	(app.find_child("PinPalette", true, false).find_child("Pin_smithy", true, false) as Button).pressed.emit()
+	await _frames(3)
 	spots = _free_spots(4)
 	var n1 := _undo_n()
 	await _click(spots[mini(2, spots.size() - 1)])
-	_ok("A3: the smithy answer places a second POI", _answer_dialog("smithy", "Ironhand Forge"))
+	_ok("A3: the smithy answer names a second POI", _answer_dialog("Name this pin", "Ironhand Forge"))
 	await _frames(6)
+	await _close_card()
 	l = _bridge.poi_list()
 	_ok("A3: two POIs, the second a smithy", l.size() == 2 and String(l[1]["kind"]) == "smithy" and String(l[1]["name"]) == "Ironhand Forge", str(l))
-	_ok("A3: one more undo step", _undo_n() == n1 + 1)
+	_ok("A3: two more undo steps (drop, name)", _undo_n() == n1 + 2)
 	_ids["a"] = int(l[0]["id"])
 	_ids["b"] = int(l[1]["id"])
 	_ok("A3: the two have different stored ids, both at least 1", int(_ids["a"]) >= 1 and int(_ids["b"]) >= 1 and _ids["a"] != _ids["b"])
 	## An empty answer places nothing.
 	var n2 := _undo_n()
 	await _click(spots[mini(1, spots.size() - 1)])
-	var asked2 := _answer_dialog("smithy", "")
+	var asked2 := _answer_dialog("Name this pin", "")
 	await _frames(4)
-	_ok("A4: an empty name places nothing and records no step", _bridge.poi_list().size() == 2 and _undo_n() == n2, "asked %s" % asked2)
+	await _close_card()
+	_ok("A4: an empty name keeps the pin unnamed (one step for the drop, none for a name)", _bridge.poi_list().size() == 3 and _undo_n() == n2 + 1 and not _bridge.poi_get(2).has("name"), "asked %s" % asked2)
+	_bridge.undo_last()
+	await _frames(4)
+	_ok("A4: undo takes the unnamed pin away again", _bridge.poi_list().size() == 2)
 	app.arm_tool("inspect")
 	await _frames(6)
 	await _shot("cl11_placed_%s.png" % ("touch" if _touch else "desk"))
@@ -599,10 +607,15 @@ func _leg_c() -> void:
 	_ok("C6: and its note is still bound", _bridge.vault_links_for("poi", a).size() == 1)
 	var orange := await _pixel((_pin(0)["head"] as Vector2) + Vector2(float(_pin(0)["r"]) * 0.85, 0.0))
 	_ok("C6: and it is orange again (%s)" % orange, _is_orange(orange))
-	## Undo of the placement of the second one removes it.
+	## Undo of the placement of the second one removes it. Ruling FD: a placement is two steps (the drop, then its name), so
+	## the first undo reverts the name and the second removes the pin; redo restores both.
+	_bridge.undo_last()
+	await _frames(4)
+	_ok("C7: the first undo reverts the name only", _bridge.poi_list().size() == 2 and not _bridge.poi_get(1).has("name"))
 	_bridge.undo_last()
 	await _frames(4)
 	_ok("C7: undoing the second placement leaves one", _bridge.poi_list().size() == 1)
+	_bridge.redo_last()
 	_bridge.redo_last()
 	await _frames(4)
 	_ok("C7: redo brings it back with the same id", _bridge.poi_list().size() == 2 and int(_bridge.poi_list()[1]["id"]) == int(_ids["b"]))

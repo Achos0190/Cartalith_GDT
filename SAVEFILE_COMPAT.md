@@ -2135,6 +2135,14 @@ generated reads it, and it carries no simulation meaning. Members:
 - `kind` — one of `tavern`, `shop`, `smithy`, `temple`, `shrine`, `guild`, `gate`, `well`, `ruin`, `camp`, `mine`, `other`.
   **An unknown value is not read as `other`**: it costs its row (§6.4a rung 2), because guessing would relabel a place the
   author named.
+- `kind_name`, `free_label` — *added 2026-11-15 (Ruling FD, `PIN_PALETTE_SCOPE.md` PP-2), both optional.* `kind_name` is the pin's
+  real kind when it is **not** one of the twelve above: any icon name of the pin sets (`waterfall`, `capital`, `inn`...; the
+  62 in `cartalith_civ::poi::KIND_NAMES`, a test compares them with `icons/pins/{glyph,painted}/`). It wins over `kind`; the writer
+  then writes `kind: "other"` beside it so a build from before this member still opens the row (as the question mark). A
+  `kind_name` outside the list costs its row like an unknown `kind`. **Omitted when the kind is one of the twelve**, so a world
+  whose pins are all legacy kinds re-serialises byte for byte (test `a_save_from_before_kind_names_opens_unchanged_and_re_saves_byte_for_byte`).
+  `free_label` is the user's own words for the kind ("Beehives", at most 60 characters), legal only with the `other` (question
+  mark) or `notice` (exclamation mark) kind; a row pairing one with any other kind is unreadable and dropped. **Omitted when none.**
 - `name` — the user's text. **Omitted when the user gave none** (an empty string is not a name; an unnamed point of interest
   is shown by its kind), and a reader MUST treat an absent `name` as unnamed, never as a default word.
 - `next_id` (document level) — the lowest id the writer will issue next. A reader MUST resume from the larger of this and one
@@ -2150,9 +2158,9 @@ it (§6.3) and opens the project without the points of interest; this build, ope
 **counted and reported**, and the rest of the array is kept (§6.4a). Array order is placement order (the order the program lists
 them in; an undo that restores a deleted row restores its place). The undo history is not saved (as for every annotation).
 
-Tests: `cartalith-civ` `poi.rs` `kinds_round_trip_and_an_unknown_key_is_refused`, `issue_id_never_reuses_a_live_id_or_zero`;
+Tests: `cartalith-civ` `poi.rs` `kinds_round_trip_and_an_unknown_key_is_refused`, `issue_id_never_reuses_a_live_id_or_zero`, `kind_names_match_the_icon_folders`, `kind_names_labels_and_free_labels`;
 `cartalith-godot` `poi_bridge.rs` `the_member_is_omitted_until_a_poi_was_ever_placed`, `a_saved_document_round_trips_byte_for_byte`,
-`unreadable_rows_are_dropped_and_counted_not_repaired`; the windowed probe `_cl11_probe.gd` leg D (a save with and without a
+`unreadable_rows_are_dropped_and_counted_not_repaired`, `a_save_from_before_kind_names_opens_unchanged_and_re_saves_byte_for_byte`, `a_kind_name_and_a_free_label_round_trip`; the windowed probe `_cl11_probe.gd` leg D (a save with and without a
 point of interest, the zip entry present only in the first, a reload keeping ids, kinds, names and positions).
 
 ### 11.3 `annotations/regions.json`

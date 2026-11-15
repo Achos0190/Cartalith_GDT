@@ -19,18 +19,26 @@
 //! on a delete or an undo. The shell re-reads `poi_list()` after every edit.
 
 use crate::{annotation_bridge, annotation_undo::AnnoStore, WorldGen};
-use cartalith_civ::poi::{issue_id, Poi, PoiKind};
+use cartalith_civ::poi::{clean_free_label, is_valid_kind_name, issue_id, kind_label_for, Poi, PoiKind, FREE_MARKS};
 use godot::prelude::*;
 
 /// One POI as a flat `Dictionary` (shared by `poi_get` and `poi_list`): `{id, x, y, kind, kind_label}` plus `name`,
-/// **omitted when the user gave none** (an unnamed POI is shown by its kind; an empty string is not a name).
+/// **omitted when the user gave none** (an unnamed POI is shown by its kind; an empty string is not a name), and
+/// `free_label`, **omitted when the pin has none**. `kind` is the kind **name** (the icon's name, Ruling FD);
+/// `kind_label` is the user's free label when there is one, else the words for the kind (`kind_label_for`), so every
+/// reader that shows `kind_label` (the card, Find, the vault) shows the user's own words for a free-text kind.
 pub(crate) fn poi_dict(p: &Poi) -> VarDictionary {
     let mut d = VarDictionary::new();
     d.set("id", i64::from(p.id));
     d.set("x", p.x);
     d.set("y", p.y);
-    d.set("kind", p.kind.key());
-    d.set("kind_label", p.kind.label());
+    d.set("kind", p.kind.as_str());
+    if p.free_label.is_empty() {
+        d.set("kind_label", kind_label_for(&p.kind).as_str());
+    } else {
+        d.set("kind_label", p.free_label.as_str());
+        d.set("free_label", p.free_label.as_str());
+    }
     if !p.name.trim().is_empty() {
         d.set("name", p.name.as_str());
     }
@@ -54,22 +62,32 @@ impl WorldGen {
     }
 
     /// Places a POI and returns its index, or `-1` (nothing recorded) for no world, an off-grid or non-finite point, an
-    /// unknown kind key, or an exhausted id space. Inside [`WorldGen::anno_scope`], so it is one undo step.
-    pub(crate) fn poi_add_inner(&mut self, gx: f64, gy: f64, kind: &str, name: &str) -> i64 {
-        let Some(kind) = PoiKind::from_key(kind) else { return -1 };
+    /// unknown kind name, a free label on a kind that is not a [`FREE_MARKS`] mark, or an exhausted id space. `free_label`
+    /// is trimmed and capped (`clean_free_label`); an empty one is no label. Inside [`WorldGen::anno_scope`], so it is one
+    /// undo step.
+    pub(crate) fn poi_add_inner(&mut self, gx: f64, gy: f64, kind: &str, name: &str, free_label: &str) -> i64 {
+        if !is_valid_kind_name(kind) {
+            return -1;
+        }
+        let free = clean_free_label(free_label).unwrap_or_default();
+        if !free.is_empty() && !FREE_MARKS.contains(&kind) {
+            return -1;
+        }
         if !self.poi_point_ok(gx, gy) {
             return -1;
         }
         let Some(id) = issue_id(&self.pois, self.poi_next_id) else { return -1 };
         self.poi_next_id = id.saturating_add(1);
-        self.pois.push(Poi { id, x: gx, y: gy, kind, name: name.trim().to_string() });
+        self.pois.push(Poi { id, x: gx, y: gy, kind: kind.to_string(), free_label: free, name: name.trim().to_string() });
         (self.pois.len() - 1) as i64
     }
 }
 
 #[godot_api(secondary)]
 impl WorldGen {
-    /// The kinds the Place tool offers, in picker order: `[{key, label}]`. The same list for every world.
+    /// The twelve **legacy** kinds, in their old picker order: `[{key, label}]`. The same list for every world. The pin
+    /// palette (Ruling FD) offers every icon name instead (`poi_kind_names`); this stays for the phone's Change kind sheet
+    /// and for readers that want the owner's original list.
     #[func]
     fn poi_kinds(&self) -> Array<VarDictionary> {
         PoiKind::ALL
@@ -83,13 +101,34 @@ impl WorldGen {
             .collect()
     }
 
-    /// Places a point of interest of kind `kind` (a key from `poi_kinds`) named `name` (may be empty) at grid `(gx, gy)`.
-    /// Returns its index in `poi_list()`, or `-1` when refused (no world, off-grid, unknown kind). One undo step.
+    /// Every kind name a pin may carry (`cartalith_civ::poi::KIND_NAMES`, the icon sets' union, sorted) as a
+    /// `PackedStringArray`; the palette's table is tested against it.
+    #[func]
+    fn poi_kind_names(&self) -> PackedStringArray {
+        cartalith_civ::poi::KIND_NAMES.iter().map(|n| GString::from(*n)).collect()
+    }
+
+    /// Places a point of interest of kind `kind` (any kind name, see `poi_kind_names`; a legacy `poi_kinds` key is one)
+    /// named `name` (may be empty) at grid `(gx, gy)`. Returns its index in `poi_list()`, or `-1` when refused (no world,
+    /// off-grid, unknown kind). One undo step.
     #[func]
     fn poi_add(&mut self, gx: f64, gy: f64, kind: GString, name: GString) -> i64 {
         let (k, n) = (kind.to_string(), name.to_string());
         let label = annotation_bridge::row_label("Place", NOUN, &n);
-        self.anno_scope(AnnoStore::Pois, label, None, None, |s| s.poi_add_inner(gx, gy, &k, &n))
+        self.anno_scope(AnnoStore::Pois, label, None, None, |s| s.poi_add_inner(gx, gy, &k, &n, ""))
+    }
+
+    /// As `poi_add` for a **free-text kind**: `mark` is `"other"` (a question mark) or `"notice"` (an exclamation mark) and
+    /// `free_label` the user's words for the kind. Refused (`-1`, nothing recorded) for any other mark or an empty label.
+    /// One undo step.
+    #[func]
+    fn poi_add_free(&mut self, gx: f64, gy: f64, mark: GString, free_label: GString, name: GString) -> i64 {
+        let (m, f, n) = (mark.to_string(), free_label.to_string(), name.to_string());
+        if clean_free_label(&f).is_none() {
+            return -1;
+        }
+        let label = annotation_bridge::row_label("Place", NOUN, &n);
+        self.anno_scope(AnnoStore::Pois, label, None, None, |s| s.poi_add_inner(gx, gy, &m, &n, &f))
     }
 
     /// POI `index` as a `Dictionary` (see [`poi_dict`]), **empty** for an index the store does not hold.
@@ -142,15 +181,37 @@ impl WorldGen {
         })
     }
 
-    /// Changes POI `index`'s kind to `kind` (a key from `poi_kinds`). `false` for a bad index or an unknown key (never
-    /// `other`). One undo step.
+    /// Changes POI `index`'s kind to `kind` (any kind name). The pin's free label is cleared: a named kind replaces the
+    /// user's own words. `false` for a bad index or an unknown name (never `other`). One undo step.
     #[func]
     fn poi_set_kind(&mut self, index: i64, kind: GString) -> bool {
-        let Some(k) = PoiKind::from_key(&kind.to_string()) else { return false };
+        let k = kind.to_string();
+        if !is_valid_kind_name(&k) {
+            return false;
+        }
         let label = annotation_bridge::row_label("Change kind of", NOUN, &self.anno_poi_name(index).unwrap_or_default());
         self.anno_scope(AnnoStore::Pois, label, None, None, |s| {
             let Some(p) = usize::try_from(index).ok().and_then(|i| s.pois.get_mut(i)) else { return false };
             p.kind = k;
+            p.free_label.clear();
+            true
+        })
+    }
+
+    /// Gives POI `index` a free-text kind: `mark` (`"other"` or `"notice"`) is its icon and `free_label` its words.
+    /// `false` for a bad index, another mark or an empty label. One undo step.
+    #[func]
+    fn poi_set_free_kind(&mut self, index: i64, mark: GString, free_label: GString) -> bool {
+        let m = mark.to_string();
+        let Some(f) = clean_free_label(&free_label.to_string()) else { return false };
+        if !FREE_MARKS.contains(&m.as_str()) {
+            return false;
+        }
+        let label = annotation_bridge::row_label("Change kind of", NOUN, &self.anno_poi_name(index).unwrap_or_default());
+        self.anno_scope(AnnoStore::Pois, label, None, None, |s| {
+            let Some(p) = usize::try_from(index).ok().and_then(|i| s.pois.get_mut(i)) else { return false };
+            p.kind = m;
+            p.free_label = f;
             true
         })
     }
@@ -184,7 +245,8 @@ impl WorldGen {
         d.set("ok", true);
         d.set("entity_id", i64::from(p.id));
         let name = p.name.trim();
-        let text = if name.is_empty() { format!("{} ({}, {})", p.kind.label(), p.x.round(), p.y.round()) } else { name.to_string() };
+        let words = if p.free_label.is_empty() { kind_label_for(&p.kind) } else { p.free_label.clone() };
+        let text = if name.is_empty() { format!("{} ({}, {})", words, p.x.round(), p.y.round()) } else { name.to_string() };
         d.set("label", text.as_str());
         d
     }
@@ -196,7 +258,7 @@ impl WorldGen {
 // trip and the refusals are unit-tested without a live `WorldGen` (a cdylib `GodotClass`; see `MISTAKES.md`).
 // ---------------------------------------------------------------------------------------------------------------------
 
-/// `annotations/pois.json`: `{"next_id": n, "pois": [{"id", "x", "y", "kind", "name"?}]}`. **Optional**: written only when
+/// `annotations/pois.json`: `{"next_id": n, "pois": [{"id", "x", "y", "kind", "kind_name"?, "free_label"?, "name"?}]}`. **Optional**: written only when
 /// there is a POI or the id counter has moved past its start (so a deleted POI's id stays retired across a save); a world
 /// that never had one writes no such member, and so every save written before this slot existed re-serialises byte for byte.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -221,9 +283,18 @@ pub(crate) struct PoiDto {
     /// Grid y.
     #[serde(default)]
     pub y: f64,
-    /// A `PoiKind::key()`. Unknown keys are refused on read, never turned into `other`.
+    /// A legacy `PoiKind::key()`. For a pin whose kind is one of the twelve this IS its kind (an old save has only this);
+    /// for any other kind name it is `other` (so a build from before Ruling FD still opens the row, as a question mark)
+    /// and the real name is `kind_name`. Unknown keys are refused on read, never turned into `other`.
     #[serde(default)]
     pub kind: String,
+    /// The pin's kind name when it is not one of the twelve legacy keys (`waterfall`, `capital`...); **omitted otherwise**,
+    /// so a world whose pins are all legacy kinds re-serialises byte for byte (Ruling FD item 2). Wins over `kind`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub kind_name: String,
+    /// The user's own words for the kind (a free-text kind, whose icon is `other` or `notice`); **omitted when none**.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub free_label: String,
     /// The user's name; **omitted when none** (an empty string is not a name).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
@@ -237,7 +308,21 @@ pub(crate) fn pois_to_doc(pois: &[Poi], next_id: u32) -> Option<PoisDoc> {
     }
     Some(PoisDoc {
         next_id,
-        pois: pois.iter().map(|p| PoiDto { id: p.id, x: p.x, y: p.y, kind: p.kind.key().to_string(), name: p.name.clone() }).collect(),
+        pois: pois
+            .iter()
+            .map(|p| {
+                let legacy = PoiKind::from_key(&p.kind).is_some();
+                PoiDto {
+                    id: p.id,
+                    x: p.x,
+                    y: p.y,
+                    kind: if legacy { p.kind.clone() } else { "other".to_string() },
+                    kind_name: if legacy { String::new() } else { p.kind.clone() },
+                    free_label: p.free_label.clone(),
+                    name: p.name.clone(),
+                }
+            })
+            .collect(),
     })
 }
 
@@ -257,11 +342,15 @@ pub(crate) fn pois_from_doc(doc: &PoisDoc, gw: i32, gh: i32) -> PoisRestored {
     let mut pois: Vec<Poi> = Vec::new();
     let mut dropped = 0usize;
     for d in &doc.pois {
-        let kind = PoiKind::from_key(&d.kind);
+        // `kind_name` wins when present; an old save has only `kind`, whose key is already a valid name.
+        let name = if d.kind_name.is_empty() { d.kind.as_str() } else { d.kind_name.as_str() };
+        let free = clean_free_label(&d.free_label).unwrap_or_default();
+        // A free label belongs to a mark kind only: a row that pairs one with a picture kind is unreadable, not repaired.
+        let kind = (is_valid_kind_name(name) && (free.is_empty() || FREE_MARKS.contains(&name))).then(|| name.to_string());
         let on_grid = d.x.is_finite() && d.y.is_finite() && d.x >= 0.0 && d.y >= 0.0 && d.x < f64::from(gw) && d.y < f64::from(gh);
         match kind {
             Some(kind) if on_grid && d.id >= 1 && !pois.iter().any(|p| p.id == d.id) => {
-                pois.push(Poi { id: d.id, x: d.x, y: d.y, kind, name: d.name.trim().to_string() });
+                pois.push(Poi { id: d.id, x: d.x, y: d.y, kind, free_label: free, name: d.name.trim().to_string() });
             }
             _ => dropped += 1,
         }
@@ -275,8 +364,12 @@ pub(crate) fn pois_from_doc(doc: &PoisDoc, gw: i32, gh: i32) -> PoisRestored {
 mod tests {
     use super::*;
 
-    fn poi(id: u32, kind: PoiKind, name: &str) -> Poi {
-        Poi { id, x: 10.5 + f64::from(id), y: 20.25, kind, name: name.to_string() }
+    fn poi(id: u32, kind: &str, name: &str) -> Poi {
+        Poi { id, x: 10.5 + f64::from(id), y: 20.25, kind: kind.to_string(), free_label: String::new(), name: name.to_string() }
+    }
+
+    fn row(id: u32, x: f64, y: f64, kind: &str) -> PoiDto {
+        PoiDto { id, x, y, kind: kind.into(), kind_name: String::new(), free_label: String::new(), name: String::new() }
     }
 
     /// Protects: a world that never had a POI writes NO member (so every older save re-serialises unchanged), and one that
@@ -293,7 +386,7 @@ mod tests {
     /// every field survives.
     #[test]
     fn a_saved_document_round_trips_byte_for_byte() {
-        let pois = vec![poi(1, PoiKind::Tavern, "The Gilded Mug"), poi(3, PoiKind::Well, "")];
+        let pois = vec![poi(1, "tavern", "The Gilded Mug"), poi(3, "well", "")];
         let doc = pois_to_doc(&pois, 5).unwrap();
         let text = serde_json::to_string_pretty(&doc).unwrap();
         assert!(!text.contains("\"name\": \"\""), "a blank name must be omitted: {text}");
@@ -310,7 +403,6 @@ mod tests {
     /// `other`, a bad point is not clamped, id 0 and a repeated id are not renumbered).
     #[test]
     fn unreadable_rows_are_dropped_and_counted_not_repaired() {
-        let row = |id: u32, x: f64, y: f64, kind: &str| PoiDto { id, x, y, kind: kind.into(), name: String::new() };
         let doc = PoisDoc {
             next_id: 0,
             pois: vec![
@@ -327,7 +419,76 @@ mod tests {
         let r = pois_from_doc(&doc, 512, 512);
         assert_eq!(r.pois.iter().map(|p| p.id).collect::<Vec<_>>(), vec![1, 7]);
         assert_eq!(r.dropped, 6);
-        assert_eq!(r.pois[0].kind, PoiKind::Tavern, "the first of a repeated id wins");
+        assert_eq!(r.pois[0].kind, "tavern", "the first of a repeated id wins");
         assert_eq!(r.next_id, 8, "a counter of 0 is lifted past the largest restored id");
+    }
+
+    /// Protects (the old-save round trip, Ruling FD item 2): a document written by the build BEFORE kind names (a literal,
+    /// not a fixture of empty collections) opens with every pin's kind as the same string, and saving it again gives
+    /// the same text byte for byte: no `kind_name` and no `free_label` appear for legacy kinds.
+    #[test]
+    fn a_save_from_before_kind_names_opens_unchanged_and_re_saves_byte_for_byte() {
+        let old = r#"{
+  "next_id": 4,
+  "pois": [
+    {
+      "id": 1,
+      "x": 11.5,
+      "y": 20.25,
+      "kind": "tavern",
+      "name": "The Gilded Mug"
+    },
+    {
+      "id": 3,
+      "x": 13.5,
+      "y": 20.25,
+      "kind": "shop"
+    },
+    {
+      "id": 2,
+      "x": 12.5,
+      "y": 20.25,
+      "kind": "other",
+      "name": "Odd place"
+    }
+  ]
+}"#;
+        let doc: PoisDoc = serde_json::from_str(old).unwrap();
+        let r = pois_from_doc(&doc, 512, 512);
+        assert_eq!(r.dropped, 0);
+        let kinds: Vec<&str> = r.pois.iter().map(|p| p.kind.as_str()).collect();
+        assert_eq!(kinds, ["tavern", "shop", "other"], "an old save's PoiKind loads as its own name");
+        assert!(r.pois.iter().all(|p| p.free_label.is_empty()), "an old pin has no free label");
+        assert_eq!(r.next_id, 4);
+        let again = serde_json::to_string_pretty(&pois_to_doc(&r.pois, r.next_id).unwrap()).unwrap();
+        assert_eq!(again, old, "re-saving an old document must not add a member");
+    }
+
+    /// Protects: a new kind name and a free-text kind survive a save and a load, an older build can still open the row (its
+    /// `kind` is the legacy `other`), and a free label on a picture kind is a dropped row, not a repaired one.
+    #[test]
+    fn a_kind_name_and_a_free_label_round_trip() {
+        let mut free = poi(2, "notice", "Hive field");
+        free.free_label = "Beehives".to_string();
+        let pois = vec![poi(1, "waterfall", ""), free.clone(), poi(3, "well", "")];
+        let doc = pois_to_doc(&pois, 4).unwrap();
+        assert_eq!(doc.pois[0].kind, "other", "a pre-FD build reads a non-legacy name as the stated fallback");
+        assert_eq!(doc.pois[0].kind_name, "waterfall");
+        assert_eq!(doc.pois[2].kind_name, "", "a legacy kind writes no kind_name");
+        let text = serde_json::to_string_pretty(&doc).unwrap();
+        assert!(text.contains("\"free_label\": \"Beehives\""), "{text}");
+        let back: PoisDoc = serde_json::from_str(&text).unwrap();
+        let r = pois_from_doc(&back, 512, 512);
+        assert_eq!(r.dropped, 0);
+        assert_eq!(r.pois, pois);
+        assert_eq!(r.pois[1].free_label, "Beehives");
+        // A free label on a picture kind, an unknown kind_name and an over-long-but-valid label.
+        let mut bad = row(5, 5.0, 5.0, "tavern");
+        bad.free_label = "Not a mark".into();
+        let mut unknown = row(6, 5.0, 5.0, "other");
+        unknown.kind_name = "brothel".into();
+        let r2 = pois_from_doc(&PoisDoc { next_id: 1, pois: vec![bad, unknown] }, 512, 512);
+        assert!(r2.pois.is_empty());
+        assert_eq!(r2.dropped, 2);
     }
 }

@@ -381,7 +381,8 @@ static func _icon_rows(app, domain: String, idx: int, name: String) -> Array:
 	return rows
 
 ## Point-of-interest rows (Ruling EW item 4, CL-11), the same in every domain: **Rename** (`poi_rename`), **Move**
-## (`poi_move`, the Move destination click), **Change kind** (a submenu of the twelve kinds, `poi_set_kind`), **Delete**
+## (`poi_move`, the Move destination click), **Change kind** (desktop and tablet: reopens the pin palette, Ruling FD; the
+## phone: a sheet of the twelve legacy kinds, `poi_set_kind`), **Delete**
 ## and the Note row. Each edit is one undo step in the annotation ledger (`annotation_undo.rs`), so Delete does not
 ## confirm, for the reason a label's and an icon's do not. A POI is the user's own mark, so no domain's provider carries
 ## these verbs for it: they are here for all three.
@@ -410,9 +411,16 @@ static func _poi_rows(app, idx: int, name: String) -> Array:
 			if app.bridge.poi_set_kind(idx, key):
 				_annotations_changed(app)
 				app.set_status("hint", "Kind changed to %s" % String(kd.get("label", key)), "text_ghost")})
-	if not kinds.is_empty():
-		rows.append({"id": "el.poi_kind", "label": "Change kind", "section": "object", "enabled": true, "children": kinds,
-			"phone_jump": func() -> void: _poi_kind_dialog(app, idx)})
+	if DccTheme.is_phone():
+		## The phone keeps the twelve-kind sheet until PP-6 builds its palette bottom sheet (`PIN_PALETTE_SCOPE.md`).
+		if not kinds.is_empty():
+			rows.append({"id": "el.poi_kind", "label": "Change kind", "section": "object", "enabled": true, "children": kinds,
+				"phone_jump": func() -> void: _poi_kind_dialog(app, idx)})
+	else:
+		## Ruling FD (PP-4): Change kind reopens the pin palette in change mode (every pin name, a free-text kind): one row,
+		## no submenu. The pick is `poi_set_kind` / `poi_set_free_kind`, one undo step.
+		rows.append({"id": "el.poi_kind", "label": "Change kind…", "section": "object", "enabled": true,
+			"callable": func() -> void: app.begin_pin_change(idx)})
 	rows.append({"id": "el.poi_delete", "label": "Delete “%s”" % t, "section": "object", "enabled": true,
 		"danger": true, "tap": "Delete", "callable": func() -> void:
 			if app.bridge.poi_delete(idx):

@@ -452,6 +452,15 @@ static func _icon_tex(icon_set: String, name: String, want_h: float) -> Texture2
 	return buckets[px]
 
 
+## The picture of pin `name` in `icon_set` for a UI (the pin palette's grid), at least `want_h` px tall, or null when the set
+## has no file of that exact name. Public wrapper over the private cache so a menu never reaches into `_icon_tex`; no alias
+## is applied (`icon_name_for` is for the map, where a near match is acceptable; a palette entry IS the file it names).
+static func icon_texture(icon_set: String, name: String, want_h: float) -> Texture2D:
+	if not ICON_SETS.has(icon_set) or name == "":
+		return null
+	return _icon_tex(icon_set, name, want_h)
+
+
 ## The pin shape for head radius `r` (the DRAWN pin's head radius, the size every caller already computes): `{r, stem, icon}`
 ## where `r` and `stem` feed `geometry()`, `hit()`, `axis_distance()` and the tilt, and `icon` is the file name or `""`.
 ## The drawn pin and an icon pin are the SAME HEIGHT (`(STEM_RATIO + 1) * r`), so a style change does not move the tip or

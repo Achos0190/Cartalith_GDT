@@ -344,6 +344,8 @@ var _render: RenderWorkspace
 ## its own undo stack and the CARTO ▸ Colours ▸ Paint colour section. Created
 ## in `_build`; presentation only, like every other control in this dock.
 const ColourPaintTool := preload("res://shell/colour_paint_tool.gd")
+## Ruling FD: the pin palette the Pins tool shows in the right dock (`build_pin_palette`).
+const PinPaletteScript := preload("res://shell/pin_palette.gd")
 ## The landmark filter body shared with the Layers popover; see `_build_landmark_filter`.
 const LandmarkFilterPanel := preload("res://shell/landmark_filter_panel.gd")
 ## The live tool (see `ColourPaintTool`); `null` until `_build` runs.
@@ -1263,6 +1265,13 @@ func _register_tools() -> void:
 
 	## Ruling EW item 4 (CL-11): a click places a point of interest of the kind the tool options row holds.
 	app.register_tool_click_handler("poi", _on_poi_click)
+	app.register_tool_drag_handler("poi", _on_poi_drag)
+	app.register_tool_release_handler("poi", _on_poi_release)
+	## Ruling FD (PP-5): an icon dragged from the palette is dropped through the same path as a click.
+	app.viewport.overlay.set_pin_drop_handler(func(kind: String, gx: float, gy: float) -> void:
+		if app.armed_tool != "poi":
+			app.arm_tool("poi")
+		drop_pin(gx, gy, kind))
 	app.register_tool_click_handler("label", _on_label_click)
 	app.register_tool_drag_handler("label", _on_label_drag)
 	app.register_tool_release_handler("label", _on_label_release)
@@ -1308,9 +1317,14 @@ func _on_any_tool_armed(id: String) -> void:
 			if app.right_dock_ctrl.has_method("show_anno"):
 				app.right_dock_ctrl.show_anno()
 		"poi":
-			## Ruling EW item 4 (CL-11): the kind picker is the tool's whole option row; nothing in the dock changes.
+			## Ruling FD: the options row names the tool; the palette is the dock's section (`RightDock.TOOL_PINS`).
 			app.set_tool_options(_build_poi_tool_options_row)
+			app.right_dock_ctrl.show_pins()
 		_:
+			## Ruling FD: a disarm ends change mode and any pin drag (its undo stream is closed below).
+			_pin_state["change_idx"] = -1
+			_pin_state["change_name"] = ""
+			_pin_drag = {}
 			_label_drag_mode = DragMode.NONE
 			_label_drag_index = -1
 			_icon_drag_mode = IconDragMode.NONE
@@ -2187,44 +2201,175 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 # card's Move / Rename / Delete / Note rows (`GlobalTools._poi_rows`) are domain-independent, so the placed mark stays
 # editable from WORLD and CIVIL. CIVIL's tools place simulated things (settlements, ways), which a POI is not.
 
-## The `poi_kinds()` key the next placement uses. A kind the engine does not list is never held: the picker is built from
-## the engine's own list, so this starts as the list's first entry and only ever takes one of its keys.
-var _poi_kind := "tavern"
+## **Ruling FD (`PIN_PALETTE_SCOPE.md` PP-3 to PP-5): CL-11's tool is now the Pins tool.** It is the same tool id (`poi`), the
+## same engine store and the same undo ledger; what changed is how a pin's kind is chosen (the dock's palette,
+## `pin_palette.gd`, not a twelve-item picker) and how it is placed (a click or a dragged icon drops it at once, named later
+## from its card, instead of asking for a name first). The palette's state lives here so it survives the dock's rebuilds.
+##
+## `kind`: the armed pin name, `""` before anything is picked (a click then places nothing and says why). `mark` and
+## `free_label`: the free-text kind (a `?` or `!` pin with the user's words); `free_label` non-empty means the armed pin is
+## free-text and `kind` is its mark. `query`, `closed`: the palette's search text and closed categories. `change_idx`: the pin
+## whose kind the next palette pick replaces (change mode, from the card's Change kind), or -1.
+var _pin_state := {"kind": "", "mark": "other", "free_label": "", "query": "", "closed": {}, "change_idx": -1, "change_name": ""}
 
-## The Point of interest tool's options row: the kind picker (the engine's twelve kinds, `poi_kinds()`) and the one line
-## that says what a click does. The name is asked for at the click, not held here, so no stale name is ever placed.
+## The live palette node, or null while the dock shows something else. Never held across a rebuild by anyone else.
+var _pin_palette: VBoxContainer = null
+
+## A drag of a placed pin in progress: `{idx, grab: Vector2 (cells, press minus the tip), moved: bool}`, or `{}`. One
+## annotation stream spans press to release, so the whole drag is ONE undo step.
+var _pin_drag := {}
+
+## The Pins tool's options row: its name and the one line that says what a click does.
 func _build_poi_tool_options_row(row: HBoxContainer) -> void:
-	row.add_child(DccTheme.mono_label("CARTO · POINT OF INTEREST", "accent", DccTheme.FS_SMALL, 2, true))
-	var kinds: Array = bridge.poi_kinds()
-	if kinds.is_empty():
-		row.add_child(DccTheme.label("this build has no point-of-interest binding", "text_ghost", DccTheme.FS_MICRO))
-		row.add_child(DccTheme.spacer())
-		return
-	var labels: Array = []
-	var sel := 0
-	for i in kinds.size():
-		var kd: Dictionary = kinds[i]
-		labels.append(String(kd.get("label", kd.get("key", ""))))
-		if String(kd.get("key", "")) == _poi_kind:
-			sel = i
-	var pick := DccWidgets.choice(row, "Kind", labels, sel, func(i: int) -> void:
-		_poi_kind = String((kinds[i] as Dictionary).get("key", _poi_kind)))
-	pick.name = "PoiKind"
-	row.add_child(DccTheme.label("click the map to place one · Inspect then picks it, and its card moves, renames and deletes it",
+	row.add_child(DccTheme.mono_label("CARTO · PINS", "accent", DccTheme.FS_SMALL, 2, true))
+	row.add_child(DccTheme.label("pick a pin in the dock, then click the map to drop it (or drag it from the dock) · drag a placed pin to move it · Esc stops",
 		"text_ghost", DccTheme.FS_MICRO))
 	row.add_child(DccTheme.spacer())
 
-## A click with the Point of interest tool armed: asks for the name, then places one of `_poi_kind` there. An empty name
-## places nothing (`DccWidgets.prompt` calls back only for a non-empty answer), so a stray click never leaves an unnamed
-## pin. Cancelling places nothing.
+## Builds the palette into `parent` (the right dock's Pins section). Called by `RightDock._build_pins` on every dock rebuild;
+## the palette reads and writes `_pin_state` in place so nothing is lost.
+func build_pin_palette(parent: Control) -> void:
+	var pal := PinPaletteScript.new()
+	pal.setup(app, _pin_state)
+	pal.kind_picked.connect(_on_pin_kind_picked)
+	pal.free_picked.connect(_on_pin_free_picked)
+	pal.change_cancelled.connect(_end_pin_change)
+	_pin_palette = pal
+	pal.tree_exiting.connect(func() -> void:
+		if _pin_palette == pal:
+			_pin_palette = null)
+	parent.add_child(pal)
+
+## The palette's pick. In change mode it IS the change (one undo step, `poi_set_kind`) and ends change mode; otherwise it arms
+## the kind for the next drop. Either way the kind is pushed to the per-user recents (never the world).
+func _on_pin_kind_picked(kind: String) -> void:
+	DccSettings.pin_recent_push(kind)
+	var ci := int(_pin_state["change_idx"])
+	if ci >= 0:
+		var nm := String(bridge.poi_get(ci).get("name", ""))
+		if bridge.poi_set_kind(ci, kind):
+			app.viewport.refresh_annotations()
+			app.set_status("hint", "Changed the kind of %s to %s · Edit > Undo puts it back" % [nm if nm != "" else "the pin", PinPaletteScript.label_for(kind)], "text_ghost")
+		_end_pin_change()
+		return
+	_pin_state["kind"] = kind
+	_pin_state["free_label"] = ""
+	_refresh_pin_palette()
+
+## The palette's free-text pick (`mark` is `other` or `notice`): applies to the pin being changed, or arms for the next drop.
+func _on_pin_free_picked(mark: String, label: String) -> void:
+	var ci := int(_pin_state["change_idx"])
+	if ci >= 0:
+		if bridge.poi_set_free_kind(ci, mark, label):
+			app.viewport.refresh_annotations()
+			app.set_status("hint", "Changed the kind to “%s” · Edit > Undo puts it back" % label, "text_ghost")
+		_end_pin_change()
+		return
+	_pin_state["kind"] = mark
+	_pin_state["free_label"] = label
+	_refresh_pin_palette()
+
+## Repaints the live palette in place (no dock rebuild: that would lose the search field's focus).
+func _refresh_pin_palette() -> void:
+	if _pin_palette != null and is_instance_valid(_pin_palette):
+		_pin_palette.refresh()
+
+## PP-4: the card's Change kind. Arms the Pins tool (so the palette is the dock's section) with `idx` as the pin the next pick
+## replaces. Deferred rebuild, because this is reached from a card row's own press.
+func begin_pin_change(idx: int) -> void:
+	var pd: Dictionary = bridge.poi_get(idx)
+	if pd.is_empty():
+		return
+	_pin_state["change_idx"] = idx
+	var nm := String(pd.get("name", ""))
+	_pin_state["change_name"] = nm if nm != "" else String(pd.get("kind_label", "this pin"))
+	app.arm_tool("poi")
+	app.right_dock_ctrl.show_pins.call_deferred()
+
+## Leaves change mode (a pick, Cancel, or the tool disarming) and redraws the dock section.
+func _end_pin_change() -> void:
+	_pin_state["change_idx"] = -1
+	_pin_state["change_name"] = ""
+	if app.armed_tool == "poi":
+		app.right_dock_ctrl.show_pins.call_deferred()
+
+## The press of the Pins tool. Over a placed pin it starts a MOVE (the drag handler carries it; a press-release with no
+## travel opens the pin's card instead); over bare map it DROPS the armed pin. In change mode a map click changes nothing.
 func _on_poi_click(gx: float, gy: float) -> void:
-	var kind := _poi_kind
-	var label := kind
-	for k in bridge.poi_kinds():
-		if String((k as Dictionary).get("key", "")) == kind:
-			label = String((k as Dictionary).get("label", kind))
-	DccWidgets.prompt(app, "New %s" % label.to_lower(), "Name", "", "Place", func(nm: String) -> void:
-		place_poi(gx, gy, kind, nm), "Name the place; it can be renamed, moved, given a note or deleted from its card.")
+	_pin_drag = {}
+	var ov := app.viewport.overlay
+	var hit := int(ov.poi_at(ov.last_mouse_pos()))
+	if hit >= 0:
+		var pd: Dictionary = bridge.poi_get(hit)
+		if not pd.is_empty():
+			_pin_drag = {"idx": hit, "grab": Vector2(gx - float(pd["x"]), gy - float(pd["y"])), "moved": false}
+			bridge.annotation_stream_begin()
+		return
+	if int(_pin_state["change_idx"]) >= 0:
+		app.set_status("hint", "Pick the new kind in the palette (or Cancel) before clicking the map.", "accent")
+		return
+	drop_pin(gx, gy)
+
+## Drag of the Pins tool: carries a pressed pin, keeping the grab offset so the pin does not jump to the pointer. Every sample
+## is `poi_move` inside the open stream, so release leaves ONE undo step.
+func _on_poi_drag(gx: float, gy: float) -> void:
+	if _pin_drag.is_empty():
+		return
+	var grab: Vector2 = _pin_drag["grab"]
+	if bridge.poi_move(int(_pin_drag["idx"]), gx - grab.x, gy - grab.y):
+		_pin_drag["moved"] = true
+		app.viewport.refresh_annotations()
+
+## Release of the Pins tool: closes the move's undo stream; a press that never moved is a click on the pin, which selects it
+## and opens its card (the same card a left click opens with Inspect, `DccApp.open_marker_card_for_poi`).
+func _on_poi_release(_gx: float, _gy: float, _valid: bool) -> void:
+	if _pin_drag.is_empty():
+		return
+	var drag := _pin_drag
+	_pin_drag = {}
+	bridge.annotation_stream_end()
+	if bool(drag["moved"]):
+		app.set_status("hint", "Moved the pin · Edit > Undo puts it back", "text_ghost")
+	else:
+		app.open_poi_card(int(drag["idx"]))
+
+## Drops the armed pin at grid `(gx, gy)`: the ONE drop path (a click, a dragged icon and the probes all come here). Places it
+## unnamed (one undo step), records the kind in the recents, selects it and opens its card (with the Note section) and then the
+## Name prompt, so the user names it at once or dismisses it and keeps an unnamed pin. Returns the pin's index, or -1.
+func drop_pin(gx: float, gy: float, kind_override: String = "") -> int:
+	var kind := kind_override if kind_override != "" else String(_pin_state["kind"])
+	if kind == "":
+		app.set_status("hint", "Pick a pin in the dock first, then click the map.", "accent")
+		return -1
+	var free := String(_pin_state["free_label"]) if kind_override == "" else ""
+	var idx: int
+	if free != "":
+		idx = bridge.poi_add_free(gx, gy, kind, free, "")
+	else:
+		idx = bridge.poi_add(gx, gy, kind, "")
+	if idx < 0:
+		app.set_status("hint", "Cannot place a pin there. Click a spot on the map.", "accent")
+		return -1
+	DccSettings.pin_recent_push(kind)
+	app.viewport.refresh_annotations()
+	_refresh_pin_palette()
+	_after_drop(idx)
+	return idx
+
+## After a drop: select the new pin, open its card and ask for its name (Name field focused). A pin inside a town that is not
+## yet drawn (Ruling FC) is placed all the same; the status line says why it is not visible yet.
+func _after_drop(idx: int) -> void:
+	app.select("poi", idx)
+	app.open_poi_card(idx)
+	var ov := app.viewport.overlay
+	if ov._poi_town_hidden(idx, ov._displayed_rect()):
+		app.set_status("hint", "Placed inside a town: the pin shows once the town layout is on screen (zoom in) · Edit > Undo takes it back", "text_ghost")
+	else:
+		app.set_status("hint", "Placed · name it, or leave it unnamed · Edit > Undo takes it back", "text_ghost")
+	GlobalTools.rename_prompt(app, "Name this pin", "", func(nm: String) -> void:
+		if bridge.poi_rename(idx, nm):
+			app.viewport.refresh_annotations()
+			app.set_status("hint", "Named the pin %s" % nm, "text_ghost"))
 
 ## Places a point of interest and refreshes the map: the one path the click's dialog and the probes both take. Returns
 ## its index, or -1 (and says why on the status line) when the engine refused (off the grid, no world).
