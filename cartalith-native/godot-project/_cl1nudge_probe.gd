@@ -1,11 +1,12 @@
 extends Node
-## CL-1's head-overlap nudge and CL-3's City Viewer click (`CITY_MAP_LOOK_SCOPE.md` sections 4.2 and 4.3). Windowed (refuses
+## Ruling FA (2026-11-15): overlapping PINS keep their tips on the exact place and tilt about them (a pair +/-45 degrees, a
+## heart; three or more a fan); the CIRCLES style keeps CL-1's slide with leaders. Plus CL-3's City Viewer click (`CITY_MAP_LOOK_SCOPE.md` sections 4.2 and 4.3). Windowed (refuses
 ## --headless), under a wiped user directory (`APPDATA=<empty dir>`), a throw-away vault in TEMP.
 ##
 ##   Godot_v4.7.2-stable_win64_console.exe --path . _cl1nudge_probe.tscn -- --vp 1600x1000 --out <dir>
 ##   ... -- --vp 1080x2340 --density 2.8125 --force-touch --out <dir>      (the phone)
 ##
-## Legs. U: `PinMarker.fan_offsets` as a pure function (a translation changes nothing, a clash is cleared, a lone marker and a
+## Legs. U: `PinMarker.tilt_angles` (pins) and `fan_offsets` (circles) as pure functions (a translation changes nothing, a clash is cleared, a lone marker and a
 ## knot over `FAN_MAX` stay put, ids break ties). M: on the map, three POIs stacked on one place are separated, each is
 ## picked at its drawn head by `_hit_test_poi`, `hits_at`, `_pick_mark` and `marker_at`, the leader ends on the true place
 ## (framebuffer pixel), and a pan moves the drawn heads by exactly the pan and changes no offset; the same in circles style.
@@ -210,6 +211,22 @@ func _shot(name: String) -> void:
 	_p("shot %s" % name)
 
 
+## A close-up of the framebuffer around overlay-local `centre` (a square of `half` px each way), enlarged 4x with nearest
+## filtering, so the heart and the fan can be looked at. Writes nothing when `--out` was not given.
+func _crop_shot(name: String, centre: Vector2, half: float, is_host: bool = false) -> void:
+	if _out == "":
+		return
+	await _frames(3)
+	await RenderingServer.frame_post_draw
+	var img := _vp.get_texture().get_image()
+	var at := centre if is_host else _host(centre)
+	var rect := Rect2i(int(at.x - half), int(at.y - half), int(half * 2.0), int(half * 2.0)).intersection(Rect2i(Vector2i.ZERO, img.get_size()))
+	var crop := img.get_region(rect)
+	crop.resize(crop.get_width() * 4, crop.get_height() * 4, Image.INTERPOLATE_NEAREST)
+	crop.save_png(_out.path_join(name))
+	_p("shot %s" % name)
+
+
 func _is_white(c: Color) -> bool:
 	return c.r > 0.92 and c.g > 0.9 and c.b > 0.86
 
@@ -391,7 +408,8 @@ func _min_ratio(items: Array, off: Dictionary, circles: bool) -> float:
 func _leg_u() -> void:
 	print("== U. the pure fan ==")
 	var r := 9.0
-	for circles in [false, true]:
+	_leg_u_tilt(r)
+	for circles in [true]:
 		var tag := "circles" if circles else "pins"
 		var pts := [Vector2(100, 100), Vector2(103, 98), Vector2(98, 104)]
 		var it := _items(pts, r)
@@ -433,10 +451,75 @@ func _leg_u() -> void:
 		var a2 := Pin.fan_offsets(_items([Vector2(50, 50), Vector2(50, 50)], r, [2, 5]), circles)
 		_ok("U6 %s: identical positions are told apart by id, whatever the list order" % tag,
 			a1.size() == 2 and ((a1[5] as Vector2) - (a2[5] as Vector2)).length() < 0.01 and ((a1[2] as Vector2) - (a2[2] as Vector2)).length() < 0.01 and a1[5] != a1[2])
-	# Pins: two stacked markers go side by side, never one over the other (a tip on a head).
-	var two := Pin.fan_offsets(_items([Vector2(100, 100), Vector2(100, 100)], r), false)
-	var d: Vector2 = (two[0] as Vector2) - (two[1] as Vector2)
-	_ok("U7: two stacked pins are fanned sideways (dx %.1f, dy %.1f)" % [d.x, d.y], absf(d.x) > 2.0 * r and absf(d.y) < 1.0)
+	# Pins no longer slide (Ruling FA): the slide answers nothing for the pin style.
+	_ok("U7: fan_offsets slides nothing for pins (they tilt)", Pin.fan_offsets(_items([Vector2(100, 100), Vector2(100, 100)], r), false).is_empty())
+
+
+## Ruling FA's pure rule. Literal degrees, so a changed constant cannot hold the test.
+func _leg_u_tilt(r: float) -> void:
+	var deg := func(x: float) -> float: return rad_to_deg(x)
+	# A pair on one shared tip: -45 and +45, the lower id (equal tips) on the left.
+	var two: Dictionary = Pin.tilt_angles(_items([Vector2(100, 100), Vector2(100, 100)], r))
+	_ok("T1: two pins on one tip tilt -45 and +45 degrees (%s)" % [str(two)],
+		two.size() == 2 and absf(deg.call(float(two[0])) + 45.0) < 0.01 and absf(deg.call(float(two[1])) - 45.0) < 0.01)
+	# Their stems are then 90 degrees apart: the heart.
+	_ok("T2: the two stems are 90 degrees apart", absf(deg.call(float(two[1]) - float(two[0])) - 90.0) < 0.01)
+	# Heads overlapping with the TIPS APART: each tilts away about its own tip, the left one to the left.
+	var apart: Dictionary = Pin.tilt_angles(_items([Vector2(112, 100), Vector2(100, 100)], r))
+	_ok("T3: tips apart, heads overlapping: the left-hand pin (id 1) tilts -45, the right-hand (id 0) +45",
+		apart.size() == 2 and absf(deg.call(float(apart[1])) + 45.0) < 0.01 and absf(deg.call(float(apart[0])) - 45.0) < 0.01)
+	var three: Dictionary = Pin.tilt_angles(_items([Vector2(100, 100), Vector2(101, 100), Vector2(100, 101)], r))
+	var t3: Array = []
+	for k in three:
+		t3.append(snappedf(deg.call(float(three[k])), 0.01))
+	t3.sort()
+	_ok("T4: three on one place fan -60, 0, +60 degrees (%s)" % [str(t3)], t3 == [-60.0, 0.0, 60.0])
+	var five: Dictionary = Pin.tilt_angles(_items([Vector2(100, 100), Vector2(100, 100), Vector2(100, 100), Vector2(100, 100), Vector2(100, 100)], r))
+	var t5: Array = []
+	for k in five:
+		t5.append(snappedf(deg.call(float(five[k])), 0.01))
+	t5.sort()
+	_ok("T5: five fan -90, -45, 0, 45, 90 degrees (the half-circle cap) (%s)" % [str(t5)], t5 == [-90.0, -45.0, 0.0, 45.0, 90.0])
+	var four: Dictionary = Pin.tilt_angles(_items([Vector2(100, 100), Vector2(100, 100), Vector2(100, 100), Vector2(100, 100)], r))
+	var t4: Array = []
+	for k in four:
+		t4.append(snappedf(deg.call(float(four[k])), 0.01))
+	t4.sort()
+	_ok("T5: four fan -90, -30, 30, 90 degrees, 60 apart so no head touches another (%s)" % [str(t4)], t4 == [-90.0, -30.0, 30.0, 90.0])
+	# A lone pin, a far pin and a heads-just-touching pair do not tilt; a knot over FAN_MAX stays upright.
+	_ok("T6: a lone pin and a far pin are absent", Pin.tilt_angles(_items([Vector2(100, 100), Vector2(103, 98), Vector2(900, 900)], r)).has(2) == false)
+	_ok("T6: heads overlapping by under a quarter are left upright", Pin.tilt_angles(_items([Vector2(100, 100), Vector2(100 + 2.0 * r * 0.8, 100)], r)).is_empty())
+	var knot: Array = []
+	for k in Pin.FAN_MAX + 1:
+		knot.append(Vector2(200.0 + 0.1 * k, 200.0))
+	_ok("T7: a knot of %d is left upright" % [Pin.FAN_MAX + 1], Pin.tilt_angles(_items(knot, r)).is_empty())
+	# Pan invariance: a translation changes no angle.
+	var pts := [Vector2(100, 100), Vector2(103, 98), Vector2(98, 104)]
+	var base: Dictionary = Pin.tilt_angles(_items(pts, r))
+	var same := true
+	for tr in [Vector2(37.3, -12.9), Vector2(-512.25, 801.5)]:
+		var mv: Array = []
+		for q in pts:
+			mv.append((q as Vector2) + tr)
+		var o2: Dictionary = Pin.tilt_angles(_items(mv, r))
+		for k in base:
+			if not o2.has(k) or absf(float(o2[k]) - float(base[k])) > 1e-6:
+				same = false
+	_ok("T8: a translation of every pin changes no tilt", same)
+	# The geometry: the tip is on the place and the head swings about it; the footprint follows the rotated head.
+	var tip := Vector2(300, 300)
+	var a45 := deg_to_rad(45.0)
+	var g: Dictionary = Pin.geometry(tip, r, a45)
+	var upright := tip + Vector2(0.0, -Pin.STEM_RATIO * r)
+	var rot_head: Vector2 = g["head"]
+	_ok("T9: the rotated pin's outline still starts at the tip", (g["poly"] as PackedVector2Array)[0].is_equal_approx(tip))
+	_ok("T9: the head is the same distance from the tip (%.2f vs %.2f) and 45 degrees round, to the right" % [rot_head.distance_to(tip), Pin.STEM_RATIO * r],
+		absf(rot_head.distance_to(tip) - Pin.STEM_RATIO * r) < 0.001 and rot_head.x > tip.x + 0.7 * Pin.STEM_RATIO * r * 0.99 and rot_head.y < tip.y)
+	_ok("T10: the hit test lands on the rotated head", Pin.hit(tip, r, rot_head, Pin.HIT_PAD, a45))
+	_ok("T10: and not on the upright head's old place", not Pin.hit(tip, r, upright, Pin.HIT_PAD, a45))
+	_ok("T10: the stem is hit part-way along the rotated axis, not along the upright one (pad 0)",
+		Pin.hit(tip, r, tip + (rot_head - tip) * 0.5, Pin.HIT_PAD, a45) and not Pin.hit(tip, r, tip + Vector2(0.0, -Pin.STEM_RATIO * r * 0.5), 0.0, a45))
+	_ok("T10: the tip itself is hit at any tilt", Pin.hit(tip, r, tip, Pin.HIT_PAD, a45) and Pin.hit(tip, r, tip, Pin.HIT_PAD, -a45))
 
 
 # ---- M. the map -----------------------------------------------------------------------------------------------------------
@@ -477,7 +560,8 @@ func _leg_m(circles: bool) -> void:
 	interior = _ov._interior_rect(rect)
 	_ok("M1 %s: the overlay holds the five POIs" % tag, _ov._pois.size() == 5 and not ids3.has(-1) and not ids2.has(-1), str(_ov._pois.size()))
 	var fan: Dictionary = _ov._fan(rect)
-	_ok("M2 %s: all five are nudged" % tag, (fan["poi"] as Dictionary).size() == 5, str(fan["poi"]))
+	var fkey := "poi" if circles else "poi_a"
+	_ok("M2 %s: all five are nudged / tilted" % tag, (fan[fkey] as Dictionary).size() == 5, str(fan[fkey]))
 	var r: float = _ov._poi_pin_r()
 	var heads: Array = []
 	var trues: Array = []
@@ -488,12 +572,12 @@ func _leg_m(circles: bool) -> void:
 		var dr: Vector2 = _ov._nudged_poi(idx, t, rect)
 		trues.append(t)
 		drawn.append(dr)
-		heads.append(dr if circles else dr + Vector2(0.0, -Pin.STEM_RATIO * r))
+		heads.append(dr if circles else (Pin.geometry(dr, r, _ov._tilt_poi(idx, rect))["head"] as Vector2))
 	var mind := INF
 	for a in heads.size():
 		for b in range(a + 1, heads.size()):
 			mind = minf(mind, (heads[a] as Vector2).distance_to(heads[b]))
-	_ok("M3 %s: the three heads are a diameter apart (%.1f px, radius %.1f)" % [tag, mind, r], mind >= 2.0 * r * 1.04)
+	_ok("M3 %s: the three heads are a diameter apart (%.1f px, radius %.1f)" % [tag, mind, r], mind >= 2.0 * r * (1.04 if circles else 1.0))
 	var all_pick := true
 	for k in ids3.size():
 		var res: Array = _picks_poi(heads[k], int(ids3[k]))
@@ -506,7 +590,14 @@ func _leg_m(circles: bool) -> void:
 	for k in ids3.size():
 		if ((drawn[k] as Vector2) - (trues[k] as Vector2)).length() > r * 0.5:
 			n_moved += 1
-	_ok("M5 %s: at least two of the three moved off their true place (a row's middle member may stay)" % tag, n_moved >= 2, str(n_moved))
+	if circles:
+		_ok("M5 %s: at least two of the three moved off their true place (a row's middle member may stay)" % tag, n_moved >= 2, str(n_moved))
+	else:
+		var a3: Array = []
+		for idx in ids3:
+			a3.append(snappedf(rad_to_deg(_ov._tilt_poi(idx, rect)), 0.01))
+		_ok("M5 pins: no tip moved off its true place (drawn == true)", n_moved == 0, str(n_moved))
+		_ok("M5 pins: the stacked three fan -60, 0, +60 degrees, left to right (%s)" % str(a3), a3 == [-60.0, 0.0, 60.0])
 	# The pair: nothing else is near its true place, so the leader and its dot read from the frame.
 	var pa: Dictionary = _bridge.poi_get(int(ids2[0]))
 	var tp: Vector2 = _ov._point_to_screen(Vector2(float(pa["x"]), float(pa["y"])), rect)
@@ -517,23 +608,40 @@ func _leg_m(circles: bool) -> void:
 	var mid := (tp + tq) * 0.5
 	var along := (da - db).normalized() if da != db else Vector2.RIGHT
 	var perp := Vector2(-along.y, along.x)
-	var dot := await _pixel(mid + perp * (0.2 * r))
-	var dot2 := await _pixel(mid - perp * (0.2 * r))
-	_ok("M6 %s: the true place of the pair is marked by the leader's dark ring (%s / %s)" % [tag, dot, dot2],
-		dot.r < 0.5 or dot2.r < 0.5)
-	var half := await _pixel(mid + (da - mid) * 0.5)
-	var half2 := await _pixel(mid + (db - mid) * 0.5)
-	_ok("M6 %s: and a leader runs from it toward each nudged marker (%s / %s)" % [tag, half, half2],
-		(half.r < 0.5 or half.r > 0.8) and (half2.r < 0.5 or half2.r > 0.8) and (da - mid).length() > r)
-	var drawn_ok := (da - tp).length() > r * 0.5 and (db - tq).length() > r * 0.5 and (da.x < db.x if da != db else false)
-	_ok("M6 %s: the pair is split sideways or round, each member off its true place" % tag, drawn_ok or circles)
+	if circles:
+		var dot := await _pixel(mid + perp * (0.2 * r))
+		var dot2 := await _pixel(mid - perp * (0.2 * r))
+		_ok("M6 %s: the true place of the pair is marked by the leader's dark ring (%s / %s)" % [tag, dot, dot2],
+			dot.r < 0.5 or dot2.r < 0.5)
+		var half := await _pixel(mid + (da - mid) * 0.5)
+		var half2 := await _pixel(mid + (db - mid) * 0.5)
+		_ok("M6 %s: and a leader runs from it toward each nudged marker (%s / %s)" % [tag, half, half2],
+			(half.r < 0.5 or half.r > 0.8) and (half2.r < 0.5 or half2.r > 0.8) and (da - mid).length() > r)
+		var drawn_ok := (da - tp).length() > r * 0.5 and (db - tq).length() > r * 0.5 and (da.x < db.x if da != db else false)
+		_ok("M6 %s: the pair is split sideways or round, each member off its true place" % tag, drawn_ok or circles)
+	else:
+		var aa: float = _ov._tilt_poi(int(ids2[0]), rect)
+		var ab: float = _ov._tilt_poi(int(ids2[1]), rect)
+		_ok("M6 pins: the pair tilts -45 and +45 degrees, left pin to the left (%.2f / %.2f)" % [rad_to_deg(aa), rad_to_deg(ab)],
+			absf(rad_to_deg(aa) + 45.0) < 0.01 and absf(rad_to_deg(ab) - 45.0) < 0.01)
+		_ok("M6 pins: each pair member's tip is exactly its true place", da == tp and db == tq)
+		# The framebuffer: a stem's mid-point is pin-coloured on the TILTED axis and the upright axis is empty.
+		var s_a := await _pixel(tp + Vector2(0.0, -Pin.STEM_RATIO * r * 0.5).rotated(aa))
+		var s_b := await _pixel(tq + Vector2(0.0, -Pin.STEM_RATIO * r * 0.5).rotated(ab))
+		_ok("M6 pins: the pair's stems are drawn on the rotated axes (%s / %s)" % [s_a, s_b],
+			(_is_white(s_a) or _is_orange(s_a)) and (_is_white(s_b) or _is_orange(s_b)))
+		var up := await _pixel(tp + Vector2(0.0, -Pin.STEM_RATIO * r))
+		_ok("M6 pins: and the upright head's old place is empty of pin colour (%s)" % up, not (_is_white(up) or _is_orange(up)))
 	await _shot("cl1n_map_%s_%s.png" % [tag, "touch" if _touch else "desk"])
+	if not circles:
+		await _crop_shot("cl1n_map_heart_%s.png" % ("touch" if _touch else "desk"), tp + Vector2(0.0, -r), r * 8.0)
+		await _crop_shot("cl1n_map_fan_%s.png" % ("touch" if _touch else "desk"), (trues[1] as Vector2) + Vector2(0.0, -r), r * 8.0)
 	# No jitter: a pan moves every drawn head by exactly the pan and changes no offset.
 	var base_fan: Dictionary = _ov._fan(rect)
 	var base_off: Array = []
 	for idx in ids3:
-		base_off.append((base_fan["poi"][idx] as Vector2))
-	var cam: Node2D = app.viewport._camera
+		base_off.append((base_fan["poi"][idx] as Vector2) if circles else Vector2(float(base_fan["poi_a"][idx]), 0.0))
+	var cam = app.viewport._camera   ## a Control now (the probe typed it Node2D, which aborted this leg unseen)
 	var h0: Vector2 = _host(heads[0])
 	var jitter_ok := true
 	var moved_ok := true
@@ -544,7 +652,8 @@ func _leg_m(circles: bool) -> void:
 		var rect2: Rect2 = _ov._displayed_rect()
 		var f2: Dictionary = _ov._fan(rect2)
 		for k in ids3.size():
-			if not ((f2["poi"][ids3[k]] as Vector2) - base_off[k]).is_zero_approx():
+			var cur: Vector2 = (f2["poi"][ids3[k]] as Vector2) if circles else Vector2(float(f2["poi_a"][ids3[k]]), 0.0)
+			if not (cur - base_off[k]).is_zero_approx():
 				jitter_ok = false
 		var h1: Vector2 = _host(heads[0])
 		if not ((h1 - h0) - step * float(app.viewport._zoom)).length() < 0.05:
@@ -559,7 +668,7 @@ func _leg_m(circles: bool) -> void:
 		_bridge.poi_delete(_bridge.poi_list().size() - 1)
 	app.viewport.refresh_annotations()
 	await _frames(6)
-	_ok("M8 %s: removing the five POIs leaves no nudge" % tag, _ov._pois.is_empty() and (_ov._fan(_ov._displayed_rect())["poi"] as Dictionary).is_empty())
+	_ok("M8 %s: removing the five POIs leaves no nudge" % tag, _ov._pois.is_empty() and (_ov._fan(_ov._displayed_rect())["poi"] as Dictionary).is_empty() and (_ov._fan(_ov._displayed_rect())["poi_a"] as Dictionary).is_empty())
 
 
 # ---- V. the City Viewer ---------------------------------------------------------------------------------------------------
@@ -625,20 +734,26 @@ func _leg_v(unused: bool) -> void:
 	_ok("V2: the viewer shows the three POIs as pins", poi_idx.size() == 3, str(poi_idx.size()))
 	var vt: Dictionary = cv._view_transform()
 	var pr: float = cv.PIN_HEAD_R * cv._pin_unit()
-	var nud: Dictionary = cv._pin_nudges(pins, vt, pr, false)
+	var nud: Dictionary = cv._pin_tilts(pins, vt, pr, false)
 	var moved := 0
 	for k in poi_idx:
 		if nud.has(k):
 			moved += 1
-	_ok("V3: all three overlapping pins are nudged", moved == 3, str(nud))
+	_ok("V3: all three overlapping pins are tilted", moved == 3, str(nud))
+	_ok("V3: the viewer slides nothing for pins", (cv._pin_nudges(pins, vt, pr, false) as Dictionary).is_empty())
 	var heads: Array = []
 	var gaps := INF
 	for k in poi_idx:
-		heads.append(cv.pin_tip(k) + Vector2(0.0, -Pin.STEM_RATIO * pr))
+		heads.append(Pin.geometry(cv.pin_tip(k), pr, cv.pin_tilt(k))["head"])
 	for a in heads.size():
 		for b in range(a + 1, heads.size()):
 			gaps = minf(gaps, (heads[a] as Vector2).distance_to(heads[b]))
-	_ok("V4: their heads are a diameter apart (%.1f px, radius %.1f)" % [gaps, pr], gaps >= 2.0 * pr * 1.04)
+	# A town with many derived pins chains them into one big cluster (the phone's heads are 2.6x larger), and a half circle
+	# cannot clear more than four heads on one tip (`TILT_FAN_MAX_DEG`): the clearance bar applies to a small cluster only.
+	if nud.size() <= 4:
+		_ok("V4: their heads are a diameter apart (%.1f px, radius %.1f)" % [gaps, pr], gaps >= 2.0 * pr * 0.99)
+	else:
+		_ok("V4: a cluster of %d pins fans like cards, every head still apart from every other (%.1f px)" % [nud.size(), gaps], gaps > 1.0)
 	var all_pick := true
 	var dbg := ""
 	for n in poi_idx.size():
@@ -647,33 +762,42 @@ func _leg_v(unused: bool) -> void:
 		dbg += " [%d head %s -> %d, pin_tip %s]" % [poi_idx[n], str(heads[n]), cv.pin_at(heads[n]), str(cv.pin_tip(poi_idx[n]))]
 	for k in pins.size():
 		dbg += "
-     pin %d %s tip %s nudge %s" % [k, str((pins[k] as Dictionary)["kind"]), str(cv.pin_tip(k)), str(nud.get(k, Vector2.ZERO))]
+     pin %d %s tip %s tilt %s" % [k, str((pins[k] as Dictionary)["kind"]), str(cv.pin_tip(k)), str(nud.get(k, 0.0))]
 	_ok("V5: each drawn head picks its own pin", all_pick, dbg)
 	await _shot("cl1n_viewer_%s_%s.png" % [form, "touch" if _touch else "desk"])
-	# The leader: the true end is the model point; check the drawn tip minus the offset is the true place.
-	var far_pin: int = poi_idx[0]
+	var fan_c := Vector2.ZERO
 	for k in poi_idx:
-		if (nud[k] as Vector2).length() > (nud[far_pin] as Vector2).length():
-			far_pin = k
-	var true0: Vector2 = (vt["origin"] as Vector2) + ((pins[far_pin] as Dictionary)["at"] as Vector2) * float(vt["scale"])
-	_ok("V6: the most-moved pin's leader starts at its true model place, %.0f px from its drawn tip" % cv.pin_tip(far_pin).distance_to(true0),
-		cv.pin_tip(far_pin).distance_to(true0) > pr * 0.5 and (cv.pin_tip(far_pin) - true0).is_equal_approx(nud[far_pin]))
+		fan_c += cv.pin_tip(k) / 3.0
+	await _crop_shot("cl1n_viewer_fan_%s_%s.png" % [form, "touch" if _touch else "desk"], Vector2(cv.position) + cv._canvas.get_global_transform_with_canvas() * (fan_c + Vector2(0.0, -pr)), pr * 8.0, true)
+	# Ruling FA: every tip is exactly its true model place, and the three tilt to distinct angles inside a half circle.
+	var tips_ok := true
+	for k in poi_idx:
+		var true_k: Vector2 = (vt["origin"] as Vector2) + ((pins[k] as Dictionary)["at"] as Vector2) * float(vt["scale"])
+		if cv.pin_tip(k) != true_k:
+			tips_ok = false
+	_ok("V6: no tip moved off its true model place", tips_ok)
+	var angs: Array = []
+	for k in poi_idx:
+		angs.append(snappedf(rad_to_deg(cv.pin_tilt(k)), 0.01))
+	angs.sort()
+	var spread_ok := absf(float(angs[2])) <= 90.0 and absf(float(angs[0])) <= 90.0 and float(angs[1]) - float(angs[0]) >= 10.0 and float(angs[2]) - float(angs[1]) >= 10.0
+	_ok("V6: the three tilt to distinct angles in a fan (%s)" % str(angs), spread_ok)
 	# No jitter across small pans.
 	var jit := true
 	var pan0: Vector2 = cv._pan
 	for step in [Vector2(1.3, 0.7), Vector2(-2.9, 4.1), Vector2(0.4, -0.2), Vector2(13.7, 9.9)]:
 		cv._pan = pan0 + step
 		var vt2: Dictionary = cv._view_transform()
-		var n2: Dictionary = cv._pin_nudges(cv._pins(), vt2, pr, false)
+		var n2: Dictionary = cv._pin_tilts(cv._pins(), vt2, pr, false)
 		for k in poi_idx:
-			if not ((n2[k] as Vector2) - (nud[k] as Vector2)).length() < 0.01:
+			if absf(float(n2[k]) - float(nud[k])) > 1e-6:
 				jit = false
 	cv._pan = pan0
-	_ok("V7: four small pans change no pin's nudge", jit)
+	_ok("V7: four small pans change no pin's tilt", jit)
 	# The click.
 	app.arm_tool("inspect")
 	var target: int = poi_idx[1]
-	var hpos: Vector2 = cv.pin_tip(target) + Vector2(0.0, -Pin.STEM_RATIO * pr)
+	var hpos: Vector2 = (Pin.geometry(cv.pin_tip(target), pr, cv.pin_tilt(target))["head"] as Vector2)
 	var pm = app.get("_phone_menu")
 	var ledger0: int = (_bridge.undo_ledger() as Array).size()
 	if not _touch:
@@ -697,7 +821,7 @@ func _leg_v(unused: bool) -> void:
 				derived = k
 				break
 		if derived >= 0:
-			await _cv_click(cv, cv.pin_tip(derived) + Vector2(0.0, -Pin.STEM_RATIO * pr))
+			await _cv_click(cv, (Pin.geometry(cv.pin_tip(derived), pr, cv.pin_tilt(derived))["head"] as Vector2))
 			var h2: Array = app.context_broker.last_request.get("hits", [])
 			_ok("V9: a click on a derived pin opens the card for the town", _card_open() and h2.size() == 1 and String(h2[0]["kind"]) == "settlement" and int(h2[0]["id"]) == si, str(h2))
 			await _close_card()

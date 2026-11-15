@@ -610,7 +610,9 @@ func _draw_canvas() -> void:
 	var circles := DccSettings.markers_are_circles()
 	var all_pins := _pins()
 	var nudge := _pin_nudges(all_pins, vt, pr, circles)
-	## The head-overlap nudge (CL-1): leaders first, so a moved head covers its line's far end.
+	var tilt := _pin_tilts(all_pins, vt, pr, circles)
+	## The circles' slide (CL-1): leaders first, so a moved disc covers its line's far end. Pins have no leaders: they stay on
+	## their tips and tilt (Ruling FA, `tilt`).
 	for i in nudge:
 		var t: Vector2 = to_screen.call(all_pins[i]["at"])
 		PinMarker.draw_leader(_canvas, t, t + (nudge[i] as Vector2), pr)
@@ -619,7 +621,7 @@ func _draw_canvas() -> void:
 		## A user-placed POI (Ruling EW item 4) speaks for itself; every derived pin speaks for its town.
 		var pin_note: bool = bool(pin["has_note"]) if pin.has("poi") else has_note
 		PinMarker.draw_styled(_canvas, (to_screen.call(pin["at"]) as Vector2) + (nudge.get(i, Vector2.ZERO) as Vector2),
-			pr, String(pin["kind"]), pin_note, circles)
+			pr, String(pin["kind"]), pin_note, circles, 1.0, 1.0, PinMarker.INK, float(tilt.get(i, 0.0)))
 
 
 ## The model-metre to canvas-px transform of the current view: `{scale, origin}`, `to_screen(p) = origin + p * scale`.
@@ -737,19 +739,40 @@ static func _area(poly: PackedVector2Array) -> float:
 	return a * 0.5
 
 
-## The head-overlap nudge of `pins` under view transform `vt`: `{pin index: screen offset}` for the pins that move
-## (`PinMarker.fan_offsets`, the algorithm the map's landmarks use). Keyed on the pin's index in `_pins()`, which is stable
-## across a pan (a pan changes no pin), so the nudge cannot jitter; read by the draw and by `pin_at`, so the picked head is
-## the drawn one.
-func _pin_nudges(pins: Array, vt: Dictionary, pr: float, circles: bool) -> Dictionary:
+## The pins as `PinMarker` items under view transform `vt`: `{id: index in _pins(), r, pos: the TIP in canvas px}`.
+func _pin_items(pins: Array, vt: Dictionary, pr: float) -> Array:
 	var items: Array = []
 	for i in pins.size():
 		items.append({"id": i, "r": pr,
 			"pos": (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"])})
-	return PinMarker.fan_offsets(items, circles)
+	return items
 
 
-## The DRAWN tip (pin) or centre (circle) of pin `i` of `_pins()` in canvas px, nudge included; `Vector2.INF` for a bad index.
+## The CIRCLES-style slide of `pins` under view transform `vt`: `{pin index: screen offset}` for the discs that move
+## (`PinMarker.fan_offsets`, the algorithm the map's landmarks use); `{}` for pins, which tilt instead (`_pin_tilts`, Ruling
+## FA). Keyed on the pin's index in `_pins()`, which is stable across a pan, so it cannot jitter; read by the draw and by
+## `pin_at`, so the picked disc is the drawn one.
+func _pin_nudges(pins: Array, vt: Dictionary, pr: float, circles: bool) -> Dictionary:
+	return PinMarker.fan_offsets(_pin_items(pins, vt, pr), circles)
+
+
+## Ruling FA: the PIN-style tilt of `pins` under `vt`: `{pin index: radians about the tip}` for pins that overlap another
+## (`PinMarker.tilt_angles`, the rule the map's landmarks share: a pair +/-45 degrees, three or more a fan); `{}` for circles.
+## Read by the draw and by `pin_at`, so the picked head is the drawn one.
+func _pin_tilts(pins: Array, vt: Dictionary, pr: float, circles: bool) -> Dictionary:
+	return {} if circles else PinMarker.tilt_angles(_pin_items(pins, vt, pr))
+
+
+## The tilt (radians, about the tip) of pin `i` of `_pins()` as drawn now; `0.0` for a lone pin, a bad index and the circles
+## style. What a probe reads, as it reads `pin_tip`.
+func pin_tilt(i: int) -> float:
+	var pins := _pins()
+	if i < 0 or i >= pins.size() or _layout.is_empty():
+		return 0.0
+	return float(_pin_tilts(pins, _view_transform(), PIN_HEAD_R * _pin_unit(), DccSettings.markers_are_circles()).get(i, 0.0))
+
+
+## The DRAWN tip (pin: always the exact place, Ruling FA) or centre (circle, slide included) of pin `i` of `_pins()` in canvas px; `Vector2.INF` for a bad index.
 ## What a probe reads to click a nudged pin and to check its leader's true end.
 func pin_tip(i: int) -> Vector2:
 	var pins := _pins()
@@ -774,11 +797,13 @@ func pin_at(pos: Vector2) -> int:
 	var best_d := INF
 	var pins := _pins()
 	var nudge := _pin_nudges(pins, vt, pr, circles)
+	var tilt := _pin_tilts(pins, vt, pr, circles)
 	for i in pins.size():
 		var tip: Vector2 = (vt["origin"] as Vector2) + (pins[i]["at"] as Vector2) * float(vt["scale"]) \
 			+ (nudge.get(i, Vector2.ZERO) as Vector2)   ## the drawn head, nudge included
-		if PinMarker.hit_styled(tip, pr, pos, pad, circles):
-			var d := PinMarker.rank_distance(tip, pr, pos, circles)
+		var ang := float(tilt.get(i, 0.0))   ## the drawn pin's tilt about its tip (Ruling FA)
+		if PinMarker.hit_styled(tip, pr, pos, pad, circles, ang):
+			var d := PinMarker.rank_distance(tip, pr, pos, circles, ang)
 			if d < best_d:
 				best = i
 				best_d = d

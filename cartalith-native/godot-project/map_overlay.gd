@@ -6085,7 +6085,7 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 			if circles:
 				_draw_landmark_ring(lpos, lm, glyph_scale)
 			else:
-				_draw_landmark_pin(lpos, lm, li)
+				_draw_landmark_pin(lpos, lm, li, _tilt_lm(li, rect))
 
 	## User-placed points of interest (Ruling EW item 4, CL-11), drawn after the landmarks and before the icons. They are
 	## their own layer: always shown (the Landmarks switch and the landmark-kind filter are the generated landmarks').
@@ -6383,10 +6383,11 @@ func _icon_radius(ic: Dictionary) -> float:
 ## "one layer"; see that function for why the landmark mark wins over the icon glyph). `index` is the landmark's
 ## position in `_landmarks`, which keys its note state. **It must never decide what a click does and never read the
 ## vault** (`landmark_has_note` answers from the installed source).
-func _draw_landmark_pin(pos: Vector2, lm: Dictionary, index: int) -> void:
+## `angle` is the pin's Ruling FA tilt about its tip (`_tilt_lm`; 0 for a lone pin).
+func _draw_landmark_pin(pos: Vector2, lm: Dictionary, index: int, angle: float = 0.0) -> void:
 	var inks := landmark_inks(String(lm.get("class", "local")).to_lower())
 	PinMarker.draw(_cv, pos, _landmark_pin_r(lm), String(lm.get("kind", "")), landmark_has_note(index),
-		_sym_gain * _landmark_zoom_k(), 1.0, inks["outline"])
+		_sym_gain * _landmark_zoom_k(), 1.0, inks["outline"], angle)
 
 
 ## **The circle style's landmark mark** (owner request 2026-11-14, *"Can you keep the old circle markers as an option"*;
@@ -6507,7 +6508,8 @@ func _draw_poi_marks(rect: Rect2, interior: Rect2) -> void:
 		if not interior.has_point(pos):
 			continue
 		pos = _nudged_poi(pi, pos, rect)
-		PinMarker.draw_styled(_cv, pos, r, String(pd.get("kind", "")), poi_has_note(pd), circles, _sym_gain * _landmark_zoom_k())
+		PinMarker.draw_styled(_cv, pos, r, String(pd.get("kind", "")), poi_has_note(pd), circles, _sym_gain * _landmark_zoom_k(),
+			1.0, PinMarker.INK, _tilt_poi(pi, rect))
 
 ## Nearest user-placed POI whose footprint holds `mouse`, as `[index, anchor_distance]` (`-1`, `INF` on a miss). Same
 ## shape and the same two distances as `_hit_test_landmark` (ranked by `PinMarker.rank_distance`, returned as the anchor
@@ -6525,9 +6527,10 @@ func _hit_test_poi(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		if not interior.has_point(pos):
 			continue
 		pos = _nudged_poi(i, pos, rect)   ## the drawn head, not the true point
-		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles):
+		var ang := _tilt_poi(i, rect)   ## the drawn pin's tilt about its tip (Ruling FA)
+		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles, ang):
 			continue
-		var d := PinMarker.rank_distance(pos, r, mouse, circles)
+		var d := PinMarker.rank_distance(pos, r, mouse, circles, ang)
 		if d < best:
 			best = d
 			closest = i
@@ -6537,8 +6540,11 @@ func _hit_test_poi(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 
 ## ── Head-overlap nudge (CL-1's last bar, `CITY_MAP_LOOK_SCOPE.md` section 4.2) ─────────────────────────────────────────
 ##
-## Markers whose heads overlap at the current zoom are fanned apart in SCREEN space (`PinMarker.fan_offsets`, the one
-## algorithm the City Viewer shares) with a thin leader to the true point. Covers the generated landmarks and the
+## **Ruling FA (owner, 2026-11-15): overlapping PINS no longer slide.** Their tips stay on the exact place and each pin tilts
+## about its tip (`PinMarker.tilt_angles`, the one rule the City Viewer shares): two make a heart, three or more a fan. The
+## SLIDE below (`PinMarker.fan_offsets`, a thin leader to the true point) now serves the Circles marker style only.
+##
+## Markers whose heads overlap at the current zoom are handled in SCREEN space. Covers the generated landmarks and the
 ## user-placed POIs together (a POI can sit on a landmark), in both marker styles (pins: the head; circles: the ring or
 ## disc). The offsets are computed on a CANONICAL rect (the displayed size at the origin), so they depend on the zoom and the
 ## data and never on the pan: a pan cannot move a nudged head relative to its true point (no jitter). **Drawn and picked
@@ -6551,7 +6557,8 @@ var _fan_cache: Dictionary = {}   ## {key: {"lm": {index: offset}, "poi": {index
 ## POI items take ids from this base so one id space serves both lists (a landmark index never reaches it).
 const _FAN_POI_BASE := 1000000
 
-## `{"lm": {landmark index: offset}, "poi": {poi index: offset}}` for the displayed rect `rect`: only markers that move.
+## `{"lm": {landmark index: offset}, "poi": {poi index: offset}, "lm_a": {landmark index: tilt}, "poi_a": {poi index: tilt}}`
+## for the displayed rect `rect`: only markers that move (circles: `lm`/`poi` slides) or tilt (pins: `lm_a`/`poi_a`, radians).
 func _fan(rect: Rect2) -> Dictionary:
 	var circles := DccSettings.markers_are_circles()
 	var key := [rect.size, _camera_zoom, circles, _fan_rev, _landmarks.size(), _pois.size(), _landmarks_visible,
@@ -6571,25 +6578,44 @@ func _fan(rect: Rect2) -> Dictionary:
 		var pd: Dictionary = _pois[i]
 		items.append({"id": _FAN_POI_BASE + i, "r": float(_poi_footprint(circles)[0]),
 			"pos": _point_to_screen(Vector2(float(pd.get("x", 0.0)), float(pd.get("y", 0.0))), canon)})
+	## Circles slide (`fan_offsets`, with leaders); pins TILT about their tips (`tilt_angles`, Ruling FA). Each returns `{}`
+	## in the other style, so exactly one of the two pairs of keys is ever filled.
 	var raw := PinMarker.fan_offsets(items, circles)
-	var res := {"lm": {}, "poi": {}}
+	var tilt := {} if circles else PinMarker.tilt_angles(items)
+	var res := {"lm": {}, "poi": {}, "lm_a": {}, "poi_a": {}}
 	for id in raw:
 		if int(id) >= _FAN_POI_BASE:
 			res["poi"][int(id) - _FAN_POI_BASE] = raw[id]
 		else:
 			res["lm"][int(id)] = raw[id]
+	for id in tilt:
+		if int(id) >= _FAN_POI_BASE:
+			res["poi_a"][int(id) - _FAN_POI_BASE] = tilt[id]
+		else:
+			res["lm_a"][int(id)] = tilt[id]
 	if _fan_cache.size() > 6:
 		_fan_cache.clear()
 	_fan_cache[key] = res
 	return res
 
 
-## The drawn and picked tip (pins) or centre (circles) of landmark `i` whose true place is `pos`.
+## The tilt (radians, about the tip, 0 = upright) of landmark pin `i` (Ruling FA); 0 for a lone pin and in the circles style.
+func _tilt_lm(i: int, rect: Rect2) -> float:
+	return float((_fan(rect)["lm_a"] as Dictionary).get(i, 0.0))
+
+
+## The tilt of POI pin `i`, as `_tilt_lm`.
+func _tilt_poi(i: int, rect: Rect2) -> float:
+	return float((_fan(rect)["poi_a"] as Dictionary).get(i, 0.0))
+
+
+## The drawn and picked centre (circles) of landmark `i` whose true place is `pos`; a pin's tip never moves (Ruling FA), so
+## for pins this returns `pos` unchanged.
 func _nudged_lm(i: int, pos: Vector2, rect: Rect2) -> Vector2:
 	return pos + ((_fan(rect)["lm"] as Dictionary).get(i, Vector2.ZERO) as Vector2)
 
 
-## The drawn and picked tip or centre of POI `i` whose true place is `pos`.
+## The drawn and picked centre of POI `i` whose true place is `pos` (pins: unchanged, see `_nudged_lm`).
 func _nudged_poi(i: int, pos: Vector2, rect: Rect2) -> Vector2:
 	return pos + ((_fan(rect)["poi"] as Dictionary).get(i, Vector2.ZERO) as Vector2)
 
@@ -8107,9 +8133,10 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 		pos = _nudged_lm(i, pos, rect)   ## the drawn head, not the true point
 		var fp := _landmark_footprint(lm, circles)
 		var r: float = fp[0]
-		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles):
+		var ang := _tilt_lm(i, rect)   ## the drawn pin's tilt about its tip (Ruling FA)
+		if not PinMarker.hit_styled(pos, r, mouse, float(fp[1]), circles, ang):
 			continue
-		var d := PinMarker.rank_distance(pos, r, mouse, circles)
+		var d := PinMarker.rank_distance(pos, r, mouse, circles, ang)
 		if d < best_axis:
 			best_axis = d
 			closest = i
@@ -8258,7 +8285,7 @@ func hits_at(mouse: Vector2) -> Array:
 				continue
 			lpos = _nudged_lm(i, lpos, rect)   ## the drawn head, as `_hit_test_landmark` reads it
 			var lfp := _landmark_footprint(lm, circles)
-			if PinMarker.hit_styled(lpos, float(lfp[0]), mouse, float(lfp[1]), circles):
+			if PinMarker.hit_styled(lpos, float(lfp[0]), mouse, float(lfp[1]), circles, _tilt_lm(i, rect)):
 				hits.append(_hit("landmark", i, lm.get("name"), mouse.distance_to(lpos)))   ## anchor distance, as `_hit_test_landmark` returns
 	## User-placed points of interest (Ruling EW item 4): the same footprint rule, their own layer, always shown.
 	for i in _pois.size():
@@ -8268,7 +8295,7 @@ func hits_at(mouse: Vector2) -> Array:
 			continue
 		ppos = _nudged_poi(i, ppos, rect)   ## the drawn head, as `_hit_test_poi` reads it
 		var pfp := _poi_footprint(circles)
-		if PinMarker.hit_styled(ppos, float(pfp[0]), mouse, float(pfp[1]), circles):
+		if PinMarker.hit_styled(ppos, float(pfp[0]), mouse, float(pfp[1]), circles, _tilt_poi(i, rect)):
 			hits.append(_hit("poi", i, pd.get("name", pd.get("kind_label", "")), mouse.distance_to(ppos)))
 	var p := _grid_point(mouse, rect, interior)
 	if _context_pick.is_valid() and p["valid"]:
