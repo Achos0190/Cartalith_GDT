@@ -1937,8 +1937,7 @@ func _link_field(parent: Control, label_text: String, value_text: String, kind: 
 	row.tooltip_text = tooltip
 	var label_fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
 	var l := DccTheme.label(label_text, "text_dim", label_fs)
-	l.custom_minimum_size.x = _FIELD_LABEL_W
-	l.clip_text = true
+	_field_label_fit(l, row, tooltip, _FIELD_LABEL_W)
 	row.add_child(l)
 	var b := _link(row, value_text, func(): app.select(kind, id),
 		tooltip if tooltip != "" else "Select %s." % value_text, {"kind": kind, "id": id})
@@ -5257,8 +5256,7 @@ func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
 	row.add_theme_constant_override("separation", ROW_GAP)
 	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
 	var l := DccTheme.label("Colour", "text_dim", fs)
-	l.custom_minimum_size.x = _FIELD_LABEL_W
-	l.clip_text = true
+	_field_label_fit(l, row, "", _FIELD_LABEL_W)
 	row.add_child(l)
 	var trail := HBoxContainer.new()
 	trail.add_theme_constant_override("separation", 6)
@@ -8320,6 +8318,22 @@ func _way_max_grade() -> Array:
 # nothing to a file whose whole job is drawing editable rows, so it stays
 # local to the file that actually needs read-only inspection.
 
+## Ruling BK: what `_field_label_fit` does, why, and what it must never do. It sizes a key/value row's LABEL column and makes
+## a label that still does not fit end in an ellipsis rather than being cut mid-letter ("Boundary + distan", the 2026-11-15
+## spot-check of the 320 dock's tablet capture, `OUTSTANDING_WORK.md`). The column is `base_w` scaled by the row's font
+## ratio (`fs_prose` / `FS_SMALL`, 14 / 11 on touch, so 116 becomes 148 there; the pointer band is exactly `base_w`, so
+## desktop is unchanged): the column was a pixel width fixed for the 11 px font and the tablet's 14 px text outgrew it.
+## `OVERRUN_TRIM_ELLIPSIS` still collapses the label's own minimum width, but the custom minimum below restores the column,
+## which is what keeps the value column's left edge aligned row to row. The row's tooltip is set to the full label text when
+## the caller gave none, so a trimmed label is still readable on hover (a Label ignores no mouse here: an empty tooltip
+## bubbles to the row). Must never touch the value column, widen the dock, or replace a caller's own tooltip.
+func _field_label_fit(l: Label, row: Control, tooltip: String, base_w: int) -> void:
+	var ratio := float(DccTheme.role_px("fs_prose")) / float(DccTheme.FS_SMALL) if DccTheme.is_tablet() else 1.0
+	l.custom_minimum_size.x = roundi(float(base_w) * ratio)
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	if tooltip == "" and row.tooltip_text == "":
+		row.tooltip_text = l.text
+
 const _FIELD_LABEL_W := 116  ## Width in px of a row's label column (for example the Name row); no source found for the 116. The plan thumbnail's row narrows it.
 
 # -- Artboard primitives (`design/proposed-2026-09-05`) ----------------------
@@ -8932,8 +8946,7 @@ func _field(parent: Control, label_text: String, value_text: String,
 	row.tooltip_text = tooltip
 	var label_fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
 	var l := DccTheme.label(label_text, "text_dim", label_fs)
-	l.custom_minimum_size.x = label_w
-	l.clip_text = true
+	_field_label_fit(l, row, tooltip, label_w)
 	row.add_child(l)
 	var token := "text" if reachable else "text_ghost"
 	var v: Label
