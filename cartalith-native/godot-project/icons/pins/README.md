@@ -53,3 +53,9 @@ The owner reviewed the contact sheets and chose: ancient_road option B (road und
 (boat on a cart), caravan_station option B (wagon under a waystation roof with a lantern), historic_crossing kept
 as the bridge with a fallen middle arch, road_junction approved; fort is a timber stockade, never the castle.
 Generators and sheets: `design/pin-icons-2026-11-15/glyph-drawn/` (`fable_glyphs.py`, `alts.py`).
+
+## Painted temple, drawn in code (owner-approved, 2026-11-15)
+
+`painted/temple.png` is a coded painting in the first painted look (dark disc, bronze frame), option A of
+`design/pin-icons-2026-11-15/painted-drawn/temple_options.png`, approved by the owner (*"Do A"*). Its body is the
+per-pixel median of the first 20 painted pins; only the disc is painted. Generator: `painted_temple.py`.
