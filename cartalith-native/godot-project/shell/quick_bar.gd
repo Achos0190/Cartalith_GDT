@@ -81,6 +81,14 @@ const ID_ASSISTANT_HIDE := 1002
 ## Ruling DQ: the Assistant chip's menu lists the profiles; row `i` carries id `ID_PROFILE_BASE + i`.
 ## Above every other id in this file and well below Godot's menu id limits; 16 profiles at most.
 const ID_PROFILE_BASE := 1100
+## CQ-5 (scope s.3.4, "right-click (long-press on touch)"): how long a finger must rest on a pin or the
+## Assistant chip before its menu opens. The platform's own long-press timeout, 0.4 s (Android's
+## `ViewConfiguration.getLongPressTimeout()`, recalled and labelled), the same figure
+## `DccWidgets.TouchScroll.LIFT_HOLD_SEC` uses for a held tile, so every long-press in the shell is one length.
+const LONG_PRESS_SEC := 0.4
+## How far (in this node's own units, which on a tablet are dp at UI scale 1) the finger may wander while it
+## waits and still count as resting. Android's touch slop is 8 dp; a chip is 44 or more, so a labelled 10.
+const LONG_PRESS_SLOP := 10.0
 ## How often a toggle chip's state is re-read, in seconds. A labelled judgement: short enough that a change
 ## made elsewhere shows before the user looks back at the bar, long enough that up to 24 getters cost nothing.
 const POLL_SECONDS := 0.25
@@ -107,6 +115,11 @@ var _more_menu: PopupMenu
 var _chip_menu: PopupMenu
 ## The pin the open chip context menu belongs to.
 var _chip_menu_key := ""
+## CQ-5: the long-press in progress. `_lp_gen` is bumped by every press, release and wander past the slop,
+## so a timer acts only while its own number is current; `_lp_origin` is where the finger went down, in the
+## pressed chip's own coordinates.
+var _lp_gen := 0
+var _lp_origin := Vector2.ZERO
 ## How many pins were shown, in the last layout.
 var _shown := 0
 ## The index of the last `refresh()`; rebuilt for every press so a press is never stale.
@@ -131,6 +144,7 @@ func _init() -> void:
 	_assistant.name = "QuickBarAssistant"
 	_assistant.visible = false
 	_assistant.gui_input.connect(_assistant_input)
+	_assistant.gui_input.connect(func(ev: InputEvent): _long_press_input(ev, _assistant, _open_assistant_menu))
 	_plus = _make_chip("＋", _on_plus_pressed)
 	_plus.name = "QuickBarPlus"
 	_nudge(_plus, 1)
@@ -284,6 +298,7 @@ func _chip_for(pin_key: String, stored_title: String) -> Button:
 	b.set_meta("pin_key", pin_key)
 	b.set_meta("title", title)
 	b.gui_input.connect(func(ev: InputEvent): _chip_input(ev, b, pin_key))
+	b.gui_input.connect(func(ev: InputEvent): _long_press_input(ev, b, func(): open_chip_menu(b, pin_key)))
 	move_child(b, _plus.get_index())
 	var tip := title
 	if row.is_empty():
@@ -547,6 +562,41 @@ func _chip_input(ev: InputEvent, chip: Button, pin_key: String) -> void:
 	open_chip_menu(chip, pin_key)
 	chip.accept_event()
 
+## CQ-5: the touch form of a chip's right-click. A finger that goes down on `chip` and rests for
+## `LONG_PRESS_SEC` within `LONG_PRESS_SLOP` opens `opener` (the chip's menu); lifting earlier, or wandering
+## off, is an ordinary press and runs the chip as before. Touch only: the press must be an emulated mouse press
+## (`device < 0`, `InputEvent.DEVICE_ID_EMULATION`, Godot's own marker for a finger) or the build a handset's,
+## the gate `map_overlay.gd` uses for its own hold, so a desktop mouse that rests on a chip is unchanged (and a
+## tablet used with a mouse keeps its right-click).
+##
+## **The press is cancelled when the menu opens**, not merely ignored later: the menu takes the lift, so the
+## chip would otherwise stay "pressed" and a later lift over it would run the command the user meant only to
+## manage. Toggling `disabled` is the engine's own way to clear a press in progress (`BaseButton.set_disabled`
+## clears `press_attempt` and `pressing_inside`); the chip's prior state is restored at once.
+func _long_press_input(ev: InputEvent, chip: Button, opener: Callable) -> void:
+	if ev is InputEventMouseButton:
+		var mb := ev as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		_lp_gen += 1
+		if not mb.pressed:
+			return
+		if not DccTheme.is_touch() or not (mb.device < 0 or OS.has_feature("mobile")):
+			return
+		_lp_origin = mb.position
+		var gen := _lp_gen
+		get_tree().create_timer(LONG_PRESS_SEC).timeout.connect(func():
+			if gen != _lp_gen or not is_instance_valid(chip) or not chip.is_visible_in_tree():
+				return
+			_lp_gen += 1
+			var was: bool = chip.disabled
+			chip.disabled = true
+			chip.disabled = was
+			opener.call())
+	elif ev is InputEventMouseMotion:
+		if (ev as InputEventMouseMotion).position.distance_to(_lp_origin) > LONG_PRESS_SLOP:
+			_lp_gen += 1
+
 ## Pops the chip's context menu (Remove, Move left, Move right). Public so a probe can reach it
 ## through a real right-click on the chip and also assert its rows.
 func open_chip_menu(chip: Button, pin_key: String) -> void:
@@ -600,6 +650,11 @@ func _assistant_input(ev: InputEvent) -> void:
 		return
 	if (ev as InputEventMouseButton).button_index != MOUSE_BUTTON_RIGHT:
 		return
+	_open_assistant_menu()
+	_assistant.accept_event()
+
+## Pops the Assistant chip's menu (a right-click, or a long-press on touch, CQ-5).
+func _open_assistant_menu() -> void:
 	_assistant_menu.clear()
 	_fill_profile_rows(_assistant_menu)
 	_assistant_menu.add_item("Hide the Assistant chip", ID_ASSISTANT_HIDE)
@@ -607,7 +662,6 @@ func _assistant_input(ev: InputEvent) -> void:
 	_assistant_menu.add_item("Customise…", ID_CUSTOMISE)
 	DccWidgets.style_popup(_assistant_menu)
 	_popup_under(_assistant_menu, _assistant)
-	_assistant.accept_event()
 
 ## Adds one radio row per profile (the active one checked) and a separator, to `menu`. Nothing is added
 ## when profiles are unavailable. A pick calls `LlmProfiles.switch_to`, which applies the whole profile

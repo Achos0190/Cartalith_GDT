@@ -107,6 +107,10 @@ var _dock_side := ""
 ## Coordinator review, 2026-09-27 -- see `open()`'s own doc. 0.0 outside the
 ## ring+card-together presentations.
 var _ring_clear := 0.0
+## CQ-5: how far BELOW `_anchor` the ring's footprint reaches, the ring dock included (the dock hangs under the disc,
+## further down than `_ring_clear`). 0.0 outside a ring+card presentation. Read only by `_target_rect()`'s vertical
+## fallback, for a pane too narrow to put the card beside the ring.
+var _ring_down := 0.0
 ## Coordinator review, 2026-09-27 (overlap follow-up) -- see `set_ring_clear()`'s
 ## own doc. `_sub_x` is the open SUB-ring's own centre-x, in the same space as
 ## `_anchor`; `_sub_clear` is its `radius + slot * 0.5`. Both 0.0 whenever no
@@ -140,6 +144,7 @@ var _scroll: ScrollContainer
 func setup(p_app) -> void:
 	app = p_app
 	name = "ContextCard"
+	window_input.connect(_on_card_window_input)
 	wrap_controls = true
 	transparent_bg = true
 	_scroll = ScrollContainer.new()
@@ -211,7 +216,7 @@ func _m(key: String) -> int:
 ## which keeps `_target_rect()`'s original 10/6 px offset exactly as it was.
 func open(req: Dictionary, actions: Array, anchor: Vector2, on_select: Callable,
 		dock_side: String = "", ring_clear: float = 0.0, sub_x: float = 0.0,
-		sub_clear: float = 0.0) -> void:
+		sub_clear: float = 0.0, ring_down: float = 0.0) -> void:
 	_req = req
 	_actions = actions
 	_all_hits = req.get("all_hits", req.get("hits", []))
@@ -219,6 +224,7 @@ func open(req: Dictionary, actions: Array, anchor: Vector2, on_select: Callable,
 	_anchor = anchor
 	_dock_side = dock_side
 	_ring_clear = ring_clear
+	_ring_down = ring_down
 	_sub_x = sub_x
 	_sub_clear = sub_clear
 	_sub = {}
@@ -293,6 +299,40 @@ func _on_root_window_input(ev: InputEvent) -> void:
 	hide()
 
 
+## **CQ-5: the card must not swallow the finger that opened it.** On a tablet the hold that opens the ring opens
+## this card in the same frame, and the finger is still down: it is tracked, a slide selects a slot or a dock chip
+## and the lift decides (`map_overlay.gd::_touch_ring_active`). An embedded `PopupPanel` is the focused window the
+## moment it shows, and the viewport hands a focused embedded window every mouse event, so the finger's motion and its
+## lift reached this card and never the map (measured by `_quickbar_tablet_probe.gd` at the Pad's class: after the
+## hold, a slide left `_last_mouse_local` at (0, 0) and no slot or dock chip was ever hovered; with the card hidden
+## the same slide hovered). Every hold, slide and lift of the ring on a touch screen was dead for that reason.
+## This hands the motion and the lift back to the map, in its own coordinates, and marks them handled here so a
+## card row under the finger does not also fire. Only while the map says the ring gesture is tracking a finger, only
+## for an emulated (touch) mouse event or on a handset, and only motion and the left button's release; after the lift
+## the card is an ordinary window again.
+func _on_card_window_input(ev: InputEvent) -> void:
+	if not visible or not is_embedded() or app == null:
+		return
+	var mm := ev as InputEventMouseMotion
+	var mb := ev as InputEventMouseButton
+	if mm == null and not (mb != null and mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed):
+		return
+	var device: int = mm.device if mm != null else mb.device
+	if device >= 0 and not OS.has_feature("mobile"):
+		return
+	var ov = app.viewport.overlay if app.viewport != null else null
+	if ov == null or not ov.touch_ring_active():
+		return
+	## The event arrives in this window's own canvas; the map wants its local space. The window sits at `position` in
+	## the viewport it is embedded in and draws through its content scale (`get_final_transform()`).
+	var host := Vector2(position) + get_final_transform() * (mm.position if mm != null else mb.position)
+	var e := ev.duplicate() as InputEventMouse
+	e.position = ov.get_global_transform_with_canvas().affine_inverse() * host
+	e.global_position = host
+	ov.ring_touch_feed(e)
+	get_viewport().set_input_as_handled()
+
+
 ## Coordinator review, 2026-09-27 (overlap follow-up). A sub-ring re-centres
 ## on its own parent slot (`radial_ring.gd::_open_sub()`), which can reach
 ## past the top-level ring's own footprint toward this card -- `open()`'s
@@ -305,10 +345,11 @@ func _on_root_window_input(ev: InputEvent) -> void:
 ## not a rebuild -- so a call that does not actually need to move the card
 ## (the sub landed on a side the card was never near) is a no-op in practice,
 ## not just skipped by this early-return on an unchanged input.
-func set_ring_clear(ring_clear: float, sub_x: float, sub_clear: float) -> void:
-	if _ring_clear == ring_clear and _sub_x == sub_x and _sub_clear == sub_clear:
+func set_ring_clear(ring_clear: float, sub_x: float, sub_clear: float, ring_down: float = 0.0) -> void:
+	if _ring_clear == ring_clear and _sub_x == sub_x and _sub_clear == sub_clear and _ring_down == ring_down:
 		return
 	_ring_clear = ring_clear
+	_ring_down = ring_down
 	_sub_x = sub_x
 	_sub_clear = sub_clear
 	if visible:
@@ -1069,6 +1110,24 @@ func _target_rect(panel_size: Vector2) -> Rect2:
 	if y + h > bounds.end.y - margin:
 		y = _anchor.y - 6.0 - h
 	x = clampf(x, bounds.position.x + margin, maxf(bounds.position.x + margin, bounds.end.x - margin - w))
+	## **CQ-5, a pane too narrow for the card beside the ring.** The proof above holds only while the card's x-range
+	## really lies outside `[left_edge, right_edge]`; the clamp just before can pull a card that fits neither side
+	## back over the ring (measured at the Pad's portrait class, a 594 dp pane: the card, 415 to 520 dp wide, covered the
+	## dock chips and a slot at every hold but one, with either hand). In that case it goes above the ring's footprint,
+	## or below it (dock included) when above does not fit, centred on the anchor and clamped to the screen; only when
+	## neither fits does it stay where the clamp left it. A wide screen never reaches this branch (the card fits beside
+	## the ring), so desktop and landscape placement are unchanged.
+	if _ring_clear > 0.0 and x < right_edge and x + w > left_edge:
+		var above := _anchor.y - 10.0 - _ring_clear - h
+		var below := _anchor.y + 10.0 + maxf(_ring_clear, _ring_down)
+		if above >= bounds.position.y + margin:
+			y = above
+		elif below + h <= bounds.end.y - margin:
+			y = below
+		else:
+			return Rect2(Vector2(x, clampf(y, bounds.position.y + margin, maxf(bounds.position.y + margin, bounds.end.y - margin - h))), panel_size)
+		x = clampf(_anchor.x - w * 0.5, bounds.position.x + margin, maxf(bounds.position.x + margin, bounds.end.x - margin - w))
+		return Rect2(Vector2(x, y), panel_size)
 	y = clampf(y, bounds.position.y + margin, maxf(bounds.position.y + margin, bounds.end.y - margin - h))
 	return Rect2(Vector2(x, y), panel_size)
 

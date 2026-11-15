@@ -276,7 +276,7 @@ document, and `STATUS.md` records what lands)
   rename prompt, folder chooser, Compare and write-preview dialogs, the assistant's consent card, and **the
   planner's Save journey and Capture party prompts (this row said "the planner spawns none"; it spawns two)**.
   What is left is owner-run: a dialog opened from a pop-out that sits on monitor 2.
-- **CQ-5.** `CUSTOM_QUICK_BAR_SCOPE.md`. (CQ-8's three extensions were built 2026-11-08, Ruling EH item 3: the scope's section 17.)
+- **CQ-5 on glass.** `CUSTOM_QUICK_BAR_SCOPE.md` section 18. Built 2026-11-15 and verified windowed only (`STATUS.md`). **The owner's check on the Pad:** hold on the map, slide down into a dock chip and lift (it runs); long-press a pin chip (menu opens, lifting runs nothing); a thumb on the cluster, the dock and Customise (44 dp); the card beside the ring in portrait. The pen barrel case stays with section 2.12's device check. (CQ-8's three extensions were built 2026-11-08, Ruling EH item 3: the scope's section 17.)
 
 **Religion (FH-R2; Ruling EA, 2026-11-01)** (`FH_R2_PLAN.md`; the FH-R2 row in §3.1)
 - **S7, world-instanced religions and schisms: unscheduled** (Ruling EA item 2, *"Yes, and add an S7 row"*). Per-world

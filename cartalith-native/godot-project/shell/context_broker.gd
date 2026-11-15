@@ -375,7 +375,7 @@ func present(req: Dictionary, actions: Array) -> void:
 		## reach `_open_sub()`, CM-3 residual), not from here.
 		var cc := _ring_clearance()
 		card.open(req, actions, at, reselect, dock,
-			float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]))
+			float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]), float(cc["ring_down"]))
 		return
 	_present_phone(req, actions)
 
@@ -568,7 +568,7 @@ func represent_restore(bag: Dictionary) -> void:
 ## doc has the "x-range clears both obstacles' shapes" proof this feeds.
 func _ring_clearance() -> Dictionary:
 	if ring == null or not ring.is_open():
-		return {"ring_clear": 0.0, "sub_x": 0.0, "sub_clear": 0.0}
+		return {"ring_clear": 0.0, "sub_x": 0.0, "sub_clear": 0.0, "ring_down": 0.0}
 	var rs := ring.debug_state()
 	## CQ-4: the dock hangs below the disc and can be wider than the slot ring on a touch ring, so the
 	## card clears whichever reaches further sideways. `dock_half_w` is 0.0 for the shipped empty dock
@@ -576,8 +576,14 @@ func _ring_clearance() -> Dictionary:
 	var out := {
 		"ring_clear": maxf(float(rs.get("radius", 0.0)) + float(rs.get("slot", 0.0)) * 0.5,
 			float(rs.get("dock_half_w", 0.0)) if int(rs.get("dock_count", 0)) > 0 and not bool(rs.get("sub_open", false)) else 0.0),
-		"sub_x": 0.0, "sub_clear": 0.0,
+		"sub_x": 0.0, "sub_clear": 0.0, "ring_down": 0.0,
 	}
+	## CQ-5: how far the footprint reaches BELOW the ring's centre, the dock's bottom edge included, for the card's
+	## vertical fallback (`context_card.gd::_target_rect`). Read off the dock's live rects, never a constant.
+	out["ring_down"] = float(out["ring_clear"])
+	var drs: Array = rs.get("dock_rects", [])
+	if not drs.is_empty():
+		out["ring_down"] = maxf(float(out["ring_down"]), (drs[drs.size() - 1] as Rect2).end.y - (rs.get("centre", Vector2.ZERO) as Vector2).y)
 	if bool(rs.get("sub_open", false)):
 		var sc: Vector2 = rs.get("sub_centre", Vector2.ZERO)
 		out["sub_x"] = sc.x
@@ -597,7 +603,7 @@ func _sync_card_ring_clear() -> void:
 	if card == null or not card.visible:
 		return
 	var cc := _ring_clearance()
-	card.set_ring_clear(float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]))
+	card.set_ring_clear(float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]), float(cc["ring_down"]))
 
 
 ## Lazily builds the ring node and wires `hold_fired` and `hover_entered`;

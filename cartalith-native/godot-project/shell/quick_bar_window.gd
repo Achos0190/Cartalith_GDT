@@ -87,6 +87,12 @@ const PHONE_FLOOR_DP := 44.0
 ## The `v_separation` that, added to a one-line row of the small mono face, reaches 44 dp. A labelled starting
 ## value: the probe measures the real hit height and fails if it is under the floor, so a font change shows up.
 const PHONE_LIST_SEPARATION := 30
+## CQ-5: the tablet's list `v_separation`, which makes a one-line row of the small mono face reach the 44 dp touch
+## floor. It was 8, a 24 dp row, which `_quickbar_tablet_probe.gd` measured at the Pad's class (a finger needs 44, `DESIGN_HANDOFF.md`).
+## A row is its text plus this separation and a tap is hit-tested over both, so the separation is what makes the row
+## touchable. A labelled starting value (the text part measured 16 dp, 28 reaches 44; 30 leaves a margin for a font
+## change): the probe measures the real row and fails under the floor.
+const TABLET_LIST_SEPARATION := 30
 ## Longest reason shown inline before it is cut (the full text is the row's tooltip).
 const MAX_REASON_CHARS := 90
 
@@ -272,6 +278,7 @@ func setup(a) -> void:
 	_show_unpinnable.text = "Show commands that cannot be pinned (with the reason)"
 	_show_unpinnable.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 	_show_unpinnable.toggled.connect(func(_on: bool): _render_catalogue())
+	_touch_floor(_show_unpinnable)
 	left.add_child(_show_unpinnable)
 	_catalogue = _make_list("Catalogue")
 	_catalogue.item_selected.connect(func(_i: int): _on_catalogue_selected())
@@ -386,8 +393,15 @@ func _make_list(node_name: String) -> ItemList:
 	l.add_theme_stylebox_override("selected", DccTheme.active_row())
 	l.add_theme_stylebox_override("selected_focus", DccTheme.active_row())
 	l.add_theme_stylebox_override("hovered", DccTheme.flat(DccTheme.c("line_soft")))
-	l.add_theme_constant_override("v_separation", 8 if DccTheme.is_tablet() else 3)
+	l.add_theme_constant_override("v_separation", TABLET_LIST_SEPARATION if DccTheme.is_tablet() else 3)
 	return l
+
+## CQ-5: floors a check box to the touch size on a tablet (both axes, as `_button` does). A check box is a
+## button whose whole rectangle takes the tap, and its natural height is the text's (28 dp, measured by
+## `_quickbar_tablet_probe.gd` at the Pad's class), under the 44 dp floor. A no-op off the tablet.
+func _touch_floor(c: BaseButton) -> void:
+	if DccTheme.is_tablet():
+		c.custom_minimum_size = Vector2(maxf(c.custom_minimum_size.x, DccTheme.role_px("btn_min_h")), DccTheme.role_px("btn_min_h"))
 
 ## A focusable text button, floored to the touch size on a tablet.
 func _button(parent: Control, text: String, on_press: Callable) -> Button:
@@ -459,6 +473,7 @@ func _ensure_assistant_switch() -> void:
 	_assistant_chk.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 	_assistant_chk.tooltip_text = "Shows the Assistant button once the assistant is ready. Turn off to hide it."
 	_assistant_chk.toggled.connect(func(on: bool): DccSettings.set_quick_bar_value("assistant_button", on))
+	_touch_floor(_assistant_chk)
 	_root_box.add_child(_assistant_chk)
 	_assistant_note = DccTheme.label("", "text_ghost", DccTheme.FS_MICRO)
 	_assistant_note.name = "AssistantChipNote"
@@ -489,6 +504,7 @@ func _ensure_domain_row() -> void:
 		c.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 		c.tooltip_text = "Show the selected pin while the %s domain is active. A pin must stay in at least one domain." % String(QuickBarRing.DOMAIN_NAMES.get(dom, dom))
 		c.toggled.connect(func(on: bool): _on_domain_toggled(String(dom), on))
+		_touch_floor(c)
 		_dom_row.add_child(c)
 		_dom_checks[String(dom)] = c
 	_right.add_child(_dom_row)

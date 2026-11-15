@@ -8661,6 +8661,20 @@ func discard_touch_press() -> void:
 	_touch_down = false
 	set_process(false)
 
+## CQ-5: whether the tablet's hold-then-slide ring gesture is tracking the finger right now (`_touch_ring_active`).
+## Public so the context card, which an embedded popup makes the focused window and which therefore swallows the
+## finger's motion and its lift, can tell whether to hand them back (`context_card.gd::_on_card_window_input`).
+func touch_ring_active() -> bool:
+	return _touch_ring_active
+
+
+## CQ-5: delivers an event the card swallowed to this control as if it had arrived here. `ev` must already be in
+## this control's local coordinates. Only the ring gesture's motion and lift are sent (the card checks); everything
+## after this is `_gui_input()`'s own branch, so there is one place that decides what a slide or a lift means.
+func ring_touch_feed(ev: InputEvent) -> void:
+	_gui_input(ev)
+
+
 ## MS-5 (Ruling EC item 3): a second finger has landed, so whatever the first finger was doing is no longer a
 ## one-finger gesture. Returns true when this control ended a gesture and the host should swallow the rest of
 ## that finger's events, false when it left the gesture alone.
