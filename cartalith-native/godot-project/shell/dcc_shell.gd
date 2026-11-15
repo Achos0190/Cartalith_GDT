@@ -1536,6 +1536,9 @@ func _sync_dock_slot(is_left: bool) -> void:
 ## A press on the map while a floating dock is open closes it (Ruling DU Q8). Never consumes the event: the press
 ## still reaches the map. A press inside the open dock, or outside the map (the menu bar, the rail), is left alone.
 func _input(ev: InputEvent) -> void:
+	## A tap anywhere dismisses the first-run coach tips; it is not consumed, so it still reaches whatever is beneath.
+	if not _coach_live.is_empty() and ((ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) 			or (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed)):
+		_dismiss_coach_tips()
 	if _left_slot == null and _right_slot == null:
 		return
 	var pressed := (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) \
@@ -7426,6 +7429,7 @@ func _build_phone_shell() -> void:
 	_tool_strip = ToolStrip.new()
 	_tool_fan.strip = _tool_strip
 	_tool_strip.setup(self, _tool_fan, _phone_content_gap)
+	_tool_strip.visibility_changed.connect(func(): if _coach_blocked(): _dismiss_coach_tips())
 
 	## Full-height sheets (§13), built by the exact same functions the
 	## desktop/tablet dock uses -- `as_sheet = true` only swaps the header's
@@ -9567,6 +9571,8 @@ func set_phone_detent(det: String) -> void:
 ## is hidden -- `_apply_phone_orientation()` sets the drawer's width instead.
 func _set_phone_detent(det: String, animate: bool = true) -> void:
 	_phone_detent = det
+	if det != "peek":
+		_dismiss_coach_tips()
 	## `BUILD_ANSWERS.md` §4's "detent snap", 8 ms -- and only on the animated
 	## calls. `animate` is false for exactly the two cases that are not a snap
 	## the user performed: the initial layout and a rotation. Buzzing on those
@@ -11725,9 +11731,9 @@ func _refresh_phone_sim_strip() -> void:
 ## merely "keep it brief" -- it is a requirement that a tap land on whatever
 ## is under the toast at any point in its lifetime, so this carries no button
 ## and cannot be the control a `gui_input` walk picks.
-func _show_phone_toast(text: String, near: Control, seconds: float = 2.8) -> void:
+func _show_phone_toast(text: String, near: Control, seconds: float = 2.8) -> Control:
 	if not _phone or _phone_root == null:
-		return
+		return null
 	var wrap := PanelContainer.new()
 	## Investigated (not assumed) after an owner report that a toast read
 	## "faint, with a map label drawn on top": `wrap` is `_phone_root.add_child
@@ -11771,6 +11777,7 @@ func _show_phone_toast(text: String, near: Control, seconds: float = 2.8) -> voi
 	tw.tween_interval(seconds)
 	tw.tween_property(wrap, "modulate:a", 0.0, 0.35)
 	tw.finished.connect(func(): if is_instance_valid(wrap): wrap.queue_free())
+	return wrap
 
 ## Deferred one frame off `_show_phone_toast()` so `wrap.get_combined_minimum_
 ## size()` reflects its actual label text rather than whatever a zero-frame-old
@@ -11786,7 +11793,17 @@ func _position_phone_toast(wrap: Control, near: Control) -> void:
 	if near != null and is_instance_valid(near) and near.is_inside_tree():
 		var r := near.get_global_rect()
 		cx = r.position.x + r.size.x * 0.5
-		cy = r.position.y - _pscale(12) - size.y * 0.5
+		var top := r.position.y
+		if near == _phone_menu_bar:
+			## The bottom-bar coach tip points at the bar, but the sheet (its peek header is a hit area) and the tool strip
+			## sit directly above the bar, so "above the bar" put it over both (owner report 2026-11-15, `final_phone_strip.png`).
+			## It goes above the topmost of the three, and left-aligned: the zoom row sits at the right.
+			if _phone_tool_sheet != null and _phone_tool_sheet.visible:
+				top = minf(top, _phone_tool_sheet.get_global_rect().position.y)
+			if _tool_strip != null and is_instance_valid(_tool_strip) and _tool_strip.visible:
+				top = minf(top, _tool_strip.get_global_rect().position.y)
+			cx = _pscale(12) + size.x * 0.5
+		cy = top - _pscale(12) - size.y * 0.5
 	wrap.position = Vector2(
 		clampf(cx - size.x * 0.5, _pscale(12), maxf(_pscale(12), screen.x - size.x - _pscale(12))),
 		clampf(cy - size.y * 0.5, _pscale(12), maxf(_pscale(12), screen.y - size.y - _pscale(12))))
@@ -11915,6 +11932,40 @@ func _on_phone_entry_screen_visibility(now_visible: bool) -> void:
 		_coach_marks_wait_for_picker = false
 		_show_next_coach_mark(0)
 
+## Marks shown this session. The disk copy can be overwritten by `DccSettings`' own cached save (the rough edge described
+## above `_coach_mark_seen()`); with tips now deferred behind a sheet or a tool, a mark can stay pending long enough for that to
+## matter, so once-only is also held in memory.
+var _coach_seen_session := {}
+
+## Coach tips currently on screen (pruned on use); see `_dismiss_coach_tips()`.
+var _coach_live: Array = []
+
+## True while a tip would land on working UI: the sheet is above its `peek` detent (its content is showing) or the tool
+## strip is visible with a tool other than Inspect armed (its hint, pin recents and verbs sit directly above the peeking sheet).
+func _coach_blocked() -> bool:
+	if _phone_detent != "peek":
+		return true
+	## Inspect shows the strip as just the tool chip (no hint, recents or verbs), which is also the state at first boot, so the
+	## first-run tips would never start; only an armed tool puts content above the sheet.
+	return _tool_strip != null and is_instance_valid(_tool_strip) and _tool_strip.visible and String(get("armed_tool")) != "inspect"
+
+## Removes every live coach tip at once. Never blocks input (the toasts are `MOUSE_FILTER_IGNORE`); the once-only flag was
+## written when the tip appeared, so a dismissed tip does not return.
+func _dismiss_coach_tips() -> void:
+	for t in _coach_live:
+		if is_instance_valid(t):
+			(t as Control).hide()
+			(t as Control).queue_free()
+	_coach_live.clear()
+
+## Probe seam: how many coach tips are on screen now.
+func _coach_live_count() -> int:
+	var n := 0
+	for t in _coach_live:
+		if is_instance_valid(t) and not (t as Node).is_queued_for_deletion():
+			n += 1
+	return n
+
 ## Shows the first mark in `_COACH_MARKS` not yet seen, waits for it to finish
 ## (its own display time plus a beat), then recurses to the next -- so the two
 ## are sequential, never stacked, and a mark already seen on a prior run is
@@ -11944,7 +11995,17 @@ func _show_next_coach_mark(i: int) -> void:
 		near = _phone_menu_bar
 	elif id == "sheet_handle":
 		near = _phone_sheet_grab
-	_show_phone_toast(String(mark.get("text", "")), near, 3.2)
+	## Coach tips must never sit on working UI (owner report 2026-11-15: "Drag this handle" over the pin palette's first
+	## tile row, "MAP - domain - STORY" over the CARTO sheet header and the pin strip). The toast is placed once, above
+	## its anchor, and the sheet then moved under it. So a tip WAITS (not seen, so once-only still holds) while the
+	## sheet shows content or a tool strip is up, and a live tip is dismissed the moment either happens
+	## (`_dismiss_coach_tips()`), or on any tap (`_input`), which it never blocks.
+	if _coach_blocked():
+		get_tree().create_timer(0.6).timeout.connect(_show_next_coach_mark.bind(i))
+		return
+	var tip := _show_phone_toast(String(mark.get("text", "")), near, 3.2)
+	if tip != null:
+		_coach_live.append(tip)
 	_set_coach_mark_seen(id)
 	get_tree().create_timer(3.6).timeout.connect(_show_next_coach_mark.bind(i + 1))
 
@@ -11969,6 +12030,8 @@ func _show_next_coach_mark(i: int) -> void:
 ## itself -- a change to a file this task's ownership boundary does not
 ## permit making here.
 func _coach_mark_seen(id: String) -> bool:
+	if _coach_seen_session.has(id):
+		return true
 	var cfg := ConfigFile.new()
 	cfg.load(DccSettings.CONFIG_PATH)
 	return bool(cfg.get_value("coach_marks", id, false))
@@ -11976,6 +12039,7 @@ func _coach_mark_seen(id: String) -> bool:
 ## Persists that coach mark `id` has been shown (`coach_marks` section of the user config), so it
 ## is never shown again. Preserves other config sections.
 func _set_coach_mark_seen(id: String) -> void:
+	_coach_seen_session[id] = true
 	var cfg := ConfigFile.new()
 	cfg.load(DccSettings.CONFIG_PATH)
 	cfg.set_value("coach_marks", id, true)
