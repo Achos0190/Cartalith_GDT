@@ -3031,13 +3031,19 @@ func cpu_set_thread_count(threads: int) -> bool:
 ## all reach one long before a settings row is opened. `_ready()` calls this
 ## before `_restore_gpu_prefs()` for that reason and no other.
 ##
-## Unset (`0`) is left alone rather than pushed: `0` is the engine's own
-## "follow Rayon's default" and setting it would build the pool early for no
-## gain, taking the choice away from a later caller who might set a real one.
+## Unset (`0`, "auto") is pushed too (changed 2026-11-15, `fbf2a0d6`'s
+## leftover): `0` now builds the pool from `cartalith_engine::auto_thread_count`,
+## which counts every core in `Cpus_allowed_list` -- on the OnePlus 6T
+## `available_parallelism()` read 6 of 8 in 35 of 36 starts because the kernel
+## parks two cores, and 8 workers measured ~4 % faster
+## (`PERFORMANCE_BENCHMARKS.md` §12.6). Left unpushed, whichever render or
+## sample first ran a `par_iter()` built the pool at Rayon's default of 6 and
+## the rule never applied. Must never skip `0`: that silently restores the
+## 6-worker pool on big.LITTLE phones.
 func _restore_cpu_pref() -> void:
 	var n := DccSettings.cpu_thread_count()
-	if n > 0 and _has("set_cpu_thread_count"):
-		world_gen.set_cpu_thread_count(n)
+	if _has("set_cpu_thread_count"):
+		world_gen.set_cpu_thread_count(maxi(n, 0))
 
 # -- Files --------------------------------------------------------------------
 

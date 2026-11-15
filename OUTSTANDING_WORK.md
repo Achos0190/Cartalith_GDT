@@ -103,7 +103,7 @@ document, and `STATUS.md` records what lands)
   pop order decides tie-breaks; the in-place jump floods `cartalith_terrain::assign_plates` and `cartalith_civ`'s
   `jfa_dist` (a ping-pong form is a different, also valid, answer); and the D8 accumulation. Each would move generated
   output, so each needs an owner ruling and a re-baseline. Not scheduled.
-- **The thread rule reaches the app only when generation builds the pool first** (2026-11-15,
+- ~~**The thread rule reaches the app only when generation builds the pool first**~~ (built 2026-11-15: `_restore_cpu_pref` now pushes `0` too; `_cpuauto_probe.gd` PASS on the PC, FAIL on the old code; the 6T cold-start check is still to do; see `STATUS.md`) (2026-11-15,
   `cartalith_engine::auto_thread_count`, section 12.6): rayon's global pool is built once per process, and a shell
   `par_iter` (render, sample, bake) before the first generation builds it at rayon's own default, which reads 6 on the
   6T. `engine_bridge.gd::_restore_cpu_pref` pushes only a stored non-zero count; pushing `0` (auto) at boot as well

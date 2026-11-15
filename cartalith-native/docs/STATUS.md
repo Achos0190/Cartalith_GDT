@@ -50,6 +50,9 @@ Credential Manager entry `Cartalith/LLM/anthropic`, and the Cartalith CPL Scratc
 
 ---
 
+### App builds the thread pool from the big.LITTLE rule at boot (2026-11-15): BUILT, verified on the PC
+`engine_bridge.gd::_restore_cpu_pref` now pushes the stored count even when it is `0` (auto), so the pool is built at boot from `cartalith_engine::auto_thread_count` before any render or sample can build it at Rayon's default (6 on the 6T). Probe `_cpuauto_probe.gd` (headless, scratch APPDATA): new code `active=16 cores=16 PASS`; the old code `active=0 ... FAIL` (no pool at boot). Not yet checked with `cpu_thread_count_active()` on the 6T after a cold start, which is where the gain is (8 workers against 6, about 4 %, `PERFORMANCE_BENCHMARKS.md` §12.6).
+
 ### Serial generation stages parallelised, bit-identically; GPU per stage and the big.LITTLE thread rule (2026-11-15, owner: "use the multicore/multithreading ... a base for the pad and other mobile devices")
 
 Measured on the PC and the OnePlus 6T over `adb` (the Pad 3 was off) with `device_stage_bench`, release with LTO,
