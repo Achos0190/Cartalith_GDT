@@ -22,7 +22,7 @@ are taken from the sheet's regular grid with a +-3 px refinement. All 40 were ch
 | 1 | capital, town, village, castle, ruin | capital, town, village, castle, ruin |
 | 2 | harbour, bridge, market, mine, temple | harbour, bridge, market, mine, monument |
 | 3 | mountain, forest, waterfall, lake, cave | mountain, forest, waterfall, lake, cave |
-| 4 | volcano, hills, farmland, rockfall, wildlife | volcano, desert, farmland, hazard, wildlife |
+| 4 | volcano, desert, farmland, rockfall, wildlife | volcano, desert, farmland, hazard, wildlife |
 
 Names are the coordinator's reading of each picture; mapping them onto the engine's kinds (POI kinds, landmark
 kinds, settlement tiers) is the integration's job.
