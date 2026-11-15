@@ -118,22 +118,48 @@ func _ready() -> void:
 
 # ---- T: the table ------------------------------------------------------------------------------------------------
 
+## True when the set has a pin file named `name` on disk: the ground truth the table checks are measured against, so the
+## probe never asserts the table against itself.
+func _file(iset: String, name: String) -> bool:
+	return FileAccess.file_exists(ProjectSettings.globalize_path("res://icons/pins/%s/%s.png" % [iset, name]))
+
+
 func _leg_t() -> void:
 	print("== T. the kind-to-icon table ==")
 	_ok("T1: glyph temple has a file", Pin.icon_name_for("glyph", "temple") == "temple")
-	_ok("T1: glyph quarry shares the mine pick", Pin.icon_name_for("glyph", "quarry") == "mine")
+	# Re-pointed 2026-11-15 (commits c516ddb3, 0216fe10, d3560db1 drew ~40 glyph pins and 3209bc13/85b9e2ff the painted
+	# extras): a set's OWN file named like the kind wins over a `KIND_ICON` row, so quarry no longer shares the mine pick.
+	# The expected facts are the files on disk (`_file`), not the table.
+	_ok("T0: the files this leg reasons about exist on disk (quarry, temple, monument in both sets, fort, tavern)",
+		_file("glyph", "quarry") and _file("painted", "quarry") and _file("glyph", "temple") and _file("painted", "temple")
+		and _file("glyph", "monument") and _file("painted", "monument") and _file("glyph", "fort") and _file("glyph", "tavern")
+		and not _file("glyph", "peak") and not _file("glyph", "citadel") and not _file("painted", "citadel") and not _file("glyph", "hazard"))
+	_ok("T1: glyph and painted quarry have their own file (it wins over the old shared mine pick)",
+		Pin.icon_name_for("glyph", "quarry") == "quarry" and Pin.icon_name_for("painted", "quarry") == "quarry")
+	_ok("T1: an alias row still serves a kind with no file of its own (peak -> mountain, resource_extraction_site -> mine)",
+		Pin.icon_name_for("glyph", "peak") == "mountain" and Pin.icon_name_for("glyph", "resource_extraction_site") == "mine"
+		and Pin.icon_name_for("painted", "resource_extraction_site") == "mine")
 	_ok("T1: painted monument has a file", Pin.icon_name_for("painted", "monument") == "monument")
-	_ok("T2: painted has no temple, so it is NOT lent the obelisk", Pin.icon_name_for("painted", "temple") == "")
-	_ok("T2: glyph has no monument, so it is NOT lent the temple", Pin.icon_name_for("glyph", "monument") == "")
+	# Re-pointed 2026-11-15: painted/temple.png (the coded painting, owner "Do A") and glyph/monument.png now exist, so each
+	# resolves to its own file and neither borrows the other's picture (the borrowing this pair guarded is still refused).
+	_ok("T2: painted temple is its own file, NOT lent the obelisk", Pin.icon_name_for("painted", "temple") == "temple")
+	_ok("T2: glyph monument is its own file, NOT lent the temple", Pin.icon_name_for("glyph", "monument") == "monument")
 	_ok("T2: painted has its own shrine, fort, tomb and tavern files (the extra sheet)", Pin.icon_name_for("painted", "shrine") == "shrine"
 		and Pin.icon_name_for("painted", "fort") == "fort" and Pin.icon_name_for("painted", "tomb") == "tomb" and Pin.icon_name_for("painted", "tavern") == "tavern")
 	_ok("T2: the owner's three named mappings", Pin.icon_name_for("painted", "battlefield_historic") == "battlefield"
 		and Pin.icon_name_for("painted", "destroyed_fortress") == "ruin" and Pin.icon_name_for("painted", "historic_crossing") == "historic_crossing"
 		and Pin.icon_name_for("painted", "other") == "other")
-	for k in ["fort", "watchtower", "fortified_pass", "fortified_crossing", "citadel", "gate", "border_marker"]:
-		_ok("T3: '%s' never borrows the castle (owner: Fort can't borrow)" % k,
-			Pin.icon_name_for("glyph", k) == "" and Pin.icon_name_for("painted", k) != "castle")
-	for k in ["tavern", "smithy", "guild", "well", "camp", "other", "", "no_such_kind"]:
+	# Re-pointed 2026-11-15: the glyph set now draws these kinds' own pins (fort is a timber stockade), so the owner's rule
+	# "Fort can't borrow" reads as: each resolves to ITS OWN file in both sets, never `castle`. `citadel` has no file in either
+	# set and no row, so it still draws the drawn pin.
+	for k in ["fort", "watchtower", "fortified_pass", "fortified_crossing", "gate", "border_marker"]:
+		_ok("T3: '%s' has its own icon in both sets and never borrows the castle (owner: Fort can't borrow)" % k,
+			_file("glyph", k) and _file("painted", k) and Pin.icon_name_for("glyph", k) == k and Pin.icon_name_for("painted", k) == k)
+	_ok("T3: 'citadel' (no file, no row) never borrows the castle: the drawn pin in both sets",
+		Pin.icon_name_for("glyph", "citadel") == "" and Pin.icon_name_for("painted", "citadel") == "")
+	for k in ["tavern", "smithy", "guild", "well", "camp", "other"]:
+		_ok("T4: kind '%s' has its own glyph file (drawn code, d3560db1)" % k, _file("glyph", k) and Pin.icon_name_for("glyph", k) == k)
+	for k in ["citadel", "hazard", "", "no_such_kind"]:
 		_ok("T4: kind '%s' has no glyph icon (the drawn pin)" % k, Pin.icon_name_for("glyph", k) == "")
 	_ok("T5: no set draws the drawn pin", Pin.icon_name_for("", "temple") == "")
 	var dead: Array = []
@@ -144,10 +170,13 @@ func _leg_t() -> void:
 	var sh := Pin.shape(20.0, "temple", "glyph")
 	_ok("T7: the glyph pin is as tall as the drawn pin (within 3%: the cut leaves a 2 px margin above the head)", absf(float(sh["r"]) * (1.0 + float(sh["stem"])) / ((Pin.STEM_RATIO + 1.0) * 20.0) - 1.0) < 0.03, str(sh))
 	_ok("T7: its stem ratio is the cut's 1.37 (not the drawn 2.1)", absf(float(sh["stem"]) - 1.3663) < 0.06, str(sh["stem"]))
-	var fb := Pin.shape(20.0, "tavern", "glyph")
+	var fb := Pin.shape(20.0, "citadel", "glyph")
 	var fortsh := Pin.shape(20.0, "fort", "painted")
-	_ok("T7: a painted extra pin has its own, longer stem (measured per texture, %.2f)" % float(fortsh["stem"]), float(fortsh["stem"]) > 1.5 and fortsh["icon"] == "fort")
-	_ok("T8: the fallback shape is the drawn pin", float(fb["r"]) == 20.0 and float(fb["stem"]) == Pin.STEM_RATIO and fb["icon"] == "")
+	# Re-pointed 2026-11-15: the old `> 1.5` assumed the extra sheet's tip factor K (1.575 to 1.875) was the stem ratio; the PNG's
+	# alpha (read independently with PIL: top row 2, widest row 103 px, height 128) gives 1.4466, longer than the glyph's 1.377.
+	_ok("T7: a painted extra pin has its own, longer stem (measured per texture, %.3f; the file reads 1.447 vs glyph 1.377)" % float(fortsh["stem"]),
+		absf(float(fortsh["stem"]) - 1.4466) < 0.03 and float(fortsh["stem"]) > float(sh["stem"]) + 0.03 and fortsh["icon"] == "fort")
+	_ok("T8: the fallback shape (kind 'citadel', no icon) is the drawn pin", float(fb["r"]) == 20.0 and float(fb["stem"]) == Pin.STEM_RATIO and fb["icon"] == "")
 	_ok("T9: the Marker style list is Pins, Circles, icons, painted", DccSettings.MARKER_STYLES == ["pins", "circles", "icons", "painted"])
 
 
@@ -214,12 +243,14 @@ func _leg_r() -> void:
 			_alpha_at(tilted, Vector2(150, 250) + (Vector2(0.0, -4.0)).rotated(ang)) > 0.5)
 		var noted := await _render(kind, iset, 0.0, true)
 		_ok("R4 %s: a linked note shows as an orange badge on the head" % iset, _differing(noted, icon) > 30)
-	var tav_icon := await _render("tavern", "glyph", 0.0)
-	var tav_pin := await _render("tavern", "", 0.0)
+	# Re-pointed 2026-11-15: tavern and fort now have glyph files (d3560db1), so the unmapped-kind probe kind is 'citadel'.
+	var tav_icon := await _render("citadel", "glyph", 0.0)
+	var tav_pin := await _render("citadel", "", 0.0)
 	_ok("R5: an unmapped kind draws the drawn pin exactly (the fallback), %d px differ" % _differing(tav_icon, tav_pin), _differing(tav_icon, tav_pin) == 0)
 	_ok("R5: and that is not the icon's silhouette", _opaque(tav_icon) < _opaque(await _render("temple", "glyph", 0.0)))
 	var fort_glyph := await _render("fort", "glyph", 0.0)
-	_ok("R6: a fort in the glyph set (no fort icon) stays the drawn pin", _differing(fort_glyph, await _render("fort", "", 0.0)) == 0)
+	_ok("R6: a fort in the glyph set draws its own stockade pin (glyph/fort.png, d3560db1), not the drawn pin", _differing(fort_glyph, await _render("fort", "", 0.0)) > 400)
+	_ok("R6: a citadel in the glyph set (no icon, fortified) stays the drawn pin", _differing(await _render("citadel", "glyph", 0.0), await _render("citadel", "", 0.0)) == 0)
 	var fort_painted := await _render("fort", "painted", 0.0)
 	_ok("R6: a fort in the painted set draws its own pin", _differing(fort_painted, await _render("fort", "", 0.0)) > 400)
 	var fp_sh := Pin.shape(20.0, "fort", "painted")
@@ -249,7 +280,7 @@ func _leg_h() -> void:
 		_ok("H4 %s: 6 px outside the head is a miss" % iset, not Pin.hit_styled(tip, r, out, 2.0, false, 0.0, kind, iset))
 		var edge := tip + up + Vector2(float(sh["r"]) * 0.95, 0.0)
 		_ok("H5 %s: its footprint is the texture's (bigger than the drawn pin's head)" % iset,
-			Pin.hit_styled(tip, r, edge, 0.0, false, 0.0, kind, iset) and not Pin.hit_styled(tip, r, edge, 0.0, false, 0.0, "tavern", iset))
+			Pin.hit_styled(tip, r, edge, 0.0, false, 0.0, kind, iset) and not Pin.hit_styled(tip, r, edge, 0.0, false, 0.0, "citadel", iset))
 		_ok("H6 %s: the rank distance is 0 on the textured axis" % iset, Pin.rank_distance(tip, r, tip + up.rotated(ang), false, ang, kind, iset) < 0.01)
 	_ok("H7: a collision test uses the icon's head (two icon pins 15 px apart collide; two drawn ones do not)",
 		Pin.tilt_angles([{"id": 1, "pos": Vector2(0, 0), "r": 10.0, "kind": "temple"}, {"id": 2, "pos": Vector2(15, 0), "r": 10.0, "kind": "temple"}], "glyph").size() == 2

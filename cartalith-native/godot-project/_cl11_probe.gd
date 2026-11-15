@@ -524,7 +524,10 @@ func _leg_b() -> void:
 	var orange := await _pixel(head + Vector2(r * 0.85, 0.0))
 	_ok("B3: the pin is orange (%s)" % orange, _is_orange(orange))
 	var other := _pin(1)
-	var w2 := await _pixel((other["head"] as Vector2) + Vector2(float(other["r"]) * 0.85, 0.0))
+	# 2026-11-15: sampled at 0.6 r, inside the disc and clear of the outline. At 0.85 r the pixel is the outline's anti-aliased
+	# edge (measured 0.859, 0.847, 0.824, white blended ~12% with ink; the disc itself is 0.9725, 0.9647, 0.9412 out to 0.8 r),
+	# which the `_is_white` threshold (> 0.92) rightly refuses.
+	var w2 := await _pixel((other["head"] as Vector2) + Vector2(float(other["r"]) * 0.6, 0.0))
 	_ok("B3: the other POI is still white (%s)" % w2, _is_white(w2))
 	await _shot("cl11_orange_desk.png")
 	await _click(head)
@@ -872,7 +875,8 @@ func _leg_g() -> void:
 			_ok("G2 %s: the head centre picks in all three tests" % lm_name, on_head[0] and on_head[1] and on_head[2], str(on_head))
 			_ok("G2 %s: a pad and 2 px beside the tip (outside the narrow stem) picks in none" % lm_name, not on_side[0] and not on_side[1] and not on_side[2], str(on_side))
 		## Pixels: the old ring has no white teardrop; a pin has a white (no note) head.
-		var px_head := await _pixel(at_head + Vector2(lr * 0.85, 0.0))
+		# 0.6 r, not 0.85 r: the latter lands on the outline's anti-aliased edge (0.686 grey measured), the disc is white to 0.8 r.
+		var px_head := await _pixel(at_head + Vector2(lr * 0.85 if circ else lr * 0.6, 0.0))
 		var px_ring := await _pixel(ltip + Vector2(lr, 0.0))
 		if circ:
 			_ok("G3 %s: nothing white at the pin's head position (%s): the pin is not drawn" % [lm_name, px_head], not _is_white(px_head))
