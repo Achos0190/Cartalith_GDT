@@ -504,8 +504,75 @@ func _fit_box() -> Rect2:
 	if not (hi.x > lo.x and hi.y > lo.y):
 		return Rect2(Vector2.ZERO,
 			Vector2(float(_layout.get("wm", 1700.0)), float(_layout.get("hm", 1250.0))))
-	var pad := (hi - lo) * 0.08
-	return Rect2(lo - pad, (hi - lo) + pad * 2.0)
+	var built := Rect2(lo, hi - lo)
+	var grown := fit_with_water(built, _layout)
+	var pad := grown.size * 0.08
+	return Rect2(grown.position - pad, grown.size + pad * 2.0)
+
+
+## How far from the built mass a stretch of water may be and still pull the opening frame out to it, as a share of the
+## built mass's longer side. **A labelled judgement, not a measurement**: on seed 483920 at 384 x 288 the nearest water
+## sat 1 to 218 m outside the frame of 37 of 221 river-kind towns (median 31 m, against frames 150-210 m wide), and a
+## quarter of a frame is the most that still reads as "the same place". At 0.6 the frame's longer side grows by at most
+## 0.6 + `WATER_MARGIN_RIVER_W` river widths, under about 1.7x, so a town never shrinks below roughly 60% of its old size
+## on screen. Water farther away than this is left outside (the canvas pans and zooms).
+const WATER_FIT_MAX_GAP := 0.6
+
+## The floor under that bound, in model metres, for a hamlet whose whole built mass is a few tens of metres across (on
+## seed 483920 five frames are under 35 m wide) and for which 0.6 of its side is under a house-length. Labelled
+## judgement: about three building depths; it lets a 28 m hamlet reach water 30 m off, which still keeps the town above
+## a third of the frame.
+const WATER_FIT_MIN_GAP_M := 30.0
+
+## The part of the river's width kept beyond the nearest water point so the stroke shows whole, not as a sliver at the
+## frame's edge. Labelled judgement: one river width each side of the nearest point.
+const WATER_MARGIN_RIVER_W := 1.0
+
+
+## `built` (the wall ring or the building mass, model metres) grown to take in the NEAREST stretch of the layout's
+## water when none of it lies inside `built`: a town whose identity is its river must show it at the opening frame, and
+## the built mass alone left it 1-218 m outside for 37 of 221 river-kind towns on seed 483920 (OUTSTANDING_WORK.md
+## "Town placement ... (d)"). Water counted: the `river` centreline, the `water_poly` body, and the `water_mask_runs`
+## quads, the same three the draws read. Returns `built` untouched when there is no water, when some water already
+## touches it, or when the nearest water is farther than `WATER_FIT_MAX_GAP` times its longer side (never less than `WATER_FIT_MIN_GAP_M`). Must never shrink
+## `built`, and must never grow it by more than that gap plus `WATER_MARGIN_RIVER_W` river widths on one side. Static and
+## pure so a probe can drive it with a literal layout.
+static func fit_with_water(built: Rect2, layout: Dictionary) -> Rect2:
+	## A lambda captures a local number by value, so the running best lives in an array both lambdas share.
+	var st: Array = [INF, Vector2.ZERO]
+	var consider := func(p: Vector2) -> void:
+		var q := Vector2(clampf(p.x, built.position.x, built.end.x), clampf(p.y, built.position.y, built.end.y))
+		var d := q.distance_to(p)
+		if d < float(st[0]):
+			st[0] = d
+			st[1] = p
+	## A polyline or ring, sampled eight times per segment so a long segment passing the box reports where it passes,
+	## not only its far vertices.
+	var walk := func(pts: PackedVector2Array, closed: bool) -> void:
+		var n := pts.size()
+		for i in (n if closed else n - 1):
+			var a := pts[i]
+			var b := pts[(i + 1) % n]
+			for t in 9:
+				consider.call(a.lerp(b, float(t) / 8.0))
+	walk.call(layout.get("river", PackedVector2Array()), false)
+	walk.call(layout.get("water_poly", PackedVector2Array()), true)
+	for run in layout.get("water_mask_runs", []):
+		var quad: PackedVector2Array = run
+		if quad.size() < 4:
+			continue
+		var r := Rect2(quad[0], quad[2] - quad[0]).abs()
+		var inside := Vector2(clampf(r.get_center().x, built.position.x, built.end.x),
+			clampf(r.get_center().y, built.position.y, built.end.y))
+		consider.call(Vector2(clampf(inside.x, r.position.x, r.end.x), clampf(inside.y, r.position.y, r.end.y)))
+	var best: float = st[0]
+	var best_pt: Vector2 = st[1]
+	if best == INF or best <= 0.0:
+		return built
+	if best > maxf(maxf(built.size.x, built.size.y) * WATER_FIT_MAX_GAP, WATER_FIT_MIN_GAP_M):
+		return built
+	var m := float(layout.get("river_w", 20.0)) * WATER_MARGIN_RIVER_W
+	return built.merge(Rect2(best_pt - Vector2(m, m), Vector2(m, m) * 2.0))
 
 
 ## Draws the plan: panel, ground, then `DRAW.draw_layout` through a model-metre
