@@ -1082,3 +1082,108 @@ each run, one `SNAP_REPS=1 SNAP_WARM=0` process per run). With the Pad on adb an
 `thermal.txt` when `ALLDONE` is the last line (about 30 minutes). The digest to expect is `terrain=632b22edf25908e1
 civ=65905050eba0a3e3` unless commits since 12.6 moved the civ half (`ed6e3b96`'s riverbank change is a 7p layout switch;
 compare against a PC run of the same commit).
+
+### 12.8 The GPU used only where it pays: one GPU world on every device (2026-11-15, Ruling EZ item 3)
+
+**The ruling** (owner, 2026-11-15, verbatim): *"Yes, gpu should be used in the most efficient way."* It answered 12.6's
+narrower option (plate assignment and the blur only) and extended it: use the GPU only for kernels measured faster on the
+device, keep the device-identical ones, so the GPU path gains speed and stops making a different world per device.
+Defaults unchanged (Ruling EY: touch devices on the CPU, the PC on the GPU; Ruling EZ item 2: the user's setting wins).
+
+**The policy: a fixed list, `cartalith_engine::GPU_PATH_KERNELS` = plate assignment and the plate-base blur.** A kernel is on the GPU only when (a) fed the same
+inputs it gives the same bits on every device measured, and (b) it is faster than its CPU stage on every device
+measured. Not a per-device calibration: a kernel on the GPU on one device and the CPU on another would make two worlds
+again, which (a) exists to prevent, and a calibration pass would cost a start-up measurement for a choice the table
+below already settles. Every other GPU-capable stage runs its CPU function in the GPU path as well.
+
+#### Per kernel, fed the same CPU inputs (`gpu_divergence_bench`, 2048 x 1311, seed 12345, median of 3)
+
+| kernel | same bits on PC, 6T and Pad 3? | GPU / CPU ms, PC | GPU / CPU ms, 6T | GPU / CPU ms, Pad 3 | in the GPU path |
+|---|---|---|---|---|---|
+| plate assignment | yes (`6772947d`) | 11 / 279 (12.6) | 313 / 1 013 | 41 / 514 | **GPU** |
+| plate-base blur | yes (`d99f0762`, = its f32 CPU mirror) | 4 / 47 (12.6) | 185 / 420 | 19 / 137 | **GPU** |
+| flow (plain D8, fixed point) | yes (`e73f7783`, = the CPU's on this input) | 19 / 30 (one run) | 585 / 950 | 132 / 101 | CPU: slower on the Pad |
+| stress | yes (`7b869fb9`) | 24 / 63 (12.6) | 645 / 575 | 99 / 237 | CPU: slower on the 6T |
+| flexure blur | **no** before the fix below (6T `b63f3458`); yes after (`861d2ab7`, = its mirror) | 13 / 52 (one run) | 482 / 373 | 50 / 134 | CPU: slower on the 6T |
+| warp | **no** (`b6f9c648` / `abb0cb86` / `73adf2b2`) | 6 / 80 (12.6) | 335 / 313 | 105 / 145 | CPU |
+| heterogeneity | **no** (`29a576a9` / `3e7f9860` / `8c8e8810`) | 7 / 26 (12.6) | 153 / 167 | 32 / 55 | CPU |
+| weather | **no** (`effcd018` / `3bcde0dd` / `ce8d466a`) | 17 / 26 (12.6) | 414 / 319 | 137 / 169 | CPU |
+
+The 6T and Pad columns are from the after build (3 repetitions each); "(12.6)" marks PC figures quoted from 12.6's table
+(this pass's PC runs were single repetitions beside a build, used for the hashes). The Pad 3 is the Adreno 830, reached
+over wifi adb at the end of this pass: on it the GPU wins every kernel but flow, and the three float-heavy kernels
+differ from both other devices, a third set of hashes.
+
+**The civilisation layer's two GPU kernels** (resource potentials, settlement suitability; `GPU_LAYER_INTEGRATION_SCOPE.md`
+P2) were also on the app's GPU path, although 12.6's harness never ran them (`device_stage_bench` passed `false`). Over
+the same CPU terrain (`SNAP_GPU=0 SNAP_CIV_GPU=1`, a knob added for this and removed with the kernels' wiring) they gave
+civ digest `ffb0fad0924416eb` on the PC and `92a1116047014fe3` on the 6T, against the CPU's `65905050eba0a3e3`: they
+differ between devices, and on the 6T the civilisation stage took 11.10 s (11.09..11.20) with them against 10.41 s
+(10.40..10.48) without, 3 runs each. **Moved to the CPU on both paths.**
+
+**One kernel fixed instead of dropped: the blur's normaliser.** The box blur's shader computed `1.0 / (2.0 * f32(r) +
+1.0)`, and WGSL lets the driver round f32 division to 2.5 ULP. At the plate-base blur's radius both GPUs happened to
+agree; at the flexure blur's (three times larger) the Adreno 630 did not. The normaliser is now computed on the CPU and
+uploaded (`cartalith_gpu::blur_norm`, `BlurParams::norm`), so the kernel is f32 adds and one multiply, correctly rounded
+in WGSL with nothing to fuse. Measured after: the 6T's flexure blur is `861d2ab7`, the PC's and the f32 mirror's; the
+PC's outputs did not move. This makes the blur safe at any radius a user's settings reach, not only the default.
+
+**Warp, heterogeneity and weather were not made deterministic**: their divergence is FMA contraction of `a * b + c` in
+the value-noise interpolation and the precision of division and `exp` (12.6), and WGSL has no way to forbid contraction;
+the cheap fix that worked for the blur (lift the one division out) does not exist for them. Integer or fixed-point noise
+would, at the cost of a new kernel and a new GPU world, for kernels that are no faster on the 6T anyway. Not done.
+
+#### End to end (`device_stage_bench`, `params::defaults()`, 2048 x 1311, seed 12345; median, min..max, seconds)
+
+Each run its own process with one untimed warm-up generation, interleaved; the 6T with a 20 s cooldown and the
+app-under-10 %-CPU guard of 12.1 (the app was installed and idle at about 7 %), the PC 5 s apart. "Before" is
+`origin/main` `5cfd8b5a` with only the harness lines of this pass added; its GPU path is the app's (terrain and civ
+kernels on the GPU). On the 6T, session 2 is three rounds of before-GPU, after-GPU and after-CPU, then two more
+rounds of after-GPU and after-CPU.
+
+| | 6T, CPU path | 6T, GPU path before | 6T, GPU path after | PC, CPU path | PC, GPU path before | PC, GPU path after |
+|---|---|---|---|---|---|---|
+| session 1 (before build only) | 39.77 (39.54..40.07), 3 | 41.54 (41.39..42.32), 3 | -- | 8.11 (7.47..8.14), 5 | 7.78 (7.68..7.80), 5 | -- |
+| session 2 (both builds interleaved) | 40.13 (39.83..40.53), 5 | 42.39 (42.15..42.79), 3 | **38.94 (38.67..39.93), 5** | 8.08 (7.20..8.36), 5 | 7.81 (6.92..8.00), 5 | 7.70 (6.87..7.87), 5 |
+
+**Reading it.** On the 6T the narrowed GPU path is now **faster than the CPU path in each of the 5 interleaved pairs**,
+by 1.19 s (3 %) at the median, where the old GPU path was slower than the CPU (as in 12.2 and 12.6; here by 2.26 s in
+session 2). The ranges overlap by one run: the fourth GPU run took 39.93 s against the CPU's fastest 39.83 s, and its
+tectonics stage got no gain that time (14.39 s). The gain is in tectonics: 13.49 s (13.43..14.39) on the GPU path
+against 14.71 s (14.43..15.05) on the CPU, 5 runs each, about what plate assignment and the base blur save per kernel
+(0.70 s and 0.24 s). On the PC the after GPU path's range
+overlaps both the before GPU path's and the CPU path's: **no difference is established on the PC** (its runs were
+bimodal, 6.9-7.2 s and 7.7-8.4 s, with other sessions' work on the machine). Ruling EY's default is not changed by this
+(item 2; the owner's call).
+
+**The Pad 3** (after build only, 3 interleaved rounds, 60 s cooldown, on battery at 79 %, `Thermal Status: 0`): GPU path
+19.11 s (16.53..19.17), CPU path 20.61 s (17.24..44.26). **No difference is established**: the CPU runs were erratic
+(the first ran its tectonics stage at 1.15 busy cores, 18.4 s against 7.3 s in the next), and the device was not on
+power; 12.7's coordinator run, plugged in, measured the CPU path at 15.69 s. The Pad's tectonics stage on the GPU path
+was 5.48-5.80 s against 7.29 s on the one CPU run that kept its cores busy. Re-time on power before quoting a Pad gain.
+
+#### Digests: one GPU world on the PC, the 6T and the Pad 3
+
+| path | PC (RX 7800 XT) | 6T (Adreno 630) | Pad 3 |
+|---|---|---|---|
+| CPU, before and after | `terrain=632b22edf25908e1 civ=65905050eba0a3e3`, 60 ways | the same | the same (after; 3 runs) |
+| GPU, before | `terrain=dcdd2bce8534e95e civ=2246d269f98d0c1c`, 67 ways | `terrain=14fa38faada65f7a civ=cdae05df4b826260`, 64 ways | not measured |
+| GPU, after | **`terrain=a0fe3f3e1093a283 civ=7b7f5c7d8584465a`**, 62 ways | **the same** | **the same** (3 runs) |
+
+The GPU-before civ halves differ from 12.6's (`f23e16afb93fbc19`, `a06b729d7654569a`) because 12.6's harness ran the
+civilisation on the CPU. Every run of each build printed its device's digest (PC 10 GPU runs, 6T 6 before and 5
+after, Pad 3 after). **Flow left the GPU list after these runs**, when the Pad measured it slower than its CPU stage;
+the app's world never reached it (rough routing), and the final tree, rebased on `dab668a8`, printed the same PC
+digests for both paths.
+
+**Section 7p.** This changes which world the GPU path makes, for every seed, on every device (and, on a world without
+rough routing, its flow accumulation too). No switch was kept:
+`DECISIONS.md` section 7p says a superseded approach is scrubbed, not kept as an alternate mode; the old GPU world was
+not a stable world to preserve (it differed per device); the GPU path is under section 7a's principled equivalence, not
+golden parity, so no golden moves; and saved worlds store their height field (`SAVEFILE_COMPAT.md`, `heightmap.f32`
+MUST), so no saved world changes when it is opened. The CPU path and its digest are unchanged (above), by control
+flow: every edit is inside a `use_gpu` branch, the civ layer's CPU calls, or the GPU kernel.
+
+**Reproducing:** the commands of 12.6, and on the handset
+`SNAP_REPS=1 SNAP_WARM=1 SNAP_GPU=1 ./<binary> device_stage_bench --ignored --nocapture --test-threads 1` (the driver
+used is a 20-line shell loop: one process per run, 20 s sleep, the app guard).

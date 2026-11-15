@@ -304,7 +304,7 @@ mod tests {
     /// call, never a stub.
     fn civ_at(p: &cartalith_engine::WorldParams, ws: &cartalith_engine::WorldState) -> crate::CivData {
         let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
-        compute_civilisation(ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), None, p.lake_balance)
+        compute_civilisation(ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), None, p.lake_balance)
     }
 
     /// Protects: the live refresh's central claim: the classification the

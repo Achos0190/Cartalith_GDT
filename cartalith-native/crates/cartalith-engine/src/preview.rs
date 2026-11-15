@@ -49,17 +49,20 @@
 //!
 //! The preview runs the substrate on the path `p.use_gpu` selects, through the
 //! same gate generation uses ([`crate::open_gpu_set`]). It must: the GPU path
-//! is a *different world* for the same seed (`DECISIONS.md` §7c -- its warp
-//! noise is a different hash), and the shipped shell generates with `use_gpu`
-//! on. Measured (`nwprev_overlap`, 1024 target, `NWPREV_GPU=1`): a CPU-only
+//! is a *different world* for the same seed, and the shipped shell generates
+//! with `use_gpu` on (on the PC). Since Ruling EZ item 3 (2026-11-15) the GPU
+//! path differs from the CPU only in plate assignment and the plate-base blur
+//! (`crate::GPU_PATH_KERNELS`); the measurement below is from before it, when
+//! its warp was different noise (`DECISIONS.md` §7c) and the gap larger.
+//! Measured (`nwprev_overlap`, 1024 target, `NWPREV_GPU=1`): a CPU-only
 //! preview agreed with the GPU-generated world at a median of 81 % on the
 //! 36-plate world against 98 % with the CPU world. The proposal (§6) assumed
 //! "a preview should simply use the CPU stages"; that measurement refutes it.
 //! `init_gpu_device_set` caches the device process-wide, so the handshake is
 //! paid once per process, by whichever of a generation or a preview comes first.
 //!
-//! **Known gap, measured, not fixed here:** the GPU substrate is not as
-//! resolution-stable as the CPU one. Plates and the GPU warp are (same plate
+//! **Known gap, measured before Ruling EZ item 3 (re-measure it):** the GPU
+//! substrate was not as resolution-stable as the CPU one. Plates and the GPU warp are (same plate
 //! fractions at 320, 1024 and 2048), but for the 200 km region at seed 42 the
 //! GPU substrate's land fraction moves with grid width (0.42, 0.54, 0.40, 0.44,
 //! 0.51, 0.56, 0.58 at widths 160..1024), so that seed's GPU preview agrees with

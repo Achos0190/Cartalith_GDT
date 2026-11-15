@@ -2311,7 +2311,7 @@ mod forced_lake_tests {
         let ws = cartalith_engine::generate_terrain(&p);
         let run = |forced: Option<&[u8]>| {
             let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
-            compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), forced, p.lake_balance)
+            compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), forced, p.lake_balance)
         };
         let plain = run(None);
         let s = plain.settlements.first().expect("premise: the fixture world places settlements");
@@ -2393,8 +2393,7 @@ mod civ_pipeline_tests {
         let ws = &world().0;
         let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
         compute_civilisation(
-            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, cultures, None, (&o, &w), false,
-            &mut Vec::new(),
+            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, cultures, None, (&o, &w),
             None, p.lake_balance,
         )
     }
@@ -2584,8 +2583,7 @@ mod civ_pipeline_tests {
             way_tids: cartalith_civ::timeline::civ_way_tid_index(&from.ways, &from.settlements),
         };
         compute_civilisation(
-            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], Some(keep), (&o, &w), false,
-            &mut Vec::new(),
+            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], Some(keep), (&o, &w),
             None, p.lake_balance,
         )
     }
@@ -2875,8 +2873,7 @@ mod civ_pipeline_tests {
         let run = |p: &cartalith_engine::WorldParams| {
             let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
             compute_civilisation(
-                ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
-                &mut Vec::new(),
+                ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w),
                 None, p.lake_balance,
             )
         };
@@ -4855,18 +4852,6 @@ fn compute_civilisation(
     // comment for why it is computed there and handed in rather than
     // re-derived here.
     ocean_wind: (&cartalith_civ::JpCoarseField, &cartalith_civ::JpCoarseField),
-    // `WorldParams::use_gpu`. Moves two Phase 2 affordance fields to the GPU
-    // (`OUTSTANDING_WORK.md` §2.6): resource potentials' per-cell kernel and
-    // settlement suitability. Each falls back to its CPU function on its own
-    // (`HARDWARE_ACCELERATION.md` §27). Biome and carrying capacity have GPU
-    // kernels too (`cartalith_gpu::biome_raster_grid_gpu_with`,
-    // `carrying_capacity_grid_gpu_with`) and are deliberately NOT called
-    // here: measured slower than the CPU at every size, see that row.
-    use_gpu: bool,
-    // Which of those two actually ran on GPU, appended as
-    // `"resource_potentials"`/`"settlement_suitability"` -- the same
-    // report-what-ran rule `WorldState::gpu_stages_used` follows.
-    gpu_stages: &mut Vec<String>,
     // Ruling BO: the world's forced lakes (`WorldGen::forced_lakes`), applied
     // to the classification straight after `build_water_bodies` -- where the
     // reference applies `forceLake`, inside `buildWaterBodies` -- so every
@@ -4922,63 +4907,30 @@ fn compute_civilisation(
     // after its last reader, so no value computed here can change.
     drop(wetland);
 
-    // The same device gate `generate_terrain` applies (`cartalith-engine`),
-    // and the same process-wide device cache (Ruling Y), so this reopens
-    // nothing when the terrain stage already opened a device.
-    let gpu_set = if use_gpu && cartalith_gpu::gpu_allowed_for_grid(gw, gh) {
-        cartalith_gpu::init_gpu_device_set().ok().filter(|s| s.supports_grid(gw, gh))
-    } else {
-        None
-    };
-    let gpu = gpu_set.as_ref().map(|s| s.primary());
-
-    // GPU: only the per-cell kernel. The copper chamfer distance, the flow
-    // maximum and the scarcity cut are whole-raster steps and run on the CPU
-    // either way -- the same three functions `build_resource_potentials`
-    // itself calls.
-    let resources_gpu = gpu.and_then(|g| {
-        let cu_dist = cartalith_civ::resource_copper_dist(Some(&ws.boundary_type), gw, gh);
-        cartalith_gpu::resource_potentials_grid_gpu_with(
-            g,
-            &cartalith_gpu::ResourceGpuInputs {
-                lith: &lithology,
-                boundary_type: Some(&ws.boundary_type),
-                shear_field: Some(&ws.shear_field),
-                flow: Some(&ws.flow_discharge),
-                biome: Some(&biome),
-                field: &ws.field,
-                rain: &ws.rainfall,
-                age: &ws.age_field,
-                volcanic: Some(&ws.volcanic_field),
-                cu_dist: &cu_dist,
-                flow_max: cartalith_civ::resource_flow_max(Some(&ws.flow_discharge)),
-                gw,
-                sea: sea_level,
-            },
-        )
-    });
-    let mut resources = match resources_gpu {
-        Some(fields) => {
-            gpu_stages.push("resource_potentials".to_string());
-            cartalith_civ::finish_resource_potentials(fields, &ws.field, sea_level, true, false)
-        }
-        None => cartalith_civ::build_resource_potentials(
-            &lithology,
-            Some(&ws.boundary_type),
-            Some(&ws.shear_field),
-            Some(&ws.flow_discharge),
-            Some(&biome),
-            &ws.field,
-            &ws.rainfall,
-            &ws.age_field,
-            gw,
-            gh,
-            sea_level,
-            Some(&ws.volcanic_field),
-            true,
-            false,
-        ),
-    };
+    // The civilisation layer runs on the CPU whatever `WorldParams::use_gpu`
+    // says (Ruling EZ item 3, 2026-11-15; `cartalith_engine::GPU_PATH_KERNELS`).
+    // Its two GPU kernels (resource potentials' per-cell kernel and settlement
+    // suitability, `OUTSTANDING_WORK.md` §2.6) gave different civilisations on
+    // the PC and the 6T over the same CPU terrain (`device_stage_bench` with
+    // `SNAP_GPU=0 SNAP_CIV_GPU=1`: civ digest `ffb0fad0` against `92a11160`;
+    // `PERFORMANCE_BENCHMARKS.md` §12.8) and were not faster end to end on
+    // either. The kernels stay in `cartalith-gpu` with their own tests.
+    let mut resources = cartalith_civ::build_resource_potentials(
+        &lithology,
+        Some(&ws.boundary_type),
+        Some(&ws.shear_field),
+        Some(&ws.flow_discharge),
+        Some(&biome),
+        &ws.field,
+        &ws.rainfall,
+        &ws.age_field,
+        gw,
+        gh,
+        sea_level,
+        Some(&ws.volcanic_field),
+        true,
+        false,
+    );
     // Soil and the resource kernel were its last two readers.
     drop(lithology);
     // `ResourcePotentials` carries all 15 fields (`build_resource_potentials`
@@ -5089,61 +5041,11 @@ fn compute_civilisation(
     // calling `build_slope_field` twice with the identical four arguments over
     // an immutable `ws.field` -- 2.65 ms of the same answer at 2048x2048.
     // `soil_slope` above IS that answer, bit for bit.
-    let suit_gpu = gpu.and_then(|g| {
-        let r = &resources;
-        cartalith_gpu::settlement_suitability_grid_gpu_with(
-            g,
-            &cartalith_gpu::SuitabilityGpuInputs {
-                soil: &soil,
-                water: &water_access,
-                carrying_cap: &carrying_cap,
-                field: &ws.field,
-                slope_n: &soil_slope,
-                water_bodies: &wb.classification,
-                corridor: &corridors,
-                landmass: &landmass.quality,
-                flow: &ws.flow_discharge,
-                river_reach: &river_reach,
-                coast_reach: &coast_reach,
-                river_front: river_front.as_deref(),
-                // `SUIT_RESOURCE_KEYS`' order.
-                resources: [&r.copper, &r.tin, &r.iron, &r.gold, &r.salt, &r.timber, &r.lead, &r.silver, &r.gems],
-                rain: &ws.rainfall,
-                flood: &flood,
-                slope_raw: &raw_slope,
-                flow_thresh,
-                gw,
-                gh,
-                sea: sea_level,
-            },
-            &cartalith_gpu::SuitabilityWeights {
-                k: cartalith_civ::SUIT_W_FULL_K,
-                w: cartalith_civ::SUIT_W_FULL_W,
-                a: cartalith_civ::SUIT_W_FULL_A,
-                d: cartalith_civ::SUIT_W_FULL_D,
-                agri: cartalith_civ::SUIT_W_FULL_AGRI,
-                build: cartalith_civ::SUIT_W_FULL_BUILD,
-                coast: cartalith_civ::SUIT_W_FULL_COAST,
-                river: cartalith_civ::SUIT_W_FULL_RIVER,
-                lake: cartalith_civ::SUIT_W_FULL_LAKE,
-                mineral: cartalith_civ::SUIT_W_FULL_MINERAL,
-                corridor: cartalith_civ::SUIT_W_FULL_CORRIDOR,
-                flood: cartalith_civ::SUIT_W_FULL_FLOOD,
-                islet: cartalith_civ::SUIT_W_FULL_ISLET,
-                islet_knee: cartalith_civ::ISLET_KNEE,
-                river_front: cartalith_civ::SUIT_W_FULL_RIVER_FRONT,
-            },
-        )
-    });
-    let mut suit = match suit_gpu {
-        Some(s) => {
-            gpu_stages.push("settlement_suitability".to_string());
-            s
-        }
-        None => cartalith_civ::build_settlement_suitability(
-            &soil, &water_access, &carrying_cap, &ws.field, &soil_slope, gw, gh, sea_level, Some(&ctx),
-        ),
-    };
+    // CPU whatever `use_gpu` says (Ruling EZ item 3; see the resource
+    // potentials above).
+    let mut suit = cartalith_civ::build_settlement_suitability(
+        &soil, &water_access, &carrying_cap, &ws.field, &soil_slope, gw, gh, sea_level, Some(&ctx),
+    );
     // SG-02: which kept settlements are road-network nodes, as indices back
     // into the kept list. Villages are excluded (see `CivData::village_tids`),
     // so this is not the identity map and `topology`'s edge endpoints have to
@@ -8271,7 +8173,6 @@ impl WorldGen {
         // so every faction is at its default culture.
         self.civ = Some(compute_civilisation(
             &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&ocean_f, &wind_f),
-            p.use_gpu, &mut self.gpu_stages_used,
             // A new world: nothing has been forced on it yet (`absorb` resets
             // `forced_lakes`).
             None,
@@ -9118,10 +9019,10 @@ impl WorldGen {
 
     /// Which GPU-eligible stages actually ran on GPU during the last
     /// `generate()`/`generate_world_structure()` — a subset of
-    /// `["warp", "heterogeneity", "plate_assignment", "stress",
-    /// "base_field_blur", "weather", "flow"]` from `generate_terrain`, then
-    /// `["resource_potentials", "settlement_suitability"]` from
-    /// `compute_civilisation`. A later civilisation rebuild does not change it.
+    /// `cartalith_engine::GPU_PATH_KERNELS` (`["plate_assignment",
+    /// "base_field_blur"]`) from `generate_terrain`. Since Ruling EZ
+    /// item 3 (2026-11-15) the civilisation layer is CPU on both paths and
+    /// adds nothing here.
     ///
     /// Read-only, and deliberately not derivable from the `use_gpu`
     /// parameter: every stage falls back to CPU **individually** on any GPU
@@ -10464,7 +10365,6 @@ impl WorldGen {
         // before the mask was kept on `WorldGen`).
         let computed = compute_civilisation(
             ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &cultures, keep, (&ocean_f, &wind_f),
-            p.use_gpu, &mut Vec::new(),
             self.forced_lake_mask(), p.lake_balance,
         );
         // SP-4: auto-populate reissues every `tid` from 1, so an anchor kept
@@ -10642,7 +10542,7 @@ impl WorldGen {
     /// prints the reason, naming every missing or rejected key.
     ///
     /// CPU or GPU as the dictionary's `use_gpu` says, like Create: the GPU path
-    /// is a different world for the same seed (`DECISIONS.md` §7c), so a CPU
+    /// is a different world for the same seed (`cartalith_engine::GPU_PATH_KERNELS`), so a CPU
     /// preview of a GPU Create would mispredict it (`preview.rs`'s module doc
     /// has the measurement). The GPU device is the process-wide cached one.
     #[func]

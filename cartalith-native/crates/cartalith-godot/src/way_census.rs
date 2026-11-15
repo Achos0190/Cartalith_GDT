@@ -118,7 +118,7 @@ pub(crate) fn params_for(s: &Spec, merge: bool) -> cartalith_engine::WorldParams
 pub(crate) fn civ_for(ws: &cartalith_engine::WorldState, p: &cartalith_engine::WorldParams) -> CivData {
     let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
     compute_civilisation(
-        ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(),
+        ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w),
         None, p.lake_balance,
     )
 }

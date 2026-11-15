@@ -45,6 +45,7 @@ later, or work defined in another document that belongs to the same effort.
 | P2 | GLI-P2 | Phase 2 per-cell affordance fields | this document, "Later milestones from the feasibility table" |
 | E | GLI-E *(added to `STATUS.md` 2026-09-23; this cell said "no row" until 2026-09-24)* | Erosion's per-cell parts (thermal, stream-power) | this document, "Later milestones from the feasibility table" |
 | M | GLI-M | Multi-GPU device set, VRAM budget, split-tiles warp | `HARDWARE_ACCELERATION.md`, "2026-08-20 — Multi-GPU" |
+| EZ3 | GLI-EZ3 | The GPU path narrowed to the kernels that are the same on every device and faster there (Ruling EZ item 3) | this document, "Ruling EZ item 3"; `PERFORMANCE_BENCHMARKS.md` §12.8 |
 | — | *(no row)* | Device reuse *across* generations | `LARGE_ITEM_RULINGS.md` Ruling Y; summarised under milestone 8 |
 
 ## What the pilot established
@@ -935,6 +936,33 @@ not retroactively fix warp/heterogeneity); averaging the timing benchmarks
 over multiple runs; per-pipeline caching across repeated
 `generate_terrain` calls.
 
+## Ruling EZ item 3 — the GPU path keeps only device-identical kernels that pay (2026-11-15)
+
+Owner, verbatim: *"Yes, gpu should be used in the most efficient way."* The
+GPU path (`use_gpu`) now puts a kernel on the GPU only when its output is the
+same bits on every device measured **and** it is faster than its CPU stage on
+every device measured. That is a fixed list,
+`cartalith_engine::GPU_PATH_KERNELS` (plate assignment and the plate-base
+blur), not a per-device calibration: a kernel on the GPU on one device and on
+the CPU on another would make two worlds again. Measured on the PC (RX 7800
+XT), the OnePlus 6T (Adreno 630) and the OnePlus Pad 3 (Adreno 830).
+Everything else this document wired runs its CPU function on both paths: warp
+and heterogeneity (milestone 2) and weather (milestone 7) differ between
+devices, stress (D1) and the flexure blur are slower on the 6T, flow
+(milestone 9) is the same on all three but slower on the Pad, and P2's two
+civilisation kernels differ between devices. The kernels themselves are kept
+in `cartalith-gpu` with their tests, and `gpu_divergence_bench` measures
+every one of them, so the list can be re-checked on a new device. Split
+tiles (M) split only the warp, so its menu item is disabled.
+
+One kernel was fixed rather than dropped: the blur's box normaliser
+`1/(2r+1)` is computed on the CPU and uploaded (`blur_norm`), because the
+in-shader division (WGSL allows f32 division 2.5 ULP) made the flexure
+blur's radius come out differently on the Adreno 630; with the fix all three
+devices give the f32 CPU mirror's bits. The measurements,
+the digests and the before/after timings are `PERFORMANCE_BENCHMARKS.md`
+§12.8; the status is `STATUS.md`'s.
+
 ## Named deferrals
 
 ### D1 — `compute_stress` as a gather
@@ -1016,7 +1044,10 @@ and deliberately not wired. The two wired kernels are principled
 equivalence (`DECISIONS.md` §7a) under `RESOURCES_TOLERANCE` and
 `SUITABILITY_TOLERANCE`, not bit-identity. Evidence: `tests/affordance.rs`;
 `examples/affordance_gpu_compare.rs` prints the timing table the
-"don't wire biome/carrying" call rests on; probe `_civgpu_probe.tscn`.
+"don't wire biome/carrying" call rests on; probe `_civgpu_probe.tscn` (removed
+2026-11-15 with the wiring: since Ruling EZ item 3 the two wired kernels are
+off the generation path, because they gave a different civilisation on the
+PC and the 6T over the same terrain; see "Ruling EZ item 3" below).
 
 ### E — erosion's per-cell parts
 

@@ -128,15 +128,11 @@ document, and `STATUS.md` records what lands)
   and the throttling data** -- the Pad dropped off wifi adb after the builds; the binaries and a ready device-side driver
   are in `C:/cw/pad_bins/`, and 12.7 says how to finish. (The 6T re-read by start tick and name is done: 8 Rayon
   workers, 12.7.)
-- **GPU used where it pays (Ruling EZ item 3, owner 2026-11-15):** the GPU path uses each kernel on the GPU only where it is measured faster on that device, preferring the kernels whose output is identical across devices (plate assignment, stress, blur), so one seed makes one GPU world on PC, 6T and Pad. Owner: `GPU_LAYER_INTEGRATION_SCOPE.md`, `PERFORMANCE_BENCHMARKS.md` §12.6. Defaults unchanged (Ruling EY; item 2).
-- **The GPU path makes a different world on each device** (measured 2026-11-14 and 2026-11-15, `PERFORMANCE_BENCHMARKS.md`
-  sections 12.3 and 12.6): `gpu_divergence_bench` feeds each GPU kernel the same CPU inputs on the PC and the 6T and
-  names the kernels whose output differs; the cause is the arithmetic WGSL leaves to the driver (FMA contraction,
-  division and `exp` precision), amplified by the floods into a different world. The GPU path measured no end-to-end gain
-  on either machine (6T 43.29 s against 41.62 s on the CPU at the same workers; PC 7.33 s against 7.14 s), so the
-  phones keep Ruling EY's CPU default. Making it identical across devices would need fixed-point kernels (a section 7p
-  change of every GPU world); not proposed. Whether the PC's default should also become the CPU path is an owner
-  question.
+- ~~**GPU used where it pays (Ruling EZ item 3, owner 2026-11-15)**~~ **Built 2026-11-15**; see `STATUS.md` ("The GPU used only where it pays") and `PERFORMANCE_BENCHMARKS.md` §12.8. The GPU path runs only `cartalith_engine::GPU_PATH_KERNELS` (plate assignment, the plate-base blur): same bits on the PC, the 6T and the Pad 3 and faster on all three; stress and the flexure blur (slower on the 6T), flow (slower on the Pad), warp, heterogeneity, weather and the two civilisation kernels (differ between devices) run on the CPU. The blur's normaliser moved to the CPU so it agrees at every radius. Defaults unchanged (Ruling EY; item 2). **Left:** the Erode op's thermal GPU pass (`erode_op`, not generation) has not been checked across devices; the world-wrap GPU path was not hashed across devices (`gpu_divergence_bench` runs a region); re-run `gpu_divergence_bench` on any new GPU before trusting the list there.
+- ~~**The GPU path makes a different world on each device**~~ **Closed 2026-11-15** by Ruling EZ item 3 (row above):
+  the GPU path now makes `terrain=a0fe3f3e1093a283 civ=7b7f5c7d8584465a` on the PC, the 6T and the Pad 3
+  (`PERFORMANCE_BENCHMARKS.md` §12.8), by keeping on the GPU only the kernels whose output is the same on all three.
+  Whether the PC's default should become the CPU path stays the owner's (Ruling EZ item 2 kept it).
 - **How generation feels in the app on the Pad 3 is not yet measured** (2026-11-14): the harness above times
   `generate_terrain` plus `compute_civilisation` only, not `absorb()`, `warm_render_caches()`, the first draw or the
   shell's idle-mode frame pacing. The owner's report ("generation in the pad feels as slow") is not reproduced by the
@@ -1334,7 +1330,8 @@ were extracted to `resource_copper_dist`/`resource_flow_max` so the GPU path sha
 duplicating; `SUIT_W_FULL_*` made `pub` for the same reason. Principled equivalence per `DECISIONS.md`
 §7a (`CARRYING_TOLERANCE`/`RESOURCES_TOLERANCE`/`SUITABILITY_TOLERANCE`), not bit-identity. Tests:
 `tests/affordance.rs`; `examples/affordance_gpu_compare` prints the timing table the wire/don't-wire
-call rests on; probe `_civgpu_probe.tscn`. Landed as its own commit (`3bb6526`), split out of a shared
+call rests on; probe `_civgpu_probe.tscn` (removed 2026-11-15: Ruling EZ item 3 took both kernels off the
+generation path, `PERFORMANCE_BENCHMARKS.md` §12.8). Landed as its own commit (`3bb6526`), split out of a shared
 working tree via hand-attributed hunks so it carries none of the three unrelated lanes (territory
 lasso, SP-4, SP-2) also landing today — `git apply --check --cached` validated each extracted patch
 before staging. `cargo test --workspace --no-fail-fast` 3703 passed / 0 failed / 40 ignored / 172

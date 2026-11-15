@@ -23,6 +23,18 @@ struct BlurParams {
     height: u32,
     radius: i32,
     wrap: u32, // box_h only: 0 = clamp-to-edge, 1 = world x-wrap. box_v always clamps (no pole-to-pole wrap, matching the CPU box_v).
+    // 1 / (2 * radius + 1), computed on the CPU in f32 and uploaded (Ruling EZ
+    // item 3, 2026-11-15; `blur_norm` in lib.rs). WGSL lets the driver
+    // evaluate f32 division to 2.5 ULP, and the in-shader division this
+    // replaces was the kernel's only operation not correctly rounded: the
+    // flexure blur's radius came out differently on the Adreno 630 and the
+    // RX 7800 XT (`gpu_divergence_bench`, PERFORMANCE_BENCHMARKS.md 12.8).
+    // Now the kernel is adds and one multiply, correctly rounded in WGSL and
+    // with no multiply-add to fuse, so every device gives the CPU mirror's bits.
+    norm: f32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: BlurParams;
@@ -59,8 +71,7 @@ fn box_h_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
         sum += in_field[y * w + idx];
     }
-    let norm = 1.0 / (2.0 * f32(r) + 1.0);
-    out_field[y * w + x] = sum * norm;
+    out_field[y * w + x] = sum * params.norm;
 }
 
 // Entry point 2 of 2: vertical pass, always clamp-to-edge (no world wrap --
@@ -80,6 +91,5 @@ fn box_v_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let idx = clamp_index(y + k, h);
         sum += in_field[idx * w + x];
     }
-    let norm = 1.0 / (2.0 * f32(r) + 1.0);
-    out_field[y * w + x] = sum * norm;
+    out_field[y * w + x] = sum * params.norm;
 }

@@ -350,8 +350,8 @@ struct HeightGpuParams {
     _pad0: f32,
 }
 
-/// Matches `gpu_gauss_blur.wgsl`'s `BlurParams` field-for-field -- already
-/// a multiple of 16 bytes (4 x u32/i32), no explicit padding needed.
+/// Matches `gpu_gauss_blur.wgsl`'s `BlurParams` field-for-field -- 32
+/// bytes, padded to a multiple of 16 for the uniform buffer.
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct BlurParams {
@@ -359,6 +359,21 @@ struct BlurParams {
     height: u32,
     radius: i32,
     wrap: u32,
+    /// The box normaliser `1 / (2 * radius + 1)`, computed here in f32
+    /// ([`blur_norm`]) rather than in the shader, so no device's division
+    /// precision reaches the result (Ruling EZ item 3).
+    norm: f32,
+    _pad: [u32; 3],
+}
+
+/// The box blur's normaliser for box radius `pr`, `1 / (2 pr + 1)` in f32,
+/// correctly rounded (CPU IEEE division). Shared by the GPU kernel's
+/// uniform and the CPU mirror [`gpu_gauss_blur_grid_cpu`], so the two cannot
+/// disagree about it. Must never be computed on the GPU: WGSL allows its f32
+/// division 2.5 ULP, and the Adreno 630 and the RX 7800 XT gave different
+/// flexure blurs from that division (`PERFORMANCE_BENCHMARKS.md` §12.8).
+fn blur_norm(pr: i32) -> f32 {
+    1.0 / (2.0 * pr as f32 + 1.0)
 }
 
 /// Matches `gpu_thermal.wgsl`'s `ThermalParams` field-for-field -- 16 bytes.
@@ -2102,8 +2117,9 @@ fn dispatch_gpu_gauss_blur(
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
     let pr = (radius / 1.6).round().max(1.0) as i32;
 
-    let params_h = BlurParams { width, height, radius: pr, wrap: wrap_x as u32 };
-    let params_v = BlurParams { width, height, radius: pr, wrap: 0 }; // box_v never wraps, matching the CPU box_v
+    let norm = blur_norm(pr);
+    let params_h = BlurParams { width, height, radius: pr, wrap: wrap_x as u32, norm, _pad: [0; 3] };
+    let params_v = BlurParams { width, height, radius: pr, wrap: 0, norm, _pad: [0; 3] }; // box_v never wraps, matching the CPU box_v
     ctx.pool.begin_grid(count as u64);
     let params_h_buf = ctx.pool.init("blur params (h)", bytemuck::bytes_of(&params_h), Kind::Uniform);
     let params_v_buf = ctx.pool.init("blur params (v)", bytemuck::bytes_of(&params_v), Kind::Uniform);
@@ -2942,7 +2958,7 @@ pub fn gpu_gauss_blur_grid_cpu(src: &[f32], radius: f64, width: u32, height: u32
     let w = width as i32;
     let h = height as i32;
     let pr = (radius / 1.6).round().max(1.0) as i32;
-    let norm = 1.0 / (2.0 * pr as f32 + 1.0);
+    let norm = blur_norm(pr);
 
     let box_h = |input: &[f32], wrap: bool| -> Vec<f32> {
         let mut out = vec![0.0f32; input.len()];
@@ -5114,6 +5130,43 @@ mod tests {
         for (g, t) in gpu.iter().zip(twin.iter()) {
             assert!((g - t).abs() < 1e-4, "gpu vs same-shape CPU twin diverged: {g} vs {t}");
         }
+    }
+
+    /// Protects: Ruling EZ item 3's cross-device blur. With the box
+    /// normaliser uploaded from the CPU ([`blur_norm`]) the kernel is plain
+    /// f32 adds and one multiply per pass, so it must equal its f32 CPU twin
+    /// **bit for bit** at every box radius, on both edge modes. Before the
+    /// change the in-shader division made the flexure blur's radius differ
+    /// between the RX 7800 XT and the Adreno 630 (`PERFORMANCE_BENCHMARKS.md`
+    /// §12.8). Run it on a handset (`cargo ndk ... test`) to check a device.
+    #[test]
+    fn gpu_gauss_blur_is_bit_identical_to_its_twin_at_every_box_radius() {
+        let Some(ctx) = try_gpu_blur() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h) = (97u32, 61u32);
+        let src = synthetic_field((w * h) as usize, 17);
+        // Box radii 1..=19 (`pr = round(radius / 1.6)`), the range the
+        // generator's base and flexure blurs reach at the shipped sizes.
+        for pr in 1..=19 {
+            let radius = pr as f64 * 1.6;
+            for wrap in [false, true] {
+                let gpu = dispatch_gpu_gauss_blur(&ctx, &src, radius, w, h, wrap);
+                let twin = gpu_gauss_blur_grid_cpu(&src, radius, w, h, wrap);
+                assert!(gpu == twin, "box radius {pr}, wrap {wrap}: the GPU blur is not its f32 twin's bits");
+            }
+        }
+    }
+
+    /// Protects: [`blur_norm`] is the correctly rounded f32 reciprocal of
+    /// `2 pr + 1`, as literal bit patterns (computed independently, 1/3, 1/19
+    /// and 1/39 rounded to nearest f32).
+    #[test]
+    fn blur_norm_is_the_correctly_rounded_reciprocal() {
+        assert_eq!(blur_norm(1).to_bits(), 0x3eaa_aaab);
+        assert_eq!(blur_norm(9).to_bits(), 0x3d57_9436);
+        assert_eq!(blur_norm(19).to_bits(), 0x3cd2_0d21);
     }
 
     /// Protects: `dispatch_gpu_gauss_blur`'s `radius<1.0` early return

@@ -197,8 +197,7 @@ pub(super) fn generate_world(
     let ws = cartalith_engine::generate_terrain(&p);
     let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, gw, gh, p.world, ws.sea_level, &p);
     let civ = crate::compute_civilisation(
-        &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
-        &mut Vec::new(), None, p.lake_balance,
+        &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), None, p.lake_balance,
     );
     (ws, civ, gh, p)
 }
@@ -1090,8 +1089,7 @@ fn fh_r2_urban_breakdown() {
                 let ws = cartalith_engine::generate_terrain(&p);
                 let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, GW, gh, p.world, ws.sea_level, &p);
                 let civ = crate::compute_civilisation(
-                    &ws, GW, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
-                    &mut Vec::new(), None, p.lake_balance,
+                    &ws, GW, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), None, p.lake_balance,
                 );
                 let river_polys = match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
                     (Some(order), Some(ch)) => cartalith_hydrology::trace_river_polylines(order, &ch.recv, GW, gh, 1),

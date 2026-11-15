@@ -1284,17 +1284,17 @@ pub struct WorldParams {
     /// The civ layer's dials. Read by `cartalith-godot`'s
     /// `compute_civilisation`, by no stage in this crate — see [`CivParams`].
     pub civ: CivParams,
-    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: run plate assignment,
-    /// domain warp, crustal heterogeneity, and the flexure/base-field blur
-    /// on GPU instead of CPU. Default `false` -- with this flag at its
+    /// The GPU path: run the kernels [`GPU_PATH_KERNELS`] names on the GPU
+    /// instead of the CPU (plate assignment and the plate-base blur since
+    /// Ruling EZ item 3, 2026-11-15; see that constant for why only those). Default `false` -- with this flag at its
     /// default, `generate_terrain`'s behaviour and output are byte-for-byte
-    /// identical to before this milestone (verified: every existing
-    /// golden-parity test passes unmodified). **Not a performance-only
-    /// switch**: per `DECISIONS.md` §7c, the GPU noise primitive is a
-    /// genuinely different hash function from the CPU/JS-matching one, so
-    /// `use_gpu: true` produces a different (still valid, still
-    /// deterministic-per-seed) world for the same seed, not just a faster
-    /// path to the same one. On any GPU init/dispatch failure, each stage
+    /// those of the golden-parity path. **Not a performance-only switch**:
+    /// plate assignment's double-buffered jump flood and the f32 blur give
+    /// a slightly different plate map and base field (`DECISIONS.md` §7a's
+    /// principled equivalence), so `use_gpu: true` produces a different
+    /// (still valid, deterministic-per-seed, and the same on every device
+    /// measured: PC, 6T, Pad 3) world for the same seed, not just a faster path to the same
+    /// one. On any GPU init/dispatch failure, each stage
     /// falls back to CPU individually rather than crashing
     /// (`HARDWARE_ACCELERATION.md` §27) -- which path each stage actually
     /// took is recorded on `WorldState.gpu_stages_used`, not hidden.
@@ -1714,11 +1714,11 @@ pub struct WorldState {
     pub stream_order: Option<Vec<i16>>,
     pub river_mask: Option<Vec<u8>>,
     pub river_floor: Option<Vec<f32>>,
-    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: which of the eight
-    /// GPU-eligible stages this file can push (`"warp"`, `"warp_split"`,
-    /// `"plate_assignment"`, `"stress"`, `"base_field_blur"`,
-    /// `"heterogeneity"`, `"flow"`, `"weather"`) actually ran on GPU this
-    /// generation. Empty when `p.use_gpu` was `false`, or when every stage
+    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: which of the GPU stages
+    /// this file can push ([`GPU_PATH_KERNELS`]: `"plate_assignment"`,
+    /// `"base_field_blur"`) actually ran on GPU this generation. Since Ruling
+    /// EZ item 3 (2026-11-15) warp, stress, flexure, heterogeneity, flow and
+    /// weather always run on the CPU and are never reported. Empty when `p.use_gpu` was `false`, or when every stage
     /// fell back to CPU (`HARDWARE_ACCELERATION.md` §27 -- GPU failure
     /// falls back silently in terms of *correctness*, but the caller can
     /// always tell which path actually ran by reading this).
@@ -2050,6 +2050,13 @@ pub fn thread_pool_active_count() -> usize {
 ///
 /// Mask and type are bit-identical to the CPU's; the two fields are
 /// principled-equivalent, held to `STRESS_GPU_TOL` in this file's tests.
+///
+/// **Not on the generation path** since Ruling EZ item 3 (2026-11-15,
+/// [`GPU_PATH_KERNELS`]): the same on every device measured, but slower than
+/// `compute_stress` on the 6T. Kept, test-only, so `gpu_divergence_bench` can
+/// re-measure it on a new device (the rule is a measurement, and the Pad 3
+/// has not been measured) and so its kernel's tests keep it honest.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_stress_gpu(
     gpu: &cartalith_gpu::GpuDevice,
@@ -2075,6 +2082,43 @@ pub(crate) fn compute_stress_gpu(
         stress_field,
         shear_field,
     })
+}
+
+/// `compute_flexure` with its blur on `gpu`: mask the stress field by the
+/// boundary, blur it at `blur_r * 3` with `gauss_blur_grid_gpu_with` (the
+/// base-field blur's kernel), then max-normalise on the CPU exactly as
+/// `compute_flexure` does (a cheap reduction, not worth its own kernel).
+/// `None` when the dispatch fails; the caller then runs `compute_flexure`.
+/// Not on the generation path since Ruling EZ item 3 ([`GPU_PATH_KERNELS`]:
+/// slower than the CPU on the 6T); test-only, for `gpu_divergence_bench`.
+///
+/// Must never: normalise differently from `compute_flexure` (`1e-6` floor,
+/// f64 maximum of the absolute value), or the GPU path's flexure would move
+/// for a reason that is not the blur.
+#[cfg(test)]
+pub(crate) fn flexure_gpu(
+    gpu: &cartalith_gpu::GpuDevice,
+    gw: usize,
+    gh: usize,
+    world: bool,
+    stress: &cartalith_terrain::StressResult,
+    blur_r: f64,
+) -> Option<Vec<f32>> {
+    let mut raw = vec![0f32; gw * gh];
+    for (r, (&mask, &sv)) in raw.iter_mut().zip(stress.boundary_mask.iter().zip(stress.stress_field.iter())) {
+        if mask != 0 {
+            *r = sv;
+        }
+    }
+    let broad = cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &raw, blur_r * 3.0, gw as u32, gh as u32, world)?;
+    let mut mx = 1e-6f64;
+    for &v in &broad {
+        let v = (v as f64).abs();
+        if v > mx {
+            mx = v;
+        }
+    }
+    Some(broad.iter().map(|&v| (v as f64 / mx) as f32).collect())
 }
 
 /// GF-2's switch point inside `generate_terrain_inner` (`GEOLOGY_FIRST_SCOPE.md`
@@ -2428,13 +2472,58 @@ pub(crate) fn world_structure_derived(p: &WorldParams) -> (usize, f64, i32) {
     }
 }
 
+/// **Which kernels the GPU path runs on the GPU** (owner Ruling EZ item 3,
+/// 2026-11-15: *"Yes, gpu should be used in the most efficient way."*), as the
+/// names `WorldState::gpu_stages_used` reports. Every other GPU-capable stage
+/// runs its CPU function in the GPU path too.
+///
+/// **The rule:** a kernel is on the GPU only when (a) its output, fed the same
+/// inputs, is bit-identical on every device measured, so one seed makes one
+/// GPU world on the PC, the 6T and the Pad 3, and (b) it is measured faster
+/// than its CPU stage on every device measured. A
+/// fixed set, not a per-device calibration: a kernel on the GPU on one device
+/// and on the CPU on another would make two worlds again, which is what (a)
+/// exists to stop. Measured with `gpu_divergence_bench` (same CPU inputs on
+/// each device, 2048 x 1311, seed 12345, median of 3, GPU / CPU ms;
+/// `PERFORMANCE_BENCHMARKS.md` §12.8):
+///
+/// Devices: the RX 7800 XT (PC), the Adreno 630 (OnePlus 6T) and the Adreno
+/// 830 (OnePlus Pad 3).
+///
+/// - `plate_assignment`: identical on all three; PC 11 / 279, 6T 313 / 1 013,
+///   Pad 41 / 514. **On.**
+/// - `base_field_blur` (the plate-base blur): identical on all three, and
+///   equal to its f32 CPU mirror bit for bit once the box normaliser is
+///   computed on the CPU (`gpu_gauss_blur.wgsl`, same ruling); PC 4 / 47,
+///   6T 185 / 420, Pad 19 / 137. **On.**
+/// - flow (plain D8 accumulation, fixed point): identical (and equal to the
+///   CPU's on that input), faster on the PC (19 / 30) and the 6T (585 / 950)
+///   but **slower on the Pad** (132 / 101). **Off.** The app's defaults
+///   (rough routing) never reached it.
+/// - stress: identical, but slower on the 6T (645 / 575; PC 24 / 63, Pad
+///   99 / 237). **Off.**
+/// - the flexure blur (the same blur kernel at three times the radius): the
+///   6T differed before the normaliser fix (identical on all three after),
+///   and it is slower on the 6T (482 / 373; PC 13 / 52, Pad 50 / 134). **Off.**
+/// - warp, heterogeneity, weather: **differ between all three devices**
+///   (driver FMA contraction and f32 division / `exp` precision, which WGSL
+///   leaves to the driver; §12.6) and are slower or level on the 6T. **Off.**
+///   Making them identical would need integer or fixed-point noise and
+///   weather, which is not cheap; the CPU already gives the same bits
+///   everywhere.
+///
+/// Must never: gain an entry without both measurements on at least the PC
+/// and one handset, or lose one without saying which measurement moved.
+pub const GPU_PATH_KERNELS: [&str; 2] = ["plate_assignment", "base_field_blur"];
+
 /// The GPU device set a generation of `p` runs on, or `None` for the CPU path:
 /// `None` unless `p.use_gpu` is on, the VRAM budget allows `p`'s grid
 /// (`gpu_allowed_for_grid`), a device opens, and it supports the grid (the hard
 /// device limit -- see the long comment at this call in `generate_terrain_inner`).
 /// One function so the New World preview (`preview::preview_field`) takes the
-/// path Create takes: the GPU path is a different world for the same seed
-/// (`DECISIONS.md` §7c), so a CPU preview of a GPU world would mispredict it.
+/// path Create takes: the GPU path is a different world for the same seed (its
+/// plate assignment and plate-base blur differ slightly from the CPU's,
+/// [`GPU_PATH_KERNELS`]), so a CPU preview of a GPU world would mispredict it.
 /// `init_gpu_device_set` caches the set process-wide, so only the first caller
 /// pays the device handshake.
 pub(crate) fn open_gpu_set(p: &WorldParams) -> Option<cartalith_gpu::GpuDeviceSet> {
@@ -2481,7 +2570,9 @@ pub(crate) struct Substrate {
 /// - `world_structure_arg`: the continentality field, when World Structure is on.
 /// - `gpu_set`: the device set generation opened, or `None` (every stage then
 ///   runs its CPU function). The GPU branches are additionally gated on
-///   `p.use_gpu`, exactly as they were inline.
+///   `p.use_gpu`, exactly as they were inline. Only plate assignment and the
+///   plate-base blur use it ([`GPU_PATH_KERNELS`], Ruling EZ item 3); warp,
+///   stress, flexure and heterogeneity are CPU on both paths.
 /// - `gpu_stages_used`: each stage that ran on the GPU is appended.
 ///
 /// Must never: call `progress::*` or record a GPU backend (a preview drawn
@@ -2502,51 +2593,13 @@ pub(crate) fn tectonic_substrate(
     let world = p.world;
     let gpu_device: Option<&cartalith_gpu::GpuDevice> = gpu_set.map(|s| s.primary());
 
-    // World-wrap support for warp's GPU kernel (`OUTSTANDING_WORK.md` §2.6,
-    // closing GPU_LAYER_INTEGRATION_SCOPE.md milestone 2's own deferral):
-    // both branches now dispatch to GPU, with `world` threaded through as
-    // the periodic-noise flag rather than forcing CPU whenever it's set.
-    let warp = if p.use_gpu {
-        let amp = (p.tect.warp * 0.18 * gw as f64) as f32;
-        if amp < 0.5 {
-            None
-        } else {
-            // Matches `compute_warp`'s own `wf`: `3.0/gw` under world-wrap,
-            // `2.5/gw` otherwise.
-            let wf = (if world { 3.0 } else { 2.5 } / gw as f64) as f32;
-            // PR-02 `split tiles`: warp is the one stage in this pipeline
-            // whose kernel reads nothing outside its own cell, so its row
-            // bands can genuinely run on different devices at once (see
-            // `warp_grid_gpu_split`'s own doc comment for the audit of why
-            // every other GPU stage here cannot). `is_split()` is false
-            // unless the mode is `split_tiles` AND at least two devices
-            // actually opened, so the single-device path below is what runs
-            // by default.
-            // The `warp_split` marker is recorded on SUCCESS, not on
-            // attempt: both entry points now return `None` when the device
-            // cannot complete the dispatch, and a stage that fell back to
-            // CPU must not appear in `gpu_stages_used`.
-            let split = gpu_set.is_some_and(cartalith_gpu::GpuDeviceSet::is_split);
-            match gpu_set.and_then(|set| {
-                if split {
-                    cartalith_gpu::warp_grid_gpu_split(set, gw as u32, gh as u32, p.tect.seed, wf, amp, world)
-                } else {
-                    cartalith_gpu::warp_grid_gpu_with(set.primary(), gw as u32, gh as u32, p.tect.seed, wf, amp, world)
-                }
-            }) {
-                Some(wxy) => {
-                    if split {
-                        gpu_stages_used.push("warp_split".to_string());
-                    }
-                    gpu_stages_used.push("warp".to_string());
-                    Some(wxy)
-                }
-                None => compute_warp(gw, gh, p.tect.seed, p.tect.warp, world),
-            }
-        }
-    } else {
-        compute_warp(gw, gh, p.tect.seed, p.tect.warp, world)
-    };
+    // Warp is CPU on both paths (Ruling EZ item 3, [`GPU_PATH_KERNELS`]): its
+    // GPU kernel's f32 value noise gave a different field on each device
+    // measured (PC `b6f9c648`, 6T `abb0cb86`), and every later stage inherits
+    // the warp, so the GPU world was a different world per device. The
+    // split-tiles mode's row bands (`warp_grid_gpu_split`) split only this
+    // kernel, so that mode has nothing to split in generation now.
+    let warp = compute_warp(gw, gh, p.tect.seed, p.tect.warp, world);
     let (warp_x, warp_y) = match &warp {
         Some((wx, wy)) => (Some(wx.as_slice()), Some(wy.as_slice())),
         None => (None, None),
@@ -2580,51 +2633,17 @@ pub(crate) fn tectonic_substrate(
         assign_plates(gw, gh, world, &plates, warp_x, warp_y)
     };
 
-    // `gpu_device` is already `None` unless `use_gpu` is on, the VRAM budget
-    // allows this grid and the device supports it -- the gates every stage
-    // here shares. `None` from the dispatch runs the untouched CPU function.
-    let stress = match gpu_device
-        .and_then(|gpu| compute_stress_gpu(gpu, gw, gh, world, &plate_id, &plates, tect_vel, p.tect.blur_r))
-    {
-        Some(s) => {
-            gpu_stages_used.push("stress".to_string());
-            s
-        }
-        None => compute_stress(gw, gh, world, &plate_id, &plates, tect_vel, p.tect.blur_r),
-    };
+    // Stress is CPU on both paths (Ruling EZ item 3, [`GPU_PATH_KERNELS`]):
+    // its GPU form is the same on every device measured but slower than the
+    // CPU on the 6T (648 against 570 ms), and a GPU stage on some devices only
+    // would make two worlds again.
+    let stress = compute_stress(gw, gh, world, &plate_id, &plates, tect_vel, p.tect.blur_r);
 
-    // compute_flexure's own body, inlined: mask by boundary, blur (GPU or
-    // CPU), max-normalize (CPU either way -- a cheap reduction, not worth
-    // its own kernel). `compute_flexure` itself is left completely
-    // untouched for the `p.use_gpu=false` path (called directly, no
-    // inlining needed there -- see the `else` arm).
-    let flexure_field = if p.use_gpu {
-        let mut raw = vec![0f32; gw * gh];
-        for (r, (&mask, &sv)) in raw.iter_mut().zip(stress.boundary_mask.iter().zip(stress.stress_field.iter())) {
-            if mask != 0 {
-                *r = sv;
-            }
-        }
-        match gpu_device
-            .as_ref()
-            .and_then(|gpu| cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &raw, p.tect.blur_r * 3.0, gw as u32, gh as u32, world))
-        {
-            Some(broad) => {
-                gpu_stages_used.push("base_field_blur".to_string()); // shared GPU kernel with base_field below
-                let mut mx = 1e-6f64;
-                for &v in &broad {
-                    let v = (v as f64).abs();
-                    if v > mx {
-                        mx = v;
-                    }
-                }
-                broad.iter().map(|&v| (v as f64 / mx) as f32).collect()
-            }
-            None => compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world),
-        }
-    } else {
-        compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world)
-    };
+    // Flexure is CPU on both paths (Ruling EZ item 3, [`GPU_PATH_KERNELS`]):
+    // its blur runs at three times the base blur's radius, and the box
+    // kernel's per-cell cost grows with the radius, so on the 6T the GPU was
+    // slower (485 against 369 ms). `flexure_gpu` stays for the bench.
+    let flexure_field = compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world);
 
     let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid as usize].base as f32).collect();
     let base_blur_r = plate_base_blur_r(&p.tect);
@@ -2633,9 +2652,7 @@ pub(crate) fn tectonic_substrate(
             cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &base_raw, base_blur_r, gw as u32, gh as u32, world)
         }) {
             Some(v) => {
-                if !gpu_stages_used.iter().any(|s| s == "base_field_blur") {
-                    gpu_stages_used.push("base_field_blur".to_string());
-                }
+                gpu_stages_used.push("base_field_blur".to_string());
                 v
             }
             None => gauss_blur(&base_raw, base_blur_r, gw, gh, world),
@@ -2646,59 +2663,10 @@ pub(crate) fn tectonic_substrate(
 
     let age_field = build_age_field(gw, gh, &stress.boundary_mask);
 
-    let heterogeneity_field = if p.use_gpu {
-        let hetero_seed = p.tect.seed ^ 0x44bb; // matches compute_heterogeneity's own seed derivation
-        let hf_f64 = 1.5 * cartalith_terrain::terrain_detail_k(gw, p.map_width_km);
-        let hf = hf_f64 as f32;
-        // `compute_heterogeneity`'s own `oct = round(hf).max(2)`, passed as
-        // `pfbm`'s period argument under world-wrap -- computed from the
-        // f64 `hf` (not the already-f32-narrowed one above) to match that
-        // function's own rounding point.
-        let p_x = (js_round(hf_f64).max(2.0)) as i32;
-        let wx = warp_x.unwrap_or(&[]);
-        let wy = warp_y.unwrap_or(&[]);
-        let zero_wx;
-        let zero_wy;
-        let (wx, wy) = if wx.len() == gw * gh && wy.len() == gw * gh {
-            (wx, wy)
-        } else {
-            zero_wx = vec![0f32; gw * gh];
-            zero_wy = vec![0f32; gw * gh];
-            (zero_wx.as_slice(), zero_wy.as_slice())
-        };
-        match gpu_device.and_then(|gpu| {
-            cartalith_gpu::heterogeneity_grid_gpu_with(
-                gpu,
-                gw as u32,
-                gh as u32,
-                hetero_seed,
-                hf / gw as f32,
-                world,
-                p_x,
-                &age_field,
-                wx,
-                wy,
-            )
-        }) {
-            Some(mut out) => {
-                gpu_stages_used.push("heterogeneity".to_string());
-                let mut mx = 1e-6f64;
-                for &v in &out {
-                    let v = (v as f64).abs();
-                    if v > mx {
-                        mx = v;
-                    }
-                }
-                for v in &mut out {
-                    *v = (*v as f64 / mx) as f32;
-                }
-                out
-            }
-            None => compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y),
-        }
-    } else {
-        compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y)
-    };
+    // Heterogeneity is CPU on both paths (Ruling EZ item 3,
+    // [`GPU_PATH_KERNELS`]): its GPU kernel's f32 noise differed between the
+    // devices measured (PC `29a576a9`, 6T `3e7f9860`).
+    let heterogeneity_field = compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y);
 
     // resistanceToOrogeny() (reference HTML lines 3433-3444): T2+T3,
     // gated on `state.tect.tectonicGraph`, which JS's own
@@ -2929,7 +2897,6 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // real hardware; this check is what makes an adapter that still cannot
     // reach a size fall back to CPU (`HARDWARE_ACCELERATION.md` §27) instead.
     let gpu_set = open_gpu_set(p);
-    let gpu_device: Option<&cartalith_gpu::GpuDevice> = gpu_set.as_ref().map(|s| s.primary());
 
     // What this generation actually opened, for `diagnostic_report.gd` to
     // report instead of inferring (owner ruling 19, 2026-09-06, deleted the
@@ -2942,15 +2909,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // call. See `multi::record_opened_backend`.
     cartalith_gpu::record_opened_backend(gpu_set.as_ref());
 
-    // `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9: flow accumulation is
-    // called up to FOUR times below (structural drainage, discharge-weighted
-    // drainage, the river-network pass, and the post-carve recompute), so
-    // its pipeline is built once here rather than per call -- milestone 8's
-    // shared-device lesson applied to shader compilation as well as to the
-    // adapter/device handshake. `None` whenever `use_gpu` is off or the
-    // device handshake failed; every call site below falls back to the real
-    // `compute_flow` in that case (`HARDWARE_ACCELERATION.md` §27).
-    let gpu_flow = gpu_device.map(cartalith_gpu::init_gpu_flow_with);
+    // Flow accumulation is CPU on both paths (Ruling EZ item 3,
+    // [`GPU_PATH_KERNELS`]): the milestone 9 kernel gave the same bits on the
+    // PC, the 6T and the Pad 3, but was slower than the CPU on the Pad (132
+    // against 101 ms), and the app's defaults (rough routing) never reached
+    // it anyway. Its pipeline is therefore no longer built per world either.
     // Ruling ER: the routing roughness, built once and handed to every flow
     // routing below and to the channel network, so the accumulation tree and
     // the channel tree are one tree. `None` (rough routing off, or no
@@ -2963,18 +2926,6 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // trees are one tree. `Breadth` (off, or no integrated drainage) is the
     // surface every call below built before, cell for cell.
     let tilt = fill_tilt_for(p);
-    // The GPU kernel routes plain D8 only, so with a roughness the CPU path
-    // runs (the same rule `use_gpu` off takes).
-    let flow_on_gpu = |field: &[f32], rain: Option<&[f32]>, use_rain: bool| -> Option<Vec<f32>> {
-        // Basin routing (Ruling EV) skips the kernel the same way: its D8 pick
-        // over the Floor tilt's 5- and 7-ULP steps has not been measured
-        // against the CPU's, so the CPU path, whose receivers every consumer
-        // rebuilds, is the one that runs.
-        if rough.is_some() || tilt == cartalith_hydrology::FillTilt::Floor {
-            return None;
-        }
-        gpu_flow.as_ref().and_then(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world)).map(|r| r.acc)
-    };
 
     // The tectonic substrate, warp to `normalize_field`: one function shared
     // with the New World preview (`preview::land_mask`), so the two can never
@@ -3362,15 +3313,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 
     // ---- natural order: structural drainage -> climate -> discharge-
     // weighted drainage (reference HTML lines 3382-3386) ----
-    // Milestone 9: the GPU path here is a genuinely different ALGORITHM
-    // (per-cell D8 direction + pointer-doubling subtree sums, in u32 fixed
-    // point) rather than a translation of the CPU function's global
-    // descending-height sort and walk -- see `gpu_flow.wgsl`. Verified
-    // against the real `compute_flow` at 512x512: bit-exact for the
-    // `use_rain=false` seeding this very call uses, and within 2.3e-4
-    // relative for discharge seeding, with no measured change to the river
-    // network or to settlement placement (see the scope doc's milestone 9
-    // entry). Falls back to the CPU function whenever GPU is unavailable.
+    // Every flow accumulation here is `compute_flow_with`, on both paths
+    // (Ruling EZ item 3; milestone 9's GPU kernel is kept in `cartalith-gpu`
+    // and measured by `gpu_divergence_bench`).
     //
     // Integrated drainage (`p.integrate_drainage`, `RC_ENGINE_CHANGES.md`
     // §6g): every flow accumulation below routes over the depression-filled
@@ -3382,13 +3327,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     let integrate = p.integrate_drainage;
     let flow_area = {
         let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
-        match flow_on_gpu(&route, None, false) {
-            Some(v) => {
-                gpu_stages_used.push("flow".to_string());
-                v
-            }
-            None => compute_flow_with(gw, gh, &route, None, false, world, rough.as_ref()),
-        }
+        compute_flow_with(gw, gh, &route, None, false, world, rough.as_ref())
     };
 
     let climate_params = climate_params_for(p, sea_level);
@@ -3398,50 +3337,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // decl=0: refreshClimate()'s own simulateWeather(state.climate.wIters)
     // call passes no declination argument, which defaults to 0 (annual
     // mean, no seasonal tilt) -- reference HTML line 5154.
-    // GPU_LAYER_INTEGRATION_SCOPE.md milestone 7: simulate_weather's inner
-    // loop. Unlike every other GPU-wired stage above, this one's own
-    // working set (the coarse `min(gw,240)` grid `build_weather_grid`
-    // builds) doesn't grow with `gw`/`gh` once past 240 -- real measurement
-    // found GPU losing to CPU even with the shared `gpu_device` (0.93x at
-    // the real 240x240/70-iters working size), so `p.use_gpu=true` still
-    // takes this path (consistent `gpu_stages_used` reporting, real
-    // per-stage fallback), but don't expect it to ever win the way the
-    // stages above eventually did -- see the scope doc's own milestone 7
-    // section for the honest numbers.
-    let mut rainfall = if p.use_gpu {
-        let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
-        match gpu_device.and_then(|gpu| {
-            cartalith_gpu::simulate_weather_loop_gpu_with(
-                gpu,
-                &grid.eh,
-                &grid.tc,
-                &grid.sst_evap,
-                &grid.wx,
-                &grid.wy,
-                &grid.w_init,
-                grid.ww as u32,
-                grid.wh as u32,
-                p.climate.w_iters,
-                grid.sea as f32,
-                grid.ocean_hum as f32,
-                grid.evap as f32,
-                grid.ocean as f32,
-                grid.rain_k as f32,
-                grid.dry as f32,
-                grid.step as f32,
-                grid.bulk_evap,
-                grid.wrap_x,
-            )
-        }) {
-            Some((_w, rain)) => {
-                gpu_stages_used.push("weather".to_string());
-                cartalith_climate::finish_weather_grid_with(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh, p.climate.rain_upsample())
-            }
-            None => simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, p.climate.rain_upsample()),
-        }
-    } else {
-        simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, p.climate.rain_upsample())
-    };
+    // Weather is CPU on both paths (Ruling EZ item 3, [`GPU_PATH_KERNELS`]):
+    // its GPU loop (milestone 7) differed between the devices measured (PC
+    // `effcd018`, 6T `3bcde0dd`: `exp` and division precision) and was slower
+    // than the CPU on both (PC 74 / 28 ms, 6T 414 / 359).
+    let mut rainfall = simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, p.climate.rain_upsample());
 
     // applyClimateMoistureCorrectors() -- unconditional, see
     // cartalith-climate's own doc comment on this function.
@@ -3500,25 +3400,15 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // When `carve_rivers` is off this call **is** the output, so the skip is
     // conditional, never unconditional.
     //
-    // `gpu_stages_used` is unaffected: `flow_on_gpu` returns `Some` iff
-    // `gpu_flow` is `Some`, which is fixed for the whole function, and the
-    // two flow calls inside the carve block push the same `"flow"` string
-    // under the same condition -- so the vector's contents cannot differ.
+    // `gpu_stages_used` is unaffected: no flow call reaches the GPU (Ruling
+    // EZ item 3).
     // `precarve_flow_skip_leaves_generation_bit_identical` holds all of this
     // to `assert_eq!` identity against the unskipped call order.
     let mut flow_discharge = if p.carve_rivers && !force_precarve_flow {
         Vec::new()
     } else {
         let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
-        match flow_on_gpu(&route, Some(&rainfall), true) {
-            Some(v) => {
-                if !gpu_stages_used.iter().any(|s| s == "flow") {
-                    gpu_stages_used.push("flow".to_string());
-                }
-                v
-            }
-            None => compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref()),
-        }
+        compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref())
     };
     if !p.carve_rivers {
         // No carve pass this run: the direct `flow_discharge` just computed
@@ -3625,15 +3515,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // extra flow accumulation on worlds with the pass on.
         if p.passes.coastal {
             let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
-            let coast_flow = match flow_on_gpu(&route, Some(&rainfall), true) {
-                Some(v) => {
-                    if !gpu_stages_used.iter().any(|s| s == "flow") {
-                        gpu_stages_used.push("flow".to_string());
-                    }
-                    v
-                }
-                None => compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref()),
-            };
+            let coast_flow = compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref());
             drop(route);
             rock.coastal(
                 &mut geology,
@@ -3672,15 +3554,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // runoff permeable outcrops leave at the surface; off, `rainfall`
         // itself (borrowed: the same call as before).
         let runoff = rock.runoff(p.geology_karst, &geology, &field, &rainfall, sea_level);
-        let flow_for_network = match flow_on_gpu(&route, Some(&runoff), true) {
-            Some(v) => {
-                if !gpu_stages_used.iter().any(|s| s == "flow") {
-                    gpu_stages_used.push("flow".to_string());
-                }
-                v
-            }
-            None => compute_flow_with(gw, gh, &route, Some(&runoff), true, world, rough.as_ref()),
-        };
+        let flow_for_network = compute_flow_with(gw, gh, &route, Some(&runoff), true, world, rough.as_ref());
         drop(runoff);
 
         // (2) vector network -> distance-field channel carve + lock
@@ -3813,53 +3687,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         crate::progress::advance(crate::progress::CLIMATE);
         flow_discharge = {
             let route = routing_view_with(&field, gw, gh, sea_level, world, integrate, tilt);
-            match flow_on_gpu(&route, Some(&rainfall), true) {
-                Some(v) => {
-                    if !gpu_stages_used.iter().any(|s| s == "flow") {
-                        gpu_stages_used.push("flow".to_string());
-                    }
-                    v
-                }
-                None => compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref()),
-            }
+            compute_flow_with(gw, gh, &route, Some(&rainfall), true, world, rough.as_ref())
         };
         temperature = compute_temperature(gw, gh, &field, None, &climate_params);
-        rainfall = if p.use_gpu {
-            let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
-            match gpu_device.and_then(|gpu| {
-                cartalith_gpu::simulate_weather_loop_gpu_with(
-                    gpu,
-                    &grid.eh,
-                    &grid.tc,
-                    &grid.sst_evap,
-                    &grid.wx,
-                    &grid.wy,
-                    &grid.w_init,
-                    grid.ww as u32,
-                    grid.wh as u32,
-                    p.climate.w_iters,
-                    grid.sea as f32,
-                    grid.ocean_hum as f32,
-                    grid.evap as f32,
-                    grid.ocean as f32,
-                    grid.rain_k as f32,
-                    grid.dry as f32,
-                    grid.step as f32,
-                    grid.bulk_evap,
-                    grid.wrap_x,
-                )
-            }) {
-                Some((_w, rain)) => {
-                    if !gpu_stages_used.iter().any(|s| s == "weather") {
-                        gpu_stages_used.push("weather".to_string());
-                    }
-                    cartalith_climate::finish_weather_grid_with(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh, p.climate.rain_upsample())
-                }
-                None => simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, p.climate.rain_upsample()),
-            }
-        } else {
-            simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, p.climate.rain_upsample())
-        };
+        // CPU on both paths, as the first weather pass above (Ruling EZ item 3).
+        rainfall = simulate_weather_with(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params, p.climate.rain_upsample());
         apply_climate_moisture_correctors_with(
             gw,
             gh,
@@ -5502,8 +5334,8 @@ mod tests {
     /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: the GPU path (when
     /// available on this machine) is internally deterministic and produces
     /// statistically sane terrain -- NOT checked against the CPU/JS
-    /// reference (`DECISIONS.md` §7c: different noise, different world, by
-    /// design). Environment-tolerant: if this machine has no usable GPU,
+    /// reference (`DECISIONS.md` §7a: principled equivalence, a different
+    /// world by design). Environment-tolerant: if this machine has no usable GPU,
     /// every stage falls back to CPU and `gpu_stages_used` is empty --
     /// still a valid, asserted-on outcome, not a test failure.
     #[test]
@@ -5562,55 +5394,63 @@ mod tests {
         let mx = a.field.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         assert!(mx - mn > 0.05, "GPU-path terrain shouldn't be a degenerate flat field");
 
-        // Every reported stage name is one this milestone actually wired.
-        // Grows by one name per newly-wired stage (milestone 7 added
-        // "weather", milestone 9 adds "flow") -- an allow-list that must
-        // track reality, not a weakened assertion.
-        let known =
-            ["warp", "warp_split", "heterogeneity", "plate_assignment", "stress", "base_field_blur", "weather", "flow"];
+        // Every reported stage name is one the GPU path runs (Ruling EZ item
+        // 3's `GPU_PATH_KERNELS`), written out as literals so a change to the
+        // constant cannot widen this check with it.
+        let known = ["plate_assignment", "base_field_blur"];
         for s in &a.gpu_stages_used {
             assert!(known.contains(&s.as_str()), "unexpected gpu_stages_used entry: {s}");
         }
     }
 
-    /// `OUTSTANDING_WORK.md` §2.6 "World-wrap support for the milestone 1-5
-    /// kernels": the positive-reachability check -- `world=true` with
-    /// `use_gpu=true` must actually DISPATCH warp and heterogeneity on GPU,
-    /// not silently fall back to CPU the way both stages did before this
-    /// change (`p.use_gpu && !world`, in this function's own prior
-    /// history). Same instrumentation every other GPU stage in this file
-    /// is proven by: `gpu_stages_used`. Environment-tolerant like its
-    /// sibling above -- on a machine with no usable GPU, both fall back and
-    /// the positive assertions are skipped (still checked structurally,
-    /// see [`generate_terrain_gpu_and_cpu_paths_share_worldstate_shape`]
-    /// for the CPU-path contract).
+    /// Ruling EZ item 3 (2026-11-15): with a device open, the GPU path runs
+    /// **exactly** plate assignment and the plate-base blur on the GPU, on a
+    /// world map and a region alike, and nothing else: warp, stress, flexure,
+    /// heterogeneity, flow and weather made a different world on each device
+    /// or were slower on the 6T or the Pad (`GPU_PATH_KERNELS`,
+    /// `PERFORMANCE_BENCHMARKS.md` §12.8). These are `WorldParams::defaults()`
+    /// worlds (rough and basin routing off), the configuration in which flow
+    /// used to reach the GPU, so a flow dispatch coming back would show here.
+    /// Replaces the §2.6 test that required warp and heterogeneity on the GPU
+    /// under world wrap.
     #[test]
-    fn generate_terrain_world_wrap_reaches_gpu_warp_and_heterogeneity() {
-        // Protects: OUTSTANDING_WORK.md §2.6 -- world=true with use_gpu=true
-        // must actually dispatch warp and heterogeneity on GPU, not silently
-        // fall back to CPU on a world map specifically.
-        let mut p = WorldParams::defaults(24, 18, 777);
-        p.use_gpu = true;
-        p.world = true;
-        let ws = generate_terrain(&p);
-
-        assert!(ws.field.iter().all(|&v| v.is_finite()), "no NaN/Inf in a world=true GPU-path height field");
-        assert!(!ws.field.is_empty(), "a generation that produces nothing measures nothing");
-
-        if cartalith_gpu::last_backend().is_none() {
-            eprintln!("no GPU opened on this run (CPU fallback) -- world-wrap GPU reachability has nothing to prove here");
-            return;
+    fn generate_terrain_gpu_path_runs_only_the_device_identical_kernels() {
+        // Protects: Ruling EZ item 3's kernel set -- a GPU run that dispatched
+        // warp, stress, heterogeneity or weather again, or stopped dispatching
+        // plate assignment or the base blur, goes red here.
+        for world in [true, false] {
+            let mut p = WorldParams::defaults(24, 18, 777);
+            p.use_gpu = true;
+            p.world = world;
+            let ws = generate_terrain(&p);
+            assert!(ws.field.iter().all(|&v| v.is_finite()), "no NaN/Inf in a GPU-path height field (world {world})");
+            if cartalith_gpu::last_backend().is_none() {
+                eprintln!("no GPU opened on this run (CPU fallback) -- the kernel set has nothing to prove here");
+                return;
+            }
+            assert_eq!(ws.gpu_stages_used, ["plate_assignment", "base_field_blur"], "world {world}");
         }
-        assert!(
-            ws.gpu_stages_used.iter().any(|s| s == "warp" || s == "warp_split"),
-            "world=true, use_gpu=true, real GPU opened -- warp must have dispatched on GPU, not fallen back to CPU. gpu_stages_used = {:?}",
-            ws.gpu_stages_used
-        );
-        assert!(
-            ws.gpu_stages_used.iter().any(|s| s == "heterogeneity"),
-            "world=true, use_gpu=true, real GPU opened -- heterogeneity must have dispatched on GPU, not fallen back to CPU. gpu_stages_used = {:?}",
-            ws.gpu_stages_used
-        );
+    }
+
+    /// Ruling EZ item 3: the GPU path's stress is the CPU path's own
+    /// function, bit for bit, of the GPU path's plate map (`build_plates` is
+    /// CPU on both paths, and the stress fields read only the plate map).
+    #[test]
+    fn generate_terrain_gpu_path_stress_is_the_cpu_function_of_its_plate_map() {
+        // Protects: stress staying on the CPU in the GPU path -- the GPU
+        // kernel's f32 sums differ from the CPU's in 723 022 cells of the
+        // §12.8 world, so a GPU stress here fails the bit equality.
+        let (gw, gh) = (72usize, 48usize);
+        let mut p = WorldParams::defaults(gw, gh, 4242);
+        p.use_gpu = true;
+        let g = generate_terrain(&p);
+        let plates = cartalith_terrain::build_plates(gw, gh, p.tect.seed as u32, p.tect.plates, p.tect.lloyd, false, None);
+        let want = compute_stress(gw, gh, false, &g.plate_id, &plates, p.tect.vel, p.tect.blur_r);
+        assert_eq!(g.boundary_mask, want.boundary_mask);
+        assert_eq!(g.boundary_type, want.boundary_type);
+        assert_eq!(g.stress_field, want.stress_field, "the GPU path's stress must be compute_stress's own output");
+        assert_eq!(g.shear_field, want.shear_field, "the GPU path's shear must be compute_stress's own output");
+        assert!(!g.gpu_stages_used.iter().any(|s| s == "stress"));
     }
 
     /// The same reachability check, but proving `use_gpu=true` under
@@ -5646,9 +5486,9 @@ mod tests {
     /// assigned on a flat sheet and cut in two.
     ///
     /// Warp is zeroed so both paths assign from the same plates with the same
-    /// (absent) warp: `build_plates` is CPU on both, but the GPU warp is
-    /// different noise from `compute_warp` (`DECISIONS.md` §7c), which would
-    /// make the two worlds differ for a reason this test is not about. The
+    /// (absent) warp. Written when the GPU warp was different noise from
+    /// `compute_warp` (`DECISIONS.md` §7c); since Ruling EZ item 3 both paths
+    /// run `compute_warp`, and the zero warp only keeps the fixture simple. The
     /// cells that matter are the ones the wrap decides -- where the CPU's
     /// world assignment and a flat `assign_plates` disagree. The GPU must side
     /// with the world there; elsewhere it may differ from the CPU only by the
@@ -6100,46 +5940,6 @@ mod tests {
                     }
                 }
             }
-        }
-    }
-
-    /// `use_gpu: false` -- the engine default, asserted as a literal -- never
-    /// reports `"stress"`; `true` reports it exactly when a device takes the
-    /// grid, and the stress stage's own outputs land within tolerance of the
-    /// CPU's on the same plate map.
-    #[test]
-    fn generate_terrain_use_gpu_moves_stress_to_the_gpu_and_only_when_asked() {
-        // Protects: use_gpu's effect on generate_terrain's own stress stage
-        // specifically -- off never reports "stress", on reports it exactly
-        // when a device takes the grid, and the reported field is really the
-        // GPU's own output, not the CPU result relabelled.
-        let (gw, gh) = (72usize, 48usize);
-        let p = WorldParams::defaults(gw, gh, 4242);
-        assert!(!p.use_gpu, "engine default must stay CPU");
-        let cpu = generate_terrain(&p);
-        assert!(!cpu.gpu_stages_used.iter().any(|s| s == "stress"), "use_gpu=false must never reach the GPU");
-
-        let mut pg = p.clone();
-        pg.use_gpu = true;
-        let g = generate_terrain(&pg);
-        let device = cartalith_gpu::init_gpu_device_set().ok().is_some_and(|s| s.supports_grid(gw, gh));
-        assert_eq!(g.gpu_stages_used.iter().any(|s| s == "stress"), device, "stress must run on the GPU exactly when a device takes it");
-        if device {
-            // Other GPU stages (warp, plate assignment) move the plate map, so
-            // hold the GPU generation's stress against the CPU function on the
-            // GPU generation's OWN plate map.
-            let plates = cartalith_terrain::build_plates(gw, gh, p.tect.seed as u32, p.tect.plates, p.tect.lloyd, false, None);
-            let want = compute_stress(gw, gh, false, &g.plate_id, &plates, p.tect.vel, p.tect.blur_r);
-            assert_eq!(g.boundary_mask, want.boundary_mask);
-            assert_eq!(g.boundary_type, want.boundary_type);
-            assert!(worst_abs(&g.stress_field, &want.stress_field) <= STRESS_GPU_TOL);
-            assert!(worst_abs(&g.shear_field, &want.shear_field) <= STRESS_GPU_TOL);
-            // Positive evidence the GPU produced these fields: its f32
-            // accumulation is not bit-identical to the CPU's f64-then-round
-            // on any real map (measured: 12 050 to 909 687 unequal cells on
-            // every fixture), so a wiring that reported "stress" and kept the
-            // CPU result would pass every check above and fail this one.
-            assert_ne!(g.stress_field, want.stress_field, "the reported GPU stress stage must actually be the GPU's output");
         }
     }
 

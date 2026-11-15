@@ -37,6 +37,12 @@
 //! (`1` = `use_gpu` on, as the shell turns it on at boot in
 //! `engine_bridge.gd`; default `0`), `SNAP_WARM` (untimed warm-up runs,
 //! default 1).
+//!
+//! Until 2026-11-15 the civilisation layer here always ran with its two GPU
+//! kernels off while the app's ran them under `use_gpu`, so §12.6's "GPU path"
+//! rows are a GPU terrain with a CPU civilisation. Ruling EZ item 3 moved the
+//! app's civilisation to the CPU on both paths (its kernels differed between
+//! the PC and the 6T, §12.8), so the harness and the app now agree.
 
 use crate::{coarse_ocean_wind_fields, compute_civilisation};
 use cartalith_engine::progress;
@@ -210,8 +216,7 @@ fn device_stage_bench() {
         let (t_terrain, k_terrain) = (Instant::now(), proc_ticks());
         let (o, w) = coarse_ocean_wind_fields(&ws.field, gw, gh, p.world, ws.sea_level, &p);
         let civ = compute_civilisation(
-            &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
-            &mut Vec::new(), None, p.lake_balance,
+            &ws, gw, gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), None, p.lake_balance,
         );
         let (t_end, k_end) = (Instant::now(), proc_ticks());
         stop.store(true, Ordering::Relaxed);

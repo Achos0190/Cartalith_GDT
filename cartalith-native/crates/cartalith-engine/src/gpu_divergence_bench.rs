@@ -5,14 +5,18 @@
 //! compare the printed hashes.
 //!
 //! **Method.** The CPU path's own tectonic substrate is built once; every GPU
-//! kernel `generate_terrain` can run on a handset (warp, plate assignment,
-//! stress, the base-field blur, heterogeneity, weather) is then fed **the
-//! same CPU-made inputs**, so a difference in one kernel's output cannot be
-//! inherited from an earlier GPU kernel. For each it prints the FNV-1a hash
-//! of the GPU output's bits, the hash of the CPU stage it replaces (equal on
-//! every machine: the CPU path is deterministic), how many cells differ from
-//! the CPU and by how much, and the median wall time of both. Two devices
-//! whose `GPU` hash differs for a kernel compute that kernel differently.
+//! kernel `generate_terrain` could run (warp, plate assignment, stress, the
+//! flexure and base-field blurs, heterogeneity, weather, plain-D8 flow) is
+//! then fed **the same CPU-made inputs**, so a difference in one kernel's
+//! output cannot be inherited from an earlier GPU kernel. For each it prints
+//! the FNV-1a hash of the GPU output's bits, the hash of the CPU stage it
+//! replaces (equal on every machine: the CPU path is deterministic), how many
+//! cells differ from the CPU and by how much, and the median wall time of
+//! both. Two devices whose `GPU` hash differs for a kernel compute that
+//! kernel differently. The flexure blur, its f32 CPU mirror, flow and the
+//! flow pipeline's build time (`flow_init`) were added 2026-11-15 for Ruling
+//! EZ item 3: these lines are the measurements `GPU_PATH_KERNELS` rests on,
+//! and re-running them on a new device is how that list is re-checked.
 //!
 //! **Not the harness world.** This runs `WorldParams::defaults()` (the golden
 //! path) at the harness's grid and seed, not `cartalith_godot::params::defaults()`,
@@ -141,6 +145,22 @@ fn gpu_divergence_bench() {
     report("stress_field", sg.as_ref().map(|s| s.stress_field.as_slice()), &stress.stress_field, t_gpu, t_cpu);
     report("stress_shear", sg.as_ref().map(|s| s.shear_field.as_slice()), &stress.shear_field, t_gpu, t_cpu);
 
+    // The flexure blur (the same blur kernel at `blur_r * 3`) over the CPU
+    // stress, normalised as `tectonic_substrate` normalises it (added
+    // 2026-11-15 for Ruling EZ item 3: it is a separate dispatch with its own
+    // radius, so its speed is measured, not assumed from the base blur's).
+    let (t_cpu, flex) = timed(reps, || compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world));
+    let (t_gpu, fg) = timed(reps, || flexure_gpu(gpu, gw, gh, world, &stress, p.tect.blur_r));
+    report("flexure_blur", fg.as_deref(), &flex, t_gpu, t_cpu);
+    // The same through the blur's f32 CPU mirror, normalised as
+    // `flexure_gpu` does: a device whose GPU line equals this one computes
+    // the kernel exactly as IEEE f32 does.
+    let masked: Vec<f32> = stress.boundary_mask.iter().zip(&stress.stress_field).map(|(&m, &v)| if m != 0 { v } else { 0.0 }).collect();
+    let fm = cartalith_gpu::gpu_gauss_blur_grid_cpu(&masked, p.tect.blur_r * 3.0, gw as u32, gh as u32, world);
+    let fmx = fm.iter().fold(1e-6f64, |m, &v| m.max((v as f64).abs()));
+    let fm: Vec<f32> = fm.iter().map(|&v| (v as f64 / fmx) as f32).collect();
+    report("flexure_vs_f32_cpu", fg.as_deref(), &fm, t_gpu, 0.0);
+
     // The base field's blur over the CPU's plate base heights.
     let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid as usize].base as f32).collect();
     let r = plate_base_blur_r(&p.tect);
@@ -197,4 +217,14 @@ fn gpu_divergence_bench() {
         .map(|(_w, r)| cartalith_climate::finish_weather_grid_with(&grid.eh, r, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh, p.climate.rain_upsample()))
     });
     report("weather", rg.as_deref(), &rain, t_gpu, t_cpu);
+
+    // D8 flow accumulation over the CPU substrate's height field, plain D8
+    // (no roughness), as `generate_terrain_inner`'s `flow_on_gpu` runs it.
+    // The pipeline build is timed on its own: generation pays it once per
+    // world whenever a device opened (added 2026-11-15, Ruling EZ item 3).
+    let (t_init, ctx) = timed(1, || cartalith_gpu::init_gpu_flow_with(gpu));
+    println!("KERNEL flow_init       gpu_ms={t_init:.1}");
+    let (t_cpu, acc) = timed(reps, || cartalith_hydrology::compute_flow_with(gw, gh, &sub.field, None, false, world, None));
+    let (t_gpu, fa) = timed(reps, || cartalith_gpu::dispatch_gpu_flow(&ctx, gw, gh, &sub.field, None, false, world).map(|r| r.acc));
+    report("flow", fa.as_deref(), &acc, t_gpu, t_cpu);
 }

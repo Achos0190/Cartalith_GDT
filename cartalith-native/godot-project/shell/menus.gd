@@ -572,12 +572,15 @@ var _cpu_threads_popup: PopupMenu
 var _cpu_thread_choices: Array[int] = []
 ## The GPU-acceleration row's own tooltip, named because `about_to_popup` has
 ## to put it back after a generation released the row.
-## Stage list checked 2026-09-24 (ALIGNMENT_AUDIT Part 2 B3) against what is
-## pushed onto `gpu_stages_used`: `generate_terrain_inner` -- warp/warp_split,
-## plate_assignment, stress, base_field_blur, heterogeneity, flow, weather;
-## `compute_civilisation` -- resource_potentials, settlement_suitability; and
-## `erode_op`'s thermal passes (`thermal_on_gpu`). It used to name four.
-const GPU_TOGGLE_TIP := "Runs the heavy grid work on the GPU: domain warp, plate assignment, crustal stress, the base-height blur, crustal heterogeneity, flow accumulation and the rainfall simulation during generation; resource and settlement-suitability maps in the civilisation layer; and the slope-collapse passes of Erode (droplet). A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next Generate, civilisation rebuild or Erode."
+## Stage list checked 2026-11-15 against what is pushed onto
+## `gpu_stages_used` after Ruling EZ item 3: `generate_terrain_inner` --
+## plate_assignment, base_field_blur (`cartalith_engine::GPU_PATH_KERNELS`);
+## `compute_civilisation` -- nothing (CPU on both paths); and `erode_op`'s
+## thermal passes (`thermal_on_gpu`). Warp, stress, flexure, heterogeneity,
+## flow, rainfall and the two civilisation maps left the GPU path because they
+## gave a different world on each device or were slower on a phone or the
+## tablet (PERFORMANCE_BENCHMARKS.md 12.8).
+const GPU_TOGGLE_TIP := "Runs plate assignment and the plate-height blur on the GPU during generation, plus the slope-collapse passes of Erode (droplet). Only work that gives the same result on every device measured, and is faster there, goes to the GPU; the rest stays on the CPU. A given seed makes a slightly different world with this on than off -- both are valid, but they don't match each other. Takes effect on the next Generate or Erode."
 
 var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## `_build_lod_debug_submenu()`. Holds no state of its own; the check
@@ -5276,8 +5279,9 @@ func _on_gpu_device_choice(id: int) -> void:
 ## `alternate frames` is **disabled** (§2.5's own note is that it only helps
 ## the 3D viewport, which since 3D-2 draws one 131 k-triangle patch, far inside one device's frame), and the default here is
 ## `single device` rather than `split tiles`, because splitting was measured
-## on real hardware and only pays above 2048² -- the tooltip carries the
-## numbers rather than asserting a benefit.
+## on real hardware and only paid above 2048². Since Ruling EZ item 3
+## (2026-11-15) `split tiles` is disabled too: the warp it split runs on the
+## CPU now (see that item's comment below).
 func _build_gpu_mode_menu(p: PopupMenu) -> void:
 	_gpu_mode_popup = PopupMenu.new()
 	_gpu_mode_popup.name = "GpuMultiMode"
@@ -5286,8 +5290,13 @@ func _build_gpu_mode_menu(p: PopupMenu) -> void:
 	_gpu_mode_popup.set_item_tooltip(0,
 		"Everything on the one selected (or automatic) device. The default.")
 	_gpu_mode_popup.add_radio_check_item("Split tiles", 1)
+	## Disabled since Ruling EZ item 3 (2026-11-15): the one stage it split,
+	## the domain warp, now runs on the CPU in every path (its GPU kernel gave a
+	## different world on each device), so selecting it would change nothing
+	## while implying otherwise -- the same reason Alternate frames is disabled.
+	_gpu_mode_popup.set_item_disabled(1, true)
 	_gpu_mode_popup.set_item_tooltip(1,
-		"Partitions the domain-warp stage into row bands across every selected device, sized by measured per-device throughput. Only that one stage is split today; the others run whole on the main device (crustal heterogeneity is per-cell too, but is not split) -- blur needs a halo, and plate assignment and flow accumulation read across the whole grid. Measured on this machine (RX 7800 XT + integrated Radeon): 1.2-1.5x at 4096 squared, but 0.7-0.8x at 2048 squared and below, where the second device's fixed cost exceeds what it contributes. Needs two devices checked above.")
+		"Not available. It split the domain-warp stage into row bands across two devices, and the warp now runs on the CPU (on the GPU it made a different world on each device), so there is nothing left to split. The stages still on the GPU (plate assignment, the plate-height blur) read across the whole grid.")
 	_gpu_mode_popup.add_radio_check_item("Alternate frames", 2)
 	_gpu_mode_popup.set_item_disabled(2, true)
 	_gpu_mode_popup.set_item_tooltip(2,

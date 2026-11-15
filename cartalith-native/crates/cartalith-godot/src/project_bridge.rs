@@ -9972,8 +9972,7 @@ mod substrate_tests {
             let ws = cartalith_engine::generate_terrain(&p);
             let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
             let civ = crate::compute_civilisation(
-                &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
-                &mut Vec::new(),
+                &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w),
                 None, p.lake_balance,
             );
             (p, ws, civ)
