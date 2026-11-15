@@ -1019,7 +1019,7 @@ digest moved from 12.3's `f6708d1a30982bb1` with `32d032fd`, Ruling EX's town pl
 printed the same digest before and after on each device: `terrain=dcdd2bce8534e95e civ=f23e16afb93fbc19` (67 ways) on
 the PC, `terrain=14fa38faada65f7a civ=a06b729d7654569a` (64 ways) on the 6T.
 
-### 12.7 The OnePlus Pad 3 with the 2026-11-15 build (2026-11-15): cold start measured; the timing matrix NOT run
+### 12.7 The OnePlus Pad 3 with the 2026-11-15 build (2026-11-15): cold start measured; timed by the coordinator (a reduced matrix, below)
 
 **Status: half done, and the missing half is a blocker, not a result.** `OUTSTANDING_WORK.md`'s "Re-measure generation on
 the Pad 3" asked for before/after, 5 interleaved runs per column at the default thread count and at
@@ -1058,6 +1058,20 @@ not from `cpu_thread_count_active()`, which the app does not log.
 boot" counted "8 consecutive tids spawned right after Godot's setup" on the 6T. On the Pad the 8 consecutive tids are
 Godot's `WorkerThread_N`, which are 8 on any 8-core device regardless of Rayon, so that evidence would not have told 6
 from 8. The 6T count should be re-read by start tick and name as above before it is relied on.
+**Timing, run by the coordinator 2026-11-15** (the owner re-enabled wireless debugging and asked for it quickly, so the matrix was cut to **3 interleaved rounds at the default thread count, 30 s cooldown**; the `RAYON_NUM_THREADS=1` column was not run). The same two binaries (`2e9fd4db` "before", `5721443c` "after", LTO release), `device_stage_bench`, `SNAP_REPS=1 SNAP_WARM=0`. Median (min..max), seconds:
+
+| stage | before | after |
+|---|---|---|
+| Tectonics | 7.77 (7.68..7.83) | 5.78 (5.76..5.84) |
+| Volcanism | 0.96 (0.90..1.34) | 0.80 (0.78..0.85) |
+| Erosion | 1.85 (1.85..3.33) | 1.04 (1.04..1.05) |
+| Hydrology | 0.83 (0.68..1.02) | 0.44 (0.43..0.45) |
+| Climate | 3.83 (2.82..3.89) | 2.59 (2.49..2.59) |
+| Civilisation | 8.33 (6.53..8.61) | 5.02 (5.00..5.02) |
+| **Total** | **23.76 (20.62..25.67)** | **15.69 (15.57..15.70)** |
+
+About 34 % faster; terrain busy cores 1.80-1.92 -> 2.71-2.84. **Digest on every run, both builds: `terrain=632b22edf25908e1 civ=65905050eba0a3e3`**, the PC's and the 6T's. The "before" column's spread (round 2 is 25 % slower than round 1) is the Pad's own variance and is why the medians, not single runs, are quoted. Thermal: the hottest `CPU*` sensor in `dumpsys thermalservice` read 41.3 C before and after every run, which is a flat reading over ~4 minutes of load and more likely a slow-updating sensor than proof of no heating; sustained throttling (section 12.4 point 3) is still unmeasured. Device files removed afterwards.
+
 **Re-read 2026-11-15 by the coordinator (6T, pid 11140, APK `107d5465`):** the 6T's tids 11280-11287 are named `GLThread 32` (not `WorkerThread_N`) and share one start tick (3323026), separate from Godot's `WorkerThread 0..7` and from the two other `GLThread`-named threads (11178, 11191, distinct ticks). So the 6T's pool is 8 Rayon workers; the original count named the right threads, only its stated evidence (consecutive tids) was too weak.
 
 **To finish it (the matrix is ready).** `C:/cw/pad_bins/` holds `pad_before`, `pad_after` and `pad_matrix.sh` (a
