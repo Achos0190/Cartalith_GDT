@@ -3777,3 +3777,13 @@ Owner, verbatim: *"Big river towns can grow around both banks when the terrain a
 ## Ruling FC: a town's teardrop pins show only when the town itself can be seen (owner, 2026-11-15)
 
 Owner, verbatim: *"Hm, I'd like the tear drops from towns only visible when zoomed in enough so we can see the town on the map, or when the map view has been opened."* Seen right after Ruling FA's capture (`c33c0485`), where a town's points of interest crowd the world map. The teardrop pins belonging to a town (its points of interest and in-town landmarks) are hidden on the world map until the zoom is deep enough that the town's own layout is drawn on the map (the same zoom the town-layout layer uses, not a new threshold), and always show in the town's map view (the City Viewer). Pins not belonging to a town are unaffected. Owning document: `CITY_MAP_LOOK_SCOPE.md`.
+
+## Ruling FD: a CARTO pin palette for placing pins by hand (owner, 2026-11-15)
+
+The owner's idea (*"utilising carto mode and an option to drop pins, the full, categorized, selection then becomes available in the right bar"*) with the coordinator's design, and the owner's answers, verbatim: *"Town pins, hide when zoomed out. Yes on the palette. Yes, for other maybe an question mark style like we have and an exclamation mark one."*
+
+1. A **Pins** tool in CARTO's tool strip; while active the right bar shows a categorised **pin palette** (search, recents, collapsible categories, every icon in the current marker style). Pick, then click to drop (stays armed; drag-and-drop also works); the new pin's card opens with Name focused and its vault-linked Note section. It extends the existing CARTO Point of interest tool (CL-11), not a second path.
+2. **User pins inside a town hide when zoomed out**, exactly as Ruling FC's generated town pins do.
+3. **One palette and one card** for generated landmarks and user pins (Change kind reopens the palette).
+4. A user pin may take **any** kind with an icon (not only the 12 POI kinds), and a **free-text kind** for things with no icon, drawn with the question-mark pin (`other`) or a new **exclamation-mark** pin (`notice`), chosen by the user.
+Owning document: `PIN_PALETTE_SCOPE.md`.
