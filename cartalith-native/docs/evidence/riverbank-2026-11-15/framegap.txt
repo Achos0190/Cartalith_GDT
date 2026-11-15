@@ -1,0 +1,440 @@
+framegap.txt -- City Viewer opening frame versus the whole-layout gap, seed 483920 at 384x288, 800 km, villages on (the app's world).
+Probe: godot-project/_framegap_probe.tscn, headless, scratch APPDATA, --riverbank 0|1. Shots: _viewerframe_probe.tscn --shots framegap --ids 95,15 --riverbank 1.
+Gap = building vertex to river centreline less river_w/2 (census definition); street width 5.4 m. Not the census's 532/618-layout figure: the app world has 192/209 river-kind towns with a centreline and houses.
+
+=== urban_riverbank 0 ===
+TOWN #  0 river        houses 4233 in_frame 4233  a_all   28.4  b_frame   28.4  seen   17.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 1652 m
+TOWN #  1 river        houses 3398 in_frame 3398  a_all   23.5  b_frame   23.5  seen    7.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 352 m  frame_w 1458 m
+TOWN #  2 river        houses  177 in_frame  177  a_all   48.2  b_frame   48.2  seen   48.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 947 m
+TOWN #  3 riverthrough houses 2025 in_frame 2025  a_all   24.8  b_frame   24.8  seen    6.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2994 m  frame_w 1391 m
+TOWN #  4 river        houses  173 in_frame  173  a_all   24.2  b_frame   24.2  seen   14.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 727 m
+TOWN #  5 river        houses 4099 in_frame 4099  a_all   28.3  b_frame   28.3  seen   15.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 1649 m
+TOWN #  6 river        houses  226 in_frame  226  a_all   44.0  b_frame   44.0  seen   44.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 1419 m  frame_w 456 m
+TOWN #  7 riverthrough houses  214 in_frame  214  a_all   16.3  b_frame   16.3  seen    8.9  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2909 m  frame_w 603 m
+TOWN #  8 river        houses   31 in_frame   31  a_all   43.3  b_frame   43.3  seen   43.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 743 m
+TOWN #  9 river        houses   24 in_frame   24  a_all   47.7  b_frame   47.7  seen   47.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 236 m
+TOWN # 10 river        houses  780 in_frame  780  a_all   42.4  b_frame   42.4  seen   42.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 751 m
+TOWN # 11 river        houses 3522 in_frame 3522  a_all   18.9  b_frame   18.9  seen    8.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 1918 m
+TOWN # 12 riverthrough houses  132 in_frame  132  a_all   36.2  b_frame   36.2  seen   23.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2990 m  frame_w 506 m
+TOWN # 13 riverthrough houses  191 in_frame  191  a_all   22.9  b_frame   22.9  seen    7.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 1830 m  frame_w 550 m
+TOWN # 14 river        houses  130 in_frame  130  a_all   97.5  b_frame   97.5  seen   97.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 116 m  frame_w 371 m
+TOWN # 15 river        houses   44 in_frame   44  a_all   64.6  b_frame   64.6  seen   64.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 284 m
+TOWN # 16 riverthrough houses  174 in_frame  174  a_all   39.5  b_frame   39.5  seen   25.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2140 m  frame_w 383 m
+TOWN # 17 riverthrough houses  190 in_frame  190  a_all   19.7  b_frame   19.7  seen    4.3  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2949 m  frame_w 831 m
+TOWN # 18 riverthrough houses  123 in_frame  123  a_all   56.4  b_frame   56.4  seen   56.4  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2895 m  frame_w 401 m
+TOWN # 19 river        houses  106 in_frame  106  a_all   30.2  b_frame   30.2  seen   25.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 327 m
+TOWN # 20 riverthrough houses   22 in_frame   22  a_all   49.1  b_frame   49.1  seen   49.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2528 m  frame_w 151 m
+TOWN # 21 riverthrough houses 2215 in_frame 2215  a_all   29.2  b_frame   29.2  seen    9.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2276 m  frame_w 1117 m
+TOWN # 23 riverthrough houses 1475 in_frame 1475  a_all   30.3  b_frame   30.3  seen   22.6  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 1734 m  frame_w 1225 m
+TOWN # 24 riverthrough houses   42 in_frame   42  a_all   41.2  b_frame   41.2  seen   41.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2128 m  frame_w 494 m
+TOWN # 25 river        houses  368 in_frame  368  a_all   26.8  b_frame   26.8  seen   18.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 909 m
+TOWN # 26 river        houses   49 in_frame   49  a_all   47.8  b_frame   47.8  seen   47.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 544 m
+TOWN # 27 river        houses   73 in_frame   73  a_all   84.8  b_frame   84.8  seen   84.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 533 m
+TOWN # 28 riverthrough houses   31 in_frame   31  a_all   77.7  b_frame   77.7  seen   77.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 96 m  frame_w 183 m
+TOWN # 30 river        houses  157 in_frame  157  a_all   45.0  b_frame   45.0  seen   45.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 332 m
+TOWN # 31 river        houses   70 in_frame   70  a_all   23.9  b_frame   23.9  seen   12.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 69 m  frame_w 209 m
+TOWN # 32 river        houses  337 in_frame  327  a_all    0.1  b_frame    0.1  seen    0.1  share<=1st   3.9%  share<=2st   5.3%  bridges 0  nearest_house_to_crossing none  frame_w 526 m
+TOWN # 33 river        houses  152 in_frame  152  a_all   34.6  b_frame   34.6  seen   31.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 553 m
+TOWN # 34 river        houses   71 in_frame   71  a_all   80.7  b_frame   80.7  seen   80.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 320 m
+TOWN # 35 river        houses  214 in_frame  214  a_all   35.2  b_frame   35.2  seen   30.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 1206 m  frame_w 336 m
+TOWN # 36 riverthrough houses  102 in_frame  102  a_all   48.5  b_frame   48.5  seen   48.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 70 m  frame_w 277 m
+TOWN # 37 river        houses  180 in_frame  180  a_all   36.0  b_frame   36.0  seen   27.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 405 m
+TOWN # 38 river        houses  114 in_frame  114  a_all   31.1  b_frame   31.1  seen   24.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 364 m
+TOWN # 39 river        houses  145 in_frame  145  a_all   44.0  b_frame   44.0  seen   44.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 73 m  frame_w 368 m
+TOWN # 40 river        houses  130 in_frame  130  a_all   25.9  b_frame   25.9  seen   12.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 462 m
+TOWN # 41 riverthrough houses   43 in_frame   43  a_all   59.0  b_frame   59.0  seen   59.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 173 m  frame_w 557 m
+TOWN # 42 river        houses  127 in_frame  127  a_all   34.5  b_frame   34.5  seen   21.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 324 m
+TOWN # 43 river        houses  154 in_frame  154  a_all   48.9  b_frame   48.9  seen   48.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 495 m
+TOWN # 45 riverthrough houses  138 in_frame  138  a_all   59.5  b_frame   59.5  seen   59.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2138 m  frame_w 306 m
+TOWN # 46 riverthrough houses  110 in_frame  110  a_all   34.7  b_frame   34.7  seen   22.3  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 103 m  frame_w 399 m
+TOWN # 47 riverthrough houses   94 in_frame   94  a_all   64.8  b_frame   64.8  seen   64.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2932 m  frame_w 405 m
+TOWN # 48 river        houses  112 in_frame  112  a_all   40.5  b_frame   40.5  seen   40.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 1288 m  frame_w 256 m
+TOWN # 49 riverthrough houses  149 in_frame  149  a_all   47.8  b_frame   47.8  seen   47.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2995 m  frame_w 411 m
+TOWN # 50 river        houses  133 in_frame  133  a_all   51.5  b_frame   51.5  seen   51.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 73 m  frame_w 365 m
+TOWN # 51 river        houses   98 in_frame   98  a_all   35.5  b_frame   35.5  seen   20.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 420 m
+TOWN # 52 riverthrough houses  125 in_frame  125  a_all   27.0  b_frame   27.0  seen    7.4  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2956 m  frame_w 453 m
+TOWN # 53 riverthrough houses  132 in_frame  132  a_all   21.1  b_frame   21.1  seen   10.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 120 m  frame_w 427 m
+TOWN # 54 riverthrough houses  157 in_frame  157  a_all   20.6  b_frame   20.6  seen   13.3  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2116 m  frame_w 387 m
+TOWN # 55 riverthrough houses   24 in_frame   24  a_all   33.1  b_frame   33.1  seen    7.4  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2670 m  frame_w 247 m
+TOWN # 56 river        houses   94 in_frame   94  a_all   23.2  b_frame   23.2  seen   10.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 349 m
+TOWN # 57 riverthrough houses  164 in_frame  164  a_all   42.7  b_frame   42.7  seen   42.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2980 m  frame_w 437 m
+TOWN # 58 river        houses   23 in_frame   23  a_all   46.1  b_frame   46.1  seen   46.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 139 m
+TOWN # 59 river        houses  138 in_frame  138  a_all   32.5  b_frame   32.5  seen   20.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 342 m
+TOWN # 60 river        houses   49 in_frame   49  a_all   24.5  b_frame   24.5  seen   12.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 412 m
+TOWN # 61 river        houses  104 in_frame  104  a_all   62.9  b_frame   62.9  seen   62.9  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 90 m  frame_w 354 m
+TOWN # 62 river        houses   14 in_frame   14  a_all   45.8  b_frame   45.8  seen   45.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 241 m
+TOWN # 63 river        houses  219 in_frame  219  a_all   34.6  b_frame   34.6  seen   26.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 1239 m  frame_w 464 m
+TOWN # 64 river        houses  107 in_frame  107  a_all   55.2  b_frame   55.2  seen   55.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 92 m  frame_w 300 m
+TOWN # 65 river        houses    8 in_frame    8  a_all   39.9  b_frame   39.9  seen   24.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 92 m
+TOWN # 66 river        houses  171 in_frame  171  a_all   26.2  b_frame   26.2  seen   15.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 374 m
+TOWN # 69 river        houses  190 in_frame  190  a_all   40.5  b_frame   40.5  seen   40.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 1676 m  frame_w 634 m
+TOWN # 70 river        houses   91 in_frame   91  a_all   50.1  b_frame   50.1  seen   50.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 100 m  frame_w 302 m
+TOWN # 71 river        houses   91 in_frame   91  a_all   37.8  b_frame   37.8  seen   37.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 255 m
+TOWN # 72 river        houses   95 in_frame   95  a_all   38.4  b_frame   38.4  seen   31.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 467 m
+TOWN # 73 river        houses  104 in_frame  104  a_all   31.8  b_frame   31.8  seen   19.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 67 m  frame_w 261 m
+TOWN # 75 riverthrough houses   32 in_frame   32  a_all   81.8  b_frame   81.8  seen   81.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 3024 m  frame_w 249 m
+TOWN # 76 river        houses  140 in_frame  140  a_all   23.0  b_frame   23.0  seen    9.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 386 m
+TOWN # 77 river        houses   59 in_frame   59  a_all   30.8  b_frame   30.8  seen   19.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 288 m
+TOWN # 78 river        houses   74 in_frame   74  a_all   57.5  b_frame   57.5  seen   57.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 301 m
+TOWN # 79 riverthrough houses  111 in_frame  111  a_all   39.9  b_frame   39.9  seen   19.9  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 3000 m  frame_w 398 m
+TOWN # 80 riverthrough houses  186 in_frame  186  a_all   35.1  b_frame   35.1  seen   15.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2093 m  frame_w 538 m
+TOWN # 82 river        houses  138 in_frame  138  a_all   54.1  b_frame   54.1  seen   54.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 457 m
+TOWN # 84 river        houses  111 in_frame  111  a_all   19.1  b_frame   19.1  seen    7.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 234 m
+TOWN # 85 riverthrough houses  109 in_frame  109  a_all   20.0  b_frame   20.0  seen   20.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 39 m  frame_w 409 m
+TOWN # 86 river        houses  119 in_frame  119  a_all   23.1  b_frame   23.1  seen   14.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 242 m
+TOWN # 87 river        houses   68 in_frame   68  a_all   29.7  b_frame   29.7  seen   11.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 222 m
+TOWN # 88 river        houses   19 in_frame   19  a_all  117.7  b_frame  117.7  seen  117.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 88 m
+TOWN # 89 river        houses   79 in_frame   79  a_all   29.4  b_frame   29.4  seen    7.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 517 m
+TOWN # 90 river        houses  113 in_frame  113  a_all   59.8  b_frame   59.8  seen   59.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 528 m
+TOWN # 91 river        houses   84 in_frame   84  a_all   27.9  b_frame   27.9  seen   27.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 349 m
+TOWN # 92 river        houses   96 in_frame   96  a_all   51.6  b_frame   51.6  seen   51.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 288 m
+TOWN # 93 river        houses  115 in_frame  115  a_all   32.7  b_frame   32.7  seen   15.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 367 m
+TOWN # 94 river        houses  117 in_frame  117  a_all   12.1  b_frame   12.1  seen   11.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 259 m
+TOWN # 95 river        houses  155 in_frame  155  a_all   42.5  b_frame   42.5  seen   42.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 464 m
+TOWN # 96 river        houses   91 in_frame   91  a_all   29.1  b_frame   29.1  seen   19.9  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 41 m  frame_w 353 m
+TOWN # 97 river        houses   74 in_frame   74  a_all   41.0  b_frame   41.0  seen   41.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 207 m
+TOWN # 98 river        houses  134 in_frame  134  a_all   22.9  b_frame   22.9  seen    7.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 612 m
+TOWN # 99 river        houses   36 in_frame   36  a_all   62.0  b_frame   62.0  seen   62.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 95 m  frame_w 292 m
+TOWN #100 river        houses  127 in_frame  127  a_all   34.8  b_frame   34.8  seen   21.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 323 m
+TOWN #101 river        houses  100 in_frame  100  a_all   68.5  b_frame   68.5  seen   68.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 330 m
+TOWN #102 river        houses   46 in_frame   46  a_all   84.6  b_frame   84.6  seen   84.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 358 m
+TOWN #103 river        houses   17 in_frame   17  a_all   62.5  b_frame   62.5  seen   62.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 93 m  frame_w 81 m
+TOWN #104 river        houses  222 in_frame  222  a_all   39.2  b_frame   39.2  seen   22.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 440 m
+TOWN #105 river        houses  225 in_frame  225  a_all   47.7  b_frame   47.7  seen   47.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 155 m  frame_w 461 m
+TOWN #106 river        houses   20 in_frame   20  a_all   61.3  b_frame   61.3  seen   61.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 214 m
+TOWN #107 river        houses    4 in_frame    4  a_all   59.9  b_frame   59.9  seen   59.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 34 m
+TOWN #109 river        houses   76 in_frame   76  a_all   45.7  b_frame   45.7  seen   45.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 277 m
+TOWN #112 riverthrough houses   98 in_frame   98  a_all   43.6  b_frame   43.6  seen   43.6  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 65 m  frame_w 252 m
+TOWN #113 river        houses  109 in_frame  109  a_all   20.4  b_frame   20.4  seen   19.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 281 m
+TOWN #114 river        houses  140 in_frame  140  a_all   24.7  b_frame   24.7  seen   18.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 358 m
+TOWN #116 river        houses  125 in_frame  125  a_all   50.2  b_frame   50.2  seen   50.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 367 m
+TOWN #118 river        houses   96 in_frame   96  a_all   29.5  b_frame   29.5  seen   26.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 40 m  frame_w 360 m
+TOWN #119 river        houses  101 in_frame  101  a_all   11.4  b_frame   11.4  seen    8.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 127 m  frame_w 297 m
+TOWN #121 river        houses   73 in_frame   73  a_all   49.0  b_frame   49.0  seen   49.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 541 m
+TOWN #122 river        houses   83 in_frame   83  a_all   50.4  b_frame   50.4  seen   50.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 238 m
+TOWN #123 river        houses  150 in_frame  150  a_all   39.7  b_frame   39.7  seen   31.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 345 m
+TOWN #124 riverthrough houses   91 in_frame   91  a_all   26.8  b_frame   26.8  seen   15.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2858 m  frame_w 387 m
+TOWN #127 river        houses  122 in_frame  122  a_all   34.0  b_frame   34.0  seen   17.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 390 m
+TOWN #128 river        houses   50 in_frame   50  a_all   47.3  b_frame   47.3  seen   47.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 646 m
+TOWN #129 river        houses  137 in_frame  137  a_all   32.3  b_frame   32.3  seen   32.3  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 77 m  frame_w 244 m
+TOWN #130 river        houses  157 in_frame  157  a_all   79.6  b_frame   79.6  seen   79.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 455 m
+TOWN #132 riverthrough houses   86 in_frame   86  a_all   43.0  b_frame   43.0  seen   43.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2930 m  frame_w 229 m
+TOWN #133 river        houses   82 in_frame   82  a_all   45.5  b_frame   45.5  seen   45.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 370 m
+TOWN #134 river        houses  100 in_frame  100  a_all   53.4  b_frame   53.4  seen   53.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 286 m
+TOWN #135 river        houses   87 in_frame   87  a_all    9.1  b_frame    9.1  seen    9.1  share<=1st   0.0%  share<=2st   1.1%  bridges 0  nearest_house_to_crossing none  frame_w 191 m
+TOWN #137 river        houses   97 in_frame   97  a_all   37.8  b_frame   37.8  seen   37.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 417 m
+TOWN #138 river        houses  101 in_frame  101  a_all   22.9  b_frame   22.9  seen    6.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 398 m
+TOWN #139 riverthrough houses  122 in_frame  122  a_all   28.3  b_frame   28.3  seen   18.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 51 m  frame_w 390 m
+TOWN #140 river        houses  112 in_frame  112  a_all   19.1  b_frame   19.1  seen    6.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 422 m
+TOWN #142 river        houses   59 in_frame   59  a_all   32.7  b_frame   32.7  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 236 m
+TOWN #143 river        houses  135 in_frame  135  a_all   97.8  b_frame   97.8  seen   97.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 650 m
+TOWN #144 river        houses  108 in_frame  108  a_all   35.2  b_frame   35.2  seen   14.6  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 213 m  frame_w 340 m
+TOWN #145 river        houses  188 in_frame  188  a_all   40.5  b_frame   40.5  seen   40.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 432 m
+TOWN #147 river        houses  100 in_frame  100  a_all   19.9  b_frame   19.9  seen   12.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 395 m
+TOWN #148 river        houses  156 in_frame  156  a_all   26.3  b_frame   26.3  seen    8.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 461 m
+TOWN #149 river        houses   74 in_frame   74  a_all   28.3  b_frame   28.3  seen   13.9  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 61 m  frame_w 336 m
+TOWN #150 riverthrough houses  173 in_frame  173  a_all   17.6  b_frame   17.6  seen   13.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2727 m  frame_w 383 m
+TOWN #151 river        houses  104 in_frame  104  a_all   34.0  b_frame   34.0  seen   14.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 305 m
+TOWN #152 river        houses   76 in_frame   76  a_all   38.2  b_frame   38.2  seen   21.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 332 m
+TOWN #154 river        houses  150 in_frame  150  a_all   45.5  b_frame   45.5  seen   45.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 66 m  frame_w 386 m
+TOWN #155 river        houses   16 in_frame   16  a_all   32.0  b_frame   32.0  seen   16.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 395 m
+TOWN #157 river        houses   82 in_frame   82  a_all   10.9  b_frame   10.9  seen    3.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 268 m
+TOWN #158 river        houses   39 in_frame   39  a_all   52.1  b_frame   52.1  seen   52.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 254 m
+TOWN #159 river        houses  167 in_frame  167  a_all   17.6  b_frame   17.6  seen   15.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 88 m  frame_w 405 m
+TOWN #161 river        houses  115 in_frame  115  a_all   47.5  b_frame   47.5  seen   47.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 368 m
+TOWN #162 river        houses   33 in_frame   33  a_all   43.6  b_frame   43.6  seen   43.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 245 m
+TOWN #164 river        houses   76 in_frame   76  a_all   30.8  b_frame   30.8  seen   18.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 271 m
+TOWN #165 river        houses   80 in_frame   80  a_all   34.6  b_frame   34.6  seen   21.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 336 m
+TOWN #167 river        houses   32 in_frame   32  a_all   29.2  b_frame   29.2  seen   19.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 307 m
+TOWN #169 river        houses  110 in_frame  110  a_all   26.7  b_frame   26.7  seen   16.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 318 m
+TOWN #170 river        houses  105 in_frame  105  a_all   22.8  b_frame   22.8  seen   12.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 333 m
+TOWN #171 river        houses  121 in_frame  121  a_all   59.0  b_frame   59.0  seen   59.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 475 m
+TOWN #172 river        houses   98 in_frame   98  a_all   25.5  b_frame   25.5  seen   10.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 298 m
+TOWN #173 river        houses  140 in_frame  140  a_all   45.5  b_frame   45.5  seen   45.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 273 m
+TOWN #174 river        houses   66 in_frame   66  a_all   39.1  b_frame   39.1  seen   27.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 318 m
+TOWN #175 riverthrough houses  104 in_frame  104  a_all   15.9  b_frame   15.9  seen   15.9  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2027 m  frame_w 346 m
+TOWN #176 river        houses  126 in_frame  126  a_all   22.9  b_frame   22.9  seen    6.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 478 m
+TOWN #179 river        houses   92 in_frame   92  a_all   53.2  b_frame   53.2  seen   53.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 307 m
+TOWN #180 river        houses   89 in_frame   89  a_all   38.4  b_frame   38.4  seen   38.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 430 m
+TOWN #181 river        houses   52 in_frame   52  a_all   34.6  b_frame   34.6  seen   17.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 228 m
+TOWN #183 river        houses   58 in_frame   58  a_all   35.3  b_frame   35.3  seen   15.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 243 m
+TOWN #184 river        houses   33 in_frame   33  a_all   23.1  b_frame   23.1  seen    9.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 58 m  frame_w 274 m
+TOWN #185 river        houses  110 in_frame  110  a_all   26.8  b_frame   26.8  seen    7.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 459 m
+TOWN #186 river        houses   58 in_frame   58  a_all   25.5  b_frame   25.5  seen   13.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 361 m
+TOWN #189 river        houses   54 in_frame   54  a_all   20.2  b_frame   20.2  seen   19.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 331 m
+TOWN #190 river        houses   29 in_frame   29  a_all   21.9  b_frame   21.9  seen    8.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 311 m
+TOWN #191 river        houses   32 in_frame   32  a_all   54.8  b_frame   54.8  seen   54.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 132 m  frame_w 299 m
+TOWN #192 riverthrough houses   71 in_frame   71  a_all   47.5  b_frame   47.5  seen   47.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2074 m  frame_w 351 m
+TOWN #194 river        houses   16 in_frame   16  a_all   34.0  b_frame   34.0  seen   34.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 50 m  frame_w 140 m
+TOWN #196 river        houses  120 in_frame  120  a_all   31.7  b_frame   31.7  seen   19.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 303 m
+TOWN #197 river        houses   97 in_frame   97  a_all   28.6  b_frame   28.6  seen   12.3  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 50 m  frame_w 322 m
+TOWN #198 river        houses   37 in_frame   37  a_all   59.2  b_frame   59.2  seen   59.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 252 m
+TOWN #199 river        houses   65 in_frame   65  a_all   68.9  b_frame   68.9  seen   68.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 558 m
+TOWN #200 river        houses   33 in_frame   33  a_all   36.0  b_frame   36.0  seen   31.6  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 69 m  frame_w 175 m
+TOWN #201 river        houses   68 in_frame   68  a_all   58.8  b_frame   58.8  seen   58.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 300 m
+TOWN #202 river        houses   53 in_frame   53  a_all   36.5  b_frame   36.5  seen   23.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 200 m
+TOWN #203 river        houses  110 in_frame  110  a_all   54.6  b_frame   54.6  seen   54.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 372 m
+TOWN #204 river        houses   31 in_frame   31  a_all   44.4  b_frame   44.4  seen   44.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 422 m
+TOWN #206 river        houses   69 in_frame   69  a_all   31.9  b_frame   31.9  seen   22.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 258 m
+TOWN #207 river        houses   96 in_frame   96  a_all   38.6  b_frame   38.6  seen   28.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 303 m
+TOWN #210 river        houses  106 in_frame  106  a_all   52.3  b_frame   52.3  seen   52.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 349 m
+TOWN #211 river        houses  173 in_frame  173  a_all   35.3  b_frame   35.3  seen   24.2  share<=1st   0.0%  share<=2st   0.0%  bridges 2  nearest_house_to_crossing 52 m  frame_w 350 m
+TOWN #212 river        houses   37 in_frame   37  a_all   78.7  b_frame   78.7  seen   78.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 100 m  frame_w 108 m
+TOWN #213 river        houses   92 in_frame   92  a_all   35.2  b_frame   35.2  seen   23.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 277 m
+TOWN #214 river        houses   18 in_frame   18  a_all  105.3  b_frame  105.3  seen  105.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 97 m
+TOWN #215 river        houses  248 in_frame  248  a_all   22.9  b_frame   22.9  seen    7.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 553 m
+TOWN #216 river        houses  172 in_frame  172  a_all   32.7  b_frame   32.7  seen   17.9  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 209 m  frame_w 607 m
+TOWN #217 river        houses  152 in_frame  152  a_all   38.6  b_frame   38.6  seen   26.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 451 m
+TOWN #218 river        houses   65 in_frame   65  a_all   43.0  b_frame   43.0  seen   43.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 255 m
+TOWN #221 river        houses  110 in_frame  110  a_all   28.1  b_frame   28.1  seen   15.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 357 m
+TOWN #222 river        houses   75 in_frame   75  a_all   31.4  b_frame   31.4  seen   31.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 257 m
+TOWN #223 river        houses   74 in_frame   74  a_all   32.7  b_frame   32.7  seen   19.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 257 m
+TOWN #225 riverthrough houses  802 in_frame  802  a_all    8.9  b_frame    8.9  seen    6.0  share<=1st   0.0%  share<=2st  51.0%  bridges 1  nearest_house_to_crossing 885 m  frame_w 3776 m
+TOWN #227 river        houses   93 in_frame   93  a_all   46.2  b_frame   46.2  seen   46.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 338 m
+TOWN #228 river        houses  171 in_frame  171  a_all   11.4  b_frame   11.4  seen    8.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 315 m
+TOWN #229 river        houses  118 in_frame  118  a_all   29.4  b_frame   29.4  seen   19.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 243 m
+TOWN #231 river        houses  115 in_frame  115  a_all   25.3  b_frame   25.3  seen   12.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 383 m
+TOWN #232 riverthrough houses  187 in_frame  187  a_all   25.9  b_frame   25.9  seen   17.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 2114 m  frame_w 309 m
+MEASURE seed 483920 grid 384x288 urban_riverbank 0: 192 river-kind towns with a centreline and houses
+DIST (a) whole-layout nearest house (m) n=192 median    35.3  p10    20.6  p90    59.9  max   117.7
+DIST (b) nearest house in opening frame n=192 median    35.3  p10    20.6  p90    59.9  max   117.7
+DIST seen: nearest to drawn water, whole n=192 median    25.2  p10     8.8  p90    59.9  max   117.7
+DIST seen: nearest to drawn water, frame n=192 median    25.2  p10     8.8  p90    59.9  max   117.7
+DIST (c) % houses <= 1 street width     n=192 median     0.0  p10     0.0  p90     0.0  max     3.9
+DIST (c) % houses <= 2 street widths    n=192 median     0.0  p10     0.0  p90     0.0  max    51.0
+DIST % of houses inside the frame       n=192 median   100.0  p10   100.0  p90   100.0  max   100.0
+(d) towns with a bridge or ford: 69 of 192; nearest house within 40 m of one: 1
+DIST (d) nearest house to crossing (m)  n= 69 median   212.5  p10    57.8  p90  2948.6  max  3024.2
+towns whose frame's nearest house is more than 2 street widths from the bank: 189 of 192
+WORST(b) #88  b_frame 117.7  a_all 117.7  houses 19
+WORST(b) #214  b_frame 105.3  a_all 105.3  houses 18
+WORST(b) #143  b_frame 97.8  a_all 97.8  houses 135
+WORST(b) #14  b_frame 97.5  a_all 97.5  houses 130
+WORST(b) #27  b_frame 84.8  a_all 84.8  houses 73
+
+=== urban_riverbank 1 ===
+TOWN #  0 river        houses 4026 in_frame 4026  a_all    5.0  b_frame    5.0  seen    5.0  share<=1st   0.1%  share<=2st   0.2%  bridges 0  nearest_house_to_crossing none  frame_w 1694 m
+TOWN #  1 river        houses 3222 in_frame 3222  a_all    6.1  b_frame    6.1  seen    6.1  share<=1st   0.0%  share<=2st   0.8%  bridges 1  nearest_house_to_crossing 115 m  frame_w 1398 m
+TOWN #  2 river        houses  219 in_frame  219  a_all    6.8  b_frame    6.8  seen    6.8  share<=1st   0.0%  share<=2st   9.6%  bridges 1  nearest_house_to_crossing 244 m  frame_w 419 m
+TOWN #  3 riverthrough houses 1853 in_frame 1853  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   0.1%  bridges 1  nearest_house_to_crossing 925 m  frame_w 1264 m
+TOWN #  4 river        houses   51 in_frame   51  a_all    7.5  b_frame    7.5  seen    7.5  share<=1st   0.0%  share<=2st  13.7%  bridges 1  nearest_house_to_crossing 59 m  frame_w 305 m
+TOWN #  5 river        houses 3584 in_frame 3584  a_all    7.1  b_frame    7.1  seen    7.1  share<=1st   0.0%  share<=2st   3.4%  bridges 1  nearest_house_to_crossing 49 m  frame_w 1577 m
+TOWN #  6 river        houses   86 in_frame   86  a_all   48.5  b_frame   48.5  seen   48.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 256 m
+TOWN #  7 riverthrough houses  400 in_frame  400  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  10.8%  bridges 1  nearest_house_to_crossing 126 m  frame_w 573 m
+TOWN #  8 river        houses   28 in_frame   28  a_all    6.6  b_frame    6.6  seen    6.6  share<=1st   0.0%  share<=2st  42.9%  bridges 0  nearest_house_to_crossing none  frame_w 318 m
+TOWN #  9 river        houses  129 in_frame  129  a_all    7.4  b_frame    7.4  seen    7.4  share<=1st   0.0%  share<=2st  10.1%  bridges 0  nearest_house_to_crossing none  frame_w 419 m
+TOWN # 10 river        houses  281 in_frame  231  a_all   10.3  b_frame   10.3  seen   10.3  share<=1st   0.0%  share<=2st  10.3%  bridges 0  nearest_house_to_crossing none  frame_w 392 m
+TOWN # 11 river        houses 1818 in_frame 1818  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   0.6%  bridges 0  nearest_house_to_crossing none  frame_w 1630 m
+TOWN # 12 riverthrough houses  176 in_frame  176  a_all    6.5  b_frame    6.5  seen    6.5  share<=1st   0.0%  share<=2st   5.7%  bridges 1  nearest_house_to_crossing 511 m  frame_w 376 m
+TOWN # 13 riverthrough houses   98 in_frame   98  a_all    8.1  b_frame    8.1  seen    8.1  share<=1st   0.0%  share<=2st  13.3%  bridges 1  nearest_house_to_crossing 610 m  frame_w 408 m
+TOWN # 14 river        houses   76 in_frame   76  a_all    5.3  b_frame    5.3  seen    5.3  share<=1st   1.3%  share<=2st   2.6%  bridges 1  nearest_house_to_crossing 33 m  frame_w 452 m
+TOWN # 15 river        houses  152 in_frame  152  a_all   71.1  b_frame   71.1  seen   71.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 537 m
+TOWN # 16 riverthrough houses  154 in_frame  154  a_all   16.4  b_frame   16.4  seen   16.4  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 304 m  frame_w 484 m
+TOWN # 17 riverthrough houses  172 in_frame  172  a_all   32.3  b_frame   32.3  seen   32.3  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 891 m  frame_w 480 m
+TOWN # 18 riverthrough houses   22 in_frame   22  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st  27.3%  bridges 1  nearest_house_to_crossing 71 m  frame_w 449 m
+TOWN # 19 river        houses  194 in_frame  194  a_all    4.1  b_frame    4.1  seen    4.1  share<=1st   2.6%  share<=2st   5.7%  bridges 0  nearest_house_to_crossing none  frame_w 392 m
+TOWN # 20 riverthrough houses  176 in_frame  176  a_all    1.8  b_frame    1.8  seen    1.8  share<=1st   4.5%  share<=2st  17.6%  bridges 1  nearest_house_to_crossing 599 m  frame_w 987 m
+TOWN # 21 riverthrough houses 2002 in_frame 2002  a_all    9.1  b_frame    9.1  seen    9.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 885 m  frame_w 1108 m
+TOWN # 22 riverthrough houses  116 in_frame  116  a_all   34.2  b_frame   34.2  seen   34.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 928 m  frame_w 304 m
+TOWN # 23 riverthrough houses 2521 in_frame 2521  a_all    4.7  b_frame    4.7  seen    4.7  share<=1st   0.2%  share<=2st   4.6%  bridges 1  nearest_house_to_crossing 339 m  frame_w 1381 m
+TOWN # 24 riverthrough houses   42 in_frame   42  a_all   41.2  b_frame   41.2  seen   41.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 374 m  frame_w 534 m
+TOWN # 25 river        houses  281 in_frame  281  a_all    6.0  b_frame    6.0  seen    6.0  share<=1st   0.0%  share<=2st   0.4%  bridges 0  nearest_house_to_crossing none  frame_w 551 m
+TOWN # 26 river        houses  155 in_frame  155  a_all   10.6  b_frame   10.6  seen   10.6  share<=1st   0.0%  share<=2st  27.7%  bridges 0  nearest_house_to_crossing none  frame_w 500 m
+TOWN # 27 river        houses   99 in_frame   99  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  10.1%  bridges 0  nearest_house_to_crossing none  frame_w 397 m
+TOWN # 28 riverthrough houses  157 in_frame  157  a_all    7.7  b_frame    7.7  seen    7.7  share<=1st   0.0%  share<=2st   5.7%  bridges 1  nearest_house_to_crossing 633 m  frame_w 446 m
+TOWN # 29 river        houses  181 in_frame  181  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  15.5%  bridges 0  nearest_house_to_crossing none  frame_w 306 m
+TOWN # 30 river        houses  157 in_frame  157  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   4.5%  bridges 1  nearest_house_to_crossing 255 m  frame_w 660 m
+TOWN # 31 river        houses   56 in_frame   56  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  16.1%  bridges 1  nearest_house_to_crossing 46 m  frame_w 296 m
+TOWN # 32 river        houses  318 in_frame  283  a_all    5.1  b_frame    5.1  seen    5.1  share<=1st   0.3%  share<=2st   0.9%  bridges 0  nearest_house_to_crossing none  frame_w 698 m
+TOWN # 33 river        houses  213 in_frame  213  a_all    5.6  b_frame    5.6  seen    5.6  share<=1st   0.0%  share<=2st  14.6%  bridges 0  nearest_house_to_crossing none  frame_w 562 m
+TOWN # 34 river        houses  151 in_frame  151  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st   6.0%  bridges 0  nearest_house_to_crossing none  frame_w 624 m
+TOWN # 35 river        houses   96 in_frame   96  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  14.6%  bridges 1  nearest_house_to_crossing 286 m  frame_w 395 m
+TOWN # 36 riverthrough houses  203 in_frame  203  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st   2.5%  bridges 1  nearest_house_to_crossing 71 m  frame_w 920 m
+TOWN # 37 river        houses   86 in_frame   86  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  11.6%  bridges 0  nearest_house_to_crossing none  frame_w 401 m
+TOWN # 38 river        houses  212 in_frame  212  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st   1.4%  bridges 0  nearest_house_to_crossing none  frame_w 411 m
+TOWN # 39 river        houses  121 in_frame  121  a_all    5.1  b_frame    5.1  seen    5.1  share<=1st   3.3%  share<=2st  18.2%  bridges 1  nearest_house_to_crossing 250 m  frame_w 358 m
+TOWN # 40 river        houses   61 in_frame   61  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st   6.6%  bridges 1  nearest_house_to_crossing 36 m  frame_w 263 m
+TOWN # 41 riverthrough houses  147 in_frame  147  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st   6.1%  bridges 1  nearest_house_to_crossing 52 m  frame_w 534 m
+TOWN # 42 river        houses  168 in_frame  168  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   8.3%  bridges 1  nearest_house_to_crossing 28 m  frame_w 520 m
+TOWN # 43 river        houses  129 in_frame  129  a_all    6.6  b_frame    6.6  seen    6.6  share<=1st   0.0%  share<=2st  18.6%  bridges 0  nearest_house_to_crossing none  frame_w 488 m
+TOWN # 44 river        houses  122 in_frame  122  a_all    5.1  b_frame    5.1  seen    5.1  share<=1st   2.5%  share<=2st   3.3%  bridges 0  nearest_house_to_crossing none  frame_w 306 m
+TOWN # 45 riverthrough houses   70 in_frame   70  a_all   72.4  b_frame   72.4  seen   72.4  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 721 m  frame_w 408 m
+TOWN # 46 riverthrough houses  212 in_frame  212  a_all    6.8  b_frame    6.8  seen    6.8  share<=1st   0.0%  share<=2st   3.8%  bridges 1  nearest_house_to_crossing 59 m  frame_w 433 m
+TOWN # 47 riverthrough houses   88 in_frame   88  a_all   15.1  b_frame   15.1  seen   15.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 895 m  frame_w 389 m
+TOWN # 48 river        houses  216 in_frame  216  a_all    6.8  b_frame    6.8  seen    6.8  share<=1st   0.0%  share<=2st   6.5%  bridges 0  nearest_house_to_crossing none  frame_w 514 m
+TOWN # 49 riverthrough houses  146 in_frame  146  a_all    6.3  b_frame    6.3  seen    6.3  share<=1st   0.0%  share<=2st   5.5%  bridges 1  nearest_house_to_crossing 928 m  frame_w 487 m
+TOWN # 50 river        houses   84 in_frame   84  a_all    5.9  b_frame    5.9  seen    5.9  share<=1st   0.0%  share<=2st   6.0%  bridges 1  nearest_house_to_crossing 22 m  frame_w 395 m
+TOWN # 51 river        houses  179 in_frame  179  a_all    4.7  b_frame    4.7  seen    4.7  share<=1st   2.2%  share<=2st   3.9%  bridges 1  nearest_house_to_crossing 54 m  frame_w 324 m
+TOWN # 52 riverthrough houses   89 in_frame   89  a_all   15.5  b_frame   15.5  seen   15.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 32 m  frame_w 413 m
+TOWN # 53 riverthrough houses  106 in_frame  106  a_all   16.8  b_frame   16.8  seen   16.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 38 m  frame_w 239 m
+TOWN # 54 riverthrough houses   52 in_frame   52  a_all   58.8  b_frame   58.8  seen   58.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 336 m  frame_w 327 m
+TOWN # 55 riverthrough houses   63 in_frame   63  a_all   42.7  b_frame   42.7  seen   42.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 449 m  frame_w 374 m
+TOWN # 56 river        houses  163 in_frame  163  a_all    5.8  b_frame    5.8  seen    5.8  share<=1st   0.0%  share<=2st  20.2%  bridges 0  nearest_house_to_crossing none  frame_w 452 m
+TOWN # 57 riverthrough houses  146 in_frame  146  a_all   27.0  b_frame   27.0  seen   27.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 960 m  frame_w 479 m
+TOWN # 58 river        houses   30 in_frame   30  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   6.7%  bridges 1  nearest_house_to_crossing 177 m  frame_w 256 m
+TOWN # 59 river        houses   99 in_frame   99  a_all   32.5  b_frame   32.5  seen   32.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 336 m
+TOWN # 60 river        houses  191 in_frame  191  a_all    9.5  b_frame    9.5  seen    9.5  share<=1st   0.0%  share<=2st  13.1%  bridges 0  nearest_house_to_crossing none  frame_w 473 m
+TOWN # 61 river        houses  148 in_frame  148  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   1.4%  bridges 1  nearest_house_to_crossing 27 m  frame_w 507 m
+TOWN # 62 river        houses  135 in_frame  135  a_all    9.4  b_frame    9.4  seen    9.4  share<=1st   0.0%  share<=2st   1.5%  bridges 0  nearest_house_to_crossing none  frame_w 479 m
+TOWN # 63 river        houses  259 in_frame  259  a_all    8.0  b_frame    8.0  seen    8.0  share<=1st   0.0%  share<=2st   1.2%  bridges 1  nearest_house_to_crossing 84 m  frame_w 689 m
+TOWN # 64 river        houses  176 in_frame  176  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   4.5%  bridges 1  nearest_house_to_crossing 202 m  frame_w 439 m
+TOWN # 65 river        houses  153 in_frame  153  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 453 m
+TOWN # 66 river        houses  172 in_frame  172  a_all    6.8  b_frame    6.8  seen    6.8  share<=1st   0.0%  share<=2st  18.0%  bridges 0  nearest_house_to_crossing none  frame_w 589 m
+TOWN # 68 river        houses   94 in_frame   94  a_all    5.7  b_frame    5.7  seen    5.7  share<=1st   0.0%  share<=2st  18.1%  bridges 0  nearest_house_to_crossing none  frame_w 290 m
+TOWN # 69 river        houses   76 in_frame   76  a_all    6.5  b_frame    6.5  seen    6.5  share<=1st   0.0%  share<=2st   7.9%  bridges 0  nearest_house_to_crossing none  frame_w 534 m
+TOWN # 70 river        houses   47 in_frame   47  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   6.4%  bridges 1  nearest_house_to_crossing 30 m  frame_w 360 m
+TOWN # 71 river        houses   51 in_frame   51  a_all    6.6  b_frame    6.6  seen    6.6  share<=1st   0.0%  share<=2st   5.9%  bridges 0  nearest_house_to_crossing none  frame_w 482 m
+TOWN # 72 river        houses   75 in_frame   75  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   1.3%  bridges 0  nearest_house_to_crossing none  frame_w 214 m
+TOWN # 73 river        houses  104 in_frame  104  a_all   31.8  b_frame   31.8  seen   31.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 67 m  frame_w 261 m
+TOWN # 74 river        houses   89 in_frame   89  a_all   14.5  b_frame   14.5  seen   14.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 41 m  frame_w 308 m
+TOWN # 75 riverthrough houses   46 in_frame   46  a_all   76.5  b_frame   76.5  seen   76.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 747 m  frame_w 345 m
+TOWN # 76 river        houses  115 in_frame  115  a_all   26.9  b_frame   26.9  seen   26.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 583 m
+TOWN # 77 river        houses  111 in_frame  111  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 348 m
+TOWN # 78 river        houses  163 in_frame  163  a_all   11.4  b_frame   11.4  seen   11.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 353 m
+TOWN # 79 riverthrough houses   67 in_frame   67  a_all   14.4  b_frame   14.4  seen   14.4  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 956 m  frame_w 215 m
+TOWN # 80 riverthrough houses  113 in_frame  113  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st   2.7%  bridges 1  nearest_house_to_crossing 122 m  frame_w 1020 m
+TOWN # 81 river        houses  195 in_frame  195  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   7.2%  bridges 0  nearest_house_to_crossing none  frame_w 370 m
+TOWN # 82 river        houses  204 in_frame  204  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st  16.7%  bridges 0  nearest_house_to_crossing none  frame_w 429 m
+TOWN # 83 river        houses   63 in_frame   63  a_all    8.2  b_frame    8.2  seen    8.2  share<=1st   0.0%  share<=2st   1.6%  bridges 1  nearest_house_to_crossing 38 m  frame_w 274 m
+TOWN # 84 river        houses   62 in_frame   62  a_all    9.5  b_frame    9.5  seen    9.5  share<=1st   0.0%  share<=2st   3.2%  bridges 1  nearest_house_to_crossing 97 m  frame_w 234 m
+TOWN # 85 riverthrough houses  196 in_frame  196  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  15.8%  bridges 1  nearest_house_to_crossing 25 m  frame_w 382 m
+TOWN # 86 river        houses  115 in_frame  115  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  10.4%  bridges 0  nearest_house_to_crossing none  frame_w 322 m
+TOWN # 87 river        houses  158 in_frame  158  a_all    6.3  b_frame    6.3  seen    6.3  share<=1st   0.0%  share<=2st  10.8%  bridges 0  nearest_house_to_crossing none  frame_w 418 m
+TOWN # 88 river        houses   74 in_frame   74  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st  12.2%  bridges 1  nearest_house_to_crossing 104 m  frame_w 207 m
+TOWN # 89 river        houses  259 in_frame  259  a_all   19.4  b_frame   19.4  seen   19.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 569 m
+TOWN # 90 river        houses  183 in_frame  183  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  12.0%  bridges 0  nearest_house_to_crossing none  frame_w 348 m
+TOWN # 92 river        houses  123 in_frame  123  a_all    6.6  b_frame    6.6  seen    6.6  share<=1st   0.0%  share<=2st  22.0%  bridges 0  nearest_house_to_crossing none  frame_w 543 m
+TOWN # 93 river        houses  149 in_frame  149  a_all    5.9  b_frame    5.9  seen    5.9  share<=1st   0.0%  share<=2st   4.7%  bridges 0  nearest_house_to_crossing none  frame_w 333 m
+TOWN # 94 river        houses  117 in_frame  117  a_all   12.1  b_frame   12.1  seen   12.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 259 m
+TOWN # 95 river        houses   19 in_frame   19  a_all   89.0  b_frame   89.0  seen   89.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 86 m
+TOWN # 96 river        houses  207 in_frame  207  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  11.6%  bridges 0  nearest_house_to_crossing none  frame_w 677 m
+TOWN # 97 river        houses   36 in_frame   36  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   2.8%  bridges 1  nearest_house_to_crossing 64 m  frame_w 286 m
+TOWN # 98 river        houses  177 in_frame  177  a_all   22.9  b_frame   22.9  seen   22.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 604 m
+TOWN # 99 river        houses  118 in_frame  118  a_all    5.4  b_frame    5.4  seen    5.4  share<=1st   1.7%  share<=2st   5.9%  bridges 1  nearest_house_to_crossing 80 m  frame_w 316 m
+TOWN #100 river        houses  118 in_frame  118  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   7.6%  bridges 1  nearest_house_to_crossing 37 m  frame_w 323 m
+TOWN #101 river        houses   86 in_frame   86  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 231 m
+TOWN #103 river        houses  171 in_frame  171  a_all    9.9  b_frame    9.9  seen    9.9  share<=1st   0.0%  share<=2st   2.3%  bridges 1  nearest_house_to_crossing 127 m  frame_w 348 m
+TOWN #104 river        houses  144 in_frame  144  a_all    6.5  b_frame    6.5  seen    6.5  share<=1st   0.0%  share<=2st  14.6%  bridges 0  nearest_house_to_crossing none  frame_w 494 m
+TOWN #105 river        houses  256 in_frame  256  a_all    4.7  b_frame    4.7  seen    4.7  share<=1st   2.3%  share<=2st  12.5%  bridges 1  nearest_house_to_crossing 101 m  frame_w 550 m
+TOWN #106 river        houses   64 in_frame   64  a_all    5.5  b_frame    5.5  seen    5.5  share<=1st   0.0%  share<=2st  34.4%  bridges 0  nearest_house_to_crossing none  frame_w 292 m
+TOWN #107 river        houses   34 in_frame   34  a_all   27.9  b_frame   27.9  seen   27.9  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 59 m  frame_w 248 m
+TOWN #108 river        houses  158 in_frame  158  a_all   11.2  b_frame   11.2  seen   11.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 543 m
+TOWN #109 river        houses  117 in_frame  117  a_all    7.0  b_frame    7.0  seen    7.0  share<=1st   0.0%  share<=2st   2.6%  bridges 1  nearest_house_to_crossing 44 m  frame_w 437 m
+TOWN #110 river        houses  102 in_frame  102  a_all   28.1  b_frame   28.1  seen   28.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 361 m
+TOWN #111 river        houses  194 in_frame  194  a_all    6.6  b_frame    6.6  seen    6.6  share<=1st   0.0%  share<=2st   8.2%  bridges 0  nearest_house_to_crossing none  frame_w 420 m
+TOWN #112 riverthrough houses  178 in_frame  178  a_all    1.7  b_frame    1.7  seen    1.7  share<=1st   0.6%  share<=2st   1.1%  bridges 1  nearest_house_to_crossing 22 m  frame_w 567 m
+TOWN #113 river        houses  112 in_frame  112  a_all   20.6  b_frame   20.6  seen   20.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 317 m
+TOWN #114 river        houses  116 in_frame  116  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 267 m
+TOWN #115 river        houses  106 in_frame  106  a_all    7.8  b_frame    7.8  seen    7.8  share<=1st   0.0%  share<=2st   1.9%  bridges 1  nearest_house_to_crossing 91 m  frame_w 218 m
+TOWN #116 river        houses   50 in_frame   50  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   4.0%  bridges 0  nearest_house_to_crossing none  frame_w 218 m
+TOWN #117 river        houses  129 in_frame  129  a_all   14.5  b_frame   14.5  seen   14.5  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 510 m
+TOWN #119 river        houses  184 in_frame  184  a_all   11.4  b_frame   11.4  seen   11.4  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 178 m  frame_w 332 m
+TOWN #120 river        houses  123 in_frame  123  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st   3.3%  bridges 1  nearest_house_to_crossing 440 m  frame_w 470 m
+TOWN #121 river        houses   96 in_frame   96  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   6.3%  bridges 0  nearest_house_to_crossing none  frame_w 384 m
+TOWN #122 river        houses   98 in_frame   98  a_all    5.3  b_frame    5.3  seen    5.3  share<=1st   2.0%  share<=2st   6.1%  bridges 1  nearest_house_to_crossing 51 m  frame_w 285 m
+TOWN #123 river        houses  115 in_frame  115  a_all   22.2  b_frame   22.2  seen   22.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 384 m
+TOWN #124 riverthrough houses   87 in_frame   87  a_all   12.1  b_frame   12.1  seen   12.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 930 m  frame_w 278 m
+TOWN #125 river        houses  153 in_frame  153  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   6.5%  bridges 0  nearest_house_to_crossing none  frame_w 288 m
+TOWN #126 river        houses    5 in_frame    5  a_all    7.8  b_frame    7.8  seen    7.8  share<=1st   0.0%  share<=2st  20.0%  bridges 1  nearest_house_to_crossing 27 m  frame_w 85 m
+TOWN #127 river        houses  134 in_frame  134  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   3.7%  bridges 0  nearest_house_to_crossing none  frame_w 354 m
+TOWN #128 river        houses  151 in_frame  151  a_all    5.0  b_frame    5.0  seen    5.0  share<=1st   2.6%  share<=2st   5.3%  bridges 0  nearest_house_to_crossing none  frame_w 502 m
+TOWN #129 river        houses  135 in_frame  135  a_all    4.4  b_frame    4.4  seen    4.4  share<=1st   0.7%  share<=2st   2.2%  bridges 0  nearest_house_to_crossing none  frame_w 388 m
+TOWN #130 river        houses  242 in_frame  242  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   5.8%  bridges 0  nearest_house_to_crossing none  frame_w 525 m
+TOWN #131 river        houses  217 in_frame  217  a_all    3.7  b_frame    3.7  seen    3.7  share<=1st   8.3%  share<=2st  12.4%  bridges 1  nearest_house_to_crossing 23 m  frame_w 506 m
+TOWN #132 riverthrough houses  100 in_frame  100  a_all   22.1  b_frame   22.1  seen   22.1  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 90 m  frame_w 350 m
+TOWN #133 river        houses   59 in_frame   59  a_all   11.1  b_frame   11.1  seen   11.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 252 m
+TOWN #134 river        houses  125 in_frame  125  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 359 m
+TOWN #136 river        houses   95 in_frame   95  a_all   15.8  b_frame   15.8  seen   15.8  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 288 m
+TOWN #137 river        houses   66 in_frame   66  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   3.0%  bridges 0  nearest_house_to_crossing none  frame_w 296 m
+TOWN #139 riverthrough houses  142 in_frame  142  a_all   17.7  b_frame   17.7  seen   17.7  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 87 m  frame_w 492 m
+TOWN #140 river        houses  145 in_frame  145  a_all   15.4  b_frame   15.4  seen   15.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 404 m
+TOWN #141 river        houses  111 in_frame  111  a_all    8.5  b_frame    8.5  seen    8.5  share<=1st   0.0%  share<=2st   1.8%  bridges 0  nearest_house_to_crossing none  frame_w 339 m
+TOWN #142 river        houses  255 in_frame  255  a_all    7.5  b_frame    7.5  seen    7.5  share<=1st   0.0%  share<=2st   1.6%  bridges 0  nearest_house_to_crossing none  frame_w 614 m
+TOWN #143 river        houses  194 in_frame  194  a_all   18.0  b_frame   18.0  seen   18.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 507 m
+TOWN #144 river        houses  207 in_frame  207  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st  14.5%  bridges 1  nearest_house_to_crossing 32 m  frame_w 346 m
+TOWN #145 river        houses  103 in_frame  103  a_all    7.7  b_frame    7.7  seen    7.7  share<=1st   0.0%  share<=2st   7.8%  bridges 1  nearest_house_to_crossing 96 m  frame_w 315 m
+TOWN #147 river        houses  122 in_frame  122  a_all    7.8  b_frame    7.8  seen    7.8  share<=1st   0.0%  share<=2st   2.5%  bridges 0  nearest_house_to_crossing none  frame_w 536 m
+TOWN #148 river        houses  113 in_frame  113  a_all    8.5  b_frame    8.5  seen    8.5  share<=1st   0.0%  share<=2st   8.8%  bridges 0  nearest_house_to_crossing none  frame_w 383 m
+TOWN #149 river        houses  219 in_frame  219  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   8.2%  bridges 1  nearest_house_to_crossing 92 m  frame_w 440 m
+TOWN #150 riverthrough houses   58 in_frame   58  a_all   17.6  b_frame   17.6  seen   17.6  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 660 m  frame_w 379 m
+TOWN #151 river        houses  205 in_frame  205  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st  12.7%  bridges 0  nearest_house_to_crossing none  frame_w 616 m
+TOWN #152 river        houses  103 in_frame  103  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st  17.5%  bridges 0  nearest_house_to_crossing none  frame_w 266 m
+TOWN #154 river        houses   38 in_frame   38  a_all    8.2  b_frame    8.2  seen    8.2  share<=1st   0.0%  share<=2st   2.6%  bridges 0  nearest_house_to_crossing none  frame_w 131 m
+TOWN #155 river        houses   96 in_frame   96  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  11.5%  bridges 0  nearest_house_to_crossing none  frame_w 440 m
+TOWN #157 river        houses  198 in_frame  198  a_all    6.8  b_frame    6.8  seen    6.8  share<=1st   0.0%  share<=2st   2.0%  bridges 0  nearest_house_to_crossing none  frame_w 460 m
+TOWN #158 river        houses  204 in_frame  204  a_all   27.9  b_frame   27.9  seen   27.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 408 m
+TOWN #159 river        houses  208 in_frame  208  a_all   17.6  b_frame   17.6  seen   17.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 405 m
+TOWN #161 river        houses  114 in_frame  114  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st  13.2%  bridges 0  nearest_house_to_crossing none  frame_w 374 m
+TOWN #162 river        houses   72 in_frame   72  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 264 m
+TOWN #164 river        houses  241 in_frame  241  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   4.6%  bridges 0  nearest_house_to_crossing none  frame_w 446 m
+TOWN #165 river        houses  127 in_frame  127  a_all   10.5  b_frame   10.5  seen   10.5  share<=1st   0.0%  share<=2st   0.8%  bridges 1  nearest_house_to_crossing 64 m  frame_w 350 m
+TOWN #167 river        houses   73 in_frame   73  a_all   21.6  b_frame   21.6  seen   21.6  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 305 m
+TOWN #168 river        houses   65 in_frame   65  a_all   48.7  b_frame   48.7  seen   48.7  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 362 m
+TOWN #169 river        houses  161 in_frame  161  a_all    9.8  b_frame    9.8  seen    9.8  share<=1st   0.0%  share<=2st   3.1%  bridges 0  nearest_house_to_crossing none  frame_w 359 m
+TOWN #170 river        houses   14 in_frame   14  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  14.3%  bridges 0  nearest_house_to_crossing none  frame_w 194 m
+TOWN #171 river        houses  132 in_frame  132  a_all   45.3  b_frame   45.3  seen   45.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 515 m
+TOWN #172 river        houses   68 in_frame   68  a_all    5.8  b_frame    5.8  seen    5.8  share<=1st   0.0%  share<=2st   7.4%  bridges 0  nearest_house_to_crossing none  frame_w 352 m
+TOWN #173 river        houses  153 in_frame  153  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   2.6%  bridges 0  nearest_house_to_crossing none  frame_w 474 m
+TOWN #174 river        houses  134 in_frame  134  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 384 m
+TOWN #175 riverthrough houses  222 in_frame  222  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   0.9%  bridges 1  nearest_house_to_crossing 324 m  frame_w 347 m
+TOWN #176 river        houses  206 in_frame  206  a_all   22.9  b_frame   22.9  seen   22.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 627 m
+TOWN #177 river        houses  168 in_frame  168  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   1.8%  bridges 0  nearest_house_to_crossing none  frame_w 541 m
+TOWN #178 river        houses  198 in_frame  198  a_all    6.6  b_frame    6.6  seen    6.6  share<=1st   0.0%  share<=2st   5.1%  bridges 0  nearest_house_to_crossing none  frame_w 471 m
+TOWN #179 river        houses  125 in_frame  125  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st   4.0%  bridges 0  nearest_house_to_crossing none  frame_w 329 m
+TOWN #180 river        houses  158 in_frame  158  a_all   64.9  b_frame   64.9  seen   64.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 370 m
+TOWN #181 river        houses  131 in_frame  131  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st  15.3%  bridges 0  nearest_house_to_crossing none  frame_w 326 m
+TOWN #183 river        houses  144 in_frame  144  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st  25.0%  bridges 0  nearest_house_to_crossing none  frame_w 326 m
+TOWN #184 river        houses   10 in_frame   10  a_all   51.2  b_frame   51.2  seen   51.2  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 153 m  frame_w 129 m
+TOWN #185 river        houses  151 in_frame  151  a_all    6.6  b_frame    6.6  seen    6.6  share<=1st   0.0%  share<=2st   5.3%  bridges 1  nearest_house_to_crossing 185 m  frame_w 436 m
+TOWN #186 river        houses   88 in_frame   88  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 513 m
+TOWN #189 river        houses  171 in_frame  171  a_all   19.1  b_frame   19.1  seen   19.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 342 m
+TOWN #190 river        houses  124 in_frame  124  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 260 m
+TOWN #191 river        houses  112 in_frame  112  a_all   11.5  b_frame   11.5  seen   11.5  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 43 m  frame_w 279 m
+TOWN #192 riverthrough houses  206 in_frame  206  a_all    5.5  b_frame    5.5  seen    5.5  share<=1st   0.0%  share<=2st   6.3%  bridges 1  nearest_house_to_crossing 140 m  frame_w 521 m
+TOWN #194 river        houses   16 in_frame   16  a_all   34.0  b_frame   34.0  seen   34.0  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 50 m  frame_w 130 m
+TOWN #197 river        houses  148 in_frame  148  a_all    5.8  b_frame    5.8  seen    5.8  share<=1st   0.0%  share<=2st  20.3%  bridges 1  nearest_house_to_crossing 42 m  frame_w 429 m
+TOWN #198 river        houses   37 in_frame   37  a_all   59.2  b_frame   59.2  seen   59.2  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 273 m
+TOWN #199 river        houses   86 in_frame   86  a_all   20.9  b_frame   20.9  seen   20.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 313 m
+TOWN #200 river        houses  148 in_frame  148  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   3.4%  bridges 1  nearest_house_to_crossing 166 m  frame_w 387 m
+TOWN #201 river        houses  151 in_frame  151  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 420 m
+TOWN #202 river        houses   62 in_frame   62  a_all   44.8  b_frame   44.8  seen   44.8  share<=1st   0.0%  share<=2st   0.0%  bridges 1  nearest_house_to_crossing 352 m  frame_w 368 m
+TOWN #203 river        houses  210 in_frame  210  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   1.9%  bridges 0  nearest_house_to_crossing none  frame_w 455 m
+TOWN #204 river        houses  115 in_frame  115  a_all   22.9  b_frame   22.9  seen   22.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 383 m
+TOWN #206 river        houses  123 in_frame  123  a_all   14.1  b_frame   14.1  seen   14.1  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 391 m
+TOWN #207 river        houses  132 in_frame  132  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   2.3%  bridges 0  nearest_house_to_crossing none  frame_w 263 m
+TOWN #208 river        houses  184 in_frame  184  a_all    5.1  b_frame    5.1  seen    5.1  share<=1st   4.9%  share<=2st  16.8%  bridges 0  nearest_house_to_crossing none  frame_w 396 m
+TOWN #209 river        houses  199 in_frame  199  a_all    3.7  b_frame    3.7  seen    3.7  share<=1st   4.5%  share<=2st   9.5%  bridges 0  nearest_house_to_crossing none  frame_w 418 m
+TOWN #210 river        houses   95 in_frame   95  a_all    7.9  b_frame    7.9  seen    7.9  share<=1st   0.0%  share<=2st  13.7%  bridges 0  nearest_house_to_crossing none  frame_w 385 m
+TOWN #211 river        houses  106 in_frame  106  a_all   22.3  b_frame   22.3  seen   22.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 286 m
+TOWN #212 river        houses  145 in_frame  145  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   5.5%  bridges 1  nearest_house_to_crossing 54 m  frame_w 526 m
+TOWN #213 river        houses  100 in_frame  100  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   8.0%  bridges 1  nearest_house_to_crossing 67 m  frame_w 423 m
+TOWN #214 river        houses   94 in_frame   94  a_all    3.9  b_frame    3.9  seen    3.9  share<=1st   4.3%  share<=2st  22.3%  bridges 0  nearest_house_to_crossing none  frame_w 349 m
+TOWN #215 river        houses  168 in_frame  168  a_all   22.9  b_frame   22.9  seen   22.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 477 m
+TOWN #216 river        houses  287 in_frame  287  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  18.8%  bridges 1  nearest_house_to_crossing 82 m  frame_w 707 m
+TOWN #217 river        houses  148 in_frame  148  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st  12.8%  bridges 0  nearest_house_to_crossing none  frame_w 403 m
+TOWN #218 river        houses   39 in_frame   39  a_all    5.5  b_frame    5.5  seen    5.5  share<=1st   0.0%  share<=2st  17.9%  bridges 0  nearest_house_to_crossing none  frame_w 414 m
+TOWN #221 river        houses  272 in_frame  272  a_all    8.7  b_frame    8.7  seen    8.7  share<=1st   0.0%  share<=2st   4.8%  bridges 0  nearest_house_to_crossing none  frame_w 413 m
+TOWN #222 river        houses  143 in_frame  143  a_all    6.4  b_frame    6.4  seen    6.4  share<=1st   0.0%  share<=2st   2.8%  bridges 0  nearest_house_to_crossing none  frame_w 410 m
+TOWN #223 river        houses  121 in_frame  121  a_all   14.9  b_frame   14.9  seen   14.9  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 288 m
+TOWN #225 riverthrough houses  166 in_frame  166  a_all    8.9  b_frame    8.9  seen    8.9  share<=1st   0.0%  share<=2st   2.4%  bridges 1  nearest_house_to_crossing 123 m  frame_w 1300 m
+TOWN #227 river        houses   95 in_frame   95  a_all   46.3  b_frame   46.3  seen   46.3  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 234 m
+TOWN #228 river        houses  167 in_frame  167  a_all   11.4  b_frame   11.4  seen   11.4  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 314 m
+TOWN #229 river        houses  200 in_frame  200  a_all    8.2  b_frame    8.2  seen    8.2  share<=1st   0.0%  share<=2st   4.5%  bridges 1  nearest_house_to_crossing 244 m  frame_w 370 m
+TOWN #231 river        houses  126 in_frame  126  a_all   19.0  b_frame   19.0  seen   19.0  share<=1st   0.0%  share<=2st   0.0%  bridges 0  nearest_house_to_crossing none  frame_w 593 m
+TOWN #232 riverthrough houses  120 in_frame  120  a_all   10.5  b_frame   10.5  seen   10.5  share<=1st   0.0%  share<=2st   0.8%  bridges 1  nearest_house_to_crossing 681 m  frame_w 522 m
+MEASURE seed 483920 grid 384x288 urban_riverbank 1: 209 river-kind towns with a centreline and houses
+DIST (a) whole-layout nearest house (m) n=209 median     7.9  p10     5.5  p90    27.9  max    89.0
+DIST (b) nearest house in opening frame n=209 median     7.9  p10     5.5  p90    27.9  max    89.0
+DIST seen: nearest to drawn water, whole n=209 median     7.9  p10     5.5  p90    27.9  max    89.0
+DIST seen: nearest to drawn water, frame n=209 median     7.9  p10     5.5  p90    27.9  max    89.0
+DIST (c) % houses <= 1 street width     n=209 median     0.0  p10     0.0  p90     0.0  max     8.3
+DIST (c) % houses <= 2 street widths    n=209 median     2.7  p10     0.0  p90    15.8  max    42.9
+DIST % of houses inside the frame       n=209 median   100.0  p10   100.0  p90   100.0  max   100.0
+(d) towns with a bridge or ford: 88 of 209; nearest house within 40 m of one: 15
+DIST (d) nearest house to crossing (m)  n= 88 median   100.8  p10    32.4  p90   747.3  max   960.1
+towns whose frame's nearest house is more than 2 street widths from the bank: 71 of 209
+WORST(b) #95  b_frame 89.0  a_all 89.0  houses 19
+WORST(b) #75  b_frame 76.5  a_all 76.5  houses 46
+WORST(b) #45  b_frame 72.4  a_all 72.4  houses 70
+WORST(b) #15  b_frame 71.1  a_all 71.1  houses 152
+WORST(b) #180  b_frame 64.9  a_all 64.9  houses 158

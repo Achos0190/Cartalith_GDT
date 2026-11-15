@@ -81,6 +81,8 @@ looked at. Mutation: 28 mutants of the new constants and branches, 27 killed; th
 reaches it in about 1 700 generated fixture towns; the audit measured one house in a lake cell at 384 before the sweep, 0 after). Open and
 routed in `OUTSTANDING_WORK.md` (the City Viewer square-block row): the layouts whose river runs away from the town, houses fronting
 rather than backing onto the water, the population rise, the river port's distance, the sea and lake squares.
+**Frame check of the above (2026-11-15, measured, `_framegap_probe.tscn`, seed 483920 at 384 x 288, evidence `riverbank-2026-11-15/framegap.txt`):** the 7 m figure reproduces (nearest house to bank, median 35 m off to 7.9 m on, 209 towns; p10 5.5, p90 27.9) and the City Viewer's opening frame is the whole layout (100% of houses inside), so the frame does not hide it. It is a minimum carried by one house: median 0% of a town's houses within 1 street width, 2.7% within 2. 71 of 209 towns still have every house over 2 street widths from the bank (20 over 30 m; `#6` 48.5 m). The setback is not solved as seen; routed in the OUTSTANDING_WORK.md City Viewer square-block row.
+
 
 ### G1-0 and EA-0 re-recorded (2026-11-15): red since the lake runoff share and Ruling EX, both deliberate; bisected and attributed
 
